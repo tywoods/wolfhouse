@@ -208,6 +208,19 @@ CLI PG mirror (no n8n): `db:assign:booking-beds --execute` (3b.2b). SQL shared v
 
 Undo: `db:cancel:booking-beds --execute` or `db:sync`.
 
+## Phase 3b.3a — Reassign impact report (read-only)
+
+**Runbook:** [`PHASE-3b-3a.md`](PHASE-3b-3a.md). **3b.3b Reassign n8n fork** not started.
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b3a-1 | `npm run db:report:reassign-impact -- --booking-code=WH-rec… --beds=R7-B1,…` (booking with existing PG beds) | |
+| 3b3a-2 | JSON: `no_mutations`, `would_delete` + `would_insert`, `payments_untouched`, planning before/after | |
+| 3b3a-3 | Unknown bed → exit 2 `unknown_bed_codes` | |
+| 3b3a-4 | Overlap fixture → exit 2 `postgres_overlap_conflicts` | |
+| 3b3a-5 | Guest-count mismatch → exit 2 `guest_count_mismatch` | |
+| 3b3a-6 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | |
+
 ## Phase 3b.2a — Assign impact report (read-only)
 
 **Runbook:** [`PHASE-3b-2a.md`](PHASE-3b-2a.md). **3b.2b+ / Reassign** not started.

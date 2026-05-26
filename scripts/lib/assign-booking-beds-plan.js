@@ -16,7 +16,8 @@ function roomCodeFromBedCode(bedCode) {
   return m ? m[1].toUpperCase() : null;
 }
 
-async function loadAssignPlan(client, flags) {
+async function loadAssignPlan(client, flags, options = {}) {
+  const ignoreExistingBookingBeds = options.ignoreExistingBookingBeds === true;
   const { rows: clientRows } = await client.query(`SELECT id FROM clients WHERE slug = $1`, [
     flags.clientSlug,
   ]);
@@ -35,7 +36,11 @@ async function loadAssignPlan(client, flags) {
        check_in::text AS check_in,
        check_out::text AS check_out,
        guest_count,
-       booking_source::text AS booking_source
+       booking_source::text AS booking_source,
+       package_code,
+       requested_room_type,
+       room_preference,
+       guest_gender_group_type::text AS guest_gender_group_type
      FROM bookings
      WHERE client_id = $1`;
   const bookingParams = [clientId];
@@ -67,7 +72,7 @@ async function loadAssignPlan(client, flags) {
     return { error: 'invalid_date_range', check_in: checkIn, check_out: checkOut };
   }
 
-  const { rows: existingBedRows } = await client.query(
+  const { rows: existingBedRowsRaw } = await client.query(
     `SELECT
        bb.id AS booking_bed_id,
        bb.bed_code,
@@ -80,6 +85,7 @@ async function loadAssignPlan(client, flags) {
      ORDER BY bb.bed_code`,
     [clientId, bookingId]
   );
+  const existingBedRows = ignoreExistingBookingBeds ? [] : existingBedRowsRaw;
 
   const existingKeys = new Set(
     existingBedRows.map((row) => {
@@ -173,7 +179,9 @@ async function loadAssignPlan(client, flags) {
   }
 
   const guestCount = Number(booking.guest_count) > 0 ? Number(booking.guest_count) : null;
-  const totalAfterAssign = existingBedRows.length + wouldInsert.length;
+  const totalAfterAssign = ignoreExistingBookingBeds
+    ? wouldInsert.length
+    : existingBedRows.length + wouldInsert.length;
   const guestCountMatches = guestCount == null ? null : totalAfterAssign === guestCount;
 
   const hasOverlaps = overlapConflicts.length > 0;
@@ -190,6 +198,20 @@ async function loadAssignPlan(client, flags) {
     bookingCode,
     checkIn,
     checkOut,
+    existingBedRowsBeforeDelete: existingBedRowsRaw.map((row) => ({
+      booking_bed_id: row.booking_bed_id,
+      airtable_record_id: row.airtable_record_id,
+      bed_code: String(row.bed_code || '').toUpperCase(),
+      room_code: row.room_code,
+      assignment_start_date: toIsoDateString(row.assignment_start_date),
+      assignment_end_date: toIsoDateString(row.assignment_end_date),
+      natural_key: assignmentNaturalKey(
+        bookingCode,
+        String(row.bed_code || '').toUpperCase(),
+        toIsoDateString(row.assignment_start_date),
+        toIsoDateString(row.assignment_end_date)
+      ),
+    })),
     existingBedRows: existingBedRows.map((row) => ({
       booking_bed_id: row.booking_bed_id,
       bed_code: String(row.bed_code || '').toUpperCase(),

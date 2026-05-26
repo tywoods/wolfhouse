@@ -10,6 +10,7 @@
     "db:report:bed-drift": "node scripts/report-booking-bed-drift.js",
     "db:report:cancel-impact": "node scripts/report-cancel-impact.js",
     "db:report:assign-impact": "node scripts/report-assign-impact.js",
+    "db:report:reassign-impact": "node scripts/report-reassign-impact.js",
     "db:assign:booking-beds": "node scripts/assign-booking-beds-postgres.js",
     "db:cancel:booking-beds": "node scripts/cancel-booking-beds-postgres.js",
     "build:cancel-beds:local": "node scripts/build-cancel-beds-local.js",
