@@ -1,0 +1,6 @@
+node_modules/
+infra/.env
+.env
+.env.local
+*.log
+docs/api keys.txt

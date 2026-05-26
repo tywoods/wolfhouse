@@ -1,0 +1,11 @@
+﻿Room ID,Room Name,House,Room Type,Capacity,Fill Priority,Private Priority,Gender Strategy,Can be Matrimonial,Often used By Operator,Active,Notes,Beds,Bookings,Operator Room Release Request,Room Sort / Round Robin Order,Avoid Until Needed
+R1,,,,5,2,5,Flexible,,,checked,,"R1-B1,R1-B2,R1-B3,R1-B4,R1-B5",,,,
+R2,,,,5,3,5,Male preferred,,,checked,,"R2-B1,R2-B2,R2-B3,R2-B4,R2-B5",,,,
+R3,,,,4,1,2,Flexible,checked,,checked,,"R3-B1,R3-B2,R3-B3,R3-B4",,,,
+R4,,,,9,9,9,Mixed ok,,,checked,,"R4-B1,R4-B2,R4-B3,R4-B4,R4-B5,R4-B6,R4-B7,R4-B8,R4-B9",,,,
+R5,,,,6,4,6,Female preferred,,,checked,,"R5-B1,R5-B2,R5-B3,R5-B4,R5-B5,R5-B6",,,,
+R6,,,Private-Only,2,99,1,Private,checked,,checked,,"R6-B1,R6-B2",,,,
+R7,,,,4,5,3,Flexible,,checked,checked,,"R7-B1,R7-B2,R7-B3,R7-B4",,,,
+R8,,,,5,6,5,Female preferred,,,checked,,"R8-B1,R8-B2,R8-B3,R8-B4,R8-B5",,,,
+R9,,,,6,7,6,Flexible,,checked,checked,,"R9-B1,R9-B2,R9-B3,R9-B4,R9-B5,R9-B6",,,,
+R10,,,,6,8,6,Flexible,,checked,checked,,"R10-B1,R10-B2,R10-B3,R10-B4,R10-B5,R10-B6",,,,

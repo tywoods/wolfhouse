@@ -1,0 +1,537 @@
+{
+  "name": "Wolfhouse - Send Confirmation (local)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 3
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2200,
+        80
+      ],
+      "id": "2d010001-0001-4000-8000-000000000001",
+      "name": "Schedule - Poll Postgres"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "send-confirmation-local",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2200,
+        280
+      ],
+      "id": "2d010002-0002-4000-8000-000000000002",
+      "name": "Webhook - Send Confirmation Local",
+      "webhookId": "2d010002-0002-4000-8000-000000000002"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst raw = body.booking_id || body.booking_uuid || body.id || null;\nreturn [{ json: { filter_booking_id: raw ? String(raw).trim() : '__NULL__' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1980,
+        280
+      ],
+      "id": "2d010003-0003-4000-8000-000000000003",
+      "name": "Code - Parse Webhook Filter"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  b.id AS booking_id,\n  b.booking_code,\n  b.guest_name,\n  b.phone,\n  b.email,\n  b.check_in,\n  b.check_out,\n  b.guest_count,\n  b.package_code,\n  b.payment_status,\n  b.status,\n  b.send_confirmation\nFROM bookings b\nJOIN clients c ON c.id = b.client_id\nWHERE c.slug = 'wolfhouse-somo'\n  AND b.send_confirmation = TRUE\n  AND b.status = 'payment_pending'::booking_status\n  AND b.payment_status IN ('deposit_paid'::payment_status, 'paid'::payment_status)\n  AND b.confirmation_sent_at IS NULL\n  AND b.phone IS NOT NULL\n  AND trim(b.phone) <> ''\n  AND (NULLIF($1, '__NULL__') IS NULL OR b.id::text = NULLIF($1, '__NULL__'))\nORDER BY b.updated_at ASC\nLIMIT 10;",
+        "options": {
+          "queryReplacement": "={{ '__NULL__' }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1760,
+        80
+      ],
+      "id": "2d010004-0004-4000-8000-000000000004",
+      "name": "Postgres - List Pending Confirmations",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  b.id AS booking_id,\n  b.booking_code,\n  b.guest_name,\n  b.phone,\n  b.email,\n  b.check_in,\n  b.check_out,\n  b.guest_count,\n  b.package_code,\n  b.payment_status,\n  b.status,\n  b.send_confirmation\nFROM bookings b\nJOIN clients c ON c.id = b.client_id\nWHERE c.slug = 'wolfhouse-somo'\n  AND b.send_confirmation = TRUE\n  AND b.status = 'payment_pending'::booking_status\n  AND b.payment_status IN ('deposit_paid'::payment_status, 'paid'::payment_status)\n  AND b.confirmation_sent_at IS NULL\n  AND b.phone IS NOT NULL\n  AND trim(b.phone) <> ''\n  AND (NULLIF($1, '__NULL__') IS NULL OR b.id::text = NULLIF($1, '__NULL__'))\nORDER BY b.updated_at ASC\nLIMIT 10;",
+        "options": {
+          "queryReplacement": "={{ $('Code - Parse Webhook Filter').first().json.filter_booking_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1760,
+        280
+      ],
+      "id": "2d010005-0005-4000-8000-000000000005",
+      "name": "Postgres - List Pending (Webhook Filter)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-booking",
+              "leftValue": "={{ !!$json.booking_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1540,
+        180
+      ],
+      "id": "2d010006-0006-4000-8000-000000000006",
+      "name": "IF - Pending Booking Found"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $json;\nreturn [{\n  json: {\n    booking_id: b.booking_id,\n    booking_code: b.booking_code,\n    phone: b.phone,\n    language: 'en',\n    fields: {\n      'Booking ID': b.booking_code,\n      'Guest Name': b.guest_name,\n      'Phone': b.phone,\n      'Email': b.email,\n      'Check In': b.check_in,\n      'Check Out': b.check_out,\n      'Guest Count': b.guest_count,\n      'Package': b.package_code,\n      'Status': 'Payment_Pending',\n      'Payment Status': b.payment_status,\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1320,
+        160
+      ],
+      "id": "2d010007-0007-4000-8000-000000000007",
+      "name": "Code - Format Booking For LLM"
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appOCWIN47Bui9CSS",
+          "mode": "list",
+          "cachedResultName": "Wolfhouse",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbllLFnkeriks575v",
+          "mode": "list",
+          "cachedResultName": "Conversations",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tbllLFnkeriks575v"
+        },
+        "filterByFormula": "={{ '{Phone}=\"' + ($('Code - Format Booking For LLM').first().json.fields?.Phone || $('Code - Format Booking For LLM').first().json.phone || '') + '\"' }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        -1120,
+        160
+      ],
+      "id": "2d010008-0008-4000-8000-000000000008",
+      "name": "Search Conversation - Confirmation",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appOCWIN47Bui9CSS",
+          "mode": "list",
+          "cachedResultName": "Wolfhouse",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblO1ByvTMXS4SalB",
+          "mode": "list",
+          "cachedResultName": "Booking Beds",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblO1ByvTMXS4SalB"
+        },
+        "filterByFormula": "={{ `{Booking ID}=\"${$('Code - Format Booking For LLM').first().json.fields?.['Booking ID'] || $('Code - Format Booking For LLM').first().json.booking_code}\"` }}",
+        "options": {
+          "fields": [
+            "Bed",
+            "Room ID",
+            "Assignment Start Date",
+            "Assignment End Date",
+            "Status (from Booking)"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        -920,
+        160
+      ],
+      "id": "2d010009-0009-4000-8000-000000000009",
+      "name": "Search Booking Beds - Confirmation",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const bookingBeds = $('Search Booking Beds - Confirmation').all();\n\nfunction getFirst(value) {\n  if (Array.isArray(value)) return value[0];\n  return value;\n}\n\nconst roomIds = [];\n\nfor (const item of bookingBeds) {\n  const fields = item.json.fields || item.json;\n\n  const status = String(fields['Status'] || '').toLowerCase();\n  if (status === 'cancelled' || status === 'canceled') continue;\n\n  const roomId = getFirst(fields['Room ID']);\n  if (roomId && !roomIds.includes(roomId)) {\n    roomIds.push(roomId);\n  }\n}\n\nroomIds.sort((a, b) => {\n  const na = Number(String(a).replace(/\\D/g, '')) || 999;\n  const nb = Number(String(b).replace(/\\D/g, '')) || 999;\n  return na - nb;\n});\n\nlet assignedRoomSummary = '';\n\nif (roomIds.length === 1) {\n  assignedRoomSummary = `Room ${String(roomIds[0]).replace('R', '')}`;\n} else if (roomIds.length > 1) {\n  assignedRoomSummary =\n    'Rooms ' + roomIds.map(id => String(id).replace('R', '')).join(', ');\n}\n\nreturn [\n  {\n    json: {\n      assigned_room_summary: assignedRoomSummary,\n      assigned_room_ids: roomIds,\n      is_multi_room: roomIds.length > 1,\n      assigned_room_count: roomIds.length\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        160
+      ],
+      "id": "2d010010-0010-4000-8000-000000000010",
+      "name": "Code - Summarize Assigned Rooms"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Wolfhouse surf hostel assistant.\n\nThe guest's payment has been verified and their booking is now confirmed.\n\nAlways welcome them to the WolfHouse Family. \nNever call it a hostel\n\nBooking details:\n{{ JSON.stringify($('Code - Format Booking For LLM').first().json.fields || {}) }}\n\nGuest language:\n{{ $('Search Conversation - Confirmation').first().json.fields?.Language || $('Code - Format Booking For LLM').first().json.language || 'en' }}\n\nReply in the guest's saved language.\nAssigned room summary:\n\n{{ $('Code - Summarize Assigned Rooms').first().json.assigned_room_summary || 'Not assigned yet' }}\n\nIs multi-room:\n{{ $('Code - Summarize Assigned Rooms').first().json.is_multi_room }}\n\nLanguage rule:\nUse the saved guest language above.\nIf Guest language is \"de\", reply in German.\nIf Guest language is \"es\", reply in Spanish.\nIf Guest language is \"it\", reply in Italian.\nIf Guest language is \"fr\", reply in French.\nIf Guest language is \"pt\", reply in Portuguese.\nIf Guest language is \"en\", reply in English.\nDo not default to English unless the saved language is missing.\n\nRules:\n- Write a friendly WhatsApp confirmation\n- Mention the booking is confirmed\n- Mention booking ID\n- Mention dates\nIf Assigned room summary is available, mention it briefly.\nIf Is multi-room is true, say the group is spread across those rooms.\nIf Assigned room summary is not available, do not mention room numbers.\n- Thank the guest\n- Sound excited and welcoming\n- Keep it concise\n- Do not mention AI or internal systems\n\nReturn ONLY the WhatsApp reply text.",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -520,
+        160
+      ],
+      "id": "2d010011-0011-4000-8000-000000000011",
+      "name": "Send confirmation reply"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-6",
+          "mode": "list",
+          "cachedResultName": "Claude Sonnet 4.6"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.4,
+      "position": [
+        -440,
+        380
+      ],
+      "id": "2d010012-0012-4000-8000-000000000012",
+      "name": "Anthropic Chat Model13",
+      "credentials": {
+        "anthropicApi": {
+          "id": "",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const dryRun = String($env.WHATSAPP_DRY_RUN || 'true').toLowerCase() === 'true';\nconst token = $env.WHATSAPP_ACCESS_TOKEN;\nconst phoneNumberId = $env.WHATSAPP_PHONE_NUMBER_ID;\n\nconst booking = $('Code - Format Booking For LLM').first().json;\nconst phone = String(booking.phone || booking.fields?.Phone || '').trim();\nif (!phone) {\n  return [{ json: { whatsapp_sent: false, whatsapp_error: \"missing_phone\", booking_id: booking.booking_id } }];\n}\n\nconst llm = $('Send confirmation reply').first().json;\nconst body = llm.text || llm.output || llm.response || '';\nif (!body.trim()) {\n  return [{ json: { whatsapp_sent: false, whatsapp_error: \"empty_message\", booking_id: booking.booking_id } }];\n}\n\nif (dryRun || !token || !phoneNumberId) {\n  return [{\n    json: {\n      whatsapp_sent: true,\n      dry_run: true,\n      booking_id: booking.booking_id,\n      to: phone,\n      body_preview: body.slice(0, 120),\n    },\n  }];\n}\n\ntry {\n  const resp = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://graph.facebook.com/v20.0/' + phoneNumberId + '/messages',\n    headers: {\n      Authorization: 'Bearer ' + token,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      messaging_product: 'whatsapp',\n      to: phone.replace(/^\\+/, ''),\n      type: 'text',\n      text: { body },\n    },\n    json: true,\n  });\n  return [{\n    json: {\n      whatsapp_sent: true,\n      dry_run: false,\n      booking_id: booking.booking_id,\n      whatsapp_response: resp,\n    },\n  }];\n} catch (err) {\n  return [{\n    json: {\n      whatsapp_sent: false,\n      whatsapp_error: err.message || String(err),\n      booking_id: booking.booking_id,\n    },\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        160
+      ],
+      "id": "2d010013-0013-4000-8000-000000000013",
+      "name": "Code - Send WhatsApp"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "wa-ok",
+              "leftValue": "={{ $json.whatsapp_sent === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -120,
+        160
+      ],
+      "id": "2d010014-0014-4000-8000-000000000014",
+      "name": "IF - WhatsApp Sent OK"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE bookings SET\n  status = 'confirmed'::booking_status,\n  send_confirmation = FALSE,\n  confirmation_sent_at = COALESCE(confirmation_sent_at, NOW()),\n  updated_at = NOW()\nWHERE id = $1::uuid\n  AND send_confirmation = TRUE\n  AND status = 'payment_pending'::booking_status\n  AND confirmation_sent_at IS NULL\nRETURNING\n  id AS booking_id,\n  booking_code,\n  status,\n  send_confirmation,\n  confirmation_sent_at;",
+        "options": {
+          "queryReplacement": "={{ $('Code - Format Booking For LLM').first().json.booking_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        100,
+        80
+      ],
+      "id": "2d010015-0015-4000-8000-000000000015",
+      "name": "Postgres - Mark Booking Confirmed",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Phase 2d — Send Confirmation (local)\n\n**Trigger:** Postgres `send_confirmation=true` (schedule every 3 min + webhook).\n\n**Order:** WhatsApp first → Postgres `confirmed` only on success.\n\n**Default:** `WHATSAPP_DRY_RUN=true` (no production Graph API).\n\nDoes **not** update Airtable Send Confirmation checkbox.",
+        "height": 280,
+        "width": 420
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2280,
+        -120
+      ],
+      "id": "2d010016-0016-4000-8000-000000000016",
+      "name": "Sticky Note - Phase 2d"
+    }
+  ],
+  "connections": {
+    "Schedule - Poll Postgres": {
+      "main": [
+        [
+          {
+            "node": "Postgres - List Pending Confirmations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Send Confirmation Local": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Webhook Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Webhook Filter": {
+      "main": [
+        [
+          {
+            "node": "Postgres - List Pending (Webhook Filter)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - List Pending Confirmations": {
+      "main": [
+        [
+          {
+            "node": "IF - Pending Booking Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - List Pending (Webhook Filter)": {
+      "main": [
+        [
+          {
+            "node": "IF - Pending Booking Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Pending Booking Found": {
+      "main": [
+        [
+          {
+            "node": "Code - Format Booking For LLM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code - Format Booking For LLM": {
+      "main": [
+        [
+          {
+            "node": "Search Conversation - Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Conversation - Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Search Booking Beds - Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Booking Beds - Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Code - Summarize Assigned Rooms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Summarize Assigned Rooms": {
+      "main": [
+        [
+          {
+            "node": "Send confirmation reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send confirmation reply": {
+      "main": [
+        [
+          {
+            "node": "Code - Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model13": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Send confirmation reply",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Send WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "IF - WhatsApp Sent OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - WhatsApp Sent OK": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Mark Booking Confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": [
+    {
+      "name": "phase2d"
+    },
+    {
+      "name": "local-only"
+    }
+  ]
+}

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 16px;
+        color: #202124;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      .context {
+        background: #f6f8fa;
+        border: 1px solid #dfe3e8;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 14px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-top: 12px;
+        margin-bottom: 4px;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        border: 1px solid #dadce0;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 70px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 9px 14px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .primary {
+        background: #1a73e8;
+        color: white;
+      }
+
+      .secondary {
+        background: #f1f3f4;
+        color: #202124;
+      }
+
+      .status {
+        margin-top: 12px;
+        font-size: 13px;
+      }
+
+      .error {
+        color: #b00020;
+      }
+
+      .success {
+        color: #137333;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Update manual booking</h2>
+
+    <div class="context" id="contextBox"></div>
+
+    <form id="bookingForm">
+      <label for="guestName">Guest name *</label>
+      <input id="guestName" name="guestName" required autofocus>
+
+      <label for="packageName">Package</label>
+      <select id="packageName" name="packageName">
+        <option value="">No package / accommodation only</option>
+        <option value="Malibu">Malibu</option>
+        <option value="Uluwatu">Uluwatu</option>
+        <option value="Waimea">Waimea</option>
+        <option value="Custom">Custom</option>
+      </select>
+
+      <label for="depositPaid">Deposit paid</label>
+      <input id="depositPaid" name="depositPaid" type="number" min="0" step="0.01" placeholder="Example: 250">
+
+      <div class="row">
+        <div>
+          <label for="guestCount">Guest count *</label>
+          <input id="guestCount" name="guestCount" type="number" min="1" required>
+        </div>
+
+        <div>
+          <label for="status">Booking status</label>
+          <select id="status" name="status">
+            <option value="Confirmed">Confirmed</option>
+            <option value="Hold">Hold</option>
+            <option value="Payment_Pending">Payment_Pending</option>
+            <option value="Needs_Review">Needs_Review</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+
+      <label for="paymentStatus">Payment status</label>
+      <select id="paymentStatus" name="paymentStatus">
+        <option value="waiting_payment">waiting_payment</option>
+        <option value="not_requested">not_requested</option>
+        <option value="payment_pending">payment_pending</option>
+        <option value="deposit_paid">deposit_paid</option>
+        <option value="paid">paid</option>
+        <option value="pay_on_arrival">pay_on_arrival</option>
+        <option value="failed">failed</option>
+        <option value="refunded">refunded</option>
+      </select>
+
+      <label for="phone">Phone</label>
+      <input id="phone" name="phone">
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email">
+
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes"></textarea>
+
+      <div class="buttons">
+        <button type="button" class="secondary" onclick="google.script.host.close()">Cancel</button>
+        <button type="submit" class="primary" id="submitButton">Save</button>
+      </div>
+
+      <div class="status" id="statusMessage"></div>
+    </form>
+
+    <script>
+      const data = <?!= dataJson ?>;
+      const row = data.row || {};
+
+      function normalizePackage(value) {
+        const raw = String(value || '').trim().toLowerCase();
+
+        const map = {
+          malibu: 'Malibu',
+          uluwatu: 'Uluwatu',
+          waimea: 'Waimea',
+          custom: 'Custom'
+        };
+
+        return map[raw] || value || '';
+      }
+
+      function setValue(id, value) {
+        const element = document.getElementById(id);
+        if (element) element.value = value || '';
+      }
+
+      function render() {
+        document.getElementById('contextBox').innerHTML = `
+          <div><strong>Manual Entry ID:</strong> ${escapeHtml(data.manualEntryId)}</div>
+          <div><strong>Dates:</strong> ${escapeHtml(row['Check In'])} → ${escapeHtml(row['Check Out'])}</div>
+          <div><strong>Beds:</strong> ${escapeHtml(row['Room / Bed'])}</div>
+          <div><strong>Sync Status:</strong> ${escapeHtml(row['Sync Status'])}</div>
+        `;
+
+        setValue('guestName', row['Guest Name']);
+        setValue('packageName', normalizePackage(row['Package']));
+        setValue('depositPaid', row['Deposit Paid']);
+        setValue('guestCount', row['Guest Count'] || 1);
+        setValue('status', row['Status'] || 'Confirmed');
+        setValue('paymentStatus', row['Payment Status'] || 'waiting_payment');
+        setValue('phone', row['Phone']);
+        setValue('email', row['Email']);
+        setValue('notes', row['Notes']);
+      }
+
+      function escapeHtml(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      document.getElementById('bookingForm').addEventListener('submit', function(event) {
+        event.preventDefault();
+
+        const submitButton = document.getElementById('submitButton');
+        const statusMessage = document.getElementById('statusMessage');
+
+        submitButton.disabled = true;
+        statusMessage.className = 'status';
+        statusMessage.textContent = 'Saving manual booking...';
+
+        const formData = {
+          manualEntryId: data.manualEntryId,
+          guestName: document.getElementById('guestName').value,
+          packageName: document.getElementById('packageName').value,
+          depositPaid: document.getElementById('depositPaid').value,
+          guestCount: document.getElementById('guestCount').value,
+          status: document.getElementById('status').value,
+          paymentStatus: document.getElementById('paymentStatus').value,
+          phone: document.getElementById('phone').value,
+          email: document.getElementById('email').value,
+          notes: document.getElementById('notes').value
+        };
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            statusMessage.className = 'status success';
+            statusMessage.textContent = result.message || 'Manual booking updated.';
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 900);
+          })
+          .withFailureHandler(function(error) {
+            submitButton.disabled = false;
+            statusMessage.className = 'status error';
+            statusMessage.textContent = error.message || String(error);
+          })
+          .submitUpdateManualBooking(formData);
+      });
+
+      render();
+    </script>
+  </body>
+</html>

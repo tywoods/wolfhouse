@@ -1,0 +1,182 @@
+# Local development stack for Wolfhouse + n8n queue mode
+# Usage: cp infra/.env.example infra/.env && docker compose -f infra/docker-compose.local.yml up -d
+
+services:
+  # --- Wolfhouse application database ---
+  wolfhouse-postgres:
+    image: postgres:16-alpine
+    container_name: wolfhouse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${WOLFHOUSE_DB_USER:-wolfhouse}
+      POSTGRES_PASSWORD: ${WOLFHOUSE_DB_PASSWORD:-wolfhouse_dev_password}
+      POSTGRES_DB: ${WOLFHOUSE_DB_NAME:-wolfhouse}
+    ports:
+      - "${WOLFHOUSE_DB_PORT:-5433}:5432"
+    volumes:
+      - wolfhouse_pg_data:/var/lib/postgresql/data
+      - ../database/migrations/001_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ../database/seeds/001_wolfhouse_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WOLFHOUSE_DB_USER:-wolfhouse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- n8n internal database (separate from app data) ---
+  n8n-postgres:
+    image: postgres:16-alpine
+    container_name: n8n-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${N8N_DB_USER:-n8n}
+      POSTGRES_PASSWORD: ${N8N_DB_PASSWORD:-n8n_dev_password}
+      POSTGRES_DB: ${N8N_DB_NAME:-n8n}
+    ports:
+      - "${N8N_DB_PORT:-5434}:5432"
+    volumes:
+      - n8n_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${N8N_DB_USER:-n8n}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: wolfhouse-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n-main
+    restart: unless-stopped
+    depends_on:
+      n8n-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    env_file:
+      - .env
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n-postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME:-n8n}
+      DB_POSTGRESDB_USER: ${N8N_DB_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD:-n8n_dev_password}
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-change-me-32-char-minimum-key!!}
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      GENERIC_TIMEZONE: ${TZ:-Europe/Madrid}
+
+      # Allow local Code nodes to read $env. Local/dev only.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      NODE_FUNCTION_ALLOW_BUILTIN: "crypto"
+
+      # Wolfhouse app DB for Code nodes/scripts if needed
+      WOLFHOUSE_DATABASE_URL: postgres://${WOLFHOUSE_DB_USER:-wolfhouse}:${WOLFHOUSE_DB_PASSWORD:-wolfhouse_dev_password}@wolfhouse-postgres:5432/${WOLFHOUSE_DB_NAME:-wolfhouse}
+
+      # Stripe test-mode values
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_DEFAULT_DEPOSIT_CENTS: ${STRIPE_DEFAULT_DEPOSIT_CENTS:-20000}
+      STRIPE_CHECKOUT_SUCCESS_URL: ${STRIPE_CHECKOUT_SUCCESS_URL:-http://localhost:5678/webhook/stripe-checkout-success?session_id={CHECKOUT_SESSION_ID}}
+      STRIPE_CHECKOUT_CANCEL_URL: ${STRIPE_CHECKOUT_CANCEL_URL:-https://www.wolf-house.com/surfcampsomo}
+      # Local only: true skips Stripe signature verify when n8n delivers parsed body (see docs/PHASE-2b.md)
+      STRIPE_WEBHOOK_SKIP_VERIFY: ${STRIPE_WEBHOOK_SKIP_VERIFY:-false}
+      USE_STRIPE_CHECKOUT: ${USE_STRIPE_CHECKOUT:-true}
+      N8N_CREATE_PAYMENT_SESSION_URL: ${N8N_CREATE_PAYMENT_SESSION_URL:-http://localhost:5678/webhook/create-payment-session}
+
+      # Phase 2d — local Send Confirmation (dry-run by default)
+      WHATSAPP_DRY_RUN: ${WHATSAPP_DRY_RUN:-true}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  # One-off tooling: npm run db:sync / db:verify
+  # Usage: docker compose -f infra/docker-compose.local.yml --profile tools run --rm wolfhouse-tools npm install
+  wolfhouse-tools:
+    profiles: ["tools"]
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ..:/app
+    env_file:
+      - .env
+    environment:
+      WOLFHOUSE_DATABASE_URL: postgres://${WOLFHOUSE_DB_USER:-wolfhouse}:${WOLFHOUSE_DB_PASSWORD:-wolfhouse_dev_password}@wolfhouse-postgres:5432/${WOLFHOUSE_DB_NAME:-wolfhouse}
+    depends_on:
+      wolfhouse-postgres:
+        condition: service_healthy
+
+  n8n-worker:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n-worker
+    restart: unless-stopped
+    command: worker
+    depends_on:
+      n8n:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      n8n-postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n-postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME:-n8n}
+      DB_POSTGRESDB_USER: ${N8N_DB_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD:-n8n_dev_password}
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-change-me-32-char-minimum-key!!}
+      GENERIC_TIMEZONE: ${TZ:-Europe/Madrid}
+
+      # Allow local Code nodes to read $env. Local/dev only.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      NODE_FUNCTION_ALLOW_BUILTIN: "crypto"
+
+      # Wolfhouse app DB for Code nodes/scripts if needed
+      WOLFHOUSE_DATABASE_URL: postgres://${WOLFHOUSE_DB_USER:-wolfhouse}:${WOLFHOUSE_DB_PASSWORD:-wolfhouse_dev_password}@wolfhouse-postgres:5432/${WOLFHOUSE_DB_NAME:-wolfhouse}
+
+      # Stripe test-mode values
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_DEFAULT_DEPOSIT_CENTS: ${STRIPE_DEFAULT_DEPOSIT_CENTS:-20000}
+      STRIPE_CHECKOUT_SUCCESS_URL: ${STRIPE_CHECKOUT_SUCCESS_URL:-http://localhost:5678/webhook/stripe-checkout-success?session_id={CHECKOUT_SESSION_ID}}
+      STRIPE_CHECKOUT_CANCEL_URL: ${STRIPE_CHECKOUT_CANCEL_URL:-https://www.wolf-house.com/surfcampsomo}
+      STRIPE_WEBHOOK_SKIP_VERIFY: ${STRIPE_WEBHOOK_SKIP_VERIFY:-false}
+      USE_STRIPE_CHECKOUT: ${USE_STRIPE_CHECKOUT:-true}
+      N8N_CREATE_PAYMENT_SESSION_URL: ${N8N_CREATE_PAYMENT_SESSION_URL:-http://localhost:5678/webhook/create-payment-session}
+
+      WHATSAPP_DRY_RUN: ${WHATSAPP_DRY_RUN:-true}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+
+volumes:
+  wolfhouse_pg_data:
+  n8n_pg_data:
+  redis_data:
+  n8n_data:

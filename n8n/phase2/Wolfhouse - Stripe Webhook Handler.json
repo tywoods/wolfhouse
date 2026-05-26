@@ -1,0 +1,160 @@
+{
+  "name": "Wolfhouse - Stripe Webhook Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stripe-webhook",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "id": "2b102001-0001-4000-8000-000000000001",
+      "name": "Webhook - Stripe",
+      "webhookId": "2b102002-0002-4000-8000-000000000002"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst item = $input.first();\nconst input = item.json;\nconst headers = input.headers || {};\nconst signature = headers['stripe-signature'] || headers['Stripe-Signature'];\n\nfunction readRawBody() {\n  if (item.binary) {\n    for (const key of Object.keys(item.binary)) {\n      const bin = item.binary[key];\n      if (bin && bin.data) {\n        return Buffer.from(bin.data, bin.encoding || 'base64').toString('utf8');\n      }\n    }\n  }\n  if (typeof input.body === 'string') return input.body;\n  if (Buffer.isBuffer(input.body)) return input.body.toString('utf8');\n  if (input.body && input.body.type === 'Buffer' && Array.isArray(input.body.data)) {\n    return Buffer.from(input.body.data).toString('utf8');\n  }\n  return null;\n}\n\nconst skipVerify = String($env.STRIPE_WEBHOOK_SKIP_VERIFY || 'false').toLowerCase() === 'true';\nlet rawBody = readRawBody();\n\nif (skipVerify) {\n  // LOCAL DEV ONLY — n8n often parses JSON before Code runs; HMAC cannot be verified on re-serialized body.\n  let event;\n  if (rawBody) {\n    event = JSON.parse(rawBody);\n  } else if (input.body && input.body.type && input.body.data) {\n    event = input.body;\n  } else if (input.type && input.data) {\n    event = input;\n  } else {\n    throw new Error('STRIPE_WEBHOOK_SKIP_VERIFY: could not parse Stripe event');\n  }\n  return [{\n    json: {\n      event,\n      rawBody: rawBody || JSON.stringify(event),\n      signature_verified: false,\n      verify_mode: 'skipped_local',\n    },\n  }];\n}\n\nif (!signature) throw new Error('Missing Stripe-Signature header');\nif (!rawBody) {\n  throw new Error(\n    'Stripe requires the raw webhook body for signature verification. ' +\n    'Ensure Webhook rawBody is enabled. For local testing only: STRIPE_WEBHOOK_SKIP_VERIFY=true'\n  );\n}\n\nconst secret = $env.STRIPE_WEBHOOK_SECRET;\nif (!secret) throw new Error('Set STRIPE_WEBHOOK_SECRET on the n8n container');\n\nconst elements = signature.split(',');\nlet timestamp = '';\nconst v1s = [];\nfor (const el of elements) {\n  const [k, v] = el.split('=');\n  if (k === 't') timestamp = v;\n  if (k === 'v1') v1s.push(v);\n}\nconst expected = crypto.createHmac('sha256', secret).update(timestamp + '.' + rawBody, 'utf8').digest('hex');\nconst valid = v1s.some((sig) => {\n  try {\n    return crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'));\n  } catch {\n    return false;\n  }\n});\nif (!valid) throw new Error('Invalid Stripe webhook signature');\n\nconst event = JSON.parse(rawBody);\nreturn [{\n  json: {\n    event,\n    rawBody,\n    signature_verified: true,\n    verify_mode: 'strict',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "2b102003-0003-4000-8000-000000000003",
+      "name": "Code - Verify Signature"
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $json.event;\nif (event.type !== 'checkout.session.completed') {\n  return [{\n    json: {\n      skip: true,\n      event_type: event.type,\n      stripe_event_id: event.id,\n      message: 'Event acknowledged, no payment write',\n    },\n  }];\n}\n\nconst session = event.data.object;\nconst paymentKind = session.metadata?.payment_kind === 'full_amount' ? 'full_amount' : 'deposit_only';\nconst bookingId = session.metadata?.booking_id;\nif (!bookingId) {\n  throw new Error('checkout.session.completed missing metadata.booking_id');\n}\n\nconst amountPaid = session.amount_total ?? 0;\nconst paymentIntent = typeof session.payment_intent === 'string'\n  ? session.payment_intent\n  : (session.payment_intent?.id || null);\n\nreturn [{\n  json: {\n    skip: false,\n    stripe_event_id: event.id,\n    event_type: event.type,\n    session_id: session.id,\n    payment_intent_id: paymentIntent,\n    booking_id: bookingId,\n    client_id: session.metadata?.client_id || null,\n    payment_kind: paymentKind,\n    amount_paid_cents: amountPaid,\n    payload: event,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "2b102004-0004-4000-8000-000000000004",
+      "name": "Code - Parse Stripe Event"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "not-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, 0],
+      "id": "2b102005-0005-4000-8000-000000000005",
+      "name": "IF - Payment Event?"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, processed: false, event_type: $json.event_type, stripe_event_id: $json.stripe_event_id }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [960, -120],
+      "id": "2b102006-0006-4000-8000-000000000006",
+      "name": "Respond - Ignored Event"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ev AS (\n  INSERT INTO payment_events (client_id, payment_id, booking_id, stripe_event_id, event_type, payload, processed)\n  SELECT p.client_id, p.id, p.booking_id, $1, $2, $3::jsonb, true\n  FROM payments p\n  WHERE p.stripe_checkout_session_id = $4\n  ON CONFLICT (stripe_event_id) DO NOTHING\n  RETURNING payment_id, booking_id, client_id\n),\npay AS (\n  UPDATE payments p SET\n    status = 'paid',\n    amount_paid_cents = $5,\n    stripe_payment_intent_id = COALESCE($6, p.stripe_payment_intent_id),\n    paid_at = NOW()\n  FROM ev\n  WHERE p.stripe_checkout_session_id = $4 AND ev.payment_id = p.id\n  RETURNING p.booking_id, p.payment_kind, p.amount_due_cents, p.id AS payment_id\n)\nUPDATE bookings b SET\n  payment_status = CASE\n    WHEN pay.payment_kind = 'full_amount'::payment_kind THEN 'paid'::payment_status\n    ELSE 'deposit_paid'::payment_status\n  END,\n  deposit_paid_cents = CASE\n    WHEN pay.payment_kind = 'deposit_only'::payment_kind THEN COALESCE(b.deposit_paid_cents, 0) + $5\n    ELSE b.deposit_paid_cents\n  END,\n  amount_paid_cents = COALESCE(b.amount_paid_cents, 0) + $5,\n  balance_due_cents = GREATEST(\n    COALESCE(b.total_amount_cents, 0) - (COALESCE(b.amount_paid_cents, 0) + $5),\n    0\n  ),\n  send_confirmation = TRUE\nFROM pay\nWHERE b.id = pay.booking_id\nRETURNING\n  b.id AS booking_id,\n  b.payment_status,\n  b.deposit_paid_cents,\n  b.amount_paid_cents,\n  b.balance_due_cents,\n  b.send_confirmation,\n  pay.payment_kind,\n  pay.payment_id;",
+        "options": {
+          "queryReplacement": "={{ $json.stripe_event_id }},{{ $json.event_type }},{{ JSON.stringify($json.payload) }},{{ $json.session_id }},{{ $json.amount_paid_cents }},{{ $json.payment_intent_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [960, 120],
+      "id": "2b102007-0007-4000-8000-000000000007",
+      "name": "Postgres - Apply Payment Success",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, processed: true, booking_id: $json.booking_id, payment_status: $json.payment_status, send_confirmation: $json.send_confirmation, payment_kind: $json.payment_kind }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1200, 120],
+      "id": "2b102008-0008-4000-8000-000000000008",
+      "name": "Respond - Payment Applied"
+    },
+    {
+      "parameters": {
+        "content": "## Phase 2b — Stripe Webhook\n\n**Production:** `STRIPE_WEBHOOK_SKIP_VERIFY=false` + raw body HMAC verify.\n\n**Local:** if n8n parses body, set `STRIPE_WEBHOOK_SKIP_VERIFY=true` (dev only).\n\nDoes not set `bookings.status`. Sets `send_confirmation=true`.",
+        "height": 260,
+        "width": 400
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, -200],
+      "id": "2b102009-0009-4000-8000-000000000009",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "Webhook - Stripe": {
+      "main": [[{ "node": "Code - Verify Signature", "type": "main", "index": 0 }]]
+    },
+    "Code - Verify Signature": {
+      "main": [[{ "node": "Code - Parse Stripe Event", "type": "main", "index": 0 }]]
+    },
+    "Code - Parse Stripe Event": {
+      "main": [[{ "node": "IF - Payment Event?", "type": "main", "index": 0 }]]
+    },
+    "IF - Payment Event?": {
+      "main": [
+        [{ "node": "Postgres - Apply Payment Success", "type": "main", "index": 0 }],
+        [{ "node": "Respond - Ignored Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Postgres - Apply Payment Success": {
+      "main": [[{ "node": "Respond - Payment Applied", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "phase2" },
+    { "name": "stripe" },
+    { "name": "local-only" }
+  ]
+}

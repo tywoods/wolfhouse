@@ -1,0 +1,73 @@
+﻿Conversation Phone,Direction,Message Text,Message Type,Language,Route,WhatsApp Message ID,Created At,Source,Conversation,Conversation Stage,Chat Line,Chat Time,Chat Display
++491726422307,Inbound,"I need a new booking! I can't wait to surf!, June 5-10, 3 people",guest,,,wamid.HBgMNDkxNzI2NDIyMzA3FQIAEhgWM0VCMEVCNDMwOENFN0NERkFEOTY5RgA=,24/5/2026 14:34,whatsapp,Jamie - +491726422307,confirmed_booking,"👤 Guest
+I need a new booking! I can't wait to surf!, June 5-10, 3 people",24/05 12:34,"🏄 Guest · 12:34
+I need a new booking! I can't wait to surf!, June 5-10, 3 people"
++491726422307,Outbound,"Awesome, can't wait to have you here! 🤙
+
+Great news — we've got availability for June 5–10 for 3 people, and we've temporarily held space for your group for the next hour. 🏄
+
+To lock it in, I just need:
+👤 One lead guest name
+📧 One email address
+
+Drop those here and we'll get you sorted!",bot,en,booking_flow,,24/5/2026 14:35,test,Jamie - +491726422307,confirmed_booking,"🤖 Bot
+Awesome, can't wait to have you here! 🤙
+
+Great news — we've got availability for June 5–10 for 3 people, and we've temporarily held space for your group for the next hour. 🏄
+
+To lock it in, I just need:
+👤 One lead guest name
+📧 One email address
+
+Drop those here and we'll get you sorted!",24/05 12:35,"👤 AI Agent · 12:35
+Awesome, can't wait to have you here! 🤙
+
+Great news — we've got availability for June 5–10 for 3 people, and we've temporarily held space for your group for the next hour. 🏄
+
+To lock it in, I just need:
+👤 One lead guest name
+📧 One email address
+
+Drop those here and we'll get you sorted!"
++491726422307,Inbound,Jamie Jamie@james.com,guest,,,wamid.HBgMNDkxNzI2NDIyMzA3FQIAEhgWM0VCMEY0NEIxRTc2OENGQ0I4Q0ZEQwA=,24/5/2026 14:35,whatsapp,Jamie - +491726422307,confirmed_booking,"👤 Guest
+Jamie Jamie@james.com",24/05 12:35,"🏄 Guest · 12:35
+Jamie Jamie@james.com"
++491726422307,Outbound,"Perfect, Jamie! 🤙 Your spot for June 5–10 (3 people) is held for the next hour.
+
+Head over here to secure your booking: https://wolf-house.com/booking-payment-placeholder
+
+Once payment's through, you're all set! 🏄‍♂️
+
+Quick one so we can place you in the best room: is your group mostly girls, mostly guys, or mixed?",bot,en,payment_details_provided,,24/5/2026 14:35,test,Jamie - +491726422307,confirmed_booking,"🤖 Bot
+Perfect, Jamie! 🤙 Your spot for June 5–10 (3 people) is held for the next hour.
+
+Head over here to secure your booking: https://wolf-house.com/booking-payment-placeholder
+
+Once payment's through, you're all set! 🏄‍♂️
+
+Quick one so we can place you in the best room: is your group mostly girls, mostly guys, or mixed?",24/05 12:35,"👤 AI Agent · 12:35
+Perfect, Jamie! 🤙 Your spot for June 5–10 (3 people) is held for the next hour.
+
+Head over here to secure your booking: https://wolf-house.com/booking-payment-placeholder
+
+Once payment's through, you're all set! 🏄‍♂️
+
+Quick one so we can place you in the best room: is your group mostly girls, mostly guys, or mixed?"
++491726422307,Inbound,girls,guest,,,wamid.HBgMNDkxNzI2NDIyMzA3FQIAEhgWM0VCMEU0RkJDM0I5NkRDRDI2MTc5MQA=,24/5/2026 14:36,whatsapp,Jamie - +491726422307,confirmed_booking,"👤 Guest
+girls",24/05 12:36,"🏄 Guest · 12:36
+girls"
++491726422307,Outbound,"Perfect, thanks! That helps us place you in the best room 🤙",bot,en,rooming_details_provided,,24/5/2026 14:36,whatsapp,Jamie - +491726422307,confirmed_booking,"🤖 Bot
+Perfect, thanks! That helps us place you in the best room 🤙",24/05 12:36,"👤 AI Agent · 12:36
+Perfect, thanks! That helps us place you in the best room 🤙"
++491726422307,Inbound,i paid,guest,,,wamid.HBgMNDkxNzI2NDIyMzA3FQIAEhgWM0VCMDhBMzczQjA0MUE2QTM3RkI3NwA=,24/5/2026 14:36,whatsapp,Jamie - +491726422307,confirmed_booking,"👤 Guest
+i paid",24/05 12:36,"🏄 Guest · 12:36
+i paid"
++491726422307,Outbound,"Hey Jamie! 🤙 Thanks for letting us know!
+
+We found your booking — our team will verify the payment and confirm everything shortly. Sit tight! 🏄‍♀️",bot,en,payment_completed_claim,,24/5/2026 14:37,test,Jamie - +491726422307,confirmed_booking,"🤖 Bot
+Hey Jamie! 🤙 Thanks for letting us know!
+
+We found your booking — our team will verify the payment and confirm everything shortly. Sit tight! 🏄‍♀️",24/05 12:37,"👤 AI Agent · 12:37
+Hey Jamie! 🤙 Thanks for letting us know!
+
+We found your booking — our team will verify the payment and confirm everything shortly. Sit tight! 🏄‍♀️"

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 16px;
+        color: #202124;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      .context {
+        background: #f6f8fa;
+        border: 1px solid #dfe3e8;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 14px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .legend {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-bottom: 12px;
+        font-size: 12px;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .swatch {
+        width: 18px;
+        height: 12px;
+        border: 1px solid #999;
+        border-radius: 2px;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-top: 12px;
+        margin-bottom: 4px;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        border: 1px solid #dadce0;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 70px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 9px 14px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .primary {
+        background: #1a73e8;
+        color: white;
+      }
+
+      .secondary {
+        background: #f1f3f4;
+        color: #202124;
+      }
+
+      .status {
+        margin-top: 12px;
+        font-size: 13px;
+      }
+
+      .error {
+        color: #b00020;
+      }
+
+      .success {
+        color: #137333;
+      }
+
+      .hint {
+        color: #5f6368;
+        font-size: 12px;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Create manual booking</h2>
+
+    <div class="context" id="contextBox"></div>
+
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="background:#fce5cd"></span> Manual pending</div>
+      <div class="legend-item"><span class="swatch" style="background:#fff2cc"></span> Hold / waiting</div>
+      <div class="legend-item"><span class="swatch" style="background:#d9ead3"></span> Paid / confirmed</div>
+      <div class="legend-item"><span class="swatch" style="background:#eadcf8"></span> Needs review</div>
+    </div>
+
+    <form id="bookingForm">
+      <label for="guestName">Guest name *</label>
+      <input id="guestName" name="guestName" required autofocus>
+
+      <label for="packageName">Package</label>
+      <select id="packageName" name="packageName">
+        <option value="">No package / accommodation only</option>
+        <option value="Malibu">Malibu</option>
+        <option value="Uluwatu">Uluwatu</option>
+        <option value="Waimea">Waimea</option>
+        <option value="Custom">Custom</option>
+      </select>
+
+      <label for="depositPaid">Deposit paid</label>
+      <input id="depositPaid" name="depositPaid" type="number" min="0" step="0.01" placeholder="Example: 250">
+
+      <div class="row">
+        <div>
+          <label for="guestCount">Guest count *</label>
+          <input id="guestCount" name="guestCount" type="number" min="1" required>
+        </div>
+
+        <div>
+          <label for="status">Booking status</label>
+          <select id="status" name="status">
+            <option value="Confirmed" selected>Confirmed</option>
+            <option value="Hold">Hold</option>
+            <option value="Payment_Pending">Payment_Pending</option>
+            <option value="Needs_Review">Needs_Review</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+
+      <label for="paymentStatus">Payment status</label>
+      <select id="paymentStatus" name="paymentStatus">
+        <option value="waiting_payment" selected>waiting_payment</option>
+        <option value="not_requested">not_requested</option>
+        <option value="payment_pending">payment_pending</option>
+        <option value="deposit_paid">deposit_paid</option>
+        <option value="paid">paid</option>
+        <option value="pay_on_arrival">pay_on_arrival</option>
+        <option value="failed">failed</option>
+        <option value="refunded">refunded</option>
+      </select>
+      <div class="hint">Manual bookings stay orange until n8n syncs them into Airtable.</div>
+
+      <label for="phone">Phone</label>
+      <input id="phone" name="phone">
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email">
+
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes" placeholder="Optional notes for Airtable / staff"></textarea>
+
+      <div class="buttons">
+        <button type="button" class="secondary" onclick="google.script.host.close()">Cancel</button>
+        <button type="submit" class="primary" id="submitButton">Create</button>
+      </div>
+
+      <div class="status" id="statusMessage"></div>
+    </form>
+
+    <script>
+      const context = <?!= contextJson ?>;
+
+      function renderContext() {
+        const box = document.getElementById('contextBox');
+
+        box.innerHTML = `
+          <div><strong>Selection:</strong> ${escapeHtml(context.selectionA1)}</div>
+          <div><strong>Dates:</strong> ${escapeHtml(context.checkIn)} → ${escapeHtml(context.checkOut)}</div>
+          <div><strong>Nights:</strong> ${escapeHtml(String(context.nightCount))}</div>
+          <div><strong>Beds:</strong> ${escapeHtml(context.bedIds.join(', '))}</div>
+        `;
+
+        document.getElementById('guestCount').value = context.defaultGuestCount || 1;
+      }
+
+      function escapeHtml(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      document.getElementById('bookingForm').addEventListener('submit', function(event) {
+        event.preventDefault();
+
+        const submitButton = document.getElementById('submitButton');
+        const statusMessage = document.getElementById('statusMessage');
+
+        submitButton.disabled = true;
+        statusMessage.className = 'status';
+        statusMessage.textContent = 'Creating manual booking...';
+
+        const formData = {
+          context: context,
+          guestName: document.getElementById('guestName').value,
+          packageName: document.getElementById('packageName').value,
+          depositPaid: document.getElementById('depositPaid').value,
+          guestCount: document.getElementById('guestCount').value,
+          status: document.getElementById('status').value,
+          paymentStatus: document.getElementById('paymentStatus').value,
+          phone: document.getElementById('phone').value,
+          email: document.getElementById('email').value,
+          notes: document.getElementById('notes').value
+        };
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            statusMessage.className = 'status success';
+            statusMessage.textContent = result.message || 'Manual booking queued.';
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 900);
+          })
+          .withFailureHandler(function(error) {
+            submitButton.disabled = false;
+            statusMessage.className = 'status error';
+            statusMessage.textContent = error.message || String(error);
+          })
+          .submitManualBooking(formData);
+      });
+
+      renderContext();
+    </script>
+  </body>
+</html>

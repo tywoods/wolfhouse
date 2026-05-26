@@ -1,0 +1,54 @@
+﻿Bed ID,Room,Room ID,Bed Number,Bed Label,Active,Sellable,Notes,Booking Beds,Planning Row Label
+R1-B1,R1,R1,1,Bed 1,checked,checked,,,R1 - Bed 1
+R1-B2,R1,R1,2,Bed 2,checked,checked,,,R1 - Bed 2
+R1-B3,R1,R1,3,Bed 3,checked,checked,,,R1 - Bed 3
+R1-B4,R1,R1,4,Bed 4,checked,checked,,,R1 - Bed 4
+R1-B5,R1,R1,5,Bed 5,checked,checked,,,R1 - Bed 5
+R2-B1,R2,R2,1,Bed 1,checked,checked,,,R2 - Bed 1
+R2-B2,R2,R2,2,Bed 2,checked,checked,,,R2 - Bed 2
+R2-B3,R2,R2,3,Bed 3,checked,checked,,,R2 - Bed 3
+R2-B4,R2,R2,4,Bed 4,checked,checked,,,R2 - Bed 4
+R2-B5,R2,R2,5,Bed 5,checked,checked,,,R2 - Bed 5
+R3-B1,R3,R3,1,Bed 1,checked,,,,R3 - Bed 1
+R3-B2,R3,R3,2,Bed 2,checked,checked,,R3 - Bed 2 - Jim - 01-06-2026,R3 - Bed 2
+R3-B3,R3,R3,3,Bed 3,checked,checked,,R3 - Bed 3 - Jim - 01-06-2026,R3 - Bed 3
+R3-B4,R3,R3,4,Bed 4,checked,checked,,R3 - Bed 4 - Jim - 01-06-2026,R3 - Bed 4
+R4-B1,R4,R4,1,Bed 1,checked,checked,,,R4 - Bed 1
+R4-B2,R4,R4,2,Bed 2,checked,checked,,,R4 - Bed 2
+R4-B3,R4,R4,3,Bed 3,checked,checked,,,R4 - Bed 3
+R4-B4,R4,R4,4,Bed 4,checked,checked,,,R4 - Bed 4
+R4-B5,R4,R4,5,Bed 5,checked,checked,,,R4 - Bed 5
+R4-B6,R4,R4,6,Bed 6,checked,checked,,,R4 - Bed 6
+R4-B7,R4,R4,7,Bed 7,checked,checked,,,R4 - Bed 7
+R4-B8,R4,R4,8,Bed 8,checked,checked,,,R4 - Bed 8
+R4-B9,R4,R4,9,Bed 9,checked,checked,,,R4 - Bed 9
+R5-B1,R5,R5,1,Bed 1,checked,checked,,R5 - Bed 1 - Jamie - 05-06-2026,R5 - Bed 1
+R5-B2,R5,R5,2,Bed 2,checked,checked,,R5 - Bed 2 - Jamie - 05-06-2026,R5 - Bed 2
+R5-B3,R5,R5,3,Bed 3,checked,checked,,R5 - Bed 3 - Jamie - 05-06-2026,R5 - Bed 3
+R5-B4,R5,R5,4,Bed 4,checked,checked,,,R5 - Bed 4
+R5-B5,R5,R5,5,Bed 5,checked,checked,,,R5 - Bed 5
+R5-B6,R5,R5,6,Bed 6,checked,checked,,,R5 - Bed 6
+R6-B1,R6,R6,1,Bed 1,checked,checked,,,R6 - Bed 1
+R6-B2,R6,R6,2,Bed 2,checked,checked,,,R6 - Bed 2
+R7-B1,R7,R7,1,Bed 1,checked,checked,,R7 - Bed 1 - Ty - 07-08-2026,R7 - Bed 1
+R7-B2,R7,R7,2,Bed 2,checked,checked,,R7 - Bed 2 - Ty - 07-08-2026,R7 - Bed 2
+R7-B3,R7,R7,3,Bed 3,checked,checked,,R7 - Bed 3 - Ty - 07-08-2026,R7 - Bed 3
+R7-B4,R7,R7,4,Bed 4,checked,checked,,,R7 - Bed 4
+R8-B1,R8,R8,1,Bed 1,checked,checked,,R8 - Bed 1 - Manual Jack - 04-08-2026,R8 - Bed 1
+R8-B2,R8,R8,2,Bed 2,checked,checked,,R8 - Bed 2 - Manual Jack - 04-08-2026,R8 - Bed 2
+R8-B3,R8,R8,3,Bed 3,checked,checked,,R8 - Bed 3 - Manual Jack - 04-08-2026,R8 - Bed 3
+R8-B4,R8,R8,4,Bed 4,checked,checked,,,R8 - Bed 4
+R8-B5,R8,R8,5,Bed 5,checked,checked,,,R8 - Bed 5
+R9-B1,R9,R9,1,Bed 1,checked,checked,,,R9 - Bed 1
+R9-B2,R9,R9,2,Bed 2,checked,checked,,,R9 - Bed 2
+R9-B3,R9,R9,3,Bed 3,checked,checked,,,R9 - Bed 3
+R9-B4,R9,R9,4,Bed 4,checked,checked,,,R9 - Bed 4
+R9-B5,R9,R9,5,Bed 5,checked,checked,,,R9 - Bed 5
+R9-B6,R9,R9,6,Bed 6,checked,checked,,,R9 - Bed 6
+R10-B1,R10,R10,1,Bed 1,checked,checked,,,R10 - Bed 1
+R10-B2,R10,R10,2,Bed 2,checked,checked,,,R10 - Bed 2
+R10-B3,R10,R10,3,Bed 3,checked,checked,,,R10 - Bed 3
+R10-B4,R10,R10,4,Bed 4,checked,checked,,,R10 - Bed 4
+R10-B5,R10,R10,5,Bed 5,checked,checked,,,R10 - Bed 5
+R10-B6,R10,R10,6,Bed 6,checked,checked,,,R10 - Bed 6
+,,,,,,,,, - 

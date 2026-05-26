@@ -1,0 +1,546 @@
+{
+  "name": "Wolfhouse - Sync Planning Sheet",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a218525e-c121-419b-aa1e-ce6a723b819c",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appOCWIN47Bui9CSS",
+          "mode": "list",
+          "cachedResultName": "Wolfhouse",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblO1ByvTMXS4SalB",
+          "mode": "list",
+          "cachedResultName": "Booking Beds",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblO1ByvTMXS4SalB"
+        },
+        "filterByFormula": "=AND(\n  {Bed}!=\"\",\n  {Assignment Start Date}!=\"\",\n  {Assignment End Date}!=\"\",\n  FIND(\"Cancelled\", ARRAYJOIN({Status (from Booking)}))=0,\n  FIND(\"Expired\", ARRAYJOIN({Status (from Booking)}))=0\n)",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "22c7c158-ee17-42c7-990e-de66c9ce15b4",
+      "name": "Search Active Booking Beds",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "zJm2dgCKoyhF83m5",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\n\nfunction getLookupValue(value) {\n  if (Array.isArray(value)) return value[0];\n  return value;\n}\n\nfunction getLookupText(value) {\n  if (Array.isArray(value)) return value[0] || '';\n  return value || '';\n}\n\nfunction clean(value) {\n  return String(getLookupText(value) || '').trim();\n}\n\nfunction normalizeDate(value) {\n  if (!value) return '';\n  return String(getLookupValue(value) || '').slice(0, 10);\n}\n\nfunction nightsBetween(checkIn, checkOut) {\n  if (!checkIn || !checkOut) return '';\n\n  const start = new Date(`${checkIn}T00:00:00Z`);\n  const end = new Date(`${checkOut}T00:00:00Z`);\n\n  const diff = Math.round((end - start) / 86400000);\n  return Number.isFinite(diff) && diff > 0 ? diff : '';\n}\n\nfunction normalizeBedId(roomId, bedIdRaw) {\n  const room = String(roomId || '').trim().toUpperCase();\n  const raw = String(bedIdRaw || '').trim();\n\n  if (!raw) return '';\n\n  if (/^R\\d+-B\\d+$/i.test(raw)) {\n    return raw.toUpperCase();\n  }\n\n  const bedNumberMatch = raw.match(/bed\\s*(\\d+)/i);\n\n  if (room && bedNumberMatch) {\n    return `${room}-B${bedNumberMatch[1]}`;\n  }\n\n  const numberOnlyMatch = raw.match(/^(\\d+)$/);\n\n  if (room && numberOnlyMatch) {\n    return `${room}-B${numberOnlyMatch[1]}`;\n  }\n\n  return raw;\n}\n\nfunction findFieldByExactNames(fields, names) {\n  for (const name of names) {\n    if (fields[name] !== undefined && fields[name] !== null && clean(fields[name]) !== '') {\n      return clean(fields[name]);\n    }\n  }\n\n  return '';\n}\n\nfunction findFieldByLooseMatch(fields, requiredWords, blockedWords = []) {\n  const keys = Object.keys(fields || {});\n\n  for (const key of keys) {\n    const keyLower = key.toLowerCase();\n\n    const hasAllRequired = requiredWords.every(word => keyLower.includes(word));\n    const hasBlocked = blockedWords.some(word => keyLower.includes(word));\n\n    if (!hasAllRequired || hasBlocked) {\n      continue;\n    }\n\n    const value = clean(fields[key]);\n\n    if (value) {\n      return value;\n    }\n  }\n\n  return '';\n}\n\nfunction getPaymentStatus(fields) {\n  const exact = findFieldByExactNames(fields, [\n    'Payment Status',\n    'Payment status',\n    'payment_status',\n    'Booking Payment Status',\n    'Booking payment status',\n    'Payment Status Lookup',\n    'Payment Status lookup',\n    'Payment Status (from Booking)',\n    'Payment status (from Booking)',\n    'Payment Status (from Bookings)',\n    'Payment status (from Bookings)',\n    'Payment Status from Booking',\n    'Payment',\n    'Booking Payment'\n  ]);\n\n  if (exact) return exact;\n\n  const loosePaymentStatus = findFieldByLooseMatch(fields, ['payment', 'status']);\n  if (loosePaymentStatus) return loosePaymentStatus;\n\n  return '';\n}\n\nfunction getPackage(fields) {\n  const exact = findFieldByExactNames(fields, [\n    'Package',\n    'package',\n    'Package Name',\n    'Package name',\n    'package_name',\n    'Selected Package',\n    'Selected package',\n    'Booking Package',\n    'Booking package',\n    'Package Lookup',\n    'Package lookup',\n    'Package (from Booking)',\n    'Package Name (from Booking)',\n    'Package (from Bookings)',\n    'Package Name (from Bookings)',\n    'Package from Booking',\n    'Booking Package (from Booking)'\n  ]);\n\n  if (exact) return exact;\n\n  const loosePackage = findFieldByLooseMatch(fields, ['package']);\n  if (loosePackage) return loosePackage;\n\n  return '';\n}\n\nfunction getDepositPaid(fields) {\n  const exact = findFieldByExactNames(fields, [\n    'Deposit Paid',\n    'Deposit paid',\n    'deposit_paid',\n    'Booking Deposit Paid',\n    'Booking deposit paid',\n    'Deposit Paid Lookup',\n    'Deposit Paid lookup',\n    'Deposit Paid (from Booking)',\n    'Deposit paid (from Booking)',\n    'Deposit Paid (from Bookings)',\n    'Deposit paid (from Bookings)',\n    'Deposit Paid from Booking',\n    'Deposit Paid from Bookings'\n  ]);\n\n  if (exact) return exact;\n\n  const looseDepositPaid = findFieldByLooseMatch(fields, ['deposit', 'paid']);\n  if (looseDepositPaid) return looseDepositPaid;\n\n  return '';\n}\n\nfunction colorTypeFromFields(fields) {\n  const source = String(clean(fields['Booking Source'])).toLowerCase();\n  const status = String(clean(fields['Status'])).toLowerCase();\n  const paymentStatus = String(getPaymentStatus(fields)).toLowerCase();\n  const assignmentStatus = String(clean(fields['Assignment Status'])).toLowerCase();\n\n  if (status.includes('cancel') || status.includes('expired')) return 'cancelled';\n  if (paymentStatus === 'failed') return 'conflict';\n  if (assignmentStatus.includes('review') || status.includes('review')) return 'needs_review';\n  if (source.includes('operator') || source.includes('manual')) return 'operator';\n\n  if (paymentStatus === 'paid' || paymentStatus === 'deposit_paid') {\n    return 'confirmed';\n  }\n\n  return 'hold';\n}\n\nfunction formatMoneyForDisplay(value) {\n  const raw = String(value || '').trim();\n\n  if (!raw) return '';\n\n  if (/^[€$£]/.test(raw)) {\n    return raw;\n  }\n\n  const numberValue = Number(raw.replace(/,/g, ''));\n\n  if (Number.isFinite(numberValue)) {\n    return `€${numberValue}`;\n  }\n\n  return raw;\n}\n\nfunction displayText(fields) {\n  const guestName =\n    clean(fields['Guest Name']) ||\n    clean(fields['Booking Guest Name']) ||\n    clean(fields['Name']) ||\n    'Guest';\n\n  const paymentStatus = getPaymentStatus(fields);\n  const depositPaid = formatMoneyForDisplay(getDepositPaid(fields));\n  const packageName = getPackage(fields);\n  const source = clean(fields['Booking Source']);\n\n  const sourceLabel =\n    String(source || '').toLowerCase().includes('operator') ||\n    String(source || '').toLowerCase().includes('manual')\n      ? 'Manual'\n      : 'Auto';\n\n  const pieces = [guestName];\n\n  if (paymentStatus) pieces.push(paymentStatus);\n  if (depositPaid) pieces.push(depositPaid);\n  if (packageName) pieces.push(packageName);\n\n  pieces.push(sourceLabel);\n\n  return pieces.join(' - ');\n}\n\nfunction getDebugMatchingFieldNames(fields) {\n  const keys = Object.keys(fields || {});\n\n  return keys\n    .filter(key => {\n      const lower = key.toLowerCase();\n      return (\n        lower.includes('payment') ||\n        lower.includes('package') ||\n        lower.includes('deposit') ||\n        lower.includes('status')\n      );\n    })\n    .join(', ');\n}\n\nconst output = [];\n\nfor (const item of rows) {\n  const fields = item.json.fields || item.json;\n\n  const bookingRecordId = getLookupValue(fields['Booking']) || getLookupValue(fields['Bookings']) || '';\n  const bookingId = clean(fields['Booking ID']) || '';\n  const bookingSource = clean(fields['Booking Source']) || '';\n\n  const guestName =\n    clean(fields['Guest Name']) ||\n    clean(fields['Booking Guest Name']) ||\n    clean(fields['Name']) ||\n    '';\n\n  const guestCount = clean(fields['Guest Count']) || '';\n\n  const checkIn = normalizeDate(\n    getLookupValue(fields['Assignment Start Date']) ||\n    getLookupValue(fields['Check In'])\n  );\n\n  const checkOut = normalizeDate(\n    getLookupValue(fields['Assignment End Date']) ||\n    getLookupValue(fields['Check Out'])\n  );\n\n  const roomId = clean(fields['Room ID']) || '';\n\n  const bedIdRaw =\n    clean(fields['Bed ID']) ||\n    clean(fields['Bed Label']) ||\n    '';\n\n  const bedId = normalizeBedId(roomId, bedIdRaw);\n\n  const requestedRoomType = clean(fields['Requested Room Type']) || '';\n  const roomPreference = clean(fields['Room Preference']) || '';\n  const guestGenderGroupType = clean(fields['Guest Gender / Group Type']) || '';\n\n  const status = clean(fields['Status']) || '';\n  const paymentStatus = getPaymentStatus(fields);\n  const assignmentStatus = clean(fields['Assignment Status']) || '';\n  const packageName = getPackage(fields);\n  const depositPaid = getDepositPaid(fields);\n\n  output.push({\n    json: {\n      'Booking Record ID': bookingRecordId,\n      'Booking ID': bookingId,\n      'Booking Source': bookingSource,\n      'Guest Name': guestName,\n      'Guest Count': guestCount,\n      'Check In': checkIn,\n      'Check Out': checkOut,\n      'Night Count': nightsBetween(checkIn, checkOut),\n      'Room ID': roomId,\n      'Bed ID': bedId,\n      'Requested Room Type': requestedRoomType,\n      'Room Preference': roomPreference,\n      'Guest Gender / Group Type': guestGenderGroupType,\n      'Status': status,\n      'Payment Status': paymentStatus,\n      'Assignment Status': assignmentStatus,\n      'Package': packageName,\n      'Deposit Paid': depositPaid,\n      'Display Text': displayText(fields),\n      'Color Type': colorTypeFromFields(fields),\n      'Last Synced At': new Date().toISOString(),\n      'Notes': clean(fields['Assignment Notes']) || '',\n      'Debug Matching Field Names': getDebugMatchingFieldNames(fields)\n    }\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "4e574ee7-5e57-47f8-b918-ee76125e7a12",
+      "name": "Code - Prepare Bookings Sync Rows"
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc",
+          "mode": "list",
+          "cachedResultName": "Wolfhouse_Planning_Calendar_Prototype",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 491340890,
+          "mode": "list",
+          "cachedResultName": "Bookings Sync",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc/edit#gid=491340890"
+        },
+        "clear": "specificRange",
+        "range": "A2:T"
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        624,
+        0
+      ],
+      "id": "bad201de-d8d1-4d69-bc0f-7fb90e18f41c",
+      "name": "Clear Bookings Sync",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "8v1bQO3s8m60joPn",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc",
+          "mode": "list",
+          "cachedResultName": "Wolfhouse_Planning_Calendar_Prototype",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 491340890,
+          "mode": "list",
+          "cachedResultName": "Bookings Sync",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc/edit#gid=491340890"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Booking Record ID": "={{$json[\"Booking Record ID\"]}}",
+            "Booking ID": "={{$json[\"Booking ID\"]}}",
+            "Booking Source": "={{$json[\"Booking Source\"]}}",
+            "Guest Name": "={{$json[\"Guest Name\"]}}",
+            "Guest Count": "={{$json[\"Guest Count\"]}}",
+            "Check In": "={{$json[\"Check In\"]}}",
+            "Check Out": "={{$json[\"Check Out\"]}}",
+            "Nights": "={{$json[\"Night Count\"]}}",
+            "Room ID": "={{$json[\"Room ID\"]}}",
+            "Bed ID": "={{$json[\"Bed ID\"]}}",
+            "Requested Room Type": "={{$json[\"Requested Room Type\"]}}",
+            "Room Preference": "={{$json[\"Room Preference\"]}}",
+            "Guest Gender / Group Type": "={{$json[\"Guest Gender / Group Type\"]}}",
+            "Status": "={{$json[\"Status\"]}}",
+            "Payment Status": "={{$json[\"Payment Status\"]}}",
+            "Assignment Status": "={{$json[\"Assignment Status\"]}}",
+            "Display Text": "={{$json[\"Display Text\"]}}",
+            "Color Type": "={{$json[\"Color Type\"]}}",
+            "Last Synced At": "={{$json[\"Last Synced At\"]}}",
+            "Notes": "={{$json[\"Notes\"]}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Booking Record ID",
+              "displayName": "Booking Record ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Booking ID",
+              "displayName": "Booking ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Booking Source",
+              "displayName": "Booking Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Guest Name",
+              "displayName": "Guest Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Guest Count",
+              "displayName": "Guest Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Check In",
+              "displayName": "Check In",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Check Out",
+              "displayName": "Check Out",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nights",
+              "displayName": "Nights",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Room ID",
+              "displayName": "Room ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Bed ID",
+              "displayName": "Bed ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Requested Room Type",
+              "displayName": "Requested Room Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Room Preference",
+              "displayName": "Room Preference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Guest Gender / Group Type",
+              "displayName": "Guest Gender / Group Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Payment Status",
+              "displayName": "Payment Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Assignment Status",
+              "displayName": "Assignment Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Display Text",
+              "displayName": "Display Text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Color Type",
+              "displayName": "Color Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Synced At",
+              "displayName": "Last Synced At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        800,
+        0
+      ],
+      "id": "56933c3b-8a99-464a-b1ee-d73e54ef39c7",
+      "name": "Append Bookings Sync Rows",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "8v1bQO3s8m60joPn",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const spreadsheetId = '1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc';\n\n// Planning tab sheetId/gid\nconst planningSheetId = 1622542535;\n\n// Planning layout.\n// Google Sheets rows/columns are zero-based here.\n// Row 4 has dates, column C is first date, row 5 is first bed row.\nconst DATE_HEADER_ROW_INDEX = 3;\nconst FIRST_DATE_COL_INDEX = 2;\nconst FIRST_BED_ROW_INDEX = 4;\n\n// Width of date/booking cells in pixels.\nconst DATE_COLUMN_PIXEL_WIDTH = 105;\n\n// Money display.\nconst MONEY_SYMBOL = '€';\n\nconst planningValues = $input.first().json.values || [];\nconst syncRows = $('Code - Prepare Bookings Sync Rows').all().map(item => item.json);\n\nfunction columnToLetter(columnIndexZeroBased) {\n  let column = columnIndexZeroBased + 1;\n  let letter = '';\n\n  while (column > 0) {\n    const remainder = (column - 1) % 26;\n    letter = String.fromCharCode(65 + remainder) + letter;\n    column = Math.floor((column - 1) / 26);\n  }\n\n  return letter;\n}\n\nfunction normalizeDate(value) {\n  if (value === undefined || value === null || value === '') return '';\n\n  const raw = String(value).trim();\n\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;\n\n  const slashDate = raw.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{2,4})$/);\n\n  if (slashDate) {\n    const day = slashDate[1].padStart(2, '0');\n    const month = slashDate[2].padStart(2, '0');\n    let year = slashDate[3];\n\n    if (year.length === 2) year = `20${year}`;\n\n    return `${year}-${month}-${day}`;\n  }\n\n  const dashDate = raw.match(/^(\\d{1,2})-(\\d{1,2})-(\\d{2,4})$/);\n\n  if (dashDate) {\n    const day = dashDate[1].padStart(2, '0');\n    const month = dashDate[2].padStart(2, '0');\n    let year = dashDate[3];\n\n    if (year.length === 2) year = `20${year}`;\n\n    return `${year}-${month}-${day}`;\n  }\n\n  if (/^\\d+(\\.\\d+)?$/.test(raw)) {\n    const serial = Number(raw);\n\n    if (serial > 30000 && serial < 70000) {\n      const excelEpoch = new Date(Date.UTC(1899, 11, 30));\n      const date = new Date(excelEpoch.getTime() + serial * 86400000);\n      return date.toISOString().slice(0, 10);\n    }\n  }\n\n  const parsed = new Date(raw);\n\n  if (!Number.isNaN(parsed.getTime())) {\n    return parsed.toISOString().slice(0, 10);\n  }\n\n  return '';\n}\n\nfunction addDays(dateStr, days) {\n  const date = new Date(`${dateStr}T00:00:00Z`);\n  date.setUTCDate(date.getUTCDate() + days);\n  return date.toISOString().slice(0, 10);\n}\n\nfunction dateRangeNights(checkIn, checkOut) {\n  const dates = [];\n\n  const start = normalizeDate(checkIn);\n  const end = normalizeDate(checkOut);\n\n  if (!start || !end) return dates;\n\n  let current = start;\n  let safety = 0;\n\n  while (current < end && safety < 400) {\n    dates.push(current);\n    current = addDays(current, 1);\n    safety++;\n  }\n\n  return dates;\n}\n\nfunction colorForRow(row) {\n  const colorType = String(row['Color Type'] || '').toLowerCase().trim();\n  const status = String(row['Status'] || '').toLowerCase().trim();\n  const paymentStatus = String(row['Payment Status'] || '').toLowerCase().trim();\n  const assignmentStatus = String(row['Assignment Status'] || '').toLowerCase().trim();\n\n  if (\n    colorType === 'cancelled' ||\n    status.includes('cancel') ||\n    status.includes('expired')\n  ) {\n    return { red: 0.85, green: 0.85, blue: 0.85 };\n  }\n\n  if (\n    colorType === 'conflict' ||\n    paymentStatus === 'failed' ||\n    assignmentStatus.includes('conflict')\n  ) {\n    return { red: 0.957, green: 0.8, blue: 0.8 };\n  }\n\n  if (\n    colorType === 'needs_review' ||\n    assignmentStatus.includes('review') ||\n    status.includes('review')\n  ) {\n    return { red: 0.918, green: 0.863, blue: 0.973 };\n  }\n\n  if (\n    colorType === 'operator' ||\n    status.includes('blocked') ||\n    String(row['Booking Source'] || '').toLowerCase().includes('block')\n  ) {\n    return { red: 0.812, green: 0.886, blue: 0.953 };\n  }\n\n  // Paid = slightly darker green\n  if (paymentStatus === 'paid') {\n    return { red: 0.714, green: 0.843, blue: 0.659 };\n  }\n\n  // Deposit paid = light green\n  if (paymentStatus === 'deposit_paid' || colorType === 'confirmed') {\n    return { red: 0.851, green: 0.918, blue: 0.827 };\n  }\n\n  // Waiting / hold / pending = orange\n  return { red: 0.988, green: 0.898, blue: 0.8 };\n}\n\nfunction getPackage(row) {\n  return String(\n    row['Package'] ||\n    row['Package Name'] ||\n    row['Selected Package'] ||\n    row['Booking Package'] ||\n    ''\n  ).trim();\n}\n\nfunction getDepositPaid(row) {\n  return String(\n    row['Deposit Paid'] ||\n    row['Deposit Paid (from Booking)'] ||\n    row['Deposit Paid (from Bookings)'] ||\n    ''\n  ).trim();\n}\n\nfunction formatMoneyForDisplay(value) {\n  const raw = String(value || '').trim();\n\n  if (!raw) return '';\n\n  if (/^[€$£]/.test(raw)) return raw;\n\n  const numberValue = Number(raw.replace(/,/g, ''));\n\n  if (Number.isFinite(numberValue)) {\n    return `${MONEY_SYMBOL}${numberValue}`;\n  }\n\n  return raw;\n}\n\nfunction isManualBooking(row) {\n  const source = String(row['Booking Source'] || '').toLowerCase();\n  const notes = String(row['Notes'] || '').toLowerCase();\n  const bookingId = String(row['Booking ID'] || '').toLowerCase();\n\n  return (\n    source.includes('operator') ||\n    source.includes('manual') ||\n    notes.includes('manual entry id') ||\n    bookingId.startsWith('man-')\n  );\n}\n\nfunction makeDisplayText(row) {\n  const guestName = String(\n    row['Guest Name'] ||\n    row['Booking Guest Name'] ||\n    row['Name'] ||\n    'Guest'\n  ).trim();\n\n  const paymentStatus = String(row['Payment Status'] || '').trim();\n  const depositPaid = formatMoneyForDisplay(getDepositPaid(row));\n  const packageName = getPackage(row);\n  const sourceLabel = isManualBooking(row) ? 'Manual' : 'Auto';\n\n  const pieces = [guestName];\n\n  if (paymentStatus) pieces.push(paymentStatus);\n  if (depositPaid) pieces.push(depositPaid);\n  if (packageName) pieces.push(packageName);\n\n  pieces.push(sourceLabel);\n\n  return pieces.join(' - ');\n}\n\nfunction makeNote(row) {\n  const parts = [\n    row['Booking ID'] ? `Booking ID: ${row['Booking ID']}` : '',\n    row['Booking Record ID'] ? `Record: ${row['Booking Record ID']}` : '',\n    row['Guest Name'] ? `Guest: ${row['Guest Name']}` : '',\n    getPackage(row) ? `Package: ${getPackage(row)}` : '',\n    getDepositPaid(row) ? `Deposit Paid: ${formatMoneyForDisplay(getDepositPaid(row))}` : '',\n    row['Check In'] && row['Check Out'] ? `Dates: ${row['Check In']} to ${row['Check Out']}` : '',\n    row['Bed ID'] ? `Bed: ${row['Bed ID']}` : '',\n    row['Room ID'] ? `Room: ${row['Room ID']}` : '',\n    row['Room Preference'] ? `Room preference: ${row['Room Preference']}` : '',\n    row['Requested Room Type'] ? `Room type: ${row['Requested Room Type']}` : '',\n    row['Guest Gender / Group Type'] ? `Gender/group: ${row['Guest Gender / Group Type']}` : '',\n    row['Status'] ? `Status: ${row['Status']}` : '',\n    row['Payment Status'] ? `Payment Status: ${row['Payment Status']}` : '',\n    row['Assignment Status'] ? `Assignment: ${row['Assignment Status']}` : '',\n    row['Booking Source'] ? `Source: ${row['Booking Source']}` : '',\n    row['Notes'] ? `Notes: ${row['Notes']}` : ''\n  ].filter(Boolean);\n\n  return parts.join('\\n');\n}\n\nfunction makeBookingGroupKey(row) {\n  return String(\n    row['Booking Record ID'] ||\n    row['Booking ID'] ||\n    `${row['Guest Name'] || 'Guest'}-${row['Check In'] || ''}-${row['Check Out'] || ''}`\n  ).trim();\n}\n\nfunction makeBorderRequest(startRowIndex, endRowIndex, startColumnIndex, endColumnIndex) {\n  const border = {\n    style: 'SOLID_MEDIUM',\n    width: 2,\n    color: { red: 0, green: 0, blue: 0 }\n  };\n\n  return {\n    updateBorders: {\n      range: {\n        sheetId: planningSheetId,\n        startRowIndex,\n        endRowIndex,\n        startColumnIndex,\n        endColumnIndex\n      },\n      top: border,\n      bottom: border,\n      left: border,\n      right: border\n    }\n  };\n}\n\nconst dateHeaderRow = planningValues[DATE_HEADER_ROW_INDEX] || [];\nconst dateToColIndex = {};\n\nfor (let col = FIRST_DATE_COL_INDEX; col < dateHeaderRow.length; col++) {\n  const normalized = normalizeDate(dateHeaderRow[col]);\n\n  if (normalized) {\n    dateToColIndex[normalized] = col;\n  }\n}\n\nconst bedIdToRowIndex = {};\nlet maxBedRowIndex = FIRST_BED_ROW_INDEX;\n\nfor (let row = FIRST_BED_ROW_INDEX; row < planningValues.length; row++) {\n  const bedId = String((planningValues[row] || [])[0] || '').trim();\n\n  if (/^R\\d+-B\\d+$/i.test(bedId)) {\n    bedIdToRowIndex[bedId.toUpperCase()] = row;\n    maxBedRowIndex = Math.max(maxBedRowIndex, row);\n  }\n}\n\nconst dateColumns = Object.values(dateToColIndex);\nconst maxDateColIndex = dateColumns.length ? Math.max(...dateColumns) : 60;\n\nconst requests = [];\nconst warnings = [];\nconst bookingGroups = {};\n\nrequests.push({\n  updateDimensionProperties: {\n    range: {\n      sheetId: planningSheetId,\n      dimension: 'COLUMNS',\n      startIndex: FIRST_DATE_COL_INDEX,\n      endIndex: maxDateColIndex + 1\n    },\n    properties: {\n      pixelSize: DATE_COLUMN_PIXEL_WIDTH\n    },\n    fields: 'pixelSize'\n  }\n});\n\nrequests.push({\n  repeatCell: {\n    range: {\n      sheetId: planningSheetId,\n      startRowIndex: FIRST_BED_ROW_INDEX,\n      endRowIndex: maxBedRowIndex + 1,\n      startColumnIndex: FIRST_DATE_COL_INDEX,\n      endColumnIndex: maxDateColIndex + 1\n    },\n    cell: {\n      userEnteredFormat: {\n        backgroundColor: { red: 1, green: 1, blue: 1 },\n        textFormat: {\n          bold: false,\n          fontSize: 9,\n          foregroundColor: { red: 0, green: 0, blue: 0 }\n        },\n        wrapStrategy: 'WRAP',\n        horizontalAlignment: 'CENTER',\n        verticalAlignment: 'MIDDLE'\n      },\n      note: ''\n    },\n    fields: 'userEnteredValue,note,userEnteredFormat.backgroundColor,userEnteredFormat.textFormat,userEnteredFormat.wrapStrategy,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment'\n  }\n});\n\nrequests.push({\n  updateBorders: {\n    range: {\n      sheetId: planningSheetId,\n      startRowIndex: FIRST_BED_ROW_INDEX,\n      endRowIndex: maxBedRowIndex + 1,\n      startColumnIndex: FIRST_DATE_COL_INDEX,\n      endColumnIndex: maxDateColIndex + 1\n    },\n    top: { style: 'NONE' },\n    bottom: { style: 'NONE' },\n    left: { style: 'NONE' },\n    right: { style: 'NONE' },\n    innerHorizontal: { style: 'NONE' },\n    innerVertical: { style: 'NONE' }\n  }\n});\n\nfor (const row of syncRows) {\n  const bedId = String(row['Bed ID'] || '').trim().toUpperCase();\n  const checkIn = normalizeDate(row['Check In']);\n  const checkOut = normalizeDate(row['Check Out']);\n  const displayText = makeDisplayText(row);\n  const color = colorForRow(row);\n  const note = makeNote(row);\n\n  if (!bedId || !checkIn || !checkOut) {\n    warnings.push(`Skipped row missing bed/date: ${row['Booking ID'] || JSON.stringify(row)}`);\n    continue;\n  }\n\n  const rowIndex = bedIdToRowIndex[bedId];\n\n  if (rowIndex === undefined) {\n    warnings.push(`Skipped ${row['Booking ID'] || ''}: bed ${bedId} not found on Planning tab`);\n    continue;\n  }\n\n  const stayDates = dateRangeNights(checkIn, checkOut);\n\n  if (!stayDates.length) {\n    warnings.push(`Skipped ${row['Booking ID'] || ''}: no stay dates from ${checkIn} to ${checkOut}`);\n    continue;\n  }\n\n  const bookingGroupKey = makeBookingGroupKey(row);\n\n  if (!bookingGroups[bookingGroupKey]) {\n    bookingGroups[bookingGroupKey] = {\n      minRow: rowIndex,\n      maxRow: rowIndex,\n      minCol: null,\n      maxCol: null\n    };\n  }\n\n  for (let index = 0; index < stayDates.length; index++) {\n    const dateStr = stayDates[index];\n    const colIndex = dateToColIndex[dateStr];\n\n    if (colIndex === undefined) {\n      warnings.push(`Skipped ${row['Booking ID'] || ''}: date ${dateStr} not found on Planning tab`);\n      continue;\n    }\n\n    const isFirstCell = index === 0;\n\n    bookingGroups[bookingGroupKey].minRow = Math.min(bookingGroups[bookingGroupKey].minRow, rowIndex);\n    bookingGroups[bookingGroupKey].maxRow = Math.max(bookingGroups[bookingGroupKey].maxRow, rowIndex);\n    bookingGroups[bookingGroupKey].minCol =\n      bookingGroups[bookingGroupKey].minCol === null\n        ? colIndex\n        : Math.min(bookingGroups[bookingGroupKey].minCol, colIndex);\n    bookingGroups[bookingGroupKey].maxCol =\n      bookingGroups[bookingGroupKey].maxCol === null\n        ? colIndex\n        : Math.max(bookingGroups[bookingGroupKey].maxCol, colIndex);\n\n    requests.push({\n      updateCells: {\n        start: {\n          sheetId: planningSheetId,\n          rowIndex,\n          columnIndex: colIndex\n        },\n        rows: [\n          {\n            values: [\n              {\n                userEnteredValue: {\n                  stringValue: isFirstCell ? displayText : ''\n                },\n                note,\n                userEnteredFormat: {\n                  backgroundColor: color,\n                  wrapStrategy: 'WRAP',\n                  textFormat: {\n                    bold: isFirstCell,\n                    fontSize: 9,\n                    foregroundColor: { red: 0, green: 0, blue: 0 }\n                  },\n                  horizontalAlignment: 'CENTER',\n                  verticalAlignment: 'MIDDLE'\n                }\n              }\n            ]\n          }\n        ],\n        fields: 'userEnteredValue,note,userEnteredFormat.backgroundColor,userEnteredFormat.wrapStrategy,userEnteredFormat.textFormat,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment'\n      }\n    });\n  }\n}\n\nfor (const group of Object.values(bookingGroups)) {\n  if (\n    group.minRow !== null &&\n    group.maxRow !== null &&\n    group.minCol !== null &&\n    group.maxCol !== null\n  ) {\n    requests.push(\n      makeBorderRequest(\n        group.minRow,\n        group.maxRow + 1,\n        group.minCol,\n        group.maxCol + 1\n      )\n    );\n  }\n}\n\nconst dateMapSample = Object.entries(dateToColIndex)\n  .slice(0, 20)\n  .map(([date, col]) => `${date}:${columnToLetter(col)}`);\n\nconst bedMapSample = Object.entries(bedIdToRowIndex)\n  .slice(0, 20)\n  .map(([bed, row]) => `${bed}:row${row + 1}`);\n\nreturn [\n  {\n    json: {\n      spreadsheetId,\n      planning_sheet_id: planningSheetId,\n      request_count: requests.length,\n      painted_booking_rows: syncRows.length,\n      date_column_pixel_width: DATE_COLUMN_PIXEL_WIDTH,\n      date_header_sample: dateHeaderRow.slice(0, 30),\n      date_map_sample: dateMapSample,\n      bed_map_sample: bedMapSample,\n      warnings,\n      requests\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        0
+      ],
+      "id": "f4dc1fcb-cf6f-4821-8b6a-6444ea856f97",
+      "name": "Code - Build Planning Grid Paint Request"
+    },
+    {
+      "parameters": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc/values/Planning!A1:ZZ120",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1360,
+        0
+      ],
+      "id": "414b7cb8-52ba-4895-b7ba-a08091ca9b5d",
+      "name": "HTTP - Read Planning Grid",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "fl7l9Qi45dHCxx6W",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    requests: $json.requests\n  }\n}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1744,
+        0
+      ],
+      "id": "cdda4b15-0b77-4019-805a-6cca5f7876d5",
+      "name": "HTTP - Paint Planning Grid",
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "fl7l9Qi45dHCxx6W",
+          "name": "Google account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      run_paint: true,\n      timestamp: new Date().toISOString()\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        0
+      ],
+      "id": "5d0d2eb7-1bdb-4cba-817e-3f975d272f4d",
+      "name": "Code - One Item"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Search Active Booking Beds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Active Booking Beds": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Bookings Sync Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Bookings Sync Rows": {
+      "main": [
+        [
+          {
+            "node": "Clear Bookings Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Bookings Sync": {
+      "main": [
+        [
+          {
+            "node": "Append Bookings Sync Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Bookings Sync Rows": {
+      "main": [
+        [
+          {
+            "node": "Code - One Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Planning Grid Paint Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Paint Planning Grid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Read Planning Grid": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Planning Grid Paint Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - One Item": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Read Planning Grid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Paint Planning Grid": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "221000c3-43fb-4216-801e-7dd213ec2265",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bb3760dba17d7b832fddd5286a2e2a3d33a2c986ba33cdcf6e30a0102f2ebb45"
+  },
+  "id": "ijbdKV7i1gAJhDju",
+  "tags": []
+}

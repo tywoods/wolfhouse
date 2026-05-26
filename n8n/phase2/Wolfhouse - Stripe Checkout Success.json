@@ -1,0 +1,67 @@
+{
+  "name": "Wolfhouse - Stripe Checkout Success",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "stripe-checkout-success",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "id": "2b103001-0001-4000-8000-000000000001",
+      "name": "Webhook - Checkout Success",
+      "webhookId": "2b103001-0001-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n  <title>Payment received — Wolfhouse</title>\n  <style>\n    body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }\n    h1 { font-size: 1.5rem; }\n    p { line-height: 1.5; color: #444; }\n    code { font-size: 0.85rem; background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 4px; }\n  </style>\n</head>\n<body>\n  <h1>Thank you — payment received</h1>\n  <p>Your deposit has been recorded. We will confirm your booking by WhatsApp shortly.</p>\n  <p>You can close this page. Session: <code>{{ $json.query.session_id || $json.session_id || 'n/a' }}</code></p>\n  <p><small>Wolfhouse Somo — local test page (Phase 2b)</small></p>\n</body>\n</html>",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [280, 0],
+      "id": "2b103002-0002-4000-8000-000000000002",
+      "name": "Respond - HTML Success"
+    },
+    {
+      "parameters": {
+        "content": "## Checkout success page (GET)\n\nStripe redirects here after payment. No DB writes.\n\nURL: `/webhook/stripe-checkout-success?session_id={CHECKOUT_SESSION_ID}`",
+        "height": 160,
+        "width": 360
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, -140],
+      "id": "2b103003-0003-4000-8000-000000000003",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "Webhook - Checkout Success": {
+      "main": [[{ "node": "Respond - HTML Success", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "phase2" },
+    { "name": "stripe" },
+    { "name": "local-only" }
+  ]
+}

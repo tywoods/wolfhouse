@@ -1,0 +1,21 @@
+{
+  "name": "wolfhouse-booking",
+  "private": true,
+  "description": "Wolfhouse local tooling (Phase 1 CSV sync, seeds)",
+  "scripts": {
+    "seed:generate": "node scripts/generate-seed.js",
+    "db:sync": "node scripts/sync-csv-to-postgres.js",
+    "db:verify": "node scripts/verify-local-db.js",
+    "db:migrate:2a": "node scripts/run-sql.js database/migrations/003_rename_hostel_to_client.sql && node scripts/run-sql.js database/migrations/004_payment_schema_phase2.sql",
+    "db:migrate:005": "node scripts/run-sql.js database/migrations/005_payment_intent_unique_partial.sql",
+    "build:main:local-stripe": "node scripts/build-main-local-stripe.js",
+    "build:send-confirmation:local": "node scripts/build-send-confirmation-local.js",
+    "test:phase2f-resolver": "node scripts/test-booking-state-resolver.js",
+    "db:migrate:006": "node scripts/run-sql.js database/migrations/006_confirmation_sent_at.sql",
+    "db:migrate:pricing": "node scripts/run-sql.js database/migrations/002_package_pricing.sql"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.1"
+  }
+}

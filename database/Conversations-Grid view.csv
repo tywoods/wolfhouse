@@ -1,0 +1,94 @@
+﻿Name,Guest Name,Phone,Email,Language,Session State,Chat Transcript,Last Message,Last Bot Reply,Needs Human,Status,Updated At,Current Hold ID,Conversation Stage,Messages,Human Notes,Conversation Summary,Pending Action,Bot Mode,Staff Reply Draft,Send Staff Reply,Return To Bot,Last Staff Reply At,Internal Staff Notes
+Jamie - +491726422307,Jamie,+491726422307,Jamie@james.com,en,"{""intent"":""booking_request"",""language"":""English"",""guest_count"":3,""room_type"":""shared"",""room_preference"":""shared"",""guest_gender_group_type"":""unknown"",""check_in"":""2026-06-05"",""check_out"":""2026-06-10"",""needs_human"":false,""confidence"":0.95,""ready_for_availability_check"":true}","
+
+👤 Guest · 12:34
+I need a new booking! I can't wait to surf!, June 5-10, 3 people
+
+
+💁 Booking Assistant · 12:35
+Awesome, can't wait to have you here! 🤙
+
+Great news — we've got availability for June 5–10 for 3 people, and we've temporarily held space for your group for the next hour. 🏄
+
+To lock it in, I just need:
+👤 One lead guest name
+📧 One email address
+
+Drop those here and we'll get you sorted!
+
+
+👤 Guest · 12:35
+Jamie Jamie@james.com
+
+
+💁 Booking Assistant · 12:35
+Perfect, Jamie! 🤙 Your spot for June 5–10 (3 people) is held for the next hour.
+
+Head over here to secure your booking: https://wolf-house.com/booking-payment-placeholder
+
+Once payment's through, you're all set! 🏄‍♂️
+
+Quick one so we can place you in the best room: is your group mostly girls, mostly guys, or mixed?
+
+
+👤 Guest · 12:36
+girls
+
+
+💁 Booking Assistant · 12:36
+Perfect, thanks! That helps us place you in the best room 🤙
+
+
+👤 Guest · 12:36
+i paid
+
+
+💁 Booking Assistant · 12:37
+Hey Jamie! 🤙 Thanks for letting us know!
+
+We found your booking — our team will verify the payment and confirm everything shortly. Sit tight! 🏄‍♀️
+
+
+💁 Booking Assistant · 12:39
+Hey! 🐺🌊
+
+Welcome to the WolfHouse Family! We are so stoked to have you with us! 🎉
+
+Your booking is officially confirmed — happy days! 🙌
+
+📋 Here's a quick summary:
+🏠 Room: Room 5
+
+Everything is all set and we cannot wait to welcome you through our doors!
+
+If you have any questions before your arrival, don't hesitate to drop us a message — we're always here to help.
+
+See you soon! 🤙🌊
+The WolfHouse Crew",i paid,"Hey! 🐺🌊
+
+Welcome to the **WolfHouse Family!** We are so stoked to have you with us! 🎉
+
+Your booking is officially **confirmed** — happy days! 🙌
+
+📋 Here's a quick summary:
+🏠 **Room:** Room 5
+
+Everything is all set and we cannot wait to welcome you through our doors!
+
+If you have any questions before your arrival, don't hesitate to drop us a message — we're always here to help.
+
+See you soon! 🤙🌊
+**The WolfHouse Crew**",,Open,5/24/2026 12:39pm,WH-260524-4518,confirmed_booking,"+491726422307,+491726422307,+491726422307,+491726422307,+491726422307,+491726422307,+491726422307,+491726422307",i paid,"**BOOKING SUMMARY**
+
+**Guest:** Jamie
+**Contact:** +491726422307 (WhatsApp)
+**Email:** Jamie@james.com
+**Booking Intent:** New reservation
+**Dates:** June 5-10
+**Guest Count:** 3 people (all girls)
+**Room Type:** Female dorm
+**Payment Status:** Payment received ✓
+**Language:** English
+**Tone:** Enthusiastic, friendly
+**Issues:** None reported
+**Notes:** Guest excited about surfing. Booking confirmed and paid. Ready to finalize room assignment.",none,bot_active,,,,,

@@ -1,0 +1,813 @@
+{
+  "name": "Wolfhouse Booking Assistant - Send Staff Reply",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "send-staff-reply",
+        "options": {
+          "responseCode": {
+            "values": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -704,
+        -80
+      ],
+      "id": "7935c1b9-2fa9-4e90-b6be-0e0c53fd8d5c",
+      "name": "Send Staff Reply - Webhook",
+      "webhookId": "76b6b624-0d6a-4cfc-98bd-d5e1253b0978"
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appOCWIN47Bui9CSS",
+          "mode": "list",
+          "cachedResultName": "Wolfhouse",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbllLFnkeriks575v",
+          "mode": "list",
+          "cachedResultName": "Conversations",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tbllLFnkeriks575v"
+        },
+        "id": "={{ $json.body.recordId }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        -496,
+        -80
+      ],
+      "id": "17f51f29-865e-4d94-8279-54b71ace0b21",
+      "name": "Get Conversation - Staff Reply",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "zJm2dgCKoyhF83m5",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/1152900101233109/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer EAALZBG11BZCnUBRVIy9bolqFYvsHqdh5zSqIS8eAUhe9HjvydwymNmp7P9trvXH5VzXXK4VbZC6vi5RyFQ0fLzHenDVNvS2dmVa7osB3VYHZBaDTY5FjZAGtHwI5uGhiwvRrGYtZAf6z5xfsCniCboZCZB1XuMjoV1jihsErrsZBu5a0DNRmlXrt8CnQNJML3aEmIowZDZD"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  messaging_product: \"whatsapp\",\n  to: String($('Get Conversation - Staff Reply').first().json.fields.Phone || '').replace('+', ''),\n  type: \"text\",\n  text: {\n    body: $('Get Conversation - Staff Reply').first().json.fields['Staff Reply Draft'] || ''\n  }\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -48,
+        -96
+      ],
+      "id": "b81d0352-f4a2-410b-aa9f-ec7cefb9d565",
+      "name": "Send WhatsApp Staff Reply"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f3155464-53f1-4b8e-99b4-884d7b18c0f3",
+              "leftValue": "={{ \n  $('Get Conversation - Staff Reply').first().json.fields?.['Send Staff Reply'] === true &&\n  !!$('Get Conversation - Staff Reply').first().json.fields?.['Staff Reply Draft'] &&\n  !!$('Get Conversation - Staff Reply').first().json.fields?.Phone\n}}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -288,
+        -80
+      ],
+      "id": "d2050e54-54ba-48cb-95f7-ac2b5df8bdd1",
+      "name": "IF - Should Send Staff Reply"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appOCWIN47Bui9CSS",
+          "mode": "list",
+          "cachedResultName": "Wolfhouse",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl3oMbUtrUr0XWLt",
+          "mode": "list",
+          "cachedResultName": "Messages",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tbl3oMbUtrUr0XWLt"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Conversation Phone": "={{ $('Get Conversation - Staff Reply').first().json.fields.Phone }}",
+            "Direction": "Outbound",
+            "Message Text": "={{ $('Get Conversation - Staff Reply').first().json.fields['Staff Reply Draft'] || '' }}",
+            "Source": "whatsapp",
+            "Route": "human_staff_reply",
+            "Language": "={{ $('Get Conversation - Staff Reply').first().json.fields.Language || 'en' }}",
+            "Created At": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Conversation Phone",
+              "displayName": "Conversation Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Direction",
+              "displayName": "Direction",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Inbound",
+                  "value": "Inbound"
+                },
+                {
+                  "name": "Outbound",
+                  "value": "Outbound"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Message Text",
+              "displayName": "Message Text",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Message Type",
+              "displayName": "Message Type",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "guest",
+                  "value": "guest"
+                },
+                {
+                  "name": "bot",
+                  "value": "bot"
+                },
+                {
+                  "name": "human",
+                  "value": "human"
+                },
+                {
+                  "name": "system",
+                  "value": "system"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Language",
+              "displayName": "Language",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Route",
+              "displayName": "Route",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "WhatsApp Message ID",
+              "displayName": "WhatsApp Message ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Created At",
+              "displayName": "Created At",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "whatsapp",
+                  "value": "whatsapp"
+                },
+                {
+                  "name": "test",
+                  "value": "test"
+                },
+                {
+                  "name": "system",
+                  "value": "system"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        160,
+        -96
+      ],
+      "id": "7ac16085-0192-4800-a469-3b827540efc8",
+      "name": "Create Outbound Message - Staff Reply",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "zJm2dgCKoyhF83m5",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appOCWIN47Bui9CSS",
+          "mode": "list",
+          "cachedResultName": "Wolfhouse",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbllLFnkeriks575v",
+          "mode": "list",
+          "cachedResultName": "Conversations",
+          "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tbllLFnkeriks575v"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Needs Human": true,
+            "Send Staff Reply": false,
+            "Return To Bot": false,
+            "Last Bot Reply": "={{ $('Get Conversation - Staff Reply').first().json.fields['Staff Reply Draft'] || '' }}",
+            "id": "={{ $('Get Conversation - Staff Reply').first().json.id }}",
+            "Last Staff Reply At": "={{ new Date().toISOString() }}",
+            "Bot Mode": "human_active",
+            "Chat Transcript": "={{\n  (\n    $('Get Conversation - Staff Reply').first().json.fields?.['Chat Transcript'] ||\n    ''\n  )\n  + '\\n\\n**🙋 Staff · '\n  + new Date().toLocaleTimeString('en-GB', {\n      hour: '2-digit',\n      minute: '2-digit'\n    })\n  + '**\\n'\n  + (\n    $('Create Outbound Message - Staff Reply').first().json.fields?.['Message Text'] ||\n    ''\n  )\n}}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Guest Name",
+              "displayName": "Guest Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Language",
+              "displayName": "Language",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Session State",
+              "displayName": "Session State",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Last Message",
+              "displayName": "Last Message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Last Bot Reply",
+              "displayName": "Last Bot Reply",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Needs Human",
+              "displayName": "Needs Human",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "New",
+                  "value": "New"
+                },
+                {
+                  "name": "Open",
+                  "value": "Open"
+                },
+                {
+                  "name": "On Hold",
+                  "value": "On Hold"
+                },
+                {
+                  "name": "Closed",
+                  "value": "Closed"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Updated At",
+              "displayName": "Updated At",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Current Hold ID",
+              "displayName": "Current Hold ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Conversation Stage",
+              "displayName": "Conversation Stage",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "booking_flow",
+                  "value": "booking_flow"
+                },
+                {
+                  "name": "payment_pending",
+                  "value": "payment_pending"
+                },
+                {
+                  "name": "human_handoff",
+                  "value": "human_handoff"
+                },
+                {
+                  "name": "existing_booking",
+                  "value": "existing_booking"
+                },
+                {
+                  "name": "general_question",
+                  "value": "general_question"
+                },
+                {
+                  "name": "unknown",
+                  "value": "unknown"
+                },
+                {
+                  "name": "existing_booking_modify",
+                  "value": "existing_booking_modify"
+                },
+                {
+                  "name": "existing_booking_status",
+                  "value": "existing_booking_status"
+                },
+                {
+                  "name": "existing_booking_cancel",
+                  "value": "existing_booking_cancel"
+                },
+                {
+                  "name": "payment_claim",
+                  "value": "payment_claim"
+                },
+                {
+                  "name": "confirmed_booking",
+                  "value": "confirmed_booking"
+                },
+                {
+                  "name": "new",
+                  "value": "new"
+                },
+                {
+                  "name": "active",
+                  "value": "active"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Messages",
+              "displayName": "Messages",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Human Notes",
+              "displayName": "Human Notes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Conversation Summary",
+              "displayName": "Conversation Summary",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Pending Action",
+              "displayName": "Pending Action",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "none",
+                  "value": "none"
+                },
+                {
+                  "name": "payment_lookup",
+                  "value": "payment_lookup"
+                },
+                {
+                  "name": "alternative_date_selection",
+                  "value": "alternative_date_selection"
+                },
+                {
+                  "name": "rooming_info_needed",
+                  "value": "rooming_info_needed"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Bot Mode",
+              "displayName": "Bot Mode",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "bot_active",
+                  "value": "bot_active"
+                },
+                {
+                  "name": "human_active",
+                  "value": "human_active"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Staff Reply Draft",
+              "displayName": "Staff Reply Draft",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Send Staff Reply",
+              "displayName": "Send Staff Reply",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Return To Bot",
+              "displayName": "Return To Bot",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Last Staff Reply At",
+              "displayName": "Last Staff Reply At",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Internal Staff Notes",
+              "displayName": "Internal Staff Notes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Chat Transcript",
+              "displayName": "Chat Transcript",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        368,
+        -96
+      ],
+      "id": "78c4ad41-771f-4142-994c-516996a65823",
+      "name": "Update Conversation - Staff Reply Sent",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "zJm2dgCKoyhF83m5",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Send Staff Reply - Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Conversation - Staff Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Conversation - Staff Reply": {
+      "main": [
+        [
+          {
+            "node": "IF - Should Send Staff Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Staff Reply": {
+      "main": [
+        [
+          {
+            "node": "Create Outbound Message - Staff Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Should Send Staff Reply": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Staff Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Outbound Message - Staff Reply": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation - Staff Reply Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "7d4fa357-a04f-4a9d-999f-1bfcb2193b3e",
+  "meta": {
+    "instanceId": "bb3760dba17d7b832fddd5286a2e2a3d33a2c986ba33cdcf6e30a0102f2ebb45"
+  },
+  "id": "D6OC2sJRatKk5kqO",
+  "tags": []
+}
