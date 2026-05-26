@@ -10,6 +10,7 @@
     "db:report:bed-drift": "node scripts/report-booking-bed-drift.js",
     "db:report:cancel-impact": "node scripts/report-cancel-impact.js",
     "db:cancel:booking-beds": "node scripts/cancel-booking-beds-postgres.js",
+    "build:cancel-beds:local": "node scripts/build-cancel-beds-local.js",
     "test:bed-drift-keys": "node scripts/test-bed-drift-keys.js",
     "planning:report:postgres": "node scripts/planning-report-from-postgres.js",
     "test:planning-row-format": "node scripts/test-planning-row-format.js",

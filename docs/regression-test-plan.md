@@ -201,11 +201,26 @@ Optional: `npm run db:report:bed-drift -- --overlap-from=YYYY-MM-DD --overlap-to
 
 Note: `db:report:bed-drift` may exit 1 for CSV-export bookings until AT beds removed (3b.1c).
 
+## Phase 3b.1c — Cancel workflow local fork (PG + Airtable)
+
+**Runbook:** [`PHASE-3b-1c.md`](PHASE-3b-1c.md). **3b.2+ not started.**
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b1c-1 | `npm run build:cancel-beds:local` | |
+| 3b1c-2 | Import `n8n/phase3b/Wolfhouse - Cancel Bed Assignments (local PG).json` into local n8n; map Postgres + Airtable creds | |
+| 3b1c-3 | Deactivate hosted Cancel on local n8n; activate local PG fork | |
+| 3b1c-4 | `scripts/test-cancel-beds-webhook.ps1 -RecordId rec…` (test AT only) | |
+| 3b1c-5 | Response: `pg_deleted_count` > 0 first run; `idempotent` on second | |
+| 3b1c-6 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | |
+
+CLI-only alternative (no n8n): `db:cancel:booking-beds --execute` (3b.1b).
+
 ## Phase 2 local sign-off (freeze)
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1**, **3a**, **3b.0**, **3b.1a**, **3b.1b** (PG-only cancel beds) implemented; **3b.1c+** not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.1c** implemented; **3b.2+** Assign/Reassign not started.
 
 ### Tier A — automated
 
