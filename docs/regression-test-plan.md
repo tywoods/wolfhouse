@@ -166,7 +166,7 @@ Runbook: `docs/PHASE-2d.md`. Workflow: `n8n/phase2/Wolfhouse - Send Confirmation
 
 ## Phase 3b.0 — Bed / booking_beds drift audit (read-only)
 
-**Runbook:** [`PHASE-3b-0.md`](PHASE-3b-0.md). **3b.1+ not started** (no Cancel/Assign/Reassign, no dual-write).
+**Runbook:** [`PHASE-3b-0.md`](PHASE-3b-0.md). **3b.1b+ not started** (no cancel DELETE, Assign/Reassign, dual-write).
 
 | Step | Command | Pass |
 |------|---------|------|
@@ -177,11 +177,21 @@ Runbook: `docs/PHASE-2d.md`. Workflow: `n8n/phase2/Wolfhouse - Send Confirmation
 
 Optional: `npm run db:report:bed-drift -- --overlap-from=YYYY-MM-DD --overlap-to=YYYY-MM-DD` for overlap window.
 
+## Phase 3b.1a — Cancel impact report (read-only)
+
+**Runbook:** [`PHASE-3b-1a.md`](PHASE-3b-1a.md). **3b.1b+ not started** (no DELETE/UPDATE cancel script, no n8n fork).
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b1a-1 | `npm run db:report:cancel-impact -- --booking-code=WH-rec…` (booking with beds) | |
+| 3b1a-2 | JSON: `no_mutations`, beds listed, `payments_untouched` | |
+| 3b1a-3 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` still OK | |
+
 ## Phase 2 local sign-off (freeze)
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1**, **3a**, and **3b.0** (read-only bed drift) implemented; **3b.1+** dual-write not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1**, **3a**, **3b.0**, **3b.1a** (read-only cancel impact) implemented; **3b.1b+** cancel DELETE / dual-write not started.
 
 ### Tier A — automated
 
