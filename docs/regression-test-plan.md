@@ -208,9 +208,25 @@ CLI PG mirror (no n8n): `db:assign:booking-beds --execute` (3b.2b). SQL shared v
 
 Undo: `db:cancel:booking-beds --execute` or `db:sync`.
 
+## Phase 3b.4a — Manual Entry impact report (read-only)
+
+**Runbook:** [`PHASE-3b-4a.md`](PHASE-3b-4a.md). **3b.4b+** not started.
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b4a-1 | `npm run db:report:manual-entry-impact -- --action=create --manual-entry-id=MAN-test-clean --guest-name=Test --check-in=2026-06-05 --check-out=2026-06-10 --guest-count=2 --beds=R1-B1,R1-B2` (free beds) | exit 0 |
+| 3b4a-2 | Missing `--beds` on create | exit 2 `missing_required_fields` (exit 1 if no manual-entry-id) |
+| 3b4a-3 | `--beds=R99-B1` | exit 2 `unknown_bed_codes` |
+| 3b4a-4 | Overlap fixture (occupied bed/dates) | exit 2 `postgres_overlap_conflicts` |
+| 3b4a-5 | `guest-count=3` with one bed | exit 2 `guest_count_mismatch` |
+| 3b4a-6 | `--action=update --airtable-record-id=recBtWzIvmjQ5mmo0` + field changes | exit 0 |
+| 3b4a-7 | `--action=delete --airtable-record-id=recBtWzIvmjQ5mmo0` | exit 0 |
+| 3b4a-8 | `check-out` ≤ `check-in` | exit 2 `invalid_date_range` |
+| 3b4a-9 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | all pass |
+
 ## Phase 3b.3b — Reassign workflow local fork (PG + Airtable + chained Assign)
 
-**Runbook:** [`PHASE-3b-3.md`](PHASE-3b-3.md). **3b.4+** not started.
+**Runbook:** [`PHASE-3b-3.md`](PHASE-3b-3.md). **3b.4b+** not started.
 
 | Step | Command | Pass |
 |------|---------|------|
@@ -289,7 +305,7 @@ CLI-only alternative (no n8n): `db:cancel:booking-beds --execute` (3b.1b).
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.3b** implemented (reassign local n8n fork); **3b.4+** not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.3b** implemented; **3b.4a** Manual Entry impact report implemented; **3b.4b+** not started.
 
 ### Tier A — automated
 
