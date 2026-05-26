@@ -15,10 +15,12 @@
  *
  * Step 3b: --generate replaces prod Sheet/Airtable base IDs with local test targets (table IDs unchanged)
  *
+ * Step 4: --generate also writes .n8n-import.json for CLI re-import (stable id B3c4ManualEntriesLocal01)
+ *
  * TODO Step 3+: align CLIENT_SLUG with other build scripts (e.g. wolfhouse-somo) before PG SQL
  * TODO Step 3+: insert PG create/update/delete/backfill nodes
  * TODO Step 3+: add structured response node with partial_failure
- * TODO Step 3+: generate .n8n-import.json
+ * TODO Step 3+: remap node credentials to LOCAL_N8N ids on generate (like assign/cancel builds)
  * TODO Step 3+: update docs and PowerShell test script
  */
 const fs = require('fs');
@@ -27,7 +29,18 @@ const path = require('path');
 const HOSTED = path.join(__dirname, '..', 'n8n', 'Wolfhouse - Manual Entries Queue Processor.json');
 const OUT_DIR = path.join(__dirname, '..', 'n8n', 'phase3b');
 const OUT = path.join(OUT_DIR, 'Wolfhouse - Manual Entries Queue Processor (local PG).json');
+const OUT_IMPORT = path.join(
+  OUT_DIR,
+  'Wolfhouse - Manual Entries Queue Processor (local PG).n8n-import.json',
+);
 const LOCAL_WORKFLOW_ID = 'B3c4ManualEntriesLocal01';
+
+/** Stable ids from local n8n after first UI import — used when remapping credentials in a later step. */
+const LOCAL_N8N = {
+  workflowId: LOCAL_WORKFLOW_ID,
+  postgresCred: { id: 'MnnrrLecI7oVoIGq', name: 'Postgres account' },
+  airtableCred: { id: 'tEUby6EPDxFQ5st8', name: 'Airtable Personal Access Token account' },
+};
 const CLIENT_SLUG = 'wolfhouse';
 const LOCAL_WORKFLOW_NAME = 'Wolfhouse - Manual Entries Queue Processor (local PG)';
 
@@ -317,7 +330,9 @@ function writeLocalWorkflow(workflow) {
   if (!fs.existsSync(OUT_DIR)) {
     fs.mkdirSync(OUT_DIR, { recursive: true });
   }
-  fs.writeFileSync(OUT, `${JSON.stringify(workflow, null, 2)}\n`);
+  const payload = { ...workflow, id: LOCAL_WORKFLOW_ID, name: LOCAL_WORKFLOW_NAME, active: false };
+  fs.writeFileSync(OUT, `${JSON.stringify(payload, null, 2)}\n`);
+  fs.writeFileSync(OUT_IMPORT, `${JSON.stringify([payload], null, 2)}\n`);
 }
 
 /** @returns {object} */
@@ -401,6 +416,7 @@ function printGenerateSummary(workflow) {
       : webhooks.map((w) => `${w.name}=${w.parameters?.path || '?'}`).join(', ');
 
   console.log(`Wrote ${OUT}`);
+  console.log(`Wrote ${OUT_IMPORT} (CLI re-import with stable id ${LOCAL_N8N.workflowId})`);
   console.log(`Workflow name: ${workflow.name}`);
   console.log(`Workflow id: ${workflow.id}`);
   console.log(`Active: ${workflow.active}`);
