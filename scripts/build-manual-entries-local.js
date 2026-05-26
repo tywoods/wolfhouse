@@ -18,7 +18,8 @@
  * Step 4: --generate also writes .n8n-import.json for CLI re-import (stable id B3c4ManualEntriesLocal01)
  *
  * Step 6b: delete-branch PG gate; Step 6c: PG delete failure → Sheet Error (P:R)
- * TODO Step 3+: insert PG create/update/backfill nodes
+ * Step 6e: update-branch PG gate; PG update failure → Sheet Error (P:R)
+ * TODO Step 3+: insert PG create/backfill nodes
  * TODO Step 3+: add structured response node with partial_failure
  * TODO Step 3+: remap node credentials to LOCAL_N8N ids on generate (like assign/cancel builds)
  * TODO Step 3+: update docs and PowerShell test script
@@ -26,7 +27,10 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { PG_MANUAL_ENTRY_DELETE_SQL } = require('./lib/manual-entry-pg-n8n-sql');
+const {
+  PG_MANUAL_ENTRY_DELETE_SQL,
+  PG_MANUAL_ENTRY_UPDATE_SQL,
+} = require('./lib/manual-entry-pg-n8n-sql');
 
 const HOSTED = path.join(__dirname, '..', 'n8n', 'Wolfhouse - Manual Entries Queue Processor.json');
 const OUT_DIR = path.join(__dirname, '..', 'n8n', 'phase3b');
@@ -142,6 +146,97 @@ return [{
 }];`;
 
 /** Sheet columns P–R: Sync Status, Airtable Booking ID, Error (same as hosted success markers). */
+function pickParamExpr(field) {
+  return `(($('${PICK_NODE}').first().json.${field}) != null && String($('${PICK_NODE}').first().json.${field}).trim() !== '') ? String($('${PICK_NODE}').first().json.${field}).trim() : '${NULL_SENTINEL}'`;
+}
+
+const PG_UPDATE_QUERY_REPLACEMENT = [
+  `={{ ${pickParamExpr('airtable_booking_record_id')} }}`,
+  `={{ '${NULL_SENTINEL}' }}`,
+  `={{ ${pickParamExpr('manual_entry_id')} }}`,
+  `={{ ${pickParamExpr('guest_name')} }}`,
+  `={{ ${pickParamExpr('check_in')} }}`,
+  `={{ ${pickParamExpr('check_out')} }}`,
+  `={{ ($('${PICK_NODE}').first().json.guest_count != null && String($('${PICK_NODE}').first().json.guest_count).trim() !== '') ? String($('${PICK_NODE}').first().json.guest_count).trim() : '${NULL_SENTINEL}' }}`,
+  `={{ (() => { const raw = $('${PICK_NODE}').first().json.status; if (raw == null || String(raw).trim() === '') return '${NULL_SENTINEL}'; const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_'); const m = { confirmed: 'confirmed', cancelled: 'cancelled', expired: 'expired', pending: 'pending' }; return m[s] || s; })() }}`,
+  `={{ (() => { const raw = $('${PICK_NODE}').first().json.payment_status; if (raw == null || String(raw).trim() === '') return '${NULL_SENTINEL}'; const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_'); const m = { waiting_payment: 'waiting_payment', deposit_paid: 'deposit_paid', paid_in_full: 'paid_in_full', refunded: 'refunded', failed: 'failed' }; return m[s] || s; })() }}`,
+  `={{ (() => { const raw = $('${PICK_NODE}').first().json.package; if (raw == null || String(raw).trim() === '') return '${NULL_SENTINEL}'; const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_'); const m = { malibu: 'malibu', uluwatu: 'uluwatu', waimea: 'waimea', custom: 'custom' }; return m[s] || s; })() }}`,
+  `={{ ${pickParamExpr('phone')} }}`,
+  `={{ ${pickParamExpr('email')} }}`,
+  `={{ ${pickParamExpr('notes')} }}`,
+].join(',');
+
+const VALIDATE_PG_UPDATE_JS = `const pick = $('${PICK_NODE}').first().json;
+const pgItems = $('Postgres - Manual Entry Update').all();
+const pgItem = pgItems[0];
+const pgErr = pgItem?.error;
+const pg = pgItem?.json || {};
+
+if (pgErr) {
+  const msg = String(pgErr.message || pgErr);
+  return [{
+    json: {
+      pg_ok: false,
+      errors: [msg.includes('no parameter') ? 'postgres_query_param_missing' : 'postgres_manual_entry_update_failed'],
+      manual_entry_id: pick.manual_entry_id,
+      airtable_booking_record_id: pick.airtable_booking_record_id,
+      pg_booking_updated_count: 0,
+      partial_failure: 'pg_query_failed',
+      message: msg
+    }
+  }];
+}
+
+const resolved = Number(pg.booking_rows_resolved ?? 0);
+
+if (resolved !== 1) {
+  return [{
+    json: {
+      pg_ok: false,
+      errors: [resolved === 0 ? 'booking_not_found_in_postgres' : 'booking_ambiguous_in_postgres'],
+      manual_entry_id: pick.manual_entry_id,
+      airtable_booking_record_id: pick.airtable_booking_record_id,
+      pg_booking_updated_count: 0,
+      partial_failure: 'pg_resolve_failed',
+      message: 'Postgres could not resolve exactly one booking — Airtable update skipped'
+    }
+  }];
+}
+
+const errors = [];
+const payBefore = Number(pg.payments_count ?? 0);
+const payAfter = Number(pg.payments_count_after ?? 0);
+if (payBefore !== payAfter) {
+  errors.push('payments_count_changed_during_pg_update');
+}
+
+return [{
+  json: {
+    pg_ok: errors.length === 0,
+    errors,
+    ...pg,
+    manual_entry_id: pick.manual_entry_id,
+    airtable_booking_record_id: pick.airtable_booking_record_id,
+    booking_code: pg.booking_code || pick.booking_code || ''
+  }
+}];`;
+
+const BUILD_PG_UPDATE_SHEET_ERROR_JS = `const pick = $('${PICK_NODE}').first().json;
+const v = $('Code - Validate PG Update').first().json;
+const errParts = Array.isArray(v.errors) ? v.errors.filter(Boolean) : [];
+const errMsg = errParts.length
+  ? errParts.join('; ')
+  : String(v.message || v.partial_failure || 'pg_update_failed');
+return [{
+  json: {
+    manual_entry_id: pick.manual_entry_id,
+    row_number: pick.row_number,
+    airtable_booking_record_id:
+      pick.airtable_booking_record_id || v.airtable_booking_record_id || '',
+    sheet_error: String(errMsg).slice(0, 500)
+  }
+}];`;
+
 const BUILD_PG_DELETE_SHEET_ERROR_JS = `const pick = $('${PICK_NODE}').first().json;
 const v = $('Code - Validate PG Delete').first().json;
 const errParts = Array.isArray(v.errors) ? v.errors.filter(Boolean) : [];
@@ -314,6 +409,159 @@ function injectDeleteBranchPgFailureSheet(workflow) {
   ];
   conn['Code - Build PG Delete Sheet Error'] = {
     main: [[{ node: 'HTTP - Mark Queue Item PG Delete Error', type: 'main', index: 0 }]],
+  };
+
+  return workflow;
+}
+
+/**
+ * Step 6e — update-branch PG gate before Update Airtable Booking - Queue.
+ * @param {object} workflow
+ */
+function injectUpdateBranchPgNodes(workflow) {
+  const required = ['HTTP - Mark Update Processing', 'Update Airtable Booking - Queue'];
+  for (const name of required) {
+    if (!listNodes(workflow).some((n) => n.name === name)) {
+      throw new Error(`Cannot inject update PG nodes: missing "${name}"`);
+    }
+  }
+  const hasPgUpdate = listNodes(workflow).some((n) => n.name === 'Postgres - Manual Entry Update');
+
+  const pgNodes = hasPgUpdate
+    ? []
+    : [
+        {
+          parameters: {
+            operation: 'executeQuery',
+            query: PG_MANUAL_ENTRY_UPDATE_SQL,
+            options: { queryReplacement: PG_UPDATE_QUERY_REPLACEMENT },
+          },
+          type: 'n8n-nodes-base.postgres',
+          typeVersion: 2.5,
+          position: [920, 32],
+          id: uid('postgres-manual-entry-update'),
+          name: 'Postgres - Manual Entry Update',
+          alwaysOutputData: true,
+          continueOnFail: true,
+          onError: 'continueRegularOutput',
+          credentials: { postgres: LOCAL_N8N.postgresCred },
+        },
+        {
+          parameters: { jsCode: VALIDATE_PG_UPDATE_JS },
+          type: 'n8n-nodes-base.code',
+          typeVersion: 2,
+          position: [992, 32],
+          id: uid('validate-pg-manual-update'),
+          name: 'Code - Validate PG Update',
+        },
+        {
+          parameters: {
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+              conditions: [
+                {
+                  id: 'pg-update-ok',
+                  leftValue: '={{ $json.pg_ok }}',
+                  rightValue: '',
+                  operator: { type: 'boolean', operation: 'true', singleValue: true },
+                },
+              ],
+              combinator: 'and',
+            },
+            options: {},
+          },
+          type: 'n8n-nodes-base.if',
+          typeVersion: 2.2,
+          position: [1064, 32],
+          id: uid('if-pg-update-ok'),
+          name: 'IF - PG Update OK',
+        },
+      ];
+
+  if (pgNodes.length) {
+    workflow.nodes.push(...pgNodes);
+  }
+
+  const conn = workflow.connections || {};
+  workflow.connections = conn;
+
+  if (pgNodes.length) {
+    conn['HTTP - Mark Update Processing'] = {
+      main: [[{ node: 'Postgres - Manual Entry Update', type: 'main', index: 0 }]],
+    };
+    conn['Postgres - Manual Entry Update'] = {
+      main: [[{ node: 'Code - Validate PG Update', type: 'main', index: 0 }]],
+    };
+    conn['Code - Validate PG Update'] = {
+      main: [[{ node: 'IF - PG Update OK', type: 'main', index: 0 }]],
+    };
+    conn['IF - PG Update OK'] = {
+      main: [[{ node: 'Update Airtable Booking - Queue', type: 'main', index: 0 }], []],
+    };
+  }
+
+  injectUpdateBranchPgFailureSheet(workflow);
+  return workflow;
+}
+
+/**
+ * Step 6e — IF - PG Update OK false → Sheet Error (P=Error, R=message); no Airtable update.
+ * @param {object} workflow
+ */
+function injectUpdateBranchPgFailureSheet(workflow) {
+  if (!listNodes(workflow).some((n) => n.name === 'IF - PG Update OK')) {
+    return workflow;
+  }
+  if (listNodes(workflow).some((n) => n.name === 'HTTP - Mark Queue Item PG Update Error')) {
+    return workflow;
+  }
+
+  const sheetCredRef = listNodes(workflow).find((n) => n.name === 'HTTP - Mark Update Processing');
+  const sheetCred = sheetCredRef?.credentials
+    ? JSON.parse(JSON.stringify(sheetCredRef.credentials))
+    : undefined;
+
+  workflow.nodes.push(
+    {
+      parameters: { jsCode: BUILD_PG_UPDATE_SHEET_ERROR_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [1120, 120],
+      id: uid('build-pg-update-sheet-error'),
+      name: 'Code - Build PG Update Sheet Error',
+    },
+    {
+      parameters: {
+        method: 'POST',
+        url: `=https://sheets.googleapis.com/v4/spreadsheets/${TEST_SHEET_SPREADSHEET_ID}/values:batchUpdate`,
+        authentication: 'predefinedCredentialType',
+        nodeCredentialType: 'googleOAuth2Api',
+        sendBody: true,
+        specifyBody: 'json',
+        jsonBody:
+          "={{\n  {\n    valueInputOption: 'USER_ENTERED',\n    data: [\n      {\n        range: 'Manual Entries!P' + $json.row_number + ':R' + $json.row_number,\n        values: [\n          [\n            'Error',\n            $json.airtable_booking_record_id,\n            $json.sheet_error\n          ]\n        ]\n      }\n    ]\n  }\n}}",
+        options: {},
+      },
+      type: 'n8n-nodes-base.httpRequest',
+      typeVersion: 4.4,
+      position: [1280, 120],
+      id: uid('http-pg-update-sheet-error'),
+      name: 'HTTP - Mark Queue Item PG Update Error',
+      continueOnFail: true,
+      alwaysOutputData: true,
+      ...(sheetCred ? { credentials: sheetCred } : {}),
+    },
+  );
+
+  const conn = workflow.connections;
+  if (!conn['IF - PG Update OK']?.main) {
+    conn['IF - PG Update OK'] = { main: [[], []] };
+  }
+  conn['IF - PG Update OK'].main[1] = [
+    { node: 'Code - Build PG Update Sheet Error', type: 'main', index: 0 },
+  ];
+  conn['Code - Build PG Update Sheet Error'] = {
+    main: [[{ node: 'HTTP - Mark Queue Item PG Update Error', type: 'main', index: 0 }]],
   };
 
   return workflow;
@@ -564,6 +812,7 @@ function buildLocalWorkflowFromHosted(hosted) {
     );
   }
   injectDeleteBranchPgNodes(neutralized.workflow);
+  injectUpdateBranchPgNodes(neutralized.workflow);
   return neutralized;
 }
 
@@ -670,8 +919,16 @@ function printGenerateSummary(workflow) {
   const pgDeleteSheetErr = listNodes(workflow).some(
     (n) => n.name === 'HTTP - Mark Queue Item PG Delete Error',
   );
+  const pgUpdate = listNodes(workflow).some((n) => n.name === 'Postgres - Manual Entry Update');
+  const pgUpdateSheetErr = listNodes(workflow).some(
+    (n) => n.name === 'HTTP - Mark Queue Item PG Update Error',
+  );
+  const pgCreate = listNodes(workflow).some((n) => /Postgres.*Create|Manual Entry Create/i.test(n.name));
   console.log(`Delete-branch PG nodes: ${pgDelete ? 'yes' : 'no'}`);
   console.log(`Delete-branch PG failure sheet: ${pgDeleteSheetErr ? 'yes' : 'no'}`);
+  console.log(`Update-branch PG nodes: ${pgUpdate ? 'yes' : 'no'}`);
+  console.log(`Update-branch PG failure sheet: ${pgUpdateSheetErr ? 'yes' : 'no'}`);
+  console.log(`Create-branch PG nodes: ${pgCreate ? 'yes' : 'no'}`);
   console.log(`Hosted source unchanged: ${HOSTED}`);
   console.log(`Test Sheet ID: ${TEST_SHEET_SPREADSHEET_ID}`);
   console.log(`Test Airtable base ID: ${TEST_AIRTABLE_BASE_ID}`);

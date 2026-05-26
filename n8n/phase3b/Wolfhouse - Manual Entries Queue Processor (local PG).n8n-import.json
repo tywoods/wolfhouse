@@ -3749,6 +3749,120 @@
             "name": "Google account"
           }
         }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS booking_code,\n    NULLIF(trim($3), '__NULL__') AS manual_entry_id,\n    NULLIF(trim($4), '__NULL__') AS guest_name,\n    NULLIF(trim($5), '__NULL__')::date AS check_in,\n    NULLIF(trim($6), '__NULL__')::date AS check_out,\n    NULLIF(NULLIF(trim($7), '__NULL__'), '')::int AS guest_count,\n    NULLIF(trim($8), '__NULL__') AS status,\n    NULLIF(trim($9), '__NULL__') AS payment_status,\n    NULLIF(trim($10), '__NULL__') AS package_code,\n    NULLIF(trim($11), '__NULL__') AS phone,\n    NULLIF(trim($12), '__NULL__') AS email,\n    NULLIF(trim($13), '__NULL__') AS notes\n),\nresolved AS (\n  SELECT\n    b.id,\n    b.booking_code,\n    b.guest_name,\n    b.check_in,\n    b.check_out,\n    b.guest_count,\n    b.status::text AS status,\n    b.payment_status::text AS payment_status,\n    b.package_code,\n    b.phone,\n    b.email,\n    b.staff_notes,\n    c.id AS client_id\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND (\n      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)\n      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)\n      OR (p.manual_entry_id IS NOT NULL AND b.metadata->>'manual_entry_id' = p.manual_entry_id)\n    )\n  LIMIT 2\n),\nresolved_count AS (\n  SELECT COUNT(*)::int AS c FROM resolved\n),\nguard AS (\n  SELECT r.*, p.manual_entry_id AS p_manual_entry_id\n  FROM resolved r\n  CROSS JOIN params p\n  WHERE (SELECT c FROM resolved_count) = 1\n),\npayments_before AS (\n  SELECT COUNT(*)::int AS c\n  FROM payments pay\n  INNER JOIN guard g ON pay.booking_id = g.id AND pay.client_id = g.client_id\n),\ndiff AS (\n  SELECT\n    g.id AS booking_id,\n    g.client_id,\n    g.booking_code,\n    g.p_manual_entry_id,\n    g.payment_status AS payment_status_before,\n    (p.guest_name IS NOT NULL AND p.guest_name IS DISTINCT FROM g.guest_name) AS ch_guest_name,\n    (p.check_in IS NOT NULL AND p.check_in IS DISTINCT FROM g.check_in) AS ch_check_in,\n    (p.check_out IS NOT NULL AND p.check_out IS DISTINCT FROM g.check_out) AS ch_check_out,\n    (p.guest_count IS NOT NULL AND p.guest_count IS DISTINCT FROM g.guest_count) AS ch_guest_count,\n    (p.status IS NOT NULL AND p.status IS DISTINCT FROM g.status) AS ch_status,\n    (p.payment_status IS NOT NULL AND p.payment_status IS DISTINCT FROM g.payment_status) AS ch_payment_status,\n    (p.package_code IS NOT NULL AND p.package_code IS DISTINCT FROM g.package_code) AS ch_package_code,\n    (p.phone IS NOT NULL AND p.phone IS DISTINCT FROM COALESCE(g.phone, '')) AS ch_phone,\n    (p.email IS NOT NULL AND p.email IS DISTINCT FROM COALESCE(g.email, '')) AS ch_email,\n    (p.notes IS NOT NULL AND trim(p.notes) <> '') AS ch_notes\n  FROM guard g\n  CROSS JOIN params p\n),\nhas_change AS (\n  SELECT\n    d.*,\n    (\n      d.ch_guest_name OR d.ch_check_in OR d.ch_check_out OR d.ch_guest_count\n      OR d.ch_status OR d.ch_payment_status OR d.ch_package_code\n      OR d.ch_phone OR d.ch_email OR d.ch_notes\n    ) AS any_change\n  FROM diff d\n),\nupdated AS (\n  UPDATE bookings b\n  SET\n    guest_name = CASE WHEN h.ch_guest_name THEN p.guest_name ELSE b.guest_name END,\n    check_in = CASE WHEN h.ch_check_in THEN p.check_in ELSE b.check_in END,\n    check_out = CASE WHEN h.ch_check_out THEN p.check_out ELSE b.check_out END,\n    guest_count = CASE WHEN h.ch_guest_count THEN p.guest_count ELSE b.guest_count END,\n    status = CASE WHEN h.ch_status THEN p.status::booking_status ELSE b.status END,\n    payment_status = CASE WHEN h.ch_payment_status THEN p.payment_status::payment_status ELSE b.payment_status END,\n    package_code = CASE WHEN h.ch_package_code THEN p.package_code ELSE b.package_code END,\n    phone = CASE WHEN h.ch_phone THEN p.phone ELSE b.phone END,\n    email = CASE WHEN h.ch_email THEN p.email ELSE b.email END,\n    staff_notes = CASE\n      WHEN h.ch_notes THEN\n        trim(\n          both E'\\n' from (\n            COALESCE(b.staff_notes, '')\n            || CASE\n              WHEN COALESCE(b.staff_notes, '') LIKE '%' || COALESCE(h.p_manual_entry_id, '') || '%' THEN ''\n              ELSE E'\\nManual Entry ID: ' || COALESCE(h.p_manual_entry_id, '')\n            END\n            || E'\\n'\n            || p.notes\n          )\n        )\n      ELSE b.staff_notes\n    END\n  FROM has_change h\n  CROSS JOIN params p\n  WHERE b.id = h.booking_id AND b.client_id = h.client_id AND h.any_change\n  RETURNING b.id, b.booking_code, b.payment_status::text AS payment_status_after\n)\nSELECT\n  rc.c AS booking_rows_resolved,\n  h.booking_code,\n  h.booking_id::text AS booking_id,\n  h.payment_status_before,\n  COALESCE((SELECT payment_status_after FROM updated LIMIT 1), h.payment_status_before) AS payment_status_after,\n  (SELECT COUNT(*)::int FROM updated) AS pg_booking_updated_count,\n  CASE\n    WHEN h.booking_id IS NOT NULL AND NOT COALESCE(h.any_change, false) THEN true\n    ELSE false\n  END AS idempotent,\n  (SELECT c FROM payments_before) AS payments_count,\n  (SELECT COUNT(*)::int FROM payments pay INNER JOIN guard g ON pay.booking_id = g.id) AS payments_count_after\nFROM resolved_count rc\nLEFT JOIN has_change h ON true",
+          "options": {
+            "queryReplacement": "={{ (($('Code - Pick Next Manual Queue Item').first().json.airtable_booking_record_id) != null && String($('Code - Pick Next Manual Queue Item').first().json.airtable_booking_record_id).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.airtable_booking_record_id).trim() : '__NULL__' }},={{ '__NULL__' }},={{ (($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id) != null && String($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id).trim() : '__NULL__' }},={{ (($('Code - Pick Next Manual Queue Item').first().json.guest_name) != null && String($('Code - Pick Next Manual Queue Item').first().json.guest_name).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.guest_name).trim() : '__NULL__' }},={{ (($('Code - Pick Next Manual Queue Item').first().json.check_in) != null && String($('Code - Pick Next Manual Queue Item').first().json.check_in).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.check_in).trim() : '__NULL__' }},={{ (($('Code - Pick Next Manual Queue Item').first().json.check_out) != null && String($('Code - Pick Next Manual Queue Item').first().json.check_out).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.check_out).trim() : '__NULL__' }},={{ ($('Code - Pick Next Manual Queue Item').first().json.guest_count != null && String($('Code - Pick Next Manual Queue Item').first().json.guest_count).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.guest_count).trim() : '__NULL__' }},={{ (() => { const raw = $('Code - Pick Next Manual Queue Item').first().json.status; if (raw == null || String(raw).trim() === '') return '__NULL__'; const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_'); const m = { confirmed: 'confirmed', cancelled: 'cancelled', expired: 'expired', pending: 'pending' }; return m[s] || s; })() }},={{ (() => { const raw = $('Code - Pick Next Manual Queue Item').first().json.payment_status; if (raw == null || String(raw).trim() === '') return '__NULL__'; const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_'); const m = { waiting_payment: 'waiting_payment', deposit_paid: 'deposit_paid', paid_in_full: 'paid_in_full', refunded: 'refunded', failed: 'failed' }; return m[s] || s; })() }},={{ (() => { const raw = $('Code - Pick Next Manual Queue Item').first().json.package; if (raw == null || String(raw).trim() === '') return '__NULL__'; const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_'); const m = { malibu: 'malibu', uluwatu: 'uluwatu', waimea: 'waimea', custom: 'custom' }; return m[s] || s; })() }},={{ (($('Code - Pick Next Manual Queue Item').first().json.phone) != null && String($('Code - Pick Next Manual Queue Item').first().json.phone).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.phone).trim() : '__NULL__' }},={{ (($('Code - Pick Next Manual Queue Item').first().json.email) != null && String($('Code - Pick Next Manual Queue Item').first().json.email).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.email).trim() : '__NULL__' }},={{ (($('Code - Pick Next Manual Queue Item').first().json.notes) != null && String($('Code - Pick Next Manual Queue Item').first().json.notes).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.notes).trim() : '__NULL__' }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          920,
+          32
+        ],
+        "id": "f9d1af3e-abcb-4db8-83c7-2725a7ac941e",
+        "name": "Postgres - Manual Entry Update",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const pick = $('Code - Pick Next Manual Queue Item').first().json;\nconst pgItems = $('Postgres - Manual Entry Update').all();\nconst pgItem = pgItems[0];\nconst pgErr = pgItem?.error;\nconst pg = pgItem?.json || {};\n\nif (pgErr) {\n  const msg = String(pgErr.message || pgErr);\n  return [{\n    json: {\n      pg_ok: false,\n      errors: [msg.includes('no parameter') ? 'postgres_query_param_missing' : 'postgres_manual_entry_update_failed'],\n      manual_entry_id: pick.manual_entry_id,\n      airtable_booking_record_id: pick.airtable_booking_record_id,\n      pg_booking_updated_count: 0,\n      partial_failure: 'pg_query_failed',\n      message: msg\n    }\n  }];\n}\n\nconst resolved = Number(pg.booking_rows_resolved ?? 0);\n\nif (resolved !== 1) {\n  return [{\n    json: {\n      pg_ok: false,\n      errors: [resolved === 0 ? 'booking_not_found_in_postgres' : 'booking_ambiguous_in_postgres'],\n      manual_entry_id: pick.manual_entry_id,\n      airtable_booking_record_id: pick.airtable_booking_record_id,\n      pg_booking_updated_count: 0,\n      partial_failure: 'pg_resolve_failed',\n      message: 'Postgres could not resolve exactly one booking — Airtable update skipped'\n    }\n  }];\n}\n\nconst errors = [];\nconst payBefore = Number(pg.payments_count ?? 0);\nconst payAfter = Number(pg.payments_count_after ?? 0);\nif (payBefore !== payAfter) {\n  errors.push('payments_count_changed_during_pg_update');\n}\n\nreturn [{\n  json: {\n    pg_ok: errors.length === 0,\n    errors,\n    ...pg,\n    manual_entry_id: pick.manual_entry_id,\n    airtable_booking_record_id: pick.airtable_booking_record_id,\n    booking_code: pg.booking_code || pick.booking_code || ''\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          992,
+          32
+        ],
+        "id": "da32a2cb-1b17-4df7-8406-c99ed25828c9",
+        "name": "Code - Validate PG Update"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "pg-update-ok",
+                "leftValue": "={{ $json.pg_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1064,
+          32
+        ],
+        "id": "65bf5e2e-23e5-4ea6-85ae-6ea558205783",
+        "name": "IF - PG Update OK"
+      },
+      {
+        "parameters": {
+          "jsCode": "const pick = $('Code - Pick Next Manual Queue Item').first().json;\nconst v = $('Code - Validate PG Update').first().json;\nconst errParts = Array.isArray(v.errors) ? v.errors.filter(Boolean) : [];\nconst errMsg = errParts.length\n  ? errParts.join('; ')\n  : String(v.message || v.partial_failure || 'pg_update_failed');\nreturn [{\n  json: {\n    manual_entry_id: pick.manual_entry_id,\n    row_number: pick.row_number,\n    airtable_booking_record_id:\n      pick.airtable_booking_record_id || v.airtable_booking_record_id || '',\n    sheet_error: String(errMsg).slice(0, 500)\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          120
+        ],
+        "id": "8d52ae87-572c-4f5f-8961-f8f509ac9817",
+        "name": "Code - Build PG Update Sheet Error"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://sheets.googleapis.com/v4/spreadsheets/1JIY22nrtHXWEi6gPWvvpDfgG8Xe0jT6hmGGzkNXRs10/values:batchUpdate",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleOAuth2Api",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{\n  {\n    valueInputOption: 'USER_ENTERED',\n    data: [\n      {\n        range: 'Manual Entries!P' + $json.row_number + ':R' + $json.row_number,\n        values: [\n          [\n            'Error',\n            $json.airtable_booking_record_id,\n            $json.sheet_error\n          ]\n        ]\n      }\n    ]\n  }\n}}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          1280,
+          120
+        ],
+        "id": "77f98e7b-290f-4c69-8176-24ed2761a86e",
+        "name": "HTTP - Mark Queue Item PG Update Error",
+        "continueOnFail": true,
+        "alwaysOutputData": true,
+        "credentials": {
+          "googleOAuth2Api": {
+            "id": "fl7l9Qi45dHCxx6W",
+            "name": "Google account"
+          }
+        }
       }
     ],
     "pinData": {},
@@ -3892,7 +4006,7 @@
         "main": [
           [
             {
-              "node": "Update Airtable Booking - Queue",
+              "node": "Postgres - Manual Entry Update",
               "type": "main",
               "index": 0
             }
@@ -4061,6 +4175,57 @@
           [
             {
               "node": "HTTP - Mark Queue Item PG Delete Error",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Manual Entry Update": {
+        "main": [
+          [
+            {
+              "node": "Code - Validate PG Update",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Validate PG Update": {
+        "main": [
+          [
+            {
+              "node": "IF - PG Update OK",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - PG Update OK": {
+        "main": [
+          [
+            {
+              "node": "Update Airtable Booking - Queue",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Build PG Update Sheet Error",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Build PG Update Sheet Error": {
+        "main": [
+          [
+            {
+              "node": "HTTP - Mark Queue Item PG Update Error",
               "type": "main",
               "index": 0
             }
