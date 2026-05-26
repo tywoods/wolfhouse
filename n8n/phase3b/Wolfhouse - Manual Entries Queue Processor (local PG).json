@@ -3862,6 +3862,133 @@
           "name": "Google account"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "const pick = $('Code - Pick Next Manual Queue Item').first().json;\n\nfunction normStatus(raw) {\n  if (raw == null || String(raw).trim() === '') return 'confirmed';\n  const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_');\n  const m = { confirmed: 'confirmed', cancelled: 'cancelled', expired: 'expired', pending: 'pending' };\n  return m[s] || s;\n}\n\nfunction normPayment(raw) {\n  if (raw == null || String(raw).trim() === '') return 'waiting_payment';\n  const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_');\n  const m = {\n    waiting_payment: 'waiting_payment',\n    deposit_paid: 'deposit_paid',\n    paid_in_full: 'paid_in_full',\n    refunded: 'refunded',\n    failed: 'failed'\n  };\n  return m[s] || s;\n}\n\nfunction normPackage(raw) {\n  if (raw == null || String(raw).trim() === '') return null;\n  const s = String(raw).trim().toLowerCase().replace(/\\s+/g, '_');\n  const m = { malibu: 'malibu', uluwatu: 'uluwatu', waimea: 'waimea', custom: 'custom' };\n  return m[s] || s;\n}\n\nconst bedIds = Array.isArray(pick.bed_ids) ? pick.bed_ids : [];\nconst beds = bedIds\n  .map((code) => String(code || '').trim().toUpperCase())\n  .filter(Boolean)\n  .map((bed_code) => ({\n    bed_code,\n    assignment_start_date: pick.check_in,\n    assignment_end_date: pick.check_out\n  }));\n\nreturn [{\n  json: {\n    manual_entry_id: pick.manual_entry_id,\n    row_number: pick.row_number,\n    guest_name: pick.guest_name,\n    check_in: pick.check_in,\n    check_out: pick.check_out,\n    guest_count: pick.guest_count,\n    status: normStatus(pick.status),\n    payment_status: normPayment(pick.payment_status),\n    package_code: normPackage(pick.package),\n    phone: pick.phone || '',\n    email: pick.email || '',\n    notes: pick.notes || '',\n    beds_json: JSON.stringify(beds)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        -160
+      ],
+      "id": "de06e4e8-befd-4fac-8d47-f42f771637ca",
+      "name": "Code - Build PG Create Payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS manual_entry_id,\n    NULLIF(trim($2), '__NULL__') AS guest_name,\n    NULLIF(trim($3), '__NULL__')::date AS check_in,\n    NULLIF(trim($4), '__NULL__')::date AS check_out,\n    COALESCE(NULLIF(NULLIF(trim($5), '__NULL__'), '')::int, 1) AS guest_count,\n    NULLIF(trim($6), '__NULL__') AS status,\n    NULLIF(trim($7), '__NULL__') AS payment_status,\n    NULLIF(trim($8), '__NULL__') AS package_code,\n    NULLIF(trim($9), '__NULL__') AS phone,\n    NULLIF(trim($10), '__NULL__') AS email,\n    NULLIF(trim($11), '__NULL__') AS notes,\n    COALESCE($12::jsonb, '[]'::jsonb) AS beds_json,\n    (\n      'WH-pending-'\n      || regexp_replace(\n        substring(COALESCE(NULLIF(trim($1), '__NULL__'), 'unknown') from 1 for 80),\n        '[^[:alnum:]_-]',\n        '_',\n        'g'\n      )\n    ) AS provisional_booking_code\n),\nclient AS (\n  SELECT id AS client_id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1\n),\nclient_count AS (\n  SELECT COUNT(*)::int AS c FROM client\n),\ndup_meta AS (\n  SELECT b.id, b.booking_code, b.status::text AS status, b.payment_status::text AS payment_status\n  FROM bookings b\n  INNER JOIN client c ON c.client_id = b.client_id\n  CROSS JOIN params p\n  WHERE p.manual_entry_id IS NOT NULL\n    AND b.metadata->>'manual_entry_id' = p.manual_entry_id\n),\ndup_meta_count AS (\n  SELECT COUNT(*)::int AS c FROM dup_meta\n),\nexisting_booking AS (\n  SELECT b.id, b.client_id, b.booking_code, b.status::text AS status, b.payment_status::text AS payment_status,\n         b.staff_notes\n  FROM bookings b\n  INNER JOIN client c ON c.client_id = b.client_id\n  CROSS JOIN params p\n  WHERE (\n    (p.manual_entry_id IS NOT NULL AND b.metadata->>'manual_entry_id' = p.manual_entry_id)\n    OR b.booking_code = p.provisional_booking_code\n  )\n  LIMIT 2\n),\nexisting_count AS (\n  SELECT COUNT(*)::int AS c FROM existing_booking\n),\noverlap_booking_id AS (\n  SELECT COALESCE(\n    (SELECT id FROM dup_meta LIMIT 1),\n    (SELECT id FROM existing_booking LIMIT 1),\n    '00000000-0000-0000-0000-000000000000'::uuid\n  ) AS id\n),\nbeds_input AS (\n  SELECT\n    upper(trim(elem->>'bed_code')) AS bed_code,\n    (elem->>'assignment_start_date')::date AS start_d,\n    (elem->>'assignment_end_date')::date AS end_d\n  FROM params p\n  CROSS JOIN jsonb_array_elements(p.beds_json) elem\n  WHERE upper(trim(COALESCE(elem->>'bed_code', ''))) <> ''\n),\nbeds_input_count AS (\n  SELECT COUNT(*)::int AS c FROM beds_input\n),\nunknown_beds AS (\n  SELECT bi.bed_code\n  FROM beds_input bi\n  CROSS JOIN client c\n  LEFT JOIN beds bd ON bd.client_id = c.client_id AND upper(bd.bed_code) = bi.bed_code\n  WHERE bd.id IS NULL\n),\nunknown_count AS (\n  SELECT COUNT(*)::int AS c FROM unknown_beds\n),\noverlap_beds AS (\n  SELECT DISTINCT bi.bed_code\n  FROM beds_input bi\n  CROSS JOIN client c\n  CROSS JOIN overlap_booking_id ob\n  INNER JOIN beds bd ON bd.client_id = c.client_id AND upper(bd.bed_code) = bi.bed_code\n  INNER JOIN booking_beds bb ON bb.bed_id = bd.id AND bb.client_id = bd.client_id\n  INNER JOIN bookings otb ON otb.id = bb.booking_id AND otb.client_id = bb.client_id\n  WHERE bb.booking_id <> ob.id\n    AND otb.status NOT IN ('cancelled', 'expired')\n    AND bb.assignment_start_date < bi.end_d\n    AND bb.assignment_end_date > bi.start_d\n),\noverlap_count AS (\n  SELECT COUNT(*)::int AS c FROM overlap_beds\n),\nprecheck_ok AS (\n  SELECT\n    (SELECT c FROM client_count) = 1\n    AND (SELECT c FROM dup_meta_count) <= 1\n    AND (SELECT c FROM existing_count) <= 1\n    AND (SELECT c FROM unknown_count) = 0\n    AND (SELECT c FROM overlap_count) = 0\n    AND (SELECT c FROM beds_input_count) > 0\n    AND p.manual_entry_id IS NOT NULL\n    AND p.guest_name IS NOT NULL\n    AND p.check_in IS NOT NULL\n    AND p.check_out IS NOT NULL AS ok\n  FROM params p\n),\nbooking_updated AS (\n  UPDATE bookings b\n  SET\n    guest_name = COALESCE(p.guest_name, b.guest_name),\n    check_in = COALESCE(p.check_in, b.check_in),\n    check_out = COALESCE(p.check_out, b.check_out),\n    guest_count = COALESCE(p.guest_count, b.guest_count),\n    status = COALESCE(p.status::booking_status, b.status),\n    payment_status = COALESCE(p.payment_status::payment_status, b.payment_status),\n    package_code = COALESCE(p.package_code, b.package_code),\n    phone = COALESCE(p.phone, b.phone),\n    email = COALESCE(p.email, b.email),\n    staff_notes = trim(\n      both E'\\n' from (\n        COALESCE(b.staff_notes, '')\n        || CASE\n          WHEN COALESCE(b.staff_notes, '') LIKE '%' || p.manual_entry_id || '%' THEN ''\n          ELSE E'\\nManual Entry ID: ' || p.manual_entry_id\n        END\n        || CASE WHEN p.notes IS NOT NULL AND trim(p.notes) <> '' THEN E'\\n' || p.notes ELSE '' END\n      )\n    ),\n    booking_source = 'manual_staff',\n    metadata = COALESCE(b.metadata, '{}'::jsonb) || jsonb_build_object('manual_entry_id', p.manual_entry_id),\n    assignment_status = 'assigned'::assignment_status,\n    availability_check_status = 'available'::availability_check_status\n  FROM existing_booking eb\n  CROSS JOIN params p\n  WHERE (SELECT ok FROM precheck_ok)\n    AND (SELECT c FROM existing_count) = 1\n    AND eb.status NOT IN ('cancelled', 'expired')\n    AND b.id = eb.id\n    AND b.client_id = eb.client_id\n  RETURNING b.id, b.client_id, b.booking_code, b.status::text AS status, b.payment_status::text AS payment_status,\n    false AS created\n),\nbooking_inserted AS (\n  INSERT INTO bookings (\n    client_id,\n    booking_code,\n    guest_name,\n    phone,\n    email,\n    status,\n    payment_status,\n    assignment_status,\n    availability_check_status,\n    check_in,\n    check_out,\n    guest_count,\n    package_code,\n    booking_source,\n    staff_notes,\n    metadata\n  )\n  SELECT\n    c.client_id,\n    p.provisional_booking_code,\n    p.guest_name,\n    p.phone,\n    p.email,\n    COALESCE(p.status, 'confirmed')::booking_status,\n    COALESCE(p.payment_status, 'waiting_payment')::payment_status,\n    'assigned'::assignment_status,\n    'available'::availability_check_status,\n    p.check_in,\n    p.check_out,\n    p.guest_count,\n    p.package_code,\n    'manual_staff',\n    trim(\n      both E'\\n' from (\n        'Manual Entry ID: ' || p.manual_entry_id\n        || CASE WHEN p.notes IS NOT NULL AND trim(p.notes) <> '' THEN E'\\n' || p.notes ELSE '' END\n      )\n    ),\n    jsonb_build_object('manual_entry_id', p.manual_entry_id)\n  FROM params p\n  CROSS JOIN client c\n  WHERE (SELECT ok FROM precheck_ok)\n    AND (SELECT c FROM existing_count) = 0\n  RETURNING id, client_id, booking_code, status::text AS status, payment_status::text AS payment_status,\n    true AS created\n),\nbooking_final AS (\n  SELECT * FROM booking_updated\n  UNION ALL\n  SELECT * FROM booking_inserted\n),\nguard AS (\n  SELECT bf.* FROM booking_final bf LIMIT 1\n),\npayments_before AS (\n  SELECT COUNT(*)::int AS c\n  FROM payments pay\n  INNER JOIN guard g ON pay.booking_id = g.id AND pay.client_id = g.client_id\n),\nexisting_skip AS (\n  SELECT bi.bed_code\n  FROM beds_input bi\n  CROSS JOIN guard g\n  INNER JOIN booking_beds bb ON bb.booking_id = g.id AND bb.client_id = g.client_id\n  WHERE upper(bb.bed_code) = bi.bed_code\n    AND bb.assignment_start_date = bi.start_d\n    AND bb.assignment_end_date = bi.end_d\n),\nskip_count AS (\n  SELECT COUNT(*)::int AS c FROM existing_skip\n),\nto_insert AS (\n  SELECT\n    bi.bed_code,\n    bi.start_d,\n    bi.end_d,\n    bd.id AS bed_id,\n    CASE\n      WHEN bi.bed_code ~ '^(R[0-9]+)-' THEN upper(substring(bi.bed_code from '^(R[0-9]+)'))\n      ELSE NULL\n    END AS room_code\n  FROM beds_input bi\n  CROSS JOIN guard g\n  INNER JOIN beds bd ON bd.client_id = g.client_id AND upper(bd.bed_code) = bi.bed_code\n  WHERE (SELECT ok FROM precheck_ok)\n    AND NOT EXISTS (SELECT 1 FROM existing_skip es WHERE es.bed_code = bi.bed_code)\n),\ninserted AS (\n  INSERT INTO booking_beds (\n    client_id,\n    booking_id,\n    bed_id,\n    bed_code,\n    room_code,\n    assignment_start_date,\n    assignment_end_date,\n    assignment_type,\n    assignment_notes,\n    guest_name,\n    airtable_record_id\n  )\n  SELECT\n    g.client_id,\n    g.id,\n    ti.bed_id,\n    ti.bed_code,\n    ti.room_code,\n    ti.start_d,\n    ti.end_d,\n    'Manual Staff',\n    'Mirrored via manual-entry-postgres (3b.4c local fork)',\n    p.guest_name,\n    NULL\n  FROM to_insert ti\n  CROSS JOIN guard g\n  CROSS JOIN params p\n  RETURNING id\n),\npayments_after AS (\n  SELECT COUNT(*)::int AS c\n  FROM payments pay\n  INNER JOIN guard g ON pay.booking_id = g.id AND pay.client_id = g.client_id\n)\nSELECT\n  (SELECT c FROM dup_meta_count) AS duplicate_manual_entry_count,\n  (SELECT c FROM existing_count) AS existing_booking_count,\n  (SELECT c FROM beds_input_count) AS beds_requested_count,\n  (SELECT COUNT(*)::int FROM inserted) AS pg_inserted_count,\n  (SELECT c FROM skip_count) AS pg_skipped_count,\n  (SELECT c FROM overlap_count) AS pg_conflict_count,\n  (SELECT c FROM unknown_count) AS pg_unknown_count,\n  COALESCE((SELECT jsonb_agg(ub.bed_code ORDER BY ub.bed_code) FROM unknown_beds ub), '[]'::jsonb) AS unknown_bed_codes,\n  g.booking_code,\n  g.id::text AS booking_id,\n  g.status AS booking_status,\n  COALESCE(g.created, false) AS pg_booking_created,\n  CASE WHEN g.id IS NOT NULL AND NOT COALESCE(g.created, false) THEN true ELSE false END AS pg_booking_updated,\n  (\n    (SELECT ok FROM precheck_ok)\n    AND (SELECT c FROM dup_meta_count) <= 1\n    AND (SELECT c FROM existing_count) <= 1\n    AND g.id IS NOT NULL\n    AND g.status NOT IN ('cancelled', 'expired')\n  ) AS pg_ok,\n  CASE\n    WHEN g.id IS NOT NULL AND (SELECT COUNT(*)::int FROM inserted) = 0 AND (SELECT c FROM skip_count) > 0 THEN true\n    ELSE false\n  END AS idempotent,\n  (SELECT c FROM payments_before) AS payments_count,\n  (SELECT c FROM payments_after) AS payments_count_after\nFROM params p\nLEFT JOIN guard g ON true",
+        "options": {
+          "queryReplacement": "={{ (($('Code - Build PG Create Payload').first().json.manual_entry_id) != null && String($('Code - Build PG Create Payload').first().json.manual_entry_id).trim() !== '') ? String($('Code - Build PG Create Payload').first().json.manual_entry_id).trim() : '__NULL__' }},={{ (($('Code - Build PG Create Payload').first().json.guest_name) != null && String($('Code - Build PG Create Payload').first().json.guest_name).trim() !== '') ? String($('Code - Build PG Create Payload').first().json.guest_name).trim() : '__NULL__' }},={{ (($('Code - Build PG Create Payload').first().json.check_in) != null && String($('Code - Build PG Create Payload').first().json.check_in).trim() !== '') ? String($('Code - Build PG Create Payload').first().json.check_in).trim() : '__NULL__' }},={{ (($('Code - Build PG Create Payload').first().json.check_out) != null && String($('Code - Build PG Create Payload').first().json.check_out).trim() !== '') ? String($('Code - Build PG Create Payload').first().json.check_out).trim() : '__NULL__' }},={{ ($('Code - Build PG Create Payload').first().json.guest_count != null && String($('Code - Build PG Create Payload').first().json.guest_count).trim() !== '') ? String($('Code - Build PG Create Payload').first().json.guest_count).trim() : '__NULL__' }},={{ $('Code - Build PG Create Payload').first().json.status || '__NULL__' }},={{ $('Code - Build PG Create Payload').first().json.payment_status || '__NULL__' }},={{ $('Code - Build PG Create Payload').first().json.package_code ? $('Code - Build PG Create Payload').first().json.package_code : '__NULL__' }},={{ (($('Code - Build PG Create Payload').first().json.phone) != null && String($('Code - Build PG Create Payload').first().json.phone).trim() !== '') ? String($('Code - Build PG Create Payload').first().json.phone).trim() : '__NULL__' }},={{ (($('Code - Build PG Create Payload').first().json.email) != null && String($('Code - Build PG Create Payload').first().json.email).trim() !== '') ? String($('Code - Build PG Create Payload').first().json.email).trim() : '__NULL__' }},={{ (($('Code - Build PG Create Payload').first().json.notes) != null && String($('Code - Build PG Create Payload').first().json.notes).trim() !== '') ? String($('Code - Build PG Create Payload').first().json.notes).trim() : '__NULL__' }},={{ $('Code - Build PG Create Payload').first().json.beds_json }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        992,
+        -160
+      ],
+      "id": "0e5ef6db-1979-4aae-8071-884f54f455fd",
+      "name": "Postgres - Manual Entry Create",
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "MnnrrLecI7oVoIGq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const pick = $('Code - Pick Next Manual Queue Item').first().json;\nconst pgItems = $('Postgres - Manual Entry Create').all();\nconst pgItem = pgItems[0];\nconst pgErr = pgItem?.error;\nconst pg = pgItem?.json || {};\n\nif (pgErr) {\n  const msg = String(pgErr.message || pgErr);\n  return [{\n    json: {\n      pg_ok: false,\n      errors: [msg.includes('no parameter') ? 'postgres_query_param_missing' : 'postgres_manual_entry_create_failed'],\n      manual_entry_id: pick.manual_entry_id,\n      airtable_booking_record_id: pick.airtable_booking_record_id || '',\n      pg_inserted_count: 0,\n      partial_failure: 'pg_query_failed',\n      message: msg\n    }\n  }];\n}\n\nconst errors = [];\nif (Number(pg.duplicate_manual_entry_count ?? 0) > 1) {\n  errors.push('duplicate_manual_entry_id');\n}\nif (Number(pg.pg_unknown_count ?? 0) > 0) {\n  errors.push('unknown_bed_codes');\n}\nif (Number(pg.pg_conflict_count ?? 0) > 0) {\n  errors.push('postgres_overlap_conflicts');\n}\nconst bookingStatus = String(pg.booking_status || '');\nif (bookingStatus === 'cancelled' || bookingStatus === 'expired') {\n  errors.push('booking_not_assignable');\n}\nif (!pg.booking_id && pg.pg_ok !== true) {\n  if (!errors.length) errors.push('postgres_manual_entry_create_failed');\n}\nconst payBefore = Number(pg.payments_count ?? 0);\nconst payAfter = Number(pg.payments_count_after ?? 0);\nif (payBefore !== payAfter) {\n  errors.push('payments_count_changed_during_pg_create');\n}\n\nconst pgOk = pg.pg_ok === true && errors.length === 0;\n\nreturn [{\n  json: {\n    pg_ok: pgOk,\n    errors,\n    ...pg,\n    manual_entry_id: pick.manual_entry_id,\n    airtable_booking_record_id: pick.airtable_booking_record_id || '',\n    booking_code: pg.booking_code || ''\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1064,
+        -160
+      ],
+      "id": "8b74f7f1-1e3c-4685-8a92-73c5982da492",
+      "name": "Code - Validate PG Create"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pg-create-ok",
+              "leftValue": "={{ $json.pg_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1136,
+        -160
+      ],
+      "id": "5be72cfd-1b35-4078-88f6-3238b689b9c7",
+      "name": "IF - PG Create OK"
+    },
+    {
+      "parameters": {
+        "jsCode": "const pick = $('Code - Pick Next Manual Queue Item').first().json;\nconst v = $('Code - Validate PG Create').first().json;\nconst errParts = Array.isArray(v.errors) ? v.errors.filter(Boolean) : [];\nconst errMsg = errParts.length\n  ? errParts.join('; ')\n  : String(v.message || v.partial_failure || 'pg_create_failed');\nreturn [{\n  json: {\n    manual_entry_id: pick.manual_entry_id,\n    row_number: pick.row_number,\n    airtable_booking_record_id: pick.airtable_booking_record_id || '',\n    sheet_error: String(errMsg).slice(0, 500)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -40
+      ],
+      "id": "e34f0945-53ab-42ea-85bc-806fcadbbe2b",
+      "name": "Code - Build PG Create Sheet Error"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/1JIY22nrtHXWEi6gPWvvpDfgG8Xe0jT6hmGGzkNXRs10/values:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    valueInputOption: 'USER_ENTERED',\n    data: [\n      {\n        range: 'Manual Entries!P' + $json.row_number + ':R' + $json.row_number,\n        values: [\n          [\n            'Error',\n            $json.airtable_booking_record_id,\n            $json.sheet_error\n          ]\n        ]\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1360,
+        -40
+      ],
+      "id": "83d33d4d-fe7e-42ed-895a-1af56d8806d2",
+      "name": "HTTP - Mark Queue Item PG Create Error",
+      "continueOnFail": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "fl7l9Qi45dHCxx6W",
+          "name": "Google account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -3928,7 +4055,7 @@
       "main": [
         [
           {
-            "node": "Search Beds - Create",
+            "node": "Code - Build PG Create Payload",
             "type": "main",
             "index": 0
           }
@@ -4225,6 +4352,68 @@
         [
           {
             "node": "HTTP - Mark Queue Item PG Update Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build PG Create Payload": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Manual Entry Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Manual Entry Create": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate PG Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate PG Create": {
+      "main": [
+        [
+          {
+            "node": "IF - PG Create OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - PG Create OK": {
+      "main": [
+        [
+          {
+            "node": "Search Beds - Create",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build PG Create Sheet Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build PG Create Sheet Error": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Mark Queue Item PG Create Error",
             "type": "main",
             "index": 0
           }
