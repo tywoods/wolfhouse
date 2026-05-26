@@ -4,29 +4,36 @@
  * Phase 3b.4c — Postgres mirror (3b.4b logic) then hosted Airtable + Sheets nodes.
  * Does NOT modify n8n/Wolfhouse - Manual Entries Queue Processor.json (hosted export).
  *
- * Step 1: inventory only
+ * Step 1: inventory
  *   node scripts/build-manual-entries-local.js --inventory
  *
- * TODO Step 2+: clone hosted workflow
- * TODO Step 2+: rename local workflow to LOCAL_WORKFLOW_NAME
- * TODO Step 2+: assign local workflow id LOCAL_WORKFLOW_ID
- * TODO Step 2+: change webhookId to avoid local collision with Send Confirmation
- * TODO Step 2+: replace/confirm local test Sheet target before any run
- * TODO Step 2+: insert PG create/update/delete/backfill nodes
- * TODO Step 2+: preserve existing Airtable/Sheets behavior
- * TODO Step 2+: generate n8n/phase3b/Wolfhouse - Manual Entries Queue Processor (local PG).json
- * TODO Step 2+: generate .n8n-import.json later
- * TODO Step 2+: update docs later
- * TODO Step 2+: add PowerShell test script later
+ * Step 2: generate local fork JSON (no PG nodes yet)
+ *   node scripts/build-manual-entries-local.js --generate
+ *
+ * TODO Step 3+: align CLIENT_SLUG with other build scripts (e.g. wolfhouse-somo) before PG SQL
+ * TODO Step 3+: replace/confirm local test Sheet target before any run
+ * TODO Step 3+: insert PG create/update/delete/backfill nodes
+ * TODO Step 3+: add structured response node with partial_failure
+ * TODO Step 3+: generate .n8n-import.json
+ * TODO Step 3+: update docs and PowerShell test script
  */
 const fs = require('fs');
 const path = require('path');
 
 const HOSTED = path.join(__dirname, '..', 'n8n', 'Wolfhouse - Manual Entries Queue Processor.json');
 const OUT_DIR = path.join(__dirname, '..', 'n8n', 'phase3b');
+const OUT = path.join(OUT_DIR, 'Wolfhouse - Manual Entries Queue Processor (local PG).json');
 const LOCAL_WORKFLOW_ID = 'B3c4ManualEntriesLocal01';
 const CLIENT_SLUG = 'wolfhouse';
 const LOCAL_WORKFLOW_NAME = 'Wolfhouse - Manual Entries Queue Processor (local PG)';
+
+/**
+ * Stable local webhook UUID — same style as cancel/assign/reassign build scripts
+ * (8-4-4-4-12 hex, e.g. 3b2c0001-0002-4000-8000-000000000002).
+ * Not the hosted id a17ba7e1-… (shared with Send Confirmation on path collision risk).
+ * Requested b3c4manual-entries-local-pg-000000000001 is not valid UUID format for n8n.
+ */
+const LOCAL_WEBHOOK_ID = 'b3c4c001-0004-4000-8000-000000000004';
 
 const CONTROL_TYPES = new Set([
   'n8n-nodes-base.switch',
@@ -46,6 +53,9 @@ const INVENTORY_PATTERNS = [
   'tblO1ByvTMXS4SalB',
   'wolfhouse-manual-entries-queue',
 ];
+
+const PRODUCTION_TARGET_WARNING =
+  'WARNING: Generated local workflow still preserves hosted Airtable/Sheets nodes from the source export. Do not import or run until Step 3 verifies/neutralizes production targets.';
 
 /** @returns {object} */
 function loadHostedWorkflow() {
@@ -171,6 +181,7 @@ function printInventory(workflow) {
   console.log(`Hosted file: ${HOSTED}`);
   console.log(`Planned local name: ${LOCAL_WORKFLOW_NAME}`);
   console.log(`Planned local workflow id: ${LOCAL_WORKFLOW_ID}`);
+  console.log(`Planned local webhookId: ${LOCAL_WEBHOOK_ID}`);
   console.log(`CLIENT_SLUG (future PG): ${CLIENT_SLUG}`);
   console.log(`OUT_DIR (future output): ${OUT_DIR}`);
   console.log('');
@@ -244,21 +255,83 @@ function printInventory(workflow) {
     console.log('');
   }
 
-  console.log('=== End inventory (Step 1 — no files written) ===');
+  console.log('=== End inventory (no files written) ===');
+}
+
+/** Deep-clone hosted workflow into local fork metadata (Step 2 — no PG nodes). */
+function buildLocalWorkflowFromHosted(hosted) {
+  const workflow = JSON.parse(JSON.stringify(hosted));
+  workflow.name = LOCAL_WORKFLOW_NAME;
+  workflow.id = LOCAL_WORKFLOW_ID;
+  workflow.active = false;
+  workflow.tags = [{ name: 'phase3b' }, { name: 'local-only' }];
+  workflow.settings = {
+    executionOrder: 'v1',
+    binaryMode: 'separate',
+  };
+  delete workflow.versionId;
+  delete workflow.meta;
+
+  for (const node of findWebhookNodes(workflow)) {
+    node.webhookId = LOCAL_WEBHOOK_ID;
+  }
+
+  return workflow;
+}
+
+function writeLocalWorkflow(workflow) {
+  if (!fs.existsSync(OUT_DIR)) {
+    fs.mkdirSync(OUT_DIR, { recursive: true });
+  }
+  fs.writeFileSync(OUT, `${JSON.stringify(workflow, null, 2)}\n`);
+}
+
+/** @param {object} workflow */
+function printGenerateSummary(workflow) {
+  const webhooks = findWebhookNodes(workflow);
+  const path =
+    webhooks.length === 1
+      ? webhooks[0].parameters?.path || '(missing)'
+      : webhooks.map((w) => `${w.name}=${w.parameters?.path || '?'}`).join(', ');
+
+  console.log(`Wrote ${OUT}`);
+  console.log(`Workflow name: ${workflow.name}`);
+  console.log(`Workflow id: ${workflow.id}`);
+  console.log(`Active: ${workflow.active}`);
+  console.log(`Webhook path: ${path}`);
+  console.log(
+    `Webhook id: ${webhooks.length === 1 ? webhooks[0].webhookId : webhooks.map((w) => w.webhookId).join(', ')}`,
+  );
+  console.log(`Node count: ${listNodes(workflow).length}`);
+  console.log(`Hosted source unchanged: ${HOSTED}`);
+  console.log('');
+  console.log(PRODUCTION_TARGET_WARNING);
+}
+
+function printUsage() {
+  console.error(`Usage:
+  node scripts/build-manual-entries-local.js --inventory
+  node scripts/build-manual-entries-local.js --generate`);
 }
 
 function main() {
   const args = process.argv.slice(2);
-  if (!args.includes('--inventory')) {
-    console.error(
-      'Phase 3b.4c Step 1: only --inventory is implemented.\n' +
-        '  node scripts/build-manual-entries-local.js --inventory',
-    );
-    process.exit(1);
+  if (args.includes('--inventory')) {
+    const workflow = loadHostedWorkflow();
+    printInventory(workflow);
+    return;
   }
 
-  const workflow = loadHostedWorkflow();
-  printInventory(workflow);
+  if (args.includes('--generate')) {
+    const hosted = loadHostedWorkflow();
+    const local = buildLocalWorkflowFromHosted(hosted);
+    writeLocalWorkflow(local);
+    printGenerateSummary(local);
+    return;
+  }
+
+  printUsage();
+  process.exit(1);
 }
 
 main();
