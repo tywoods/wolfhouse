@@ -10,6 +10,10 @@
  * Step 2: generate local fork JSON (no PG nodes yet)
  *   node scripts/build-manual-entries-local.js --generate
  *
+ * Step 3a: verify no production Sheet/Airtable targets in generated JSON
+ *   node scripts/build-manual-entries-local.js --verify-targets
+ *
+ * TODO Step 3b+: replace prod IDs in --generate from test env constants
  * TODO Step 3+: align CLIENT_SLUG with other build scripts (e.g. wolfhouse-somo) before PG SQL
  * TODO Step 3+: replace/confirm local test Sheet target before any run
  * TODO Step 3+: insert PG create/update/delete/backfill nodes
@@ -56,6 +60,10 @@ const INVENTORY_PATTERNS = [
 
 const PRODUCTION_TARGET_WARNING =
   'WARNING: Generated local workflow still preserves hosted Airtable/Sheets nodes from the source export. Do not import or run until Step 3 verifies/neutralizes production targets.';
+
+/** Production targets that must not remain in the local fork before import/run. */
+const PROD_SHEET_SPREADSHEET_ID = '1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc';
+const PROD_AIRTABLE_BASE_ID = 'appOCWIN47Bui9CSS';
 
 /** @returns {object} */
 function loadHostedWorkflow() {
@@ -286,6 +294,78 @@ function writeLocalWorkflow(workflow) {
   fs.writeFileSync(OUT, `${JSON.stringify(workflow, null, 2)}\n`);
 }
 
+/** @returns {object} */
+function loadGeneratedWorkflowForVerify() {
+  if (!fs.existsSync(OUT)) {
+    console.error(`Generated workflow not found: ${OUT}`);
+    console.error('Run with --generate first.');
+    process.exit(1);
+  }
+  try {
+    return JSON.parse(fs.readFileSync(OUT, 'utf8'));
+  } catch (err) {
+    console.error(`Invalid JSON in generated workflow: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+/**
+ * @param {object} workflow
+ * @returns {{ ok: boolean, sheetHitCount: number, airtableHitCount: number, sheetNodes: string[], airtableNodes: string[] }}
+ */
+function verifyProductionTargets(workflow) {
+  const sheetNodes = [];
+  const airtableNodes = [];
+
+  for (const node of listNodes(workflow)) {
+    const blob = JSON.stringify(node);
+    if (blob.includes(PROD_SHEET_SPREADSHEET_ID)) {
+      sheetNodes.push(node.name);
+    }
+    if (blob.includes(PROD_AIRTABLE_BASE_ID)) {
+      airtableNodes.push(node.name);
+    }
+  }
+
+  return {
+    ok: sheetNodes.length === 0 && airtableNodes.length === 0,
+    sheetHitCount: sheetNodes.length,
+    airtableHitCount: airtableNodes.length,
+    sheetNodes,
+    airtableNodes,
+  };
+}
+
+/** @param {{ ok: boolean, sheetHitCount: number, airtableHitCount: number, sheetNodes: string[], airtableNodes: string[] }} result */
+function printVerifyTargetsReport(result) {
+  console.log(`File: ${OUT}`);
+  console.log(`Prod Sheet hit count (nodes): ${result.sheetHitCount}`);
+  console.log(`Prod Airtable hit count (nodes): ${result.airtableHitCount}`);
+  if (result.sheetNodes.length) {
+    console.log(`Sheet nodes: ${result.sheetNodes.join(', ')}`);
+  }
+  if (result.airtableNodes.length) {
+    console.log(`Airtable nodes: ${result.airtableNodes.join(', ')}`);
+  }
+  if (result.ok) {
+    console.log('OK: no production Sheet or Airtable base references.');
+  } else {
+    console.error('FAIL: production targets remain. Neutralize before import/run.');
+  }
+}
+
+/** @param {object} [workflow] @param {{ exitOnFail?: boolean }} [opts] */
+function runVerifyTargets(workflow, opts = {}) {
+  const { exitOnFail = true } = opts;
+  const wf = workflow || loadGeneratedWorkflowForVerify();
+  const result = verifyProductionTargets(wf);
+  printVerifyTargetsReport(result);
+  if (exitOnFail && !result.ok) {
+    process.exit(1);
+  }
+  return result;
+}
+
 /** @param {object} workflow */
 function printGenerateSummary(workflow) {
   const webhooks = findWebhookNodes(workflow);
@@ -311,7 +391,8 @@ function printGenerateSummary(workflow) {
 function printUsage() {
   console.error(`Usage:
   node scripts/build-manual-entries-local.js --inventory
-  node scripts/build-manual-entries-local.js --generate`);
+  node scripts/build-manual-entries-local.js --generate
+  node scripts/build-manual-entries-local.js --verify-targets`);
 }
 
 function main() {
@@ -322,11 +403,18 @@ function main() {
     return;
   }
 
+  if (args.includes('--verify-targets')) {
+    runVerifyTargets();
+    return;
+  }
+
   if (args.includes('--generate')) {
     const hosted = loadHostedWorkflow();
     const local = buildLocalWorkflowFromHosted(hosted);
     writeLocalWorkflow(local);
     printGenerateSummary(local);
+    console.log('');
+    runVerifyTargets(local);
     return;
   }
 
