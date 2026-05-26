@@ -7,6 +7,8 @@
     "db:sync": "node scripts/sync-csv-to-postgres.js",
     "db:backfill:airtable-ids": "node scripts/backfill-airtable-record-ids.js",
     "db:report:drift": "node scripts/report-airtable-postgres-drift.js",
+    "db:report:bed-drift": "node scripts/report-booking-bed-drift.js",
+    "test:bed-drift-keys": "node scripts/test-bed-drift-keys.js",
     "planning:report:postgres": "node scripts/planning-report-from-postgres.js",
     "test:planning-row-format": "node scripts/test-planning-row-format.js",
     "db:verify": "node scripts/verify-local-db.js",

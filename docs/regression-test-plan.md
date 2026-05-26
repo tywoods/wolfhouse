@@ -164,11 +164,24 @@ Runbook: `docs/PHASE-2d.md`. Workflow: `n8n/phase2/Wolfhouse - Send Confirmation
 
 3a notes (2026-05-26): Report `planning-postgres-2026-05-26T10-53-57.csv`, 12 rows, read-only. Nights fix: compute from raw dates via `toIsoDateString()` before CSV display. Examples: 2026-05-31→2026-06-04 = 4 nights; 2026-08-06→2026-08-11 = 5. Drift ID linkage clean. Bookings CSV=9 vs PG=28 non-blocking (Phase 2 local tests).
 
+## Phase 3b.0 — Bed / booking_beds drift audit (read-only)
+
+**Runbook:** [`PHASE-3b-0.md`](PHASE-3b-0.md). **3b.1+ not started** (no Cancel/Assign/Reassign, no dual-write).
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b0-1 | `npm run test:bed-drift-keys` | |
+| 3b0-2 | `npm run db:report:bed-drift` → `reports/bed-drift-*.json` | |
+| 3b0-3 | Actionable exit 0, or exit 1 only for CSV-export booking mismatches | |
+| 3b0-4 | `npm run test:phase2f-resolver` + `npm run db:report:drift` + `npm run planning:report:postgres` unchanged | |
+
+Optional: `npm run db:report:bed-drift -- --overlap-from=YYYY-MM-DD --overlap-to=YYYY-MM-DD` for overlap window.
+
 ## Phase 2 local sign-off (freeze)
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** and **3a** passed; dual-write workflows (3b+) not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1**, **3a**, and **3b.0** (read-only bed drift) implemented; **3b.1+** dual-write not started.
 
 ### Tier A — automated
 
