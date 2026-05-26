@@ -20,7 +20,7 @@
  * Step 6b: delete-branch PG gate; Step 6c: PG delete failure → Sheet Error (P:R)
  * Step 6e: update-branch PG gate; PG update failure → Sheet Error (P:R)
  * Step 6f-a: create-branch PG gate; PG create failure → Sheet Error (P:R)
- * TODO Step 3+: create-branch Airtable backfill nodes
+ * Step 6f-b: create-branch Airtable → Postgres backfill (booking + booking_beds)
  * TODO Step 3+: add structured response node with partial_failure
  * TODO Step 3+: remap node credentials to LOCAL_N8N ids on generate (like assign/cancel builds)
  * TODO Step 3+: update docs and PowerShell test script
@@ -32,6 +32,8 @@ const {
   PG_MANUAL_ENTRY_DELETE_SQL,
   PG_MANUAL_ENTRY_UPDATE_SQL,
   PG_MANUAL_ENTRY_CREATE_SQL,
+  PG_MANUAL_ENTRY_BACKFILL_BOOKING_AT_ID_SQL,
+  PG_MANUAL_ENTRY_BACKFILL_BED_AT_IDS_SQL,
 } = require('./lib/manual-entry-pg-n8n-sql');
 
 const HOSTED = path.join(__dirname, '..', 'n8n', 'Wolfhouse - Manual Entries Queue Processor.json');
@@ -90,6 +92,10 @@ const TEST_AIRTABLE_BASE_ID = 'appiyO4FmkKsyHZdK';
 const NULL_SENTINEL = '__NULL__';
 const PICK_NODE = 'Code - Pick Next Manual Queue Item';
 const CREATE_PAYLOAD_NODE = 'Code - Build PG Create Payload';
+const AT_CREATE_BOOKING_NODE = 'Create Airtable Booking - Queue';
+const AT_CREATE_BED_NODE = 'Create Airtable Booking Bed - Queue';
+const PG_CREATE_NODE = 'Postgres - Manual Entry Create';
+const BED_BACKFILL_PAIRS_NODE = 'Code - Build PG Booking Bed Backfill Pairs';
 
 const PG_DELETE_QUERY_REPLACEMENT = `={{ (($('${PICK_NODE}').first().json.airtable_booking_record_id) != null && String($('${PICK_NODE}').first().json.airtable_booking_record_id).trim() !== '') ? String($('${PICK_NODE}').first().json.airtable_booking_record_id).trim() : '${NULL_SENTINEL}' }},={{ '${NULL_SENTINEL}' }},={{ (($('${PICK_NODE}').first().json.manual_entry_id) != null && String($('${PICK_NODE}').first().json.manual_entry_id).trim() !== '') ? String($('${PICK_NODE}').first().json.manual_entry_id).trim() : '${NULL_SENTINEL}' }}`;
 
@@ -729,6 +735,135 @@ function injectCreateBranchPgFailureSheet(workflow) {
   return workflow;
 }
 
+const PG_BOOKING_BACKFILL_QUERY_REPLACEMENT = [
+  `={{ (() => { const c = $('${AT_CREATE_BOOKING_NODE}').first().json; const id = c?.id || c?.record_id || c?.Record_ID || ''; return id ? String(id).trim() : '${NULL_SENTINEL}'; })() }}`,
+  `={{ ${pickParamExpr('manual_entry_id')} }}`,
+  `={{ (() => { const c = $('${AT_CREATE_BOOKING_NODE}').first().json; const f = c?.fields || c || {}; const code = String(f['Booking ID'] || c['Booking ID'] || '').trim(); return /^WH-rec/i.test(code) ? code : '${NULL_SENTINEL}'; })() }}`,
+].join(',');
+
+const BUILD_BED_BACKFILL_PAIRS_JS = `const input = $input.first().json;
+const createdBed =
+  $('${AT_CREATE_BED_NODE}').item?.json || $('${AT_CREATE_BED_NODE}').first()?.json || {};
+const atId = createdBed.id || createdBed.record_id || createdBed.Record_ID || '';
+const bedCode = String(input.bed_id || '').trim().toUpperCase();
+const createdBooking = $('${AT_CREATE_BOOKING_NODE}').first().json;
+const bookingRecordId =
+  createdBooking?.id || createdBooking?.record_id || createdBooking?.Record_ID || '';
+const pgCreate = $('${PG_CREATE_NODE}').first()?.json || {};
+const bookingCode = String(pgCreate.booking_code || '').trim();
+
+const pairs = [];
+if (bedCode && atId) {
+  pairs.push({ bed_code: bedCode, airtable_record_id: String(atId).trim() });
+}
+
+return [{
+  json: {
+    pairs_json: JSON.stringify(pairs),
+    pair_count: pairs.length,
+    airtable_record_id: bookingRecordId,
+    booking_code: bookingCode || '${NULL_SENTINEL}',
+    bed_code: bedCode,
+    pg_backfill_error: !atId
+      ? 'missing_airtable_booking_bed_record_id'
+      : (!bedCode ? 'missing_bed_code' : null)
+  }
+}];`;
+
+const PG_BED_BACKFILL_QUERY_REPLACEMENT = [
+  `={{ ($('${BED_BACKFILL_PAIRS_NODE}').first().json.airtable_record_id) ? String($('${BED_BACKFILL_PAIRS_NODE}').first().json.airtable_record_id).trim() : '${NULL_SENTINEL}' }}`,
+  `={{ ($('${BED_BACKFILL_PAIRS_NODE}').first().json.booking_code) ? String($('${BED_BACKFILL_PAIRS_NODE}').first().json.booking_code).trim() : '${NULL_SENTINEL}' }}`,
+  `={{ $('${BED_BACKFILL_PAIRS_NODE}').first().json.pairs_json }}`,
+].join(',');
+
+/**
+ * Step 6f-b — after Airtable create, backfill Postgres airtable_record_id fields (non-blocking).
+ * @param {object} workflow
+ */
+function injectCreateBranchBackfillNodes(workflow) {
+  if (listNodes(workflow).some((n) => n.name === 'Postgres - Backfill Manual Entry Booking AT Id')) {
+    return workflow;
+  }
+
+  const required = [
+    AT_CREATE_BOOKING_NODE,
+    'Code - Build Booking Beds For Create',
+    AT_CREATE_BED_NODE,
+    'Code - One Item After Create',
+    PG_CREATE_NODE,
+  ];
+  for (const name of required) {
+    if (!listNodes(workflow).some((n) => n.name === name)) {
+      throw new Error(`Cannot inject create backfill nodes: missing "${name}"`);
+    }
+  }
+
+  workflow.nodes.push(
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: PG_MANUAL_ENTRY_BACKFILL_BOOKING_AT_ID_SQL,
+        options: { queryReplacement: PG_BOOKING_BACKFILL_QUERY_REPLACEMENT },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [1552, -176],
+      id: uid('postgres-backfill-manual-booking-at'),
+      name: 'Postgres - Backfill Manual Entry Booking AT Id',
+      alwaysOutputData: true,
+      continueOnFail: true,
+      onError: 'continueRegularOutput',
+      credentials: { postgres: LOCAL_N8N.postgresCred },
+    },
+    {
+      parameters: { jsCode: BUILD_BED_BACKFILL_PAIRS_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [1928, -160],
+      id: uid('build-manual-bed-backfill-pairs'),
+      name: BED_BACKFILL_PAIRS_NODE,
+    },
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: PG_MANUAL_ENTRY_BACKFILL_BED_AT_IDS_SQL,
+        options: { queryReplacement: PG_BED_BACKFILL_QUERY_REPLACEMENT },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [2008, -160],
+      id: uid('postgres-backfill-manual-bed-at'),
+      name: 'Postgres - Backfill Manual Entry Booking Bed AT Ids',
+      alwaysOutputData: true,
+      continueOnFail: true,
+      onError: 'continueRegularOutput',
+      credentials: { postgres: LOCAL_N8N.postgresCred },
+    },
+  );
+
+  const conn = workflow.connections || {};
+  workflow.connections = conn;
+
+  conn[AT_CREATE_BOOKING_NODE] = {
+    main: [[{ node: 'Postgres - Backfill Manual Entry Booking AT Id', type: 'main', index: 0 }]],
+  };
+  conn['Postgres - Backfill Manual Entry Booking AT Id'] = {
+    main: [[{ node: 'Code - Build Booking Beds For Create', type: 'main', index: 0 }]],
+  };
+
+  conn[AT_CREATE_BED_NODE] = {
+    main: [[{ node: BED_BACKFILL_PAIRS_NODE, type: 'main', index: 0 }]],
+  };
+  conn[BED_BACKFILL_PAIRS_NODE] = {
+    main: [[{ node: 'Postgres - Backfill Manual Entry Booking Bed AT Ids', type: 'main', index: 0 }]],
+  };
+  conn['Postgres - Backfill Manual Entry Booking Bed AT Ids'] = {
+    main: [[{ node: 'Code - One Item After Create', type: 'main', index: 0 }]],
+  };
+
+  return workflow;
+}
+
 /**
  * Step 6e — update-branch PG gate before Update Airtable Booking - Queue.
  * @param {object} workflow
@@ -1129,6 +1264,7 @@ function buildLocalWorkflowFromHosted(hosted) {
   injectDeleteBranchPgNodes(neutralized.workflow);
   injectUpdateBranchPgNodes(neutralized.workflow);
   injectCreateBranchPgNodes(neutralized.workflow);
+  injectCreateBranchBackfillNodes(neutralized.workflow);
   return neutralized;
 }
 
@@ -1243,14 +1379,20 @@ function printGenerateSummary(workflow) {
   const pgCreateSheetErr = listNodes(workflow).some(
     (n) => n.name === 'HTTP - Mark Queue Item PG Create Error',
   );
-  const pgBackfill = listNodes(workflow).some((n) => /Backfill/i.test(n.name));
+  const pgBookingBackfill = listNodes(workflow).some(
+    (n) => n.name === 'Postgres - Backfill Manual Entry Booking AT Id',
+  );
+  const pgBedBackfill = listNodes(workflow).some(
+    (n) => n.name === 'Postgres - Backfill Manual Entry Booking Bed AT Ids',
+  );
   console.log(`Delete-branch PG nodes: ${pgDelete ? 'yes' : 'no'}`);
   console.log(`Delete-branch PG failure sheet: ${pgDeleteSheetErr ? 'yes' : 'no'}`);
   console.log(`Update-branch PG nodes: ${pgUpdate ? 'yes' : 'no'}`);
   console.log(`Update-branch PG failure sheet: ${pgUpdateSheetErr ? 'yes' : 'no'}`);
   console.log(`Create-branch PG nodes: ${pgCreate ? 'yes' : 'no'}`);
   console.log(`Create-branch PG failure sheet: ${pgCreateSheetErr ? 'yes' : 'no'}`);
-  console.log(`Create-branch backfill nodes: ${pgBackfill ? 'yes' : 'no'}`);
+  console.log(`Create-branch booking backfill: ${pgBookingBackfill ? 'yes' : 'no'}`);
+  console.log(`Create-branch bed backfill: ${pgBedBackfill ? 'yes' : 'no'}`);
   console.log(`Hosted source unchanged: ${HOSTED}`);
   console.log(`Test Sheet ID: ${TEST_SHEET_SPREADSHEET_ID}`);
   console.log(`Test Airtable base ID: ${TEST_AIRTABLE_BASE_ID}`);

@@ -3989,6 +3989,71 @@
           "name": "Google account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS manual_entry_id,\n    NULLIF(trim($3), '__NULL__') AS booking_code_candidate\n),\nguard AS (\n  SELECT b.id, b.client_id, b.booking_code, b.airtable_record_id\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND p.manual_entry_id IS NOT NULL\n    AND b.metadata->>'manual_entry_id' = p.manual_entry_id\n  LIMIT 1\n),\npayments_before AS (\n  SELECT COUNT(*)::int AS c\n  FROM payments pay\n  INNER JOIN guard g ON pay.booking_id = g.id AND pay.client_id = g.client_id\n),\nupdated AS (\n  UPDATE bookings b\n  SET\n    airtable_record_id = p.airtable_record_id,\n    booking_code = CASE\n      WHEN p.booking_code_candidate IS NOT NULL\n        AND p.booking_code_candidate ~ '^WH-rec'\n      THEN p.booking_code_candidate\n      ELSE b.booking_code\n    END\n  FROM guard g\n  CROSS JOIN params p\n  WHERE b.id = g.id\n    AND b.client_id = g.client_id\n    AND p.airtable_record_id IS NOT NULL\n  RETURNING b.id, b.booking_code, b.airtable_record_id\n),\npayments_after AS (\n  SELECT COUNT(*)::int AS c\n  FROM payments pay\n  INNER JOIN guard g ON pay.booking_id = g.id AND pay.client_id = g.client_id\n)\nSELECT\n  (SELECT COUNT(*)::int FROM guard) AS booking_rows_matched,\n  (SELECT COUNT(*)::int FROM updated) AS pg_booking_backfill_count,\n  (SELECT booking_code FROM guard LIMIT 1) AS booking_code_before,\n  (SELECT booking_code FROM updated LIMIT 1) AS booking_code_after,\n  (SELECT airtable_record_id FROM updated LIMIT 1) AS airtable_record_id,\n  CASE\n    WHEN (SELECT COUNT(*)::int FROM guard) <> 1 THEN false\n    WHEN (SELECT COUNT(*)::int FROM updated) <> 1 THEN false\n    ELSE true\n  END AS pg_backfill_ok,\n  CASE\n    WHEN p.booking_code_candidate IS NULL OR p.booking_code_candidate !~ '^WH-rec' THEN true\n    ELSE false\n  END AS booking_code_left_pending,\n  (SELECT c FROM payments_before) AS payments_count_before,\n  (SELECT c FROM payments_after) AS payments_count_after\nFROM params p",
+        "options": {
+          "queryReplacement": "={{ (() => { const c = $('Create Airtable Booking - Queue').first().json; const id = c?.id || c?.record_id || c?.Record_ID || ''; return id ? String(id).trim() : '__NULL__'; })() }},={{ (($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id) != null && String($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id).trim() : '__NULL__' }},={{ (() => { const c = $('Create Airtable Booking - Queue').first().json; const f = c?.fields || c || {}; const code = String(f['Booking ID'] || c['Booking ID'] || '').trim(); return /^WH-rec/i.test(code) ? code : '__NULL__'; })() }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1552,
+        -176
+      ],
+      "id": "8d981dd0-7d53-4e23-88d1-d37124062347",
+      "name": "Postgres - Backfill Manual Entry Booking AT Id",
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "MnnrrLecI7oVoIGq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst createdBed =\n  $('Create Airtable Booking Bed - Queue').item?.json || $('Create Airtable Booking Bed - Queue').first()?.json || {};\nconst atId = createdBed.id || createdBed.record_id || createdBed.Record_ID || '';\nconst bedCode = String(input.bed_id || '').trim().toUpperCase();\nconst createdBooking = $('Create Airtable Booking - Queue').first().json;\nconst bookingRecordId =\n  createdBooking?.id || createdBooking?.record_id || createdBooking?.Record_ID || '';\nconst pgCreate = $('Postgres - Manual Entry Create').first()?.json || {};\nconst bookingCode = String(pgCreate.booking_code || '').trim();\n\nconst pairs = [];\nif (bedCode && atId) {\n  pairs.push({ bed_code: bedCode, airtable_record_id: String(atId).trim() });\n}\n\nreturn [{\n  json: {\n    pairs_json: JSON.stringify(pairs),\n    pair_count: pairs.length,\n    airtable_record_id: bookingRecordId,\n    booking_code: bookingCode || '__NULL__',\n    bed_code: bedCode,\n    pg_backfill_error: !atId\n      ? 'missing_airtable_booking_bed_record_id'\n      : (!bedCode ? 'missing_bed_code' : null)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1928,
+        -160
+      ],
+      "id": "840b1e2e-9759-44a5-8f3d-f49f5db3588f",
+      "name": "Code - Build PG Booking Bed Backfill Pairs"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS booking_code,\n    COALESCE($3::jsonb, '[]'::jsonb) AS pairs_json\n),\nguard AS (\n  SELECT b.id, b.client_id, b.booking_code\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND (\n      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)\n      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)\n    )\n  LIMIT 1\n),\npairs AS (\n  SELECT\n    upper(trim(elem->>'bed_code')) AS bed_code,\n    NULLIF(trim(elem->>'airtable_record_id'), '') AS at_id\n  FROM params p\n  CROSS JOIN jsonb_array_elements(p.pairs_json) elem\n  WHERE upper(trim(COALESCE(elem->>'bed_code', ''))) <> ''\n    AND NULLIF(trim(elem->>'airtable_record_id'), '') IS NOT NULL\n),\nupdated AS (\n  UPDATE booking_beds bb\n  SET airtable_record_id = pr.at_id\n  FROM pairs pr\n  CROSS JOIN guard g\n  WHERE bb.booking_id = g.id\n    AND bb.client_id = g.client_id\n    AND upper(bb.bed_code) = pr.bed_code\n    AND (bb.airtable_record_id IS NULL OR bb.airtable_record_id = '')\n  RETURNING bb.id, bb.bed_code, bb.airtable_record_id\n)\nSELECT\n  (SELECT COUNT(*)::int FROM guard) AS booking_rows_matched,\n  (SELECT COUNT(*)::int FROM updated) AS pg_backfill_count,\n  COALESCE(\n    (SELECT jsonb_agg(jsonb_build_object('bed_code', u.bed_code, 'airtable_record_id', u.airtable_record_id) ORDER BY u.bed_code)\n     FROM updated u),\n    '[]'::jsonb\n  ) AS backfilled,\n  CASE\n    WHEN (SELECT COUNT(*)::int FROM guard) <> 1 THEN false\n    WHEN (SELECT COUNT(*)::int FROM pairs) = 0 THEN false\n    ELSE true\n  END AS pg_backfill_ok",
+        "options": {
+          "queryReplacement": "={{ ($('Code - Build PG Booking Bed Backfill Pairs').first().json.airtable_record_id) ? String($('Code - Build PG Booking Bed Backfill Pairs').first().json.airtable_record_id).trim() : '__NULL__' }},={{ ($('Code - Build PG Booking Bed Backfill Pairs').first().json.booking_code) ? String($('Code - Build PG Booking Bed Backfill Pairs').first().json.booking_code).trim() : '__NULL__' }},={{ $('Code - Build PG Booking Bed Backfill Pairs').first().json.pairs_json }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2008,
+        -160
+      ],
+      "id": "96ba3117-80a0-4ec8-8fe2-6bc162619bdf",
+      "name": "Postgres - Backfill Manual Entry Booking Bed AT Ids",
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "MnnrrLecI7oVoIGq",
+          "name": "Postgres account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -4088,7 +4153,7 @@
       "main": [
         [
           {
-            "node": "Code - Build Booking Beds For Create",
+            "node": "Postgres - Backfill Manual Entry Booking AT Id",
             "type": "main",
             "index": 0
           }
@@ -4110,7 +4175,7 @@
       "main": [
         [
           {
-            "node": "Code - One Item After Create",
+            "node": "Code - Build PG Booking Bed Backfill Pairs",
             "type": "main",
             "index": 0
           }
@@ -4414,6 +4479,39 @@
         [
           {
             "node": "HTTP - Mark Queue Item PG Create Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Backfill Manual Entry Booking AT Id": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Booking Beds For Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build PG Booking Bed Backfill Pairs": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Backfill Manual Entry Booking Bed AT Ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Backfill Manual Entry Booking Bed AT Ids": {
+      "main": [
+        [
+          {
+            "node": "Code - One Item After Create",
             "type": "main",
             "index": 0
           }

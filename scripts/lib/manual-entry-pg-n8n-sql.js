@@ -531,9 +531,130 @@ SELECT
 FROM params p
 LEFT JOIN guard g ON true`;
 
+/**
+ * After Airtable booking create — set bookings.airtable_record_id; booking_code only when WH-rec present.
+ * Params: $1 airtable_record_id (rec…), $2 manual_entry_id, $3 booking_code candidate (or __NULL__).
+ */
+const PG_MANUAL_ENTRY_BACKFILL_BOOKING_AT_ID_SQL = `WITH params AS (
+  SELECT
+    NULLIF(trim($1), '__NULL__') AS airtable_record_id,
+    NULLIF(trim($2), '__NULL__') AS manual_entry_id,
+    NULLIF(trim($3), '__NULL__') AS booking_code_candidate
+),
+guard AS (
+  SELECT b.id, b.client_id, b.booking_code, b.airtable_record_id
+  FROM bookings b
+  INNER JOIN clients c ON c.id = b.client_id
+  CROSS JOIN params p
+  WHERE c.slug = '${CLIENT_SLUG}'
+    AND p.manual_entry_id IS NOT NULL
+    AND b.metadata->>'manual_entry_id' = p.manual_entry_id
+  LIMIT 1
+),
+payments_before AS (
+  SELECT COUNT(*)::int AS c
+  FROM payments pay
+  INNER JOIN guard g ON pay.booking_id = g.id AND pay.client_id = g.client_id
+),
+updated AS (
+  UPDATE bookings b
+  SET
+    airtable_record_id = p.airtable_record_id,
+    booking_code = CASE
+      WHEN p.booking_code_candidate IS NOT NULL
+        AND p.booking_code_candidate ~ '^WH-rec'
+      THEN p.booking_code_candidate
+      ELSE b.booking_code
+    END
+  FROM guard g
+  CROSS JOIN params p
+  WHERE b.id = g.id
+    AND b.client_id = g.client_id
+    AND p.airtable_record_id IS NOT NULL
+  RETURNING b.id, b.booking_code, b.airtable_record_id
+),
+payments_after AS (
+  SELECT COUNT(*)::int AS c
+  FROM payments pay
+  INNER JOIN guard g ON pay.booking_id = g.id AND pay.client_id = g.client_id
+)
+SELECT
+  (SELECT COUNT(*)::int FROM guard) AS booking_rows_matched,
+  (SELECT COUNT(*)::int FROM updated) AS pg_booking_backfill_count,
+  (SELECT booking_code FROM guard LIMIT 1) AS booking_code_before,
+  (SELECT booking_code FROM updated LIMIT 1) AS booking_code_after,
+  (SELECT airtable_record_id FROM updated LIMIT 1) AS airtable_record_id,
+  CASE
+    WHEN (SELECT COUNT(*)::int FROM guard) <> 1 THEN false
+    WHEN (SELECT COUNT(*)::int FROM updated) <> 1 THEN false
+    ELSE true
+  END AS pg_backfill_ok,
+  CASE
+    WHEN p.booking_code_candidate IS NULL OR p.booking_code_candidate !~ '^WH-rec' THEN true
+    ELSE false
+  END AS booking_code_left_pending,
+  (SELECT c FROM payments_before) AS payments_count_before,
+  (SELECT c FROM payments_after) AS payments_count_after
+FROM params p`;
+
+/** Same pattern as assign-booking-beds-pg-sql.js PG_BACKFILL_AIRTABLE_IDS_SQL. */
+const PG_MANUAL_ENTRY_BACKFILL_BED_AT_IDS_SQL = `WITH params AS (
+  SELECT
+    NULLIF(trim($1), '__NULL__') AS airtable_record_id,
+    NULLIF(trim($2), '__NULL__') AS booking_code,
+    COALESCE($3::jsonb, '[]'::jsonb) AS pairs_json
+),
+guard AS (
+  SELECT b.id, b.client_id, b.booking_code
+  FROM bookings b
+  INNER JOIN clients c ON c.id = b.client_id
+  CROSS JOIN params p
+  WHERE c.slug = '${CLIENT_SLUG}'
+    AND (
+      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)
+      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)
+    )
+  LIMIT 1
+),
+pairs AS (
+  SELECT
+    upper(trim(elem->>'bed_code')) AS bed_code,
+    NULLIF(trim(elem->>'airtable_record_id'), '') AS at_id
+  FROM params p
+  CROSS JOIN jsonb_array_elements(p.pairs_json) elem
+  WHERE upper(trim(COALESCE(elem->>'bed_code', ''))) <> ''
+    AND NULLIF(trim(elem->>'airtable_record_id'), '') IS NOT NULL
+),
+updated AS (
+  UPDATE booking_beds bb
+  SET airtable_record_id = pr.at_id
+  FROM pairs pr
+  CROSS JOIN guard g
+  WHERE bb.booking_id = g.id
+    AND bb.client_id = g.client_id
+    AND upper(bb.bed_code) = pr.bed_code
+    AND (bb.airtable_record_id IS NULL OR bb.airtable_record_id = '')
+  RETURNING bb.id, bb.bed_code, bb.airtable_record_id
+)
+SELECT
+  (SELECT COUNT(*)::int FROM guard) AS booking_rows_matched,
+  (SELECT COUNT(*)::int FROM updated) AS pg_backfill_count,
+  COALESCE(
+    (SELECT jsonb_agg(jsonb_build_object('bed_code', u.bed_code, 'airtable_record_id', u.airtable_record_id) ORDER BY u.bed_code)
+     FROM updated u),
+    '[]'::jsonb
+  ) AS backfilled,
+  CASE
+    WHEN (SELECT COUNT(*)::int FROM guard) <> 1 THEN false
+    WHEN (SELECT COUNT(*)::int FROM pairs) = 0 THEN false
+    ELSE true
+  END AS pg_backfill_ok`;
+
 module.exports = {
   CLIENT_SLUG,
   PG_MANUAL_ENTRY_DELETE_SQL,
   PG_MANUAL_ENTRY_UPDATE_SQL,
   PG_MANUAL_ENTRY_CREATE_SQL,
+  PG_MANUAL_ENTRY_BACKFILL_BOOKING_AT_ID_SQL,
+  PG_MANUAL_ENTRY_BACKFILL_BED_AT_IDS_SQL,
 };
