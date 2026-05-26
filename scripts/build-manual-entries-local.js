@@ -13,9 +13,9 @@
  * Step 3a: verify no production Sheet/Airtable targets in generated JSON
  *   node scripts/build-manual-entries-local.js --verify-targets
  *
- * TODO Step 3b+: replace prod IDs in --generate from test env constants
+ * Step 3b: --generate replaces prod Sheet/Airtable base IDs with local test targets (table IDs unchanged)
+ *
  * TODO Step 3+: align CLIENT_SLUG with other build scripts (e.g. wolfhouse-somo) before PG SQL
- * TODO Step 3+: replace/confirm local test Sheet target before any run
  * TODO Step 3+: insert PG create/update/delete/backfill nodes
  * TODO Step 3+: add structured response node with partial_failure
  * TODO Step 3+: generate .n8n-import.json
@@ -58,12 +58,13 @@ const INVENTORY_PATTERNS = [
   'wolfhouse-manual-entries-queue',
 ];
 
-const PRODUCTION_TARGET_WARNING =
-  'WARNING: Generated local workflow still preserves hosted Airtable/Sheets nodes from the source export. Do not import or run until Step 3 verifies/neutralizes production targets.';
-
 /** Production targets that must not remain in the local fork before import/run. */
 const PROD_SHEET_SPREADSHEET_ID = '1eISph-eVZpylAEFVRS22hxRvWydBj07vz6G-vO7T_cc';
 const PROD_AIRTABLE_BASE_ID = 'appOCWIN47Bui9CSS';
+
+/** Local test targets for Manual Entries fork (--generate rewrites hosted export references). */
+const TEST_SHEET_SPREADSHEET_ID = '1JIY22nrtHXWEi6gPWvvpDfgG8Xe0jT6hmGGzkNXRs10';
+const TEST_AIRTABLE_BASE_ID = 'appiyO4FmkKsyHZdK';
 
 /** @returns {object} */
 function loadHostedWorkflow() {
@@ -266,7 +267,26 @@ function printInventory(workflow) {
   console.log('=== End inventory (no files written) ===');
 }
 
-/** Deep-clone hosted workflow into local fork metadata (Step 2 — no PG nodes). */
+/**
+ * Replace prod Sheet/Airtable base IDs in entire workflow tree (URLs, node params, cachedResultUrl).
+ * Airtable table IDs (tbl…) are unchanged — duplicated test base keeps same table ids.
+ * @param {object} workflow
+ * @returns {{ workflow: object, sheetReplacements: number, baseReplacements: number }}
+ */
+function neutralizeProductionTargets(workflow) {
+  let json = JSON.stringify(workflow);
+  const sheetReplacements = json.split(PROD_SHEET_SPREADSHEET_ID).length - 1;
+  const baseReplacements = json.split(PROD_AIRTABLE_BASE_ID).length - 1;
+  json = json.split(PROD_SHEET_SPREADSHEET_ID).join(TEST_SHEET_SPREADSHEET_ID);
+  json = json.split(PROD_AIRTABLE_BASE_ID).join(TEST_AIRTABLE_BASE_ID);
+  return {
+    workflow: JSON.parse(json),
+    sheetReplacements,
+    baseReplacements,
+  };
+}
+
+/** Deep-clone hosted workflow into local fork metadata (Step 2–3b — no PG nodes). */
 function buildLocalWorkflowFromHosted(hosted) {
   const workflow = JSON.parse(JSON.stringify(hosted));
   workflow.name = LOCAL_WORKFLOW_NAME;
@@ -284,7 +304,13 @@ function buildLocalWorkflowFromHosted(hosted) {
     node.webhookId = LOCAL_WEBHOOK_ID;
   }
 
-  return workflow;
+  const neutralized = neutralizeProductionTargets(workflow);
+  if (neutralized.sheetReplacements === 0 && neutralized.baseReplacements === 0) {
+    console.warn(
+      'WARN: no prod Sheet/Airtable base IDs found in hosted export — neutralization may be a no-op',
+    );
+  }
+  return neutralized;
 }
 
 function writeLocalWorkflow(workflow) {
@@ -384,8 +410,8 @@ function printGenerateSummary(workflow) {
   );
   console.log(`Node count: ${listNodes(workflow).length}`);
   console.log(`Hosted source unchanged: ${HOSTED}`);
-  console.log('');
-  console.log(PRODUCTION_TARGET_WARNING);
+  console.log(`Test Sheet ID: ${TEST_SHEET_SPREADSHEET_ID}`);
+  console.log(`Test Airtable base ID: ${TEST_AIRTABLE_BASE_ID}`);
 }
 
 function printUsage() {
@@ -410,9 +436,12 @@ function main() {
 
   if (args.includes('--generate')) {
     const hosted = loadHostedWorkflow();
-    const local = buildLocalWorkflowFromHosted(hosted);
+    const { workflow: local, sheetReplacements, baseReplacements } = buildLocalWorkflowFromHosted(hosted);
     writeLocalWorkflow(local);
     printGenerateSummary(local);
+    console.log(
+      `Neutralized: ${sheetReplacements} Sheet ID substitution(s), ${baseReplacements} Airtable base substitution(s)`,
+    );
     console.log('');
     runVerifyTargets(local);
     return;
