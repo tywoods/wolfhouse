@@ -9,6 +9,7 @@
     "db:report:drift": "node scripts/report-airtable-postgres-drift.js",
     "db:report:bed-drift": "node scripts/report-booking-bed-drift.js",
     "db:report:cancel-impact": "node scripts/report-cancel-impact.js",
+    "db:report:assign-impact": "node scripts/report-assign-impact.js",
     "db:cancel:booking-beds": "node scripts/cancel-booking-beds-postgres.js",
     "build:cancel-beds:local": "node scripts/build-cancel-beds-local.js",
     "test:bed-drift-keys": "node scripts/test-bed-drift-keys.js",

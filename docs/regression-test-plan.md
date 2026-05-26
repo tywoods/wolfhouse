@@ -177,6 +177,17 @@ Runbook: `docs/PHASE-2d.md`. Workflow: `n8n/phase2/Wolfhouse - Send Confirmation
 
 Optional: `npm run db:report:bed-drift -- --overlap-from=YYYY-MM-DD --overlap-to=YYYY-MM-DD` for overlap window.
 
+## Phase 3b.2a — Assign impact report (read-only)
+
+**Runbook:** [`PHASE-3b-2a.md`](PHASE-3b-2a.md). **3b.2b+ / Reassign** not started.
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b2a-1 | `npm run db:report:assign-impact -- --booking-code=WH-rec… --beds=R7-B1,…` | |
+| 3b2a-2 | JSON: `no_mutations`, `would_insert` listed, `payments_untouched` | |
+| 3b2a-3 | Overlap or guest-count fixture → exit 2 with `actionable[]` | |
+| 3b2a-4 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | |
+
 ## Phase 3b.1a — Cancel impact report (read-only)
 
 **Runbook:** [`PHASE-3b-1a.md`](PHASE-3b-1a.md). **3b.1b+ execute / 3b.1c** documented separately.
@@ -220,7 +231,7 @@ CLI-only alternative (no n8n): `db:cancel:booking-beds --execute` (3b.1b).
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.1c** implemented; **3b.2+** Assign/Reassign not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.1c** implemented; **3b.2a** assign impact report implemented; **3b.2b+** / Reassign not started.
 
 ### Tier A — automated
 
