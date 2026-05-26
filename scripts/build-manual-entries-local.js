@@ -41,7 +41,7 @@ const LOCAL_N8N = {
   postgresCred: { id: 'MnnrrLecI7oVoIGq', name: 'Postgres account' },
   airtableCred: { id: 'tEUby6EPDxFQ5st8', name: 'Airtable Personal Access Token account' },
 };
-const CLIENT_SLUG = 'wolfhouse';
+const CLIENT_SLUG = 'wolfhouse-somo';
 const LOCAL_WORKFLOW_NAME = 'Wolfhouse - Manual Entries Queue Processor (local PG)';
 
 /**
