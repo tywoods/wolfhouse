@@ -4,3 +4,5 @@ infra/.env
 .env.local
 *.log
 docs/api keys.txt
+reports/*.csv
+reports/*.json

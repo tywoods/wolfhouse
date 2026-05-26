@@ -135,11 +135,25 @@ Runbook: `docs/PHASE-2d.md`. Workflow: `n8n/phase2/Wolfhouse - Send Confirmation
 | 12.1 | Create booking in n8n | Row in Postgres AND Airtable with linked `airtable_record_id` |
 | 12.2 | Compare counts nightly | Drift < 0.1% |
 
+## Phase 3.0b — ID link + drift (local scripts)
+
+**Runbook:** [`PHASE-3-0b.md`](PHASE-3-0b.md). **3a not started.**
+
+**Status:** **3.0b-1 passed** (2026-05-25). No n8n / hosted export / payment changes.
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3.0b-1a | `npm run db:backfill:airtable-ids -- --dry-run` then apply | yes |
+| 3.0b-1b | `npm run db:report:drift` → `missing_airtable_record_id` and `wrong_airtable_record_id` empty | yes |
+| 3.0b-1c | `npm run test:phase2f-resolver` | yes |
+
+3.0b-1 notes (2026-05-25): Backfill scanned 11 `WH-rec*`, filled 2, 9 already linked. Drift actionable fields clean. CSV bookings=9 vs Postgres=28 (Δ19) is **non-blocking** — Phase 2 local-only test bookings in Postgres only. `db:verify` count mismatch expected until CSV refresh or test DB cleanup.
+
 ## Phase 2 local sign-off (freeze)
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1 only** started; dual-write workflows not started.
 
 ### Tier A — automated
 
@@ -187,7 +201,7 @@ C.4 notes (2026-05-25): `test-phase2d-send-confirmation.ps1 -BookingCode WH-recn
 | Engineer | Cursor | 2026-05-25 |
 | Owner | Ty | 2026-05-25 |
 
-**Sign-off notes:** Tier A passed; Tier B passed; Tier C passed; hosted n8n exports unchanged; Phase 3 not started; Azure/live deployment not started; short pay URLs deferred; local generated workflows are import-only and must be regenerated from build scripts.
+**Sign-off notes:** Tier A passed; Tier B passed; Tier C passed; hosted n8n exports unchanged; Phase 3 **3.0b-1** passed (see Phase 3.0b section); 3a+ and dual-write not started; Azure/live deployment not started; short pay URLs deferred; local generated workflows are import-only and must be regenerated from build scripts.
 
 ---
 
