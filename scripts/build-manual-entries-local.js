@@ -17,14 +17,16 @@
  *
  * Step 4: --generate also writes .n8n-import.json for CLI re-import (stable id B3c4ManualEntriesLocal01)
  *
- * TODO Step 3+: align CLIENT_SLUG with other build scripts (e.g. wolfhouse-somo) before PG SQL
- * TODO Step 3+: insert PG create/update/delete/backfill nodes
+ * Step 6b: delete-branch PG nodes (create/update PG — later steps)
+ * TODO Step 3+: insert PG create/update/backfill nodes
  * TODO Step 3+: add structured response node with partial_failure
  * TODO Step 3+: remap node credentials to LOCAL_N8N ids on generate (like assign/cancel builds)
  * TODO Step 3+: update docs and PowerShell test script
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { PG_MANUAL_ENTRY_DELETE_SQL } = require('./lib/manual-entry-pg-n8n-sql');
 
 const HOSTED = path.join(__dirname, '..', 'n8n', 'Wolfhouse - Manual Entries Queue Processor.json');
 const OUT_DIR = path.join(__dirname, '..', 'n8n', 'phase3b');
@@ -78,6 +80,159 @@ const PROD_AIRTABLE_BASE_ID = 'appOCWIN47Bui9CSS';
 /** Local test targets for Manual Entries fork (--generate rewrites hosted export references). */
 const TEST_SHEET_SPREADSHEET_ID = '1JIY22nrtHXWEi6gPWvvpDfgG8Xe0jT6hmGGzkNXRs10';
 const TEST_AIRTABLE_BASE_ID = 'appiyO4FmkKsyHZdK';
+
+const NULL_SENTINEL = '__NULL__';
+const PICK_NODE = 'Code - Pick Next Manual Queue Item';
+
+const PG_DELETE_QUERY_REPLACEMENT = `={{ (($('${PICK_NODE}').first().json.airtable_booking_record_id) != null && String($('${PICK_NODE}').first().json.airtable_booking_record_id).trim() !== '') ? String($('${PICK_NODE}').first().json.airtable_booking_record_id).trim() : '${NULL_SENTINEL}' }},={{ '${NULL_SENTINEL}' }},={{ (($('${PICK_NODE}').first().json.manual_entry_id) != null && String($('${PICK_NODE}').first().json.manual_entry_id).trim() !== '') ? String($('${PICK_NODE}').first().json.manual_entry_id).trim() : '${NULL_SENTINEL}' }}`;
+
+const VALIDATE_PG_DELETE_JS = `const pick = $('${PICK_NODE}').first().json;
+const pgItems = $('Postgres - Manual Entry Delete').all();
+const pgItem = pgItems[0];
+const pgErr = pgItem?.error;
+const pg = pgItem?.json || {};
+
+if (pgErr) {
+  const msg = String(pgErr.message || pgErr);
+  return [{
+    json: {
+      pg_ok: false,
+      errors: [msg.includes('no parameter') ? 'postgres_query_param_missing' : 'postgres_manual_entry_delete_failed'],
+      manual_entry_id: pick.manual_entry_id,
+      airtable_booking_record_id: pick.airtable_booking_record_id,
+      pg_deleted_count: 0,
+      partial_failure: 'pg_query_failed',
+      message: msg
+    }
+  }];
+}
+
+const resolved = Number(pg.booking_rows_resolved ?? 0);
+
+if (resolved !== 1) {
+  return [{
+    json: {
+      pg_ok: false,
+      errors: [resolved === 0 ? 'booking_not_found_in_postgres' : 'booking_ambiguous_in_postgres'],
+      manual_entry_id: pick.manual_entry_id,
+      airtable_booking_record_id: pick.airtable_booking_record_id,
+      pg_deleted_count: 0,
+      partial_failure: 'pg_resolve_failed',
+      message: 'Postgres could not resolve exactly one booking — Airtable delete steps skipped'
+    }
+  }];
+}
+
+const errors = [];
+const payBefore = String(pg.payment_status_before || '');
+const payAfter = String(pg.payment_status_after || '');
+if (payBefore && payAfter && payBefore !== payAfter) {
+  errors.push('payment_status_changed_during_pg_delete');
+}
+
+return [{
+  json: {
+    pg_ok: true,
+    errors,
+    ...pg,
+    manual_entry_id: pick.manual_entry_id,
+    airtable_booking_record_id: pick.airtable_booking_record_id,
+    booking_code: pg.booking_code || pick.booking_code || ''
+  }
+}];`;
+
+function uid(seed) {
+  const h = crypto.createHash('sha256').update(seed).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/**
+ * Insert delete-branch PG gate after HTTP - Mark Delete Processing (Step 6b).
+ * @param {object} workflow
+ */
+function injectDeleteBranchPgNodes(workflow) {
+  const required = ['HTTP - Mark Delete Processing', 'Search Booking Beds For Delete'];
+  for (const name of required) {
+    if (!listNodes(workflow).some((n) => n.name === name)) {
+      throw new Error(`Cannot inject delete PG nodes: missing "${name}"`);
+    }
+  }
+  if (listNodes(workflow).some((n) => n.name === 'Postgres - Manual Entry Delete')) {
+    return workflow;
+  }
+
+  const pgNodes = [
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: PG_MANUAL_ENTRY_DELETE_SQL,
+        options: { queryReplacement: PG_DELETE_QUERY_REPLACEMENT },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [920, 224],
+      id: uid('postgres-manual-entry-delete'),
+      name: 'Postgres - Manual Entry Delete',
+      alwaysOutputData: true,
+      continueOnFail: true,
+      onError: 'continueRegularOutput',
+      credentials: { postgres: LOCAL_N8N.postgresCred },
+    },
+    {
+      parameters: { jsCode: VALIDATE_PG_DELETE_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [992, 224],
+      id: uid('validate-pg-manual-delete'),
+      name: 'Code - Validate PG Delete',
+    },
+    {
+      parameters: {
+        conditions: {
+          options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+          conditions: [
+            {
+              id: 'pg-delete-ok',
+              leftValue: '={{ $json.pg_ok }}',
+              rightValue: '',
+              operator: { type: 'boolean', operation: 'true', singleValue: true },
+            },
+          ],
+          combinator: 'and',
+        },
+        options: {},
+      },
+      type: 'n8n-nodes-base.if',
+      typeVersion: 2.2,
+      position: [1064, 224],
+      id: uid('if-pg-delete-ok'),
+      name: 'IF - PG Delete OK',
+    },
+  ];
+
+  workflow.nodes.push(...pgNodes);
+
+  const conn = workflow.connections || {};
+  workflow.connections = conn;
+
+  conn['HTTP - Mark Delete Processing'] = {
+    main: [[{ node: 'Postgres - Manual Entry Delete', type: 'main', index: 0 }]],
+  };
+  conn['Postgres - Manual Entry Delete'] = {
+    main: [[{ node: 'Code - Validate PG Delete', type: 'main', index: 0 }]],
+  };
+  conn['Code - Validate PG Delete'] = {
+    main: [[{ node: 'IF - PG Delete OK', type: 'main', index: 0 }]],
+  };
+  conn['IF - PG Delete OK'] = {
+    main: [
+      [{ node: 'Search Booking Beds For Delete', type: 'main', index: 0 }],
+      [],
+    ],
+  };
+
+  return workflow;
+}
 
 /** @returns {object} */
 function loadHostedWorkflow() {
@@ -323,6 +478,7 @@ function buildLocalWorkflowFromHosted(hosted) {
       'WARN: no prod Sheet/Airtable base IDs found in hosted export — neutralization may be a no-op',
     );
   }
+  injectDeleteBranchPgNodes(neutralized.workflow);
   return neutralized;
 }
 
@@ -425,6 +581,8 @@ function printGenerateSummary(workflow) {
     `Webhook id: ${webhooks.length === 1 ? webhooks[0].webhookId : webhooks.map((w) => w.webhookId).join(', ')}`,
   );
   console.log(`Node count: ${listNodes(workflow).length}`);
+  const pgDelete = listNodes(workflow).some((n) => n.name === 'Postgres - Manual Entry Delete');
+  console.log(`Delete-branch PG nodes: ${pgDelete ? 'yes' : 'no'}`);
   console.log(`Hosted source unchanged: ${HOSTED}`);
   console.log(`Test Sheet ID: ${TEST_SHEET_SPREADSHEET_ID}`);
   console.log(`Test Airtable base ID: ${TEST_AIRTABLE_BASE_ID}`);

@@ -3634,6 +3634,79 @@
           "name": "Google account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS booking_code,\n    NULLIF(trim($3), '__NULL__') AS manual_entry_id\n),\nresolved AS (\n  SELECT\n    b.id,\n    b.booking_code,\n    b.status::text AS status,\n    b.payment_status::text AS payment_status,\n    c.id AS client_id\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND (\n      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)\n      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)\n      OR (p.manual_entry_id IS NOT NULL AND b.metadata->>'manual_entry_id' = p.manual_entry_id)\n    )\n  LIMIT 2\n),\nresolved_count AS (\n  SELECT COUNT(*)::int AS c FROM resolved\n),\nguard AS (\n  SELECT r.*\n  FROM resolved r\n  WHERE (SELECT c FROM resolved_count) = 1\n),\npayments_before AS (\n  SELECT COUNT(*)::int AS c\n  FROM payments p\n  INNER JOIN guard g ON p.booking_id = g.id AND p.client_id = g.client_id\n),\nbeds_before AS (\n  SELECT COUNT(*)::int AS c\n  FROM booking_beds bb\n  INNER JOIN guard g ON bb.booking_id = g.id AND bb.client_id = g.client_id\n),\ndeleted AS (\n  DELETE FROM booking_beds bb\n  USING guard g\n  WHERE bb.booking_id = g.id AND bb.client_id = g.client_id\n  RETURNING bb.id\n),\nupdated AS (\n  UPDATE bookings b\n  SET\n    status = 'cancelled'::booking_status,\n    assignment_status = 'needs_review'::assignment_status,\n    availability_check_status = 'needs_review'::availability_check_status\n  FROM guard g\n  WHERE b.id = g.id AND b.client_id = g.client_id\n  RETURNING b.id, b.status::text AS status_after\n)\nSELECT\n  rc.c AS booking_rows_resolved,\n  g.booking_code,\n  g.id::text AS booking_id,\n  g.status AS status_before,\n  COALESCE((SELECT status_after FROM updated LIMIT 1), g.status) AS status_after,\n  g.payment_status AS payment_status_before,\n  (SELECT payment_status::text FROM bookings WHERE id = g.id) AS payment_status_after,\n  (SELECT c FROM beds_before) AS beds_before_count,\n  (SELECT COUNT(*)::int FROM deleted) AS pg_deleted_count,\n  (SELECT COUNT(*)::int FROM updated) AS pg_booking_updated_count,\n  (SELECT c FROM payments_before) AS payments_count\nFROM resolved_count rc\nLEFT JOIN guard g ON true",
+        "options": {
+          "queryReplacement": "={{ (($('Code - Pick Next Manual Queue Item').first().json.airtable_booking_record_id) != null && String($('Code - Pick Next Manual Queue Item').first().json.airtable_booking_record_id).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.airtable_booking_record_id).trim() : '__NULL__' }},={{ '__NULL__' }},={{ (($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id) != null && String($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id).trim() !== '') ? String($('Code - Pick Next Manual Queue Item').first().json.manual_entry_id).trim() : '__NULL__' }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        920,
+        224
+      ],
+      "id": "55d2091b-7e3e-4893-8732-13ddc3ebd4d4",
+      "name": "Postgres - Manual Entry Delete",
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "MnnrrLecI7oVoIGq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const pick = $('Code - Pick Next Manual Queue Item').first().json;\nconst pgItems = $('Postgres - Manual Entry Delete').all();\nconst pgItem = pgItems[0];\nconst pgErr = pgItem?.error;\nconst pg = pgItem?.json || {};\n\nif (pgErr) {\n  const msg = String(pgErr.message || pgErr);\n  return [{\n    json: {\n      pg_ok: false,\n      errors: [msg.includes('no parameter') ? 'postgres_query_param_missing' : 'postgres_manual_entry_delete_failed'],\n      manual_entry_id: pick.manual_entry_id,\n      airtable_booking_record_id: pick.airtable_booking_record_id,\n      pg_deleted_count: 0,\n      partial_failure: 'pg_query_failed',\n      message: msg\n    }\n  }];\n}\n\nconst resolved = Number(pg.booking_rows_resolved ?? 0);\n\nif (resolved !== 1) {\n  return [{\n    json: {\n      pg_ok: false,\n      errors: [resolved === 0 ? 'booking_not_found_in_postgres' : 'booking_ambiguous_in_postgres'],\n      manual_entry_id: pick.manual_entry_id,\n      airtable_booking_record_id: pick.airtable_booking_record_id,\n      pg_deleted_count: 0,\n      partial_failure: 'pg_resolve_failed',\n      message: 'Postgres could not resolve exactly one booking — Airtable delete steps skipped'\n    }\n  }];\n}\n\nconst errors = [];\nconst payBefore = String(pg.payment_status_before || '');\nconst payAfter = String(pg.payment_status_after || '');\nif (payBefore && payAfter && payBefore !== payAfter) {\n  errors.push('payment_status_changed_during_pg_delete');\n}\n\nreturn [{\n  json: {\n    pg_ok: true,\n    errors,\n    ...pg,\n    manual_entry_id: pick.manual_entry_id,\n    airtable_booking_record_id: pick.airtable_booking_record_id,\n    booking_code: pg.booking_code || pick.booking_code || ''\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        224
+      ],
+      "id": "40d47bde-4f6b-4654-8e13-3fbae4089d2c",
+      "name": "Code - Validate PG Delete"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pg-delete-ok",
+              "leftValue": "={{ $json.pg_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1064,
+        224
+      ],
+      "id": "b8cf14f2-698d-461c-82a4-37a27c942283",
+      "name": "IF - PG Delete OK"
     }
   ],
   "pinData": {},
@@ -3810,7 +3883,7 @@
       "main": [
         [
           {
-            "node": "Search Booking Beds For Delete",
+            "node": "Postgres - Manual Entry Delete",
             "type": "main",
             "index": 0
           }
@@ -3899,6 +3972,40 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Postgres - Manual Entry Delete": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate PG Delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate PG Delete": {
+      "main": [
+        [
+          {
+            "node": "IF - PG Delete OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - PG Delete OK": {
+      "main": [
+        [
+          {
+            "node": "Search Booking Beds For Delete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
