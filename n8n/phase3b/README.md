@@ -46,6 +46,42 @@ Import **only** into **local** n8n (`http://localhost:5678`). Do **not** import 
 1. Postgres: DELETE `booking_beds` + UPDATE assignment fields (`needs_review`)  
 2. Airtable: delete Booking Beds + update Bookings (hosted behaviour)
 
+## Bed Assignment (3b.2c)
+
+**Runbook:** [`docs/PHASE-3b-2c.md`](../../docs/PHASE-3b-2c.md)
+
+1. Regenerate from hosted export (read-only):
+
+   ```powershell
+   npm run build:assign-beds:local
+   ```
+
+2. Re-import:
+
+   ```powershell
+   docker cp "n8n/phase3b/Wolfhouse - Bed Assignment (local PG).n8n-import.json" n8n-main:/tmp/assign-import.json
+   docker exec n8n-main n8n import:workflow --input=/tmp/assign-import.json
+   docker exec n8n-main n8n publish:workflow --id=B3c2AssignLocalPg01
+   docker restart n8n-main n8n-worker
+   ```
+
+3. Map credentials (Postgres + Airtable test PAT).
+
+4. **Deactivate** hosted `Wolfhouse - Bed Assignment` on local n8n — only one workflow may use `assign-beds-to-booking`.
+
+5. Test (Airtable booking must be **Unassigned** for full path):
+
+   ```powershell
+   npm run db:report:assign-impact -- --booking-code=WH-rec... --beds=R7-B1,R7-B2
+   scripts/test-assign-beds-webhook.ps1 -RecordId rec...
+   ```
+
+## Order of operations (Assign local fork)
+
+1. Postgres: INSERT `booking_beds` + UPDATE assignment fields  
+2. Airtable: create Booking Beds + update Bookings (hosted behaviour)  
+3. Postgres: backfill `airtable_record_id`; mirror assigned/available  
+
 ## Do not edit by hand
 
-Regenerate with `npm run build:cancel-beds:local`. Hosted source: `n8n/Wolfhouse - Cancel Bed Assignments.json` (read-only).
+Regenerate with `npm run build:cancel-beds:local` or `npm run build:assign-beds:local`. Hosted sources under `n8n/Wolfhouse - *.json` (read-only).

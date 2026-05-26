@@ -177,9 +177,25 @@ Runbook: `docs/PHASE-2d.md`. Workflow: `n8n/phase2/Wolfhouse - Send Confirmation
 
 Optional: `npm run db:report:bed-drift -- --overlap-from=YYYY-MM-DD --overlap-to=YYYY-MM-DD` for overlap window.
 
+## Phase 3b.2c — Assign workflow local fork (PG + Airtable)
+
+**Runbook:** [`PHASE-3b-2c.md`](PHASE-3b-2c.md). **Reassign (3b.3)** not started.
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b2c-1 | `npm run build:assign-beds:local` | |
+| 3b2c-2 | Import `n8n/phase3b/Wolfhouse - Bed Assignment (local PG).json`; map Postgres + Airtable (test base) | |
+| 3b2c-3 | Deactivate hosted Assign on local n8n; publish/activate local PG fork | |
+| 3b2c-4 | `db:sync`; booking with 0 PG beds; `db:report:assign-impact` | |
+| 3b2c-5 | `scripts/test-assign-beds-webhook.ps1 -RecordId rec…` — AT **Unassigned** required for full path | |
+| 3b2c-6 | Response: `pg_inserted_count` > 0; second call `idempotent` | |
+| 3b2c-7 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | |
+
+CLI PG mirror (no n8n): `db:assign:booking-beds --execute` (3b.2b). SQL shared via `scripts/lib/assign-booking-beds-pg-sql.js`.
+
 ## Phase 3b.2b — Postgres assign booking beds
 
-**Runbook:** [`PHASE-3b-2b.md`](PHASE-3b-2b.md). **3b.2c / Reassign** not started.
+**Runbook:** [`PHASE-3b-2b.md`](PHASE-3b-2b.md). **3b.2c** local n8n fork documented separately.
 
 | Step | Command | Pass |
 |------|---------|------|
@@ -246,7 +262,7 @@ CLI-only alternative (no n8n): `db:cancel:booking-beds --execute` (3b.1b).
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.1c** implemented; **3b.2a** + **3b.2b** assign impact + PG assign script; **3b.2c** / Reassign not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.2c** implemented (assign local n8n fork); **3b.3** Reassign not started.
 
 ### Tier A — automated
 

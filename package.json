@@ -13,6 +13,7 @@
     "db:assign:booking-beds": "node scripts/assign-booking-beds-postgres.js",
     "db:cancel:booking-beds": "node scripts/cancel-booking-beds-postgres.js",
     "build:cancel-beds:local": "node scripts/build-cancel-beds-local.js",
+    "build:assign-beds:local": "node scripts/build-assign-beds-local.js",
     "test:bed-drift-keys": "node scripts/test-bed-drift-keys.js",
     "planning:report:postgres": "node scripts/planning-report-from-postgres.js",
     "test:planning-row-format": "node scripts/test-planning-row-format.js",

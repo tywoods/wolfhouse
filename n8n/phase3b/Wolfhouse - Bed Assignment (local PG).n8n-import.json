@@ -1,0 +1,3947 @@
+[
+  {
+    "name": "Wolfhouse - Bed Assignment (local PG)",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "assign-beds-to-booking",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          -1900,
+          0
+        ],
+        "id": "cfe63ba7-affd-457f-87f8-03c342a592ee",
+        "name": "Assign Beds to Booking - Webhook",
+        "webhookId": "3b2c0001-0002-4000-8000-000000000002"
+      },
+      {
+        "parameters": {
+          "jsCode": "const body = $json.body ?? $json;\nconst errors = [];\nlet recordId = String(\n  body.record_id ?? body.RecordId ?? body.booking_record_id ?? body.airtable_record_id ?? ''\n).trim();\nlet bookingCode = String(\n  body.booking_code ?? body.BookingCode ?? body['Booking ID'] ?? ''\n).trim();\n\nfunction bookingCodeToRec(code) {\n  const s = String(code || '').trim();\n  if (!s.startsWith('WH-')) return '';\n  const rec = s.slice(3);\n  return rec.startsWith('rec') ? rec : '';\n}\nfunction recToBookingCode(rec) {\n  const s = String(rec || '').trim();\n  return s.startsWith('rec') ? 'WH-' + s : '';\n}\n\nif (recordId.startsWith('WH-')) {\n  const derived = bookingCodeToRec(recordId);\n  if (derived) recordId = derived;\n  else errors.push('invalid_WH_prefix_record_id');\n}\nif (!recordId && bookingCode) recordId = bookingCodeToRec(bookingCode);\nif (!bookingCode && recordId.startsWith('rec')) bookingCode = recToBookingCode(recordId);\n\nif (!recordId && !bookingCode) {\n  return [{\n    json: {\n      parse_ok: false,\n      errors: ['missing_record_id_or_booking_code'],\n      airtable_record_id: '',\n      record_id: '',\n      booking_code: ''\n    }\n  }];\n}\nif (recordId && !recordId.startsWith('rec')) {\n  return [{\n    json: {\n      parse_ok: false,\n      errors: ['airtable_record_id_must_start_with_rec'],\n      airtable_record_id: recordId,\n      record_id: recordId,\n      booking_code: bookingCode\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    parse_ok: true,\n    errors: errors.length ? errors : [],\n    airtable_record_id: recordId,\n    record_id: recordId,\n    booking_code: bookingCode\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1720,
+          0
+        ],
+        "id": "c2931a46-aa4d-443f-8abf-3f9d4ba3af5d",
+        "name": "Code - Parse Assign Webhook"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "parse-ok",
+                "leftValue": "={{ $json.parse_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -1560,
+          0
+        ],
+        "id": "e77b2096-f802-4476-83ed-2ca968e0e99f",
+        "name": "IF - Parse OK"
+      },
+      {
+        "parameters": {
+          "base": {
+            "__rl": true,
+            "value": "appOCWIN47Bui9CSS",
+            "mode": "list",
+            "cachedResultName": "Wolfhouse",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblYWm3zKFafe4qu7",
+            "mode": "list",
+            "cachedResultName": "Bookings",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblYWm3zKFafe4qu7"
+          },
+          "id": "={{ $('Code - Parse Assign Webhook').first().json.airtable_record_id }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.2,
+        "position": [
+          -1056,
+          48
+        ],
+        "id": "2b064755-72ac-4be5-8de0-9c9b4987adce",
+        "name": "Get Booking",
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "tEUby6EPDxFQ5st8",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "5352573a-be4e-42e0-b685-e1efa0f61859",
+                "leftValue": "={{ \n$('Get Booking').first().json.fields?.['Assignment Status'] !== 'Assigned' &&\n$('Get Booking').first().json.fields?.['Assignment Status'] !== 'Assigning' &&\n$('Get Booking').first().json.fields?.['Assignment Status'] !== 'Needs Review' &&\n$('Get Booking').first().json.fields?.['Status'] !== 'Cancelled' &&\n$('Get Booking').first().json.fields?.['Status'] !== 'Expired'\n}}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          -912,
+          48
+        ],
+        "id": "61b4c740-3c45-4dd1-bdcb-6f80920aa165",
+        "name": "IF - Needs Bed Assignment"
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "base": {
+            "__rl": true,
+            "value": "appOCWIN47Bui9CSS",
+            "mode": "list",
+            "cachedResultName": "Wolfhouse",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblYWm3zKFafe4qu7",
+            "mode": "list",
+            "cachedResultName": "Bookings",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblYWm3zKFafe4qu7"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "Assignment Status": "Assigning",
+              "id": "={{ $('Get Booking').first().json.id }}"
+            },
+            "matchingColumns": [
+              "id"
+            ],
+            "schema": [
+              {
+                "id": "id",
+                "displayName": "id",
+                "required": false,
+                "defaultMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": false
+              },
+              {
+                "id": "Booking ID",
+                "displayName": "Booking ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Name",
+                "displayName": "Guest Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Status",
+                "displayName": "Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Confirmed",
+                    "value": "Confirmed"
+                  },
+                  {
+                    "name": "Cancelled",
+                    "value": "Cancelled"
+                  },
+                  {
+                    "name": "Payment_Pending",
+                    "value": "Payment_Pending"
+                  },
+                  {
+                    "name": "Checked_In",
+                    "value": "Checked_In"
+                  },
+                  {
+                    "name": "Checked_Out",
+                    "value": "Checked_Out"
+                  },
+                  {
+                    "name": "Expired",
+                    "value": "Expired"
+                  },
+                  {
+                    "name": "Needs_Review",
+                    "value": "Needs_Review"
+                  },
+                  {
+                    "name": "Hold",
+                    "value": "Hold"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Status",
+                "displayName": "Payment Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "paid",
+                    "value": "paid"
+                  },
+                  {
+                    "name": "deposit_paid",
+                    "value": "deposit_paid"
+                  },
+                  {
+                    "name": "waiting_payment",
+                    "value": "waiting_payment"
+                  },
+                  {
+                    "name": "not_requested",
+                    "value": "not_requested"
+                  },
+                  {
+                    "name": "failed",
+                    "value": "failed"
+                  },
+                  {
+                    "name": "pay_on_arrival",
+                    "value": "pay_on_arrival"
+                  },
+                  {
+                    "name": "refunded",
+                    "value": "refunded"
+                  },
+                  {
+                    "name": "payment_pending",
+                    "value": "payment_pending"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Check In",
+                "displayName": "Check In",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Check Out",
+                "displayName": "Check Out",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Count",
+                "displayName": "Guest Count",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Phone",
+                "displayName": "Phone",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds",
+                "displayName": "Booking Beds",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Assignment Status",
+                "displayName": "Assignment Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Unassigned",
+                    "value": "Unassigned"
+                  },
+                  {
+                    "name": "Partially Assigned",
+                    "value": "Partially Assigned"
+                  },
+                  {
+                    "name": "Assigned",
+                    "value": "Assigned"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  },
+                  {
+                    "name": "Assigning",
+                    "value": "Assigning"
+                  }
+                ],
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Package",
+                "displayName": "Package",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Malibu",
+                    "value": "Malibu"
+                  },
+                  {
+                    "name": "Uluwatu",
+                    "value": "Uluwatu"
+                  },
+                  {
+                    "name": "Waimea",
+                    "value": "Waimea"
+                  },
+                  {
+                    "name": "Custom",
+                    "value": "Custom"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Hold Expires At",
+                "displayName": "Hold Expires At",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Created At",
+                "displayName": "Created At",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Expired",
+                "displayName": "Expired",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Email",
+                "displayName": "Email",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Link",
+                "displayName": "Payment Link",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Send Confirmation",
+                "displayName": "Send Confirmation",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Gender / Group Type",
+                "displayName": "Guest Gender / Group Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  },
+                  {
+                    "name": "solo_female",
+                    "value": "solo_female"
+                  },
+                  {
+                    "name": "solo_male",
+                    "value": "solo_male"
+                  },
+                  {
+                    "name": "female_group",
+                    "value": "female_group"
+                  },
+                  {
+                    "name": "male_group",
+                    "value": "male_group"
+                  },
+                  {
+                    "name": "mixed_group",
+                    "value": "mixed_group"
+                  },
+                  {
+                    "name": "couple",
+                    "value": "couple"
+                  },
+                  {
+                    "name": "family",
+                    "value": "family"
+                  },
+                  {
+                    "name": "operator_group",
+                    "value": "operator_group"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Google Calendar Event ID",
+                "displayName": "Google Calendar Event ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Source",
+                "displayName": "Booking Source",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "AI WhatsApp",
+                    "value": "AI WhatsApp"
+                  },
+                  {
+                    "name": "Manual Staff",
+                    "value": "Manual Staff"
+                  },
+                  {
+                    "name": "Website",
+                    "value": "Website"
+                  },
+                  {
+                    "name": "Walk-in",
+                    "value": "Walk-in"
+                  },
+                  {
+                    "name": "Phone",
+                    "value": "Phone"
+                  },
+                  {
+                    "name": "Operator",
+                    "value": "Operator"
+                  },
+                  {
+                    "name": "Other",
+                    "value": "Other"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Staff Notes",
+                "displayName": "Staff Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Needs Calendar Sync",
+                "displayName": "Needs Calendar Sync",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Calendar Title",
+                "displayName": "Calendar Title",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Requested Room Type",
+                "displayName": "Requested Room Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "shared",
+                    "value": "shared"
+                  },
+                  {
+                    "name": "private",
+                    "value": "private"
+                  },
+                  {
+                    "name": "either",
+                    "value": "either"
+                  },
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Rooming Notes",
+                "displayName": "Rooming Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Rooming Confidence",
+                "displayName": "Rooming Confidence",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room ID",
+                "displayName": "Room ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room Preference",
+                "displayName": "Room Preference",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "shared",
+                    "value": "shared"
+                  },
+                  {
+                    "name": "private",
+                    "value": "private"
+                  },
+                  {
+                    "name": "female_only",
+                    "value": "female_only"
+                  },
+                  {
+                    "name": "male_only",
+                    "value": "male_only"
+                  },
+                  {
+                    "name": "double",
+                    "value": "double"
+                  },
+                  {
+                    "name": "family_room",
+                    "value": "family_room"
+                  },
+                  {
+                    "name": "mixed_ok",
+                    "value": "mixed_ok"
+                  },
+                  {
+                    "name": "any",
+                    "value": "any"
+                  },
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Needs Rooming Review",
+                "displayName": "Needs Rooming Review",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Option",
+                "displayName": "Payment Option",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Not Checked",
+                    "value": "Not Checked"
+                  },
+                  {
+                    "name": "Available",
+                    "value": "Available"
+                  },
+                  {
+                    "name": "Conflict",
+                    "value": "Conflict"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Deposit Required",
+                "displayName": "Deposit Required",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Deposit Paid",
+                "displayName": "Deposit Paid",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Balance Due",
+                "displayName": "Balance Due",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Balance Due on Arrival",
+                "displayName": "Balance Due on Arrival",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Total Amount",
+                "displayName": "Total Amount",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Amount Paid",
+                "displayName": "Amount Paid",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Notes",
+                "displayName": "Payment Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Availability Check Status",
+                "displayName": "Availability Check Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Not Checked",
+                    "value": "Not Checked"
+                  },
+                  {
+                    "name": "Available",
+                    "value": "Available"
+                  },
+                  {
+                    "name": "Conflict",
+                    "value": "Conflict"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Conflict Notes",
+                "displayName": "Conflict Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Operator Name",
+                "displayName": "Operator Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "SurfWeek",
+                    "value": "SurfWeek"
+                  },
+                  {
+                    "name": "Other",
+                    "value": "Other"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Block Type",
+                "displayName": "Block Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Whole Room",
+                    "value": "Whole Room"
+                  },
+                  {
+                    "name": "Partial Beds",
+                    "value": "Partial Beds"
+                  },
+                  {
+                    "name": "Whole House",
+                    "value": "Whole House"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room to Block",
+                "displayName": "Room to Block",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room Name",
+                "displayName": "Room Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Capacity",
+                "displayName": "Capacity",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request",
+                "displayName": "Operator Room Release Request",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request 2",
+                "displayName": "Operator Room Release Request 2",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request 3",
+                "displayName": "Operator Room Release Request 3",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds 2",
+                "displayName": "Booking Beds 2",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds 3",
+                "displayName": "Booking Beds 3",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.2,
+        "position": [
+          -752,
+          32
+        ],
+        "id": "a9a271b2-4d9b-4afb-b92b-62b9976a45fe",
+        "name": "Update Booking - Mark Assigning",
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "tEUby6EPDxFQ5st8",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "search",
+          "base": {
+            "__rl": true,
+            "value": "appOCWIN47Bui9CSS",
+            "mode": "list",
+            "cachedResultName": "Wolfhouse",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblEkF4SG4TLaNmW4",
+            "mode": "list",
+            "cachedResultName": "Beds",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblEkF4SG4TLaNmW4"
+          },
+          "filterByFormula": "={{ 'AND({Active}=1, {Sellable}=1)' }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.2,
+        "position": [
+          -576,
+          32
+        ],
+        "id": "d3f767d0-cdf0-42ee-a298-5b3cf18d55e2",
+        "name": "Search Active Beds",
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "tEUby6EPDxFQ5st8",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "search",
+          "base": {
+            "__rl": true,
+            "value": "appOCWIN47Bui9CSS",
+            "mode": "list",
+            "cachedResultName": "Wolfhouse",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblO1ByvTMXS4SalB",
+            "mode": "list",
+            "cachedResultName": "Booking Beds",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblO1ByvTMXS4SalB"
+          },
+          "filterByFormula": "={{\n`AND(\n  OR(\n    FIND(\"Hold\", ARRAYJOIN({Status (from Booking)})) > 0,\n    FIND(\"Held\", ARRAYJOIN({Status (from Booking)})) > 0,\n    FIND(\"Confirmed\", ARRAYJOIN({Status (from Booking)})) > 0,\n    FIND(\"Checked_In\", ARRAYJOIN({Status (from Booking)})) > 0,\n    FIND(\"Blocked\", ARRAYJOIN({Status (from Booking)})) > 0\n  ),\n  IS_BEFORE({Assignment Start Date}, DATETIME_PARSE(\"${$('Get Booking').first().json.fields['Check Out']}\")),\n  IS_AFTER({Assignment End Date}, DATETIME_PARSE(\"${$('Get Booking').first().json.fields['Check In']}\"))\n)`\n}}",
+          "options": {
+            "fields": [
+              "Assignment Start Date",
+              "Assignment End Date",
+              "Bed",
+              "Room ID",
+              "Guest Gender / Group Type",
+              "Status (from Booking)"
+            ],
+            "view": {
+              "__rl": true,
+              "value": "viwazVfExYLqd8F0O",
+              "mode": "list",
+              "cachedResultName": "Active Bed Assignments",
+              "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblO1ByvTMXS4SalB/viwazVfExYLqd8F0O"
+            }
+          },
+          "sort": {
+            "property": []
+          }
+        },
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.2,
+        "position": [
+          -352,
+          32
+        ],
+        "id": "29a3455a-2867-4dca-a25e-6c599b918a08",
+        "name": "Search Existing Bed Assignments",
+        "alwaysOutputData": true,
+        "executeOnce": true,
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "tEUby6EPDxFQ5st8",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "search",
+          "base": {
+            "__rl": true,
+            "value": "appOCWIN47Bui9CSS",
+            "mode": "list",
+            "cachedResultName": "Wolfhouse",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblrNdFnxdQvEnPuj",
+            "mode": "list",
+            "cachedResultName": "Rooms",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblrNdFnxdQvEnPuj"
+          },
+          "filterByFormula": "={{ 'TRUE()' }}",
+          "options": {
+            "fields": [
+              "Room ID",
+              "Room Type",
+              "Capacity",
+              "Private Priority",
+              "Gender Strategy",
+              "Can be Matrimonial",
+              "Often used By Operator",
+              "Active",
+              "Fill Priority"
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.2,
+        "position": [
+          -144,
+          32
+        ],
+        "id": "a0eb2a8d-c86b-403d-977a-a5a0116c307a",
+        "name": "Search Rooms",
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "tEUby6EPDxFQ5st8",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const booking = $('Get Booking').first().json;\nconst bookingFields = booking.fields || booking;\n\nconst bedsRaw = $('Search Active Beds').all();\nconst assignmentsRaw = $('Search Existing Bed Assignments').all();\nconst roomsRaw = $('Search Rooms').all();\n\nconst bookingRecordId = booking.id;\nconst bookingPublicId = bookingFields['Booking ID'];\nconst checkIn = bookingFields['Check In'];\nconst checkOut = bookingFields['Check Out'];\n\nconst bookingSource = bookingFields['Booking Source'] || '';\nconst operatorName = bookingFields['Operator Name'] || '';\nconst blockType = bookingFields['Block Type'] || '';\n\nconst roomToBlockRaw = bookingFields['Room to Block'];\nconst roomToBlockRecordId = Array.isArray(roomToBlockRaw)\n  ? roomToBlockRaw[0]\n  : roomToBlockRaw || null;\n\n// SAFE guest count handling.\n// Do not treat 0 as valid.\nconst rawGuestCount =\n  bookingFields['Guest Count'] !== undefined &&\n  bookingFields['Guest Count'] !== null &&\n  Number(bookingFields['Guest Count']) > 0\n    ? bookingFields['Guest Count']\n    : bookingFields['Guests'] !== undefined &&\n      bookingFields['Guests'] !== null &&\n      Number(bookingFields['Guests']) > 0\n        ? bookingFields['Guests']\n        : 1;\n\nconst guestCount = Math.max(1, Number(rawGuestCount));\n\nconst requestedRoomType = String(\n  bookingFields['Requested Room Type'] ||\n  bookingFields['Room Type'] ||\n  'shared'\n).toLowerCase();\n\nfunction normalizeSelect(value, fallback = 'unknown') {\n  return String(value || fallback)\n    .trim()\n    .toLowerCase()\n    .replace(/\\s+/g, '_');\n}\n\nconst guestGenderGroup = normalizeSelect(\n  bookingFields['Guest Gender / Group Type'],\n  'unknown'\n);\n\nconst roomPreference = normalizeSelect(\n  bookingFields['Room Preference'] || requestedRoomType,\n  requestedRoomType || 'shared'\n);\n\nconst roomingNotes = String(\n  bookingFields['Rooming Notes'] || ''\n).trim();\n\nfunction getLookupValue(value) {\n  if (Array.isArray(value)) return value[0];\n  return value;\n}\n\nfunction getLookupValues(value) {\n  if (Array.isArray(value)) return value;\n  if (value === undefined || value === null || value === '') return [];\n  return [value];\n}\n\nfunction overlaps(aStart, aEnd, bStart, bEnd) {\n  return String(aStart) < String(bEnd) && String(bStart) < String(aEnd);\n}\n\nfunction boolValue(value) {\n  if (Array.isArray(value)) value = value[0];\n  if (typeof value === 'boolean') return value;\n  if (typeof value === 'number') return value === 1;\n  if (typeof value === 'string') {\n    return ['true', 'yes', '1', 'checked', '👍'].includes(value.toLowerCase());\n  }\n  return false;\n}\n\nfunction cleanKey(value) {\n  return String(value || '').trim();\n}\n\nfunction addKey(set, value) {\n  for (const v of getLookupValues(value)) {\n    const key = cleanKey(v);\n    if (key) set.add(key);\n  }\n}\n\nfunction hasAnyKey(set, values) {\n  return values\n    .filter(Boolean)\n    .map(cleanKey)\n    .some(key => set.has(key));\n}\n\nfunction explicitlyWantsPrivate() {\n  return [\n    requestedRoomType,\n    roomPreference\n  ].some(value =>\n    [\n      'private',\n      'private_room',\n      'double',\n      'family_room',\n      'family',\n      'couple_private'\n    ].includes(String(value || '').toLowerCase())\n  );\n}\n\nconst wantsPrivate = explicitlyWantsPrivate();\n\nfunction wantsFemalePlacement() {\n  return (\n    roomPreference === 'female_only' ||\n    guestGenderGroup === 'female_group' ||\n    guestGenderGroup === 'solo_female'\n  );\n}\n\nfunction wantsMalePlacement() {\n  return (\n    roomPreference === 'male_only' ||\n    guestGenderGroup === 'male_group' ||\n    guestGenderGroup === 'solo_male'\n  );\n}\n\nconst femalePlacementRequested = wantsFemalePlacement();\nconst malePlacementRequested = wantsMalePlacement();\n\nfunction getFieldAny(fields, names, fallback = null) {\n  for (const name of names) {\n    if (\n      fields[name] !== undefined &&\n      fields[name] !== null &&\n      fields[name] !== ''\n    ) {\n      return fields[name];\n    }\n  }\n\n  return fallback;\n}\n\n// Build room metadata from Search Rooms.\n// Room strategy/priority comes from Rooms, not Beds.\nconst roomsByRecordId = {};\nconst roomsByRoomId = {};\n\nfor (const item of roomsRaw) {\n  const fields = item.json.fields || item.json;\n\n  const roomRecordId = item.json.id;\n  const roomId = getLookupValue(fields['Room ID']) || fields['Room ID'] || '';\n\n  const fillPriorityRaw = getFieldAny(fields, [\n    'Fill Priority',\n    'Fill Priority ',\n    'Fill priority',\n    'Fill priority '\n  ], 50);\n\n  const privatePriorityRaw = getFieldAny(fields, [\n    'Private Priority',\n    'Private Priority ',\n    'Private priority',\n    'Private priority '\n  ], 50);\n\n  const roomData = {\n    record_id: roomRecordId,\n    room_id: roomId,\n    room_type: getLookupValue(fields['Room Type']) || fields['Room Type'] || '',\n    capacity: Number(getLookupValue(fields['Capacity']) || 0),\n    fill_priority: Number(getLookupValue(fillPriorityRaw) || 50),\n    private_priority: Number(getLookupValue(privatePriorityRaw) || 50),\n    gender_strategy: String(getLookupValue(fields['Gender Strategy']) || 'Flexible'),\n    can_be_matrimonial: boolValue(fields['Can be Matrimonial']),\n    often_used_by_operator: boolValue(fields['Often used By Operator']),\n    active: boolValue(fields['Active']),\n    fields\n  };\n\n  if (roomRecordId) {\n    roomsByRecordId[roomRecordId] = roomData;\n  }\n\n  if (roomId) {\n    roomsByRoomId[String(roomId)] = roomData;\n  }\n}\n\n// Normalize all active beds first.\nconst allBeds = bedsRaw.map(item => {\n  const fields = item.json.fields || item.json;\n\n  const roomRecordId = Array.isArray(fields['Room'])\n    ? fields['Room'][0]\n    : fields['Room'];\n\n  const roomIdFromBed = getLookupValue(fields['Room ID']);\n\n  const roomMeta =\n    roomsByRecordId[roomRecordId] ||\n    roomsByRoomId[String(roomIdFromBed || '')] ||\n    {};\n\n  const roomId =\n    roomMeta.room_id ||\n    roomIdFromBed ||\n    '';\n\n  const bedId = getLookupValue(fields['Bed ID']) || fields['Bed ID'] || '';\n  const bedLabel = fields['Bed Label'] || fields['Name'] || bedId || '';\n\n  return {\n    record_id: item.json.id,\n    bed_id: bedId,\n    room_record_id: roomRecordId,\n    room_id: roomId,\n    room_name:\n      roomMeta.room_id ||\n      getLookupValue(fields['Room Name']) ||\n      getLookupValue(fields['Room']) ||\n      '',\n    bed_number: Number(fields['Bed Number'] || 0),\n    bed_label: bedLabel,\n\n    room_type: roomMeta.room_type || '',\n    capacity: Number(roomMeta.capacity || 0),\n    fill_priority: Number(roomMeta.fill_priority || 50),\n    private_priority: Number(roomMeta.private_priority || 50),\n    gender_strategy: String(roomMeta.gender_strategy || 'Flexible'),\n    can_be_matrimonial: boolValue(roomMeta.can_be_matrimonial),\n    often_used_by_operator: boolValue(roomMeta.often_used_by_operator),\n    room_active: roomMeta.active !== false,\n\n    fields\n  };\n}).filter(bed => bed.record_id && bed.room_id);\n\nconst bedToRoom = {};\n\nfor (const bed of allBeds) {\n  const possibleBedKeys = [\n    bed.record_id,\n    bed.bed_id,\n    bed.bed_label,\n    bed.fields?.['Bed ID'],\n    bed.fields?.['Bed Label'],\n    bed.fields?.['Name']\n  ].filter(Boolean);\n\n  for (const key of possibleBedKeys) {\n    bedToRoom[cleanKey(key)] = bed.room_id;\n  }\n}\n\n// Existing occupied beds and room occupancy.\nconst occupiedBedKeys = new Set();\nconst occupiedByRoom = {};\nconst genderByRoom = {};\n\nfor (const item of assignmentsRaw) {\n  const a = item.json.fields || item.json;\n\n  const aStart =\n    getLookupValue(a['Assignment Start Date']) ||\n    getLookupValue(a['Check In']);\n\n  const aEnd =\n    getLookupValue(a['Assignment End Date']) ||\n    getLookupValue(a['Check Out']);\n\n  const assignmentOverlaps =\n    !aStart || !aEnd || overlaps(checkIn, checkOut, aStart, aEnd);\n\n  if (!assignmentOverlaps) continue;\n\n  addKey(occupiedBedKeys, a['Bed']);\n  addKey(occupiedBedKeys, a['Bed ID']);\n  addKey(occupiedBedKeys, a['Bed Label']);\n  addKey(occupiedBedKeys, a['Bed Name']);\n  addKey(occupiedBedKeys, a['Bed Key']);\n  addKey(occupiedBedKeys, a['Name']);\n\n  const possibleAssignmentBedKeys = [\n    ...getLookupValues(a['Bed']),\n    ...getLookupValues(a['Bed ID']),\n    ...getLookupValues(a['Bed Label']),\n    ...getLookupValues(a['Bed Name']),\n    ...getLookupValues(a['Bed Key']),\n    ...getLookupValues(a['Name'])\n  ].filter(Boolean).map(cleanKey);\n\n  const roomId =\n    getLookupValue(a['Room ID']) ||\n    getLookupValue(a['Room']) ||\n    possibleAssignmentBedKeys.map(key => bedToRoom[key]).find(Boolean);\n\n  if (roomId) {\n    occupiedByRoom[roomId] = (occupiedByRoom[roomId] || 0) + 1;\n\n    const gender =\n      normalizeSelect(\n        a['Guest Gender / Group Type'] ||\n        a['Gender Group'] ||\n        a['gender_group'] ||\n        '',\n        ''\n      );\n\n    if (gender) {\n      if (!genderByRoom[roomId]) genderByRoom[roomId] = new Set();\n      genderByRoom[roomId].add(gender);\n    }\n  }\n}\n\n// Free beds only.\nconst freeBeds = allBeds.filter(bed => {\n  const possibleKeys = [\n    bed.record_id,\n    bed.bed_id,\n    bed.bed_label,\n    bed.fields?.['Bed ID'],\n    bed.fields?.['Bed Label'],\n    bed.fields?.['Name']\n  ];\n\n  const isOccupied = hasAnyKey(occupiedBedKeys, possibleKeys);\n\n  return bed.record_id && !isOccupied;\n});\n\n// CASE 1: Operator whole-room block.\nconst isOperatorWholeRoomBlock =\n  bookingSource === 'Operator' &&\n  blockType === 'Whole Room' &&\n  !!roomToBlockRecordId;\n\nif (isOperatorWholeRoomBlock) {\n  const roomBeds = freeBeds\n    .filter(bed => String(bed.room_record_id) === String(roomToBlockRecordId))\n    .sort((a, b) => a.bed_number - b.bed_number);\n\n  if (roomBeds.length === 0) {\n    return [{\n      json: {\n        booking_record_id: bookingRecordId,\n        booking_id: bookingPublicId,\n        guest_count: guestCount,\n        assignment_status: 'Needs Review',\n        availability_check_status: 'Conflict',\n        conflict_notes: `No free beds found in the selected room for ${operatorName || 'operator'} from ${checkIn} to ${checkOut}.`,\n        selected_beds: [],\n        gender_group: 'operator_group',\n        room_preference: 'unknown',\n        rooming_notes: `${operatorName || 'Operator'} whole-room block`\n      }\n    }];\n  }\n\n  return roomBeds.map(bed => ({\n    json: {\n      booking_record_id: bookingRecordId,\n      booking_id: bookingPublicId,\n      guest_count: guestCount,\n      bed_record_id: bed.record_id,\n      bed_id: bed.bed_id,\n      room_id: bed.room_id,\n      room_name: bed.room_name,\n      check_in: checkIn,\n      check_out: checkOut,\n      requested_room_type: 'operator_block',\n      assignment_status: 'Assigned',\n      availability_check_status: 'Available',\n      conflict_notes: '',\n      assignment_type: 'Manual Staff Assignment',\n      gender_group: 'operator_group',\n      room_preference: 'unknown',\n      rooming_notes: `${operatorName || 'Operator'} whole-room block`,\n      notes: `${operatorName || 'Operator'} whole-room block`\n    }\n  }));\n}\n\n// Build rooms from free beds.\nconst rooms = {};\n\nfor (const bed of freeBeds) {\n  if (!rooms[bed.room_id]) {\n    rooms[bed.room_id] = {\n      room_id: bed.room_id,\n      room_name: bed.room_name,\n      room_type: bed.room_type,\n      capacity: bed.capacity,\n      fill_priority: bed.fill_priority,\n      private_priority: bed.private_priority,\n      gender_strategy: bed.gender_strategy,\n      can_be_matrimonial: bed.can_be_matrimonial,\n      often_used_by_operator: bed.often_used_by_operator,\n      occupied_count: occupiedByRoom[bed.room_id] || 0,\n      existing_gender_groups: Array.from(genderByRoom[bed.room_id] || []),\n      beds: []\n    };\n  }\n\n  rooms[bed.room_id].beds.push(bed);\n}\n\nfor (const room of Object.values(rooms)) {\n  room.beds.sort((a, b) => a.bed_number - b.bed_number);\n}\n\nconst roomList = Object.values(rooms)\n  .filter(room => room.beds.length > 0);\n\nfunction roomGenderStrategy(room) {\n  return String(room.gender_strategy || 'Flexible').trim().toLowerCase();\n}\n\nfunction roomTypeValue(room) {\n  return String(room.room_type || '').trim().toLowerCase();\n}\n\nfunction roomIsFemalePreferred(room) {\n  const genderStrategy = roomGenderStrategy(room);\n\n  return (\n    genderStrategy.includes('female') ||\n    genderStrategy.includes('women') ||\n    genderStrategy.includes('woman') ||\n    genderStrategy.includes('ladies') ||\n    genderStrategy.includes('girls')\n  );\n}\n\nfunction roomIsMalePreferred(room) {\n  const genderStrategy = roomGenderStrategy(room);\n\n  return (\n    genderStrategy.includes('male') ||\n    genderStrategy.includes('men') ||\n    genderStrategy.includes('man') ||\n    genderStrategy.includes('boys')\n  );\n}\n\nfunction roomIsMixedOrFlexible(room) {\n  const genderStrategy = roomGenderStrategy(room);\n\n  return (\n    genderStrategy.includes('mixed') ||\n    genderStrategy.includes('flexible') ||\n    genderStrategy === ''\n  );\n}\n\nfunction isPrivateLikeRoom(room) {\n  const strategy = roomGenderStrategy(room);\n  const type = roomTypeValue(room);\n\n  // Important:\n  // Can be Matrimonial does NOT make a room private-like.\n  // R3 can be matrimonial but should still be usable first for normal shared bookings.\n  return (\n    strategy.includes('private') ||\n    type.includes('private') ||\n    type.includes('double') ||\n    type.includes('family') ||\n    Number(room.capacity) === 2\n  );\n}\n\nfunction roomHardBlocked(room) {\n  const genderStrategy = roomGenderStrategy(room);\n\n  if (genderStrategy.includes('operator')) {\n    return bookingSource !== 'Operator';\n  }\n\n  if (genderStrategy.includes('female only')) {\n    return !['solo_female', 'female_group'].includes(guestGenderGroup);\n  }\n\n  if (genderStrategy.includes('male only')) {\n    return !['solo_male', 'male_group'].includes(guestGenderGroup);\n  }\n\n  return false;\n}\n\nfunction roomBaseScore(room, guestsAssignedToRoom) {\n  let score = 0;\n\n  const genderStrategy = roomGenderStrategy(room);\n\n  // Base room priority from Rooms table.\n  // Bigger multiplier makes Fill Priority the main normal-placement driver.\n  if (wantsPrivate) {\n    score += Number(room.private_priority || 50) * 100;\n  } else {\n    score += Number(room.fill_priority || 50) * 100;\n  }\n\n  // Reserve gender-preferred rooms unless the guest needs that placement.\n  if (!femalePlacementRequested && roomIsFemalePreferred(room)) {\n    score += 900;\n  }\n\n  if (!malePlacementRequested && roomIsMalePreferred(room)) {\n    score += 900;\n  }\n\n  // Do not use genuinely private/double/family rooms for normal shared bookings unless explicitly requested.\n  if (isPrivateLikeRoom(room) && !wantsPrivate) {\n    score += 10000;\n  }\n\n  // If private was requested, strongly prefer private-like rooms.\n  if (isPrivateLikeRoom(room) && wantsPrivate) {\n    score -= 120;\n  }\n\n  // Operator rooms later unless needed.\n  if (room.often_used_by_operator && bookingSource !== 'Operator') {\n    score += 40;\n  }\n\n  // Keep R4 / 9-bed room later unless it makes sense for a big group.\n  if (room.room_id === 'R4') {\n    score += guestCount >= 7 ? 20 : 120;\n  }\n\n  // Spread the house: rooms already occupied get a penalty.\n  score += Number(room.occupied_count || 0) * 12;\n\n  // Gender strategy matching.\n  if (guestGenderGroup === 'female_group' || guestGenderGroup === 'solo_female') {\n    if (roomIsFemalePreferred(room)) score -= 500;\n    if (roomIsMalePreferred(room)) score += 1000;\n    if (roomIsMixedOrFlexible(room)) score += 80;\n  }\n\n  if (guestGenderGroup === 'male_group' || guestGenderGroup === 'solo_male') {\n    if (roomIsMalePreferred(room)) score -= 500;\n    if (roomIsFemalePreferred(room)) score += 1000;\n    if (roomIsMixedOrFlexible(room)) score += 80;\n  }\n\n  if (\n    guestGenderGroup === 'mixed_group' ||\n    guestGenderGroup === 'couple' ||\n    guestGenderGroup === 'family'\n  ) {\n    if (genderStrategy.includes('mixed')) score -= 25;\n    if (genderStrategy.includes('flexible')) score -= 10;\n  }\n\n  // Existing room composition.\n  const existing = room.existing_gender_groups || [];\n\n  if (existing.length) {\n    if (['solo_female', 'female_group'].includes(guestGenderGroup)) {\n      if (existing.every(g => g.includes('female'))) score -= 120;\n      if (existing.some(g => g.includes('male'))) score += 500;\n    }\n\n    if (['solo_male', 'male_group'].includes(guestGenderGroup)) {\n      if (existing.every(g => g.includes('male'))) score -= 120;\n      if (existing.some(g => g.includes('female'))) score += 500;\n    }\n  }\n\n  // Room preference matching.\n  if (roomPreference === 'female_only') {\n    if (roomIsFemalePreferred(room)) score -= 1000;\n    if (roomIsMalePreferred(room)) score += 2000;\n    if (roomIsMixedOrFlexible(room)) score += 300;\n  }\n\n  if (roomPreference === 'male_only') {\n    if (roomIsMalePreferred(room)) score -= 1000;\n    if (roomIsFemalePreferred(room)) score += 2000;\n    if (roomIsMixedOrFlexible(room)) score += 300;\n  }\n\n  if (roomPreference === 'mixed_ok' || roomPreference === 'any') {\n    if (genderStrategy.includes('mixed') || genderStrategy.includes('flexible')) score -= 15;\n  }\n\n  // Only give matrimonial/private boost if private/double was explicitly requested.\n  if (roomPreference === 'double' || wantsPrivate) {\n    if (room.can_be_matrimonial) score -= 30;\n    if (!room.can_be_matrimonial && wantsPrivate) score += 20;\n  }\n\n  // Tetris leftover scoring.\n  const leftoverAfterThisBooking = room.beds.length - guestsAssignedToRoom;\n\n  if (leftoverAfterThisBooking === 0) {\n    score -= 25;\n  } else if (leftoverAfterThisBooking === 1) {\n    score += 35;\n  } else if (leftoverAfterThisBooking === 2) {\n    score -= 5;\n  }\n\n  // Prefer putting more of the group in each used room.\n  score -= guestsAssignedToRoom * 4;\n\n  return score;\n}\n\nfunction distributeGuestsAcrossRooms(combo, totalGuests) {\n  let remaining = totalGuests;\n  const allocation = [];\n\n  const sorted = [...combo].sort((a, b) => {\n    return roomBaseScore(a, Math.min(a.beds.length, remaining)) -\n      roomBaseScore(b, Math.min(b.beds.length, remaining));\n  });\n\n  for (const room of sorted) {\n    if (remaining <= 0) break;\n\n    const assignCount = Math.min(room.beds.length, remaining);\n\n    allocation.push({\n      room,\n      assign_count: assignCount\n    });\n\n    remaining -= assignCount;\n  }\n\n  return {\n    allocation,\n    remaining\n  };\n}\n\nfunction comboScore(combo) {\n  const totalFreeBeds = combo.reduce((sum, room) => sum + room.beds.length, 0);\n\n  if (totalFreeBeds < guestCount) return Infinity;\n  if (combo.some(roomHardBlocked)) return Infinity;\n\n  const { allocation, remaining } = distributeGuestsAcrossRooms(combo, guestCount);\n  if (remaining > 0) return Infinity;\n\n  let score = 0;\n\n  // Fewer rooms is better for guest.\n  score += (allocation.length - 1) * 75;\n\n  // Big groups are expected to split.\n  if (guestCount >= 8) {\n    score -= 20;\n  }\n\n  for (const part of allocation) {\n    score += roomBaseScore(part.room, part.assign_count);\n  }\n\n  const totalLeftover = totalFreeBeds - guestCount;\n  score += totalLeftover * 3;\n\n  if (allocation.length >= 3) score += 20;\n\n  return score;\n}\n\nfunction generateRoomCombos(roomList) {\n  const combos = [];\n\n  function backtrack(start, combo) {\n    if (combo.length > 0) combos.push([...combo]);\n\n    for (let i = start; i < roomList.length; i++) {\n      combo.push(roomList[i]);\n      backtrack(i + 1, combo);\n      combo.pop();\n    }\n  }\n\n  backtrack(0, []);\n  return combos;\n}\n\nconst baseUsableRooms = roomList.filter(room => !roomHardBlocked(room));\n\nlet usableRooms = baseUsableRooms;\n\n// If the guest specifically needs female-only placement,\n// first restrict to female-preferred rooms if there are enough beds there.\nif (roomPreference === 'female_only') {\n  const femalePreferredRooms = baseUsableRooms.filter(room => roomIsFemalePreferred(room));\n\n  const femalePreferredFreeBeds = femalePreferredRooms.reduce(\n    (sum, room) => sum + room.beds.length,\n    0\n  );\n\n  if (femalePreferredFreeBeds >= guestCount) {\n    usableRooms = femalePreferredRooms;\n  } else {\n    usableRooms = baseUsableRooms.filter(room =>\n      !roomIsMalePreferred(room)\n    );\n  }\n}\n\n// Same idea for male-only placement.\nif (roomPreference === 'male_only') {\n  const malePreferredRooms = baseUsableRooms.filter(room => roomIsMalePreferred(room));\n\n  const malePreferredFreeBeds = malePreferredRooms.reduce(\n    (sum, room) => sum + room.beds.length,\n    0\n  );\n\n  if (malePreferredFreeBeds >= guestCount) {\n    usableRooms = malePreferredRooms;\n  } else {\n    usableRooms = baseUsableRooms.filter(room =>\n      !roomIsFemalePreferred(room)\n    );\n  }\n}\n\n// Failsafe: if filtering leaves no usable rooms, fall back to base rooms.\nif (!usableRooms.length) {\n  usableRooms = baseUsableRooms;\n}\n\n// First, try one room.\nconst oneRoomCandidates = usableRooms\n  .filter(room => room.beds.length >= guestCount)\n  .map(room => ({\n    rooms: [room],\n    score: roomBaseScore(room, guestCount),\n    allocation: [{ room, assign_count: guestCount }]\n  }))\n  .sort((a, b) => a.score - b.score);\n\nlet selectedPlan = oneRoomCandidates[0] || null;\n\n// If no single room fits, use multi-room Tetris.\nif (!selectedPlan) {\n  const combos = generateRoomCombos(usableRooms)\n    .filter(combo => combo.length >= 2)\n    .map(combo => {\n      const score = comboScore(combo);\n      const { allocation, remaining } = distributeGuestsAcrossRooms(combo, guestCount);\n\n      return {\n        rooms: combo,\n        score,\n        allocation,\n        remaining\n      };\n    })\n    .filter(plan => Number.isFinite(plan.score) && plan.remaining === 0)\n    .sort((a, b) => a.score - b.score);\n\n  selectedPlan = combos[0] || null;\n}\n\nif (!selectedPlan) {\n  return [{\n    json: {\n      booking_record_id: bookingRecordId,\n      booking_id: bookingPublicId,\n      guest_count: guestCount,\n      assignment_status: 'Needs Review',\n      availability_check_status: 'Conflict',\n      conflict_notes: `Could not find enough suitable free beds for ${guestCount} guest(s) from ${checkIn} to ${checkOut}. Occupied keys found: ${Array.from(occupiedBedKeys).join(', ')}`,\n      selected_beds: [],\n      gender_group: guestGenderGroup,\n      room_preference: roomPreference,\n      rooming_notes: roomingNotes\n    }\n  }];\n}\n\nconst output = [];\n\nfor (const part of selectedPlan.allocation) {\n  const room = part.room;\n  const selectedBeds = room.beds.slice(0, part.assign_count);\n\n  for (const bed of selectedBeds) {\n    output.push({\n      json: {\n        booking_record_id: bookingRecordId,\n        booking_id: bookingPublicId,\n        guest_count: guestCount,\n        bed_record_id: bed.record_id,\n        bed_id: bed.bed_id,\n        room_id: bed.room_id,\n        room_name: bed.room_name,\n        check_in: checkIn,\n        check_out: checkOut,\n        requested_room_type: requestedRoomType,\n        assignment_status: 'Assigned',\n        availability_check_status: 'Available',\n        conflict_notes: '',\n        assignment_type: selectedPlan.allocation.length > 1\n          ? 'Auto Assigned - Multi Room'\n          : 'Auto Assigned',\n\n        gender_group: guestGenderGroup || 'unknown',\n        room_preference: roomPreference || 'unknown',\n        rooming_notes: roomingNotes,\n\n        notes:\n          `Auto-assigned by Booking Agent. ` +\n          `Guest count: ${guestCount}. ` +\n          `Plan score: ${selectedPlan.score}. ` +\n          `Room: ${room.room_id}. ` +\n          `Room gender strategy: ${room.gender_strategy}. ` +\n          `Room fill priority: ${room.fill_priority}. ` +\n          `Can be matrimonial: ${room.can_be_matrimonial}. ` +\n          `Bed: ${bed.bed_id}. ` +\n          `Private requested: ${wantsPrivate}. ` +\n          `Gender/group: ${guestGenderGroup || 'unknown'}. ` +\n          `Preference: ${roomPreference || 'unknown'}.`\n      }\n    });\n  }\n}\n\nreturn output;"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          80,
+          32
+        ],
+        "id": "ac7a7443-8010-4ff5-96cb-ef85effb8555",
+        "name": "Code - Choose Beds"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "2e3b7a38-bab2-4d1e-92a5-f33e3579d334",
+                "leftValue": "={{ $('Code - Choose Beds').first().json.assignment_status === 'Needs Review' || $('Code - Choose Beds').first().json.availability_check_status === 'Conflict' }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          240,
+          32
+        ],
+        "id": "f4ab5738-a4c5-4a56-865d-96187967f618",
+        "name": "IF - Bed Assignment Conflict"
+      },
+      {
+        "parameters": {
+          "operation": "create",
+          "base": {
+            "__rl": true,
+            "value": "appOCWIN47Bui9CSS",
+            "mode": "list",
+            "cachedResultName": "Wolfhouse",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblO1ByvTMXS4SalB",
+            "mode": "list",
+            "cachedResultName": "Booking Beds",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblO1ByvTMXS4SalB"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "Booking": "={{ [$json.booking_record_id] }}",
+              "Bed": "={{ [$json.bed_record_id] }}",
+              "Assignment Type": "={{ $json.assignment_type || 'Auto Assigned' }}",
+              "Assignment Start Date": "={{ $json.check_in }}",
+              "Assignment End Date": "={{ $json.check_out }}",
+              "Assignment Notes": "={{ $json.notes || 'Auto-assigned by Booking Agent' }}",
+              "Guest Gender / Group Type": "={{ $json.gender_group || 'unknown' }}",
+              "Rooming Notes": "={{ $json.rooming_notes || $json.notes || '' }}",
+              "Room Preference": "={{ $json.room_preference || 'unknown' }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "Assignment ID",
+                "displayName": "Assignment ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": false
+              },
+              {
+                "id": "Booking ID",
+                "displayName": "Booking ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Guest Name",
+                "displayName": "Guest Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Room",
+                "displayName": "Room",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Bed",
+                "displayName": "Bed",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Bed Label",
+                "displayName": "Bed Label",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Check In",
+                "displayName": "Check In",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Check Out",
+                "displayName": "Check Out",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Status (from Booking)",
+                "displayName": "Status (from Booking)",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": false
+              },
+              {
+                "id": "Status - OLD",
+                "displayName": "Status - OLD",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Held",
+                    "value": "Held"
+                  },
+                  {
+                    "name": "Confirmed",
+                    "value": "Confirmed"
+                  },
+                  {
+                    "name": "Cancelled",
+                    "value": "Cancelled"
+                  },
+                  {
+                    "name": "Expired",
+                    "value": "Expired"
+                  },
+                  {
+                    "name": "Checked_In",
+                    "value": "Checked_In"
+                  },
+                  {
+                    "name": "Checked_Out",
+                    "value": "Checked_Out"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Assignment Type",
+                "displayName": "Assignment Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Auto Assigned",
+                    "value": "Auto Assigned"
+                  },
+                  {
+                    "name": "Manual Staff",
+                    "value": "Manual Staff"
+                  },
+                  {
+                    "name": "Private Room Assignment",
+                    "value": "Private Room Assignment"
+                  },
+                  {
+                    "name": "Manual Staff Assignment",
+                    "value": "Manual Staff Assignment"
+                  },
+                  {
+                    "name": "Auto Assigned - Multi Room",
+                    "value": "Auto Assigned - Multi Room"
+                  }
+                ],
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Booking",
+                "displayName": "Booking",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Room ID",
+                "displayName": "Room ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Assignment Start Date",
+                "displayName": "Assignment Start Date",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Assignment End Date",
+                "displayName": "Assignment End Date",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Planning Row Label",
+                "displayName": "Planning Row Label",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Assignment Notes",
+                "displayName": "Assignment Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Guest Gender / Group Type",
+                "displayName": "Guest Gender / Group Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  },
+                  {
+                    "name": "solo_female",
+                    "value": "solo_female"
+                  },
+                  {
+                    "name": "solo_male",
+                    "value": "solo_male"
+                  },
+                  {
+                    "name": "female_group",
+                    "value": "female_group"
+                  },
+                  {
+                    "name": "male_group",
+                    "value": "male_group"
+                  },
+                  {
+                    "name": "mixed_group",
+                    "value": "mixed_group"
+                  },
+                  {
+                    "name": "couple",
+                    "value": "couple"
+                  },
+                  {
+                    "name": "family",
+                    "value": "family"
+                  },
+                  {
+                    "name": "operator_group",
+                    "value": "operator_group"
+                  }
+                ],
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Rooming Notes",
+                "displayName": "Rooming Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Room Preference",
+                "displayName": "Room Preference",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "shared",
+                    "value": "shared"
+                  },
+                  {
+                    "name": "private",
+                    "value": "private"
+                  },
+                  {
+                    "name": "female_only",
+                    "value": "female_only"
+                  },
+                  {
+                    "name": "male_only",
+                    "value": "male_only"
+                  },
+                  {
+                    "name": "double",
+                    "value": "double"
+                  },
+                  {
+                    "name": "family_room",
+                    "value": "family_room"
+                  },
+                  {
+                    "name": "mixed_ok",
+                    "value": "mixed_ok"
+                  },
+                  {
+                    "name": "any",
+                    "value": "any"
+                  },
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  }
+                ],
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Bookings",
+                "displayName": "Bookings",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Package (from Bookings)",
+                "displayName": "Package (from Bookings)",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Payment Status (from Bookings)",
+                "displayName": "Payment Status (from Bookings)",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Deposit Paid (from Bookings 3)",
+                "displayName": "Deposit Paid (from Bookings 3)",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {
+            "typecast": true
+          }
+        },
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.2,
+        "position": [
+          480,
+          32
+        ],
+        "id": "48a3d1d3-8276-407a-a3ad-ce02da39a132",
+        "name": "Create Booking Bed Assignment",
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "tEUby6EPDxFQ5st8",
+            "name": "Airtable Personal Access Token account"
+          }
+        },
+        "continueOnFail": true,
+        "alwaysOutputData": true
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "base": {
+            "__rl": true,
+            "value": "appOCWIN47Bui9CSS",
+            "mode": "list",
+            "cachedResultName": "Wolfhouse",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblYWm3zKFafe4qu7",
+            "mode": "list",
+            "cachedResultName": "Bookings",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblYWm3zKFafe4qu7"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "id": "={{ $('Code - Choose Beds').first().json.booking_record_id }}",
+              "Conflict Notes": "={{ $('Code - Choose Beds').first().json.conflict_notes }}",
+              "Assignment Status": "Assigned",
+              "Availability Check Status": "Available"
+            },
+            "matchingColumns": [
+              "id"
+            ],
+            "schema": [
+              {
+                "id": "id",
+                "displayName": "id",
+                "required": false,
+                "defaultMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": false
+              },
+              {
+                "id": "Booking ID",
+                "displayName": "Booking ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Name",
+                "displayName": "Guest Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Status",
+                "displayName": "Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Confirmed",
+                    "value": "Confirmed"
+                  },
+                  {
+                    "name": "Cancelled",
+                    "value": "Cancelled"
+                  },
+                  {
+                    "name": "Payment_Pending",
+                    "value": "Payment_Pending"
+                  },
+                  {
+                    "name": "Checked_In",
+                    "value": "Checked_In"
+                  },
+                  {
+                    "name": "Checked_Out",
+                    "value": "Checked_Out"
+                  },
+                  {
+                    "name": "Expired",
+                    "value": "Expired"
+                  },
+                  {
+                    "name": "Needs_Review",
+                    "value": "Needs_Review"
+                  },
+                  {
+                    "name": "Hold",
+                    "value": "Hold"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Status",
+                "displayName": "Payment Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "paid",
+                    "value": "paid"
+                  },
+                  {
+                    "name": "deposit_paid",
+                    "value": "deposit_paid"
+                  },
+                  {
+                    "name": "waiting_payment",
+                    "value": "waiting_payment"
+                  },
+                  {
+                    "name": "not_requested",
+                    "value": "not_requested"
+                  },
+                  {
+                    "name": "failed",
+                    "value": "failed"
+                  },
+                  {
+                    "name": "pay_on_arrival",
+                    "value": "pay_on_arrival"
+                  },
+                  {
+                    "name": "refunded",
+                    "value": "refunded"
+                  },
+                  {
+                    "name": "payment_pending",
+                    "value": "payment_pending"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Check In",
+                "displayName": "Check In",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Check Out",
+                "displayName": "Check Out",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Count",
+                "displayName": "Guest Count",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Phone",
+                "displayName": "Phone",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds",
+                "displayName": "Booking Beds",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Assignment Status",
+                "displayName": "Assignment Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Unassigned",
+                    "value": "Unassigned"
+                  },
+                  {
+                    "name": "Partially Assigned",
+                    "value": "Partially Assigned"
+                  },
+                  {
+                    "name": "Assigned",
+                    "value": "Assigned"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  },
+                  {
+                    "name": "Assigning",
+                    "value": "Assigning"
+                  }
+                ],
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Package",
+                "displayName": "Package",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Malibu",
+                    "value": "Malibu"
+                  },
+                  {
+                    "name": "Uluwatu",
+                    "value": "Uluwatu"
+                  },
+                  {
+                    "name": "Waimea",
+                    "value": "Waimea"
+                  },
+                  {
+                    "name": "Custom",
+                    "value": "Custom"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Hold Expires At",
+                "displayName": "Hold Expires At",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Created At",
+                "displayName": "Created At",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Expired",
+                "displayName": "Expired",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Email",
+                "displayName": "Email",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Link",
+                "displayName": "Payment Link",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Send Confirmation",
+                "displayName": "Send Confirmation",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Gender / Group Type",
+                "displayName": "Guest Gender / Group Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  },
+                  {
+                    "name": "solo_female",
+                    "value": "solo_female"
+                  },
+                  {
+                    "name": "solo_male",
+                    "value": "solo_male"
+                  },
+                  {
+                    "name": "female_group",
+                    "value": "female_group"
+                  },
+                  {
+                    "name": "male_group",
+                    "value": "male_group"
+                  },
+                  {
+                    "name": "mixed_group",
+                    "value": "mixed_group"
+                  },
+                  {
+                    "name": "couple",
+                    "value": "couple"
+                  },
+                  {
+                    "name": "family",
+                    "value": "family"
+                  },
+                  {
+                    "name": "operator_group",
+                    "value": "operator_group"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Google Calendar Event ID",
+                "displayName": "Google Calendar Event ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Source",
+                "displayName": "Booking Source",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "AI WhatsApp",
+                    "value": "AI WhatsApp"
+                  },
+                  {
+                    "name": "Manual Staff",
+                    "value": "Manual Staff"
+                  },
+                  {
+                    "name": "Website",
+                    "value": "Website"
+                  },
+                  {
+                    "name": "Walk-in",
+                    "value": "Walk-in"
+                  },
+                  {
+                    "name": "Phone",
+                    "value": "Phone"
+                  },
+                  {
+                    "name": "Operator",
+                    "value": "Operator"
+                  },
+                  {
+                    "name": "Other",
+                    "value": "Other"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Staff Notes",
+                "displayName": "Staff Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Needs Calendar Sync",
+                "displayName": "Needs Calendar Sync",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Calendar Title",
+                "displayName": "Calendar Title",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Requested Room Type",
+                "displayName": "Requested Room Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "shared",
+                    "value": "shared"
+                  },
+                  {
+                    "name": "private",
+                    "value": "private"
+                  },
+                  {
+                    "name": "either",
+                    "value": "either"
+                  },
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Rooming Notes",
+                "displayName": "Rooming Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Rooming Confidence",
+                "displayName": "Rooming Confidence",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room ID",
+                "displayName": "Room ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room Preference",
+                "displayName": "Room Preference",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "shared",
+                    "value": "shared"
+                  },
+                  {
+                    "name": "private",
+                    "value": "private"
+                  },
+                  {
+                    "name": "female_only",
+                    "value": "female_only"
+                  },
+                  {
+                    "name": "male_only",
+                    "value": "male_only"
+                  },
+                  {
+                    "name": "double",
+                    "value": "double"
+                  },
+                  {
+                    "name": "family_room",
+                    "value": "family_room"
+                  },
+                  {
+                    "name": "mixed_ok",
+                    "value": "mixed_ok"
+                  },
+                  {
+                    "name": "any",
+                    "value": "any"
+                  },
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Needs Rooming Review",
+                "displayName": "Needs Rooming Review",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Option",
+                "displayName": "Payment Option",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Not Checked",
+                    "value": "Not Checked"
+                  },
+                  {
+                    "name": "Available",
+                    "value": "Available"
+                  },
+                  {
+                    "name": "Conflict",
+                    "value": "Conflict"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Deposit Required",
+                "displayName": "Deposit Required",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Deposit Paid",
+                "displayName": "Deposit Paid",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Balance Due",
+                "displayName": "Balance Due",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Balance Due on Arrival",
+                "displayName": "Balance Due on Arrival",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Total Amount",
+                "displayName": "Total Amount",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Amount Paid",
+                "displayName": "Amount Paid",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Notes",
+                "displayName": "Payment Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Availability Check Status",
+                "displayName": "Availability Check Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Not Checked",
+                    "value": "Not Checked"
+                  },
+                  {
+                    "name": "Available",
+                    "value": "Available"
+                  },
+                  {
+                    "name": "Conflict",
+                    "value": "Conflict"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  }
+                ],
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Conflict Notes",
+                "displayName": "Conflict Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Operator Name",
+                "displayName": "Operator Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "SurfWeek",
+                    "value": "SurfWeek"
+                  },
+                  {
+                    "name": "Other",
+                    "value": "Other"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Block Type",
+                "displayName": "Block Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Whole Room",
+                    "value": "Whole Room"
+                  },
+                  {
+                    "name": "Partial Beds",
+                    "value": "Partial Beds"
+                  },
+                  {
+                    "name": "Whole House",
+                    "value": "Whole House"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room to Block",
+                "displayName": "Room to Block",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room Name",
+                "displayName": "Room Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Capacity",
+                "displayName": "Capacity",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request",
+                "displayName": "Operator Room Release Request",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request 2",
+                "displayName": "Operator Room Release Request 2",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request 3",
+                "displayName": "Operator Room Release Request 3",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds 2",
+                "displayName": "Booking Beds 2",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds 3",
+                "displayName": "Booking Beds 3",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.2,
+        "position": [
+          640,
+          32
+        ],
+        "id": "dbe2aedd-98a4-4652-a1ab-c27a4badde53",
+        "name": "Update Booking Assignment Status",
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "tEUby6EPDxFQ5st8",
+            "name": "Airtable Personal Access Token account"
+          }
+        },
+        "continueOnFail": true,
+        "alwaysOutputData": true
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "base": {
+            "__rl": true,
+            "value": "appOCWIN47Bui9CSS",
+            "mode": "list",
+            "cachedResultName": "Wolfhouse",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblYWm3zKFafe4qu7",
+            "mode": "list",
+            "cachedResultName": "Bookings",
+            "cachedResultUrl": "https://airtable.com/appOCWIN47Bui9CSS/tblYWm3zKFafe4qu7"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "id": "={{ $('Get Booking').first().json.id }}",
+              "Availability Check Status": "Conflict",
+              "Assignment Status": "Needs Review",
+              "Conflict Notes": "={{ $('Code - Choose Beds').first().json.conflict_notes || 'Bed assignment needs staff review.' }}"
+            },
+            "matchingColumns": [
+              "id"
+            ],
+            "schema": [
+              {
+                "id": "id",
+                "displayName": "id",
+                "required": false,
+                "defaultMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": false
+              },
+              {
+                "id": "Booking ID",
+                "displayName": "Booking ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Name",
+                "displayName": "Guest Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Status",
+                "displayName": "Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Confirmed",
+                    "value": "Confirmed"
+                  },
+                  {
+                    "name": "Cancelled",
+                    "value": "Cancelled"
+                  },
+                  {
+                    "name": "Payment_Pending",
+                    "value": "Payment_Pending"
+                  },
+                  {
+                    "name": "Checked_In",
+                    "value": "Checked_In"
+                  },
+                  {
+                    "name": "Checked_Out",
+                    "value": "Checked_Out"
+                  },
+                  {
+                    "name": "Expired",
+                    "value": "Expired"
+                  },
+                  {
+                    "name": "Needs_Review",
+                    "value": "Needs_Review"
+                  },
+                  {
+                    "name": "Hold",
+                    "value": "Hold"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Status",
+                "displayName": "Payment Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "paid",
+                    "value": "paid"
+                  },
+                  {
+                    "name": "deposit_paid",
+                    "value": "deposit_paid"
+                  },
+                  {
+                    "name": "waiting_payment",
+                    "value": "waiting_payment"
+                  },
+                  {
+                    "name": "not_requested",
+                    "value": "not_requested"
+                  },
+                  {
+                    "name": "failed",
+                    "value": "failed"
+                  },
+                  {
+                    "name": "pay_on_arrival",
+                    "value": "pay_on_arrival"
+                  },
+                  {
+                    "name": "refunded",
+                    "value": "refunded"
+                  },
+                  {
+                    "name": "payment_pending",
+                    "value": "payment_pending"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Check In",
+                "displayName": "Check In",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Check Out",
+                "displayName": "Check Out",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Count",
+                "displayName": "Guest Count",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Phone",
+                "displayName": "Phone",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds",
+                "displayName": "Booking Beds",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Assignment Status",
+                "displayName": "Assignment Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Unassigned",
+                    "value": "Unassigned"
+                  },
+                  {
+                    "name": "Partially Assigned",
+                    "value": "Partially Assigned"
+                  },
+                  {
+                    "name": "Assigned",
+                    "value": "Assigned"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  },
+                  {
+                    "name": "Assigning",
+                    "value": "Assigning"
+                  }
+                ],
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Package",
+                "displayName": "Package",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Malibu",
+                    "value": "Malibu"
+                  },
+                  {
+                    "name": "Uluwatu",
+                    "value": "Uluwatu"
+                  },
+                  {
+                    "name": "Waimea",
+                    "value": "Waimea"
+                  },
+                  {
+                    "name": "Custom",
+                    "value": "Custom"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Hold Expires At",
+                "displayName": "Hold Expires At",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "dateTime",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Created At",
+                "displayName": "Created At",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Expired",
+                "displayName": "Expired",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Email",
+                "displayName": "Email",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Link",
+                "displayName": "Payment Link",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Send Confirmation",
+                "displayName": "Send Confirmation",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Guest Gender / Group Type",
+                "displayName": "Guest Gender / Group Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  },
+                  {
+                    "name": "solo_female",
+                    "value": "solo_female"
+                  },
+                  {
+                    "name": "solo_male",
+                    "value": "solo_male"
+                  },
+                  {
+                    "name": "female_group",
+                    "value": "female_group"
+                  },
+                  {
+                    "name": "male_group",
+                    "value": "male_group"
+                  },
+                  {
+                    "name": "mixed_group",
+                    "value": "mixed_group"
+                  },
+                  {
+                    "name": "couple",
+                    "value": "couple"
+                  },
+                  {
+                    "name": "family",
+                    "value": "family"
+                  },
+                  {
+                    "name": "operator_group",
+                    "value": "operator_group"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Google Calendar Event ID",
+                "displayName": "Google Calendar Event ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Source",
+                "displayName": "Booking Source",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "AI WhatsApp",
+                    "value": "AI WhatsApp"
+                  },
+                  {
+                    "name": "Manual Staff",
+                    "value": "Manual Staff"
+                  },
+                  {
+                    "name": "Website",
+                    "value": "Website"
+                  },
+                  {
+                    "name": "Walk-in",
+                    "value": "Walk-in"
+                  },
+                  {
+                    "name": "Phone",
+                    "value": "Phone"
+                  },
+                  {
+                    "name": "Operator",
+                    "value": "Operator"
+                  },
+                  {
+                    "name": "Other",
+                    "value": "Other"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Staff Notes",
+                "displayName": "Staff Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Needs Calendar Sync",
+                "displayName": "Needs Calendar Sync",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Calendar Title",
+                "displayName": "Calendar Title",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Requested Room Type",
+                "displayName": "Requested Room Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "shared",
+                    "value": "shared"
+                  },
+                  {
+                    "name": "private",
+                    "value": "private"
+                  },
+                  {
+                    "name": "either",
+                    "value": "either"
+                  },
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Rooming Notes",
+                "displayName": "Rooming Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Rooming Confidence",
+                "displayName": "Rooming Confidence",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room ID",
+                "displayName": "Room ID",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room Preference",
+                "displayName": "Room Preference",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "shared",
+                    "value": "shared"
+                  },
+                  {
+                    "name": "private",
+                    "value": "private"
+                  },
+                  {
+                    "name": "female_only",
+                    "value": "female_only"
+                  },
+                  {
+                    "name": "male_only",
+                    "value": "male_only"
+                  },
+                  {
+                    "name": "double",
+                    "value": "double"
+                  },
+                  {
+                    "name": "family_room",
+                    "value": "family_room"
+                  },
+                  {
+                    "name": "mixed_ok",
+                    "value": "mixed_ok"
+                  },
+                  {
+                    "name": "any",
+                    "value": "any"
+                  },
+                  {
+                    "name": "unknown",
+                    "value": "unknown"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Needs Rooming Review",
+                "displayName": "Needs Rooming Review",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Option",
+                "displayName": "Payment Option",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Not Checked",
+                    "value": "Not Checked"
+                  },
+                  {
+                    "name": "Available",
+                    "value": "Available"
+                  },
+                  {
+                    "name": "Conflict",
+                    "value": "Conflict"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Deposit Required",
+                "displayName": "Deposit Required",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Deposit Paid",
+                "displayName": "Deposit Paid",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Balance Due",
+                "displayName": "Balance Due",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Balance Due on Arrival",
+                "displayName": "Balance Due on Arrival",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "boolean",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Total Amount",
+                "displayName": "Total Amount",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Amount Paid",
+                "displayName": "Amount Paid",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Payment Notes",
+                "displayName": "Payment Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Availability Check Status",
+                "displayName": "Availability Check Status",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Not Checked",
+                    "value": "Not Checked"
+                  },
+                  {
+                    "name": "Available",
+                    "value": "Available"
+                  },
+                  {
+                    "name": "Conflict",
+                    "value": "Conflict"
+                  },
+                  {
+                    "name": "Needs Review",
+                    "value": "Needs Review"
+                  }
+                ],
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Conflict Notes",
+                "displayName": "Conflict Notes",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "Operator Name",
+                "displayName": "Operator Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "SurfWeek",
+                    "value": "SurfWeek"
+                  },
+                  {
+                    "name": "Other",
+                    "value": "Other"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Block Type",
+                "displayName": "Block Type",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "options",
+                "options": [
+                  {
+                    "name": "Whole Room",
+                    "value": "Whole Room"
+                  },
+                  {
+                    "name": "Partial Beds",
+                    "value": "Partial Beds"
+                  },
+                  {
+                    "name": "Whole House",
+                    "value": "Whole House"
+                  }
+                ],
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room to Block",
+                "displayName": "Room to Block",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Room Name",
+                "displayName": "Room Name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Capacity",
+                "displayName": "Capacity",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": true,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request",
+                "displayName": "Operator Room Release Request",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request 2",
+                "displayName": "Operator Room Release Request 2",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Operator Room Release Request 3",
+                "displayName": "Operator Room Release Request 3",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds 2",
+                "displayName": "Booking Beds 2",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "array",
+                "readOnly": false,
+                "removed": true
+              },
+              {
+                "id": "Booking Beds 3",
+                "displayName": "Booking Beds 3",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.2,
+        "position": [
+          480,
+          -144
+        ],
+        "id": "11b7bea5-2a65-47d5-aafa-a3db5b2fdd4f",
+        "name": "Update Booking Assignment Status - Conflict",
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "tEUby6EPDxFQ5st8",
+            "name": "Airtable Personal Access Token account"
+          }
+        },
+        "continueOnFail": true,
+        "alwaysOutputData": true
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $('Code - Choose Beds').all();\nconst beds = [];\nfor (const item of items) {\n  const j = item.json || {};\n  if (!j.bed_id && !j.bed_record_id) continue;\n  const bedCode = String(j.bed_id || '').trim().toUpperCase();\n  if (!bedCode) continue;\n  beds.push({\n    bed_code: bedCode,\n    assignment_start_date: j.check_in,\n    assignment_end_date: j.check_out,\n    assignment_type: j.assignment_type || 'Auto Assigned'\n  });\n}\nconst parsed = $('Code - Parse Assign Webhook').first().json;\nconst booking = $('Get Booking').first().json;\nconst fields = booking.fields || booking;\nconst bookingCode = fields['Booking ID'] || parsed.booking_code || '';\nreturn [{\n  json: {\n    beds_json: JSON.stringify(beds),\n    beds_count: beds.length,\n    airtable_record_id: parsed.airtable_record_id,\n    booking_code: bookingCode,\n    record_id: parsed.record_id || parsed.airtable_record_id\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          120,
+          160
+        ],
+        "id": "91119779-6ad9-4362-8562-9f1121ead4d6",
+        "name": "Code - Build PG Beds JSON"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS booking_code,\n    COALESCE($3::jsonb, '[]'::jsonb) AS beds_json\n),\nresolved AS (\n  SELECT\n    b.id,\n    b.booking_code,\n    b.client_id,\n    b.guest_name,\n    b.status::text AS status,\n    b.payment_status::text AS payment_status\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND (\n      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)\n      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)\n    )\n  LIMIT 2\n),\nresolved_count AS (\n  SELECT COUNT(*)::int AS c FROM resolved\n),\nguard AS (\n  SELECT r.*\n  FROM resolved r\n  WHERE (SELECT c FROM resolved_count) = 1\n),\nbeds_input AS (\n  SELECT\n    upper(trim(elem->>'bed_code')) AS bed_code,\n    (elem->>'assignment_start_date')::date AS start_d,\n    (elem->>'assignment_end_date')::date AS end_d,\n    COALESCE(NULLIF(trim(elem->>'assignment_type'), ''), 'Auto Assigned') AS assignment_type\n  FROM params p\n  CROSS JOIN jsonb_array_elements(p.beds_json) elem\n  WHERE upper(trim(COALESCE(elem->>'bed_code', ''))) <> ''\n),\nbeds_input_count AS (\n  SELECT COUNT(*)::int AS c FROM beds_input\n),\nunknown_beds AS (\n  SELECT bi.bed_code\n  FROM beds_input bi\n  CROSS JOIN guard g\n  LEFT JOIN beds bd ON bd.client_id = g.client_id AND upper(bd.bed_code) = bi.bed_code\n  WHERE bd.id IS NULL\n),\nunknown_count AS (\n  SELECT COUNT(*)::int AS c FROM unknown_beds\n),\noverlap_beds AS (\n  SELECT DISTINCT bi.bed_code\n  FROM beds_input bi\n  CROSS JOIN guard g\n  INNER JOIN beds bd ON bd.client_id = g.client_id AND upper(bd.bed_code) = bi.bed_code\n  INNER JOIN booking_beds bb ON bb.bed_id = bd.id AND bb.client_id = bd.client_id\n  INNER JOIN bookings ob ON ob.id = bb.booking_id AND ob.client_id = bb.client_id\n  WHERE bb.booking_id <> g.id\n    AND ob.status NOT IN ('cancelled', 'expired')\n    AND bb.assignment_start_date < bi.end_d\n    AND bb.assignment_end_date > bi.start_d\n),\noverlap_count AS (\n  SELECT COUNT(*)::int AS c FROM overlap_beds\n),\nexisting_skip AS (\n  SELECT bi.bed_code\n  FROM beds_input bi\n  CROSS JOIN guard g\n  INNER JOIN booking_beds bb ON bb.booking_id = g.id AND bb.client_id = g.client_id\n  WHERE upper(bb.bed_code) = bi.bed_code\n    AND bb.assignment_start_date = bi.start_d\n    AND bb.assignment_end_date = bi.end_d\n),\nskip_count AS (\n  SELECT COUNT(*)::int AS c FROM existing_skip\n),\ncan_mutate AS (\n  SELECT\n    (SELECT c FROM resolved_count) = 1\n    AND (SELECT c FROM unknown_count) = 0\n    AND (SELECT c FROM overlap_count) = 0\n    AND EXISTS (SELECT 1 FROM guard g WHERE g.status NOT IN ('cancelled', 'expired')) AS ok\n),\npayments_before AS (\n  SELECT COUNT(*)::int AS c\n  FROM payments p\n  INNER JOIN guard g ON p.booking_id = g.id AND p.client_id = g.client_id\n),\nto_insert AS (\n  SELECT\n    bi.bed_code,\n    bi.start_d,\n    bi.end_d,\n    bi.assignment_type,\n    bd.id AS bed_id,\n    CASE\n      WHEN bi.bed_code ~ '^(R[0-9]+)-' THEN upper(substring(bi.bed_code from '^(R[0-9]+)'))\n      ELSE NULL\n    END AS room_code\n  FROM beds_input bi\n  CROSS JOIN guard g\n  INNER JOIN beds bd ON bd.client_id = g.client_id AND upper(bd.bed_code) = bi.bed_code\n  WHERE (SELECT ok FROM can_mutate)\n    AND NOT EXISTS (\n      SELECT 1 FROM existing_skip es WHERE es.bed_code = bi.bed_code\n    )\n),\ninserted AS (\n  INSERT INTO booking_beds (\n    client_id,\n    booking_id,\n    bed_id,\n    bed_code,\n    room_code,\n    assignment_start_date,\n    assignment_end_date,\n    assignment_type,\n    assignment_notes,\n    guest_name,\n    airtable_record_id\n  )\n  SELECT\n    g.client_id,\n    g.id,\n    ti.bed_id,\n    ti.bed_code,\n    ti.room_code,\n    ti.start_d,\n    ti.end_d,\n    ti.assignment_type,\n    'Assigned via Wolfhouse local assign (3b.2b/3b.2c)',\n    g.guest_name,\n    NULL\n  FROM to_insert ti\n  CROSS JOIN guard g\n  RETURNING id\n),\nupdated AS (\n  UPDATE bookings b\n  SET\n    assignment_status = 'assigned'::assignment_status,\n    availability_check_status = 'available'::availability_check_status\n  FROM guard g\n  WHERE b.id = g.id\n    AND b.client_id = g.client_id\n    AND (SELECT ok FROM can_mutate)\n  RETURNING b.id\n),\npayments_after AS (\n  SELECT COUNT(*)::int AS c\n  FROM payments p\n  INNER JOIN guard g ON p.booking_id = g.id AND p.client_id = g.client_id\n)\nSELECT\n  rc.c AS booking_rows_resolved,\n  g.booking_code,\n  g.id::text AS booking_id,\n  g.status AS booking_status,\n  (SELECT c FROM beds_input_count) AS beds_requested_count,\n  (SELECT COUNT(*)::int FROM inserted) AS pg_inserted_count,\n  (SELECT c FROM skip_count) AS pg_skipped_count,\n  (SELECT c FROM overlap_count) AS pg_conflict_count,\n  (SELECT c FROM unknown_count) AS pg_unknown_count,\n  COALESCE((SELECT jsonb_agg(ub.bed_code ORDER BY ub.bed_code) FROM unknown_beds ub), '[]'::jsonb) AS unknown_bed_codes,\n  (SELECT ok FROM can_mutate) AS can_mutate,\n  (\n    (SELECT c FROM resolved_count) = 1\n    AND (SELECT c FROM unknown_count) = 0\n    AND (SELECT c FROM overlap_count) = 0\n    AND EXISTS (SELECT 1 FROM guard gg WHERE gg.status NOT IN ('cancelled', 'expired'))\n  ) AS pg_ok,\n  g.payment_status AS payment_status_before,\n  (SELECT payment_status::text FROM bookings WHERE id = g.id) AS payment_status_after,\n  (SELECT c FROM payments_before) AS payments_count_before,\n  (SELECT c FROM payments_after) AS payments_count_after,\n  (SELECT COUNT(*)::int FROM updated) AS pg_booking_updated_count\nFROM resolved_count rc\nLEFT JOIN guard g ON true",
+          "options": {
+            "queryReplacement": "={{ (($('Code - Build PG Beds JSON').first().json.airtable_record_id) != null && String($('Code - Build PG Beds JSON').first().json.airtable_record_id).trim() !== '') ? String($('Code - Build PG Beds JSON').first().json.airtable_record_id).trim() : '__NULL__' }},={{ (($('Code - Build PG Beds JSON').first().json.booking_code) != null && String($('Code - Build PG Beds JSON').first().json.booking_code).trim() !== '') ? String($('Code - Build PG Beds JSON').first().json.booking_code).trim() : '__NULL__' }},={{ $('Code - Build PG Beds JSON').first().json.beds_json }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          300,
+          160
+        ],
+        "id": "0c76add9-c57b-432e-8d95-c8201f26c2f6",
+        "name": "Postgres - Assign Beds In Postgres",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const parsed = $('Code - Parse Assign Webhook').first().json;\nconst pgItems = $('Postgres - Assign Beds In Postgres').all();\nconst pgItem = pgItems[0];\nconst pgErr = pgItem?.error;\nconst pg = pgItem?.json || {};\n\nif (pgErr) {\n  const msg = String(pgErr.message || pgErr);\n  return [{\n    json: {\n      pg_ok: false,\n      errors: [msg.includes('no parameter') ? 'postgres_query_param_missing' : 'postgres_assign_failed'],\n      record_id: parsed.record_id,\n      booking_code: parsed.booking_code,\n      pg_inserted_count: 0,\n      pg_skipped_count: 0,\n      pg_conflict_count: 0,\n      partial_failure: 'pg_query_failed',\n      message: msg\n    }\n  }];\n}\n\nconst resolved = Number(pg.booking_rows_resolved ?? 0);\nconst errors = [];\n\nif (resolved !== 1) {\n  errors.push(resolved === 0 ? 'booking_not_found_in_postgres' : 'booking_ambiguous_in_postgres');\n}\nif (Number(pg.pg_unknown_count ?? 0) > 0) {\n  errors.push('unknown_bed_codes_in_postgres');\n}\nif (Number(pg.pg_conflict_count ?? 0) > 0) {\n  errors.push('postgres_overlap_conflicts');\n}\nconst before = String(pg.payment_status_before || '');\nconst after = String(pg.payment_status_after || '');\nif (before && after && before !== after) {\n  errors.push('payment_status_changed_during_pg_assign');\n}\nif (Number(pg.payments_count_before ?? 0) !== Number(pg.payments_count_after ?? 0)) {\n  errors.push('payments_count_changed_during_pg_assign');\n}\n\nconst pgOk = pg.pg_ok === true && errors.length === 0;\n\nreturn [{\n  json: {\n    pg_ok: pgOk,\n    errors,\n    ...pg,\n    record_id: parsed.record_id || parsed.airtable_record_id,\n    booking_code: pg.booking_code || parsed.booking_code,\n    pg_inserted_count: Number(pg.pg_inserted_count ?? 0),\n    pg_skipped_count: Number(pg.pg_skipped_count ?? 0),\n    pg_conflict_count: Number(pg.pg_conflict_count ?? 0),\n    partial_failure: pgOk ? null : (Number(pg.pg_conflict_count) > 0 ? 'postgres_overlap_conflicts' : 'pg_assign_failed'),\n    message: pgOk ? 'postgres_assign_ok' : errors.join('; ')\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          160
+        ],
+        "id": "6655f3e2-d4e3-4f3c-8bc6-78e47c17f737",
+        "name": "Code - Validate PG Assign"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "pg-ok",
+                "leftValue": "={{ $json.pg_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          660,
+          160
+        ],
+        "id": "e38a017d-5c4a-441b-8c9b-4894dd01af8e",
+        "name": "IF - PG Assign OK"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS booking_code\n),\nresolved AS (\n  SELECT b.id, b.client_id, b.booking_code, b.payment_status::text AS payment_status\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND (\n      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)\n      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)\n    )\n  LIMIT 2\n),\nguard AS (\n  SELECT r.* FROM resolved r WHERE (SELECT COUNT(*) FROM resolved) = 1\n),\nupdated AS (\n  UPDATE bookings b\n  SET\n    assignment_status = 'needs_review'::assignment_status,\n    availability_check_status = 'conflict'::availability_check_status\n  FROM guard g\n  WHERE b.id = g.id AND b.client_id = g.client_id\n  RETURNING b.id\n)\nSELECT\n  (SELECT COUNT(*)::int FROM resolved) AS booking_rows_resolved,\n  g.booking_code,\n  (SELECT COUNT(*)::int FROM updated) AS pg_booking_updated_count,\n  g.payment_status AS payment_status_before,\n  (SELECT payment_status::text FROM bookings WHERE id = g.id) AS payment_status_after\nFROM guard g",
+          "options": {
+            "queryReplacement": "={{ (($('Code - Parse Assign Webhook').first().json.airtable_record_id) != null && String($('Code - Parse Assign Webhook').first().json.airtable_record_id).trim() !== '') ? String($('Code - Parse Assign Webhook').first().json.airtable_record_id).trim() : '__NULL__' }},={{ (($('Code - Parse Assign Webhook').first().json.booking_code) != null && String($('Code - Parse Assign Webhook').first().json.booking_code).trim() !== '') ? String($('Code - Parse Assign Webhook').first().json.booking_code).trim() : '__NULL__' }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          120,
+          -160
+        ],
+        "id": "5a7980ba-c579-4160-88c6-a0f625eb8317",
+        "name": "Postgres - Mirror Assignment Conflict",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const parsed = $('Code - Parse Assign Webhook').first().json;\nconst chosen = $('Code - Choose Beds').all();\nconst creates = $('Create Booking Bed Assignment').all();\nconst pairs = [];\n\nfor (const createItem of creates) {\n  if (createItem.error) continue;\n  const atId = createItem.json?.id;\n  if (!atId) continue;\n  const bedRec = createItem.json?.fields?.Bed;\n  const bedRecordId = Array.isArray(bedRec) ? bedRec[0] : bedRec;\n  const match = chosen.find((c) => c.json?.bed_record_id === bedRecordId);\n  const bedCode = String(match?.json?.bed_id || '').trim().toUpperCase();\n  if (!bedCode) continue;\n  pairs.push({ bed_code: bedCode, airtable_record_id: atId });\n}\n\nreturn [{\n  json: {\n    pairs_json: JSON.stringify(pairs),\n    pair_count: pairs.length,\n    airtable_record_id: parsed.airtable_record_id,\n    booking_code: $('Code - Build PG Beds JSON').first().json.booking_code || parsed.booking_code,\n    record_id: parsed.record_id || parsed.airtable_record_id\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1020,
+          160
+        ],
+        "id": "a5336d22-0d6d-450a-80b5-8b5db11ae67a",
+        "name": "Code - Backfill PG Airtable IDs"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS booking_code,\n    COALESCE($3::jsonb, '[]'::jsonb) AS pairs_json\n),\nguard AS (\n  SELECT b.id, b.client_id, b.booking_code\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND (\n      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)\n      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)\n    )\n  LIMIT 1\n),\npairs AS (\n  SELECT\n    upper(trim(elem->>'bed_code')) AS bed_code,\n    NULLIF(trim(elem->>'airtable_record_id'), '') AS at_id\n  FROM params p\n  CROSS JOIN jsonb_array_elements(p.pairs_json) elem\n  WHERE upper(trim(COALESCE(elem->>'bed_code', ''))) <> ''\n    AND NULLIF(trim(elem->>'airtable_record_id'), '') IS NOT NULL\n),\nupdated AS (\n  UPDATE booking_beds bb\n  SET airtable_record_id = pr.at_id\n  FROM pairs pr\n  CROSS JOIN guard g\n  WHERE bb.booking_id = g.id\n    AND bb.client_id = g.client_id\n    AND upper(bb.bed_code) = pr.bed_code\n    AND (bb.airtable_record_id IS NULL OR bb.airtable_record_id = '')\n  RETURNING bb.id, bb.bed_code, bb.airtable_record_id\n)\nSELECT\n  (SELECT COUNT(*)::int FROM updated) AS pg_backfill_count,\n  COALESCE(\n    (SELECT jsonb_agg(jsonb_build_object('bed_code', u.bed_code, 'airtable_record_id', u.airtable_record_id) ORDER BY u.bed_code)\n     FROM updated u),\n    '[]'::jsonb\n  ) AS backfilled",
+          "options": {
+            "queryReplacement": "={{ (($('Code - Backfill PG Airtable IDs').first().json.airtable_record_id) != null && String($('Code - Backfill PG Airtable IDs').first().json.airtable_record_id).trim() !== '') ? String($('Code - Backfill PG Airtable IDs').first().json.airtable_record_id).trim() : '__NULL__' }},={{ (($('Code - Backfill PG Airtable IDs').first().json.booking_code) != null && String($('Code - Backfill PG Airtable IDs').first().json.booking_code).trim() !== '') ? String($('Code - Backfill PG Airtable IDs').first().json.booking_code).trim() : '__NULL__' }},={{ $('Code - Backfill PG Airtable IDs').first().json.pairs_json }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          1200,
+          160
+        ],
+        "id": "5ac7f0bb-905b-497c-8d13-59fb700fa4b2",
+        "name": "Postgres - Backfill Airtable Record IDs",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS booking_code\n),\nguard AS (\n  SELECT b.id, b.client_id, b.booking_code\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND (\n      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)\n      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)\n    )\n  LIMIT 1\n),\nupdated AS (\n  UPDATE bookings b\n  SET\n    assignment_status = 'assigned'::assignment_status,\n    availability_check_status = 'available'::availability_check_status\n  FROM guard g\n  WHERE b.id = g.id AND b.client_id = g.client_id\n  RETURNING b.id\n)\nSELECT\n  (SELECT COUNT(*)::int FROM updated) AS pg_booking_updated_count,\n  g.booking_code\nFROM guard g",
+          "options": {
+            "queryReplacement": "={{ (($('Code - Parse Assign Webhook').first().json.airtable_record_id) != null && String($('Code - Parse Assign Webhook').first().json.airtable_record_id).trim() !== '') ? String($('Code - Parse Assign Webhook').first().json.airtable_record_id).trim() : '__NULL__' }},={{ (($('Code - Parse Assign Webhook').first().json.booking_code) != null && String($('Code - Parse Assign Webhook').first().json.booking_code).trim() !== '') ? String($('Code - Parse Assign Webhook').first().json.booking_code).trim() : '__NULL__' }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          1380,
+          160
+        ],
+        "id": "ddd0de7a-4c18-4c35-8c56-3f51f7229680",
+        "name": "Postgres - Mirror Assignment Assigned",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "function mergeErrors(...lists) {\n  const out = [];\n  for (const list of lists) {\n    if (!list) continue;\n    for (const e of list) {\n      const s = String(e || '').trim();\n      if (s && !out.includes(s)) out.push(s);\n    }\n  }\n  return out;\n}\n\nconst parsed = $('Code - Parse Assign Webhook').first()?.json || {};\nconst record_id = parsed.record_id || parsed.airtable_record_id || '';\n\nif (!parsed.parse_ok) {\n  return [{\n    json: {\n      ok: false,\n      booking_code: parsed.booking_code || '',\n      record_id,\n      pg_inserted_count: 0,\n      pg_skipped_count: 0,\n      pg_conflict_count: 0,\n      airtable_create_ok: false,\n      airtable_update_ok: false,\n      partial_failure: 'parse_failed',\n      idempotent: false,\n      errors: mergeErrors(parsed.errors, ['parse_failed']),\n      skipped_reason: null,\n      message: 'Invalid webhook payload'\n    }\n  }];\n}\n\nlet needsAssign = true;\ntry {\n  const ifNeeds = $('IF - Needs Bed Assignment').first();\n  needsAssign = !!ifNeeds;\n} catch (e) {}\n\nlet chooseBedsRan = false;\ntry {\n  chooseBedsRan = $('Code - Choose Beds').all().length > 0;\n} catch (e) {}\n\nlet skippedReason = null;\nif (!chooseBedsRan) {\n  try {\n    const booking = $('Get Booking').first()?.json;\n    const fields = booking?.fields || booking || {};\n    const status = fields['Assignment Status'];\n    if (['Assigned', 'Assigning', 'Needs Review'].includes(status)) {\n      skippedReason = 'already_assigned_or_ineligible';\n    }\n    if (['Cancelled', 'Expired'].includes(fields['Status'])) {\n      skippedReason = 'booking_cancelled_or_expired';\n    }\n  } catch (e) {}\n}\n\nlet conflictBranch = false;\ntry {\n  const conflictIf = $('IF - Bed Assignment Conflict').first();\n  const chooseFirst = $('Code - Choose Beds').first()?.json || {};\n  conflictBranch =\n    chooseFirst.assignment_status === 'Needs Review' ||\n    chooseFirst.availability_check_status === 'Conflict';\n} catch (e) {}\n\nif (skippedReason) {\n  return [{\n    json: {\n      ok: false,\n      booking_code: parsed.booking_code || '',\n      record_id,\n      pg_inserted_count: 0,\n      pg_skipped_count: 0,\n      pg_conflict_count: 0,\n      airtable_create_ok: false,\n      airtable_update_ok: false,\n      partial_failure: null,\n      idempotent: true,\n      errors: [],\n      skipped_reason: skippedReason,\n      message: 'assign_skipped_' + skippedReason\n    }\n  }];\n}\n\nif (conflictBranch) {\n  let pgConflict = {};\n  try { pgConflict = $('Postgres - Mirror Assignment Conflict').first()?.json || {}; } catch (e) {}\n  let atUpd = null;\n  try { atUpd = $('Update Booking Assignment Status - Conflict').first(); } catch (e) {}\n  const atUpdateOk = !!(atUpd?.json?.id || atUpd?.json?.fields) && !atUpd?.error;\n  return [{\n    json: {\n      ok: atUpdateOk,\n      booking_code: pgConflict.booking_code || parsed.booking_code || '',\n      record_id,\n      pg_inserted_count: 0,\n      pg_skipped_count: 0,\n      pg_conflict_count: 1,\n      airtable_create_ok: false,\n      airtable_update_ok: atUpdateOk,\n      partial_failure: atUpdateOk ? null : 'pg_ok_airtable_failed',\n      idempotent: false,\n      errors: mergeErrors(atUpd?.error ? [String(atUpd.error.message || atUpd.error)] : []),\n      skipped_reason: null,\n      assignment_conflict: true,\n      message: 'assignment_conflict'\n    }\n  }];\n}\n\nlet validate = { pg_ok: false, errors: ['validate_pg_assign_not_run'] };\ntry {\n  validate = $('Code - Validate PG Assign').first().json;\n} catch (e) {}\n\nconst pgInserted = Number(validate.pg_inserted_count ?? 0);\nconst pgSkipped = Number(validate.pg_skipped_count ?? 0);\nconst pgConflict = Number(validate.pg_conflict_count ?? 0);\n\nif (!validate.pg_ok) {\n  return [{\n    json: {\n      ok: false,\n      booking_code: validate.booking_code || parsed.booking_code || '',\n      record_id: validate.record_id || record_id,\n      pg_inserted_count: pgInserted,\n      pg_skipped_count: pgSkipped,\n      pg_conflict_count: pgConflict,\n      airtable_create_ok: false,\n      airtable_update_ok: false,\n      partial_failure: validate.partial_failure || 'pg_failed',\n      idempotent: pgInserted === 0 && pgSkipped > 0,\n      errors: mergeErrors(validate.errors, [validate.message]),\n      skipped_reason: null,\n      message: validate.message || 'Postgres assign did not complete — Airtable steps skipped'\n    }\n  }];\n}\n\nlet createItems = [];\nlet upd = null;\ntry { createItems = $('Create Booking Bed Assignment').all(); } catch (e) {}\ntry { upd = $('Update Booking Assignment Status').first(); } catch (e) {}\n\nconst atCreateErrors = [];\nlet atCreateAttempts = 0;\nfor (const item of createItems) {\n  if (item.error) {\n    atCreateErrors.push(String(item.error.message || item.error));\n    continue;\n  }\n  if (item.json?.id) atCreateAttempts += 1;\n}\n\nconst atCreateOk = atCreateErrors.length === 0 && atCreateAttempts > 0;\nconst atUpdateOk = !!(upd?.json?.id || upd?.json?.fields) && !upd?.error;\n\nlet partial_failure = null;\nif (validate.pg_ok && !atCreateOk) partial_failure = 'pg_ok_airtable_failed';\nif (!validate.pg_ok && atCreateOk) partial_failure = 'pg_failed_airtable_ok';\n\nconst idempotent = pgInserted === 0 && (pgSkipped > 0 || atCreateAttempts === 0);\n\nreturn [{\n  json: {\n    ok: validate.pg_ok && atCreateOk && atUpdateOk && !partial_failure,\n    booking_code: validate.booking_code || parsed.booking_code,\n    record_id: validate.record_id || record_id,\n    pg_inserted_count: pgInserted,\n    pg_skipped_count: pgSkipped,\n    pg_conflict_count: pgConflict,\n    airtable_create_ok: atCreateOk,\n    airtable_update_ok: atUpdateOk,\n    partial_failure,\n    idempotent,\n    errors: mergeErrors(validate.errors, atCreateErrors),\n    skipped_reason: null,\n    message:\n      partial_failure === 'pg_ok_airtable_failed'\n        ? 'Postgres assign succeeded; Airtable step failed'\n        : idempotent\n          ? 'assign_beds_idempotent'\n          : 'assign_beds_complete'\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1560,
+          0
+        ],
+        "id": "3005db51-9472-4506-809e-071bd4f19834",
+        "name": "Code - Build Assign Response"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          1740,
+          0
+        ],
+        "id": "c8408778-d32e-4965-8b6e-6fd5534f41ed",
+        "name": "Respond to Webhook"
+      }
+    ],
+    "connections": {
+      "Assign Beds to Booking - Webhook": {
+        "main": [
+          [
+            {
+              "node": "Code - Parse Assign Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parse Assign Webhook": {
+        "main": [
+          [
+            {
+              "node": "IF - Parse OK",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Parse OK": {
+        "main": [
+          [
+            {
+              "node": "Get Booking",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Build Assign Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Booking": {
+        "main": [
+          [
+            {
+              "node": "IF - Needs Bed Assignment",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Needs Bed Assignment": {
+        "main": [
+          [
+            {
+              "node": "Update Booking - Mark Assigning",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Build Assign Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update Booking - Mark Assigning": {
+        "main": [
+          [
+            {
+              "node": "Search Active Beds",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Search Active Beds": {
+        "main": [
+          [
+            {
+              "node": "Search Existing Bed Assignments",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Search Existing Bed Assignments": {
+        "main": [
+          [
+            {
+              "node": "Search Rooms",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Search Rooms": {
+        "main": [
+          [
+            {
+              "node": "Code - Choose Beds",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Choose Beds": {
+        "main": [
+          [
+            {
+              "node": "IF - Bed Assignment Conflict",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Bed Assignment Conflict": {
+        "main": [
+          [
+            {
+              "node": "Postgres - Mirror Assignment Conflict",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Build PG Beds JSON",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Mirror Assignment Conflict": {
+        "main": [
+          [
+            {
+              "node": "Update Booking Assignment Status - Conflict",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update Booking Assignment Status - Conflict": {
+        "main": [
+          [
+            {
+              "node": "Code - Build Assign Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Build PG Beds JSON": {
+        "main": [
+          [
+            {
+              "node": "Postgres - Assign Beds In Postgres",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Assign Beds In Postgres": {
+        "main": [
+          [
+            {
+              "node": "Code - Validate PG Assign",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Validate PG Assign": {
+        "main": [
+          [
+            {
+              "node": "IF - PG Assign OK",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - PG Assign OK": {
+        "main": [
+          [
+            {
+              "node": "Create Booking Bed Assignment",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Build Assign Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Create Booking Bed Assignment": {
+        "main": [
+          [
+            {
+              "node": "Code - Backfill PG Airtable IDs",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Backfill PG Airtable IDs": {
+        "main": [
+          [
+            {
+              "node": "Postgres - Backfill Airtable Record IDs",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Backfill Airtable Record IDs": {
+        "main": [
+          [
+            {
+              "node": "Update Booking Assignment Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update Booking Assignment Status": {
+        "main": [
+          [
+            {
+              "node": "Postgres - Mirror Assignment Assigned",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Mirror Assignment Assigned": {
+        "main": [
+          [
+            {
+              "node": "Code - Build Assign Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Build Assign Response": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "active": true,
+    "id": "B3c2AssignLocalPg01",
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
+    },
+    "tags": [
+      {
+        "name": "phase3b"
+      },
+      {
+        "name": "local-only"
+      }
+    ]
+  }
+]
