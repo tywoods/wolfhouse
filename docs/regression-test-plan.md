@@ -179,7 +179,7 @@ Optional: `npm run db:report:bed-drift -- --overlap-from=YYYY-MM-DD --overlap-to
 
 ## Phase 3b.1a — Cancel impact report (read-only)
 
-**Runbook:** [`PHASE-3b-1a.md`](PHASE-3b-1a.md). **3b.1b+ not started** (no DELETE/UPDATE cancel script, no n8n fork).
+**Runbook:** [`PHASE-3b-1a.md`](PHASE-3b-1a.md). **3b.1b+ execute / 3b.1c** documented separately.
 
 | Step | Command | Pass |
 |------|---------|------|
@@ -187,11 +187,25 @@ Optional: `npm run db:report:bed-drift -- --overlap-from=YYYY-MM-DD --overlap-to
 | 3b1a-2 | JSON: `no_mutations`, beds listed, `payments_untouched` | |
 | 3b1a-3 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` still OK | |
 
+## Phase 3b.1b — Postgres cancel booking beds
+
+**Runbook:** [`PHASE-3b-1b.md`](PHASE-3b-1b.md). **3b.1c not started** (no n8n fork, no Airtable writes).
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b1b-1 | `db:report:cancel-impact` before | |
+| 3b1b-2 | `db:cancel:booking-beds` dry-run (no `--execute`) | |
+| 3b1b-3 | `db:cancel:booking-beds --execute` | |
+| 3b1b-4 | Second `--execute` → 0 deletes, exit 0 | |
+| 3b1b-5 | `planning:report:postgres` — bed rows gone; `test:phase2f-resolver` OK | |
+
+Note: `db:report:bed-drift` may exit 1 for CSV-export bookings until AT beds removed (3b.1c).
+
 ## Phase 2 local sign-off (freeze)
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1**, **3a**, **3b.0**, **3b.1a** (read-only cancel impact) implemented; **3b.1b+** cancel DELETE / dual-write not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1**, **3a**, **3b.0**, **3b.1a**, **3b.1b** (PG-only cancel beds) implemented; **3b.1c+** not started.
 
 ### Tier A — automated
 
