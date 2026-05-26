@@ -93,6 +93,7 @@ function parseManualEntryInput(argv) {
     bookingCode: null,
     jsonFile: null,
     parsedFrom: 'cli_flags',
+    explicitFields: new Set(),
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -113,36 +114,50 @@ function parseManualEntryInput(argv) {
       input.syncStatus = next().trim();
     } else if (arg.startsWith('--guest-name=')) {
       input.guestName = arg.slice('--guest-name='.length).trim();
+      input.explicitFields.add('guest_name');
     } else if (arg === '--guest-name' && argv[i + 1]) {
       input.guestName = next().trim();
+      input.explicitFields.add('guest_name');
     } else if (arg.startsWith('--check-in=')) {
       input.checkIn = toIsoDateString(arg.slice('--check-in='.length));
+      input.explicitFields.add('check_in');
     } else if (arg === '--check-in' && argv[i + 1]) {
       input.checkIn = toIsoDateString(next());
+      input.explicitFields.add('check_in');
     } else if (arg.startsWith('--check-out=')) {
       input.checkOut = toIsoDateString(arg.slice('--check-out='.length));
+      input.explicitFields.add('check_out');
     } else if (arg === '--check-out' && argv[i + 1]) {
       input.checkOut = toIsoDateString(next());
+      input.explicitFields.add('check_out');
     } else if (arg.startsWith('--guest-count=')) {
       input.guestCount = Number(arg.slice('--guest-count='.length));
+      input.explicitFields.add('guest_count');
     } else if (arg === '--guest-count' && argv[i + 1]) {
       input.guestCount = Number(next());
+      input.explicitFields.add('guest_count');
     } else if (arg.startsWith('--beds=')) {
       input.bedCodes = parseBedList(arg.slice('--beds='.length));
     } else if (arg === '--beds' && argv[i + 1]) {
       input.bedCodes = parseBedList(next());
     } else if (arg.startsWith('--status=')) {
       input.status = arg.slice('--status='.length).trim();
+      input.explicitFields.add('status');
     } else if (arg === '--status' && argv[i + 1]) {
       input.status = next().trim();
+      input.explicitFields.add('status');
     } else if (arg.startsWith('--payment-status=')) {
       input.paymentStatus = arg.slice('--payment-status='.length).trim();
+      input.explicitFields.add('payment_status');
     } else if (arg === '--payment-status' && argv[i + 1]) {
       input.paymentStatus = next().trim();
+      input.explicitFields.add('payment_status');
     } else if (arg.startsWith('--package=')) {
       input.packageCode = arg.slice('--package='.length).trim();
+      input.explicitFields.add('package_code');
     } else if (arg === '--package' && argv[i + 1]) {
       input.packageCode = next().trim();
+      input.explicitFields.add('package_code');
     } else if (arg.startsWith('--airtable-record-id=')) {
       input.airtableRecordId = arg.slice('--airtable-record-id='.length).trim();
     } else if (arg === '--airtable-record-id' && argv[i + 1]) {
@@ -162,6 +177,15 @@ function parseManualEntryInput(argv) {
 
   if (input.jsonFile) {
     mergeJsonFile(input, input.jsonFile);
+    input.explicitFields = new Set([
+      'guest_name',
+      'check_in',
+      'check_out',
+      'guest_count',
+      'status',
+      'payment_status',
+      'package_code',
+    ]);
   }
 
   if (!input.action && input.syncStatus) {
@@ -265,6 +289,53 @@ function validateInput(parsed, input) {
 }
 
 async function lookupBooking(client, clientId, parsed) {
+  if (parsed.manual_entry_id && !parsed.booking_code && !parsed.airtable_record_id) {
+    const { rows } = await client.query(
+      `SELECT
+       id,
+       booking_code,
+       airtable_record_id,
+       guest_name,
+       status::text AS status,
+       payment_status::text AS payment_status,
+       assignment_status::text AS assignment_status,
+       availability_check_status::text AS availability_check_status,
+       check_in::text AS check_in,
+       check_out::text AS check_out,
+       guest_count,
+       booking_source::text AS booking_source,
+       package_code,
+       staff_notes,
+       requested_room_type,
+       room_preference,
+       guest_gender_group_type::text AS guest_gender_group_type
+     FROM bookings
+     WHERE client_id = $1 AND metadata->>'manual_entry_id' = $2
+     LIMIT 2`,
+      [clientId, parsed.manual_entry_id]
+    );
+    if (rows.length > 1) {
+      return {
+        found: false,
+        match_by: 'manual_entry_id',
+        booking: null,
+        ambiguous_count: rows.length,
+        error: 'booking_ambiguous',
+      };
+    }
+    if (rows.length === 1) {
+      const booking = rows[0];
+      return {
+        found: true,
+        match_by: 'manual_entry_id',
+        booking_id: booking.id,
+        booking_code: booking.booking_code,
+        booking,
+        ambiguous_count: 0,
+      };
+    }
+  }
+
   if (!parsed.booking_code && !parsed.airtable_record_id) {
     return { found: false, match_by: null, booking: null, ambiguous_count: 0 };
   }
@@ -462,7 +533,9 @@ async function loadExistingBeds(client, clientId, bookingId, bookingCode) {
   });
 }
 
-function buildBookingFieldDiff(booking, parsed) {
+function buildBookingFieldDiff(booking, parsed, options = {}) {
+  const explicitOnly = options.explicitOnly === true;
+  const explicitFields = options.explicitFields || null;
   const fields = {};
   const candidates = [
     ['guest_name', parsed.guest_name, booking.guest_name],
@@ -475,6 +548,7 @@ function buildBookingFieldDiff(booking, parsed) {
   ];
   for (const [key, proposed, current] of candidates) {
     if (proposed == null || proposed === '') continue;
+    if (explicitOnly && explicitFields && !explicitFields.has(key)) continue;
     if (String(proposed) !== String(current ?? '')) {
       fields[key] = { current, would_be: proposed };
     }
@@ -606,7 +680,10 @@ async function loadManualEntryImpactPlan(client, input) {
       return { error: 'booking_not_found', parsed, input };
     }
     const booking = bookingMatch.booking;
-    const fieldsWouldUpdate = buildBookingFieldDiff(booking, parsed);
+    const fieldsWouldUpdate = buildBookingFieldDiff(booking, parsed, {
+      explicitOnly: true,
+      explicitFields: input.explicitFields,
+    });
 
     plan.updatePhase = {
       note: 'Hosted Manual Entries update path changes booking fields only; beds are not reassigned in MVP.',
@@ -659,11 +736,47 @@ async function loadManualEntryImpactPlan(client, input) {
   return plan;
 }
 
+async function findBookingByManualEntryId(client, clientId, manualEntryId, excludeBookingId = null) {
+  const params = [clientId, manualEntryId];
+  let sql = `SELECT id, booking_code FROM bookings
+     WHERE client_id = $1 AND metadata->>'manual_entry_id' = $2`;
+  if (excludeBookingId) {
+    params.push(excludeBookingId);
+    sql += ` AND id <> $${params.length}`;
+  }
+  sql += ' LIMIT 2';
+  const { rows } = await client.query(sql, params);
+  if (rows.length > 1) return { error: 'duplicate_manual_entry_id', matches: rows.length };
+  if (!rows.length) return { found: false };
+  return { found: true, booking_id: rows[0].id, booking_code: rows[0].booking_code };
+}
+
+function partitionBedsForInsert(existingBeds, wouldInsertCandidates) {
+  const existingKeys = new Set(existingBeds.map((r) => r.natural_key));
+  const toInsert = [];
+  const skipped = [];
+  for (const row of wouldInsertCandidates) {
+    if (!row.bed_id) continue;
+    if (existingKeys.has(row.natural_key)) {
+      skipped.push({ ...row, reason: 'natural_key_already_exists_for_booking' });
+    } else {
+      toInsert.push(row);
+    }
+  }
+  return { toInsert, skipped };
+}
+
 module.exports = {
   parseManualEntryInput,
   buildParsedManualEntry,
   deriveActionFromSyncStatus,
   loadManualEntryImpactPlan,
+  loadExistingBeds,
+  loadCreateBedPlan,
+  buildBookingFieldDiff,
+  findBookingByManualEntryId,
+  partitionBedsForInsert,
   parseBedList,
   provisionalBookingCode,
+  PENDING_BOOKING_ID,
 };

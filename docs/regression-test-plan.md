@@ -208,9 +208,27 @@ CLI PG mirror (no n8n): `db:assign:booking-beds --execute` (3b.2b). SQL shared v
 
 Undo: `db:cancel:booking-beds --execute` or `db:sync`.
 
+## Phase 3b.4b — Manual Entry Postgres mirror (CLI only)
+
+**Runbook:** [`PHASE-3b-4b.md`](PHASE-3b-4b.md). **3b.4c** not started.
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b4b-1 | `db:report:manual-entry-impact` before first execute | exit 0 |
+| 3b4b-2 | `db:manual-entry:postgres` create dry-run | no mutations |
+| 3b4b-3 | `db:manual-entry:postgres` create `--execute` (unique `MAN-…`, free beds) | exit 0; beds inserted |
+| 3b4b-4 | Repeat create `--execute` | exit 0; idempotent 0 inserts |
+| 3b4b-5 | Overlap create `--execute` | exit 1; no mutation |
+| 3b4b-6 | Unknown bed `--execute` | exit 1 |
+| 3b4b-7 | `--strict-guest-count` mismatch | exit 1 |
+| 3b4b-8 | `update` on `recBtWzIvmjQ5mmo0` `--execute` | exit 0 |
+| 3b4b-9 | `delete` on test booking `--execute` | exit 0; beds gone; cancelled |
+| 3b4b-10 | Repeat delete | idempotent |
+| 3b4b-11 | `db:sync`; `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | |
+
 ## Phase 3b.4a — Manual Entry impact report (read-only)
 
-**Runbook:** [`PHASE-3b-4a.md`](PHASE-3b-4a.md). **3b.4b+** not started.
+**Runbook:** [`PHASE-3b-4a.md`](PHASE-3b-4a.md). **3b.4b** mirror CLI documented above; **3b.4c+** not started.
 
 | Step | Command | Pass |
 |------|---------|------|
@@ -305,7 +323,7 @@ CLI-only alternative (no n8n): `db:cancel:booking-beds --execute` (3b.1b).
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.3b** implemented; **3b.4a** Manual Entry impact report implemented; **3b.4b+** not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.3b** implemented; **3b.4a** impact report + **3b.4b** Postgres mirror CLI implemented; **3b.4c+** not started.
 
 ### Tier A — automated
 
