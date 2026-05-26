@@ -208,6 +208,20 @@ CLI PG mirror (no n8n): `db:assign:booking-beds --execute` (3b.2b). SQL shared v
 
 Undo: `db:cancel:booking-beds --execute` or `db:sync`.
 
+## Phase 3b.3b — Reassign workflow local fork (PG + Airtable + chained Assign)
+
+**Runbook:** [`PHASE-3b-3.md`](PHASE-3b-3.md). **3b.4+** not started.
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b3b-1 | `npm run build:reassign-beds:local` | |
+| 3b3b-2 | Import `n8n/phase3b/Wolfhouse - Reassign Bed Assignments (local PG).json`; map creds; deactivate hosted Reassign on local n8n | |
+| 3b3b-3 | Local Assign fork active on `assign-beds-to-booking` | |
+| 3b3b-4 | `db:sync`; `db:report:reassign-impact` clean case `WH-recBtWzIvmjQ5mmo0` | |
+| 3b3b-5 | `test-reassign-beds-webhook.ps1 -RecordId recBtWzIvmjQ5mmo0` → `ok`, `pg_deleted_count` > 0, `pg_inserted_count` > 0 | |
+| 3b3b-6 | Second webhook → no duplicate PG natural keys | |
+| 3b3b-7 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | |
+
 ## Phase 3b.3a — Reassign impact report (read-only)
 
 **Runbook:** [`PHASE-3b-3a.md`](PHASE-3b-3a.md). **3b.3b Reassign n8n fork** not started.
@@ -275,7 +289,7 @@ CLI-only alternative (no n8n): `db:cancel:booking-beds --execute` (3b.1b).
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.2c** implemented (assign local n8n fork); **3b.3** Reassign not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.3b** implemented (reassign local n8n fork); **3b.4+** not started.
 
 ### Tier A — automated
 

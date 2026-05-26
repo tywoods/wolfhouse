@@ -82,6 +82,45 @@ Import **only** into **local** n8n (`http://localhost:5678`). Do **not** import 
 2. Airtable: create Booking Beds + update Bookings (hosted behaviour)  
 3. Postgres: backfill `airtable_record_id`; mirror assigned/available  
 
+## Reassign Bed Assignments (3b.3b)
+
+**Runbook:** [`docs/PHASE-3b-3.md`](../../docs/PHASE-3b-3.md)
+
+1. Regenerate:
+
+   ```powershell
+   npm run build:reassign-beds:local
+   ```
+
+2. Re-import:
+
+   ```powershell
+   docker cp "n8n/phase3b/Wolfhouse - Reassign Bed Assignments (local PG).n8n-import.json" n8n-main:/tmp/reassign-import.json
+   docker exec n8n-main n8n import:workflow --input=/tmp/reassign-import.json
+   docker exec n8n-main n8n publish:workflow --id=B3c3ReassignLocal01
+   docker restart n8n-main n8n-worker
+   ```
+
+3. Map credentials (Postgres + Airtable test PAT).
+
+4. **Deactivate** hosted `Wolfhouse - Reassign Bed Assignments` on local n8n — only one workflow may use `reassign-booking-beds`.
+
+5. **Activate** local Assign fork (`assign-beds-to-booking`) — Reassign chains HTTP to it.
+
+6. Test:
+
+   ```powershell
+   npm run db:report:reassign-impact -- --booking-code=WH-recBtWzIvmjQ5mmo0 --beds=R1-B1,R1-B2,R1-B3 --check-in=2026-06-05 --check-out=2026-06-10
+   scripts/test-reassign-beds-webhook.ps1 -RecordId recBtWzIvmjQ5mmo0 -GuestCount 3
+   ```
+
+## Order of operations (Reassign local fork)
+
+1. Postgres: DELETE all `booking_beds` for booking  
+2. Airtable: delete old Booking Beds → mark **Unassigned** / **Not Checked**  
+3. Postgres: mirror `unassigned` / `unknown` (AT Not Checked)  
+4. HTTP → local **Assign** fork (Choose Beds → PG insert → AT create)  
+
 ## Do not edit by hand
 
-Regenerate with `npm run build:cancel-beds:local` or `npm run build:assign-beds:local`. Hosted sources under `n8n/Wolfhouse - *.json` (read-only).
+Regenerate with `npm run build:cancel-beds:local`, `npm run build:assign-beds:local`, or `npm run build:reassign-beds:local`. Hosted sources under `n8n/Wolfhouse - *.json` (read-only).
