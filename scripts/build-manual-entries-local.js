@@ -17,7 +17,7 @@
  *
  * Step 4: --generate also writes .n8n-import.json for CLI re-import (stable id B3c4ManualEntriesLocal01)
  *
- * Step 6b: delete-branch PG nodes (create/update PG — later steps)
+ * Step 6b: delete-branch PG gate; Step 6c: PG delete failure → Sheet Error (P:R)
  * TODO Step 3+: insert PG create/update/backfill nodes
  * TODO Step 3+: add structured response node with partial_failure
  * TODO Step 3+: remap node credentials to LOCAL_N8N ids on generate (like assign/cancel builds)
@@ -141,6 +141,23 @@ return [{
   }
 }];`;
 
+/** Sheet columns P–R: Sync Status, Airtable Booking ID, Error (same as hosted success markers). */
+const BUILD_PG_DELETE_SHEET_ERROR_JS = `const pick = $('${PICK_NODE}').first().json;
+const v = $('Code - Validate PG Delete').first().json;
+const errParts = Array.isArray(v.errors) ? v.errors.filter(Boolean) : [];
+const errMsg = errParts.length
+  ? errParts.join('; ')
+  : String(v.message || v.partial_failure || 'pg_delete_failed');
+return [{
+  json: {
+    manual_entry_id: pick.manual_entry_id,
+    row_number: pick.row_number,
+    airtable_booking_record_id:
+      pick.airtable_booking_record_id || v.airtable_booking_record_id || '',
+    sheet_error: String(errMsg).slice(0, 500)
+  }
+}];`;
+
 function uid(seed) {
   const h = crypto.createHash('sha256').update(seed).digest('hex');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
@@ -157,11 +174,11 @@ function injectDeleteBranchPgNodes(workflow) {
       throw new Error(`Cannot inject delete PG nodes: missing "${name}"`);
     }
   }
-  if (listNodes(workflow).some((n) => n.name === 'Postgres - Manual Entry Delete')) {
-    return workflow;
-  }
+  const hasPgDelete = listNodes(workflow).some((n) => n.name === 'Postgres - Manual Entry Delete');
 
-  const pgNodes = [
+  const pgNodes = hasPgDelete
+    ? []
+    : [
     {
       parameters: {
         operation: 'executeQuery',
@@ -210,25 +227,93 @@ function injectDeleteBranchPgNodes(workflow) {
     },
   ];
 
-  workflow.nodes.push(...pgNodes);
+  if (pgNodes.length) {
+    workflow.nodes.push(...pgNodes);
+  }
 
   const conn = workflow.connections || {};
   workflow.connections = conn;
 
-  conn['HTTP - Mark Delete Processing'] = {
-    main: [[{ node: 'Postgres - Manual Entry Delete', type: 'main', index: 0 }]],
-  };
-  conn['Postgres - Manual Entry Delete'] = {
-    main: [[{ node: 'Code - Validate PG Delete', type: 'main', index: 0 }]],
-  };
-  conn['Code - Validate PG Delete'] = {
-    main: [[{ node: 'IF - PG Delete OK', type: 'main', index: 0 }]],
-  };
-  conn['IF - PG Delete OK'] = {
-    main: [
-      [{ node: 'Search Booking Beds For Delete', type: 'main', index: 0 }],
-      [],
-    ],
+  if (pgNodes.length) {
+    conn['HTTP - Mark Delete Processing'] = {
+      main: [[{ node: 'Postgres - Manual Entry Delete', type: 'main', index: 0 }]],
+    };
+    conn['Postgres - Manual Entry Delete'] = {
+      main: [[{ node: 'Code - Validate PG Delete', type: 'main', index: 0 }]],
+    };
+    conn['Code - Validate PG Delete'] = {
+      main: [[{ node: 'IF - PG Delete OK', type: 'main', index: 0 }]],
+    };
+    conn['IF - PG Delete OK'] = {
+      main: [
+        [{ node: 'Search Booking Beds For Delete', type: 'main', index: 0 }],
+        [],
+      ],
+    };
+  }
+
+  injectDeleteBranchPgFailureSheet(workflow);
+  return workflow;
+}
+
+/**
+ * Step 6c — IF - PG Delete OK false → Sheet Error (P=Error, R=message); no Airtable path.
+ * @param {object} workflow
+ */
+function injectDeleteBranchPgFailureSheet(workflow) {
+  if (!listNodes(workflow).some((n) => n.name === 'IF - PG Delete OK')) {
+    return workflow;
+  }
+  if (listNodes(workflow).some((n) => n.name === 'HTTP - Mark Queue Item PG Delete Error')) {
+    return workflow;
+  }
+
+  const sheetCredRef = listNodes(workflow).find((n) => n.name === 'HTTP - Mark Delete Processing');
+  const sheetCred = sheetCredRef?.credentials
+    ? JSON.parse(JSON.stringify(sheetCredRef.credentials))
+    : undefined;
+
+  workflow.nodes.push(
+    {
+      parameters: { jsCode: BUILD_PG_DELETE_SHEET_ERROR_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [1120, 360],
+      id: uid('build-pg-delete-sheet-error'),
+      name: 'Code - Build PG Delete Sheet Error',
+    },
+    {
+      parameters: {
+        method: 'POST',
+        url: `=https://sheets.googleapis.com/v4/spreadsheets/${TEST_SHEET_SPREADSHEET_ID}/values:batchUpdate`,
+        authentication: 'predefinedCredentialType',
+        nodeCredentialType: 'googleOAuth2Api',
+        sendBody: true,
+        specifyBody: 'json',
+        jsonBody:
+          "={{\n  {\n    valueInputOption: 'USER_ENTERED',\n    data: [\n      {\n        range: 'Manual Entries!P' + $json.row_number + ':R' + $json.row_number,\n        values: [\n          [\n            'Error',\n            $json.airtable_booking_record_id,\n            $json.sheet_error\n          ]\n        ]\n      }\n    ]\n  }\n}}",
+        options: {},
+      },
+      type: 'n8n-nodes-base.httpRequest',
+      typeVersion: 4.4,
+      position: [1280, 360],
+      id: uid('http-pg-delete-sheet-error'),
+      name: 'HTTP - Mark Queue Item PG Delete Error',
+      continueOnFail: true,
+      alwaysOutputData: true,
+      ...(sheetCred ? { credentials: sheetCred } : {}),
+    },
+  );
+
+  const conn = workflow.connections;
+  if (!conn['IF - PG Delete OK']?.main) {
+    conn['IF - PG Delete OK'] = { main: [[], []] };
+  }
+  conn['IF - PG Delete OK'].main[1] = [
+    { node: 'Code - Build PG Delete Sheet Error', type: 'main', index: 0 },
+  ];
+  conn['Code - Build PG Delete Sheet Error'] = {
+    main: [[{ node: 'HTTP - Mark Queue Item PG Delete Error', type: 'main', index: 0 }]],
   };
 
   return workflow;
@@ -582,7 +667,11 @@ function printGenerateSummary(workflow) {
   );
   console.log(`Node count: ${listNodes(workflow).length}`);
   const pgDelete = listNodes(workflow).some((n) => n.name === 'Postgres - Manual Entry Delete');
+  const pgDeleteSheetErr = listNodes(workflow).some(
+    (n) => n.name === 'HTTP - Mark Queue Item PG Delete Error',
+  );
   console.log(`Delete-branch PG nodes: ${pgDelete ? 'yes' : 'no'}`);
+  console.log(`Delete-branch PG failure sheet: ${pgDeleteSheetErr ? 'yes' : 'no'}`);
   console.log(`Hosted source unchanged: ${HOSTED}`);
   console.log(`Test Sheet ID: ${TEST_SHEET_SPREADSHEET_ID}`);
   console.log(`Test Airtable base ID: ${TEST_AIRTABLE_BASE_ID}`);

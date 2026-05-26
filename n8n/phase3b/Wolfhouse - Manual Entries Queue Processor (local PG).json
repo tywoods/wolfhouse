@@ -3707,6 +3707,47 @@
       ],
       "id": "b8cf14f2-698d-461c-82a4-37a27c942283",
       "name": "IF - PG Delete OK"
+    },
+    {
+      "parameters": {
+        "jsCode": "const pick = $('Code - Pick Next Manual Queue Item').first().json;\nconst v = $('Code - Validate PG Delete').first().json;\nconst errParts = Array.isArray(v.errors) ? v.errors.filter(Boolean) : [];\nconst errMsg = errParts.length\n  ? errParts.join('; ')\n  : String(v.message || v.partial_failure || 'pg_delete_failed');\nreturn [{\n  json: {\n    manual_entry_id: pick.manual_entry_id,\n    row_number: pick.row_number,\n    airtable_booking_record_id:\n      pick.airtable_booking_record_id || v.airtable_booking_record_id || '',\n    sheet_error: String(errMsg).slice(0, 500)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        360
+      ],
+      "id": "73b6c16a-7c32-426c-80a7-0ac59fa82f53",
+      "name": "Code - Build PG Delete Sheet Error"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/1JIY22nrtHXWEi6gPWvvpDfgG8Xe0jT6hmGGzkNXRs10/values:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    valueInputOption: 'USER_ENTERED',\n    data: [\n      {\n        range: 'Manual Entries!P' + $json.row_number + ':R' + $json.row_number,\n        values: [\n          [\n            'Error',\n            $json.airtable_booking_record_id,\n            $json.sheet_error\n          ]\n        ]\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1280,
+        360
+      ],
+      "id": "a1c53b76-d809-4bfa-85ad-ee1903b0ccdd",
+      "name": "HTTP - Mark Queue Item PG Delete Error",
+      "continueOnFail": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "fl7l9Qi45dHCxx6W",
+          "name": "Google account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -4005,7 +4046,24 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Code - Build PG Delete Sheet Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build PG Delete Sheet Error": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Mark Queue Item PG Delete Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
