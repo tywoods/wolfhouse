@@ -82,4 +82,4 @@ WHERE client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo')
 - [`PHASE-3-PROPOSAL.md`](PHASE-3-PROPOSAL.md)
 - [`PHASE-3-0b-3a-IMPLEMENTATION-PLAN.md`](PHASE-3-0b-3a-IMPLEMENTATION-PLAN.md)
 - [`regression-test-plan.md`](regression-test-plan.md) — Phase 3.0b-1 row
-- Phase **3a** (Postgres planning report) — **not started**
+- Phase **3a** — [`PHASE-3a.md`](PHASE-3a.md) (**passed** 2026-05-26)

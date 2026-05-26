@@ -7,6 +7,8 @@
     "db:sync": "node scripts/sync-csv-to-postgres.js",
     "db:backfill:airtable-ids": "node scripts/backfill-airtable-record-ids.js",
     "db:report:drift": "node scripts/report-airtable-postgres-drift.js",
+    "planning:report:postgres": "node scripts/planning-report-from-postgres.js",
+    "test:planning-row-format": "node scripts/test-planning-row-format.js",
     "db:verify": "node scripts/verify-local-db.js",
     "db:migrate:2a": "node scripts/run-sql.js database/migrations/003_rename_hostel_to_client.sql && node scripts/run-sql.js database/migrations/004_payment_schema_phase2.sql",
     "db:migrate:005": "node scripts/run-sql.js database/migrations/005_payment_intent_unique_partial.sql",

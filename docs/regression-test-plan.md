@@ -149,11 +149,26 @@ Runbook: `docs/PHASE-2d.md`. Workflow: `n8n/phase2/Wolfhouse - Send Confirmation
 
 3.0b-1 notes (2026-05-25): Backfill scanned 11 `WH-rec*`, filled 2, 9 already linked. Drift actionable fields clean. CSV bookings=9 vs Postgres=28 (Δ19) is **non-blocking** — Phase 2 local-only test bookings in Postgres only. `db:verify` count mismatch expected until CSV refresh or test DB cleanup.
 
+## Phase 3a — Postgres planning report (read-only)
+
+**Runbook:** [`PHASE-3a.md`](PHASE-3a.md). **3b+ not started.**
+
+**Status:** **passed** (2026-05-26).
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3a-1 | `npm run test:planning-row-format` | yes |
+| 3a-2 | `npm run planning:report:postgres` → `reports/planning-postgres-*.csv` | yes |
+| 3a-3 | 20 columns; ISO dates; Nights correct (spot-check vs Bookings Sync) | yes |
+| 3a-4 | `npm run test:phase2f-resolver` + `npm run db:report:drift` still OK | yes |
+
+3a notes (2026-05-26): Report `planning-postgres-2026-05-26T10-53-57.csv`, 12 rows, read-only. Nights fix: compute from raw dates via `toIsoDateString()` before CSV display. Examples: 2026-05-31→2026-06-04 = 4 nights; 2026-08-06→2026-08-11 = 5. Drift ID linkage clean. Bookings CSV=9 vs PG=28 non-blocking (Phase 2 local tests).
+
 ## Phase 2 local sign-off (freeze)
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1 only** started; dual-write workflows not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** and **3a** passed; dual-write workflows (3b+) not started.
 
 ### Tier A — automated
 
@@ -201,7 +216,7 @@ C.4 notes (2026-05-25): `test-phase2d-send-confirmation.ps1 -BookingCode WH-recn
 | Engineer | Cursor | 2026-05-25 |
 | Owner | Ty | 2026-05-25 |
 
-**Sign-off notes:** Tier A passed; Tier B passed; Tier C passed; hosted n8n exports unchanged; Phase 3 **3.0b-1** passed (see Phase 3.0b section); 3a+ and dual-write not started; Azure/live deployment not started; short pay URLs deferred; local generated workflows are import-only and must be regenerated from build scripts.
+**Sign-off notes:** Tier A passed; Tier B passed; Tier C passed; hosted n8n exports unchanged; Phase 3 **3.0b-1** and **3a** passed; 3b+ dual-write not started; Azure/live deployment not started; short pay URLs deferred; local generated workflows are import-only and must be regenerated from build scripts.
 
 ---
 
