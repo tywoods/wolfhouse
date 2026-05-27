@@ -1,6 +1,6 @@
 # Phase 3c.c — Main PG booking hold (plan → execute → workflow)
 
-**Status:** **3c.c.1** implemented (read-only hold plan). **No Postgres writes**, no workflow changes.
+**Status:** **3c.c.1** hold plan; **3c.c.2** active-hold guard fixture. Hold execute CLI not started.
 
 **Parents:** [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-b.md`](PHASE-3c-b.md), [`PHASE-3c-a.md`](PHASE-3c-a.md)
 
@@ -10,10 +10,10 @@
 
 | Substep | Deliverable | Mutations |
 |---------|-------------|-----------|
-| **3c.c.1** (this) | `db:report:main-hold-plan` — availability + guards + `would_upsert` | **None** |
-| **3c.c.2** | Execute CLI / mutation SQL in lib | `bookings` only |
+| **3c.c.1** | `db:report:main-hold-plan` — availability + guards + `would_upsert` | **None** |
+| **3c.c.2** | Active-hold guard fixture + (later) execute CLI / mutation SQL | Fixture: `bookings` only |
 | **3c.c.3** | Ensure Booking promote shared SQL | `bookings` |
-| **3c.c.4** | Fixtures `WH-3C-HOLD-*` | test data |
+| **3c.c.4** | Additional fixtures `WH-3C-HOLD-*` | test data |
 | **3c.e** | `build-main-local-stripe.js` inject PG before `Create Booking Hold` | workflow |
 
 **Out of scope for 3c.c:** `booking_beds`, `conversations`/`messages` (3c.d), `payments`/`payment_events`, workflow JSON (3c.e).
@@ -52,6 +52,40 @@ Target: **Promote** existing hold row by `booking_code`; backfill `airtable_reco
 | `WH-3C-HOLD-TEST-001` | Local plan/execute fixtures (explicit, no random) |
 
 Unique key: `(client_id, booking_code)`.
+
+---
+
+## Active-hold guard fixture (3c.c.2)
+
+Proves `active_hold_exists` on `db:report:main-hold-plan` before hold execute writes.
+
+| Field | Value |
+|-------|--------|
+| `booking_code` | `WH-3C-ACTIVE-HOLD-GUARD-001` |
+| `phone` | `+353300000001` |
+| `status` | `hold` |
+| Dates | `2026-08-07` → `2026-08-12` |
+
+**Apply / remove** (from repo root; targets `wolfhouse-postgres`):
+
+```powershell
+Get-Content scripts/fixtures/main-hold-3cc-active-hold-up.sql | docker compose -f infra/docker-compose.local.yml exec -T wolfhouse-postgres psql -U wolfhouse -d wolfhouse
+
+Get-Content scripts/fixtures/main-hold-3cc-active-hold-down.sql | docker compose -f infra/docker-compose.local.yml exec -T wolfhouse-postgres psql -U wolfhouse -d wolfhouse
+```
+
+**Test plan** (different proposed code so guard sees *other* hold):
+
+```powershell
+docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile tools run --rm wolfhouse-tools npm run db:report:main-hold-plan -- --booking-code=WH-3C-HOLD-TEST-ACTIVE-GUARD --phone=+353300000001 --check-in=2026-08-07 --check-out=2026-08-12 --guest-count=2
+```
+
+| Step | Expected |
+|------|----------|
+| After **up** | `active_hold_guard.would_block_new_hold` = **true** (alias: active hold exists); `plan_allowed` = **false**; `actionable` includes **`active_hold_exists`**; exit **2** |
+| After **down** | `would_block_new_hold` = **false**; `plan_allowed` = **true** (if availability still ok); exit **0** |
+
+Fixture does **not** insert `booking_beds`, `payments`, or `payment_events`.
 
 ---
 
@@ -122,7 +156,7 @@ docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile
 
 ## Next steps
 
-1. **3c.c.2** — mutation SQL + `db:main-hold:upsert` execute (fixtures only).
+1. **3c.c.2 (execute)** — mutation SQL + `db:main-hold:upsert` (after guard fixture signed off).
 2. **3c.c.3** — shared Ensure Booking promote SQL + CLI test.
 3. **3c.d** — conversation `current_hold_booking_id`.
 4. **3c.e** — build script inject + regenerate fork.
