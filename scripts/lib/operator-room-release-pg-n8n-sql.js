@@ -352,6 +352,102 @@ const PG_OPERATOR_ROOM_RELEASE_PLAN_QUERY_REPLACEMENT = [
 const PG_OPERATOR_ROOM_RELEASE_EXECUTE_QUERY_REPLACEMENT =
   PG_OPERATOR_ROOM_RELEASE_PLAN_QUERY_REPLACEMENT;
 
+const PG_OPERATOR_ROOM_RELEASE_COMPLETED_CHECK_QUERY_REPLACEMENT =
+  PG_OPERATOR_ROOM_RELEASE_PLAN_QUERY_REPLACEMENT;
+
+/**
+ * Read-only idempotent replay gate (SELECT only).
+ * Uses $5 request_code; other params ignored.
+ * When status=completed, route_idempotent_response=true so n8n skips Plan.
+ */
+const PG_OPERATOR_ROOM_RELEASE_COMPLETED_CHECK_SQL = `WITH params AS (
+  SELECT
+    NULLIF(trim($1), '${NULL_SENTINEL}') AS operator_in,
+    NULLIF(trim($2), '${NULL_SENTINEL}') AS room_code_in,
+    NULLIF(trim($3), '${NULL_SENTINEL}') AS release_start_in,
+    NULLIF(trim($4), '${NULL_SENTINEL}') AS release_end_in,
+    NULLIF(trim($5), '${NULL_SENTINEL}') AS request_code,
+    NULLIF(trim($6), '${NULL_SENTINEL}') AS allow_overlap_in
+),
+client_row AS (
+  SELECT c.id AS client_id
+  FROM clients c
+  WHERE c.slug = '${CLIENT_SLUG}'
+  LIMIT 1
+),
+latest_req AS (
+  SELECT
+    r.id AS request_id,
+    r.request_code,
+    r.status::text AS status,
+    r.original_booking_id,
+    r.new_booking_a_id,
+    r.new_booking_b_id
+  FROM operator_room_release_requests r
+  INNER JOIN client_row c ON r.client_id = c.client_id
+  CROSS JOIN params p
+  WHERE p.request_code IS NOT NULL
+    AND r.request_code = p.request_code
+  ORDER BY r.updated_at DESC
+  LIMIT 1
+),
+linked AS (
+  SELECT
+    lr.request_id,
+    lr.request_code,
+    lr.status,
+    ob.booking_code AS original_booking_code,
+    ob.id::text AS original_booking_id,
+    ba.booking_code AS block_a_booking_code,
+    ba.id::text AS block_a_booking_id,
+    bb.booking_code AS block_b_booking_code,
+    bb.id::text AS block_b_booking_id
+  FROM latest_req lr
+  INNER JOIN client_row c ON true
+  LEFT JOIN bookings ob ON ob.id = lr.original_booking_id AND ob.client_id = c.client_id
+  LEFT JOIN bookings ba ON ba.id = lr.new_booking_a_id AND ba.client_id = c.client_id
+  LEFT JOIN bookings bb ON bb.id = lr.new_booking_b_id AND bb.client_id = c.client_id
+)
+SELECT
+  (p.request_code IS NOT NULL) AS check_ran,
+  (lr.request_id IS NOT NULL) AS request_found,
+  (lr.status = 'completed') AS completed_request,
+  (lr.status = 'processing') AS processing_request,
+  (lr.status = 'failed') AS failed_request,
+  (
+    p.request_code IS NOT NULL
+    AND lr.status = 'completed'
+  ) AS route_idempotent_response,
+  (
+    p.request_code IS NOT NULL
+    AND lr.status = 'processing'
+  ) AS route_blocked_response,
+  CASE
+    WHEN p.request_code IS NULL THEN NULL
+    WHEN lr.status = 'completed' THEN NULL
+    WHEN lr.status = 'processing' THEN 'request_stuck_processing'
+    WHEN lr.status = 'failed' THEN 'request_failed_retry'
+    ELSE NULL
+  END AS error_code,
+  CASE
+    WHEN p.request_code IS NULL THEN 'No request_code; continue to plan'
+    WHEN lr.status = 'completed' THEN 'Operator room release completed (idempotent replay)'
+    WHEN lr.status = 'processing' THEN 'Release request stuck in processing'
+    WHEN lr.status = 'failed' THEN 'Prior release request failed; use a new request_code or clear failed row'
+    WHEN lr.request_id IS NULL THEN 'No prior request; continue to plan'
+    ELSE 'Continue to plan'
+  END AS message,
+  l.request_id::text AS request_id,
+  l.request_code,
+  l.original_booking_code,
+  l.original_booking_id,
+  l.block_a_booking_code,
+  l.block_b_booking_code,
+  true AS payments_unchanged
+FROM params p
+LEFT JOIN latest_req lr ON true
+LEFT JOIN linked l ON l.request_id = lr.request_id`;
+
 /**
  * Execute operator room release in one statement (single transaction).
  * Mirrors scripts/lib/operator-room-release-pg-sql.js executeOperatorRoomRelease.
@@ -961,6 +1057,8 @@ module.exports = {
   EXECUTE_NOTES,
   PG_OPERATOR_ROOM_RELEASE_PLAN_SQL,
   PG_OPERATOR_ROOM_RELEASE_PLAN_QUERY_REPLACEMENT,
+  PG_OPERATOR_ROOM_RELEASE_COMPLETED_CHECK_SQL,
+  PG_OPERATOR_ROOM_RELEASE_COMPLETED_CHECK_QUERY_REPLACEMENT,
   PG_OPERATOR_ROOM_RELEASE_EXECUTE_SQL,
   PG_OPERATOR_ROOM_RELEASE_EXECUTE_QUERY_REPLACEMENT,
 };

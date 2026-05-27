@@ -14,6 +14,8 @@ const crypto = require('crypto');
 const {
   PG_OPERATOR_ROOM_RELEASE_PLAN_SQL,
   PG_OPERATOR_ROOM_RELEASE_PLAN_QUERY_REPLACEMENT,
+  PG_OPERATOR_ROOM_RELEASE_COMPLETED_CHECK_SQL,
+  PG_OPERATOR_ROOM_RELEASE_COMPLETED_CHECK_QUERY_REPLACEMENT,
   PG_OPERATOR_ROOM_RELEASE_EXECUTE_SQL,
   PG_OPERATOR_ROOM_RELEASE_EXECUTE_QUERY_REPLACEMENT,
 } = require('./lib/operator-room-release-pg-n8n-sql');
@@ -40,10 +42,13 @@ const LOCAL_N8N = {
 };
 
 const PARSE_NODE = 'Code - Parse Release Payload';
+const COMPLETED_CHECK_NODE = 'Postgres - Operator Room Release Completed Request Check';
 const PLAN_NODE = 'Postgres - Operator Room Release Plan';
 const EXECUTE_NODE = 'Postgres - Operator Room Release Execute';
 const VALIDATE_EXECUTE_NODE = 'Code - Validate Execute';
 const BUILD_RESPONSE_NODE = 'Code - Build Response';
+const IF_COMPLETED_NODE = 'IF - Completed Request';
+const IF_REQUEST_BLOCKED_NODE = 'IF - Request Blocked';
 const IF_DRY_RUN_NODE = 'IF - Dry Run';
 const IF_PLAN_OK_NODE = 'IF - Plan OK';
 
@@ -66,6 +71,9 @@ const PLANNED_LOCAL_GRAPH = [
   'Webhook - Operator Room Release',
   '→ Code - Parse Release Payload',
   '→ IF - Parse OK',
+  '→ Postgres - Completed Request Check (read-only)',
+  '→ IF - Completed Request → Build Response → Respond (idempotent replay)',
+  '→ IF - Request Blocked → Build Response → Respond (processing/failed)',
   '→ Postgres - Operator Room Release Plan',
   '→ IF - Dry Run',
   '   true → Code - Build Response → Respond',
@@ -167,6 +175,78 @@ if (!parsed.parse_ok) {
       error_code: 'validation',
       message: 'Invalid webhook payload',
       errors: mergeErrors(parsed.errors, ['parse_failed'])
+    }
+  }];
+}
+
+let completedCheck = {};
+let completedCheckErr = null;
+try {
+  const completedItem = $('${COMPLETED_CHECK_NODE}').first();
+  completedCheckErr = completedItem?.error;
+  completedCheck = completedItem?.json || {};
+} catch (e) {
+  completedCheckErr = e;
+}
+
+if (completedCheckErr) {
+  const msg = String(completedCheckErr.message || completedCheckErr);
+  return [{
+    json: {
+      ok: false,
+      dry_run: !!parsed.dry_run,
+      found_match: false,
+      match_count: 0,
+      error_code: 'postgres_failed',
+      message: msg,
+      errors: ['postgres_completed_check_failed']
+    }
+  }];
+}
+
+const routeIdempotent =
+  completedCheck.route_idempotent_response === true
+  || completedCheck.route_idempotent_response === 'true';
+
+if (routeIdempotent) {
+  return [{
+    json: {
+      ok: true,
+      dry_run: false,
+      idempotent: true,
+      found_match: true,
+      match_count: 1,
+      original_booking_code: completedCheck.original_booking_code || null,
+      original_booking_id: completedCheck.original_booking_id || null,
+      block_a_booking_code: completedCheck.block_a_booking_code || null,
+      block_b_booking_code: completedCheck.block_b_booking_code || null,
+      request_id: completedCheck.request_id || null,
+      request_code: completedCheck.request_code || parsed.request_code || null,
+      payments_untouched: true,
+      message: completedCheck.message || 'Operator room release completed (idempotent replay)',
+      error_code: null,
+      errors: []
+    }
+  }];
+}
+
+const routeBlocked =
+  completedCheck.route_blocked_response === true
+  || completedCheck.route_blocked_response === 'true';
+
+if (routeBlocked) {
+  return [{
+    json: {
+      ok: false,
+      dry_run: !!parsed.dry_run,
+      idempotent: false,
+      found_match: false,
+      match_count: 0,
+      error_code: completedCheck.error_code || 'request_blocked',
+      message: completedCheck.message || 'Release request cannot proceed',
+      errors: mergeErrors([completedCheck.error_code]),
+      request_code: completedCheck.request_code || parsed.request_code || null,
+      payments_untouched: true
     }
   }];
 }
@@ -586,7 +666,7 @@ function buildLocalWorkflow() {
         },
         type: 'n8n-nodes-base.webhook',
         typeVersion: 2.1,
-        position: [-720, 0],
+        position: [-920, 0],
         id: uid('orr-webhook-local'),
         name: 'Webhook - Operator Room Release',
         webhookId: LOCAL_WEBHOOK_ID,
@@ -595,7 +675,7 @@ function buildLocalWorkflow() {
         parameters: { jsCode: PARSE_RELEASE_PAYLOAD_JS },
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [-520, 0],
+        position: [-720, 0],
         id: uid('orr-parse-payload'),
         name: PARSE_NODE,
       },
@@ -617,9 +697,73 @@ function buildLocalWorkflow() {
         },
         type: 'n8n-nodes-base.if',
         typeVersion: 2.2,
-        position: [-320, 0],
+        position: [-520, 0],
         id: uid('orr-if-parse-ok'),
         name: 'IF - Parse OK',
+      },
+      {
+        parameters: {
+          operation: 'executeQuery',
+          query: PG_OPERATOR_ROOM_RELEASE_COMPLETED_CHECK_SQL,
+          options: {
+            queryReplacement: PG_OPERATOR_ROOM_RELEASE_COMPLETED_CHECK_QUERY_REPLACEMENT,
+          },
+        },
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.5,
+        position: [-320, 0],
+        id: uid('orr-postgres-completed-check'),
+        name: COMPLETED_CHECK_NODE,
+        alwaysOutputData: true,
+        continueOnFail: true,
+        onError: 'continueRegularOutput',
+        credentials: {
+          postgres: LOCAL_N8N.postgresCred,
+        },
+      },
+      {
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+            conditions: [
+              {
+                id: 'completed-request',
+                leftValue: '={{ $json.route_idempotent_response }}',
+                rightValue: '',
+                operator: { type: 'boolean', operation: 'true', singleValue: true },
+              },
+            ],
+            combinator: 'and',
+          },
+          options: {},
+        },
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.2,
+        position: [-120, -120],
+        id: uid('orr-if-completed-request'),
+        name: IF_COMPLETED_NODE,
+      },
+      {
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+            conditions: [
+              {
+                id: 'request-blocked',
+                leftValue: '={{ $json.route_blocked_response }}',
+                rightValue: '',
+                operator: { type: 'boolean', operation: 'true', singleValue: true },
+              },
+            ],
+            combinator: 'and',
+          },
+          options: {},
+        },
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.2,
+        position: [-120, 80],
+        id: uid('orr-if-request-blocked'),
+        name: IF_REQUEST_BLOCKED_NODE,
       },
       {
         parameters: {
@@ -631,7 +775,7 @@ function buildLocalWorkflow() {
         },
         type: 'n8n-nodes-base.postgres',
         typeVersion: 2.5,
-        position: [-120, 0],
+        position: [80, 80],
         id: uid('orr-postgres-plan'),
         name: PLAN_NODE,
         alwaysOutputData: true,
@@ -659,7 +803,7 @@ function buildLocalWorkflow() {
         },
         type: 'n8n-nodes-base.if',
         typeVersion: 2.2,
-        position: [80, 0],
+        position: [280, 80],
         id: uid('orr-if-dry-run'),
         name: IF_DRY_RUN_NODE,
       },
@@ -681,7 +825,7 @@ function buildLocalWorkflow() {
         },
         type: 'n8n-nodes-base.if',
         typeVersion: 2.2,
-        position: [280, 120],
+        position: [480, 160],
         id: uid('orr-if-plan-ok'),
         name: IF_PLAN_OK_NODE,
       },
@@ -695,7 +839,7 @@ function buildLocalWorkflow() {
         },
         type: 'n8n-nodes-base.postgres',
         typeVersion: 2.5,
-        position: [480, 200],
+        position: [680, 240],
         id: uid('orr-postgres-execute'),
         name: EXECUTE_NODE,
         alwaysOutputData: true,
@@ -709,7 +853,7 @@ function buildLocalWorkflow() {
         parameters: { jsCode: VALIDATE_EXECUTE_JS },
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [680, 200],
+        position: [880, 240],
         id: uid('orr-validate-execute'),
         name: VALIDATE_EXECUTE_NODE,
       },
@@ -717,7 +861,7 @@ function buildLocalWorkflow() {
         parameters: { jsCode: BUILD_RESPONSE_JS },
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [880, 0],
+        position: [1080, 0],
         id: uid('orr-build-response'),
         name: BUILD_RESPONSE_NODE,
       },
@@ -729,7 +873,7 @@ function buildLocalWorkflow() {
         },
         type: 'n8n-nodes-base.respondToWebhook',
         typeVersion: 1.1,
-        position: [1080, 0],
+        position: [1280, 0],
         id: uid('orr-respond-webhook'),
         name: 'Respond to Webhook',
       },
@@ -743,8 +887,23 @@ function buildLocalWorkflow() {
       },
       'IF - Parse OK': {
         main: [
-          [{ node: PLAN_NODE, type: 'main', index: 0 }],
+          [{ node: COMPLETED_CHECK_NODE, type: 'main', index: 0 }],
           [{ node: BUILD_RESPONSE_NODE, type: 'main', index: 0 }],
+        ],
+      },
+      [COMPLETED_CHECK_NODE]: {
+        main: [[{ node: IF_COMPLETED_NODE, type: 'main', index: 0 }]],
+      },
+      [IF_COMPLETED_NODE]: {
+        main: [
+          [{ node: BUILD_RESPONSE_NODE, type: 'main', index: 0 }],
+          [{ node: IF_REQUEST_BLOCKED_NODE, type: 'main', index: 0 }],
+        ],
+      },
+      [IF_REQUEST_BLOCKED_NODE]: {
+        main: [
+          [{ node: BUILD_RESPONSE_NODE, type: 'main', index: 0 }],
+          [{ node: PLAN_NODE, type: 'main', index: 0 }],
         ],
       },
       [PLAN_NODE]: {
@@ -806,7 +965,10 @@ function printGenerateSummary(workflow) {
   console.log(`Webhook path: ${webhooks[0]?.parameters?.path || LOCAL_WEBHOOK_PATH}`);
   console.log(`Webhook id: ${webhooks[0]?.webhookId || LOCAL_WEBHOOK_ID}`);
   console.log(`Node count: ${listNodes(workflow).length}`);
-  console.log(`Postgres nodes: ${pgNodes.length} (${PLAN_NODE} + ${EXECUTE_NODE})`);
+  console.log(
+    `Postgres nodes: ${pgNodes.length} (${COMPLETED_CHECK_NODE} + ${PLAN_NODE} + ${EXECUTE_NODE})`,
+  );
+  console.log('Idempotent replay: completed request_code → Build Response (skips Plan)');
   console.log('Dry-run: IF dry_run true → plan preview only');
   console.log('Execute: IF dry_run false AND plan_ok → execute SQL (single statement)');
   console.log(`Hosted source unchanged: ${HOSTED}`);
@@ -887,8 +1049,8 @@ function verifyGeneratedWorkflow(workflow) {
   if (workflow.id !== LOCAL_WORKFLOW_ID) {
     issues.push(`workflow id must be ${LOCAL_WORKFLOW_ID}`);
   }
-  if (nodes.length !== 10) {
-    issues.push(`expected 10 nodes, got ${nodes.length}`);
+  if (nodes.length !== 13) {
+    issues.push(`expected 13 nodes, got ${nodes.length}`);
   }
 
   const airtableNodes = findAirtableNodes(workflow);
@@ -903,14 +1065,33 @@ function verifyGeneratedWorkflow(workflow) {
   }
 
   const pgNodes = nodes.filter((n) => n.type === 'n8n-nodes-base.postgres');
-  if (pgNodes.length !== 2) {
-    issues.push(`expected 2 Postgres nodes, got ${pgNodes.length}`);
+  if (pgNodes.length !== 3) {
+    issues.push(`expected 3 Postgres nodes, got ${pgNodes.length}`);
   }
 
+  const completedCheckNode = pgNodes.find((n) => n.name === COMPLETED_CHECK_NODE);
   const planNode = pgNodes.find((n) => n.name === PLAN_NODE);
   const executeNode = pgNodes.find((n) => n.name === EXECUTE_NODE);
+  if (!completedCheckNode) issues.push(`missing Postgres node: ${COMPLETED_CHECK_NODE}`);
   if (!planNode) issues.push(`missing Postgres node: ${PLAN_NODE}`);
   if (!executeNode) issues.push(`missing Postgres node: ${EXECUTE_NODE}`);
+
+  if (completedCheckNode) {
+    const q = String(completedCheckNode.parameters?.query || '');
+    if (!q.includes('route_idempotent_response')) {
+      issues.push('Completed-check Postgres query missing route_idempotent_response');
+    }
+    for (const re of EXECUTE_MUTATION_PATTERNS) {
+      if (re.test(q)) {
+        issues.push(`mutation pattern in completed-check Postgres node: ${re}`);
+      }
+    }
+    for (const re of PAYMENT_WRITE_PATTERNS) {
+      if (re.test(q)) {
+        issues.push(`payment write pattern in completed-check Postgres node: ${re}`);
+      }
+    }
+  }
 
   if (planNode) {
     const q = String(planNode.parameters?.query || '');
@@ -957,6 +1138,9 @@ function verifyGeneratedWorkflow(workflow) {
     'Webhook - Operator Room Release',
     PARSE_NODE,
     'IF - Parse OK',
+    COMPLETED_CHECK_NODE,
+    IF_COMPLETED_NODE,
+    IF_REQUEST_BLOCKED_NODE,
     PLAN_NODE,
     IF_DRY_RUN_NODE,
     IF_PLAN_OK_NODE,
@@ -985,6 +1169,7 @@ function printVerifyReport(result) {
   console.log(`Prod Airtable base hits: ${result.prodAirtableHitCount}`);
   console.log(`Airtable node count: ${result.airtableHitCount}`);
   console.log(`Active false: required`);
+  console.log('Completed-check Postgres: read-only SELECT');
   console.log('Plan Postgres: read-only SELECT');
   console.log('Execute Postgres: mutations allowed; no payment table writes');
   if (result.issues.length) {

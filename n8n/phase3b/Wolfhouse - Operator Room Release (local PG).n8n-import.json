@@ -12,7 +12,7 @@
         "type": "n8n-nodes-base.webhook",
         "typeVersion": 2.1,
         "position": [
-          -720,
+          -920,
           0
         ],
         "id": "fe0e8272-d71c-408c-898d-1507a5ae0d05",
@@ -26,7 +26,7 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          -520,
+          -720,
           0
         ],
         "id": "82b43a11-8bc9-4baa-8912-6c043f284200",
@@ -60,11 +60,105 @@
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.2,
         "position": [
-          -320,
+          -520,
           0
         ],
         "id": "9e42c39c-7edf-40ed-81b0-628aa5acb586",
         "name": "IF - Parse OK"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS operator_in,\n    NULLIF(trim($2), '__NULL__') AS room_code_in,\n    NULLIF(trim($3), '__NULL__') AS release_start_in,\n    NULLIF(trim($4), '__NULL__') AS release_end_in,\n    NULLIF(trim($5), '__NULL__') AS request_code,\n    NULLIF(trim($6), '__NULL__') AS allow_overlap_in\n),\nclient_row AS (\n  SELECT c.id AS client_id\n  FROM clients c\n  WHERE c.slug = 'wolfhouse-somo'\n  LIMIT 1\n),\nlatest_req AS (\n  SELECT\n    r.id AS request_id,\n    r.request_code,\n    r.status::text AS status,\n    r.original_booking_id,\n    r.new_booking_a_id,\n    r.new_booking_b_id\n  FROM operator_room_release_requests r\n  INNER JOIN client_row c ON r.client_id = c.client_id\n  CROSS JOIN params p\n  WHERE p.request_code IS NOT NULL\n    AND r.request_code = p.request_code\n  ORDER BY r.updated_at DESC\n  LIMIT 1\n),\nlinked AS (\n  SELECT\n    lr.request_id,\n    lr.request_code,\n    lr.status,\n    ob.booking_code AS original_booking_code,\n    ob.id::text AS original_booking_id,\n    ba.booking_code AS block_a_booking_code,\n    ba.id::text AS block_a_booking_id,\n    bb.booking_code AS block_b_booking_code,\n    bb.id::text AS block_b_booking_id\n  FROM latest_req lr\n  INNER JOIN client_row c ON true\n  LEFT JOIN bookings ob ON ob.id = lr.original_booking_id AND ob.client_id = c.client_id\n  LEFT JOIN bookings ba ON ba.id = lr.new_booking_a_id AND ba.client_id = c.client_id\n  LEFT JOIN bookings bb ON bb.id = lr.new_booking_b_id AND bb.client_id = c.client_id\n)\nSELECT\n  (p.request_code IS NOT NULL) AS check_ran,\n  (lr.request_id IS NOT NULL) AS request_found,\n  (lr.status = 'completed') AS completed_request,\n  (lr.status = 'processing') AS processing_request,\n  (lr.status = 'failed') AS failed_request,\n  (\n    p.request_code IS NOT NULL\n    AND lr.status = 'completed'\n  ) AS route_idempotent_response,\n  (\n    p.request_code IS NOT NULL\n    AND lr.status = 'processing'\n  ) AS route_blocked_response,\n  CASE\n    WHEN p.request_code IS NULL THEN NULL\n    WHEN lr.status = 'completed' THEN NULL\n    WHEN lr.status = 'processing' THEN 'request_stuck_processing'\n    WHEN lr.status = 'failed' THEN 'request_failed_retry'\n    ELSE NULL\n  END AS error_code,\n  CASE\n    WHEN p.request_code IS NULL THEN 'No request_code; continue to plan'\n    WHEN lr.status = 'completed' THEN 'Operator room release completed (idempotent replay)'\n    WHEN lr.status = 'processing' THEN 'Release request stuck in processing'\n    WHEN lr.status = 'failed' THEN 'Prior release request failed; use a new request_code or clear failed row'\n    WHEN lr.request_id IS NULL THEN 'No prior request; continue to plan'\n    ELSE 'Continue to plan'\n  END AS message,\n  l.request_id::text AS request_id,\n  l.request_code,\n  l.original_booking_code,\n  l.original_booking_id,\n  l.block_a_booking_code,\n  l.block_b_booking_code,\n  true AS payments_unchanged\nFROM params p\nLEFT JOIN latest_req lr ON true\nLEFT JOIN linked l ON l.request_id = lr.request_id",
+          "options": {
+            "queryReplacement": "={{ (($('Code - Parse Release Payload').first().json.operator) != null && String($('Code - Parse Release Payload').first().json.operator).trim() !== '') ? String($('Code - Parse Release Payload').first().json.operator).trim() : '__NULL__' }},={{ (($('Code - Parse Release Payload').first().json.room_code) != null && String($('Code - Parse Release Payload').first().json.room_code).trim() !== '') ? String($('Code - Parse Release Payload').first().json.room_code).trim() : '__NULL__' }},={{ (($('Code - Parse Release Payload').first().json.release_start) != null && String($('Code - Parse Release Payload').first().json.release_start).trim() !== '') ? String($('Code - Parse Release Payload').first().json.release_start).trim() : '__NULL__' }},={{ (($('Code - Parse Release Payload').first().json.release_end) != null && String($('Code - Parse Release Payload').first().json.release_end).trim() !== '') ? String($('Code - Parse Release Payload').first().json.release_end).trim() : '__NULL__' }},={{ (($('Code - Parse Release Payload').first().json.request_code) != null && String($('Code - Parse Release Payload').first().json.request_code).trim() !== '') ? String($('Code - Parse Release Payload').first().json.request_code).trim() : '__NULL__' }},={{ (() => { const v = $('Code - Parse Release Payload').first().json.allow_overlap; if (v === true || v === 'true' || v === 1 || v === '1') return 'true'; return '__NULL__'; })() }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -320,
+          0
+        ],
+        "id": "e6b81f39-1487-463d-8e9b-39213b2ae839",
+        "name": "Postgres - Operator Room Release Completed Request Check",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "completed-request",
+                "leftValue": "={{ $json.route_idempotent_response }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -120,
+          -120
+        ],
+        "id": "2a6861d2-c3e9-46fd-89d3-9af1b9274102",
+        "name": "IF - Completed Request"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "request-blocked",
+                "leftValue": "={{ $json.route_blocked_response }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -120,
+          80
+        ],
+        "id": "0bb431d3-7f5b-4b56-8fd5-fdd29788f9e0",
+        "name": "IF - Request Blocked"
       },
       {
         "parameters": {
@@ -77,8 +171,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.5,
         "position": [
-          -120,
-          0
+          80,
+          80
         ],
         "id": "4b64c7d5-df6f-4064-8c0d-0902571feb46",
         "name": "Postgres - Operator Room Release Plan",
@@ -120,8 +214,8 @@
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.2,
         "position": [
-          80,
-          0
+          280,
+          80
         ],
         "id": "b71df31b-707d-413f-8656-49fca675cfce",
         "name": "IF - Dry Run"
@@ -154,8 +248,8 @@
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.2,
         "position": [
-          280,
-          120
+          480,
+          160
         ],
         "id": "a4b98172-1a3f-43df-8a71-6f9e3557505b",
         "name": "IF - Plan OK"
@@ -171,8 +265,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.5,
         "position": [
-          480,
-          200
+          680,
+          240
         ],
         "id": "45558e7d-89eb-4f9e-81c3-db4e93843c60",
         "name": "Postgres - Operator Room Release Execute",
@@ -193,20 +287,20 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          680,
-          200
+          880,
+          240
         ],
         "id": "331e6fb2-aa02-4212-8203-c5535bbc3685",
         "name": "Code - Validate Execute"
       },
       {
         "parameters": {
-          "jsCode": "function mergeErrors(...lists) {\n  const out = [];\n  for (const list of lists) {\n    if (!list) continue;\n    for (const e of list) {\n      const s = String(e || '').trim();\n      if (s && !out.includes(s)) out.push(s);\n    }\n  }\n  return out;\n}\n\nconst parsed = $('Code - Parse Release Payload').first()?.json || {};\n\nif (!parsed.parse_ok) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: !!parsed.dry_run,\n      found_match: false,\n      match_count: 0,\n      error_code: 'validation',\n      message: 'Invalid webhook payload',\n      errors: mergeErrors(parsed.errors, ['parse_failed'])\n    }\n  }];\n}\n\nlet plan = {};\nlet planErr = null;\ntry {\n  const planItem = $('Postgres - Operator Room Release Plan').first();\n  planErr = planItem?.error;\n  plan = planItem?.json || {};\n} catch (e) {\n  planErr = e;\n}\n\nconst isDryRun = parsed.dry_run === true;\n\nif (planErr) {\n  const msg = String(planErr.message || planErr);\n  return [{\n    json: {\n      ok: false,\n      dry_run: isDryRun,\n      found_match: false,\n      match_count: 0,\n      error_code: 'postgres_failed',\n      message: msg,\n      errors: ['postgres_plan_failed']\n    }\n  }];\n}\n\nconst pgOk = plan.pg_ok === true || plan.pg_ok === 'true';\nconst planOk = plan.plan_ok === true || plan.plan_ok === 'true';\nconst foundMatch = plan.found_match === true || plan.found_match === 'true';\nconst matchCount = Number(plan.match_count ?? 0);\nconst paymentsCount = Number(plan.payments_count ?? 0);\nconst paymentEventsCount = Number(plan.payment_events_count ?? 0);\nconst paymentsUntouched = paymentsCount === 0 && paymentEventsCount === 0;\n\nconst actionable = Array.isArray(plan.actionable)\n  ? plan.actionable\n  : plan.actionable\n    ? [String(plan.actionable)]\n    : [];\n\nif (isDryRun) {\n  if (!pgOk) {\n    return [{\n      json: {\n        ok: false,\n        dry_run: true,\n        found_match: foundMatch,\n        match_count: matchCount,\n        error_code: plan.error_code || 'plan_failed',\n        message: plan.message || 'Operator room release plan failed',\n        errors: mergeErrors(actionable, [plan.error_code]),\n        original_booking_code: plan.original_booking_code || null,\n        payments_untouched: paymentsUntouched\n      }\n    }];\n  }\n\n  if (!planOk) {\n    return [{\n      json: {\n        ok: false,\n        dry_run: true,\n        found_match: foundMatch,\n        match_count: matchCount,\n        error_code: plan.error_code || 'plan_not_actionable',\n        message: plan.message || 'Plan is not actionable',\n        errors: mergeErrors(actionable, [plan.error_code]),\n        original_booking_code: plan.original_booking_code || null,\n        block_a_booking_code: plan.block_a_booking_code || null,\n        block_b_booking_code: plan.block_b_booking_code || null,\n        would_create_a: plan.should_create_a === true,\n        would_create_b: plan.should_create_b === true,\n        would_cancel_beds: Number(plan.beds_count ?? 0),\n        payments_untouched: paymentsUntouched\n      }\n    }];\n  }\n\n  return [{\n    json: {\n      ok: true,\n      dry_run: true,\n      found_match: foundMatch,\n      match_count: matchCount,\n      original_booking_code: plan.original_booking_code || null,\n      original_booking_id: plan.original_booking_id || null,\n      would_cancel_beds: Number(plan.beds_count ?? 0),\n      would_create_a: plan.should_create_a === true,\n      would_create_b: plan.should_create_b === true,\n      block_a_booking_code: plan.block_a_booking_code || null,\n      block_b_booking_code: plan.block_b_booking_code || null,\n      block_a_check_in: plan.block_a_check_in || null,\n      block_a_check_out: plan.block_a_check_out || null,\n      block_b_check_in: plan.block_b_check_in || null,\n      block_b_check_out: plan.block_b_check_out || null,\n      overlap_count: Number(plan.overlap_count ?? 0),\n      payments_untouched: paymentsUntouched,\n      request_code: plan.request_code || parsed.request_code || null,\n      message: plan.message || 'Operator room release dry-run preview',\n      error_code: null,\n      errors: mergeErrors(plan.warnings, [])\n    }\n  }];\n}\n\nif (!pgOk || !planOk) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: false,\n      found_match: foundMatch,\n      match_count: matchCount,\n      error_code: plan.error_code || (pgOk ? 'plan_not_actionable' : 'plan_failed'),\n      message: plan.message || 'Operator room release plan is not actionable for execute',\n      errors: mergeErrors(actionable, [plan.error_code]),\n      original_booking_code: plan.original_booking_code || null,\n      block_a_booking_code: plan.block_a_booking_code || null,\n      block_b_booking_code: plan.block_b_booking_code || null,\n      payments_untouched: paymentsUntouched\n    }\n  }];\n}\n\nlet execRow = {};\nlet execErr = null;\ntry {\n  const execItem = $('Code - Validate Execute').first();\n  execErr = execItem?.error;\n  execRow = execItem?.json || {};\n} catch (e) {\n  execErr = e;\n}\n\nif (execErr) {\n  const msg = String(execErr.message || execErr);\n  return [{\n    json: {\n      ok: false,\n      dry_run: false,\n      found_match: foundMatch,\n      match_count: matchCount,\n      error_code: 'postgres_failed',\n      message: msg,\n      errors: ['postgres_execute_failed']\n    }\n  }];\n}\n\nconst executeOk = execRow.execute_ok === true || execRow.execute_ok === 'true';\nconst idempotent = execRow.idempotent === true || execRow.idempotent === 'true';\n\nif (!executeOk) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: false,\n      idempotent,\n      found_match: execRow.found_match === true || execRow.found_match === 'true',\n      match_count: Number(execRow.match_count ?? matchCount),\n      error_code: execRow.error_code || 'execute_failed',\n      message: execRow.message || 'Operator room release execute failed',\n      errors: mergeErrors([execRow.error_code]),\n      original_booking_code: execRow.original_booking_code || plan.original_booking_code || null,\n      original_booking_id: execRow.original_booking_id || null,\n      block_a_booking_code: execRow.block_a_booking_code || null,\n      block_b_booking_code: execRow.block_b_booking_code || null,\n      request_id: execRow.request_id || null,\n      request_code: execRow.request_code || parsed.request_code || null,\n      payments_untouched: execRow.payments_unchanged === true\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ok: true,\n    dry_run: false,\n    idempotent,\n    found_match: true,\n    match_count: Number(execRow.match_count ?? 1),\n    original_booking_code: execRow.original_booking_code || null,\n    original_booking_id: execRow.original_booking_id || null,\n    block_a_booking_code: execRow.block_a_booking_code || null,\n    block_b_booking_code: execRow.block_b_booking_code || null,\n    deleted_beds: Number(execRow.deleted_beds ?? 0),\n    request_id: execRow.request_id || null,\n    request_code: execRow.request_code || parsed.request_code || null,\n    payments_untouched: execRow.payments_unchanged === true,\n    payments_count: Number(execRow.payments_count ?? 0),\n    payment_events_count: Number(execRow.payment_events_count ?? 0),\n    message: execRow.message || (idempotent ? 'Operator room release completed (idempotent)' : 'Operator room release executed'),\n    error_code: null,\n    errors: []\n  }\n}];"
+          "jsCode": "function mergeErrors(...lists) {\n  const out = [];\n  for (const list of lists) {\n    if (!list) continue;\n    for (const e of list) {\n      const s = String(e || '').trim();\n      if (s && !out.includes(s)) out.push(s);\n    }\n  }\n  return out;\n}\n\nconst parsed = $('Code - Parse Release Payload').first()?.json || {};\n\nif (!parsed.parse_ok) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: !!parsed.dry_run,\n      found_match: false,\n      match_count: 0,\n      error_code: 'validation',\n      message: 'Invalid webhook payload',\n      errors: mergeErrors(parsed.errors, ['parse_failed'])\n    }\n  }];\n}\n\nlet completedCheck = {};\nlet completedCheckErr = null;\ntry {\n  const completedItem = $('Postgres - Operator Room Release Completed Request Check').first();\n  completedCheckErr = completedItem?.error;\n  completedCheck = completedItem?.json || {};\n} catch (e) {\n  completedCheckErr = e;\n}\n\nif (completedCheckErr) {\n  const msg = String(completedCheckErr.message || completedCheckErr);\n  return [{\n    json: {\n      ok: false,\n      dry_run: !!parsed.dry_run,\n      found_match: false,\n      match_count: 0,\n      error_code: 'postgres_failed',\n      message: msg,\n      errors: ['postgres_completed_check_failed']\n    }\n  }];\n}\n\nconst routeIdempotent =\n  completedCheck.route_idempotent_response === true\n  || completedCheck.route_idempotent_response === 'true';\n\nif (routeIdempotent) {\n  return [{\n    json: {\n      ok: true,\n      dry_run: false,\n      idempotent: true,\n      found_match: true,\n      match_count: 1,\n      original_booking_code: completedCheck.original_booking_code || null,\n      original_booking_id: completedCheck.original_booking_id || null,\n      block_a_booking_code: completedCheck.block_a_booking_code || null,\n      block_b_booking_code: completedCheck.block_b_booking_code || null,\n      request_id: completedCheck.request_id || null,\n      request_code: completedCheck.request_code || parsed.request_code || null,\n      payments_untouched: true,\n      message: completedCheck.message || 'Operator room release completed (idempotent replay)',\n      error_code: null,\n      errors: []\n    }\n  }];\n}\n\nconst routeBlocked =\n  completedCheck.route_blocked_response === true\n  || completedCheck.route_blocked_response === 'true';\n\nif (routeBlocked) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: !!parsed.dry_run,\n      idempotent: false,\n      found_match: false,\n      match_count: 0,\n      error_code: completedCheck.error_code || 'request_blocked',\n      message: completedCheck.message || 'Release request cannot proceed',\n      errors: mergeErrors([completedCheck.error_code]),\n      request_code: completedCheck.request_code || parsed.request_code || null,\n      payments_untouched: true\n    }\n  }];\n}\n\nlet plan = {};\nlet planErr = null;\ntry {\n  const planItem = $('Postgres - Operator Room Release Plan').first();\n  planErr = planItem?.error;\n  plan = planItem?.json || {};\n} catch (e) {\n  planErr = e;\n}\n\nconst isDryRun = parsed.dry_run === true;\n\nif (planErr) {\n  const msg = String(planErr.message || planErr);\n  return [{\n    json: {\n      ok: false,\n      dry_run: isDryRun,\n      found_match: false,\n      match_count: 0,\n      error_code: 'postgres_failed',\n      message: msg,\n      errors: ['postgres_plan_failed']\n    }\n  }];\n}\n\nconst pgOk = plan.pg_ok === true || plan.pg_ok === 'true';\nconst planOk = plan.plan_ok === true || plan.plan_ok === 'true';\nconst foundMatch = plan.found_match === true || plan.found_match === 'true';\nconst matchCount = Number(plan.match_count ?? 0);\nconst paymentsCount = Number(plan.payments_count ?? 0);\nconst paymentEventsCount = Number(plan.payment_events_count ?? 0);\nconst paymentsUntouched = paymentsCount === 0 && paymentEventsCount === 0;\n\nconst actionable = Array.isArray(plan.actionable)\n  ? plan.actionable\n  : plan.actionable\n    ? [String(plan.actionable)]\n    : [];\n\nif (isDryRun) {\n  if (!pgOk) {\n    return [{\n      json: {\n        ok: false,\n        dry_run: true,\n        found_match: foundMatch,\n        match_count: matchCount,\n        error_code: plan.error_code || 'plan_failed',\n        message: plan.message || 'Operator room release plan failed',\n        errors: mergeErrors(actionable, [plan.error_code]),\n        original_booking_code: plan.original_booking_code || null,\n        payments_untouched: paymentsUntouched\n      }\n    }];\n  }\n\n  if (!planOk) {\n    return [{\n      json: {\n        ok: false,\n        dry_run: true,\n        found_match: foundMatch,\n        match_count: matchCount,\n        error_code: plan.error_code || 'plan_not_actionable',\n        message: plan.message || 'Plan is not actionable',\n        errors: mergeErrors(actionable, [plan.error_code]),\n        original_booking_code: plan.original_booking_code || null,\n        block_a_booking_code: plan.block_a_booking_code || null,\n        block_b_booking_code: plan.block_b_booking_code || null,\n        would_create_a: plan.should_create_a === true,\n        would_create_b: plan.should_create_b === true,\n        would_cancel_beds: Number(plan.beds_count ?? 0),\n        payments_untouched: paymentsUntouched\n      }\n    }];\n  }\n\n  return [{\n    json: {\n      ok: true,\n      dry_run: true,\n      found_match: foundMatch,\n      match_count: matchCount,\n      original_booking_code: plan.original_booking_code || null,\n      original_booking_id: plan.original_booking_id || null,\n      would_cancel_beds: Number(plan.beds_count ?? 0),\n      would_create_a: plan.should_create_a === true,\n      would_create_b: plan.should_create_b === true,\n      block_a_booking_code: plan.block_a_booking_code || null,\n      block_b_booking_code: plan.block_b_booking_code || null,\n      block_a_check_in: plan.block_a_check_in || null,\n      block_a_check_out: plan.block_a_check_out || null,\n      block_b_check_in: plan.block_b_check_in || null,\n      block_b_check_out: plan.block_b_check_out || null,\n      overlap_count: Number(plan.overlap_count ?? 0),\n      payments_untouched: paymentsUntouched,\n      request_code: plan.request_code || parsed.request_code || null,\n      message: plan.message || 'Operator room release dry-run preview',\n      error_code: null,\n      errors: mergeErrors(plan.warnings, [])\n    }\n  }];\n}\n\nif (!pgOk || !planOk) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: false,\n      found_match: foundMatch,\n      match_count: matchCount,\n      error_code: plan.error_code || (pgOk ? 'plan_not_actionable' : 'plan_failed'),\n      message: plan.message || 'Operator room release plan is not actionable for execute',\n      errors: mergeErrors(actionable, [plan.error_code]),\n      original_booking_code: plan.original_booking_code || null,\n      block_a_booking_code: plan.block_a_booking_code || null,\n      block_b_booking_code: plan.block_b_booking_code || null,\n      payments_untouched: paymentsUntouched\n    }\n  }];\n}\n\nlet execRow = {};\nlet execErr = null;\ntry {\n  const execItem = $('Code - Validate Execute').first();\n  execErr = execItem?.error;\n  execRow = execItem?.json || {};\n} catch (e) {\n  execErr = e;\n}\n\nif (execErr) {\n  const msg = String(execErr.message || execErr);\n  return [{\n    json: {\n      ok: false,\n      dry_run: false,\n      found_match: foundMatch,\n      match_count: matchCount,\n      error_code: 'postgres_failed',\n      message: msg,\n      errors: ['postgres_execute_failed']\n    }\n  }];\n}\n\nconst executeOk = execRow.execute_ok === true || execRow.execute_ok === 'true';\nconst idempotent = execRow.idempotent === true || execRow.idempotent === 'true';\n\nif (!executeOk) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: false,\n      idempotent,\n      found_match: execRow.found_match === true || execRow.found_match === 'true',\n      match_count: Number(execRow.match_count ?? matchCount),\n      error_code: execRow.error_code || 'execute_failed',\n      message: execRow.message || 'Operator room release execute failed',\n      errors: mergeErrors([execRow.error_code]),\n      original_booking_code: execRow.original_booking_code || plan.original_booking_code || null,\n      original_booking_id: execRow.original_booking_id || null,\n      block_a_booking_code: execRow.block_a_booking_code || null,\n      block_b_booking_code: execRow.block_b_booking_code || null,\n      request_id: execRow.request_id || null,\n      request_code: execRow.request_code || parsed.request_code || null,\n      payments_untouched: execRow.payments_unchanged === true\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ok: true,\n    dry_run: false,\n    idempotent,\n    found_match: true,\n    match_count: Number(execRow.match_count ?? 1),\n    original_booking_code: execRow.original_booking_code || null,\n    original_booking_id: execRow.original_booking_id || null,\n    block_a_booking_code: execRow.block_a_booking_code || null,\n    block_b_booking_code: execRow.block_b_booking_code || null,\n    deleted_beds: Number(execRow.deleted_beds ?? 0),\n    request_id: execRow.request_id || null,\n    request_code: execRow.request_code || parsed.request_code || null,\n    payments_untouched: execRow.payments_unchanged === true,\n    payments_count: Number(execRow.payments_count ?? 0),\n    payment_events_count: Number(execRow.payment_events_count ?? 0),\n    message: execRow.message || (idempotent ? 'Operator room release completed (idempotent)' : 'Operator room release executed'),\n    error_code: null,\n    errors: []\n  }\n}];"
         },
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          880,
+          1080,
           0
         ],
         "id": "284dae69-882f-4da5-8d8a-f4934b4f6adb",
@@ -221,7 +315,7 @@
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.1,
         "position": [
-          1080,
+          1280,
           0
         ],
         "id": "2b65d869-43d7-441a-85f8-fa96b8582a20",
@@ -255,7 +349,7 @@
         "main": [
           [
             {
-              "node": "Postgres - Operator Room Release Plan",
+              "node": "Postgres - Operator Room Release Completed Request Check",
               "type": "main",
               "index": 0
             }
@@ -263,6 +357,53 @@
           [
             {
               "node": "Code - Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Operator Room Release Completed Request Check": {
+        "main": [
+          [
+            {
+              "node": "IF - Completed Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Completed Request": {
+        "main": [
+          [
+            {
+              "node": "Code - Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "IF - Request Blocked",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Request Blocked": {
+        "main": [
+          [
+            {
+              "node": "Code - Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Postgres - Operator Room Release Plan",
               "type": "main",
               "index": 0
             }
