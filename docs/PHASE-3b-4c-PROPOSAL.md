@@ -1,6 +1,6 @@
 # Phase 3b.4c — Manual Entries local n8n fork (proposal)
 
-**Status:** Proposal only — **no implementation**, workflow JSON edits, hosted export edits, production Airtable/Sheets changes, or production cutover.  
+**Status:** **Implemented and signed off (MVP)** — see [`PHASE-3b-4c.md`](PHASE-3b-4c.md) (2026-05-27). This document remains the design archive; do not treat §8 “not started” as current.  
 **Prerequisites:** Phase **3b.4a** (`41d2547`), **3b.4b** (`3c1f9c7`), **3b.0**–**3b.3b** frozen ([`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md)).  
 **Parents:** [`PHASE-3b-4-PROPOSAL.md`](PHASE-3b-4-PROPOSAL.md), [`PHASE-3b-4b.md`](PHASE-3b-4b.md), [`PHASE-3b-4a.md`](PHASE-3b-4a.md)
 

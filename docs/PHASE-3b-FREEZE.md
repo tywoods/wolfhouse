@@ -1,10 +1,10 @@
 # Phase 3b local — bed ops freeze & regression
 
-**Status:** Phase 3b local **signed off** (2026-05-26). Cancel, Assign, and Reassign local forks verified on Docker + local n8n + Postgres + test Airtable.
+**Status:** Phase 3b local **signed off** (2026-05-26) for Cancel / Assign / Reassign; **3b.4c Manual Entries fork MVP** signed off (2026-05-27).
 
-**Not started:** Phase **3b.4** Manual Entries, **3b.5** Operator Room Release, **Phase 3c** Main integration, production cutover, hosted n8n Cloud changes.
+**Not started:** **3b.5** Operator Room Release, **Phase 3c** Main integration, production cutover, hosted n8n Cloud changes.
 
-**Sign-off:** Engineer Cursor · Owner Ty · 2026-05-26.
+**Sign-off:** Engineer Cursor · Owner Ty · 2026-05-26 (3b.0–3b.3b) · 2026-05-27 (3b.4c MVP).
 
 **Master checklist:** [`regression-test-plan.md`](regression-test-plan.md) — Phase 3b sections and **Phase 2 local sign-off** (unchanged for payment flow).
 
@@ -18,6 +18,19 @@
 | **3b.1** | Cancel — impact report, PG execute script, local n8n fork | [`PHASE-3b-1a.md`](PHASE-3b-1a.md) · [`PHASE-3b-1b.md`](PHASE-3b-1b.md) · [`PHASE-3b-1c.md`](PHASE-3b-1c.md) |
 | **3b.2** | Assign — impact report, PG execute script, local n8n fork | [`PHASE-3b-2a.md`](PHASE-3b-2a.md) · [`PHASE-3b-2b.md`](PHASE-3b-2b.md) · [`PHASE-3b-2c.md`](PHASE-3b-2c.md) |
 | **3b.3** | Reassign — impact report, local n8n fork (PG reset + AT reset + chained local Assign) | [`PHASE-3b-3a.md`](PHASE-3b-3a.md) · [`PHASE-3b-3.md`](PHASE-3b-3.md) |
+| **3b.4a** | Manual Entry impact report (read-only) | [`PHASE-3b-4a.md`](PHASE-3b-4a.md) |
+| **3b.4b** | Manual Entry Postgres mirror (CLI) | [`PHASE-3b-4b.md`](PHASE-3b-4b.md) |
+| **3b.4c** | Manual Entries Queue — local n8n fork (PG + AT + Sheet) | [`PHASE-3b-4c.md`](PHASE-3b-4c.md) |
+
+### 3b.4 — Manual Entries
+
+| Sub-step | Deliverable |
+|----------|-------------|
+| **3b.4a** | `db:report:manual-entry-impact` — read-only queue row preview |
+| **3b.4b** | `db:manual-entry:postgres` — create / update / delete (CLI) |
+| **3b.4c** | Webhook `POST /webhook/wolfhouse-manual-entries-queue` — sheet-driven create / update / delete; PG gates; AT + Sheet mirror |
+
+**3b.4c MVP evidence (local):** executions **613** (create), **621** (update), **623** (delete), **602** (overlap gate). Workflow **`B3c4ManualEntriesLocal01`** — **inactive** after tests.
 
 ### 3b.0 — Bed drift audit
 
@@ -64,8 +77,11 @@ Proposals (design-only, optional reference): [`PHASE-3b-PROPOSAL.md`](PHASE-3b-P
 | **3b.2c** | `1085e56` | Phase 3b.2c: local assign workflow with Postgres mirror |
 | **3b.3a** | `3d4ed65` | Phase 3b.3a: reassign impact report |
 | **3b.3b** | `dfcf3c4` | Phase 3b.3b: local reassign workflow with Postgres mirror |
+| **3b.4a** | `41d2547` | Phase 3b.4a: manual entry impact report |
+| **3b.4b** | `3c1f9c7` | Phase 3b.4b: Postgres manual entry mirror script |
+| **3b.4c** | `ed3a6f6` | Phase 3b.4c: Manual Entries local fork (latest: bed backfill pairs) |
 
-**Latest Phase 3b commit:** `dfcf3c4` (3b.3b).
+**Latest Phase 3b commit:** `ed3a6f6` (3b.4c MVP).
 
 Proposal-only commits (not implementation): e.g. `2f4e3bb`, `4d0637c`, `218d9df`, `998dc7f`, `255f0ba` — safe to ignore for freeze sign-off.
 
@@ -82,6 +98,7 @@ Import and activate **only** on `http://localhost:5678`. Regenerate from build s
 | Wolfhouse - Cancel Bed Assignments (local PG) | `KchhRC9b3MIdkzPT` | `cancel-booking-beds` | `npm run build:cancel-beds:local` |
 | Wolfhouse - Bed Assignment (local PG) | `B3c2AssignLocalPg01` | `assign-beds-to-booking` | `npm run build:assign-beds:local` |
 | Wolfhouse - Reassign Bed Assignments (local PG) | `B3c3ReassignLocal01` | `reassign-booking-beds` | `npm run build:reassign-beds:local` |
+| Wolfhouse - Manual Entries Queue Processor (local PG) | `B3c4ManualEntriesLocal01` | `wolfhouse-manual-entries-queue` | `node scripts/build-manual-entries-local.js --generate` |
 
 See [`n8n/phase3b/README.md`](../n8n/phase3b/README.md).
 
@@ -116,6 +133,9 @@ See [`n8n/phase3b/README.md`](../n8n/phase3b/README.md).
 | [`scripts/prep-reassign-e2e-airtable.js`](../scripts/prep-reassign-e2e-airtable.js) | Set Assigned + guest count for reassign E2E |
 | [`scripts/run-assign-e2e-local.js`](../scripts/run-assign-e2e-local.js) | Prep + assign webhook ×2 |
 | [`scripts/run-reassign-e2e-local.js`](../scripts/run-reassign-e2e-local.js) | Sync + prep + reassign webhook ×2 + duplicate check |
+| [`scripts/build-manual-entries-local.js`](../scripts/build-manual-entries-local.js) | Generate / verify Manual Entries local fork |
+| [`scripts/manual-entry-postgres.js`](../scripts/manual-entry-postgres.js) | CLI mirror (`db:manual-entry:postgres`) |
+| [`scripts/report-manual-entry-impact.js`](../scripts/report-manual-entry-impact.js) | Read-only impact (`db:report:manual-entry-impact`) |
 
 **Baseline restore:** `npm run db:sync` — reloads beds/bookings from CSV export into local Postgres.
 
@@ -136,7 +156,8 @@ See [`n8n/phase3b/README.md`](../n8n/phase3b/README.md).
 | **`database/migrations/*`** | No new migrations in 3b |
 | **`payments` / `payment_events` / `bookings.payment_status`** | No INSERT/UPDATE/DELETE in cancel/assign/reassign paths |
 | **`bookings` DELETE** | Never |
-| **3b.4 / 3b.5** | Not started |
+| **3b.5** | Not started |
+| **Manual Entries hosted export** | Read-only; local fork in `n8n/phase3b/` |
 
 ---
 

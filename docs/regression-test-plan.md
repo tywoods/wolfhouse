@@ -208,9 +208,25 @@ CLI PG mirror (no n8n): `db:assign:booking-beds --execute` (3b.2b). SQL shared v
 
 Undo: `db:cancel:booking-beds --execute` or `db:sync`.
 
+## Phase 3b.4c — Manual Entries local n8n fork (MVP)
+
+**Runbook:** [`PHASE-3b-4c.md`](PHASE-3b-4c.md). **Signed off** 2026-05-27 (local Docker + test Sheet + test Airtable).
+
+| Step | Command / action | Pass |
+|------|------------------|------|
+| 3b4c-0 | `node scripts/build-manual-entries-local.js --verify-targets` | 0 prod Sheet / 0 prod Airtable |
+| 3b4c-1 | Import `B3c4ManualEntriesLocal01`; workflow **inactive** by default | |
+| 3b4c-2 | **Create** — exec **613** (`MAN-LOCAL-CREATE-20260526C`) | PG + AT + backfill; sheet Synced; payments unchanged |
+| 3b4c-3 | **Update** — exec **621** | PG + AT guest/notes; beds unchanged; sheet Synced |
+| 3b4c-4 | **Delete** — exec **623** | PG cancelled, beds 0; AT cancelled + BB deleted; sheet Deleted |
+| 3b4c-5 | **Overlap gate** — exec **602** | PG conflict; sheet Error; no AT create |
+| 3b4c-6 | Deactivate workflow + restart `n8n-main` | webhook not left active |
+
+**Deferred (non-blocking):** repeat create/delete webhook; unknown-bed webhook; `build:manual-entries:local` npm script; PowerShell test helper; optional test row cleanup; Respond to Webhook JSON.
+
 ## Phase 3b.4b — Manual Entry Postgres mirror (CLI only)
 
-**Runbook:** [`PHASE-3b-4b.md`](PHASE-3b-4b.md). **3b.4c** not started.
+**Runbook:** [`PHASE-3b-4b.md`](PHASE-3b-4b.md).
 
 | Step | Command | Pass |
 |------|---------|------|
@@ -228,7 +244,7 @@ Undo: `db:cancel:booking-beds --execute` or `db:sync`.
 
 ## Phase 3b.4a — Manual Entry impact report (read-only)
 
-**Runbook:** [`PHASE-3b-4a.md`](PHASE-3b-4a.md). **3b.4b** mirror CLI documented above; **3b.4c+** not started.
+**Runbook:** [`PHASE-3b-4a.md`](PHASE-3b-4a.md). **3b.4b** mirror CLI documented above; **3b.4c** fork signed off — see [`PHASE-3b-4c.md`](PHASE-3b-4c.md).
 
 | Step | Command | Pass |
 |------|---------|------|

@@ -121,6 +121,54 @@ Import **only** into **local** n8n (`http://localhost:5678`). Do **not** import 
 3. Postgres: mirror `unassigned` / `unknown` (AT Not Checked)  
 4. HTTP → local **Assign** fork (Choose Beds → PG insert → AT create)  
 
+## Manual Entries Queue (3b.4c)
+
+**Runbook:** [`docs/PHASE-3b-4c.md`](../docs/PHASE-3b-4c.md) — **MVP signed off** 2026-05-27.
+
+1. Regenerate from hosted export (read-only):
+
+   ```powershell
+   docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile tools run --rm wolfhouse-tools node scripts/build-manual-entries-local.js --generate
+   docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile tools run --rm wolfhouse-tools node scripts/build-manual-entries-local.js --verify-targets
+   ```
+
+2. Re-import:
+
+   ```powershell
+   docker cp "n8n/phase3b/Wolfhouse - Manual Entries Queue Processor (local PG).n8n-import.json" n8n-main:/tmp/manual-entries-import.json
+   docker exec n8n-main n8n import:workflow --input=/tmp/manual-entries-import.json
+   docker restart n8n-main
+   ```
+
+3. Map credentials (Postgres + Google OAuth + Airtable **test** PAT).
+
+4. **Deactivate** hosted `Wolfhouse - Manual Entries Queue Processor` on local n8n if imported — only one workflow may use `wolfhouse-manual-entries-queue`.
+
+5. Keep workflow **inactive** except during controlled tests. After activate/deactivate, **restart `n8n-main`** so the webhook registers correctly.
+
+6. Test (sheet row must be queue-ready; body is ignored):
+
+   ```powershell
+   docker exec n8n-main n8n update:workflow --id=B3c4ManualEntriesLocal01 --active=true
+   docker restart n8n-main
+   curl.exe -s -X POST "http://localhost:5678/webhook/wolfhouse-manual-entries-queue" -H "Content-Type: application/json" -d "{}"
+   docker exec n8n-main n8n update:workflow --id=B3c4ManualEntriesLocal01 --active=false
+   docker restart n8n-main
+   ```
+
+**Stable workflow id:** `B3c4ManualEntriesLocal01`  
+**Test Sheet:** `1JIY22nrtHXWEi6gPWvvpDfgG8Xe0jT6hmGGzkNXRs10` · **Test Airtable:** `appiyO4FmkKsyHZdK`
+
+## Order of operations (Manual Entries local fork)
+
+| Action | Order |
+|--------|--------|
+| **Create** | PG create → AT booking + beds → PG backfill AT ids → sheet Synced |
+| **Update** | PG update booking → AT update booking → sheet Synced (beds unchanged) |
+| **Delete** | PG cancel + delete beds → AT cancel + delete booking beds → sheet Deleted |
+
+CLI mirror (no n8n): `npm run db:manual-entry:postgres` — see [`PHASE-3b-4b.md`](../docs/PHASE-3b-4b.md).
+
 ## Do not edit by hand
 
-Regenerate with `npm run build:cancel-beds:local`, `npm run build:assign-beds:local`, or `npm run build:reassign-beds:local`. Hosted sources under `n8n/Wolfhouse - *.json` (read-only).
+Regenerate with `npm run build:cancel-beds:local`, `npm run build:assign-beds:local`, `npm run build:reassign-beds:local`, or `node scripts/build-manual-entries-local.js --generate`. Hosted sources under `n8n/Wolfhouse - *.json` (read-only).
