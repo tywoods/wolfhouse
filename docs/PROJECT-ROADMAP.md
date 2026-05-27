@@ -2,6 +2,10 @@
 
 A plain-language guide so you always know **where we are**, **what is safe to touch**, and **what comes next**.
 
+**For Cursor / engineers (current truth):** [`PROJECT-STATE.md`](PROJECT-STATE.md) · [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) · [`../CURSOR.md`](../CURSOR.md)
+
+**You are here (May 2026):** Phase **3c** — Main booking Postgres integration. Phase **3c.c.4** (Ensure Booking promote CLI) is **done** (`8abfd4d`). **Next:** **3c.d** conversation/hold state plan — **not** Azure deploy.
+
 ---
 
 ## Two environments (important)
@@ -33,15 +37,15 @@ You will not need to write SQL day to day. n8n will read/write Postgres like it 
 ## The journey in 6 phases
 
 ```
-Phase 0  ████░░░░░░  YOU ARE HERE — learn + local database
-Phase 1  ░░░░░░░░░░  Mirror data (read-only), no workflow changes
-Phase 2  ░░░░░░░░░░  Stripe payments (test mode)
-Phase 3  ░░░░░░░░░░  Move workflows one-by-one to Postgres
-Phase 4  ░░░░░░░░░░  Go live on Azure (DNS + WhatsApp)
+Phase 0  ██████████  Foundation (local Docker + Postgres) — done
+Phase 1  ████░░░░░░  Mirror data (optional / partial)
+Phase 2  ██████████  Stripe + local Main/Send Confirmation — signed off
+Phase 3  ██████░░░░  Dual-write / Postgres workflows — IN PROGRESS (3c Main)
+Phase 4  ░░░░░░░░░░  Go live on Azure — NOT NEXT (after 3c safe + reliability)
 Phase 5  ░░░░░░░░░░  Polish for Ale & Cami
 ```
 
-### Phase 0 — Foundation (current)
+### Phase 0 — Foundation ✓
 
 **Goal:** Understand the system; run Postgres on your laptop; no guest impact.
 
@@ -107,17 +111,34 @@ Phase 5  ░░░░░░░░░░  Polish for Ale & Cami
 
 ---
 
-### Phase 2 local — freeze & regression ← **YOU ARE HERE**
+### Phase 2 local — freeze & regression ✓
 
 **Runbook:** [`PHASE-2-FREEZE.md`](PHASE-2-FREEZE.md) · [`regression-test-plan.md`](regression-test-plan.md) (Phase 2 local sign-off)
 
-Phase 2 **local signed off** (2026-05-25): Tiers **A**, **B**, **C** passed; Engineer Cursor · Owner Ty. See [`PHASE-2-FREEZE.md`](PHASE-2-FREEZE.md). **Do not start Phase 3** until explicitly approved.
-
-**Not started:** Phase 3 dual-write, Azure/live, short `wolf-house.com/pay/…` links.
+Phase 2 **local signed off** (2026-05-25). Payment + confirmation contracts frozen.
 
 ---
 
-### Phase 3 — Dual-write (workflow by workflow)
+### Phase 3 — Dual-write (workflow by workflow) ← **YOU ARE HERE**
+
+**3b bed-ops / Manual Entries / Operator Room Release:** signed off — [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
+
+**3c Main (active):** [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md) · [`PROJECT-STATE.md`](PROJECT-STATE.md)
+
+| 3c substep | Status |
+|------------|--------|
+| 3c.a inventory | ✓ |
+| 3c.b availability report | ✓ |
+| 3c.c hold + ensure CLIs | ✓ through **3c.c.4** |
+| **3c.d** conversation / hold state | **next** |
+| 3c.e wire PG into Main fork | after 3c.d |
+| 3c.f–g contract + E2E | not started |
+
+**Not started / not next:** Azure/live deploy, production WhatsApp cutover, short `wolf-house.com/pay/…` links.
+
+---
+
+### Phase 3 — Workflow order (reference)
 
 **Goal:** Each workflow writes Postgres **and** (temporarily) Airtable, tested one at a time.
 
@@ -139,9 +160,11 @@ Each step uses `docs/regression-test-plan.md`.
 
 ---
 
-### Phase 4 — Go live on Azure
+### Phase 4 — Go live on Azure (later)
 
-**Goal:** Production URLs; WhatsApp + Apps Script point to Azure n8n.
+**Not the immediate next step.** Finish Phase **3c** Main Postgres MVP, reliability/stabilization, and cleanup first — see [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md). Deploying early would ship immature Main logic and heavy Airtable dependency.
+
+When approved:
 
 - Deploy Container Apps + Postgres + Redis (`docs/azure-n8n-hosting-plan.md`)
 - Import workflows from `n8n/*.json` into **new** n8n instance
@@ -204,7 +227,10 @@ Get-Content database\migrations\002_package_pricing.sql | docker exec -i wolfhou
 | Big picture | `docs/current-system-map.md` |
 | Webhook URLs | `docs/webhook-map.md` |
 | Airtable automations | `docs/airtable-automations.md` |
-| What step next | **this file** |
+| What step next (owner) | **this file** |
+| Current engineering state | [`PROJECT-STATE.md`](PROJECT-STATE.md) |
+| Architecture direction | [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) |
+| Cursor agent rules | [`../CURSOR.md`](../CURSOR.md) |
 | Risks | `docs/migration-risks.md` |
 | Technical order | `docs/recommended-migration-order.md` |
 | Before go-live tests | `docs/regression-test-plan.md` |
@@ -232,7 +258,7 @@ Get-Content database\migrations\002_package_pricing.sql | docker exec -i wolfhou
 Yes — rebooting is normal for Docker installs. When you are back:
 
 1. Open this project in Cursor: `C:\Users\tywoo\Desktop\WH`
-2. Open **`docs/PROJECT-ROADMAP.md`** (you are on Phase 0)
+2. Open **`docs/PROJECT-STATE.md`** (engineering snapshot) or this roadmap
 3. Start Docker Desktop from the Start menu and wait until it says **Running**
 4. In PowerShell:
    ```powershell
@@ -249,4 +275,4 @@ Your chat history and all files in `WH/` stay on disk — nothing is lost by reb
 
 Nothing in this repo touches your hosted Airtable/n8n until **you** deploy to Azure and switch URLs. All current data being dummy is **ideal** — we can break and fix the local DB freely.
 
-When you finish Phase 0 (Docker + seed check), tell me and we’ll walk through Phase 1 together step by step — still without touching the hosted system.
+Active work is **Phase 3c** (Main Postgres). See [`PROJECT-STATE.md`](PROJECT-STATE.md) for the exact next substep.

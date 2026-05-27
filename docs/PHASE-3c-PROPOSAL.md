@@ -1,6 +1,6 @@
 # Phase 3c — Main booking flow / Postgres integration (proposal)
 
-**Status:** Proposal only — **no implementation**, workflow JSON edits, hosted import, production cutover, or commits until approved.  
+**Status:** **Implementation in progress** (3c.a–3c.c.4 done — see [`PROJECT-STATE.md`](PROJECT-STATE.md)). Workflow JSON / `build-main-local-stripe.js` injection is **3c.e** (not started). Hosted import, production cutover still blocked.  
 **Prerequisites:** Phase **2** local frozen ([`PHASE-2-FREEZE.md`](PHASE-2-FREEZE.md), [`PHASE-2c-CHECKPOINT.md`](PHASE-2c-CHECKPOINT.md)); Phase **3b.0**–**3b.5** complete and frozen ([`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md); latest bed-ops sign-off **`de26bd4`**).  
 **Parents:** [`PHASE-3-PROPOSAL.md`](PHASE-3-PROPOSAL.md) (legacy numbering — see §1), [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md), [`recommended-migration-order.md`](recommended-migration-order.md), [`workflow-dependency-map.md`](workflow-dependency-map.md)
 

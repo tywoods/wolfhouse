@@ -2,15 +2,17 @@
 
 Phased path from ~70–80% prototype to production for Ale & Cami, without rewriting everything at once.
 
+> **Current engineering focus (May 2026):** Phase **3c** Main Postgres integration — see [`PROJECT-STATE.md`](PROJECT-STATE.md). Phase **3b** bed-ops/Manual/ORR is signed off. **Azure staging (step 5 below) is not the immediate next step** — complete 3c + reliability before production deploy. Legacy numbering in § Phase 3 table below differs from **3b.x / 3c** runbooks; use [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md) for Main.
+
 ## Phase 0 — Foundation (no production traffic change)
 
 1. **Postgres schema** — apply `database/migrations/001_init.sql` on staging.
 2. **Seed Wolfhouse** — `database/seeds/001_wolfhouse_seed.sql` from CSV exports; validate counts vs Airtable.
 3. ~~**Document Airtable automations**~~ — done in `docs/airtable-automations.md` (screenshots in `Screenshots/automations/`).
 4. **Remove secrets from repo** — delete/ignore `docs/api keys.txt`; rotate exposed keys.
-5. **Azure staging** — `infra/docker-compose.local.yml` locally; deploy n8n queue mode to staging per `docs/azure-n8n-hosting-plan.md`.
+5. **Azure staging** — deferred until Phase **3c** Main MVP + stabilization; local stack is `infra/docker-compose.local.yml`. Deploy per `docs/azure-n8n-hosting-plan.md` only when approved.
 
-**Exit criteria:** Staging DB populated; n8n connects to Postgres; no workflow JSON changes yet.
+**Exit criteria (Phase 0 local):** Local DB seeded; Docker n8n optional; no hosted workflow changes.
 
 ---
 

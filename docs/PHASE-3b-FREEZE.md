@@ -2,7 +2,7 @@
 
 **Status:** Phase 3b local **signed off** (2026-05-26) for Cancel / Assign / Reassign; **3b.4c Manual Entries fork MVP** signed off (2026-05-27); **3b.5 Operator Room Release MVP** signed off (2026-05-27).
 
-**Not started:** **Phase 3c** Main integration, production cutover, hosted n8n Cloud changes.
+**Phase 3c Main integration:** **in progress** (see [`PROJECT-STATE.md`](PROJECT-STATE.md) — 3c.c.4 complete as of `8abfd4d`). **Not started:** production cutover, hosted n8n Cloud changes, Azure deploy.
 
 **Sign-off:** Engineer Cursor · Owner Ty · 2026-05-26 (3b.0–3b.3b) · 2026-05-27 (3b.4c MVP, 3b.5 MVP).
 

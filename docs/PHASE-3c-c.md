@@ -1,6 +1,6 @@
 # Phase 3c.c — Main PG booking hold (plan → execute → workflow)
 
-**Status:** **3c.c.4** Ensure Booking promote CLI. Workflow wiring still **3c.e**.
+**Status:** **3c.c.4** Ensure Booking promote CLI — **complete** (`8abfd4d`). Phase **3c.c** CLI/script side nearly complete. Workflow wiring still **3c.e** (after **3c.d**).
 
 **Parents:** [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-b.md`](PHASE-3c-b.md), [`PHASE-3c-a.md`](PHASE-3c-a.md)
 
@@ -202,5 +202,6 @@ docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile
 
 ## Next steps
 
-1. **3c.e** — wire shared SQL into `build-main-local-stripe.js` + regenerate fork.
-2. **3c.d** — conversation `current_hold_booking_id`.
+1. **3c.d** — conversation / message / `current_hold_booking_id` plan (preferred before workflow wiring).
+2. **3c.e** — wire hold + Ensure SQL into `build-main-local-stripe.js` + regenerate fork.
+3. **3c.f–g** — payment/confirmation contract checks + E2E sign-off.
