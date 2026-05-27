@@ -11,6 +11,7 @@
     "db:report:cancel-impact": "node scripts/report-cancel-impact.js",
     "db:report:assign-impact": "node scripts/report-assign-impact.js",
     "db:report:main-availability": "node scripts/report-main-availability.js",
+    "db:report:main-hold-plan": "node scripts/report-main-hold-plan.js",
     "db:report:reassign-impact": "node scripts/report-reassign-impact.js",
     "db:report:manual-entry-impact": "node scripts/report-manual-entry-impact.js",
     "db:report:operator-room-release-impact": "node scripts/report-operator-room-release-impact.js",
