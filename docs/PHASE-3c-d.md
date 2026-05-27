@@ -1,6 +1,6 @@
 # Phase 3c.d — Conversation / message / current-hold state
 
-**Status:** **3c.d.2** PG conversation state report (SELECT-only) implemented. **3c.e** not started.
+**Status:** **3c.d.3** fixture-backed hold resolution verified. **3c.e** not started.
 
 **Parents:** [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md) · [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md) · [`PROJECT-STATE.md`](PROJECT-STATE.md)
 
@@ -19,8 +19,9 @@ Plan how Main tracks **conversations**, **messages**, and **current hold** so Ph
 | **3c.d** | Proposal | Done (`54d5446`) |
 | **3c.d.1** | `db:report:main-conversation-inventory` | Done |
 | **3c.d.2** | `db:report:main-conversation-state` (SELECT-only) | Done |
-| **3c.d.3** | PG conversation upsert CLI (optional) | Deferred |
-| **3c.d.4** | Sign-off | Not started |
+| **3c.d.3** | Fixture-backed positive verification | Done (see below) |
+| **3c.d.4** | PG conversation upsert CLI (optional) | Deferred |
+| **3c.d.5** | Sign-off | Not started |
 
 ---
 
@@ -126,9 +127,34 @@ Exit **0** = no actionable flags. JSON: `reports/main-conversation-state-<phone>
 
 ---
 
+## 3c.d.3 — Fixture-backed verification (positive path)
+
+Scoped booking fixture only (no `conversations` row). Proves hold resolution before **3c.e**.
+
+```powershell
+Get-Content scripts/fixtures/main-hold-3cc-active-hold-up.sql | docker compose -f infra/docker-compose.local.yml exec -T wolfhouse-postgres psql -U wolfhouse -d wolfhouse
+
+npm run db:report:main-conversation-state -- --phone=+353300000001 --booking-code=WH-3C-ACTIVE-HOLD-GUARD-001
+```
+
+**Expected (2026-05-27):**
+
+- `pg_booking_by_code` resolves `WH-3C-ACTIVE-HOLD-GUARD-001` with UUID `booking_id`
+- `pg_active_hold_candidates.count` = 1 for phone
+- `current_hold_resolution_preview.pick_source` = `booking_code_argument`
+- `expected_airtable_mapping`: AT **Current Hold ID** = `booking_code`; PG **`current_hold_booking_id`** = UUID
+- Exit **2** with `missing_conversation_row` only (no PG conversation row yet — expected until 3c.e upsert)
+- No `payments` / `payment_events` rows for fixture booking
+
+```powershell
+Get-Content scripts/fixtures/main-hold-3cc-active-hold-down.sql | docker compose -f infra/docker-compose.local.yml exec -T wolfhouse-postgres psql -U wolfhouse -d wolfhouse
+```
+
+---
+
 ## Next step
 
-**3c.d.3** (optional) PG conversation upsert CLI, or **3c.d.4** sign-off then **3c.e** workflow injection planning.
+**3c.d.4** sign-off (optional upsert CLI) then **3c.e** workflow injection planning.
 
 ---
 
