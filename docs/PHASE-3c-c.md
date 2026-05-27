@@ -1,6 +1,6 @@
 # Phase 3c.c — Main PG booking hold (plan → execute → workflow)
 
-**Status:** **3c.c.3** hold execute CLI (`db:main-hold:postgres`). Workflow injection still **3c.e**.
+**Status:** **3c.c.4** Ensure Booking promote CLI. Workflow wiring still **3c.e**.
 
 **Parents:** [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-b.md`](PHASE-3c-b.md), [`PHASE-3c-a.md`](PHASE-3c-a.md)
 
@@ -13,7 +13,7 @@
 | **3c.c.1** | `db:report:main-hold-plan` — availability + guards + `would_upsert` | **None** |
 | **3c.c.2** | Active-hold guard fixture | Fixture: `bookings` only |
 | **3c.c.3** | `db:main-hold:postgres` — hold upsert execute (default dry-run) | `bookings` only |
-| **3c.c.4** | Ensure Booking promote shared SQL | `bookings` |
+| **3c.c.4** | `db:main-ensure-booking:postgres` — promote hold → payment_pending | `bookings` only |
 | **3c.e** | `build-main-local-stripe.js` inject PG before `Create Booking Hold` | workflow |
 
 **Out of scope for 3c.c:** `booking_beds`, `conversations`/`messages` (3c.d), `payments`/`payment_events`, workflow JSON (3c.e).
@@ -109,6 +109,32 @@ Get-Content scripts/fixtures/main-hold-3cc-exec-cleanup-down.sql | docker compos
 
 ---
 
+## Ensure Booking promote CLI (3c.c.4)
+
+Shared SQL for **`Postgres - Ensure Booking In Postgres`** (workflow wiring deferred to **3c.e**).
+
+| Case | Behavior |
+|------|----------|
+| Row missing | INSERT `payment_pending` / `waiting_payment` (`created=true`) |
+| Row `hold` | UPDATE → `payment_pending` / `waiting_payment` (`promoted=true`) |
+| Row already `payment_pending` | Idempotent field refresh (`action=refreshed`) |
+| `confirmed` / `cancelled` / … | Blocked, exit **2** |
+
+```powershell
+# 1) Hold first
+npm run db:main-hold:postgres -- --booking-code=WH-3C-PROMOTE-001 --check-in=2026-08-07 --check-out=2026-08-12 --guest-count=2 --phone=+353399990002 --execute
+
+# 2) Promote (dry-run default)
+npm run db:main-ensure-booking:postgres -- --booking-code=WH-3C-PROMOTE-001 --check-in=2026-08-07 --check-out=2026-08-12 --guest-count=2 --phone=+353399990002 --guest-name="Promote Test" --email=promote@test.local --execute
+
+# Cleanup all WH-3C-PROMOTE-* fixtures
+Get-Content scripts/fixtures/main-ensure-3cc-promote-cleanup-down.sql | docker compose -f infra/docker-compose.local.yml exec -T wolfhouse-postgres psql -U wolfhouse -d wolfhouse
+```
+
+Blocked test fixture: `scripts/fixtures/main-ensure-3cc-promote-blocked-up.sql` → promote `WH-3C-PROMOTE-CONFIRMED` exits **2**.
+
+---
+
 ## CLI (3c.c.1)
 
 ```powershell
@@ -176,6 +202,5 @@ docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile
 
 ## Next steps
 
-1. **3c.c.4** — shared Ensure Booking promote SQL + CLI test.
-3. **3c.d** — conversation `current_hold_booking_id`.
-4. **3c.e** — build script inject + regenerate fork.
+1. **3c.e** — wire shared SQL into `build-main-local-stripe.js` + regenerate fork.
+2. **3c.d** — conversation `current_hold_booking_id`.
