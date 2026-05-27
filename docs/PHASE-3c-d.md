@@ -1,8 +1,8 @@
 # Phase 3c.d — Conversation / message / current-hold state
 
-**Status:** Proposal / discovery — see [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md). **No implementation yet.**
+**Status:** **3c.d.1** conversation/message field inventory implemented. **3c.d.2** PG state report not started.
 
-**Parents:** [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md) · [`PHASE-3c-c.md`](PHASE-3c-c.md) · [`PROJECT-STATE.md`](PROJECT-STATE.md)
+**Parents:** [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md) · [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md) · [`PROJECT-STATE.md`](PROJECT-STATE.md)
 
 ---
 
@@ -12,29 +12,68 @@ Plan how Main tracks **conversations**, **messages**, and **current hold** so Ph
 
 ---
 
-## Substeps (planned)
+## Substeps
 
 | Substep | Deliverable | Status |
 |---------|-------------|--------|
-| **3c.d** | This proposal | Done (doc) |
-| **3c.d.1** | Conversation/message field inventory report | Not started |
+| **3c.d** | Proposal | Done (`54d5446`) |
+| **3c.d.1** | `db:report:main-conversation-inventory` | Done |
 | **3c.d.2** | `db:report:main-conversation-state` (SELECT-only) | Not started |
 | **3c.d.3** | PG conversation upsert CLI (optional) | Deferred |
-| **3c.d.4** | Sign-off + PROJECT-STATE update | Not started |
+| **3c.d.4** | Sign-off | Not started |
 
 ---
 
-## Commands (when implemented)
+## 3c.d.1 — Field inventory (read-only)
+
+Maps every Main **Conversations** and **Messages** Airtable node: operation, route tags, fields written/read, PG mapping draft, resolver dependencies, 3c.e risks.
+
+### Command
 
 ```powershell
-# 3c.d.1 (planned)
+npm run db:report:main-conversation-inventory -- --help
+
 npm run db:report:main-conversation-inventory
 
-# 3c.d.2 (planned)
-npm run db:report:main-conversation-state -- --phone=+353300000001
+# Optional: hosted export or both
+npm run db:report:main-conversation-inventory -- --workflow=both
 ```
 
-Docker tools profile — same pattern as [`PHASE-3c-c.md`](PHASE-3c-c.md).
+Docker tools profile:
+
+```powershell
+docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile tools run --rm wolfhouse-tools npm run db:report:main-conversation-inventory
+```
+
+### Output
+
+| Output | Meaning |
+|--------|---------|
+| Console | Summary: write nodes, hold/stage flags, message direction, resolver nodes, risks |
+| `reports/main-conversation-inventory-<timestamp>.json` | Full structured inventory per workflow |
+
+JSON top-level flags: `read_only: true`, `no_mutations: true`.
+
+### Guarantees
+
+- Parses `n8n/phase2/...Main (local Stripe).json` (default) and/or hosted export only
+- **No** Postgres, Airtable API, Sheets, webhooks, workflow JSON writes
+- **No** `payments` / `payment_events`
+
+### Implementation
+
+| File | Role |
+|------|------|
+| [`scripts/lib/main-conversation-inventory.js`](../scripts/lib/main-conversation-inventory.js) | Inventory logic |
+| [`scripts/report-main-conversation-inventory.js`](../scripts/report-main-conversation-inventory.js) | CLI |
+
+Reuses route map from [`scripts/lib/main-workflow-inventory.js`](../scripts/lib/main-workflow-inventory.js) (3c.a).
+
+---
+
+## Next step
+
+**3c.d.2** — SELECT-only `db:report:main-conversation-state` by phone (PG `conversations` + linked `bookings` + message counts). See [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md).
 
 ---
 
@@ -43,10 +82,3 @@ Docker tools profile — same pattern as [`PHASE-3c-c.md`](PHASE-3c-c.md).
 - `build-main-local-stripe.js` / Main JSON changes (**3c.e**)
 - Postgres writes (until approved substep)
 - `payments` / `payment_events`
-- Airtable / Sheets / webhooks
-
----
-
-## Next
-
-Run **3c.d.1** per [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md) §7.

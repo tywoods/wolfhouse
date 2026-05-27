@@ -568,9 +568,17 @@ function runMainWorkflowInventory(opts) {
 
 module.exports = {
   PROD_AIRTABLE_BASE_ID,
+  TABLE_LABELS,
   runMainWorkflowInventory,
   loadWorkflowJson,
+  listNodes,
+  findNodesByType,
+  shortType,
+  extractAirtableBaseId,
+  extractAirtableTableId,
+  tableLabel,
   buildRouteMap,
+  nodeRouteTags,
   inventoryAirtable,
   inventoryPostgres,
   groupBookingCritical,

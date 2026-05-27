@@ -13,6 +13,7 @@
     "db:report:main-availability": "node scripts/report-main-availability.js",
     "db:report:main-hold-plan": "node scripts/report-main-hold-plan.js",
     "db:main-hold:postgres": "node scripts/main-booking-hold-postgres.js",
+    "db:report:main-conversation-inventory": "node scripts/report-main-conversation-inventory.js",
     "db:report:main-ensure-booking-plan": "node scripts/report-main-ensure-booking-plan.js",
     "db:main-ensure-booking:postgres": "node scripts/main-ensure-booking-postgres.js",
     "db:report:reassign-impact": "node scripts/report-reassign-impact.js",
