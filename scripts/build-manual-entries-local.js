@@ -94,6 +94,7 @@ const PICK_NODE = 'Code - Pick Next Manual Queue Item';
 const CREATE_PAYLOAD_NODE = 'Code - Build PG Create Payload';
 const AT_CREATE_BOOKING_NODE = 'Create Airtable Booking - Queue';
 const AT_CREATE_BED_NODE = 'Create Airtable Booking Bed - Queue';
+const BUILD_BOOKING_BEDS_NODE = 'Code - Build Booking Beds For Create';
 const PG_CREATE_NODE = 'Postgres - Manual Entry Create';
 const BED_BACKFILL_PAIRS_NODE = 'Code - Build PG Booking Bed Backfill Pairs';
 
@@ -741,11 +742,9 @@ const PG_BOOKING_BACKFILL_QUERY_REPLACEMENT = [
   `={{ (() => { const c = $('${AT_CREATE_BOOKING_NODE}').first().json; const f = c?.fields || c || {}; const code = String(f['Booking ID'] || c['Booking ID'] || '').trim(); return /^WH-rec/i.test(code) ? code : '${NULL_SENTINEL}'; })() }}`,
 ].join(',');
 
-const BUILD_BED_BACKFILL_PAIRS_JS = `const input = $input.first().json;
-const createdBed =
-  $('${AT_CREATE_BED_NODE}').item?.json || $('${AT_CREATE_BED_NODE}').first()?.json || {};
-const atId = createdBed.id || createdBed.record_id || createdBed.Record_ID || '';
-const bedCode = String(input.bed_id || '').trim().toUpperCase();
+/** Match Airtable Booking Bed creates to build items by linked Bed record id (same order as assign-beds backfill). */
+const BUILD_BED_BACKFILL_PAIRS_JS = `const buildItems = $('${BUILD_BOOKING_BEDS_NODE}').all();
+const creates = $('${AT_CREATE_BED_NODE}').all();
 const createdBooking = $('${AT_CREATE_BOOKING_NODE}').first().json;
 const bookingRecordId =
   createdBooking?.id || createdBooking?.record_id || createdBooking?.Record_ID || '';
@@ -753,8 +752,35 @@ const pgCreate = $('${PG_CREATE_NODE}').first()?.json || {};
 const bookingCode = String(pgCreate.booking_code || '').trim();
 
 const pairs = [];
-if (bedCode && atId) {
+const errors = [];
+
+for (const createItem of creates) {
+  if (createItem.error) {
+    errors.push('airtable_booking_bed_create_failed');
+    continue;
+  }
+  const atId =
+    createItem.json?.id || createItem.json?.record_id || createItem.json?.Record_ID || '';
+  if (!atId) {
+    errors.push('missing_airtable_booking_bed_record_id');
+    continue;
+  }
+  const bedRec = createItem.json?.fields?.Bed ?? createItem.json?.Bed;
+  const bedRecordId = Array.isArray(bedRec) ? bedRec[0] : bedRec;
+  const match = buildItems.find(
+    (b) => String(b.json?.bed_record_id || '').trim() === String(bedRecordId || '').trim()
+  );
+  const bedCode = String(match?.json?.bed_id || '').trim().toUpperCase();
+  if (!bedCode) {
+    errors.push('missing_bed_code');
+    continue;
+  }
   pairs.push({ bed_code: bedCode, airtable_record_id: String(atId).trim() });
+}
+
+let pgBackfillError = null;
+if (!pairs.length) {
+  pgBackfillError = errors[0] || 'no_booking_bed_pairs';
 }
 
 return [{
@@ -763,10 +789,8 @@ return [{
     pair_count: pairs.length,
     airtable_record_id: bookingRecordId,
     booking_code: bookingCode || '${NULL_SENTINEL}',
-    bed_code: bedCode,
-    pg_backfill_error: !atId
-      ? 'missing_airtable_booking_bed_record_id'
-      : (!bedCode ? 'missing_bed_code' : null)
+    bed_codes: pairs.map((p) => p.bed_code),
+    pg_backfill_error: pgBackfillError
   }
 }];`;
 
