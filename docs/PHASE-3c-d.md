@@ -1,6 +1,6 @@
 # Phase 3c.d — Conversation / message / current-hold state
 
-**Status:** **3c.d.3** fixture-backed hold resolution verified. **3c.e** not started.
+**Status:** **3c.d.4** conversation upsert CLI implemented. **3c.e** not started.
 
 **Parents:** [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md) · [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md) · [`PROJECT-STATE.md`](PROJECT-STATE.md)
 
@@ -19,9 +19,9 @@ Plan how Main tracks **conversations**, **messages**, and **current hold** so Ph
 | **3c.d** | Proposal | Done (`54d5446`) |
 | **3c.d.1** | `db:report:main-conversation-inventory` | Done |
 | **3c.d.2** | `db:report:main-conversation-state` (SELECT-only) | Done |
-| **3c.d.3** | Fixture-backed positive verification | Done (see below) |
-| **3c.d.4** | PG conversation upsert CLI (optional) | Deferred |
-| **3c.d.5** | Sign-off | Not started |
+| **3c.d.3** | Fixture-backed positive verification | Done |
+| **3c.d.4** | `db:main-conversation-upsert:postgres` | Done |
+| **3c.d.5** | Sign-off + **3c.e** planning | Next |
 
 ---
 
@@ -152,14 +152,51 @@ Get-Content scripts/fixtures/main-hold-3cc-active-hold-down.sql | docker compose
 
 ---
 
+## 3c.d.4 — Conversation upsert CLI
+
+Links a PG `conversations` row to an existing hold/payment_pending booking.
+
+```powershell
+npm run db:main-conversation-upsert:postgres -- --help
+
+# After main-hold-3cc-active-hold-up.sql (or db:main-hold:postgres --execute)
+npm run db:main-conversation-upsert:postgres -- --phone=+353300000001 --booking-code=WH-3C-ACTIVE-HOLD-GUARD-001
+
+npm run db:main-conversation-upsert:postgres -- --phone=+353300000001 --booking-code=WH-3C-ACTIVE-HOLD-GUARD-001 --execute
+
+npm run db:report:main-conversation-state -- --phone=+353300000001 --booking-code=WH-3C-ACTIVE-HOLD-GUARD-001
+```
+
+| Rule | Detail |
+|------|--------|
+| **UUID column** | `current_hold_booking_id` = `bookings.id` |
+| **booking_code** | Stored in `session_state` hints only; AT mirror uses code in **3c.e** |
+| **Default dry-run** | `--execute` required |
+| **No messages** | Does not insert `messages` |
+| **No payments** | Does not touch `payments` / `payment_events` |
+
+**Cleanup:**
+
+```powershell
+Get-Content scripts/fixtures/main-conversation-3cd4-cleanup-down.sql | docker compose -f infra/docker-compose.local.yml exec -T wolfhouse-postgres psql -U wolfhouse -d wolfhouse
+Get-Content scripts/fixtures/main-hold-3cc-active-hold-down.sql | docker compose -f infra/docker-compose.local.yml exec -T wolfhouse-postgres psql -U wolfhouse -d wolfhouse
+```
+
+| File | Role |
+|------|------|
+| [`scripts/lib/main-conversation-pg-sql.js`](../scripts/lib/main-conversation-pg-sql.js) | Upsert SQL + plan |
+| [`scripts/main-conversation-upsert-postgres.js`](../scripts/main-conversation-upsert-postgres.js) | CLI |
+
+---
+
 ## Next step
 
-**3c.d.4** sign-off (optional upsert CLI) then **3c.e** workflow injection planning.
+**3c.e** — plan then inject hold + Ensure + conversation upsert into `build-main-local-stripe.js` (workflow still inactive until approved).
 
 ---
 
 ## Out of scope
 
 - `build-main-local-stripe.js` / Main JSON changes (**3c.e**)
-- Postgres writes (until approved substep)
+- `messages` table writes (this CLI)
 - `payments` / `payment_events`
