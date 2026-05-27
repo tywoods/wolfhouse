@@ -10,9 +10,11 @@
  * Phase 2f.2: Reusable Stripe branch after booking_flow hold + payment-link guard.
  *
  * Run: npm run build:main:local-stripe
+ * Inventory (Phase 3c.a): node scripts/build-main-local-stripe.js --inventory
  */
 const fs = require('fs');
 const path = require('path');
+const { runMainWorkflowInventory } = require('./lib/main-workflow-inventory');
 const { buildN8nResolverJsCode } = require('./lib/booking-state-resolver');
 const {
   applyMergedPaymentPathFixes,
@@ -636,6 +638,11 @@ const OUT = path.join(
   'phase2',
   'Wolfhouse Booking Assistant - Main (local Stripe).json'
 );
+
+if (require.main === module && process.argv.includes('--inventory')) {
+  runMainWorkflowInventory({ hostedPath: SRC, localPath: OUT });
+  process.exit(0);
+}
 
 const workflow = JSON.parse(fs.readFileSync(SRC, 'utf8'));
 const stripePaymentLinkFieldSchema = stripePaymentLinkUpdateSchema(workflow);
