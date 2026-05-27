@@ -14,6 +14,8 @@ const crypto = require('crypto');
 const {
   PG_OPERATOR_ROOM_RELEASE_PLAN_SQL,
   PG_OPERATOR_ROOM_RELEASE_PLAN_QUERY_REPLACEMENT,
+  PG_OPERATOR_ROOM_RELEASE_EXECUTE_SQL,
+  PG_OPERATOR_ROOM_RELEASE_EXECUTE_QUERY_REPLACEMENT,
 } = require('./lib/operator-room-release-pg-n8n-sql');
 
 const HOSTED = path.join(__dirname, '..', 'n8n', 'Wolfhouse - Operator Room Release.json');
@@ -39,7 +41,11 @@ const LOCAL_N8N = {
 
 const PARSE_NODE = 'Code - Parse Release Payload';
 const PLAN_NODE = 'Postgres - Operator Room Release Plan';
+const EXECUTE_NODE = 'Postgres - Operator Room Release Execute';
+const VALIDATE_EXECUTE_NODE = 'Code - Validate Execute';
 const BUILD_RESPONSE_NODE = 'Code - Build Response';
+const IF_DRY_RUN_NODE = 'IF - Dry Run';
+const IF_PLAN_OK_NODE = 'IF - Plan OK';
 
 /** Hosted nodes omitted from PG-first local MVP (optional COMPAT_AT_MIRROR later). */
 const HOSTED_NODES_DROP_MVP = [
@@ -60,9 +66,12 @@ const PLANNED_LOCAL_GRAPH = [
   'Webhook - Operator Room Release',
   '→ Code - Parse Release Payload',
   '→ IF - Parse OK',
-  '→ Postgres - Operator Room Release Plan (dry-run / preview only)',
-  '→ Code - Build Response',
-  '→ Respond to Webhook',
+  '→ Postgres - Operator Room Release Plan',
+  '→ IF - Dry Run',
+  '   true → Code - Build Response → Respond',
+  '   false → IF - Plan OK',
+  '      true → Postgres Execute → Code - Validate Execute → Build Response → Respond',
+  '      false → Code - Build Response → Respond',
 ];
 
 const PARSE_RELEASE_PAYLOAD_JS = `const body = $json.body ?? $json;
@@ -162,20 +171,6 @@ if (!parsed.parse_ok) {
   }];
 }
 
-if (!parsed.dry_run) {
-  return [{
-    json: {
-      ok: false,
-      dry_run: false,
-      found_match: false,
-      match_count: 0,
-      error_code: 'execute_not_implemented',
-      message: 'Execute path not implemented in 3b.5c Step 3; set dry_run=true for preview only',
-      errors: ['execute_not_implemented']
-    }
-  }];
-}
-
 let plan = {};
 let planErr = null;
 try {
@@ -186,12 +181,14 @@ try {
   planErr = e;
 }
 
+const isDryRun = parsed.dry_run === true;
+
 if (planErr) {
   const msg = String(planErr.message || planErr);
   return [{
     json: {
       ok: false,
-      dry_run: true,
+      dry_run: isDryRun,
       found_match: false,
       match_count: 0,
       error_code: 'postgres_failed',
@@ -215,39 +212,135 @@ const actionable = Array.isArray(plan.actionable)
     ? [String(plan.actionable)]
     : [];
 
-if (!pgOk) {
+if (isDryRun) {
+  if (!pgOk) {
+    return [{
+      json: {
+        ok: false,
+        dry_run: true,
+        found_match: foundMatch,
+        match_count: matchCount,
+        error_code: plan.error_code || 'plan_failed',
+        message: plan.message || 'Operator room release plan failed',
+        errors: mergeErrors(actionable, [plan.error_code]),
+        original_booking_code: plan.original_booking_code || null,
+        payments_untouched: paymentsUntouched
+      }
+    }];
+  }
+
+  if (!planOk) {
+    return [{
+      json: {
+        ok: false,
+        dry_run: true,
+        found_match: foundMatch,
+        match_count: matchCount,
+        error_code: plan.error_code || 'plan_not_actionable',
+        message: plan.message || 'Plan is not actionable',
+        errors: mergeErrors(actionable, [plan.error_code]),
+        original_booking_code: plan.original_booking_code || null,
+        block_a_booking_code: plan.block_a_booking_code || null,
+        block_b_booking_code: plan.block_b_booking_code || null,
+        would_create_a: plan.should_create_a === true,
+        would_create_b: plan.should_create_b === true,
+        would_cancel_beds: Number(plan.beds_count ?? 0),
+        payments_untouched: paymentsUntouched
+      }
+    }];
+  }
+
   return [{
     json: {
-      ok: false,
+      ok: true,
       dry_run: true,
       found_match: foundMatch,
       match_count: matchCount,
-      error_code: plan.error_code || 'plan_failed',
-      message: plan.message || 'Operator room release plan failed',
+      original_booking_code: plan.original_booking_code || null,
+      original_booking_id: plan.original_booking_id || null,
+      would_cancel_beds: Number(plan.beds_count ?? 0),
+      would_create_a: plan.should_create_a === true,
+      would_create_b: plan.should_create_b === true,
+      block_a_booking_code: plan.block_a_booking_code || null,
+      block_b_booking_code: plan.block_b_booking_code || null,
+      block_a_check_in: plan.block_a_check_in || null,
+      block_a_check_out: plan.block_a_check_out || null,
+      block_b_check_in: plan.block_b_check_in || null,
+      block_b_check_out: plan.block_b_check_out || null,
+      overlap_count: Number(plan.overlap_count ?? 0),
+      payments_untouched: paymentsUntouched,
+      request_code: plan.request_code || parsed.request_code || null,
+      message: plan.message || 'Operator room release dry-run preview',
+      error_code: null,
+      errors: mergeErrors(plan.warnings, [])
+    }
+  }];
+}
+
+if (!pgOk || !planOk) {
+  return [{
+    json: {
+      ok: false,
+      dry_run: false,
+      found_match: foundMatch,
+      match_count: matchCount,
+      error_code: plan.error_code || (pgOk ? 'plan_not_actionable' : 'plan_failed'),
+      message: plan.message || 'Operator room release plan is not actionable for execute',
       errors: mergeErrors(actionable, [plan.error_code]),
       original_booking_code: plan.original_booking_code || null,
+      block_a_booking_code: plan.block_a_booking_code || null,
+      block_b_booking_code: plan.block_b_booking_code || null,
       payments_untouched: paymentsUntouched
     }
   }];
 }
 
-if (!planOk) {
+let execRow = {};
+let execErr = null;
+try {
+  const execItem = $('${VALIDATE_EXECUTE_NODE}').first();
+  execErr = execItem?.error;
+  execRow = execItem?.json || {};
+} catch (e) {
+  execErr = e;
+}
+
+if (execErr) {
+  const msg = String(execErr.message || execErr);
   return [{
     json: {
       ok: false,
-      dry_run: true,
+      dry_run: false,
       found_match: foundMatch,
       match_count: matchCount,
-      error_code: plan.error_code || 'plan_not_actionable',
-      message: plan.message || 'Plan is not actionable',
-      errors: mergeErrors(actionable, [plan.error_code]),
-      original_booking_code: plan.original_booking_code || null,
-      block_a_booking_code: plan.block_a_booking_code || null,
-      block_b_booking_code: plan.block_b_booking_code || null,
-      would_create_a: plan.should_create_a === true,
-      would_create_b: plan.should_create_b === true,
-      would_cancel_beds: Number(plan.beds_count ?? 0),
-      payments_untouched: paymentsUntouched
+      error_code: 'postgres_failed',
+      message: msg,
+      errors: ['postgres_execute_failed']
+    }
+  }];
+}
+
+const executeOk = execRow.execute_ok === true || execRow.execute_ok === 'true';
+const idempotent = execRow.idempotent === true || execRow.idempotent === 'true';
+
+if (!executeOk) {
+  return [{
+    json: {
+      ok: false,
+      dry_run: false,
+      idempotent,
+      found_match: execRow.found_match === true || execRow.found_match === 'true',
+      match_count: Number(execRow.match_count ?? matchCount),
+      error_code: execRow.error_code || 'execute_failed',
+      message: execRow.message || 'Operator room release execute failed',
+      errors: mergeErrors([execRow.error_code]),
+      original_booking_code: execRow.original_booking_code || plan.original_booking_code || null,
+      original_booking_id: execRow.original_booking_id || null,
+      block_a_booking_code: execRow.block_a_booking_code || null,
+      block_b_booking_code: execRow.block_b_booking_code || null,
+      request_id: execRow.request_id || null,
+      request_code: execRow.request_code || parsed.request_code || null,
+      payments_untouched: execRow.payments_unchanged === true
     }
   }];
 }
@@ -255,28 +348,48 @@ if (!planOk) {
 return [{
   json: {
     ok: true,
-    dry_run: true,
-    found_match: foundMatch,
-    match_count: matchCount,
-    original_booking_code: plan.original_booking_code || null,
-    original_booking_id: plan.original_booking_id || null,
-    would_cancel_beds: Number(plan.beds_count ?? 0),
-    would_create_a: plan.should_create_a === true,
-    would_create_b: plan.should_create_b === true,
-    block_a_booking_code: plan.block_a_booking_code || null,
-    block_b_booking_code: plan.block_b_booking_code || null,
-    block_a_check_in: plan.block_a_check_in || null,
-    block_a_check_out: plan.block_a_check_out || null,
-    block_b_check_in: plan.block_b_check_in || null,
-    block_b_check_out: plan.block_b_check_out || null,
-    overlap_count: Number(plan.overlap_count ?? 0),
-    payments_untouched: paymentsUntouched,
-    request_code: plan.request_code || parsed.request_code || null,
-    message: plan.message || 'Operator room release dry-run preview',
+    dry_run: false,
+    idempotent,
+    found_match: true,
+    match_count: Number(execRow.match_count ?? 1),
+    original_booking_code: execRow.original_booking_code || null,
+    original_booking_id: execRow.original_booking_id || null,
+    block_a_booking_code: execRow.block_a_booking_code || null,
+    block_b_booking_code: execRow.block_b_booking_code || null,
+    deleted_beds: Number(execRow.deleted_beds ?? 0),
+    request_id: execRow.request_id || null,
+    request_code: execRow.request_code || parsed.request_code || null,
+    payments_untouched: execRow.payments_unchanged === true,
+    payments_count: Number(execRow.payments_count ?? 0),
+    payment_events_count: Number(execRow.payment_events_count ?? 0),
+    message: execRow.message || (idempotent ? 'Operator room release completed (idempotent)' : 'Operator room release executed'),
     error_code: null,
-    errors: mergeErrors(plan.warnings, [])
+    errors: []
   }
 }];`;
+
+const VALIDATE_EXECUTE_JS = `const row = $('${EXECUTE_NODE}').first()?.json || {};
+const executeOk = row.execute_ok === true || row.execute_ok === 'true';
+const paymentsUnchanged = row.payments_unchanged === true || row.payments_unchanged === 'true';
+
+if (!executeOk) {
+  return [{ json: { ...row, validation_ok: false } }];
+}
+
+if (!paymentsUnchanged) {
+  return [{
+    json: {
+      ...row,
+      execute_ok: false,
+      pg_ok: false,
+      error_code: 'payments_changed',
+      message: 'Payments or payment_events counts changed unexpectedly',
+      validation_ok: false
+    }
+  }];
+}
+
+return [{ json: { ...row, validation_ok: true } }];`;
 
 function uid(seed) {
   const h = crypto.createHash('sha256').update(seed).digest('hex');
@@ -460,7 +573,7 @@ function printInventory(workflow) {
   console.log(`Hosted source unchanged: ${HOSTED}`);
 }
 
-function buildDryRunWorkflow() {
+function buildLocalWorkflow() {
   return {
     name: LOCAL_WORKFLOW_NAME,
     nodes: [
@@ -473,7 +586,7 @@ function buildDryRunWorkflow() {
         },
         type: 'n8n-nodes-base.webhook',
         typeVersion: 2.1,
-        position: [-640, 0],
+        position: [-720, 0],
         id: uid('orr-webhook-local'),
         name: 'Webhook - Operator Room Release',
         webhookId: LOCAL_WEBHOOK_ID,
@@ -482,7 +595,7 @@ function buildDryRunWorkflow() {
         parameters: { jsCode: PARSE_RELEASE_PAYLOAD_JS },
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [-440, 0],
+        position: [-520, 0],
         id: uid('orr-parse-payload'),
         name: PARSE_NODE,
       },
@@ -504,7 +617,7 @@ function buildDryRunWorkflow() {
         },
         type: 'n8n-nodes-base.if',
         typeVersion: 2.2,
-        position: [-240, 0],
+        position: [-320, 0],
         id: uid('orr-if-parse-ok'),
         name: 'IF - Parse OK',
       },
@@ -518,7 +631,7 @@ function buildDryRunWorkflow() {
         },
         type: 'n8n-nodes-base.postgres',
         typeVersion: 2.5,
-        position: [-40, -80],
+        position: [-120, 0],
         id: uid('orr-postgres-plan'),
         name: PLAN_NODE,
         alwaysOutputData: true,
@@ -529,10 +642,82 @@ function buildDryRunWorkflow() {
         },
       },
       {
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+            conditions: [
+              {
+                id: 'dry-run',
+                leftValue: "={{ $('Code - Parse Release Payload').first().json.dry_run }}",
+                rightValue: '',
+                operator: { type: 'boolean', operation: 'true', singleValue: true },
+              },
+            ],
+            combinator: 'and',
+          },
+          options: {},
+        },
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.2,
+        position: [80, 0],
+        id: uid('orr-if-dry-run'),
+        name: IF_DRY_RUN_NODE,
+      },
+      {
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+            conditions: [
+              {
+                id: 'plan-ok',
+                leftValue: '={{ $json.plan_ok }}',
+                rightValue: '',
+                operator: { type: 'boolean', operation: 'true', singleValue: true },
+              },
+            ],
+            combinator: 'and',
+          },
+          options: {},
+        },
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.2,
+        position: [280, 120],
+        id: uid('orr-if-plan-ok'),
+        name: IF_PLAN_OK_NODE,
+      },
+      {
+        parameters: {
+          operation: 'executeQuery',
+          query: PG_OPERATOR_ROOM_RELEASE_EXECUTE_SQL,
+          options: {
+            queryReplacement: PG_OPERATOR_ROOM_RELEASE_EXECUTE_QUERY_REPLACEMENT,
+          },
+        },
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.5,
+        position: [480, 200],
+        id: uid('orr-postgres-execute'),
+        name: EXECUTE_NODE,
+        alwaysOutputData: true,
+        continueOnFail: true,
+        onError: 'continueRegularOutput',
+        credentials: {
+          postgres: LOCAL_N8N.postgresCred,
+        },
+      },
+      {
+        parameters: { jsCode: VALIDATE_EXECUTE_JS },
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [680, 200],
+        id: uid('orr-validate-execute'),
+        name: VALIDATE_EXECUTE_NODE,
+      },
+      {
         parameters: { jsCode: BUILD_RESPONSE_JS },
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [200, 0],
+        position: [880, 0],
         id: uid('orr-build-response'),
         name: BUILD_RESPONSE_NODE,
       },
@@ -544,7 +729,7 @@ function buildDryRunWorkflow() {
         },
         type: 'n8n-nodes-base.respondToWebhook',
         typeVersion: 1.1,
-        position: [440, 0],
+        position: [1080, 0],
         id: uid('orr-respond-webhook'),
         name: 'Respond to Webhook',
       },
@@ -563,6 +748,24 @@ function buildDryRunWorkflow() {
         ],
       },
       [PLAN_NODE]: {
+        main: [[{ node: IF_DRY_RUN_NODE, type: 'main', index: 0 }]],
+      },
+      [IF_DRY_RUN_NODE]: {
+        main: [
+          [{ node: BUILD_RESPONSE_NODE, type: 'main', index: 0 }],
+          [{ node: IF_PLAN_OK_NODE, type: 'main', index: 0 }],
+        ],
+      },
+      [IF_PLAN_OK_NODE]: {
+        main: [
+          [{ node: EXECUTE_NODE, type: 'main', index: 0 }],
+          [{ node: BUILD_RESPONSE_NODE, type: 'main', index: 0 }],
+        ],
+      },
+      [EXECUTE_NODE]: {
+        main: [[{ node: VALIDATE_EXECUTE_NODE, type: 'main', index: 0 }]],
+      },
+      [VALIDATE_EXECUTE_NODE]: {
         main: [[{ node: BUILD_RESPONSE_NODE, type: 'main', index: 0 }]],
       },
       [BUILD_RESPONSE_NODE]: {
@@ -573,7 +776,7 @@ function buildDryRunWorkflow() {
     active: false,
     id: LOCAL_WORKFLOW_ID,
     settings: { executionOrder: 'v1', binaryMode: 'separate' },
-    tags: [{ name: 'phase3b' }, { name: 'local-only' }, { name: 'dry-run-only' }],
+    tags: [{ name: 'phase3b' }, { name: 'local-only' }, { name: 'postgres-first' }],
   };
 }
 
@@ -594,6 +797,7 @@ function writeLocalWorkflow(workflow) {
 
 function printGenerateSummary(workflow) {
   const webhooks = findWebhookNodes(workflow);
+  const pgNodes = listNodes(workflow).filter((n) => n.type === 'n8n-nodes-base.postgres');
   console.log(`Wrote ${OUT}`);
   console.log(`Wrote ${OUT_IMPORT} (CLI re-import with stable id ${LOCAL_WORKFLOW_ID})`);
   console.log(`Workflow name: ${workflow.name}`);
@@ -602,9 +806,38 @@ function printGenerateSummary(workflow) {
   console.log(`Webhook path: ${webhooks[0]?.parameters?.path || LOCAL_WEBHOOK_PATH}`);
   console.log(`Webhook id: ${webhooks[0]?.webhookId || LOCAL_WEBHOOK_ID}`);
   console.log(`Node count: ${listNodes(workflow).length}`);
-  console.log('Postgres nodes: 1 (plan / read-only SELECT)');
-  console.log('Execute mutations: not included (Step 3 dry-run only)');
+  console.log(`Postgres nodes: ${pgNodes.length} (${PLAN_NODE} + ${EXECUTE_NODE})`);
+  console.log('Dry-run: IF dry_run true → plan preview only');
+  console.log('Execute: IF dry_run false AND plan_ok → execute SQL (single statement)');
   console.log(`Hosted source unchanged: ${HOSTED}`);
+}
+
+function importWorkflowInactive() {
+  const { execSync } = require('child_process');
+  const container = 'n8n-main';
+  const remote = '/tmp/operator-room-release-local-import.json';
+  try {
+    execSync('docker --version', { stdio: 'ignore' });
+  } catch {
+    console.log('Import skipped: docker CLI not available in this environment');
+    console.log(`Re-import from host: docker cp "${OUT_IMPORT}" ${container}:${remote}`);
+    console.log(`  docker exec ${container} n8n import:workflow --input=${remote}`);
+    return null;
+  }
+  try {
+    execSync(`docker cp "${OUT_IMPORT}" ${container}:${remote}`, { stdio: 'inherit' });
+    const out = execSync(`docker exec ${container} n8n import:workflow --input=${remote}`, {
+      encoding: 'utf8',
+    });
+    console.log(out.trim());
+    console.log('Import: OK (workflow JSON has active=false)');
+    return true;
+  } catch (err) {
+    console.error(`Import failed: ${err.message}`);
+    if (err.stdout) console.error(String(err.stdout));
+    if (err.stderr) console.error(String(err.stderr));
+    return false;
+  }
 }
 
 /** @returns {object} */
@@ -622,15 +855,21 @@ function loadGeneratedWorkflowForVerify() {
   }
 }
 
-const MUTATION_SQL_PATTERNS = [
-  /DELETE\s+FROM\s+booking_beds/i,
-  /INSERT\s+INTO\s+bookings/i,
-  /UPDATE\s+bookings\s+SET/i,
+const PAYMENT_WRITE_PATTERNS = [
   /INSERT\s+INTO\s+payments/i,
   /UPDATE\s+payments\s+SET/i,
   /INSERT\s+INTO\s+payment_events/i,
   /UPDATE\s+payment_events\s+SET/i,
   /DELETE\s+FROM\s+payments/i,
+  /DELETE\s+FROM\s+payment_events/i,
+];
+
+const EXECUTE_MUTATION_PATTERNS = [
+  /DELETE\s+FROM\s+booking_beds/i,
+  /INSERT\s+INTO\s+bookings/i,
+  /UPDATE\s+bookings\s+SET/i,
+  /INSERT\s+INTO\s+operator_room_release_requests/i,
+  /UPDATE\s+operator_room_release_requests/i,
 ];
 
 /**
@@ -648,8 +887,8 @@ function verifyGeneratedWorkflow(workflow) {
   if (workflow.id !== LOCAL_WORKFLOW_ID) {
     issues.push(`workflow id must be ${LOCAL_WORKFLOW_ID}`);
   }
-  if (nodes.length !== 6) {
-    issues.push(`expected 6 nodes, got ${nodes.length}`);
+  if (nodes.length !== 10) {
+    issues.push(`expected 10 nodes, got ${nodes.length}`);
   }
 
   const airtableNodes = findAirtableNodes(workflow);
@@ -664,22 +903,54 @@ function verifyGeneratedWorkflow(workflow) {
   }
 
   const pgNodes = nodes.filter((n) => n.type === 'n8n-nodes-base.postgres');
-  if (pgNodes.length !== 1) {
-    issues.push(`expected 1 Postgres node, got ${pgNodes.length}`);
-  } else if (pgNodes[0].name !== PLAN_NODE) {
-    issues.push(`Postgres node must be named ${PLAN_NODE}`);
+  if (pgNodes.length !== 2) {
+    issues.push(`expected 2 Postgres nodes, got ${pgNodes.length}`);
   }
 
-  for (const node of pgNodes) {
-    const q = String(node.parameters?.query || '');
+  const planNode = pgNodes.find((n) => n.name === PLAN_NODE);
+  const executeNode = pgNodes.find((n) => n.name === EXECUTE_NODE);
+  if (!planNode) issues.push(`missing Postgres node: ${PLAN_NODE}`);
+  if (!executeNode) issues.push(`missing Postgres node: ${EXECUTE_NODE}`);
+
+  if (planNode) {
+    const q = String(planNode.parameters?.query || '');
     if (!q.includes('actionable_build')) {
-      issues.push('Postgres query does not look like plan SQL (missing actionable_build)');
+      issues.push('Plan Postgres query missing actionable_build');
     }
-    for (const re of MUTATION_SQL_PATTERNS) {
+    for (const re of EXECUTE_MUTATION_PATTERNS) {
       if (re.test(q)) {
-        issues.push(`mutation SQL pattern in Postgres node: ${re}`);
+        issues.push(`execute-style mutation in plan Postgres node: ${re}`);
       }
     }
+    for (const re of PAYMENT_WRITE_PATTERNS) {
+      if (re.test(q)) {
+        issues.push(`payment write pattern in plan Postgres node: ${re}`);
+      }
+    }
+  }
+
+  if (executeNode) {
+    const q = String(executeNode.parameters?.query || '');
+    if (!q.includes('exec_gate')) {
+      issues.push('Execute Postgres query missing exec_gate');
+    }
+    let mutationHits = 0;
+    for (const re of EXECUTE_MUTATION_PATTERNS) {
+      if (re.test(q)) mutationHits += 1;
+    }
+    if (mutationHits < 2) {
+      issues.push('Execute Postgres query missing expected booking/request mutations');
+    }
+    for (const re of PAYMENT_WRITE_PATTERNS) {
+      if (re.test(q)) {
+        issues.push(`payment write pattern in execute Postgres node: ${re}`);
+      }
+    }
+  }
+
+  const validateNode = nodes.find((n) => n.name === VALIDATE_EXECUTE_NODE);
+  if (!validateNode) {
+    issues.push(`missing node: ${VALIDATE_EXECUTE_NODE}`);
   }
 
   const expectedNames = new Set([
@@ -687,6 +958,10 @@ function verifyGeneratedWorkflow(workflow) {
     PARSE_NODE,
     'IF - Parse OK',
     PLAN_NODE,
+    IF_DRY_RUN_NODE,
+    IF_PLAN_OK_NODE,
+    EXECUTE_NODE,
+    VALIDATE_EXECUTE_NODE,
     BUILD_RESPONSE_NODE,
     'Respond to Webhook',
   ]);
@@ -710,12 +985,13 @@ function printVerifyReport(result) {
   console.log(`Prod Airtable base hits: ${result.prodAirtableHitCount}`);
   console.log(`Airtable node count: ${result.airtableHitCount}`);
   console.log(`Active false: required`);
-  console.log(`Mutation Postgres nodes: 0 (plan SELECT only)`);
+  console.log('Plan Postgres: read-only SELECT');
+  console.log('Execute Postgres: mutations allowed; no payment table writes');
   if (result.issues.length) {
     console.error('FAIL:');
     for (const issue of result.issues) console.error(`  - ${issue}`);
   } else {
-    console.log('OK: dry-run workflow passes safety checks.');
+    console.log('OK: local operator room release workflow passes safety checks.');
   }
 }
 
@@ -743,10 +1019,14 @@ function main() {
   }
 
   if (args.includes('--generate')) {
-    const workflow = buildDryRunWorkflow();
+    const workflow = buildLocalWorkflow();
     writeLocalWorkflow(workflow);
     printGenerateSummary(workflow);
-    runVerifyTargets(workflow, { exitOnFail: true });
+    const verify = runVerifyTargets(workflow, { exitOnFail: true });
+    if (verify.ok) {
+      const imported = importWorkflowInactive();
+      if (imported === false) process.exit(1);
+    }
     return;
   }
 
