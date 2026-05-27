@@ -112,11 +112,61 @@ Find operator whole-room bookings where:
 
 **Not written:** `operator_room_release_requests` (preview only in JSON).
 
-## Known unknowns / fixtures
+## Local fixture (happy-path impact report)
 
-- Local PG may have **no** operator `whole_room` bookings after CSV sync → report exits **2** with `no_matching_operator_booking` (expected until test fixture seeded).
+**Purpose:** One reversible operator whole-room block in Postgres so `db:report:operator-room-release-impact` can exit **0** without Airtable or payments.
+
+| Field | Value |
+|-------|--------|
+| Client | `wolfhouse-somo` |
+| Operator | `OPER-LOCAL-RELEASE-TEST` |
+| Room | `R7` (`R7-B1`…`R7-B4` beds) |
+| Booking code | `WH-OPER-LOCAL-RELEASE-2027` |
+| Block dates | `2027-05-01` → `2027-05-31` |
+| Release window (CLI) | `2027-05-10` → `2027-05-17` |
+
+**Warning:** Do **not** run `npm run db:sync` while validating this fixture — sync **replaces all** `booking_beds` for the client and removes fixture beds. Run **down** first if you need a CSV baseline, or re-run **up** after sync.
+
+### Apply fixture (UP)
+
+```powershell
+Get-Content scripts\fixtures\operator-room-release-3b5a-up.sql | docker exec -i wolfhouse-postgres psql -U wolfhouse -d wolfhouse -v ON_ERROR_STOP=1
+```
+
+Idempotent: safe to re-run; only touches `WH-OPER-LOCAL-RELEASE-2027`.
+
+### Remove fixture (DOWN)
+
+```powershell
+Get-Content scripts\fixtures\operator-room-release-3b5a-down.sql | docker exec -i wolfhouse-postgres psql -U wolfhouse -d wolfhouse -v ON_ERROR_STOP=1
+```
+
+Deletes fixture `booking_beds` and the fixture **booking** only when `payments` / `payment_events` count is **0**.
+
+### Happy-path report (after UP)
+
+```powershell
+docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile tools run --rm wolfhouse-tools npm run db:report:operator-room-release-impact -- --operator="OPER-LOCAL-RELEASE-TEST" --room-code=R7 --release-start=2027-05-10 --release-end=2027-05-17
+```
+
+**Expected (exit 0):**
+
+| Check | Expected |
+|-------|----------|
+| `found_match` | `true` |
+| `match_count` | `1` |
+| `cancel_phase.booking_beds_affected` | **4** rows |
+| `split_phase.should_create_a` / `should_create_b` | both `true` |
+| `payments_untouched.payments_count` | `0` |
+| `actionable` | `[]` |
+
+After **DOWN**, the same report command should exit **2** with `no_matching_operator_booking`.
+
+## Known unknowns
+
 - `--release-record-id` does not call Airtable (deferred).
 - Block A/B provisional `booking_code` values are **preview only** (hosted uses random `WH-YYMMDD-A-####`).
+- Report JSON written inside the tools container may not appear under host `reports/` unless a volume is added.
 
 ## Sample output shape (abbreviated)
 
