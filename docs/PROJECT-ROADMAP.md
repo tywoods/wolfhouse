@@ -128,7 +128,7 @@ Order (safest first):
 3. Bed Assignment  
 4. Reassign  
 5. Manual Entries Queue  
-6. Operator Room Release  
+6. Operator Room Release — **local MVP signed off** (2026-05-27): [`PHASE-3b-5.md`](PHASE-3b-5.md) (Postgres + direct JSON webhook; no Airtable in local fork)  
 7. Send Confirmation  
 8. Staff Reply / Return To Bot  
 9. **Main WhatsApp assistant last**

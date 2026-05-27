@@ -1,10 +1,10 @@
 # Phase 3b local — bed ops freeze & regression
 
-**Status:** Phase 3b local **signed off** (2026-05-26) for Cancel / Assign / Reassign; **3b.4c Manual Entries fork MVP** signed off (2026-05-27).
+**Status:** Phase 3b local **signed off** (2026-05-26) for Cancel / Assign / Reassign; **3b.4c Manual Entries fork MVP** signed off (2026-05-27); **3b.5 Operator Room Release MVP** signed off (2026-05-27).
 
-**Not started:** **3b.5** Operator Room Release, **Phase 3c** Main integration, production cutover, hosted n8n Cloud changes.
+**Not started:** **Phase 3c** Main integration, production cutover, hosted n8n Cloud changes.
 
-**Sign-off:** Engineer Cursor · Owner Ty · 2026-05-26 (3b.0–3b.3b) · 2026-05-27 (3b.4c MVP).
+**Sign-off:** Engineer Cursor · Owner Ty · 2026-05-26 (3b.0–3b.3b) · 2026-05-27 (3b.4c MVP, 3b.5 MVP).
 
 **Master checklist:** [`regression-test-plan.md`](regression-test-plan.md) — Phase 3b sections and **Phase 2 local sign-off** (unchanged for payment flow).
 
@@ -21,6 +21,17 @@
 | **3b.4a** | Manual Entry impact report (read-only) | [`PHASE-3b-4a.md`](PHASE-3b-4a.md) |
 | **3b.4b** | Manual Entry Postgres mirror (CLI) | [`PHASE-3b-4b.md`](PHASE-3b-4b.md) |
 | **3b.4c** | Manual Entries Queue — local n8n fork (PG + AT + Sheet) | [`PHASE-3b-4c.md`](PHASE-3b-4c.md) |
+| **3b.5** | Operator Room Release — impact, PG CLI, local n8n fork (PG-only) | [`PHASE-3b-5.md`](PHASE-3b-5.md) · [`PHASE-3b-5a.md`](PHASE-3b-5a.md) · [`PHASE-3b-5b.md`](PHASE-3b-5b.md) · [`PHASE-3b-5c.md`](PHASE-3b-5c.md) |
+
+### 3b.5 — Operator Room Release
+
+| Sub-step | Deliverable |
+|----------|-------------|
+| **3b.5a** | `db:report:operator-room-release-impact` — read-only release preview + fixture |
+| **3b.5b** | `db:operator-room-release:postgres` — cancel original, delete beds, insert Block A/B (CLI) |
+| **3b.5c** | Webhook `POST /webhook/operator-room-release` — direct JSON; dry-run, execute, idempotent replay |
+
+**3b.5c MVP evidence (local):** dry-run webhook pass; execute webhook (`ORR-LOCAL-WEBHOOK-EXEC-001`) pass; idempotent replay pass after Step 7. Workflow **`B3b5OperatorRoomLocal01`** — **inactive** after tests. **No Airtable nodes** in generated fork.
 
 ### 3b.4 — Manual Entries
 
@@ -80,8 +91,12 @@ Proposals (design-only, optional reference): [`PHASE-3b-PROPOSAL.md`](PHASE-3b-P
 | **3b.4a** | `41d2547` | Phase 3b.4a: manual entry impact report |
 | **3b.4b** | `3c1f9c7` | Phase 3b.4b: Postgres manual entry mirror script |
 | **3b.4c** | `ed3a6f6` | Phase 3b.4c: Manual Entries local fork (latest: bed backfill pairs) |
+| **3b.5a** | `a2ea0fc` | Phase 3b.5a: Operator Room Release impact report |
+| **3b.5a fixture** | `cc88603` | Phase 3b.5a: reversible operator room release fixture |
+| **3b.5b** | `f99f360` | Phase 3b.5b: Operator Room Release Postgres execute CLI |
+| **3b.5c** | `1736578` | Phase 3b.5c: idempotent replay fix (execute path `610b962`, dry-run `1748560`, …) |
 
-**Latest Phase 3b commit:** `ed3a6f6` (3b.4c MVP).
+**Latest Phase 3b commit:** `1736578` (3b.5 MVP).
 
 Proposal-only commits (not implementation): e.g. `2f4e3bb`, `4d0637c`, `218d9df`, `998dc7f`, `255f0ba` — safe to ignore for freeze sign-off.
 
@@ -99,6 +114,7 @@ Import and activate **only** on `http://localhost:5678`. Regenerate from build s
 | Wolfhouse - Bed Assignment (local PG) | `B3c2AssignLocalPg01` | `assign-beds-to-booking` | `npm run build:assign-beds:local` |
 | Wolfhouse - Reassign Bed Assignments (local PG) | `B3c3ReassignLocal01` | `reassign-booking-beds` | `npm run build:reassign-beds:local` |
 | Wolfhouse - Manual Entries Queue Processor (local PG) | `B3c4ManualEntriesLocal01` | `wolfhouse-manual-entries-queue` | `node scripts/build-manual-entries-local.js --generate` |
+| Wolfhouse - Operator Room Release (local PG) | `B3b5OperatorRoomLocal01` | `operator-room-release` | `node scripts/build-operator-room-release-local.js --generate` |
 
 See [`n8n/phase3b/README.md`](../n8n/phase3b/README.md).
 
@@ -121,6 +137,7 @@ See [`n8n/phase3b/README.md`](../n8n/phase3b/README.md).
 | `db:report:cancel-impact` | `report-cancel-impact.js` |
 | `db:report:assign-impact` | `report-assign-impact.js` |
 | `db:report:reassign-impact` | `report-reassign-impact.js` |
+| `db:report:operator-room-release-impact` | `report-operator-room-release-impact.js` |
 
 ### Local test helpers
 
@@ -136,6 +153,9 @@ See [`n8n/phase3b/README.md`](../n8n/phase3b/README.md).
 | [`scripts/build-manual-entries-local.js`](../scripts/build-manual-entries-local.js) | Generate / verify Manual Entries local fork |
 | [`scripts/manual-entry-postgres.js`](../scripts/manual-entry-postgres.js) | CLI mirror (`db:manual-entry:postgres`) |
 | [`scripts/report-manual-entry-impact.js`](../scripts/report-manual-entry-impact.js) | Read-only impact (`db:report:manual-entry-impact`) |
+| [`scripts/operator-room-release-postgres.js`](../scripts/operator-room-release-postgres.js) | CLI execute (`db:operator-room-release:postgres`) |
+| [`scripts/report-operator-room-release-impact.js`](../scripts/report-operator-room-release-impact.js) | Read-only impact (`db:report:operator-room-release-impact`) |
+| [`scripts/build-operator-room-release-local.js`](../scripts/build-operator-room-release-local.js) | Generate / verify Operator Room Release local fork |
 
 **Baseline restore:** `npm run db:sync` — reloads beds/bookings from CSV export into local Postgres.
 
@@ -154,9 +174,9 @@ See [`n8n/phase3b/README.md`](../n8n/phase3b/README.md).
 | **Production Airtable** | Test base/PAT only for local webhooks unless explicitly approved |
 | **Google Sheets** | No reads/writes in Phase 3b |
 | **`database/migrations/*`** | No new migrations in 3b |
-| **`payments` / `payment_events` / `bookings.payment_status`** | No INSERT/UPDATE/DELETE in cancel/assign/reassign paths |
-| **`bookings` DELETE** | Never |
-| **3b.5** | Not started |
+| **`payments` / `payment_events` / `bookings.payment_status`** | No INSERT/UPDATE/DELETE in cancel/assign/reassign/**operator-room-release** paths |
+| **`bookings` DELETE** | Never (operator release cancels status; does not DELETE booking rows) |
+| **Operator Room Release hosted export** | Read-only; local fork in `n8n/phase3b/` (PG-only, no AT nodes) |
 | **Manual Entries hosted export** | Read-only; local fork in `n8n/phase3b/` |
 
 ---
@@ -265,8 +285,8 @@ After Tier C: run Tier A again; optionally `npm run db:sync`.
 | Stage | Status | Notes |
 |-------|--------|-------|
 | **3b.4 Manual Entries Queue** | Not started | Proposal TBD — Sheets + webhook queue; separate from bed-assignment webhooks |
-| **3b.5 Operator Room Release** | Not started | Proposal TBD — operator block/release flows |
 | **Phase 3c** | Not started | Broader Main / staff integration with Postgres-backed bed state |
+| **3b.5 post-MVP** | Deferred | n8n Form UX, Airtable mirror (deprecated), wider edge-case matrix |
 | **Production cutover** | Much later | Hosted Cloud activation, production Airtable automations, staff-facing URLs — only after extended local sign-off |
 
 Parent roadmap: [`PROJECT-ROADMAP.md`](PROJECT-ROADMAP.md) · Phase 3b parent: [`PHASE-3b-PROPOSAL.md`](PHASE-3b-PROPOSAL.md).
@@ -280,5 +300,7 @@ Parent roadmap: [`PROJECT-ROADMAP.md`](PROJECT-ROADMAP.md) · Phase 3b parent: [
 | `/webhook/cancel-booking-beds` | Cancel (local PG) |
 | `/webhook/assign-beds-to-booking` | Bed Assignment (local PG) |
 | `/webhook/reassign-booking-beds` | Reassign (local PG) |
+| `/webhook/wolfhouse-manual-entries-queue` | Manual Entries (local PG) |
+| `/webhook/operator-room-release` | Operator Room Release (local PG) |
 
 **Phase 2 freeze (payments):** [`PHASE-2-FREEZE.md`](PHASE-2-FREEZE.md) — still authoritative for Stripe/Main/Send Confirmation; unchanged by this document.

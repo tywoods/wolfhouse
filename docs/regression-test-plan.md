@@ -109,10 +109,15 @@ Runbook: `docs/PHASE-2d.md`. Workflow: `n8n/phase2/Wolfhouse - Send Confirmation
 
 ## 9. Operator Room Release
 
+**Runbook:** [`PHASE-3b-5.md`](PHASE-3b-5.md). **Signed off (MVP)** 2026-05-27 — local Postgres + direct JSON webhook; **no Airtable nodes** in local fork.
+
 | # | Test | Expected |
 |---|------|----------|
-| 9.1 | Valid release request | Original cancelled; A + B blocks created |
-| 9.2 | Ambiguous match | `error_notes` set |
+| 9.1 | Valid release request (execute) | Original cancelled; A + B blocks created; request `completed` |
+| 9.2 | Ambiguous match | `error_code` / plan not actionable (not yet full webhook matrix) |
+| 9.3 | Idempotent replay | Same `request_code` → `ok=true`, `idempotent=true` (Step 7 routing) |
+
+See Phase 3b.5a / 3b.5b / 3b.5c sections below for step-by-step commands.
 
 ## 10. Staff conversations
 
@@ -207,6 +212,44 @@ CLI PG mirror (no n8n): `db:assign:booking-beds --execute` (3b.2b). SQL shared v
 | 3b2b-6 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | |
 
 Undo: `db:cancel:booking-beds --execute` or `db:sync`.
+
+## Phase 3b.5c — Operator Room Release local n8n fork (MVP)
+
+**Runbook:** [`PHASE-3b-5c.md`](PHASE-3b-5c.md). **Signed off** 2026-05-27 (fixture `OPER-LOCAL-RELEASE-TEST` / `R7` / `WH-OPER-LOCAL-RELEASE-2027`).
+
+| Step | Command / action | Pass |
+|------|------------------|------|
+| 3b5c-0 | `node scripts/build-operator-room-release-local.js --verify-targets` | 0 Airtable nodes; 0 prod base; completed-check SELECT-only |
+| 3b5c-1 | Import `B3b5OperatorRoomLocal01`; workflow **inactive** by default | |
+| 3b5c-2 | Fixture UP (or post-execute cleanup + UP) | `confirmed`, 4 beds, no `-A`/`-B` |
+| 3b5c-3 | **Dry-run** webhook `dry_run=true` | `ok=true`, `would_cancel_beds=4`, `would_create_a/b=true`; no mutation |
+| 3b5c-4 | **Execute** webhook `dry_run=false`, unique `request_code` | original cancelled; 4 beds deleted; `-A`/`-B` exist; request completed; payments 0/0 |
+| 3b5c-5 | **Idempotent replay** — same `request_code` | `ok=true`, `idempotent=true`; A/B count still 2 |
+| 3b5c-6 | `unpublish:workflow` + restart `n8n-main` | webhook not left active |
+
+**Deferred (non-blocking):** n8n Form UX; Airtable mirror; ambiguous/overlap/payments webhook matrix; `npm run build:operator-room-release:local` script alias.
+
+## Phase 3b.5b — Operator Room Release Postgres execute (CLI)
+
+**Runbook:** [`PHASE-3b-5b.md`](PHASE-3b-5b.md).
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b5b-1 | `db:report:operator-room-release-impact` before execute | exit 0 |
+| 3b5b-2 | `db:operator-room-release:postgres` dry-run | no mutations |
+| 3b5b-3 | `--execute` with `--request-code=ORR-LOCAL-TEST-001` | exit 0; cancelled; A/B codes |
+| 3b5b-4 | Repeat `--execute` same request_code | exit 0; idempotent |
+| 3b5b-5 | `payments` / `payment_events` on original | 0 / 0 |
+
+## Phase 3b.5a — Operator Room Release impact report (read-only)
+
+**Runbook:** [`PHASE-3b-5a.md`](PHASE-3b-5a.md). **3b.5b** CLI and **3b.5c** fork signed off — see [`PHASE-3b-5.md`](PHASE-3b-5.md).
+
+| Step | Command | Pass |
+|------|---------|------|
+| 3b5a-1 | Fixture UP | 4 beds, 0 payments |
+| 3b5a-2 | `db:report:operator-room-release-impact` with operator/room/dates | exit 0; `found_match=true` |
+| 3b5a-3 | `db:report:bed-drift` + `planning:report:postgres` + `test:phase2f-resolver` | |
 
 ## Phase 3b.4c — Manual Entries local n8n fork (MVP)
 
@@ -339,7 +382,7 @@ CLI-only alternative (no n8n): `db:cancel:booking-beds --execute` (3b.1b).
 
 **Runbook:** `docs/PHASE-2-FREEZE.md`. Complete before starting Phase 3.
 
-**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.3b** implemented; **3b.4a** impact report + **3b.4b** Postgres mirror CLI implemented; **3b.4c+** not started.
+**Status:** Phase 2 local **signed off** (2026-05-25). Tiers **A**, **B**, and **C** passed. Phase 3 **3.0b-1** through **3b.5c** Operator Room Release MVP signed off locally (2026-05-27). **Phase 3c** not started.
 
 ### Tier A — automated
 

@@ -169,6 +169,49 @@ Import **only** into **local** n8n (`http://localhost:5678`). Do **not** import 
 
 CLI mirror (no n8n): `npm run db:manual-entry:postgres` — see [`PHASE-3b-4b.md`](../docs/PHASE-3b-4b.md).
 
+## Operator Room Release (3b.5c)
+
+**Runbook:** [`docs/PHASE-3b-5c.md`](../docs/PHASE-3b-5c.md) · **MVP signed off** 2026-05-27.
+
+1. Regenerate from hosted export (read-only):
+
+   ```powershell
+   docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile tools run --rm wolfhouse-tools node scripts/build-operator-room-release-local.js --generate
+   docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile tools run --rm wolfhouse-tools node scripts/build-operator-room-release-local.js --verify-targets
+   ```
+
+2. Re-import:
+
+   ```powershell
+   docker cp "n8n/phase3b/Wolfhouse - Operator Room Release (local PG).n8n-import.json" n8n-main:/tmp/operator-room-release-import.json
+   docker exec n8n-main n8n import:workflow --input=/tmp/operator-room-release-import.json
+   docker restart n8n-main n8n-worker
+   ```
+
+3. Map **Postgres account** (local Wolfhouse DB) on first import.
+
+4. **Deactivate** hosted `Wolfhouse - Operator Room Release` on local n8n if imported — only one workflow may use path `operator-room-release`.
+
+5. Keep workflow **inactive** except during controlled tests. After `n8n publish:workflow` / `unpublish:workflow`, **restart `n8n-main` and `n8n-worker`** so the webhook registers correctly.
+
+6. Test fixture: [`scripts/fixtures/operator-room-release-3b5a-up.sql`](../scripts/fixtures/operator-room-release-3b5a-up.sql) — operator `OPER-LOCAL-RELEASE-TEST`, room `R7`, booking `WH-OPER-LOCAL-RELEASE-2027`, release `2027-05-10` → `2027-05-17`.
+
+**Stable workflow id:** `B3b5OperatorRoomLocal01`  
+**Webhook:** `POST /webhook/operator-room-release`  
+**Input:** direct JSON (`operator`, `room_code`, `release_start`, `release_end`, optional `request_code`, `dry_run`, `allow_overlap`). Airtable `record_id` path is **deprecated** (not used in fork).
+
+## Order of operations (Operator Room Release local fork)
+
+| Path | Order |
+|------|--------|
+| **Idempotent replay** | Completed Request Check → Build Response (no Plan/Execute) |
+| **Dry-run** | Plan (SELECT) → Build Response |
+| **Execute** | Plan gate → Execute (cancel original, DELETE beds, INSERT Block A/B, complete request) → Validate |
+
+**Never** writes `payments` or `payment_events`. **No Airtable nodes** in generated workflow.
+
+CLI mirror (no n8n): `npm run db:operator-room-release:postgres` — see [`PHASE-3b-5b.md`](../docs/PHASE-3b-5b.md). Impact report: `npm run db:report:operator-room-release-impact` — see [`PHASE-3b-5a.md`](../docs/PHASE-3b-5a.md).
+
 ## Do not edit by hand
 
-Regenerate with `npm run build:cancel-beds:local`, `npm run build:assign-beds:local`, `npm run build:reassign-beds:local`, or `node scripts/build-manual-entries-local.js --generate`. Hosted sources under `n8n/Wolfhouse - *.json` (read-only).
+Regenerate with `npm run build:cancel-beds:local`, `npm run build:assign-beds:local`, `npm run build:reassign-beds:local`, `node scripts/build-manual-entries-local.js --generate`, or `node scripts/build-operator-room-release-local.js --generate`. Hosted sources under `n8n/Wolfhouse - *.json` (read-only).
