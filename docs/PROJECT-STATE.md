@@ -51,7 +51,7 @@ Details: [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
 | **3c.c.2** Active-hold guard fixture | Done | `0741a9f` |
 | **3c.c.3** Hold execute CLI | Done | `50294d3` |
 | **3c.c.4** Ensure Booking promote CLI | Done | `8abfd4d` |
-| **3c.d** Conversation / `current_hold` plan | **Not started** | — |
+| **3c.d** Conversation / `current_hold` plan | **Proposal done** — [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md) | docs only |
 | **3c.e** Inject hold + Ensure into `build-main-local-stripe.js` | **Not started** | — |
 | **3c.f** Payment / confirmation contract checks | **Not started** | — |
 | **3c.g** E2E local Main tests | **Not started** | — |
@@ -114,14 +114,16 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 ## Preferred next step (not 3c.c.4)
 
-**Do 3c.d before 3c.e.**
+**Do 3c.d.1–2 before 3c.e** (proposal: [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md)).
 
-| Option | Work | Why |
-|--------|------|-----|
-| **A — Preferred** | **3c.d** — conversation / message / `current_hold_booking_id` discovery and plan | Main wiring depends on stable conversation↔hold linkage |
-| **B — Later** | **3c.e** — plan then inject hold + Ensure SQL via build script | After 3c.d; regenerate fork; `--verify-targets`; import inactive only if allowed |
+| Step | Work | Status |
+|------|------|--------|
+| **3c.d** | Discovery proposal | Done (doc) |
+| **3c.d.1** | Conversation/message field inventory report | **Next** |
+| **3c.d.2** | SELECT-only `db:report:main-conversation-state` | Not started |
+| **3c.e** | Inject hold + Ensure + conversation PG via build script | After 3c.d.1–2 |
 
-Do **not** start 3c.e workflow injection or 3c.f/g until 3c.d plan is agreed unless owner explicitly reprioritizes.
+Do **not** start 3c.e workflow injection until 3c.d inventory/report agrees with proposal unless owner explicitly reprioritizes.
 
 ---
 
