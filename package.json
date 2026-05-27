@@ -12,6 +12,7 @@
     "db:report:assign-impact": "node scripts/report-assign-impact.js",
     "db:report:reassign-impact": "node scripts/report-reassign-impact.js",
     "db:report:manual-entry-impact": "node scripts/report-manual-entry-impact.js",
+    "db:report:operator-room-release-impact": "node scripts/report-operator-room-release-impact.js",
     "db:manual-entry:postgres": "node scripts/manual-entry-postgres.js",
     "db:assign:booking-beds": "node scripts/assign-booking-beds-postgres.js",
     "db:cancel:booking-beds": "node scripts/cancel-booking-beds-postgres.js",
