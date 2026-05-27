@@ -1,0 +1,207 @@
+[
+  {
+    "name": "Wolfhouse - Operator Room Release (local PG)",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "operator-room-release",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          -640,
+          0
+        ],
+        "id": "fe0e8272-d71c-408c-898d-1507a5ae0d05",
+        "name": "Webhook - Operator Room Release",
+        "webhookId": "b3b5c001-0005-4000-8000-000000000005"
+      },
+      {
+        "parameters": {
+          "jsCode": "const body = $json.body ?? $json;\nconst errors = [];\n\nfunction str(v) {\n  return v == null ? '' : String(v).trim();\n}\n\nfunction normRoom(code) {\n  const s = str(code);\n  return s ? s.toUpperCase() : '';\n}\n\nfunction normDate(v) {\n  const s = str(v);\n  if (!s) return '';\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;\n  const d = new Date(s);\n  if (Number.isNaN(d.getTime())) return '';\n  return d.toISOString().slice(0, 10);\n}\n\nconst operator = str(body.operator ?? body.Operator);\nconst room_code = normRoom(body.room_code ?? body['Room to Release'] ?? body.roomCode);\nconst release_start = normDate(body.release_start ?? body['Release Start Date']);\nconst release_end = normDate(body.release_end ?? body['Release End Date']);\nconst request_code = str(body.request_code ?? body.requestCode);\nconst notes = str(body.notes ?? body.Notes);\n\nconst dryRunRaw = body.dry_run;\nconst dry_run =\n  dryRunRaw === true || dryRunRaw === 'true' || dryRunRaw === 1 || dryRunRaw === '1';\n\nconst allowRaw = body.allow_overlap;\nconst allow_overlap =\n  allowRaw === true || allowRaw === 'true' || allowRaw === 1 || allowRaw === '1';\n\nif (!operator) errors.push('missing_operator');\nif (!room_code) errors.push('missing_room_code');\nif (!release_start) errors.push('missing_release_start');\nif (!release_end) errors.push('missing_release_end');\n\nconst invalid_date_range =\n  release_start && release_end && release_start >= release_end;\n\nif (invalid_date_range) errors.push('invalid_date_range');\n\nconst record_id = str(body.record_id ?? body.RecordId);\nif (record_id) {\n  errors.push('deprecated_record_id_ignored');\n}\n\nconst parse_ok = errors.filter((e) => !e.startsWith('deprecated_')).length === 0;\n\nreturn [{\n  json: {\n    parse_ok,\n    errors,\n    operator,\n    room_code,\n    release_start,\n    release_end,\n    request_code,\n    notes,\n    dry_run,\n    allow_overlap,\n    deprecated_record_id: record_id || null\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -440,
+          0
+        ],
+        "id": "82b43a11-8bc9-4baa-8912-6c043f284200",
+        "name": "Code - Parse Release Payload"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "parse-ok",
+                "leftValue": "={{ $json.parse_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -240,
+          0
+        ],
+        "id": "9e42c39c-7edf-40ed-81b0-628aa5acb586",
+        "name": "IF - Parse OK"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS operator_in,\n    NULLIF(trim($2), '__NULL__') AS room_code_in,\n    NULLIF(trim($3), '__NULL__') AS release_start_in,\n    NULLIF(trim($4), '__NULL__') AS release_end_in,\n    NULLIF(trim($5), '__NULL__') AS request_code,\n    NULLIF(trim($6), '__NULL__') AS allow_overlap_in\n),\ninput_norm AS (\n  SELECT\n    operator_in,\n    room_code_in,\n    release_start_in,\n    release_end_in,\n    request_code,\n    allow_overlap_in,\n    CASE\n      WHEN operator_in IS NOT NULL AND trim(operator_in) <> '' THEN trim(operator_in)\n      ELSE NULL\n    END AS operator,\n    CASE\n      WHEN room_code_in IS NOT NULL AND trim(room_code_in) <> '' THEN upper(trim(room_code_in))\n      ELSE NULL\n    END AS room_code,\n    CASE\n      WHEN release_start_in IS NOT NULL AND trim(release_start_in) <> '' THEN release_start_in::date\n      ELSE NULL\n    END AS release_start,\n    CASE\n      WHEN release_end_in IS NOT NULL AND trim(release_end_in) <> '' THEN release_end_in::date\n      ELSE NULL\n    END AS release_end,\n    lower(coalesce(allow_overlap_in, 'false')) IN ('true', '1', 'yes', 't') AS allow_overlap\n  FROM params\n),\nvalidation AS (\n  SELECT\n    i.*,\n    array_remove(\n      ARRAY[\n        CASE WHEN i.operator IS NULL THEN 'operator' END,\n        CASE WHEN i.room_code IS NULL THEN 'room_code' END,\n        CASE WHEN i.release_start IS NULL THEN 'release_start' END,\n        CASE WHEN i.release_end IS NULL THEN 'release_end' END\n      ],\n      NULL\n    ) AS missing_fields,\n  (\n      i.release_start IS NOT NULL\n      AND i.release_end IS NOT NULL\n      AND i.release_start >= i.release_end\n    ) AS invalid_date_range\n  FROM input_norm i\n),\nclient_row AS (\n  SELECT c.id AS client_id\n  FROM clients c\n  CROSS JOIN validation v\n  WHERE c.slug = 'wolfhouse-somo'\n    AND cardinality(v.missing_fields) = 0\n    AND NOT v.invalid_date_range\n  LIMIT 1\n),\nroom_row AS (\n  SELECT r.id AS room_id, r.room_code\n  FROM rooms r\n  INNER JOIN client_row c ON r.client_id = c.client_id\n  CROSS JOIN input_norm i\n  WHERE upper(trim(r.room_code)) = i.room_code\n  LIMIT 1\n),\ncandidates AS (\n  SELECT DISTINCT ON (b.id)\n    b.id AS booking_id,\n    b.booking_code,\n    b.check_in::date AS check_in,\n    b.check_out::date AS check_out,\n    b.status::text AS status\n  FROM bookings b\n  INNER JOIN client_row c ON b.client_id = c.client_id\n  CROSS JOIN input_norm i\n  LEFT JOIN rooms r ON r.id = b.room_to_block_id AND r.client_id = b.client_id\n  CROSS JOIN validation v\n  WHERE cardinality(v.missing_fields) = 0\n    AND NOT v.invalid_date_range\n    AND EXISTS (SELECT 1 FROM room_row)\n    AND b.booking_source = 'operator'\n    AND b.block_type = 'whole_room'\n    AND b.status NOT IN ('cancelled', 'expired')\n    AND trim(coalesce(b.operator_name, '')) = i.operator\n    AND (\n      upper(trim(coalesce(b.primary_room_code, ''))) = i.room_code\n      OR upper(trim(coalesce(r.room_code, ''))) = i.room_code\n      OR EXISTS (\n        SELECT 1 FROM booking_beds bb\n        WHERE bb.booking_id = b.id\n          AND bb.client_id = b.client_id\n          AND upper(trim(bb.room_code)) = i.room_code\n      )\n    )\n    AND b.check_in < i.release_end\n    AND i.release_start < b.check_out\n  ORDER BY b.id, b.check_in\n),\nmatch_stats AS (\n  SELECT COUNT(*)::int AS match_count FROM candidates\n),\nmatched AS (\n  SELECT c.*\n  FROM candidates c\n  CROSS JOIN match_stats m\n  WHERE m.match_count = 1\n),\nbeds AS (\n  SELECT COUNT(*)::int AS beds_count\n  FROM booking_beds bb\n  INNER JOIN matched m ON bb.booking_id = m.booking_id\n  INNER JOIN client_row c ON bb.client_id = c.client_id\n),\noverlap AS (\n  SELECT COUNT(*)::int AS overlap_count\n  FROM booking_beds bb\n  INNER JOIN bookings b ON b.id = bb.booking_id AND b.client_id = bb.client_id\n  INNER JOIN client_row c ON bb.client_id = c.client_id\n  CROSS JOIN input_norm i\n  LEFT JOIN matched m ON true\n  WHERE upper(trim(bb.room_code)) = i.room_code\n    AND (m.booking_id IS NULL OR bb.booking_id <> m.booking_id)\n    AND bb.assignment_start_date < i.release_end\n    AND bb.assignment_end_date > i.release_start\n    AND b.status NOT IN ('cancelled', 'expired')\n),\npayments_stats AS (\n  SELECT COUNT(*)::int AS payments_count\n  FROM payments p\n  INNER JOIN matched m ON p.booking_id = m.booking_id\n  INNER JOIN client_row c ON p.client_id = c.client_id\n),\npayment_events_stats AS (\n  SELECT COUNT(*)::int AS payment_events_count\n  FROM payment_events pe\n  INNER JOIN payments p ON p.id = pe.payment_id\n  INNER JOIN matched m ON p.booking_id = m.booking_id\n  INNER JOIN client_row c ON p.client_id = c.client_id\n),\nsplit AS (\n  SELECT\n    m.booking_id,\n    m.booking_code,\n    m.check_in AS original_check_in,\n    m.check_out AS original_check_out,\n    (m.check_in < i.release_start) AS should_create_a,\n    (i.release_end < m.check_out) AS should_create_b,\n    CASE WHEN m.check_in < i.release_start THEN m.check_in ELSE NULL END AS block_a_check_in,\n    CASE WHEN m.check_in < i.release_start THEN i.release_start ELSE NULL END AS block_a_check_out,\n    CASE WHEN i.release_end < m.check_out THEN i.release_end ELSE NULL END AS block_b_check_in,\n    CASE WHEN i.release_end < m.check_out THEN m.check_out ELSE NULL END AS block_b_check_out,\n    m.booking_code || '-A' AS block_a_booking_code,\n    m.booking_code || '-B' AS block_b_booking_code\n  FROM matched m\n  CROSS JOIN input_norm i\n),\ncontext AS (\n  SELECT\n    v.missing_fields,\n    v.invalid_date_range,\n    c.client_id,\n    r.room_id,\n    r.room_code AS resolved_room_code,\n    m.match_count,\n    (m.match_count = 1) AS found_match,\n    i.operator,\n    i.room_code,\n    i.release_start,\n    i.release_end,\n    i.request_code,\n    i.allow_overlap,\n    s.booking_id AS original_booking_id,\n    s.booking_code AS original_booking_code,\n    s.original_check_in,\n    s.original_check_out,\n    s.should_create_a,\n    s.should_create_b,\n    s.block_a_check_in,\n    s.block_a_check_out,\n    s.block_b_check_in,\n    s.block_b_check_out,\n    s.block_a_booking_code,\n    s.block_b_booking_code,\n    COALESCE(b.beds_count, 0) AS beds_count,\n    COALESCE(o.overlap_count, 0) AS overlap_count,\n    COALESCE(pay.payments_count, 0) AS payments_count,\n    COALESCE(pes.payment_events_count, 0) AS payment_events_count,\n    (\n      s.original_check_in IS NOT NULL\n      AND s.original_check_out IS NOT NULL\n      AND NOT (s.original_check_in < i.release_end AND i.release_start < s.original_check_out)\n    ) AS release_window_no_overlap\n  FROM validation v\n  CROSS JOIN input_norm i\n  CROSS JOIN match_stats m\n  LEFT JOIN client_row c ON true\n  LEFT JOIN room_row r ON true\n  LEFT JOIN split s ON true\n  LEFT JOIN beds b ON true\n  LEFT JOIN overlap o ON true\n  LEFT JOIN payments_stats pay ON true\n  LEFT JOIN payment_events_stats pes ON true\n),\nactionable_build AS (\n  SELECT\n    ctx.*,\n    array_remove(\n      ARRAY[\n        CASE WHEN cardinality(ctx.missing_fields) > 0 THEN 'missing_required_fields' END,\n        CASE WHEN ctx.invalid_date_range THEN 'invalid_date_range' END,\n        CASE WHEN ctx.client_id IS NULL AND cardinality(ctx.missing_fields) = 0 AND NOT ctx.invalid_date_range\n          THEN 'client_not_found' END,\n        CASE WHEN ctx.client_id IS NOT NULL AND ctx.room_id IS NULL THEN 'room_not_found' END,\n        CASE WHEN ctx.match_count = 0 THEN 'no_matching_operator_booking' END,\n        CASE WHEN ctx.match_count > 1 THEN 'ambiguous_operator_booking_match' END,\n        CASE WHEN ctx.release_window_no_overlap THEN 'release_window_does_not_overlap_original_block' END,\n        CASE WHEN ctx.found_match AND ctx.beds_count = 0 THEN NULL END,\n        CASE\n          WHEN ctx.overlap_count > 0 AND NOT ctx.allow_overlap\n          THEN 'postgres_overlap_conflicts_in_release_window'\n        END\n      ],\n      NULL\n    ) AS actionable,\n    array_remove(\n      ARRAY[\n        CASE\n          WHEN ctx.found_match AND ctx.beds_count = 0\n          THEN 'original_booking_has_no_booking_beds_in_pg'\n        END,\n        CASE\n          WHEN ctx.release_window_no_overlap\n          THEN 'Release dates do not overlap original booking check_in/check_out'\n        END\n      ],\n      NULL\n    ) AS warnings\n  FROM context ctx\n)\nSELECT\n  (\n    cardinality(missing_fields) = 0\n    AND NOT invalid_date_range\n    AND client_id IS NOT NULL\n    AND room_id IS NOT NULL\n  ) AS pg_ok,\n  (\n    cardinality(missing_fields) = 0\n    AND NOT invalid_date_range\n    AND client_id IS NOT NULL\n    AND room_id IS NOT NULL\n    AND found_match\n    AND NOT release_window_no_overlap\n    AND (\n      overlap_count = 0\n      OR allow_overlap\n    )\n  ) AS plan_ok,\n  CASE\n    WHEN cardinality(missing_fields) > 0 THEN 'missing_required_fields'\n    WHEN invalid_date_range THEN 'invalid_date_range'\n    WHEN client_id IS NULL AND cardinality(missing_fields) = 0 AND NOT invalid_date_range THEN 'client_not_found'\n    WHEN client_id IS NOT NULL AND room_id IS NULL THEN 'room_not_found'\n    WHEN match_count = 0 THEN 'no_match'\n    WHEN match_count > 1 THEN 'ambiguous_match'\n    WHEN found_match AND release_window_no_overlap THEN 'release_window_no_overlap'\n    WHEN found_match AND overlap_count > 0 AND NOT allow_overlap THEN 'overlap_conflicts'\n    WHEN found_match THEN NULL\n    ELSE NULL\n  END AS error_code,\n  CASE\n    WHEN cardinality(missing_fields) > 0 THEN 'Missing required fields: ' || array_to_string(missing_fields, ', ')\n    WHEN invalid_date_range THEN 'release_end must be after release_start'\n    WHEN client_id IS NULL AND cardinality(missing_fields) = 0 AND NOT invalid_date_range\n      THEN 'Client not found for slug wolfhouse-somo'\n    WHEN client_id IS NOT NULL AND room_id IS NULL THEN 'Room not found: ' || room_code\n    WHEN match_count = 0 THEN 'No matching operator room block found.'\n    WHEN match_count > 1 THEN 'Multiple matching operator room blocks found.'\n    WHEN found_match AND release_window_no_overlap\n      THEN 'Release window does not overlap original block dates'\n    WHEN found_match AND overlap_count > 0 AND NOT allow_overlap\n      THEN 'Postgres overlap conflicts in release window (use allow_overlap to proceed)'\n    WHEN found_match THEN 'Operator room release plan ready'\n    ELSE 'Plan computed'\n  END AS message,\n  found_match,\n  match_count,\n  operator,\n  room_code,\n  release_start::text AS release_start,\n  release_end::text AS release_end,\n  original_booking_id::text AS original_booking_id,\n  original_booking_code,\n  original_check_in::text AS original_check_in,\n  original_check_out::text AS original_check_out,\n  COALESCE(should_create_a, false) AS should_create_a,\n  COALESCE(should_create_b, false) AS should_create_b,\n  block_a_check_in::text AS block_a_check_in,\n  block_a_check_out::text AS block_a_check_out,\n  block_b_check_in::text AS block_b_check_in,\n  block_b_check_out::text AS block_b_check_out,\n  block_a_booking_code,\n  block_b_booking_code,\n  beds_count,\n  overlap_count,\n  payments_count,\n  payment_events_count,\n  actionable,\n  warnings,\n  request_code,\n  allow_overlap,\n  true AS dry_run\nFROM actionable_build",
+          "options": {
+            "queryReplacement": "={{ (($('Code - Parse Release Payload').first().json.operator) != null && String($('Code - Parse Release Payload').first().json.operator).trim() !== '') ? String($('Code - Parse Release Payload').first().json.operator).trim() : '__NULL__' }},={{ (($('Code - Parse Release Payload').first().json.room_code) != null && String($('Code - Parse Release Payload').first().json.room_code).trim() !== '') ? String($('Code - Parse Release Payload').first().json.room_code).trim() : '__NULL__' }},={{ (($('Code - Parse Release Payload').first().json.release_start) != null && String($('Code - Parse Release Payload').first().json.release_start).trim() !== '') ? String($('Code - Parse Release Payload').first().json.release_start).trim() : '__NULL__' }},={{ (($('Code - Parse Release Payload').first().json.release_end) != null && String($('Code - Parse Release Payload').first().json.release_end).trim() !== '') ? String($('Code - Parse Release Payload').first().json.release_end).trim() : '__NULL__' }},={{ (($('Code - Parse Release Payload').first().json.request_code) != null && String($('Code - Parse Release Payload').first().json.request_code).trim() !== '') ? String($('Code - Parse Release Payload').first().json.request_code).trim() : '__NULL__' }},={{ (() => { const v = $('Code - Parse Release Payload').first().json.allow_overlap; if (v === true || v === 'true' || v === 1 || v === '1') return 'true'; return '__NULL__'; })() }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -40,
+          -80
+        ],
+        "id": "4b64c7d5-df6f-4064-8c0d-0902571feb46",
+        "name": "Postgres - Operator Room Release Plan",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "function mergeErrors(...lists) {\n  const out = [];\n  for (const list of lists) {\n    if (!list) continue;\n    for (const e of list) {\n      const s = String(e || '').trim();\n      if (s && !out.includes(s)) out.push(s);\n    }\n  }\n  return out;\n}\n\nconst parsed = $('Code - Parse Release Payload').first()?.json || {};\n\nif (!parsed.parse_ok) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: !!parsed.dry_run,\n      found_match: false,\n      match_count: 0,\n      error_code: 'validation',\n      message: 'Invalid webhook payload',\n      errors: mergeErrors(parsed.errors, ['parse_failed'])\n    }\n  }];\n}\n\nif (!parsed.dry_run) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: false,\n      found_match: false,\n      match_count: 0,\n      error_code: 'execute_not_implemented',\n      message: 'Execute path not implemented in 3b.5c Step 3; set dry_run=true for preview only',\n      errors: ['execute_not_implemented']\n    }\n  }];\n}\n\nlet plan = {};\nlet planErr = null;\ntry {\n  const planItem = $('Postgres - Operator Room Release Plan').first();\n  planErr = planItem?.error;\n  plan = planItem?.json || {};\n} catch (e) {\n  planErr = e;\n}\n\nif (planErr) {\n  const msg = String(planErr.message || planErr);\n  return [{\n    json: {\n      ok: false,\n      dry_run: true,\n      found_match: false,\n      match_count: 0,\n      error_code: 'postgres_failed',\n      message: msg,\n      errors: ['postgres_plan_failed']\n    }\n  }];\n}\n\nconst pgOk = plan.pg_ok === true || plan.pg_ok === 'true';\nconst planOk = plan.plan_ok === true || plan.plan_ok === 'true';\nconst foundMatch = plan.found_match === true || plan.found_match === 'true';\nconst matchCount = Number(plan.match_count ?? 0);\nconst paymentsCount = Number(plan.payments_count ?? 0);\nconst paymentEventsCount = Number(plan.payment_events_count ?? 0);\nconst paymentsUntouched = paymentsCount === 0 && paymentEventsCount === 0;\n\nconst actionable = Array.isArray(plan.actionable)\n  ? plan.actionable\n  : plan.actionable\n    ? [String(plan.actionable)]\n    : [];\n\nif (!pgOk) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: true,\n      found_match: foundMatch,\n      match_count: matchCount,\n      error_code: plan.error_code || 'plan_failed',\n      message: plan.message || 'Operator room release plan failed',\n      errors: mergeErrors(actionable, [plan.error_code]),\n      original_booking_code: plan.original_booking_code || null,\n      payments_untouched: paymentsUntouched\n    }\n  }];\n}\n\nif (!planOk) {\n  return [{\n    json: {\n      ok: false,\n      dry_run: true,\n      found_match: foundMatch,\n      match_count: matchCount,\n      error_code: plan.error_code || 'plan_not_actionable',\n      message: plan.message || 'Plan is not actionable',\n      errors: mergeErrors(actionable, [plan.error_code]),\n      original_booking_code: plan.original_booking_code || null,\n      block_a_booking_code: plan.block_a_booking_code || null,\n      block_b_booking_code: plan.block_b_booking_code || null,\n      would_create_a: plan.should_create_a === true,\n      would_create_b: plan.should_create_b === true,\n      would_cancel_beds: Number(plan.beds_count ?? 0),\n      payments_untouched: paymentsUntouched\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ok: true,\n    dry_run: true,\n    found_match: foundMatch,\n    match_count: matchCount,\n    original_booking_code: plan.original_booking_code || null,\n    original_booking_id: plan.original_booking_id || null,\n    would_cancel_beds: Number(plan.beds_count ?? 0),\n    would_create_a: plan.should_create_a === true,\n    would_create_b: plan.should_create_b === true,\n    block_a_booking_code: plan.block_a_booking_code || null,\n    block_b_booking_code: plan.block_b_booking_code || null,\n    block_a_check_in: plan.block_a_check_in || null,\n    block_a_check_out: plan.block_a_check_out || null,\n    block_b_check_in: plan.block_b_check_in || null,\n    block_b_check_out: plan.block_b_check_out || null,\n    overlap_count: Number(plan.overlap_count ?? 0),\n    payments_untouched: paymentsUntouched,\n    request_code: plan.request_code || parsed.request_code || null,\n    message: plan.message || 'Operator room release dry-run preview',\n    error_code: null,\n    errors: mergeErrors(plan.warnings, [])\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          200,
+          0
+        ],
+        "id": "284dae69-882f-4da5-8d8a-f4934b4f6adb",
+        "name": "Code - Build Response"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          440,
+          0
+        ],
+        "id": "2b65d869-43d7-441a-85f8-fa96b8582a20",
+        "name": "Respond to Webhook"
+      }
+    ],
+    "connections": {
+      "Webhook - Operator Room Release": {
+        "main": [
+          [
+            {
+              "node": "Code - Parse Release Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parse Release Payload": {
+        "main": [
+          [
+            {
+              "node": "IF - Parse OK",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Parse OK": {
+        "main": [
+          [
+            {
+              "node": "Postgres - Operator Room Release Plan",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Operator Room Release Plan": {
+        "main": [
+          [
+            {
+              "node": "Code - Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Build Response": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "active": false,
+    "id": "B3b5OperatorRoomLocal01",
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
+    },
+    "tags": [
+      {
+        "name": "phase3b"
+      },
+      {
+        "name": "local-only"
+      },
+      {
+        "name": "dry-run-only"
+      }
+    ]
+  }
+]
