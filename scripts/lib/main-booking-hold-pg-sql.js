@@ -9,15 +9,17 @@ const NULL_SENTINEL = '__NULL__';
 /** Active guest holds — align with Main Search Active Booking / resolver. */
 const ACTIVE_HOLD_STATUSES = ['hold', 'payment_pending'];
 
-/**
- * Future 3c.c execute — hold upsert (not used in 3c.c.1).
- * @see build-main-local-stripe.js ensureBookingSql for promote pattern
- */
+/** Execute path: Main Create Booking Hold (no guest email/name) — not payment_pending promote. */
+const EXECUTE_HOLD_STATUSES = {
+  status: 'hold',
+  payment_status: 'not_requested',
+  assignment_status: 'unassigned',
+  availability_check_status: 'available',
+};
+
 const FUTURE_SQL = {
-  UPSERT_BOOKING_HOLD: 'TODO_3c.c.2: INSERT ... ON CONFLICT (client_id, booking_code) DO UPDATE',
-  PROMOTE_TO_PAYMENT_PENDING: 'TODO_3c.c.2: UPDATE bookings SET status=payment_pending ...',
+  PROMOTE_TO_PAYMENT_PENDING: 'TODO_3c.c.4: Ensure Booking / guest-details promote',
   BACKFILL_AIRTABLE_RECORD_ID: 'TODO_3c.e: UPDATE bookings SET airtable_record_id=$rec WHERE booking_code=$code',
-  ENSURE_BOOKING_PROMOTE: 'TODO_3c.c.4: shared with Postgres - Ensure Booking In Postgres',
 };
 
 function parseHoldInput(raw = {}) {
@@ -236,9 +238,140 @@ function classifyBookingCodeAction(codeGuard, holdInput, statusProposal) {
   };
 }
 
+function buildExecuteMetadata(holdInput, extra = {}) {
+  return {
+    source: 'phase3c_hold_cli',
+    booking_code: holdInput.booking_code,
+    session: {
+      check_in: holdInput.check_in,
+      check_out: holdInput.check_out,
+      guest_count: holdInput.guest_count,
+      room_type: holdInput.room_type,
+      room_preference: holdInput.room_preference,
+      guest_gender_group_type: holdInput.guest_gender_group_type,
+    },
+    notes: holdInput.notes,
+    ...extra,
+  };
+}
+
+/**
+ * Upsert one bookings row (hold). No booking_beds. No payments.
+ * @param {import('pg').Client} client
+ * @param {string} clientId
+ * @param {ReturnType<typeof parseHoldInput>} holdInput
+ * @param {object} wouldUpsert from plan
+ */
+async function upsertBookingHold(client, clientId, holdInput, wouldUpsert) {
+  const meta = buildExecuteMetadata(holdInput, { executed_at: new Date().toISOString() });
+  const { rows: before } = await client.query(
+    `SELECT id::text AS booking_id FROM bookings WHERE client_id = $1 AND booking_code = $2`,
+    [clientId, holdInput.booking_code]
+  );
+  const existedBefore = before.length > 0;
+
+  const { rows } = await client.query(
+    `INSERT INTO bookings (
+       client_id,
+       booking_code,
+       airtable_record_id,
+       guest_name,
+       phone,
+       email,
+       status,
+       payment_status,
+       assignment_status,
+       availability_check_status,
+       check_in,
+       check_out,
+       guest_count,
+       requested_room_type,
+       room_preference,
+       guest_gender_group_type,
+       primary_room_code,
+       package_code,
+       booking_source,
+       hold_expires_at,
+       send_confirmation,
+       metadata
+     ) VALUES (
+       $1, $2, NULL, $3, $4, $5,
+       $6::booking_status, $7::payment_status, $8::assignment_status, $9::availability_check_status,
+       $10::date, $11::date, $12,
+       $13, $14, $15, $16, $17,
+       'whatsapp'::booking_source,
+       $18::timestamptz, FALSE, $19::jsonb
+     )
+     ON CONFLICT (client_id, booking_code) DO UPDATE SET
+       guest_name = COALESCE(EXCLUDED.guest_name, bookings.guest_name),
+       phone = COALESCE(EXCLUDED.phone, bookings.phone),
+       email = COALESCE(EXCLUDED.email, bookings.email),
+       check_in = EXCLUDED.check_in,
+       check_out = EXCLUDED.check_out,
+       guest_count = EXCLUDED.guest_count,
+       requested_room_type = EXCLUDED.requested_room_type,
+       room_preference = EXCLUDED.room_preference,
+       guest_gender_group_type = EXCLUDED.guest_gender_group_type,
+       primary_room_code = COALESCE(EXCLUDED.primary_room_code, bookings.primary_room_code),
+       package_code = COALESCE(EXCLUDED.package_code, bookings.package_code),
+       hold_expires_at = EXCLUDED.hold_expires_at,
+       assignment_status = EXCLUDED.assignment_status,
+       availability_check_status = EXCLUDED.availability_check_status,
+       status = CASE
+         WHEN bookings.status IN ('payment_pending', 'confirmed', 'checked_in', 'needs_review', 'blocked')
+           THEN bookings.status
+         ELSE EXCLUDED.status
+       END,
+       payment_status = CASE
+         WHEN bookings.payment_status IN ('waiting_payment', 'deposit_paid', 'paid')
+           THEN bookings.payment_status
+         ELSE EXCLUDED.payment_status
+       END,
+       metadata = bookings.metadata || EXCLUDED.metadata,
+       updated_at = NOW()
+     RETURNING
+       id::text AS booking_id,
+       booking_code,
+       status::text AS status,
+       payment_status::text AS payment_status,
+       assignment_status::text AS assignment_status,
+       availability_check_status::text AS availability_check_status,
+       airtable_record_id,
+       primary_room_code`,
+    [
+      clientId,
+      holdInput.booking_code,
+      wouldUpsert.guest_name,
+      wouldUpsert.phone,
+      wouldUpsert.email,
+      EXECUTE_HOLD_STATUSES.status,
+      EXECUTE_HOLD_STATUSES.payment_status,
+      EXECUTE_HOLD_STATUSES.assignment_status,
+      EXECUTE_HOLD_STATUSES.availability_check_status,
+      wouldUpsert.check_in,
+      wouldUpsert.check_out,
+      wouldUpsert.guest_count,
+      wouldUpsert.requested_room_type,
+      wouldUpsert.room_preference,
+      wouldUpsert.guest_gender_group_type,
+      wouldUpsert.primary_room_code,
+      wouldUpsert.package_code,
+      wouldUpsert.hold_expires_at,
+      JSON.stringify(meta),
+    ]
+  );
+
+  return {
+    created: !existedBefore,
+    updated: existedBefore,
+    booking: rows[0],
+  };
+}
+
 module.exports = {
   NULL_SENTINEL,
   ACTIVE_HOLD_STATUSES,
+  EXECUTE_HOLD_STATUSES,
   FUTURE_SQL,
   parseHoldInput,
   proposeHoldExpiresAt,
@@ -247,4 +380,6 @@ module.exports = {
   selectActiveHoldGuard,
   selectBookingCodeGuard,
   classifyBookingCodeAction,
+  buildExecuteMetadata,
+  upsertBookingHold,
 };

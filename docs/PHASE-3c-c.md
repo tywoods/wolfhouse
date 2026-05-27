@@ -1,6 +1,6 @@
 # Phase 3c.c — Main PG booking hold (plan → execute → workflow)
 
-**Status:** **3c.c.1** hold plan; **3c.c.2** active-hold guard fixture. Hold execute CLI not started.
+**Status:** **3c.c.3** hold execute CLI (`db:main-hold:postgres`). Workflow injection still **3c.e**.
 
 **Parents:** [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-b.md`](PHASE-3c-b.md), [`PHASE-3c-a.md`](PHASE-3c-a.md)
 
@@ -11,9 +11,9 @@
 | Substep | Deliverable | Mutations |
 |---------|-------------|-----------|
 | **3c.c.1** | `db:report:main-hold-plan` — availability + guards + `would_upsert` | **None** |
-| **3c.c.2** | Active-hold guard fixture + (later) execute CLI / mutation SQL | Fixture: `bookings` only |
-| **3c.c.3** | Ensure Booking promote shared SQL | `bookings` |
-| **3c.c.4** | Additional fixtures `WH-3C-HOLD-*` | test data |
+| **3c.c.2** | Active-hold guard fixture | Fixture: `bookings` only |
+| **3c.c.3** | `db:main-hold:postgres` — hold upsert execute (default dry-run) | `bookings` only |
+| **3c.c.4** | Ensure Booking promote shared SQL | `bookings` |
 | **3c.e** | `build-main-local-stripe.js` inject PG before `Create Booking Hold` | workflow |
 
 **Out of scope for 3c.c:** `booking_beds`, `conversations`/`messages` (3c.d), `payments`/`payment_events`, workflow JSON (3c.e).
@@ -89,6 +89,26 @@ Fixture does **not** insert `booking_beds`, `payments`, or `payment_events`.
 
 ---
 
+## Hold execute CLI (3c.c.3)
+
+```powershell
+# Dry-run (default)
+npm run db:main-hold:postgres -- --booking-code=WH-3C-HOLD-EXEC-001 --check-in=2026-08-07 --check-out=2026-08-12 --guest-count=2 --phone=+353399990001
+
+# Execute (bookings only)
+npm run db:main-hold:postgres -- --booking-code=WH-3C-HOLD-EXEC-001 --check-in=2026-08-07 --check-out=2026-08-12 --guest-count=2 --phone=+353399990001 --execute
+```
+
+**Execute writes:** `status=hold`, `payment_status=not_requested`, `assignment_status=unassigned`, `availability_check_status=available`, `airtable_record_id=NULL`. No `booking_beds` / payments.
+
+**Cleanup test booking:**
+
+```powershell
+Get-Content scripts/fixtures/main-hold-3cc-exec-cleanup-down.sql | docker compose -f infra/docker-compose.local.yml exec -T wolfhouse-postgres psql -U wolfhouse -d wolfhouse
+```
+
+---
+
 ## CLI (3c.c.1)
 
 ```powershell
@@ -156,7 +176,6 @@ docker compose --env-file infra/.env -f infra/docker-compose.local.yml --profile
 
 ## Next steps
 
-1. **3c.c.2 (execute)** — mutation SQL + `db:main-hold:upsert` (after guard fixture signed off).
-2. **3c.c.3** — shared Ensure Booking promote SQL + CLI test.
+1. **3c.c.4** — shared Ensure Booking promote SQL + CLI test.
 3. **3c.d** — conversation `current_hold_booking_id`.
 4. **3c.e** — build script inject + regenerate fork.
