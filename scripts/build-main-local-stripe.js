@@ -539,7 +539,7 @@ function applyPhase3cHoldGate(workflow) {
 
   const NULL_SENTINEL = '__NULL__';
   const holdData = "$('Code - Prepare Hold Records').first().json";
-  const sess = `${holdData}.session || {}`;
+  const sess = `((${holdData}.session) || {})`;
   const mapPg = "$('Code - Map PG Availability').first().json";
 
   function pgParam(innerExpr) {
