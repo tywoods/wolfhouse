@@ -1,6 +1,6 @@
 # Phase 3c.f — Payment/confirmation contract checks
 
-**Status:** **3c.f.1 complete; 3c.f.2 static checker added** (both read-only; no runtime payment test).
+**Status:** **3c.f.1/3c.f.2 complete; 3c.f.3af controlled runtime success with local stub**.
 
 ## Scope (3c.f.1)
 
@@ -142,3 +142,52 @@ Checks:
 Flags:
 - `read_only: true`
 - `no_mutations: true`
+
+## 3c.f.3af controlled runtime success (Main + local stub)
+
+Successful controlled payment-details runtime retry:
+- Main execution: `1009` (`success`)
+- Stub execution: `1010` (`success`)
+- Main route: `resolved_route=payment_details_provided`
+- Last Main node: `Create/update Conversation - Payment Pending`
+
+Selected booking:
+- `booking_code=WH-260528-1493`
+- `booking_id=33ac2766-537c-4b95-85d4-91c01c862beb`
+- `airtable_record_id=recIP3DFb0nCx8gBh`
+
+Pre-run booking state:
+- `status/payment_status=payment_pending/waiting_payment`
+- `payments(booking)=0`, `payment_events(booking)=0`, `booking_beds(booking)=0`
+- `send_confirmation=false`, `confirmation_sent_at=NULL`
+
+Execution evidence:
+- `Code - Prepare Stripe Payment Context` still emitted:
+  - `booking_code=""`
+  - `hold_record_id=recIP3DFb0nCx8gBh`
+  - `payment_kind=deposit_only`
+  - `use_stripe_checkout=true`
+- `Postgres - Ensure Booking In Postgres` output:
+  - `booking_id=33ac2766-537c-4b95-85d4-91c01c862beb`
+  - `booking_code=WH-260528-1493`
+  - `created=false`, `promoted=false`, `blocked=false`
+  - `action=refreshed`
+  - `status/payment_status=payment_pending/waiting_payment`
+- `Code - Call Create Payment Session` succeeded (stub):
+  - `ok=true`
+  - `checkout_url=https://example.test/checkout/session_stub_33ac2766-537c-4b95-85d4-91c01c862beb`
+  - `stripe_checkout_session_id=cs_test_stub_33ac2766537c`
+- `Update Booking - Stripe Payment Link` executed and wrote `example.test` URL to Airtable test booking.
+
+Safety outcomes:
+- No legacy Create Payment Session execution.
+- No Stripe call / no Stripe checkout URL.
+- No `payments` / `payment_events` writes (`23/3` unchanged globally).
+- No `booking_beds` writes.
+- Send Confirmation schedule execution `1011` was benign and did not touch target booking.
+- Main/stub/legacy workflows inactive after run.
+
+Queue-mode infra note (critical):
+- Use worker-reachable stub URL:
+  - `http://n8n:5678/webhook/create-payment-session-stub-local`
+- Do **not** use `localhost` or `127.0.0.1` for this callback URL in queue mode.
