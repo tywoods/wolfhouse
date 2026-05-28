@@ -1,6 +1,6 @@
 # Phase 3d.1 — Stripe isolated planning gate
 
-**Status:** 3d.4 CPS **PASS** · **3d.5b** webhook **PASS** · **3d.6** Send Confirmation **PASS** (dry-run) · **3d.7b** Main-integrated real Stripe payment-link **PASS** (2026-05-28). Next: **3d.8** pay + isolated webhook on a **new** disposable booking (separate window).
+**Status:** 3d.4 CPS **PASS** · **3d.5b** webhook **PASS** · **3d.6** Send Confirmation **PASS** (dry-run) · **3d.7b** payment-link **PASS** · **3d.8b** paid Checkout + webhook truth **PASS** (2026-05-28, organic Stripe delivery). Next: **3d.9** Send Confirmation on a **new** disposable booking (separate window).
 
 ## Boundary
 
@@ -804,7 +804,7 @@ When Airtable rows exist, behavior is unchanged (first matching row still used).
 
 ### Recommended next gate
 
-**3d.8** — pay + isolated Stripe Webhook Handler on a **new** disposable booking (see §3d.7 future chain). Do **not** pay `WH-260528-5369` checkout unless starting that gate with a deliberate plan.
+**3d.9** — isolated Send Confirmation (dry-run) on a **new** disposable booking or documented reset. **Do not** confirm `WH-260528-5369` unless that gate is explicitly planned.
 
 ---
 
@@ -858,7 +858,84 @@ Sign-off booking: **`WH-260528-5369`** (`3dd17e1b-b0c4-46f9-beaf-b2d8653aa0c8`) 
 - **Do not** open/pay the checkout URL unless starting **3d.8+** deliberately.
 - **Keep** evidence: booking `WH-260528-5369`, payment `389a5fdd-…`, executions **1063**, **1064**, **1065**.
 
-**Do not reuse** for another isolated gate without documented reset: `WH-260528-1493` (confirmed chain), `WH-260528-5369` (3d.7 sign-off), `WH-260528-9437` (3c.g stub) unless reset.
+**Do not reuse** for another isolated gate without documented reset: `WH-260528-1493` (confirmed chain), `WH-260528-5369` (3d.7 + 3d.8 sign-off), `WH-260528-9437` (3c.g stub) unless reset.
+
+---
+
+## 3d.8 — paid Checkout + webhook payment truth — **PASS** (2026-05-28)
+
+Sign-off booking: **`WH-260528-5369`** (same chain as 3d.7b). **PASS via manual pay + organic real Stripe webhook delivery** — not via crafted `evt_test_phase3d8b_001` skip-verify POST.
+
+### Sub-gates
+
+| Sub-gate | Status | Notes |
+|----------|--------|--------|
+| **3d.8a** | **Done** | Read-only preflight; session open; pay+webhook plan (Option B) |
+| **3d.8b-pay** | **Done** | User manually paid full Stripe Checkout URL (incl. `#` fragment) |
+| **3d.8b-webhook (crafted)** | **Not run** | Hard stop honored — DB already post-webhook before isolated POST |
+| **3d.8b (overall)** | **PASS** | Payment truth + booking flags match expected post-webhook state |
+
+### Stripe Checkout payment (manual)
+
+| Field | Value |
+|--------|--------|
+| `stripe_checkout_session_id` | `cs_test_a1izqISOeaPkavMYxmDJmJJHLxKunHC0CKi1HpQ5U4G8feWqnvVj6wps6O` |
+| Session `status` | **complete** |
+| Session `payment_status` | **paid** |
+| `payment_intent` | **`pi_3Tc9egG36qRefvdP0oNvU2VT`** |
+| `amount_total` | **20000** (EUR) |
+| `metadata.booking_id` | `3dd17e1b-b0c4-46f9-beaf-b2d8653aa0c8` |
+| `metadata.payment_kind` | `deposit_only` |
+| Mode | **test** only |
+
+### Webhook processing (organic — not crafted POST)
+
+When Checkout completed (~**2026-05-28 19:31:48–19:31:51 UTC**), **real** Stripe `checkout.session.completed` events reached the local **Stripe Webhook Handler** (`KZUQvwR6SPWpvaZ5`). Multiple handler executions succeeded (e.g. **1066–1076**; max advanced to **1076**).
+
+| Item | Value |
+|------|--------|
+| Crafted event `evt_test_phase3d8b_001` | **Not sent** — must **not** be sent now (duplicate/idempotency risk) |
+| Recorded PG `payment_events.stripe_event_id` | **`evt_1Tc9ehG36qRefvdPg9mXYrcr`** |
+| Send Confirmation | **Did not run** (max exec **1061**) |
+| Main / CPS / stub | **Did not run** (max **1064** / **1065** / **1037**) |
+
+This proves the **real Stripe delivery path** end-to-end on a Main-created session. It differs from **3d.5b** (crafted POST on `WH-260528-1493`) and from the originally planned **3d.8b-webhook-only** window (activate handler → single skip-verify POST).
+
+### Payment + booking result (PG)
+
+| Area | Result |
+|------|--------|
+| Payment `389a5fdd-daa7-4bc1-a5e0-2bf105a5f471` | **`paid`**, `amount_paid_cents=20000`, `paid_at` set, `stripe_payment_intent_id=pi_3Tc9egG36qRefvdP0oNvU2VT` |
+| Global `payment_events` | **4 → 5** |
+| Target `payment_events` | **0 → 1** |
+| Booking `WH-260528-5369` | `status=payment_pending`, `payment_status=deposit_paid`, **`send_confirmation=true`**, `confirmation_sent_at` **NULL** |
+| `booking_beds` | **0** |
+| Booking **not** `confirmed` | ✓ |
+
+### Operational finding — duplicate webhook execution burst
+
+Stripe delivery produced a **burst** of near-simultaneous Webhook Handler executions (**1066–1076**) for one checkout completion. PG shows **one** `payment_events` row (idempotency held). Document for future pay-only windows:
+
+| Pay-only test intent | Mitigation |
+|---------------------|------------|
+| **Allow** webhook in scope | Treat webhook processing as **in scope**; record exec ids; verify single `payment_events` row |
+| **Exclude** webhook | Before pay: handler **inactive**; disable Stripe Dashboard test webhook / `stripe listen` forward to `localhost:5678/webhook/stripe-webhook` |
+
+### Safety / reuse
+
+- **Do not** pay `WH-260528-5369` again.
+- **Do not** POST `evt_test_phase3d8b_001`.
+- **Do not** run Send Confirmation on this booking unless **3d.9** (or reset) is explicitly planned.
+- **Do not** reuse without documented reset.
+
+### Integrated chain progress (WH-260528-5369)
+
+| Step | Gate | Status |
+|------|------|--------|
+| Main two-POST + real CPS | 3d.7b | **PASS** |
+| Guest pays Checkout | 3d.8b-pay | **PASS** (manual) |
+| Webhook payment truth | 3d.8b | **PASS** (organic Stripe) |
+| Send Confirmation | 3d.9+ | **Not run** |
 
 ---
 
@@ -876,7 +953,7 @@ Isolated chain already proven on `WH-260528-1493` (execs **1050 → 1058 → 106
 |------|--------|------------|
 | **3d.7a** | Preflight (read-only + env/workflow map) | Before any Main POST |
 | **3d.7b** | Runtime: `booking_flow` → `payment_details_provided` → real CPS | **Stop after** Stripe test `checkout_url` returned and Airtable Payment Link updated — **no browser pay**, **no** `stripe-webhook` POST |
-| **3d.8** (future) | Pay + isolated webhook on new booking | `deposit_paid`, `send_confirmation=true`, still not confirmed |
+| **3d.8** | Pay + webhook on Main-created session (`WH-260528-5369`) | **PASS** — organic webhook (see §3d.8); not crafted POST |
 | **3d.9** (future) | Send Confirmation or full integrated confirmation | Separate window; dry-run or real WhatsApp per approval |
 
 **Answer for first integrated test:** **Yes — stop at payment-link creation.** Do not complete Checkout or fire webhook in the same window as 3d.7b.
@@ -990,16 +1067,18 @@ Not in one run:
 ```text
 Main (booking_flow + payment_details)
   → real CPS (checkout URL)     ← 3d.7b stops here
-  → guest pays (browser)        ← 3d.8
-  → stripe-webhook              ← 3d.8
-  → send_confirmation=true      ← 3d.8
+  → guest pays (browser)        ← 3d.8b PASS (WH-260528-5369)
+  → stripe-webhook              ← 3d.8b PASS (organic delivery)
+  → send_confirmation=true      ← 3d.8b PASS
   → Send Confirmation           ← 3d.9 (dry-run or real WA)
   → confirmed
 ```
 
-### Recommended next step (after 3d.7b PASS)
+### Recommended next step (after 3d.8b PASS)
 
-1. **3d.8** — on a **new** disposable booking (or documented reset): guest pays test Checkout URL → isolated `stripe-webhook` only; Send Confirmation **inactive**; schedule **disabled**.
-2. **3d.9** (future) — Send Confirmation or full integrated confirmation — separate window.
-3. Do **not** combine pay + webhook + Send Confirmation in one test window.
+1. **3d.9** — isolated Send Confirmation (dry-run) on a **new** disposable booking; schedule policy per gate plan; **do not** confirm `WH-260528-5369` unless reset.
+2. **Stage 3x** (planning) — bot knowledge + safety guardrails specs before Stage 4 reliability work.
+3. **Rooming/reassign** — local reassign URL before E2E.
+4. For future **pay-only** tests: explicitly allow or block reachable Stripe webhooks (see §3d.8 operational finding).
+5. **Do not** send `evt_test_phase3d8b_001` or pay `WH-260528-5369` again.
 

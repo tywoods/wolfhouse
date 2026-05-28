@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (roadmap refresh: Stages 3–7 + 3x)  
-**HEAD (expected):** after `Phase 3d.7: document Main integrated Stripe payment-link success`
+**Last updated:** 2026-05-28 (Phase 3d.8b paid Checkout + organic webhook PASS)  
+**HEAD (expected):** after `Phase 3d.8: document paid Checkout webhook truth success`
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -23,7 +23,7 @@
 
 | Stage | Status | Notes |
 |-------|--------|--------|
-| **3** Correct and safe | **In progress** | 3c/3d payment path largely proven; 3d.8 pay+webhook blocked at checkout pay; rooming/reassign pending |
+| **3** Correct and safe | **In progress** | Main→pay→webhook truth proven on `WH-260528-5369`; Send Confirmation not run; rooming/reassign pending |
 | **3x** Bot knowledge + guardrails | **Not started** | Specs/fixtures before Stage 4 — [ROADMAP.md § 3x](ROADMAP.md#stage-3x--bot-knowledge--safety-guardrails) |
 | **4** Reliable | Planned | After 3 + 3x |
 | **5** Clean | Planned | Decision engine out of n8n |
@@ -138,6 +138,10 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
 | **3d.7b** (1st) Main two-POST E2E (real CPS) | **FAIL** (safe) | exec **1062**; typing indicator #131009 on phase test wamid; no data mutations |
 | **3d.7c** Main typing guard for phase test wamids | **Done** | `e620822`; regex `^wamid\.PHASE[0-9A-Z]+` |
 | **3d.7b** (retry) Main two-POST E2E (real CPS) | **PASS** | Main **1063**/**1064**; CPS **1065**; booking `WH-260528-5369`; stop at checkout URL |
+| **3d.8a** Pay + webhook preflight | **Done** | read-only; session open; Option B plan |
+| **3d.8b-pay** Manual Stripe Checkout pay | **PASS** | session complete/paid; `pi_3Tc9egG36qRefvdP0oNvU2VT` |
+| **3d.8b-webhook (crafted POST)** | **Not run** | hard stop — DB already post-webhook |
+| **3d.8b** Paid Checkout + webhook truth | **PASS** | organic Stripe delivery; execs **1066–1076**; `evt_1Tc9eh…`; not `evt_test_phase3d8b_001` |
 
 **3d.4 evidence (summary):** Direct POST to `create-payment-session` with only `esuDIT96iPT63OaQ` active. Booking `33ac2766-537c-4b95-85d4-91c01c862beb` moved `waiting_payment` → `payment_link_sent`; one `payments` row created (`10ad0f21-0aa4-42c9-9adb-571a82f91698`); global `payment_events` unchanged; `send_confirmation` false; not confirmed; `booking_beds` 0.
 
@@ -147,7 +151,16 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
 
 **3d.6 evidence (summary):** One POST to `send-confirmation-local` with only `gxivKRJexzTCw9x6` active after **publish + n8n restart** (`WHATSAPP_DRY_RUN=true`). Exec **1061**: 0 Airtable conversation/bed rows continued via 3d.6d patch; `whatsapp_sent=true`, `dry_run=true`; booking `WH-260528-1493` → `confirmed`, `send_confirmation=false`, `confirmation_sent_at` set; `payment_status` stayed `deposit_paid`; global `payment_events` **4**; `booking_beds` **0**; webhook/Main/CPS max execs unchanged. **Do not** reuse this booking for another isolated gate without reset.
 
-**3d.7b evidence (summary):** Fresh two-POST E2E via `booking-assistant` with only Main `RBfGNtVgrAkvhBHJ` + real CPS `esuDIT96iPT63OaQ` active; phone `+353399990330`; wamids `PHASE3D7B.001` / `.002`. POST #1 exec **1063**: hold `WH-260528-5369`, conversation + Airtable `recJLWBVonS7UEG3t`, no payment writes. POST #2 exec **1064** + CPS **1065**: `payment_pending` / `payment_link_sent`; Stripe `cs_test_a1izqISOeaPkavMYxmDJmJJHLxKunHC0CKi1HpQ5U4G8feWqnvVj6wps6O`; payment `389a5fdd-daa7-4bc1-a5e0-2bf105a5f471`; `payments` 24→25; `payment_events` unchanged; not confirmed; webhook/Send Confirmation/stub did not run. **Do not** pay checkout URL unless starting **3d.8** deliberately.
+**3d.7b evidence (summary):** Fresh two-POST E2E via `booking-assistant` with only Main `RBfGNtVgrAkvhBHJ` + real CPS `esuDIT96iPT63OaQ` active; phone `+353399990330`; wamids `PHASE3D7B.001` / `.002`. POST #1 exec **1063**: hold `WH-260528-5369`, conversation + Airtable `recJLWBVonS7UEG3t`, no payment writes. POST #2 exec **1064** + CPS **1065**: `payment_pending` / `payment_link_sent`; Stripe `cs_test_a1izqISOeaPkavMYxmDJmJJHLxKunHC0CKi1HpQ5U4G8feWqnvVj6wps6O`; payment `389a5fdd-daa7-4bc1-a5e0-2bf105a5f471`; `payments` 24→25; `payment_events` unchanged; not confirmed; webhook/Send Confirmation/stub did not run.
+
+**3d.8b evidence (summary):** User manually paid Main-created Checkout (full URL with `#` fragment). Stripe session **complete/paid**; `payment_intent=pi_3Tc9egG36qRefvdP0oNvU2VT`. **Organic** Stripe webhook delivery updated PG (~19:31:48–19:31:51 UTC): Webhook Handler execs **1066–1076** (burst; max **1076**); one `payment_events` row `evt_1Tc9ehG36qRefvdPg9mXYrcr`; payment `389a5fdd-…` → **paid** (20000 cents); global `payment_events` 4→5; booking `deposit_paid`, `send_confirmation=true`, not confirmed, `booking_beds=0`. Crafted `evt_test_phase3d8b_001` **not sent** (correct hard stop). Send Confirmation max **1061**; Main **1064**; CPS **1065**. **Operational note:** future pay-only windows must either include webhook delivery in scope or disable Stripe forward to local `stripe-webhook`. **Do not** pay again, POST crafted event, or confirm this booking without **3d.9** or reset.
+
+**Integrated chain on `WH-260528-5369`:**
+
+| Gate | Execution / delivery | Booking state after |
+|------|----------------------|---------------------|
+| 3d.7b Main + CPS | **1063** / **1064** / **1065** | `payment_link_sent` |
+| 3d.8b Pay + webhook | manual pay + organic Stripe | `deposit_paid`, `send_confirmation=true`, not confirmed |
 
 **Isolated Stripe chain on `WH-260528-1493`:**
 
@@ -170,18 +183,20 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
 
 **3d.6 signed off (dry-run):** isolated Send Confirmation via direct webhook + `booking_id` filter. **Not** signed off: real WhatsApp send, schedule-poll trigger mode, integrated Main→Stripe→webhook→confirmation in one run.
 
-**3d.7 signed off (payment-link only):** Main-integrated `booking_flow` → `payment_details_provided` → real CPS; stop at Stripe test checkout URL. **Not** signed off: browser pay, webhook, confirmation in same window; Airtable Payment Link field not re-fetched (optional UI check on `recJLWBVonS7UEG3t`).
+**3d.7 signed off (payment-link only):** Main-integrated `booking_flow` → `payment_details_provided` → real CPS; stop at Stripe test checkout URL.
+
+**3d.8 signed off (pay + webhook truth):** Manual Checkout pay + **organic** Stripe webhook on `WH-260528-5369` (not crafted skip-verify POST). **Not** signed off: Send Confirmation on this booking; crafted `evt_test_phase3d8b_001`.
 
 **Disposable bookings (do not reuse without reset):**
 
 | Booking | Phone | Terminal / notes |
 |---------|-------|------------------|
 | `WH-260528-1493` | `+353399990329` | `confirmed` after 3d.6 — full isolated chain |
-| `WH-260528-5369` | `+353399990330` | `payment_link_sent` — 3d.7 sign-off; open checkout |
+| `WH-260528-5369` | `+353399990330` | `deposit_paid`, `send_confirmation=true` — 3d.7+3d.8; **not** confirmed |
 | `WH-260528-9437` | (3c.g) | stub path `waiting_payment` |
 
 Remaining exclusions (still separate):
-- Pay + isolated webhook on 3d.7 booking (**3d.8**)
+- Send Confirmation on `WH-260528-5369` (**3d.9** or new booking)
 - Full integrated payment + confirmation chain in one window
 - Real WhatsApp send (`WHATSAPP_DRY_RUN` was true for 3d.6)
 - Send Confirmation **schedule poll** mode (schedule node still disabled)
@@ -245,7 +260,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 ## Preferred next step
 
 **Immediate (Stage 3 runtime):**
-- **3d.8b** — complete pay + isolated webhook on `WH-260528-5369` (manual browser pay if needed, then webhook-only POST); Send Confirmation **inactive**; schedule **disabled**.
+- **3d.9** — isolated Send Confirmation (dry-run) on a **new** disposable booking; **do not** confirm `WH-260528-5369` unless planned reset.
 - **Rooming/reassign** — remap hosted reassign URL to local fork before E2E.
 
 **Next (planning, docs-only OK):**
