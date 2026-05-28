@@ -51,6 +51,11 @@ function detectMessageSignals(message) {
       lower
     ) || dateRange;
 
+  const hasPaymentLinkIntent =
+    /\b(payment link|send (me )?the payment link|pay link|checkout link|link to pay|payment url)\b/i.test(
+      lower
+    );
+
   const hasPaymentClaim =
     /\b(i paid|payment done|paid already|already paid|sent (the )?payment|transfer|money sent|he pagado|ya pagu[eé])\b/i.test(
       lower
@@ -75,6 +80,7 @@ function detectMessageSignals(message) {
     has_guest_name: hasGuestName,
     has_guest_email: hasGuestEmail,
     has_payment_claim: hasPaymentClaim,
+    has_payment_link_intent: hasPaymentLinkIntent,
     has_availability_question: hasAvailabilityQuestion,
     has_booking_intent: hasBookingIntent,
     has_booking_core: hasBookingCore,
@@ -143,6 +149,24 @@ function resolveBookingRoute(input) {
   ]);
 
   const attemptHoldSearch = shouldAttemptHoldSearch(input, messageSignals, holdUsable);
+
+  // Contact details + explicit payment-link ask on an active/inferred hold
+  // should enter payment_details_provided (not generic payment_or_confirm_intent).
+  if (
+    routerRoute === 'payment_or_confirm_intent' &&
+    (holdUsable || attemptHoldSearch) &&
+    (messageSignals.has_guest_email || messageSignals.has_guest_name) &&
+    messageSignals.has_payment_link_intent &&
+    !messageSignals.has_payment_claim
+  ) {
+    resolvedRoute = 'payment_details_provided';
+    resolvedSubRoute = 'payment_details_on_existing_hold';
+    routeOverridden = true;
+    overrideReason = holdUsable
+      ? 'contact_and_payment_link_intent_on_active_hold'
+      : 'contact_and_payment_link_intent_on_hold_lookup';
+    decisionCode = 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK';
+  }
 
   // Priority overrides (deterministic)
   if (routerRoute === 'payment_details_provided' && !holdUsable) {

@@ -6,6 +6,29 @@ const { resolveBookingRoute } = require('./lib/booking-state-resolver');
 
 const fixtures = [
   {
+    id: '2f-payment-link-intent-with-contact-and-hold',
+    input: {
+      router_route: 'payment_or_confirm_intent',
+      router_reason: 'guest asks for payment link',
+      router_confidence: 0.92,
+      language: 'en',
+      guest_message:
+        'Thanks. My full name is Phase 3c Payment Test and my email is phase3c.payment.test+1493@example.com. Please send me the payment link for my booking.',
+      pending_action: 'none',
+      conversation_stage: 'booking_flow',
+      active_booking: {
+        active_booking_found: true,
+        active_booking_status: 'Hold',
+        active_booking_id: 'WH-260528-1493',
+      },
+    },
+    expect: {
+      resolved_route: 'payment_details_provided',
+      decision_code: 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK',
+      should_search_hold: true,
+    },
+  },
+  {
     id: '2f-james-july-booking-flow',
     input: {
       router_route: 'booking_flow',
