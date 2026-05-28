@@ -29,6 +29,45 @@ const fixtures = [
     },
   },
   {
+    id: '2f-handoff-payment-link-contact-hold-lookup',
+    input: {
+      router_route: 'human_handoff',
+      router_reason: 'repeated payment link requests',
+      router_confidence: 0.92,
+      language: 'en',
+      guest_message:
+        'Thanks. My full name is Phase 3c Payment Test and my email is phase3c.payment.test+1493@example.com. Please send me the payment link for my booking.',
+      pending_action: 'none',
+      conversation_stage: 'booking_flow',
+      active_booking: { active_booking_found: false },
+      conversation: {},
+    },
+    expect: {
+      resolved_route: 'payment_details_provided',
+      decision_code: 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_HANDOFF',
+      should_search_hold: true,
+    },
+  },
+  {
+    id: '2f-handoff-payment-claim-no-override',
+    input: {
+      router_route: 'human_handoff',
+      router_reason: 'payment issue escalation',
+      router_confidence: 0.9,
+      language: 'en',
+      guest_message: 'I paid already, did you receive payment? My email is phase3c.payment.test+1493@example.com',
+      pending_action: 'none',
+      conversation_stage: 'payment_pending',
+      active_booking: { active_booking_found: false },
+      conversation: {},
+    },
+    expect: {
+      resolved_route: 'human_handoff',
+      decision_code: 'R2F_ROUTER_ACCEPTED',
+      should_search_hold: false,
+    },
+  },
+  {
     id: '2f-james-july-booking-flow',
     input: {
       router_route: 'booking_flow',

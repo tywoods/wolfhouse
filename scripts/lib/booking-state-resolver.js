@@ -151,9 +151,9 @@ function resolveBookingRoute(input) {
   const attemptHoldSearch = shouldAttemptHoldSearch(input, messageSignals, holdUsable);
 
   // Contact details + explicit payment-link ask on an active/inferred hold
-  // should enter payment_details_provided (not generic payment_or_confirm_intent).
+  // should enter payment_details_provided (not generic payment_or_confirm_intent/handoff).
   if (
-    routerRoute === 'payment_or_confirm_intent' &&
+    (routerRoute === 'payment_or_confirm_intent' || routerRoute === 'human_handoff') &&
     (holdUsable || attemptHoldSearch) &&
     (messageSignals.has_guest_email || messageSignals.has_guest_name) &&
     messageSignals.has_payment_link_intent &&
@@ -165,7 +165,10 @@ function resolveBookingRoute(input) {
     overrideReason = holdUsable
       ? 'contact_and_payment_link_intent_on_active_hold'
       : 'contact_and_payment_link_intent_on_hold_lookup';
-    decisionCode = 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK';
+    decisionCode =
+      routerRoute === 'human_handoff'
+        ? 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_HANDOFF'
+        : 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK';
   }
 
   // Priority overrides (deterministic)
