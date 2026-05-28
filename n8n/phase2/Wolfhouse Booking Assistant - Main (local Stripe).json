@@ -21182,6 +21182,77 @@
     {
       "parameters": {
         "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    NULLIF($1, '__NULL__') AS phone,\n    NULLIF($2, '__NULL__') AS booking_code,\n    COALESCE(NULLIF($3, '__NULL__'), 'booking_flow') AS conversation_stage,\n    NULLIF($4, '__NULL__') AS pending_action,\n    NULLIF($5, '__NULL__') AS language,\n    COALESCE(NULLIF($6, '__NULL__')::jsonb, '{}'::jsonb) AS session_state_json,\n    CASE\n      WHEN lower(COALESCE(NULLIF($7, '__NULL__'), '')) IN ('true', '1', 'yes') THEN TRUE\n      ELSE NULL\n    END AS needs_human_value,\n    NULLIF($8, '__NULL__') AS bot_mode_value\n),\nclient AS (\n  SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1\n),\nbooking AS (\n  SELECT\n    b.id::text AS booking_id,\n    b.id AS booking_uuid,\n    b.booking_code,\n    b.phone,\n    b.status::text AS status\n  FROM bookings b\n  INNER JOIN client c ON b.client_id = c.id\n  CROSS JOIN params p\n  WHERE b.booking_code = p.booking_code\n  LIMIT 1\n),\nguard AS (\n  SELECT\n    p.*,\n    b.booking_id,\n    b.booking_uuid,\n    b.booking_code AS found_booking_code,\n    b.phone AS booking_phone,\n    b.status AS booking_status,\n    (p.phone IS NULL OR p.booking_code IS NULL) AS missing_required,\n    (b.booking_id IS NULL) AS booking_missing,\n    (b.status IN ('confirmed', 'checked_in', 'cancelled', 'expired')) AS blocked_booking_status,\n    (b.status IS NOT NULL AND b.status NOT IN ('hold', 'payment_pending')) AS status_not_allowed,\n    (b.phone IS NOT NULL AND p.phone IS NOT NULL AND b.phone <> p.phone) AS phone_mismatch\n  FROM params p\n  LEFT JOIN booking b ON TRUE\n),\nupserted AS (\n  INSERT INTO conversations (\n    client_id,\n    phone,\n    current_hold_booking_id,\n    conversation_stage,\n    session_state,\n    pending_action,\n    language,\n    needs_human,\n    bot_mode\n  )\n  SELECT\n    c.id,\n    g.phone,\n    g.booking_uuid,\n    g.conversation_stage,\n    g.session_state_json || jsonb_build_object('current_hold_booking_code', g.found_booking_code),\n    g.pending_action,\n    g.language,\n    COALESCE(g.needs_human_value, FALSE),\n    COALESCE(g.bot_mode_value::bot_mode, 'bot'::bot_mode)\n  FROM guard g\n  INNER JOIN client c ON TRUE\n  WHERE NOT g.missing_required\n    AND NOT g.booking_missing\n    AND NOT g.blocked_booking_status\n    AND NOT g.status_not_allowed\n    AND NOT g.phone_mismatch\n  ON CONFLICT (client_id, phone) DO UPDATE SET\n    current_hold_booking_id = EXCLUDED.current_hold_booking_id,\n    conversation_stage = EXCLUDED.conversation_stage,\n    session_state = COALESCE(conversations.session_state, '{}'::jsonb) || EXCLUDED.session_state,\n    pending_action = COALESCE(EXCLUDED.pending_action, conversations.pending_action),\n    language = COALESCE(EXCLUDED.language, conversations.language),\n    needs_human = COALESCE(EXCLUDED.needs_human, conversations.needs_human),\n    bot_mode = COALESCE(EXCLUDED.bot_mode, conversations.bot_mode),\n    updated_at = NOW()\n  RETURNING\n    id::text AS conversation_id,\n    current_hold_booking_id::text AS current_hold_booking_id,\n    conversation_stage,\n    (xmax = 0) AS created,\n    (xmax <> 0) AS updated\n)\nSELECT\n  CASE\n    WHEN g.missing_required THEN FALSE\n    WHEN g.booking_missing THEN FALSE\n    WHEN g.blocked_booking_status THEN FALSE\n    WHEN g.status_not_allowed THEN FALSE\n    WHEN g.phone_mismatch THEN FALSE\n    WHEN u.conversation_id IS NULL THEN FALSE\n    ELSE TRUE\n  END AS pg_ok,\n  u.conversation_id,\n  g.booking_id,\n  g.found_booking_code AS booking_code,\n  u.current_hold_booking_id,\n  u.conversation_stage,\n  COALESCE(u.created, FALSE) AS created,\n  COALESCE(u.updated, FALSE) AS updated,\n  CASE\n    WHEN g.missing_required THEN '[\"missing_phone_or_booking_code\"]'::jsonb\n    WHEN g.booking_missing THEN '[\"booking_not_found\"]'::jsonb\n    WHEN g.blocked_booking_status THEN '[\"blocked_booking_status\"]'::jsonb\n    WHEN g.status_not_allowed THEN '[\"booking_status_not_allowed\"]'::jsonb\n    WHEN g.phone_mismatch THEN '[\"phone_mismatch\"]'::jsonb\n    WHEN u.conversation_id IS NULL THEN '[\"conversation_upsert_failed\"]'::jsonb\n    ELSE '[]'::jsonb\n  END AS actionable,\n  CASE\n    WHEN g.missing_required THEN ARRAY['missing_phone_or_booking_code']::text[]\n    WHEN g.booking_missing THEN ARRAY['booking_not_found']::text[]\n    WHEN g.blocked_booking_status THEN ARRAY['blocked_booking_status']::text[]\n    WHEN g.status_not_allowed THEN ARRAY['booking_status_not_allowed']::text[]\n    WHEN g.phone_mismatch THEN ARRAY['phone_mismatch']::text[]\n    WHEN u.conversation_id IS NULL THEN ARRAY['conversation_upsert_failed']::text[]\n    ELSE ARRAY[]::text[]\n  END AS pg_errors\nFROM guard g\nLEFT JOIN upserted u ON TRUE;",
+        "options": {
+          "queryReplacement": "={{ (($('Code - Prepare Hold Records').first().json.guest_phone || $('Normalize Incoming Message').first().json.phone) != null && String($('Code - Prepare Hold Records').first().json.guest_phone || $('Normalize Incoming Message').first().json.phone).trim() !== '') ? String($('Code - Prepare Hold Records').first().json.guest_phone || $('Normalize Incoming Message').first().json.phone).trim() : '__NULL__' }},={{ (($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id) != null && String($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id).trim() !== '') ? String($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id).trim() : '__NULL__' }},={{ (('booking_flow') != null && String('booking_flow').trim() !== '') ? String('booking_flow').trim() : '__NULL__' }},={{ (($('Code - Prepare Hold Records').first().json.session || {}.pending_action || 'collect_guest_details') != null && String($('Code - Prepare Hold Records').first().json.session || {}.pending_action || 'collect_guest_details').trim() !== '') ? String($('Code - Prepare Hold Records').first().json.session || {}.pending_action || 'collect_guest_details').trim() : '__NULL__' }},={{ (($('Code - Parse Route').first().json.language || $('Code - Prepare Hold Records').first().json.session || {}.language) != null && String($('Code - Parse Route').first().json.language || $('Code - Prepare Hold Records').first().json.session || {}.language).trim() !== '') ? String($('Code - Parse Route').first().json.language || $('Code - Prepare Hold Records').first().json.session || {}.language).trim() : '__NULL__' }},={{ ((JSON.stringify({\n      current_hold_booking_code: $('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id || '',\n      check_in: $('Code - Prepare Hold Records').first().json.session || {}.check_in || null,\n      check_out: $('Code - Prepare Hold Records').first().json.session || {}.check_out || null,\n      guest_count: $('Code - Prepare Hold Records').first().json.guest_count || null,\n      primary_room_code: $('Code - Validate PG Hold').first().json.primary_room_code || $('Code - Map PG Availability').first().json.primary_room_code || $('Code - Map PG Availability').first().json.pg_primary_room_code || null\n    })) != null && String(JSON.stringify({\n      current_hold_booking_code: $('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id || '',\n      check_in: $('Code - Prepare Hold Records').first().json.session || {}.check_in || null,\n      check_out: $('Code - Prepare Hold Records').first().json.session || {}.check_out || null,\n      guest_count: $('Code - Prepare Hold Records').first().json.guest_count || null,\n      primary_room_code: $('Code - Validate PG Hold').first().json.primary_room_code || $('Code - Map PG Availability').first().json.primary_room_code || $('Code - Map PG Availability').first().json.pg_primary_room_code || null\n    })).trim() !== '') ? String(JSON.stringify({\n      current_hold_booking_code: $('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id || '',\n      check_in: $('Code - Prepare Hold Records').first().json.session || {}.check_in || null,\n      check_out: $('Code - Prepare Hold Records').first().json.session || {}.check_out || null,\n      guest_count: $('Code - Prepare Hold Records').first().json.guest_count || null,\n      primary_room_code: $('Code - Validate PG Hold').first().json.primary_room_code || $('Code - Map PG Availability').first().json.primary_room_code || $('Code - Map PG Availability').first().json.pg_primary_room_code || null\n    })).trim() : '__NULL__' }},={{ (('__NULL__') != null && String('__NULL__').trim() !== '') ? String('__NULL__').trim() : '__NULL__' }},={{ (('bot') != null && String('bot').trim() !== '') ? String('bot').trim() : '__NULL__' }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4496,
+        800
+      ],
+      "id": "3ce005001-0001-4000-8000-000000000501",
+      "name": "Postgres - Upsert Conversation Hold",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pg-conversation-ok",
+              "leftValue": "={{ $('Postgres - Upsert Conversation Hold').first().json.pg_ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4576,
+        880
+      ],
+      "id": "3ce005002-0002-4000-8000-000000000502",
+      "name": "IF - PG Conversation OK"
+    },
+    {
+      "parameters": {
+        "jsCode": "const convo = $('Postgres - Upsert Conversation Hold').first().json || {};\nreturn [\n  {\n    json: {\n      pg_conversation_failed: true,\n      pg_ok: false,\n      booking_code: convo.booking_code || null,\n      pg_errors: convo.pg_errors || convo.actionable || ['pg_conversation_upsert_failed'],\n      note: 'Phase 3c.e.5 safety stop: no Airtable writes on PG conversation failure.',\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        1040
+      ],
+      "id": "3ce005003-0003-4000-8000-000000000503",
+      "name": "Code - PG Conversation Failed Stop"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
         "query": "UPDATE bookings b\nSET\n  airtable_record_id = NULLIF($1, '__NULL__'),\n  updated_at = NOW()\nFROM clients c\nWHERE b.client_id = c.id\n  AND c.slug = 'wolfhouse-somo'\n  AND b.booking_code = NULLIF($2, '__NULL__')\nRETURNING\n  b.id::text AS booking_id,\n  b.booking_code,\n  b.airtable_record_id;",
         "options": {
           "queryReplacement": "={{ (($('Create Booking Hold').first().json.id) != null && String($('Create Booking Hold').first().json.id).trim() !== '') ? String($('Create Booking Hold').first().json.id).trim() : '__NULL__' }},={{ (($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id) != null && String($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id).trim() !== '') ? String($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id).trim() : '__NULL__' }}"
@@ -21218,7 +21289,7 @@
     },
     {
       "parameters": {
-        "content": "## Phase 3c.e.4 — PG hold + AT mirror\n\nPG upsert → Validate → IF → Create Booking Hold (mirror) → backfill airtable_record_id → Summarize.\n\nPG failure → terminal safety stop (no Airtable writes).",
+        "content": "## Phase 3c.e.4/3c.e.5 — PG hold + conversation + AT mirror\n\nPG hold upsert → validate → IF → PG conversation upsert → IF → Create Booking Hold (mirror) → backfill airtable_record_id → Summarize.\n\nAny PG failure → terminal safety stop (no Airtable writes).",
         "height": 200,
         "width": 440
       },
@@ -23299,7 +23370,7 @@
       "main": [
         [
           {
-            "node": "Create Booking Hold",
+            "node": "Postgres - Upsert Conversation Hold",
             "type": "main",
             "index": 0
           }
@@ -23307,6 +23378,35 @@
         [
           {
             "node": "Code - PG Hold Failed Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Upsert Conversation Hold": {
+      "main": [
+        [
+          {
+            "node": "IF - PG Conversation OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - PG Conversation OK": {
+      "main": [
+        [
+          {
+            "node": "Create Booking Hold",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - PG Conversation Failed Stop",
             "type": "main",
             "index": 0
           }
@@ -23325,6 +23425,9 @@
       ]
     },
     "Code - PG Hold Failed Stop": {
+      "main": []
+    },
+    "Code - PG Conversation Failed Stop": {
       "main": []
     }
   },
@@ -23369,6 +23472,9 @@
     },
     {
       "name": "phase3c-e4"
+    },
+    {
+      "name": "phase3c-e5"
     }
   ]
 }

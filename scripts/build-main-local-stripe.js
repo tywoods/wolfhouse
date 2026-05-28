@@ -29,6 +29,7 @@ const {
   buildHoldUpsertN8nSql,
   buildHoldBackfillAirtableN8nSql,
 } = require('./lib/main-booking-hold-pg-sql');
+const { buildConversationHoldUpsertN8nSql } = require('./lib/main-conversation-pg-sql');
 
 /** n8n IF expression — run Stripe after hold when contact + hold exist (not only session merge). */
 const STRIPE_AFTER_HOLD_IF_EXPR = `={{ 
@@ -115,7 +116,7 @@ const PHASE_3CE_PG_TARGETS = {
     route: 'booking_flow',
     insertAfter: 'Postgres - Create Booking Hold',
     insertBefore: 'Create Booking Hold',
-    futureNodes: ['Postgres - Upsert Conversation Hold'],
+    nodes: ['Postgres - Upsert Conversation Hold', 'IF - PG Conversation OK'],
     pgColumn: 'conversations.current_hold_booking_id',
     pgValue: 'bookings.id (UUID)',
     airtableMirrorField: 'Current Hold ID',
@@ -495,6 +496,19 @@ return [
   },
 ];`;
 
+const PG_CONVERSATION_FAILED_STOP_JS = `const convo = $('Postgres - Upsert Conversation Hold').first().json || {};
+return [
+  {
+    json: {
+      pg_conversation_failed: true,
+      pg_ok: false,
+      booking_code: convo.booking_code || null,
+      pg_errors: convo.pg_errors || convo.actionable || ['pg_conversation_upsert_failed'],
+      note: 'Phase 3c.e.5 safety stop: no Airtable writes on PG conversation failure.',
+    },
+  },
+];`;
+
 function applyPhase3cHoldGate(workflow) {
   const prepareHold = workflow.nodes.find((n) => n.name === 'Code - Prepare Hold Records');
   const createAtHold = workflow.nodes.find((n) => n.name === 'Create Booking Hold');
@@ -532,6 +546,23 @@ function applyPhase3cHoldGate(workflow) {
     pgParam(
       `$('Code - Validate PG Hold').first().json.booking_code || ${holdData}.hold_booking_id`
     ),
+  ].join(',');
+
+  const conversationQueryReplacement = [
+    pgParam(`${holdData}.guest_phone || $('Normalize Incoming Message').first().json.phone`),
+    pgParam(`$('Code - Validate PG Hold').first().json.booking_code || ${holdData}.hold_booking_id`),
+    pgParam(`'booking_flow'`),
+    pgParam(`${sess}.pending_action || 'collect_guest_details'`),
+    pgParam(`$('Code - Parse Route').first().json.language || ${sess}.language`),
+    pgParam(`JSON.stringify({
+      current_hold_booking_code: $('Code - Validate PG Hold').first().json.booking_code || ${holdData}.hold_booking_id || '',
+      check_in: ${sess}.check_in || null,
+      check_out: ${sess}.check_out || null,
+      guest_count: ${holdData}.guest_count || null,
+      primary_room_code: $('Code - Validate PG Hold').first().json.primary_room_code || ${mapPg}.primary_room_code || ${mapPg}.pg_primary_room_code || null
+    })`),
+    pgParam(`'__NULL__'`),
+    pgParam(`'bot'`),
   ].join(',');
 
   workflow.nodes.push(
@@ -582,6 +613,50 @@ function applyPhase3cHoldGate(workflow) {
     {
       parameters: {
         operation: 'executeQuery',
+        query: buildConversationHoldUpsertN8nSql(),
+        options: { queryReplacement: conversationQueryReplacement },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [4496, 800],
+      id: '3ce005001-0001-4000-8000-000000000501',
+      name: 'Postgres - Upsert Conversation Hold',
+      alwaysOutputData: true,
+      credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+    },
+    {
+      parameters: {
+        conditions: {
+          options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+          conditions: [
+            {
+              id: 'pg-conversation-ok',
+              leftValue: "={{ $('Postgres - Upsert Conversation Hold').first().json.pg_ok === true }}",
+              rightValue: '',
+              operator: { type: 'boolean', operation: 'true', singleValue: true },
+            },
+          ],
+          combinator: 'and',
+        },
+        options: {},
+      },
+      type: 'n8n-nodes-base.if',
+      typeVersion: 2.2,
+      position: [4576, 880],
+      id: '3ce005002-0002-4000-8000-000000000502',
+      name: 'IF - PG Conversation OK',
+    },
+    {
+      parameters: { jsCode: PG_CONVERSATION_FAILED_STOP_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [4576, 1040],
+      id: '3ce005003-0003-4000-8000-000000000503',
+      name: 'Code - PG Conversation Failed Stop',
+    },
+    {
+      parameters: {
+        operation: 'executeQuery',
         query: buildHoldBackfillAirtableN8nSql(),
         options: { queryReplacement: backfillQueryReplacement },
       },
@@ -604,7 +679,7 @@ function applyPhase3cHoldGate(workflow) {
     {
       parameters: {
         content:
-          '## Phase 3c.e.4 — PG hold + AT mirror\n\nPG upsert → Validate → IF → Create Booking Hold (mirror) → backfill airtable_record_id → Summarize.\n\nPG failure → terminal safety stop (no Airtable writes).',
+          '## Phase 3c.e.4/3c.e.5 — PG hold + conversation + AT mirror\n\nPG hold upsert → validate → IF → PG conversation upsert → IF → Create Booking Hold (mirror) → backfill airtable_record_id → Summarize.\n\nAny PG failure → terminal safety stop (no Airtable writes).',
         height: 200,
         width: 440,
       },
@@ -627,8 +702,17 @@ function applyPhase3cHoldGate(workflow) {
   };
   workflow.connections['IF - PG Hold OK'] = {
     main: [
-      [{ node: 'Create Booking Hold', type: 'main', index: 0 }],
+      [{ node: 'Postgres - Upsert Conversation Hold', type: 'main', index: 0 }],
       [{ node: 'Code - PG Hold Failed Stop', type: 'main', index: 0 }],
+    ],
+  };
+  workflow.connections['Postgres - Upsert Conversation Hold'] = {
+    main: [[{ node: 'IF - PG Conversation OK', type: 'main', index: 0 }]],
+  };
+  workflow.connections['IF - PG Conversation OK'] = {
+    main: [
+      [{ node: 'Create Booking Hold', type: 'main', index: 0 }],
+      [{ node: 'Code - PG Conversation Failed Stop', type: 'main', index: 0 }],
     ],
   };
   workflow.connections['Create Booking Hold'] = {
@@ -638,6 +722,7 @@ function applyPhase3cHoldGate(workflow) {
     main: [[{ node: 'Code - Summarize Holds', type: 'main', index: 0 }]],
   };
   workflow.connections['Code - PG Hold Failed Stop'] = { main: [] };
+  workflow.connections['Code - PG Conversation Failed Stop'] = { main: [] };
 
   summarizeHolds.parameters.jsCode = `const atHold = $('Create Booking Hold').first().json;
 const backfill = $('Postgres - Backfill Booking AT Record Id').first().json || {};
@@ -1687,6 +1772,7 @@ workflow.tags = [
   { name: 'phase2f3' },
   { name: 'phase3c-e3' },
   { name: 'phase3c-e4' },
+  { name: 'phase3c-e5' },
 ];
 
 return workflow;

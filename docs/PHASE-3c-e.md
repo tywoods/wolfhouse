@@ -1,6 +1,6 @@
 # Phase 3c.e — Main local fork PG injection
 
-**Status:** **3c.e.4** complete (PG hold + AT backfill in fork). Conversation upsert **not** wired yet.
+**Status:** **3c.e.5** complete (PG conversation upsert in fork).
 
 ## Build script
 
@@ -35,8 +35,8 @@
 |------|------|
 | 3c.e.2 | Ensure promote SQL in `Postgres - Ensure Booking In Postgres` | Done (`c89890a`) |
 | 3c.e.3 | PG availability gate (`Postgres - Main Availability` + map) | Done (`5bdd465`) |
-| 3c.e.4 | PG hold + AT mirror + `airtable_record_id` backfill | **Done** (uncommitted) |
-| 3c.e.5 | PG conversation upsert |
+| 3c.e.4 | PG hold + AT mirror + `airtable_record_id` backfill | Done (`881ab1b`) |
+| 3c.e.5 | PG conversation upsert | **Done** (uncommitted) |
 | 3c.e.6+ | Regenerate, import inactive, E2E later (3c.g) |
 
 Target map lives in `scripts/build-main-local-stripe.js` as `PHASE_3CE_PG_TARGETS`.
