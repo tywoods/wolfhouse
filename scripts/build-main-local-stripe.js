@@ -4,7 +4,7 @@
  *
  * Ensure Booking In Postgres: n8n drops empty query params and shifts $n bindings.
  * Use sentinel __NULL__ in queryReplacement + NULLIF($n, '__NULL__') in SQL.
- * airtable_record_id is hard-coded NULL in INSERT (not $12) until Phase 3 dual-write.
+ * Ensure Booking: shared promote SQL (3c.e.2); $12 = airtable_record_id when hold rec id known.
  *
  * Phase 2f: Booking State Resolver + hold search guards (see docs/PHASE-2f.md).
  * Phase 2f.2: Reusable Stripe branch after booking_flow hold + payment-link guard.
@@ -23,6 +23,7 @@ const {
   applyDeterministicPaymentUrl,
 } = require('./lib/merged-payment-path');
 const { stripePaymentLinkUpdateSchema } = require('./lib/airtable-bookings-schema');
+const { buildEnsurePromoteN8nSql } = require('./lib/main-ensure-booking-pg-sql');
 
 /** n8n IF expression — run Stripe after hold when contact + hold exist (not only session merge). */
 const STRIPE_AFTER_HOLD_IF_EXPR = `={{ 
@@ -758,6 +759,7 @@ return [
     pgParam(`${ctx}.requested_room_type`),
     pgParam(`${ctx}.room_preference`),
     pgParam(`${ctx}.guest_gender_group_type`),
+    pgParam(`${ctx}.hold_record_id`),
   ].join(',');
 
   if (updateStripeLink.parameters?.columns?.value) {
@@ -1000,74 +1002,10 @@ const ensureQueryReplacement = [
   pgParam(`${holdFields}?.['Requested Room Type']`),
   pgParam(`${holdFields}?.['Room Preference']`),
   pgParam(`${holdFields}?.['Guest Gender / Group Type']`),
+  pgParam(`$('Search Hold With Guest Details').first().json.id`),
 ].join(',');
 
-const ensureBookingSql = `WITH existing AS (
-  SELECT b.id AS booking_id, b.booking_code, false AS created
-  FROM bookings b
-  WHERE b.booking_code = NULLIF($1, '${NULL_SENTINEL}')
-    AND b.client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo')
-  LIMIT 1
-),
-inserted AS (
-  INSERT INTO bookings (
-    client_id,
-    booking_code,
-    airtable_record_id,
-    guest_name,
-    phone,
-    email,
-    status,
-    payment_status,
-    check_in,
-    check_out,
-    guest_count,
-    package_code,
-    requested_room_type,
-    room_preference,
-    guest_gender_group_type,
-    booking_source,
-    deposit_required_cents
-  )
-  SELECT
-    c.id,
-    NULLIF($1, '${NULL_SENTINEL}'),
-    NULL,
-    NULLIF($2, '${NULL_SENTINEL}'),
-    NULLIF($3, '${NULL_SENTINEL}'),
-    NULLIF($4, '${NULL_SENTINEL}'),
-    'payment_pending'::booking_status,
-    'waiting_payment'::payment_status,
-    NULLIF($5, '${NULL_SENTINEL}')::date,
-    NULLIF($6, '${NULL_SENTINEL}')::date,
-    GREATEST(
-      COALESCE(
-        CASE
-          WHEN NULLIF($7, '${NULL_SENTINEL}') IS NULL THEN 1
-          ELSE NULLIF(trim(NULLIF($7, '${NULL_SENTINEL}')::text), '')::integer
-        END,
-        1
-      ),
-      1
-    ),
-    NULLIF($8, '${NULL_SENTINEL}'),
-    NULLIF($9, '${NULL_SENTINEL}'),
-    NULLIF($10, '${NULL_SENTINEL}'),
-    NULLIF($11, '${NULL_SENTINEL}'),
-    'whatsapp'::booking_source,
-    NULL
-  FROM clients c
-  WHERE c.slug = 'wolfhouse-somo'
-    AND NULLIF($1, '${NULL_SENTINEL}') IS NOT NULL
-    AND NULLIF($5, '${NULL_SENTINEL}') IS NOT NULL
-    AND NULLIF($6, '${NULL_SENTINEL}') IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM existing)
-  RETURNING id AS booking_id, booking_code, true AS created
-)
-SELECT booking_id, booking_code, created FROM inserted
-UNION ALL
-SELECT booking_id, booking_code, created FROM existing
-WHERE NOT EXISTS (SELECT 1 FROM inserted);`;
+const ensureBookingSql = buildEnsurePromoteN8nSql();
 
 const newNodes = [
   {
@@ -1260,7 +1198,7 @@ try {
   {
     parameters: {
       content:
-        '## Phase 2c — Ensure Booking In Postgres\n\nQuery params use __NULL__ sentinel (n8n drops empty params).\n\nairtable_record_id = NULL for now. deposit_required_cents = NULL.',
+        '## Phase 2c / 3c.e.2 — Ensure Booking In Postgres\n\nPromote hold → payment_pending (shared 3c.c.4 SQL). $1–$12 + __NULL__ sentinel; $12 = Airtable hold rec id backfill.\n\nOutputs: booking_id, booking_code, created, promoted, blocked, action, status, payment_status.',
       height: 220,
       width: 420,
     },

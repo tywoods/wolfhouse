@@ -55,23 +55,17 @@ function ensureQueryParams(input) {
 }
 
 /**
- * @param {import('pg').Client} client
- * @param {ReturnType<typeof parseEnsureInput>} input
+ * Shared Ensure promote/insert SQL (CLI uses $13 for blocked statuses; n8n inlines array).
+ * @param {{ forN8n?: boolean }} [opts]
+ * @returns {string}
  */
-async function ensureBookingPromote(client, input) {
-  if (!input.booking_code) {
-    return { error: 'missing_booking_code', input };
-  }
-  if (!input.check_in || !input.check_out) {
-    return { error: 'missing_dates', input };
-  }
-  if (input.check_out <= input.check_in) {
-    return { error: 'invalid_date_range', input };
-  }
+function getEnsurePromoteSql(opts = {}) {
+  const { forN8n = false } = opts;
+  const blockedStatusesSql = forN8n
+    ? `ARRAY[${BLOCKED_STATUSES.map((s) => `'${s}'`).join(', ')}]::text[]`
+    : '$13::text[]';
 
-  const params = ensureQueryParams(input);
-
-  const sql = `WITH existing AS (
+  return `WITH existing AS (
   SELECT
     b.id,
     b.booking_code,
@@ -87,7 +81,7 @@ async function ensureBookingPromote(client, input) {
 blocked AS (
   SELECT e.*
   FROM existing e
-  WHERE e.status = ANY($13::text[])
+  WHERE e.status = ANY(${blockedStatusesSql})
 ),
 updated AS (
   UPDATE bookings b
@@ -137,7 +131,9 @@ updated AS (
     CASE
       WHEN e.status = 'hold' THEN 'promoted'
       ELSE 'refreshed'
-    END AS action
+    END AS action,
+    b.status::text AS status,
+    b.payment_status::text AS payment_status
 ),
 inserted AS (
   INSERT INTO bookings (
@@ -202,7 +198,9 @@ inserted AS (
     booking_code,
     true AS created,
     false AS promoted,
-    'inserted'::text AS action
+    'inserted'::text AS action,
+    status::text AS status,
+    payment_status::text AS payment_status
 )
 SELECT
   booking_id::text,
@@ -210,10 +208,20 @@ SELECT
   created,
   promoted,
   false AS blocked,
-  action
+  action,
+  status,
+  payment_status
 FROM updated
 UNION ALL
-SELECT booking_id::text, booking_code, created, promoted, false, action
+SELECT
+  booking_id::text,
+  booking_code,
+  created,
+  promoted,
+  false,
+  action,
+  status,
+  payment_status
 FROM inserted
 UNION ALL
 SELECT
@@ -222,7 +230,9 @@ SELECT
   false AS created,
   false AS promoted,
   true AS blocked,
-  'blocked'::text AS action
+  'blocked'::text AS action,
+  NULL::text AS status,
+  NULL::text AS payment_status
 FROM existing e
 WHERE EXISTS (SELECT 1 FROM blocked)
   AND NOT EXISTS (SELECT 1 FROM updated)
@@ -234,13 +244,39 @@ SELECT
   false AS created,
   false AS promoted,
   true AS blocked,
-  'not_promotable'::text AS action
+  'not_promotable'::text AS action,
+  NULL::text AS status,
+  NULL::text AS payment_status
 FROM existing e
 WHERE EXISTS (SELECT 1 FROM existing)
   AND NOT EXISTS (SELECT 1 FROM blocked)
   AND e.status NOT IN ('hold', 'payment_pending')
   AND NOT EXISTS (SELECT 1 FROM updated)
-  AND NOT EXISTS (SELECT 1 FROM inserted);`;
+  AND NOT EXISTS (SELECT 1 FROM inserted)`;
+}
+
+/** Static SQL for n8n Postgres node ($1–$12 + inlined blocked statuses). */
+function buildEnsurePromoteN8nSql() {
+  return getEnsurePromoteSql({ forN8n: true });
+}
+
+/**
+ * @param {import('pg').Client} client
+ * @param {ReturnType<typeof parseEnsureInput>} input
+ */
+async function ensureBookingPromote(client, input) {
+  if (!input.booking_code) {
+    return { error: 'missing_booking_code', input };
+  }
+  if (!input.check_in || !input.check_out) {
+    return { error: 'missing_dates', input };
+  }
+  if (input.check_out <= input.check_in) {
+    return { error: 'invalid_date_range', input };
+  }
+
+  const params = ensureQueryParams(input);
+  const sql = getEnsurePromoteSql({ forN8n: false });
 
   const { rows } = await client.query(sql, [...params, BLOCKED_STATUSES]);
 
@@ -314,5 +350,7 @@ module.exports = {
   NULL_SENTINEL,
   parseEnsureInput,
   ensureQueryParams,
+  getEnsurePromoteSql,
+  buildEnsurePromoteN8nSql,
   ensureBookingPromote,
 };
