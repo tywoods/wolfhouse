@@ -127,6 +127,12 @@ function inspectSendConfirmation(workflow) {
   const queryText = nodesOf(workflow)
     .map((n) => String(n.parameters?.query || ''))
     .join('\n');
+  const airtableNodes = nodesOf(workflow).filter((n) => n.type === 'n8n-nodes-base.airtable');
+  const conversationSearch = airtableNodes.find((n) => n.name === 'Search Conversation - Confirmation');
+  const bedsSearch = airtableNodes.find((n) => n.name === 'Search Booking Beds - Confirmation');
+  const llmText = String(
+    nodesOf(workflow).find((n) => n.name === 'Send confirmation reply')?.parameters?.text || ''
+  );
   return {
     file_exists: true,
     separate_workflow: true,
@@ -136,6 +142,12 @@ function inspectSendConfirmation(workflow) {
       payment_status_paid_or_deposit_paid:
         /payment_status\s+IN\s+\('deposit_paid'.*'paid'|'paid'.*'deposit_paid'\)/is.test(queryText),
       confirmation_sent_at_null: /confirmation_sent_at\s+IS\s+NULL/i.test(queryText),
+    },
+    airtable_empty_fallback: {
+      conversation_always_output_data: conversationSearch?.alwaysOutputData === true,
+      booking_beds_always_output_data: bedsSearch?.alwaysOutputData === true,
+      language_fallback_to_format_node:
+        llmText.includes("$('Code - Format Booking For LLM').first().json.language"),
     },
   };
 }
@@ -194,6 +206,16 @@ function buildStripeContractInventory() {
   if (!main.env_url_fallback_visible) errors.push('main create-payment-session env/fallback contract missing');
   if (webhook.sets_booking_status_confirmed_directly) {
     errors.push('stripe webhook should not set bookings.status=confirmed directly');
+  }
+  const scFallback = sendConf.airtable_empty_fallback;
+  if (!scFallback.conversation_always_output_data) {
+    errors.push('send confirmation: Search Conversation must set alwaysOutputData=true');
+  }
+  if (!scFallback.booking_beds_always_output_data) {
+    errors.push('send confirmation: Search Booking Beds must set alwaysOutputData=true');
+  }
+  if (!scFallback.language_fallback_to_format_node) {
+    errors.push('send confirmation: LLM prompt must fall back to Code - Format Booking For LLM language');
   }
   if (cps.test_live_key_risk_visible) warnings.push(cps.test_live_key_risk_visible);
   if (!webhook.signature_secret_handling_visible) warnings.push('stripe webhook signature handling not fully visible');
@@ -262,6 +284,12 @@ function printStripeContractSummary(report) {
   console.log(`  gate.status_payment_pending=${g.status_payment_pending}`);
   console.log(`  gate.payment_status_paid_or_deposit_paid=${g.payment_status_paid_or_deposit_paid}`);
   console.log(`  gate.confirmation_sent_at_null=${g.confirmation_sent_at_null}`);
+  const f = report.send_confirmation_contract.airtable_empty_fallback;
+  console.log(
+    `  airtable.conversation_always_output_data=${f.conversation_always_output_data}`
+  );
+  console.log(`  airtable.booking_beds_always_output_data=${f.booking_beds_always_output_data}`);
+  console.log(`  llm.language_fallback_to_format_node=${f.language_fallback_to_format_node}`);
   console.log('');
   console.log('Main workflow contract:');
   console.log(`  env_url_fallback_visible=${report.main_contract.env_url_fallback_visible}`);

@@ -170,6 +170,9 @@ searchConversation.parameters.filterByFormula =
 searchBeds.parameters.filterByFormula =
   "={{ `{Booking ID}=\"${$('Code - Format Booking For LLM').first().json.fields?.['Booking ID'] || $('Code - Format Booking For LLM').first().json.booking_code}\"` }}";
 
+searchConversation.alwaysOutputData = true;
+searchBeds.alwaysOutputData = true;
+
 const workflow = {
   name: 'Wolfhouse - Send Confirmation (local)',
   nodes: [
@@ -184,6 +187,7 @@ const workflow = {
       position: [-2200, 80],
       id: '2d010001-0001-4000-8000-000000000001',
       name: 'Schedule - Poll Postgres',
+      disabled: true,
     },
     {
       parameters: {
@@ -353,7 +357,7 @@ const workflow = {
     {
       parameters: {
         content:
-          '## Phase 2d — Send Confirmation (local)\n\n**Trigger:** Postgres `send_confirmation=true` (schedule every 3 min + webhook).\n\n**Order:** WhatsApp first → Postgres `confirmed` only on success.\n\n**Default:** `WHATSAPP_DRY_RUN=true` (no production Graph API).\n\nDoes **not** update Airtable Send Confirmation checkbox.',
+          '## Phase 2d — Send Confirmation (local)\n\n**Trigger:** Postgres `send_confirmation=true` (schedule every 3 min + webhook).\n\n**Order:** WhatsApp first → Postgres `confirmed` only on success.\n\n**Default:** `WHATSAPP_DRY_RUN=true` (no production Graph API).\n\n**Airtable:** Conversation + Booking Beds searches use `alwaysOutputData` — 0 rows continues with PG booking defaults (language from Format node; empty room summary).\n\nDoes **not** update Airtable Send Confirmation checkbox.',
         height: 280,
         width: 420,
       },
