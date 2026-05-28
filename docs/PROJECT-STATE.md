@@ -1,9 +1,11 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Phase 3d.7b Main-integrated real Stripe payment-link PASS)  
+**Last updated:** 2026-05-28 (roadmap refresh: Stages 3–7 + 3x)  
 **HEAD (expected):** after `Phase 3d.7: document Main integrated Stripe payment-link success`
 
-For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md). For agent rules see [CURSOR.md](../CURSOR.md).
+**Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
+
+**Quality bar:** Stage 3 — **Correct and safe** (not Reliable / Clean / Beautiful / Scalable yet).
 
 ---
 
@@ -11,7 +13,22 @@ For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH
 
 **Wolfhouse Booking Assistant** — AI guest messaging plus staff/operator workflows for a surf house: availability, holds, Stripe payment sessions, confirmations, bed assignment, reassign, cancel, manual entries queue, operator room release.
 
-**Quality bar today:** Correct and safe (not yet optimizing for UI scale or Azure).
+**Quality bar today:** Stage 3 — correct and safe. See [ROADMAP.md § Stage 3](ROADMAP.md#stage-3--correct-and-safe).
+
+**Architecture direction:** n8n orchestrates; backend/code decides; Postgres remembers; client config controls; staff UI manages (later). Do not grow business logic indefinitely inside n8n — Stage 3x defines specs; Stage 5 migrates logic to `src/booking-assistant/`.
+
+---
+
+## Stage snapshot (product roadmap)
+
+| Stage | Status | Notes |
+|-------|--------|--------|
+| **3** Correct and safe | **In progress** | 3c/3d payment path largely proven; 3d.8 pay+webhook blocked at checkout pay; rooming/reassign pending |
+| **3x** Bot knowledge + guardrails | **Not started** | Specs/fixtures before Stage 4 — [ROADMAP.md § 3x](ROADMAP.md#stage-3x--bot-knowledge--safety-guardrails) |
+| **4** Reliable | Planned | After 3 + 3x |
+| **5** Clean | Planned | Decision engine out of n8n |
+| **6** Beautiful | Planned | Staff UI |
+| **7** Scalable | Planned | Multi-client + Azure when approved |
 
 ---
 
@@ -227,12 +244,14 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 ## Preferred next step
 
-**3d.7b** proved Main-integrated real Stripe payment-link path (fresh two-POST E2E, stop at checkout URL).
+**Immediate (Stage 3 runtime):**
+- **3d.8b** — complete pay + isolated webhook on `WH-260528-5369` (manual browser pay if needed, then webhook-only POST); Send Confirmation **inactive**; schedule **disabled**.
+- **Rooming/reassign** — remap hosted reassign URL to local fork before E2E.
 
-Recommended immediate next step:
-- **3d.8** — pay test Checkout + isolated Stripe Webhook Handler on a **new** disposable booking (or documented reset); Send Confirmation **inactive**; schedule **disabled**.
-- Do **not** pay `WH-260528-5369` checkout, replay `evt_test_phase3d5b_001`, or reuse `WH-260528-1493` / `WH-260528-5369` without a documented reset.
-- Optional later: Send Confirmation **schedule poll** gate; real WhatsApp send only with explicit approval.
+**Next (planning, docs-only OK):**
+- **Stage 3x** — required-field map, package decision flow, golden messages, handoff/gate specs ([ROADMAP.md](ROADMAP.md#stage-3x--bot-knowledge--safety-guardrails)). Do **not** implement as n8n IF sprawl.
+
+**Not next:** Stage 4 reliability build-out, Stage 5 code migration, Stage 6 staff UI, Azure (Stage 7).
 
 ---
 
@@ -252,9 +271,9 @@ Safe without extra approval: docs-only, read-only reports, reversible fixtures, 
 
 ---
 
-## Why Azure is not next
+## Why Azure / staff UI is not next
 
-Deployment is **Phase 4+ / Scalable** in the north star. Immediate priority is Postgres-safe Main booking logic on local forks, then reliability and cleanup. Deploying now would ship ~64 Airtable nodes, weak conversation state, and immature PG gates. See [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md).
+Deployment and multi-client scale are **Stage 7**. Staff product UI is **Stage 6**. Immediate priority is finishing **Stage 3** safe proofs, then **Stage 3x** specs, then **Stage 4** reliability. See [ROADMAP.md](ROADMAP.md) and [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md).
 
 ---
 
@@ -281,10 +300,12 @@ Get-Content scripts/fixtures/main-ensure-3cc-promote-cleanup-down.sql | docker c
 
 | Need | Doc |
 |------|-----|
+| Product roadmap (stages) | [ROADMAP.md](ROADMAP.md) |
 | North star | [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) |
 | This snapshot | PROJECT-STATE.md |
 | Cursor agent | [CURSOR.md](../CURSOR.md) |
-| Owner roadmap | [PROJECT-ROADMAP.md](PROJECT-ROADMAP.md) |
+| Owner summary | [PROJECT-ROADMAP.md](PROJECT-ROADMAP.md) |
+| Stripe gates | [PHASE-3d-STRIPE-ISOLATED-PLAN.md](PHASE-3d-STRIPE-ISOLATED-PLAN.md) |
 | 3c proposal | [PHASE-3c-PROPOSAL.md](PHASE-3c-PROPOSAL.md) |
 | Regression | [regression-test-plan.md](regression-test-plan.md) |
 | Azure (later) | [azure-n8n-hosting-plan.md](azure-n8n-hosting-plan.md) |

@@ -2,9 +2,12 @@
 
 A plain-language guide so you always know **where we are**, **what is safe to touch**, and **what comes next**.
 
-**For Cursor / engineers (current truth):** [`PROJECT-STATE.md`](PROJECT-STATE.md) · [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) · [`../CURSOR.md`](../CURSOR.md)
+**Full product roadmap (stages 3–7):** [`ROADMAP.md`](ROADMAP.md)  
+**Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) · **Cursor:** [`../CURSOR.md`](../CURSOR.md)
 
-**You are here (May 2026):** Phase **3c** — Main booking Postgres integration. Phase **3c.c.4** (Ensure Booking promote CLI) is **done** (`8abfd4d`). **Next:** **3c.d** conversation/hold state plan — **not** Azure deploy.
+**You are here (May 2026):** **Stage 3 — Correct and safe.** We are proving payments, webhooks, and confirmations do not harm guests or staff — **not** building the full staff app or going live on Azure yet.
+
+**How we build (direction):** n8n runs integrations; **code and Postgres** own decisions and memory; Wolfhouse is **client #1** of a future multi-property product.
 
 ---
 
@@ -34,16 +37,19 @@ You will not need to write SQL day to day. n8n will read/write Postgres like it 
 
 ---
 
-## The journey in 6 phases
+## The journey in 5 stages (+ foundation)
 
+```text
+Foundation   ██████████  Docker, Postgres, Phase 2 local Stripe — done
+Stage 3      ████████░░  Correct and safe — IN PROGRESS (payments, webhook, rooming)
+Stage 3x     ░░░░░░░░░░  Bot knowledge + safety rules (specs) — NEXT PLANNING
+Stage 4      ░░░░░░░░░░  Reliable (monitoring, stuck bookings, runbooks)
+Stage 5      ░░░░░░░░░░  Clean (logic out of n8n into code)
+Stage 6      ░░░░░░░░░░  Beautiful (staff UI)
+Stage 7      ░░░░░░░░░░  Scalable (more clients, Azure when approved)
 ```
-Phase 0  ██████████  Foundation (local Docker + Postgres) — done
-Phase 1  ████░░░░░░  Mirror data (optional / partial)
-Phase 2  ██████████  Stripe + local Main/Send Confirmation — signed off
-Phase 3  ██████░░░░  Dual-write / Postgres workflows — IN PROGRESS (3c Main)
-Phase 4  ░░░░░░░░░░  Go live on Azure — NOT NEXT (after 3c safe + reliability)
-Phase 5  ░░░░░░░░░░  Polish for Ale & Cami
-```
+
+Detail: [`ROADMAP.md`](ROADMAP.md)
 
 ### Phase 0 — Foundation ✓
 
@@ -119,22 +125,44 @@ Phase 2 **local signed off** (2026-05-25). Payment + confirmation contracts froz
 
 ---
 
-### Phase 3 — Dual-write (workflow by workflow) ← **YOU ARE HERE**
+### Stage 3 — Correct and safe ← **YOU ARE HERE**
 
-**3b bed-ops / Manual Entries / Operator Room Release:** signed off — [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
+**Goal:** Prove the bot does not make dangerous mistakes (wrong booking, wrong payment link, wrong confirmation, duplicate charges, accidental live calls).
 
-**3c Main (active):** [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md) · [`PROJECT-STATE.md`](PROJECT-STATE.md)
+**Done or proven (high level):**
 
-| 3c substep | Status |
-|------------|--------|
-| 3c.a inventory | ✓ |
-| 3c.b availability report | ✓ |
-| 3c.c hold + ensure CLIs | ✓ through **3c.c.4** |
-| **3c.d** conversation / hold state | **next** |
-| 3c.e wire PG into Main fork | after 3c.d |
-| 3c.f–g contract + E2E | not started |
+- Main + Postgres holds and `payment_details` path (stub and real Stripe checkout link)
+- Isolated Stripe payment session, webhook, Send Confirmation (dry-run)
+- Bed-ops / manual entries / operator room release (Phase 3b)
 
-**Not started / not next:** Azure/live deploy, production WhatsApp cutover, short `wolf-house.com/pay/…` links.
+**Still open:** pay + webhook on Main-created checkout; rooming/reassign with **local** URLs (hosted reassign risk).
+
+**Not this stage:** pretty guest UX, full staff dashboard, Azure go-live.
+
+Engineering detail: [`PROJECT-STATE.md`](PROJECT-STATE.md) · [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+
+---
+
+### Stage 3x — Bot knowledge + safety (before Stage 4)
+
+**Goal:** Write down what the bot must know (packages, prices, policies) and when it must ask staff — as **specs and test messages**, not hundreds of new n8n branches.
+
+Includes: required fields per action, package explanations, 30–50 golden guest messages, handoff rules, duplicate protection.
+
+See [`ROADMAP.md` § Stage 3x](ROADMAP.md#stage-3x--bot-knowledge--safety-guardrails).
+
+---
+
+### Stages 4–7 (later)
+
+| Stage | Plain English |
+|-------|----------------|
+| **4 Reliable** | Alerts, stuck bookings, runbooks, fewer silent failures |
+| **5 Clean** | Business rules in code; simpler workflows |
+| **6 Beautiful** | Calendar, bed grid, staff tools Ale & Cami actually use |
+| **7 Scalable** | Second surf house, Azure, onboarding checklist |
+
+**Not next:** Azure/live deploy, production WhatsApp cutover until Stage 3 (+ 3x) are in good shape.
 
 ---
 
@@ -160,26 +188,11 @@ Each step uses `docs/regression-test-plan.md`.
 
 ---
 
-### Phase 4 — Go live on Azure (later)
+### Stage 7 — Go live on Azure (much later)
 
-**Not the immediate next step.** Finish Phase **3c** Main Postgres MVP, reliability/stabilization, and cleanup first — see [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md). Deploying early would ship immature Main logic and heavy Airtable dependency.
+**Not the immediate next step.** Finish Stage **3**, plan **3x**, then **4 Reliable** and **5 Clean** — see [`ROADMAP.md`](ROADMAP.md). Deploying early would ship immature logic and heavy Airtable dependency.
 
-When approved:
-
-- Deploy Container Apps + Postgres + Redis (`docs/azure-n8n-hosting-plan.md`)
-- Import workflows from `n8n/*.json` into **new** n8n instance
-- Turn off Airtable automations on the **new** base (or stop using old base)
-- Keep old hosted stack as backup read-only for ~2 weeks
-
----
-
-### Phase 5 — Owner-ready
-
-**Goal:** 80–90% WhatsApp self-serve; simple runbook for Ale & Cami.
-
-- Error alerts (`automation_errors`)
-- Stripe live mode
-- Training session + printed “if sync fails, press Sync Manual Entries”
+When approved: [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md)
 
 ---
 
@@ -228,6 +241,7 @@ Get-Content database\migrations\002_package_pricing.sql | docker exec -i wolfhou
 | Webhook URLs | `docs/webhook-map.md` |
 | Airtable automations | `docs/airtable-automations.md` |
 | What step next (owner) | **this file** |
+| Stages 3–7 + 3x detail | [`ROADMAP.md`](ROADMAP.md) |
 | Current engineering state | [`PROJECT-STATE.md`](PROJECT-STATE.md) |
 | Architecture direction | [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) |
 | Cursor agent rules | [`../CURSOR.md`](../CURSOR.md) |
@@ -275,4 +289,4 @@ Your chat history and all files in `WH/` stay on disk — nothing is lost by reb
 
 Nothing in this repo touches your hosted Airtable/n8n until **you** deploy to Azure and switch URLs. All current data being dummy is **ideal** — we can break and fix the local DB freely.
 
-Active work is **Phase 3c** (Main Postgres). See [`PROJECT-STATE.md`](PROJECT-STATE.md) for the exact next substep.
+Active work is **Stage 3** (correct and safe). See [`PROJECT-STATE.md`](PROJECT-STATE.md) for the exact next runtime step and [`ROADMAP.md`](ROADMAP.md) for the full stage plan.

@@ -1,0 +1,373 @@
+# Wolfhouse Booking Assistant — Product Roadmap
+
+**Product:** AI guest messaging and staff workflows for surf-house operations (WhatsApp, holds, Stripe, confirmations, bed assignment, manual entries, operator room release).
+
+**Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) · **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+
+---
+
+## Evolution order (do not skip)
+
+```text
+1. Correct and safe     ← current (Stage 3 + 3d runtime gates)
+2. Reliable             ← Stage 4
+3. Clean                ← Stage 5
+4. Beautiful            ← Stage 6
+5. Scalable             ← Stage 7
+```
+
+Stage 3 is **not** about making the bot beautiful or fully productized. It is about proving the bot does **not** make dangerous mistakes.
+
+---
+
+## Architecture direction (long-term)
+
+**Do not keep expanding n8n with more and more business logic forever.**
+
+| Layer | Role |
+|-------|------|
+| **n8n** | Orchestrates — webhooks, WhatsApp, Stripe callbacks, notifications, simple integration steps |
+| **Backend / code** | Decides — routing, required fields, package logic, safety guards, handoff rules |
+| **Postgres** | Remembers — bookings, payments, conversations, beds, audit trail |
+| **Client config** | Controls — packages, pricing, room rules, policies per property (Wolfhouse = client #1) |
+| **Staff UI** | Manages — holds, payments, assignments, takeover (Stage 6+) |
+
+The current **n8n-heavy** implementation is acceptable for **proving behavior** in Stage 3. Future stages migrate decision logic into code/config modules; n8n calls the decision engine instead of owning the business brain.
+
+**Target module layout (Stage 5):**
+
+```text
+src/booking-assistant/
+  routeMessage.ts
+  extractBookingDetails.ts
+  requiredFields.ts
+  packageDecision.ts
+  safetyGuards.ts
+  handoffRules.ts
+  duplicateProtection.ts
+  bookingContext.ts
+  clientConfig.ts
+```
+
+**Example future config shape (not implemented yet):**
+
+```text
+client_config.packages
+client_config.room_rules
+client_config.payment_rules
+client_config.handoff_rules
+client_config.required_fields
+```
+
+Build **Wolfhouse as client #1**, not as the only client the system can ever serve.
+
+---
+
+## Legacy phase map (reference)
+
+Older docs use **Phase 0–3d** for engineering milestones. They map to stages as follows:
+
+| Legacy | Stage |
+|--------|--------|
+| Phase 0–2 local (frozen) | Foundation + Stripe/Main/Send Confirmation contracts |
+| Phase 3b (frozen) | Stage 3 — bed-ops / manual / operator paths |
+| Phase 3c–3g | Stage 3 — Main + Postgres + stub E2E |
+| Phase 3d.x | Stage 3 — isolated real Stripe payment / webhook / confirmation gates |
+| (planned) Stage 3x | Bot knowledge + safety guardrails (specs, not n8n sprawl) |
+| Azure / multi-client | Stage 7 (Scalable), not before Reliability + Clean |
+
+---
+
+## Stage 3 — Correct and safe
+
+### Purpose
+
+Prove dangerous core workflows safely before cleanup, staff UI, or multi-client productization.
+
+### What Stage 3 is not
+
+- Not optimizing for guest-facing polish or marketing copy quality
+- Not building the full staff product UI
+- Not Azure/production cutover
+- Not adding dozens of new n8n IF branches for business rules (that belongs in Stage 3x **specs** and Stage 5 **code**)
+
+### Dangerous mistakes Stage 3 must prevent
+
+| Risk | Guard |
+|------|--------|
+| Wrong booking selected | Conversation `current_hold_booking_id`, resolver, terminal-status blocks |
+| Wrong payment link | Real CPS on correct hold; stub vs real env separation |
+| Wrong confirmation | Send Confirmation gates; dry-run first; schedule disabled in tests |
+| Wrong room assignment | Bed-ops forks; **hosted reassign URL still a risk** |
+| Duplicate payment / session / event | Idempotency checks; single webhook per event id |
+| Accidental live Stripe / WhatsApp | Test keys; `WHATSAPP_DRY_RUN`; activation boundaries |
+| Background workflow firing | Inactive workflows + schedule `disabled` in test windows |
+
+### Complete or in progress (engineering)
+
+| Area | Status | Notes |
+|------|--------|--------|
+| `booking_flow` hold creation | **Proven** | PG hold + Airtable backfill in Main fork (3c.e) |
+| `payment_details_provided` route | **Proven** | Resolver + Ensure (3c.g stub E2E) |
+| Real Stripe checkout link (Main-integrated) | **Proven** | 3d.7b — `WH-260528-5369`, stop at checkout URL |
+| Isolated Create Payment Session | **Proven** | 3d.4 |
+| Stripe Webhook Handler payment truth | **Proven** (isolated) | 3d.5b on `WH-260528-1493` |
+| Send Confirmation (dry-run) | **Proven** (isolated) | 3d.6e |
+| Pay + webhook on Main-created session | **In progress** | 3d.8b blocked at manual checkout pay |
+| Rooming / reassign E2E | **Pending** | Hosted `reassign-booking-beds` URL must be remapped to local fork |
+
+**Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+
+---
+
+## Stage 3x — Bot knowledge + safety guardrails
+
+**Mini-phase before fully entering Stage 4 (Reliable).**
+
+### Purpose
+
+Define the business knowledge and decision rules the bot needs to act safely, ask smart follow-up questions, and avoid dangerous guesses.
+
+**Important:** Stage 3x delivers **specs, fixtures, and configurable rules** — not a huge expansion of n8n IF nodes. Implementation belongs in code modules (Stage 5) fed by client config.
+
+### 3x.1 — Required field map
+
+Define required fields **before** each action:
+
+| Action | Required before proceed |
+|--------|-------------------------|
+| Create booking hold | Dates, guest count, contact phone, package or accommodation intent, availability OK |
+| Send payment link | Hold exists, guest name + email, promoted payment state, deposit rule known |
+| Confirm booking | Payment truth (`deposit_paid` / paid), `send_confirmation` gate, not terminal |
+| Cancel booking | Booking id/code, policy window, staff approval if ambiguous |
+| Room / bed assignment | Confirmed or approved hold, guest count, gender/couple/friend rules |
+| Package quote | Package code, dates, guest count, season |
+| Package booking | Quote inputs + package-specific required fields |
+| Date change | Booking id, new dates, availability, policy |
+
+**Deliverable:** `docs/specs/required-fields.md` (or equivalent) + fixture tables keyed by `resolved_route`.
+
+### 3x.2 — Package explanation + package decision flow
+
+The bot must explain package differences clearly.
+
+**Define per package:**
+
+- Name, inclusions, exclusions
+- Price or price logic (season, nights, per person)
+- Deposit rules, minimum nights
+- Lesson schedule, rental rules, meals, transfers
+- Cancellation/refund policy
+- Who the package is best for
+
+**Bot behavior rules:**
+
+| Guest signal | Bot behavior |
+|--------------|--------------|
+| “What packages do you have?” | Briefly explain all packages |
+| Wants to book, package missing | Ask: accommodation only vs surf package |
+| Unsure | Recommend by goal: cheapest → shared accommodation; beginner → lesson package; full arrange → full surf; already surfs → accommodation + rentals |
+| Price question | Do **not** quote exact price unless dates, guest count, package, and price source are known |
+| Still uncertain | Follow-up question or staff handoff |
+
+### 3x.3 — Wolfhouse knowledge collection
+
+Collect and confirm missing business knowledge (owner/staff input):
+
+- Package options and prices
+- Deposit rules, hold expiry / payment deadline
+- Room types; rooming / gender / couple / friend rules
+- Cancellation and refund policy
+- Check-in / check-out times
+- Extras, rentals, transfers
+- Language preference behavior
+- When to hand off to staff
+
+**Deliverable:** `docs/knowledge/wolfhouse-somo.md` (living doc) + gaps list in PROJECT-STATE.
+
+### 3x.4 — Golden message tests
+
+**30–50** realistic guest messages with expected:
+
+- `resolved_route`
+- Missing fields
+- Safe action (or explicit no-op)
+- Clarification question text (pattern, not exact LLM wording)
+- Handoff behavior
+
+**Categories to include:**
+
+- Booking request · package questions · payment-link request · “I paid”
+- Cancellation · room preference · couple/friends/gender rooming · date changes
+- Surfboard/wetsuit rental · breakfast/transfer · unclear / low-confidence messages
+
+**Deliverable:** `tests/golden-messages/` or `docs/fixtures/golden-messages.json` + runner stub (Stage 4+).
+
+### 3x.5 — Dangerous action gates
+
+Strict proof required before:
+
+| Action | Proof |
+|--------|--------|
+| Send payment link | Hold + Ensure + CPS contract; no terminal booking |
+| Confirm booking | Webhook payment truth + Send Confirmation eligibility |
+| Cancel booking | Booking status + policy |
+| Change room/bed | Assignment rules + capacity |
+| Change dates | Availability + policy |
+| Mark payment-related states | Webhook or authorized staff only |
+
+### 3x.6 — Human handoff rules
+
+Bot must stop guessing and alert staff when:
+
+- Low route confidence
+- Conflicting dates or guest count
+- Multiple active holds for same conversation
+- Guest says they paid but no payment record
+- Refund / dispute / cancellation ambiguity
+- Angry guest / complaint
+- Medical / emergency / legal issues
+- Rooming / reassign uncertainty
+
+**Deliverable:** `handoffRules` spec → later `client_config.handoff_rules`.
+
+### 3x.7 — Wrong-booking protection
+
+Formalize (align with existing resolver + PG):
+
+- `conversation.current_hold_booking_id` wins over phone-only fallback
+- Terminal bookings (`confirmed`, `cancelled`, etc.) cannot be modified by guest path
+- Old holds must not be selected because phone matches alone
+- Active booking must match conversation context and latest intent
+
+### 3x.8 — Duplicate protection
+
+Verify and document:
+
+| Scenario | Expected |
+|----------|----------|
+| Same WhatsApp message id | No duplicate booking |
+| Repeated payment-link request | No duplicate checkout session without idempotency |
+| Same Stripe event id | No duplicate `payment_events` row |
+| Confirmation | Cannot send twice (`confirmation_sent_at`, flags) |
+
+### 3x.9 — Client-config architecture plan
+
+Same assistant engine, different **client config** per property.
+
+| Config category | Examples |
+|-----------------|----------|
+| `packages` | Codes, seasons, inclusions |
+| `room_types` | Shared, private, gender rules |
+| `bed/room_rules` | Couples, friends, operator blocks |
+| `pricing` | Rules, deposits, rounding |
+| `deposit/payment_rules` | Deposit cents, deadlines |
+| `cancellation_policy` | Windows, refund tiers |
+| `hold_expiry` | TTL, reminders |
+| `language/tone` | Default language, formality |
+| `handoff_rules` | Triggers, staff notify |
+| `integrations` | Stripe, WhatsApp, webhooks |
+| `staff_notification_rules` | Channels, severity |
+
+Wolfhouse = `client_slug: wolfhouse-somo`. Future surf houses add new config rows, not forked workflows.
+
+---
+
+## Stage 4 — Reliable
+
+### Purpose
+
+Make the working system **dependable and observable** after Stage 3 behavior is proven and Stage 3x rules are specified.
+
+### Includes
+
+- Better error handling and safe retries (where idempotent)
+- Stuck booking detection
+- Monitoring, alerts, execution dashboards
+- Clearer structured logs
+- Health checks (n8n, Postgres, Redis, webhooks)
+- Rollback tools and fixture cleanup
+- Duplicate protection checks (automated)
+- Active workflow safety checks; schedule safety checks
+- Runbooks for common failures (payment stuck, webhook miss, confirmation not sent)
+
+### Staff visibility (minimum for safety)
+
+May begin here if needed before full Stage 6 UI:
+
+- Stuck bookings queue
+- Payment status view
+- Human handoff queue
+- Pending confirmations
+- Failed workflow executions
+
+---
+
+## Stage 5 — Clean
+
+### Purpose
+
+Simplify implementation after behavior is proven and reliability checks exist.
+
+### Includes
+
+- Move decision logic **out of n8n** into `src/booking-assistant/` modules
+- Reduce duplicated route logic in Main JSON
+- Clean workflow naming; simplify n8n branches to orchestration only
+- Reduce Airtable dependency on critical paths
+- Consolidate scripts; organize docs
+- Reusable service boundaries (booking, payment, conversation, assignment)
+
+**Target:** n8n calls backend decision engine; Postgres writes go through shared SQL/modules; n8n performs WhatsApp/Stripe/Airtable I/O.
+
+---
+
+## Stage 6 — Beautiful
+
+### Purpose
+
+Excellent staff and owner experience.
+
+### Includes
+
+- Staff UI: calendar / bed grid, guest list, booking detail
+- Payment status, pending holds, confirmation queue
+- Conversation history, human takeover
+- Manual booking / edit / cancel tools
+- Room/bed assignment UI
+- Alerts for stuck workflows
+- Owner dashboard
+
+Airtable may remain a **bridge** during transition; long-term goal is a proper staff UI, not Airtable as daily ops surface.
+
+---
+
+## Stage 7 — Scalable
+
+### Purpose
+
+Repeatable platform for multiple clients.
+
+### Includes
+
+- Multi-client config onboarding
+- Client-specific room/package rules (config-driven)
+- Isolated data per `client_id`
+- Reusable deployment process (see [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) when approved)
+- Billing/subscription model (product)
+- Support tools, backup/restore, per-client monitoring
+- Migration path away from Airtable
+- Templates for surf houses, retreats, hostels, camps
+
+**Guiding principle:** Build Wolfhouse first; structure everything as **client #1**, not the only client.
+
+---
+
+## What to read next
+
+| Role | Doc |
+|------|-----|
+| Engineer (today) | [`PROJECT-STATE.md`](PROJECT-STATE.md) |
+| Owner / non-engineer | [`PROJECT-ROADMAP.md`](PROJECT-ROADMAP.md) |
+| Agent rules | [`../CURSOR.md`](../CURSOR.md) |
+| Stripe test gates | [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) |

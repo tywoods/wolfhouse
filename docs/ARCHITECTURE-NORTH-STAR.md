@@ -4,21 +4,62 @@
 
 Long-term direction for the **Wolfhouse Booking Assistant** — an AI booking assistant for surf-house / hospitality operations (guest WhatsApp, availability, holds, payments, confirmations, bed assignment, manual entries, operator room release, cancellations).
 
-Evolution order (do not skip):
-
-1. **Correct and safe** ← current
-2. **Reliable**
-3. **Clean**
-4. **Beautiful**
-5. **Scalable**
-
-Do not jump to Azure deployment, product UI, or “make it pretty” before the **Main guest booking path** is Postgres-safe.
+**Product roadmap (stages):** [`ROADMAP.md`](ROADMAP.md) · **Current execution:** [`PROJECT-STATE.md`](PROJECT-STATE.md)
 
 ---
 
-## Current stage: Correct and safe
+## Evolution order (do not skip)
 
-**Active work:** [Phase 3c](PHASE-3c-PROPOSAL.md) — Main booking flow / Postgres integration (local Stripe fork only).
+```text
+1. Correct and safe     ← Stage 3 (current)
+2. Reliable             ← Stage 4
+3. Clean                ← Stage 5
+4. Beautiful            ← Stage 6
+5. Scalable             ← Stage 7
+```
+
+Do not jump to staff UI, Azure production, or “make it pretty” before dangerous guest paths are proven safe.
+
+---
+
+## Orchestration principle
+
+**Do not keep expanding n8n with more and more business logic forever.**
+
+| Layer | Responsibility |
+|-------|----------------|
+| **n8n** | **Orchestrates** — inbound webhooks, WhatsApp send, Stripe callbacks, schedule polls, simple HTTP calls |
+| **Backend / code** | **Decides** — route, required fields, package choice, safety guards, handoff, duplicate checks |
+| **Postgres** | **Remembers** — bookings, payments, conversations, beds, events |
+| **Client config** | **Controls** — per-property packages, pricing, policies (Wolfhouse = client #1) |
+| **Staff UI** | **Manages** — operations surface (Stage 6+) |
+
+**Today (Stage 3):** n8n-heavy forks are **acceptable** to prove behavior locally with strict activation boundaries and frozen payment/confirmation contracts.
+
+**Tomorrow (Stage 5+):** decision logic lives in testable modules; n8n calls them and performs I/O only.
+
+**Target code layout:**
+
+```text
+src/booking-assistant/
+  routeMessage.ts
+  extractBookingDetails.ts
+  requiredFields.ts
+  packageDecision.ts
+  safetyGuards.ts
+  handoffRules.ts
+  duplicateProtection.ts
+  bookingContext.ts
+  clientConfig.ts
+```
+
+---
+
+## Current stage: Correct and safe (Stage 3)
+
+**Active work:** Prove core paths without dangerous mistakes — see [`ROADMAP.md` § Stage 3](ROADMAP.md#stage-3--correct-and-safe).
+
+Engineering milestones (legacy numbering): Phase **3c** Main+Postgres, Phase **3d** isolated real Stripe gates — [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md).
 
 Goals:
 
@@ -30,33 +71,36 @@ Goals:
 - Local workflows stay **inactive** until explicitly approved for a test.
 - PG failure must block Airtable mirror writes (when mirrors exist).
 
-**Current snapshot:** [PROJECT-STATE.md](PROJECT-STATE.md)
+**Before Stage 4:** complete Stage **3x** (bot knowledge + safety guardrails as **specs/fixtures**, not n8n sprawl).
+
+**Current snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md)
 
 ---
 
 ## Target end-state architecture
 
 ```text
-AI guest assistant
-  → clean API / backend (deterministic booking functions)
-  → Postgres booking engine (source of truth)
-  → operator / admin UI (staff — not Airtable long-term)
-  → n8n as integration glue (WhatsApp, Stripe, notifications)
+Guest WhatsApp
+  → n8n (orchestration)
+  → booking-assistant decision engine (code)
+  → Postgres (source of truth)
+  → staff UI (Stage 6)
+  → integrations (Stripe, notifications)
 ```
-
-**n8n should not remain the booking brain.** Core logic moves into Postgres-backed, testable functions:
 
 | Capability | Owner (target) |
 |------------|----------------|
+| Route message / intent | `routeMessage` + client config |
 | Check availability | Postgres / shared SQL |
 | Create hold | Postgres |
-| Promote hold for payment | Postgres |
-| Create payment session | Phase 2 HTTP service (unchanged contract) |
-| Confirm booking | Postgres + Send Confirmation workflow |
-| Cancel booking | Postgres + Cancel workflow |
-| Assign / reassign beds | Postgres + 3b forks |
-| Operator room release | Postgres + 3b.5 fork |
-| Send confirmation | Phase 2d fork (reads PG, sends WhatsApp) |
+| Promote hold for payment | Postgres + Ensure contract |
+| Create payment session | CPS workflow / service (Stripe API) |
+| Payment truth | Stripe Webhook Handler → Postgres |
+| Confirm booking | Send Confirmation (after payment truth) |
+| Cancel / assign / reassign / ORR | Postgres + bed-ops forks → later unified services |
+| Package explain / quote | `packageDecision` + config |
+
+**n8n should not remain the booking brain.**
 
 ---
 
@@ -70,7 +114,7 @@ AI guest assistant
 | Short-term staff mirror after PG success | Long-term operator UI |
 | Migration bridge during dual-write | Required for core booking logic |
 
-When Postgres (or a proper UI) safely replaces a function, **remove Airtable from that path**.
+When Postgres (or staff UI) safely replaces a function, **remove Airtable from that path**.
 
 ---
 
@@ -87,49 +131,42 @@ When Postgres (or a proper UI) safely replaces a function, **remove Airtable fro
 
 ---
 
-## Next stage: Reliable
+## Stage 4 — Reliable
 
-After **3c Main/Postgres MVP** (through 3c.g sign-off):
+After Stage 3 sign-off and Stage 3x specs:
 
-- Repeatable regression suites and fixtures per workflow family.
+- Repeatable regression suites and golden messages.
 - Idempotency for duplicate guest messages, webhooks, payment-detail messages, confirmations.
 - Rollback/cleanup SQL for every fixture family.
-- Runbooks; no “green execution, wrong business outcome.”
+- Monitoring, stuck-booking detection, runbooks.
+- No “green execution, wrong business outcome.”
 
 ---
 
-## Next stage: Clean
+## Stage 5 — Clean
 
-- Remove dead Main nodes; collapse duplicate branches.
-- Move large Code-node logic into repo modules.
+- Move logic from Code nodes into `src/booking-assistant/`.
+- Collapse duplicate branches; standardize error shapes.
 - Replace duplicate Airtable availability with shared PG SQL.
-- Standardize statuses, booking codes, error shapes.
-- Keep payments and manual/operator paths isolated.
+- **Client config** drives Wolfhouse-specific rules; same engine for future clients.
 
 **No random Main refactors** before tests prove behavior.
 
 ---
 
-## Next stage: Beautiful
+## Stage 6 — Beautiful
 
 - Operator/admin UI: calendar, booking detail, manual form, room release, payment view, conversation view, needs-review queue.
-- Guest booking API surface.
+- Guest-facing polish where product requires it.
 - Airtable not required for normal staff work.
 
 ---
 
-## Final stage: Scalable (includes Azure)
+## Stage 7 — Scalable
 
-**Azure / staging / production deployment belongs here** — after:
+**Azure / staging / production deployment belongs here** — after Stages 3–5 are in good shape.
 
-1. Phase **3c** Main Postgres MVP + local E2E sign-off  
-2. Reliability / stabilization  
-3. Cleanup / refactor where needed  
-4. UI / Airtable-removal planning  
-
-Do not deploy the mess just because it can be deployed. See [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) when that stage is approved.
-
-Multi-client: `client_id`, per-client rooms/rules/WhatsApp/Stripe, monitoring, backups, staging/prod runbooks.
+Multi-client: `client_id`, per-client config, monitoring, backups, onboarding checklist. See [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) when approved.
 
 ---
 
@@ -137,8 +174,10 @@ Multi-client: `client_id`, per-client rooms/rules/WhatsApp/Stripe, monitoring, b
 
 | Doc | Use |
 |-----|-----|
+| [ROADMAP.md](ROADMAP.md) | Stages 3–7 + 3x detail |
 | [PROJECT-STATE.md](PROJECT-STATE.md) | What is done, in progress, next |
 | [CURSOR.md](../CURSOR.md) | Agent rules and safe commands |
-| [PROJECT-ROADMAP.md](PROJECT-ROADMAP.md) | Owner-friendly phase ladder |
+| [PROJECT-ROADMAP.md](PROJECT-ROADMAP.md) | Owner-friendly summary |
 | [PHASE-3c-PROPOSAL.md](PHASE-3c-PROPOSAL.md) | Main integration proposal |
+| [PHASE-3d-STRIPE-ISOLATED-PLAN.md](PHASE-3d-STRIPE-ISOLATED-PLAN.md) | Stripe isolated test gates |
 | [PHASE-3b-FREEZE.md](PHASE-3b-FREEZE.md) | Bed-ops / manual / ORR sign-off |
