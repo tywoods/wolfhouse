@@ -2,7 +2,7 @@
  * Phase 2f — deterministic booking route resolver (pure logic for tests + n8n Code node).
  */
 
-const RESOLVER_VERSION = '2f.4';
+const RESOLVER_VERSION = '2f.5';
 
 function safeJsonParse(value, fallback = {}) {
   if (!value) return fallback;
@@ -170,15 +170,29 @@ function resolveBookingRoute(input) {
   ]);
 
   const attemptHoldSearch = shouldAttemptHoldSearch(input, messageSignals, holdUsable);
+  const lower = guestMessage.toLowerCase();
+  const hasEscalationSignals =
+    /\b(refund|complain|complaint|angry|manager|human|person|staff|urgent|dispute|chargeback|scam|issue)\b/i.test(
+      lower
+    );
+  const hasRoomingOrReassignSignals =
+    /\b(rooming|reassign|bed assignment|split us|stay together|female room|male room|mixed room|girls room|guys room)\b/i.test(
+      lower
+    );
+  const hasContact = messageSignals.has_guest_email || messageSignals.has_guest_name;
 
   // Contact details + explicit payment-link ask on an active/inferred hold
-  // should enter payment_details_provided (not generic payment_or_confirm_intent/handoff).
+  // should enter payment_details_provided (not generic payment claim/confirm/handoff routes).
   if (
-    (routerRoute === 'payment_or_confirm_intent' || routerRoute === 'human_handoff') &&
+    (routerRoute === 'payment_or_confirm_intent' ||
+      routerRoute === 'human_handoff' ||
+      routerRoute === 'payment_completed_claim') &&
     (holdUsable || attemptHoldSearch) &&
-    (messageSignals.has_guest_email || messageSignals.has_guest_name) &&
+    hasContact &&
     messageSignals.has_payment_link_intent &&
-    !messageSignals.has_payment_claim
+    !messageSignals.has_payment_claim &&
+    !hasEscalationSignals &&
+    !hasRoomingOrReassignSignals
   ) {
     resolvedRoute = 'payment_details_provided';
     resolvedSubRoute = 'payment_details_on_existing_hold';
@@ -189,7 +203,9 @@ function resolveBookingRoute(input) {
     decisionCode =
       routerRoute === 'human_handoff'
         ? 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_HANDOFF'
-        : 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK';
+        : routerRoute === 'payment_completed_claim'
+          ? 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_PAYMENT_CLAIM_ROUTE'
+          : 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK';
   }
 
   // Priority overrides (deterministic)

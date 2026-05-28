@@ -218,6 +218,65 @@ const fixtures = [
     },
   },
   {
+    id: '2f-payment-claim-route-payment-link-contact-override',
+    input: {
+      router_route: 'payment_completed_claim',
+      router_reason: 'guest asks about payment completion',
+      router_confidence: 0.9,
+      language: 'en',
+      guest_message:
+        'Thanks. My email is phase3c.g2.test+329@example.com. Please send me the payment link for my booking.',
+      pending_action: 'none',
+      conversation_stage: 'booking_flow',
+      active_booking: { active_booking_found: false },
+      conversation: {},
+    },
+    expect: {
+      resolved_route: 'payment_details_provided',
+      decision_code: 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_PAYMENT_CLAIM_ROUTE',
+      should_search_hold: true,
+    },
+  },
+  {
+    id: '2f-payment-claim-route-real-paid-message-no-override',
+    input: {
+      router_route: 'payment_completed_claim',
+      router_reason: 'guest says paid',
+      router_confidence: 0.92,
+      language: 'en',
+      guest_message:
+        'I paid already and payment done. Did you receive payment for my booking? My email is phase3c.g2.test+329@example.com',
+      pending_action: 'none',
+      conversation_stage: 'booking_flow',
+      active_booking: { active_booking_found: true, active_booking_status: 'Hold' },
+      conversation: {},
+    },
+    expect: {
+      resolved_route: 'payment_completed_claim',
+      decision_code: 'R2F_PAYMENT_CLAIM',
+      should_search_hold: false,
+    },
+  },
+  {
+    id: '2f-payment-claim-route-payment-link-no-contact-no-override',
+    input: {
+      router_route: 'payment_completed_claim',
+      router_reason: 'payment route',
+      router_confidence: 0.9,
+      language: 'en',
+      guest_message: 'Please send the payment link for my booking.',
+      pending_action: 'none',
+      conversation_stage: 'booking_flow',
+      active_booking: { active_booking_found: false },
+      conversation: {},
+    },
+    expect: {
+      resolved_route: 'payment_completed_claim',
+      decision_code: 'R2F_PAYMENT_CLAIM',
+      should_search_hold: false,
+    },
+  },
+  {
     id: '2f-general-question',
     input: {
       router_route: 'general_question',
