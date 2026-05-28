@@ -24,6 +24,7 @@ const {
 } = require('./lib/merged-payment-path');
 const { stripePaymentLinkUpdateSchema } = require('./lib/airtable-bookings-schema');
 const { buildEnsurePromoteN8nSql } = require('./lib/main-ensure-booking-pg-sql');
+const { buildMainAvailabilityGateN8nSql } = require('./lib/main-availability-pg-sql');
 
 /** n8n IF expression — run Stripe after hold when contact + hold exist (not only session merge). */
 const STRIPE_AFTER_HOLD_IF_EXPR = `={{ 
@@ -73,8 +74,8 @@ const PHASE_3CE_PG_TARGETS = {
     route: 'booking_flow',
     insertAfter: 'Code - Check Bed Availability - WA',
     insertBefore: 'IF - Availability Found',
-    futureNodes: ['Postgres - Main Availability', 'Code - Map PG Availability'],
-    authority: 'PG availability_found blocks hold path; AT bed search not gate authority',
+    nodes: ['Postgres - Main Availability', 'Code - Map PG Availability'],
+    authority: 'PG availability_found blocks hold path; AT bed search kept for reply context',
     lib: 'scripts/lib/main-availability-pg-sql.js',
     cli: 'db:report:main-availability',
   },
@@ -356,6 +357,156 @@ function runVerifyTargets(workflow, opts = {}) {
     process.exit(1);
   }
   return result;
+}
+
+const MAP_PG_AVAILABILITY_JS = `const atAvail = $('Code - Check Bed Availability - WA').first().json || {};
+const pgRow = $('Postgres - Main Availability').first().json || {};
+const session =
+  atAvail.session ||
+  $('Merge Session State').first().json?.session ||
+  {};
+
+function parseActionable(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object') return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      return JSON.parse(raw);
+    } catch (_) {}
+  }
+  return [];
+}
+
+const hasPgRow = pgRow && pgRow.pg_query_ok !== undefined;
+const pgQueryOk = hasPgRow && pgRow.pg_query_ok !== false;
+const pgFound = pgQueryOk && pgRow.availability_found === true;
+const actionable = parseActionable(pgRow.actionable);
+const pgErrors = [];
+
+if (!hasPgRow) pgErrors.push('pg_availability_missing_row');
+else if (!pgQueryOk) pgErrors.push('pg_availability_query_failed');
+if (actionable.includes('missing_or_invalid_dates')) pgErrors.push('missing_or_invalid_dates');
+
+const availability_found = pgQueryOk ? pgFound : false;
+const primaryRoomCode = pgRow.primary_room_code || null;
+const primaryRoomName = pgRow.primary_room_name || primaryRoomCode;
+
+return [
+  {
+    json: {
+      ...atAvail,
+      session,
+      availability_found,
+      pg_availability_found: pgFound,
+      pg_query_ok: pgQueryOk,
+      pg_primary_room_code: primaryRoomCode,
+      pg_primary_room_name: primaryRoomName,
+      primary_room_code: primaryRoomCode || atAvail.primary_room_code || '',
+      pg_available_bed_count: Number(pgRow.available_bed_count || 0),
+      pg_blocked_bed_count: Number(pgRow.blocked_bed_count || 0),
+      pg_overlap_conflict_count: Number(pgRow.overlap_conflict_count || 0),
+      pg_multi_room_required: !!pgRow.multi_room_required,
+      pg_actionable: actionable,
+      pg_errors: pgErrors,
+      selected_room:
+        pgFound && primaryRoomCode
+          ? {
+              room_id: primaryRoomCode,
+              room_code: primaryRoomCode,
+              room_name: primaryRoomName,
+            }
+          : atAvail.selected_room || null,
+      hold_room_name: pgFound ? primaryRoomName || atAvail.hold_room_name || '' : '',
+      hold_room_id: pgFound ? primaryRoomCode || atAvail.hold_room_id || '' : '',
+      availability_authority: 'postgres',
+      availability_type: pgFound
+        ? pgRow.multi_room_required
+          ? 'multi_room'
+          : 'single_room'
+        : atAvail.availability_type || 'none',
+    },
+  },
+];`;
+
+function applyPhase3cAvailabilityGate(workflow) {
+  const checkAvail = workflow.nodes.find((n) => n.name === 'Code - Check Bed Availability - WA');
+  const ifAvail = workflow.nodes.find((n) => n.name === 'IF - Availability Found');
+  if (!checkAvail || !ifAvail) {
+    throw new Error('Phase 3c.e.3: Code - Check Bed Availability - WA or IF - Availability Found not found');
+  }
+
+  const NULL_SENTINEL = '__NULL__';
+  const waSession =
+    "$('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session";
+  function pgParam(innerExpr) {
+    return `={{ ((${innerExpr}) != null && String(${innerExpr}).trim() !== '') ? String(${innerExpr}).trim() : '${NULL_SENTINEL}' }}`;
+  }
+
+  const availabilityQueryReplacement = [
+    pgParam(`${waSession}?.check_in`),
+    pgParam(`${waSession}?.check_out`),
+    pgParam(`${waSession}?.guest_count || ${waSession}?.guests`),
+    pgParam(`${waSession}?.room_preference || ${waSession}?.room_type`),
+    pgParam(`${waSession}?.guest_gender_group_type`),
+  ].join(',');
+
+  const postgresNode = {
+    parameters: {
+      operation: 'executeQuery',
+      query: buildMainAvailabilityGateN8nSql(),
+      options: { queryReplacement: availabilityQueryReplacement },
+    },
+    type: 'n8n-nodes-base.postgres',
+    typeVersion: 2.5,
+    position: [3504, 976],
+    id: '3ce003001-0001-4000-8000-000000000301',
+    name: 'Postgres - Main Availability',
+    alwaysOutputData: true,
+    credentials: {
+      postgres: { id: '', name: 'Wolfhouse Postgres (local)' },
+    },
+  };
+
+  const mapNode = {
+    parameters: { jsCode: MAP_PG_AVAILABILITY_JS },
+    type: 'n8n-nodes-base.code',
+    typeVersion: 2,
+    position: [3528, 912],
+    id: '3ce003002-0002-4000-8000-000000000302',
+    name: 'Code - Map PG Availability',
+  };
+
+  const sticky = {
+    parameters: {
+      content:
+        '## Phase 3c.e.3 — PG availability gate\n\nSELECT-only. `Code - Map PG Availability` sets authoritative `availability_found` for IF below.\n\nAT bed searches kept for reply context; PG failure = no hold path.',
+      height: 180,
+      width: 420,
+    },
+    type: 'n8n-nodes-base.stickyNote',
+    typeVersion: 1,
+    position: [3420, 720],
+    id: '3ce003003-0003-4000-8000-000000000303',
+    name: 'Sticky Note - Phase 3c.e.3',
+  };
+
+  workflow.nodes.push(postgresNode, mapNode, sticky);
+
+  workflow.connections['Code - Check Bed Availability - WA'] = {
+    main: [[{ node: 'Postgres - Main Availability', type: 'main', index: 0 }]],
+  };
+  workflow.connections['Postgres - Main Availability'] = {
+    main: [[{ node: 'Code - Map PG Availability', type: 'main', index: 0 }]],
+  };
+  workflow.connections['Code - Map PG Availability'] = {
+    main: [[{ node: 'IF - Availability Found', type: 'main', index: 0 }]],
+  };
+
+  const cond = ifAvail.parameters?.conditions?.conditions?.[0];
+  if (cond) {
+    cond.leftValue =
+      "={{ $('Code - Map PG Availability').first().json.availability_found === true }}";
+  }
 }
 
 function applyPhase2f(workflow) {
@@ -1255,8 +1406,14 @@ applyPhase2f(workflow);
 applyPhase2f2(workflow);
 applyMergedPaymentPathFixes(workflow);
 applyDeterministicPaymentUrl(workflow);
+applyPhase3cAvailabilityGate(workflow);
 
-workflow.tags = [...(workflow.tags || []), { name: 'phase2f2' }, { name: 'phase2f3' }];
+workflow.tags = [
+  ...(workflow.tags || []),
+  { name: 'phase2f2' },
+  { name: 'phase2f3' },
+  { name: 'phase3c-e3' },
+];
 
 return workflow;
 }

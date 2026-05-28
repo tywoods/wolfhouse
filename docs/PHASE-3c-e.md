@@ -1,6 +1,6 @@
 # Phase 3c.e — Main local fork PG injection
 
-**Status:** **3c.e.2** complete (Ensure promote SQL in fork). Availability/hold/conversation **not** wired yet.
+**Status:** **3c.e.3** complete (PG availability gate in fork). Hold/conversation **not** wired yet.
 
 ## Build script
 
@@ -33,8 +33,8 @@
 
 | Step | Work |
 |------|------|
-| 3c.e.2 | Ensure promote SQL in `Postgres - Ensure Booking In Postgres` | **Done** (uncommitted) |
-| 3c.e.3 | PG availability gate |
+| 3c.e.2 | Ensure promote SQL in `Postgres - Ensure Booking In Postgres` | Done (`c89890a`) |
+| 3c.e.3 | PG availability gate (`Postgres - Main Availability` + map) | **Done** (uncommitted) |
 | 3c.e.4 | PG hold + AT mirror + `airtable_record_id` backfill |
 | 3c.e.5 | PG conversation upsert |
 | 3c.e.6+ | Regenerate, import inactive, E2E later (3c.g) |

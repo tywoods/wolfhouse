@@ -53,8 +53,9 @@ Details: [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
 | **3c.c.4** Ensure Booking promote CLI | Done | `8abfd4d` |
 | **3c.d** Conversation / `current_hold` plan | **Proposal done** — [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md) | docs only |
 | **3c.e.1** Build target map + neutralize + `--verify-targets` | **Done** (uncommitted) | — |
-| **3c.e.2** Ensure promote SQL in Main fork | **Done** (uncommitted) | — |
-| **3c.e.3–5** Availability / hold / conversation PG injection | **Not started** | — |
+| **3c.e.2** Ensure promote SQL in Main fork | Done | `c89890a` |
+| **3c.e.3** PG availability gate in Main fork | **Done** (uncommitted) | — |
+| **3c.e.4–5** Hold / conversation PG injection | **Not started** | — |
 | **3c.f** Payment / confirmation contract checks | **Not started** | — |
 | **3c.g** E2E local Main tests | **Not started** | — |
 

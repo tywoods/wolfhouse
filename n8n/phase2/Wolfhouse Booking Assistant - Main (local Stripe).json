@@ -1139,7 +1139,7 @@
           "conditions": [
             {
               "id": "e853f33d-1045-4a56-8bdc-67ff4874f52d",
-              "leftValue": "={{ $json.availability_found }}",
+              "leftValue": "={{ $('Code - Map PG Availability').first().json.availability_found === true }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -21055,6 +21055,58 @@
       ],
       "id": "2f030003-0003-4000-8000-000000000303",
       "name": "Sticky Note - Phase 2f.3 Payment URL"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    NULLIF($1, '__NULL__')::date AS check_in,\n    NULLIF($2, '__NULL__')::date AS check_out,\n    GREATEST(\n      1,\n      COALESCE(\n        CASE\n          WHEN NULLIF(trim(NULLIF($3, '__NULL__')::text), '') IS NULL THEN 1\n          ELSE NULLIF(trim(NULLIF($3, '__NULL__')::text), '')::integer\n        END,\n        1\n      )\n    ) AS guest_count,\n    lower(coalesce(NULLIF($4, '__NULL__'), 'shared')) AS room_preference,\n    lower(coalesce(NULLIF($5, '__NULL__'), 'unknown')) AS guest_gender_group_type,\n    (\n      lower(coalesce(NULLIF($4, '__NULL__'), '')) IN (\n        'private', 'private_room', 'double', 'family_room', 'family', 'couple_private'\n      )\n      OR lower(coalesce(NULLIF($4, '__NULL__'), '')) LIKE '%private%'\n    ) AS private_requested,\n    (\n      lower(coalesce(NULLIF($4, '__NULL__'), '')) = 'female_only'\n      OR lower(coalesce(NULLIF($5, '__NULL__'), '')) IN ('female_group', 'solo_female')\n    ) AS female_requested,\n    (\n      lower(coalesce(NULLIF($4, '__NULL__'), '')) = 'male_only'\n      OR lower(coalesce(NULLIF($5, '__NULL__'), '')) IN ('male_group', 'solo_male')\n    ) AS male_requested\n),\nclient AS (\n  SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1\n),\ninvalid AS (\n  SELECT 1\n  FROM params p\n  WHERE p.check_in IS NULL\n    OR p.check_out IS NULL\n    OR p.check_out <= p.check_in\n),\noverlap_assignments AS (\n  SELECT bb.id AS booking_bed_id, bb.bed_id\n  FROM booking_beds bb\n  INNER JOIN bookings b ON b.id = bb.booking_id AND b.client_id = bb.client_id\n  CROSS JOIN params p\n  CROSS JOIN client c\n  WHERE bb.client_id = c.id\n    AND bb.assignment_start_date < p.check_out\n    AND bb.assignment_end_date > p.check_in\n    AND b.status NOT IN ('cancelled', 'expired')\n),\noverlap_beds AS (\n  SELECT DISTINCT bed_id FROM overlap_assignments\n),\nsellable_beds AS (\n  SELECT\n    b.id AS bed_id,\n    upper(trim(b.bed_code)) AS bed_code,\n    r.room_code,\n    r.name AS room_name,\n    r.room_type,\n    r.capacity,\n    r.fill_priority,\n    r.gender_strategy\n  FROM beds b\n  INNER JOIN rooms r ON r.id = b.room_id AND r.client_id = b.client_id\n  CROSS JOIN client c\n  WHERE b.client_id = c.id\n    AND b.active = true\n    AND b.sellable = true\n    AND r.active = true\n),\nfree_beds AS (\n  SELECT sb.*\n  FROM sellable_beds sb\n  WHERE NOT EXISTS (SELECT 1 FROM overlap_beds ob WHERE ob.bed_id = sb.bed_id)\n),\nroom_agg AS (\n  SELECT\n    fb.room_code,\n    max(fb.room_name) AS room_name,\n    max(fb.capacity) AS capacity,\n    max(fb.room_type) AS room_type,\n    max(fb.gender_strategy) AS gender_strategy,\n    min(fb.fill_priority) AS fill_priority,\n    count(*)::int AS free_bed_count\n  FROM free_beds fb\n  GROUP BY fb.room_code\n),\ncandidate_rooms AS (\n  SELECT ra.*\n  FROM room_agg ra\n  CROSS JOIN params p\n  WHERE ra.free_bed_count >= p.guest_count\n    AND (\n      CASE\n        WHEN p.private_requested THEN\n          ra.capacity <= 1\n          OR lower(coalesce(ra.room_type, '')) LIKE '%private%'\n          OR lower(coalesce(ra.gender_strategy, '')) LIKE '%private%'\n        WHEN p.female_requested THEN\n          lower(coalesce(ra.gender_strategy, '')) LIKE '%female%'\n          OR lower(coalesce(ra.gender_strategy, '')) LIKE '%women%'\n          OR lower(coalesce(ra.gender_strategy, '')) LIKE '%woman%'\n        WHEN p.male_requested THEN\n          lower(coalesce(ra.gender_strategy, '')) LIKE '%male%'\n          OR lower(coalesce(ra.gender_strategy, '')) LIKE '%men%'\n          OR lower(coalesce(ra.gender_strategy, '')) LIKE '%man%'\n        ELSE\n          NOT (\n            ra.capacity <= 1\n            OR lower(coalesce(ra.room_type, '')) LIKE '%private%'\n            OR lower(coalesce(ra.gender_strategy, '')) LIKE '%private%'\n          )\n      END\n    )\n),\nbest_room AS (\n  SELECT room_code, room_name, free_bed_count, fill_priority\n  FROM candidate_rooms\n  ORDER BY fill_priority ASC NULLS LAST, room_code ASC\n  LIMIT 1\n),\ncounts AS (\n  SELECT\n    (SELECT count(*)::int FROM free_beds) AS available_bed_count,\n    (SELECT count(*)::int FROM overlap_beds) AS blocked_bed_count,\n    (SELECT count(*)::int FROM overlap_assignments) AS overlap_conflict_count\n),\ngate AS (\n  SELECT\n    EXISTS (SELECT 1 FROM invalid) AS invalid_params,\n    EXISTS (SELECT 1 FROM best_room) AS single_room_found,\n    (SELECT guest_count FROM params) AS guest_count,\n    (SELECT private_requested FROM params) AS private_requested,\n    (SELECT available_bed_count FROM counts) AS available_bed_count\n)\nSELECT\n  true AS pg_query_ok,\n  CASE\n    WHEN g.invalid_params THEN false\n    WHEN g.single_room_found THEN true\n    WHEN NOT g.private_requested AND g.available_bed_count >= g.guest_count THEN true\n    ELSE false\n  END AS availability_found,\n  br.room_code AS primary_room_code,\n  br.room_name AS primary_room_name,\n  c.available_bed_count,\n  c.blocked_bed_count,\n  c.overlap_conflict_count,\n  CASE\n    WHEN g.invalid_params THEN false\n    WHEN g.single_room_found THEN false\n    WHEN NOT g.private_requested AND g.available_bed_count >= g.guest_count THEN true\n    ELSE false\n  END AS multi_room_required,\n  CASE\n    WHEN EXISTS (SELECT 1 FROM invalid) THEN '[\"missing_or_invalid_dates\"]'::jsonb\n    WHEN EXISTS (SELECT 1 FROM best_room)\n      OR (NOT (SELECT private_requested FROM params) AND c.available_bed_count >= (SELECT guest_count FROM params))\n      THEN '[]'::jsonb\n    ELSE '[\"no_availability\"]'::jsonb\n  END AS actionable\nFROM gate g\nCROSS JOIN counts c\nLEFT JOIN best_room br ON true;",
+        "options": {
+          "queryReplacement": "={{ (($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.check_in) != null && String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.check_in).trim() !== '') ? String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.check_in).trim() : '__NULL__' }},={{ (($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.check_out) != null && String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.check_out).trim() !== '') ? String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.check_out).trim() : '__NULL__' }},={{ (($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guest_count || $('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guests) != null && String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guest_count || $('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guests).trim() !== '') ? String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guest_count || $('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guests).trim() : '__NULL__' }},={{ (($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.room_preference || $('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.room_type) != null && String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.room_preference || $('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.room_type).trim() !== '') ? String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.room_preference || $('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.room_type).trim() : '__NULL__' }},={{ (($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guest_gender_group_type) != null && String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guest_gender_group_type).trim() !== '') ? String($('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session?.guest_gender_group_type).trim() : '__NULL__' }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3504,
+        976
+      ],
+      "id": "3ce003001-0001-4000-8000-000000000301",
+      "name": "Postgres - Main Availability",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const atAvail = $('Code - Check Bed Availability - WA').first().json || {};\nconst pgRow = $('Postgres - Main Availability').first().json || {};\nconst session =\n  atAvail.session ||\n  $('Merge Session State').first().json?.session ||\n  {};\n\nfunction parseActionable(raw) {\n  if (Array.isArray(raw)) return raw;\n  if (raw && typeof raw === 'object') return raw;\n  if (typeof raw === 'string' && raw.trim()) {\n    try {\n      return JSON.parse(raw);\n    } catch (_) {}\n  }\n  return [];\n}\n\nconst hasPgRow = pgRow && pgRow.pg_query_ok !== undefined;\nconst pgQueryOk = hasPgRow && pgRow.pg_query_ok !== false;\nconst pgFound = pgQueryOk && pgRow.availability_found === true;\nconst actionable = parseActionable(pgRow.actionable);\nconst pgErrors = [];\n\nif (!hasPgRow) pgErrors.push('pg_availability_missing_row');\nelse if (!pgQueryOk) pgErrors.push('pg_availability_query_failed');\nif (actionable.includes('missing_or_invalid_dates')) pgErrors.push('missing_or_invalid_dates');\n\nconst availability_found = pgQueryOk ? pgFound : false;\nconst primaryRoomCode = pgRow.primary_room_code || null;\nconst primaryRoomName = pgRow.primary_room_name || primaryRoomCode;\n\nreturn [\n  {\n    json: {\n      ...atAvail,\n      session,\n      availability_found,\n      pg_availability_found: pgFound,\n      pg_query_ok: pgQueryOk,\n      pg_primary_room_code: primaryRoomCode,\n      pg_primary_room_name: primaryRoomName,\n      primary_room_code: primaryRoomCode || atAvail.primary_room_code || '',\n      pg_available_bed_count: Number(pgRow.available_bed_count || 0),\n      pg_blocked_bed_count: Number(pgRow.blocked_bed_count || 0),\n      pg_overlap_conflict_count: Number(pgRow.overlap_conflict_count || 0),\n      pg_multi_room_required: !!pgRow.multi_room_required,\n      pg_actionable: actionable,\n      pg_errors: pgErrors,\n      selected_room:\n        pgFound && primaryRoomCode\n          ? {\n              room_id: primaryRoomCode,\n              room_code: primaryRoomCode,\n              room_name: primaryRoomName,\n            }\n          : atAvail.selected_room || null,\n      hold_room_name: pgFound ? primaryRoomName || atAvail.hold_room_name || '' : '',\n      hold_room_id: pgFound ? primaryRoomCode || atAvail.hold_room_id || '' : '',\n      availability_authority: 'postgres',\n      availability_type: pgFound\n        ? pgRow.multi_room_required\n          ? 'multi_room'\n          : 'single_room'\n        : atAvail.availability_type || 'none',\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3528,
+        912
+      ],
+      "id": "3ce003002-0002-4000-8000-000000000302",
+      "name": "Code - Map PG Availability"
+    },
+    {
+      "parameters": {
+        "content": "## Phase 3c.e.3 — PG availability gate\n\nSELECT-only. `Code - Map PG Availability` sets authoritative `availability_found` for IF below.\n\nAT bed searches kept for reply context; PG failure = no hold path.",
+        "height": 180,
+        "width": 420
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3420,
+        720
+      ],
+      "id": "3ce003003-0003-4000-8000-000000000303",
+      "name": "Sticky Note - Phase 3c.e.3"
     }
   ],
   "pinData": {},
@@ -21974,7 +22026,7 @@
       "main": [
         [
           {
-            "node": "IF - Availability Found",
+            "node": "Postgres - Main Availability",
             "type": "main",
             "index": 0
           }
@@ -23075,6 +23127,28 @@
           }
         ]
       ]
+    },
+    "Postgres - Main Availability": {
+      "main": [
+        [
+          {
+            "node": "Code - Map PG Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Map PG Availability": {
+      "main": [
+        [
+          {
+            "node": "IF - Availability Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -23112,6 +23186,9 @@
     },
     {
       "name": "phase2f3"
+    },
+    {
+      "name": "phase3c-e3"
     }
   ]
 }
