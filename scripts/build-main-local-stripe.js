@@ -1030,6 +1030,40 @@ function applyPhase2f(workflow) {
     throw new Error('Phase 2f: required Main nodes not found');
   }
 
+  searchHold.parameters.filterByFormula = `={{ (() => {
+  const pick = (() => {
+    try {
+      return $('Code - Pick Active Booking').first().json || {};
+    } catch (_) {
+      return {};
+    }
+  })();
+  const targetRecordId = String(
+    pick.active_booking_record_id ||
+    pick.active_booking?.record_id ||
+    pick.active_booking_raw?.id ||
+    ''
+  ).trim();
+  const currentHoldId = String(
+    $('Search Conversation').first().json.fields?.['Current Hold ID'] || ''
+  ).trim();
+  const phone = String($('Normalize Incoming Message').first().json.phone || '').trim();
+
+  const preferredClauses = [];
+  if (targetRecordId) preferredClauses.push('RECORD_ID()="' + targetRecordId + '"');
+  if (currentHoldId) preferredClauses.push('{Booking ID}="' + currentHoldId + '"');
+  if (phone) preferredClauses.push('{Phone}="' + phone + '"');
+  if (!preferredClauses.length) preferredClauses.push('FALSE()');
+
+  return (
+    'AND(' +
+      'OR(' + preferredClauses.join(',') + '),' +
+      'OR({Status}="Hold",{Status}="Payment_Pending"),' +
+      'OR({Payment Status}="not_requested",{Payment Status}="waiting_payment")' +
+    ')'
+  );
+})() }}`;
+
   const resolverNode = {
     parameters: { jsCode: buildN8nResolverJsCode() },
     type: 'n8n-nodes-base.code',
