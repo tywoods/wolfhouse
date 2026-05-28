@@ -1,6 +1,6 @@
 # Phase 3d.1 — Stripe isolated planning gate
 
-**Status:** 3d.4 CPS **PASS** · 3d.5 plan **done** · **3d.5a** preflight + schedule isolation **done** (2026-05-28). Next: **3d.5b** webhook runtime (activate only `KZUQvwR6SPWpvaZ5` for one POST).
+**Status:** 3d.4 CPS **PASS** · **3d.5b** webhook **PASS** (2026-05-28). Next: **3d.6** isolated Send Confirmation (webhook inactive; re-enable schedule in n8n DB first).
 
 ## Boundary
 
@@ -575,14 +575,107 @@ Option B (Stripe CLI signed forward) deferred.
 3. Single POST; deactivate webhook immediately after.
 4. Send Confirmation `max_exec_id` must not advance during test window.
 
-### Post-run requirements (future runtime)
+### Post-run requirements (3d.5b — completed)
 
-1. Deactivate Stripe Webhook Handler immediately.
-2. Re-verify Send Confirmation still inactive and did not execute.
-3. Archive: execution id, HTTP response, before/after SQL snapshots.
-4. Leave `send_confirmation=true` on booking until Send Confirmation gate (3d.6+) or explicit reset — **do not** toggle flag manually unless aborting the chain.
+1. Deactivate Stripe Webhook Handler immediately. ✓
+2. Re-verify Send Confirmation still inactive and did not execute. ✓
+3. Archive: execution id, HTTP response, before/after SQL snapshots. ✓ (below)
+4. Leave `send_confirmation=true` on booking until Send Confirmation gate (3d.6+) — **do not** toggle flag manually unless aborting the chain.
 
-### Recommended gate after 3d.5 runtime sign-off
+---
 
-**3d.6** — isolated Send Confirmation only, with webhook **inactive**, targeting bookings that already have `send_confirmation=true` and `deposit_paid` from webhook sign-off; `WHATSAPP_DRY_RUN=true` unless real message test is approved.
+## 3d.5b — isolated Stripe Webhook Handler runtime — PASS (2026-05-28)
+
+### Scope honored
+
+- One crafted `POST http://localhost:5678/webhook/stripe-webhook` only (Option A).
+- **Only** `KZUQvwR6SPWpvaZ5` active during test window; deactivated immediately after response.
+- `STRIPE_WEBHOOK_SKIP_VERIFY=true` (no Stripe CLI; no browser pay).
+- Send Confirmation schedule node **disabled** in n8n DB; `active=false`; no Send Confirmation execution during test.
+
+### Event payload
+
+| Field | Value |
+|-------|--------|
+| `id` (Stripe event) | `evt_test_phase3d5b_001` |
+| `type` | `checkout.session.completed` |
+| `data.object.id` | `cs_test_a1Htl0ZjasUd3Gik7G6tVFkDDFLUIPyJ8ljGYimITsmAH1gcy0KpehvhvT` |
+| `metadata.booking_id` | `33ac2766-537c-4b95-85d4-91c01c862beb` |
+| `metadata.payment_kind` | `deposit_only` |
+| `amount_total` | `20000` |
+| `payment_intent` | `pi_test_phase3d5b_001` |
+
+**Do not** replay the same `evt_test_phase3d5b_001` (idempotent no-op).
+
+### Execution evidence
+
+| Item | Value |
+|------|--------|
+| Workflow | Wolfhouse - Stripe Webhook Handler |
+| Workflow id | `KZUQvwR6SPWpvaZ5` |
+| Execution id | **1058** (prior webhook on this id: **615**) |
+| Status / mode | `success` / `webhook` |
+| Started | 2026-05-28 13:32:27 UTC |
+
+### HTTP response
+
+```json
+{
+  "received": true,
+  "processed": true,
+  "booking_id": "33ac2766-537c-4b95-85d4-91c01c862beb",
+  "payment_status": "deposit_paid",
+  "send_confirmation": true,
+  "payment_kind": "deposit_only"
+}
+```
+
+### Target booking / payment (before → after)
+
+| Field | Before | After |
+|-------|--------|-------|
+| `booking_code` | `WH-260528-1493` | unchanged |
+| `status` | `payment_pending` | **`payment_pending`** (not confirmed) |
+| `payment_status` | `payment_link_sent` | **`deposit_paid`** |
+| `send_confirmation` | `false` | **`true` (expected)** |
+| `confirmation_sent_at` | `NULL` | **`NULL`** |
+| `deposit_paid_cents` | NULL | `20000` |
+| `amount_paid_cents` | NULL | `20000` |
+| `balance_due_cents` | NULL | `0` |
+| Payment `10ad0f21-…` status | `checkout_created` | **`paid`** |
+| Payment `amount_paid_cents` | `0` | `20000` |
+| `paid_at` | NULL | set |
+| `stripe_payment_intent_id` | NULL | `pi_test_phase3d5b_001` |
+
+### Payments / payment_events
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Global `payment_events` | 3 | **4** (+1) |
+| Booking `payment_events` | 0 | **1** |
+| Event | — | `checkout.session.completed` / `evt_test_phase3d5b_001` / `processed=true` |
+
+### Side-effect safety (PASS)
+
+| Check | Result |
+|-------|--------|
+| Send Confirmation max execution | **1057** (unchanged) |
+| Main latest execution | **1036** (unchanged) |
+| CPS latest execution | **1050** (unchanged) |
+| `booking_beds` | **0** |
+| Booking confirmed | **No** |
+| All relevant workflows after run | **inactive** |
+
+### Post-3d.5b chain state (hold for 3d.6)
+
+Booking `WH-260528-1493` is in **webhook-success** state: `deposit_paid`, `send_confirmation=true`, still `payment_pending`, `confirmation_sent_at=NULL`. Use this row for isolated Send Confirmation sign-off.
+
+### Recommended gate after 3d.5b
+
+**3d.6** — isolated Send Confirmation only:
+
+- Webhook handler **inactive** (`KZUQvwR6SPWpvaZ5`).
+- **Re-enable** Send Confirmation schedule node in n8n DB (`disabled: false` on `Schedule - Poll Postgres`) before runtime.
+- `WHATSAPP_DRY_RUN=true` unless real WhatsApp test is explicitly approved.
+- Do **not** combine with webhook POST in the same window.
 

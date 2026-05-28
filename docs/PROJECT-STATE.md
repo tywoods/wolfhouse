@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Phase 3d.5a webhook preflight + schedule isolation)  
-**HEAD (expected):** after `Phase 3d.4: document direct Stripe checkout session success`
+**Last updated:** 2026-05-28 (Phase 3d.5b Stripe webhook payment truth PASS)  
+**HEAD (expected):** after `Phase 3d.5b: document Stripe webhook payment truth success`
 
 For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md). For agent rules see [CURSOR.md](../CURSOR.md).
 
@@ -111,26 +111,34 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
 | **3d.4** Direct isolated Create Payment Session | **PASS** | execution **1050**; booking `WH-260528-1493`; `cs_test_...` session; no webhook/confirmation/Main side effects |
 | **3d.5** Stripe Webhook Handler isolated plan | Done | [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) §3d.5 |
 | **3d.5a** Webhook preflight + schedule isolation | **Done** | read-only checks; n8n DB schedule disable (local only) — §3d.5a |
-| **3d.5b** Isolated webhook runtime | **Next** | one POST; only `KZUQvwR6SPWpvaZ5` active |
+| **3d.5b** Isolated webhook runtime | **PASS** | execution **1058**; `evt_test_phase3d5b_001`; booking `WH-260528-1493` payment truth; no confirmation/WhatsApp |
 
 **3d.4 evidence (summary):** Direct POST to `create-payment-session` with only `esuDIT96iPT63OaQ` active. Booking `33ac2766-537c-4b95-85d4-91c01c862beb` moved `waiting_payment` → `payment_link_sent`; one `payments` row created (`10ad0f21-0aa4-42c9-9adb-571a82f91698`); global `payment_events` unchanged; `send_confirmation` false; not confirmed; `booking_beds` 0.
 
-**3d.5a (summary):** `db:report:stripe-contract` + `--verify-targets` PASS. `active=false` on Send Confirmation (`gxivKRJexzTCw9x6`) did **not** stop 3‑min schedule (executions 1055–1057). Fix: `disabled=true` on `Schedule - Poll Postgres` in n8n `workflow_entity` + `workflow_history`; restart n8n; no 1058+ in 4+ min. Checkout Success `kipSFRdsnXfTPLUc` set inactive. Target booking unchanged. **Re-enable schedule before 3d.6.**
+**3d.5a (summary):** `db:report:stripe-contract` + `--verify-targets` PASS. `active=false` on Send Confirmation did **not** stop 3‑min schedule (1055–1057). Fix: schedule node `disabled=true` in n8n DB. **Re-enable before 3d.6.**
 
-**Local gate state (before 3d.5b):**
+**3d.5b evidence (summary):** One POST to `stripe-webhook` with only `KZUQvwR6SPWpvaZ5` active (`STRIPE_WEBHOOK_SKIP_VERIFY=true`). Payment `10ad0f21-…` → `paid`; `payment_events` 3→4; booking `payment_link_sent`→`deposit_paid`; `send_confirmation` true; `status` still `payment_pending`; `confirmation_sent_at` NULL. Send Confirmation max exec **1057**; Main **1036**; CPS **1050**; `booking_beds` 0.
+
+**Isolated Stripe chain on `WH-260528-1493`:**
+
+| Gate | Execution | Booking payment state |
+|------|-----------|------------------------|
+| 3d.4 CPS | 1050 | `payment_link_sent`, payment `checkout_created` |
+| 3d.5b Webhook | 1058 | `deposit_paid`, `send_confirmation=true`, not confirmed |
+
+**Local gate state (after 3d.5b):**
 
 | Workflow | Id | Active | Notes |
 |----------|-----|--------|--------|
-| Stripe Webhook Handler | `KZUQvwR6SPWpvaZ5` | false | activate **only** this for 3d.5b |
+| Stripe Webhook Handler | `KZUQvwR6SPWpvaZ5` | false | keep inactive for 3d.6 |
+| Send Confirmation (local) | `gxivKRJexzTCw9x6` | false | schedule **disabled** until 3d.6 preflight |
 | Create Payment Session | `esuDIT96iPT63OaQ` | false | |
 | CPS stub | `whCreatePaymentStubLocal01` | false | |
 | Main (local Stripe) | `RBfGNtVgrAkvhBHJ` | false | |
-| Send Confirmation (local) | `gxivKRJexzTCw9x6` | false | schedule node **disabled=true** (n8n DB) |
 | Stripe Checkout Success | `kipSFRdsnXfTPLUc` | false | |
 
 Remaining exclusions (still separate):
-- Stripe Webhook Handler runtime sign-off (**3d.5b** — next)
-- Send Confirmation chain sign-off
+- Send Confirmation chain sign-off (**3d.6** — next)
 - Main-integrated real Stripe payment-details path
 - Rooming/reassign E2E (deferred until hosted reassign URL remap)
 - Airtable-removal/cleanup-refactor work
@@ -197,9 +205,9 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - zero side effects on `payments`, `payment_events`, and `booking_beds`
 
 Recommended immediate next step:
-- **Phase 3d.5b** — isolated webhook runtime: activate **only** `KZUQvwR6SPWpvaZ5`, one Option A POST, deactivate; verify per [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) §3d.5 / §3d.5a.
-- Confirm Send Confirmation stays at execution **≤1057** during test window (`active=false` + schedule `disabled=true`).
-- Continue **3d.4** booking `WH-260528-1493`. Do **not** combine webhook and Send Confirmation in one window. Re-enable Send Confirmation schedule before **3d.6**.
+- **Phase 3d.6** — isolated Send Confirmation on `WH-260528-1493` (already `deposit_paid`, `send_confirmation=true`). Preflight: re-enable schedule node in n8n DB; keep webhook **inactive**; `WHATSAPP_DRY_RUN=true` unless approved otherwise.
+- Do **not** replay `evt_test_phase3d5b_001` or run another webhook POST on this booking without reset.
+- After 3d.6: Main-integrated real Stripe payment-details path (separate gate).
 
 ---
 
