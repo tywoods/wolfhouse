@@ -3,7 +3,11 @@
 **Status:** **Stage 3x.1 retry — standalone planning doc complete** (docs-only, 2026-05-28)  
 **This file is the master spec** for bot knowledge + safety guardrails (§3x.1–3x.11). Related but separate: [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) (bed-ops / reassign inventory).
 
-**Prerequisite:** Stage 3 engineering gates through **3d.9b** — integrated Main → Stripe pay → organic webhook → Send Confirmation dry-run on `WH-260528-5369` ([`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)).
+**Prerequisite:** Stage 3 engineering gates complete (including rooming 3e.4 PASS). **Stage 3.5 safety rails** (idempotency, error capture, overlap guards) precede Stage 3x execution. See [`ROADMAP.md § Stage 3.5`](ROADMAP.md#stage-35--safety-rails-before-reliability).
+
+**LLM safety:** Stage 3x must satisfy LLM safety requirements — low confidence → handoff; LLM error → safe fallback; bot never marks paid/cancelled/confirmed from LLM output alone. See [`ROADMAP.md § LLM safety requirements`](ROADMAP.md#llm-safety-requirements-across-stage-3x--stage-4).
+
+**Privacy / GDPR gate:** No Layer-2 structured customer memory with personal data (§3x.5) until purpose, retention policy, delete/export procedure, and staff-only note handling are documented. Raw WhatsApp exports must remain off-repo (`data/private/`, gitignored). See [`ROADMAP.md § Privacy / GDPR gate`](ROADMAP.md#privacy--gdpr-gate-before-customer-memory).
 
 ### Standalone checklist (this document)
 

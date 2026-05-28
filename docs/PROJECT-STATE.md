@@ -1,11 +1,11 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-29 (Phase 3e.4 rooming E2E complete)  
-**HEAD (expected):** `be4efce` (3e.4c patch)
+**Last updated:** 2026-05-29 (roadmap update: exit criteria, Stage 3.5, 3y, SoT cutover, GDPR gate)  
+**HEAD (expected):** `9f38392` (3e.4 docs)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
-**Quality bar:** Stage 3 — **Correct and safe** (not Reliable / Clean / Beautiful / Scalable yet).
+**Quality bar:** Stage 3 — **Correct and safe** (exit criteria defined; residuals: 3e.5 negative tests, idempotency runtime verification). Next: Stage 3.5 safety rails → Stage 3x → Stage 3y shadow mode → Stage 4 Reliable.
 
 ---
 
@@ -27,11 +27,13 @@
 
 | Stage | Status | Notes |
 |-------|--------|--------|
-| **3** Correct and safe | **Frozen (3c+3d)** | [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) — integrated dry-run chain on `WH-260528-5369`; residuals: real WA, schedule-poll, rooming E2E |
-| **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
-| **4** Reliable | Planned | After 3 + 3x |
+| **3** Correct and safe | **In progress** (exit criteria defined) | Core paths proven; 3e.5 negative tests + idempotency runtime verification remaining |
+| **3.5** Safety rails | Planned | Idempotency, error capture, overlap guards, exec logging — before live/shadow |
+| **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
+| **3y** Shadow / co-pilot | Planned | Bot drafts, staff approves/sends; generates real labeled data |
+| **4** Reliable | Planned | After 3 + 3.5 + 3x + 3y |
 | **5** Clean | Planned | Decision engine out of n8n |
-| **6** Beautiful | Planned | Staff UI |
+| **6** Beautiful | Planned | Staff UI; Airtable cutover |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
 ---
@@ -300,9 +302,9 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 **Parallel (Stage 3 residual):**
 - **Phase 3e rooming/reassign** — **3e.4 complete** (PASS). Evidence booking `WH-260528-5322` / beds R3-B1/R3-B2. Next: **3e.5** negative tests or Stage 3x minimum rooming baseline.
 
-**Then:** Stage 3 closeout checklist · **Stage 4 Reliable** (golden runner, monitors, idempotency tests).
+**Then:** Stage 3 closeout checklist → **Stage 3.5** safety rails (idempotency, error capture, exec logging) → **Stage 3y** shadow/co-pilot → **Stage 4 Reliable** (golden runner, monitors, full idempotency).
 
-**Not next:** Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7) until 3x execution + Stage 4 foundations.
+**Not next:** Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7); Airtable cutover without staff UI; autonomous live replies without Stage 3y staff-approval mode.
 
 ---
 

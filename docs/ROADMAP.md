@@ -1,4 +1,4 @@
-# Wolfhouse Booking Assistant — Product Roadmap
+﻿# Wolfhouse Booking Assistant — Product Roadmap
 
 **Product:** AI booking operations for WhatsApp-first experience businesses — **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
@@ -9,14 +9,21 @@
 ## Evolution order (do not skip)
 
 ```text
-1. Correct and safe     ← Stage 3d engineering gates complete; Stage 3x specs in progress
-2. Reliable             ← Stage 4
-3. Clean                ← Stage 5
-4. Beautiful            ← Stage 6
-5. Scalable             ← Stage 7
+1. Correct and safe      ← Stage 3  (engineering gates + exit criteria)
+   Safety rails          ← Stage 3.5 (seatbelts before live/shadow mode)
+   Knowledge + guardrails ← Stage 3x (specs, client config, golden tests)
+   Shadow / co-pilot     ← Stage 3y (staff-approved replies, real guest data)
+2. Reliable              ← Stage 4
+3. Clean                 ← Stage 5
+4. Beautiful             ← Stage 6
+5. Scalable              ← Stage 7
 ```
 
 Stage 3 is **not** about making the bot beautiful or fully productized. It is about proving the bot does **not** make dangerous mistakes.
+
+**Stage 3.5 is not full Stage 4 observability.** It is the minimum seatbelts required before serious runtime or live/shadow operation — error capture, idempotency checks, overlap guards, basic execution logging.
+
+**Stage 3y (Shadow/Co-pilot)** bridges dry-run proof and autonomous live operation. The bot reads real messages and drafts responses; staff approve and send manually. No autonomous payment/confirmation/cancellation/rooming without explicit staff approval. This reduces the dry-run → real-guest cliff and generates real golden-message data.
 
 ---
 
@@ -121,7 +128,10 @@ Older docs use **Phase 0–3d** for engineering milestones. They map to stages a
 | Phase 3b (frozen) | Stage 3 — bed-ops / manual / operator paths |
 | Phase 3c–3g | Stage 3 — Main + Postgres + stub E2E |
 | Phase 3d.x | Stage 3 — isolated real Stripe payment / webhook / confirmation gates |
-| (planned) Stage 3x | Bot knowledge + safety guardrails (specs, not n8n sprawl) |
+| Phase 3e | Stage 3 — rooming/reassign E2E ✅ |
+| Stage 3.5 | Safety rails — idempotency, error capture, overlap guards |
+| Stage 3x | Bot knowledge + safety guardrails (specs, not n8n sprawl) |
+| Stage 3y | Shadow / co-pilot — staff-approved mode before autonomous |
 | Azure / multi-client | Stage 7 (Scalable), not before Reliability + Clean |
 
 ---
@@ -170,6 +180,107 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 **Freeze:** [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) — formal 3c+3d checkpoint before Phase 3e.3+.
 
 **Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+
+### Stage 3 exit criteria
+
+Stage 3 is **complete only when all of the following are met** (or explicitly deferred with documented safe fallback):
+
+**Core behavior proven:**
+- [ ] `booking_flow` hold creation (PG + Airtable backfill) ✅
+- [ ] `payment_details_provided` route + Ensure ✅
+- [ ] Real Stripe checkout link (Main-integrated) ✅
+- [ ] Isolated Create Payment Session ✅
+- [ ] Stripe Webhook Handler payment truth ✅
+- [ ] Send Confirmation (dry-run) ✅
+- [ ] Integrated pay + webhook + confirmation ✅
+- [ ] Rooming / reassign E2E ✅
+
+**Safety invariants proven:**
+- [ ] No Main direct writes to `payments` / `payment_events` ✅ (static proof)
+- [ ] No payment/confirmation path writes `booking_beds` ✅ (static proof)
+- [ ] Hosted/prod URLs removed from all local test paths ✅ (3e.2)
+- [ ] Terminal evidence bookings not reused without reset (policy established)
+
+**Guards verified or explicitly deferred:**
+- [ ] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) — *3e.5 negative tests pending*
+- [ ] Duplicate / idempotency protections verified for: WhatsApp message id · payment links · Stripe events · Send Confirmation · rooming/reassign — *3x.10 spec done; runtime verification pending*
+- [ ] All dangerous actions have handoff / fail-safe behavior when required business rule is missing — *3x.7–3x.8 spec done; implementation pending*
+
+**Acceptable deferrals (do not block Stage 3 exit if documented):**
+- Real WhatsApp send — dry-run mode (`WHATSAPP_DRY_RUN=true`) is sufficient; shadow mode (Stage 3y) covers real send
+- Send Confirmation schedule-poll — schedule `disabled=true` gate is sufficient for Stage 3; verify in Stage 3y
+- Single-window integrated E2E — isolated gate chains are sufficient for Stage 3
+
+**Acceptance metric gates:**
+- 0 double bookings in all runtime test gates
+- 0 wrong-booking dangerous actions in test gates
+- 0 payment truth updates outside Stripe Webhook Handler
+- 0 confirmations without payment truth
+- 0 real WhatsApp sends in dry-run test gates
+- 100% dangerous-action routes have handoff/fail-safe when required business logic is missing
+
+---
+
+## Stage 3.5 — Safety Rails Before Reliability
+
+**Purpose:** Pull forward the minimum safety plumbing required to safely run more runtime gates and prepare for live/shadow mode. This is not full Stage 4 observability — it is seatbelts.
+
+**When to do Stage 3.5:** After Stage 3 exit criteria are met, before Stage 3y (shadow/co-pilot) or live guest operation.
+
+### Minimum safety requirements (Stage 3.5)
+
+| Item | Why |
+|------|-----|
+| `automation_errors` capture/write path | Know when bot fails silently |
+| Standard workflow error handler pattern | Consistent safe fallback across all n8n workflows |
+| Idempotency: inbound WhatsApp message id | No duplicate booking from retry/double-delivery |
+| Idempotency: Stripe event id | No duplicate `payment_events` row |
+| Idempotency: payment-link reuse | No duplicate checkout session without explicit guard |
+| Idempotency: Send Confirmation | Cannot confirm twice (`confirmation_sent_at` + flag) |
+| Idempotency: rooming/reassign | Cannot double-assign or double-delete beds |
+| Double-booking guard / DB overlap check | `booking_beds` overlap detection query; reject or alert before insert |
+| Stuck booking detection (basic) | Bookings in `payment_pending` > N hours with no event; holds expired but not released |
+| Workflow active-state safety check | Automated assertion: only expected workflows active before dangerous test or runtime |
+| Schedule disabled/enabled safety check | Send Confirmation schedule `disabled=true` verified before any payment/confirmation test |
+| Minimum execution logging | For each execution: `resolved_route`, confidence, selected booking id, dangerous action taken (or no-op reason) |
+| Golden-runner stub | Even a fixture-file runner (`test:golden-messages`) blocks regression in CI before Stage 4 |
+
+**Stage 3.5 does not include:** full monitoring dashboards, Azure deploy, Staff UI, broad n8n → backend refactor.
+
+---
+
+## Stage 3y — Shadow / Co-pilot Pilot
+
+**Purpose:** Bridge the gap between isolated dry-run proof and autonomous live guest operation. Reduces the dry-run → real-guest cliff; generates real labeled data; builds Ale/Cami trust in the system.
+
+### How shadow/co-pilot mode works
+
+| Step | Who acts |
+|------|----------|
+| Real guest message arrives | n8n / Main reads it |
+| Bot resolves route + drafts response | Bot (automated) |
+| Bot suggests safe action (if any) | Bot outputs draft; **no autonomous send** |
+| Staff reviews draft | Ale / Cami |
+| Staff approves and sends | Staff (manual) |
+| Staff edit logged as labeled example | System records correction |
+
+### What is and is not allowed in Stage 3y
+
+| Allowed | Not allowed without explicit approval |
+|---------|--------------------------------------|
+| Bot reads real messages | Autonomous WhatsApp reply |
+| Bot resolves route and flags uncertainty | Autonomous payment link creation |
+| Bot drafts response for staff approval | Autonomous confirmation |
+| Staff-approved sends | Autonomous cancellation or room reassign |
+| Bot logs suggested action + confidence | Any dangerous action without staff approval |
+
+### Why Stage 3y before Stage 4
+
+- Avoids big-bang flip from dry-run to fully autonomous
+- Creates real golden-message data from actual guest interactions
+- Staff corrections become labeled training examples
+- Ale/Cami can see and trust bot behavior before handing over
+- Sellable capability: "AI drafts, staff approves" is a distinct product tier
 
 ---
 
@@ -255,6 +366,20 @@ Redacted Cami/Ale guest threads → **dual outputs:** (A) anonymized bot knowled
 Layered model: temporary raw import → structured customer facts (PG, `client_id`-scoped) → anonymized fixtures. Proposed tables: `customers`, `customer_booking_history`, `conversation_summaries`, `customer_preferences`, `customer_notes`, `privacy_requests` (future).
 
 **Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` §3x.5](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x5--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) § Customer memory.
+
+### LLM safety requirements (across Stage 3x + Stage 4)
+
+The bot must never act on LLM output alone for dangerous actions. The following are required:
+
+| Requirement | Stage |
+|-------------|-------|
+| Low confidence → human handoff (not silent no-op) | 3x.8 spec → 3.5 impl |
+| LLM/API error → handoff or logged safe fallback | 3.5 |
+| Parsing uncertainty → clarification question, not action | 3x.8 spec → 3.5 impl |
+| `resolved_route`, confidence, selected booking, and action logged per execution | 3.5 |
+| Golden-message suite used as prompt regression evaluation | 3x.6 → 4 |
+| Multilingual behavior tested: English / Spanish / Italian | 3x.6 |
+| Bot never marks `paid` / `cancelled` / `confirmed` based only on LLM interpretation | 3x.7 gate — proven in 3d.5b (webhook owns truth) |
 
 ### Stage 3x exit criteria
 
@@ -349,6 +474,47 @@ Wolfhouse = `client_slug: wolfhouse-somo`. Future surf houses add new config row
 
 ---
 
+## Source-of-truth cutover — Airtable → Postgres
+
+This is a **first-class roadmap event**, not a scattered implementation detail. Airtable is the current operational source of truth for staff. Postgres is the engineering source of truth for the bot. Cutover must happen deliberately.
+
+### Cutover phases
+
+| Phase | Description | Gate |
+|-------|-------------|------|
+| **Current** | Airtable = staff SoT; Postgres = bot SoT; dual-write in progress | Active |
+| **Read-only compare** | Run both reads; log discrepancies; do not act on mismatch | Before any cutover |
+| **`DATA_SOURCE` flag** | Config-driven: `airtable` \| `postgres` per path; allows per-path rollout | Stage 4 |
+| **Soak period** | Postgres-primary writes; Airtable as backup read; monitor for divergence | Stage 4–5 |
+| **Airtable dependency removal** | Only after staff UI or equivalent replacement exists | Stage 6+ |
+| **Backup policy** | Full Airtable export + PG dump before each cutover step | Required |
+| **Rollback plan** | Revert `DATA_SOURCE` flag; restore from backup; documented runbook | Required |
+
+**Do not remove Airtable dependency** until:
+1. Staff UI (Stage 6) or equivalent is live for all Airtable use cases it currently covers
+2. PG data has passed a soak period without divergence
+3. Backup and rollback procedure is documented and tested
+
+---
+
+## Privacy / GDPR gate before customer memory
+
+**No Layer-2 structured customer memory with personal data until all of the following exist:**
+
+| Requirement | Status |
+|-------------|--------|
+| Documented purpose for each stored personal field | Planned (3x.2) |
+| Retention policy per field type | Planned (3x.2) |
+| Staff-only note handling (no guest-facing access to staff notes) | Planned |
+| Delete / export / correction procedure documented | Planned |
+| Marketing opt-in separated from booking support data | Planned |
+| Raw WhatsApp exports kept off-repo / in `data/private/` (gitignored) | **Done** (`84fa45f`) |
+| Only reviewed/sanitized fixtures in repo | Policy established |
+
+**This gate applies before 3x.3 customer extract is written to PG.** Planning (3x.2) may proceed; PG insert of personal data requires privacy gate first.
+
+---
+
 ## Stage 4 — Reliable
 
 ### Purpose
@@ -385,14 +551,17 @@ May begin here if needed before full Stage 6 UI:
 
 Simplify implementation after behavior is proven and reliability checks exist.
 
-### Includes
+### Safety-critical early extractions (pull forward to Stage 3.5 / 4 only if needed)
 
-- Move decision logic **out of n8n** into `src/booking-assistant/` modules
-- Reduce duplicated route logic in Main JSON
-- Clean workflow naming; simplify n8n branches to orchestration only
-- Reduce Airtable dependency on critical paths
-- Consolidate scripts; organize docs
-- Reusable service boundaries (booking, payment, conversation, assignment)
+Do **not** do broad Stage 5 refactor before Stage 3 / 3.5 safety gates. However, pull forward **only** these safety-critical items when required:
+
+- Wrong-booking guard (if not proven in Stage 3 negative tests)
+- Dangerous-action gate checks (missing required business rule → handoff)
+- Duplicate / idempotency checks (if Stage 3.5 requires them in code)
+- Bed-assignment overlap / dedup logic (if DB constraint is insufficient)
+- `client_config` loading skeleton (if Stage 3x requires it for golden tests)
+
+### Includes
 
 **Target:** n8n calls backend decision engine; Postgres writes go through shared SQL/modules; n8n performs WhatsApp/Stripe/Airtable I/O.
 
