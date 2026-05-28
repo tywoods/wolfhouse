@@ -6,3 +6,16 @@ infra/.env
 docs/api keys.txt
 reports/*.csv
 reports/*.json
+
+# Private / raw WhatsApp exports (never commit)
+data/private/
+data/raw-whatsapp/
+data/whatsapp-raw/
+data/whatsapp-redacted/
+docs/knowledge/whatsapp-raw/
+docs/knowledge/whatsapp-private/
+*WhatsApp Chat*.txt
+*.wa-export.txt
+*_chat.txt
+*_redaction_map.json
+*_pii_map.json
