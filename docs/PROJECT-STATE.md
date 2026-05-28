@@ -168,7 +168,8 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - zero side effects on `payments`, `payment_events`, and `booking_beds`
 
 Recommended immediate next step:
-- Run the next planned `3c.g` runtime scope (or proceed to explicit sign-off planning for real Stripe path as a separate gate).
+- Start **Phase 3d.1** isolated Stripe-path planning gate: [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md).
+- Keep Stripe Webhook Handler and Send Confirmation as separate follow-on gates (not implicitly included in Stripe session testing).
 
 ---
 
