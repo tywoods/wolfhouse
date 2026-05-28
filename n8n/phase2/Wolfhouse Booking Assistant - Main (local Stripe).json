@@ -21301,6 +21301,40 @@
       ],
       "id": "3ce004006-0006-4000-8000-000000000406",
       "name": "Sticky Note - Phase 3c.e.4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "send-typing-real-whatsapp",
+              "leftValue": "={{ (() => {\n  const n = $('Normalize Incoming Message').first().json || {};\n  const source = String(n.source || '').toLowerCase();\n  const messageId = String(n.whatsapp_message_id || '');\n  const isPhaseTestMessageId = /^wamid\\.PHASE3C/i.test(messageId);\n  return source === 'whatsapp' && messageId.length > 0 && !isPhaseTestMessageId;\n})() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1568,
+        992
+      ],
+      "id": "3cg1d001-0001-4000-8000-000000000701",
+      "name": "IF - Send Typing Indicator (Local Guard)"
     }
   ],
   "pinData": {},
@@ -22470,7 +22504,7 @@
         [],
         [
           {
-            "node": "Send Typing Indicator",
+            "node": "IF - Send Typing Indicator (Local Guard)",
             "type": "main",
             "index": 0
           }
@@ -23429,6 +23463,24 @@
     },
     "Code - PG Conversation Failed Stop": {
       "main": []
+    },
+    "IF - Send Typing Indicator (Local Guard)": {
+      "main": [
+        [
+          {
+            "node": "Send Typing Indicator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Inbound Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -23475,6 +23527,9 @@
     },
     {
       "name": "phase3c-e5"
+    },
+    {
+      "name": "phase3c-g1d"
     }
   ]
 }

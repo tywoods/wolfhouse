@@ -866,6 +866,60 @@ function applyPhase3cAvailabilityGate(workflow) {
   }
 }
 
+function applyLocalTypingIndicatorBypass(workflow) {
+  const ifIgnore = workflow.nodes.find((n) => n.name === 'IF - Ignore Non Guest Message');
+  const typing = workflow.nodes.find((n) => n.name === 'Send Typing Indicator');
+  const createInbound = workflow.nodes.find((n) => n.name === 'Create Inbound Message');
+  if (!ifIgnore || !typing || !createInbound) {
+    throw new Error('Local typing-indicator bypass: required nodes not found');
+  }
+
+  const bypassNode = {
+    parameters: {
+      conditions: {
+        options: { caseSensitive: false, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'send-typing-real-whatsapp',
+            leftValue: `={{ (() => {
+  const n = $('Normalize Incoming Message').first().json || {};
+  const source = String(n.source || '').toLowerCase();
+  const messageId = String(n.whatsapp_message_id || '');
+  const isPhaseTestMessageId = /^wamid\\.PHASE3C/i.test(messageId);
+  return source === 'whatsapp' && messageId.length > 0 && !isPhaseTestMessageId;
+})() }}`,
+            rightValue: '',
+            operator: { type: 'boolean', operation: 'true', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    type: 'n8n-nodes-base.if',
+    typeVersion: 2.2,
+    position: [-1568, 992],
+    id: '3cg1d001-0001-4000-8000-000000000701',
+    name: 'IF - Send Typing Indicator (Local Guard)',
+  };
+
+  workflow.nodes.push(bypassNode);
+
+  workflow.connections['IF - Ignore Non Guest Message'] = {
+    main: [
+      [],
+      [{ node: 'IF - Send Typing Indicator (Local Guard)', type: 'main', index: 0 }],
+    ],
+  };
+
+  workflow.connections['IF - Send Typing Indicator (Local Guard)'] = {
+    main: [
+      [{ node: 'Send Typing Indicator', type: 'main', index: 0 }],
+      [{ node: 'Create Inbound Message', type: 'main', index: 0 }],
+    ],
+  };
+}
+
 function applyPhase2f(workflow) {
   const parseRoute = workflow.nodes.find((n) => n.name === 'Code - Parse Route');
   const switchNode = workflow.nodes.find((n) => n.name === 'Switch');
@@ -1765,6 +1819,7 @@ applyMergedPaymentPathFixes(workflow);
 applyDeterministicPaymentUrl(workflow);
 applyPhase3cAvailabilityGate(workflow);
 applyPhase3cHoldGate(workflow);
+applyLocalTypingIndicatorBypass(workflow);
 
 workflow.tags = [
   ...(workflow.tags || []),
@@ -1773,6 +1828,7 @@ workflow.tags = [
   { name: 'phase3c-e3' },
   { name: 'phase3c-e4' },
   { name: 'phase3c-e5' },
+  { name: 'phase3c-g1d' },
 ];
 
 return workflow;
