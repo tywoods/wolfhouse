@@ -25,6 +25,10 @@ const {
 const { stripePaymentLinkUpdateSchema } = require('./lib/airtable-bookings-schema');
 const { buildEnsurePromoteN8nSql } = require('./lib/main-ensure-booking-pg-sql');
 const { buildMainAvailabilityGateN8nSql } = require('./lib/main-availability-pg-sql');
+const {
+  buildHoldUpsertN8nSql,
+  buildHoldBackfillAirtableN8nSql,
+} = require('./lib/main-booking-hold-pg-sql');
 
 /** n8n IF expression — run Stripe after hold when contact + hold exist (not only session merge). */
 const STRIPE_AFTER_HOLD_IF_EXPR = `={{ 
@@ -84,7 +88,12 @@ const PHASE_3CE_PG_TARGETS = {
     route: 'booking_flow',
     insertAfter: 'Code - Prepare Hold Records',
     insertBefore: 'Create Booking Hold',
-    futureNodes: ['Postgres - Create Booking Hold', 'IF - PG Hold OK'],
+    nodes: [
+      'Postgres - Create Booking Hold',
+      'Code - Validate PG Hold',
+      'IF - PG Hold OK',
+      'Postgres - Backfill Booking AT Record Id',
+    ],
     mirrorNode: 'Create Booking Hold',
     pgBlocksAirtable: true,
     lib: 'scripts/lib/main-booking-hold-pg-sql.js',
@@ -427,6 +436,269 @@ return [
     },
   },
 ];`;
+
+const VALIDATE_PG_HOLD_JS = `const prepare = $('Code - Prepare Hold Records').first().json || {};
+const pgRow = $('Postgres - Create Booking Hold').first().json || {};
+const mapPg = $('Code - Map PG Availability').first().json || {};
+
+function parseActionable(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object') return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      return JSON.parse(raw);
+    } catch (_) {}
+  }
+  return [];
+}
+
+const actionable = parseActionable(pgRow.actionable);
+const pgErrors = Array.isArray(pgRow.pg_errors)
+  ? pgRow.pg_errors
+  : actionable.length
+    ? actionable
+    : [];
+
+const pgOk = pgRow.pg_ok === true && !!pgRow.booking_id;
+
+return [
+  {
+    json: {
+      ...prepare,
+      pg_ok: pgOk,
+      booking_id: pgRow.booking_id || null,
+      booking_code: pgRow.booking_code || prepare.hold_booking_id || null,
+      pg_status: pgRow.status || null,
+      pg_payment_status: pgRow.payment_status || null,
+      pg_primary_room_code: pgRow.primary_room_code || mapPg.primary_room_code || mapPg.pg_primary_room_code || null,
+      pg_created: pgRow.created === true,
+      pg_updated: pgRow.updated === true,
+      pg_actionable: actionable,
+      pg_errors: pgOk ? [] : pgErrors,
+      hold_booking_id: pgRow.booking_code || prepare.hold_booking_id,
+      primary_room_code:
+        pgRow.primary_room_code || mapPg.primary_room_code || mapPg.pg_primary_room_code || null,
+    },
+  },
+];`;
+
+const PG_HOLD_FAILED_STOP_JS = `const hold = $('Code - Validate PG Hold').first().json || {};
+return [
+  {
+    json: {
+      pg_hold_failed: true,
+      pg_ok: false,
+      booking_code: hold.booking_code || null,
+      pg_errors: hold.pg_errors || hold.pg_actionable || ['pg_hold_failed'],
+      note: 'Phase 3c.e.4 safety stop: no Airtable writes on PG hold failure.',
+    },
+  },
+];`;
+
+function applyPhase3cHoldGate(workflow) {
+  const prepareHold = workflow.nodes.find((n) => n.name === 'Code - Prepare Hold Records');
+  const createAtHold = workflow.nodes.find((n) => n.name === 'Create Booking Hold');
+  const summarizeHolds = workflow.nodes.find((n) => n.name === 'Code - Summarize Holds');
+  if (!prepareHold || !createAtHold || !summarizeHolds) {
+    throw new Error('Phase 3c.e.4: hold path nodes not found');
+  }
+
+  const NULL_SENTINEL = '__NULL__';
+  const holdData = "$('Code - Prepare Hold Records').first().json";
+  const sess = `${holdData}.session || {}`;
+  const mapPg = "$('Code - Map PG Availability').first().json";
+
+  function pgParam(innerExpr) {
+    return `={{ ((${innerExpr}) != null && String(${innerExpr}).trim() !== '') ? String(${innerExpr}).trim() : '${NULL_SENTINEL}' }}`;
+  }
+
+  const holdQueryReplacement = [
+    pgParam(`${holdData}.hold_booking_id`),
+    pgParam(`${holdData}.guest_name`),
+    pgParam(`${holdData}.guest_phone`),
+    pgParam(`${holdData}.guest_email`),
+    pgParam(`${sess}.check_in`),
+    pgParam(`${sess}.check_out`),
+    pgParam(`${holdData}.guest_count`),
+    pgParam(`${sess}.room_type || ${sess}.requested_room_type || 'shared'`),
+    pgParam(`${sess}.room_preference || ${sess}.room_type || 'shared'`),
+    pgParam(`${sess}.guest_gender_group_type || 'unknown'`),
+    pgParam(`${mapPg}.primary_room_code || ${mapPg}.pg_primary_room_code`),
+    pgParam(`${sess}.package || ${sess}.package_code`),
+  ].join(',');
+
+  const backfillQueryReplacement = [
+    pgParam(`$('Create Booking Hold').first().json.id`),
+    pgParam(
+      `$('Code - Validate PG Hold').first().json.booking_code || ${holdData}.hold_booking_id`
+    ),
+  ].join(',');
+
+  workflow.nodes.push(
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: buildHoldUpsertN8nSql(),
+        options: { queryReplacement: holdQueryReplacement },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [4128, 880],
+      id: '3ce004001-0001-4000-8000-000000000401',
+      name: 'Postgres - Create Booking Hold',
+      alwaysOutputData: true,
+      credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+    },
+    {
+      parameters: { jsCode: VALIDATE_PG_HOLD_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [4256, 880],
+      id: '3ce004002-0002-4000-8000-000000000402',
+      name: 'Code - Validate PG Hold',
+    },
+    {
+      parameters: {
+        conditions: {
+          options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+          conditions: [
+            {
+              id: 'pg-hold-ok',
+              leftValue: "={{ $('Code - Validate PG Hold').first().json.pg_ok === true }}",
+              rightValue: '',
+              operator: { type: 'boolean', operation: 'true', singleValue: true },
+            },
+          ],
+          combinator: 'and',
+        },
+        options: {},
+      },
+      type: 'n8n-nodes-base.if',
+      typeVersion: 2.2,
+      position: [4384, 880],
+      id: '3ce004003-0003-4000-8000-000000000403',
+      name: 'IF - PG Hold OK',
+    },
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: buildHoldBackfillAirtableN8nSql(),
+        options: { queryReplacement: backfillQueryReplacement },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [4640, 800],
+      id: '3ce004004-0004-4000-8000-000000000404',
+      name: 'Postgres - Backfill Booking AT Record Id',
+      alwaysOutputData: true,
+      credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+    },
+    {
+      parameters: { jsCode: PG_HOLD_FAILED_STOP_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [4384, 1040],
+      id: '3ce004005-0005-4000-8000-000000000405',
+      name: 'Code - PG Hold Failed Stop',
+    },
+    {
+      parameters: {
+        content:
+          '## Phase 3c.e.4 — PG hold + AT mirror\n\nPG upsert → Validate → IF → Create Booking Hold (mirror) → backfill airtable_record_id → Summarize.\n\nPG failure → terminal safety stop (no Airtable writes).',
+        height: 200,
+        width: 440,
+      },
+      type: 'n8n-nodes-base.stickyNote',
+      typeVersion: 1,
+      position: [4040, 640],
+      id: '3ce004006-0006-4000-8000-000000000406',
+      name: 'Sticky Note - Phase 3c.e.4',
+    }
+  );
+
+  workflow.connections['Code - Prepare Hold Records'] = {
+    main: [[{ node: 'Postgres - Create Booking Hold', type: 'main', index: 0 }]],
+  };
+  workflow.connections['Postgres - Create Booking Hold'] = {
+    main: [[{ node: 'Code - Validate PG Hold', type: 'main', index: 0 }]],
+  };
+  workflow.connections['Code - Validate PG Hold'] = {
+    main: [[{ node: 'IF - PG Hold OK', type: 'main', index: 0 }]],
+  };
+  workflow.connections['IF - PG Hold OK'] = {
+    main: [
+      [{ node: 'Create Booking Hold', type: 'main', index: 0 }],
+      [{ node: 'Code - PG Hold Failed Stop', type: 'main', index: 0 }],
+    ],
+  };
+  workflow.connections['Create Booking Hold'] = {
+    main: [[{ node: 'Postgres - Backfill Booking AT Record Id', type: 'main', index: 0 }]],
+  };
+  workflow.connections['Postgres - Backfill Booking AT Record Id'] = {
+    main: [[{ node: 'Code - Summarize Holds', type: 'main', index: 0 }]],
+  };
+  workflow.connections['Code - PG Hold Failed Stop'] = { main: [] };
+
+  summarizeHolds.parameters.jsCode = `const atHold = $('Create Booking Hold').first().json;
+const backfill = $('Postgres - Backfill Booking AT Record Id').first().json || {};
+const availability =
+  $('Code - Map PG Availability').first().json ||
+  $('Code - Check Bed Availability - WA').first().json;
+const prepareHold = $('Code - Prepare Hold Records').first().json;
+const pgHold = $('Code - Validate PG Hold').first().json;
+const resolver = $('Code - Booking State Resolver').first().json;
+
+const bookingCode =
+  atHold.fields?.['Booking ID'] ||
+  atHold['Booking ID'] ||
+  pgHold.booking_code ||
+  prepareHold.hold_booking_id ||
+  '';
+
+const holdRecordId = atHold.id || '';
+const roomIds = [
+  atHold.fields?.['Room ID'] ||
+    atHold.fields?.['hold_room_id'] ||
+    availability.hold_room_id ||
+    availability.selected_room?.room_id ||
+    pgHold.primary_room_code ||
+    '',
+];
+const roomNames = [
+  atHold.fields?.['Room Name'] ||
+    availability.hold_room_name ||
+    availability.selected_room?.room_name ||
+    '',
+];
+
+const hasGuestDetails = !!prepareHold.has_guest_details;
+const applyAfterHold = resolver.staged_contact?.apply_after_hold === true;
+
+return [
+  {
+    json: {
+      ...availability,
+      holds_created: true,
+      hold_booking_ids: bookingCode ? [bookingCode] : [],
+      hold_room_ids: roomIds,
+      hold_room_names: roomNames,
+      hold_count: 1,
+      hold_record_id: holdRecordId,
+      pg_booking_id: pgHold.booking_id || backfill.booking_id || null,
+      booking_code: bookingCode,
+      has_guest_details: hasGuestDetails,
+      should_run_stripe_payment:
+        applyAfterHold ||
+        prepareHold.should_run_stripe_payment === true ||
+        hasGuestDetails,
+      staged_contact_apply_after_hold: applyAfterHold,
+      pg_hold_created: pgHold.pg_created === true,
+      pg_hold_updated: pgHold.pg_updated === true,
+      airtable_record_id: backfill.airtable_record_id || atHold.id || null,
+    },
+  },
+];`;
+}
 
 function applyPhase3cAvailabilityGate(workflow) {
   const checkAvail = workflow.nodes.find((n) => n.name === 'Code - Check Bed Availability - WA');
@@ -1407,12 +1679,14 @@ applyPhase2f2(workflow);
 applyMergedPaymentPathFixes(workflow);
 applyDeterministicPaymentUrl(workflow);
 applyPhase3cAvailabilityGate(workflow);
+applyPhase3cHoldGate(workflow);
 
 workflow.tags = [
   ...(workflow.tags || []),
   { name: 'phase2f2' },
   { name: 'phase2f3' },
   { name: 'phase3c-e3' },
+  { name: 'phase3c-e4' },
 ];
 
 return workflow;

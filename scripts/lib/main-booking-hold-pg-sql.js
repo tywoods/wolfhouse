@@ -17,9 +17,11 @@ const EXECUTE_HOLD_STATUSES = {
   availability_check_status: 'available',
 };
 
+const CLIENT_SLUG = 'wolfhouse-somo';
+
 const FUTURE_SQL = {
-  PROMOTE_TO_PAYMENT_PENDING: 'TODO_3c.c.4: Ensure Booking / guest-details promote',
-  BACKFILL_AIRTABLE_RECORD_ID: 'TODO_3c.e: UPDATE bookings SET airtable_record_id=$rec WHERE booking_code=$code',
+  PROMOTE_TO_PAYMENT_PENDING: 'implemented in main-ensure-booking-pg-sql.js',
+  BACKFILL_AIRTABLE_RECORD_ID: 'buildHoldBackfillAirtableN8nSql()',
 };
 
 function parseHoldInput(raw = {}) {
@@ -368,8 +370,212 @@ async function upsertBookingHold(client, clientId, holdInput, wouldUpsert) {
   };
 }
 
+/**
+ * n8n hold upsert ($1–$12) + active-hold guard. No booking_beds. hold_expires_at = now + 1h.
+ * @returns {string}
+ */
+function buildHoldUpsertN8nSql() {
+  const activeStatuses = ACTIVE_HOLD_STATUSES.map((s) => `'${s}'`).join(', ');
+  const holdStatus = EXECUTE_HOLD_STATUSES.status;
+  const holdPayment = EXECUTE_HOLD_STATUSES.payment_status;
+  const holdAssignment = EXECUTE_HOLD_STATUSES.assignment_status;
+  const holdAvail = EXECUTE_HOLD_STATUSES.availability_check_status;
+
+  return `WITH params AS (
+  SELECT
+    NULLIF($1, '${NULL_SENTINEL}') AS booking_code,
+    NULLIF($2, '${NULL_SENTINEL}') AS guest_name,
+    NULLIF($3, '${NULL_SENTINEL}') AS phone,
+    NULLIF($4, '${NULL_SENTINEL}') AS email,
+    NULLIF($5, '${NULL_SENTINEL}')::date AS check_in,
+    NULLIF($6, '${NULL_SENTINEL}')::date AS check_out,
+    GREATEST(
+      1,
+      COALESCE(
+        CASE
+          WHEN NULLIF(trim(NULLIF($7, '${NULL_SENTINEL}')::text), '') IS NULL THEN 1
+          ELSE NULLIF(trim(NULLIF($7, '${NULL_SENTINEL}')::text), '')::integer
+        END,
+        1
+      )
+    ) AS guest_count,
+    NULLIF($8, '${NULL_SENTINEL}') AS requested_room_type,
+    NULLIF($9, '${NULL_SENTINEL}') AS room_preference,
+    NULLIF($10, '${NULL_SENTINEL}') AS guest_gender_group_type,
+    NULLIF($11, '${NULL_SENTINEL}') AS primary_room_code,
+    NULLIF($12, '${NULL_SENTINEL}') AS package_code
+),
+client AS (
+  SELECT id FROM clients WHERE slug = '${CLIENT_SLUG}' LIMIT 1
+),
+precheck AS (
+  SELECT
+    p.*,
+    (p.booking_code IS NULL OR p.check_in IS NULL OR p.check_out IS NULL OR p.check_out <= p.check_in) AS invalid_params,
+    EXISTS (
+      SELECT 1
+      FROM bookings b
+      INNER JOIN client c ON b.client_id = c.id
+      WHERE p.phone IS NOT NULL
+        AND b.phone = p.phone
+        AND b.status::text = ANY(ARRAY[${activeStatuses}]::text[])
+        AND b.check_in < p.check_out
+        AND b.check_out > p.check_in
+        AND b.booking_code <> p.booking_code
+    ) AS active_hold_blocked,
+    EXISTS (
+      SELECT 1
+      FROM bookings b
+      INNER JOIN client c ON b.client_id = c.id
+      WHERE b.booking_code = p.booking_code
+        AND b.status::text IN ('cancelled', 'expired', 'confirmed', 'checked_in')
+    ) AS terminal_blocked
+  FROM params p
+),
+upsert_row AS (
+  INSERT INTO bookings (
+    client_id,
+    booking_code,
+    airtable_record_id,
+    guest_name,
+    phone,
+    email,
+    status,
+    payment_status,
+    assignment_status,
+    availability_check_status,
+    check_in,
+    check_out,
+    guest_count,
+    requested_room_type,
+    room_preference,
+    guest_gender_group_type,
+    primary_room_code,
+    package_code,
+    booking_source,
+    hold_expires_at,
+    send_confirmation,
+    metadata
+  )
+  SELECT
+    c.id,
+    pc.booking_code,
+    NULL,
+    pc.guest_name,
+    pc.phone,
+    pc.email,
+    '${holdStatus}'::booking_status,
+    '${holdPayment}'::payment_status,
+    '${holdAssignment}'::assignment_status,
+    '${holdAvail}'::availability_check_status,
+    pc.check_in,
+    pc.check_out,
+    pc.guest_count,
+    pc.requested_room_type,
+    pc.room_preference,
+    pc.guest_gender_group_type,
+    pc.primary_room_code,
+    pc.package_code,
+    'whatsapp'::booking_source,
+    NOW() + INTERVAL '1 hour',
+    FALSE,
+    '{"source":"main_workflow_3ce4"}'::jsonb
+  FROM client c
+  CROSS JOIN precheck pc
+  WHERE NOT pc.invalid_params
+    AND NOT pc.active_hold_blocked
+    AND NOT pc.terminal_blocked
+  ON CONFLICT (client_id, booking_code) DO UPDATE SET
+    guest_name = COALESCE(EXCLUDED.guest_name, bookings.guest_name),
+    phone = COALESCE(EXCLUDED.phone, bookings.phone),
+    email = COALESCE(EXCLUDED.email, bookings.email),
+    check_in = EXCLUDED.check_in,
+    check_out = EXCLUDED.check_out,
+    guest_count = EXCLUDED.guest_count,
+    requested_room_type = EXCLUDED.requested_room_type,
+    room_preference = EXCLUDED.room_preference,
+    guest_gender_group_type = EXCLUDED.guest_gender_group_type,
+    primary_room_code = COALESCE(EXCLUDED.primary_room_code, bookings.primary_room_code),
+    package_code = COALESCE(EXCLUDED.package_code, bookings.package_code),
+    hold_expires_at = EXCLUDED.hold_expires_at,
+    assignment_status = EXCLUDED.assignment_status,
+    availability_check_status = EXCLUDED.availability_check_status,
+    status = CASE
+      WHEN bookings.status IN ('payment_pending', 'confirmed', 'checked_in', 'needs_review', 'blocked')
+        THEN bookings.status
+      ELSE EXCLUDED.status
+    END,
+    payment_status = CASE
+      WHEN bookings.payment_status IN ('waiting_payment', 'deposit_paid', 'paid')
+        THEN bookings.payment_status
+      ELSE EXCLUDED.payment_status
+    END,
+    metadata = bookings.metadata || EXCLUDED.metadata,
+    updated_at = NOW()
+  RETURNING
+    id::text AS booking_id,
+    booking_code,
+    status::text AS status,
+    payment_status::text AS payment_status,
+    primary_room_code,
+    (xmax = 0) AS created,
+    (xmax <> 0) AS updated
+)
+SELECT
+  CASE
+    WHEN pc.invalid_params THEN false
+    WHEN pc.active_hold_blocked THEN false
+    WHEN pc.terminal_blocked THEN false
+    WHEN ur.booking_id IS NOT NULL THEN true
+    ELSE false
+  END AS pg_ok,
+  ur.booking_id,
+  COALESCE(ur.booking_code, pc.booking_code) AS booking_code,
+  ur.status,
+  ur.payment_status,
+  ur.primary_room_code,
+  COALESCE(ur.created, false) AS created,
+  COALESCE(ur.updated, false) AS updated,
+  CASE
+    WHEN pc.invalid_params THEN '["invalid_hold_params"]'::jsonb
+    WHEN pc.active_hold_blocked THEN '["active_hold_exists"]'::jsonb
+    WHEN pc.terminal_blocked THEN '["booking_code_terminal_status"]'::jsonb
+    WHEN ur.booking_id IS NULL THEN '["hold_upsert_failed"]'::jsonb
+    ELSE '[]'::jsonb
+  END AS actionable,
+  CASE
+    WHEN pc.invalid_params THEN ARRAY['invalid_hold_params']::text[]
+    WHEN pc.active_hold_blocked THEN ARRAY['active_hold_exists']::text[]
+    WHEN pc.terminal_blocked THEN ARRAY['booking_code_terminal_status']::text[]
+    WHEN ur.booking_id IS NULL THEN ARRAY['hold_upsert_failed']::text[]
+    ELSE ARRAY[]::text[]
+  END AS pg_errors
+FROM precheck pc
+LEFT JOIN upsert_row ur ON true;`;
+}
+
+/**
+ * Mirror path: set bookings.airtable_record_id after Airtable create ($1 rec id, $2 booking_code).
+ * @returns {string}
+ */
+function buildHoldBackfillAirtableN8nSql() {
+  return `UPDATE bookings b
+SET
+  airtable_record_id = NULLIF($1, '${NULL_SENTINEL}'),
+  updated_at = NOW()
+FROM clients c
+WHERE b.client_id = c.id
+  AND c.slug = '${CLIENT_SLUG}'
+  AND b.booking_code = NULLIF($2, '${NULL_SENTINEL}')
+RETURNING
+  b.id::text AS booking_id,
+  b.booking_code,
+  b.airtable_record_id;`;
+}
+
 module.exports = {
   NULL_SENTINEL,
+  CLIENT_SLUG,
   ACTIVE_HOLD_STATUSES,
   EXECUTE_HOLD_STATUSES,
   FUTURE_SQL,
@@ -382,4 +588,6 @@ module.exports = {
   classifyBookingCodeAction,
   buildExecuteMetadata,
   upsertBookingHold,
+  buildHoldUpsertN8nSql,
+  buildHoldBackfillAirtableN8nSql,
 };
