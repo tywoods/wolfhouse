@@ -23,8 +23,65 @@ const expr = {
     "={{ $json.guest_gender_group_type || $('Code - Prepare Stripe Payment Context').first().json.guest_gender_group_type || 'unknown' }}",
   paymentLink:
     "={{ $json.payment_link || $json.checkout_url || ($('Update Booking - Stripe Payment Link').isExecuted ? $('Update Booking - Stripe Payment Link').first().json.fields?.['Payment Link'] : '') || $('Code - Prepare Stripe Payment Context').first().json.payment_link || '' }}",
-  holdBookingId:
-    "={{ $json.booking_code || $('Code - Prepare Stripe Payment Context').first().json.booking_code || $('Create Booking Hold').first().json.fields?.['Booking ID'] || '' }}",
+  holdBookingId: `={{ (() => {
+    const fromJson = $json.booking_code || '';
+    const fromCtx =
+      $('Code - Prepare Stripe Payment Context').first().json.booking_code ||
+      $('Code - Prepare Stripe Payment Context').first().json.current_hold_booking_code ||
+      '';
+    const fromUpdatedHold = $('Update Hold With Guest Details').isExecuted
+      ? (
+          $('Update Hold With Guest Details').first().json.fields?.['Booking ID'] ||
+          $('Update Hold With Guest Details').first().json['Booking ID'] ||
+          ''
+        )
+      : '';
+    const fromSearchHold = $('Search Hold With Guest Details').isExecuted
+      ? (
+          $('Search Hold With Guest Details').first().json.fields?.['Booking ID'] ||
+          $('Search Hold With Guest Details').first().json['Booking ID'] ||
+          ''
+        )
+      : '';
+    const fromActiveBooking = $('Code - Pick Active Booking').isExecuted
+      ? (
+          $('Code - Pick Active Booking').first().json.active_booking?.fields?.['Booking ID'] ||
+          $('Code - Pick Active Booking').first().json.active_booking?.booking_id ||
+          $('Code - Pick Active Booking').first().json.active_booking_id ||
+          ''
+        )
+      : '';
+    const fromConversation =
+      $('Search Conversation').first().json.fields?.['Current Hold ID'] || '';
+    const fromSession =
+      $('Merge Session State').first().json.session?.current_hold_booking_code ||
+      $('Merge Session State').first().json.session?.hold_booking_id ||
+      $('Merge Session State').first().json.session?.current_hold_id ||
+      '';
+    const fromCreateHold = $('Create Booking Hold').isExecuted
+      ? (
+          $('Create Booking Hold').first().json.fields?.['Booking ID'] ||
+          $('Create Booking Hold').first().json['Booking ID'] ||
+          ''
+        )
+      : '';
+
+    const candidates = [
+      fromJson,
+      fromCtx,
+      fromUpdatedHold,
+      fromSearchHold,
+      fromActiveBooking,
+      fromConversation,
+      fromSession,
+      fromCreateHold,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && value !== 'null' && value !== 'undefined');
+
+    const whCode = candidates.find((value) => /^WH-/i.test(value));
+    return whCode || candidates[0] || '';
+  })() }}`,
   language:
     "={{ $('Code - Parse Route').first().json.language || $('Search Conversation').first().json.fields?.Language || 'en' }}",
   lastGuestMessage:
