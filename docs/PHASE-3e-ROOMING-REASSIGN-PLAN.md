@@ -32,7 +32,7 @@
 
 **Worker DNS:** default `http://n8n-main:5678/...` (same pattern as Assign fork in `build-reassign-beds-local.js`). Override via `N8N_REASSIGN_BOOKING_BEDS_URL` on n8n + n8n-worker when added to compose.
 
-**Not done in 3e.2:** activate Reassign fork; Airtable base alignment (Reassign/Assign still prod `appOCWIN47Bui9CSS`); rooming E2E.
+**Not done in 3e.2:** activate Reassign fork; rooming E2E. (**3e.3b** fixed Airtable base alignment — all local bed-ops forks now use test base `appiyO4FmkKsyHZdK`.)
 
 ---
 
@@ -67,8 +67,10 @@ Queried `n8n-postgres.workflow_entity` + `webhook_entity` (read-only).
 | Wolfhouse - Create Payment Session | `esuDIT96iPT63OaQ` | **false** | `create-payment-session` (inactive) |
 | Wolfhouse - Create Payment Session (stub local) | `whCreatePaymentStubLocal01` | **false** | `create-payment-session-stub-local` (inactive) |
 | Wolfhouse - Reassign Bed Assignments (local PG) | `B3c3ReassignLocal01` | **false** | **not registered** (workflow inactive) |
-| Wolfhouse - Bed Assignment (local PG) | `B3c2AssignLocalPg01` | **true** | `assign-beds-to-booking` (**active**) |
-| Wolfhouse - Cancel Bed Assignments (local PG) | `KchhRC9b3MIdkzPT` | **true** | `cancel-booking-beds` (**active**) |
+| Wolfhouse - Bed Assignment (local PG) | `B3c2AssignLocalPg01` | **false** | **not registered** (workflow inactive) |
+| Wolfhouse - Cancel Bed Assignments (local PG) | `KchhRC9b3MIdkzPT` | **false** | **not registered** (workflow inactive) |
+
+*(3e.3b snapshot — after `node scripts/import-bed-ops-local-inactive.js --verify-db`; Assign/Cancel were active from Phase 3b until re-import deactivated them.)*
 
 ### Send Confirmation schedule
 
@@ -76,7 +78,7 @@ From workflow JSON in DB: node **`Schedule - Poll Postgres`** has **`disabled: t
 
 ### 3e.1 safety note (bed-ops activation)
 
-Assign and Cancel local forks are **still active** from Phase 3b sign-off. They do **not** run on their own, but a direct POST to `assign-beds-to-booking` or `cancel-booking-beds` **would execute**. Before rooming E2E (3e.4), consider deactivating them outside explicit test windows (same pattern as payment workflows).
+After **3e.3b** re-import, Assign / Reassign / Cancel local forks are **inactive** in n8n DB (`active=false`). A direct POST to their webhook paths **will not execute** until explicitly activated for a gated test window (same pattern as payment workflows).
 
 ### Static Main check
 
@@ -132,9 +134,10 @@ sequenceDiagram
 
 | Command | Output |
 |---------|--------|
-| `npm run build:reassign-beds:local` | `n8n/phase3b/Wolfhouse - Reassign Bed Assignments (local PG).json` |
+| `npm run build:reassign-beds:local` | `n8n/phase3b/Wolfhouse - Reassign Bed Assignments (local PG).json` (+ neutralize prod→test AT base, `active=false`) |
 | `npm run build:assign-beds:local` | `n8n/phase3b/Wolfhouse - Bed Assignment (local PG).json` |
 | `npm run build:cancel-beds:local` | `n8n/phase3b/Wolfhouse - Cancel Bed Assignments (local PG).json` |
+| `node scripts/import-bed-ops-local-inactive.js --verify-db` | Regenerate all three + import inactive + read `workflow_entity.active` |
 | `npm run build:main:local-stripe` | Main fork (reassign URL remap target: **3e.2**) |
 
 ### Main nodes that call reassign (local fork)
@@ -194,7 +197,7 @@ From `scripts/build-reassign-beds-local.js`.
 ### Why it is dangerous locally
 
 1. **Leaves local Docker** — hits production n8n Cloud even when Main is “local.”
-2. **Airtable base mismatch** — Main local fork rooming **updates test base** `appiyO4FmkKsyHZdK`; Reassign/Assign local forks still reference **prod base** `appOCWIN47Bui9CSS` in generated JSON. A test `rec…` from Main may not exist (or may wrong-base mutate) on hosted/prod reassign.
+2. ~~**Airtable base mismatch**~~ — **Fixed in 3e.3b.** Main and Assign/Reassign/Cancel local forks all use test base `appiyO4FmkKsyHZdK` (neutralized from hosted export prod `appOCWIN47Bui9CSS` at build time).
 3. **Unscoped blast radius** — hosted reassign resets **all** booking bed rows for a booking in prod AT + downstream assign.
 
 ### Local-safe replacement (proposed 3e.2)
@@ -354,6 +357,7 @@ Required before any **mutating** rooming/reassign run:
 | **3e.1** | Inventory + safety plan (this doc) | **Done (read-only)** |
 | **3e.2** | Hosted reassign URL remap in `build-main-local-stripe.js` + regenerate Main fork; static proof hosted URL gone | **Done** |
 | **3e.3** | Static rooming/reassign contract checker (`npm run db:report:main-rooming-contract`) | **Done** |
+| **3e.3b** | Align Assign/Reassign/Cancel local forks to test Airtable base (`appiyO4FmkKsyHZdK`); regenerate + import inactive | **Done** |
 | **3e.4** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | Planned |
 | **3e.5** | Negative tests: wrong booking, confirmed block, multi-active handoff, missing info, assignment lock, private room guard | Planned |
 
@@ -361,8 +365,20 @@ Required before any **mutating** rooming/reassign run:
 
 - `node scripts/report-main-rooming-contract.js` → **Overall OK: true**
 - Proves: Main no hosted reassign; local `n8n-main` endpoint; Main no `booking_beds`/payment writes; Reassign scoped PG delete + parse contract; Assign loads `Search Rooms` + `fill_priority`/`gender_strategy` scoring
-- **Blocker before 3e.4:** Airtable base mismatch — Main `appiyO4FmkKsyHZdK` vs Assign/Reassign/Cancel `appOCWIN47Bui9CSS`
+- **Blocker found (fixed in 3e.3b):** Airtable base mismatch — Main `appiyO4FmkKsyHZdK` vs Assign/Reassign/Cancel `appOCWIN47Bui9CSS`
 - Artifacts: `scripts/lib/main-rooming-contract-inventory.js`, `scripts/report-main-rooming-contract.js`
+
+### 3e.3b acceptance (2026-05-28)
+
+- **Source of truth:** `scripts/lib/bed-ops-local-build.js` — `PROD_AIRTABLE_BASE_ID` → `TEST_AIRTABLE_BASE_ID` via `finalizeLocalBedOpsWorkflow()` in:
+  - `scripts/build-assign-beds-local.js`
+  - `scripts/build-reassign-beds-local.js`
+  - `scripts/build-cancel-beds-local.js`
+- Regenerated JSON: zero `appOCWIN47Bui9CSS` hits under `n8n/phase3b/` bed-ops forks; all use `appiyO4FmkKsyHZdK`
+- `node scripts/import-bed-ops-local-inactive.js --verify-db` → all three workflows `active=false` in n8n DB
+- `node scripts/report-main-rooming-contract.js` → `integrated_e2e_aligned=true`, **Blockers before 3e.4:** none
+- Payment/stripe contracts unchanged (`report-main-payment-contract`, `report-stripe-contract`, Main `--verify-targets`)
+- **3e.4 may proceed only after this commit + fresh runtime preflight** (activate workflows only in gated window)
 
 ### 3e.2 acceptance (preview)
 
@@ -392,9 +408,8 @@ Required before any **mutating** rooming/reassign run:
 
 ## 11. Recommendation
 
-1. **Commit** 3e.3 checker + doc updates.  
-2. **Before 3e.4:** neutralize Assign/Reassign/Cancel forks to **test** Airtable base (`appiyO4FmkKsyHZdK`) — see `npm run db:report:main-rooming-contract` alignment section.  
-3. **Then 3e.4** — fresh disposable booking rooming E2E (not `WH-260528-5369` / `WH-260528-1493`).  
-4. Keep Main/Stripe/Confirmation inactive outside gated test windows; deactivate Assign/Cancel unless explicitly needed.
+1. **Commit** 3e.3b base alignment + doc updates.  
+2. **3e.4** — fresh disposable booking rooming E2E (not `WH-260528-5369` / `WH-260528-1493`); run **fresh runtime preflight** before activating any workflow.  
+3. Keep Main/Stripe/Confirmation inactive outside gated test windows; activate Reassign/Assign briefly only during 3e.4 window.
 
-**Do not run 3e.4 runtime until Airtable base alignment is resolved.**
+**Static gate for 3e.4 is clear** (`integrated_e2e_aligned=true`). Do not skip runtime preflight or reuse terminal evidence bookings.

@@ -388,28 +388,31 @@ function analyzeAirtableAlignment(main, reassign, assign, cancel) {
     for (const id of Object.keys(bases)) allBaseIds.add(id);
   }
   const mainUsesTest = Object.keys(summary.Main || {}).includes(TEST_AIRTABLE_BASE_ID);
-  const bedOpsUseProd = ['Reassign', 'Assign', 'Cancel'].every((n) =>
+  const bedOpsUseTest = ['Reassign', 'Assign', 'Cancel'].every((n) =>
+    Object.keys(summary[n] || {}).includes(TEST_AIRTABLE_BASE_ID)
+  );
+  const bedOpsUseProd = ['Reassign', 'Assign', 'Cancel'].some((n) =>
     Object.keys(summary[n] || {}).includes(PROD_AIRTABLE_BASE_ID)
   );
-  const aligned =
-    mainUsesTest &&
-    bedOpsUseProd &&
-    !['Reassign', 'Assign', 'Cancel'].some((n) =>
-      Object.keys(summary[n] || {}).includes(TEST_AIRTABLE_BASE_ID)
-    );
+  const localRoomingAirtableAligned = mainUsesTest && bedOpsUseTest && !bedOpsUseProd;
+  let mismatchDetail = null;
+  if (mainUsesTest && bedOpsUseProd) {
+    mismatchDetail =
+      'Main uses test Airtable appiyO4FmkKsyHZdK; Assign/Reassign/Cancel still reference prod appOCWIN47Bui9CSS — regenerate bed-ops local forks with base neutralization';
+  } else if (mainUsesTest && !bedOpsUseTest) {
+    mismatchDetail =
+      'Main uses test Airtable appiyO4FmkKsyHZdK but one or more bed-ops forks do not — integrated rooming E2E will fail until all use appiyO4FmkKsyHZdK';
+  }
   return {
     expected_local_test_base: TEST_AIRTABLE_BASE_ID,
-    expected_prod_base_in_bed_forks: PROD_AIRTABLE_BASE_ID,
     by_workflow: summary,
     all_base_ids: [...allBaseIds],
     main_on_test_base: mainUsesTest,
+    bed_ops_on_test_base: bedOpsUseTest,
     bed_ops_on_prod_base: bedOpsUseProd,
-    cross_environment_aligned: false,
-    aligned_for_integrated_rooming_e2e: aligned === false,
-    mismatch_detail:
-      mainUsesTest && bedOpsUseProd
-        ? 'Main uses test Airtable appiyO4FmkKsyHZdK; Assign/Reassign/Cancel use prod appOCWIN47Bui9CSS — integrated rooming E2E will fail until bed forks neutralized to test base or Main uses matching records'
-        : null,
+    local_rooming_airtable_aligned: localRoomingAirtableAligned,
+    aligned_for_integrated_rooming_e2e: localRoomingAirtableAligned,
+    mismatch_detail: mismatchDetail,
   };
 }
 
@@ -511,12 +514,12 @@ function buildMainRoomingContractReport(paths) {
     assign.webhook.found &&
     reassign.pg_scoped_delete.scoped_to_single_booking;
 
-  report.ready_for_3e4_planning =
-    report.ok && airtable_alignment.mismatch_detail === null ? false : report.ok;
   report.blockers_before_3e4 = [];
   if (airtable_alignment.mismatch_detail) {
     report.blockers_before_3e4.push('airtable_base_mismatch_main_vs_bed_ops');
   }
+
+  report.ready_for_3e4_planning = report.ok && report.blockers_before_3e4.length === 0;
 
   return { error: null, report };
 }
@@ -556,6 +559,7 @@ function printConsoleSummary(report) {
 
   console.log('\nAirtable alignment:');
   console.log(`  Main test base=${report.airtable_alignment.main_on_test_base}`);
+  console.log(`  Bed ops test base=${report.airtable_alignment.bed_ops_on_test_base}`);
   console.log(`  Bed ops prod base=${report.airtable_alignment.bed_ops_on_prod_base}`);
   console.log(`  integrated_e2e_aligned=${report.airtable_alignment.aligned_for_integrated_rooming_e2e}`);
   if (report.airtable_alignment.mismatch_detail) {

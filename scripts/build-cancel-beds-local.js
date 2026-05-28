@@ -11,6 +11,15 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const {
+  PROD_AIRTABLE_BASE_ID,
+  TEST_AIRTABLE_BASE_ID,
+  verifyNoProdAirtableBase,
+  importWorkflowInactive,
+  finalizeLocalBedOpsWorkflow,
+} = require('./lib/bed-ops-local-build');
+
+const args = process.argv.slice(2);
 
 const HOSTED = path.join(__dirname, '..', 'n8n', 'Wolfhouse - Cancel Bed Assignments.json');
 const OUT_DIR = path.join(__dirname, '..', 'n8n', 'phase3b');
@@ -538,22 +547,63 @@ function main() {
       },
     },
     pinData: {},
-    active: true,
     id: LOCAL_N8N.workflowId,
     settings: { executionOrder: 'v1', binaryMode: 'separate' },
     tags: [{ name: 'phase3b' }, { name: 'local-only' }],
   };
 
+  const { workflow: finalized, baseReplacements } = finalizeLocalBedOpsWorkflow(workflow, {
+    workflowId: LOCAL_N8N.workflowId,
+    active: false,
+  });
+  if (baseReplacements === 0) {
+    console.warn(
+      `WARN: no prod Airtable base IDs (${PROD_AIRTABLE_BASE_ID}) found in hosted nodes — neutralization may be a no-op`,
+    );
+  }
+
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
-  fs.writeFileSync(OUT, JSON.stringify(workflow, null, 2) + '\n');
-  fs.writeFileSync(OUT_IMPORT, JSON.stringify([workflow], null, 2) + '\n');
+  fs.writeFileSync(OUT, JSON.stringify(finalized, null, 2) + '\n');
+  fs.writeFileSync(OUT_IMPORT, JSON.stringify([finalized], null, 2) + '\n');
   console.log(`Wrote ${OUT}`);
   console.log(`Wrote ${OUT_IMPORT} (CLI re-import with stable id ${LOCAL_N8N.workflowId})`);
-  console.log(`Nodes: ${workflow.nodes.length}`);
-  console.log('Import into local n8n only. Deactivate hosted Cancel workflow if both are present.');
   console.log(
-    'Re-import locally: docker exec n8n-main n8n import:workflow --input=/path/to/.n8n-import.json'
+    `Airtable base neutralized: ${baseReplacements} replacement(s) (${PROD_AIRTABLE_BASE_ID} → ${TEST_AIRTABLE_BASE_ID})`,
   );
+  console.log(`workflow.active: ${finalized.active}`);
+  console.log(`Nodes: ${finalized.nodes.length}`);
+
+  const verify = verifyNoProdAirtableBase(finalized);
+  if (!verify.ok) {
+    console.error(`FAIL: prod Airtable base still in nodes: ${verify.prodBaseNodes.join(', ')}`);
+    process.exit(1);
+  }
+  console.log('OK: no prod Airtable base in generated workflow');
+
+  if (args.includes('--import-inactive')) {
+    importWorkflowInactive(OUT_IMPORT, 'b3-cancel-local-import.json');
+  }
+
+  console.log('Import into local n8n only. Deactivate hosted Cancel workflow if both are present.');
 }
 
-main();
+if (args.includes('--verify-targets')) {
+  if (!fs.existsSync(OUT)) {
+    console.error(`Generated workflow not found: ${OUT}`);
+    console.error('Run: npm run build:cancel-beds:local first.');
+    process.exit(1);
+  }
+  const wf = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+  const verify = verifyNoProdAirtableBase(wf);
+  console.log(`File: ${OUT}`);
+  console.log(`workflow.active: ${wf.active}`);
+  console.log(`workflow.id: ${wf.id}`);
+  if (verify.ok) {
+    console.log('OK: no prod Airtable base hits');
+    process.exit(0);
+  }
+  console.error(`FAIL: prod base in ${verify.prodBaseHitCount} node(s): ${verify.prodBaseNodes.join(', ')}`);
+  process.exit(1);
+} else {
+  main();
+}

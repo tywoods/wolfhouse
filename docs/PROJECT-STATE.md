@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Phase 3c/3d freeze checkpoint)  
-**HEAD (expected):** `8dfa450`
+**Last updated:** 2026-05-28 (Phase 3e.3b bed-ops Airtable alignment)  
+**HEAD (expected):** `8f02c73` (pre-3e.3b commit)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -216,7 +216,7 @@ Remaining exclusions (still separate):
 - Real WhatsApp send (`WHATSAPP_DRY_RUN` was true for 3d.6 and 3d.9b)
 - Send Confirmation **schedule poll** mode (schedule node still disabled)
 - Single-window integrated E2E (all steps in one run)
-- Rooming/reassign E2E — **3e.3** static contract checker added; **blocker:** AT base mismatch Main vs bed-ops — see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md)
+- Rooming/reassign E2E — **3e.3b** aligned Assign/Reassign/Cancel to test AT base `appiyO4FmkKsyHZdK`; static gate clear — **3e.4** E2E next (fresh preflight) — see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md)
 - Airtable-removal/cleanup-refactor work
 
 ---
@@ -263,7 +263,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 | Build script | `scripts/build-main-local-stripe.js` |
 | Hosted export (read-only) | `n8n/Wolfhouse Booking Assistant - Main.json` |
 | Scale | ~189 nodes, ~64 Airtable, **1** Postgres node today |
-| Risks | Reassign/Assign forks still on prod Airtable base; Assign/Cancel webhooks may be active; rooming E2E not run |
+| Risks | Rooming E2E not run; activate bed-ops only in gated 3e.4 window |
 
 **Do not run Main locally** until `--verify-targets` passes and testing is explicitly approved.
 
@@ -298,7 +298,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.5): Layer 3 fixtures + Layer 2 customer extract (owner-approved fields only).
 
 **Parallel (Stage 3 residual):**
-- **Phase 3e rooming/reassign** — **3e.3** static checker (`db:report:main-rooming-contract`); fix AT base alignment before **3e.4** E2E.
+- **Phase 3e rooming/reassign** — **3e.3b** bed-ops AT base aligned; static checker clear — **3e.4** E2E next.
 
 **Then:** Stage 3 closeout checklist · **Stage 4 Reliable** (golden runner, monitors, idempotency tests).
 
