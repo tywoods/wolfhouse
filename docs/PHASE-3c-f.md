@@ -1,6 +1,6 @@
 # Phase 3c.f — Payment/confirmation contract checks
 
-**Status:** **3c.f.1/3c.f.2 complete; 3c.f.3af controlled runtime success with local stub**.
+**Status:** **3c.f local-stub payment path signed off (3c.f.4 review complete); real Stripe path not signed off in this phase**.
 
 ## Scope (3c.f.1)
 
@@ -191,3 +191,49 @@ Queue-mode infra note (critical):
 - Use worker-reachable stub URL:
   - `http://n8n:5678/webhook/create-payment-session-stub-local`
 - Do **not** use `localhost` or `127.0.0.1` for this callback URL in queue mode.
+
+## 3c.f.4 sign-off and residual-risk review
+
+### Proven behaviors (local stub scope)
+
+The following are now evidenced across 3c.g + 3c.f controlled runs:
+- Booking-flow hold path reached and completed in controlled Main tests (`3c.g` evidence).
+- `payment_details_provided` route classification is proven in Main runtime.
+- Hold lookup/update path works for target hold (`recIP3DFb0nCx8gBh`).
+- Ensure promote/refresh behavior is proven:
+  - `hold -> payment_pending/waiting_payment` (earlier run)
+  - idempotent `refreshed` on already `payment_pending` booking (`1009`).
+- Ensure Airtable-record fallback is proven:
+  - resolves booking by `airtable_record_id` when prepare context `booking_code` is blank.
+- Local Create Payment Session stub call succeeds from Main execution context when using worker-reachable URL.
+- Airtable test booking `Payment Link` update with `example.test` URL is proven.
+- Main path does not write `payments`/`payment_events`.
+- Main path does not write `booking_beds`.
+- No legacy Create Payment Session execution and no Stripe call in controlled stub runs.
+- Workflow deactivation discipline held (Main/stub/legacy inactive after runs).
+
+### Residual risks (not yet closed in 3c.f)
+
+- Real Stripe checkout path is not validated in this phase (stub-only proof).
+- Stripe Webhook Handler real event lifecycle remains a separate validation scope.
+- Send Confirmation schedule remains active in background; observed benign in tests, but still environmental noise.
+- Payment Link field has historical overwrite risk (prior Stripe URL history before stub overwrite in local test base).
+- Queue mode requires worker-reachable callback URL (`http://n8n:5678/...`); `localhost`/`127.0.0.1` are unsafe for worker execution.
+- Airtable remains in payment path (`Search Hold With Guest Details`, payment-link update node).
+- Hosted reassign URLs remain deferred and unremapped in rooming/reassign nodes.
+- `Code - Prepare Stripe Payment Context` still emits blank `booking_code` in tested path; correctness currently relies on Ensure fallback via hold record id.
+- Final successful stub proof reused an already promoted `payment_pending` booking (valid idempotency proof, but not a fresh first-promotion scenario).
+
+### Go / no-go decision
+
+- **Signed off:** local stub `payment_details_provided` path behavior and safety contract (Main + Ensure + stub callback + Airtable link update).
+- **Not signed off:** real Stripe production-equivalent payment path and webhook-confirmation chain.
+- **Go:** proceed to continued `3c.g` runtime coverage and broader local integration tests.
+
+### Recommended next runtime coverage (do not execute in this step)
+
+1. Repeat `payment_details_provided` stub path with a fresh hold to re-prove first-time promote + stub success in one run.
+2. Run a new-phone end-to-end `booking_flow -> payment_details_provided` sequence.
+3. Keep rooming/reassign blocked until hosted reassign URL remap is done.
+4. Run isolated local Stripe Webhook Handler contract tests later (separate phase gate).
+5. Run isolated Send Confirmation local tests later (separate phase gate).

@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (after `3c.f.3af` controlled payment-details stub runtime success)  
-**HEAD (expected):** `c8411e6` — Phase 3c.f.3ab: resolve Ensure booking by Airtable record id
+**Last updated:** 2026-05-28 (after `3c.f.4` payment-path sign-off review)  
+**HEAD (expected):** `cc44e8e` — Phase 3c.f.3af: document successful payment details stub runtime
 
 For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md). For agent rules see [CURSOR.md](../CURSOR.md).
 
@@ -57,7 +57,7 @@ Details: [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
 | **3c.e.3** PG availability gate in Main fork | Done | `5bdd465` |
 | **3c.e.4** PG hold + AT backfill in Main fork | Done | `881ab1b` |
 | **3c.e.5** PG conversation upsert | **Done** (uncommitted) | — |
-| **3c.f** Payment / confirmation contract checks | **In progress** — 3c.f.1/3c.f.2 complete; 3c.f.3af controlled payment-details runtime succeeded with local stub | [`PHASE-3c-f.md`](PHASE-3c-f.md) |
+| **3c.f** Payment / confirmation contract checks | **Review complete (3c.f.4)** — local-stub payment-details path signed off; real Stripe path still pending | [`PHASE-3c-f.md`](PHASE-3c-f.md) |
 | **3c.g** E2E local Main tests | **In progress** — 3c.g.1m first success + 3c.g.1n repeat success | [`PHASE-3c-g.md`](PHASE-3c-g.md) |
 
 **Phase 3c.c (CLI/script side) is nearly complete.** Remaining 3c work is conversation state (3c.d), workflow wiring (3c.e), then contract checks and E2E (3c.f–g).
@@ -72,6 +72,16 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
 - No legacy Create Payment Session execution, no Stripe call, no `payments`/`payment_events` writes, no `booking_beds` writes.
 - Booking remained safe: `payment_pending/waiting_payment`, `send_confirmation=false`, `confirmation_sent_at=NULL`.
 - Queue-mode callback URL requirement: use `http://n8n:5678/webhook/create-payment-session-stub-local` (worker-reachable), not `localhost`/`127.0.0.1`.
+
+### 3c.f.4 sign-off posture
+
+- **Go:** continue 3c.g runtime coverage and broader local integration tests.
+- **No-go (still pending):** real Stripe production path and real Stripe webhook-confirmation chain.
+- Key residuals tracked in [`PHASE-3c-f.md`](PHASE-3c-f.md):
+  - queue-mode callback URL dependency (`http://n8n:5678/...`);
+  - Airtable still in payment path;
+  - hosted reassign URL deferral;
+  - prepare-context blank `booking_code` mitigated by Ensure Airtable-record fallback.
 
 ---
 
