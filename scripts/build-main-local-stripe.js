@@ -978,7 +978,10 @@ function applyHumanActivePaymentLinkBypass(workflow) {
       /\\b(rooming|reassign|bed assignment|split us|stay together|female room|male room|mixed room|girls room|guys room)\\b/i.test(lower);
 
     const stage = String(conv['Conversation Stage'] || '').trim().toLowerCase();
-    const stageSafe = stage === 'booking_flow' || stage === 'payment_pending';
+    const stageSafe =
+      stage === 'booking_flow' ||
+      stage === 'payment_pending' ||
+      stage === 'human_handoff';
 
     const currentHoldId =
       String(
