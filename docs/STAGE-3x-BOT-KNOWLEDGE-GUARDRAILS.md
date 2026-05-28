@@ -275,6 +275,139 @@ Guest message
 
 ---
 
+## 3x.2b — Minimum Business Logic Baseline (Stage 4 entry)
+
+**Status:** **Done (2026-05-29)** — baseline provisional config created; owner-required items identified; Stage 4 entry gate defined.  
+**Config file:** [`config/clients/wolfhouse-somo.baseline.json`](../config/clients/wolfhouse-somo.baseline.json)
+
+**Purpose:** Stage 4 can begin when every dangerous business action has one of:
+- `confirmed` — rule is known and config-backed
+- `provisional` — safe default exists; awaiting owner confirmation
+- `handoff_only` — bot never acts; always escalates
+- `blocked_until_owner_answer` — null rule with explicit safe fallback until answered
+
+Stage 4 does **not** require perfect business knowledge. It requires that no dangerous action falls through to an undefined state.
+
+### Rule classification matrix
+
+| Domain | Classification | Key unknowns | Safe default |
+|--------|---------------|--------------|--------------|
+| **Payment** | `owner_required` | Deposit amount, scope, hold expiry, payment reminders | No price quote or payment link without confirmed deposit rule |
+| **Confirmation** | `provisional` | Send mode, content inclusions, language strategy | Stay in `dry_run` or `staff_approval` until real-send gate or Stage 3y |
+| **Cancellation / refund** | `handoff_only` | Policy windows, refund %, no-show, date-change fee | Never cancel / refund / change dates automatically |
+| **Date change** | `handoff_only` | Fee, blackout rules, payment impact | Always handoff |
+| **Rooming** | `provisional` | Auto-assign approval, mixed-group strategy | Auto-assign only when config is clear; staff/Surfweek rooms excluded |
+| **Packages** | `provisional` | 2026 prices, availability, min nights, accommodation-only | No exact price quote without config row |
+| **Handoff triggers** | `confirmed` | Channel, notify timing | Handoff trigger list is confirmed; channel TBD |
+| **LLM safety** | `confirmed` | — | Non-negotiable architectural requirement |
+| **Customer memory** | `blocked_until_privacy_gate` | All privacy gate items | No personal data to PG until gate passes |
+
+### Payment baseline
+
+| Field | Status | Notes |
+|-------|--------|-------|
+| Deposit amount (EUR) | `owner_required` | Do not invent; must come from config |
+| Deposit scope | `owner_required` | per_booking / per_person / per_package |
+| Hold expiry hours | `owner_required` | |
+| Payment link auto-allowed | `owner_required` | Depends on standard vs custom package |
+| Payment link requires name + email | `confirmed` | Required for Stripe CPS (proven 3d.7b) |
+| Guest "I paid" claim | `confirmed` | Check `payment_events` / Stripe — not LLM |
+| Safe default | `confirmed` | No price quote or payment link without confirmed deposit rule |
+
+### Confirmation baseline
+
+| Field | Status | Notes |
+|-------|--------|-------|
+| Send mode | `provisional` | `dry_run` until real-send gate or Stage 3y approved |
+| Requires payment truth | `confirmed` | Webhook must set `deposit_paid`/`paid` (proven 3d.5b) |
+| Auto-confirm after deposit | `provisional` | `false` until owner approves |
+| Content inclusions (room, balance, rules) | `owner_required` | |
+| Language strategy | `owner_required` | |
+
+### Cancellation / refund / date-change baseline
+
+All three domains are **`handoff_only`** until Ale/Cami confirm policy windows and refund percentages.
+
+Bot safe replies (confirmed for use now):
+- Cancellation: *"I'll connect you with our team to handle this — please give us a moment."*
+- Refund: *"Refunds are handled by our team directly. Let me pass you over."*
+- Date change: *"Date changes need to be confirmed by our team. I'll flag this for them now."*
+
+### Rooming baseline
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Room map (R1–R10) | `confirmed_by_cami` | Airtable Rooms table is authoritative; config is guidance |
+| R7 / R9 / R10 (staff/Surfweek) | `confirmed` | Excluded from guest auto-assign |
+| R6 (matrimonial private) | `confirmed` | Explicit request or config approval required |
+| R3 (matrimonial/mixed) | `confirmed_by_cami` | Joined beds = couple; else mixed |
+| Auto-assign approval | `owner_required` | Pending Ale/Cami sign-off |
+| Mixed-group strategy | `owner_required` | |
+| Couple / solo female / solo male strategies | `provisional` | Prefer-room defaults set; handoff if unavailable |
+| Missing rooming info | `confirmed` | Ask one clarification or handoff |
+
+### Package baseline
+
+| Item | Status | Detail |
+|------|--------|--------|
+| Package names (Malibu / Uluwatu / Waimea) | `confirmed` | Public names; bot may explain at high level |
+| 2026 prices | `owner_required` | Must not quote without config row |
+| Packages valid for 2026 | `owner_required` | Names may change |
+| Min nights / always 7 nights | `owner_required` | Affects date parsing |
+| Accommodation-only allowed | `owner_required` | |
+| Custom packages | `provisional` | `handoff` until owner approves |
+| Recommendation map | `provisional` | beginner→Malibu, inter→Uluwatu, advanced→Waimea, provisional |
+
+### Handoff baseline (confirmed)
+
+Always hand off:
+- Refund request · complaint / angry guest · discount request · custom or unclear package
+- Group booking beyond configured limit · multiple active bookings for same conversation
+- Guest claims paid but no payment record found
+- Cancellation ambiguity · date-change ambiguity · rooming uncertainty
+- Staff / Surfweek room request · medical / legal / emergency
+- Low route confidence · conflicting dates or guest count
+- LLM parse error or API failure
+
+### LLM safety baseline (confirmed)
+
+- Low confidence → handoff (not silent no-op)
+- API error → handoff or logged safe fallback
+- Parsing uncertainty → ask clarification, not act
+- `resolved_route`, confidence, booking id, and action logged per execution
+- Bot never marks `paid` / `cancelled` / `confirmed` from LLM output alone
+- Golden fixtures later become prompt regression eval
+- Multilingual behavior tested: English / Spanish / Italian
+
+### Customer memory / privacy baseline
+
+No Layer-2 structured customer memory with personal data until all five privacy gate items are checked (purpose, retention, delete/export, staff-only notes, marketing opt-in separation). Raw WhatsApp exports remain off-repo in `data/private/` (gitignored since `84fa45f`). See [`ROADMAP.md § Privacy / GDPR gate`](ROADMAP.md#privacy--gdpr-gate-before-customer-memory).
+
+### Stage 4 entry gate (defined here)
+
+Stage 4 may begin when:
+
+| Condition | Status |
+|-----------|--------|
+| All dangerous action rules are `confirmed`, `provisional`, or `handoff_only` | **Done** — this baseline achieves it |
+| No dangerous action rule is `null` without a safe fallback | **Done** — safe defaults set for all |
+| Golden fixture **schema** exists (§3x.6) | Done (3x.1) |
+| Stage 3 technical proof complete | **Done** — 3d + 3e.4 PASS |
+| Rooming E2E proof complete | **Done** — 3e.4 PASS `WH-260528-5322` |
+| Real WhatsApp send is separate gate or Stage 3y shadow mode (not a Stage 4 blocker) | Confirmed — deferred |
+
+**Remaining blockers (unlock when owner answers):**
+1. `deposit_amount_eur` — owner_required → blocks payment link automation
+2. `confirmation_send_mode` — provisional (`dry_run`) → unlocks after real-send gate or Stage 3y
+3. `rooming_auto_assign_allowed` — owner approval pending
+4. Cancellation/date-change policy — handoff_only until windows confirmed
+5. Package prices 2026 — owner_required → blocks exact price quotes
+
+**Non-blockers for Stage 4 start:**
+- Exact package copy polish · tone and emoji · full customer memory import · advanced returning-guest behavior · full FAQ · marketing opt-in · staff UI
+
+---
+
 ## 3x.3 — Wolfhouse knowledge collection (Ale/Cami gaps only)
 
 **Maintain answers in:** [`docs/knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) (checkbox questionnaire for owners).
@@ -760,7 +893,7 @@ Stage 3x is **complete** when all of the following exist as reviewed docs/specs 
 
 **Stage 3x does not require:** full backend implementation · staff UI · multi-client SaaS · moving logic out of n8n yet.
 
-**Stage 4 may start when:** exit criteria met + owner critical gaps (pricing, cancellation, rooming) have draft config or explicit “hand off” defaults.
+**Stage 4 may start when:** all dangerous action rules have confirmed, provisional, or handoff_only classification; no dangerous rule is ull without a safe fallback; Stage 3 technical proof complete; golden fixture schema exists. See [§3x.2b Stage 4 entry gate](#3x2b--minimum-business-logic-baseline-stage-4-entry). Real WhatsApp send is a separate gate and does not block Stage 4 start.
 
 ---
 
@@ -770,7 +903,8 @@ Stage 3x is **complete** when all of the following exist as reviewed docs/specs 
 |-----------|--------|--------|
 | **3x.1** | Full roadmap spec §3x.1–3x.11 + exit criteria | **Done** |
 | **3x.1b** | Customer memory layered model (§3x.5) | **Done** |
-| **3x.2** | Ale/Cami answers + draft `wolfhouse-somo.json` | Planned |
+| **3x.2b** | Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) |
+| **3x.2** | Ale/Cami owner answers → promote provisional → confirmed config | In progress |
 | **3x.3** | WhatsApp mining + golden fixtures + customer extract review | Planned |
 | **3x.4** | Golden runner stub + Stage 4 reliability hooks | Planned |
 

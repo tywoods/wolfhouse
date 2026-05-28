@@ -301,7 +301,8 @@ Define the business knowledge and decision rules the bot needs to act safely, as
 |-----------|--------|
 | **3x.1** Full roadmap §3x.1–3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
 | **3x.1b** Customer memory layered model (§3x.5) | **Done** (2026-05-28) |
-| **3x.2** Owner answers + draft client config | Planned |
+| **3x.2b** Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) |
+|| **3x.2** Ale/Cami owner answers → confirm provisional rules | In progress |
 | **3x.3** WhatsApp mining + golden fixtures + customer extract | Planned |
 | **3x.4** Golden runner + Stage 4 reliability hooks | Planned |
 

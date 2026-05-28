@@ -1,6 +1,6 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-29 (roadmap update: exit criteria, Stage 3.5, 3y, SoT cutover, GDPR gate)  
+**Last updated:** 2026-05-29 (Stage 3x.2b: minimum business logic baseline + Stage 4 entry gate)  
 **HEAD (expected):** `9f38392` (3e.4 docs)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
@@ -279,11 +279,12 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 | Sub-phase | Status | Artifact |
 |-----------|--------|----------|
-| **3x.1** Full planning roadmap | **Done** | [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) §3x.1–3x.11 + exit criteria |
+| **3x.1** Full planning roadmap | **Done** | [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) §3x.1–3x.11 + exit criteria |
 | **3x.1b** Customer memory + WhatsApp migration | **Done** | Same doc §3x.5; three-layer model *(no import/DB yet)* |
-| **3x.2** Owner answers + draft config | Planned | [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) (incl. customer memory) |
+| **3x.2b** Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) | [config/clients/wolfhouse-somo.baseline.json](../config/clients/wolfhouse-somo.baseline.json) |
+| **3x.2** Ale/Cami owner answers → confirm provisional rules | In progress | [knowledge/wolfhouse-somo-gaps.md](knowledge/wolfhouse-somo-gaps.md) — P1/P2/P3 priorities added |
 | **3x.3** WhatsApp mining + golden + customer extract | Planned | Layer 1 off-repo; Layer 2/3 outputs; staff review queue |
-| **3x.4** Golden runner (Stage 4 prep) | Planned | `test:golden-messages` stub |
+| **3x.4** Golden runner (Stage 4 prep) | Planned | 	est:golden-messages stub |
 
 **In scope for Stage 3x:** WhatsApp history mining · customer memory migration planning · client-config architecture · privacy/safety boundaries · golden messages · dangerous-action gates.
 

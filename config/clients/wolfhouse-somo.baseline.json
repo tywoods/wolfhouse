@@ -1,0 +1,212 @@
+{
+  "_meta": {
+    "status": "baseline_provisional",
+    "version": "0.1",
+    "created": "2026-05-29",
+    "purpose": "Stage 3x.2 minimum business logic baseline for Stage 4 entry. All rules are classified: confirmed / provisional / handoff_only / owner_required / nice_to_have. Rules marked owner_required must not be used as if known — safe defaults apply until Ale/Cami confirm. Do not invent prices, policies, or room rules.",
+    "client_slug": "wolfhouse-somo",
+    "owner_questionnaire": "docs/knowledge/wolfhouse-somo-gaps.md",
+    "technical_proof": "docs/PROJECT-STATE.md",
+    "master_spec": "docs/STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md"
+  },
+
+  "payment": {
+    "_status": "owner_required",
+    "_note": "Stripe checkout and webhook payment truth proven technically. Exact deposit rules unknown. Bot must not quote final price or send payment link without confirmed deposit rule.",
+    "deposit_amount_eur": null,
+    "deposit_scope": null,
+    "_deposit_scope_options": ["per_booking", "per_person", "per_package"],
+    "deposit_currency": "EUR",
+    "payment_link_auto_allowed": null,
+    "payment_link_requires_name": true,
+    "payment_link_requires_email": true,
+    "hold_expiry_hours": null,
+    "payment_link_expiry_hours": null,
+    "payment_reminders_allowed": null,
+    "balance_payment_process": null,
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm",
+    "safe_default": "do_not_quote_final_price_or_send_payment_link_without_confirmed_deposit_rule",
+    "technically_proven": [
+      "stripe_checkout_link_creation_3d7b",
+      "stripe_webhook_payment_truth_3d5b",
+      "main_must_not_mark_paid_static_proof",
+      "guest_paid_claim_requires_stripe_payment_events_check"
+    ]
+  },
+
+  "confirmation": {
+    "_status": "provisional",
+    "_note": "Send Confirmation dry-run proven. Real WhatsApp send not yet tested. Keep in dry_run or staff_approval until real-send gate or Stage 3y shadow mode.",
+    "auto_confirm_after_deposit": false,
+    "confirmation_send_mode": "dry_run",
+    "_confirmation_send_mode_options": ["dry_run", "staff_approval", "auto"],
+    "confirmation_requires_payment_truth": true,
+    "include_room_assignment": null,
+    "include_remaining_balance": null,
+    "include_checkin_checkout": null,
+    "include_house_rules": null,
+    "include_cancellation_policy": null,
+    "confirmation_language_strategy": null,
+    "safe_default": "keep_dry_run_or_staff_approval_until_real_whatsapp_send_gate_or_shadow_mode",
+    "technically_proven": [
+      "send_confirmation_dry_run_3d6e",
+      "integrated_confirmation_after_payment_truth_3d9b",
+      "real_whatsapp_send_not_tested"
+    ]
+  },
+
+  "cancellation": {
+    "_status": "handoff_only",
+    "_note": "No confirmed policy yet. Always handoff until Ale/Cami confirm windows and refund percentages. Safe replies provided for bot to use before handoff.",
+    "auto_cancel_allowed": false,
+    "refund_requests_handoff": true,
+    "date_change_handoff": true,
+    "cancellation_policy_windows": null,
+    "refund_percentages": null,
+    "no_show_policy": null,
+    "date_change_fee": null,
+    "cancellation_safe_reply": "I'll connect you with our team to handle this — please give us a moment.",
+    "refund_safe_reply": "Refunds are handled by our team directly. Let me pass you over.",
+    "date_change_safe_reply": "Date changes need to be confirmed by our team. I'll flag this for them now.",
+    "safe_default": "never_cancel_refund_or_change_dates_automatically_without_confirmed_policy_and_exact_booking_match"
+  },
+
+  "rooming": {
+    "_status": "provisional",
+    "_note": "Room map confirmed by Cami. Airtable Rooms table is authoritative — config is guidance only. Auto-assign approval still pending owner answer. Staff/Surfweek rooms excluded. Matrimonial/private only on explicit request.",
+    "rooming_uses_rooms_table": true,
+    "rooming_auto_assign_allowed": null,
+    "rooming_auto_assign_owner_approval_pending": true,
+    "rooms": {
+      "_note": "Cami 2026 room map — guidance only; Airtable Rooms table is source of truth",
+      "R1": { "capacity": 5, "type": "mixed", "status": "confirmed_by_cami", "guest_assignable": true },
+      "R2": { "capacity": 5, "type": "male_only", "status": "confirmed_by_cami", "guest_assignable": true },
+      "R3": { "capacity": 4, "type": "matrimonial_or_mixed", "note": "beds joined = matrimonial couple room; otherwise mixed", "status": "confirmed_by_cami", "guest_assignable": true },
+      "R4": { "capacity": 9, "type": "male_only", "status": "confirmed_by_cami", "guest_assignable": true },
+      "R5": { "capacity": 6, "type": "female_only", "status": "confirmed_by_cami", "guest_assignable": true },
+      "R6": { "capacity": 2, "type": "matrimonial_private_couple", "status": "confirmed_by_cami", "guest_assignable": true },
+      "R7": { "capacity": 4, "type": "staff_surfweek", "status": "exclude_from_guest_auto_assign", "guest_assignable": false },
+      "R8": { "capacity": 5, "type": "female_only", "status": "confirmed_by_cami", "guest_assignable": true },
+      "R9": { "capacity": 6, "type": "surfweek", "status": "exclude_from_guest_auto_assign", "guest_assignable": false },
+      "R10": { "capacity": 6, "type": "surfweek", "status": "exclude_from_guest_auto_assign", "guest_assignable": false }
+    },
+    "staff_reserved_rooms_behavior": "exclude_from_auto_assign_or_handoff",
+    "surfweek_rooms_behavior": "exclude_from_auto_assign_or_handoff",
+    "private_room_protection": "require_explicit_request_or_config_approval",
+    "matrimonial_room_requires_explicit_request": true,
+    "couple_strategy": "prefer_R3_or_R6_if_available_else_handoff",
+    "solo_female_strategy": "prefer_R5_or_R8_else_handoff",
+    "solo_male_strategy": "prefer_R2_or_R4_else_handoff",
+    "mixed_group_strategy": null,
+    "manual_assignment_lock": true,
+    "missing_rooming_info_behavior": "ask_one_clarification_or_handoff",
+    "safe_default": "auto_assign_only_when_exact_booking_and_room_config_clear_else_handoff"
+  },
+
+  "packages": {
+    "_status": "provisional",
+    "_note": "Public package names confirmed. 2026 prices, availability, and operational rules still owner_required. Bot may explain packages at a high level from public website facts. Must not quote exact EUR amount without config row.",
+    "known_packages": ["malibu", "uluwatu", "waimea"],
+    "packages_valid_2026": null,
+    "prices_2026": null,
+    "minimum_nights": null,
+    "always_7_nights": null,
+    "accommodation_only_allowed": null,
+    "accommodation_only_rules": null,
+    "custom_packages_allowed": null,
+    "custom_packages_behavior": "handoff",
+    "lessons_rentals_sold_separately": null,
+    "recommendation_map": {
+      "_status": "provisional",
+      "beginner": "malibu",
+      "intermediate": "uluwatu",
+      "advanced_or_no_lessons_needed": "waimea_or_accommodation_plus_rentals",
+      "cheapest": "accommodation_only_if_allowed_else_malibu",
+      "all_inclusive_unclear": "handoff_to_confirm"
+    },
+    "price_quote_requires": ["dates", "guest_count", "package_code", "config_price_source"],
+    "safe_default": "no_exact_price_quote_without_confirmed_config_row_for_dates_count_package"
+  },
+
+  "handoff": {
+    "_status": "confirmed",
+    "_note": "Handoff triggers are confirmed safe defaults. Channel and notification timing still owner_required.",
+    "always_handoff": [
+      "refund_request",
+      "complaint_or_angry_guest",
+      "discount_request",
+      "custom_or_unclear_package",
+      "group_booking_beyond_configured_limit",
+      "multiple_active_bookings_same_conversation",
+      "guest_claims_paid_but_no_payment_record",
+      "cancellation_ambiguity",
+      "date_change_ambiguity",
+      "rooming_uncertainty",
+      "staff_or_surfweek_room_request",
+      "medical_legal_emergency",
+      "low_route_confidence",
+      "conflicting_dates_or_guest_count",
+      "llm_parse_error_or_api_failure"
+    ],
+    "handoff_channel": null,
+    "handoff_notify_within_hours": null,
+    "emergency_script": null,
+    "handoff_safe_reply": "Let me connect you with our team — they'll be with you shortly."
+  },
+
+  "llm_safety": {
+    "_status": "confirmed",
+    "_note": "LLM safety rules are confirmed architectural requirements. Not negotiable.",
+    "low_confidence_behavior": "handoff",
+    "api_error_behavior": "handoff_or_logged_safe_fallback",
+    "parsing_uncertainty_behavior": "ask_clarification_not_act",
+    "log_route_and_confidence": true,
+    "never_mark_from_llm_alone": ["paid", "confirmed", "cancelled"],
+    "golden_fixtures_as_regression_eval": true,
+    "multilingual_test_required": ["en", "es", "it"]
+  },
+
+  "customer_memory_privacy": {
+    "_status": "blocked_until_privacy_gate",
+    "_note": "No Layer-2 personal data to PG until all privacy gate items are checked. Raw exports stay off-repo. Planning (3x.2) may proceed; data import requires gate.",
+    "layer2_personal_data_to_pg_allowed": false,
+    "raw_whatsapp_exports_in_repo": false,
+    "privacy_gate_items": {
+      "purpose_documented": false,
+      "retention_policy_documented": false,
+      "delete_export_correction_procedure_documented": false,
+      "staff_only_notes_isolated": false,
+      "marketing_optin_separated": false
+    },
+    "safe_default": "no_personal_data_to_pg_until_all_privacy_gate_items_checked"
+  },
+
+  "stage4_entry_gate": {
+    "_note": "Stage 4 may begin when all dangerous action rules have confirmed, provisional, or handoff_only classification — no null rule without an explicit safe default.",
+    "required_conditions": [
+      "all_dangerous_action_rules_are_confirmed_provisional_or_handoff_only",
+      "no_dangerous_action_rule_is_null_without_a_safe_fallback",
+      "golden_fixture_schema_exists",
+      "stage3_technical_proof_complete",
+      "rooming_e2e_proof_complete",
+      "real_whatsapp_send_is_separate_gate_or_shadow_mode_not_blocker"
+    ],
+    "current_blockers": [
+      "deposit_amount_eur_null_owner_required",
+      "confirmation_send_mode_still_dry_run_pending_real_send_gate",
+      "rooming_auto_assign_allowed_null_owner_approval_pending",
+      "cancellation_policy_windows_null_handoff_only_pending_owner_rules",
+      "packages_valid_2026_null_owner_required",
+      "prices_2026_null_owner_required"
+    ],
+    "non_blockers": [
+      "exact_package_copy_perfection",
+      "tone_and_emoji_polish",
+      "customer_memory_full_import",
+      "advanced_returning_guest_behavior",
+      "full_faq_polish",
+      "marketing_optin_setup",
+      "staff_ui"
+    ]
+  }
+}
