@@ -55,6 +55,8 @@ const PROD_AIRTABLE_BASE_ID = 'appOCWIN47Bui9CSS';
 const TEST_AIRTABLE_BASE_ID = 'appiyO4FmkKsyHZdK';
 const LOCAL_WORKFLOW_NAME = 'Wolfhouse Booking Assistant - Main (local Stripe)';
 const LOCAL_WORKFLOW_ID = 'RBfGNtVgrAkvhBHJ';
+const LOCAL_POSTGRES_CREDENTIAL_ID = 'MnnrrLecI7oVoIGq';
+const LOCAL_POSTGRES_CREDENTIAL_NAME = 'Wolfhouse Postgres (local)';
 const EXPECTED_WEBHOOK_PATH = 'booking-assistant';
 const HOSTED_N8N_CLOUD = 'tywoods.app.n8n.cloud';
 const HOSTED_REASSIGN_PATH = '/webhook/reassign-booking-beds';
@@ -144,6 +146,24 @@ const PHASE_3CE_PG_TARGETS = {
     lib: 'scripts/lib/main-booking-hold-pg-sql.js',
   },
 };
+
+function resolveLocalPostgresCredential(workflow) {
+  const postgresNodes = (workflow.nodes || []).filter((n) => n.type === 'n8n-nodes-base.postgres');
+  const inherited = postgresNodes
+    .map((n) => n.credentials?.postgres)
+    .find((c) => c && String(c.id || '').trim() !== '' && String(c.name || '').trim() !== '');
+  if (inherited) return { id: String(inherited.id), name: String(inherited.name) };
+  return { id: LOCAL_POSTGRES_CREDENTIAL_ID, name: LOCAL_POSTGRES_CREDENTIAL_NAME };
+}
+
+function applyPostgresCredentialMapping(workflow) {
+  const pgCred = resolveLocalPostgresCredential(workflow);
+  for (const node of workflow.nodes || []) {
+    if (node.type !== 'n8n-nodes-base.postgres') continue;
+    node.credentials = node.credentials || {};
+    node.credentials.postgres = { id: pgCred.id, name: pgCred.name };
+  }
+}
 
 function printPhase3ceTargetMap() {
   console.log('=== Phase 3c.e PG injection target map (not wired yet) ===\n');
@@ -1820,6 +1840,7 @@ applyDeterministicPaymentUrl(workflow);
 applyPhase3cAvailabilityGate(workflow);
 applyPhase3cHoldGate(workflow);
 applyLocalTypingIndicatorBypass(workflow);
+applyPostgresCredentialMapping(workflow);
 
 workflow.tags = [
   ...(workflow.tags || []),
