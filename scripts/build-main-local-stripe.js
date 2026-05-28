@@ -1059,7 +1059,7 @@ function applyPhase2f(workflow) {
     'AND(' +
       'OR(' + preferredClauses.join(',') + '),' +
       'OR({Status}="Hold",{Status}="Payment_Pending"),' +
-      'OR({Payment Status}="not_requested",{Payment Status}="waiting_payment")' +
+      'OR({Payment Status}="not_requested",{Payment Status}="waiting_payment",{Payment Status}="payment_pending")' +
     ')'
   );
 })() }}`;
