@@ -1,7 +1,24 @@
 # Stage 3x — Bot Knowledge + Safety Guardrails
 
-**Status:** **Stage 3x roadmap complete** (3x.1 + 3x.1b, docs-only, 2026-05-28)  
-**Prerequisite:** Stage 3 engineering gates through **3d.9b** — integrated Main → Stripe pay → organic webhook → Send Confirmation dry-run on `WH-260528-5369` ([`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md), commits `cd48a5a`, `cc17a30`).
+**Status:** **Stage 3x.1 retry — standalone planning doc complete** (docs-only, 2026-05-28)  
+**This file is the master spec** for bot knowledge + safety guardrails (§3x.1–3x.11). Related but separate: [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) (bed-ops / reassign inventory).
+
+**Prerequisite:** Stage 3 engineering gates through **3d.9b** — integrated Main → Stripe pay → organic webhook → Send Confirmation dry-run on `WH-260528-5369` ([`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)).
+
+### Standalone checklist (this document)
+
+| # | Topic | Section |
+|---|--------|---------|
+| 1 | Required field map (hold, pay, confirm, cancel, rooming, date change, quote, book) | §3x.1 |
+| 2 | Package explanation + decision flow (Malibu / Uluwatu / Waimea) | §3x.2 |
+| 3 | Wolfhouse knowledge — Ale/Cami operational gaps only | §3x.3 + [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) |
+| 4 | WhatsApp history mining plan + privacy | §3x.4 |
+| 5 | Golden message tests (30–50 fixtures planned) | §3x.6 |
+| 6 | Dangerous action gates | §3x.7 |
+| 7 | Human handoff rules | §3x.8 |
+| 8 | Wrong-booking protection | §3x.9 |
+| 9 | Duplicate protection | §3x.10 |
+| 10 | Client-config architecture | §3x.11 |
 
 ### Purpose
 
@@ -204,7 +221,9 @@ Wolfhouse Somo public marketing describes surf-house packages named after surf s
 | **Uluwatu** | Intermediate package positioning |
 | **Waimea** | Advanced / experienced surfer positioning |
 
-The bot should use the **website** as the first source for “what is Malibu vs Uluwatu vs Waimea” in guest-friendly language. Link or summarize from official copy when appropriate; do not invent inclusions.
+The bot should use the **website** (and repo reference [`package-pricing.md`](package-pricing.md) for **seasonal weekly rates + proration rules**) as the first source for “what is Malibu vs Uluwatu vs Waimea” in guest-friendly language. Link or summarize from official copy when appropriate; do not invent inclusions.
+
+**Do not ask Ale/Cami** to re-explain public website marketing for these three names unless correcting or updating 2026 operational config.
 
 **Accommodation-only** guests: bot must distinguish “I only need a bed” vs full surf packages (see decision tree below).
 
@@ -254,54 +273,69 @@ Guest message
 
 ## 3x.3 — Wolfhouse knowledge collection (Ale/Cami gaps only)
 
-**Maintain answers in:** [`docs/knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md).
+**Maintain answers in:** [`docs/knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) (checkbox questionnaire for owners).
 
-**Categories:** packages · deposit/payment · cancellation/refund · rooming · surf · extras · tone/language · handoff · customer memory.
+**Rule:** Questionnaire covers **operational gaps only** — not public website copy (Malibu / Uluwatu / Waimea marketing, general surf-house description).
 
-Questionnaire covers **operational gaps only** — not public website copy (Malibu / Uluwatu / Waimea marketing).
+### Concise Ale/Cami question list (operational gaps)
 
-### Deposit + payment
+**Package + pricing rules**
 
-1. Deposit amount(s): fixed EUR per booking vs per person vs per package?
-2. Is deposit always **€200** (current test default) in production config?
-3. Payment deadline after link sent? Auto-cancel hold?
-4. Hold expiry TTL (hours/days) and reminder messages?
-5. Balance payment: when due, how collected, bot role vs staff?
+- Confirm Malibu / Uluwatu / Waimea valid for **2026** (renames?).
+- Confirm or correct **2026 price table** vs [`package-pricing.md`](package-pricing.md) (season months, weekly EUR, proration).
+- What each package is **best for** beyond website blurbs (beginner / intermediate / advanced / “cheapest” / “all-inclusive”).
+- **Accommodation-only:** allowed? min nights? deposit? what is included/excluded?
+- Are packages **always 7 nights** or flexible? How should bot parse shorter stays?
+- **Custom stays / packages:** allowed? who approves? bot hold or handoff only?
+- **Lessons / rentals / board / wetsuit:** bundled in packages vs sold separately — prices and who books?
 
-### Cancellation + refunds
+**Deposit + payment**
 
-6. Guest-cancel windows and refund % (deposit vs full)?
-7. No-show policy?
-8. Date-change fee rules vs free change window?
+- Production **deposit** rule (fixed EUR, per person, per package).
+- **Payment deadline** after link sent; reminders?
+- **Hold expiry** (hours/days); auto-cancel?
+- **Balance** payment: when due, how collected, bot vs staff.
 
-### Packages + pricing (2026)
+**Cancellation + refund**
 
-9. Confirm Malibu / Uluwatu / Waimea valid for 2026 — any renames?
-10. Price table or formula (season, nights, pax)?
-11. Minimum nights per package; always 7 nights?
-12. Accommodation-only: min nights, deposit, included services?
-13. Custom packages: allowed? who approves?
-14. Lessons/rentals/board/wetsuit: bundled vs add-on prices?
+- Guest-cancel **windows** and refund % (deposit vs balance).
+- **No-show** policy.
+- **Date-change** fees vs free window.
 
-### Rooming + property
+**Rooming rules**
 
-15. Gendered dorms rules; couple private room; friends same room; families?
-16. Max group size per booking before staff assignment?
-17. Check-in / check-out times; early arrival / late departure messaging?
+- **Gender** dorm rules; female-only / male-only requests.
+- **Couple** private room; **friends** same room; **families**.
+- Max **group size** before manual assignment.
+- When **rooming/reassign** must be staff-only.
 
-### Operations + handoff
+**Surf level**
 
-18. Surf level questions: does bot collect or only staff?
-19. Airport transfer: bookable by bot or info-only?
-20. Breakfast / meals: package-specific wording for confirmations?
-21. When must bot **stop** and ping Cami/Ale (channels, hours)?
-22. Tone: formal vs casual; languages offered; emoji OK?
-23. Emergency / injury / legal: mandatory handoff script?
+- Should bot **collect** surf level or staff only? Allowed values?
 
-### WhatsApp-specific
+**Extras + operations**
 
-24. May bot send payment link without staff review for standard packages?
-25. Phrases that mean “staff takeover” from owners?
+- **Board / wetsuit rental:** info-only vs bookable?
+- **Breakfast / meals** per package — confirmation wording.
+- **Airport transfer:** bookable vs info-only; logistics partners.
+
+**Staff handoff**
+
+- When bot must **stop** (hours, channel to ping Cami/Ale).
+- Phrases that mean **staff takeover**.
+- May bot send **payment link** without staff review for standard packages?
+
+**Tone + language**
+
+- Formality, **languages**, emoji, “WolfHouse Family” phrasing rules.
+
+**Customer memory** (see §3x.5)
+
+- Returning-guest recognition OK? Retention? Staff-only notes? Marketing opt-in?
+
+**Emergency**
+
+- Mandatory **handoff script** for injury, legal, medical, safety.
 
 ---
 
@@ -473,20 +507,56 @@ Single import pipeline, **dual extractors:** knowledge → Layer 3; customer →
 | Returning guest | 3–4 | Memory-aware greeting; no wrong hold |
 | Duplicate / repeat message | 2–3 | §3x.10 |
 
-### Representative samples (full detail; expand to 30–50 in 3x.2)
+### Planned fixtures (35 — expand to 50 after §3x.4 mining)
 
-| ID | Guest message (excerpt) | Expected route | Missing / action |
-|----|-------------------------|----------------|------------------|
-| GM-001 | “Hi we want to book surf camp July 10” | `booking_flow` | dates partial; ask checkout + pax + package |
-| GM-010 | “What’s difference Malibu and Waimea?” | `package_info` | none; explain; no price without dates |
-| GM-015 | “Just a bed no lessons 5 nights” | `booking_flow` | confirm accommodation-only allowed; dates |
-| GM-020 | “Send payment link” (hold exists) | `payment_details_provided` | email if missing; verify hold id |
-| GM-025 | “I paid yesterday” (no PG payment) | `payment_claim` | handoff or check Stripe; never confirm |
-| GM-030 | “Cancel my booking WH-…” | `cancel_intent` | policy; staff if paid dispute |
-| GM-035 | “Girls only room please” | `rooming_preference` | store preference; no bed write in Main |
-| GM-040 | “We’re a couple private room” | `rooming_preference` | couple rules; may handoff |
-| GM-045 | “Change to Aug 1–8” | `date_change` | availability; staff if paid |
-| GM-050 | “?” / sticker / empty | `unclear` | handoff or clarify |
+Each row: **route** · **missing fields** · **safe action** · **clarification / handoff**. Full JSON in `docs/fixtures/golden-messages/` *(Stage 3x.3 — not committed until redacted)*.
+
+| ID | Guest message (excerpt) | Route | Missing / safe action | Handoff? |
+|----|-------------------------|-------|------------------------|----------|
+| GM-001 | “Hi we want to book surf camp July 10” | `booking_flow` | `check_out`, `guest_count`, package; ask | no |
+| GM-002 | “2 people 14–21 July Malibu” | `booking_flow` | availability; hold if OK | no |
+| GM-003 | “Book for next week” | `booking_flow` | exact dates; ask | no |
+| GM-004 | “We need beds Aug 1–8, 3 guests” | `booking_flow` | package vs accommodation-only | no |
+| GM-005 | “Same dates as last year” (returning) | `booking_flow` | dates from memory or ask; verify hold | maybe |
+| GM-006 | “Book under my friend’s name” | `booking_flow` | clarify booker phone/hold; wrong-booking guard | maybe |
+| GM-007 | Duplicate: same text twice (same `wamid`) | `duplicate` | no second hold | no |
+| GM-010 | “What packages do you have?” | `package_info` | explain Malibu/Uluwatu/Waimea; no invented price | no |
+| GM-011 | “Difference Malibu and Waimea?” | `package_info` | explain; no price without dates+pax | no |
+| GM-012 | “Which package for beginner?” | `package_info` | recommend Malibu per config; handoff if custom | no |
+| GM-013 | “Cheapest option?” | `package_info` | accommodation-only or Malibu per config | no |
+| GM-014 | “All inclusive what do you mean?” | `package_info` | clarify inclusions; handoff if unclear | maybe |
+| GM-015 | “Just a bed no lessons 5 nights” | `booking_flow` | accommodation-only rules; dates | no |
+| GM-016 | “Price for Uluwatu 10 nights 2 ppl July” | `package_quote` | quote from config if dates valid | no |
+| GM-017 | “How much?” (no dates) | `package_quote` | ask dates + pax + package | no |
+| GM-018 | “Custom 10-day coaching package” | `package_info` | handoff — custom | **yes** |
+| GM-019 | “Group of 12 friends” | `booking_flow` | handoff or split rules | **yes** |
+| GM-020 | “Send payment link” (hold + email) | `payment_details_provided` | CPS if guards pass | no |
+| GM-021 | “Send payment link” (no hold) | `payment_details_provided` | create hold first or ask dates | no |
+| GM-022 | “Send link again” (open checkout) | `payment_details_provided` | reuse session (3x.10); no duplicate PI | no |
+| GM-023 | “Here is my email name@…” | `payment_details_provided` | stage email; then link | no |
+| GM-024 | “Pay deposit” (confirmed booking) | `payment_details_provided` | block terminal; handoff | **yes** |
+| GM-025 | “I paid yesterday” (no PG payment) | `payment_claim` | check Stripe; never confirm from text | **yes** |
+| GM-026 | “Paid on Stripe” (payment exists) | `payment_claim` | explain processing; no double confirm | no |
+| GM-027 | “Wrong amount charged” | `payment_dispute` | handoff | **yes** |
+| GM-030 | “Cancel my booking WH-2605…” | `cancel_intent` | policy; cancel workflow if clear | no |
+| GM-031 | “Cancel please” (two active holds) | `cancel_intent` | handoff — ambiguous booking | **yes** |
+| GM-032 | “Refund my deposit” | `cancel_intent` | handoff — refund policy | **yes** |
+| GM-035 | “Girls only room please” | `rooming_details_provided` | store preference; reassign only when gated | no |
+| GM-036 | “Male dorm only” | `rooming_details_provided` | store; config rules | no |
+| GM-037 | “We’re a couple private room” | `rooming_details_provided` | couple rules; handoff if no private avail | maybe |
+| GM-038 | “Friends want same room, 4 of us” | `rooming_details_provided` | stay_together; guest count | no |
+| GM-039 | “Don’t put us with strangers” | `rooming_details_provided` | clarify private vs shared | no |
+| GM-040 | “Change to Aug 1–8” | `date_change` | new dates; availability | no |
+| GM-041 | “Extend one night” | `date_change` | availability; payment impact | maybe |
+| GM-042 | “Move dates” (confirmed + paid) | `date_change` | staff approval | **yes** |
+| GM-043 | “Can I rent a surfboard?” | `extras_info` | info or handoff per config | maybe |
+| GM-044 | “Wetsuit rental for 3 days” | `extras_info` | info-only unless bookable | maybe |
+| GM-045 | “Is breakfast included?” | `package_info` | package inclusions from config | no |
+| GM-046 | “Airport pickup?” | `extras_info` | transfer rules | maybe |
+| GM-047 | “?” / sticker only | `unclear` | clarify once; then handoff | maybe |
+| GM-048 | “You suck / worst hostel” | `complaint` | handoff; empathetic ack | **yes** |
+| GM-049 | “I need a doctor” | `emergency` | handoff immediately | **yes** |
+| GM-050 | “10% discount?” | `custom_offer` | handoff | **yes** |
 
 **Runner:** Stage 4 — `npm run test:golden-messages` against decision engine stub (not n8n live).
 

@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Stage 3x full roadmap + exit criteria)  
-**HEAD (expected):** after `cc17a30` or follow-up Stage 3x docs commit
+**Last updated:** 2026-05-28 (Stage 3x.1 retry + Phase 3e.1 rooming inventory)  
+**HEAD (expected):** `119fd7e` + uncommitted docs until reviewed
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -28,7 +28,7 @@
 | Stage | Status | Notes |
 |-------|--------|--------|
 | **3** Correct and safe | **Engineering complete** | 3d.7b→3d.8b→3d.9b integrated dry-run chain on `WH-260528-5369`; residuals: real WA, schedule-poll, rooming URL |
-| **3x** Bot knowledge + guardrails | **Planning complete (docs)** | §3x.1–3x.11 + exit criteria; execution 3x.2–3x.4 pending |
+| **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
 | **4** Reliable | Planned | After 3 + 3x |
 | **5** Clean | Planned | Decision engine out of n8n |
 | **6** Beautiful | Planned | Staff UI |
@@ -212,7 +212,7 @@ Remaining exclusions (still separate):
 - Real WhatsApp send (`WHATSAPP_DRY_RUN` was true for 3d.6 and 3d.9b)
 - Send Confirmation **schedule poll** mode (schedule node still disabled)
 - Single-window integrated E2E (all steps in one run)
-- Rooming/reassign E2E (deferred until hosted reassign URL remap)
+- Rooming/reassign E2E — **3e.1 inventory done**; runtime blocked until **3e.2** URL remap ([`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md))
 - Airtable-removal/cleanup-refactor work
 
 ---
@@ -294,7 +294,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.5): Layer 3 fixtures + Layer 2 customer extract (owner-approved fields only).
 
 **Parallel (Stage 3 residual):**
-- **Rooming/reassign** — remap hosted reassign URL to local fork before E2E (new disposable booking).
+- **Phase 3e rooming/reassign** — **3e.1** inventory complete; next **3e.2** hosted→local reassign URL remap ([`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md)).
 
 **Then:** Stage 3 closeout checklist · **Stage 4 Reliable** (golden runner, monitors, idempotency tests).
 

@@ -146,7 +146,7 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 | Wrong booking selected | Conversation `current_hold_booking_id`, resolver, terminal-status blocks |
 | Wrong payment link | Real CPS on correct hold; stub vs real env separation |
 | Wrong confirmation | Send Confirmation gates; dry-run first; schedule disabled in tests |
-| Wrong room assignment | Bed-ops forks; **hosted reassign URL still a risk** |
+| Wrong room assignment | Bed-ops forks; **hosted reassign URL** in Main fork (`3e.2` remap) — see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) |
 | Duplicate payment / session / event | Idempotency checks; single webhook per event id |
 | Accidental live Stripe / WhatsApp | Test keys; `WHATSAPP_DRY_RUN`; activation boundaries |
 | Background workflow firing | Inactive workflows + schedule `disabled` in test windows |
@@ -163,7 +163,7 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 | Send Confirmation (dry-run) | **Proven** (isolated) | 3d.6e |
 | Pay + webhook on Main-created session | **Proven** | 3d.8b organic Stripe on `WH-260528-5369` |
 | Integrated Send Confirmation (dry-run) | **Proven** | 3d.9b exec **1077** on same booking |
-| Rooming / reassign E2E | **Pending** | Hosted `reassign-booking-beds` URL must be remapped to local fork |
+| Rooming / reassign E2E | **Pending** | **3e.1** inventory done — [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md); **3e.2** remap hosted `reassign-booking-beds` URL |
 
 **Not proven in Stage 3:** real WhatsApp send; Send Confirmation schedule-poll; single-window E2E; full package intelligence.
 
@@ -186,7 +186,7 @@ Define the business knowledge and decision rules the bot needs to act safely, as
 
 | Sub-phase | Status |
 |-----------|--------|
-| **3x.1** Full roadmap §3x.1–3x.11 + exit criteria | **Done** (2026-05-28) |
+| **3x.1** Full roadmap §3x.1–3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
 | **3x.1b** Customer memory layered model (§3x.5) | **Done** (2026-05-28) |
 | **3x.2** Owner answers + draft client config | Planned |
 | **3x.3** WhatsApp mining + golden fixtures + customer extract | Planned |
