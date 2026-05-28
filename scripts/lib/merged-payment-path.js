@@ -53,11 +53,14 @@ const expr = {
       : '';
     const fromConversation =
       $('Search Conversation').first().json.fields?.['Current Hold ID'] || '';
-    const fromSession =
-      $('Merge Session State').first().json.session?.current_hold_booking_code ||
-      $('Merge Session State').first().json.session?.hold_booking_id ||
-      $('Merge Session State').first().json.session?.current_hold_id ||
-      '';
+    const fromSession = $('Merge Session State').isExecuted
+      ? (
+          $('Merge Session State').first().json.session?.current_hold_booking_code ||
+          $('Merge Session State').first().json.session?.hold_booking_id ||
+          $('Merge Session State').first().json.session?.current_hold_id ||
+          ''
+        )
+      : '';
     const fromCreateHold = $('Create Booking Hold').isExecuted
       ? (
           $('Create Booking Hold').first().json.fields?.['Booking ID'] ||
