@@ -30,6 +30,15 @@ const {
   buildHoldBackfillAirtableN8nSql,
 } = require('./lib/main-booking-hold-pg-sql');
 const { buildConversationHoldUpsertN8nSql } = require('./lib/main-conversation-pg-sql');
+const {
+  HOSTED_REASSIGN_URL,
+  DEFAULT_REASSIGN_BOOKING_BEDS_URL,
+  scanHostedReassignUrls,
+  scanLocalReassignEndpoint,
+  scanMainBookingBedsWrites,
+  applyLocalReassignWebhookRemap,
+  analyzeReassignContract,
+} = require('./lib/main-reassign-endpoint');
 
 /** n8n IF expression — run Stripe after hold when contact + hold exist (not only session merge). */
 const STRIPE_AFTER_HOLD_IF_EXPR = `={{ 
@@ -59,7 +68,6 @@ const LOCAL_POSTGRES_CREDENTIAL_ID = 'MnnrrLecI7oVoIGq';
 const LOCAL_POSTGRES_CREDENTIAL_NAME = 'Wolfhouse Postgres (local)';
 const EXPECTED_WEBHOOK_PATH = 'booking-assistant';
 const HOSTED_N8N_CLOUD = 'tywoods.app.n8n.cloud';
-const HOSTED_REASSIGN_PATH = '/webhook/reassign-booking-beds';
 const DEFAULT_CREATE_PAYMENT_SESSION_URL = 'http://localhost:5678/webhook/create-payment-session';
 
 const PAYMENT_SQL_PATTERNS = [
@@ -217,20 +225,6 @@ function scanPaymentSqlHits(workflow) {
   return hits;
 }
 
-function scanHostedReassignUrls(workflow) {
-  const hits = [];
-  const needle = `${HOSTED_N8N_CLOUD}${HOSTED_REASSIGN_PATH}`;
-  for (const node of listNodes(workflow)) {
-    const blob = JSON.stringify(node.parameters || {});
-    if (blob.includes(needle) || blob.includes(`https://${HOSTED_N8N_CLOUD}`)) {
-      if (blob.includes('reassign-booking-beds')) {
-        hits.push(node.name);
-      }
-    }
-  }
-  return [...new Set(hits)];
-}
-
 function scanCreatePaymentSessionBehavior(workflow) {
   const node = listNodes(workflow).find((n) => n.name === 'Code - Call Create Payment Session');
   if (!node?.parameters?.jsCode) {
@@ -292,8 +286,22 @@ function verifyProductionTargets(workflow) {
 
   const reassignNodes = scanHostedReassignUrls(workflow);
   if (reassignNodes.length) {
-    warnings.push(
-      `hosted reassign URL (${HOSTED_N8N_CLOUD}${HOSTED_REASSIGN_PATH}) in: ${reassignNodes.join(', ')} — remap to local fork before rooming E2E`
+    errors.push(
+      `hosted reassign URL (${HOSTED_REASSIGN_URL}) in: ${reassignNodes.join(', ')} — run build-main-local-stripe to remap`
+    );
+  }
+
+  const localReassign = scanLocalReassignEndpoint(workflow);
+  if (!localReassign.ok) {
+    errors.push(
+      `local reassign endpoint missing or not worker-reachable (expected ${DEFAULT_REASSIGN_BOOKING_BEDS_URL} or $env.N8N_REASSIGN_BOOKING_BEDS_URL); http nodes: ${localReassign.httpNodes.map((n) => n.name).join(', ') || '(none)'}`
+    );
+  }
+
+  const bookingBedsWrites = scanMainBookingBedsWrites(workflow);
+  if (bookingBedsWrites.length) {
+    errors.push(
+      `booking_beds SQL writes in Main (must stay in bed-ops forks): ${bookingBedsWrites.map((h) => h.node).join(', ')}`
     );
   }
 
@@ -325,6 +333,8 @@ function verifyProductionTargets(workflow) {
     prodBaseNodes,
     paymentSqlHits,
     reassignNodes,
+    localReassign,
+    bookingBedsWrites,
     paymentSession,
     postgresNodeCount: postgresNodes.length,
     postgresNodeNames: postgresNodes.map((n) => n.name),
@@ -345,6 +355,13 @@ function printVerifyTargetsReport(result, filePath) {
   if (result.paymentSession?.found) {
     console.log(`Create Payment Session URL: ${result.paymentSession.reportedUrl}`);
   }
+  if (result.localReassign?.ok) {
+    console.log(
+      `Reassign endpoint: $env.N8N_REASSIGN_BOOKING_BEDS_URL || '${DEFAULT_REASSIGN_BOOKING_BEDS_URL}' (${result.localReassign.httpNodes.length} HTTP node(s))`
+    );
+  }
+  console.log(`Hosted reassign hits: ${result.reassignNodes?.length ?? 0}`);
+  console.log(`Main booking_beds SQL writes: ${result.bookingBedsWrites?.length ?? 0}`);
   console.log('');
   if (result.errors.length) {
     console.error('FAIL:');
@@ -1996,6 +2013,7 @@ applyPhase3cHoldGate(workflow);
 applyLocalTypingIndicatorBypass(workflow);
 applyHumanActivePaymentLinkBypass(workflow);
 applyPostgresCredentialMapping(workflow);
+const reassignRemap = applyLocalReassignWebhookRemap(workflow);
 
 workflow.tags = [
   ...(workflow.tags || []),
@@ -2005,7 +2023,15 @@ workflow.tags = [
   { name: 'phase3c-e4' },
   { name: 'phase3c-e5' },
   { name: 'phase3c-g1d' },
+  { name: 'phase3e-e2' },
 ];
+
+if (reassignRemap.patched > 0) {
+  // eslint-disable-next-line no-console
+  console.log(
+    `Reassign URL remap: ${reassignRemap.patched} node(s) → ${reassignRemap.nodeNames.join(', ')}`,
+  );
+}
 
 return workflow;
 }
@@ -2022,11 +2048,40 @@ function finalizeLocalWorkflow(workflow) {
   return neutralized;
 }
 
+function importMainWorkflowInactive() {
+  const { execSync } = require('child_process');
+  const container = 'n8n-main';
+  const remote = '/tmp/main-local-stripe-import.json';
+  try {
+    execSync('docker --version', { stdio: 'ignore' });
+  } catch {
+    console.log('Import skipped: docker CLI not available');
+    console.log(`  docker cp "${OUT}" ${container}:${remote}`);
+    console.log(`  docker exec ${container} n8n import:workflow --input=${remote}`);
+    return false;
+  }
+  try {
+    execSync(`docker cp "${OUT}" ${container}:${remote}`, { stdio: 'inherit' });
+    const out = execSync(`docker exec ${container} n8n import:workflow --input=${remote}`, {
+      encoding: 'utf8',
+    });
+    console.log(out.trim());
+    console.log('Import: OK (workflow JSON has active=false)');
+    return true;
+  } catch (err) {
+    console.error(`Import failed: ${err.message}`);
+    if (err.stdout) console.error(String(err.stdout));
+    if (err.stderr) console.error(String(err.stderr));
+    return false;
+  }
+}
+
 function printUsage() {
   console.error(`Usage:
   node scripts/build-main-local-stripe.js              Generate local fork (neutralize + active=false)
   node scripts/build-main-local-stripe.js --inventory  Read-only inventory (hosted + local)
   node scripts/build-main-local-stripe.js --verify-targets  Verify generated ${path.basename(OUT)}
+  node scripts/build-main-local-stripe.js --import-inactive  Generate + import to n8n (active=false)
   node scripts/build-main-local-stripe.js --print-target-map  Phase 3c.e injection map (no write)`);
 }
 
@@ -2037,9 +2092,13 @@ module.exports = {
   buildMainLocalStripeWorkflow,
   finalizeLocalWorkflow,
   runVerifyTargets,
+  importMainWorkflowInactive,
+  analyzeReassignContract,
   OUT,
   PROD_AIRTABLE_BASE_ID,
   TEST_AIRTABLE_BASE_ID,
+  DEFAULT_REASSIGN_BOOKING_BEDS_URL,
+  HOSTED_REASSIGN_URL,
 };
 
 if (require.main === module) {
@@ -2057,6 +2116,18 @@ if (require.main === module) {
 
   if (args.includes('--verify-targets')) {
     runVerifyTargets();
+    process.exit(0);
+  }
+
+  if (args.includes('--import-inactive')) {
+    const built = buildMainLocalStripeWorkflow();
+    const { workflow: finalized, baseReplacements } = finalizeLocalWorkflow(built);
+    fs.mkdirSync(path.dirname(OUT), { recursive: true });
+    fs.writeFileSync(OUT, JSON.stringify(finalized, null, 2));
+    console.log('Wrote', OUT);
+    console.log(`Airtable base neutralized: ${baseReplacements} replacement(s)`);
+    runVerifyTargets(finalized, { exitOnFail: true, filePath: OUT });
+    importMainWorkflowInactive();
     process.exit(0);
   }
 

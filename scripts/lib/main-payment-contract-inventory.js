@@ -7,6 +7,7 @@ const {
   buildRouteMap,
   nodeRouteTags,
 } = require('./main-workflow-inventory');
+const { analyzeReassignContract } = require('./main-reassign-endpoint');
 
 const REQUIRED_PAYMENT_PATH_NODES = [
   'Code - Extract Guest Details',
@@ -105,7 +106,21 @@ function analyzeMainTriggers(workflow) {
 
 function collectWarnings(report) {
   const warnings = [];
-  warnings.push('Hosted reassign URL warning remains deferred (rooming nodes still reference hosted reassign webhook).');
+  const reassign = report.reassign_contract || {};
+  if (reassign.hosted_nodes?.length) {
+    warnings.push(
+      `Hosted reassign URL still present in: ${reassign.hosted_nodes.join(', ')}`,
+    );
+  } else if (!reassign.local_ok) {
+    warnings.push(
+      'Local reassign endpoint missing or not worker-reachable in Main fork (Phase 3e.2).',
+    );
+  }
+  if (reassign.booking_beds_write_hits?.length) {
+    warnings.push(
+      `Unexpected booking_beds writes in Main: ${reassign.booking_beds_write_hits.map((h) => h.node).join(', ')}`,
+    );
+  }
   warnings.push('Airtable hold lookup remains in payment path (Search Hold With Guest Details).');
   warnings.push('Current Hold ID code (booking_code) vs PG UUID linkage remains a drift risk across systems.');
   warnings.push('Duplicate checkout-session risk depends on Create Payment Session idempotency behavior.');
@@ -135,6 +150,7 @@ function buildMainPaymentContractReport(workflow, workflowFile) {
   const createPaymentContract = analyzeCreatePaymentSessionContract(workflow);
   const ensureContract = analyzeEnsureNodeContract(workflow);
   const triggerAudit = analyzeMainTriggers(workflow);
+  const reassignContract = analyzeReassignContract(workflow);
 
   const report = {
     phase: '3c.f.2',
@@ -152,10 +168,15 @@ function buildMainPaymentContractReport(workflow, workflowFile) {
     ensure_node_contract: ensureContract,
     forbidden_payment_write_hits: forbiddenHits,
     send_confirmation_trigger_audit: triggerAudit,
+    reassign_contract: reassignContract,
   };
 
   report.warnings = collectWarnings(report);
-  report.ok = missingNodes.length === 0 && forbiddenHits.length === 0 && !createPaymentContract.direct_stripe_api_call_in_main;
+  report.ok =
+    missingNodes.length === 0 &&
+    forbiddenHits.length === 0 &&
+    !createPaymentContract.direct_stripe_api_call_in_main &&
+    reassignContract.local_ok;
   return report;
 }
 
@@ -196,6 +217,16 @@ function printConsoleSummary(report) {
   console.log(`\nForbidden payment write hits: ${report.forbidden_payment_write_hits.length}`);
   for (const hit of report.forbidden_payment_write_hits) {
     console.log(`  - ${hit.node} (${hit.pattern})`);
+  }
+
+  const rea = report.reassign_contract;
+  console.log('\nReassign endpoint contract (3e.2):');
+  console.log(`  local_ok=${rea.local_ok} hosted_nodes=${rea.hosted_nodes?.length ?? 0}`);
+  console.log(`  default=${rea.local_default_url}`);
+  if (rea.local_scan?.httpNodes?.length) {
+    for (const n of rea.local_scan.httpNodes) {
+      console.log(`  - ${n.name}: ${n.url.slice(0, 80)}${n.url.length > 80 ? '…' : ''}`);
+    }
   }
 
   console.log('\nWarnings/Risks:');

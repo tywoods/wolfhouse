@@ -1,7 +1,7 @@
 # Phase 3e — Rooming / Reassign (Correct + Safe)
 
-**Status:** **3e.1 inventory + safety plan** complete (read-only, 2026-05-28).  
-**No runtime in 3e.1** — no workflow activation, no POSTs, no `booking_beds` / booking mutations.
+**Status:** **3e.1** inventory complete · **3e.2** Main reassign URL remap complete (static + inactive import, 2026-05-28).  
+**No rooming E2E runtime yet** — no POST to Main/reassign, no `booking_beds` mutations.
 
 **Principle (same as payment path):**
 
@@ -17,7 +17,26 @@
 
 ---
 
-## 3e.1 — Inventory and safety plan (this document)
+## 3e.2 — Hosted → local reassign URL remap (done)
+
+| Item | Value |
+|------|--------|
+| **Removed** | `https://tywoods.app.n8n.cloud/webhook/reassign-booking-beds` |
+| **New (HTTP nodes)** | `={{ String($env.N8N_REASSIGN_BOOKING_BEDS_URL \|\| 'http://n8n-main:5678/webhook/reassign-booking-beds').trim() }}` |
+| **Nodes** | `Call Reassign Booking Beds - Rooming Update`, `Call Reassign Booking Beds - Rooming Update1` |
+| **Source** | `scripts/build-main-local-stripe.js` + `scripts/lib/main-reassign-endpoint.js` |
+| **Regenerate** | `node scripts/build-main-local-stripe.js` |
+| **Verify** | `node scripts/build-main-local-stripe.js --verify-targets` → hosted hits **0**, local endpoint **OK** |
+| **Import (inactive)** | `node scripts/build-main-local-stripe.js --import-inactive` |
+| **n8n DB check** | `RBfGNtVgrAkvhBHJ` `active=false`; `has_hosted_reassign=false`; `has_local_reassign=true` |
+
+**Worker DNS:** default `http://n8n-main:5678/...` (same pattern as Assign fork in `build-reassign-beds-local.js`). Override via `N8N_REASSIGN_BOOKING_BEDS_URL` on n8n + n8n-worker when added to compose.
+
+**Not done in 3e.2:** activate Reassign fork; Airtable base alignment (Reassign/Assign still prod `appOCWIN47Bui9CSS`); rooming E2E.
+
+---
+
+## 3e.1 — Inventory and safety plan
 
 Read-only inventory: git state, n8n DB workflow flags, workflow/URL map, Rooms schema, config-driven model, safety gates, provisional vs final rules, gates 3e.2–3e.5.
 
@@ -333,7 +352,7 @@ Required before any **mutating** rooming/reassign run:
 | Gate | Scope | Status |
 |------|--------|--------|
 | **3e.1** | Inventory + safety plan (this doc) | **Done (read-only)** |
-| **3e.2** | Hosted reassign URL remap in `build-main-local-stripe.js` + regenerate Main fork; static proof hosted URL gone | Planned |
+| **3e.2** | Hosted reassign URL remap in `build-main-local-stripe.js` + regenerate Main fork; static proof hosted URL gone | **Done** |
 | **3e.3** | Extend static checker (`report-main-payment-contract` or new `report-main-rooming-contract`): no hosted reassign; local path; `booking_beds` writers scoped; terminal guards if detectable | Planned |
 | **3e.4** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | Planned |
 | **3e.5** | Negative tests: wrong booking, confirmed block, multi-active handoff, missing info, assignment lock, private room guard | Planned |
@@ -366,9 +385,9 @@ Required before any **mutating** rooming/reassign run:
 
 ## 11. Recommendation
 
-1. **Review and commit docs** from 3e.1 (`PHASE-3e-ROOMING-REASSIGN-PLAN.md` + PROJECT-STATE / ROADMAP pointers).  
-2. **Next implementation: 3e.2** — remap Main reassign URL + env var; regenerate fork; fix Airtable base alignment on Reassign/Assign for integrated test (or document prod-isolated test only).  
+1. **Commit** 3e.2 code + regenerated Main JSON + doc updates.  
+2. **Next: 3e.3** — dedicated `report-main-rooming-contract.js` (or extend payment contract) + prove Reassign fork AT base alignment before E2E.  
 3. **Before any POST:** deactivate Assign/Cancel unless needed; keep Main/Stripe/Confirmation inactive; use **new** disposable booking.  
-4. **Do not** run rooming against confirmed terminal bookings or call hosted `tywoods.app.n8n.cloud` reassign.
+4. **Do not run 3e.4** until 3e.3 passes and `B3c3ReassignLocal01` is activated only in a test window.
 
-**Do not run 3e.4 runtime until 3e.2 + 3e.3 pass.**
+**Do not run 3e.4 runtime until 3e.3 passes.**

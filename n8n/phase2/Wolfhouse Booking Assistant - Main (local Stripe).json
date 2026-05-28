@@ -18667,7 +18667,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://tywoods.app.n8n.cloud/webhook/reassign-booking-beds",
+        "url": "={{ String($env.N8N_REASSIGN_BOOKING_BEDS_URL || 'http://n8n-main:5678/webhook/reassign-booking-beds').trim() }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -20356,7 +20356,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://tywoods.app.n8n.cloud/webhook/reassign-booking-beds",
+        "url": "={{ String($env.N8N_REASSIGN_BOOKING_BEDS_URL || 'http://n8n-main:5678/webhook/reassign-booking-beds').trim() }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -23530,6 +23530,9 @@
     },
     {
       "name": "phase3c-g1d"
+    },
+    {
+      "name": "phase3e-e2"
     }
   ]
 }

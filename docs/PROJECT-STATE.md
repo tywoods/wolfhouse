@@ -212,7 +212,7 @@ Remaining exclusions (still separate):
 - Real WhatsApp send (`WHATSAPP_DRY_RUN` was true for 3d.6 and 3d.9b)
 - Send Confirmation **schedule poll** mode (schedule node still disabled)
 - Single-window integrated E2E (all steps in one run)
-- Rooming/reassign E2E — **3e.1 inventory done**; runtime blocked until **3e.2** URL remap ([`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md))
+- Rooming/reassign E2E — **3e.2** Main hosted reassign URL removed (local `n8n-main:5678`); runtime blocked until **3e.3** contract + **3e.4** E2E ([`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md))
 - Airtable-removal/cleanup-refactor work
 
 ---
@@ -259,7 +259,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 | Build script | `scripts/build-main-local-stripe.js` |
 | Hosted export (read-only) | `n8n/Wolfhouse Booking Assistant - Main.json` |
 | Scale | ~189 nodes, ~64 Airtable, **1** Postgres node today |
-| Risks | Production Airtable refs; Reassign still hits hosted n8n.cloud webhook; Create Payment Session inside Code node; Ensure only on Stripe path |
+| Risks | Reassign/Assign forks still on prod Airtable base; Assign/Cancel webhooks may be active; rooming E2E not run |
 
 **Do not run Main locally** until `--verify-targets` passes and testing is explicitly approved.
 
@@ -294,7 +294,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.5): Layer 3 fixtures + Layer 2 customer extract (owner-approved fields only).
 
 **Parallel (Stage 3 residual):**
-- **Phase 3e rooming/reassign** — **3e.1** inventory complete; next **3e.2** hosted→local reassign URL remap ([`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md)).
+- **Phase 3e rooming/reassign** — **3e.2** Main reassign URL remap done; next **3e.3** static rooming contract ([`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md)).
 
 **Then:** Stage 3 closeout checklist · **Stage 4 Reliable** (golden runner, monitors, idempotency tests).
 
