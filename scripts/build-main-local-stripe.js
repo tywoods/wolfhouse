@@ -8,9 +8,11 @@
  *
  * Phase 2f: Booking State Resolver + hold search guards (see docs/PHASE-2f.md).
  * Phase 2f.2: Reusable Stripe branch after booking_flow hold + payment-link guard.
+ * Phase 3c.e.1: target map + prod neutralization + --verify-targets (no PG injection yet).
  *
  * Run: npm run build:main:local-stripe
  * Inventory (Phase 3c.a): node scripts/build-main-local-stripe.js --inventory
+ * Verify (3c.e.1): node scripts/build-main-local-stripe.js --verify-targets
  */
 const fs = require('fs');
 const path = require('path');
@@ -41,6 +43,319 @@ const STRIPE_AFTER_HOLD_IF_EXPR = `={{
 
 const STRIPE_HOLD_RECORD_ID_EXPR =
   "={{ $('Code - Prepare Stripe Payment Context').first().json.hold_record_id || $('Update Booking Hold - Apply Staged Contact').first().json.id || $('Create Booking Hold').first().json.id }}";
+
+const PROD_AIRTABLE_BASE_ID = 'appOCWIN47Bui9CSS';
+const TEST_AIRTABLE_BASE_ID = 'appiyO4FmkKsyHZdK';
+const LOCAL_WORKFLOW_NAME = 'Wolfhouse Booking Assistant - Main (local Stripe)';
+const LOCAL_WORKFLOW_ID = 'RBfGNtVgrAkvhBHJ';
+const EXPECTED_WEBHOOK_PATH = 'booking-assistant';
+const HOSTED_N8N_CLOUD = 'tywoods.app.n8n.cloud';
+const HOSTED_REASSIGN_PATH = '/webhook/reassign-booking-beds';
+const DEFAULT_CREATE_PAYMENT_SESSION_URL = 'http://localhost:5678/webhook/create-payment-session';
+
+const PAYMENT_SQL_PATTERNS = [
+  /\bINSERT\s+INTO\s+payments\b/i,
+  /\bUPDATE\s+payments\b/i,
+  /\bDELETE\s+FROM\s+payments\b/i,
+  /\bINSERT\s+INTO\s+payment_events\b/i,
+  /\bUPDATE\s+payment_events\b/i,
+  /\bDELETE\s+FROM\s+payment_events\b/i,
+];
+
+/**
+ * Phase 3c.e PG injection targets (documentation only until 3c.e.2+).
+ * @type {Record<string, object>}
+ */
+const PHASE_3CE_PG_TARGETS = {
+  availability_gate: {
+    substep: '3c.e.3',
+    route: 'booking_flow',
+    insertAfter: 'Code - Check Bed Availability - WA',
+    insertBefore: 'IF - Availability Found',
+    futureNodes: ['Postgres - Main Availability', 'Code - Map PG Availability'],
+    authority: 'PG availability_found blocks hold path; AT bed search not gate authority',
+    lib: 'scripts/lib/main-availability-pg-sql.js',
+    cli: 'db:report:main-availability',
+  },
+  hold_create: {
+    substep: '3c.e.4',
+    route: 'booking_flow',
+    insertAfter: 'Code - Prepare Hold Records',
+    insertBefore: 'Create Booking Hold',
+    futureNodes: ['Postgres - Create Booking Hold', 'IF - PG Hold OK'],
+    mirrorNode: 'Create Booking Hold',
+    pgBlocksAirtable: true,
+    lib: 'scripts/lib/main-booking-hold-pg-sql.js',
+    cli: 'db:main-hold:postgres',
+    requiredFields: [
+      'booking_code',
+      'check_in',
+      'check_out',
+      'guest_count',
+      'phone',
+      'requested_room_type',
+      'room_preference',
+      'guest_gender_group_type',
+      'primary_room_code',
+    ],
+  },
+  conversation_upsert: {
+    substep: '3c.e.5',
+    route: 'booking_flow',
+    insertAfter: 'Postgres - Create Booking Hold',
+    insertBefore: 'Create Booking Hold',
+    futureNodes: ['Postgres - Upsert Conversation Hold'],
+    pgColumn: 'conversations.current_hold_booking_id',
+    pgValue: 'bookings.id (UUID)',
+    airtableMirrorField: 'Current Hold ID',
+    airtableMirrorValue: 'booking_code (WH-…)',
+    lib: 'scripts/lib/main-conversation-pg-sql.js',
+    cli: 'db:main-conversation-upsert:postgres',
+  },
+  ensure_booking_promote: {
+    substep: '3c.e.2',
+    route: 'payment_details_provided / Stripe after hold',
+    replaceNode: 'Postgres - Ensure Booking In Postgres',
+    upstream: ['Code - Prepare Stripe Payment Context', 'Search Hold With Guest Details'],
+    downstream: ['IF - Booking ID Ready', 'Code - Call Create Payment Session'],
+    contract: '{ booking_id: UUID } to create-payment-session',
+    lib: 'scripts/lib/main-ensure-booking-pg-sql.js',
+    cli: 'db:main-ensure-booking:postgres',
+  },
+  airtable_backfill: {
+    substep: '3c.e.4',
+    route: 'booking_flow',
+    insertAfter: 'Create Booking Hold',
+    insertBefore: 'Code - Summarize Holds',
+    futureNodes: ['Postgres - Backfill Booking AT Record Id'],
+    sqlIntent: 'UPDATE bookings SET airtable_record_id FROM AT create id',
+    lib: 'scripts/lib/main-booking-hold-pg-sql.js',
+  },
+};
+
+function printPhase3ceTargetMap() {
+  console.log('=== Phase 3c.e PG injection target map (not wired yet) ===\n');
+  for (const [key, target] of Object.entries(PHASE_3CE_PG_TARGETS)) {
+    console.log(`--- ${key} (${target.substep}) ---`);
+    console.log(JSON.stringify(target, null, 2));
+    console.log('');
+  }
+}
+
+/**
+ * Replace prod Airtable base in entire workflow tree (URLs, node params, cachedResultUrl).
+ * Hosted export `n8n/Wolfhouse Booking Assistant  - Main.json` is never written.
+ * @param {object} workflow
+ * @returns {{ workflow: object, baseReplacements: number }}
+ */
+function neutralizeProductionTargets(workflow) {
+  let json = JSON.stringify(workflow);
+  const baseReplacements = json.split(PROD_AIRTABLE_BASE_ID).length - 1;
+  json = json.split(PROD_AIRTABLE_BASE_ID).join(TEST_AIRTABLE_BASE_ID);
+  return { workflow: JSON.parse(json), baseReplacements };
+}
+
+function listNodes(workflow) {
+  return Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+}
+
+function findWebhookNodes(workflow) {
+  return listNodes(workflow).filter((n) => n.type === 'n8n-nodes-base.webhook');
+}
+
+function extractAirtableBaseId(node) {
+  const base = node.parameters?.base;
+  if (!base) return null;
+  if (typeof base === 'string') return base;
+  if (base.value) return String(base.value);
+  return null;
+}
+
+function scanPaymentSqlHits(workflow) {
+  const hits = [];
+  for (const node of listNodes(workflow)) {
+    const blob = JSON.stringify(node);
+    for (const pattern of PAYMENT_SQL_PATTERNS) {
+      if (pattern.test(blob)) {
+        hits.push({ node: node.name, pattern: pattern.source });
+        break;
+      }
+    }
+  }
+  return hits;
+}
+
+function scanHostedReassignUrls(workflow) {
+  const hits = [];
+  const needle = `${HOSTED_N8N_CLOUD}${HOSTED_REASSIGN_PATH}`;
+  for (const node of listNodes(workflow)) {
+    const blob = JSON.stringify(node.parameters || {});
+    if (blob.includes(needle) || blob.includes(`https://${HOSTED_N8N_CLOUD}`)) {
+      if (blob.includes('reassign-booking-beds')) {
+        hits.push(node.name);
+      }
+    }
+  }
+  return [...new Set(hits)];
+}
+
+function scanCreatePaymentSessionBehavior(workflow) {
+  const node = listNodes(workflow).find((n) => n.name === 'Code - Call Create Payment Session');
+  if (!node?.parameters?.jsCode) {
+    return { found: false, urlExpr: null, usesEnv: false };
+  }
+  const code = node.parameters.jsCode;
+  const usesEnv = code.includes('N8N_CREATE_PAYMENT_SESSION_URL');
+  const hasLocalDefault = code.includes(DEFAULT_CREATE_PAYMENT_SESSION_URL);
+  return {
+    found: true,
+    usesEnv,
+    hasLocalDefault,
+    reportedUrl:
+      '$env.N8N_CREATE_PAYMENT_SESSION_URL || ' + `'${DEFAULT_CREATE_PAYMENT_SESSION_URL}'`,
+  };
+}
+
+/**
+ * @param {object} workflow
+ * @returns {object} verify result
+ */
+function verifyProductionTargets(workflow) {
+  const errors = [];
+  const warnings = [];
+
+  if (workflow.active !== false) {
+    errors.push(`workflow.active must be false (got ${JSON.stringify(workflow.active)})`);
+  }
+
+  const prodBaseNodes = [];
+  const nonTestAirtableNodes = [];
+  for (const node of listNodes(workflow)) {
+    const blob = JSON.stringify(node);
+    if (blob.includes(PROD_AIRTABLE_BASE_ID)) {
+      prodBaseNodes.push(node.name);
+    }
+    if (node.type === 'n8n-nodes-base.airtable') {
+      const baseId = extractAirtableBaseId(node);
+      if (baseId && baseId !== TEST_AIRTABLE_BASE_ID) {
+        nonTestAirtableNodes.push(`${node.name} (base=${baseId})`);
+      }
+    }
+  }
+  if (prodBaseNodes.length) {
+    errors.push(
+      `prod Airtable base ${PROD_AIRTABLE_BASE_ID} in ${prodBaseNodes.length} node(s): ${prodBaseNodes.slice(0, 8).join(', ')}${prodBaseNodes.length > 8 ? '…' : ''}`
+    );
+  }
+  if (nonTestAirtableNodes.length) {
+    errors.push(`Airtable nodes not on test base: ${nonTestAirtableNodes.join(', ')}`);
+  }
+
+  const paymentSqlHits = scanPaymentSqlHits(workflow);
+  if (paymentSqlHits.length) {
+    errors.push(
+      `payments/payment_events SQL in nodes: ${paymentSqlHits.map((h) => h.node).join(', ')}`
+    );
+  }
+
+  const reassignNodes = scanHostedReassignUrls(workflow);
+  if (reassignNodes.length) {
+    warnings.push(
+      `hosted reassign URL (${HOSTED_N8N_CLOUD}${HOSTED_REASSIGN_PATH}) in: ${reassignNodes.join(', ')} — remap to local fork before rooming E2E`
+    );
+  }
+
+  const paymentSession = scanCreatePaymentSessionBehavior(workflow);
+  if (!paymentSession.found) {
+    warnings.push('Code - Call Create Payment Session node not found');
+  }
+
+  if (workflow.id !== LOCAL_WORKFLOW_ID) {
+    errors.push(`workflow.id expected ${LOCAL_WORKFLOW_ID}, got ${workflow.id}`);
+  }
+  if (workflow.name !== LOCAL_WORKFLOW_NAME) {
+    errors.push(`workflow.name expected "${LOCAL_WORKFLOW_NAME}", got "${workflow.name}"`);
+  }
+
+  const webhooks = findWebhookNodes(workflow);
+  const primaryWebhook = webhooks.find((w) => w.parameters?.path === EXPECTED_WEBHOOK_PATH);
+  if (!primaryWebhook) {
+    errors.push(`missing webhook path ${EXPECTED_WEBHOOK_PATH}`);
+  }
+
+  const postgresNodes = listNodes(workflow).filter((n) => n.type === 'n8n-nodes-base.postgres');
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings,
+    prodBaseNodeCount: prodBaseNodes.length,
+    prodBaseNodes,
+    paymentSqlHits,
+    reassignNodes,
+    paymentSession,
+    postgresNodeCount: postgresNodes.length,
+    postgresNodeNames: postgresNodes.map((n) => n.name),
+    webhookPath: primaryWebhook?.parameters?.path || null,
+    webhookCount: webhooks.length,
+  };
+}
+
+function printVerifyTargetsReport(result, filePath) {
+  console.log(`File: ${filePath}`);
+  console.log(`workflow.active: ${result.workflowActive}`);
+  console.log(`workflow.id: ${result.workflowId}`);
+  console.log(`workflow.name: ${result.workflowName}`);
+  console.log(`webhook path: ${result.webhookPath || '(missing)'}`);
+  console.log(`Postgres nodes (${result.postgresNodeCount}): ${result.postgresNodeNames.join(', ') || '(none)'}`);
+  console.log(`Prod Airtable base hits (nodes): ${result.prodBaseNodeCount}`);
+  console.log(`Payment SQL hits: ${result.paymentSqlHits.length}`);
+  if (result.paymentSession?.found) {
+    console.log(`Create Payment Session URL: ${result.paymentSession.reportedUrl}`);
+  }
+  console.log('');
+  if (result.errors.length) {
+    console.error('FAIL:');
+    for (const e of result.errors) console.error(`  - ${e}`);
+  } else {
+    console.log('OK: hard safety checks passed.');
+  }
+  if (result.warnings.length) {
+    console.log('WARNINGS:');
+    for (const w of result.warnings) console.warn(`  - ${w}`);
+  }
+}
+
+function loadGeneratedWorkflowForVerify() {
+  if (!fs.existsSync(OUT)) {
+    console.error(`Generated workflow not found: ${OUT}`);
+    console.error('Run: node scripts/build-main-local-stripe.js (generate) first.');
+    process.exit(1);
+  }
+  try {
+    return JSON.parse(fs.readFileSync(OUT, 'utf8'));
+  } catch (err) {
+    console.error(`Invalid JSON in generated workflow: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+function runVerifyTargets(workflow, opts = {}) {
+  const { exitOnFail = true, filePath = OUT } = opts;
+  const wf = workflow || loadGeneratedWorkflowForVerify();
+  const raw = verifyProductionTargets(wf);
+  const result = {
+    ...raw,
+    workflowActive: wf.active,
+    workflowId: wf.id,
+    workflowName: wf.name,
+  };
+  printVerifyTargetsReport(result, filePath);
+  if (exitOnFail && !result.ok) {
+    process.exit(1);
+  }
+  return result;
+}
 
 function applyPhase2f(workflow) {
   const parseRoute = workflow.nodes.find((n) => n.name === 'Code - Parse Route');
@@ -639,11 +954,8 @@ const OUT = path.join(
   'Wolfhouse Booking Assistant - Main (local Stripe).json'
 );
 
-if (require.main === module && process.argv.includes('--inventory')) {
-  runMainWorkflowInventory({ hostedPath: SRC, localPath: OUT });
-  process.exit(0);
-}
-
+/** @returns {object} workflow before neutralization / active=false */
+function buildMainLocalStripeWorkflow() {
 const workflow = JSON.parse(fs.readFileSync(SRC, 'utf8'));
 const stripePaymentLinkFieldSchema = stripePaymentLinkUpdateSchema(workflow);
 workflow.name = 'Wolfhouse Booking Assistant - Main (local Stripe)';
@@ -1008,7 +1320,74 @@ applyDeterministicPaymentUrl(workflow);
 
 workflow.tags = [...(workflow.tags || []), { name: 'phase2f2' }, { name: 'phase2f3' }];
 
-fs.mkdirSync(path.dirname(OUT), { recursive: true });
-fs.writeFileSync(OUT, JSON.stringify(workflow, null, 2));
-console.log('Wrote', OUT);
-console.log('Nodes:', workflow.nodes.length);
+return workflow;
+}
+
+/**
+ * @param {object} workflow
+ * @returns {{ workflow: object, baseReplacements: number }}
+ */
+function finalizeLocalWorkflow(workflow) {
+  workflow.name = LOCAL_WORKFLOW_NAME;
+  workflow.id = LOCAL_WORKFLOW_ID;
+  workflow.active = false;
+  const neutralized = neutralizeProductionTargets(workflow);
+  return neutralized;
+}
+
+function printUsage() {
+  console.error(`Usage:
+  node scripts/build-main-local-stripe.js              Generate local fork (neutralize + active=false)
+  node scripts/build-main-local-stripe.js --inventory  Read-only inventory (hosted + local)
+  node scripts/build-main-local-stripe.js --verify-targets  Verify generated ${path.basename(OUT)}
+  node scripts/build-main-local-stripe.js --print-target-map  Phase 3c.e injection map (no write)`);
+}
+
+module.exports = {
+  PHASE_3CE_PG_TARGETS,
+  neutralizeProductionTargets,
+  verifyProductionTargets,
+  buildMainLocalStripeWorkflow,
+  finalizeLocalWorkflow,
+  runVerifyTargets,
+  OUT,
+  PROD_AIRTABLE_BASE_ID,
+  TEST_AIRTABLE_BASE_ID,
+};
+
+if (require.main === module) {
+  const args = process.argv.slice(2);
+
+  if (args.includes('--inventory')) {
+    runMainWorkflowInventory({ hostedPath: SRC, localPath: OUT });
+    process.exit(0);
+  }
+
+  if (args.includes('--print-target-map')) {
+    printPhase3ceTargetMap();
+    process.exit(0);
+  }
+
+  if (args.includes('--verify-targets')) {
+    runVerifyTargets();
+    process.exit(0);
+  }
+
+  if (args.length > 0) {
+    printUsage();
+    process.exit(1);
+  }
+
+  const built = buildMainLocalStripeWorkflow();
+  const { workflow: finalized, baseReplacements } = finalizeLocalWorkflow(built);
+
+  fs.mkdirSync(path.dirname(OUT), { recursive: true });
+  fs.writeFileSync(OUT, JSON.stringify(finalized, null, 2));
+  console.log('Wrote', OUT);
+  console.log('Nodes:', finalized.nodes.length);
+  console.log(`Airtable base neutralized: ${baseReplacements} replacement(s) (${PROD_AIRTABLE_BASE_ID} → ${TEST_AIRTABLE_BASE_ID})`);
+  console.log('workflow.active:', finalized.active);
+  console.log('');
+
+  runVerifyTargets(finalized, { exitOnFail: true, filePath: OUT });
+}

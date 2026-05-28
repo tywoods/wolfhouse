@@ -52,7 +52,8 @@ Details: [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
 | **3c.c.3** Hold execute CLI | Done | `50294d3` |
 | **3c.c.4** Ensure Booking promote CLI | Done | `8abfd4d` |
 | **3c.d** Conversation / `current_hold` plan | **Proposal done** — [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md) | docs only |
-| **3c.e** Inject hold + Ensure into `build-main-local-stripe.js` | **Not started** | — |
+| **3c.e.1** Build target map + neutralize + `--verify-targets` | **Done** (uncommitted) | — |
+| **3c.e.2–5** PG node injection via build script | **Not started** | — |
 | **3c.f** Payment / confirmation contract checks | **Not started** | — |
 | **3c.g** E2E local Main tests | **Not started** | — |
 
@@ -107,6 +108,8 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 | Risks | Production Airtable refs; Reassign still hits hosted n8n.cloud webhook; Create Payment Session inside Code node; Ensure only on Stripe path |
 
 **Do not run Main locally** until `--verify-targets` passes and testing is explicitly approved.
+
+**3c.e.1:** `node scripts/build-main-local-stripe.js --verify-targets` — runbook [`PHASE-3c-e.md`](PHASE-3c-e.md). Regenerate sets `active=false` and test Airtable base on fork.
 
 **Ensure gap (why 3c.c.4 existed):** Old Ensure only INSERTs when missing; after 3c.c.3 a PG `hold` row would be returned unchanged. Promote SQL fixes that before 3c.e wires it into the fork.
 
