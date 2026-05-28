@@ -45,15 +45,25 @@ The current **n8n-heavy** implementation is acceptable for **proving behavior** 
 
 ```text
 src/booking-assistant/
+  # --- shared spine (client- AND vertical-agnostic; never rebuilt per vertical) ---
   routeMessage.ts
   extractBookingDetails.ts
   requiredFields.ts
-  packageDecision.ts
   safetyGuards.ts
   handoffRules.ts
   duplicateProtection.ts
   bookingContext.ts
   clientConfig.ts
+  payments.ts              # Stripe link + webhook truth + confirmation (vertical-agnostic)
+  # --- vertical plugin seam (the ONLY part that differs per business type) ---
+  inventory/
+    InventoryProvider.ts   # interface: findAvailability / hold / fulfill
+    lodging.ts             # beds-in-rooms + rooming (Wolfhouse / hostels)
+    slots.ts               # lesson/tour time-slot capacity (surf/kite schools, tours)
+    rentals.ts             # item × time-window × quantity × size (surf/bike/SUP shops)
+  catalog/
+    offerings.ts           # generic priced offering (packages | lessons | rental SKUs | departures)
+    packageDecision.ts     # explain / recommend / quote — driven by config, not hardcoded names
 ```
 
 **Example future config shape (not implemented yet):**
@@ -67,6 +77,8 @@ client_config.required_fields
 ```
 
 Build **Wolfhouse as client #1**, not as the only client the system can ever serve.
+
+**Spine vs plugin (portability principle):** everything above the `inventory/` and `catalog/` folders is the **shared spine** and must contain **no surf-house-specific nouns** (no `bed`, `room`, `malibu`, `surfweek`). Anything vertical-specific lives behind the `InventoryProvider` interface or in `client_config`. A new vertical = new config + (at most) one new inventory provider — see [§ Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons).
 
 ---
 
@@ -115,6 +127,80 @@ AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The
 | Engine shaped for lessons/rentals/rooming via config | Hardcoding “surf house only” in shared workflows |
 
 **Config dimensions per client** (see §3x.11 in [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)): packages · lesson types · rental inventory · rooming rules (if applicable) · pricing · deposit rules · cancellation policy · handoff rules · staff notifications · customer memory policy.
+
+---
+
+## Engine portability — adding a new vertical (surf shop / lessons)
+
+**Goal:** when Wolfhouse is done, standing up a second vertical (surf-shop **rentals**, surf/kite-school **lessons**, tour **departures**) is a **config + inventory-plugin** exercise — **not** a rewrite. This section defines the seam so that promise is real instead of aspirational.
+
+### What is SHARED — built once, reused by every vertical
+
+| Shared spine capability | Where |
+|-------------------------|-------|
+| WhatsApp inbound/outbound I/O | n8n orchestration |
+| Message routing / intent (`routeMessage`) | spine |
+| Required-field gating per action (`requiredFields`) | spine + `client_config` |
+| Payment link → **Stripe webhook truth** → confirmation (`payments`) | spine (proven 3d.x) |
+| Handoff triggers (`handoffRules`) | spine + `client_config.handoff` |
+| LLM safety (low-confidence → handoff; never act on LLM alone) | spine + `client_config.llm_safety` |
+| Duplicate / idempotency protection | spine (Stage 3.5) |
+| Conversation / session state, customer memory + privacy | spine + Postgres |
+| Error capture, golden-message runner | Stage 3.5 / 4 |
+
+These **must not** be reimplemented per client. If a "new vertical" task touches these, the seam has leaked.
+
+### What is VERTICAL-SPECIFIC — plugged in, never forked
+
+| Vertical concern | How it varies | Mechanism |
+|------------------|---------------|-----------|
+| The bookable resource + availability | bed-nights vs lesson slots vs rental items vs departure seats | `InventoryProvider` implementation |
+| Catalog of offerings | packages vs lesson types vs rental SKUs vs departures | `catalog/offerings` + `client_config` |
+| Fulfillment / assignment | rooming is **lodging-only**; most verticals skip it | capability flag, not core path |
+| Required fields per booking type | dorm gender vs board size vs surf level | `client_config.required_fields` |
+| Vocabulary / tone | surf-house terms vs shop terms | `client_config.language_tone` |
+
+### The one abstraction that unlocks all of it: `InventoryProvider`
+
+All verticals reduce to the same three-call contract — `findAvailability(request)` → `hold(unit, window)` → `fulfill(booking)`:
+
+| Vertical | Unit | Availability dimension | Special attribute | Rooming? |
+|----------|------|------------------------|-------------------|----------|
+| Surf house / hostel | bed | date-range overlap | gender / couple | **yes** (`lodging`) |
+| Surf / kite / dive school | lesson slot | time + slot capacity | skill level | no (`slots`) |
+| Surf / bike / SUP shop | rental item | time-window × quantity | size / fit | no (`rentals`) |
+| Tour operator | departure seat | departure-date capacity | group size | no (`slots`) |
+
+The spine calls the interface and never knows which provider it is.
+
+### Portability gate — a vertical is "config-only ready" when:
+
+- [ ] No surf-house nouns (`bed`, `room`, `matrimonial`, `surfweek`, `malibu`/`uluwatu`/`waimea`) appear in the shared spine — only in `client_config` / providers.
+- [ ] Rooming/assignment is behind a **capability flag**, not assumed.
+- [ ] Catalog is generic `offerings`, not a hardcoded package enum.
+- [ ] Inventory/availability is behind `InventoryProvider`; lodging is just one impl.
+- [ ] `client_config` is split into **engine config** (spine) + **vertical config** (catalog/inventory/capabilities).
+- [ ] Golden-message suite is parameterized by `client_id` (Wolfhouse fixtures don't hardcode the engine's behavior).
+
+### Cheapest validation — do this on paper during Stage 3x.3 (safe, docs-only)
+
+Before any Stage 5 extraction, draft **sample configs for a second and third vertical** and run them against the schema to surface every leak:
+
+- `config/clients/surf-shop-rental.sample.json` (rentals: items, sizes, time windows, deposits)
+- `config/clients/surf-school.sample.json` (lessons: levels, slots, instructors)
+
+Each gap found ("this field has no home," "this rule assumes beds") becomes a line item in the **Stage 5 extraction backlog**. If both samples fit the schema with only a new `InventoryProvider`, the backbone is portable; if not, you've found the surf-house assumptions cheaply, on paper, before writing engine code.
+
+### Stage placement
+
+| Work | Stage | Safe before runtime? |
+|------|-------|----------------------|
+| Spine/plugin seam **design** + sample vertical configs (paper test) | now / **3x.3** | yes (docs/config only) |
+| Split `client_config` into engine vs vertical schema | 3x.3 → Stage 5 | yes (config) |
+| Extract spine modules; implement `InventoryProvider` (lodging first) | **Stage 5** | build stage |
+| Second `InventoryProvider` (`slots` / `rentals`) + 2nd client live | **Stage 7** | scale stage |
+
+**Do not** build multi-vertical infra early. **Do** lock the seam now so Stage 5 cleanup produces portable modules instead of a tidied-up surf-house monolith.
 
 ---
 
@@ -564,7 +650,15 @@ Do **not** do broad Stage 5 refactor before Stage 3 / 3.5 safety gates. However,
 
 ### Includes
 
+- Move decision logic out of n8n into `src/booking-assistant/` (n8n becomes I/O only).
+- **Extract along the portability seam** ([§ Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons)): shared spine vs `inventory/` + `catalog/` plugins — do **not** produce a tidied-up surf-house monolith.
+- Implement `InventoryProvider` with **lodging** as the first concrete provider; keep the interface generic enough for `slots` / `rentals`.
+- Split `client_config` into **engine config** (spine) + **vertical config** (catalog / inventory / capabilities); rooming behind a capability flag.
+- Replace serialized-into-n8n Code nodes (e.g. the resolver) with calls to the extracted, version-checked modules.
+
 **Target:** n8n calls backend decision engine; Postgres writes go through shared SQL/modules; n8n performs WhatsApp/Stripe/Airtable I/O.
+
+**Portability acceptance for Stage 5:** the Wolfhouse spine compiles and passes golden tests with **zero surf-house nouns** outside `inventory/lodging.*` and `client_config`. (Verify against the portability gate checklist.)
 
 ---
 
@@ -604,6 +698,19 @@ Repeatable platform for multiple clients.
 - Support tools, backup/restore, per-client monitoring
 - Migration path away from Airtable
 - Templates for surf houses, retreats, hostels, camps
+
+### Adding the second vertical (surf shop / lessons)
+
+By Stage 7 this should be a **checklist, not a project** — provided the Stage 5 portability seam holds:
+
+1. Start from the paper-tested sample config (`config/clients/surf-shop-rental.sample.json` / `surf-school.sample.json` drafted in 3x.3) → promote to a real client config.
+2. Fill the **vertical config** (catalog/offerings, inventory model, capabilities) and **engine config** (payment, handoff, llm, privacy) — reuse the Wolfhouse engine defaults.
+3. Implement or reuse the matching `InventoryProvider` (`rentals` / `slots`); **no new workflows** if lodging was the only thing forked before.
+4. Add `client_id`-scoped data; seed inventory/offerings.
+5. Run the **`client_id`-parameterized golden suite** for the new vertical before any live/shadow operation.
+6. Onboard via Stage 3y **shadow/co-pilot mode** first (staff-approved), exactly as Wolfhouse did — never straight to autonomous.
+
+**If step 3 requires touching the shared spine, that is a portability regression** — fix the seam, don't fork the workflow.
 
 **Guiding principle:** Build Wolfhouse first; structure everything as **client #1**, not the only client.
 
