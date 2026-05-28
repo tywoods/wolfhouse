@@ -1,6 +1,6 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Phase 3d.4 direct Stripe checkout session sign-off)  
+**Last updated:** 2026-05-28 (Phase 3d.5a webhook preflight + schedule isolation)  
 **HEAD (expected):** after `Phase 3d.4: document direct Stripe checkout session success`
 
 For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md). For agent rules see [CURSOR.md](../CURSOR.md).
@@ -109,11 +109,27 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
 | **3d.4a** Preflight blockers cleared | Done | deactivate webhook/confirmation; CPS target `esuDIT96iPT63OaQ`; local cancel URL |
 | **3d.4b** `.env.example` local cancel URL | Done | `fb6ceb9` |
 | **3d.4** Direct isolated Create Payment Session | **PASS** | execution **1050**; booking `WH-260528-1493`; `cs_test_...` session; no webhook/confirmation/Main side effects |
+| **3d.5** Stripe Webhook Handler isolated plan | Done | [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) §3d.5 |
+| **3d.5a** Webhook preflight + schedule isolation | **Done** | read-only checks; n8n DB schedule disable (local only) — §3d.5a |
+| **3d.5b** Isolated webhook runtime | **Next** | one POST; only `KZUQvwR6SPWpvaZ5` active |
 
 **3d.4 evidence (summary):** Direct POST to `create-payment-session` with only `esuDIT96iPT63OaQ` active. Booking `33ac2766-537c-4b95-85d4-91c01c862beb` moved `waiting_payment` → `payment_link_sent`; one `payments` row created (`10ad0f21-0aa4-42c9-9adb-571a82f91698`); global `payment_events` unchanged; `send_confirmation` false; not confirmed; `booking_beds` 0.
 
+**3d.5a (summary):** `db:report:stripe-contract` + `--verify-targets` PASS. `active=false` on Send Confirmation (`gxivKRJexzTCw9x6`) did **not** stop 3‑min schedule (executions 1055–1057). Fix: `disabled=true` on `Schedule - Poll Postgres` in n8n `workflow_entity` + `workflow_history`; restart n8n; no 1058+ in 4+ min. Checkout Success `kipSFRdsnXfTPLUc` set inactive. Target booking unchanged. **Re-enable schedule before 3d.6.**
+
+**Local gate state (before 3d.5b):**
+
+| Workflow | Id | Active | Notes |
+|----------|-----|--------|--------|
+| Stripe Webhook Handler | `KZUQvwR6SPWpvaZ5` | false | activate **only** this for 3d.5b |
+| Create Payment Session | `esuDIT96iPT63OaQ` | false | |
+| CPS stub | `whCreatePaymentStubLocal01` | false | |
+| Main (local Stripe) | `RBfGNtVgrAkvhBHJ` | false | |
+| Send Confirmation (local) | `gxivKRJexzTCw9x6` | false | schedule node **disabled=true** (n8n DB) |
+| Stripe Checkout Success | `kipSFRdsnXfTPLUc` | false | |
+
 Remaining exclusions (still separate):
-- Stripe Webhook Handler sign-off (next recommended gate)
+- Stripe Webhook Handler runtime sign-off (**3d.5b** — next)
 - Send Confirmation chain sign-off
 - Main-integrated real Stripe payment-details path
 - Rooming/reassign E2E (deferred until hosted reassign URL remap)
@@ -181,9 +197,9 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - zero side effects on `payments`, `payment_events`, and `booking_beds`
 
 Recommended immediate next step:
-- **Phase 3d.5** — plan then run isolated **Stripe Webhook Handler** gate (`checkout.session.completed` / payment truth) on a separate disposable booking or test session; keep Send Confirmation inactive unless that gate is explicitly in scope.
-- Before any runtime: `npm run db:report:stripe-contract` and workflow active-state / `webhook_entity` checks per [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md).
-- Do **not** reuse `WH-260528-1493` for webhook/confirmation tests without a deliberate reset plan (already has open `checkout_created` payment from 3d.4).
+- **Phase 3d.5b** — isolated webhook runtime: activate **only** `KZUQvwR6SPWpvaZ5`, one Option A POST, deactivate; verify per [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) §3d.5 / §3d.5a.
+- Confirm Send Confirmation stays at execution **≤1057** during test window (`active=false` + schedule `disabled=true`).
+- Continue **3d.4** booking `WH-260528-1493`. Do **not** combine webhook and Send Confirmation in one window. Re-enable Send Confirmation schedule before **3d.6**.
 
 ---
 
