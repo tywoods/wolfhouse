@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Stage 3x.1 retry + Phase 3e.1 rooming inventory)  
-**HEAD (expected):** `119fd7e` + uncommitted docs until reviewed
+**Last updated:** 2026-05-28 (Phase 3c/3d freeze checkpoint)  
+**HEAD (expected):** `8dfa450`
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -27,7 +27,7 @@
 
 | Stage | Status | Notes |
 |-------|--------|--------|
-| **3** Correct and safe | **Engineering complete** | 3d.7b→3d.8b→3d.9b integrated dry-run chain on `WH-260528-5369`; residuals: real WA, schedule-poll, rooming URL |
+| **3** Correct and safe | **Frozen (3c+3d)** | [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) — integrated dry-run chain on `WH-260528-5369`; residuals: real WA, schedule-poll, rooming E2E |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
 | **4** Reliable | Planned | After 3 + 3x |
 | **5** Clean | Planned | Decision engine out of n8n |
@@ -60,6 +60,10 @@ Stripe test path, Main (local Stripe) fork, Send Confirmation (local), Booking F
 | Operator Room Release MVP | 2026-05-27 | `de26bd4` |
 
 Details: [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
+
+### Phase 3c + 3d (frozen)
+
+Formal checkpoint: **[`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md)** — 3c stub path + 3d real Stripe / webhook / Send Confirmation dry-run. **Do not** reuse evidence bookings without reset. Phase **3e.3+** rooming work continues after freeze commit.
 
 ### Phase 3c (closed scope) — Main / Postgres local + stub
 
@@ -101,7 +105,7 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
 - Key residuals tracked in [`PHASE-3c-f.md`](PHASE-3c-f.md):
   - queue-mode callback URL dependency (`http://n8n:5678/...`);
   - Airtable still in payment path;
-  - hosted reassign URL deferral;
+  - hosted reassign URL — **remapped** in 3e.2 (`8dfa450`);
   - prepare-context blank `booking_code` mitigated by Ensure Airtable-record fallback.
 
 ### 3c.g.2l fresh E2E evidence (latest)
@@ -212,7 +216,7 @@ Remaining exclusions (still separate):
 - Real WhatsApp send (`WHATSAPP_DRY_RUN` was true for 3d.6 and 3d.9b)
 - Send Confirmation **schedule poll** mode (schedule node still disabled)
 - Single-window integrated E2E (all steps in one run)
-- Rooming/reassign E2E — **3e.2** Main hosted reassign URL removed (local `n8n-main:5678`); runtime blocked until **3e.3** contract + **3e.4** E2E ([`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md))
+- Rooming/reassign E2E — **3e.3** static contract checker added; **blocker:** AT base mismatch Main vs bed-ops — see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md)
 - Airtable-removal/cleanup-refactor work
 
 ---
@@ -294,7 +298,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.5): Layer 3 fixtures + Layer 2 customer extract (owner-approved fields only).
 
 **Parallel (Stage 3 residual):**
-- **Phase 3e rooming/reassign** — **3e.2** Main reassign URL remap done; next **3e.3** static rooming contract ([`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md)).
+- **Phase 3e rooming/reassign** — **3e.3** static checker (`db:report:main-rooming-contract`); fix AT base alignment before **3e.4** E2E.
 
 **Then:** Stage 3 closeout checklist · **Stage 4 Reliable** (golden runner, monitors, idempotency tests).
 

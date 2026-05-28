@@ -353,9 +353,16 @@ Required before any **mutating** rooming/reassign run:
 |------|--------|--------|
 | **3e.1** | Inventory + safety plan (this doc) | **Done (read-only)** |
 | **3e.2** | Hosted reassign URL remap in `build-main-local-stripe.js` + regenerate Main fork; static proof hosted URL gone | **Done** |
-| **3e.3** | Extend static checker (`report-main-payment-contract` or new `report-main-rooming-contract`): no hosted reassign; local path; `booking_beds` writers scoped; terminal guards if detectable | Planned |
+| **3e.3** | Static rooming/reassign contract checker (`npm run db:report:main-rooming-contract`) | **Done** |
 | **3e.4** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | Planned |
 | **3e.5** | Negative tests: wrong booking, confirmed block, multi-active handoff, missing info, assignment lock, private room guard | Planned |
+
+### 3e.3 acceptance (2026-05-28)
+
+- `node scripts/report-main-rooming-contract.js` → **Overall OK: true**
+- Proves: Main no hosted reassign; local `n8n-main` endpoint; Main no `booking_beds`/payment writes; Reassign scoped PG delete + parse contract; Assign loads `Search Rooms` + `fill_priority`/`gender_strategy` scoring
+- **Blocker before 3e.4:** Airtable base mismatch — Main `appiyO4FmkKsyHZdK` vs Assign/Reassign/Cancel `appOCWIN47Bui9CSS`
+- Artifacts: `scripts/lib/main-rooming-contract-inventory.js`, `scripts/report-main-rooming-contract.js`
 
 ### 3e.2 acceptance (preview)
 
@@ -385,9 +392,9 @@ Required before any **mutating** rooming/reassign run:
 
 ## 11. Recommendation
 
-1. **Commit** 3e.2 code + regenerated Main JSON + doc updates.  
-2. **Next: 3e.3** — dedicated `report-main-rooming-contract.js` (or extend payment contract) + prove Reassign fork AT base alignment before E2E.  
-3. **Before any POST:** deactivate Assign/Cancel unless needed; keep Main/Stripe/Confirmation inactive; use **new** disposable booking.  
-4. **Do not run 3e.4** until 3e.3 passes and `B3c3ReassignLocal01` is activated only in a test window.
+1. **Commit** 3e.3 checker + doc updates.  
+2. **Before 3e.4:** neutralize Assign/Reassign/Cancel forks to **test** Airtable base (`appiyO4FmkKsyHZdK`) — see `npm run db:report:main-rooming-contract` alignment section.  
+3. **Then 3e.4** — fresh disposable booking rooming E2E (not `WH-260528-5369` / `WH-260528-1493`).  
+4. Keep Main/Stripe/Confirmation inactive outside gated test windows; deactivate Assign/Cancel unless explicitly needed.
 
-**Do not run 3e.4 runtime until 3e.3 passes.**
+**Do not run 3e.4 runtime until Airtable base alignment is resolved.**
