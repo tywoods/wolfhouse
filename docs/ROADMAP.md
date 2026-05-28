@@ -9,7 +9,7 @@
 ## Evolution order (do not skip)
 
 ```text
-1. Correct and safe     ← current (Stage 3 + 3d runtime gates)
+1. Correct and safe     ← Stage 3d engineering gates complete; Stage 3x specs in progress
 2. Reliable             ← Stage 4
 3. Clean                ← Stage 5
 4. Beautiful            ← Stage 6
@@ -113,8 +113,11 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 | Isolated Create Payment Session | **Proven** | 3d.4 |
 | Stripe Webhook Handler payment truth | **Proven** (isolated) | 3d.5b on `WH-260528-1493` |
 | Send Confirmation (dry-run) | **Proven** (isolated) | 3d.6e |
-| Pay + webhook on Main-created session | **In progress** | 3d.8b blocked at manual checkout pay |
+| Pay + webhook on Main-created session | **Proven** | 3d.8b organic Stripe on `WH-260528-5369` |
+| Integrated Send Confirmation (dry-run) | **Proven** | 3d.9b exec **1077** on same booking |
 | Rooming / reassign E2E | **Pending** | Hosted `reassign-booking-beds` URL must be remapped to local fork |
+
+**Not proven in Stage 3:** real WhatsApp send; Send Confirmation schedule-poll; single-window E2E; full package intelligence.
 
 **Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
 
@@ -124,11 +127,26 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 
 **Mini-phase before fully entering Stage 4 (Reliable).**
 
+**Master spec:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)  
+**Owner questionnaire:** [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md)
+
 ### Purpose
 
 Define the business knowledge and decision rules the bot needs to act safely, ask smart follow-up questions, and avoid dangerous guesses.
 
 **Important:** Stage 3x delivers **specs, fixtures, and configurable rules** — not a huge expansion of n8n IF nodes. Implementation belongs in code modules (Stage 5) fed by client config.
+
+| Sub-phase | Status |
+|-----------|--------|
+| **3x.1** Planning spec (§3x.1–3x.10) | **Done** (2026-05-28) |
+| **3x.1b** Customer memory + WhatsApp migration plan (§3x.11) | **Done** (2026-05-28) |
+| **3x.2** Owner answers + draft client config | Planned |
+| **3x.3** WhatsApp mining + golden fixtures + customer memory extract (review) | Planned |
+| **3x.4** Golden runner + Stage 4 reliability hooks | Planned |
+
+**Stage 3x now includes:** required-field map · package decision flow · **WhatsApp history mining** · **customer memory migration planning** · client-config architecture · privacy/safety boundaries · golden messages · dangerous-action gates.
+
+### Summary index (detail in master spec)
 
 ### 3x.1 — Required field map
 
@@ -145,7 +163,7 @@ Define required fields **before** each action:
 | Package booking | Quote inputs + package-specific required fields |
 | Date change | Booking id, new dates, availability, policy |
 
-**Deliverable:** `docs/specs/required-fields.md` (or equivalent) + fixture tables keyed by `resolved_route`.
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` §3x.1](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x1--required-field-map) + fixture tables keyed by `resolved_route`.
 
 ### 3x.2 — Package explanation + package decision flow
 
@@ -172,20 +190,23 @@ The bot must explain package differences clearly.
 
 ### 3x.3 — Wolfhouse knowledge collection
 
-Collect and confirm missing business knowledge (owner/staff input):
+Operational gaps only (not public website facts). Questionnaire for Ale/Cami:
 
-- Package options and prices
-- Deposit rules, hold expiry / payment deadline
-- Room types; rooming / gender / couple / friend rules
-- Cancellation and refund policy
-- Check-in / check-out times
-- Extras, rentals, transfers
-- Language preference behavior
-- When to hand off to staff
+**Deliverable:** [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md)
 
-**Deliverable:** `docs/knowledge/wolfhouse-somo.md` (living doc) + gaps list in PROJECT-STATE.
+### 3x.4 — WhatsApp history mining plan
 
-### 3x.4 — Golden message tests
+Redacted Cami/Ale guest threads → **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see §3x.11).
+
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` §3x.4](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x4--whatsapp-history-mining-plan); redacted samples under `docs/knowledge/whatsapp-samples/` (not in git until anonymized).
+
+### 3x.11 — Customer memory + WhatsApp history migration
+
+Layered model: temporary raw import → structured customer facts (PG, `client_id`-scoped) → anonymized fixtures. Proposed tables: `customers`, `customer_booking_history`, `conversation_summaries`, `customer_preferences`, `customer_notes`, `privacy_requests` (future).
+
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` §3x.11](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x11--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) § Customer memory.
+
+### 3x.5 — Golden message tests
 
 **30–50** realistic guest messages with expected:
 
@@ -201,9 +222,9 @@ Collect and confirm missing business knowledge (owner/staff input):
 - Cancellation · room preference · couple/friends/gender rooming · date changes
 - Surfboard/wetsuit rental · breakfast/transfer · unclear / low-confidence messages
 
-**Deliverable:** `tests/golden-messages/` or `docs/fixtures/golden-messages.json` + runner stub (Stage 4+).
+**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec §3x.5.
 
-### 3x.5 — Dangerous action gates
+### 3x.6 — Dangerous action gates
 
 Strict proof required before:
 
@@ -216,7 +237,7 @@ Strict proof required before:
 | Change dates | Availability + policy |
 | Mark payment-related states | Webhook or authorized staff only |
 
-### 3x.6 — Human handoff rules
+### 3x.7 — Human handoff rules
 
 Bot must stop guessing and alert staff when:
 
@@ -231,7 +252,7 @@ Bot must stop guessing and alert staff when:
 
 **Deliverable:** `handoffRules` spec → later `client_config.handoff_rules`.
 
-### 3x.7 — Wrong-booking protection
+### 3x.8 — Wrong-booking protection
 
 Formalize (align with existing resolver + PG):
 
@@ -240,7 +261,7 @@ Formalize (align with existing resolver + PG):
 - Old holds must not be selected because phone matches alone
 - Active booking must match conversation context and latest intent
 
-### 3x.8 — Duplicate protection
+### 3x.9 — Duplicate protection
 
 Verify and document:
 
@@ -251,7 +272,7 @@ Verify and document:
 | Same Stripe event id | No duplicate `payment_events` row |
 | Confirmation | Cannot send twice (`confirmation_sent_at`, flags) |
 
-### 3x.9 — Client-config architecture plan
+### 3x.10 — Client-config architecture plan
 
 Same assistant engine, different **client config** per property.
 
@@ -368,6 +389,7 @@ Repeatable platform for multiple clients.
 | Role | Doc |
 |------|-----|
 | Engineer (today) | [`PROJECT-STATE.md`](PROJECT-STATE.md) |
+| Stage 3x spec | [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) |
 | Owner / non-engineer | [`PROJECT-ROADMAP.md`](PROJECT-ROADMAP.md) |
 | Agent rules | [`../CURSOR.md`](../CURSOR.md) |
 | Stripe test gates | [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) |

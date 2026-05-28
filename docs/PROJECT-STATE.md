@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Phase 3d.9b integrated Send Confirmation dry-run PASS)  
-**HEAD (expected):** after `Phase 3d.9: document integrated confirmation dry-run success`
+**Last updated:** 2026-05-28 (Stage 3x.1b customer memory + WhatsApp migration planning)  
+**HEAD (expected):** after Stage 3x.1/3x.1b docs commit (or uncommitted)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -23,8 +23,8 @@
 
 | Stage | Status | Notes |
 |-------|--------|--------|
-| **3** Correct and safe | **In progress** | Integrated Stripe + dry-run confirmation proven on `WH-260528-5369`; real WhatsApp + rooming/reassign pending |
-| **3x** Bot knowledge + guardrails | **Not started** | Specs/fixtures before Stage 4 — [ROADMAP.md § 3x](ROADMAP.md#stage-3x--bot-knowledge--safety-guardrails) |
+| **3** Correct and safe | **Engineering complete** | 3d.7b→3d.8b→3d.9b integrated dry-run chain on `WH-260528-5369`; residuals: real WA, schedule-poll, rooming URL |
+| **3x** Bot knowledge + guardrails | **In progress (3x.1 + 3x.1b done)** | Spec + customer memory plan; no import/DB yet |
 | **4** Reliable | Planned | After 3 + 3x |
 | **5** Clean | Planned | Decision engine out of n8n |
 | **6** Beautiful | Planned | Staff UI |
@@ -265,15 +265,32 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 ---
 
+## Stage 3x (bot knowledge + guardrails)
+
+| Sub-phase | Status | Artifact |
+|-----------|--------|----------|
+| **3x.1** Planning spec | **Done** | [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) (§3x.1–3x.10) |
+| **3x.1b** Customer memory + WhatsApp migration | **Done** | Same doc §3x.11; layered model; table spec *(no migration yet)* |
+| **3x.2** Owner answers + draft config | Planned | [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) (incl. customer memory) |
+| **3x.3** WhatsApp mining + golden + customer extract | Planned | Layer 1 off-repo; Layer 2/3 outputs; staff review queue |
+| **3x.4** Golden runner (Stage 4 prep) | Planned | `test:golden-messages` stub |
+
+**In scope for Stage 3x:** WhatsApp history mining · customer memory migration planning · client-config architecture · privacy/safety boundaries · golden messages · dangerous-action gates.
+
+**Integrated chain (terminal evidence):** `WH-260528-5369` — do **not** reuse without reset.
+
+---
+
 ## Preferred next step
 
-**Immediate (Stage 3 runtime):**
+**Immediate (Stage 3x):**
+- **3x.2** — Ale/Cami complete [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md); draft `config/clients/wolfhouse-somo.json` from answers.
+- **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.11): anonymized fixtures **and** customer-memory extract with owner-approved fields only.
+
+**Parallel (Stage 3 engineering residual):**
 - **Rooming/reassign** — remap hosted reassign URL to local fork before E2E (new disposable booking).
 
-**Next (planning, docs-only OK):**
-- **Stage 3x** — required-field map, package decision flow, golden messages, handoff/gate specs ([ROADMAP.md](ROADMAP.md#stage-3x--bot-knowledge--safety-guardrails)). Do **not** implement as n8n IF sprawl.
-
-**Not next:** Stage 4 reliability build-out, Stage 5 code migration, Stage 6 staff UI, Azure (Stage 7).
+**Not next:** Stage 4 full reliability build until 3x.2 owner gaps materially closed; Stage 5 code migration; Stage 6 staff UI; Azure (Stage 7).
 
 ---
 
@@ -328,6 +345,8 @@ Get-Content scripts/fixtures/main-ensure-3cc-promote-cleanup-down.sql | docker c
 | Cursor agent | [CURSOR.md](../CURSOR.md) |
 | Owner summary | [PROJECT-ROADMAP.md](PROJECT-ROADMAP.md) |
 | Stripe gates | [PHASE-3d-STRIPE-ISOLATED-PLAN.md](PHASE-3d-STRIPE-ISOLATED-PLAN.md) |
+| Stage 3x spec | [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) |
+| Owner knowledge gaps | [knowledge/wolfhouse-somo-gaps.md](knowledge/wolfhouse-somo-gaps.md) |
 | 3c proposal | [PHASE-3c-PROPOSAL.md](PHASE-3c-PROPOSAL.md) |
 | Regression | [regression-test-plan.md](regression-test-plan.md) |
 | Azure (later) | [azure-n8n-hosting-plan.md](azure-n8n-hosting-plan.md) |
