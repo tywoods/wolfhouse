@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Phase 3e.4c Main→Reassign payload forensics + patch)  
-**HEAD (expected):** `8257364` (3e.4a); **3e.4c patch uncommitted**
+**Last updated:** 2026-05-29 (Phase 3e.4 rooming E2E complete)  
+**HEAD (expected):** `be4efce` (3e.4c patch)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -216,7 +216,7 @@ Remaining exclusions (still separate):
 - Real WhatsApp send (`WHATSAPP_DRY_RUN` was true for 3d.6 and 3d.9b)
 - Send Confirmation **schedule poll** mode (schedule node still disabled)
 - Single-window integrated E2E (all steps in one run)
-- Rooming/reassign E2E — **3e.4b** safe functional fail (parse `=rec…` prefix bug); **3e.4c** patch ready (uncommitted) — see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) §13
+- Rooming/reassign E2E — **3e.4 complete** (3e.4b retry PASS `WH-260528-5322`, beds R3-B1/R3-B2) — see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) §13.7
 - Airtable-removal/cleanup-refactor work
 
 ---
@@ -298,7 +298,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.5): Layer 3 fixtures + Layer 2 customer extract (owner-approved fields only).
 
 **Parallel (Stage 3 residual):**
-- **Phase 3e rooming/reassign** — **3e.4c** patch applied (uncommitted); **3e.4b retry** blocked until commit + fresh preflight + new disposable identity.
+- **Phase 3e rooming/reassign** — **3e.4 complete** (PASS). Evidence booking `WH-260528-5322` / beds R3-B1/R3-B2. Next: **3e.5** negative tests or Stage 3x minimum rooming baseline.
 
 **Then:** Stage 3 closeout checklist · **Stage 4 Reliable** (golden runner, monitors, idempotency tests).
 

@@ -359,8 +359,8 @@ Required before any **mutating** rooming/reassign run:
 | **3e.3** | Static rooming/reassign contract checker (`npm run db:report:main-rooming-contract`) | **Done** |
 | **3e.3b** | Align Assign/Reassign/Cancel local forks to test Airtable base (`appiyO4FmkKsyHZdK`); regenerate + import inactive | **Done** (`79ee0e5`) |
 | **3e.4a** | Fresh disposable rooming E2E **plan + read-only preflight** (this section) | **Done** |
-| **3e.4b** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | **Done — safe functional fail** (see §13) |
-| **3e.4c** | Forensics: Main→Reassign payload contract mismatch; minimal patch + static regen | **Done** (patch uncommitted) |
+| **3e.4b** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | **Done — PASS** (retry after 3e.4c; see §13) |
+| **3e.4c** | Forensics: Main→Reassign payload contract mismatch; minimal patch + static regen | **Done** (`be4efce`) |
 | **3e.5** | Negative tests: wrong booking, confirmed block, multi-active handoff, missing info, assignment lock, private room guard | Planned |
 
 ### 3e.3 acceptance (2026-05-28)
@@ -689,22 +689,59 @@ From `scripts/build-reassign-beds-local.js` → `PARSE_WEBHOOK_JS`:
 
 **Evidence booking preserved:** `WH-260528-8239` remains `hold/not_requested/unassigned`, `booking_beds=0`.
 
-### 13.6 Retry policy
+### 13.6 Retry policy (fulfilled — see §13.7)
 
-1. **Commit** 3e.4c patch (Main + Reassign regen + build scripts + docs).
-2. **Fresh preflight** (new §12 baseline queries) immediately before activation.
-3. **New disposable identity** recommended (new phone/wamids) — do not auto-retry POST #2 on `WH-260528-8239` without explicit reset plan.
-4. Watch **Pick Active Booking vs Search Booking** divergence on POST #2 (stale session `Current Hold ID`).
+1. ~~Commit 3e.4c patch~~ — **done** (`be4efce`).
+2. ~~Fresh preflight~~ — **done**.
+3. ~~New disposable identity~~ — used `+353399990332`.
+4. **Pick Active Booking session drift** — confirmed non-blocker; `Search Booking - Rooming Info` correctly overrides. Stage 3x cleanup item.
 
-### 13.7 Forensics artifacts (optional commit)
+### 13.7 3e.4b retry PASS (2026-05-29)
 
-| Artifact | Use |
-|----------|-----|
-| `scripts/fixtures/phase3e4b-*.sql` | Read-only verification queries from 3e.4b runtime window |
-| `scripts/fixtures/phase3e4c-*.sql` | Exec blob search / decompress helpers |
-| `scripts/forensics-phase3e4c-*.js` | One-off read-only exec decompress (dev only; not required in CI) |
+**Test identity:** phone `+353399990332` · POST #1 `wamid.PHASE3E4R.001` · POST #2 `wamid.PHASE3E4R.002`
 
-`.gitignore` WhatsApp/private export rules — commit **separately** from 3e.4c patch (unrelated hygiene).
+| Step | Exec | Result |
+|------|------|--------|
+| POST #1 (hold create) | Main **1081** | **PASS** — `booking_flow` route |
+| POST #2 (rooming reply) | Main **1082** | **PASS** — `rooming_details_provided` route |
+| Reassign | **1083** | **PASS** — `parse_ok=true`, `assign_triggered=true` |
+| Assign | **1084** | **PASS** — `assign_beds_complete` |
+
+**Evidence booking:**
+
+| Field | Value |
+|-------|-------|
+| booking_code | `WH-260528-5322` |
+| booking_id | `dd0f9a72-aa2f-4bae-92de-3412ca237782` |
+| airtable_record_id | `recsj7AUUNSjJQGeA` |
+| status / payment / assignment | `hold` / `not_requested` / **`assigned`** |
+
+**Beds assigned:** R3-B1 + R3-B2 · room R3 · `mixed_group` / `mixed_ok` · 2026-09-22 → 2026-09-24 · plan score 62
+
+**Verification:**
+
+| Check | Result |
+|-------|--------|
+| Main sent clean `recsj7AUUNSjJQGeA` (no `=` prefix) | **PASS** |
+| Reassign `parse_ok` | **true** |
+| target `booking_beds` | **2** (= guest count) |
+| global `booking_beds` delta | 13 → **15** (target only) |
+| overlap conflicts | **0** |
+| payments / payment_events | **25 / 5** (unchanged) |
+| Send Confirmation / Stripe / CPS / stub / Cancel | **None executed** |
+| Static contract re-run post-runtime | **Overall OK: true** |
+| All workflows after deactivation | **`active=false`** |
+
+**Residual watch:** `Pick Active Booking` still surfaces stale session `rec4VXB7Rf1VxDr0C` (329 evidence) — `Search Booking - Rooming Info` correctly overrides for the HTTP node. Not a blocker; flagged for Stage 3x session-state cleanup.
+
+### 13.8 Artifacts committed
+
+| Artifact | Commit |
+|----------|--------|
+| `scripts/fixtures/phase3e4b-*.sql` (12) | `be4efce` (3e.4c) |
+| `scripts/forensics-phase3e4c-*.js` | deleted (dev-only) |
+| `scripts/fixtures/phase3e4c-*.sql` | deleted (superseded by §13 docs) |
+| `scripts/fixtures/phase3e4r-*.sql` | deleted (runtime-specific scratch) |
 
 ---
 
@@ -720,8 +757,9 @@ From `scripts/build-reassign-beds-local.js` → `PARSE_WEBHOOK_JS`:
 
 ## 11. Recommendation
 
-1. **Commit** 3e.4c patch (Main/Reassign regen + build scripts + §13 docs). Optionally commit `phase3e4b-*` SQL fixtures; keep forensics JS dev-only.
-2. **3e.4b retry** — fresh §12 preflight; **new disposable phone/wamids** (not auto-retry on `WH-260528-8239`).
+1. ~~Commit 3e.4c patch~~ — **done** (`be4efce`).
+2. ~~3e.4b retry~~ — **PASS** (`WH-260528-5322`, beds R3-B1/R3-B2).
 3. Keep payment/confirmation/Stripe inactive outside explicit test windows.
+4. **Next:** Phase **3e.5** negative tests (wrong booking, confirmed block, multi-active handoff, missing info, assignment lock, private room guard) or **Stage 3x** minimum business logic baseline (Ale/Cami rooming preferences).
 
-**Static gate for 3e.4b retry is clear after 3e.4c commit.** Ale/Cami rooming preferences remain provisional until Stage 3x questionnaire data exists.
+**3e.4 is complete.** Ale/Cami rooming preferences remain provisional until Stage 3x questionnaire data exists.
