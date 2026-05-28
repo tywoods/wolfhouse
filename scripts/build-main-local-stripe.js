@@ -1231,6 +1231,24 @@ function getJsonFromNode(nodeName) {
   }
 }
 
+function firstNonEmpty(values) {
+  for (const value of values) {
+    const v = String(value || '').trim();
+    if (v && v !== 'null' && v !== 'undefined') return v;
+  }
+  return '';
+}
+
+function pickBookingCode(candidates) {
+  const normalized = candidates
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && value !== 'null' && value !== 'undefined');
+  const whCode = normalized.find((value) => /^WH-/i.test(value));
+  if (whCode) return whCode;
+  const nonRecordId = normalized.find((value) => !/^rec[A-Za-z0-9]+$/i.test(value));
+  return nonRecordId || '';
+}
+
 const holdSources = [
   'Update Hold With Guest Details',
   'Update Booking Hold - Apply Staged Contact',
@@ -1247,6 +1265,8 @@ for (const nodeName of holdSources) {
 const extracted = getJsonFromNode('Code - Extract Guest Details');
 const sessionCall = getJsonFromNode('Code - Call Create Payment Session');
 const session = getJsonFromNode('Merge Session State').session || getJsonFromNode('Code - Check Bed Availability - WA').session || {};
+const activeBooking = getJsonFromNode('Code - Pick Active Booking');
+const conversation = getJsonFromNode('Search Conversation').fields || {};
 const phone =
   $('Normalize Incoming Message').first().json.phone ||
   $('Create Inbound Message').first().json.fields?.['Conversation Phone'] ||
@@ -1256,13 +1276,31 @@ const fields = hold?.fields || {};
 const emailMatch = String($('Code - Booking State Resolver').first().json.guest_message || '').match(
   /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i
 );
+const bookingCode = pickBookingCode([
+  fields['Booking ID'],
+  fields['booking_code'],
+  fields['Booking Code'],
+  fields['Current Hold ID'],
+  hold?.json?.booking_code,
+  activeBooking.active_booking?.booking_code,
+  activeBooking.active_booking?.fields?.['Booking ID'],
+  activeBooking.active_booking?.fields?.['booking_code'],
+  activeBooking.active_booking?.fields?.['Booking Code'],
+  activeBooking.active_booking_id,
+  activeBooking.session?.current_hold_booking_code,
+  activeBooking.session?.current_hold_id,
+  session.current_hold_booking_code,
+  session.current_hold_id,
+  session.hold_booking_id,
+  conversation['Current Hold ID'],
+]);
 
 return [
   {
     json: {
       hold_record_id: hold?.record_id || '',
       hold_source: hold?.source || '',
-      booking_code: fields['Booking ID'] || '',
+      booking_code: bookingCode,
       guest_name: fields['Guest Name'] || extracted.guest_name || session.name || '',
       guest_email: fields['Email'] || extracted.guest_email || session.email || (emailMatch ? emailMatch[0] : ''),
       phone: fields['Phone'] || extracted.guest_phone || phone,
@@ -1276,6 +1314,8 @@ return [
         fields['Guest Gender / Group Type'] || session.guest_gender_group_type || 'unknown',
       payment_link: fields['Payment Link'] || sessionCall.checkout_url || '',
       checkout_url: sessionCall.checkout_url || fields['Payment Link'] || '',
+      use_stripe_checkout: String($env.USE_STRIPE_CHECKOUT || 'true').toLowerCase() === 'true',
+      payment_kind: 'deposit_only',
     },
   },
 ];`;
