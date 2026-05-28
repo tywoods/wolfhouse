@@ -1,6 +1,6 @@
 # Phase 3d.1 — Stripe isolated planning gate
 
-**Status:** 3d.4 CPS **PASS** · **3d.5b** webhook **PASS** (2026-05-28). Next: **3d.6** isolated Send Confirmation (webhook inactive; re-enable schedule in n8n DB first).
+**Status:** 3d.4 CPS **PASS** · **3d.5b** webhook **PASS** · **3d.6** Send Confirmation **PASS** (dry-run, 2026-05-28). Next: Main-integrated real Stripe path (separate gate).
 
 ## Boundary
 
@@ -675,7 +675,134 @@ Booking `WH-260528-1493` is in **webhook-success** state: `deposit_paid`, `send_
 **3d.6** — isolated Send Confirmation only:
 
 - Webhook handler **inactive** (`KZUQvwR6SPWpvaZ5`).
-- **Re-enable** Send Confirmation schedule node in n8n DB (`disabled: false` on `Schedule - Poll Postgres`) before runtime.
+- For **direct-webhook** isolated tests: keep schedule node **`disabled: true`** (see §3d.6e). Re-enable schedule only for a future **schedule-poll** gate.
 - `WHATSAPP_DRY_RUN=true` unless real WhatsApp test is explicitly approved.
 - Do **not** combine with webhook POST in the same window.
+
+---
+
+## 3d.6 — isolated Send Confirmation (local) — PASS (2026-05-28)
+
+### Scope
+
+- Sign off **Send Confirmation** on booking `WH-260528-1493` after **3d.5b** webhook truth (`deposit_paid`, `send_confirmation=true`, still `payment_pending`).
+- **Option B:** direct `POST /webhook/send-confirmation-local` with `booking_id` filter (not schedule poll).
+- `WHATSAPP_DRY_RUN=true` — no production WhatsApp Graph API call.
+- Stripe Webhook Handler, Main, CPS, and stub **inactive** for all 3d.6 runtime windows.
+
+### Substeps (summary)
+
+| Step | Result | Notes |
+|------|--------|-------|
+| **3d.6a** | Preflight PASS | Eligibility SQL, credentials, schedule disabled, isolation |
+| **3d.6b** | Safe / functional FAIL | Exec **1059** — stopped at Airtable Conversation (0 rows) |
+| **3d.6c** | Fix (no runtime) | Postgres credential display-name alignment; SQL returns 1 row |
+| **3d.6d** | Patch committed `324c104` | `alwaysOutputData=true` on Conversation + Booking Beds Airtable nodes |
+| **3d.6e** | BLOCKED | POST **404** — webhook not registered after CLI publish without n8n restart |
+| **3d.6e retry** | **PASS** | Exec **1061** — full chain through dry-run WhatsApp → Mark Confirmed |
+
+### Target booking (3d.6 sign-off)
+
+| Field | Value |
+|-------|--------|
+| `booking_code` | `WH-260528-1493` |
+| `booking_id` | `33ac2766-537c-4b95-85d4-91c01c862beb` |
+| `payment_id` | `10ad0f21-0aa4-42c9-9adb-571a82f91698` |
+| `phone` | `+353399990329` |
+
+### Workflow / delivery (3d.6e retry)
+
+| Item | Value |
+|------|--------|
+| Workflow | Wolfhouse - Send Confirmation (local) |
+| Workflow id | `gxivKRJexzTCw9x6` |
+| Path | `send-confirmation-local` |
+| Mode | webhook (`booking_id` in JSON body) |
+| Schedule `Schedule - Poll Postgres` | **`disabled: true`** (unchanged for isolated test) |
+| Activation | `n8n publish:workflow --id=gxivKRJexzTCw9x6` + **`docker restart n8n-main n8n-worker`** |
+| Deactivation | `n8n unpublish:workflow --id=gxivKRJexzTCw9x6` immediately after POST |
+
+**Operational note:** CLI `publish:workflow` alone may not register production webhooks in a **running** n8n instance. After publish, **restart** `n8n-main` and `n8n-worker` (or activate via UI) and verify `webhook_entity` maps `send-confirmation-local` → `gxivKRJexzTCw9x6` before POST.
+
+### Execution evidence (3d.6e retry — PASS)
+
+| Item | Value |
+|------|--------|
+| Execution id | **1061** (prior Send Confirmation on this workflow: **1060**) |
+| Status / mode | `success` / `webhook` |
+| Started / stopped | 2026-05-28 16:47:30–39 UTC (~8.8s) |
+| `lastNodeExecuted` | `Postgres - Mark Booking Confirmed` |
+
+**Node chain:**
+
+```text
+Webhook → Parse → List Pending (Webhook Filter) → IF Pending → Format
+  → Search Conversation → Search Booking Beds → Summarize Assigned Rooms
+  → Anthropic → Send confirmation reply → Code - Send WhatsApp
+  → IF WhatsApp Sent OK → Postgres - Mark Booking Confirmed
+```
+
+### Airtable fallback (3d.6d patch proven)
+
+| Node | Airtable records | Behavior |
+|------|------------------|----------|
+| Search Conversation - Confirmation | **0** (1 placeholder item via `alwaysOutputData`) | Chain continued; language fell back to Format node (`en`) |
+| Search Booking Beds - Confirmation | **0** (placeholder) | Summarize ran; empty `assigned_room_summary` / “Not assigned yet” LLM path |
+
+When Airtable rows exist, behavior is unchanged (first matching row still used).
+
+### WhatsApp dry-run evidence
+
+```json
+{
+  "whatsapp_sent": true,
+  "dry_run": true,
+  "booking_id": "33ac2766-537c-4b95-85d4-91c01c862beb",
+  "to": "+353399990329"
+}
+```
+
+`Postgres - Mark Booking Confirmed` ran **only after** `IF - WhatsApp Sent OK` (true branch). No real WhatsApp message sent.
+
+### Target booking (before → after 3d.6e retry)
+
+| Field | Before | After |
+|-------|--------|-------|
+| `status` | `payment_pending` | **`confirmed`** |
+| `payment_status` | `deposit_paid` | **`deposit_paid`** (unchanged) |
+| `send_confirmation` | `true` | **`false`** |
+| `confirmation_sent_at` | `NULL` | **`2026-05-28 16:47:39+00`** |
+| `deposit_paid_cents` / `amount_paid_cents` / `balance_due_cents` | 20000 / 20000 / 0 | unchanged |
+| `booking_beds` | 0 | **0** |
+
+### Side-effect safety (PASS)
+
+| Check | Result |
+|-------|--------|
+| Stripe Webhook Handler max execution | **1058** (unchanged) |
+| Main max execution | **1036** (unchanged) |
+| CPS max execution | **1050** (unchanged) |
+| Global `payment_events` | **4** (unchanged) |
+| Target `payment_events` | **1** (unchanged) |
+| Wrong / multiple bookings confirmed | No |
+| Send Confirmation after run | **unpublished** (`active=false`) |
+
+### Isolated Stripe chain on `WH-260528-1493` (complete through confirmation)
+
+| Gate | Execution | Booking state after |
+|------|-----------|---------------------|
+| 3d.4 CPS | 1050 | `payment_link_sent`, payment `checkout_created` |
+| 3d.5b Webhook | 1058 | `deposit_paid`, `send_confirmation=true`, not confirmed |
+| **3d.6 Send Confirmation** | **1061** | **`confirmed`**, `send_confirmation=false`, `confirmation_sent_at` set |
+
+### Remaining exclusions (not covered by 3d.6)
+
+- **Real WhatsApp send** — not tested (`WHATSAPP_DRY_RUN=true` only).
+- **Integrated chain** — Main → real Stripe CPS → webhook → confirmation in **one** run not tested.
+- **Schedule poll mode** — separate from direct-webhook sign-off; schedule node remains **`disabled: true`** until a future schedule gate intentionally re-enables it.
+- **Rooming / reassign E2E** — deferred until hosted reassign URL remap (see Phase 3c residuals).
+
+### Recommended next gate
+
+**Main-integrated real Stripe payment-details path** — separate window from isolated CPS / webhook / confirmation gates. Keep Send Confirmation **inactive** unless explicitly testing confirmation again.
 
