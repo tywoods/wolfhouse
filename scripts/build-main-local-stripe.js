@@ -940,6 +940,83 @@ function applyLocalTypingIndicatorBypass(workflow) {
   };
 }
 
+function applyHumanActivePaymentLinkBypass(workflow) {
+  const ifNeedsHuman = workflow.nodes.find((n) => n.name === 'IF - Needs Human');
+  if (!ifNeedsHuman?.parameters?.conditions?.conditions?.[0]) {
+    throw new Error('Human-active bypass: IF - Needs Human node/condition not found');
+  }
+
+  // Narrow bypass only for safe payment-link contact messages so resolver can handle
+  // payment_details_provided path; all other human-active behavior remains unchanged.
+  ifNeedsHuman.parameters.conditions.conditions[0].leftValue = `={{ 
+  (() => {
+    const conv = $('Search Conversation').first().json.fields || {};
+    const msg = String(
+      $('Normalize Incoming Message').first().json.guest_message ||
+      $('Create Inbound Message').first().json.fields?.['Message Text'] ||
+      ''
+    ).trim();
+    const lower = msg.toLowerCase();
+
+    const needsHuman = conv['Needs Human'] === true;
+    const botModeHumanActive = conv['Bot Mode'] === 'human_active';
+    const humanGateActive = needsHuman || botModeHumanActive;
+
+    if (!humanGateActive) return false;
+
+    const hasPaymentLinkIntent =
+      /\\b(payment link|send (me )?the payment link|pay link|checkout link|link to pay|payment url)\\b/i.test(lower);
+    const hasEmail = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i.test(msg);
+    const hasUsableName =
+      /\\b(my name is|name is)\\b/i.test(lower) ||
+      /\\b(i am|i'm|soy|me llamo|ich bin)\\s+[A-Z][a-z]+/i.test(msg);
+    const hasPaymentClaim =
+      /\\b(i paid|payment done|paid already|already paid|did you receive payment|payment received|payment completed|i completed payment)\\b/i.test(lower);
+    const hasEscalationSignals =
+      /\\b(refund|complain|complaint|angry|manager|human|person|staff|urgent|dispute|chargeback|scam|issue)\\b/i.test(lower);
+    const hasRoomingOrReassignSignals =
+      /\\b(rooming|reassign|bed assignment|split us|stay together|female room|male room|mixed room|girls room|guys room)\\b/i.test(lower);
+
+    const stage = String(conv['Conversation Stage'] || '').trim().toLowerCase();
+    const stageSafe = stage === 'booking_flow' || stage === 'payment_pending';
+
+    const currentHoldId =
+      String(
+        conv['Current Hold ID'] ||
+        (() => {
+          try {
+            return $('Code - Pick Active Booking').first().json.session?.current_hold_id || '';
+          } catch (_) {
+            return '';
+          }
+        })()
+      ).trim();
+    const hasHoldHint = /^WH-/i.test(currentHoldId);
+
+    let holdUsable = false;
+    try {
+      const pick = $('Code - Pick Active Booking').first().json || {};
+      const status = String(pick.active_booking_status || pick.active_booking?.status || '');
+      holdUsable = pick.active_booking_found === true && (status === 'Hold' || status === 'Payment_Pending');
+    } catch (_) {
+      holdUsable = false;
+    }
+
+    const safeBookingContext = stageSafe || hasHoldHint || holdUsable;
+
+    const allowResolverBypass =
+      hasPaymentLinkIntent &&
+      (hasEmail || hasUsableName) &&
+      !hasPaymentClaim &&
+      !hasEscalationSignals &&
+      !hasRoomingOrReassignSignals &&
+      safeBookingContext;
+
+    return humanGateActive && !allowResolverBypass;
+  })()
+}}`;
+}
+
 function applyPhase2f(workflow) {
   const parseRoute = workflow.nodes.find((n) => n.name === 'Code - Parse Route');
   const switchNode = workflow.nodes.find((n) => n.name === 'Switch');
@@ -1840,6 +1917,7 @@ applyDeterministicPaymentUrl(workflow);
 applyPhase3cAvailabilityGate(workflow);
 applyPhase3cHoldGate(workflow);
 applyLocalTypingIndicatorBypass(workflow);
+applyHumanActivePaymentLinkBypass(workflow);
 applyPostgresCredentialMapping(workflow);
 
 workflow.tags = [
