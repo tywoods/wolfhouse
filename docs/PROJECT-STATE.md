@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-27 (after `8abfd4d` Phase 3c.c.4)  
-**HEAD (expected):** `8abfd4d` — Phase 3c.c.4: add Main ensure booking promote CLI
+**Last updated:** 2026-05-28 (after `adab3f8` Phase 3c.g.1l)  
+**HEAD (expected):** `adab3f8` — Phase 3c.g.1l: fix Main hold scalar query parameters
 
 For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md). For agent rules see [CURSOR.md](../CURSOR.md).
 
@@ -58,11 +58,11 @@ Details: [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
 | **3c.e.4** PG hold + AT backfill in Main fork | Done | `881ab1b` |
 | **3c.e.5** PG conversation upsert | **Done** (uncommitted) | — |
 | **3c.f** Payment / confirmation contract checks | **Not started** | — |
-| **3c.g** E2E local Main tests | **Not started** | — |
+| **3c.g** E2E local Main tests | **In progress** — 3c.g.1m first controlled `booking_flow` success | [`PHASE-3c-g.md`](PHASE-3c-g.md) |
 
 **Phase 3c.c (CLI/script side) is nearly complete.** Remaining 3c work is conversation state (3c.d), workflow wiring (3c.e), then contract checks and E2E (3c.f–g).
 
-Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHASE-3c-a.md), [`PHASE-3c-b.md`](PHASE-3c-b.md), [`PHASE-3c-c.md`](PHASE-3c-c.md).
+Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHASE-3c-a.md), [`PHASE-3c-b.md`](PHASE-3c-b.md), [`PHASE-3c-c.md`](PHASE-3c-c.md), [`PHASE-3c-g.md`](PHASE-3c-g.md).
 
 ---
 
