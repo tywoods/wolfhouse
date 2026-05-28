@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Phase 3c closeout boundary)  
-**HEAD (expected):** `6a719ec` — Phase 3c.g.2m: align project state after E2E stub sign-off
+**Last updated:** 2026-05-28 (Phase 3d.4 direct Stripe checkout session sign-off)  
+**HEAD (expected):** after `Phase 3d.4: document direct Stripe checkout session success`
 
 For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md). For agent rules see [CURSOR.md](../CURSOR.md).
 
@@ -99,10 +99,23 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
   - no Send Confirmation side effect;
   - Main/stub/legacy workflows returned inactive.
 
+### Phase 3d (in progress) — isolated real Stripe path
+
+| Substep | Status | Notes |
+|---------|--------|-------|
+| **3d.1** Isolated Stripe planning gate | Done | [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) |
+| **3d.2** Stripe contract static checker | Done | `npm run db:report:stripe-contract` |
+| **3d.3** Direct CPS test plan | Done | docs-only |
+| **3d.4a** Preflight blockers cleared | Done | deactivate webhook/confirmation; CPS target `esuDIT96iPT63OaQ`; local cancel URL |
+| **3d.4b** `.env.example` local cancel URL | Done | `fb6ceb9` |
+| **3d.4** Direct isolated Create Payment Session | **PASS** | execution **1050**; booking `WH-260528-1493`; `cs_test_...` session; no webhook/confirmation/Main side effects |
+
+**3d.4 evidence (summary):** Direct POST to `create-payment-session` with only `esuDIT96iPT63OaQ` active. Booking `33ac2766-537c-4b95-85d4-91c01c862beb` moved `waiting_payment` → `payment_link_sent`; one `payments` row created (`10ad0f21-0aa4-42c9-9adb-571a82f91698`); global `payment_events` unchanged; `send_confirmation` false; not confirmed; `booking_beds` 0.
+
 Remaining exclusions (still separate):
-- Real Stripe path sign-off
-- Stripe Webhook Handler sign-off
+- Stripe Webhook Handler sign-off (next recommended gate)
 - Send Confirmation chain sign-off
+- Main-integrated real Stripe payment-details path
 - Rooming/reassign E2E (deferred until hosted reassign URL remap)
 - Airtable-removal/cleanup-refactor work
 
@@ -168,9 +181,9 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - zero side effects on `payments`, `payment_events`, and `booking_beds`
 
 Recommended immediate next step:
-- Complete **Phase 3d.3** planning in [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) (direct Create Payment Session test plan; no execution yet).
-- Run **Phase 3d.2** checker before any runtime: `npm run db:report:stripe-contract`.
-- Next runtime gate (when approved): single direct POST to `create-payment-session` only, with disposable booking + hard stops; Main/stub/webhook/confirmation remain inactive.
+- **Phase 3d.5** — plan then run isolated **Stripe Webhook Handler** gate (`checkout.session.completed` / payment truth) on a separate disposable booking or test session; keep Send Confirmation inactive unless that gate is explicitly in scope.
+- Before any runtime: `npm run db:report:stripe-contract` and workflow active-state / `webhook_entity` checks per [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md).
+- Do **not** reuse `WH-260528-1493` for webhook/confirmation tests without a deliberate reset plan (already has open `checkout_created` payment from 3d.4).
 
 ---
 

@@ -1,6 +1,6 @@
 # Phase 3d.1 — Stripe isolated planning gate
 
-**Status:** Planning only through 3d.3 (no runtime execution in these phases).
+**Status:** 3d.4 direct Create Payment Session runtime **PASS** (2026-05-28). Next gate: isolated Stripe Webhook Handler (separate).
 
 ## Boundary
 
@@ -219,4 +219,89 @@ Stop immediately and deactivate if any occur:
 ### 3d.3 execution step (not done here)
 
 When approved, next runtime step is exactly one direct POST + post-read verification + immediate deactivation. No second POST, no Main, no webhook replay.
+
+## 3d.4a / 3d.4b preflight (completed before runtime)
+
+- Out-of-scope workflows deactivated: Stripe Webhook Handler (`KZUQvwR6SPWpvaZ5`), Send Confirmation (`gxivKRJexzTCw9x6`).
+- Intended Create Payment Session workflow for local runtime: **`esuDIT96iPT63OaQ`** (sole `webhook_entity` mapping for `create-payment-session`).
+- Stripe env verified test-mode; success/cancel URLs local/test-safe (`fb6ceb9` documents cancel URL in `infra/.env.example`).
+- Four duplicate CPS workflow definitions remain in n8n DB; only `esuDIT96iPT63OaQ` may be activated for this gate.
+
+## 3d.4 direct isolated Create Payment Session — PASS (2026-05-28)
+
+### Scope honored
+
+- One direct `POST http://localhost:5678/webhook/create-payment-session` only.
+- No Main, stub, Stripe Webhook Handler, or Send Confirmation activation/execution.
+- Workflow activated for test window: **`esuDIT96iPT63OaQ` only**; deactivated immediately after POST.
+
+### Payload
+
+```json
+{
+  "booking_id": "33ac2766-537c-4b95-85d4-91c01c862beb",
+  "payment_kind": "deposit_only"
+}
+```
+
+### Candidate booking
+
+| Field | Before | After |
+|-------|--------|-------|
+| `booking_id` | `33ac2766-537c-4b95-85d4-91c01c862beb` | unchanged |
+| `booking_code` | `WH-260528-1493` | unchanged |
+| `status` | `payment_pending` | `payment_pending` (not confirmed) |
+| `payment_status` | `waiting_payment` | `payment_link_sent` |
+| `send_confirmation` | `false` | `false` |
+| `confirmation_sent_at` | `NULL` | `NULL` |
+| `booking_beds` | 0 | 0 |
+
+### Execution evidence
+
+| Item | Value |
+|------|--------|
+| n8n execution id | **1050** (prior CPS on `esuDIT96iPT63OaQ`: 953) |
+| Workflow id | `esuDIT96iPT63OaQ` |
+| Status / mode | `success` / `webhook` |
+| Path | `reused=false` → new session branch → **Respond - New Session** |
+
+### HTTP response (Stripe test mode)
+
+- `ok=true`, `reused=false`, `payment_kind=deposit_only`
+- `amount_due_cents=20000`
+- `checkout_url`: Stripe test checkout (`checkout.stripe.com`, `cs_test_...` in URL)
+- `stripe_checkout_session_id`: `cs_test_a1Htl0ZjasUd3Gik7G6tVFkDDFLUIPyJ8ljGYimITsmAH1gcy0KpehvhvT`
+
+### Payments / payment_events
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Global `payments` | 23 | 24 (+1) |
+| Global `payment_events` | 3 | 3 (unchanged) |
+| Booking `payments` | 0 | 1 |
+| Booking `payment_events` | 0 | 0 |
+
+New payment row: `10ad0f21-0aa4-42c9-9adb-571a82f91698` — `deposit_only`, `checkout_created`, `amount_due_cents=20000`, same `cs_test_...` session id as response.
+
+### Side-effect safety (PASS)
+
+- Stripe Webhook Handler latest execution unchanged (**615**).
+- Send Confirmation latest execution unchanged (**1049**).
+- Main latest execution unchanged (**1036**); stub unchanged (**1037**).
+- No `payment_events` write for target booking; no `booking_beds` write; booking not confirmed.
+
+### Post-run workflow state
+
+All relevant workflows returned **inactive** (intended CPS, other CPS copies, Main, stub, webhook handler, Send Confirmation).
+
+### Not in scope for 3d.4 (still separate gates)
+
+- Stripe Webhook Handler (`checkout.session.completed` / payment truth)
+- Send Confirmation chain
+- Main-integrated payment-details path with real Stripe URL
+- Idempotency reuse path (`reused=true`) — not exercised this run
+
+### Recommended next gate
+
+**3d.5** — isolated Stripe Webhook Handler test on a **separate** disposable booking or explicit test session; do not combine with Send Confirmation unless that gate is intentionally in scope.
 
