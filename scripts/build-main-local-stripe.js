@@ -814,17 +814,17 @@ function applyPhase3cAvailabilityGate(workflow) {
 
   const NULL_SENTINEL = '__NULL__';
   const waSession =
-    "$('Code - Check Bed Availability - WA').first().json.session || $('Merge Session State').first().json.session";
+    "(($('Code - Check Bed Availability - WA').first().json.session) || ($('Merge Session State').first().json.session) || {})";
   function pgParam(innerExpr) {
     return `={{ ((${innerExpr}) != null && String(${innerExpr}).trim() !== '') ? String(${innerExpr}).trim() : '${NULL_SENTINEL}' }}`;
   }
 
   const availabilityQueryReplacement = [
-    pgParam(`${waSession}?.check_in`),
-    pgParam(`${waSession}?.check_out`),
-    pgParam(`${waSession}?.guest_count || ${waSession}?.guests`),
-    pgParam(`${waSession}?.room_preference || ${waSession}?.room_type`),
-    pgParam(`${waSession}?.guest_gender_group_type`),
+    pgParam(`${waSession}.check_in`),
+    pgParam(`${waSession}.check_out`),
+    pgParam(`${waSession}.guest_count || ${waSession}.guests`),
+    pgParam(`${waSession}.room_preference || ${waSession}.room_type`),
+    pgParam(`${waSession}.guest_gender_group_type`),
   ].join(',');
 
   const postgresNode = {
