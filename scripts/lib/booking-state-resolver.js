@@ -2,7 +2,7 @@
  * Phase 2f — deterministic booking route resolver (pure logic for tests + n8n Code node).
  */
 
-const RESOLVER_VERSION = '2f.5';
+const RESOLVER_VERSION = '2f.6';
 
 function safeJsonParse(value, fallback = {}) {
   if (!value) return fallback;
@@ -61,6 +61,11 @@ function detectMessageSignals(message) {
       lower
     ) || (hasGuestEmail && /\bpaid\b/i.test(lower));
 
+  const hasExplicitRoomingOrReassignSignals =
+    /\b(room|bed|beds|assign|assignment|roommate|together|separate|couple|friends|girls|guys|female|male|mixed|private room|shared room|change room|move room|reassign)\b/i.test(
+      lower
+    );
+
   const hasAvailabilityQuestion =
     /\b(any beds|availability|available|disponible|frei|have room)\b/i.test(lower) && !dateRange;
 
@@ -81,6 +86,7 @@ function detectMessageSignals(message) {
     has_guest_email: hasGuestEmail,
     has_payment_claim: hasPaymentClaim,
     has_payment_link_intent: hasPaymentLinkIntent,
+    has_explicit_rooming_or_reassign_signals: hasExplicitRoomingOrReassignSignals,
     has_availability_question: hasAvailabilityQuestion,
     has_booking_intent: hasBookingIntent,
     has_booking_core: hasBookingCore,
@@ -124,6 +130,7 @@ function shouldAttemptHoldSearch(input, messageSignals, holdUsable) {
       lower
     );
   const hasRoomingOrReassignSignals =
+    messageSignals.has_explicit_rooming_or_reassign_signals ||
     /\b(rooming|reassign|bed assignment|split us|stay together|female room|male room|mixed room|girls room|guys room)\b/i.test(
       lower
     );
@@ -206,6 +213,24 @@ function resolveBookingRoute(input) {
         : routerRoute === 'payment_completed_claim'
           ? 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_PAYMENT_CLAIM_ROUTE'
           : 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK';
+  }
+
+  if (
+    routerRoute === 'rooming_details_provided' &&
+    (holdUsable || attemptHoldSearch) &&
+    hasContact &&
+    messageSignals.has_payment_link_intent &&
+    !messageSignals.has_payment_claim &&
+    !hasEscalationSignals &&
+    !hasRoomingOrReassignSignals
+  ) {
+    resolvedRoute = 'payment_details_provided';
+    resolvedSubRoute = 'payment_details_on_existing_hold';
+    routeOverridden = true;
+    overrideReason = holdUsable
+      ? 'contact_and_payment_link_intent_on_active_hold_from_rooming_route'
+      : 'contact_and_payment_link_intent_on_hold_lookup_from_rooming_route';
+    decisionCode = 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_ROOMING_ROUTE';
   }
 
   // Priority overrides (deterministic)

@@ -331,6 +331,94 @@ const fixtures = [
       should_search_hold: false,
     },
   },
+  {
+    id: '2f-rooming-route-payment-link-contact-override',
+    input: {
+      router_route: 'rooming_details_provided',
+      router_reason: 'pending rooming question',
+      router_confidence: 0.65,
+      language: 'en',
+      guest_message:
+        'Thanks. My full name is Phase 3c G2 Test and my email is phase3c.g2.test+329@example.com. Please send me the payment link for my booking.',
+      pending_action: 'rooming_info_needed',
+      conversation_stage: 'payment_pending',
+      active_booking: {
+        active_booking_found: true,
+        active_booking_status: 'Payment_Pending',
+        active_booking_record_id: 'rec4VXB7Rf1VxDr0C',
+      },
+    },
+    expect: {
+      resolved_route: 'payment_details_provided',
+      decision_code: 'R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_ROOMING_ROUTE',
+      should_search_hold: true,
+    },
+  },
+  {
+    id: '2f-rooming-route-real-rooming-details-no-override',
+    input: {
+      router_route: 'rooming_details_provided',
+      router_reason: 'rooming details',
+      router_confidence: 0.88,
+      language: 'en',
+      guest_message: 'We are two girls, can we be in the same room and assigned beds together?',
+      pending_action: 'rooming_info_needed',
+      conversation_stage: 'payment_pending',
+      active_booking: {
+        active_booking_found: true,
+        active_booking_status: 'Payment_Pending',
+        active_booking_record_id: 'rec4VXB7Rf1VxDr0C',
+      },
+    },
+    expect: {
+      resolved_route: 'rooming_details_provided',
+      decision_code: 'R2F_ROUTER_ACCEPTED',
+      should_search_hold: false,
+    },
+  },
+  {
+    id: '2f-rooming-route-payment-claim-no-override',
+    input: {
+      router_route: 'rooming_details_provided',
+      router_reason: 'pending rooming question',
+      router_confidence: 0.7,
+      language: 'en',
+      guest_message:
+        'I paid already and payment done. Please send me payment confirmation. My email is phase3c.g2.test+329@example.com',
+      pending_action: 'rooming_info_needed',
+      conversation_stage: 'payment_pending',
+      active_booking: {
+        active_booking_found: true,
+        active_booking_status: 'Payment_Pending',
+      },
+    },
+    expect: {
+      resolved_route: 'rooming_details_provided',
+      decision_code: 'R2F_ROUTER_ACCEPTED',
+      should_search_hold: false,
+    },
+  },
+  {
+    id: '2f-rooming-route-payment-link-no-contact-no-override',
+    input: {
+      router_route: 'rooming_details_provided',
+      router_reason: 'pending rooming question',
+      router_confidence: 0.7,
+      language: 'en',
+      guest_message: 'Please send me the payment link for my booking.',
+      pending_action: 'rooming_info_needed',
+      conversation_stage: 'payment_pending',
+      active_booking: {
+        active_booking_found: true,
+        active_booking_status: 'Payment_Pending',
+      },
+    },
+    expect: {
+      resolved_route: 'rooming_details_provided',
+      decision_code: 'R2F_ROUTER_ACCEPTED',
+      should_search_hold: false,
+    },
+  },
 ];
 
 let failed = 0;
