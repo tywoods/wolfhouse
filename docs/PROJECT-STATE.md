@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (Stage 3x.1b customer memory + WhatsApp migration planning)  
-**HEAD (expected):** after Stage 3x.1/3x.1b docs commit (or uncommitted)
+**Last updated:** 2026-05-28 (Stage 3x full roadmap + exit criteria)  
+**HEAD (expected):** after `cc17a30` or follow-up Stage 3x docs commit
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -11,7 +11,11 @@
 
 ## Product
 
-**Wolfhouse Booking Assistant** — AI guest messaging plus staff/operator workflows for a surf house: availability, holds, Stripe payment sessions, confirmations, bed assignment, reassign, cancel, manual entries queue, operator room release.
+**Wolfhouse Booking Assistant** — client #1 (**beachhead**) for the broader product category: **AI booking operations for WhatsApp-first experience businesses** (AI front desk for WhatsApp-heavy experience operators).
+
+**Wolfhouse scope today:** surf house — availability, holds, Stripe, confirmations, bed assignment, reassign, cancel, manual entries, operator room release.
+
+**Product direction:** Same engine + `client_config` should eventually serve adjacent verticals (surf schools, rental shops, tour operators, etc.) without re-architecting — see [ROADMAP.md § Client category](ROADMAP.md#client-category--market-positioning).
 
 **Quality bar today:** Stage 3 — correct and safe. See [ROADMAP.md § Stage 3](ROADMAP.md#stage-3--correct-and-safe).
 
@@ -24,7 +28,7 @@
 | Stage | Status | Notes |
 |-------|--------|--------|
 | **3** Correct and safe | **Engineering complete** | 3d.7b→3d.8b→3d.9b integrated dry-run chain on `WH-260528-5369`; residuals: real WA, schedule-poll, rooming URL |
-| **3x** Bot knowledge + guardrails | **In progress (3x.1 + 3x.1b done)** | Spec + customer memory plan; no import/DB yet |
+| **3x** Bot knowledge + guardrails | **Planning complete (docs)** | §3x.1–3x.11 + exit criteria; execution 3x.2–3x.4 pending |
 | **4** Reliable | Planned | After 3 + 3x |
 | **5** Clean | Planned | Decision engine out of n8n |
 | **6** Beautiful | Planned | Staff UI |
@@ -269,8 +273,8 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 | Sub-phase | Status | Artifact |
 |-----------|--------|----------|
-| **3x.1** Planning spec | **Done** | [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) (§3x.1–3x.10) |
-| **3x.1b** Customer memory + WhatsApp migration | **Done** | Same doc §3x.11; layered model; table spec *(no migration yet)* |
+| **3x.1** Full planning roadmap | **Done** | [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) §3x.1–3x.11 + exit criteria |
+| **3x.1b** Customer memory + WhatsApp migration | **Done** | Same doc §3x.5; three-layer model *(no import/DB yet)* |
 | **3x.2** Owner answers + draft config | Planned | [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) (incl. customer memory) |
 | **3x.3** WhatsApp mining + golden + customer extract | Planned | Layer 1 off-repo; Layer 2/3 outputs; staff review queue |
 | **3x.4** Golden runner (Stage 4 prep) | Planned | `test:golden-messages` stub |
@@ -283,14 +287,18 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 ## Preferred next step
 
-**Immediate (Stage 3x):**
-- **3x.2** — Ale/Cami complete [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md); draft `config/clients/wolfhouse-somo.json` from answers.
-- **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.11): anonymized fixtures **and** customer-memory extract with owner-approved fields only.
+**Stage 3d (engineering):** Integrated pay + webhook + dry-run confirmation **complete** on `WH-260528-5369` (terminal; do not reuse).
 
-**Parallel (Stage 3 engineering residual):**
+**Immediate (Stage 3x execution):**
+- **3x.2** — Ale/Cami complete [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md); draft `config/clients/wolfhouse-somo.json`.
+- **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.5): Layer 3 fixtures + Layer 2 customer extract (owner-approved fields only).
+
+**Parallel (Stage 3 residual):**
 - **Rooming/reassign** — remap hosted reassign URL to local fork before E2E (new disposable booking).
 
-**Not next:** Stage 4 full reliability build until 3x.2 owner gaps materially closed; Stage 5 code migration; Stage 6 staff UI; Azure (Stage 7).
+**Then:** Stage 3 closeout checklist · **Stage 4 Reliable** (golden runner, monitors, idempotency tests).
+
+**Not next:** Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7) until 3x execution + Stage 4 foundations.
 
 ---
 

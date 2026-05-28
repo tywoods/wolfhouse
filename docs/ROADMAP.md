@@ -1,6 +1,6 @@
 # Wolfhouse Booking Assistant — Product Roadmap
 
-**Product:** AI guest messaging and staff workflows for surf-house operations (WhatsApp, holds, Stripe, confirmations, bed assignment, manual entries, operator room release).
+**Product:** AI booking operations for WhatsApp-first experience businesses — **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
 **Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) · **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
 
@@ -60,6 +60,54 @@ client_config.required_fields
 ```
 
 Build **Wolfhouse as client #1**, not as the only client the system can ever serve.
+
+---
+
+## Client category / market positioning
+
+### Product category
+
+**Primary:** AI booking operations for WhatsApp-first experience businesses.
+
+**Simpler language:** AI front desk for WhatsApp-heavy experience operators.
+
+This is **not** framed as a generic chatbot. It is an operations layer that handles guest questions, package/rental/lesson explanation, availability and detail collection, payment links, payment truth, confirmations, customer memory, staff handoff, and operational status.
+
+### Beachhead
+
+**Wolfhouse** — surf houses / surf camps (client #1, `wolfhouse-somo`).
+
+Hard first use case: combines accommodation, packages, rooming, payments, confirmations, WhatsApp, and staff operations in one property.
+
+### Adjacent categories (same core pattern)
+
+Guests ask on WhatsApp → business explains options → checks availability → collects details → sends payment/deposit link → confirms → staff handle changes and handoffs.
+
+| Adjacent vertical | Typical scope (often simpler than surf house) |
+|------------------|-----------------------------------------------|
+| Surf schools | Lessons, levels, schedules |
+| Surf shops | Rentals, retail-adjacent booking |
+| Kite schools · dive shops | Lessons, certifications, slots |
+| Yoga retreats · small retreat operators | Packages, dates, capacity |
+| Hostels with activities | Beds + activity add-ons |
+| Tour operators | Departures, group size, deposits |
+| Rental businesses | Lessons, rentals, inventory, time slots, sizes — surf shop / bike / e-bike / kayak / SUP / campervan patterns |
+
+A **surf shop or lesson-rental** operator is likely a simpler config profile than Wolfhouse: fewer rooming rules, more slot/inventory semantics, still the same payment + confirmation + handoff spine.
+
+### Competitive note
+
+AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The opportunity is a **focused, configurable, operations-heavy** assistant for **small experience businesses** that live in WhatsApp and run **messy** packages, rentals, lessons, and deposits — not clean hotel-only PMS flows.
+
+### Roadmap implication
+
+| Build now | Defer |
+|-----------|--------|
+| Wolfhouse as client #1 with full safety proofs | Multi-client SaaS platform |
+| `client_config` specs that generalize | Client onboarding UI, billing, settings editor |
+| Engine shaped for lessons/rentals/rooming via config | Hardcoding “surf house only” in shared workflows |
+
+**Config dimensions per client** (see §3x.11 in [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)): packages · lesson types · rental inventory · rooming rules (if applicable) · pricing · deposit rules · cancellation policy · handoff rules · staff notifications · customer memory policy.
 
 ---
 
@@ -138,13 +186,13 @@ Define the business knowledge and decision rules the bot needs to act safely, as
 
 | Sub-phase | Status |
 |-----------|--------|
-| **3x.1** Planning spec (§3x.1–3x.10) | **Done** (2026-05-28) |
-| **3x.1b** Customer memory + WhatsApp migration plan (§3x.11) | **Done** (2026-05-28) |
+| **3x.1** Full roadmap §3x.1–3x.11 + exit criteria | **Done** (2026-05-28) |
+| **3x.1b** Customer memory layered model (§3x.5) | **Done** (2026-05-28) |
 | **3x.2** Owner answers + draft client config | Planned |
-| **3x.3** WhatsApp mining + golden fixtures + customer memory extract (review) | Planned |
+| **3x.3** WhatsApp mining + golden fixtures + customer extract | Planned |
 | **3x.4** Golden runner + Stage 4 reliability hooks | Planned |
 
-**Stage 3x now includes:** required-field map · package decision flow · **WhatsApp history mining** · **customer memory migration planning** · client-config architecture · privacy/safety boundaries · golden messages · dangerous-action gates.
+**Stage 3x includes:** required-field map · package decision flow · Wolfhouse knowledge collection · **WhatsApp history mining** · **customer memory migration** · golden message tests · dangerous-action gates · human handoff · wrong-booking protection · duplicate protection · client-config architecture · **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
 
 ### Summary index (detail in master spec)
 
@@ -196,17 +244,21 @@ Operational gaps only (not public website facts). Questionnaire for Ale/Cami:
 
 ### 3x.4 — WhatsApp history mining plan
 
-Redacted Cami/Ale guest threads → **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see §3x.11).
+Redacted Cami/Ale guest threads → **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see §3x.5).
 
 **Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` §3x.4](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x4--whatsapp-history-mining-plan); redacted samples under `docs/knowledge/whatsapp-samples/` (not in git until anonymized).
 
-### 3x.11 — Customer memory + WhatsApp history migration
+### 3x.5 — Customer memory + WhatsApp history migration
 
 Layered model: temporary raw import → structured customer facts (PG, `client_id`-scoped) → anonymized fixtures. Proposed tables: `customers`, `customer_booking_history`, `conversation_summaries`, `customer_preferences`, `customer_notes`, `privacy_requests` (future).
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` §3x.11](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x11--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) § Customer memory.
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` §3x.5](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x5--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) § Customer memory.
 
-### 3x.5 — Golden message tests
+### Stage 3x exit criteria
+
+Documented in master spec — planning complete when §3x.1–3x.11 + exit checklist exist; full golden fixture set may complete in 3x.3.
+
+### 3x.6 — Golden message tests
 
 **30–50** realistic guest messages with expected:
 
@@ -222,9 +274,9 @@ Layered model: temporary raw import → structured customer facts (PG, `client_i
 - Cancellation · room preference · couple/friends/gender rooming · date changes
 - Surfboard/wetsuit rental · breakfast/transfer · unclear / low-confidence messages
 
-**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec §3x.5.
+**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec §3x.6.
 
-### 3x.6 — Dangerous action gates
+### 3x.7 — Dangerous action gates
 
 Strict proof required before:
 
@@ -237,7 +289,7 @@ Strict proof required before:
 | Change dates | Availability + policy |
 | Mark payment-related states | Webhook or authorized staff only |
 
-### 3x.7 — Human handoff rules
+### 3x.8 — Human handoff rules
 
 Bot must stop guessing and alert staff when:
 
@@ -252,7 +304,7 @@ Bot must stop guessing and alert staff when:
 
 **Deliverable:** `handoffRules` spec → later `client_config.handoff_rules`.
 
-### 3x.8 — Wrong-booking protection
+### 3x.9 — Wrong-booking protection
 
 Formalize (align with existing resolver + PG):
 
@@ -261,7 +313,7 @@ Formalize (align with existing resolver + PG):
 - Old holds must not be selected because phone matches alone
 - Active booking must match conversation context and latest intent
 
-### 3x.9 — Duplicate protection
+### 3x.10 — Duplicate protection
 
 Verify and document:
 
@@ -272,7 +324,7 @@ Verify and document:
 | Same Stripe event id | No duplicate `payment_events` row |
 | Confirmation | Cannot send twice (`confirmation_sent_at`, flags) |
 
-### 3x.10 — Client-config architecture plan
+### 3x.11 — Client-config architecture plan
 
 Same assistant engine, different **client config** per property.
 
@@ -289,6 +341,7 @@ Same assistant engine, different **client config** per property.
 | `handoff_rules` | Triggers, staff notify |
 | `integrations` | Stripe, WhatsApp, webhooks |
 | `staff_notification_rules` | Channels, severity |
+| `customer_memory_policy` | Retention, allowed fields, returning-guest rules |
 
 Wolfhouse = `client_slug: wolfhouse-somo`. Future surf houses add new config rows, not forked workflows.
 

@@ -76,4 +76,12 @@
 
 ---
 
-*Operational gaps: [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](../STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) §3x.3 · Customer memory: §3x.11.*
+## Surf + extras (optional detail)
+
+- [ ] How bot should ask surf level:
+- [ ] Board/wetsuit rental: info-only vs bookable:
+- [ ] Breakfast / meals per package in confirmations:
+
+---
+
+*Operational gaps: [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](../STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) §3x.3 · Customer memory: §3x.5.*

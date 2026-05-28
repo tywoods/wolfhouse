@@ -1,11 +1,29 @@
 # Stage 3x — Bot Knowledge + Safety Guardrails
 
-**Status:** **3x.1 + 3x.1b planning complete** (2026-05-28, docs-only)  
-**Prerequisite:** Stage 3 engineering gates through **3d.9b** — integrated Main → Stripe pay → organic webhook → Send Confirmation dry-run on `WH-260528-5369` ([`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md), commit `cd48a5a`).
+**Status:** **Stage 3x roadmap complete** (3x.1 + 3x.1b, docs-only, 2026-05-28)  
+**Prerequisite:** Stage 3 engineering gates through **3d.9b** — integrated Main → Stripe pay → organic webhook → Send Confirmation dry-run on `WH-260528-5369` ([`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md), commits `cd48a5a`, `cc17a30`).
 
-**Purpose:** Define business knowledge, configurable client rules, and safety guardrails the bot needs **before Stage 4 (Reliable)** and **before Stage 5 (Clean)** moves decision logic out of n8n.
+### Purpose
 
-**Non-goals (this stage):** Runtime code changes, workflow JSON edits, workflow activation, Postgres/Airtable/Stripe mutations, golden-message runner implementation, or new n8n IF sprawl for business rules.
+Stage 3x sits **between Stage 3 (Correct and safe)** and **Stage 4 (Reliable)**. It defines the business knowledge, customer memory, package rules, safety gates, and configurable client rules the bot needs before reliability work, cleanup, staff UI, and multi-client scaling.
+
+### What Stage 3x produces
+
+| Output type | Examples |
+|-------------|----------|
+| Docs + specs | This document, exit criteria, gate matrices |
+| Fixtures | 30–50 golden guest messages (schema + samples) |
+| Client-config design | `config/clients/wolfhouse-somo.json` *(planned)* |
+| Owner question lists | [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) |
+| Mining plan | WhatsApp history → anonymized knowledge + customer memory |
+
+### What Stage 3x does not do
+
+- Huge expansion of n8n IF nodes for business rules  
+- Runtime code, workflow JSON, DB migrations, WhatsApp import, or processing real customer data  
+- Full backend (`src/booking-assistant/`), staff UI, or multi-client SaaS  
+
+**Non-goals (this stage):** Workflow activation, Postgres/Airtable/Stripe mutations, golden-message **runner** implementation (Stage 4).
 
 **Architecture principle:**
 
@@ -19,20 +37,28 @@
 
 **Evolution order:** Correct and safe → Reliable → Clean → Beautiful → Scalable ([`ROADMAP.md`](ROADMAP.md)).
 
+### Client category (positioning)
+
+**Category:** AI booking operations for WhatsApp-first experience businesses (*AI front desk* in plain language). **Beachhead:** Wolfhouse (surf house). **Engine:** same assistant for surf schools, rental shops, tour operators, etc. via `client_config` — not a surf-house-only chatbot. Full positioning: [`ROADMAP.md` § Client category](ROADMAP.md#client-category--market-positioning).
+
 ---
 
 ## Deliverables map
 
-| Section | Deliverable | Implementation stage |
-|---------|-------------|----------------------|
-| 3x.1 | Required field map (this doc) | Spec now; enforce in code Stage 5 |
-| 3x.2 | Package explanation + decision flow | Spec now; `packageDecision.ts` Stage 5 |
-| 3x.3 | Ale/Cami gap questionnaire | [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) *(create when answers collected)* |
-| 3x.4 | WhatsApp history mining plan | This doc §3x.4; outputs feed 3x.5 |
-| 3x.5 | 30–50 golden message fixtures | `docs/fixtures/golden-messages/` *(Stage 3x.2+)* |
-| 3x.6–3x.9 | Gates, handoff, wrong-booking, duplicates | Spec now; tests Stage 4 |
-| 3x.10 | Client-config schema plan | This doc §3x.10; DB/config Stage 5–7 |
-| 3x.11 | Customer memory + WhatsApp history migration | This doc §3x.11; schema Stage 5–6; import Stage 3x.3+ *(no DB migration in 3x.1b)* |
+| § | Topic | Deliverable | When enforced |
+|---|--------|-------------|---------------|
+| 3x.1 | Required field map | Matrix below + per-action tables | Stage 5 code |
+| 3x.2 | Package explanation + decision flow | Decision tree + owner confirmations | Stage 5 `packageDecision.ts` |
+| 3x.3 | Wolfhouse knowledge collection | [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) | Config + prompts |
+| 3x.4 | WhatsApp history mining | Mining plan; redacted samples off-repo | Stage 3x.3 execution |
+| 3x.5 | Customer memory + migration | Layered model; table spec | Stage 5–6 schema/import |
+| 3x.6 | Golden message tests | `docs/fixtures/golden-messages/` | Stage 4 runner |
+| 3x.7 | Dangerous action gates | Proof matrix | Stage 4 monitors + Stage 5 |
+| 3x.8 | Human handoff rules | Trigger list + staff payload | Stage 5 `handoffRules.ts` |
+| 3x.9 | Wrong-booking protection | Resolver rules + test scenarios | Stage 4–5 |
+| 3x.10 | Duplicate protection | Idempotency rules + test scenarios | Stage 4–5 |
+| 3x.11 | Client-config architecture | `config/clients/*.json` + module layout | Stage 5–7 |
+| — | **Exit criteria** | § [Stage 3x exit criteria](#stage-3x-exit-criteria) | Before Stage 4 start |
 
 ---
 
@@ -152,6 +178,18 @@ Fields are **minimum** inputs the decision engine must have (from message + conv
 
 All **hold** fields plus **payment link** fields when guest ready to pay; package-specific inclusions must be confirmed in config (lessons, meals, transfers).
 
+### Required field matrix (summary)
+
+| Action | Must have before proceed |
+|--------|--------------------------|
+| **Create hold** | Check-in, check-out, guest count, package or accommodation intent, phone/conversation id, availability OK; room preference if stated |
+| **Send payment link** | Active current hold linked to conversation, guest name, email, package/payment type, deposit amount, payment kind, non-terminal booking |
+| **Confirm booking** | Payment truth (Stripe/webhook), `payment_pending`, `deposit_paid`/`paid`, `send_confirmation=true`, `confirmation_sent_at` NULL, WhatsApp send evidence |
+| **Cancel booking** | Explicit intent, matched booking, policy known, payment/refund checked, staff if ambiguous |
+| **Room/bed assignment** | Exact booking, guest count, dates, room preference, group type, gender mix if needed, availability, rooming rules, no terminal conflict |
+| **Date change** | Exact booking, new dates, availability, price/payment impact, staff rules if needed |
+| **Package quote** | Package intent, dates, guest count, config price source — **no invented price** |
+
 ---
 
 ## 3x.2 — Package explanation + decision flow
@@ -202,7 +240,7 @@ Guest message
         → require dates + guest count + package + price from config
         → else: "I can confirm exact price once I have your dates and package" (no invented EUR amount)
   → if custom/discount/group
-        → handoff (3x.7)
+        → handoff (§3x.8)
 ```
 
 ### Bot must not
@@ -216,9 +254,11 @@ Guest message
 
 ## 3x.3 — Wolfhouse knowledge collection (Ale/Cami gaps only)
 
-**Location for answers:** [`docs/knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) *(to be created when owners fill questionnaire)*.
+**Maintain answers in:** [`docs/knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md).
 
-Questionnaire covers **operational gaps only** — not public website copy.
+**Categories:** packages · deposit/payment · cancellation/refund · rooming · surf · extras · tone/language · handoff · customer memory.
+
+Questionnaire covers **operational gaps only** — not public website copy (Malibu / Uluwatu / Waimea marketing).
 
 ### Deposit + payment
 
@@ -269,14 +309,18 @@ Questionnaire covers **operational gaps only** — not public website copy.
 
 ### Purpose
 
-Mine **real** Cami/Ale ↔ guest WhatsApp threads (export or sanctioned copy) to produce **two** outputs (see also §3x.11):
+Use **real** Cami/Ale ↔ guest WhatsApp threads (export or sanctioned copy) to learn how the business actually operates.
+
+**Inputs:** exported history · representative threads · package questions · booking requests · payment questions · cancellations · rooming · repeat guests · edge cases.
+
+**Dual outputs** (see §3x.5):
 
 | Output | Use |
 |--------|-----|
 | **A — Anonymized bot knowledge** | Golden fixtures, tone, package phrasing, FAQ gaps (safe for repo/tests) |
-| **B — Structured customer memory** | Returning-guest recognition and operational prefs (PG, client-scoped; not raw chat logs) |
+| **B — Structured customer memory** | Returning-guest recognition and operational prefs (PG, client-scoped) |
 
-Do **not** treat “export WhatsApp → dump into prompt/context” as the long-term design. Extraction must pass through the layered model in §3x.11.
+Do **not** treat “export WhatsApp → dump into LLM context forever” as the design. Extraction uses the **three-layer model** in §3x.5.
 
 ### Privacy rule (mandatory before upload or analysis)
 
@@ -305,20 +349,25 @@ Store raw exports **outside git**; only redacted extracts in `docs/knowledge/wha
 2. **Cluster** — embed or keyword-cluster into intents: book, package, pay, paid, cancel, room, dates, rental, transfer, complaint, handoff.
 3. **Extract patterns** — per cluster: typical guest phrasing, staff reply template, fields asked, time-to-payment-link.
 4. **Gap analysis** — compare clusters to §3x.1 required fields and §3x.2 package flow; list missing config rules.
-5. **Golden candidates** — pick 30–50 guest lines → §3x.5 fixtures with expected route/action.
+5. **Golden candidates** — pick 30–50 guest lines → §3x.6 fixtures with expected route/action.
 6. **Tone guide** — short “do / don’t” from Cami/Ale samples for `client_config.language/tone`.
-7. **Owner review** — Ale/Cami validate only **true gaps** → `wolfhouse-somo-gaps.md`.
+7. **Customer extract** — phone-keyed facts → Layer 2 draft (staff review).
+8. **Owner review** — Ale/Cami validate only **true gaps** → `wolfhouse-somo-gaps.md`.
 
 ### Expected outputs
 
 | Output | Destination |
 |--------|-------------|
-| Package explanation patterns | §3x.2 + client config `packages[].guest_description` |
-| Required-field checklist refinements | §3x.1 |
+| Common guest questions | §3x.6 categories + FAQ |
+| Package explanation patterns | §3x.2 + `packages[].guest_description` |
+| Required fields Cami/Ale actually ask | §3x.1 refinements |
+| Tone / payment-link / confirmation wording | `client_config` templates |
+| Handoff cases | §3x.8 |
 | FAQ gaps | `wolfhouse-somo-gaps.md` |
-| Handoff rules | §3x.7 + `handoff_rules` config |
 | 30–50 golden messages | `docs/fixtures/golden-messages/*.json` |
-| Reduced owner questionnaire | Only unanswered items remain in §3x.3 |
+| Shortened Ale/Cami question list | Only true gaps remain in gaps doc |
+
+**Storage rule:** Raw WhatsApp history stays **off-repo** unless intentionally sanitized (`docs/knowledge/whatsapp-samples/`).
 
 ### Success criteria
 
@@ -328,7 +377,55 @@ Store raw exports **outside git**; only redacted extracts in `docs/knowledge/wha
 
 ---
 
-## 3x.5 — Golden message tests (plan)
+## 3x.5 — Customer memory + WhatsApp history migration
+
+### Purpose
+
+Turn historical WhatsApp conversations into **two useful, separable outputs** — not a single “paste chat into the bot” memory blob.
+
+| Output | Audience | Lifetime |
+|--------|----------|----------|
+| **A — Anonymized bot knowledge** | Engineers, tests, config authors | Long (fixtures, docs) — Layer 3 |
+| **B — Structured customer memory** | Bot + staff ops (returning guests) | Long (PG), scoped per `client_id` — Layer 2 |
+
+**Product decision:** WhatsApp history may inform **returning-guest recognition** when owners approve ([`wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md)). Default: **not** raw chat as permanent bot memory.
+
+### Layer 1 — Raw import archive
+
+- Temporary · restricted access · migration/mining only  
+- Deleted or archived after structured extraction when possible  
+
+### Layer 2 — Structured customer facts
+
+Longer-term operational memory. Possible fields:
+
+`customer_id` · `client_id` / `client_slug` · `phone` · `name` · `email` · `preferred_language` · `first_seen_at` · `last_seen_at` · `returning_guest` · `surf_level` · `preferred_package` · `room_preference` · `group_type` · `special_requests` · `staff_notes` · `marketing_opt_in` · `data_source` · `last_booking_id`
+
+Proposed tables (spec only): `customers` · `customer_booking_history` · `conversation_summaries` · `customer_preferences` · `customer_notes` · `privacy_requests`
+
+### Layer 3 — Anonymized bot knowledge
+
+Golden-message tests · FAQ examples · package explanation examples · handoff examples · tone examples (§3x.6).
+
+### Safety / privacy rules
+
+- Store only useful operational facts  
+- Do not store raw chat forever by default  
+- No passport/ID/medical/private details unless explicitly scoped  
+- Do not expose `staff_notes` to guests  
+- Tag facts with source + timestamp  
+- Support future delete/export/correction  
+- `marketing_opt_in` separate from booking support  
+
+### Relationship to §3x.4
+
+Single import pipeline, **dual extractors:** knowledge → Layer 3; customer → Layer 2 (staff review if uncertain).
+
+**Hard stop:** No DB migrations or real imports in planning-only gates.
+
+---
+
+## 3x.6 — Golden message tests (plan)
 
 **Target:** 30–50 fixtures. **Stage 3x.1** defines schema + representative samples; full set completed after §3x.4 mining and Ale/Cami gaps.
 
@@ -337,19 +434,21 @@ Store raw exports **outside git**; only redacted extracts in `docs/knowledge/wha
 ```json
 {
   "id": "GM-001",
+  "client_id": "wolfhouse-somo",
   "guest_message": "...",
   "conversation_context": {
     "current_hold_booking_id": null,
     "language": "en",
-    "prior_route": null
+    "prior_route": null,
+    "returning_guest": false
   },
   "expected": {
     "resolved_route": "booking_flow",
     "missing_fields": ["check_in", "check_out", "guest_count"],
     "safe_action": "ask_clarification",
-    "clarification_pattern": "dates_and_pax",
+    "clarification_question_pattern": "dates_and_pax",
     "handoff": false,
-    "must_not": ["send_payment_link", "confirm_booking", "create_checkout"]
+    "must_not": ["send_payment_link", "confirm_booking", "create_checkout", "assign_beds"]
   }
 }
 ```
@@ -369,7 +468,10 @@ Store raw exports **outside git**; only redacted extracts in `docs/knowledge/wha
 | Rentals (board/wetsuit) | 2–3 | |
 | Breakfast / transfer | 2–3 | |
 | Unclear / low confidence | 4–5 | Handoff |
-| Duplicate / repeat message | 2–3 | 3x.9 |
+| Angry guest / complaint | 2–3 | Handoff |
+| Discount / custom package | 2–3 | Handoff |
+| Returning guest | 3–4 | Memory-aware greeting; no wrong hold |
+| Duplicate / repeat message | 2–3 | §3x.10 |
 
 ### Representative samples (full detail; expand to 30–50 in 3x.2)
 
@@ -390,47 +492,58 @@ Store raw exports **outside git**; only redacted extracts in `docs/knowledge/wha
 
 ---
 
-## 3x.6 — Dangerous action gates
+## 3x.7 — Dangerous action gates
 
-Strict proof required before side effects. Aligns with proven Stage 3 gates.
+Strict proof required before side effects. **Guest text alone never marks paid.**
 
-| Action | Proof required | Proven by (Stage 3) |
-|--------|----------------|---------------------|
-| **Send payment link** | Hold + Ensure + real CPS; correct `booking_id`; not terminal; idempotent session | 3d.7b |
-| **Mark payment paid** | Stripe webhook `checkout.session.completed`; `payment_events.processed`; intent id unique | 3d.5b, 3d.8b |
-| **Confirm booking** | `send_confirmation=true`; payment truth; `whatsapp_sent` (or dry-run flag in test); then SQL mark | 3d.6, 3d.9b |
-| **Cancel booking** | Booking id + policy + staff if ambiguous | *pending E2E* |
-| **Assign / reassign beds** | Confirmed booking rules + capacity + local webhook | *pending URL remap* |
-| **Date change** | New availability + policy + payment impact resolved | *pending* |
-| **Payment state change (manual)** | Staff authorization only; never guest LLM | Architecture rule |
+### Payment link
+
+Requires: active current hold · correct booking linked to conversation · guest name · email · payment amount · payment kind · booking not terminal · CPS idempotency. *(Proven: 3d.7b)*
+
+### Confirmation
+
+Requires: payment truth from Stripe/webhook · `send_confirmation=true` · `confirmation_sent_at` NULL · `payment_pending` + `deposit_paid`/`paid` · successful WhatsApp dry-run or real send · correct booking. *(Proven: 3d.6, 3d.9b dry-run)*
+
+### Cancellation
+
+Requires: explicit cancellation intent · exact booking match · cancellation policy known · refund/payment status checked · handoff if unclear.
+
+### Room / bed change
+
+Requires: exact booking · availability · current assignment known · no double-booking · rooming rules · staff approval if risky.
+
+### Date change
+
+Requires: exact booking · new dates · availability · price/payment impact · staff approval if needed.
+
+### Payment-state change
+
+**Bot must not** set `paid` from guest message. Guest says “I paid” → check `payments` / `payment_events`; if not found → handoff or explain verification in progress (§3x.8).
 
 **Global hard stops:** `sk_live`; wrong workflow active; `payment_events` duplicate; terminal booking mutation; multiple confirmations.
 
 ---
 
-## 3x.7 — Human handoff rules
+## 3x.8 — Human handoff rules
 
-Bot **must stop guessing** and notify staff (mechanism TBD: sheet, WhatsApp internal, queue table) when:
+Bot **must stop guessing** and alert staff when:
 
-| Trigger | Examples |
-|---------|----------|
-| Low route confidence | Gibberish, mixed intents, unsupported language |
-| Conflicting dates / guest count | Check-out before check-in; pax mismatch |
-| Multiple active holds | Same phone, different open holds — never pick by phone alone |
-| Paid claim, no payment record | “I paid” without PG `paid` / `payment_events` |
-| Refund / dispute / cancel ambiguity | Chargeback tone, partial refund ask |
-| Angry guest / complaint | Escalation keywords |
-| Emergency / legal / medical | Injury, police, lawyer — no bot negotiation |
-| Rooming / reassign uncertainty | Conflicting gender rules, special needs |
-| Custom package / discount / group | Non-standard pricing |
-| Policy exception | Anything not in `client_config` |
-| Stripe / webhook anomaly | Paid in Stripe dashboard but not PG |
+| Always hand off |
+|-----------------|
+| Refund request · complaint / angry guest · legal / medical / emergency |
+| Multiple active holds · guest says paid but no payment record |
+| Cancellation ambiguity · rooming / reassign uncertainty |
+| Custom package · discount request · overbooking risk |
+| Low confidence · conflicting dates or guest count |
+| Policy not in `client_config` · Stripe paid but PG not updated |
 
-**Handoff message pattern:** Acknowledge, set expectation (“Cami/Ale will reply shortly”), **do not** promise refund/room/price.
+**Handoff payload (target):** guest phone · latest message · `booking_id` if known · current stage/route · why handoff triggered · suggested next staff action.
+
+**Guest-facing pattern:** Acknowledge; “Cami/Ale will reply shortly”; **do not** promise refund, room, or price.
 
 ---
 
-## 3x.8 — Wrong-booking protection
+## 3x.9 — Wrong-booking protection
 
 Formalize rules observed in Main resolver + 3c.g / 3d.7:
 
@@ -445,9 +558,20 @@ Formalize rules observed in Main resolver + 3c.g / 3d.7:
 
 **Failure mode to prevent:** Guest says “pay for my booking” → bot attaches to stranger’s open hold with same phone.
 
+**Rules:**
+
+- `conversation.current_hold_booking_id` wins over phone fallback.
+- Current active booking wins over old holds.
+- Terminal bookings cannot be modified by guest path.
+- Phone search is **fallback only**.
+- If multiple active bookings → hand off.
+- Updates must include `booking_id` or verified current hold — **never** name/email alone.
+
+**Test scenarios:** old hold same phone · confirmed booking same phone · two active holds same phone · returning guest with old booking · payment link after old checkout.
+
 ---
 
-## 3x.9 — Duplicate protection
+## 3x.10 — Duplicate protection
 
 | Scenario | Expected behavior | Stage 3 evidence |
 |----------|-------------------|------------------|
@@ -457,14 +581,19 @@ Formalize rules observed in Main resolver + 3c.g / 3d.7:
 | Same `payment_intent` | Unique partial index (migration 005) | DB |
 | Confirmation twice | `confirmation_sent_at` set; `send_confirmation=false` after first | 3d.9b |
 | Schedule poll + webhook double-fire | Idempotent mark confirmed SQL | Send Confirmation RETURNING clause |
+| Repeated booking request | No duplicate hold unless explicit new trip | *(verify wamid dedup)* |
+| Cancellation twice | Idempotent cancel | *pending* |
+| Room reassignment twice | No double-move beds | *pending* |
+
+**Test scenarios:** duplicate `wamid` · repeated payment-link message · replayed Stripe event · repeated Send Confirmation webhook · retry after timeout · user sends same message twice manually.
 
 **Stage 4:** automated tests for each row; chaos test duplicate webhook burst (3d.8 operational finding).
 
 ---
 
-## 3x.10 — Client-config architecture plan
+## 3x.11 — Client-config architecture plan
 
-**Core idea:** One booking-assistant **engine**; many **clients** via config rows keyed by `client_slug` (`wolfhouse-somo` = client #1).
+**Core idea:** One booking-assistant **engine** for WhatsApp-first experience businesses; many **clients** via config keyed by `client_slug` (`wolfhouse-somo` = client #1 beachhead). Adjacent verticals (surf school, rental shop, tours) reuse the engine with different packages, inventory, and rooming rules — see [`ROADMAP.md` § Client category](ROADMAP.md#client-category--market-positioning).
 
 ### Config storage (evolution)
 
@@ -490,6 +619,7 @@ client_config
   language_tone: { formality, emoji, templates }
   integrations: { stripe, whatsapp, webhook_paths }
   staff_notification_rules: { channels, severity, hours }
+  customer_memory_policy: { retention, fields_allowed, returning_guest_rules }
 ```
 
 ### Engine API (Stage 5 target)
@@ -508,161 +638,55 @@ n8n calls these endpoints instead of growing inline Code node policy.
 - New surf house = new config file + `client_id` + isolated PG rows.
 - Workflows remain generic; **no** Wolfhouse-only package names in shared workflow JSON.
 
----
+### Do now (Stage 3x)
 
-## 3x.11 — Customer memory + WhatsApp history migration
+- Write config specs and rules · collect Wolfhouse knowledge · plan WhatsApp mining · create fixtures · avoid hardcoding Wolfhouse-only assumptions in shared engine design.
 
-### Purpose
+### Do not build now (later stages)
 
-Turn historical WhatsApp conversations into **two useful, separable outputs** — not a single “paste chat into the bot” memory blob.
+- Full multi-client SaaS · client onboarding UI · billing/subscription · settings editor · full staff dashboard · PMS connector platform.
 
-| Output | Audience | Lifetime |
-|--------|----------|----------|
-| **A — Anonymized bot knowledge** | Engineers, tests, config authors | Long (fixtures, docs) |
-| **B — Structured customer memory** | Bot + staff ops (returning guests) | Long (PG), scoped per `client_id` |
-
-**Product decision:** WhatsApp history may inform **returning-guest recognition** and preferences when owners approve and privacy rules are met. Default is **not** to retain full raw chat as bot memory.
-
-### Output A — Anonymized bot knowledge (from §3x.4)
-
-- Package explanation examples (Malibu / Uluwatu / Waimea phrasing)
-- Common guest questions and safe reply patterns
-- Tone / style examples (Cami/Ale voice, redacted)
-- Golden-message fixtures (§3x.5)
-- Handoff examples
-- FAQ gaps → `wolfhouse-somo-gaps.md`
-
-**Storage:** `docs/fixtures/golden-messages/`, `docs/knowledge/whatsapp-samples/` (redacted only), client config snippets. **No** phone/name in git.
-
-### Output B — Structured customer memory
-
-Operational memory for **returning guests** — not a transcript archive.
-
-| Memory type | Examples |
-|-------------|----------|
-| Recognition | Same phone → link to `customer_id`; `returning_guest=true` after N visits |
-| Booking history | Past `booking_id` / codes, dates, package, outcome |
-| Preferences | `preferred_language`, `preferred_package`, `surf_level` |
-| Rooming | `room_preference`, `group_type` (couple, female-only, etc.) |
-| Requests | `special_requests` (diet, arrival time — non-medical by default) |
-| Staff | `staff_notes` (**staff-only**, never sent to guest verbatim) |
-| Context | `last_booking_id`, `last_seen_at` |
-
-**Bot use (Stage 5+):** personalize greeting (“welcome back”), pre-fill known language, suggest package tier — **never** quote staff notes or sensitive history to the guest.
-
-### Layered data model (design principle)
-
-Do **not** store raw WhatsApp history forever as default bot memory.
+### Future code structure (Stage 5 target)
 
 ```text
-Layer 1 — Raw import archive
-  • Temporary, restricted access (owner export, offline job)
-  • Used for migration / mining only
-  • Deleted or archived after structured extraction (retention TBD with owners)
-
-Layer 2 — Structured customer facts
-  • Longer-term operational memory in Postgres
-  • Only fields with clear ops value
-  • Every fact: source, source_timestamp, client_id, optional confidence
-
-Layer 3 — Anonymized bot knowledge
-  • Fixtures and examples for tests and tone
-  • No personal identifiers
-  • Safe to commit after redaction review
+src/booking-assistant/
+  routeMessage.ts
+  extractBookingDetails.ts
+  requiredFields.ts
+  packageDecision.ts
+  safetyGuards.ts
+  handoffRules.ts
+  duplicateProtection.ts
+  bookingContext.ts
+  clientConfig.ts
+  customerMemory.ts
 ```
 
-**Flow:** Layer 1 → extract → Layer 2 + Layer 3 → **delete or lock Layer 1** per retention policy.
+**Future config path:** `config/clients/wolfhouse-somo.json`
 
-### Proposed future tables (spec only — no migration in Stage 3x.1b)
+---
 
-All tables include **`client_id`** (FK to `clients`) so Wolfhouse is **client #1**, not a hardcoded schema.
+## Stage 3x exit criteria
 
-| Table | Role |
-|-------|------|
-| `customers` | Stable guest identity per client (phone E.164 unique per client) |
-| `customer_booking_history` | Links `customer_id` ↔ past `booking_id`s (denormalized summary ok) |
-| `conversation_summaries` | Short rolling summary per WhatsApp thread (optional; not full transcript) |
-| `customer_preferences` | Key/value or typed columns for language, package, rooming, surf level |
-| `customer_notes` | Staff-only notes; `visibility=staff` |
-| `privacy_requests` | Future: delete / export / correction (GDPR-style) — `data_deletion_requests` |
+Stage 3x is **complete** when all of the following exist as reviewed docs/specs (implementation may follow in Stages 4–5):
 
-Align with existing `conversations` / `bookings` in Postgres; `customers` may eventually subsume or link `conversations.phone` rather than duplicate blindly.
+| # | Criterion |
+|---|-----------|
+| 1 | Required field map (§3x.1 + matrix) |
+| 2 | Package decision flow (§3x.2) |
+| 3 | Wolfhouse gaps/questions documented ([`wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md)) |
+| 4 | WhatsApp mining plan (§3x.4) |
+| 5 | Customer memory + migration plan (§3x.5) |
+| 6 | Golden-message fixture **schema** + category plan (§3x.6); 30–50 fixtures may fill in 3x.3 |
+| 7 | Dangerous action gates documented (§3x.7) |
+| 8 | Human handoff rules documented (§3x.8) |
+| 9 | Wrong-booking protection documented (§3x.9) |
+| 10 | Duplicate protection documented (§3x.10) |
+| 11 | Client-config architecture plan (§3x.11) |
 
-### Proposed `customers` fields (draft)
+**Stage 3x does not require:** full backend implementation · staff UI · multi-client SaaS · moving logic out of n8n yet.
 
-| Field | Type / notes |
-|-------|----------------|
-| `customer_id` | UUID PK |
-| `client_id` | FK → `clients` (required) |
-| `client_slug` | Denormalized for config load (`wolfhouse-somo`) |
-| `phone` | E.164; unique per `(client_id, phone)` |
-| `name` | Display; from booking or message |
-| `email` | Optional |
-| `preferred_language` | e.g. `en`, `de`, `es` |
-| `first_seen_at` | From first message or first booking |
-| `last_seen_at` | Last inbound WhatsApp or booking activity |
-| `returning_guest` | Boolean or derived from booking count |
-| `surf_level` | beginner / intermediate / advanced / unknown |
-| `preferred_package` | `malibu` / `uluwatu` / `waimea` / accommodation-only |
-| `room_preference` | From §3x.1 rooming vocabulary |
-| `group_type` | solo, couple, friends, family, … |
-| `special_requests` | Short text; ops-safe only |
-| `staff_notes` | Staff-only; never exposed to guest bot path |
-| `marketing_opt_in` | Separate from transactional WhatsApp |
-| `data_source` | `whatsapp_import`, `booking`, `staff_ui`, `inbound_live` |
-| `last_booking_id` | FK optional |
-| `created_at` / `updated_at` | Audit |
-
-**Fact provenance (recommended child pattern):** `customer_facts` with `{ key, value, source, source_message_at, extracted_at }` if we need history of changes without overwriting silently.
-
-### Migration phases (planning only)
-
-| Phase | Scope | Stage |
-|-------|--------|-------|
-| **M0** | Owner questionnaire + privacy policy alignment | 3x.2 |
-| **M1** | Offline import script spec; Layer 1 ingest (off-repo) | 3x.3 |
-| **M2** | Extraction rules → Layer 2 draft rows + Layer 3 fixtures | 3x.3 |
-| **M3** | Schema migration + APIs (`getCustomerContext`) | Stage 5 |
-| **M4** | Live path: inbound message updates Layer 2 incrementally | Stage 5–6 |
-| **M5** | Staff UI: view/edit/delete customer memory | Stage 6 |
-| **M6** | `privacy_requests` fulfillment | Stage 6–7 |
-
-**Hard stop for 3x.1b:** No `database/migrations/*` files, no import jobs run, no real PII in repo.
-
-### Safety / privacy boundaries
-
-| Rule | Detail |
-|------|--------|
-| **Minimize** | Store only facts with clear operational value |
-| **No by default** | Passport, government ID, full medical history, unrelated personal gossip |
-| **Medical / legal / emergency** | Handoff only; do not persist clinical detail in `special_requests` |
-| **Staff notes** | Never included in guest-facing LLM context |
-| **Marketing** | `marketing_opt_in` separate from booking-support messages |
-| **Retention** | Layer 1 TTL; Layer 2 retention limits — **owner decision** (see gaps doc) |
-| **Subject rights** | Design for future delete/export/correct (table stub above) |
-| **Separation** | Raw import ≠ structured facts ≠ anonymized fixtures |
-| **Provenance** | `data_source` + timestamp on every extracted fact |
-| **Multi-tenant** | All customer rows scoped by `client_id`; no cross-client joins in bot path |
-| **Guest visibility** | Bot may say “I see you stayed with us in 2024” only if policy allows; no staff note leakage |
-
-### Bot behavior with customer memory (target)
-
-| Situation | Behavior |
-|-----------|----------|
-| Known returning phone | Warm greeting; use `preferred_language`; do not re-ask known package if still valid |
-| Stale memory (>12 months — configurable) | Confirm before relying on prefs |
-| Conflict with new message | New message wins; update Layer 2 |
-| No memory | Same as today — collect required fields |
-| Guest asks “what do you know about me?” | Summarize only guest-safe fields; offer correction |
-
-### Relationship to §3x.4 mining
-
-Single import pipeline, **dual extractors:**
-
-1. **Knowledge extractor** → Layer 3 (anonymize, cluster, golden messages).
-2. **Customer extractor** → Layer 2 (phone-keyed facts, booking linkage, staff review queue for uncertain rows).
-
-Uncertain extractions → staff review before writing Layer 2 (Stage 6 UI or CSV queue in M2).
+**Stage 4 may start when:** exit criteria met + owner critical gaps (pricing, cancellation, rooming) have draft config or explicit “hand off” defaults.
 
 ---
 
@@ -670,10 +694,10 @@ Uncertain extractions → staff review before writing Layer 2 (Stage 6 UI or CSV
 
 | Sub-phase | Scope | Status |
 |-----------|--------|--------|
-| **3x.1** | Planning spec §3x.1–3x.10 | **Done** |
-| **3x.1b** | Customer memory + WhatsApp migration plan (§3x.11) | **Done** |
-| **3x.2** | Ale/Cami gap doc + draft `wolfhouse-somo.json` config | Planned |
-| **3x.3** | WhatsApp mining (redacted) + golden fixtures + customer extract review | Planned |
+| **3x.1** | Full roadmap spec §3x.1–3x.11 + exit criteria | **Done** |
+| **3x.1b** | Customer memory layered model (§3x.5) | **Done** |
+| **3x.2** | Ale/Cami answers + draft `wolfhouse-somo.json` | Planned |
+| **3x.3** | WhatsApp mining + golden fixtures + customer extract review | Planned |
 | **3x.4** | Golden runner stub + Stage 4 reliability hooks | Planned |
 
 ---

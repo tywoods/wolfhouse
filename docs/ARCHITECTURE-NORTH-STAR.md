@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Long-term direction for the **Wolfhouse Booking Assistant** — an AI booking assistant for surf-house / hospitality operations (guest WhatsApp, availability, holds, payments, confirmations, bed assignment, manual entries, operator room release, cancellations).
+Long-term direction for the **Wolfhouse Booking Assistant** — **client #1** of a category-wide engine: **AI booking operations for WhatsApp-first experience businesses** (AI front desk for WhatsApp-heavy operators). Beachhead implementation: surf-house operations (guest WhatsApp, availability, holds, payments, confirmations, bed assignment, manual entries, operator room release, cancellations). Market positioning: [`ROADMAP.md` § Client category](ROADMAP.md#client-category--market-positioning).
 
 **Product roadmap (stages):** [`ROADMAP.md`](ROADMAP.md) · **Current execution:** [`PROJECT-STATE.md`](PROJECT-STATE.md)
 
@@ -19,6 +19,27 @@ Long-term direction for the **Wolfhouse Booking Assistant** — an AI booking as
 ```
 
 Do not jump to staff UI, Azure production, or “make it pretty” before dangerous guest paths are proven safe.
+
+---
+
+## Client category / market positioning
+
+| | |
+|--|--|
+| **Category** | AI booking operations for WhatsApp-first experience businesses |
+| **Plain language** | AI front desk for WhatsApp-heavy experience operators |
+| **Beachhead** | Wolfhouse — surf houses / surf camps |
+| **Not** | A generic chatbot; a configurable booking-operations layer |
+
+**Core guest journey (all verticals):** WhatsApp question → explain options/packages → availability → collect details → payment/deposit link → payment truth → confirmation → staff handoff for exceptions.
+
+**Wolfhouse complexity:** accommodation + packages + rooming + payments + confirmations in one property — a hard first client that stress-tests the engine.
+
+**Expansion:** surf schools, surf/kite/dive shops, retreats, hostels with activities, tour operators, lesson/rental inventory businesses — typically simpler rooming, more slot/rental semantics; same spine via `client_config`.
+
+**Competitive angle:** Hotel/hospitality WhatsApp tools exist; gap is small experience operators with messy packages/rentals/lessons, not hotel PMS-only flows.
+
+Full detail: [`ROADMAP.md`](ROADMAP.md#client-category--market-positioning).
 
 ---
 
@@ -51,6 +72,7 @@ src/booking-assistant/
   duplicateProtection.ts
   bookingContext.ts
   clientConfig.ts
+  customerMemory.ts
 ```
 
 ---
@@ -71,7 +93,7 @@ Goals:
 - Local workflows stay **inactive** until explicitly approved for a test.
 - PG failure must block Airtable mirror writes (when mirrors exist).
 
-**Before Stage 4:** complete Stage **3x** (bot knowledge + safety guardrails as **specs/fixtures**, not n8n sprawl).
+**Before Stage 4:** complete Stage **3x** planning ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) — required fields, packages, WhatsApp mining, **customer memory**, gates, client config, exit criteria). Specs/fixtures only — not n8n sprawl.
 
 **Current snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md)
 
@@ -166,7 +188,7 @@ After Stage 3 sign-off and Stage 3x specs:
 
 **Azure / staging / production deployment belongs here** — after Stages 3–5 are in good shape.
 
-Multi-client: `client_id`, per-client config, monitoring, backups, onboarding checklist. See [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) when approved.
+Multi-client: `client_id`, per-client config, monitoring, backups, onboarding checklist — **same engine, many experience-business verticals**, not surf-house-only. See [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) when approved.
 
 ---
 
@@ -175,6 +197,7 @@ Multi-client: `client_id`, per-client config, monitoring, backups, onboarding ch
 | Doc | Use |
 |-----|-----|
 | [ROADMAP.md](ROADMAP.md) | Stages 3–7 + 3x detail |
+| [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) | Bot knowledge, customer memory, guardrails |
 | [PROJECT-STATE.md](PROJECT-STATE.md) | What is done, in progress, next |
 | [CURSOR.md](../CURSOR.md) | Agent rules and safe commands |
 | [PROJECT-ROADMAP.md](PROJECT-ROADMAP.md) | Owner-friendly summary |
