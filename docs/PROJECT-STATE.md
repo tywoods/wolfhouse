@@ -57,12 +57,12 @@ Details: [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
 | **3c.e.3** PG availability gate in Main fork | Done | `5bdd465` |
 | **3c.e.4** PG hold + AT backfill in Main fork | Done | `881ab1b` |
 | **3c.e.5** PG conversation upsert | **Done** (uncommitted) | — |
-| **3c.f** Payment / confirmation contract checks | **Not started** | — |
+| **3c.f** Payment / confirmation contract checks | **In progress** — 3c.f.1 read-only contract audit complete | [`PHASE-3c-f.md`](PHASE-3c-f.md) |
 | **3c.g** E2E local Main tests | **In progress** — 3c.g.1m first success + 3c.g.1n repeat success | [`PHASE-3c-g.md`](PHASE-3c-g.md) |
 
 **Phase 3c.c (CLI/script side) is nearly complete.** Remaining 3c work is conversation state (3c.d), workflow wiring (3c.e), then contract checks and E2E (3c.f–g).
 
-Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHASE-3c-a.md), [`PHASE-3c-b.md`](PHASE-3c-b.md), [`PHASE-3c-c.md`](PHASE-3c-c.md), [`PHASE-3c-g.md`](PHASE-3c-g.md).
+Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHASE-3c-a.md), [`PHASE-3c-b.md`](PHASE-3c-b.md), [`PHASE-3c-c.md`](PHASE-3c-c.md), [`PHASE-3c-f.md`](PHASE-3c-f.md), [`PHASE-3c-g.md`](PHASE-3c-g.md).
 
 ---
 
