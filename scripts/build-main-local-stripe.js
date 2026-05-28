@@ -905,7 +905,7 @@ function applyLocalTypingIndicatorBypass(workflow) {
   const n = $('Normalize Incoming Message').first().json || {};
   const source = String(n.source || '').toLowerCase();
   const messageId = String(n.whatsapp_message_id || '');
-  const isPhaseTestMessageId = /^wamid\\.PHASE3C/i.test(messageId);
+  const isPhaseTestMessageId = /^wamid\\.PHASE[0-9A-Z]+/i.test(messageId);
   return source === 'whatsapp' && messageId.length > 0 && !isPhaseTestMessageId;
 })() }}`,
             rightValue: '',

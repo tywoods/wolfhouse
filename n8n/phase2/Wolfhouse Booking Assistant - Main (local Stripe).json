@@ -21314,7 +21314,7 @@
           "conditions": [
             {
               "id": "send-typing-real-whatsapp",
-              "leftValue": "={{ (() => {\n  const n = $('Normalize Incoming Message').first().json || {};\n  const source = String(n.source || '').toLowerCase();\n  const messageId = String(n.whatsapp_message_id || '');\n  const isPhaseTestMessageId = /^wamid\\.PHASE3C/i.test(messageId);\n  return source === 'whatsapp' && messageId.length > 0 && !isPhaseTestMessageId;\n})() }}",
+              "leftValue": "={{ (() => {\n  const n = $('Normalize Incoming Message').first().json || {};\n  const source = String(n.source || '').toLowerCase();\n  const messageId = String(n.whatsapp_message_id || '');\n  const isPhaseTestMessageId = /^wamid\\.PHASE[0-9A-Z]+/i.test(messageId);\n  return source === 'whatsapp' && messageId.length > 0 && !isPhaseTestMessageId;\n})() }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
