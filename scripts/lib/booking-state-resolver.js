@@ -113,8 +113,29 @@ function shouldAttemptHoldSearch(input, messageSignals, holdUsable) {
   if (holdUsable) return true;
   if (getConversationHoldHint(input)) return true;
   const stage = String(input.conversation_stage || '').trim();
+  const routerRoute = String(input.router_route || '').trim();
+  const lower = String(input.guest_message || '').toLowerCase();
   const hasContact = messageSignals.has_guest_email || messageSignals.has_guest_name;
   if (hasContact && (stage === 'payment_pending' || stage === 'booking_flow')) {
+    return true;
+  }
+  const hasEscalationSignals =
+    /\b(refund|complain|complaint|angry|manager|human|person|staff|urgent|dispute|chargeback|scam|issue)\b/i.test(
+      lower
+    );
+  const hasRoomingOrReassignSignals =
+    /\b(rooming|reassign|bed assignment|split us|stay together|female room|male room|mixed room|girls room|guys room)\b/i.test(
+      lower
+    );
+  const isSafeHandoffLookup =
+    routerRoute === 'human_handoff' &&
+    stage === 'human_handoff' &&
+    messageSignals.has_payment_link_intent &&
+    hasContact &&
+    !messageSignals.has_payment_claim &&
+    !hasEscalationSignals &&
+    !hasRoomingOrReassignSignals;
+  if (isSafeHandoffLookup) {
     return true;
   }
   return false;
