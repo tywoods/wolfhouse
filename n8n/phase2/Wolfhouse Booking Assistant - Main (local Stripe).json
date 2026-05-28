@@ -20371,11 +20371,11 @@
           "parameters": [
             {
               "name": "booking_record_id",
-              "value": "=={{ $('Search Booking - Rooming Info').first().json.id || $('Code - Pick Active Booking').first().json.active_booking_record_id || '' }}"
+              "value": "={{ $('Search Booking - Rooming Info').first().json.id || $('Code - Pick Active Booking').first().json.active_booking_record_id || '' }}"
             },
             {
               "name": "booking_id",
-              "value": "=={{ $('Search Booking - Rooming Info').first().json.fields?.['Booking ID'] || $('Code - Pick Active Booking').first().json.active_booking_id || '' }}"
+              "value": "={{ $('Search Booking - Rooming Info').first().json.fields?.['Booking ID'] || $('Code - Pick Active Booking').first().json.active_booking_id || '' }}"
             },
             {
               "name": "reason",
@@ -20383,15 +20383,15 @@
             },
             {
               "name": "room_preference",
-              "value": "=={{ $('Code - Parse Rooming Info Reply').first().json.room_preference || $('Code - Parse Rooming Info Reply').first().json.RoomPreference || 'unknown' }}"
+              "value": "={{ $('Code - Parse Rooming Info Reply').first().json.room_preference || $('Code - Parse Rooming Info Reply').first().json.RoomPreference || 'unknown' }}"
             },
             {
               "name": "guest_gender_group_type",
-              "value": "=={{ $('Code - Parse Rooming Info Reply').first().json.guest_gender_group_type || $('Code - Parse Rooming Info Reply').first().json.group_type || $('Code - Parse Rooming Info Reply').first().json.guest_group_type || 'unknown' }}"
+              "value": "={{ $('Code - Parse Rooming Info Reply').first().json.guest_gender_group_type || $('Code - Parse Rooming Info Reply').first().json.group_type || $('Code - Parse Rooming Info Reply').first().json.guest_group_type || 'unknown' }}"
             },
             {
               "name": "rooming_notes",
-              "value": "=={{ $('Code - Parse Rooming Info Reply').first().json.rooming_notes || '' }}"
+              "value": "={{ $('Code - Parse Rooming Info Reply').first().json.rooming_notes || '' }}"
             }
           ]
         },

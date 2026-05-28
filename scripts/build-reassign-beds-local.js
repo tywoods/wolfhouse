@@ -56,12 +56,19 @@ const HOSTED_NODE_NAMES = [
 
 const PARSE_WEBHOOK_JS = `const body = $json.body ?? $json;
 const errors = [];
-let recordId = String(
+
+function stripHttpExprPrefix(value) {
+  const s = String(value || '').trim();
+  if (s.startsWith('=') && !s.startsWith('==')) return s.slice(1).trim();
+  return s;
+}
+
+let recordId = stripHttpExprPrefix(
   body.record_id ?? body.RecordId ?? body.booking_record_id ?? body.airtable_record_id ?? ''
-).trim();
-let bookingCode = String(
+);
+let bookingCode = stripHttpExprPrefix(
   body.booking_code ?? body.BookingCode ?? body['Booking ID'] ?? ''
-).trim();
+);
 
 function bookingCodeToRec(code) {
   const s = String(code || '').trim();

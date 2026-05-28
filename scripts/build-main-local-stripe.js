@@ -37,6 +37,8 @@ const {
   scanLocalReassignEndpoint,
   scanMainBookingBedsWrites,
   applyLocalReassignWebhookRemap,
+  fixReassignHttpBodyParameterExpressions,
+  scanReassignBodyParameterExprBugs,
   analyzeReassignContract,
 } = require('./lib/main-reassign-endpoint');
 
@@ -295,6 +297,13 @@ function verifyProductionTargets(workflow) {
   if (!localReassign.ok) {
     errors.push(
       `local reassign endpoint missing or not worker-reachable (expected ${DEFAULT_REASSIGN_BOOKING_BEDS_URL} or $env.N8N_REASSIGN_BOOKING_BEDS_URL); http nodes: ${localReassign.httpNodes.map((n) => n.name).join(', ') || '(none)'}`
+    );
+  }
+
+  const reassignBodyParamBugs = scanReassignBodyParameterExprBugs(workflow);
+  if (reassignBodyParamBugs.length) {
+    errors.push(
+      `Reassign HTTP bodyParameters use =={{ (serializes as =value; must be ={{): ${reassignBodyParamBugs.join(', ')}`
     );
   }
 
@@ -2044,8 +2053,14 @@ function finalizeLocalWorkflow(workflow) {
   workflow.name = LOCAL_WORKFLOW_NAME;
   workflow.id = LOCAL_WORKFLOW_ID;
   workflow.active = false;
+  const bodyFix = fixReassignHttpBodyParameterExpressions(workflow);
+  if (bodyFix.fixedParams > 0) {
+    console.log(
+      `Reassign bodyParameters expr fix: ${bodyFix.fixedParams} param(s) in ${bodyFix.fixedNodes.join(', ')}`,
+    );
+  }
   const neutralized = neutralizeProductionTargets(workflow);
-  return neutralized;
+  return { ...neutralized, bodyFix };
 }
 
 function importMainWorkflowInactive() {

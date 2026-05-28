@@ -87,6 +87,52 @@ function scanMainBookingBedsWrites(workflow) {
  * @param {object} workflow
  * @returns {{ patched: number, nodeNames: string[] }}
  */
+/**
+ * HTTP Request bodyParameters use `={{` expressions. Hosted Main mistakenly uses `=={{`
+ * (Set-node string mode), which serializes values like "=recXXX" and breaks Reassign parse.
+ * @param {object} workflow
+ * @returns {{ fixedNodes: string[], fixedParams: number }}
+ */
+function fixReassignHttpBodyParameterExpressions(workflow) {
+  const fixedNodes = [];
+  let fixedParams = 0;
+  for (const node of listNodes(workflow)) {
+    if (node.type !== 'n8n-nodes-base.httpRequest') continue;
+    const name = node.name || '';
+    if (!name.includes('Call Reassign')) continue;
+    const params = node.parameters?.bodyParameters?.parameters;
+    if (!Array.isArray(params)) continue;
+    let nodeFixed = false;
+    for (const p of params) {
+      if (typeof p?.value !== 'string') continue;
+      if (p.value.startsWith('=={{') || p.value.startsWith('={{{')) {
+        p.value = `={{${p.value.slice(4)}`;
+        fixedParams += 1;
+        nodeFixed = true;
+      }
+    }
+    if (nodeFixed) fixedNodes.push(name);
+  }
+  return { fixedNodes, fixedParams };
+}
+
+function scanReassignBodyParameterExprBugs(workflow) {
+  const bad = [];
+  for (const node of listNodes(workflow)) {
+    if (node.type !== 'n8n-nodes-base.httpRequest') continue;
+    if (!(node.name || '').includes('Call Reassign')) continue;
+    const params = node.parameters?.bodyParameters?.parameters;
+    if (!Array.isArray(params)) continue;
+    for (const p of params) {
+      if (typeof p?.value !== 'string') continue;
+      if (p.value.startsWith('=={{') || p.value.startsWith('={{{')) {
+        bad.push(`${node.name}.${p.name}`);
+      }
+    }
+  }
+  return bad;
+}
+
 function applyLocalReassignWebhookRemap(workflow) {
   const nodeNames = [];
   let patched = 0;
@@ -134,6 +180,8 @@ module.exports = {
   scanHostedReassignUrls,
   scanLocalReassignEndpoint,
   scanMainBookingBedsWrites,
+  fixReassignHttpBodyParameterExpressions,
+  scanReassignBodyParameterExprBugs,
   applyLocalReassignWebhookRemap,
   analyzeReassignContract,
   isWorkerReachableReassignUrl,

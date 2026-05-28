@@ -359,7 +359,8 @@ Required before any **mutating** rooming/reassign run:
 | **3e.3** | Static rooming/reassign contract checker (`npm run db:report:main-rooming-contract`) | **Done** |
 | **3e.3b** | Align Assign/Reassign/Cancel local forks to test Airtable base (`appiyO4FmkKsyHZdK`); regenerate + import inactive | **Done** (`79ee0e5`) |
 | **3e.4a** | Fresh disposable rooming E2E **plan + read-only preflight** (this section) | **Done** |
-| **3e.4b** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | Planned |
+| **3e.4b** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | **Done — safe functional fail** (see §13) |
+| **3e.4c** | Forensics: Main→Reassign payload contract mismatch; minimal patch + static regen | **Done** (patch uncommitted) |
 | **3e.5** | Negative tests: wrong booking, confirmed block, multi-active handoff, missing info, assignment lock, private room guard | Planned |
 
 ### 3e.3 acceptance (2026-05-28)
@@ -604,6 +605,109 @@ Stop immediately (deactivate workflows first) if any of:
 
 ---
 
+## 13. Phase 3e.4b runtime result + 3e.4c forensics (2026-05-28)
+
+**No retry until 3e.4c patch is committed and a fresh 3e.4a-style preflight passes.** Do not re-POST to `WH-260528-8239` / `+353399990331` without documented reset or new disposable identity.
+
+### 13.1 3e.4b — safe functional failure
+
+| Step | Result |
+|------|--------|
+| POST #1 (hold create) | **PASS** — Main exec **1078** |
+| Evidence booking | `WH-260528-8239` / `28e4015d-3553-4cdf-9603-0768a742fda0` / AT `recZvoLjvDYXiMzQP` |
+| State after POST #1 | `hold` / `not_requested` / `unassigned`; `booking_beds=0` |
+| POST #2 (rooming reply) | Main exec **1079** success; route `rooming_details_provided` |
+| Reassign | Exec **1080** success, early exit `parse_ok=false` |
+| Assign | Not triggered (max Assign exec still **398**) |
+| Side effects | **None unsafe** — global `booking_beds` still **13**; payments **25**; payment_events **5**; no Stripe/Send Confirmation/CPS/stub/Cancel execs in window |
+
+Workflows deactivated after test; all target workflows remain **`active=false`**.
+
+### 13.2 Root cause (3e.4c read-only forensics)
+
+**Not a field-name contract mismatch.** Main sent `booking_record_id` (correct key). Reassign Parse accepts `booking_record_id` / `record_id` / `airtable_record_id` / `booking_code`.
+
+**Actual bug:** HTTP node **`Call Reassign Booking Beds - Rooming Update1`** used Set-node string mode expressions **`=={{`** in `bodyParameters`. n8n HTTP Request serializes those as literal **`=value`**, prefixing every dynamic field with `=`.
+
+**Main exec 1079 — HTTP response from Reassign (node `Call Reassign Booking Beds - Rooming Update1`):**
+
+```json
+{
+  "partial_failure": "parse_failed",
+  "errors": ["airtable_record_id_must_start_with_rec", "parse_failed"],
+  "record_id": "=recZvoLjvDYXiMzQP"
+}
+```
+
+**Reassign exec 1080 — webhook body received:**
+
+```json
+{
+  "booking_record_id": "=recZvoLjvDYXiMzQP",
+  "booking_id": "=",
+  "reason": "rooming_info_reply",
+  "room_preference": "=mixed_ok",
+  "guest_gender_group_type": "=unknown",
+  "rooming_notes": "=Two friends, one male and one female. Shared room is acceptable. Mixed dorm required."
+}
+```
+
+**Reassign Parse output:** `parse_ok=false`, error `airtable_record_id_must_start_with_rec` — value `=recZvoLjvDYXiMzQP` does not start with `rec`.
+
+**Correct identity was available upstream:** `Search Booking - Rooming Info` returned `recZvoLjvDYXiMzQP` for phone `+353399990331`. HTTP node expression prefers Search result over `Pick Active Booking` (which still pointed at stale `rec4VXB7Rf1VxDr0C` / `+353399990329` — separate session-drift risk, not the parse failure).
+
+**Contrast:** sibling node **`Call Reassign Booking Beds - Rooming Update`** uses `jsonBody` with correct `={{` expressions and would not hit this bug.
+
+### 13.3 Mismatch table
+
+| Field / shape | Expected by Reassign Parse | Sent by Main (Update1) | Present? | Correct? | Patch location |
+|---------------|---------------------------|------------------------|----------|----------|----------------|
+| `booking_record_id` | Airtable `rec…` (no prefix) | `=recZvoLjvDYXiMzQP` | yes | **no** (`=` prefix) | `build-main-local-stripe.js` / hosted source → `=={{` → `={{` |
+| `booking_id` | optional booking code (`WH-…`) | `=` (empty expr artifact) | yes | no | same |
+| `room_preference` etc. | plain strings | `=mixed_ok`, etc. | yes | no | same |
+| PG UUID `booking_id` | **not accepted** (by design) | n/a | — | — | no change (AT rec / booking_code only) |
+
+### 13.4 Reassign Parse contract (source of truth)
+
+From `scripts/build-reassign-beds-local.js` → `PARSE_WEBHOOK_JS`:
+
+- Reads `$json.body ?? $json`
+- Identity: `record_id` \| `RecordId` \| `booking_record_id` \| `airtable_record_id` **or** `booking_code` \| `BookingCode` \| `Booking ID`
+- Airtable record id **must** start with `rec` (after optional `WH-` → `rec` derivation)
+- **Does not** accept Postgres UUID in `booking_id` field
+- Maps `rec…` ↔ `WH-…` booking code internally
+- Rejects phone-only / missing identity with `missing_record_id_or_booking_code`
+- **3e.4c defense:** `stripHttpExprPrefix()` strips a single leading `=` if Main regresses (belt-and-suspenders)
+
+### 13.5 Minimal patch (3e.4c — applied, uncommitted)
+
+1. **Primary (Main):** `scripts/lib/main-reassign-endpoint.js` — `fixReassignHttpBodyParameterExpressions()` rewrites `=={{` and accidental `={{{` → `={{`; `scanReassignBodyParameterExprBugs()` fails build on regression.
+2. **Wired in:** `scripts/build-main-local-stripe.js` → `finalizeLocalWorkflow()` + `--verify-targets`.
+3. **Defense (Reassign):** `stripHttpExprPrefix()` in parse JS (does not weaken identity rules).
+4. Regenerated + imported inactive: Main `RBfGNtVgrAkvhBHJ`, Reassign `B3c3ReassignLocal01`.
+5. Static checks after regen: `report-main-rooming-contract`, Main `--verify-targets`, `report-main-payment-contract`, `report-stripe-contract` — **all OK**.
+
+**Evidence booking preserved:** `WH-260528-8239` remains `hold/not_requested/unassigned`, `booking_beds=0`.
+
+### 13.6 Retry policy
+
+1. **Commit** 3e.4c patch (Main + Reassign regen + build scripts + docs).
+2. **Fresh preflight** (new §12 baseline queries) immediately before activation.
+3. **New disposable identity** recommended (new phone/wamids) — do not auto-retry POST #2 on `WH-260528-8239` without explicit reset plan.
+4. Watch **Pick Active Booking vs Search Booking** divergence on POST #2 (stale session `Current Hold ID`).
+
+### 13.7 Forensics artifacts (optional commit)
+
+| Artifact | Use |
+|----------|-----|
+| `scripts/fixtures/phase3e4b-*.sql` | Read-only verification queries from 3e.4b runtime window |
+| `scripts/fixtures/phase3e4c-*.sql` | Exec blob search / decompress helpers |
+| `scripts/forensics-phase3e4c-*.js` | One-off read-only exec decompress (dev only; not required in CI) |
+
+`.gitignore` WhatsApp/private export rules — commit **separately** from 3e.4c patch (unrelated hygiene).
+
+---
+
 ## 10. Related docs
 
 - [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md) — bed-ops forks  
@@ -616,8 +720,8 @@ Stop immediately (deactivate workflows first) if any of:
 
 ## 11. Recommendation
 
-1. **Commit** 3e.4a plan/preflight docs (+ read-only SQL fixtures if included).  
-2. **3e.4b** — execute gated runtime with phone `+353399990331`; fresh preflight immediately before activation.  
+1. **Commit** 3e.4c patch (Main/Reassign regen + build scripts + §13 docs). Optionally commit `phase3e4b-*` SQL fixtures; keep forensics JS dev-only.
+2. **3e.4b retry** — fresh §12 preflight; **new disposable phone/wamids** (not auto-retry on `WH-260528-8239`).
 3. Keep payment/confirmation/Stripe inactive outside explicit test windows.
 
-**Static gate for 3e.4b is clear.** Ale/Cami rooming preferences remain provisional until Stage 3x questionnaire data exists.
+**Static gate for 3e.4b retry is clear after 3e.4c commit.** Ale/Cami rooming preferences remain provisional until Stage 3x questionnaire data exists.
