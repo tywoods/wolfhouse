@@ -1,6 +1,6 @@
 # Phase 3c.f — Payment/confirmation contract checks
 
-**Status:** **3c.f.1 complete** (read-only audit only; no runtime payment test).
+**Status:** **3c.f.1 complete; 3c.f.2 static checker added** (both read-only; no runtime payment test).
 
 ## Scope (3c.f.1)
 
@@ -121,3 +121,24 @@ Main contract implication:
 3. **3c.f.3** Controlled `payment_details_provided` runtime with **stub/local Create Payment Session endpoint only**.
 4. **3c.f.4** Stripe webhook + Send Confirmation contract validation (local test isolation checks first).
 5. **3c.f.5** Phase 3c.f sign-off doc with explicit pass/fail evidence and residual risks.
+
+## 3c.f.2 static checker
+
+Read-only checker script:
+- `npm run db:report:main-payment-contract -- --help`
+- `npm run db:report:main-payment-contract`
+
+Outputs:
+- Console summary
+- JSON report: `reports/main-payment-contract-<timestamp>.json`
+
+Checks:
+- Required `payment_details_provided` path nodes exist
+- Create Payment Session request contract from Main (`booking_id`, `payment_kind=deposit_only`, env/local URL fallback)
+- Ensure node contract flags (booking_id return, terminal-status block, no payments/event SQL)
+- Forbidden `payments` / `payment_events` SQL writers in Main
+- Send Confirmation reference audit + known risks/warnings
+
+Flags:
+- `read_only: true`
+- `no_mutations: true`
