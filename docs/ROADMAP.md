@@ -163,7 +163,7 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 | Send Confirmation (dry-run) | **Proven** (isolated) | 3d.6e |
 | Pay + webhook on Main-created session | **Proven** | 3d.8b organic Stripe on `WH-260528-5369` |
 | Integrated Send Confirmation (dry-run) | **Proven** | 3d.9b exec **1077** on same booking |
-| Rooming / reassign E2E | **Pending** | **3e.3b** AT base aligned — **3e.4** E2E next (fresh preflight) |
+| Rooming / reassign E2E | **Pending** | **3e.4a** preflight done — **3e.4b** runtime next |
 
 **Not proven in Stage 3:** real WhatsApp send; Send Confirmation schedule-poll; single-window E2E; full package intelligence.
 

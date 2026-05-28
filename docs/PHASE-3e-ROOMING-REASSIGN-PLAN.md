@@ -142,10 +142,10 @@ sequenceDiagram
 
 ### Main nodes that call reassign (local fork)
 
-| Node | URL (current) | Trigger context |
-|------|---------------|-----------------|
-| `Call Reassign Booking Beds - Rooming Update` | `https://tywoods.app.n8n.cloud/webhook/reassign-booking-beds` | After `IF - Needs Bed Reassignment` on rooming path |
-| `Call Reassign Booking Beds - Rooming Update1` | Same hosted URL | Parallel/alternate rooming branch |
+| Node | URL (3e.2+) | Trigger context |
+|------|-------------|-----------------|
+| `Call Reassign Booking Beds - Rooming Update` | `$env.N8N_REASSIGN_BOOKING_BEDS_URL` default `http://n8n-main:5678/webhook/reassign-booking-beds` | After `IF - Needs Bed Reassignment` on rooming path |
+| `Call Reassign Booking Beds - Rooming Update1` | Same local-safe URL | Parallel/alternate rooming branch |
 
 **POST body (representative):** `booking_record_id`, `booking_id`, `reason: rooming_preference_update`, `room_preference`, `guest_gender_group_type`, `stay_together`, `rooming_notes`, `preserve_booking_status: true`, `send_guest_reply: false`.
 
@@ -357,8 +357,9 @@ Required before any **mutating** rooming/reassign run:
 | **3e.1** | Inventory + safety plan (this doc) | **Done (read-only)** |
 | **3e.2** | Hosted reassign URL remap in `build-main-local-stripe.js` + regenerate Main fork; static proof hosted URL gone | **Done** |
 | **3e.3** | Static rooming/reassign contract checker (`npm run db:report:main-rooming-contract`) | **Done** |
-| **3e.3b** | Align Assign/Reassign/Cancel local forks to test Airtable base (`appiyO4FmkKsyHZdK`); regenerate + import inactive | **Done** |
-| **3e.4** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | Planned |
+| **3e.3b** | Align Assign/Reassign/Cancel local forks to test Airtable base (`appiyO4FmkKsyHZdK`); regenerate + import inactive | **Done** (`79ee0e5`) |
+| **3e.4a** | Fresh disposable rooming E2E **plan + read-only preflight** (this section) | **Done** |
+| **3e.4b** | Fresh disposable **non-terminal** booking; rooming message; verify PG+AT, scoped beds, no payment/confirmation side effects | Planned |
 | **3e.5** | Negative tests: wrong booking, confirmed block, multi-active handoff, missing info, assignment lock, private room guard | Planned |
 
 ### 3e.3 acceptance (2026-05-28)
@@ -386,13 +387,220 @@ Required before any **mutating** rooming/reassign run:
 - HTTP nodes use `N8N_REASSIGN_BOOKING_BEDS_URL` with default `http://n8n-main:5678/webhook/reassign-booking-beds`.
 - Document Airtable base alignment task for bed forks.
 
-### 3e.4 acceptance (preview)
+### 3e.4 acceptance (preview — runtime in **3e.4b**)
 
-- New booking e.g. `WH-2605xx-xxxx` in `hold` / `payment_pending`, **not** `WH-260528-5369`.
-- Main inactive except controlled activation window.
-- Reassign fork activated briefly; deactivated after.
+- New booking e.g. `WH-2605xx-xxxx` in `hold` or `payment_pending`, **not** `WH-260528-5369` / `WH-260528-1493`.
+- Main + Reassign + Assign activated only in gated window; deactivated after.
 - `booking_beds` count changes only for target `booking_id`.
-- `payment_events` / CPS / Send Confirmation untouched.
+- `payment_events` / CPS / Send Confirmation / Stripe webhook untouched.
+
+---
+
+## 12. Phase 3e.4a — Runtime plan / preflight (2026-05-28)
+
+**Scope:** read-only planning only. **No** workflow activation, POST, or data mutation in 3e.4a.
+
+**Prerequisite commit:** `79ee0e5` — Phase 3e.3b Airtable base alignment.
+
+**Knowledge gap:** Ale/Cami WhatsApp chat history **not available** (contact/account exports were deleted; not processed). Rooming preferences in this E2E are **provisional** — use current `rooms` / `beds` table config only; do **not** hardcode final business rules in workflows.
+
+### 12.1 Pre-check results (3e.4a snapshot)
+
+| Check | Result |
+|-------|--------|
+| Git clean | **Yes** (no Ale/Cami ZIPs; `Test-Path` → false) |
+| Static rooming contract | **PASS** — `integrated_e2e_aligned=true`, blockers none |
+| Main `--verify-targets` | **PASS** — hosted reassign 0, prod AT base 0, Main `booking_beds` writes 0 |
+| Payment contract | **PASS** — forbidden payment writes 0 |
+| Stripe contract | **PASS** |
+| All target workflows inactive | **Yes** — see §12.2 |
+| Send Confirmation schedule | **`disabled: true`** in repo JSON + n8n DB nodes blob |
+
+**Read-only baseline SQL (for 3e.4b):**
+
+- `scripts/fixtures/phase3e4a-preflight-n8n.sql` — webhook + execution baselines
+- `scripts/fixtures/phase3e4a-preflight-pg.sql` — PG global counts + test-phone collision check
+
+### 12.2 Workflow active state (n8n DB)
+
+| Workflow | ID | `active` | Latest execution |
+|----------|-----|----------|------------------|
+| Main (local Stripe) | `RBfGNtVgrAkvhBHJ` | **false** | **1064** |
+| Reassign (local PG) | `B3c3ReassignLocal01` | **false** | **397** |
+| Assign (local PG) | `B3c2AssignLocalPg01` | **false** | **398** |
+| Cancel (local PG) | `KchhRC9b3MIdkzPT` | **false** | **305** |
+| Send Confirmation (local) | `gxivKRJexzTCw9x6` | **false** | **1077** |
+| Stripe Webhook Handler | `KZUQvwR6SPWpvaZ5` | **false** | **1076** |
+| Create Payment Session | `esuDIT96iPT63OaQ` | **false** | **1065** |
+| CPS stub local | `whCreatePaymentStubLocal01` | **false** | **1037** |
+
+### 12.3 Webhook mappings (n8n DB + JSON)
+
+**Registered in `webhook_entity` while inactive:**
+
+| Path | Method | Workflow | Active |
+|------|--------|----------|--------|
+| `booking-assistant` | POST | Main (`RBfGNtVgrAkvhBHJ`) | false |
+
+**Not registered while inactive** (expected n8n behavior — registers on activation):
+
+| Path | Expected workflow | JSON source |
+|------|-------------------|-------------|
+| `reassign-booking-beds` | Reassign `B3c3ReassignLocal01` | `n8n/phase3b/Wolfhouse - Reassign Bed Assignments (local PG).json` |
+| `assign-beds-to-booking` | Assign `B3c2AssignLocalPg01` | `n8n/phase3b/Wolfhouse - Bed Assignment (local PG).json` |
+| `cancel-booking-beds` | Cancel `KchhRC9b3MIdkzPT` | `n8n/phase3b/Wolfhouse - Cancel Bed Assignments (local PG).json` |
+
+**Duplicate path check:** no duplicate rows for the four paths in `webhook_entity` (query returned 0 duplicates).
+
+**3e.4b pre-activation check:** after activating Assign + Reassign + Main, re-query `webhook_entity` and confirm each path maps to **one** local workflow id (no hosted export collision on local n8n).
+
+### 12.4 Proposed disposable test identity
+
+| Field | Value | Notes |
+|-------|-------|-------|
+| Phone | `+353399990331` | **0** PG bookings at preflight; not used in 3c/3d evidence |
+| POST #1 wamid | `wamid.PHASE3E4.001` | `booking_flow` — bypasses typing guard (`^wamid\.PHASE…`) |
+| POST #2 wamid | `wamid.PHASE3E4.002` | `rooming_details_provided` — same phone |
+| Dates | `2026-09-22` → `2026-09-24` | 2 nights; avoids overlap with evidence bookings |
+| Guest count | `2` | shared-room scenario |
+| Env | `WHATSAPP_DRY_RUN=true` | no real Graph API send |
+
+**Do not reuse:** `+353399990329`, `+353399990330`, `WH-260528-5369`, `WH-260528-1493`, `WH-260528-9437`.
+
+### 12.5 Runtime scenario (3e.4b — not executed yet)
+
+**Activation order (before POST #1):**
+
+1. Activate **Assign** (`B3c2AssignLocalPg01`)
+2. Activate **Reassign** (`B3c3ReassignLocal01`)
+3. Activate **Main** (`RBfGNtVgrAkvhBHJ`)
+4. Re-query webhooks — confirm local paths registered
+5. Keep **Cancel**, **CPS**, **stub**, **Stripe webhook**, **Send Confirmation** inactive; schedule stays disabled
+
+**POST #1 → Main** (`http://localhost:5678/webhook/booking-assistant`)
+
+Guest message (suggested):
+
+> Hi, we are 2 guests and want to book a shared room from 2026-09-22 to 2026-09-24.
+
+**Expected after POST #1:**
+
+| Check | Expected |
+|-------|----------|
+| Main execution | success |
+| Resolver route | `booking_flow` (not rooming yet) |
+| PG booking | new row — `status=hold`, `payment_status=not_requested` |
+| PG conversation | created; `current_hold_booking_id` → new booking UUID |
+| Airtable test base | hold mirror created (`appiyO4FmkKsyHZdK`) |
+| PG `airtable_record_id` | backfilled |
+| `booking_beds` | **0** for target booking |
+| `payments` / `payment_events` | **unchanged** (baseline 25 / 5) |
+| Reassign / Assign | **not called** on booking_flow alone |
+| CPS / Stripe / Send Confirmation | **no executions** |
+
+**POST #2 → Main** (same phone, new wamid)
+
+Guest message (suggested):
+
+> We are two friends, one male and one female. Shared room is fine.
+
+**Expected after POST #2:**
+
+| Check | Expected |
+|-------|----------|
+| Main execution | success |
+| Resolver route | `rooming_details_provided` (or overridden sub-route with hold usable) |
+| Hold selection | **fresh** booking from POST #1 — not `5369` / `1493` / `9437` |
+| Main → Reassign | HTTP to `http://n8n-main:5678/webhook/reassign-booking-beds` |
+| Reassign execution | success; scoped PG delete for target booking only |
+| Reassign → Assign | HTTP to `http://n8n-main:5678/webhook/assign-beds-to-booking` |
+| Assign execution | success; uses **Rooms** table config (`fill_priority`, `gender_strategy`, etc.) |
+| `booking_beds` | rows inserted **only** for target `booking_id` |
+| Global `booking_beds` | +N for target only; no unrelated booking changes |
+| Overlap | no double-booked bed/date conflict for assigned beds |
+| Booking status | remains **non-terminal** (`hold` or `payment_pending` — not `confirmed`) |
+| Payments | count **25** unchanged |
+| `payment_events` | count **5** unchanged |
+| Send Confirmation max exec | stays **1077** |
+| Stripe webhook max exec | stays **1076** |
+| CPS max exec | stays **1065** |
+| Real WhatsApp | none (`WHATSAPP_DRY_RUN=true`) |
+
+**Provisional rooming note:** mixed-gender shared room is a **test signal** only until Ale/Cami questionnaire + Rooms config are finalized in Stage 3x.
+
+### 12.6 Baseline checklist (capture immediately before 3e.4b POST #1)
+
+| Baseline | 3e.4a preflight value |
+|----------|------------------------|
+| Global `payments` | **25** |
+| Global `payment_events` | **5** |
+| Global `booking_beds` | **13** |
+| Active rooms | **10** |
+| Sellable beds | **52** |
+| Bookings for `+353399990331` | **0** |
+| Main latest exec | **1064** |
+| Reassign latest exec | **397** |
+| Assign latest exec | **398** |
+| Cancel latest exec | **305** |
+| Send Confirmation latest exec | **1077** |
+| Stripe webhook latest exec | **1076** |
+| CPS latest exec | **1065** |
+| Stub latest exec | **1037** |
+| Git HEAD | **`79ee0e5`** |
+| Static rooming report | PASS / aligned |
+
+**After POST #1 (3e.4b):** record new `booking_code`, booking UUID, `airtable_record_id`, Main exec id, target `booking_beds` count (=0).
+
+**After POST #2 (3e.4b):** record Main/Reassign/Assign exec ids, target `booking_beds` count (>0), global deltas, Airtable BB row count for target booking.
+
+### 12.7 Hard stops (3e.4b)
+
+Stop immediately (deactivate workflows first) if any of:
+
+- Git dirty before runtime
+- Static rooming contract fails or AT base misaligned
+- Hosted reassign URL appears in Main execution
+- Unexpected workflow active (CPS, Stripe webhook, Send Confirmation, stub)
+- Send Confirmation schedule **`disabled` becomes false**
+- Main selects wrong booking / hold
+- Reassign or Assign touches non-target booking
+- Any unrelated `booking_beds` row changes
+- Double-booked bed overlap detected
+- `payments` count changes
+- `payment_events` count changes
+- Stripe Webhook Handler executes (exec id > **1076**)
+- Send Confirmation executes (exec id > **1077**)
+- CPS or stub executes (exec id > **1065** / **1037**)
+- Real WhatsApp Graph API call (verify `WHATSAPP_DRY_RUN=true`)
+- Cannot deactivate workflows after test
+- Any execution failure — **no automatic retry**
+
+### 12.8 Activation boundary
+
+| Activate for 3e.4b | Keep inactive |
+|--------------------|---------------|
+| Main | Stripe Webhook Handler |
+| Reassign | Send Confirmation |
+| Assign | Create Payment Session |
+| *(Cancel only if explicit cancel path needed — Reassign path does not require Cancel)* | CPS stub |
+| | Send Confirmation schedule (`disabled: true`) |
+
+### 12.9 Cleanup policy (after 3e.4b)
+
+1. Deactivate Main → Reassign → Assign → Cancel (if activated).
+2. Re-query `workflow_entity` — all target workflows **`active=false`**.
+3. Re-query `webhook_entity` — bed-ops paths should unregister when inactive.
+4. **Keep evidence booking** on success (do not auto-delete PG/AT rows).
+5. If unsafe side effect: deactivate first, document cleanup recommendation; **do not** auto-clean data.
+6. Delete temp payload JSON files used for POSTs.
+7. Re-run static rooming contract report.
+
+### 12.10 3e.4a acceptance
+
+- Read-only preflight complete; all static gates PASS.
+- Disposable identity proposed; baselines captured.
+- Runtime scenario, hard stops, activation boundary, and cleanup documented.
+- **No runtime performed in 3e.4a.**
 
 ---
 
@@ -408,8 +616,8 @@ Required before any **mutating** rooming/reassign run:
 
 ## 11. Recommendation
 
-1. **Commit** 3e.3b base alignment + doc updates.  
-2. **3e.4** — fresh disposable booking rooming E2E (not `WH-260528-5369` / `WH-260528-1493`); run **fresh runtime preflight** before activating any workflow.  
-3. Keep Main/Stripe/Confirmation inactive outside gated test windows; activate Reassign/Assign briefly only during 3e.4 window.
+1. **Commit** 3e.4a plan/preflight docs (+ read-only SQL fixtures if included).  
+2. **3e.4b** — execute gated runtime with phone `+353399990331`; fresh preflight immediately before activation.  
+3. Keep payment/confirmation/Stripe inactive outside explicit test windows.
 
-**Static gate for 3e.4 is clear** (`integrated_e2e_aligned=true`). Do not skip runtime preflight or reuse terminal evidence bookings.
+**Static gate for 3e.4b is clear.** Ale/Cami rooming preferences remain provisional until Stage 3x questionnaire data exists.
