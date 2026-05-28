@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (after `3c.g.2l` fresh E2E payment-stub runtime success)  
-**HEAD (expected):** `7148f36` — Phase 3c.g.2k: allow payment_pending hold lookup status
+**Last updated:** 2026-05-28 (after `3c.g.2m` docs consistency pass)  
+**HEAD (expected):** `d6f2472` — Phase 3c.g.2l: document fresh E2E payment stub success
 
 For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md). For agent rules see [CURSOR.md](../CURSOR.md).
 
@@ -159,18 +159,15 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 ---
 
-## Preferred next step (not 3c.c.4)
+## Preferred next step
 
-**Do 3c.d.1–2 before 3c.e** (proposal: [`PHASE-3c-d-PROPOSAL.md`](PHASE-3c-d-PROPOSAL.md)).
+`3c.g.2l` proved fresh E2E local runtime coverage for:
+- `booking_flow` fresh hold creation (POST #1)
+- `payment_details_provided` promotion + stub checkout link update (POST #2)
+- zero side effects on `payments`, `payment_events`, and `booking_beds`
 
-| Step | Work | Status |
-|------|------|--------|
-| **3c.d** | Discovery proposal | Done (doc) |
-| **3c.d.1** | Conversation/message field inventory report | **Next** |
-| **3c.d.2** | SELECT-only `db:report:main-conversation-state` | Not started |
-| **3c.e** | Inject hold + Ensure + conversation PG via build script | After 3c.d.1–2 |
-
-Do **not** start 3c.e workflow injection until 3c.d inventory/report agrees with proposal unless owner explicitly reprioritizes.
+Recommended immediate next step:
+- Run the next planned `3c.g` runtime scope (or proceed to explicit sign-off planning for real Stripe path as a separate gate).
 
 ---
 
