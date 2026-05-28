@@ -169,6 +169,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 Recommended immediate next step:
 - Start **Phase 3d.1** isolated Stripe-path planning gate: [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md).
+- Run **Phase 3d.2** read-only Stripe contract checker (`npm run db:report:stripe-contract`) before any Stripe runtime test.
 - Keep Stripe Webhook Handler and Send Confirmation as separate follow-on gates (not implicitly included in Stripe session testing).
 
 ---

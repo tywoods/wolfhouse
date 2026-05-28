@@ -16,6 +16,7 @@
     "db:report:main-conversation-inventory": "node scripts/report-main-conversation-inventory.js",
     "db:report:main-conversation-state": "node scripts/report-main-conversation-state.js",
     "db:report:main-payment-contract": "node scripts/report-main-payment-contract.js",
+    "db:report:stripe-contract": "node scripts/report-stripe-contract.js",
     "db:main-conversation-upsert:postgres": "node scripts/main-conversation-upsert-postgres.js",
     "db:report:main-ensure-booking-plan": "node scripts/report-main-ensure-booking-plan.js",
     "db:main-ensure-booking:postgres": "node scripts/main-ensure-booking-postgres.js",

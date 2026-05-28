@@ -100,3 +100,14 @@ Choose one (do not execute in this document phase):
 Recommended order:
 1) static checker first, 2) isolated Create Payment Session test, 3) separate Stripe Webhook Handler gate, 4) separate Send Confirmation gate.
 
+## 3d.2 static checker
+
+Read-only command set:
+- `node scripts/report-stripe-contract.js --help`
+- `node scripts/report-stripe-contract.js`
+- `npm run db:report:stripe-contract`
+
+Expected output flags:
+- `read_only=true`
+- `no_mutations=true`
+
