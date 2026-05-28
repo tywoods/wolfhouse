@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-28 (after `3c.f.4` payment-path sign-off review)  
-**HEAD (expected):** `cc44e8e` — Phase 3c.f.3af: document successful payment details stub runtime
+**Last updated:** 2026-05-28 (after `3c.g.2l` fresh E2E payment-stub runtime success)  
+**HEAD (expected):** `7148f36` — Phase 3c.g.2k: allow payment_pending hold lookup status
 
 For direction and principles see [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md). For agent rules see [CURSOR.md](../CURSOR.md).
 
@@ -58,7 +58,7 @@ Details: [`PHASE-3b-FREEZE.md`](PHASE-3b-FREEZE.md).
 | **3c.e.4** PG hold + AT backfill in Main fork | Done | `881ab1b` |
 | **3c.e.5** PG conversation upsert | **Done** (uncommitted) | — |
 | **3c.f** Payment / confirmation contract checks | **Review complete (3c.f.4)** — local-stub payment-details path signed off; real Stripe path still pending | [`PHASE-3c-f.md`](PHASE-3c-f.md) |
-| **3c.g** E2E local Main tests | **In progress** — 3c.g.1m first success + 3c.g.1n repeat success | [`PHASE-3c-g.md`](PHASE-3c-g.md) |
+| **3c.g** E2E local Main tests | **3c.g.2l success** — fresh E2E `booking_flow -> payment_details_provided` local stub path proven | [`PHASE-3c-g.md`](PHASE-3c-g.md) |
 
 **Phase 3c.c (CLI/script side) is nearly complete.** Remaining 3c work is conversation state (3c.d), workflow wiring (3c.e), then contract checks and E2E (3c.f–g).
 
@@ -82,6 +82,28 @@ Runbooks: [`PHASE-3c-PROPOSAL.md`](PHASE-3c-PROPOSAL.md), [`PHASE-3c-a.md`](PHAS
   - Airtable still in payment path;
   - hosted reassign URL deferral;
   - prepare-context blank `booking_code` mitigated by Ensure Airtable-record fallback.
+
+### 3c.g.2l fresh E2E evidence (latest)
+
+- POST #2 runtime success with Main execution `1036` and stub execution `1037`.
+- Resolver route correctness: `resolved_route=payment_details_provided`, override decision `R2F_PAYMENT_DETAILS_PRIORITY_ON_CONTACT_AND_LINK_FROM_HANDOFF`.
+- Correct hold selection and update:
+  - Search Hold selected fresh Airtable record `rec4VXB7Rf1VxDr0C` (not old `recIP3DFb0nCx8gBh`).
+  - Ensure promoted target booking `WH-260528-9437` to `payment_pending/waiting_payment`.
+  - Stub returned `https://example.test/...` checkout URL and payment link write targeted fresh record only.
+- Safety maintained:
+  - no legacy Create Payment Session execution;
+  - no Stripe call;
+  - `payments/payment_events` unchanged globally (`23/3`) and unchanged for target booking (`0/0`);
+  - no `booking_beds` writes;
+  - no Send Confirmation side effect;
+  - Main/stub/legacy workflows returned inactive.
+
+Remaining exclusions (still separate):
+- Real Stripe path sign-off
+- Stripe Webhook Handler sign-off
+- Send Confirmation chain sign-off
+- Rooming/reassign E2E (deferred until hosted reassign URL remap)
 
 ---
 
