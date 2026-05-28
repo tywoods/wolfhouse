@@ -65,7 +65,12 @@ function getEnsurePromoteSql(opts = {}) {
     ? `ARRAY[${BLOCKED_STATUSES.map((s) => `'${s}'`).join(', ')}]::text[]`
     : '$13::text[]';
 
-  return `WITH existing AS (
+  return `WITH input_params AS (
+  SELECT
+    NULLIF($1, '${NULL_SENTINEL}') AS booking_code,
+    NULLIF($12, '${NULL_SENTINEL}') AS hold_record_id
+),
+existing AS (
   SELECT
     b.id,
     b.booking_code,
@@ -74,8 +79,16 @@ function getEnsurePromoteSql(opts = {}) {
     b.airtable_record_id
   FROM bookings b
   INNER JOIN clients c ON c.id = b.client_id
+  CROSS JOIN input_params i
   WHERE c.slug = '${CLIENT_SLUG}'
-    AND b.booking_code = NULLIF($1, '${NULL_SENTINEL}')
+    AND (
+      (i.booking_code IS NOT NULL AND b.booking_code = i.booking_code)
+      OR (
+        i.booking_code IS NULL
+        AND i.hold_record_id IS NOT NULL
+        AND b.airtable_record_id = i.hold_record_id
+      )
+    )
   LIMIT 1
 ),
 blocked AS (
@@ -159,7 +172,7 @@ inserted AS (
   )
   SELECT
     c.id,
-    NULLIF($1, '${NULL_SENTINEL}'),
+    i.booking_code,
     NULLIF($12, '${NULL_SENTINEL}'),
     NULLIF($2, '${NULL_SENTINEL}'),
     NULLIF($3, '${NULL_SENTINEL}'),
@@ -187,8 +200,10 @@ inserted AS (
     FALSE,
     '{"source":"phase3c_ensure_booking_cli"}'::jsonb
   FROM clients c
+  CROSS JOIN input_params i
   WHERE c.slug = '${CLIENT_SLUG}'
-    AND NULLIF($1, '${NULL_SENTINEL}') IS NOT NULL
+    AND i.booking_code IS NOT NULL
+    AND i.booking_code !~* '^rec[A-Za-z0-9]+$'
     AND NULLIF($5, '${NULL_SENTINEL}') IS NOT NULL
     AND NULLIF($6, '${NULL_SENTINEL}') IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM existing)
@@ -252,7 +267,26 @@ WHERE EXISTS (SELECT 1 FROM existing)
   AND NOT EXISTS (SELECT 1 FROM blocked)
   AND e.status NOT IN ('hold', 'payment_pending')
   AND NOT EXISTS (SELECT 1 FROM updated)
-  AND NOT EXISTS (SELECT 1 FROM inserted)`;
+  AND NOT EXISTS (SELECT 1 FROM inserted)
+UNION ALL
+SELECT
+  NULL::text AS booking_id,
+  NULL::text AS booking_code,
+  false AS created,
+  false AS promoted,
+  true AS blocked,
+  'not_ready'::text AS action,
+  NULL::text AS status,
+  NULL::text AS payment_status
+FROM input_params i
+WHERE NOT EXISTS (SELECT 1 FROM existing)
+  AND NOT EXISTS (SELECT 1 FROM inserted)
+  AND (
+    i.booking_code IS NULL
+    OR i.booking_code ~* '^rec[A-Za-z0-9]+$'
+    OR NULLIF($5, '${NULL_SENTINEL}') IS NULL
+    OR NULLIF($6, '${NULL_SENTINEL}') IS NULL
+  )`;
 }
 
 /** Static SQL for n8n Postgres node ($1–$12 + inlined blocked statuses). */
