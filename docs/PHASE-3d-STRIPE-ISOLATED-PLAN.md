@@ -1,6 +1,6 @@
 # Phase 3d.1 — Stripe isolated planning gate
 
-**Status:** Planning only (no runtime execution in this phase).
+**Status:** Planning only through 3d.3 (no runtime execution in these phases).
 
 ## Boundary
 
@@ -110,4 +110,113 @@ Read-only command set:
 Expected output flags:
 - `read_only=true`
 - `no_mutations=true`
+
+## 3d.3 direct isolated Create Payment Session test plan (no execution in this step)
+
+### Scope boundary
+
+- **In scope (future 3d.3 runtime):** one direct HTTP POST to local Create Payment Session workflow only.
+- **Out of scope:** Main webhook, Main execution path, Stripe Webhook Handler, Send Confirmation gate, Airtable/Sheets mutations.
+- **Intentional limited PG writes (future runtime only):** `payments` insert or reuse path; `bookings.payment_status` update to `payment_link_sent` per workflow contract. **No** `payment_events` writes from Create Payment Session workflow.
+
+### Disposable booking criteria
+
+Use a dedicated local/test booking that satisfies all of:
+
+| Criterion | Requirement |
+|-----------|-------------|
+| Environment | Local wolfhouse DB only; not production/hosted prototype data |
+| Booking identity | Explicit `booking_id` (UUID) and `booking_code` recorded before test |
+| Status | `payment_pending` preferred; `hold` acceptable if promoted immediately before test |
+| Payment status | `waiting_payment` or `not_requested` at start; must not be terminal (`confirmed`, `cancelled`, `expired`, `checked_in`) |
+| Confirmation | `send_confirmation=false`, `confirmation_sent_at=NULL` |
+| Beds | `booking_beds` count for target booking = 0 |
+| Payment rows | **Default:** no active reusable `payments` row for same `booking_id` + `deposit_only` with open checkout (clean new-session path). **Optional variant:** pre-seed one open checkout row only when explicitly testing idempotency reuse |
+| Prior Stripe noise | Not used in prior stub/Main E2E payment-link runs for this same test window |
+
+Suggested candidate pattern: create via existing hold tooling or select an unused `WH-*` test booking; do **not** reuse `WH-260528-9437` from 3c.g.2l stub evidence unless intentionally resetting payment rows first.
+
+### Exact request payload (future runtime)
+
+Direct POST body (JSON):
+
+```json
+{
+  "booking_id": "<disposable-booking-uuid>",
+  "payment_kind": "deposit_only"
+}
+```
+
+Endpoint (local, intentional):
+
+- `POST http://localhost:5678/webhook/create-payment-session`
+- Content-Type: `application/json`
+
+Do **not** call via Main `N8N_CREATE_PAYMENT_SESSION_URL` override in this gate.
+
+### Workflow activation boundary (future runtime)
+
+| Workflow | Required state during test window |
+|----------|----------------------------------|
+| `Wolfhouse - Create Payment Session` (`n8n/phase2/Wolfhouse - Create Payment Session.json`, path `create-payment-session`) | **Active only this workflow** |
+| `Wolfhouse Booking Assistant - Main (local Stripe)` | Inactive |
+| `Wolfhouse - Create Payment Session (stub local)` | Inactive |
+| All legacy/hosted Create Payment Session forks | Inactive |
+| `Wolfhouse - Stripe Webhook Handler` | Inactive |
+| `Wolfhouse - Send Confirmation (local)` | Inactive (recommended; avoids ambient schedule side effects) |
+
+Pre-POST webhook registration check:
+
+- `create-payment-session` must map only to the intended real Create Payment Session workflow id in local n8n DB.
+
+### Stripe safety prerequisites (future runtime)
+
+Before activation/POST:
+
+1. `STRIPE_SECRET_KEY` (or Stripe API credential) verified as **test mode** (`sk_test_...`); hard stop if live key pattern detected.
+2. No hosted/prod URL in target endpoint (`localhost` or `http://n8n:5678` only).
+3. `STRIPE_CHECKOUT_SUCCESS_URL` / `STRIPE_CHECKOUT_CANCEL_URL` reviewed (local success/cancel URLs only).
+4. Workflow active-state table above satisfied.
+5. Rollback plan prepared: deactivate Create Payment Session immediately after single POST completes.
+
+### Baseline checks (future runtime, read-only before POST)
+
+Record and keep:
+
+- Global: `COUNT(*)` on `payments`, `payment_events`
+- Target booking: `status`, `payment_status`, `send_confirmation`, `confirmation_sent_at`, `booking_code`
+- Target booking: `COUNT(*)` on `payments` and `payment_events` filtered by `booking_id`
+- Target booking: `COUNT(*)` on `booking_beds` filtered by `booking_id`
+- Latest execution ids: Create Payment Session, Stripe Webhook Handler, Send Confirmation (n8n `execution_entity`)
+
+### Expected effects (future runtime)
+
+| Area | Expected |
+|------|----------|
+| HTTP response | `ok: true`, `checkout_url` present, Stripe-hosted URL (`https://checkout.stripe.com/...` or test equivalent) |
+| Stripe API | Real checkout session created (or `reused: true` if idempotency path intentionally tested) |
+| `payments` | New row with `status=checkout_created` on new-session path, or reuse response on existing-open-checkout path |
+| `payment_events` | **No change** from Create Payment Session workflow |
+| `bookings.payment_status` | May become `payment_link_sent` per workflow SQL |
+| `bookings.status` | Must **not** become `confirmed` |
+| `send_confirmation` | Must remain `false` |
+| `confirmation_sent_at` | Must remain `NULL` |
+| `booking_beds` | No new rows |
+
+### Hard stops (future runtime)
+
+Stop immediately and deactivate if any occur:
+
+- Live Stripe key detected.
+- Wrong workflow active (Main, stub, webhook handler, or unexpected Create Payment Session duplicate).
+- Stripe Webhook Handler execution occurs.
+- Send Confirmation changes target booking (`send_confirmation`, `confirmation_sent_at`, or `status=confirmed`).
+- Unexpected `payment_events` rows appear for target booking.
+- Booking becomes `confirmed`.
+- Duplicate unexpected checkout sessions beyond idempotency test intent.
+- Workflow cannot be deactivated after POST.
+
+### 3d.3 execution step (not done here)
+
+When approved, next runtime step is exactly one direct POST + post-read verification + immediate deactivation. No second POST, no Main, no webhook replay.
 

@@ -168,9 +168,9 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - zero side effects on `payments`, `payment_events`, and `booking_beds`
 
 Recommended immediate next step:
-- Start **Phase 3d.1** isolated Stripe-path planning gate: [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md).
-- Run **Phase 3d.2** read-only Stripe contract checker (`npm run db:report:stripe-contract`) before any Stripe runtime test.
-- Keep Stripe Webhook Handler and Send Confirmation as separate follow-on gates (not implicitly included in Stripe session testing).
+- Complete **Phase 3d.3** planning in [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) (direct Create Payment Session test plan; no execution yet).
+- Run **Phase 3d.2** checker before any runtime: `npm run db:report:stripe-contract`.
+- Next runtime gate (when approved): single direct POST to `create-payment-session` only, with disposable booking + hard stops; Main/stub/webhook/confirmation remain inactive.
 
 ---
 
