@@ -636,8 +636,11 @@ Gate definition: [`config/clients/wolfhouse-somo.baseline.json`](../config/clien
 
 **Reduced after 3x.2c** (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming auto-assign + operator-room logic all confirmed). **Remaining owner blockers:** deposit amount/scope · non-7-night pricing math · cancellation/refund windows & % · add-on service prices/scheduling (if in Stage 4 scope) · real WhatsApp send gate or Stage 3y shadow · final handoff channel. **Not blockers:** perfect tone · full customer memory · marketing opt-in · exact add-on automation.
 
+**Additional entry requirement:** Autonomous booking dry-run pass — bot completes full booking flow (inbound message → route → availability → hold → payment-link → Stripe webhook → confirmation) without errors in all-stubbed mode, proving readiness before real sends or live operation are enabled.
+
 ### Includes
 
+- **Autonomous booking dry-run** (first Stage 4 milestone): full booking flow end-to-end — inbound message → route → availability → hold → payment-link → Stripe webhook → confirmation — with all live side effects stubbed at the infrastructure boundary. Proves the bot completes the booking correctly before real sends or live operation are enabled. This is the regression anchor: once green, enabling real WhatsApp send or live operation is a config change, not a behavior change.
 - Better error handling and safe retries (where idempotent)
 - Stuck booking detection
 - Monitoring, alerts, execution dashboards
