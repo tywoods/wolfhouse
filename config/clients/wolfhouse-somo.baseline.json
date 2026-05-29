@@ -1,9 +1,9 @@
 {
   "_meta": {
     "status": "baseline_provisional_with_owner_answers",
-    "version": "0.5",
+    "version": "0.6",
     "created": "2026-05-29",
-    "updated": "2026-05-29 (Stage 3x.2f — 2026 package prices CONFIRMED; yoga €15; Dec/Jan/Feb closed; no cleaning buffer; formalized DEPLOY-CONFIG pattern: this file is the per-client deploy config, with template + guide for new clients/verticals)",
+    "updated": "2026-05-29 (Stage 3x.2g — Ale answers applied + CONFIRMED: tiered deposit €200 package / €100 custom-or-short-stay; non-7-night proration corrected to package_total/7 round-up-5 per night; rental prices CORRECTED (wetsuit €5, soft top €15, hard board €20) with bundle promos (wetsuit+softtop €15, wetsuit+hardboard €20 — wetsuit free); lesson tiered pricing (1 lesson €35, 2+ €30 each); yoga €15 booked on site (confirmed); lesson scheduling manual w/ two daily slots; bad-weather lesson refund staff day-by-day; refund default = 12-month voucher, cash refund exception, always staff. Generalizable behaviors (deposit tiers, add-on quantity tiers, bundles, voucher refund mechanism, lesson scheduling) promoted to engine-default mechanisms in _deploy-config.template.json; only VALUES live here.)",
     "purpose": "Stage 3x.2 minimum business logic baseline for Stage 4 entry. All rules are classified: confirmed / provisional / partially_confirmed / handoff_only / owner_required / nice_to_have. Rules marked owner_required must not be used as if known — safe defaults apply until Ale/Cami confirm. 3x.2c applied confirmed owner answers (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming + operator-room logic). 3x.2d added WORKING/PROVISIONAL prices and policies (deposit €200, 2026 package table, proration, derived add-on prices, check-in/out times, cancellation/date-change conditions, handoff to WhatsApp, staff-directory password edit). Pricing is PROVISIONAL — see pricing_policy. A real autonomous charge to a real guest requires pricing_status=confirmed; provisional prices are safe for dry-run/shadow only.",
     "client_slug": "wolfhouse-somo",
     "owner_questionnaire": "docs/knowledge/wolfhouse-somo-gaps.md",
@@ -61,7 +61,7 @@
 
   "payment": {
     "_status": "partially_confirmed",
-    "_note": "3x.2c: bot may auto-send payment link once required details collected, asks deposit-vs-full, hold 1 hour, balance payable at arrival via cash/bank/stripe. 3x.2d: deposit set to a PROVISIONAL flat €200/booking and package prices supplied (see packages + pricing_policy). Provisional prices are safe for dry-run/shadow only; live autonomous charge requires pricing_status=confirmed.",
+    "_note": "3x.2c: bot may auto-send payment link once required details collected, asks deposit-vs-full, hold 1 hour, balance payable at arrival via cash/bank/stripe. 3x.2g (Ale): deposit is TIERED by booking type — standard package €200, custom pack / shorter stays €100. Encoded via the engine-default deposit_rule mechanism (tiered_by_booking_type); values are CONFIRMED by Ale.",
     "payment_link_auto_allowed": true,
     "payment_link_options": ["deposit", "full"],
     "ask_deposit_or_full": true,
@@ -74,14 +74,21 @@
     "balance_payment_timing": "at_arrival_or_checkin",
     "balance_payment_methods": ["cash", "bank_transfer", "stripe"],
     "balance_stripe_supported": "planned",
-    "deposit_amount_eur": 200,
-    "deposit_amount": 200,
-    "deposit_scope": "per_booking",
-    "_deposit_scope_options": ["per_booking", "per_person", "per_package"],
-    "deposit_pricing_status": "provisional",
-    "_deposit_note": "3x.2d: flat €200 per booking for now (operator decision, pending Ale/Cami confirmation). Easy to edit here.",
-    "variable_deposit_rule": "flat_for_now",
     "deposit_currency": "EUR",
+    "deposit_rule": {
+      "_note": "3x.2g (Ale, CONFIRMED): deposit varies by booking type. Standard named-package booking = €200; a custom-built package or a shorter (non-7-night) stay = €100. Engine reads `type` + `tiers` + `default`; values are client config. To change later, edit the numbers here only.",
+      "type": "tiered_by_booking_type",
+      "_type_options": ["flat", "tiered_by_booking_type", "per_person", "per_package"],
+      "scope": "per_booking",
+      "_scope_options": ["per_booking", "per_person", "per_package"],
+      "pricing_status": "confirmed",
+      "tiers": {
+        "standard_package": { "amount_eur": 200, "_match": "named package (malibu|uluwatu|waimea) at standard 7-night terms" },
+        "custom_or_short_stay": { "amount_eur": 100, "_match": "custom-built package OR non-7-night / shorter stay" }
+      },
+      "default_eur": 200,
+      "_default_note": "fallback when booking type is ambiguous; bot should resolve type before quoting deposit, else handoff"
+    },
     "payment_claim_behavior": "check_stripe_payment_events_not_llm",
     "safe_default": "may_send_payment_link_after_required_details_collected_but_never_quote_deposit_or_final_price_without_confirmed_amount_rule",
     "technically_proven": [
@@ -131,17 +138,35 @@
     "auto_date_change_else": "handoff",
     "paid_reschedule_handoff": true,
     "refund_requests_handoff": true,
-    "refund_policy": "paid_cancellations_and_refunds_handled_manually_by_staff",
+    "refund_policy": "paid_cancellations_and_refunds_handled_manually_by_staff_default_to_voucher",
+    "refund_mechanism": {
+      "_status": "confirmed",
+      "_note": "3x.2g (Ale, CONFIRMED): refunds are handled manually and 'it depends'. The DEFAULT remedy is a VOUCHER/credit, not cash. Engine-default mechanism (default_remedy = voucher | money), values per client. Bot never issues a refund or voucher itself — always staff.",
+      "default_remedy": "voucher",
+      "_default_remedy_options": ["voucher", "money", "staff_decides"],
+      "voucher": {
+        "validity_months": 12,
+        "scope": "same_property_next_surf_trip",
+        "_scope_note": "usable for a year here in Somo for the next surf trip",
+        "good_cause_even_day_before_arrival": true
+      },
+      "money_refund": {
+        "policy": "exception_only",
+        "_note": "rarely refund money; FULL money refund when a guest is genuinely unhappy / has a real legitimate reason"
+      },
+      "all_refunds_manual_staff": true,
+      "bot_issues_refund_or_voucher": false
+    },
     "unknown_question_handoff": true,
-    "cancellation_policy_windows": "unpaid_free_cancel_paid_to_staff",
-    "refund_percentages": "owner_required",
+    "cancellation_policy_windows": "unpaid_free_cancel_paid_to_staff_default_voucher",
+    "refund_percentages": "staff_discretion_voucher_default_full_money_if_genuine_dissatisfaction",
     "no_show_policy": "keep_deposit_return_remaining_balance",
-    "_no_show_note": "3x.2e: on no-show, keep the deposit and return the rest. Any actual refund of the remainder is executed manually by staff.",
+    "_no_show_note": "3x.2e: on no-show, keep the deposit and return the rest. Any actual refund of the remainder is executed manually by staff (default remedy = voucher per refund_mechanism).",
     "date_change_fee": "free_if_same_nights_same_rate_and_available_else_staff",
     "cancellation_safe_reply": "I'll connect you with our team to handle this — please give us a moment.",
-    "refund_safe_reply": "Refunds are handled by our team directly. Let me pass you over.",
+    "refund_safe_reply": "Cancellations and refunds are handled by our team directly — they usually arrange a voucher you can use within a year. Let me pass you over.",
     "date_change_safe_reply": "Date changes need to be confirmed by our team. I'll flag this for them now.",
-    "safe_default": "auto_cancel_only_if_unpaid_auto_move_only_if_same_nights_same_rate_and_available_else_handoff_with_exact_booking_match"
+    "safe_default": "auto_cancel_only_if_unpaid_auto_move_only_if_same_nights_same_rate_and_available_else_handoff_with_exact_booking_match_refunds_always_staff_default_voucher"
   },
 
   "rooming": {
@@ -215,16 +240,18 @@
       "peak":     { "malibu": 349, "uluwatu": 449, "waimea": 599 }
     },
     "non_7_night_pricing": {
-      "_status": "provisional",
-      "method": "prorate_accommodation_per_night_plus_chosen_addons_per_day",
-      "_note": "3x.2e (owner): for non-standard stays, prorate ACCOMMODATION separately and add gear/lessons per day. Accommodation base = Malibu seasonal price (room + shirt; same shared room for all packages). Add-ons billed per day requested at service_catalog day rates (board €20, wetsuit €20, lesson €25). The named 7-night packages keep their bundled (cheaper) prices; this build-up is for partial/custom stays.",
-      "accommodation_base_source": "malibu_seasonal_price",
-      "accommodation_per_night_formula": "malibu_season_price / 7",
-      "accommodation_rounding": "round_up_to_nearest_5_eur",
-      "addons_per_day_source": "service_catalog_day_rates",
+      "_status": "confirmed",
+      "method": "prorate_chosen_package_per_night_then_multiply_nights",
+      "_note": "3x.2g (Ale, CONFIRMED): for stays shorter or longer than 7 nights, take the CHOSEN package's seasonal total, divide by 7, round UP to the nearest €5 to get the per-night price, then multiply by the number of nights. This supersedes the earlier provisional 'Malibu base + add-ons per day' guess. A custom/short stay also uses the €100 deposit tier (see payment.deposit_rule).",
+      "package_source": "chosen_package_seasonal_price",
+      "per_night_formula": "round_up_to_nearest_5_eur(chosen_package_season_price / 7)",
+      "total_formula": "per_night * number_of_nights",
+      "rounding": "round_up_to_nearest_5_eur_on_per_night",
+      "addons_billed_separately": true,
+      "addons_per_day_source": "service_catalog (see service_addons)",
       "addon_days": "guest_specified_capped_by_free_days_remaining_in_booking",
-      "_addon_days_note": "3x.2e (owner): a guest can add gear/lessons for as many days as they have FREE/remaining in their booking — cannot exceed days left.",
-      "example": "shoulder, 4 nights, wants board+wetsuit 3 days: accommodation = round_up_5(249/7*4=142.3)=145; add-ons = 3*(20+20)=120; total=265 per person."
+      "_addon_days_note": "a guest can add gear/lessons for as many days as they have remaining in their booking — cannot exceed nights booked.",
+      "example": "Uluwatu shoulder (€349), 4 nights: per_night = round_up_5(349/7=49.86)=50; total = 50*4 = €200 per person; any rentals/lessons added per day at service_catalog rates."
     },
     "minimum_nights": "none",
     "always_7_nights": false,
@@ -333,26 +360,63 @@
     "bot_never_marks_redeemed": true,
     "otherwise": "create_service_request_and_handoff",
     "tracking_target": "staff_ui_or_airtable_initially_then_postgres_service_table",
-    "pricing_status": "provisional",
+    "pricing_status": "confirmed",
     "service_catalog": {
-      "_note": "3x.2e: operator-set per-day/per-meal add-on prices. Easy to edit each price_eur here. Provisional until owner confirms; provisional prices are dry-run/shadow only (pricing_policy). These add-on day rates are also used to build non-7-night quotes (accommodation prorated + add-ons per day requested).",
-      "surf_lesson": { "pricing_unit": "per_day", "price_eur": 25, "pricing_status": "provisional", "fulfillment": "onsite_redeem" },
-      "surfboard_rental": { "pricing_unit": "per_day", "price_eur": 20, "pricing_status": "provisional", "fulfillment": "onsite_redeem" },
-      "wetsuit_rental": { "pricing_unit": "per_day", "price_eur": 20, "pricing_status": "provisional", "fulfillment": "onsite_redeem" },
-      "surfboard_wetsuit_bundle": { "pricing_unit": "per_day", "price_eur": 40, "pricing_status": "provisional", "_note": "3x.2e: NO bundle discount — price = sum of individual day rates (20 + 20)." },
-      "dinner_meal": { "pricing_unit": "per_person_per_meal", "price_eur": 15, "pricing_status": "provisional", "fulfillment": "onsite_redeem", "_note": "3x.2e: guests may book dinners during stay; they show the booking message / payment to staff when collecting their food. Quantity = number of meals / people." },
-      "yoga_class": { "pricing_unit": "per_person_per_class", "price_eur": 15, "pricing_status": "provisional", "fulfillment": "onsite_redeem", "_note": "3x.2e: bookable like dinners — guest pays for a yoga class, then shows Cami the WhatsApp conversation + payment confirmation before the lesson. Provisional €15; easy to edit." }
+      "_note": "3x.2g (Ale, CONFIRMED): per-day rental + per-lesson prices. Two engine-default pricing mechanisms are used here so any client can express the same shapes: (1) `pricing_model: tiered_by_quantity` for items that get cheaper when you buy several (lessons); (2) bundles (see `bundles` below) for gear combos with their own price. Edit price_eur values here to change prices.",
+      "wetsuit_rental": { "pricing_unit": "per_day", "price_eur": 5, "pricing_status": "confirmed", "fulfillment": "onsite_redeem" },
+      "softtop_surfboard_rental": { "pricing_unit": "per_day", "price_eur": 15, "pricing_status": "confirmed", "fulfillment": "onsite_redeem", "_note": "soft top board" },
+      "hardboard_surfboard_rental": { "pricing_unit": "per_day", "price_eur": 20, "pricing_status": "confirmed", "fulfillment": "onsite_redeem", "_note": "hard board" },
+      "surf_lesson": {
+        "pricing_unit": "per_lesson",
+        "pricing_model": "tiered_by_quantity",
+        "_pricing_model_note": "3x.2g (Ale): one lesson €35; if booking more than one lesson, €30 each.",
+        "tiers": [
+          { "min_qty": 1, "max_qty": 1, "price_eur": 35 },
+          { "min_qty": 2, "max_qty": null, "price_eur_each": 30 }
+        ],
+        "pricing_status": "confirmed",
+        "fulfillment": "onsite_redeem",
+        "scheduling_ref": "lesson_scheduling"
+      },
+      "dinner_meal": { "pricing_unit": "per_person_per_meal", "price_eur": 15, "pricing_status": "provisional", "fulfillment": "onsite_redeem", "_note": "Not re-confirmed by Ale in 3x.2g; remains provisional. Guests book dinners during stay and show the booking message / payment to staff when collecting food." },
+      "yoga_class": { "pricing_unit": "per_person_per_class", "price_eur": 15, "pricing_status": "confirmed", "fulfillment": "onsite_redeem", "booked_onsite": true, "_note": "3x.2g (Ale, CONFIRMED): €15 per class, booked ON SITE. Yoga is an extra UNLESS it is part of a special camp (e.g. a Log & Yoga retreat / special camp) where it may be included — see special_camps." }
     },
-    "bundle_discount": "none",
+    "bundles": {
+      "_note": "3x.2g (Ale, CONFIRMED): gear combos priced as a bundle. In both promos the wetsuit is effectively included free with the board. Engine-default bundle mechanism: a bundle has its own price that may be lower than the sum of parts.",
+      "wetsuit_plus_softtop": { "pricing_unit": "per_day", "price_eur": 15, "includes": ["wetsuit_rental", "softtop_surfboard_rental"], "pricing_status": "confirmed", "_note": "promo: same price as soft top alone — wetsuit free" },
+      "wetsuit_plus_hardboard": { "pricing_unit": "per_day", "price_eur": 20, "includes": ["wetsuit_rental", "hardboard_surfboard_rental"], "pricing_status": "confirmed", "_note": "promo: same price as hard board alone — wetsuit free" }
+    },
+    "bundle_discount": "yes_see_bundles",
+    "special_camps": {
+      "_status": "info_only",
+      "_note": "3x.2g (Ale): yoga is normally an extra, but during special camps (e.g. a Log & Yoga retreat) it may be bundled in. Special camps are staff-defined; bot does not invent them — handoff for special-camp requests.",
+      "behavior": "handoff_to_staff"
+    },
+    "lesson_scheduling": {
+      "_status": "confirmed",
+      "_note": "3x.2g (Ale, CONFIRMED): lessons run almost every day except low season; tracked MANUALLY by staff. Engine-default: bot collects the lesson request + paid voucher; STAFF assign the actual time slot. Bot does not auto-book a slot.",
+      "frequency": "almost_daily_except_low_season",
+      "tracking": "manual_by_staff",
+      "bot_assigns_slot": false,
+      "bot_collects_request_then_staff_schedule": true,
+      "daily_slots": [
+        { "group": 1, "transport_time": "08:30", "lesson_window": "09:00-11:00" },
+        { "group": 2, "transport_time": "10:30", "lesson_window": "11:00-13:00" }
+      ]
+    },
     "addon_days_capped_by_free_days_remaining": true,
     "dinner_booking_enabled": true,
     "yoga_booking_enabled": true,
+    "yoga_booked_onsite": true,
     "onsite_redeem_proof": "show_whatsapp_conversation_and_payment_confirmation_to_staff",
-    "bad_weather_or_no_waves_policy": "refund_possible_but_manual_staff_handoff",
-    "owner_required": [
-      "yoga_class_price",
-      "lesson_scheduling_and_tracking"
-    ]
+    "bad_weather_or_no_waves_policy": {
+      "_status": "confirmed",
+      "_note": "3x.2g (Ale, CONFIRMED): if it is really flat / very bad weather and the guest doesn't feel like surfing, staff refund the LESSON. Decided day by day by staff — not an automatic bot action.",
+      "policy": "lesson_refund_possible_when_flat_or_bad_weather",
+      "decision": "day_by_day_by_staff",
+      "bot_action": "handoff_to_staff_do_not_auto_refund"
+    },
+    "owner_required": []
   },
 
   "staff_queries": {
@@ -470,11 +534,23 @@
       "package_2026_prices_confirmed_by_owner",
       "deploy_config_pattern_formalized_template_and_guide"
     ],
+    "resolved_in_3x2g_confirmed_by_ale": [
+      "deposit_tiered_200_standard_package_100_custom_or_short_stay",
+      "non_7_night_proration_package_total_div_7_round_up_5_per_night",
+      "rental_prices_corrected_wetsuit_5_softtop_15_hardboard_20",
+      "gear_bundles_wetsuit_plus_softtop_15_wetsuit_plus_hardboard_20_wetsuit_free",
+      "lesson_tiered_pricing_single_35_multiple_30_each",
+      "yoga_15_per_class_booked_onsite_confirmed",
+      "lesson_scheduling_manual_two_daily_slots",
+      "bad_weather_lesson_refund_staff_day_by_day",
+      "refund_default_voucher_12_months_money_refund_exception_always_staff",
+      "generalizable_mechanisms_promoted_to_engine_default_template"
+    ],
     "current_blockers": [
-      "deposit_and_addon_prices_provisional_confirm_before_live_autonomous_charge",
       "real_cami_handoff_number_for_production_set_in_secret_file_at_deploy",
       "emergency_script_owner_required",
-      "real_whatsapp_send_gate_or_shadow_mode_for_confirmation"
+      "real_whatsapp_send_gate_or_shadow_mode_for_confirmation",
+      "dinner_meal_price_still_provisional_not_reconfirmed_by_ale"
     ],
     "non_blockers": [
       "exact_package_copy_perfection",

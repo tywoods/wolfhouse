@@ -2,7 +2,7 @@
 
 **Purpose:** Capture answers the **public website does not provide**. Feeds [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](../STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) and the provisional baseline config [`config/clients/wolfhouse-somo.baseline.json`](../../config/clients/wolfhouse-somo.baseline.json).
 
-**Status:** Mostly answered — **P1 prices/policies applied 2026-05-29 (Stage 3x.2c–3x.2d)** to baseline config v0.3 as **PROVISIONAL**. Remaining items are mainly to **confirm** provisional prices and fill a few gaps below.
+**Status:** Mostly answered. **Stage 3x.2g (2026-05-29):** Ale **CONFIRMED** prices/policies (tiered deposit, corrected rental/lesson prices, bundles, voucher refunds, lesson scheduling) — applied to baseline config **v0.6**. Only a few P1 deploy-time items remain (real Cami number, emergency script, staff numbers) plus dinner price confirmation.
 
 ---
 
@@ -66,15 +66,28 @@
 
 ---
 
-## 🔴 Remaining — needed to CONFIRM (flip provisional → confirmed) / unblock live
+## ✅ Answered 3x.2g (2026-05-29) — Ale, CONFIRMED → applied to baseline v0.6
 
-- [ ] **P1** **Confirm** the provisional prices are correct for 2026 (deposit €200, package table, double-room +€10/nt/person, dinner €15, board/wetsuit €20/day, lesson €25/day).
+*These flip the matching items from provisional → confirmed. Generalizable behaviors were promoted to engine-default mechanisms in `config/clients/_deploy-config.template.json`; only the values live in the Wolfhouse config.*
+
+- [x] **Deposit is TIERED, not flat:** standard package = **€200**; custom pack / shorter stays = **€100**. (`payment.deposit_rule`, confirmed)
+- [x] **Non-7-night pricing CONFIRMED:** chosen package total ÷ 7, **round up to nearest €5 per night**, × nights. (corrects earlier Malibu-base guess) (`packages.non_7_night_pricing`, confirmed)
+- [x] **Rental prices CORRECTED:** wetsuit **€5/day**, soft top **€15/day**, hard board **€20/day**. (`service_addons.service_catalog`, confirmed)
+- [x] **Gear bundles (promos):** wetsuit + soft top = **€15/day**; wetsuit + hard board = **€20/day** (wetsuit free with a board). (`service_addons.bundles`, confirmed)
+- [x] **Lesson pricing is TIERED:** single lesson **€35**; **€30 each** when booking more than one. (`service_addons.service_catalog.surf_lesson`, confirmed)
+- [x] **Yoga = €15/class, booked ON SITE.** Extra unless part of a special camp (e.g. Log & Yoga retreat). (`service_addons` + `special_camps`, confirmed)
+- [x] **Lessons scheduled MANUALLY** by staff; almost daily except low season. Two daily slots (08:30 drive / 09:00–11:00; 10:30 drive / 11:00–13:00). Bot collects the request; staff assign the slot. (`service_addons.lesson_scheduling`, confirmed)
+- [x] **Bad weather / no waves:** staff refund the **lesson**, decided **day by day**. Bot hands off, never auto-refunds. (`service_addons.bad_weather_or_no_waves_policy`, confirmed)
+- [x] **Cancellations/refunds:** manual + staff. **Default remedy = VOUCHER**, valid **12 months** in Somo for the next trip (even day-before-arrival, good cause). Money refund is the **exception** — full refund only if a guest is genuinely unhappy for a real reason. (`cancellation.refund_mechanism`, confirmed)
+
+---
+
+## 🔴 Remaining — still open after 3x.2g
+
 - [ ] **P1** **Cami's real WhatsApp number** for production (currently operator test number in the secret file; update at deploy):
 - [ ] **P1** **Emergency script** wording (medical/legal/emergency):
 - [ ] **P1** Real **approved staff numbers + roles** (operator number is the only admin so far) + the **admin password** if you want the optional second factor (send securely, not in chat):
-- [ ] **P2** Confirm accommodation-only = Malibu base is fine:
-- [ ] **P2** How lessons are scheduled/tracked (slots / instructors / capacity):
-- [ ] **P2** Payment deadline after link sent + reminders:
+- [ ] **P2** Confirm **dinner = €15** (the only add-on price Ale did not re-confirm in this round):
 - [ ] **P3** Confirm the bot may say "I'll ask the team" before handoff (wording):
 - [ ] **P3** Anything else the owner thinks matters:
 

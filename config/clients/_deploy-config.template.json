@@ -62,23 +62,51 @@
   },
 
   "payment": {
-    "_note": "engine_default behavior; deploy values = deposit.",
-    "deposit_amount": "<FILL: e.g. 200>",
-    "deposit_scope": "<FILL: per_booking | per_person | per_package>",
+    "_note": "engine_default behavior; deploy values = deposit. Deposit supports a tiered rule (common across surf houses: full package vs custom/short stay take different deposits). Use type=flat for a single amount.",
+    "deposit_rule": {
+      "type": "<FILL: flat | tiered_by_booking_type | per_person | per_package>",
+      "scope": "<FILL: per_booking | per_person | per_package>",
+      "default_eur": "<FILL: e.g. 200>",
+      "tiers": {
+        "_note": "only for type=tiered_by_booking_type; otherwise omit. Each tier has an amount + a _match describing when it applies.",
+        "standard_package": { "amount_eur": "<FILL: e.g. 200>", "_match": "named full package at standard terms" },
+        "custom_or_short_stay": { "amount_eur": "<FILL: e.g. 100>", "_match": "custom-built package or non-standard / shorter stay" }
+      },
+      "pricing_status": "<provisional | confirmed>"
+    },
     "hold_expiry_minutes": "<FILL: e.g. 60>",
     "payment_link_options": ["deposit", "full"],
-    "balance_payment_methods": ["<FILL: cash, bank_transfer, stripe>"],
-    "pricing_status": "<provisional | confirmed>"
+    "balance_payment_methods": ["<FILL: cash, bank_transfer, stripe>"]
   },
 
   "service_addons": {
-    "_note": "During-stay add-ons (rentals/lessons/meals/yoga/etc). Onsite redeem = guest shows booking msg + payment to staff.",
+    "_note": "During-stay add-ons (rentals/lessons/meals/yoga/etc). Onsite redeem = guest shows booking msg + payment to staff. Two engine-default pricing mechanisms: (1) tiered_by_quantity for items that get cheaper in bulk (e.g. lessons); (2) bundles for combos with their own price (may be a discount). Bot collects + takes payment; STAFF schedule/redeem.",
     "enabled": true,
     "addon_days_capped_by_free_days_remaining": true,
     "onsite_redeem_proof": "show_whatsapp_conversation_and_payment_confirmation_to_staff",
-    "bundle_discount": "<FILL: none | describe>",
     "service_catalog": {
-      "<service_id>": { "pricing_unit": "<per_day|per_session|per_person|fixed>", "price_eur": "<FILL>", "pricing_status": "<provisional|confirmed>", "fulfillment": "onsite_redeem" }
+      "<simple_service_id>": { "pricing_unit": "<per_day|per_session|per_person|fixed>", "price_eur": "<FILL>", "pricing_status": "<provisional|confirmed>", "fulfillment": "onsite_redeem" },
+      "<tiered_service_id>": {
+        "pricing_unit": "<per_lesson|per_session>",
+        "pricing_model": "tiered_by_quantity",
+        "tiers": [
+          { "min_qty": 1, "max_qty": 1, "price_eur": "<FILL: single price>" },
+          { "min_qty": 2, "max_qty": null, "price_eur_each": "<FILL: cheaper each when 2+>" }
+        ],
+        "pricing_status": "<provisional|confirmed>",
+        "fulfillment": "onsite_redeem"
+      }
+    },
+    "bundles": {
+      "_note": "optional. Combo add-ons with their own price (e.g. wetsuit + board). Omit if no bundles.",
+      "<bundle_id>": { "pricing_unit": "<per_day>", "price_eur": "<FILL>", "includes": ["<service_id>", "<service_id>"], "pricing_status": "<provisional|confirmed>" }
+    },
+    "lesson_scheduling": {
+      "_note": "optional — for verticals/clients that run scheduled lessons. Set bot_assigns_slot=false if staff schedule manually (common). Omit if not applicable.",
+      "tracking": "<FILL: manual_by_staff | system>",
+      "bot_assigns_slot": false,
+      "bot_collects_request_then_staff_schedule": true,
+      "daily_slots": []
     }
   },
 
@@ -100,8 +128,16 @@
     "paid_cancellation_handoff": true,
     "auto_date_change_requires": ["same_night_count", "same_rate", "availability_exists"],
     "refund_policy": "<FILL>",
+    "refund_mechanism": {
+      "_note": "engine_default mechanism: refunds are always staff-handled; the DEFAULT remedy is configurable. Many surf houses default to a voucher/credit rather than cash. Bot never issues a refund or voucher itself.",
+      "default_remedy": "<FILL: voucher | money | staff_decides>",
+      "voucher": { "validity_months": "<FILL: e.g. 12>", "scope": "<FILL: e.g. same_property_next_trip>" },
+      "money_refund": { "policy": "<FILL: e.g. exception_only>" },
+      "all_refunds_manual_staff": true,
+      "bot_issues_refund_or_voucher": false
+    },
     "no_show_policy": "<FILL: e.g. keep_deposit_return_remaining_balance>",
-    "bad_weather_or_no_waves_policy": "<FILL or n/a>"
+    "bad_weather_or_no_waves_policy": "<FILL or n/a — e.g. lesson_refund_decided_day_by_day_by_staff>"
   },
 
   "handoff": {

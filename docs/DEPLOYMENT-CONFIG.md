@@ -37,10 +37,10 @@ A new client = **3 things**:
 | Identity | slug, name, vertical, timezone, languages, currency |
 | Property | address, gate code, check-in/out times, closed months, housekeeping |
 | Catalog | offerings/packages, seasons, prices, inclusions, room/unit-type modifiers, non-standard-duration pricing, recommendation map |
-| Payment | deposit amount + scope, hold expiry, balance methods |
-| Add-ons | service catalog (rentals/lessons/meals/yoga) + prices, bundle discount |
+| Payment | deposit rule (flat or **tiered by booking type**) + scope, hold expiry, balance methods |
+| Add-ons | service catalog (rentals/lessons/meals/yoga) + prices, **quantity-tiered prices**, **bundles**, lesson scheduling |
 | Inventory | rooms/beds map (lodging) or slots/rentals; rooming rules (lodging only) |
-| Policies | cancellation, no-show, bad-weather |
+| Policies | cancellation, no-show, bad-weather, **refund mechanism (voucher vs money)** |
 | Handoff | channel, target (secret ref), emergency script |
 | Staff | master-admin (secret ref), roles |
 | **Secrets** | handoff number, master-admin numbers, admin password (in secret file) |
@@ -66,10 +66,13 @@ Updating a price later = edit the value + flip the flag. No code change, no plum
 
 `wolfhouse-somo.baseline.json` **is** a filled deploy config (vertical = `lodging_surf_house`):
 
-- Packages Malibu/Uluwatu/Waimea, seasons (Mar–Jun/Oct/Nov shoulder, Jul/Sep high, Aug peak, Dec–Feb closed), prices **confirmed 2026**.
-- Deposit €200/booking; add-ons board €20, wetsuit €20, lesson €25, dinner €15, yoga €15 (provisional).
+- Packages Malibu/Uluwatu/Waimea, seasons (Mar–Jun/Oct/Nov shoulder, Jul/Sep high, Aug peak, Dec–Feb closed), prices **confirmed 2026**. Non-7-night = package total ÷ 7, round up to nearest €5/night.
+- **Tiered deposit** (€200 standard package / €100 custom or short stay); add-ons **confirmed (3x.2g)**: wetsuit €5, soft top €15, hard board €20/day; **bundles** wetsuit+softtop €15, wetsuit+hardboard €20; lessons **tiered** (1 = €35, 2+ = €30 each); yoga €15 on site. Dinner €15 still provisional.
 - Gate code, check-in 15:00 / check-out 11:00, rooming map R1–R10.
+- Lessons scheduled manually (two daily slots); **refunds default to a 12-month voucher**, cash refund is the exception — all staff-handled.
 - Handoff → WhatsApp (number in secret file); master-admin in secret file.
+
+These four mechanisms are generalizable across surf houses and are **engine defaults** in the template (values per client): **tiered deposit**, **quantity-tiered add-on pricing**, **bundles**, **voucher-first refunds**.
 
 A **surf shop** or **surf school** deploy config reuses every engine section above; it only swaps `catalog` (rental SKUs / lesson types) and `inventory` (`rentals` / `slots`) — validated cheaply by the paper-test samples `surf-shop-rental.sample.json` / `surf-school.sample.json`.
 
