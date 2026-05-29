@@ -39,6 +39,14 @@ const CAPTURE_EXEC_DATA = !ARGS_SET.has('--no-execution-data');
 const FROM_REPORT_IDX = ARGS.indexOf('--from-report');
 const FROM_REPORT_PATH = FROM_REPORT_IDX !== -1 ? ARGS[FROM_REPORT_IDX + 1] : null;
 
+// --only <id> mode: run only the payload whose id or filename matches (case-insensitive).
+// Accepted forms: "Y-T8", "y-t8", "y-t8-rooming-preference" (filename prefix).
+const ONLY_IDX = ARGS.indexOf('--only');
+const ONLY_RAW = ONLY_IDX !== -1 ? ARGS[ONLY_IDX + 1] : null;
+/** Normalise to lowercase, strip leading/trailing dashes. */
+const normaliseId = (s) => String(s || '').toLowerCase().replace(/^[-\s]+|[-\s]+$/g, '');
+const ONLY_FILTER = ONLY_RAW ? normaliseId(ONLY_RAW) : null;
+
 const PAYLOAD_DIR = path.join(__dirname, '..', 'test-payloads', 'stage3y', 'mode-a');
 const REPORT_PATH = path.join(__dirname, '..', 'reports', 'stage3y-mode-a-report.json');
 const WEBHOOK_URL =
@@ -529,12 +537,35 @@ function fmtDraft(text) {
 async function main() {
   assertDryRun();
 
+  // ── --only filter: resolve which payloads to run ──────────────────────────
+  /** Match a filename like "y-t8-rooming-preference.json" against a filter like "y-t8" or "y-t8-rooming-preference". */
+  function matchesOnly(filename, filter) {
+    const base = normaliseId(filename.replace(/\.json$/i, ''));
+    // Exact match on normalised base
+    if (base === filter) return true;
+    // Filter is a short id prefix: "y-t8" matches "y-t8-rooming-preference"
+    if (base.startsWith(filter + '-')) return true;
+    return false;
+  }
+
+  let filesToRun = [...PAYLOAD_ORDER];
+  if (ONLY_FILTER) {
+    filesToRun = PAYLOAD_ORDER.filter((f) => matchesOnly(f, ONLY_FILTER));
+    if (!filesToRun.length) {
+      console.error(`--only "${ONLY_RAW}": no payload in PAYLOAD_ORDER matches filter "${ONLY_FILTER}".`);
+      console.error(`Available: ${PAYLOAD_ORDER.map((f) => f.replace('.json', '')).join(', ')}`);
+      process.exit(1);
+    }
+    console.log(`--only filter: running ${filesToRun.length} payload(s): ${filesToRun.join(', ')}`);
+  }
+
   const report = {
     generated_at: new Date().toISOString(),
     webhook_url: WEBHOOK_URL,
     main_workflow_id: MAIN_WF_ID,
     whatsapp_dry_run: true,
     execution_data_capture: CAPTURE_EXEC_DATA,
+    filter: ONLY_FILTER ? { only: ONLY_RAW, matched: filesToRun } : null,
     note: 'Offline shadow runner. Does NOT activate or modify workflows. Main must already be active.',
     baseline_counts: null,
     n8n_execution_baseline: null,
@@ -577,7 +608,7 @@ async function main() {
 
     let rollingMaxId = n8nBaseline;
 
-    for (const file of PAYLOAD_ORDER) {
+    for (const file of filesToRun) {
       const filePath = path.join(PAYLOAD_DIR, file);
       const testId = file.replace('.json', '');
       const testEntry = { file, test_id: testId };

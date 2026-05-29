@@ -24484,6 +24484,100 @@
         "mode": "runOnceForAllItems",
         "jsCode": "// Stage 3y shadow: Search Messages stub — returns current message as minimal history\nconst msg = $('Normalize Incoming Message').first().json || {};\nconst msgText = msg.guest_message || msg.message_body || msg.body || msg.text || '';\nreturn [{ json: {\n  id: 'dry-run-msg-1',\n  fields: {\n    'Message Text': msgText,\n    'Direction': 'Inbound',\n    'Conversation Phone': msg.phone || '',\n    'Source': 'WhatsApp',\n    dry_run: true\n  }\n}}];"
       }
+    },
+    {
+      "id": "shadow-if-3068",
+      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2888,
+        2528
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "shadow-cond-3068",
+              "leftValue": "={{ String($env.WHATSAPP_DRY_RUN || '').toLowerCase() }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "shadow-stub-3068",
+      "name": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2888,
+        2668
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Stage 3y shadow: reassign HTTP call bypassed (endpoint unavailable in offline mode)\nreturn [{ json: {\n  status: 'ok',\n  dry_run: true,\n  action: 'reassign_booking_beds',\n  skipped: true,\n  reason: 'shadow_mode',\n  _shadow_note: 'Call Reassign Booking Beds bypassed by WHATSAPP_DRY_RUN=true'\n}}];"
+      }
+    },
+    {
+      "id": "shadow-if-3069",
+      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4776,
+        -48
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "shadow-cond-3069",
+              "leftValue": "={{ String($env.WHATSAPP_DRY_RUN || '').toLowerCase() }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "shadow-stub-3069",
+      "name": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update1)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4776,
+        92
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Stage 3y shadow: reassign HTTP call bypassed (endpoint unavailable in offline mode)\nreturn [{ json: {\n  status: 'ok',\n  dry_run: true,\n  action: 'reassign_booking_beds',\n  skipped: true,\n  reason: 'shadow_mode',\n  _shadow_note: 'Call Reassign Booking Beds bypassed by WHATSAPP_DRY_RUN=true'\n}}];"
+      }
     }
   ],
   "pinData": {},
@@ -25895,7 +25989,7 @@
       "main": [
         [
           {
-            "node": "Call Reassign Booking Beds - Rooming Update1",
+            "node": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)",
             "type": "main",
             "index": 0
           }
@@ -26138,7 +26232,7 @@
       "main": [
         [
           {
-            "node": "Call Reassign Booking Beds - Rooming Update",
+            "node": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update)",
             "type": "main",
             "index": 0
           }
@@ -27356,7 +27450,7 @@
       "main": [
         [
           {
-            "node": "Call Reassign Booking Beds - Rooming Update1",
+            "node": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)",
             "type": "main",
             "index": 0
           }
@@ -28370,6 +28464,64 @@
         [
           {
             "node": "Code - Build Conversation Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update)": {
+      "main": [
+        [
+          {
+            "node": "Call Reassign Booking Beds - Rooming Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update)": {
+      "main": [
+        [
+          {
+            "node": "Rooming Updated After Reassignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)": {
+      "main": [
+        [
+          {
+            "node": "Call Reassign Booking Beds - Rooming Update1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update1)": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Rooming Info Saved Reply",
             "type": "main",
             "index": 0
           }

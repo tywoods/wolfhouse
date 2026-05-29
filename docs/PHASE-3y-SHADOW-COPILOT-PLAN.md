@@ -294,7 +294,7 @@ These tests are all Mode A (offline/pasted messages) unless noted.
 | Y-T5 | Booking intent, no dates | `booking_flow` | Request check-in / check-out dates | ✅ | ✅ | **PASS** (gate 4): route=`booking_flow` conf 0.99, missing=["check_in","check_out","guest_count"], 9 shadow gates fired, no mutations. Draft captured: "Hey, welcome! Stoked you're thinking of staying with us at Wolfhouse! To get things started -- what dates are you looking to check in and out?" |
 | Y-T6 | Dates present, no guest count | `booking_flow` | Request guest count | ✅ | ✅ | **PASS** (gate 4): route=`booking_flow` conf 0.95, missing=["guest_count"] (correct!), 9 shadow gates fired, no mutations. Draft captured: "Hey! Great to hear from you! How many guests will be staying?" |
 | Y-T7 | "How do I pay the deposit? Can I pay the full amount instead?" | `payment_flow` or `general_question` | Explain payment process; do NOT create payment link | ✅ | ✅ (no payment write) | **PASS** (gate 4): route=`payment_or_confirm_intent` conf 0.85, 9 shadow gates fired, no mutations, no payment write. Draft: "Hey! Great question! You can definitely pay the full amount upfront if you'd like..." |
-| Y-T8 | "Can I get a sea view room or a private room if possible?" | `rooming_info` or `general_question` | Acknowledge preference; do NOT assign beds or promise room | ✅ | ✅ (no booking_beds write) | **NEEDS TUNING** (gate 4): route=`rooming_details_provided` conf 0.95 (correct routing). Execution errored at `Call Reassign Booking Beds` -- HTTP call to local reassign endpoint fails in offline mode. 7 shadow gates fired, booking_beds=0 (no write). Reassign HTTP node needs DRY_RUN gate. |
+| Y-T8 | "Can I get a sea view room or a private room if possible?" | `rooming_info` or `general_question` | Acknowledge preference; do NOT assign beds or promise room | ✅ | ✅ (no booking_beds write) | **PASS** (gate 5 targeted rerun 2026-05-30): route=`rooming_details_provided` conf 0.95, 11 shadow gates fired (includes `IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)`), draft captured: "Perfect, thanks! That helps us place you in the best room", no mutations, booking_beds=0. |
 | Y-T9 | Low-confidence ("hey what's up") | `unknown` / `handoff_needed` | Ask clarifying question; low confidence | ✅ | ✅ | **PASS** (gate 3): route=`general_question` conf 0.85, draft="Hey! 🤙 What's good? Welcome to Wolfhouse! How can we help you out?", 9 shadow gates fired, no mutations |
 | Y-T10 | "I'm really annoyed, nobody has replied and I want my money back." | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | **PASS** (gate 4): route=`human_handoff` conf 0.95, draft="Hi! I sincerely apologize for the delay in getting back to you. A team member will be in touch shortly...", 9 shadow gates fired, no mutations |
 | Y-T11 | Medical / emergency mention | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | NOT YET CREATED |
@@ -666,7 +666,7 @@ Baseline -> final counts identical:
 
 ### Y-T8 NEEDS TUNING detail
 
-Y-T8 ("Can I get a sea view room or a private room if possible?") correctly routed to `rooming_details_provided` (conf 0.95). The execution errored at `Call Reassign Booking Beds - Rooming Update1` because this HTTP node makes an outbound call to the local reassign endpoint which is unavailable in offline mode. The node is NOT currently gated by `WHATSAPP_DRY_RUN`. Fix: add a DRY_RUN IF-gate for the reassign HTTP nodes in `scripts/build-main-local-stripe.js`. **No safety failure -- booking_beds count unchanged (15 -> 15).**
+Y-T8 ("Can I get a sea view room or a private room if possible?") correctly routed to `rooming_details_provided` (conf 0.95). The execution errored at `Call Reassign Booking Beds - Rooming Update1` because this HTTP node makes an outbound call to the local reassign endpoint which is unavailable in offline mode. The node is NOT currently gated by `WHATSAPP_DRY_RUN`. Fix implemented and runtime verified (2026-05-30): `Call Reassign Booking Beds - Rooming Update1` stub fired (exec 1143), draft captured "Perfect, thanks! That helps us place you in the best room", 11 gates fired, booking_beds unchanged. **RESOLVED -- Y-T8 now PASS.**
 
 ### Post-gate state
 
@@ -675,6 +675,35 @@ Y-T8 ("Can I get a sea view room or a private room if possible?") correctly rout
 - All protected counts at baseline
 - `WHATSAPP_DRY_RUN=true` in both containers
 - Report written: `reports/stage3y-mode-a-report.json`
+
+
+---
+
+## Mode A targeted gate 5 (2026-05-30) -- Y-T8 PASS
+
+**Runner:** `node scripts/run-stage3y-mode-a.js --only Y-T8`
+**Target:** local Main fork `RBfGNtVgrAkvhBHJ` (340 nodes -- 69 IF DRY RUN gates + 69 stubs)
+**Result:** **PASS**
+
+| Item | Value |
+|------|-------|
+| exec | 1143 |
+| HTTP | 200 |
+| route | `rooming_details_provided` |
+| conf | 0.95 |
+| draft | "Perfect, thanks! That helps us place you in the best room 🤙" (Code - Build Rooming Info Saved Reply) |
+| shadow gates | 11 (includes IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)) |
+| safety_failures | 0 |
+| booking_beds | 15 → 15 (delta=0) |
+| send_whatsapp_nodes_executed_directly | [] |
+| typing_indicator_executed | false |
+| airtable_write_nodes_executed_directly | [] |
+| pg_create_booking_hold_executed | false |
+| graph_facebook_in_data | false |
+| meta_wamid_in_data | false |
+| Final active state | all workflows inactive |
+
+**All 10 Mode A payloads are now PASS. Y-T3 and Y-T4 have correct routing but no draft (reply branch not yet wired for existing_booking_status / existing_booking_cancel); Y-T1 has no draft due to PG hold stub. These are known tuning gaps, not safety failures.**
 
 ## Stage 3y exit criteria
 

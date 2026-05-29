@@ -1249,6 +1249,30 @@ return [{ json: {
 }}];`;
   addDryRunGate('Search Messages - Recent Conversation', SEARCH_MSGS_STUB, next());
 
+  // ── Category E: Reassign HTTP nodes ──────────────────────────────────────────
+  // Both HTTP nodes POST to the local reassign endpoint which is unavailable in
+  // offline mode. Gate them so the rooming path can complete without erroring.
+  // Stub returns enough shape for downstream nodes (Rooming Updated After Reassignment
+  // and Code - Build Rooming Info Saved Reply) which both reference $('Code - Parse Route'),
+  // not the reassign HTTP output — so any well-formed object is safe here.
+  const REASSIGN_STUB = `// Stage 3y shadow: reassign HTTP call bypassed (endpoint unavailable in offline mode)
+return [{ json: {
+  status: 'ok',
+  dry_run: true,
+  action: 'reassign_booking_beds',
+  skipped: true,
+  reason: 'shadow_mode',
+  _shadow_note: 'Call Reassign Booking Beds bypassed by WHATSAPP_DRY_RUN=true'
+}}];`;
+
+  const REASSIGN_NODES = [
+    'Call Reassign Booking Beds - Rooming Update',
+    'Call Reassign Booking Beds - Rooming Update1',
+  ];
+  for (const name of REASSIGN_NODES) {
+    addDryRunGate(name, REASSIGN_STUB, next());
+  }
+
   // ── Patch ALL nodes that reference gated nodes in expressions ───────────────
   // Code nodes use $('NodeName') in jsCode (JS). Other nodes (SET, IF, etc.)
   // use $('NodeName') inside ={{ ... }} expression strings in their parameters.
@@ -1260,6 +1284,7 @@ return [{ json: {
     'Postgres - Create Booking Hold',
     'Postgres - Upsert Conversation Hold',
     'Postgres - Backfill Booking AT Record Id',
+    ...REASSIGN_NODES,
   ];
 
   /** Recursively patch $('GatedName') references in parameter values. */
@@ -1303,7 +1328,7 @@ return [{ json: {
 
   const ifCount = workflow.nodes.filter((n) => n.name.startsWith('IF - DRY RUN?')).length;
   const stubCount = workflow.nodes.filter((n) => n.name.startsWith('Code - DRY RUN Stub')).length;
-  console.log(`Shadow-mode gates added: ${ifCount} IF nodes + ${stubCount} Code stubs (${sendNodes.length} WA sends, ${atWriteGates.length} AT writes, 4 PG+read nodes gated)`);
+  console.log(`Shadow-mode gates added: ${ifCount} IF nodes + ${stubCount} Code stubs (${sendNodes.length} WA sends, ${atWriteGates.length} AT writes, 4 PG+read nodes, ${REASSIGN_NODES.length} reassign HTTP nodes gated)`);
   if (ifCount !== stubCount) throw new Error('Shadow gate IF/stub count mismatch — BUG');
 }
 
@@ -1380,12 +1405,23 @@ function verifyShadowModeSafety(workflow) {
     }
   }
 
+  // 8. Reassign HTTP nodes must be dry-run gated (Category E — offline-mode safety for Y-T8)
+  const reassignHttpNodes = [
+    'Call Reassign Booking Beds - Rooming Update',
+    'Call Reassign Booking Beds - Rooming Update1',
+  ];
+  for (const name of reassignHttpNodes) {
+    if (!ifGatedSet.has(name)) {
+      errors.push(`Reassign HTTP node not protected by dry-run IF gate: ${name}`);
+    }
+  }
+
   const gateCount = ifGatedSet.size;
   if (errors.length > 0) {
     const msg = `Shadow-mode safety FAIL (${errors.length} error(s)):\n  ${errors.join('\n  ')}`;
     return { ok: false, errors, gateCount };
   }
-  console.log(`Shadow-mode safety: OK (${gateCount} nodes gated, token clean, hold gated, typing gated)`);
+  console.log(`Shadow-mode safety: OK (${gateCount} nodes gated, token clean, hold gated, typing gated, reassign gated)`);
   return { ok: true, errors: [], gateCount };
 }
 
