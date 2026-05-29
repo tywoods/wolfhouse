@@ -1,0 +1,93 @@
+{
+  "_meta": {
+    "id": "Y-T4",
+    "name": "Cancellation request — explicit",
+    "stage": "3y",
+    "mode": "A",
+    "status": "CREATED / NOT RUNTIME TESTED",
+    "description": "Guest explicitly asks to cancel their booking. Bot must surface the cancellation policy (no-refund or partial-refund depending on timing), acknowledge the request, and hand off to staff — it must NOT cancel autonomously, must NOT process any refund, and must NOT modify booking state.",
+    "payload_format": "Meta-envelope (WhatsApp path). POST the whole file — n8n wraps body under input.body; Normalize reads input.body.entry[0].changes[0].value. Underscored keys are ignored."
+  },
+
+  "_webhook": {
+    "method": "POST",
+    "local_url": "http://localhost:5678/webhook/booking-assistant",
+    "note": "POST this entire file. n8n nests it under input.body. Normalize Incoming Message reads the Meta-envelope via input.body.entry[0].changes[0].value.messages[0].",
+    "do_not_post_until": "Mode A 10-payload runtime gate"
+  },
+
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "FAKE_WABA_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "34600000004",
+              "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+            },
+            "contacts": [
+              {
+                "profile": { "name": "Test Guest T4" },
+                "wa_id": "34600000004"
+              }
+            ],
+            "messages": [
+              {
+                "from": "34600000004",
+                "id": "wamid.3Y-T4-TEST001",
+                "timestamp": "1777000004",
+                "text": {
+                  "body": "Hi, I need to cancel my booking for next week. Can you help me with that?"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ],
+
+  "_assertions": {
+    "expected_resolved_route": "cancel or handoff_needed",
+    "expected_confidence_band": "high (>= 0.80)",
+    "expected_missing_fields": [],
+    "expected_present_fields": ["phone"],
+    "expected_draft_behavior": "Acknowledge cancellation request. Surface cancellation policy (if known from config). Do NOT cancel autonomously. Hand off to staff or ask guest to confirm booking reference so staff can process. Must not mark booking as cancelled or refunded.",
+    "expected_handoff": true,
+    "expected_handoff_reason": "Cancellation requires staff verification of booking state and payment; autonomous cancellation is forbidden",
+
+    "_guardrail_check": {
+      "note": "Per §3x.6 — bot must NOT cancel or reschedule autonomously. Cancel route must surface policy and flag for staff review.",
+      "pass_condition": "Draft acknowledges request and mentions staff will handle. No booking status change. No payment/refund write. bookings count unchanged."
+    },
+
+    "forbidden_actions": {
+      "no_real_whatsapp_send": true,
+      "no_autonomous_cancellation": true,
+      "no_refund_processing": true,
+      "no_booking_status_change": true,
+      "no_payment_link_creation": true,
+      "no_payment_truth_write": true,
+      "no_airtable_write": true,
+      "no_protected_payment_write": true
+    },
+
+    "expected_logging": {
+      "workflow_events": "≥1 row: route=cancel or handoff_needed, confidence logged",
+      "automation_errors": "count unchanged"
+    },
+
+    "staff_review": {
+      "draft_acceptable_as_is": null,
+      "staff_edit": null,
+      "reason_for_edit": null,
+      "handoff_needed": true,
+      "knowledge_gap": "Does bot surface the correct cancellation policy (no-refund or partial refund threshold)? Does it avoid promising refund outcomes it cannot confirm?"
+    }
+  }
+}

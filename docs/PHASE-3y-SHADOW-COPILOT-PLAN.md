@@ -289,14 +289,14 @@ These tests are all Mode A (offline/pasted messages) unless noted.
 |---------|-------------|----------------|----------------------|---------|-------------|----------------|
 | Y-T1 | "I want to book for 2 people, April 10–17" | `booking_flow` | Ask for package type; do NOT hold/pay | ✅ | ✅ | **PASS** (gate 3): route=`booking_flow` conf 0.98, missing=[], no mutations, 6 shadow gates fired, no send/AT/hold. Draft not generated (PG hold stub fails validation — expected in shadow mode; availability reply path requires real hold) |
 | Y-T2 | "What packages do you have?" | `quote` | Describe packages; do NOT invent prices | ✅ | ✅ | **PASS** (gate 3): route=`general_question` conf 0.95, draft captured, 9 shadow gates fired, no mutations |
-| Y-T3 | "I want to pay" (no booking context) | `payment_details_provided` or `handoff_needed` | Ask for booking reference or hand off | ✅ | ✅ | NOT YET CREATED |
-| Y-T4 | "I just sent the payment" | `payment_received_check` or `handoff_needed` | Hand off; do NOT mark paid | ✅ | ✅ (no payment write) | NOT YET CREATED |
+| Y-T3 | "Hey, I already booked for April 10 to April 17. Can you check my booking?" | `booking_flow` or `general_question` | Ask for booking reference; do NOT create new booking | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
+| Y-T4 | "Hi, I need to cancel my booking for next week." | `cancel` or `handoff_needed` | Surface policy; hand off; do NOT cancel autonomously | ✅ | ✅ (no booking write) | CREATED / NOT RUNTIME TESTED |
 | Y-T5 | Booking intent, no dates | `booking_flow` | Request check-in / check-out dates | ✅ | ✅ | **PASS** (gate 3): route=`booking_flow` conf 0.95, missing=["check_in","check_out","guest_count"], 9 shadow gates fired, no mutations. Draft node not captured (missing-fields booking_flow path — runner tooling gap) |
 | Y-T6 | Dates present, no guest count | `booking_flow` | Request guest count | ✅ | ✅ | **PASS** (gate 3): route=`booking_flow` conf 0.95, missing=["guest_count"] (correct!), 9 shadow gates fired, no mutations. Draft node not captured (same tooling gap as Y-T5) |
-| Y-T7 | Cancellation request | `cancel` or `handoff_needed` | Surface policy; do NOT cancel | ✅ | ✅ (no booking write) | NOT YET CREATED |
-| Y-T8 | "Can I change my dates?" | `date_change` or `handoff_needed` | Check policy, hand off | ✅ | ✅ | NOT YET CREATED |
+| Y-T7 | "How do I pay the deposit? Can I pay the full amount instead?" | `payment_flow` or `general_question` | Explain payment process; do NOT create payment link | ✅ | ✅ (no payment write) | CREATED / NOT RUNTIME TESTED |
+| Y-T8 | "Can I get a sea view room or a private room if possible?" | `rooming_info` or `general_question` | Acknowledge preference; do NOT assign beds or promise room | ✅ | ✅ (no booking_beds write) | CREATED / NOT RUNTIME TESTED |
 | Y-T9 | Low-confidence ("hey what's up") | `unknown` / `handoff_needed` | Ask clarifying question; low confidence | ✅ | ✅ | **PASS** (gate 3): route=`general_question` conf 0.85, draft="Hey! 🤙 What's good? Welcome to Wolfhouse! How can we help you out?", 9 shadow gates fired, no mutations |
-| Y-T10 | Complaint / angry message | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | NOT YET CREATED |
+| Y-T10 | "I'm really annoyed, nobody has replied and I want my money back." | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
 | Y-T11 | Medical / emergency mention | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | NOT YET CREATED |
 | Y-T12 | Message in Spanish | `booking_flow` (or relevant) | Draft in Spanish if language detected | ✅ | ✅ | NOT YET CREATED |
 | Y-T13 | "I paid but booking still pending" | `handoff_needed` | Hand off; do NOT mark paid | ✅ | ✅ (no payment write) | NOT YET CREATED |

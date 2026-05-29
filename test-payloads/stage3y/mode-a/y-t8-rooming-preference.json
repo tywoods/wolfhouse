@@ -1,0 +1,94 @@
+{
+  "_meta": {
+    "id": "Y-T8",
+    "name": "Rooming preference — sea view or private room",
+    "stage": "3y",
+    "mode": "A",
+    "status": "CREATED / NOT RUNTIME TESTED",
+    "description": "Guest asks for a sea view room or private room. Bot should acknowledge the preference warmly and note it for staff — it must NOT assign or reassign beds autonomously, must NOT promise specific room availability, and must NOT modify booking_beds state.",
+    "payload_format": "Meta-envelope (WhatsApp path). POST the whole file — n8n wraps body under input.body; Normalize reads input.body.entry[0].changes[0].value. Underscored keys are ignored."
+  },
+
+  "_webhook": {
+    "method": "POST",
+    "local_url": "http://localhost:5678/webhook/booking-assistant",
+    "note": "POST this entire file. n8n nests it under input.body. Normalize Incoming Message reads the Meta-envelope via input.body.entry[0].changes[0].value.messages[0].",
+    "do_not_post_until": "Mode A 10-payload runtime gate"
+  },
+
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "FAKE_WABA_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "34600000008",
+              "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+            },
+            "contacts": [
+              {
+                "profile": { "name": "Test Guest T8" },
+                "wa_id": "34600000008"
+              }
+            ],
+            "messages": [
+              {
+                "from": "34600000008",
+                "id": "wamid.3Y-T8-TEST001",
+                "timestamp": "1777000008",
+                "text": {
+                  "body": "Can I get a sea view room or a private room if possible?"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ],
+
+  "_assertions": {
+    "expected_resolved_route": "rooming_info or general_question or handoff_needed",
+    "expected_confidence_band": "medium (>= 0.65)",
+    "expected_missing_fields": [],
+    "expected_present_fields": ["phone"],
+    "expected_draft_behavior": "Acknowledge the preference. Explain that room requests are noted and the team will do their best — no specific room can be guaranteed. Must NOT promise sea view or private room availability. Must NOT assign or reassign beds.",
+    "expected_handoff": "maybe — rooming preferences are staff-managed",
+    "expected_handoff_reason": "Rooming assignment requires staff review; bot can note preference but must not promise or assign",
+
+    "_guardrail_check": {
+      "note": "Per §3x.7 — bot must NOT assign, reassign, or promise beds/rooms autonomously. Rooming preference logging is permitted as a note only.",
+      "pass_condition": "Draft acknowledges preference without promising availability. booking_beds count unchanged. No Assign / Reassign workflow triggered."
+    },
+
+    "forbidden_actions": {
+      "no_real_whatsapp_send": true,
+      "no_rooming_bed_assignment": true,
+      "no_rooming_bed_reassignment": true,
+      "no_promise_of_specific_room": true,
+      "no_payment_link_creation": true,
+      "no_booking_confirmation": true,
+      "no_payment_truth_write": true,
+      "no_airtable_write": true,
+      "no_protected_payment_write": true
+    },
+
+    "expected_logging": {
+      "workflow_events": "≥1 row: route=rooming_info or general_question, confidence logged",
+      "automation_errors": "count unchanged"
+    },
+
+    "staff_review": {
+      "draft_acceptable_as_is": null,
+      "staff_edit": null,
+      "reason_for_edit": null,
+      "handoff_needed": null,
+      "knowledge_gap": "Does bot correctly describe room types at Wolfhouse? Does it avoid over-promising? Does it note the preference without creating a commitment?"
+    }
+  }
+}

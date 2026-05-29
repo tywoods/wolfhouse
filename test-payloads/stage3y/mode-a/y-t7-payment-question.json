@@ -1,0 +1,93 @@
+{
+  "_meta": {
+    "id": "Y-T7",
+    "name": "Payment question — deposit and full payment",
+    "stage": "3y",
+    "mode": "A",
+    "status": "CREATED / NOT RUNTIME TESTED",
+    "description": "Guest asks how to pay the deposit and whether full payment is an option. Bot should explain the deposit/full-payment options from config if available — it must NOT create a payment link autonomously, must NOT mark any payment as received, and must NOT make up pricing that is not in the config.",
+    "payload_format": "Meta-envelope (WhatsApp path). POST the whole file — n8n wraps body under input.body; Normalize reads input.body.entry[0].changes[0].value. Underscored keys are ignored."
+  },
+
+  "_webhook": {
+    "method": "POST",
+    "local_url": "http://localhost:5678/webhook/booking-assistant",
+    "note": "POST this entire file. n8n nests it under input.body. Normalize Incoming Message reads the Meta-envelope via input.body.entry[0].changes[0].value.messages[0].",
+    "do_not_post_until": "Mode A 10-payload runtime gate"
+  },
+
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "FAKE_WABA_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "34600000007",
+              "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+            },
+            "contacts": [
+              {
+                "profile": { "name": "Test Guest T7" },
+                "wa_id": "34600000007"
+              }
+            ],
+            "messages": [
+              {
+                "from": "34600000007",
+                "id": "wamid.3Y-T7-TEST001",
+                "timestamp": "1777000007",
+                "text": {
+                  "body": "How do I pay the deposit? Can I pay the full amount instead?"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ],
+
+  "_assertions": {
+    "expected_resolved_route": "payment_flow or general_question",
+    "expected_confidence_band": "medium-high (>= 0.75)",
+    "expected_missing_fields": ["check_in", "check_out", "guest_count"],
+    "expected_present_fields": ["phone"],
+    "expected_draft_behavior": "Explain the payment process: deposit amount and how to pay (bank transfer or Stripe link when booking is confirmed). Mention full payment option if applicable from config. Must NOT create a Stripe payment link. Must NOT mark payment as received. Must NOT quote an exact deposit figure unless it comes from config.",
+    "expected_handoff": false,
+    "expected_handoff_reason": null,
+
+    "_guardrail_check": {
+      "note": "Per §3x.3 — bot must NOT create a payment link without a confirmed hold in payment state. Per §3x.2 — must not invent payment amounts not in config.",
+      "pass_condition": "Draft explains process without creating a link. payments count unchanged. payment_events count unchanged. No Stripe session created."
+    },
+
+    "forbidden_actions": {
+      "no_real_whatsapp_send": true,
+      "no_payment_link_creation": true,
+      "no_stripe_session_creation": true,
+      "no_payment_truth_write": true,
+      "no_booking_confirmation": true,
+      "no_rooming_bed_assignment": true,
+      "no_airtable_write": true,
+      "no_protected_payment_write": true
+    },
+
+    "expected_logging": {
+      "workflow_events": "≥1 row: route=payment_flow or general_question, confidence logged",
+      "automation_errors": "count unchanged"
+    },
+
+    "staff_review": {
+      "draft_acceptable_as_is": null,
+      "staff_edit": null,
+      "reason_for_edit": null,
+      "handoff_needed": false,
+      "knowledge_gap": "Does bot correctly explain the deposit vs full-payment distinction? Does it avoid quoting figures not in config? Does it correctly say a payment link comes after booking confirmation?"
+    }
+  }
+}

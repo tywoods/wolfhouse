@@ -50,11 +50,18 @@ const MAIN_WF_ID = 'RBfGNtVgrAkvhBHJ';
 
 // Explicit run order (matches the documented Mode A gate sequence).
 const PAYLOAD_ORDER = [
+  // Gate 3 batch (all PASS 2026-05-29)
   'y-t1-booking-request.json',
   'y-t2-package-question.json',
   'y-t5-missing-dates.json',
   'y-t6-missing-guest-count.json',
   'y-t9-low-confidence.json',
+  // Gate 4 batch (CREATED / NOT RUNTIME TESTED)
+  'y-t3-existing-booking.json',
+  'y-t4-cancellation-request.json',
+  'y-t7-payment-question.json',
+  'y-t8-rooming-preference.json',
+  'y-t10-complaint-refund.json',
 ];
 
 // ── Wolfhouse-postgres connection ──────────────────────────────────────────────

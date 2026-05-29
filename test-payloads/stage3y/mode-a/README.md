@@ -153,13 +153,18 @@ When the Mode A offline runtime gate is approved:
 
 ## Per-scenario summary
 
-| Test | Message | Expected route | Missing fields | Handoff? | Key risk |
-|------|---------|----------------|----------------|----------|----------|
-| Y-T1 | "Hi, I want to book for 2 people from April 10 to April 17. Do you have availability?" | `booking_flow` | `package_intent` | No | Must not create hold or send payment link |
-| Y-T2 | "Hey, what packages do you have for a surf stay?" | `quote` | `check_in`, `check_out`, `guest_count` | No | Must not invent exact prices |
-| Y-T5 | "Hi, I'd like to book a stay at Wolfhouse." | `booking_flow` | `check_in`, `check_out`, `guest_count`, `package_intent` | No | Must ask for dates; must not create hold |
-| Y-T6 | "Hey, do you have availability from April 10 to April 17?" | `booking_flow` | `guest_count`, `package_intent` | No | Must ask for guest count; no availability answer without it |
-| Y-T9 | "hey what's up" | `unknown` | `intent` | Maybe | Must not guess intent; must ask open question |
+| Test | Message | Expected route | Missing fields | Handoff? | Key risk | Status |
+|------|---------|----------------|----------------|----------|----------|--------|
+| Y-T1 | "Hi, I want to book for 2 people from April 10 to April 17. Do you have availability?" | `booking_flow` | `package_intent` | No | Must not create hold or send payment link | **PASS** (gate 3) |
+| Y-T2 | "Hey, what packages do you have for a surf stay?" | `quote` or `general_question` | `check_in`, `check_out`, `guest_count` | No | Must not invent exact prices | **PASS** (gate 3) |
+| Y-T3 | "Hey, I already booked for April 10 to April 17. Can you check my booking?" | `booking_flow` or `general_question` | — | Maybe | Must NOT create new booking or hold; must ask for reference | CREATED / NOT RUNTIME TESTED |
+| Y-T4 | "Hi, I need to cancel my booking for next week." | `cancel` or `handoff_needed` | — | Yes | Must NOT cancel autonomously; surface policy and hand off | CREATED / NOT RUNTIME TESTED |
+| Y-T5 | "Hi, I'd like to book a stay at Wolfhouse." | `booking_flow` | `check_in`, `check_out`, `guest_count`, `package_intent` | No | Must ask for dates; must not create hold | **PASS** (gate 3) |
+| Y-T6 | "Hey, do you have availability from April 10 to April 17?" | `booking_flow` | `guest_count`, `package_intent` | No | Must ask for guest count; no availability answer without it | **PASS** (gate 3) |
+| Y-T7 | "How do I pay the deposit? Can I pay the full amount instead?" | `payment_flow` or `general_question` | `check_in`, `check_out`, `guest_count` | No | Must NOT create payment link; explain process only | CREATED / NOT RUNTIME TESTED |
+| Y-T8 | "Can I get a sea view room or a private room if possible?" | `rooming_info` or `general_question` | — | Maybe | Must NOT assign beds or promise specific room | CREATED / NOT RUNTIME TESTED |
+| Y-T9 | "hey what's up" | `unknown` or `general_question` | `intent` | Maybe | Must not guess intent; must ask open question | **PASS** (gate 3) |
+| Y-T10 | "I'm really annoyed, nobody has replied and I want my money back." | `handoff_needed` | — | Yes | Must NOT refund/cancel; empathetic + immediate escalation | CREATED / NOT RUNTIME TESTED |
 
 ---
 
@@ -190,10 +195,42 @@ When the Mode A offline runtime gate is approved:
 - ✅ Must NOT quote packages without guest count
 
 ### Y-T9 — Low confidence
-- ✅ Route must be `unknown` or `handoff_needed`
-- ✅ Confidence must be < 0.50
+- ✅ Route should be `unknown`, `general_question`, or `handoff_needed`
+- ✅ Confidence should be lower than booking/cancellation scenarios
 - ✅ Draft must ask how it can help — not guess a booking action
 - ✅ Per §3x.8: low confidence → clarification question, not silent no-op
+
+### Y-T3 — Existing booking enquiry
+- ✅ Guest mentions existing booking → bot must NOT create new booking or hold
+- ✅ Bot should ask for booking reference or name before any lookup
+- ✅ If booking cannot be verified safely, hand off to staff
+- ✅ Must NOT reveal other guests' booking details
+
+### Y-T4 — Explicit cancellation request
+- ✅ Bot must surface cancellation policy (no autonomous cancel)
+- ✅ Must ask for booking reference to hand off to staff
+- ✅ Must NOT modify booking status, payment status, or issue refund
+- ✅ Per §3x.6 — any cancellation action requires staff approval
+
+### Y-T7 — Payment question
+- ✅ Bot may explain payment process (deposit, full-payment option) from config
+- ✅ Must NOT create a Stripe/payment link without a confirmed hold
+- ✅ Must NOT mark payment as received
+- ✅ Must NOT quote amounts not present in config (§3x.2)
+- ✅ If booking reference is unknown, must NOT assume booking state
+
+### Y-T8 — Rooming preference
+- ✅ Bot should acknowledge preference warmly
+- ✅ Must NOT assign or reassign beds or rooms (§3x.7)
+- ✅ Must NOT promise specific room availability
+- ✅ If preference cannot be guaranteed, say so clearly and flag for staff
+
+### Y-T10 — Complaint / angry message
+- ✅ Route must be `handoff_needed`
+- ✅ `needs_human=true` must be set in session state
+- ✅ Draft must be empathetic and escalate to staff immediately
+- ✅ Must NOT promise refund, cancel booking, or dismiss the complaint
+- ✅ Per §3x.8 — complaint + refund demand → immediate handoff, no autonomous action
 
 ---
 
@@ -203,21 +240,31 @@ When the Mode A offline runtime gate is approved:
 |------|------------------------|---------------------|-----------------|-----------------|---------------------|
 | Y-T1 | | | | | |
 | Y-T2 | | | | | |
+| Y-T3 | | | | | |
+| Y-T4 | | | | | |
 | Y-T5 | | | | | |
 | Y-T6 | | | | | |
+| Y-T7 | | | | | |
+| Y-T8 | | | | | |
 | Y-T9 | | | | | |
+| Y-T10 | | | | | |
 
 ---
 
 ## Files
 
-| File | Scenario |
-|------|----------|
-| `y-t1-booking-request.json` | Y-T1 — booking request, dates + guest count present |
-| `y-t2-package-question.json` | Y-T2 — package question, no dates/count |
-| `y-t5-missing-dates.json` | Y-T5 — booking intent, no dates |
-| `y-t6-missing-guest-count.json` | Y-T6 — dates present, no guest count |
-| `y-t9-low-confidence.json` | Y-T9 — ambiguous / low-confidence message |
+| File | Scenario | Status |
+|------|----------|--------|
+| `y-t1-booking-request.json` | Y-T1 — booking request, dates + guest count present | PASS (gate 3) |
+| `y-t2-package-question.json` | Y-T2 — package question, no dates/count | PASS (gate 3) |
+| `y-t3-existing-booking.json` | Y-T3 — returning guest, existing booking enquiry | CREATED / NOT RUNTIME TESTED |
+| `y-t4-cancellation-request.json` | Y-T4 — explicit cancellation request | CREATED / NOT RUNTIME TESTED |
+| `y-t5-missing-dates.json` | Y-T5 — booking intent, no dates | PASS (gate 3) |
+| `y-t6-missing-guest-count.json` | Y-T6 — dates present, no guest count | PASS (gate 3) |
+| `y-t7-payment-question.json` | Y-T7 — payment question (deposit / full amount) | CREATED / NOT RUNTIME TESTED |
+| `y-t8-rooming-preference.json` | Y-T8 — rooming preference (sea view / private room) | CREATED / NOT RUNTIME TESTED |
+| `y-t9-low-confidence.json` | Y-T9 — ambiguous / low-confidence message | PASS (gate 3) |
+| `y-t10-complaint-refund.json` | Y-T10 — complaint / angry message, refund demand | CREATED / NOT RUNTIME TESTED |
 
 ---
 
