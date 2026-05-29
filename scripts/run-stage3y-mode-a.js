@@ -18,7 +18,9 @@
  *   Optional env overrides:
  *     BOOKING_ASSISTANT_WEBHOOK_URL   (default http://localhost:5678/webhook/booking-assistant)
  *   Optional flags:
- *     --no-execution-data   skip n8n execution_data capture (counts + HTTP only)
+ *     --no-execution-data          skip n8n execution_data capture (counts + HTTP only)
+ *     --from-report <path>         re-extract draft fields from a prior report by re-querying
+ *                                  n8n-postgres for each stored execution_id. No POSTs.
  */
 'use strict';
 
@@ -29,8 +31,13 @@ require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const ARGS = new Set(process.argv.slice(2));
-const CAPTURE_EXEC_DATA = !ARGS.has('--no-execution-data');
+const ARGS = process.argv.slice(2);
+const ARGS_SET = new Set(ARGS);
+const CAPTURE_EXEC_DATA = !ARGS_SET.has('--no-execution-data');
+
+// --from-report <path> mode: re-extract drafts from a previous report
+const FROM_REPORT_IDX = ARGS.indexOf('--from-report');
+const FROM_REPORT_PATH = FROM_REPORT_IDX !== -1 ? ARGS[FROM_REPORT_IDX + 1] : null;
 
 const PAYLOAD_DIR = path.join(__dirname, '..', 'test-payloads', 'stage3y', 'mode-a');
 const REPORT_PATH = path.join(__dirname, '..', 'reports', 'stage3y-mode-a-report.json');
@@ -270,25 +277,86 @@ function parseRunData(rawData) {
   const missing_for_payment = resolverJson?.missing_for_payment ?? null;
   const session = resolverJson?.session ?? mergeJson?.session ?? null;
 
-  // Draft: look for Reply-* nodes with a text field, plus DRY RUN stub for outbound message
+  // ── Draft extraction ────────────────────────────────────────────────────────
+  // Priority-ordered patterns: first match wins for draft_reply/draft_source.
+  // All matches are collected into draft_candidates for staff review.
+  //
+  // Node name patterns and which JSON keys to check for the reply text:
+  //   - Reply - *            chainLlm nodes — output in `text`
+  //   - Generate Next Reply  chainLlm for booking_flow missing-fields path — output in `text`
+  //   - Reply Existing ...   chainLlm for existing-booking status path — output in `text`
+  //   - Code - Assemble *    Code nodes that assemble the payment-pending message — in `text`
+  //   - Code - Build * Reply Code nodes that build rooming/other replies — `text` or `reply_text`
+  //   - Set Reply - *        Set nodes (rooming preference saved) — field is `reply_text`
+  //   - Generate * Reply     future LLM nodes following same pattern as Generate Next Reply
+  const DRAFT_PATTERNS = [
+    { prefix: 'Reply - ',             keys: ['text', 'output'] },
+    { exact:  'Generate Next Reply',  keys: ['text', 'output'] },
+    { prefix: 'Reply Existing Booking', keys: ['text', 'output'] },
+    { prefix: 'Code - Assemble',      keys: ['text', 'reply_text', 'output'] },
+    { prefix: 'Code - Build',         keys: ['text', 'reply_text', 'output'] },
+    { prefix: 'Set Reply - ',         keys: ['reply_text', 'text'] },
+    { prefix: 'Generate ',            keys: ['text', 'output'] },
+  ];
+
+  const draft_candidates = [];
   let draft_reply = null;
   let draft_source = null;
+
   for (const nodeName of nodes_executed) {
-    if (nodeName.startsWith('Reply - ') || nodeName.startsWith('Code - Assemble')) {
-      const j = nodeJson(rd, nodeName);
-      if (j?.text) { draft_reply = j.text; draft_source = nodeName; break; }
+    let keysToCheck = null;
+    for (const pat of DRAFT_PATTERNS) {
+      if (pat.exact && nodeName === pat.exact) { keysToCheck = pat.keys; break; }
+      if (pat.prefix && nodeName.startsWith(pat.prefix)) { keysToCheck = pat.keys; break; }
+    }
+    if (!keysToCheck) continue;
+    const j = nodeJson(rd, nodeName);
+    if (!j) continue;
+    for (const key of keysToCheck) {
+      const val = j[key];
+      if (val && typeof val === 'string' && val.length > 5) {
+        draft_candidates.push({ node: nodeName, key, text: val.slice(0, 300) });
+        if (!draft_reply) { draft_reply = val; draft_source = nodeName; }
+        break;
+      }
     }
   }
-  // Fallback: DRY RUN stub for outbound message has the original message text in its fields
+
+  // Fallback: DRY RUN stub for outbound message carries the original message text in its fields
   if (!draft_reply) {
     for (const nodeName of nodes_executed) {
       if (nodeName.startsWith('Code - DRY RUN Stub (Create Outbound')) {
         const j = nodeJson(rd, nodeName);
         const msgText = j?.fields?.['Message Text'];
         if (msgText && msgText !== '(shadow draft — not written to Airtable)') {
-          draft_reply = msgText; draft_source = nodeName; break;
+          draft_reply = msgText; draft_source = nodeName;
+          draft_candidates.push({ node: nodeName, key: 'fields.Message Text', text: msgText.slice(0, 300) });
+          break;
         }
       }
+    }
+  }
+
+  // ── Extraction notes ─────────────────────────────────────────────────────
+  const extraction_notes = [];
+  if (!draft_reply) {
+    if (nodes_executed.includes('Code - PG Hold Failed Stop')) {
+      extraction_notes.push(
+        'No draft: PG hold stub returns null, hold validator returns pg_ok=false. ' +
+        'Availability+hold reply requires a real created hold. ' +
+        'Expected in shadow mode for availability_check intent (Y-T1 pattern). ' +
+        'To get a shadow draft: improve PG hold stub to return a synthetic hold object that passes validation.'
+      );
+    } else if (
+      nodes_executed.includes('Code - DRY RUN Stub (Create or update Conversation)') ||
+      nodes_executed.some((n) => n.includes('Create or update Conversation'))
+    ) {
+      extraction_notes.push(
+        'Execution ended at Create or update Conversation stub — no Reply-* or Generate* node found in executed list. ' +
+        'Check draft_candidates; if empty, the LLM may not have been reached in this path.'
+      );
+    } else {
+      extraction_notes.push('No draft text found in executed nodes. Check draft_candidates for partial matches.');
     }
   }
 
@@ -398,6 +466,8 @@ function parseRunData(rawData) {
       missing_for_payment,
       draft_reply,
       draft_source,
+      draft_candidates,
+      extraction_notes,
       handoff,
       session_check_in: session?.check_in ?? null,
       session_check_out: session?.check_out ?? null,
@@ -644,7 +714,91 @@ async function main() {
   console.log('\nAll checks PASS. Review report for route/draft quality.');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// ── --from-report reparse mode ────────────────────────────────────────────────
+// Re-extracts draft/route fields from a prior report by re-querying n8n-postgres
+// for each stored execution_id. Does NOT POST payloads or touch Wolfhouse DB.
+//
+// Usage: node scripts/run-stage3y-mode-a.js --from-report reports/stage3y-mode-a-report.json
+
+async function reparseReport(reportPath) {
+  assertDryRun();
+
+  if (!fs.existsSync(reportPath)) {
+    console.error(`--from-report: file not found: ${reportPath}`);
+    process.exit(1);
+  }
+
+  const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  console.log(`\nRe-parsing report: ${reportPath}`);
+  console.log(`Generated at: ${report.generated_at}`);
+  console.log(`Tests: ${report.tests?.length ?? 0}`);
+  console.log('─'.repeat(70));
+
+  const n8nClient = new Client({ connectionString: n8nConnStr });
+  try {
+    await n8nClient.connect();
+  } catch (e) {
+    console.error(`Cannot connect to n8n-postgres: ${e.message}`);
+    console.error('Re-parse requires n8n-postgres access to fetch stored execution_data.');
+    process.exit(1);
+  }
+
+  let improved = 0;
+  try {
+    for (const t of report.tests ?? []) {
+      const execId = t.execution?.execution_id;
+      if (!execId) {
+        console.log(`  ${t.test_id}: no execution_id — skipping`);
+        continue;
+      }
+
+      const { rows } = await n8nClient.query(
+        `SELECT data FROM execution_data WHERE "executionId" = $1`,
+        [execId]
+      );
+      if (!rows.length) {
+        console.log(`  ${t.test_id}: no execution_data for exec ${execId} — skipping`);
+        continue;
+      }
+
+      const runEvidence = parseRunData(rows[0].data);
+      const prev = t.extracted?.draft_reply;
+      t.extracted = runEvidence.extracted ?? t.extracted;
+      // Preserve execution-level metadata
+      if (t.execution) {
+        t.execution.last_node_executed = runEvidence.last_node_executed ?? t.execution.last_node_executed;
+        t.execution.nodes_executed_count = runEvidence.nodes_executed?.length ?? t.execution.nodes_executed_count;
+      }
+
+      const curr = t.extracted?.draft_reply;
+      const gotNew = !prev && curr;
+      console.log(`  ${t.test_id} (exec ${execId}):`);
+      console.log(`    draft_reply: ${fmtDraft(curr)}`);
+      console.log(`    draft_source: ${t.extracted?.draft_source ?? '(none)'}`);
+      console.log(`    extraction_notes: ${JSON.stringify(t.extracted?.extraction_notes ?? [])}`);
+      if (gotNew) { improved++; console.log('    ✓ draft newly extracted'); }
+    }
+  } finally {
+    await n8nClient.end();
+  }
+
+  const outPath = reportPath.replace(/\.json$/, '-reparsed.json');
+  fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
+  console.log('\n' + '─'.repeat(70));
+  console.log(`Wrote: ${outPath}`);
+  console.log(`Tests with newly extracted drafts: ${improved}`);
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+if (FROM_REPORT_PATH) {
+  reparseReport(FROM_REPORT_PATH).catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+} else {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
