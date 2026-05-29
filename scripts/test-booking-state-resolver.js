@@ -419,6 +419,108 @@ const fixtures = [
       should_search_hold: false,
     },
   },
+
+  // --- Phase 3e.5a — negative / wrong-booking L1 baseline ---
+  // T1 — Wrong phone / wrong conversation must not update another booking.
+  // The resolver only ever targets THIS conversation's own hold id + phone; it
+  // has no access to another conversation's identifiers, so a hold lookup can
+  // never resolve booking B from conversation A.
+  {
+    id: '3e5-t1-hold-lookup-targets-own-conversation-hold-only',
+    input: {
+      router_route: 'payment_details_provided',
+      router_reason: 'guest contact details',
+      router_confidence: 0.95,
+      language: 'en',
+      guest_message: 'Jamy Garcia jamy@example.com',
+      pending_action: 'none',
+      conversation_stage: 'payment_pending',
+      phone: '+353399990001',
+      conversation: { 'Current Hold ID': 'WH-3E5-A' },
+      active_booking: { active_booking_found: false },
+    },
+    expect: {
+      resolved_route: 'payment_details_provided',
+      decision_code: 'R2F_PAYMENT_DETAILS_ON_HOLD_LOOKUP',
+      should_search_hold: true,
+      search_current_hold_id: 'WH-3E5-A',
+      search_phone: '+353399990001',
+    },
+  },
+  {
+    id: '3e5-t1-active-hold-is-own-conversation-not-foreign',
+    input: {
+      router_route: 'payment_details_provided',
+      router_reason: 'guest contact details',
+      router_confidence: 0.95,
+      language: 'en',
+      guest_message: 'Jamy Garcia jamy@example.com',
+      pending_action: 'none',
+      phone: '+353399990001',
+      active_booking: {
+        active_booking_found: true,
+        active_booking_status: 'Hold',
+        active_booking_id: 'WH-3E5-A',
+      },
+    },
+    expect: {
+      resolved_route: 'payment_details_provided',
+      decision_code: 'R2F_PAYMENT_DETAILS_ON_HOLD',
+      should_search_hold: true,
+      search_current_hold_id: 'WH-3E5-A',
+      search_phone: '+353399990001',
+    },
+  },
+  // T2 — Stale hold must not be promoted if a fresher valid hold exists.
+  // L1 covers the part the resolver controls: when Pick Active Booking misses,
+  // the conversation's fresher Current Hold ID drives the lookup; when Pick
+  // Active supplies the fresh hold it is used. The stale-selection drift that
+  // originates upstream in `Code - Pick Active Booking` is NOT exercised here
+  // (see §3e.5 T2 note) and is deferred to L2/L3.
+  {
+    id: '3e5-t2-fresher-conversation-hold-when-pick-active-missed',
+    input: {
+      router_route: 'payment_details_provided',
+      router_reason: 'guest contact details',
+      router_confidence: 0.95,
+      language: 'en',
+      guest_message: 'Jamy Garcia jamy@example.com',
+      pending_action: 'none',
+      conversation_stage: 'payment_pending',
+      phone: '+353399990002',
+      conversation: { 'Current Hold ID': 'WH-3E5-NEW' },
+      active_booking: { active_booking_found: false },
+    },
+    expect: {
+      resolved_route: 'payment_details_provided',
+      decision_code: 'R2F_PAYMENT_DETAILS_ON_HOLD_LOOKUP',
+      should_search_hold: true,
+      search_current_hold_id: 'WH-3E5-NEW',
+    },
+  },
+  {
+    id: '3e5-t2-active-fresh-hold-is-used',
+    input: {
+      router_route: 'payment_details_provided',
+      router_reason: 'guest contact details',
+      router_confidence: 0.95,
+      language: 'en',
+      guest_message: 'Jamy Garcia jamy@example.com',
+      pending_action: 'none',
+      phone: '+353399990002',
+      active_booking: {
+        active_booking_found: true,
+        active_booking_status: 'Payment_Pending',
+        active_booking_id: 'WH-3E5-NEW',
+      },
+    },
+    expect: {
+      resolved_route: 'payment_details_provided',
+      decision_code: 'R2F_PAYMENT_DETAILS_ON_HOLD',
+      should_search_hold: true,
+      search_current_hold_id: 'WH-3E5-NEW',
+    },
+  },
 ];
 
 let failed = 0;
@@ -458,6 +560,22 @@ for (const fx of fixtures) {
   ) {
     errors.push(
       `has_booking_core: got ${out.message_signals.has_booking_core}, want ${fx.expect.has_booking_core}`
+    );
+  }
+  if (
+    fx.expect.search_current_hold_id !== undefined &&
+    out.hold_lookup.search_current_hold_id !== fx.expect.search_current_hold_id
+  ) {
+    errors.push(
+      `search_current_hold_id: got ${out.hold_lookup.search_current_hold_id}, want ${fx.expect.search_current_hold_id}`
+    );
+  }
+  if (
+    fx.expect.search_phone !== undefined &&
+    out.hold_lookup.search_phone !== fx.expect.search_phone
+  ) {
+    errors.push(
+      `search_phone: got ${out.hold_lookup.search_phone}, want ${fx.expect.search_phone}`
     );
   }
   if (errors.length) {

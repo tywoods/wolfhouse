@@ -292,8 +292,8 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 - [ ] Terminal evidence bookings not reused without reset (policy established)
 
 **Guards verified or explicitly deferred:**
-- [ ] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) — *3e.5 negative tests pending*
-- [ ] Duplicate / idempotency protections verified for: WhatsApp message id · payment links · Stripe events · Send Confirmation · rooming/reassign — *3x.10 spec done; runtime verification pending*
+- [x] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) — **3e.5 CLOSED** (L1+L2 PASS; L3 deferred — Airtable-coupled runtime deferred to Postgres source-of-truth cutover; see §15.6–§15.7)
+- [x] Duplicate / idempotency protections verified at Stage 3 bar — **3e.6 CLOSED** (I1 schema PASS · I4 runtime PASS · I6 invariant PASS; I2/I3/I5 deferred: I2 → manual-pay gate · I3 → Stage 3.5 · I5 → Postgres cutover)
 - [ ] All dangerous actions have handoff / fail-safe behavior when required business rule is missing — *3x.7–3x.8 spec done; implementation pending*
 
 **Acceptable deferrals (do not block Stage 3 exit if documented):**

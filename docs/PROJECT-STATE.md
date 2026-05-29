@@ -1,11 +1,11 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-29 (Stage 3x.2e: prices/policies refined → baseline v0.4, PROVISIONAL pricing)  
-**HEAD (expected):** `e6a17ae` (3x.2 baseline) + uncommitted 3x.2c–3x.2e docs/config patch
+**Last updated:** 2026-05-29 (Stage 3 local safety closeout: 3e.5 + 3e.6 CLOSED)  
+**HEAD (expected):** `af24b79` (3x.2c-2f client deploy config) + uncommitted 3e.5/3e.6 plan/test/fixture changes
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
-**Quality bar:** Stage 3 — **Correct and safe** (exit criteria defined; residuals: 3e.5 negative tests, idempotency runtime verification). Next: Stage 3.5 safety rails → Stage 3x → Stage 3y shadow mode → Stage 4 Reliable.
+**Quality bar:** Stage 3 — **CLOSED for local safety bar** (2026-05-29). 3e.5 wrong-booking guard CLOSED (L1+L2 PASS, L3 deferred to Airtable/PG cutover). 3e.6 idempotency CLOSED (I1 schema PASS, I4 runtime PASS, I6 invariant PASS; I2/I3/I5 explicitly deferred). **Next: Stage 3.5 safety rails.**
 
 ---
 
@@ -27,7 +27,7 @@
 
 | Stage | Status | Notes |
 |-------|--------|--------|
-| **3** Correct and safe | **In progress** (exit criteria defined) | Core paths proven; 3e.5 negative tests + idempotency runtime verification remaining |
+| **3** Correct and safe | **CLOSED — local safety bar** (2026-05-29) | 3e.5 wrong-booking CLOSED (L1+L2, L3 deferred); 3e.6 idempotency CLOSED (I1+I4+I6 PASS; I2/I3/I5 deferred to Stage 3.5/cutover). Caveats: real WhatsApp, Airtable-coupled L3, Stripe/payment gates remain deferred. |
 | **3.5** Safety rails | Planned | Idempotency, error capture, overlap guards, exec logging — before live/shadow |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
 | **3y** Shadow / co-pilot | Planned | Bot drafts, staff approves/sends; generates real labeled data |
@@ -219,6 +219,7 @@ Remaining exclusions (still separate):
 - Send Confirmation **schedule poll** mode (schedule node still disabled)
 - Single-window integrated E2E (all steps in one run)
 - Rooming/reassign E2E — **3e.4 complete** (3e.4b retry PASS `WH-260528-5322`, beds R3-B1/R3-B2) — see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) §13.7
+- **3e.5 negative/wrong-booking guard tests CLOSED for Stage 3:** L1 static/unit PASS (25/25 resolver), L2 fixture+report PASS (T1–T3, T5–T7), Gate A preflight PASS. L3 runtime (Gates B/C) BLOCKED before activation — current local forks perform booking lookup via Airtable before Postgres operations; PG-only fixtures are not faithful. No workflows activated, no POSTs made, no data mutated for B/C. L3 deferred to Postgres source-of-truth cutover. See §15.6–§15.7.
 - Airtable-removal/cleanup-refactor work
 
 ---
@@ -303,10 +304,13 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **3x.2** — Ale/Cami complete remaining P1 in [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) (deposit amount/scope, non-7-night pricing, cancel/refund windows, add-on prices, handoff channel); then promote provisional → confirmed and draft `config/clients/wolfhouse-somo.json`.
 - **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.5): Layer 3 fixtures + Layer 2 customer extract (owner-approved fields only).
 
-**Parallel (Stage 3 residual):**
-- **Phase 3e rooming/reassign** — **3e.4 complete** (PASS). Evidence booking `WH-260528-5322` / beds R3-B1/R3-B2. Next: **3e.5** negative tests or Stage 3x minimum rooming baseline.
+**Stage 3 residual — CLOSED (2026-05-29):**
+- **3e.5 wrong-booking guard:** L1 static/unit PASS (25/25 resolver) · L2 fixture+report PASS (T1–T3, T5–T7) · L3 runtime deferred — current local forks have Airtable-coupled hold/reassign lookup; PG-only fixtures are not faithful. See §15.6–§15.7.
+- **3e.6 idempotency:** I1 schema PASS (`idx_messages_whatsapp_client` confirmed) · **I4 runtime PASS** (Send Confirmation dry-run, exec 1087 confirmed; exec 1088 no-op; `confirmation_sent_at` unchanged) · I6 invariant PASS (payments/payment_events/booking_beds at baseline throughout). See [`PHASE-3e-IDEMPOTENCY-PLAN.md`](PHASE-3e-IDEMPOTENCY-PLAN.md).
+- **Deferred (not blocked):** I2 → manual-pay gate · I3 → Stage 3.5/manual-pay gate (structural schema guard proven; runtime needs `payments` write) · I5 → Postgres cutover. Airtable-coupled L3 runtime (T2, T5) → post-cutover.
+- **Caveats remaining:** real WhatsApp send (dry-run only) · schedule-poll mode · single-window integrated E2E · Stripe/payment idempotency (I2, I3).
 
-**Then:** Stage 3 closeout checklist → **Stage 3.5** safety rails (idempotency, error capture, exec logging) → **Stage 3y** shadow/co-pilot → **Stage 4 Reliable** (golden runner, monitors, full idempotency).
+**Then:** **Stage 3.5 safety rails** (idempotency enforcement in code, error capture, overlap guards, execution logging) → **Stage 3y** shadow/co-pilot → **Stage 4 Reliable** (golden runner, monitors, full idempotency, real WhatsApp + live prod path).
 
 **Not next:** Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7); Airtable cutover without staff UI; autonomous live replies without Stage 3y staff-approval mode.
 
