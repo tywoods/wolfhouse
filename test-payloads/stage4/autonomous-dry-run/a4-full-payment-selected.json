@@ -1,0 +1,157 @@
+{
+  "_meta": {
+    "scenario_id": "A4",
+    "title": "Full payment selected — amount check",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Guest selects full payment. Verify the full amount quoted matches config package table, not deposit. No invented pricing.",
+    "notes": "Waimea peak (August) 1 guest = €599 total. Full payment path. Config source: packages.prices_2026_per_person_7nt_shared.peak.waimea = 599."
+  },
+
+  "config_expectations": {
+    "package_key": "waimea",
+    "season": "peak",
+    "check_in": "2026-08-03",
+    "check_out": "2026-08-10",
+    "nights": 7,
+    "guest_count": 1,
+    "price_per_person_eur": 599,
+    "total_eur": 599,
+    "deposit_eur": 200,
+    "full_payment_eur": 599,
+    "deposit_rule": "standard_package",
+    "config_source": "wolfhouse-somo.baseline.json v0.6 packages.prices_2026_per_person_7nt_shared.peak.waimea"
+  },
+
+  "stub_overrides": {
+    "hold_stub": {
+      "booking_id": "aaa00000-0000-0000-0000-000000000a04",
+      "booking_code": "WH-DRYA4-0001",
+      "status": "hold",
+      "expires_in_minutes": 60,
+      "check_in": "2026-08-03",
+      "check_out": "2026-08-10",
+      "guest_count": 1,
+      "package_key": "waimea",
+      "total_amount_cents": 59900,
+      "deposit_amount_cents": 20000,
+      "currency": "EUR",
+      "dry_run": true
+    },
+    "payment_link_stub": {
+      "checkout_url": "https://checkout.stripe.com/dry-run/a4-full",
+      "session_id": "cs_dry_run_a4_full_001",
+      "amount_cents": 59900,
+      "currency": "eur",
+      "payment_kind": "full",
+      "booking_id": "aaa00000-0000-0000-0000-000000000a04",
+      "dry_run": true
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "A4-T1",
+      "description": "Guest sends complete booking request — all fields",
+      "guest_message": "I want to book the Waimea package for 1 person August 3 to August 10.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000104", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A4" }, "wa_id": "34600000104" }],
+                  "messages": [
+                    {
+                      "from": "34600000104",
+                      "id": "wamid.4A4-T1-TEST001",
+                      "timestamp": "1779300001",
+                      "text": { "body": "I want to book the Waimea package for 1 person August 3 to August 10." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.90,
+      "expected_missing_fields": [],
+      "expected_bot_behavior": "Hold stub fires. Bot asks deposit or full payment.",
+      "forbidden_live_actions": { "no_real_whatsapp_send": true, "no_real_hold": true }
+    },
+    {
+      "turn_id": "A4-T2",
+      "description": "Guest selects full payment",
+      "guest_message": "I want to pay the full amount.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000104", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A4" }, "wa_id": "34600000104" }],
+                  "messages": [
+                    {
+                      "from": "34600000104",
+                      "id": "wamid.4A4-T2-TEST002",
+                      "timestamp": "1779300061",
+                      "text": { "body": "I want to pay the full amount." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "payment_or_confirm_intent",
+      "expected_confidence_min": 0.85,
+      "expected_missing_fields": ["guest_name", "guest_email"],
+      "expected_bot_behavior": "Bot confirms full payment = €599. Asks for name + email.",
+      "expected_state_after_turn": {
+        "payment_kind": "full",
+        "full_amount_eur": 599
+      },
+      "assertions": {
+        "full_amount_must_be_599_eur": true,
+        "amount_source_must_be_config": true,
+        "must_not_quote_deposit_amount": true,
+        "must_not_invent_amount": true
+      },
+      "forbidden_live_actions": { "no_real_stripe_session": true, "no_real_whatsapp_send": true }
+    }
+  ],
+
+  "expected_final_state": {
+    "payment_kind": "full",
+    "full_amount_eur": 599,
+    "payment_events_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "full_amount_eur": 599,
+    "package_key": "waimea",
+    "season": "peak",
+    "must_not_invent_amount": true,
+    "config_source": "packages.prices_2026_per_person_7nt_shared.peak.waimea",
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

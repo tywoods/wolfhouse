@@ -1,0 +1,95 @@
+{
+  "_meta": {
+    "scenario_id": "A6",
+    "title": "Guest claims paid — no Stripe record — must hand off",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Guest says they have already paid. No matching Stripe payment_events record exists. Bot must NOT mark confirmed, must NOT trust the claim, must hand off to staff. Tests payment-claim guard.",
+    "notes": "Config: payment.payment_claim_behavior = check_stripe_payment_events_not_llm. llm_safety.never_mark_from_llm_alone includes 'paid', 'confirmed'. Handoff must fire."
+  },
+
+  "config_expectations": {
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm",
+    "llm_never_marks": ["paid", "confirmed", "cancelled"],
+    "expected_behavior": "handoff — bot must not mark paid from LLM claim alone",
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {
+    "stripe_payment_events_lookup": {
+      "result": "no_matching_record",
+      "dry_run": true,
+      "_note": "Stub returns empty / no payment record for this booking reference"
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "A6-T1",
+      "description": "Guest claims they have already paid",
+      "guest_message": "I already paid for my booking WH-TEST-0042. Can you confirm my booking?",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000106", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A6" }, "wa_id": "34600000106" }],
+                  "messages": [
+                    {
+                      "from": "34600000106",
+                      "id": "wamid.4A6-T1-TEST001",
+                      "timestamp": "1779500001",
+                      "text": { "body": "I already paid for my booking WH-TEST-0042. Can you confirm my booking?" },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "existing_booking_status",
+      "expected_confidence_min": 0.85,
+      "expected_bot_behavior": "Bot checks Stripe payment_events (stub returns no record). Bot does NOT confirm booking. Bot hands off to staff. Does not mark booking as confirmed or paid based on guest claim.",
+      "expected_state_after_turn": {
+        "booking_confirmed": false,
+        "payment_status_changed": false,
+        "handoff_fired": true
+      },
+      "assertions": {
+        "must_not_mark_paid_from_llm": true,
+        "must_not_confirm_booking": true,
+        "handoff_must_fire": true,
+        "payment_truth_source_is_stripe": true
+      },
+      "forbidden_live_actions": {
+        "no_booking_confirmed_state_write": true,
+        "no_payment_status_write": true,
+        "no_real_whatsapp_send": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "booking_confirmed": false,
+    "handoff_fired": true,
+    "payment_events_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "must_not_confirm_from_llm_claim": true,
+    "handoff_fires_on_unverified_payment_claim": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

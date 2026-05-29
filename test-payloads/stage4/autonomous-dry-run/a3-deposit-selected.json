@@ -1,0 +1,155 @@
+{
+  "_meta": {
+    "scenario_id": "A3",
+    "title": "Deposit option selected — amount check",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Focused test: guest sends a complete booking request and explicitly selects deposit. Verify the deposit amount is €200 from config, not invented. Short-stay tier (€100) is NOT expected here — standard 7-night package.",
+    "notes": "Config source: payment.deposit_rule.tiers.standard_package.amount_eur = 200. The bot must read this value; it must not invent or hardcode an amount."
+  },
+
+  "config_expectations": {
+    "package_key": "uluwatu",
+    "season": "high",
+    "check_in": "2026-07-01",
+    "check_out": "2026-07-08",
+    "nights": 7,
+    "guest_count": 2,
+    "price_per_person_eur": 399,
+    "total_eur": 798,
+    "deposit_eur": 200,
+    "deposit_rule": "standard_package",
+    "deposit_rule_source": "payment.deposit_rule.tiers.standard_package.amount_eur",
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {
+    "hold_stub": {
+      "booking_id": "aaa00000-0000-0000-0000-000000000a03",
+      "booking_code": "WH-DRYA3-0001",
+      "status": "hold",
+      "expires_in_minutes": 60,
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-08",
+      "guest_count": 2,
+      "package_key": "uluwatu",
+      "total_amount_cents": 79800,
+      "deposit_amount_cents": 20000,
+      "currency": "EUR",
+      "dry_run": true
+    },
+    "payment_link_stub": {
+      "checkout_url": "https://checkout.stripe.com/dry-run/a3-deposit",
+      "session_id": "cs_dry_run_a3_deposit_001",
+      "amount_cents": 20000,
+      "currency": "eur",
+      "payment_kind": "deposit",
+      "booking_id": "aaa00000-0000-0000-0000-000000000a03",
+      "dry_run": true
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "A3-T1",
+      "description": "Guest sends complete booking request, all fields present",
+      "guest_message": "I'd like to book the Uluwatu package for 2 people July 1 to July 8.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000103", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A3" }, "wa_id": "34600000103" }],
+                  "messages": [
+                    {
+                      "from": "34600000103",
+                      "id": "wamid.4A3-T1-TEST001",
+                      "timestamp": "1779200001",
+                      "text": { "body": "I'd like to book the Uluwatu package for 2 people July 1 to July 8." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.90,
+      "expected_missing_fields": [],
+      "expected_bot_behavior": "Hold stub fires. Bot asks deposit or full payment.",
+      "forbidden_live_actions": { "no_real_whatsapp_send": true, "no_real_hold": true }
+    },
+    {
+      "turn_id": "A3-T2",
+      "description": "Guest selects deposit",
+      "guest_message": "Deposit please.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000103", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A3" }, "wa_id": "34600000103" }],
+                  "messages": [
+                    {
+                      "from": "34600000103",
+                      "id": "wamid.4A3-T2-TEST002",
+                      "timestamp": "1779200061",
+                      "text": { "body": "Deposit please." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "payment_or_confirm_intent",
+      "expected_confidence_min": 0.85,
+      "expected_missing_fields": ["guest_name", "guest_email"],
+      "expected_bot_behavior": "Bot asks for name and email. Confirms deposit amount = €200.",
+      "expected_state_after_turn": {
+        "payment_kind": "deposit",
+        "deposit_amount_eur": 200
+      },
+      "assertions": {
+        "deposit_amount_must_be_200_eur": true,
+        "amount_source_must_be_config": true,
+        "must_not_invent_amount": true,
+        "must_not_use_full_amount": true
+      },
+      "forbidden_live_actions": { "no_real_stripe_session": true, "no_real_whatsapp_send": true }
+    }
+  ],
+
+  "expected_final_state": {
+    "deposit_amount_eur": 200,
+    "payment_kind": "deposit",
+    "payment_events_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "deposit_amount_eur": 200,
+    "must_not_invent_amount": true,
+    "config_source": "payment.deposit_rule.tiers.standard_package.amount_eur",
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

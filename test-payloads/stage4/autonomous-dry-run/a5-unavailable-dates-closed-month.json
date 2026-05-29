@@ -1,0 +1,96 @@
+{
+  "_meta": {
+    "scenario_id": "A5",
+    "title": "Unavailable dates — closed month (January)",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Guest requests dates in a closed month. Bot must inform guest that the property is closed, not create a hold, and offer to help with alternative dates or hand off.",
+    "notes": "Config source: packages.closed_months = [december, january, february]. closed_months_behavior = do_not_quote_or_book_inform_closed_and_handoff_if_insistent. January 15-22 = closed."
+  },
+
+  "config_expectations": {
+    "requested_check_in": "2027-01-15",
+    "requested_check_out": "2027-01-22",
+    "month": "january",
+    "closed_month": true,
+    "closed_months_source": "packages.closed_months",
+    "expected_behavior": "do_not_quote_or_book_inform_closed_and_handoff_if_insistent",
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {},
+
+  "turns": [
+    {
+      "turn_id": "A5-T1",
+      "description": "Guest requests booking in closed January",
+      "guest_message": "Hi, I want to book the Malibu package for 2 people from January 15 to January 22.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000105", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A5" }, "wa_id": "34600000105" }],
+                  "messages": [
+                    {
+                      "from": "34600000105",
+                      "id": "wamid.4A5-T1-TEST001",
+                      "timestamp": "1779400001",
+                      "text": { "body": "Hi, I want to book the Malibu package for 2 people from January 15 to January 22." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.85,
+      "expected_bot_behavior": "Bot recognises January as a closed month. Informs guest that Wolfhouse is closed in January/February. Suggests alternative months. Does NOT create hold or quote price.",
+      "expected_state_after_turn": {
+        "hold_created": false,
+        "payment_link_created": false,
+        "closed_month_detected": true,
+        "guest_informed": true
+      },
+      "assertions": {
+        "no_hold_created": true,
+        "no_price_quoted": true,
+        "guest_informed_of_closure": true,
+        "closed_month_source": "packages.closed_months"
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_hold_creation": true,
+        "no_payment_link": true,
+        "no_price_invented": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "hold_created": false,
+    "booking_status": "none",
+    "payment_events_delta": 0,
+    "booking_beds_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "no_hold_for_closed_month": true,
+    "no_price_quoted_for_closed_month": true,
+    "closed_month_config_respected": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

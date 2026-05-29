@@ -1,0 +1,114 @@
+{
+  "_meta": {
+    "scenario_id": "A8",
+    "title": "Rooming preference provided alongside booking request",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Guest includes a rooming preference in the same message as their booking request. Bot acknowledges the preference, records it, and continues the booking flow. No real room assignment. Preference is noted only.",
+    "notes": "Config: rooming.rooming_auto_assign_allowed = true but only when booking is confirmed and room config is clear. In dry-run, preference is recorded but no assignment is made. R6 (private/matrimonial) is protected — a sea view / private room request is preference, not an auto-assignment."
+  },
+
+  "config_expectations": {
+    "rooming_auto_assign_allowed": true,
+    "manual_assignment_lock_respected": true,
+    "never_move_staff_assignments": true,
+    "preference_recorded_not_assigned": true,
+    "config_source": "wolfhouse-somo.baseline.json v0.6 rooming"
+  },
+
+  "stub_overrides": {
+    "rooming_preference_stub": {
+      "preference_recorded": true,
+      "room_preference": "sea_view_or_private",
+      "assigned": false,
+      "assignment_deferred": "pending_confirmation_and_room_availability",
+      "dry_run": true
+    },
+    "hold_stub": {
+      "booking_id": "aaa00000-0000-0000-0000-000000000a08",
+      "booking_code": "WH-DRYA8-0001",
+      "status": "hold",
+      "expires_in_minutes": 60,
+      "check_in": "2026-06-07",
+      "check_out": "2026-06-14",
+      "guest_count": 2,
+      "package_key": "uluwatu",
+      "total_amount_cents": 69800,
+      "deposit_amount_cents": 20000,
+      "currency": "EUR",
+      "dry_run": true
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "A8-T1",
+      "description": "Guest combines booking request with rooming preference",
+      "guest_message": "Hi, I want to book the Uluwatu package for 2 people from June 7 to June 14. Can I get a sea view room or private room if possible?",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000108", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A8" }, "wa_id": "34600000108" }],
+                  "messages": [
+                    {
+                      "from": "34600000108",
+                      "id": "wamid.4A8-T1-TEST001",
+                      "timestamp": "1779700001",
+                      "text": { "body": "Hi, I want to book the Uluwatu package for 2 people from June 7 to June 14. Can I get a sea view room or private room if possible?" },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.90,
+      "expected_missing_fields": [],
+      "expected_bot_behavior": "Bot extracts booking fields AND rooming preference. Records preference. Acknowledges it ('noted' / 'we'll do our best'). Does NOT promise a specific room. Continues booking flow to hold stub.",
+      "expected_state_after_turn": {
+        "rooming_preference_recorded": true,
+        "room_assigned": false,
+        "booking_flow_continued": true,
+        "hold_stub_fired": true
+      },
+      "assertions": {
+        "preference_acknowledged_not_promised": true,
+        "no_real_room_assignment": true,
+        "no_r6_auto_assignment": true,
+        "booking_flow_not_blocked_by_rooming": true
+      },
+      "forbidden_live_actions": {
+        "no_real_room_assignment": true,
+        "no_booking_beds_write": true,
+        "no_real_whatsapp_send": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "rooming_preference_noted": true,
+    "room_assigned": false,
+    "booking_beds_delta": 0,
+    "booking_status": "hold"
+  },
+
+  "assertions": {
+    "preference_recorded_not_assigned": true,
+    "booking_beds_delta_zero": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

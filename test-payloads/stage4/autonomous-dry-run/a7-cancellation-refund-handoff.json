@@ -1,0 +1,96 @@
+{
+  "_meta": {
+    "scenario_id": "A7",
+    "title": "Cancellation/refund request — immediate handoff, no action",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Guest requests cancellation and refund. Bot must immediately hand off to staff. No cancel action, no refund action, no booking mutation.",
+    "notes": "Config: cancellation.paid_cancellation_handoff = true; refund_requests_handoff = true; all_refunds_manual_staff = true; bot_issues_refund_or_voucher = false. Default remedy = voucher but bot never issues it — always staff."
+  },
+
+  "config_expectations": {
+    "paid_cancellation_handoff": true,
+    "refund_requests_handoff": true,
+    "all_refunds_manual_staff": true,
+    "default_remedy": "voucher",
+    "bot_issues_refund_or_voucher": false,
+    "config_source": "wolfhouse-somo.baseline.json v0.6 cancellation"
+  },
+
+  "stub_overrides": {},
+
+  "turns": [
+    {
+      "turn_id": "A7-T1",
+      "description": "Guest requests cancellation and refund",
+      "guest_message": "I need to cancel my booking and get a refund. This is urgent.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000107", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A7" }, "wa_id": "34600000107" }],
+                  "messages": [
+                    {
+                      "from": "34600000107",
+                      "id": "wamid.4A7-T1-TEST001",
+                      "timestamp": "1779600001",
+                      "text": { "body": "I need to cancel my booking and get a refund. This is urgent." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "existing_booking_cancel",
+      "expected_confidence_min": 0.85,
+      "expected_bot_behavior": "Bot recognises cancellation + refund request. Immediately hands off to staff. Uses cancellation.cancellation_safe_reply or refund_safe_reply from config. No cancel action, no refund issued.",
+      "expected_state_after_turn": {
+        "handoff_fired": true,
+        "booking_cancelled": false,
+        "refund_issued": false,
+        "voucher_issued": false
+      },
+      "assertions": {
+        "handoff_must_fire_immediately": true,
+        "must_not_cancel_booking": true,
+        "must_not_issue_refund": true,
+        "must_not_issue_voucher": true,
+        "reply_text_from_safe_reply_config": true
+      },
+      "forbidden_live_actions": {
+        "no_booking_cancellation_write": true,
+        "no_refund_creation": true,
+        "no_voucher_issuance": true,
+        "no_real_whatsapp_send": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "handoff_fired": true,
+    "booking_status_unchanged": true,
+    "payment_events_delta": 0,
+    "payments_delta": 0,
+    "bookings_delta": 0
+  },
+
+  "assertions": {
+    "handoff_fires_on_refund_request": true,
+    "no_cancel_action_taken": true,
+    "no_refund_action_taken": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

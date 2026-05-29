@@ -1,0 +1,124 @@
+{
+  "_meta": {
+    "scenario_id": "A10",
+    "title": "Spanish-language booking request",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Guest sends a complete booking request in Spanish. Bot must route correctly (booking_flow), reply in Spanish, apply the same field-extraction logic, and follow the same state transitions. Language detection is required per llm_safety.multilingual_test_required = [en, es, it].",
+    "notes": "Config: llm_safety.multilingual_test_required includes 'es'. Bot must detect language='es' and reply in Spanish. Prices and amounts are unchanged by language."
+  },
+
+  "config_expectations": {
+    "language": "es",
+    "multilingual_required": true,
+    "multilingual_source": "llm_safety.multilingual_test_required",
+    "package_key": "uluwatu",
+    "season": "shoulder",
+    "check_in": "2026-04-20",
+    "check_out": "2026-04-27",
+    "nights": 7,
+    "guest_count": 2,
+    "price_per_person_eur": 349,
+    "total_eur": 698,
+    "deposit_eur": 200,
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {
+    "hold_stub": {
+      "booking_id": "aaa00000-0000-0000-0000-000000000a10",
+      "booking_code": "WH-DRYA10-001",
+      "status": "hold",
+      "expires_in_minutes": 60,
+      "check_in": "2026-04-20",
+      "check_out": "2026-04-27",
+      "guest_count": 2,
+      "package_key": "uluwatu",
+      "total_amount_cents": 69800,
+      "deposit_amount_cents": 20000,
+      "currency": "EUR",
+      "dry_run": true
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "A10-T1",
+      "description": "Guest sends a complete Spanish-language booking request",
+      "guest_message": "Hola, quiero reservar el paquete Uluwatu para 2 personas del 20 al 27 de abril. ¿Tenéis disponibilidad?",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000110", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Huésped A10" }, "wa_id": "34600000110" }],
+                  "messages": [
+                    {
+                      "from": "34600000110",
+                      "id": "wamid.4A10-T1-TEST001",
+                      "timestamp": "1779900001",
+                      "text": { "body": "Hola, quiero reservar el paquete Uluwatu para 2 personas del 20 al 27 de abril. ¿Tenéis disponibilidad?" },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.85,
+      "expected_language": "es",
+      "expected_missing_fields": [],
+      "expected_bot_behavior": "Bot detects Spanish. Routes to booking_flow. Extracts check_in=2026-04-20, check_out=2026-04-27, guest_count=2, package_key=uluwatu. Replies IN SPANISH. Hold stub fires.",
+      "expected_state_after_turn": {
+        "language_detected": "es",
+        "reply_language": "es",
+        "session_check_in": "2026-04-20",
+        "session_check_out": "2026-04-27",
+        "session_guest_count": 2,
+        "session_package_key": "uluwatu",
+        "hold_stub_fired": true
+      },
+      "assertions": {
+        "language_must_be_es": true,
+        "reply_must_be_in_spanish": true,
+        "route_must_be_booking_flow": true,
+        "field_extraction_same_as_english": true,
+        "state_transitions_same_as_english": true
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_real_hold": true,
+        "no_payment_events_write": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "language": "es",
+    "booking_status": "hold",
+    "reply_in_spanish": true,
+    "same_state_as_english_equivalent": true,
+    "payment_events_delta": 0,
+    "booking_beds_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "language_detection_works_for_es": true,
+    "spanish_reply_generated": true,
+    "booking_flow_unaffected_by_language": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

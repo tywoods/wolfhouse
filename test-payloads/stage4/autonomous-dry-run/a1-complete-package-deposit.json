@@ -1,0 +1,288 @@
+{
+  "_meta": {
+    "scenario_id": "A1",
+    "title": "Complete 7-night Uluwatu booking — deposit path",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Full happy-path: guest provides all fields in turn 1, selects deposit in turn 2, provides name+email in turn 3. Bot creates hold stub, quotes correct deposit amount, produces payment-link stub reply. No real sends or mutations.",
+    "notes": "Uluwatu shoulder (April) 2 guests = €698 total, €200 deposit (standard package tier). Stub hold must return shaped booking_id/booking_code for downstream nodes to proceed."
+  },
+
+  "config_expectations": {
+    "package_key": "uluwatu",
+    "season": "shoulder",
+    "check_in": "2026-04-10",
+    "check_out": "2026-04-17",
+    "nights": 7,
+    "guest_count": 2,
+    "price_per_person_eur": 349,
+    "total_eur": 698,
+    "deposit_eur": 200,
+    "deposit_rule": "standard_package",
+    "deposit_rule_source": "payment.deposit_rule.tiers.standard_package.amount_eur",
+    "full_payment_eur": 698,
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {
+    "_note": "These shaped return values are needed by downstream nodes. Current Mode A stubs do NOT return these shapes — see README § Required implementation changes.",
+    "hold_stub": {
+      "booking_id": "aaa00000-0000-0000-0000-000000000a01",
+      "booking_code": "WH-DRYA1-0001",
+      "status": "hold",
+      "expires_at": "2026-04-10T11:00:00.000Z",
+      "expires_in_minutes": 60,
+      "check_in": "2026-04-10",
+      "check_out": "2026-04-17",
+      "guest_count": 2,
+      "package_key": "uluwatu",
+      "total_amount_cents": 69800,
+      "deposit_amount_cents": 20000,
+      "currency": "EUR",
+      "dry_run": true
+    },
+    "payment_link_stub": {
+      "checkout_url": "https://checkout.stripe.com/dry-run/a1-deposit",
+      "session_id": "cs_dry_run_a1_deposit_001",
+      "amount_cents": 20000,
+      "currency": "eur",
+      "payment_kind": "deposit",
+      "booking_id": "aaa00000-0000-0000-0000-000000000a01",
+      "booking_code": "WH-DRYA1-0001",
+      "dry_run": true
+    },
+    "stripe_webhook_sim": {
+      "event_id": "evt_dry_run_a1_001",
+      "session_id": "cs_dry_run_a1_deposit_001",
+      "payment_status": "paid",
+      "amount_paid_cents": 20000,
+      "currency": "eur",
+      "payment_kind": "deposit",
+      "booking_id": "aaa00000-0000-0000-0000-000000000a01",
+      "booking_code": "WH-DRYA1-0001",
+      "dry_run": true
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "A1-T1",
+      "description": "Guest sends complete booking request: package, dates, guest count",
+      "guest_message": "Hi, I want to book the Uluwatu package for 2 people from April 10 to April 17. Do you have availability?",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": {
+                    "display_phone_number": "34600000101",
+                    "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+                  },
+                  "contacts": [
+                    {
+                      "profile": { "name": "Test Guest A1" },
+                      "wa_id": "34600000101"
+                    }
+                  ],
+                  "messages": [
+                    {
+                      "from": "34600000101",
+                      "id": "wamid.4A1-T1-TEST001",
+                      "timestamp": "1779000001",
+                      "text": {
+                        "body": "Hi, I want to book the Uluwatu package for 2 people from April 10 to April 17. Do you have availability?"
+                      },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.90,
+      "expected_missing_fields": [],
+      "expected_bot_behavior": "All fields present. Bot should check availability (stub returns hold). Bot should ask: deposit or full payment?",
+      "expected_state_after_turn": {
+        "session_check_in": "2026-04-10",
+        "session_check_out": "2026-04-17",
+        "session_guest_count": 2,
+        "session_package_key": "uluwatu",
+        "hold_stub_fired": true,
+        "hold_booking_id_present": true,
+        "payment_prompt_issued": true
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_real_hold_creation": true,
+        "no_payment_link_creation": true,
+        "no_airtable_write": true,
+        "no_pg_booking_row": true,
+        "no_payment_events_write": true
+      }
+    },
+    {
+      "turn_id": "A1-T2",
+      "description": "Guest selects deposit option",
+      "guest_message": "I'll go with the deposit please.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": {
+                    "display_phone_number": "34600000101",
+                    "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+                  },
+                  "contacts": [
+                    {
+                      "profile": { "name": "Test Guest A1" },
+                      "wa_id": "34600000101"
+                    }
+                  ],
+                  "messages": [
+                    {
+                      "from": "34600000101",
+                      "id": "wamid.4A1-T2-TEST002",
+                      "timestamp": "1779000061",
+                      "text": {
+                        "body": "I'll go with the deposit please."
+                      },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "payment_or_confirm_intent",
+      "expected_confidence_min": 0.85,
+      "expected_missing_fields": ["guest_name", "guest_email"],
+      "expected_bot_behavior": "Bot recognises deposit selection. Asks for name and email before creating payment link.",
+      "expected_state_after_turn": {
+        "payment_kind": "deposit",
+        "deposit_amount_eur": 200,
+        "deposit_rule_applied": "standard_package",
+        "name_email_requested": true,
+        "payment_link_not_yet_created": true
+      },
+      "assertions": {
+        "deposit_amount_must_be": 200,
+        "deposit_amount_source": "config payment.deposit_rule.tiers.standard_package.amount_eur",
+        "must_not_invent_amount": true
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_real_stripe_session": true,
+        "no_payment_events_write": true
+      }
+    },
+    {
+      "turn_id": "A1-T3",
+      "description": "Guest provides name and email",
+      "guest_message": "My name is Test Guest A1, email is testguest.a1@example.com",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": {
+                    "display_phone_number": "34600000101",
+                    "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+                  },
+                  "contacts": [
+                    {
+                      "profile": { "name": "Test Guest A1" },
+                      "wa_id": "34600000101"
+                    }
+                  ],
+                  "messages": [
+                    {
+                      "from": "34600000101",
+                      "id": "wamid.4A1-T3-TEST003",
+                      "timestamp": "1779000121",
+                      "text": {
+                        "body": "My name is Test Guest A1, email is testguest.a1@example.com"
+                      },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.85,
+      "expected_missing_fields": [],
+      "expected_bot_behavior": "Bot collects name+email. Creates payment link stub (€200 deposit). Replies with checkout URL. No real Stripe session.",
+      "expected_state_after_turn": {
+        "guest_name": "Test Guest A1",
+        "guest_email": "testguest.a1@example.com",
+        "payment_link_stub_fired": true,
+        "checkout_url_in_reply": true,
+        "amount_in_link_eur": 200,
+        "booking_status": "hold"
+      },
+      "assertions": {
+        "checkout_url_must_be_stub": true,
+        "amount_must_equal_deposit_200_eur": true,
+        "no_real_stripe_session": true,
+        "no_pg_payment_events_write": true
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_real_stripe_session": true,
+        "no_payment_events_write": true,
+        "no_booking_confirmed_state": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "booking_status": "hold",
+    "payment_status": "awaiting_deposit",
+    "conversation_status": "active",
+    "confirmed": false,
+    "payment_events_delta": 0,
+    "booking_beds_delta": 0,
+    "payments_delta": 0,
+    "real_whatsapp_sends": 0,
+    "real_stripe_sessions": 0,
+    "draft_captured": true,
+    "deposit_amount_correct": true
+  },
+
+  "assertions": {
+    "deposit_amount_eur": 200,
+    "deposit_rule": "standard_package",
+    "package_total_eur": 698,
+    "no_invented_pricing": true,
+    "all_shadow_gates_fired": true,
+    "protected_count_deltas_all_zero": true,
+    "no_real_whatsapp_wamid": true
+  },
+
+  "staff_review_notes": ""
+}

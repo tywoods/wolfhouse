@@ -1,0 +1,154 @@
+{
+  "_meta": {
+    "scenario_id": "A9",
+    "title": "During-stay add-on request — 2 surf lessons, tiered price check",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Guest already staying at Wolfhouse requests 2 surf lessons. Bot must quote €65 (€35 for lesson 1, €30 for lesson 2 per tiered rule) and create a payment-link stub. No invented pricing.",
+    "notes": "Config: service_addons.service_catalog.surf_lesson.tiers = [{min: 1, max: 1, price: 35}, {min: 2, max: null, price_each: 30}]. 2 lessons = €35 + €30 = €65. Yoga (€15) is booked on-site — bot should not create a link for yoga. Wetsuit + softtop bundle = €15/day."
+  },
+
+  "config_expectations": {
+    "surf_lesson_1": 35,
+    "surf_lesson_2_plus": 30,
+    "two_lessons_total_eur": 65,
+    "tiered_pricing_source": "service_addons.service_catalog.surf_lesson.tiers",
+    "yoga_booked_onsite": true,
+    "yoga_no_bot_link": true,
+    "wetsuit_softtop_bundle_per_day": 15,
+    "config_source": "wolfhouse-somo.baseline.json v0.6 service_addons"
+  },
+
+  "stub_overrides": {
+    "addon_payment_link_stub": {
+      "checkout_url": "https://checkout.stripe.com/dry-run/a9-lessons",
+      "session_id": "cs_dry_run_a9_lessons_001",
+      "amount_cents": 6500,
+      "currency": "eur",
+      "payment_kind": "addon",
+      "addon_type": "surf_lesson",
+      "quantity": 2,
+      "booking_id": "aaa00000-0000-0000-0000-000000000a09",
+      "dry_run": true
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "A9-T1",
+      "description": "Guest requests 2 surf lessons",
+      "guest_message": "Hey, I'd like to add 2 surf lessons to my stay. How much is that?",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000109", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A9" }, "wa_id": "34600000109" }],
+                  "messages": [
+                    {
+                      "from": "34600000109",
+                      "id": "wamid.4A9-T1-TEST001",
+                      "timestamp": "1779800001",
+                      "text": { "body": "Hey, I'd like to add 2 surf lessons to my stay. How much is that?" },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "general_question",
+      "expected_confidence_min": 0.80,
+      "expected_bot_behavior": "Bot quotes €65 for 2 surf lessons (tiered: €35 + €30). Offers to create a payment link for the addon. Does not auto-charge or confirm.",
+      "expected_state_after_turn": {
+        "addon_price_quoted_eur": 65,
+        "price_breakdown_correct": true,
+        "no_real_charge": true
+      },
+      "assertions": {
+        "two_lesson_price_must_be_65_eur": true,
+        "price_must_use_tiered_rule": true,
+        "must_not_invent_price": true,
+        "yoga_must_not_have_bot_link": true,
+        "tiered_rule_source": "service_addons.service_catalog.surf_lesson.tiers"
+      },
+      "forbidden_live_actions": {
+        "no_real_stripe_session": true,
+        "no_real_whatsapp_send": true,
+        "no_payment_events_write": true
+      }
+    },
+    {
+      "turn_id": "A9-T2",
+      "description": "Guest also asks about yoga",
+      "guest_message": "Also, can I book yoga through you?",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000109", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Guest A9" }, "wa_id": "34600000109" }],
+                  "messages": [
+                    {
+                      "from": "34600000109",
+                      "id": "wamid.4A9-T2-TEST002",
+                      "timestamp": "1779800061",
+                      "text": { "body": "Also, can I book yoga through you?" },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "general_question",
+      "expected_confidence_min": 0.80,
+      "expected_bot_behavior": "Bot informs guest yoga (€15) is booked on-site. Does NOT create a payment link for yoga.",
+      "expected_state_after_turn": {
+        "yoga_link_created": false,
+        "yoga_onsite_info_given": true
+      },
+      "assertions": {
+        "no_yoga_payment_link": true,
+        "yoga_onsite_behavior_respected": true,
+        "config_source": "service_addons.service_catalog.yoga_class.booked_onsite = true"
+      },
+      "forbidden_live_actions": {
+        "no_yoga_stripe_session": true,
+        "no_real_whatsapp_send": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "lesson_price_quoted_eur": 65,
+    "yoga_link_created": false,
+    "payment_events_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "lesson_price_65_eur_tiered": true,
+    "yoga_onsite_only_no_bot_link": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

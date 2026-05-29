@@ -1,0 +1,171 @@
+{
+  "_meta": {
+    "scenario_id": "A2",
+    "title": "Missing package type resolved in turn 2",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "goal": "Guest provides dates and guest count but no package. Bot asks for package preference. Guest supplies it in turn 2. Hold stub fires only AFTER package is known.",
+    "notes": "Tests multi-turn missing-field accumulation. package_intent must be absent in turn 1, present in turn 2. Hold must not be attempted until all booking fields are complete."
+  },
+
+  "config_expectations": {
+    "package_key": "malibu",
+    "season": "shoulder",
+    "check_in": "2026-05-01",
+    "check_out": "2026-05-08",
+    "nights": 7,
+    "guest_count": 1,
+    "price_per_person_eur": 249,
+    "total_eur": 249,
+    "deposit_eur": 200,
+    "deposit_rule": "standard_package",
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {
+    "hold_stub": {
+      "booking_id": "aaa00000-0000-0000-0000-000000000a02",
+      "booking_code": "WH-DRYA2-0001",
+      "status": "hold",
+      "expires_in_minutes": 60,
+      "check_in": "2026-05-01",
+      "check_out": "2026-05-08",
+      "guest_count": 1,
+      "package_key": "malibu",
+      "total_amount_cents": 24900,
+      "deposit_amount_cents": 20000,
+      "currency": "EUR",
+      "dry_run": true
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "A2-T1",
+      "description": "Guest provides dates and count but no package",
+      "guest_message": "Hi, I'd like to book for 1 person from May 1 to May 8.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": {
+                    "display_phone_number": "34600000102",
+                    "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+                  },
+                  "contacts": [
+                    { "profile": { "name": "Test Guest A2" }, "wa_id": "34600000102" }
+                  ],
+                  "messages": [
+                    {
+                      "from": "34600000102",
+                      "id": "wamid.4A2-T1-TEST001",
+                      "timestamp": "1779100001",
+                      "text": { "body": "Hi, I'd like to book for 1 person from May 1 to May 8." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.90,
+      "expected_missing_fields": ["package_intent"],
+      "expected_bot_behavior": "Bot recognises dates and guest count. Asks guest which package they want (Malibu / Uluwatu / Waimea or accommodation only).",
+      "expected_state_after_turn": {
+        "session_check_in": "2026-05-01",
+        "session_check_out": "2026-05-08",
+        "session_guest_count": 1,
+        "session_package_key": null,
+        "hold_stub_fired": false,
+        "package_question_issued": true
+      },
+      "forbidden_live_actions": {
+        "no_hold_creation": true,
+        "no_real_whatsapp_send": true,
+        "no_payment_link": true
+      }
+    },
+    {
+      "turn_id": "A2-T2",
+      "description": "Guest supplies package preference",
+      "guest_message": "I'll go with the Malibu package.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": {
+                    "display_phone_number": "34600000102",
+                    "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+                  },
+                  "contacts": [
+                    { "profile": { "name": "Test Guest A2" }, "wa_id": "34600000102" }
+                  ],
+                  "messages": [
+                    {
+                      "from": "34600000102",
+                      "id": "wamid.4A2-T2-TEST002",
+                      "timestamp": "1779100061",
+                      "text": { "body": "I'll go with the Malibu package." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.85,
+      "expected_missing_fields": [],
+      "expected_bot_behavior": "All fields now present. Hold stub fires. Bot asks deposit vs full payment.",
+      "expected_state_after_turn": {
+        "session_package_key": "malibu",
+        "hold_stub_fired": true,
+        "all_fields_resolved": true,
+        "payment_prompt_issued": true
+      },
+      "assertions": {
+        "hold_must_not_fire_until_package_known": true,
+        "package_accumulation_across_turns": true
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_real_hold": true,
+        "no_payment_events_write": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "booking_status": "hold",
+    "package_resolved": "malibu",
+    "payment_events_delta": 0,
+    "booking_beds_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "no_hold_before_package_known": true,
+    "package_accumulated_across_turns": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}
