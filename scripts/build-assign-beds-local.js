@@ -423,6 +423,53 @@ return [{
   }
 }];`;
 
+// Stage 3.5d: workflow_events warn log for PG-overlap blocked assign.
+// $1 = JSON.stringify(Code - Build PG Overlap Event output json)
+const WE_OVERLAP_CONFLICT_SQL = `INSERT INTO workflow_events (
+  client_id, workflow_name, node_name, execution_id,
+  event_level, message, booking_id, payload
+)
+SELECT
+  c.id,
+  ($1::jsonb)->>'workflow_name',
+  ($1::jsonb)->>'node_name',
+  ($1::jsonb)->>'execution_id',
+  'warn'::workflow_event_level,
+  'bed_assignment_blocked_overlap',
+  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,
+  ($1::jsonb)->'payload'
+FROM clients c
+WHERE c.slug = 'wolfhouse-somo';`;
+
+// Stage 3.5d: JS for Code - Build PG Overlap Event node
+const BUILD_PG_OVERLAP_EVENT_JS = [
+  "const validate = $('Code - Validate PG Assign').first().json;",
+  "const parsed = $('Code - Parse Assign Webhook').first().json;",
+  "const bookingId = String(validate.booking_id || '').trim() || null;",
+  "const bookingCode = String(validate.booking_code || parsed.booking_code || '').trim();",
+  'return [{',
+  '  json: {',
+  "    workflow_name: 'Wolfhouse - Bed Assignment (local PG)',",
+  "    node_name: 'IF - PG Assign OK',",
+  "    execution_id: String($execution.id ?? ''),",
+  '    booking_id: bookingId,',
+  '    payload: {',
+  '      booking_code: bookingCode,',
+  '      pg_conflict_count: Number(validate.pg_conflict_count || 0),',
+  '      pg_unknown_count: Number(validate.pg_unknown_count || 0),',
+  '      pg_ok: validate.pg_ok,',
+  '      can_mutate: validate.can_mutate,',
+  '      beds_requested_count: Number(validate.beds_requested_count || 0),',
+  '      errors: validate.errors || [],',
+  "      action: 'assign_beds',",
+  "      outcome: 'blocked_overlap',",
+  "      assignment_status_would_be: 'needs_review',",
+  "      availability_check_status_would_be: 'conflict',",
+  '    },',
+  '  },',
+  '}];',
+].join('\n');
+
 function pgQueryReplacement(parsedNode, bedsJsonExpr) {
   const rec = `={{ (($('${parsedNode}').first().json.airtable_record_id) != null && String($('${parsedNode}').first().json.airtable_record_id).trim() !== '') ? String($('${parsedNode}').first().json.airtable_record_id).trim() : '${NULL_SENTINEL}' }}`;
   const code = `={{ (($('${parsedNode}').first().json.booking_code) != null && String($('${parsedNode}').first().json.booking_code).trim() !== '') ? String($('${parsedNode}').first().json.booking_code).trim() : '${NULL_SENTINEL}' }}`;
@@ -671,6 +718,47 @@ function main() {
         id: uid('respond-assign-webhook'),
         name: 'Respond to Webhook',
       },
+      // Stage 3.5d: PG-overlap conflict path — log warn + mirror PG status
+      {
+        parameters: { jsCode: BUILD_PG_OVERLAP_EVENT_JS },
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [840, 320],
+        id: uid('build-pg-overlap-event'),
+        name: 'Code - Build PG Overlap Event',
+      },
+      {
+        parameters: {
+          operation: 'executeQuery',
+          query: WE_OVERLAP_CONFLICT_SQL,
+          options: { queryReplacement: '={{ JSON.stringify($json) }}' },
+        },
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.5,
+        position: [1020, 320],
+        id: uid('postgres-write-we-overlap'),
+        name: 'Postgres - Write workflow_events (overlap conflict)',
+        alwaysOutputData: true,
+        continueOnFail: true,
+        onError: 'continueRegularOutput',
+        credentials: { postgres: LOCAL_N8N.postgresCred },
+      },
+      {
+        parameters: {
+          operation: 'executeQuery',
+          query: PG_CONFLICT_MIRROR_SQL,
+          options: { queryReplacement: parseOnlyReplacement },
+        },
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.5,
+        position: [1200, 320],
+        id: uid('postgres-mirror-pg-conflict'),
+        name: 'Postgres - Mirror PG Assignment Conflict',
+        alwaysOutputData: true,
+        continueOnFail: true,
+        onError: 'continueRegularOutput',
+        credentials: { postgres: LOCAL_N8N.postgresCred },
+      },
     ],
     connections: {
       'Assign Beds to Booking - Webhook': {
@@ -737,8 +825,19 @@ function main() {
       'IF - PG Assign OK': {
         main: [
           [{ node: 'Create Booking Bed Assignment', type: 'main', index: 0 }],
-          [{ node: 'Code - Build Assign Response', type: 'main', index: 0 }],
+          // Stage 3.5d: false path now routes through overlap event log + PG mirror
+          [{ node: 'Code - Build PG Overlap Event', type: 'main', index: 0 }],
         ],
+      },
+      // Stage 3.5d: overlap conflict chain
+      'Code - Build PG Overlap Event': {
+        main: [[{ node: 'Postgres - Write workflow_events (overlap conflict)', type: 'main', index: 0 }]],
+      },
+      'Postgres - Write workflow_events (overlap conflict)': {
+        main: [[{ node: 'Postgres - Mirror PG Assignment Conflict', type: 'main', index: 0 }]],
+      },
+      'Postgres - Mirror PG Assignment Conflict': {
+        main: [[{ node: 'Code - Build Assign Response', type: 'main', index: 0 }]],
       },
       'Create Booking Bed Assignment': {
         main: [[{ node: 'Code - Backfill PG Airtable IDs', type: 'main', index: 0 }]],

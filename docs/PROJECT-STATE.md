@@ -1,11 +1,11 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-29 (Stage 3 local safety closeout: 3e.5 + 3e.6 CLOSED)  
-**HEAD (expected):** `af24b79` (3x.2c-2f client deploy config) + uncommitted 3e.5/3e.6 plan/test/fixture changes
+**Last updated:** 2026-05-29 (Stage 3.5d overlap guard hardening — planning complete)  
+**HEAD (expected):** `85fb525` (3.5c/I3 Stripe duplicate-event idempotency PASS)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
-**Quality bar:** Stage 3 — **CLOSED for local safety bar** (2026-05-29). 3e.5 wrong-booking guard CLOSED (L1+L2 PASS, L3 deferred to Airtable/PG cutover). 3e.6 idempotency CLOSED (I1 schema PASS, I4 runtime PASS, I6 invariant PASS; I2/I3/I5 explicitly deferred). **Next: Stage 3.5 safety rails.**
+**Quality bar:** Stage 3 — **CLOSED for local safety bar** (2026-05-29). 3e.5 wrong-booking guard CLOSED (L1+L2 PASS, L3 deferred). 3e.6 idempotency CLOSED (I1+I4+I6 PASS; I2/I3/I5 deferred). Stage 3.5 in progress: 3.5b+3.5e+3.5c/I3 PASS; **3.5d planning complete. Next: D1 L2 fixture proof.**
 
 ---
 
@@ -28,7 +28,7 @@
 | Stage | Status | Notes |
 |-------|--------|--------|
 | **3** Correct and safe | **CLOSED — local safety bar** (2026-05-29) | 3e.5 wrong-booking CLOSED (L1+L2, L3 deferred); 3e.6 idempotency CLOSED (I1+I4+I6 PASS; I2/I3/I5 deferred to Stage 3.5/cutover). Caveats: real WhatsApp, Airtable-coupled L3, Stripe/payment gates remain deferred. |
-| **3.5** Safety rails | **In progress — 3.5c/I3 RUNTIME PASS** | [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS (exec 1090). **3.5c/I3 RUNTIME PASS (2026-05-29, execs 1093/1094):** POST #1 → `processed:true`, `deposit_paid`, `payment_events+1`; POST #2 → `processed:false`, `reason:duplicate_event`, zero double-promotion, all protected counts restored. I3 idempotency proven. Next: 3.5d overlap-guard hardening or extend error-capture logging to Assign/Cancel workflows, or commit checkpoint for I3. |
+| **3.5** Safety rails | **In progress — 3.5d planning complete** | [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS (exec 1090). 3.5c/I3 RUNTIME PASS (execs 1093/1094). **3.5d D1+D2+D3 L2 PASS + wire-in IMPLEMENTED + D8 runtime BLOCKED (2026-05-29):** D1/D2/D3 overlap guards confirmed for all sources. Wire-in implemented (24→27 nodes, static PASS): `IF - PG Assign OK` false routes through `Code - Build PG Overlap Event` → `Postgres - Write workflow_events (overlap conflict)` → `Postgres - Mirror PG Assignment Conflict` → response. **D8 runtime BLOCKED (Airtable-coupled upstream):** Assign webhook resolves booking + chooses beds via Airtable (`Get Booking`, `Update Booking - Mark Assigning` write, `Search*`) before the PG branch — a PG-only fixture cannot reach the overlap false branch and would require a forbidden Airtable write. Caught in pre-flight; nothing seeded/activated/posted. Deferred to cutover alongside D6/D9, or unblock via local PG-only trigger path (`3.5d.8b`). **Next: commit checkpoint for 3.5d D1–D3 + wire-in, or implement `3.5d.8b` PG-only trigger path.** |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
 | **3y** Shadow / co-pilot | Planned | Bot drafts, staff approves/sends; generates real labeled data |
 | **4** Reliable | Planned | After 3 + 3.5 + 3x + 3y |

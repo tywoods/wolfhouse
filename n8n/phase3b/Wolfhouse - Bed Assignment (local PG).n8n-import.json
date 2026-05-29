@@ -3643,6 +3643,71 @@
         ],
         "id": "c8408778-d32e-4965-8b6e-6fd5534f41ed",
         "name": "Respond to Webhook"
+      },
+      {
+        "parameters": {
+          "jsCode": "const validate = $('Code - Validate PG Assign').first().json;\nconst parsed = $('Code - Parse Assign Webhook').first().json;\nconst bookingId = String(validate.booking_id || '').trim() || null;\nconst bookingCode = String(validate.booking_code || parsed.booking_code || '').trim();\nreturn [{\n  json: {\n    workflow_name: 'Wolfhouse - Bed Assignment (local PG)',\n    node_name: 'IF - PG Assign OK',\n    execution_id: String($execution.id ?? ''),\n    booking_id: bookingId,\n    payload: {\n      booking_code: bookingCode,\n      pg_conflict_count: Number(validate.pg_conflict_count || 0),\n      pg_unknown_count: Number(validate.pg_unknown_count || 0),\n      pg_ok: validate.pg_ok,\n      can_mutate: validate.can_mutate,\n      beds_requested_count: Number(validate.beds_requested_count || 0),\n      errors: validate.errors || [],\n      action: 'assign_beds',\n      outcome: 'blocked_overlap',\n      assignment_status_would_be: 'needs_review',\n      availability_check_status_would_be: 'conflict',\n    },\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          840,
+          320
+        ],
+        "id": "aa71b795-f5eb-496d-8272-fb200da89052",
+        "name": "Code - Build PG Overlap Event"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO workflow_events (\n  client_id, workflow_name, node_name, execution_id,\n  event_level, message, booking_id, payload\n)\nSELECT\n  c.id,\n  ($1::jsonb)->>'workflow_name',\n  ($1::jsonb)->>'node_name',\n  ($1::jsonb)->>'execution_id',\n  'warn'::workflow_event_level,\n  'bed_assignment_blocked_overlap',\n  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,\n  ($1::jsonb)->'payload'\nFROM clients c\nWHERE c.slug = 'wolfhouse-somo';",
+          "options": {
+            "queryReplacement": "={{ JSON.stringify($json) }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          1020,
+          320
+        ],
+        "id": "2ade584b-ac0a-4d19-8dae-1faf9b278f0e",
+        "name": "Postgres - Write workflow_events (overlap conflict)",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH params AS (\n  SELECT\n    NULLIF(trim($1), '__NULL__') AS airtable_record_id,\n    NULLIF(trim($2), '__NULL__') AS booking_code\n),\nresolved AS (\n  SELECT b.id, b.client_id, b.booking_code, b.payment_status::text AS payment_status\n  FROM bookings b\n  INNER JOIN clients c ON c.id = b.client_id\n  CROSS JOIN params p\n  WHERE c.slug = 'wolfhouse-somo'\n    AND (\n      (p.airtable_record_id IS NOT NULL AND b.airtable_record_id = p.airtable_record_id)\n      OR (p.booking_code IS NOT NULL AND b.booking_code = p.booking_code)\n    )\n  LIMIT 2\n),\nguard AS (\n  SELECT r.* FROM resolved r WHERE (SELECT COUNT(*) FROM resolved) = 1\n),\nupdated AS (\n  UPDATE bookings b\n  SET\n    assignment_status = 'needs_review'::assignment_status,\n    availability_check_status = 'conflict'::availability_check_status\n  FROM guard g\n  WHERE b.id = g.id AND b.client_id = g.client_id\n  RETURNING b.id\n)\nSELECT\n  (SELECT COUNT(*)::int FROM resolved) AS booking_rows_resolved,\n  g.booking_code,\n  (SELECT COUNT(*)::int FROM updated) AS pg_booking_updated_count,\n  g.payment_status AS payment_status_before,\n  (SELECT payment_status::text FROM bookings WHERE id = g.id) AS payment_status_after\nFROM guard g",
+          "options": {
+            "queryReplacement": "={{ (($('Code - Parse Assign Webhook').first().json.airtable_record_id) != null && String($('Code - Parse Assign Webhook').first().json.airtable_record_id).trim() !== '') ? String($('Code - Parse Assign Webhook').first().json.airtable_record_id).trim() : '__NULL__' }},={{ (($('Code - Parse Assign Webhook').first().json.booking_code) != null && String($('Code - Parse Assign Webhook').first().json.booking_code).trim() !== '') ? String($('Code - Parse Assign Webhook').first().json.booking_code).trim() : '__NULL__' }}"
+          }
+        },
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          1200,
+          320
+        ],
+        "id": "21fda286-a8cd-4463-8349-ae743468e700",
+        "name": "Postgres - Mirror PG Assignment Conflict",
+        "alwaysOutputData": true,
+        "continueOnFail": true,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "postgres": {
+            "id": "MnnrrLecI7oVoIGq",
+            "name": "Postgres account"
+          }
+        }
       }
     ],
     "connections": {
@@ -3852,6 +3917,39 @@
               "index": 0
             }
           ],
+          [
+            {
+              "node": "Code - Build PG Overlap Event",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Build PG Overlap Event": {
+        "main": [
+          [
+            {
+              "node": "Postgres - Write workflow_events (overlap conflict)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Write workflow_events (overlap conflict)": {
+        "main": [
+          [
+            {
+              "node": "Postgres - Mirror PG Assignment Conflict",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Postgres - Mirror PG Assignment Conflict": {
+        "main": [
           [
             {
               "node": "Code - Build Assign Response",

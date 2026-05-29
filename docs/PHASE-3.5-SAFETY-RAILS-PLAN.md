@@ -536,33 +536,391 @@ the failure-mode env before triggering, and the restored baseline env afterward.
 ### 3.5d — Double-booking / overlap guard hardening
 
 **Work type:** Docs/static + fixture/report + reversible DB write + runtime gate  
-**Status:** PLANNED
+**Status:** PLANNING COMPLETE (2026-05-29) / IMPLEMENTATION NOT STARTED
 
 **Goal:** Formalize and harden the overlap guard contract for all bed-assignment paths.
 
-**Current state (from 3e.5 T6 and schema inspection):**
+---
 
-- `assign-booking-beds-plan.js` runs overlap detection before INSERT (detects conflicting non-cancelled bookings in `booking_beds`).
-- No dedicated `is_manual_lock` column — manual/staff protection is overlap-based (`bookings.booking_source IN ('manual_staff', 'operator')`).
-- Overlap detection produces a conflict report but does not write to `automation_errors`.
-- The `resolved_count=1` guard in `reassign-booking-beds-pg-sql.js` prevents mass delete on ambiguous resolve.
+#### Overlap-sensitive path inventory (inspected 2026-05-29)
 
-**Overlap guard contract (define for each path):**
+| Path | Owner workflow/script | SoT today | Creates booking_beds | Deletes booking_beds | Moves booking_beds | Current overlap guard | manual_staff/operator protection | Idempotency guard | Error capture/logging | Missing guard | Recommended proof level |
+|------|----------------------|-----------|----------------------|----------------------|---------------------|----------------------|----------------------------------|-------------------|-----------------------|---------------|------------------------|
+| Guest auto-assign (PG) | `Assign (local PG)` via `PG_ASSIGN_SQL` | Postgres | YES | NO | NO | `overlap_beds` CTE: any non-cancelled booking on same bed+dates blocked (`can_mutate=false`). `pg_ok=false` routes to response. | manual_staff/operator bookings are protected via the same overlap guard — no source-based bypass. No dedicated lock column. | `existing_skip` CTE: natural-key already-exists → skipped (idempotent). | **NONE** — `IF - PG Assign OK` false branch goes directly to response. No `workflow_events`, no `automation_errors`, no PG booking status update on conflict. | Wire `workflow_events (warn)` + `bookings.assignment_status=needs_review` PG mirror on conflict path | **L2 now (fixture + report); L3 after wire-in** |
+| Guest auto-assign (Airtable path, upstream) | `Assign (local PG)` via Airtable `IF - Bed Assignment Conflict` | Airtable | YES (Airtable first, then PG mirror) | NO | NO | Airtable checks for conflicting records; if conflict → `Postgres - Mirror Assignment Conflict` (mirrors conflict status to PG) + Airtable update | Same overlap-based protection | N/A — Airtable handles separately | Writes PG `assignment_status=needs_review` via `Postgres - Mirror Assignment Conflict` ✓. No `workflow_events` or `automation_errors`. | Add `workflow_events (warn)` on Airtable conflict path | **L3 deferred (Airtable-coupled)** |
+| Reassign (delete step) | `Reassign (local PG)` via `PG_REASSIGN_DELETE_SQL` | Mixed — Airtable upstream + PG DELETE | NO | YES — all `booking_beds` for target booking | NO | `resolved_count=1` guard: if booking resolution is ambiguous (0 or 2+ rows), DELETE is blocked. | No source-based protection on DELETE — deletes all beds for target regardless of source. | `beds_before_count` field shows deleted count; no natural-key idempotency. | **NONE** — no `workflow_events`, no `automation_errors` on guard failure. | Wire `workflow_events` on `resolved_count≠1`; document that DELETE is scoped to single booking_id | **L2 now (scope proof); L3 deferred (Airtable upstream)** |
+| Reassign (new assign step) | Calls Assign after PG delete | Postgres | YES | NO | NO | Same as Assign PG overlap guard above | Same | Same | Same | Same as Assign PG gap | **L2/L3 deferred with Assign** |
+| Cancel | `Cancel (local PG)` via `cancel-booking-beds-postgres.js` | Postgres | NO | YES — all `booking_beds` for target booking | NO | Scoped DELETE: `WHERE client_id=$1 AND booking_id=$2`. No overlap re-check needed (releasing beds is always safe). Guards: booking_not_found, booking_ambiguous. | N/A — cancel always safe to release any source. | `idempotent: deleteRes.rowCount === 0` logged. Explicit payment guard: throws if payments count changes. | **NONE** — no `workflow_events`, no `automation_errors`. | Wire `workflow_events (info)` on cancel success; add I6 cancel idempotency doc | **L2 (cancel scope proof already evidenced by existing cancel-impact reports)** |
+| Manual/staff assignment | `Manual Entries (local PG)` | Postgres | YES (via `manual-entry-pg-sql.js`) | NO | NO | Overlap detection from `manual-entry-impact-plan.js`; conflict flagged in plan output. | manual_staff source is protected from guest overwrite by the same overlap guard. | Natural-key based skip in plan | **NONE** in n8n | Wire `workflow_events` on conflict | **L2 now (manual-entry-impact report); L3 deferred** |
+| Operator room release | `Operator Room Release (local PG)` | Mixed | Creates 0–2 NEW operator block bookings; no `booking_beds` directly in release workflow | Removes original operator booking's beds (in 3b.5b PG mirror, proposed DELETE) | NO | `loadOverlapConflicts` in plan script checks for guest bookings in release window. `match_count=1` guard prevents action on ambiguous operator booking. | New block bookings use `booking_source='operator'` — protected by overlap guard downstream. | N/A | **NONE** — plan script has overlap check but n8n runtime has no capture | Wire `workflow_events` on overlap in release window; document that new blocks trigger downstream Assign | **L2 now (operator-room-release-impact report); L3 deferred** |
+| Main rooming auto-assign call | `Main (local Stripe)` → calls Assign webhook | Airtable-primary | Delegates to Assign | NO | NO | Delegate to Assign guard above | Delegate | Delegate | Delegate | None in Main itself beyond delegate | **Covered by Assign L2/L3** |
 
-| Path | Current guard | Gap | 3.5 action |
-|------|--------------|-----|------------|
-| Guest auto-assign | `assign-booking-beds-plan.js` overlap detection | Conflict not captured in `automation_errors`; no staff alert | Wire error capture on conflict |
-| Reassign | `resolved_count=1` PG guard | Airtable upstream; conflict not captured | Wire error on resolve failure; defer runtime to cutover |
-| Cancel | Removes `booking_beds` rows | No overlap re-check on cancel (downstream) | Document; add cancel idempotency (I6) |
-| Manual/staff/operator | Overlap detection blocks guest overwrite | No dedicated lock column; rely on source convention | Document convention; add L2 fixture test confirming block |
-| Operator room release | Operator block convention | Not explicitly tested in 3e.5 | Add L2 test |
+---
 
-**Pass/fail tests needed:**
+#### Assign workflow overlap guard — detailed findings (inspected 2026-05-29)
 
-- L1: `assign-booking-beds-plan.js` unit test: overlap for two bookings on same bed same date → `overlap=true`.
-- L2: fixture with manual_staff booking + guest candidate → report shows conflict, no overwrite.
-- L2: fixture with operator booking + guest candidate → same.
-- L3 runtime: Assign workflow with deliberate overlap → confirm `automation_errors` row written, no `booking_beds` mutation on blocked guest. (Requires wiring from 3.5b first.)
+**File:** `scripts/lib/assign-booking-beds-plan.js` (plan / impact report)  
+**SQL:** `scripts/lib/assign-booking-beds-pg-sql.js` (`PG_ASSIGN_SQL`)  
+**Workflow:** `n8n/phase3b/Wolfhouse - Bed Assignment (local PG).json` (generated by `scripts/build-assign-beds-local.js`)
+
+**What `PG_ASSIGN_SQL` guards correctly:**
+
+| Guard | CTE | Behavior |
+|-------|-----|----------|
+| Date overlap — any non-cancelled booking on same bed+dates | `overlap_beds` | `can_mutate=false`; INSERT blocked; `pg_conflict_count>0` in RETURNING |
+| Unknown bed codes | `unknown_beds` | `can_mutate=false` |
+| Ambiguous booking (2+ rows) | `resolved_count` | `can_mutate=false` |
+| Cancelled/expired booking status | `can_mutate` WHERE clause | `can_mutate=false` |
+| Same-booking natural-key already-exists (idempotent rerun) | `existing_skip` | `pg_skipped_count>0`; no duplicate INSERT |
+| Payment count invariant | `payments_before` / `payments_after` | Returned in RETURNING for audit |
+
+**What `PG_ASSIGN_SQL` does NOT guard:**
+
+- No booking_source filter — manual_staff/operator overlap is caught by the same date-overlap guard, not a source-specific check. The natural convention (manual_staff/operator bookings exist in `booking_beds`) provides protection, but it's not enforced as a separate rule.
+- No `automation_errors` or `workflow_events` write on conflict.
+- `allowConflict` flag exists in the plan script but is NOT passed from the n8n workflow — the n8n path always uses `can_mutate` strictly.
+
+**n8n conflict routing (confirmed by workflow inspection):**
+
+```
+Postgres - Assign Beds In Postgres (PG_ASSIGN_SQL, has overlap guard)
+  → Code - Validate PG Assign
+  → IF - PG Assign OK
+       true  → Create Booking Bed Assignment (Airtable) → ... → success path
+       false → Code - Build Assign Response → Respond to Webhook   ← SILENT FAIL (no PG audit trace)
+```
+
+The `Postgres - Mirror Assignment Conflict` node is on the **Airtable conflict branch** (`IF - Bed Assignment Conflict` → `Postgres - Mirror Assignment Conflict`), NOT on the PG conflict branch. When PG detects an overlap (`pg_ok=false`), the workflow responds but:
+1. Does NOT call `Postgres - Mirror Assignment Conflict`
+2. Does NOT update `bookings.assignment_status` via PG
+3. Does NOT write `workflow_events` or `automation_errors`
+4. Staff receives no proactive signal — they must check the webhook response log
+
+**This is the primary gap for 3.5d.**
+
+---
+
+#### Reassign delete scope guard — detailed findings
+
+**SQL:** `scripts/lib/reassign-booking-beds-pg-sql.js` (`PG_REASSIGN_DELETE_SQL`)
+
+| Guard | Behavior |
+|-------|----------|
+| `resolved_count=1` | If 0 or 2+ bookings match the input, the DELETE CTE is blocked via `WHERE (SELECT c FROM resolved_count) = 1` |
+| Scoped DELETE | `DELETE FROM booking_beds ... WHERE bb.booking_id = r.id AND bb.client_id = r.client_id` — only deletes for the single resolved booking |
+| Payment invariant | `payments_count` field returned for audit |
+
+**Gaps:**
+- No `workflow_events` or `automation_errors` on `resolved_count≠1`
+- The Airtable upstream (`Get Booking To Reassign`) must succeed before the PG delete runs; if Airtable is unavailable, the PG delete never runs — this is a safety property but also an Airtable-coupling risk
+- No overlap re-check BEFORE the delete (the delete always succeeds for the target booking if `resolved_count=1`)
+
+---
+
+#### Cancel scope guard — detailed findings
+
+**Script:** `scripts/cancel-booking-beds-postgres.js`
+
+| Guard | Behavior |
+|-------|----------|
+| Scoped DELETE | `WHERE client_id=$1 AND booking_id=$2` — cannot touch other bookings |
+| Payment invariant | Explicit transaction: throws + ROLLBACK if `payments_count_before ≠ payments_count_after` |
+| `paid_like_warning` | Warns if `payment_status IN (deposit_paid, paid)` — beds still released |
+| `idempotent` flag | `deleteRes.rowCount === 0` when no beds exist (no-op) |
+
+**Gaps:**
+- No `workflow_events` or `automation_errors` (CLI only; n8n workflow cancels via Airtable path in hosted, or the `Cancel (local PG)` n8n workflow)
+- No I6 cancel idempotency formal doc
+- Need to confirm Cancel n8n workflow behavior
+
+---
+
+#### Stage 3.5d test matrix
+
+| Test | Purpose | Fixture needed | Level | Expected allowed changes | Expected non-changes | Evidence command | Hard stops | Teardown |
+|------|---------|----------------|-------|--------------------------|---------------------|-----------------|------------|---------|
+| **D1** Assign blocks overlapping occupied bed ✅ **L2 PASS (2026-05-29)** | Prove `PG_ASSIGN_SQL` returns `pg_ok=false` when a non-cancelled booking already occupies same bed+dates | `scripts/fixtures/phase35d-d1-overlap-up.sql` / `down.sql`. Booking A (`WH-35D-D1-OCCUPIED-A`, R1-B1, 2027-04-10→15, confirmed). Booking B (`WH-35D-D1-GUEST-B`, no beds, wants R1-B1, 2027-04-12→14) | **L2** — `report-assign-impact` | `postgres_overlap_conflicts_count: 1`; `would_overlap: true` on R1-B1; `assignment_status.would_be: needs_review`; report exits 2 (actionable: postgres_overlap_conflicts) | `booking_beds` count unchanged (report is read-only; no_insert=true); `payments=25`, `payment_events=5`, `automation_errors=0`, `workflow_events=24` unchanged | `node scripts/report-assign-impact.js --booking-code=WH-35D-D1-GUEST-B --beds=R1-B1 --check-in=2027-04-12 --check-out=2027-04-14` | — | `phase35d-d1-overlap-down.sql` → counts restored: bookings=41, booking_beds=15 |
+| **D2** Assign blocks manual_staff booking overlap ✅ **L2 PASS (2026-05-29)** | Prove manual_staff bookings in `booking_beds` trigger the same overlap guard (no source bypass) | `scripts/fixtures/phase35d-d2-manual-staff-overlap-up.sql` / `down.sql`. Booking A (`WH-35D-D2-MANUAL-A`, manual_staff, R1-B2, 2027-04-20→25). Booking B (`WH-35D-D2-GUEST-B`, whatsapp, wants R1-B2, 2027-04-22→24) | **L2** — `report-assign-impact` | `postgres_overlap_conflicts_count=1`; conflicting=`WH-35D-D2-MANUAL-A`; `assignment_status.would_be=needs_review`; `availability_check_status.would_be=conflict`; exit 2 | payments=25, payment_events=5, automation_errors=0, workflow_events=24 unchanged; `no_insert=true` | `node scripts/report-assign-impact.js --booking-code=WH-35D-D2-GUEST-B --beds=R1-B2 --check-in=2027-04-22 --check-out=2027-04-24` | Overlap not detected for manual_staff source | `phase35d-d2-manual-staff-overlap-down.sql` → counts restored: bookings=41, booking_beds=15 |
+| **D3** Assign blocks operator booking overlap ✅ **L2 PASS (2026-05-29)** | Prove operator bookings in `booking_beds` block guest assign (no source bypass) | `scripts/fixtures/phase35d-d3-operator-overlap-up.sql` / `down.sql`. Booking A (`WH-35D-D3-OPERATOR-A`, operator, R1-B3, 2027-05-01→06). Booking B (`WH-35D-D3-GUEST-B`, whatsapp, wants R1-B3, 2027-05-03→05) | **L2** — `report-assign-impact` | `postgres_overlap_conflicts_count=1`; conflicting=`WH-35D-D3-OPERATOR-A`; `assignment_status.would_be=needs_review`; `availability_check_status.would_be=conflict`; exit 2 | payments=25, payment_events=5, automation_errors=0, workflow_events=24 unchanged; `no_insert=true` | `node scripts/report-assign-impact.js --booking-code=WH-35D-D3-GUEST-B --beds=R1-B3 --check-in=2027-05-03 --check-out=2027-05-05` | Overlap not detected for operator source | `phase35d-d3-operator-overlap-down.sql` → counts restored: bookings=41, booking_beds=15 |
+| **D4** Assign idempotent rerun | Prove a 2nd assign for the same bed+dates is a no-op (`pg_skipped_count>0`, no duplicate insert) | Booking with existing `booking_beds` row (exact bed+dates already assigned) | **L2** — `report-assign-impact` | `wouldSkip` populated; `wouldInsert=[]` | `booking_beds` count unchanged | `node scripts/report-assign-impact.js -- --booking-code=WH-D4-IDEMPOTENT` | Duplicate `booking_beds` insert | None needed |
+| **D5** Reassign scope — only deletes target rows | Prove `PG_REASSIGN_DELETE_SQL` deletes only the target booking's beds, not adjacent bookings | Booking T (target, has 2 beds), Booking D (decoy on same dates, different beds) | **L2** — `report-reassign-impact` | Plan shows only target booking's bed count; decoy booking's beds not listed | Decoy `booking_beds` count unchanged | `node scripts/report-reassign-impact.js -- --booking-code=WH-D5-TARGET` | Decoy booking_beds count changes | DELETE fixture rows |
+| **D6** Reassign target → occupied bed blocked | Prove the new assign step after reassign blocks on overlap (delegates to Assign guard) | Booking T (reassigned, wants new bed), Booking O (occupying new bed already) | **L3 deferred** — Airtable-coupled reassign upstream; Postgres path after delete is covered by D1 | — | — | Covered by D1 for the assign step | — | — |
+| **D7** Cancel scope | Prove cancel only removes target booking's beds | Booking T (target, 2 beds), Booking D (adjacent, different beds) | **L2** — existing `cancel-impact` reports already evidence this | `booking_beds_to_delete` counts only target; plan shows only target beds | Decoy `booking_beds` unchanged | `node scripts/report-cancel-impact.js -- --booking-code=WH-D7-CANCEL` | Adjacent booking_beds impacted | DELETE fixture rows |
+| **D8** Overlap log wire-in for Assign conflict ⚠️ **L3 BLOCKED (2026-05-29)** — wire-in IMPLEMENTED + static PASS; runtime deferred (Airtable-coupled upstream) | Prove that after 3.5d wire-in, `workflow_events` gains a warn row when Assign is blocked by overlap | Same as D1 fixture | **L3** — deferred to cutover | `workflow_events +1 warn/bed_assignment_blocked_overlap` | `booking_beds` count unchanged; `automation_errors=0` | `SELECT * FROM workflow_events WHERE message='bed_assignment_blocked_overlap'` | webhook path runs Airtable upstream before PG branch | DELETE fixture + `workflow_events` row |
+| **D9** Main rooming call delegates to Assign guard | Prove Main's assign call path reaches the same PG guard | Airtable-coupled upstream | **L3 deferred** | — | — | Covered by D8 for PG path | — | — |
+| **D10** Protected payment counts unchanged | Prove payment/payment_events/booking_beds counts are unchanged for all D1–D7 tests | Part of each D1–D7 fixture | **L2** (invariant) | Only `booking_beds` changes as intended per test | `payments`, `payment_events` counts unchanged | `SELECT COUNT(*) FROM payments; SELECT COUNT(*) FROM payment_events;` | Any payment count change | Part of each test teardown |
+
+---
+
+#### D1 L2 evidence (2026-05-29)
+
+**Command:** `node scripts/report-assign-impact.js --booking-code=WH-35D-D1-GUEST-B --beds=R1-B1 --check-in=2027-04-12 --check-out=2027-04-14`  
+**Exit code:** 2 (actionable: `postgres_overlap_conflicts`)  
+**Report:** `reports/assign-impact-WH-35D-D1-GUEST-B-2026-05-29T13-59-06.json`
+
+Key fields from report JSON:
+```json
+"summary": {
+  "existing_booking_beds_count": 0,
+  "would_insert_count": 1,
+  "postgres_overlap_conflicts_count": 1,
+  "payments_rows": 0
+},
+"postgres_overlap_conflicts": [{
+  "proposed_bed_code": "R1-B1",
+  "proposed_dates": { "start": "2027-04-12", "end": "2027-04-14" },
+  "conflicting_booking_code": "WH-35D-D1-OCCUPIED-A",
+  "conflicting_dates": { "start": "2027-04-10", "end": "2027-04-15" },
+  "conflicting_booking_status": "confirmed"
+}],
+"booking_fields_would_update_if_assign_ran": {
+  "assignment_status": { "would_be": "needs_review" },
+  "availability_check_status": { "would_be": "conflict" }
+},
+"read_only": true, "no_mutations": true, "no_insert": true
+```
+
+**Design note on `would_insert_count: 1`:** The impact report includes overlapping beds in `wouldInsert` with `would_overlap: true` for visibility. The actual execution block lives in `PG_ASSIGN_SQL`'s `can_mutate=false` CTE (when `overlap_count > 0`). The impact report is a planning tool; it does not perform the INSERT. `no_insert: true` confirms no mutation occurred.
+
+**Pre/post/teardown counts:**
+
+| Metric | Pre-seed | After seed | After report | After teardown |
+|--------|----------|-----------|--------------|----------------|
+| bookings | 41 | 43 | 43 | **41** ✓ |
+| booking_beds | 15 | 16 | 16 | **15** ✓ |
+| payments | 25 | 25 | 25 | **25** ✓ |
+| payment_events | 5 | 5 | 5 | **5** ✓ |
+| automation_errors | 0 | 0 | 0 | **0** ✓ |
+| workflow_events | 24 | 24 | 24 | **24** ✓ |
+
+**Gap confirmed:** When the real Assign n8n workflow detects a PG overlap (`IF - PG Assign OK` false branch), it routes directly to response with no `workflow_events` write and no `bookings.assignment_status` PG update. D8 (wire-in) will fix this.
+
+---
+
+#### D2 L2 evidence (2026-05-29)
+
+**Command:** `node scripts/report-assign-impact.js --booking-code=WH-35D-D2-GUEST-B --beds=R1-B2 --check-in=2027-04-22 --check-out=2027-04-24`  
+**Exit code:** 2 (actionable: `postgres_overlap_conflicts`)  
+**Report:** `reports/assign-impact-WH-35D-D2-GUEST-B-2026-05-29T16-09-27.json`
+
+Key findings:
+- `postgres_overlap_conflicts_count: 1`
+- Conflicting booking: `WH-35D-D2-MANUAL-A` (`manual_staff` source) on R1-B2, `2027-04-20→2027-04-25`
+- `assignment_status.would_be: needs_review`; `availability_check_status.would_be: conflict`
+- `read_only: true`, `no_insert: true`, `payments_rows: 0`
+
+**Proof:** `manual_staff` booking source does NOT bypass the overlap guard. The overlap query filters only on `b.status NOT IN ('cancelled', 'expired')` — source is irrelevant.
+
+**Count proof (D2):**
+
+| Metric | Pre-seed | After seed | After report | After teardown |
+|--------|----------|-----------|--------------|----------------|
+| bookings | 41 | 43 | 43 | **41** ✓ |
+| booking_beds | 15 | 16 | 16 | **15** ✓ |
+| payments | 25 | 25 | 25 | **25** ✓ |
+| payment_events | 5 | 5 | 5 | **5** ✓ |
+| automation_errors | 0 | 0 | 0 | **0** ✓ |
+| workflow_events | 24 | 24 | 24 | **24** ✓ |
+
+---
+
+#### D3 L2 evidence (2026-05-29)
+
+**Command:** `node scripts/report-assign-impact.js --booking-code=WH-35D-D3-GUEST-B --beds=R1-B3 --check-in=2027-05-03 --check-out=2027-05-05`  
+**Exit code:** 2 (actionable: `postgres_overlap_conflicts`)  
+**Report:** `reports/assign-impact-WH-35D-D3-GUEST-B-2026-05-29T16-10-04.json`
+
+Key findings:
+- `postgres_overlap_conflicts_count: 1`
+- Conflicting booking: `WH-35D-D3-OPERATOR-A` (`operator` source) on R1-B3, `2027-05-01→2027-05-06`
+- `assignment_status.would_be: needs_review`; `availability_check_status.would_be: conflict`
+- `read_only: true`, `no_insert: true`, `payments_rows: 0`
+
+**Proof:** `operator` booking source does NOT bypass the overlap guard. Same filter logic as D2 — source is irrelevant.
+
+**Count proof (D3):**
+
+| Metric | Pre-seed | After seed | After report | After teardown |
+|--------|----------|-----------|--------------|----------------|
+| bookings | 41 | 43 | 43 | **41** ✓ |
+| booking_beds | 15 | 16 | 16 | **15** ✓ |
+| payments | 25 | 25 | 25 | **25** ✓ |
+| payment_events | 5 | 5 | 5 | **5** ✓ |
+| automation_errors | 0 | 0 | 0 | **0** ✓ |
+| workflow_events | 24 | 24 | 24 | **24** ✓ |
+
+**D1–D3 combined conclusion:** The PG overlap guard in `assign-booking-beds-plan.js` / `PG_ASSIGN_SQL` blocks ALL non-cancelled bookings regardless of `booking_source`. `whatsapp`, `manual_staff`, and `operator` sources are all treated identically — there is no source bypass. The gap remains: when the n8n workflow detects a PG overlap (`IF - PG Assign OK` false), it is silent — no `workflow_events`, no `automation_errors`, no PG `assignment_status` update. This is the target of D8 (wire-in).
+
+---
+
+#### Recommended first implementation target
+
+**3.5d.1 — L2 fixture proof for D1 (Assign overlap blocked). ✅ COMPLETE**
+
+**Why first:**
+1. `report-assign-impact.js` already exists and is read-only — no activation, no runtime.
+2. A simple two-booking fixture (one occupying, one guest) can prove the overlap guard in a single report run.
+3. This establishes the proof pattern for D2 and D3 (manual_staff, operator) without any additional tooling.
+4. The L2 proof is required before the 3.5d wire-in (D8) to confirm the guard works correctly before adding logging on top.
+
+**What to do:** Create `scripts/fixtures/phase35d-d1-overlap-up.sql` / `down.sql` with two bookings sharing a bed on overlapping dates. Run `node scripts/report-assign-impact.js` against the guest booking. Confirm `hasOverlaps=true`, `wouldInsert=[]`, `overlapConflicts` shows the occupying booking.
+
+**Why not D8 (wire-in) first:** The wire-in requires editing the generated `build-assign-beds-local.js` to add nodes to the false branch of `IF - PG Assign OK`. Before modifying the workflow, we should have L2 evidence that the overlap guard itself is working correctly as a baseline.
+
+---
+
+#### Assign overlap logging wire-in — IMPLEMENTED (2026-05-29) / NOT RUNTIME TESTED
+
+**Files changed:**
+- `scripts/build-assign-beds-local.js` — added `WE_OVERLAP_CONFLICT_SQL` constant, `BUILD_PG_OVERLAP_EVENT_JS` constant, 3 new nodes, rewired `IF - PG Assign OK` false branch
+- `n8n/phase3b/Wolfhouse - Bed Assignment (local PG).json` — regenerated (24 → 27 nodes)
+- `n8n/phase3b/Wolfhouse - Bed Assignment (local PG).n8n-import.json` — regenerated
+
+**Static verification results (2026-05-29):**
+- Node count: 27 ✓ (was 24)
+- `active: false` ✓
+- `workflow id: B3c2AssignLocalPg01` ✓
+- All 3 new nodes present ✓
+- `IF - PG Assign OK` false → `Code - Build PG Overlap Event` ✓
+- Chain: `Code - Build PG Overlap Event` → `Postgres - Write workflow_events (overlap conflict)` → `Postgres - Mirror PG Assignment Conflict` → `Code - Build Assign Response` ✓
+- True branch unchanged (`Create Booking Bed Assignment`) ✓
+- Airtable conflict path unchanged (`IF - Bed Assignment Conflict` → `Postgres - Mirror Assignment Conflict` → `Update Booking Assignment Status - Conflict`) ✓
+- No new payment writer nodes ✓
+- `WE_OVERLAP_CONFLICT_SQL` uses `'warn'::workflow_event_level`, `NULLIF(...booking_id...)::uuid`, `clients c WHERE c.slug = 'wolfhouse-somo'` ✓
+- `Postgres - Mirror PG Assignment Conflict` uses `PG_CONFLICT_MIRROR_SQL` (contains `needs_review`, `conflict`, `assignment_status`) ✓
+- Hosted `n8n/Wolfhouse - Bed Assignment.json` unchanged ✓
+
+**D8 runtime test: BLOCKED (2026-05-29) — deferred to Airtable/PG cutover.**
+
+**Pre-flight blocker (caught during static analysis; no DB/workflow mutation performed):**
+
+The wire-in is correct and statically verified, but the D8 runtime as designed (seed PG fixture → activate Assign → POST webhook) **cannot faithfully reach the new overlap conflict branch** because the Assign workflow's bed-selection path is **Airtable-coupled upstream** of the PG assign node. The webhook chain is:
+
+```
+Webhook → Parse → IF Parse OK
+  → Get Booking                     (Airtable read, by airtable_record_id)
+  → IF Needs Bed Assignment
+  → Update Booking - Mark Assigning (Airtable WRITE)
+  → Search Active Beds              (Airtable)
+  → Search Existing Bed Assignments (Airtable)
+  → Search Rooms                    (Airtable)
+  → Code - Choose Beds              (builds beds from the Airtable results)
+  → IF - Bed Assignment Conflict
+  → Code - Build PG Beds JSON       (reads ONLY from Code - Choose Beds)
+  → Postgres - Assign Beds In Postgres
+  → Code - Validate PG Assign
+  → IF - PG Assign OK  false → [new 3.5d overlap chain]
+```
+
+Four independent reasons the PG-only fixture cannot exercise the branch:
+
+1. **`Get Booking` is Airtable.** For `WH-35D-D1-GUEST-B`, the Parse node maps `booking_code` → `airtable_record_id=''` (stripping `WH-` yields `35D-D1-GUEST-B`, which is not a `rec…` id). `Get Booking` receives an empty id and fails/returns nothing — the chain never reaches PG.
+2. **`Update Booking - Mark Assigning` is an Airtable WRITE** sitting upstream of the PG assign. Reaching the PG branch requires this Airtable write to execute, which violates the D8 non-negotiable "No real Airtable writes / Airtable write path executes unexpectedly = hard stop."
+3. **The webhook `beds` field is never read.** `Code - Build PG Beds JSON` builds `beds_json` exclusively from `Code - Choose Beds` (Airtable-derived). The plan's POST body `"beds":"R1-B1"` is ignored.
+4. **Empty beds → success path, not conflict path.** Even if Airtable returned the booking but chose no beds, `PG_ASSIGN_SQL` would compute `overlap_count=0` → `can_mutate=true` → `pg_ok=true` → the workflow takes the TRUE/success branch and never the overlap false branch.
+
+This is the same Airtable coupling that caused rooming L3 runtime to be deferred to cutover (see 3e.5 L3 deferral). It is consistent with the D6/D9 deferral rationale already in this matrix.
+
+**What IS proven for the Assign overlap guard:**
+- **L2 (D1/D2/D3 PASS):** `PG_ASSIGN_SQL`/`assign-booking-beds-plan.js` correctly blocks overlapping assignments for `whatsapp`, `manual_staff`, and `operator` sources — no source bypass.
+- **Static (wire-in PASS):** the false branch is correctly rewired to `Code - Build PG Overlap Event` → `Postgres - Write workflow_events (overlap conflict)` → `Postgres - Mirror PG Assignment Conflict` → `Code - Build Assign Response`, with `warn`-level logging and `PG_CONFLICT_MIRROR_SQL` status mirror, and no new payment writers.
+
+**Baseline at block time (read-only; nothing seeded/activated/posted):**
+- All 8 target workflows `active=false` (Assign `B3c2AssignLocalPg01` included).
+- No `WH-35D-*` leftovers in `bookings`.
+
+**Remediation options for a future faithful D8 runtime (no implementation done here):**
+- **Option 1 — PG-only local trigger path (recommended, aligns with north-star):** add a local-only entry to the Assign workflow that resolves the booking from Postgres and builds `beds_json` from the webhook body, bypassing the Airtable `Get Booking`/`Search`/`Choose Beds` upstream. This lets the PG overlap branch (and the new wire-in) be exercised without Airtable. Implementation task `3.5d.8b`.
+- **Option 2 — Defer to Airtable/PG cutover:** keep D8 deferred alongside D6/D9; rely on D1–D3 L2 + static wire-in verification until the Airtable upstream is removed at cutover. The wire-in then gets its first real runtime as part of cutover validation.
+
+#### Assign overlap logging wire-in design (3.5d — IMPLEMENTED)
+
+**Target:** `scripts/build-assign-beds-local.js` (generated workflow; edits go to the build script, not the JSON directly)
+
+**Current false-branch termination:**
+```
+IF - PG Assign OK false → Code - Build Assign Response → Respond to Webhook
+```
+
+**Proposed false-branch after wire-in:**
+```
+IF - PG Assign OK false → Code - Build PG Overlap Event
+                             → Postgres - Write workflow_events (overlap conflict)
+                             → Postgres - Mirror PG Assignment Conflict   (new PG booking status update)
+                             → Code - Build Assign Response
+                             → Respond to Webhook
+```
+
+**Why `workflow_events` (warn), not `automation_errors`:**
+- Overlap conflict is an expected operational event (bed already occupied), not an application crash or silent failure.
+- Staff needs to review and resolve, but it's a planned outcome, not an unhandled error.
+- `automation_errors` should be reserved for unexpected crashes (the Error Trigger pattern from 3.5b).
+- Using `event_level='warn'` in `workflow_events` provides an audit trail without polluting the error table.
+
+**Node designs:**
+
+1. `Code - Build PG Overlap Event` (Code node)
+   ```javascript
+   const pgResult = $json; // from Postgres - Assign Beds In Postgres via IF - PG Assign OK
+   const parsed = $('Code - Parse Assign Webhook').first().json;
+   const bookingId = $('Code - Build PG Beds JSON').first().json.booking_id || null;
+   const execId = String($execution.id);
+   return [{
+     json: {
+       workflow_name: 'Wolfhouse - Bed Assignment (local PG)',
+       execution_id: execId,
+       event_level: 'warn',
+       message: 'bed_assignment_blocked_overlap',
+       booking_id: bookingId,
+       conversation_id: null,
+       payload: {
+         booking_code: pgResult.booking_code || parsed.booking_code,
+         pg_conflict_count: pgResult.pg_conflict_count,
+         pg_unknown_count: pgResult.pg_unknown_count,
+         pg_ok: pgResult.pg_ok,
+         can_mutate: pgResult.can_mutate,
+         beds_requested_count: pgResult.beds_requested_count,
+         outcome: 'blocked_overlap',
+       }
+     }
+   }];
+   ```
+
+2. `Postgres - Write workflow_events (overlap conflict)` (Postgres `executeQuery`, SQL):
+   ```sql
+   INSERT INTO workflow_events (workflow_name, execution_id, event_level, message, booking_id, conversation_id, payload)
+   VALUES ($1, $2, $3, $4, $5::uuid, $6, $7::jsonb)
+   ```
+
+3. `Postgres - Mirror PG Assignment Conflict` (NEW — mirrors the `PG_CONFLICT_MIRROR_SQL` already used on the Airtable conflict path):
+   - This updates `bookings.assignment_status = 'needs_review'` and `availability_check_status = 'conflict'` for the target booking via PG.
+   - **Note:** The Airtable path already calls `Postgres - Mirror Assignment Conflict` for Airtable-detected conflicts. The PG path should call the same SQL to keep state consistent.
+
+**Runtime test idea:**
+- Create fixture: Booking A (occupying bed), Booking B (guest wants same bed)
+- Seed both into DB; no `booking_beds` for Booking B yet
+- Activate Assign workflow only
+- POST Assign webhook for Booking B targeting the occupied bed
+- Expected: HTTP response shows conflict; `workflow_events +1 warn/bed_assignment_blocked_overlap`; `booking_beds` count unchanged; `bookings.assignment_status for B = needs_review`
+- Teardown: DELETE fixture rows + `workflow_events` row
+
+**Belongs before or after L2 fixture proof:**
+- L2 fixture proof FIRST (D1) — confirm the guard works before adding logging on top.
+- Wire-in implementation SECOND (D8) — after L2 evidence.
+
+---
+
+#### 3.5d closeout criteria
+
+All of the following before Stage 3.5d is complete:
+- D1 L2 fixture PASS (Assign overlap blocked — report evidence)
+- D2 L2 fixture PASS (manual_staff overlap blocked — report evidence)
+- D3 L2 fixture PASS (operator overlap blocked — report evidence)
+- D4 L2 fixture PASS (idempotent rerun — plan shows wouldSkip)
+- D5 L2 fixture PASS (reassign scope — decoy protected)
+- D7 L2 PASS (cancel scope — already evidenced by prior cancel-impact reports; re-confirm)
+- D8 L3 runtime PASS (Assign overlap logs `workflow_events warn` + PG mirror — requires wire-in first)
+- D6, D9 deferred to cutover (Airtable-coupled) — documented with written reason
 
 ---
 
