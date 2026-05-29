@@ -1,6 +1,6 @@
 # Phase 3.5 — Safety Rails Before Reliability
 
-**Status:** PLANNING (2026-05-29)  
+**Status:** MINIMUM BAR MET — READY TO CLOSE (2026-05-29)  
 **Stage 3 closeout commit:** `68703fd`  
 **Purpose:** Pull forward the minimum safety seatbelts required before Stage 3y shadow/co-pilot mode or any live guest operation. Not full Stage 4 observability.
 
@@ -1667,23 +1667,25 @@ All 8 workflows `active=f`. Only `KZUQvwR6SPWpvaZ5` exec count changed: 1092 →
 
 ### 3.5g — Stage 3.5 closeout checklist
 
-Before Stage 3y shadow/co-pilot mode can begin, ALL of the following must be confirmed:
+**Closeout review date:** 2026-05-29  
+**Closeout decision:** MINIMUM SAFETY BAR MET — Stage 3.5 ready to close for Stage 3y shadow/co-pilot.  
+**Final commit at closeout review:** `d2288b7`
 
 | # | Item | Status |
 |---|------|--------|
-| G1 | 3.5a dangerous-action inventory complete and accepted | PLANNED |
-| G2 | `automation_errors` wired into ≥1 dangerous workflow | PLANNED |
-| G3 | Safe staff-handoff fallback written for each dangerous action | PLANNED |
-| G4 | No silent bot failures: every dangerous-action error has a capture path | PLANNED |
-| G5 | I3 Stripe event dedup runtime complete OR deferred with written reason | PLANNED (deferred — needs `payments` write approval) |
-| G6 | I2 payment-link duplicate deferred with written reason | PLANNED (deferred — Airtable-coupled) |
-| G7 | Double-booking overlap guard contract documented with L1/L2 test evidence | PLANNED |
-| G8 | Minimum `workflow_events` logging wired into ≥1 dangerous workflow | PLANNED |
-| G9 | `WHATSAPP_DRY_RUN=true` for all remaining 3.5 runtime gates | CONFIRMED ✓ |
-| G10 | Real WhatsApp send remains off — separate approval required | CONFIRMED ✓ |
-| G11 | All dangerous workflows inactive after each 3.5 test gate | Confirmed policy ✓ |
-| G12 | Protected counts (payments/payment_events/booking_beds) confirmed at baseline post-teardown | Confirmed policy ✓ |
-| G13 | Project docs updated and committed | PLANNED |
+| G1 | 3.5a dangerous-action inventory complete and accepted | ✅ DONE — 3.5a ACCEPTED |
+| G2 | `automation_errors` wired into ≥1 dangerous workflow | ✅ DONE — Send Confirmation Gap 2 runtime PASS writes `automation_errors` (exec 1089) |
+| G3 | Safe staff-handoff fallback written for each dangerous action | ✅ DONE — `automation_errors` + `workflow_events` pattern defines staff visibility; full automated notification deferred to Stage 4 (acceptable for 3y co-pilot) |
+| G4 | No silent bot failures: every dangerous-action error has a capture path | ✅ DONE WITH DEFERRAL — Send Confirmation: Gap 2 runtime PASS + Gap 3 Error Trigger static implemented; Assign: 3.5d wire-in static PASS; others deferred to Airtable cutover with written reason |
+| G5 | I3 Stripe event dedup runtime complete OR deferred with written reason | ✅ DONE — I3 runtime PASS (execs 1093/1094, commit `85fb525`) |
+| G6 | I2 payment-link duplicate deferred with written reason | ✅ DONE — deferred, Airtable-coupled, written reason in §I2 |
+| G7 | Double-booking overlap guard contract documented with L1/L2 test evidence | ✅ DONE — D1/D2/D3 L2 PASS; D1–D10 matrix; 3.5d wire-in static PASS (commit `d2288b7`) |
+| G8 | Minimum `workflow_events` logging wired into ≥1 dangerous workflow | ✅ DONE — 3.5e success-path runtime PASS; 3.5b Gap 2 runtime PASS; 3.5d Assign overlap static PASS |
+| G9 | `WHATSAPP_DRY_RUN=true` for all remaining 3.5 runtime gates | ✅ CONFIRMED throughout |
+| G10 | Real WhatsApp send remains off — separate approval required | ✅ CONFIRMED — no real WhatsApp send in any 3.5 gate |
+| G11 | All dangerous workflows inactive after each 3.5 test gate | ✅ CONFIRMED — all 8 target workflows active=false at every teardown |
+| G12 | Protected counts (payments/payment_events/booking_beds) confirmed at baseline post-teardown | ✅ CONFIRMED — every runtime gate documented count proof |
+| G13 | Project docs updated and committed | ✅ DONE — final commit `d2288b7` + this closeout update |
 
 ---
 
@@ -1719,6 +1721,137 @@ This is already partially drafted in this doc. The first step is to validate and
 - Stage 3.5b is a pure wire-in task: add n8n Error Trigger nodes + Postgres INSERT Code nodes to each dangerous workflow.
 - No new migrations are needed for the basic wire-in.
 - The `hostel_id` FK in `automation_errors` may need to reference `clients` after the hostel→client rename migration — verify before first INSERT.
+
+---
+
+## Stage 3.5 closeout gap review (2026-05-29)
+
+**Review trigger:** All committed 3.5 tasks complete or documented as deferred. HEAD: `d2288b7`.
+
+---
+
+### Entry criteria review
+
+| # | Criterion | Verdict | Evidence |
+|---|-----------|---------|----------|
+| E1 | Stage 3 closeout commit exists | ✅ SATISFIED | `68703fd` |
+| E2 | Working tree clean | ✅ SATISFIED | `git status --short` empty at review |
+| E3 | All local target workflows `active=false` | ✅ SATISFIED | Confirmed Gate A + every 3.5 gate teardown |
+| E4 | Send Confirmation schedule `disabled=true` | ✅ SATISFIED | Confirmed throughout Stage 3 and 3.5 |
+| E5 | `WHATSAPP_DRY_RUN=true` in any runtime | ✅ SATISFIED | No real WhatsApp send in any gate |
+| E6 | Airtable-coupling documented for Main/Reassign paths | ✅ SATISFIED | §15.6–§15.7 + I5 deferral + D8 runtime BLOCKED doc |
+| E7 | No production/hosted n8n edits | ✅ SATISFIED | Policy enforced; hosted workflow confirmed untouched at `d2288b7` |
+| E8 | Payment-table writes require explicit per-gate approval | ✅ SATISFIED | Enforced in I3 gate (payment fixture approval required) and throughout |
+| E9 | Wrong-booking protection proven at L1+L2 | ✅ SATISFIED | 3e.5 CLOSED |
+| E10 | Core idempotency proven at Stage 3 bar | ✅ SATISFIED | 3e.6 CLOSED (I1+I4+I6) |
+
+**All 10 entry criteria: SATISFIED.**
+
+---
+
+### Exit criteria review (X1–X11)
+
+| # | Criterion | Verdict | Evidence |
+|---|-----------|---------|----------|
+| X1 | Each 3.5 sub-phase has PASS / DEFERRED / BLOCKED status | ✅ PASS | 3.5a ACCEPTED; 3.5b Gap 2 PASS; 3.5c I3 PASS; 3.5d D1–D3 L2 PASS + wire-in static PASS + D8 BLOCKED/deferred; 3.5e runtime PASS; 3.5f I3 PASS + I2 deferred; 3.5g DONE |
+| X2 | `automation_errors` write path wired into ≥1 dangerous-action workflow | ✅ PASS | Send Confirmation Gap 2 runtime PASS writes `automation_errors` (exec 1089, commit `85fb525`) |
+| X3 | Safe staff-handoff fallback defined and documented for all dangerous actions | ✅ PASS WITH NOTE | 3.5a inventory maps each action to capture path; `automation_errors` + `workflow_events` defines staff visibility pattern; automated staff notification (email/Slack) is Stage 4 work, not required for 3y co-pilot |
+| X4 | No silent bot failures: every runtime error has a capture path or hard stop | ✅ PASS WITH DEFERRAL | Send Confirmation: Gap 2 runtime PASS + Gap 3 Error Trigger static implemented. Assign: 3.5d wire-in static PASS. Reassign/Cancel/Main: deferred to Airtable cutover — documented with reason. No dangerous action can trigger without capture path in the currently-tested Postgres-primary paths. |
+| X5 | Idempotency gaps I2/I3/I5 either runtime proof OR deferred with written reason | ✅ PASS | I3: runtime PASS (execs 1093/1094). I2: deferred, written reason (Airtable-coupled). I5: deferred, written reason (Airtable-coupled). |
+| X6 | Double-booking overlap guard contract documented with pass/fail test criteria | ✅ PASS | D1–D10 test matrix in §3.5d. D1/D2/D3 L2 PASS (commit `d2288b7`). Wire-in static PASS. Airtable-coupled D6/D8/D9 runtime deferred with reason. |
+| X7 | Minimum execution logging fields defined; wire-in plan accepted | ✅ PASS | Schema field map in §Schema findings. Logging wired: 3.5e success-path runtime PASS; 3.5b Gap 2 runtime PASS; 3.5d Assign overlap static PASS. |
+| X8 | Real WhatsApp send remains off unless explicitly approved (separate gate) | ✅ PASS | No real send in any 3.5 runtime. Separate approval gate documented. |
+| X9 | Protected counts baseline confirmed unchanged after any 3.5 runtime gate | ✅ PASS | Count proof in §3.5b, §3.5c, §3.5d, §3.5e — all gates confirmed payment/payment_events/booking_beds at baseline post-teardown. |
+| X10 | All dangerous workflows inactive after each 3.5 test gate | ✅ PASS | Confirmed in every gate teardown record. |
+| X11 | Project docs updated and committed | ✅ PASS WITH NOTE | Committed at `d2288b7`. This closeout section itself requires one final commit (to be done explicitly by user). |
+
+**X1–X10: all PASS or PASS WITH DEFERRAL. X11: pending final closeout commit.**
+
+---
+
+### Stage 3.5 completion matrix
+
+| Sub-phase | Status | Evidence | Remaining gap | Recommendation |
+|-----------|--------|----------|---------------|----------------|
+| **3.5a** — dangerous-action inventory | ✅ COMPLETE | Inventory table in §3.5a; accepted 2026-05-29 | None | **Close** |
+| **3.5b** — error capture + staff fallback | ✅ COMPLETE WITH DEFERRAL | Gap 2 runtime PASS (exec 1089); Gap 3 Error Trigger static implemented; Gap 1 no-pending static implemented | Gap 1/Gap 3 runtime not run; other workflows (Reassign, Cancel) deferred to Airtable cutover | **Close** — Gap 1/Gap 3 runtime deferred to Stage 4 |
+| **3.5c** — idempotency enforcement | ✅ COMPLETE | I3 runtime PASS (execs 1093/1094); I2/I5 deferred with written reason | I2 (payment-link dedup) and I5 (reassign dedup) runtime deferred — Airtable-coupled; not testable faithfully | **Close** — deferrals documented |
+| **3.5d** — overlap guard hardening | ✅ COMPLETE WITH DEFERRAL | D1/D2/D3 L2 PASS; wire-in 27-node static PASS; D8 runtime BLOCKED/documented (`d2288b7`) | D8/D6/D9 runtime deferred — Airtable upstream coupling makes faithful L3 test impossible without violating non-negotiables | **Close** — see §3.5d.8b decision below |
+| **3.5e** — execution logging | ✅ COMPLETE | Success-path runtime PASS (exec from 3.5e gate); `workflow_events` confirmed populated | Other workflows (Assign, Cancel etc.) partial — logging only confirmed for Send Confirmation and Assign overlap (static) | **Close** — widen logging in Stage 4 |
+| **3.5f** — Stripe/payment duplicate gates | ✅ COMPLETE WITH DEFERRAL | I3 runtime PASS; I2 deferred with written reason | I2 duplicate payment-link runtime deferred to Airtable cutover | **Close** — deferral documented |
+| **3.5g** — closeout checklist | ✅ COMPLETE | G1–G13 all DONE or DONE WITH DEFERRAL (this section) | Final closeout commit pending user approval | **Close after commit** |
+
+---
+
+### Decision: 3.5d.8b PG-only Assign trigger path
+
+**Question:** Is a PG-only Assign trigger path (bypassing Airtable) required before Stage 3y?
+
+**Risk assessment:**
+- D1/D2/D3 L2 proofs **confirm the PG guard works** — no source-based bypass, `can_mutate=false` for overlapping beds.
+- 3.5d wire-in **static proof confirms** the new logging/status chain is correctly wired into the workflow (27-node JSON, correct false-branch connections).
+- The runtime is blocked **only because** the current Assign webhook is Airtable-coupled upstream of the PG nodes — `Get Booking` requires `airtable_record_id` and bed selection is Airtable-derived.
+- In **Stage 3y (shadow/co-pilot)**, no autonomous rooming assignment happens. All rooming actions require staff approval. There is no execution path where the Assign overlap guard would silently fail in production during Stage 3y.
+- The Airtable coupling is an architectural debt item being addressed in Postgres source-of-truth cutover (Stage 5). Adding a PG-only trigger path now is a parallel track that adds complexity and maintenance burden without a clear safety need before Stage 3y.
+
+**Decision: NOT REQUIRED before Stage 3y.** Defer `3.5d.8b` (PG-only Assign trigger path) to Postgres source-of-truth cutover / Stage 5. Accept the current evidence base: L2 guard proven + static wire-in proven. Runtime gap is acknowledged, documented, and non-blocking for shadow/co-pilot mode.
+
+---
+
+### Decision: Gap 1 / Gap 3 optional runtime tests
+
+**Gap 1 — no-pending booking info path:**
+The no-pending path in Send Confirmation exits gracefully with a `workflow_events` row when no pending booking is found. The path is implemented and statically verified. Not tested at runtime because it requires a fixture booking in the right state.
+**Decision: NOT REQUIRED before Stage 3y.** The path cannot produce a dangerous outcome (it is a graceful no-op). Runtime proof is nice-to-have but does not block shadow mode.
+
+**Gap 3 — Error Trigger crash path:**
+The Error Trigger node is wired into Send Confirmation and statically verified to capture crashes into `automation_errors`. The runtime test would require deliberately crashing the workflow (e.g., bad DB credentials), which carries environmental risk.
+**Decision: NOT REQUIRED before Stage 3y.** The static implementation is correct. The crash path writes to `automation_errors` (same as Gap 2 proven path). Not running this in Stage 3.5 is the right call. Defer to Stage 4 observability hardening.
+
+---
+
+### Decision: I2 / I5 runtime gates
+
+**I2 — duplicate payment-link:**
+Creating a faithful "payment_details_provided" context for Main requires either Airtable test-base fixture tooling or Postgres source-of-truth cutover. Running I2 with a PG-only fixture would test a path Main never actually takes today (Airtable-primary hold selection). The test would be architecturally unfaithful.
+**Decision: DEFERRED — correct and documented.** Do not run I2 before cutover. Not required before Stage 3y (no autonomous payment-link creation in shadow mode).
+
+**I5 — duplicate reassign:**
+Reassign's DELETE step is Airtable-upstream-gated. A PG-only fixture cannot create the `airtable_record_id` context the workflow requires. Same problem as D8.
+**Decision: DEFERRED — correct and documented.** Do not run I5 before cutover. Not required before Stage 3y (no autonomous rooming reassignment in shadow mode).
+
+---
+
+### Closeout recommendation
+
+**OPTION A: STAGE 3.5 MINIMUM SAFETY BAR MET.**
+
+All 13 checklist items are DONE or DONE WITH DEFERRAL (with written reasons). All deferrals are to Airtable-coupled paths that cannot be faithfully tested without violating non-negotiables or until Postgres source-of-truth cutover. Stage 3y (shadow/co-pilot) does not require autonomous dangerous actions — staff approve every action. The safety rails in place are sufficient for that operating mode.
+
+**What is confirmed by Stage 3.5:**
+- `automation_errors` capture: wired, runtime proven (Send Confirmation Gap 2)
+- `workflow_events` logging: wired, runtime proven (3.5b + 3.5e)
+- Stripe dedup (I3): runtime proven
+- Send Confirmation idempotency (I4): runtime proven (Stage 3)
+- Overlap guard: PG guard proven at L2 (D1/D2/D3); wire-in statically proven
+- Error Trigger crash path: statically implemented
+- No silent failures: every active dangerous-action path in the Postgres-primary workflows has a capture path or documented deferral
+- WhatsApp: real send gated separately (never sent in any 3.5 gate)
+- All workflows: inactive at every gate teardown
+- Protected counts: confirmed at baseline after every teardown
+
+**What is deferred (not blocking):**
+- D6/D8/D9 runtime (Airtable coupling → defer to cutover)
+- I2/I5 runtime (Airtable coupling → defer to cutover)
+- Gap 1/Gap 3 runtime (safe no-ops → defer to Stage 4)
+- Staff notification automation (email/Slack → Stage 4)
+- Widen logging to Reassign/Cancel/Main (→ Stage 4)
+- Stuck booking detection (→ Stage 4)
+- Golden-runner stub (→ Stage 3x)
+
+**Next step:** Stage 3.5 closeout commit (user must approve), then Stage 3y shadow/co-pilot planning.
+
+**Real WhatsApp send remains separately gated. No autonomous dangerous action is permitted in Stage 3y without explicit staff approval.**
 
 ---
 

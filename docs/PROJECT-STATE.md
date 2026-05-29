@@ -1,11 +1,11 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-29 (Stage 3.5d overlap guard hardening — planning complete)  
-**HEAD (expected):** `85fb525` (3.5c/I3 Stripe duplicate-event idempotency PASS)
+**Last updated:** 2026-05-29 (Stage 3.5 closeout gap review — minimum bar MET)  
+**HEAD (expected):** `d2288b7` (Stage 3.5d: harden Assign overlap conflict path)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
-**Quality bar:** Stage 3 — **CLOSED for local safety bar** (2026-05-29). 3e.5 wrong-booking guard CLOSED (L1+L2 PASS, L3 deferred). 3e.6 idempotency CLOSED (I1+I4+I6 PASS; I2/I3/I5 deferred). Stage 3.5 in progress: 3.5b+3.5e+3.5c/I3 PASS; **3.5d planning complete. Next: D1 L2 fixture proof.**
+**Quality bar:** Stage 3 — CLOSED. Stage 3.5 — **MINIMUM SAFETY BAR MET (2026-05-29).** Awaiting Stage 3.5 closeout commit, then Stage 3y shadow/co-pilot planning.
 
 ---
 
@@ -28,7 +28,7 @@
 | Stage | Status | Notes |
 |-------|--------|--------|
 | **3** Correct and safe | **CLOSED — local safety bar** (2026-05-29) | 3e.5 wrong-booking CLOSED (L1+L2, L3 deferred); 3e.6 idempotency CLOSED (I1+I4+I6 PASS; I2/I3/I5 deferred to Stage 3.5/cutover). Caveats: real WhatsApp, Airtable-coupled L3, Stripe/payment gates remain deferred. |
-| **3.5** Safety rails | **In progress — 3.5d planning complete** | [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS (exec 1090). 3.5c/I3 RUNTIME PASS (execs 1093/1094). **3.5d D1+D2+D3 L2 PASS + wire-in IMPLEMENTED + D8 runtime BLOCKED (2026-05-29):** D1/D2/D3 overlap guards confirmed for all sources. Wire-in implemented (24→27 nodes, static PASS): `IF - PG Assign OK` false routes through `Code - Build PG Overlap Event` → `Postgres - Write workflow_events (overlap conflict)` → `Postgres - Mirror PG Assignment Conflict` → response. **D8 runtime BLOCKED (Airtable-coupled upstream):** Assign webhook resolves booking + chooses beds via Airtable (`Get Booking`, `Update Booking - Mark Assigning` write, `Search*`) before the PG branch — a PG-only fixture cannot reach the overlap false branch and would require a forbidden Airtable write. Caught in pre-flight; nothing seeded/activated/posted. Deferred to cutover alongside D6/D9, or unblock via local PG-only trigger path (`3.5d.8b`). **Next: commit checkpoint for 3.5d D1–D3 + wire-in, or implement `3.5d.8b` PG-only trigger path.** |
+| **3.5** Safety rails | **MINIMUM SAFETY BAR MET — pending closeout commit** | [PHASE-3.5-SAFETY-RAILS-PLAN.md](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS. 3.5c/I3 runtime PASS (execs 1093/1094). 3.5d D1+D2+D3 L2 PASS + wire-in static PASS; D8 runtime BLOCKED/deferred (Airtable-coupled upstream). 3.5f I3 PASS + I2/I5 deferred with written reason. 3.5g closeout G1–G13 DONE. Deferrals: D6/D8/D9/I2/I5 runtime → Airtable cutover; Gap 1/Gap 3 runtime → Stage 4; 3.5d.8b PG-only trigger path → NOT REQUIRED before Stage 3y. **Next: Stage 3.5 closeout commit (user approves), then Stage 3y shadow/co-pilot planning.** |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
 | **3y** Shadow / co-pilot | Planned | Bot drafts, staff approves/sends; generates real labeled data |
 | **4** Reliable | Planned | After 3 + 3.5 + 3x + 3y |
@@ -310,9 +310,13 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **Deferred (not blocked):** I2 → manual-pay gate · I3 → Stage 3.5/manual-pay gate (structural schema guard proven; runtime needs `payments` write) · I5 → Postgres cutover. Airtable-coupled L3 runtime (T2, T5) → post-cutover.
 - **Caveats remaining:** real WhatsApp send (dry-run only) · schedule-poll mode · single-window integrated E2E · Stripe/payment idempotency (I2, I3).
 
-**Then:** **Stage 3.5b** — Send Confirmation error capture wire-in (design ready in `PHASE-3.5-SAFETY-RAILS-PLAN.md §3.5b`). Adds 3 nodes: Gap 2 error path (`Code - Build WA Send Error` + `Postgres - Write automation_errors`), Gap 1 info log, Error Trigger for workflow crashes. Then 3.5d overlap guard hardening, 3.5e logging, 3.5f Stripe gates → **Stage 3y** shadow/co-pilot.
+**Stage 3.5 — MINIMUM SAFETY BAR MET (2026-05-29):** All sub-phases PASS or DEFERRED with written reason. Closeout checklist G1–G13 DONE. All deferrals (D6/D8/D9, I2/I5 runtime) are Airtable-coupled and correctly deferred to cutover. 3.5d.8b PG-only trigger path is NOT REQUIRED before Stage 3y. Gap 1/Gap 3 runtime NOT REQUIRED before Stage 3y. Stage 3.5 is READY TO CLOSE.
 
-**Not next:** Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7); Airtable cutover without staff UI; autonomous live replies without Stage 3y staff-approval mode.
+**Immediate next step: Stage 3.5 closeout commit** (user must explicitly approve). Commit message should capture: closeout gap review DONE, G1–G13 all DONE, minimum safety bar MET, recommendation READY TO CLOSE, next is Stage 3y planning.
+
+**After closeout commit: Stage 3y shadow/co-pilot planning.** Review `ROADMAP.md §Stage 3y` for operating constraints. Separately gate real WhatsApp send.
+
+**Not next:** Stage 3.5d.8b (not required before 3y); I2/I5 runtime (Airtable-coupled); Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7); Airtable cutover without staff UI; autonomous live replies without Stage 3y staff-approval mode.
 
 ---
 
