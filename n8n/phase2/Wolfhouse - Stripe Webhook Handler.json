@@ -86,7 +86,8 @@
         "operation": "executeQuery",
         "query": "WITH ev AS (\n  INSERT INTO payment_events (client_id, payment_id, booking_id, stripe_event_id, event_type, payload, processed)\n  SELECT p.client_id, p.id, p.booking_id, $1, $2, $3::jsonb, true\n  FROM payments p\n  WHERE p.stripe_checkout_session_id = $4\n  ON CONFLICT (stripe_event_id) DO NOTHING\n  RETURNING payment_id, booking_id, client_id\n),\npay AS (\n  UPDATE payments p SET\n    status = 'paid',\n    amount_paid_cents = $5,\n    stripe_payment_intent_id = COALESCE($6, p.stripe_payment_intent_id),\n    paid_at = NOW()\n  FROM ev\n  WHERE p.stripe_checkout_session_id = $4 AND ev.payment_id = p.id\n  RETURNING p.booking_id, p.payment_kind, p.amount_due_cents, p.id AS payment_id\n)\nUPDATE bookings b SET\n  payment_status = CASE\n    WHEN pay.payment_kind = 'full_amount'::payment_kind THEN 'paid'::payment_status\n    ELSE 'deposit_paid'::payment_status\n  END,\n  deposit_paid_cents = CASE\n    WHEN pay.payment_kind = 'deposit_only'::payment_kind THEN COALESCE(b.deposit_paid_cents, 0) + $5\n    ELSE b.deposit_paid_cents\n  END,\n  amount_paid_cents = COALESCE(b.amount_paid_cents, 0) + $5,\n  balance_due_cents = GREATEST(\n    COALESCE(b.total_amount_cents, 0) - (COALESCE(b.amount_paid_cents, 0) + $5),\n    0\n  ),\n  send_confirmation = TRUE\nFROM pay\nWHERE b.id = pay.booking_id\nRETURNING\n  b.id AS booking_id,\n  b.payment_status,\n  b.deposit_paid_cents,\n  b.amount_paid_cents,\n  b.balance_due_cents,\n  b.send_confirmation,\n  pay.payment_kind,\n  pay.payment_id;",
         "options": {
-          "queryReplacement": "={{ $json.stripe_event_id }},{{ $json.event_type }},{{ JSON.stringify($json.payload) }},{{ $json.session_id }},{{ $json.amount_paid_cents }},{{ $json.payment_intent_id }}"
+          "queryReplacement": "={{ $json.stripe_event_id }},{{ $json.event_type }},{{ JSON.stringify($json.payload) }},{{ $json.session_id }},{{ $json.amount_paid_cents }},{{ $json.payment_intent_id }}",
+          "alwaysOutputData": true
         }
       },
       "type": "n8n-nodes-base.postgres",
@@ -103,6 +104,36 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-booking-id",
+              "leftValue": "={{ $json.booking_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1200, 0],
+      "id": "2b102010-0010-4000-8000-000000000010",
+      "name": "IF - New Payment Row?"
+    },
+    {
+      "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify({ received: true, processed: true, booking_id: $json.booking_id, payment_status: $json.payment_status, send_confirmation: $json.send_confirmation, payment_kind: $json.payment_kind }) }}",
         "options": {
@@ -111,15 +142,29 @@
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1200, 120],
+      "position": [1440, -120],
       "id": "2b102008-0008-4000-8000-000000000008",
       "name": "Respond - Payment Applied"
     },
     {
       "parameters": {
-        "content": "## Phase 2b — Stripe Webhook\n\n**Production:** `STRIPE_WEBHOOK_SKIP_VERIFY=false` + raw body HMAC verify.\n\n**Local:** if n8n parses body, set `STRIPE_WEBHOOK_SKIP_VERIFY=true` (dev only).\n\nDoes not set `bookings.status`. Sets `send_confirmation=true`.",
-        "height": 260,
-        "width": 400
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, processed: false, reason: 'duplicate_event', stripe_event_id: $('Code - Parse Stripe Event').item.json.stripe_event_id }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1440, 120],
+      "id": "2b102011-0011-4000-8000-000000000011",
+      "name": "Respond - Duplicate Acknowledged"
+    },
+    {
+      "parameters": {
+        "content": "## Phase 2b — Stripe Webhook\n\n**Production:** `STRIPE_WEBHOOK_SKIP_VERIFY=false` + raw body HMAC verify.\n\n**Local:** if n8n parses body, set `STRIPE_WEBHOOK_SKIP_VERIFY=true` (dev only).\n\nDoes not set `bookings.status`. Sets `send_confirmation=true`.\n\n**Duplicate guard (Stage 3.5c):** ON CONFLICT DO NOTHING in CTE; IF - New Payment Row? routes 0-row returns to Respond - Duplicate Acknowledged (HTTP 200, processed:false).",
+        "height": 300,
+        "width": 460
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
@@ -145,7 +190,13 @@
       ]
     },
     "Postgres - Apply Payment Success": {
-      "main": [[{ "node": "Respond - Payment Applied", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "IF - New Payment Row?", "type": "main", "index": 0 }]]
+    },
+    "IF - New Payment Row?": {
+      "main": [
+        [{ "node": "Respond - Payment Applied", "type": "main", "index": 0 }],
+        [{ "node": "Respond - Duplicate Acknowledged", "type": "main", "index": 0 }]
+      ]
     }
   },
   "settings": {

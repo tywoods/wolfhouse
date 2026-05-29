@@ -510,7 +510,7 @@ the failure-mode env before triggering, and the restored baseline env afterward.
 ### 3.5c — Idempotency enforcement beyond schema
 
 **Work type:** Spec + code/workflow changes + runtime gates  
-**Status:** PLANNED
+**Status:** I3 RUNTIME PASS (2026-05-29) — guard implemented, Gates A–F all PASS; I2 deferred
 
 **Goal:** Convert Stage 3e.6 learnings into explicit guard contracts. Distinguish what is already enforced at DB level from what needs an application-layer guard.
 
@@ -520,7 +520,7 @@ the failure-mode env before triggering, and the restored baseline env afterward.
 |---|---------|-------------------|-------------------|---------------|--------|
 | I1 | Duplicate wamid | `UNIQUE (client_id, whatsapp_message_id)` on `messages` | No explicit check before INSERT; DB rejects duplicate | L2 schema PASS; full-path L3 deferred (Airtable-coupled Main) | **L2 PASS — Stage 3 bar** |
 | I2 | Duplicate payment-link request | `payments_stripe_payment_intent_id_unique` (partial UNIQUE) | PG Ensure returns `action=refreshed` on 2nd call | Deferred — Airtable + Stripe coupling | **DEFERRED — manual-pay gate** |
-| I3 | Duplicate Stripe event id | `payment_events.stripe_event_id TEXT UNIQUE` | Webhook Handler should catch INSERT conflict | Deferred — requires `payments` fixture write | **DEFERRED — Stage 3.5 gate (needs approval)** |
+| I3 | Duplicate Stripe event id | `payment_events.stripe_event_id TEXT UNIQUE` + `ON CONFLICT DO NOTHING` in CTE | **DB guard + HTTP guard both PROVEN** (2026-05-29): execs 1093 (processed) + 1094 (duplicate acknowledged). No double-payment, no double-promotion. | **RUNTIME PASS (execs 1093/1094, 2026-05-29)** | **PASS** |
 | I4 | Duplicate Send Confirmation | `confirmation_sent_at IS NULL` in SELECT + UPDATE WHERE clause | Proven: 2nd execution is a no-op at SELECT layer | **RUNTIME PASS (I4, exec 1087→1088)** | **PASS** |
 | I5 | Duplicate reassign | `resolved_count=1` guard in PG DELETE SQL | Airtable gate blocks PG path | Deferred — Airtable-coupled | **DEFERRED — cutover gate** |
 | I6 | Duplicate cancellation | No explicit idempotency key on cancel | TBD | Not yet planned | **PLAN NEEDED** |
@@ -528,7 +528,7 @@ the failure-mode env before triggering, and the restored baseline env afterward.
 
 **Required additions for Stage 3.5:**
 
-- **I3 runtime gate:** Wire `automation_errors` INSERT on Stripe event conflict (catches the UNIQUE violation before it surfaces as an unhandled n8n error). Activate Stripe Webhook Handler only. One `payments` fixture row required — needs explicit payment-table write approval.
+- **I3 runtime gate:** DB guard is confirmed present (ON CONFLICT DO NOTHING). Before runtime, add a "duplicate acknowledged" HTTP response path to `Wolfhouse - Stripe Webhook Handler.json` so 2nd POST returns 200 cleanly instead of hanging. Then activate Stripe Webhook Handler only. One `payments` fixture row required — needs explicit payment-table write approval. Full spec in §3.5f.
 - **I6 cancel idempotency:** Define whether cancelling an already-cancelled booking is safe or an error. Document guard. Simple DB-level: `WHERE assignment_status != 'cancelled'` or check before DELETE.
 
 ---
@@ -671,37 +671,631 @@ and no protected payment tables are touched.
 ### 3.5f — Stripe/payment duplicate gates
 
 **Work type:** Protected payment-table gate (requires explicit approval per write)  
-**Status:** PLANNED — runtime DEFERRED until payment-table write explicitly approved
+**Status:** PLANNED — I3 BLOCKED pending implementation guard; runtime DEFERRED until guard implemented + payment-table write explicitly approved
 
 **Goal:** Complete deferred idempotency runtime proofs I2 and I3 from Stage 3e.6.
 
+---
+
 #### I3 — Duplicate Stripe event id runtime
 
-**Pre-conditions:**
-- Stripe Webhook Handler `KZUQvwR6SPWpvaZ5` must be the only active workflow.
-- `STRIPE_WEBHOOK_SKIP_VERIFY=true` in environment.
-- Fixture: one disposable booking + one `payments` row in `checkout_created` state — **protected-table write; requires explicit approval**.
-- No real Stripe checkout or charge.
+**Status: RUNTIME PASS (2026-05-29) — guard IMPLEMENTED / Gate A PASS / Gates B–F PASS**
 
-**Duplicate action:** POST same crafted event id (`evt_test_idemp_i3_001`) twice to `http://localhost:5678/webhook/stripe-webhook`.
+---
 
-**Expected result:**
-- 1st POST: `payment_events` count +1; booking promoted per webhook handler logic.
-- 2nd POST: INSERT into `payment_events` fails on `stripe_event_id UNIQUE`; either caught cleanly (0-row no-op) or produces a handled conflict. Booking state unchanged.
+##### A. Schema-level guard (confirmed 2026-05-29)
 
-**Evidence:**
-```sql
-SELECT COUNT(*) FROM payment_events WHERE stripe_event_id = 'evt_test_idemp_i3_001';
--- Must be 1 after both POSTs.
-SELECT status, payment_status FROM bookings WHERE booking_code = 'WH-IDEMP-I3';
--- State stable; not double-promoted.
+- **`payment_events.stripe_event_id TEXT UNIQUE`** — present in `database/migrations/001_init.sql` line 458 and confirmed in running DB.
+- Migration 003 renamed `hostel_id` → `client_id` in both `payments` and `payment_events` tables. The Stripe Webhook Handler JSON already uses `client_id` in its CTE insert.
+- `payment_record_status` enum values: `{draft, checkout_created, pending, paid, expired, cancelled, failed}`
+- `payment_kind` enum values: `{deposit_only, full_amount}`
+
+**`payments` columns (running DB, post-migration 003):**
+
+| Column | Type | Nullable | Notes |
+|--------|------|----------|-------|
+| `id` | UUID PK | NO | `gen_random_uuid()` |
+| `client_id` | UUID FK → clients | NO | required in fixture |
+| `booking_id` | UUID FK → bookings | NO | required in fixture |
+| `status` | `payment_record_status` | NO | DEFAULT `'draft'`; fixture uses `'checkout_created'` |
+| `payment_kind` | `payment_kind` | NO | DEFAULT `'deposit_only'` |
+| `currency` | CHAR(3) | NO | DEFAULT `'EUR'` |
+| `amount_due_cents` | INTEGER | NO | required (no default) |
+| `stripe_checkout_session_id` | TEXT UNIQUE | YES | **must match event `session.id`** |
+| `stripe_payment_intent_id` | TEXT | YES | partial UNIQUE if NOT NULL |
+| `checkout_url` | TEXT | YES | |
+| `paid_at` | TIMESTAMPTZ | YES | set by webhook CTE UPDATE |
+| `expires_at` | TIMESTAMPTZ | YES | |
+| `metadata` | JSONB | NO | DEFAULT `'{}'` |
+| `amount_paid_cents` | INTEGER | NO | DEFAULT `0` |
+
+**`payment_events` columns (running DB, post-migration 003):**
+
+| Column | Type | Nullable | Notes |
+|--------|------|----------|-------|
+| `id` | UUID PK | NO | |
+| `client_id` | UUID FK → clients | NO | populated from `payments.client_id` in CTE |
+| `payment_id` | UUID FK → payments | YES | `ON DELETE SET NULL` |
+| `booking_id` | UUID FK → bookings | YES | `ON DELETE SET NULL` |
+| `stripe_event_id` | TEXT **UNIQUE** | YES | **the idempotency guard** |
+| `event_type` | TEXT | NO | |
+| `payload` | JSONB | NO | |
+| `processed` | BOOLEAN | NO | DEFAULT `false` |
+| `processing_error` | TEXT | YES | |
+| `created_at` | TIMESTAMPTZ | NO | DEFAULT `now()` |
+
+---
+
+##### B. Stripe Webhook Handler workflow (inspected 2026-05-29)
+
+- **File:** `n8n/phase2/Wolfhouse - Stripe Webhook Handler.json`
+- **n8n workflow ID:** `KZUQvwR6SPWpvaZ5` (confirmed in n8n DB — 6 rows exist with this name; `KZUQvwR6SPWpvaZ5` is the local gate workflow from prior Phase 3d evidence)
+- **Type:** **Direct JSON** — no build script. Edits go directly to the JSON file (not generated).
+- **Node count:** 8 nodes (7 logic + 1 sticky note)
+
+**Node flow:**
+
+```
+Webhook - Stripe (POST /webhook/stripe-webhook)
+  → Code - Verify Signature          [verifies HMAC or skips if STRIPE_WEBHOOK_SKIP_VERIFY=true]
+  → Code - Parse Stripe Event         [extracts stripe_event_id, session_id, booking_id, amount, etc.]
+  → IF - Payment Event?               [skip=false → true branch; skip=true → false branch]
+       true  → Postgres - Apply Payment Success   [single CTE: ev + pay + bookings UPDATE]
+                 → Respond - Payment Applied       [200: {received:true, processed:true, booking_id, ...}]
+       false → Respond - Ignored Event            [200: {received:true, processed:false}]
 ```
 
-**Hard stops:** `payment_events` count for event id > 1; any unrelated payment mutation; `booking_beds` change.
+**Event parsing (`Code - Parse Stripe Event`):**
 
-**Teardown:** DELETE fixture booking + payments + payment_events rows; verify counts at baseline.
+Only `checkout.session.completed` events proceed to the payment CTE. All other event types go to `Respond - Ignored Event`. Required fields from event:
 
-**Approval required:** YES — one `payments` table INSERT is needed for the fixture. Must be explicitly approved before execution.
+| Field extracted | Source path |
+|----------------|-------------|
+| `stripe_event_id` | `event.id` |
+| `event_type` | `event.type` |
+| `session_id` | `event.data.object.id` |
+| `payment_intent_id` | `event.data.object.payment_intent` (string or `{id}`) |
+| `booking_id` | `event.data.object.metadata.booking_id` ← **REQUIRED; throws if missing** |
+| `client_id` | `event.data.object.metadata.client_id` (optional) |
+| `payment_kind` | `event.data.object.metadata.payment_kind` (defaults to `'deposit_only'` if not `'full_amount'`) |
+| `amount_paid_cents` | `event.data.object.amount_total ?? 0` |
+
+**CTE in `Postgres - Apply Payment Success`** (single transaction):
+
+```sql
+WITH ev AS (
+  INSERT INTO payment_events (client_id, payment_id, booking_id, stripe_event_id, event_type, payload, processed)
+  SELECT p.client_id, p.id, p.booking_id, $1, $2, $3::jsonb, true
+  FROM payments p
+  WHERE p.stripe_checkout_session_id = $4
+  ON CONFLICT (stripe_event_id) DO NOTHING          -- ← idempotency guard
+  RETURNING payment_id, booking_id, client_id
+),
+pay AS (
+  UPDATE payments p SET status='paid', amount_paid_cents=$5,
+    stripe_payment_intent_id=COALESCE($6, p.stripe_payment_intent_id), paid_at=NOW()
+  FROM ev
+  WHERE p.stripe_checkout_session_id = $4 AND ev.payment_id = p.id
+  RETURNING p.booking_id, p.payment_kind, p.amount_due_cents, p.id AS payment_id
+)
+UPDATE bookings b SET
+  payment_status = CASE WHEN pay.payment_kind='full_amount' THEN 'paid' ELSE 'deposit_paid' END,
+  deposit_paid_cents = CASE WHEN pay.payment_kind='deposit_only' THEN COALESCE(b.deposit_paid_cents,0)+$5 ELSE b.deposit_paid_cents END,
+  amount_paid_cents = COALESCE(b.amount_paid_cents,0) + $5,
+  balance_due_cents = GREATEST(COALESCE(b.total_amount_cents,0)-(COALESCE(b.amount_paid_cents,0)+$5),0),
+  send_confirmation = TRUE
+FROM pay WHERE b.id = pay.booking_id
+RETURNING b.id AS booking_id, b.payment_status, b.deposit_paid_cents, b.amount_paid_cents,
+          b.balance_due_cents, b.send_confirmation, pay.payment_kind, pay.payment_id;
+```
+
+- `$1` = `stripe_event_id`, `$2` = `event_type`, `$3` = `JSON.stringify(payload)`, `$4` = `session_id`, `$5` = `amount_paid_cents`, `$6` = `payment_intent_id`
+- The CTE lookup for `payments` uses `stripe_checkout_session_id = $4` — the fixture payment row MUST have `stripe_checkout_session_id` set to the crafted session id.
+- The CTE does NOT set `bookings.status`; it only sets `bookings.payment_status` and `bookings.send_confirmation`.
+
+---
+
+##### C. Critical finding: duplicate event HTTP behavior
+
+**DB level (SAFE):**
+
+On 2nd POST with the same `stripe_event_id`:
+1. `ev` CTE: `ON CONFLICT (stripe_event_id) DO NOTHING` → 0 rows inserted → 0 rows RETURNING
+2. `pay` CTE: `FROM ev` empty → WHERE clause never matches → 0 rows
+3. Final UPDATE: `FROM pay` empty → WHERE clause never matches → 0 rows
+4. Overall CTE returns **0 rows**
+
+Result: no double-insert into `payment_events`, no duplicate `payments` update, no duplicate `bookings` promotion. **DB is idempotent.**
+
+**HTTP level (UNSAFE — implementation guard required):**
+
+The `Postgres - Apply Payment Success` node does NOT have `alwaysOutputData: true`. When the CTE returns 0 rows, the Postgres node outputs **0 items**. `Respond - Payment Applied` has no items to process and **does not fire**.
+
+The webhook is in `responseMode: responseNode`. When the respond node does not fire, n8n waits for it until the webhook execution timeout. The HTTP response is a **timeout or 502 error** (no `200` returned to the caller).
+
+**Consequence in production:** Stripe interprets non-200 as a delivery failure and **retries the event** (typically up to 3 days, with exponential backoff). Each retry triggers another 0-row CTE no-op + timeout. This creates an endless retry loop that:
+- Clogs n8n execution history
+- May result in Stripe suspending the webhook endpoint
+- Is NOT a data-safety issue (DB is protected), but IS an operational issue
+
+**This is the implementation guard required before runtime.**
+
+---
+
+##### D. Implementation guard design
+
+**Option A — Minimal (not recommended):**
+Add `"alwaysOutputData": true` to `Postgres - Apply Payment Success` node. The Respond node fires with `{booking_id: undefined, ...}`. 200 returned but response is misleading.
+
+**Option B — Recommended:**
+After `Postgres - Apply Payment Success`, add a branching path to handle the 0-row case:
+
+```
+Postgres - Apply Payment Success
+  [has booking_id row] → Respond - Payment Applied      (existing node)
+  [no rows / duplicate] → Respond - Duplicate Acknowledged  (NEW node)
+     response: { received: true, processed: false, reason: "duplicate_event", stripe_event_id: "..." }
+```
+
+Implementation approach:
+1. Add `"alwaysOutputData": true` to `Postgres - Apply Payment Success` so it always emits at least one item.
+2. Add an `IF - New Payment Row?` node: `$json.booking_id` is not empty → true branch (existing respond); false → new respond.
+3. Add `Respond - Duplicate Acknowledged` node (200, JSON body with `duplicate_event` reason).
+4. Update `connections` in the JSON to wire correctly.
+
+This edit is to `n8n/phase2/Wolfhouse - Stripe Webhook Handler.json` (direct JSON, not generated).
+
+**Status of guard:** IMPLEMENTED (2026-05-29) — NOT YET RUNTIME TESTED.
+
+**Nodes added to `n8n/phase2/Wolfhouse - Stripe Webhook Handler.json`:**
+
+| Node | ID | Type | Position | Change |
+|------|----|------|----------|--------|
+| `IF - New Payment Row?` | `2b102010-0010-4000-8000-000000000010` | `n8n-nodes-base.if` | [1200, 0] | NEW |
+| `Respond - Duplicate Acknowledged` | `2b102011-0011-4000-8000-000000000011` | `n8n-nodes-base.respondToWebhook` | [1440, 120] | NEW |
+| `Postgres - Apply Payment Success` | `2b102007-0007-4000-8000-000000000007` | (existing) | [960, 120] | `alwaysOutputData: true` added to `options` |
+
+**Updated wiring:**
+
+```
+Postgres - Apply Payment Success → IF - New Payment Row?
+IF - New Payment Row? true  (booking_id not empty) → Respond - Payment Applied   (HTTP 200, processed:true)
+IF - New Payment Row? false (booking_id empty/null) → Respond - Duplicate Acknowledged (HTTP 200, processed:false)
+```
+
+**IF condition:** `$json.booking_id` `notEmpty` (loose type validation — `undefined` coerces to `""`, evaluated as empty → false branch for duplicate).
+
+**Respond - Duplicate Acknowledged body:**
+```json
+{
+  "received": true,
+  "processed": false,
+  "reason": "duplicate_event",
+  "stripe_event_id": "{{ $('Code - Parse Stripe Event').item.json.stripe_event_id }}"
+}
+```
+
+**No new `payments` or `payment_events` write nodes added.** Total Postgres nodes: 1 (unchanged CTE logic).
+
+**Node count:** 8 → 10 (+ `IF - New Payment Row?` + `Respond - Duplicate Acknowledged`; sticky note updated).
+
+---
+
+##### E. I3 fixture design (planning only — DO NOT seed without explicit approval)
+
+**⚠ PROTECTED TABLE WRITE: the fixture inserts one row into `payments`. Requires explicit approval before execution.**
+
+**Fixture booking:**
+
+```sql
+INSERT INTO bookings (
+  id, client_id, booking_code, guest_name, phone, email,
+  status, payment_status, check_in, check_out, guest_count,
+  send_confirmation, booking_source, total_amount_cents, deposit_required_cents
+) VALUES (
+  'b35c0000-0000-4000-8000-000000000001',
+  'a0000000-0000-4000-8000-000000000001',
+  'WH-35C-I3-TEST-1',
+  'I3 Idemp Test Guest',
+  '+10000000035',
+  'i3test@example.invalid',
+  'payment_pending',
+  'not_requested',
+  CURRENT_DATE + INTERVAL '60 days',
+  CURRENT_DATE + INTERVAL '63 days',
+  1,
+  FALSE,
+  'whatsapp',
+  20000,
+  10000
+);
+```
+
+**Fixture payment row (PROTECTED TABLE):**
+
+```sql
+INSERT INTO payments (
+  id, client_id, booking_id, status, payment_kind,
+  amount_due_cents, stripe_checkout_session_id, currency
+) VALUES (
+  'a35c0000-0000-4000-8000-000000000001',
+  'a0000000-0000-4000-8000-000000000001',
+  'b35c0000-0000-4000-8000-000000000001',
+  'checkout_created',
+  'deposit_only',
+  10000,
+  'cs_test_i3_idemp_001',
+  'EUR'
+);
+```
+
+No `booking_beds` row required. No `payment_events` row initially.
+
+**Reversible teardown plan (down.sql):**
+
+```sql
+DELETE FROM payment_events WHERE stripe_event_id = 'evt_test_idemp_i3_001';
+DELETE FROM payments WHERE id = 'a35c0000-0000-4000-8000-000000000001';
+DELETE FROM bookings WHERE booking_code = 'WH-35C-I3-TEST-1';
+-- Verify:
+SELECT COUNT(*) FROM payments WHERE id = 'a35c0000-0000-4000-8000-000000000001'; -- must be 0
+SELECT COUNT(*) FROM bookings WHERE booking_code = 'WH-35C-I3-TEST-1'; -- must be 0
+```
+
+**Fixture requirements checklist:**
+- [ ] `payments` INSERT explicitly approved by user before execution
+- [ ] No `booking_beds` row (not needed by webhook CTE)
+- [ ] No initial `payment_events` row (created by 1st POST)
+- [ ] `stripe_checkout_session_id = 'cs_test_i3_idemp_001'` must exactly match event's `data.object.id`
+- [ ] `client_id = 'a0000000-0000-4000-8000-000000000001'` — confirmed from running `SELECT id FROM clients LIMIT 1`
+
+---
+
+##### F. Crafted duplicate event design
+
+**Event JSON (POST #1 and POST #2 are identical):**
+
+```json
+{
+  "id": "evt_test_idemp_i3_001",
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_i3_idemp_001",
+      "payment_intent": "pi_test_i3_idemp_001",
+      "amount_total": 10000,
+      "metadata": {
+        "booking_id": "b35c0000-0000-4000-8000-000000000001",
+        "client_id": "a0000000-0000-4000-8000-000000000001",
+        "payment_kind": "deposit_only"
+      }
+    }
+  }
+}
+```
+
+**POST target:** `http://localhost:5678/webhook/stripe-webhook`
+
+**Required env:** `STRIPE_WEBHOOK_SKIP_VERIFY=true` (already works — set in Code - Verify Signature: `const skipVerify = String($env.STRIPE_WEBHOOK_SKIP_VERIFY || 'false').toLowerCase() === 'true'`)
+
+**Required header:** `Content-Type: application/json`
+
+**No real Stripe checkout, no Stripe API calls.** The workflow does not make outbound Stripe API calls — it only processes the inbound webhook JSON. No Stripe session creation needed.
+
+**Trigger command (for Gate D, after guard implemented and fixture seeded):**
+```powershell
+# Write payload to file to avoid PowerShell quoting issues
+'{"id":"evt_test_idemp_i3_001","type":"checkout.session.completed","data":{"object":{"id":"cs_test_i3_idemp_001","payment_intent":"pi_test_i3_idemp_001","amount_total":10000,"metadata":{"booking_id":"b35c0000-0000-4000-8000-000000000001","client_id":"a0000000-0000-4000-8000-000000000001","payment_kind":"deposit_only"}}}}' | Set-Content _35c-trigger.json -Encoding utf8
+curl -s -X POST http://localhost:5678/webhook/stripe-webhook -H "Content-Type: application/json" --data "@scripts/_35c-trigger.json"
+```
+
+---
+
+##### G. Expected behavior per POST
+
+**POST #1 (first event, new `stripe_event_id`):**
+
+| Check | Expected |
+|-------|----------|
+| HTTP response | `200 { received: true, processed: true, booking_id: "b35c...", payment_status: "deposit_paid", ... }` |
+| `payment_events` count WHERE `stripe_event_id='evt_test_idemp_i3_001'` | **1** |
+| `payments.status` WHERE `id='a35c...'` | **`'paid'`** |
+| `payments.amount_paid_cents` WHERE `id='a35c...'` | **10000** |
+| `bookings.payment_status` WHERE `booking_code='WH-35C-I3-TEST-1'` | **`'deposit_paid'`** |
+| `bookings.send_confirmation` WHERE `booking_code='WH-35C-I3-TEST-1'` | **`TRUE`** |
+| `bookings.status` | **unchanged** (`payment_pending`) — webhook does NOT set `status` |
+| `booking_beds` count | **unchanged** |
+| Send Confirmation workflow | **must not execute** (must remain inactive) |
+
+**POST #2 (duplicate — same `stripe_event_id`, after guard implementation):**
+
+| Check | Expected (after guard) |
+|-------|------------------------|
+| HTTP response | `200 { received: true, processed: false, reason: "duplicate_event", stripe_event_id: "evt_test_idemp_i3_001" }` |
+| `payment_events` count WHERE `stripe_event_id='evt_test_idemp_i3_001'` | **still 1** (no duplicate insert) |
+| `payments.status` | **still `'paid'`** (no second update) |
+| `bookings.payment_status` | **still `'deposit_paid'`** (no double promotion) |
+| `bookings.send_confirmation` | **still `TRUE`** (stable) |
+| `bookings.deposit_paid_cents` | **unchanged** (no second `+ $5`) |
+| `booking_beds` count | **unchanged** |
+
+**POST #2 (duplicate — BEFORE guard implementation):**
+
+| Check | Current behavior (unguarded) |
+|-------|------------------------------|
+| HTTP response | **TIMEOUT / 502** — `Respond - Payment Applied` does not fire |
+| `payment_events` count | **still 1** (DB is safe) |
+| Stripe behavior | **retries the event** (non-200 response treated as delivery failure) |
+
+---
+
+##### H. Runtime gate plan (after guard implementation + approval)
+
+**Gate A — Preflight only (no activation, no writes)**
+
+- Run static contracts: `node scripts/report-main-payment-contract.js`, `report-stripe-contract.js`
+- Confirm all workflows inactive in n8n DB
+- Baseline counts:
+  - `SELECT COUNT(*) FROM payments` → record N_payments_baseline
+  - `SELECT COUNT(*) FROM payment_events` → record N_payment_events_baseline
+  - `SELECT COUNT(*) FROM booking_beds` → record N_booking_beds_baseline
+  - `SELECT COUNT(*) FROM bookings WHERE booking_code = 'WH-35C-I3-TEST-1'` → must be 0
+  - `SELECT COUNT(*) FROM payment_events WHERE stripe_event_id = 'evt_test_idemp_i3_001'` → must be 0
+- Max exec id: `SELECT MAX(id) FROM execution_entity` → record MAX_EXEC_BASELINE
+- Hard stop: any leftovers from prior WH-35C-I3 run
+
+**Gate B — Fixture seed (REQUIRES EXPLICIT PAYMENT TABLE APPROVAL)**
+
+- Seed `phase35c-i3-up.sql` (booking + payment rows)
+- Verify:
+  - `SELECT COUNT(*) FROM payments` → N_payments_baseline + 1
+  - `SELECT id, status, stripe_checkout_session_id FROM payments WHERE id = 'a35c0000-0000-4000-8000-000000000001'` → 1 row, `checkout_created`, `cs_test_i3_idemp_001`
+  - `SELECT id, status, payment_status, send_confirmation FROM bookings WHERE booking_code = 'WH-35C-I3-TEST-1'` → 1 row, `payment_pending`, `not_requested`, `FALSE`
+- Hard stop: payment row not found; booking row not found
+
+**Gate C — Activate only Stripe Webhook Handler**
+
+- Activate ONLY `KZUQvwR6SPWpvaZ5` via n8n API or CLI
+- Confirm all other workflows (Send Confirmation, Main, Assign, Reassign, Cancel) are INACTIVE
+- Hard stop: Send Confirmation active; Main active; any rooming workflow active
+
+**Gate D — POST crafted event #1**
+
+- POST `_35c-trigger.json` to `http://localhost:5678/webhook/stripe-webhook`
+- Capture response JSON and exec id
+- Verify:
+  - HTTP status 200, `processed: true`
+  - `payment_events` count = N_payment_events_baseline + 1
+  - `payments.status = 'paid'` for fixture row
+  - `bookings.payment_status = 'deposit_paid'` for fixture booking
+  - `bookings.send_confirmation = TRUE`
+  - `booking_beds` count = N_booking_beds_baseline (unchanged)
+  - Send Confirmation execution count unchanged (no spurious trigger)
+- Hard stop: HTTP non-200 (before guard = expected; after guard = test failure); `payment_events` not +1; `booking_beds` changed
+
+**Gate E — POST duplicate event #2 (same payload, same `stripe_event_id`)**
+
+- POST the same `_35c-trigger.json` again
+- Capture response JSON and exec id
+- Verify:
+  - HTTP status 200, `processed: false`, `reason: "duplicate_event"` (requires guard)
+  - `payment_events` count = N_payment_events_baseline + 1 (NOT + 2)
+  - `payments.status` still `'paid'`
+  - `bookings.payment_status` still `'deposit_paid'`
+  - `bookings.deposit_paid_cents` NOT double-incremented
+  - `booking_beds` count = N_booking_beds_baseline (unchanged)
+- Hard stop: `payment_events` count = N + 2; `payments.amount_paid_cents` doubled; `bookings.deposit_paid_cents` doubled; any additional booking promotion
+
+**Gate F — Deactivate, teardown, count restore**
+
+- Deactivate `KZUQvwR6SPWpvaZ5`
+- Run `phase35c-i3-down.sql`
+- Verify:
+  - `SELECT COUNT(*) FROM payments` → N_payments_baseline (restored)
+  - `SELECT COUNT(*) FROM payment_events` → N_payment_events_baseline (restored)
+  - `SELECT COUNT(*) FROM booking_beds` → N_booking_beds_baseline (unchanged throughout)
+  - `SELECT COUNT(*) FROM bookings WHERE booking_code = 'WH-35C-I3-TEST-1'` → 0
+  - `SELECT COUNT(*) FROM payment_events WHERE stripe_event_id = 'evt_test_idemp_i3_001'` → 0
+- Hard stop: teardown fails; counts not restored; WH-35C-I3-TEST-1 booking persists
+
+**Hard stops (all gates):**
+
+- Any real Stripe session creation or Stripe API call
+- Send Confirmation workflow executes during the test
+- Main / Reassign / Assign / Cancel executes during the test
+- `payments` count unexpectedly changes
+- `payment_events` count > N_payment_events_baseline + 1 at any point after Gate D
+- `booking_beds` count changes at any point
+- Duplicate event causes second booking promotion (`deposit_paid_cents` doubled or `payment_status` re-set to something else)
+- `payment_events` count does not decrease to baseline after teardown
+- HTTP timeout/502 on Gate E (means guard was not implemented — stop and implement guard first)
+
+---
+
+---
+
+##### I. Gate A preflight evidence (2026-05-29) — PASS
+
+**Status: PASS**
+
+**1. Repo state:**
+- HEAD: `d64b50a`
+- Modified files: `docs/PHASE-3.5-SAFETY-RAILS-PLAN.md`, `docs/PROJECT-STATE.md`, `n8n/phase2/Wolfhouse - Stripe Webhook Handler.json` — exactly expected 3 files; no fixtures, no infra/.env, no secrets.
+
+**2. Static guard verification:**
+
+| Check | Result |
+|-------|--------|
+| JSON parses | ✓ |
+| Node count | ✓ 10 |
+| `active` field | ✓ not present (imports inactive) |
+| `alwaysOutputData: true` on Postgres node | ✓ |
+| `Postgres → IF - New Payment Row?` | ✓ |
+| `IF true → Respond - Payment Applied` | ✓ |
+| `IF false → Respond - Duplicate Acknowledged` | ✓ |
+| `Respond - Duplicate Acknowledged` HTTP 200 | ✓ |
+| Body: `received:true` | ✓ |
+| Body: `processed:false` | ✓ |
+| Body: `duplicate_event` | ✓ |
+| Body: `stripe_event_id` | ✓ |
+| Only 1 Postgres node | ✓ |
+| CTE SQL unchanged (`ON CONFLICT DO NOTHING`, `send_confirmation=TRUE`, `RETURNING`) | ✓ |
+| `IF` condition: `notEmpty` / `loose` type validation | ✓ |
+| No other workflow files modified | ✓ |
+
+**Note (UUID correction):** The planned fixture payment UUID `p35c0000-0000-4000-8000-000000000001` was invalid (contains `p`, not valid hex). Corrected to `a35c0000-0000-4000-8000-000000000001` throughout fixture design in this document.
+
+**3. Contract reports:**
+- `node scripts/report-main-payment-contract.js` → **Overall OK: true** (0 payment write hits, CPS contract present, Ensure node present)
+- `node scripts/report-stripe-contract.js` → **Overall OK: true** (Webhook Handler present, signature handling visible, `checkout.session.completed` handling present, 0 payment write hits in Main)
+
+**4. Workflow active states:**
+
+| Workflow | ID | active |
+|----------|----|--------|
+| Main (local Stripe) | `RBfGNtVgrAkvhBHJ` | **f** ✓ |
+| Reassign (local PG) | `B3c3ReassignLocal01` | **f** ✓ |
+| Assign (local PG) | `B3c2AssignLocalPg01` | **f** ✓ |
+| Send Confirmation (local) | `gxivKRJexzTCw9x6` | **f** ✓ |
+| Stripe Webhook Handler | `KZUQvwR6SPWpvaZ5` | **f** ✓ |
+| Create Payment Session | `esuDIT96iPT63OaQ` | **f** ✓ |
+| CPS stub local | `whCreatePaymentStubLocal01` | **f** ✓ |
+| Cancel (local PG) | `KchhRC9b3MIdkzPT` | **f** ✓ |
+
+All 6 Stripe Webhook Handler copies (`8tT8puElc3PcqXMy`, `AEDgqe9LHNM5Vy53`, `KZUQvwR6SPWpvaZ5`, `WbSfOXfNdtrEPeFs`, `hBepzLXL32L6Scli`, `zfcoPmGICvGspf7g`): all **active=f** ✓
+
+**5. Baseline counts (wolfhouse-postgres, 2026-05-29):**
+
+| Table | Count |
+|-------|-------|
+| `bookings` | **41** |
+| `payments` | **25** |
+| `payment_events` | **5** |
+| `booking_beds` | **15** |
+| `automation_errors` | **0** |
+| `workflow_events` | **24** |
+
+**6. Max execution id baselines (n8n execution_entity):**
+
+| Workflow | ID | max_exec_id | exec_count |
+|----------|----|-------------|------------|
+| Main | `RBfGNtVgrAkvhBHJ` | **1082** | 32 |
+| Reassign | `B3c3ReassignLocal01` | **1083** | 10 |
+| Assign | `B3c2AssignLocalPg01` | **1084** | 16 |
+| Send Confirmation | `gxivKRJexzTCw9x6` | **1090** | 756 |
+| Stripe Webhook Handler | `KZUQvwR6SPWpvaZ5` | **1092** | 85 |
+| Create Payment Session | `esuDIT96iPT63OaQ` | **1065** | 25 |
+| CPS stub | `whCreatePaymentStubLocal01` | **1037** | 6 |
+| Cancel | `KchhRC9b3MIdkzPT` | **305** | 10 |
+
+**7. No I3 leftovers:**
+
+| Check | Result |
+|-------|--------|
+| `bookings` WHERE `booking_code LIKE 'WH-35C-I3-%'` | **0** ✓ |
+| `payments` via `WH-35C-I3-*` booking JOIN | **0** ✓ |
+| `payment_events` WHERE `stripe_event_id='evt_test_idemp_i3_001'` | **0** ✓ |
+| `booking_beds` via `WH-35C-I3-*` booking JOIN | **0** ✓ |
+
+**8. Environment readiness:**
+
+| Check | Result |
+|-------|--------|
+| `STRIPE_WEBHOOK_SKIP_VERIFY` on `n8n-main` | **`true`** ✓ (skip verify active for local testing) |
+| `STRIPE_WEBHOOK_SKIP_VERIFY` on `n8n-worker` | **`true`** ✓ |
+| `STRIPE_WEBHOOK_SECRET` present | **yes** (value not printed) ✓ |
+
+No env changes made or needed. `STRIPE_WEBHOOK_SKIP_VERIFY=true` already set — no env modification required for I3 runtime.
+
+**Gate A verdict: PASS — all preflight checks green. Ready for Gate B with explicit approval.**
+
+**Gate B requires explicit approval:** inserts one row into the protected `payments` table and one row into `bookings`. Both must be torn down after the test. Approval phrase: "I approve the I3 Gate B fixture write into payments."
+
+---
+
+##### J. Gates B–F runtime evidence (2026-05-29) — PASS
+
+**Overall verdict: PASS**
+
+**Activation notes (n8n 2.21.7 internals):** Direct DB activation requires three steps beyond `active=true`:
+1. Insert row into `webhook_entity` (path, method, node, workflowId)
+2. Set `activeVersionId = versionId` in `workflow_entity`
+3. Force-recreate n8n containers (`docker compose up -d --force-recreate`) to re-register webhook routes
+
+**Gate B — fixture seeded:**
+
+| Row | Key | Value |
+|-----|-----|-------|
+| Booking | `booking_code` | `WH-35C-I3-TEST-1` |
+| Booking | `status` / `payment_status` | `payment_pending` / `not_requested` |
+| Booking | `send_confirmation` | `FALSE` |
+| Payment | `id` | `a35c0000-0000-4000-8000-000000000001` |
+| Payment | `status` | `checkout_created` |
+| Payment | `stripe_checkout_session_id` | `cs_test_i3_idemp_001` |
+| Counts | bookings / payments / payment_events | 42 / 26 / 5 |
+
+**Gate C — Stripe Webhook Handler only activated:**  
+All 8 target workflows: Stripe Handler `active=t`, rest `active=f`. ✓
+
+**Gate D — POST #1 result:**
+
+| Check | Result |
+|-------|--------|
+| HTTP status | **200** |
+| Response body | `{"received":true,"processed":true,"booking_id":"b35c0000-0000-4000-8000-000000000001","payment_status":"deposit_paid","send_confirmation":true,"payment_kind":"deposit_only"}` |
+| Execution ID | **1093** (baseline was 1092) |
+| `payment_events` row | stripe_event_id=`evt_test_idemp_i3_001`, processed=true, payment_id + booking_id FKs correct |
+| `payments.status` | `paid` |
+| `payments.amount_paid_cents` | `10000` |
+| `bookings.payment_status` | `deposit_paid` |
+| `bookings.send_confirmation` | `TRUE` |
+| `bookings.deposit_paid_cents` | `10000` |
+| `booking_beds` | **15** (unchanged) ✓ |
+| Send Confirmation exec | **unchanged at 1090** ✓ |
+| All other workflows | **unchanged** ✓ |
+
+**Gate E — POST #2 (duplicate) result:**
+
+| Check | Result |
+|-------|--------|
+| HTTP status | **200** |
+| Response body | `{"received":true,"processed":false,"reason":"duplicate_event","stripe_event_id":"evt_test_idemp_i3_001"}` |
+| Execution ID | **1094** (2nd execution processed cleanly) |
+| `payment_events` for `evt_test_idemp_i3_001` | **1** (not 2) ✓ |
+| `bookings.payment_status` | `deposit_paid` (stable, not re-promoted) ✓ |
+| `bookings.deposit_paid_cents` | `10000` (not doubled) ✓ |
+| `bookings.amount_paid_cents` | `10000` (not doubled) ✓ |
+| `payments.status` | `paid` (stable) ✓ |
+| `payments.amount_paid_cents` | `10000` (not doubled) ✓ |
+| `booking_beds` | **15** (unchanged) ✓ |
+| `total payment_events` | **6** (baseline 5 +1; no second row) ✓ |
+| `automation_errors` | **0** ✓ |
+| `workflow_events` | **24** (unchanged) ✓ |
+
+**Gate F — deactivated:**  
+All 8 workflows `active=f`. Only `KZUQvwR6SPWpvaZ5` exec count changed: 1092 → **1094** (+2). All other workflows: unchanged.
+
+**Teardown:**
+
+| Check | Result |
+|-------|--------|
+| `bookings` WHERE `WH-35C-I3-*` | **0** ✓ |
+| `payments` WHERE `a35c...` | **0** ✓ |
+| `payment_events` WHERE `evt_test_idemp_i3_001` | **0** ✓ |
+| bookings count | **41** (restored to baseline) ✓ |
+| payments count | **25** (restored to baseline) ✓ |
+| payment_events count | **5** (restored to baseline) ✓ |
+| booking_beds count | **15** (unchanged throughout) ✓ |
+| automation_errors | **0** ✓ |
+| workflow_events | **24** ✓ |
+
+**Idempotency proof:** Two identical POSTs with `stripe_event_id=evt_test_idemp_i3_001`:
+- POST #1: DB mutated once (1 `payment_events` row, payment paid, booking deposit_paid, send_confirmation=TRUE). HTTP 200 `processed:true`.
+- POST #2: DB unchanged (0-row CTE via ON CONFLICT DO NOTHING). HTTP 200 `processed:false, reason:duplicate_event`. No double-promotion.
+
+**I3 idempotency: PROVEN at runtime.**
+
+---
 
 #### I2 — Duplicate payment-link request
 
