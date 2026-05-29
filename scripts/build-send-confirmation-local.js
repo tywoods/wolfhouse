@@ -192,6 +192,23 @@ SELECT
 FROM clients c
 WHERE c.slug = 'wolfhouse-somo';`;
 
+// Stage 3.5e: success-path workflow_events — info level; $1 = JSON.stringify(Code node output)
+const writeWorkflowEventsConfirmSuccessSql = `INSERT INTO workflow_events (
+  client_id, workflow_name, node_name, execution_id,
+  event_level, message, booking_id, payload
+)
+SELECT
+  c.id,
+  ($1::jsonb)->>'workflow_name',
+  ($1::jsonb)->>'node_name',
+  ($1::jsonb)->>'execution_id',
+  'info'::workflow_event_level,
+  'Send Confirmation marked booking confirmed',
+  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,
+  ($1::jsonb)->'payload'
+FROM clients c
+WHERE c.slug = 'wolfhouse-somo';`;
+
 // Gap 1 (no pending booking): info-level event; workflow_name is a literal in SQL;
 // $1 = execution_id (string)
 const writeWorkflowEventsNoPendingSql = `INSERT INTO workflow_events (
@@ -231,6 +248,29 @@ const BUILD_WA_SEND_ERROR_JS = [
   "      dry_run: String($env.WHATSAPP_DRY_RUN || 'true').toLowerCase() === 'true',",
   "      action: 'send_confirmation',",
   "      outcome: 'whatsapp_send_failed',",
+  '    },',
+  '  },',
+  '}];',
+].join('\n');
+
+// Stage 3.5e: build payload for success-path workflow_events log
+const BUILD_CONFIRM_SUCCESS_EVENT_JS = [
+  'const marked = $json;',
+  "const sendResult = $('Code - Send WhatsApp').first().json;",
+  'return [{',
+  '  json: {',
+  "    workflow_name: 'Wolfhouse - Send Confirmation (local)',",
+  "    node_name: 'Postgres - Mark Booking Confirmed',",
+  "    execution_id: String($execution.id ?? ''),",
+  '    booking_id: marked.booking_id || null,',
+  '    payload: {',
+  "      action: 'send_confirmation',",
+  "      outcome: 'confirmation_sent',",
+  '      booking_code: marked.booking_code || null,',
+  '      dry_run: sendResult.dry_run === true,',
+  '      whatsapp_sent: sendResult.whatsapp_sent === true,',
+  '      confirmation_sent_at: marked.confirmation_sent_at || null,',
+  "      source_node: 'Postgres - Mark Booking Confirmed',",
   '    },',
   '  },',
   '}];',
@@ -571,6 +611,34 @@ const workflow = {
       name: 'Postgres - Write automation_errors (crash)',
       credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
     },
+
+    // -----------------------------------------------------------------------
+    // Stage 3.5e — success-path execution log: booking confirmed
+    // Wired from: Postgres - Mark Booking Confirmed success output
+    // -----------------------------------------------------------------------
+    {
+      parameters: { jsCode: BUILD_CONFIRM_SUCCESS_EVENT_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [300, 80],
+      id: '2d010024-0024-4000-8000-000000000001',
+      name: 'Code - Build Confirmation Success Event',
+    },
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: writeWorkflowEventsConfirmSuccessSql,
+        options: {
+          queryReplacement: "={{ JSON.stringify($json) }}",
+        },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [500, 80],
+      id: '2d010025-0025-4000-8000-000000000001',
+      name: 'Postgres - Write workflow_events (confirmation success)',
+      credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+    },
   ],
   connections: {
     'Schedule - Poll Postgres': {
@@ -620,6 +688,13 @@ const workflow = {
         [{ node: 'Postgres - Mark Booking Confirmed', type: 'main', index: 0 }],
         [{ node: 'Code - Build WA Send Error', type: 'main', index: 0 }],
       ],
+    },
+    // Stage 3.5e: success-path logging chain
+    'Postgres - Mark Booking Confirmed': {
+      main: [[{ node: 'Code - Build Confirmation Success Event', type: 'main', index: 0 }]],
+    },
+    'Code - Build Confirmation Success Event': {
+      main: [[{ node: 'Postgres - Write workflow_events (confirmation success)', type: 'main', index: 0 }]],
     },
     // Stage 3.5b Addition A: WhatsApp failure chain
     'Code - Build WA Send Error': {

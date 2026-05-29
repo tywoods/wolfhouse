@@ -569,7 +569,56 @@ the failure-mode env before triggering, and the restored baseline env afterward.
 ### 3.5e — Basic execution logging and incident trace
 
 **Work type:** Schema already exists; wire-in is workflow/code change  
-**Status:** PLANNED
+**Status:** IMPLEMENTED (Send Confirmation success path) / NOT RUNTIME TESTED (2026-05-29)
+
+**Send Confirmation success-path wire-in (2026-05-29):**
+
+Two nodes added to `scripts/build-send-confirmation-local.js` (regenerated to `n8n/phase2/Wolfhouse - Send Confirmation (local).json`):
+
+| Node | Type | ID | Wired from |
+|------|------|----|------------|
+| `Code - Build Confirmation Success Event` | Code | `2d010024-0024-…` | `Postgres - Mark Booking Confirmed` output |
+| `Postgres - Write workflow_events (confirmation success)` | Postgres | `2d010025-0025-…` | `Code - Build Confirmation Success Event` |
+
+**Success path chain (complete):**
+```
+IF - WhatsApp Sent OK true →
+  Postgres - Mark Booking Confirmed →
+  Code - Build Confirmation Success Event →
+  Postgres - Write workflow_events (confirmation success)   ← NEW (terminal)
+```
+
+**Payload logged:** `action=send_confirmation`, `outcome=confirmation_sent`, `booking_code`, `dry_run`, `whatsapp_sent`, `confirmation_sent_at`, `source_node=Postgres - Mark Booking Confirmed`.
+
+**Static verification (2026-05-29):** Total nodes 25 (was 23 after 3.5b → 24 err: now 25); all 25 node names confirmed; success chain wired; all 3.5b paths intact; no `payments`/`payment_events` writes; hosted export unchanged (12 nodes); `active:false`.
+
+#### 3.5e Send Confirmation success-path runtime — **PASS (2026-05-29)**
+
+**Result:** PASS. A successful dry-run confirmation writes exactly one `info`-level
+`workflow_events` row with `outcome=confirmation_sent`, the booking is marked confirmed,
+and no protected payment tables are touched.
+
+**Evidence:**
+
+| Item | Value |
+|------|-------|
+| Fixture | `WH-35E-TEST-1` (`b35e0000-0000-4000-8000-000000000001`), `payment_pending` / `deposit_paid` / `send_confirmation=true` / `confirmation_sent_at NULL` |
+| Trigger | `POST /webhook/send-confirmation-local` `{"booking_id":"b35e0000-…01"}` |
+| Execution id | **1090** (`status=success`, finished) |
+| Env | `WHATSAPP_DRY_RUN=true`, token EMPTY, phone EMPTY (dry-run; no real send) |
+| Booking after | `status=confirmed`, `send_confirmation=false`, `confirmation_sent_at=2026-05-29 12:50:49.41116+00` — confirmed (correct) |
+| `workflow_events` | **+1** (24→25): `event_level=info`, `node_name=Postgres - Mark Booking Confirmed`, `execution_id=1090`, `booking_id=b35e…01`, `message="Send Confirmation marked booking confirmed"`, payload `{action=send_confirmation, outcome=confirmation_sent, dry_run=true, whatsapp_sent=true, booking_code=WH-35E-TEST-1, source_node=Postgres - Mark Booking Confirmed, confirmation_sent_at=...}` |
+| `automation_errors` for fixture | **0** (correct — success path, no error) |
+| Protected counts | payments=25, payment_events=5, booking_beds=15 — unchanged throughout |
+| Other workflows | Max exec ids unchanged: Main=1082, Reassign=1083, Assign=1084, Stripe=1086, CPS=1065, CPS stub=1037, Cancel=305 |
+| Activation boundary | Send Confirmation `gxivKRJexzTCw9x6` only |
+| Teardown | `WH-35E-TEST-1` rows deleted; counts back to 25/5/15/0/24 |
+| Env verified | DRY_RUN=true throughout (never changed); both `n8n-main` + `n8n-worker` |
+| Final state | All workflows `active=false`; schedule node `disabled=true` |
+
+**Fixtures:** [`scripts/fixtures/phase35e-confirm-success-up.sql`](../scripts/fixtures/phase35e-confirm-success-up.sql) / [`phase35e-confirm-success-down.sql`](../scripts/fixtures/phase35e-confirm-success-down.sql) (reversible).
+
+**Send Confirmation now has full execution-trace coverage:** success (`info`/`confirmation_sent`), WhatsApp failure (`error` + `automation_errors`, Gap 2 PASS), no-pending (`info`, untested), workflow crash (`automation_errors`, untested).
 
 **Goal:** Ensure every execution of a dangerous workflow emits a `workflow_events` row with sufficient fields to reconstruct what happened during a live incident.
 

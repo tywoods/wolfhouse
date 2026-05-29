@@ -492,6 +492,42 @@
           "name": "Wolfhouse Postgres (local)"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "const marked = $json;\nconst sendResult = $('Code - Send WhatsApp').first().json;\nreturn [{\n  json: {\n    workflow_name: 'Wolfhouse - Send Confirmation (local)',\n    node_name: 'Postgres - Mark Booking Confirmed',\n    execution_id: String($execution.id ?? ''),\n    booking_id: marked.booking_id || null,\n    payload: {\n      action: 'send_confirmation',\n      outcome: 'confirmation_sent',\n      booking_code: marked.booking_code || null,\n      dry_run: sendResult.dry_run === true,\n      whatsapp_sent: sendResult.whatsapp_sent === true,\n      confirmation_sent_at: marked.confirmation_sent_at || null,\n      source_node: 'Postgres - Mark Booking Confirmed',\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        80
+      ],
+      "id": "2d010024-0024-4000-8000-000000000001",
+      "name": "Code - Build Confirmation Success Event"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_events (\n  client_id, workflow_name, node_name, execution_id,\n  event_level, message, booking_id, payload\n)\nSELECT\n  c.id,\n  ($1::jsonb)->>'workflow_name',\n  ($1::jsonb)->>'node_name',\n  ($1::jsonb)->>'execution_id',\n  'info'::workflow_event_level,\n  'Send Confirmation marked booking confirmed',\n  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,\n  ($1::jsonb)->'payload'\nFROM clients c\nWHERE c.slug = 'wolfhouse-somo';",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        500,
+        80
+      ],
+      "id": "2d010025-0025-4000-8000-000000000001",
+      "name": "Postgres - Write workflow_events (confirmation success)",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
     }
   ],
   "connections": {
@@ -657,6 +693,28 @@
         [
           {
             "node": "Code - Build WA Send Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Mark Booking Confirmed": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Confirmation Success Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Confirmation Success Event": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Write workflow_events (confirmation success)",
             "type": "main",
             "index": 0
           }
