@@ -1204,19 +1204,38 @@ return [{ json: { id: 'dry-run-at-passthrough', dry_run: true } }];`;
 
   // ── Category C: Postgres write nodes ──
   // Stub shapes must satisfy downstream Code - Validate PG Hold / IF - PG Hold OK logic.
-  const PG_HOLD_STUB = `// Stage 3y shadow: Postgres booking hold creation bypassed
-// Returns a hold-shaped stub so Code - Validate PG Hold can proceed and the LLM
-// still generates the availability draft reply without mutating the DB.
+  const PG_HOLD_STUB = `// Stage 4 dry-run: Postgres booking hold creation bypassed (WHATSAPP_DRY_RUN=true).
+// Returns a SHAPED stub so Code - Validate PG Hold sets pg_ok=true and downstream
+// booking/payment nodes can proceed through the full flow without mutating the DB.
+// Reads session context from earlier nodes to populate check_in/check_out/guest_count.
+const _session = (() => {
+  try { return $('Code - Booking State Resolver').first().json?.session || {}; } catch { return {}; }
+})();
+const _checkIn = _session.check_in || null;
+const _checkOut = _session.check_out || null;
+const _guestCount = _session.guest_count || _session.guests || null;
+const _packageKey = _session.package_intent || _session.package_key || null;
+const _suffix = (_checkIn || '').replace(/-/g, '').slice(0, 8) || 'nodate';
+const _bookingId = 'dry-run-' + _suffix;
+const _bookingCode = 'DRY-STAGE4-' + _suffix;
 return [{ json: {
-  booking_code: 'DRY-RUN-HOLD',
-  id: null,
+  pg_ok: true,
+  booking_id: _bookingId,
+  booking_code: _bookingCode,
+  id: _bookingId,
   status: 'hold',
-  check_in: null,
-  check_out: null,
-  actionable: [{ booking_code: 'DRY-RUN-HOLD', status: 'hold', dry_run: true }],
+  payment_status: 'unpaid',
+  check_in: _checkIn,
+  check_out: _checkOut,
+  guest_count: _guestCount,
+  package_key: _packageKey,
+  actionable: [{ booking_code: _bookingCode, status: 'hold', dry_run: true }],
   pg_errors: [],
   pg_query_ok: true,
-  dry_run: true
+  created: true,
+  dry_run: true,
+  stub_type: 'hold_stub',
+  _stub_note: 'Stage 4 dry-run hold — not a real PG row'
 }}];`;
 
   const PG_CONV_STUB = `// Stage 3y shadow: Postgres conversation hold upsert bypassed
@@ -1225,9 +1244,32 @@ return [{ json: { phone: 'dry-run', current_hold_booking_id: 'DRY-RUN-HOLD', dry
   const PG_BACKFILL_STUB = `// Stage 3y shadow: Postgres AT record backfill bypassed
 return [{ json: { affected: 0, dry_run: true } }];`;
 
+  const PG_ENSURE_STUB = `// Stage 4 dry-run: Postgres Ensure Booking (hold→payment_pending promote) bypassed.
+// Returns shaped booking_id/booking_code from the hold stub so IF - Booking ID Ready
+// goes to the true branch and Code - Call Create Payment Session can run its own
+// inline dry-run check to return a stub checkout URL.
+const _holdValidate = (() => {
+  try { return $('Code - Validate PG Hold').first().json || {}; } catch { return {}; }
+})();
+const _bookingId = _holdValidate.booking_id || 'dry-run-ensure-fallback';
+const _bookingCode = _holdValidate.booking_code || 'DRY-ENSURE';
+return [{ json: {
+  booking_id: _bookingId,
+  booking_code: _bookingCode,
+  created: false,
+  promoted: false,
+  action: 'dry_run_bypass',
+  status: 'hold',
+  payment_status: 'unpaid',
+  dry_run: true,
+  stub_type: 'ensure_booking_stub',
+  _stub_note: 'Stage 4 dry-run: hold→payment_pending promotion bypassed — not a real PG mutation'
+}}];`;
+
   addDryRunGate('Postgres - Create Booking Hold', PG_HOLD_STUB, next());
   addDryRunGate('Postgres - Upsert Conversation Hold', PG_CONV_STUB, next());
   addDryRunGate('Postgres - Backfill Booking AT Record Id', PG_BACKFILL_STUB, next());
+  addDryRunGate('Postgres - Ensure Booking In Postgres', PG_ENSURE_STUB, next());
 
   // ── Category D: Airtable read stubs ──────────────────────────────────────
   // Search Messages - Recent Conversation returns 0 items for new phone numbers
@@ -1284,6 +1326,7 @@ return [{ json: {
     'Postgres - Create Booking Hold',
     'Postgres - Upsert Conversation Hold',
     'Postgres - Backfill Booking AT Record Id',
+    'Postgres - Ensure Booking In Postgres',
     ...REASSIGN_NODES,
   ];
 
@@ -1328,7 +1371,7 @@ return [{ json: {
 
   const ifCount = workflow.nodes.filter((n) => n.name.startsWith('IF - DRY RUN?')).length;
   const stubCount = workflow.nodes.filter((n) => n.name.startsWith('Code - DRY RUN Stub')).length;
-  console.log(`Shadow-mode gates added: ${ifCount} IF nodes + ${stubCount} Code stubs (${sendNodes.length} WA sends, ${atWriteGates.length} AT writes, 4 PG+read nodes, ${REASSIGN_NODES.length} reassign HTTP nodes gated)`);
+  console.log(`Shadow-mode gates added: ${ifCount} IF nodes + ${stubCount} Code stubs (${sendNodes.length} WA sends, ${atWriteGates.length} AT writes, 5 PG+read nodes, ${REASSIGN_NODES.length} reassign HTTP nodes gated)`);
   if (ifCount !== stubCount) throw new Error('Shadow gate IF/stub count mismatch — BUG');
 }
 
@@ -1405,7 +1448,12 @@ function verifyShadowModeSafety(workflow) {
     }
   }
 
-  // 8. Reassign HTTP nodes must be dry-run gated (Category E — offline-mode safety for Y-T8)
+  // 8. Postgres - Ensure Booking In Postgres must be dry-run gated (Stage 4 — prevents hold→payment_pending promotion in dry-run)
+  if (!ifGatedSet.has('Postgres - Ensure Booking In Postgres')) {
+    errors.push('Postgres - Ensure Booking In Postgres not protected by dry-run IF gate (Stage 4 safety requirement)');
+  }
+
+  // 9. Reassign HTTP nodes must be dry-run gated (Category E — offline-mode safety for Y-T8)
   const reassignHttpNodes = [
     'Call Reassign Booking Beds - Rooming Update',
     'Call Reassign Booking Beds - Rooming Update1',
@@ -1421,7 +1469,7 @@ function verifyShadowModeSafety(workflow) {
     const msg = `Shadow-mode safety FAIL (${errors.length} error(s)):\n  ${errors.join('\n  ')}`;
     return { ok: false, errors, gateCount };
   }
-  console.log(`Shadow-mode safety: OK (${gateCount} nodes gated, token clean, hold gated, typing gated, reassign gated)`);
+  console.log(`Shadow-mode safety: OK (${gateCount} nodes gated, token clean, hold gated, ensure-booking gated, typing gated, reassign gated)`);
   return { ok: true, errors: [], gateCount };
 }
 
@@ -2300,6 +2348,28 @@ if (!bookingId) {
     json: {
       ok: false,
       error: 'No booking_id after Ensure Booking In Postgres',
+    },
+  }];
+}
+
+// Stage 4 dry-run: return a stub checkout URL without calling Stripe or the CPS webhook.
+if (String($env.WHATSAPP_DRY_RUN || '').toLowerCase() === 'true') {
+  const bookingCode = row.booking_code || bookingId;
+  const suffix = String(bookingCode).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().slice(-16);
+  return [{
+    json: {
+      ok: true,
+      dry_run: true,
+      stub_type: 'payment_link_stub',
+      checkout_url: 'https://checkout.stripe.test/dry-run/' + suffix,
+      session_id: 'cs_test_dryrun_' + suffix,
+      booking_id: bookingId,
+      booking_code: bookingCode,
+      amount_due_cents: 20000,
+      currency: 'EUR',
+      payment_kind: 'deposit_only',
+      reused: false,
+      _stub_note: 'Stage 4 dry-run payment link — not a real Stripe session',
     },
   }];
 }

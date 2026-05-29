@@ -1,11 +1,11 @@
 # Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 4 Autonomous Booking Dry-Run scaffolded: A1-A10 payloads + runner + README)
+**Last updated:** 2026-05-30 (Stage 4 shaped hold/payment-link stubs implemented — static only, no runtime)
 **HEAD (expected):** `d2288b7` (Stage 3.5d: harden Assign overlap conflict path)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
 
-**Quality bar:** Stage 3 — CLOSED. Stage 3.5 — CLOSED (d08c64e). Stage 3y — Mode A gate 5 all 10 PASS (Y-X13 decision: fbd6fbc). **Stage 4 — Autonomous Booking Dry-Run scaffolded (2026-05-30):** A1-A10 scenario payloads created, validator runner scaffolded. Stub shapes defined. Required implementation changes listed in README. No runtime yet.
+**Quality bar:** Stage 3 — CLOSED. Stage 3.5 — CLOSED (d08c64e). Stage 3y — Mode A gate 5 all 10 PASS (Y-X13 decision: fbd6fbc). **Stage 4 — Autonomous Booking Dry-Run scaffolded + stubs implemented (2026-05-30):** A1-A10 scenarios, validator runner, shaped hold stub (pg_ok:true + booking_id + session fields) and payment-link stub (checkout_url + session_id + inline CPS dry-run check) implemented. Postgres - Ensure Booking In Postgres gated (gate 70). Node count: 342. Static only — no runtime yet.
 
 ---
 

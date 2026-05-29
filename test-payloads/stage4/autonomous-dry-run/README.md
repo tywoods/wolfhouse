@@ -272,7 +272,7 @@ whichever endpoint handles Stripe events):
 
 ---
 
-## Required implementation changes (do not implement in this task)
+## Required implementation changes
 
 ### 1. Hold stub shaped return (BLOCKING for A1/A2/A3/A4/A8/A10 flow to continue)
 

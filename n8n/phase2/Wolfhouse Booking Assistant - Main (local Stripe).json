@@ -20568,7 +20568,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const row = $('Postgres - Ensure Booking In Postgres').first().json;\nconst bookingId = row.booking_id;\nif (!bookingId) {\n  return [{\n    json: {\n      ok: false,\n      error: 'No booking_id after Ensure Booking In Postgres',\n    },\n  }];\n}\n\nconst url = $env.N8N_CREATE_PAYMENT_SESSION_URL || 'http://localhost:5678/webhook/create-payment-session';\n\ntry {\n  const data = await this.helpers.httpRequest({\n    method: 'POST',\n    url,\n    headers: { 'Content-Type': 'application/json' },\n    body: { booking_id: bookingId, payment_kind: 'deposit_only' },\n    json: true,\n  });\n\n  if (!data || !data.ok || !data.checkout_url) {\n    return [{\n      json: {\n        ok: false,\n        error: (data && data.error) || 'Create Payment Session did not return checkout_url',\n        booking_id: bookingId,\n        created_in_postgres: !!row.created,\n      },\n    }];\n  }\n\n  return [{\n    json: {\n      ok: true,\n      checkout_url: data.checkout_url,\n      reused: !!data.reused,\n      booking_id: bookingId,\n      amount_due_cents: data.amount_due_cents,\n      stripe_checkout_session_id: data.stripe_checkout_session_id,\n      created_in_postgres: !!row.created,\n    },\n  }];\n} catch (error) {\n  return [{\n    json: {\n      ok: false,\n      error: error.message || String(error),\n      booking_id: bookingId,\n      created_in_postgres: !!row.created,\n    },\n  }];\n}"
+        "jsCode": "const row = ($('Postgres - Ensure Booking In Postgres').isExecuted ? $('Postgres - Ensure Booking In Postgres') : $('Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)')).first().json;\nconst bookingId = row.booking_id;\nif (!bookingId) {\n  return [{\n    json: {\n      ok: false,\n      error: 'No booking_id after Ensure Booking In Postgres',\n    },\n  }];\n}\n\n// Stage 4 dry-run: return a stub checkout URL without calling Stripe or the CPS webhook.\nif (String($env.WHATSAPP_DRY_RUN || '').toLowerCase() === 'true') {\n  const bookingCode = row.booking_code || bookingId;\n  const suffix = String(bookingCode).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().slice(-16);\n  return [{\n    json: {\n      ok: true,\n      dry_run: true,\n      stub_type: 'payment_link_stub',\n      checkout_url: 'https://checkout.stripe.test/dry-run/' + suffix,\n      session_id: 'cs_test_dryrun_' + suffix,\n      booking_id: bookingId,\n      booking_code: bookingCode,\n      amount_due_cents: 20000,\n      currency: 'EUR',\n      payment_kind: 'deposit_only',\n      reused: false,\n      _stub_note: 'Stage 4 dry-run payment link — not a real Stripe session',\n    },\n  }];\n}\n\nconst url = $env.N8N_CREATE_PAYMENT_SESSION_URL || 'http://localhost:5678/webhook/create-payment-session';\n\ntry {\n  const data = await this.helpers.httpRequest({\n    method: 'POST',\n    url,\n    headers: { 'Content-Type': 'application/json' },\n    body: { booking_id: bookingId, payment_kind: 'deposit_only' },\n    json: true,\n  });\n\n  if (!data || !data.ok || !data.checkout_url) {\n    return [{\n      json: {\n        ok: false,\n        error: (data && data.error) || 'Create Payment Session did not return checkout_url',\n        booking_id: bookingId,\n        created_in_postgres: !!row.created,\n      },\n    }];\n  }\n\n  return [{\n    json: {\n      ok: true,\n      checkout_url: data.checkout_url,\n      reused: !!data.reused,\n      booking_id: bookingId,\n      amount_due_cents: data.amount_due_cents,\n      stripe_checkout_session_id: data.stripe_checkout_session_id,\n      created_in_postgres: !!row.created,\n    },\n  }];\n} catch (error) {\n  return [{\n    json: {\n      ok: false,\n      error: error.message || String(error),\n      booking_id: bookingId,\n      created_in_postgres: !!row.created,\n    },\n  }];\n}"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -24341,7 +24341,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 3y shadow: Postgres booking hold creation bypassed\n// Returns a hold-shaped stub so Code - Validate PG Hold can proceed and the LLM\n// still generates the availability draft reply without mutating the DB.\nreturn [{ json: {\n  booking_code: 'DRY-RUN-HOLD',\n  id: null,\n  status: 'hold',\n  check_in: null,\n  check_out: null,\n  actionable: [{ booking_code: 'DRY-RUN-HOLD', status: 'hold', dry_run: true }],\n  pg_errors: [],\n  pg_query_ok: true,\n  dry_run: true\n}}];"
+        "jsCode": "// Stage 4 dry-run: Postgres booking hold creation bypassed (WHATSAPP_DRY_RUN=true).\n// Returns a SHAPED stub so Code - Validate PG Hold sets pg_ok=true and downstream\n// booking/payment nodes can proceed through the full flow without mutating the DB.\n// Reads session context from earlier nodes to populate check_in/check_out/guest_count.\nconst _session = (() => {\n  try { return $('Code - Booking State Resolver').first().json?.session || {}; } catch { return {}; }\n})();\nconst _checkIn = _session.check_in || null;\nconst _checkOut = _session.check_out || null;\nconst _guestCount = _session.guest_count || _session.guests || null;\nconst _packageKey = _session.package_intent || _session.package_key || null;\nconst _suffix = (_checkIn || '').replace(/-/g, '').slice(0, 8) || 'nodate';\nconst _bookingId = 'dry-run-' + _suffix;\nconst _bookingCode = 'DRY-STAGE4-' + _suffix;\nreturn [{ json: {\n  pg_ok: true,\n  booking_id: _bookingId,\n  booking_code: _bookingCode,\n  id: _bookingId,\n  status: 'hold',\n  payment_status: 'unpaid',\n  check_in: _checkIn,\n  check_out: _checkOut,\n  guest_count: _guestCount,\n  package_key: _packageKey,\n  actionable: [{ booking_code: _bookingCode, status: 'hold', dry_run: true }],\n  pg_errors: [],\n  pg_query_ok: true,\n  created: true,\n  dry_run: true,\n  stub_type: 'hold_stub',\n  _stub_note: 'Stage 4 dry-run hold — not a real PG row'\n}}];"
       }
     },
     {
@@ -24440,12 +24440,12 @@
     },
     {
       "id": "shadow-if-3067",
-      "name": "IF - DRY RUN? (Search Messages - Recent Conversation)",
+      "name": "IF - DRY RUN? (Postgres - Ensure Booking In Postgres)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -696,
-        1024
+        3020,
+        560
       ],
       "parameters": {
         "conditions": {
@@ -24473,26 +24473,26 @@
     },
     {
       "id": "shadow-stub-3067",
-      "name": "Code - DRY RUN Stub (Search Messages - Recent Conversation)",
+      "name": "Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -696,
-        1164
+        3020,
+        700
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 3y shadow: Search Messages stub — returns current message as minimal history\nconst msg = $('Normalize Incoming Message').first().json || {};\nconst msgText = msg.guest_message || msg.message_body || msg.body || msg.text || '';\nreturn [{ json: {\n  id: 'dry-run-msg-1',\n  fields: {\n    'Message Text': msgText,\n    'Direction': 'Inbound',\n    'Conversation Phone': msg.phone || '',\n    'Source': 'WhatsApp',\n    dry_run: true\n  }\n}}];"
+        "jsCode": "// Stage 4 dry-run: Postgres Ensure Booking (hold→payment_pending promote) bypassed.\n// Returns shaped booking_id/booking_code from the hold stub so IF - Booking ID Ready\n// goes to the true branch and Code - Call Create Payment Session can run its own\n// inline dry-run check to return a stub checkout URL.\nconst _holdValidate = (() => {\n  try { return $('Code - Validate PG Hold').first().json || {}; } catch { return {}; }\n})();\nconst _bookingId = _holdValidate.booking_id || 'dry-run-ensure-fallback';\nconst _bookingCode = _holdValidate.booking_code || 'DRY-ENSURE';\nreturn [{ json: {\n  booking_id: _bookingId,\n  booking_code: _bookingCode,\n  created: false,\n  promoted: false,\n  action: 'dry_run_bypass',\n  status: 'hold',\n  payment_status: 'unpaid',\n  dry_run: true,\n  stub_type: 'ensure_booking_stub',\n  _stub_note: 'Stage 4 dry-run: hold→payment_pending promotion bypassed — not a real PG mutation'\n}}];"
       }
     },
     {
       "id": "shadow-if-3068",
-      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update)",
+      "name": "IF - DRY RUN? (Search Messages - Recent Conversation)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2888,
-        2528
+        -696,
+        1024
       ],
       "parameters": {
         "conditions": {
@@ -24520,26 +24520,26 @@
     },
     {
       "id": "shadow-stub-3068",
-      "name": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update)",
+      "name": "Code - DRY RUN Stub (Search Messages - Recent Conversation)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2888,
-        2668
+        -696,
+        1164
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 3y shadow: reassign HTTP call bypassed (endpoint unavailable in offline mode)\nreturn [{ json: {\n  status: 'ok',\n  dry_run: true,\n  action: 'reassign_booking_beds',\n  skipped: true,\n  reason: 'shadow_mode',\n  _shadow_note: 'Call Reassign Booking Beds bypassed by WHATSAPP_DRY_RUN=true'\n}}];"
+        "jsCode": "// Stage 3y shadow: Search Messages stub — returns current message as minimal history\nconst msg = $('Normalize Incoming Message').first().json || {};\nconst msgText = msg.guest_message || msg.message_body || msg.body || msg.text || '';\nreturn [{ json: {\n  id: 'dry-run-msg-1',\n  fields: {\n    'Message Text': msgText,\n    'Direction': 'Inbound',\n    'Conversation Phone': msg.phone || '',\n    'Source': 'WhatsApp',\n    dry_run: true\n  }\n}}];"
       }
     },
     {
       "id": "shadow-if-3069",
-      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)",
+      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        4776,
-        -48
+        2888,
+        2528
       ],
       "parameters": {
         "conditions": {
@@ -24567,6 +24567,53 @@
     },
     {
       "id": "shadow-stub-3069",
+      "name": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2888,
+        2668
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Stage 3y shadow: reassign HTTP call bypassed (endpoint unavailable in offline mode)\nreturn [{ json: {\n  status: 'ok',\n  dry_run: true,\n  action: 'reassign_booking_beds',\n  skipped: true,\n  reason: 'shadow_mode',\n  _shadow_note: 'Call Reassign Booking Beds bypassed by WHATSAPP_DRY_RUN=true'\n}}];"
+      }
+    },
+    {
+      "id": "shadow-if-3070",
+      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4776,
+        -48
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "shadow-cond-3070",
+              "leftValue": "={{ String($env.WHATSAPP_DRY_RUN || '').toLowerCase() }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "shadow-stub-3070",
       "name": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update1)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -26349,7 +26396,7 @@
       "main": [
         [
           {
-            "node": "Postgres - Ensure Booking In Postgres",
+            "node": "IF - DRY RUN? (Postgres - Ensure Booking In Postgres)",
             "type": "main",
             "index": 0
           }
@@ -28435,6 +28482,35 @@
         [
           {
             "node": "Code - Summarize Holds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - DRY RUN? (Postgres - Ensure Booking In Postgres)": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Ensure Booking In Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)": {
+      "main": [
+        [
+          {
+            "node": "IF - Booking ID Ready",
             "type": "main",
             "index": 0
           }
