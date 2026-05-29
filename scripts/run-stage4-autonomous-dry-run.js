@@ -1,28 +1,31 @@
 /**
  * Stage 4 Autonomous Booking Dry-Run — scenario validator and planning runner.
  *
- * CURRENT BEHAVIOUR (scaffold only):
+ * CURRENT BEHAVIOUR:
  *   Reads A1–A10 scenario JSON files, validates their schema, prints a per-scenario
  *   summary, and writes a planning report to reports/stage4-autonomous-dry-run-plan.json.
  *   Does NOT POST to n8n. Does NOT activate workflows. Does NOT touch the database.
  *
- * FUTURE BEHAVIOUR (when --execute is implemented):
- *   Iterate through each scenario's turns, POST each turn's post_body to the webhook,
- *   wait for the n8n execution to complete, capture state, assert counts and safety.
- *   Implementation notes are in test-payloads/stage4/autonomous-dry-run/README.md.
+ * EXECUTE BEHAVIOUR (--execute):
+ *   Builds a full preflight for the selected scenario/turn (validates WHATSAPP_DRY_RUN,
+ *   resolves webhook URL, prints post_body preview, lists expected nodes to verify).
+ *   Does NOT POST — a POST guard is active. Remove the guard or add --run to enable.
+ *   This mode is designed so tomorrow's A1 turn-1 runtime gate only needs --run added.
  *
  * Usage:
- *   node scripts/run-stage4-autonomous-dry-run.js           (validate + plan report)
- *   node scripts/run-stage4-autonomous-dry-run.js --only A3  (single scenario validate)
- *   node scripts/run-stage4-autonomous-dry-run.js --execute   (exits: not implemented)
+ *   node scripts/run-stage4-autonomous-dry-run.js                            (validate all)
+ *   node scripts/run-stage4-autonomous-dry-run.js --only A1                  (validate A1 only)
+ *   node scripts/run-stage4-autonomous-dry-run.js --only A1 --turn 1         (validate A1 turn 1)
+ *   node scripts/run-stage4-autonomous-dry-run.js --only A1 --turn 1 --execute (preflight, no POST)
  *
  * SAFETY: This script NEVER POSTs, activates workflows, or connects to the database
- * unless explicitly extending with --execute (which currently exits immediately).
+ * unless a future --run flag is added and the POST guard is removed.
  *
  * Non-negotiables carried from Stage 3y:
  *   - Real WhatsApp send is NOT approved.
  *   - Live autonomous operation is NOT approved.
  *   - No workflow activation in this runner.
+ *   - WHATSAPP_DRY_RUN must be 'true' before --execute is meaningful.
  */
 'use strict';
 
@@ -34,22 +37,41 @@ const path = require('path');
 const ARGS = process.argv.slice(2);
 const ARGS_SET = new Set(ARGS);
 
-if (ARGS_SET.has('--execute')) {
-  console.error('\n--execute: Stage 4 execution not implemented yet.');
-  console.error('Stub shapes and multi-turn sequencing must be completed first.');
-  console.error('See test-payloads/stage4/autonomous-dry-run/README.md § Required implementation changes.');
-  process.exit(1);
-}
-
 const ONLY_IDX = ARGS.indexOf('--only');
 const ONLY_RAW = ONLY_IDX !== -1 ? ARGS[ONLY_IDX + 1] : null;
 const normaliseId = (s) => String(s || '').toLowerCase().replace(/^[-\s]+|[-\s]+$/g, '');
 const ONLY_FILTER = ONLY_RAW ? normaliseId(ONLY_RAW) : null;
 
+const TURN_IDX = ARGS.indexOf('--turn');
+const TURN_RAW = TURN_IDX !== -1 ? ARGS[TURN_IDX + 1] : null;
+const TURN_FILTER = TURN_RAW ? normaliseId(TURN_RAW) : null;
+
+const EXECUTE_MODE = ARGS_SET.has('--execute');
+
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
 const PAYLOAD_DIR = path.join(__dirname, '..', 'test-payloads', 'stage4', 'autonomous-dry-run');
 const REPORT_PATH = path.join(__dirname, '..', 'reports', 'stage4-autonomous-dry-run-plan.json');
+
+// Webhook defaults — override with N8N_WEBHOOK_BASE_URL env var
+const DEFAULT_WEBHOOK_BASE = 'http://localhost:5678';
+const WEBHOOK_PATH = '/webhook/booking-assistant';
+
+// Expected nodes to verify after A1 turn-1 execution
+const EXPECTED_NODES_TO_VERIFY = [
+  'IF - PG Hold OK',
+  'IF - Booking ID Ready',
+  'Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)',
+  'Code - Call Create Payment Session (dry-run branch)',
+];
+
+// Tables that must have zero mutations in any dry-run execution
+const EXPECTED_NO_MUTATION_TABLES = [
+  'bookings',
+  'payments',
+  'payment_events',
+  'booking_beds',
+];
 
 // Canonical run order
 const SCENARIO_ORDER = [
@@ -190,12 +212,12 @@ function checkConfigExpectations(scenario) {
     }
   }
 
-  // Total check (per person × guest count × nights / 7, only for 7-night)
+  // Total check (per person x guest count x nights / 7, only for 7-night)
   if ('total_eur' in ce && ce.nights === 7 && ce.guest_count && ce.price_per_person_eur) {
     const expected = ce.price_per_person_eur * (ce.guest_count ?? 1);
     if (ce.total_eur !== expected) {
       warnings.push(
-        `config_expectations.total_eur = ${ce.total_eur} but ${ce.price_per_person_eur} × ${ce.guest_count} = ${expected}`
+        `config_expectations.total_eur = ${ce.total_eur} but ${ce.price_per_person_eur} x ${ce.guest_count} = ${expected}`
       );
     }
   }
@@ -214,15 +236,15 @@ function checkConfigExpectations(scenario) {
 
 // ── Summary printing ──────────────────────────────────────────────────────────
 
-function printScenarioSummary(scenario, errors, warnings) {
+function printScenarioSummary(scenario, errors, warnings, activeTurnFilter) {
   const meta = scenario._meta ?? {};
   const id = meta.scenario_id ?? '?';
   const title = meta.title ?? '(untitled)';
   const turns = scenario.turns?.length ?? 0;
   const status = errors.length === 0 ? 'OK' : 'INVALID';
 
-  console.log(`\n  ${status === 'OK' ? '✓' : '✗'}  ${id}: ${title}`);
-  console.log(`     Turns: ${turns} | Goal: ${(meta.goal ?? '').slice(0, 80)}${(meta.goal ?? '').length > 80 ? '…' : ''}`);
+  console.log(`\n  ${status === 'OK' ? 'OK' : 'INVALID'}  ${id}: ${title}`);
+  console.log(`     Turns: ${turns} | Goal: ${(meta.goal ?? '').slice(0, 80)}${(meta.goal ?? '').length > 80 ? '...' : ''}`);
 
   for (const e of errors) {
     console.error(`     ERROR: ${e}`);
@@ -232,31 +254,76 @@ function printScenarioSummary(scenario, errors, warnings) {
   }
 
   if (errors.length === 0) {
-    // Print turn summary
     for (const turn of scenario.turns ?? []) {
       const tId = turn.turn_id ?? '?';
       const msg = (turn.guest_message ?? '').slice(0, 60);
       const route = turn.expected_route ?? '?';
       const missingCount = (turn.expected_missing_fields ?? []).length;
-      console.log(`     ${tId}: "${msg}${msg.length >= 60 ? '…' : ''}" → ${route} | missing: ${missingCount}`);
+      const isFocused = activeTurnFilter && normaliseId(String(tId)) === activeTurnFilter;
+      const marker = isFocused ? '  --> ' : '      ';
+      console.log(`   ${marker}${tId}: "${msg}${msg.length >= 60 ? '...' : ''}" => ${route} | missing: ${missingCount}`);
     }
   }
+}
+
+// ── Execute preflight ─────────────────────────────────────────────────────────
+
+function buildExecutePreflight(scenario, turn) {
+  const meta = scenario._meta ?? {};
+  const webhookBase = process.env.N8N_WEBHOOK_BASE_URL || DEFAULT_WEBHOOK_BASE;
+  const webhookUrl = webhookBase.replace(/\/$/, '') + WEBHOOK_PATH;
+
+  const dryRunEnv = String(process.env.WHATSAPP_DRY_RUN || '').toLowerCase();
+  const dryRunOk = dryRunEnv === 'true';
+
+  const preflight = {
+    scenario_id: meta.scenario_id,
+    turn_id: turn.turn_id,
+    webhook_url: webhookUrl,
+    whatsapp_dry_run_env: dryRunEnv || '(not set)',
+    whatsapp_dry_run_ok: dryRunOk,
+    post_body_preview: JSON.stringify(turn.post_body).slice(0, 300) + '...',
+    expected_route: turn.expected_route,
+    expected_nodes_to_verify: EXPECTED_NODES_TO_VERIFY,
+    expected_no_mutation_tables: EXPECTED_NO_MUTATION_TABLES,
+    forbidden_live_actions: turn.forbidden_live_actions,
+    preflight_errors: [],
+    post_guard_active: true,
+    post_guard_reason: 'Execution scaffolding ready. Stage 4 POST guard is active — runtime not yet started.',
+  };
+
+  if (!dryRunOk) {
+    preflight.preflight_errors.push(
+      'WHATSAPP_DRY_RUN is not "true" — refusing to execute. Set WHATSAPP_DRY_RUN=true before running.'
+    );
+  }
+
+  if (!turn.post_body || !Array.isArray(turn.post_body.entry) || turn.post_body.entry.length === 0) {
+    preflight.preflight_errors.push('post_body is missing or has no entry[] — cannot POST');
+  }
+
+  return preflight;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 function main() {
-  console.log('\n' + '═'.repeat(70));
+  console.log('\n' + '='.repeat(70));
   console.log(' Stage 4 Autonomous Booking Dry-Run — Scenario Validator');
-  console.log(' Mode: VALIDATE + PLAN (no runtime, no POST, no DB)');
-  console.log('═'.repeat(70));
+  console.log(' Mode: ' + (EXECUTE_MODE ? 'PREFLIGHT (no POST — post guard active)' : 'VALIDATE + PLAN (no runtime, no POST, no DB)'));
+  console.log('='.repeat(70));
+
+  if (TURN_FILTER && !ONLY_FILTER) {
+    console.error('\n--turn requires --only <scenario_id> to be specified.');
+    console.error('Example: --only a1 --turn 1');
+    process.exit(1);
+  }
 
   // Resolve which scenarios to process
   function matchesOnly(filename, filter) {
     const base = normaliseId(filename.replace(/\.json$/i, ''));
     if (base === filter) return true;
     if (base.startsWith(filter + '-')) return true;
-    // Match on scenario ID like "a3" against "a3-deposit-selected"
     const scenarioId = base.split('-')[0];
     if (scenarioId === filter) return true;
     return false;
@@ -270,19 +337,46 @@ function main() {
       console.error(`Available: ${SCENARIO_ORDER.map((f) => f.replace('.json', '')).join(', ')}`);
       process.exit(1);
     }
-    console.log(`\n--only filter: validating ${filesToProcess.length} scenario(s): ${filesToProcess.join(', ')}`);
+    console.log(`\n--only filter: ${filesToProcess.length} scenario(s): ${filesToProcess.join(', ')}`);
   }
+
+  if (TURN_FILTER) {
+    console.log(`--turn filter: turn_id matching "${TURN_RAW}"`);
+  }
+
+  if (EXECUTE_MODE) {
+    console.log('\nNOTE: --execute passed. Preflight will be shown but POST guard is active.');
+    console.log('      WHATSAPP_DRY_RUN must be "true" for preflight to pass.');
+    if (!ONLY_FILTER || !TURN_FILTER) {
+      console.error('\n--execute requires both --only <scenario_id> and --turn <turn_id>.');
+      console.error('Example: --only a1 --turn 1 --execute');
+      process.exit(1);
+    }
+  }
+
+  const webhookBase = process.env.N8N_WEBHOOK_BASE_URL || DEFAULT_WEBHOOK_BASE;
+  const plannedWebhookUrl = webhookBase.replace(/\/$/, '') + WEBHOOK_PATH;
 
   const report = {
     generated_at: new Date().toISOString(),
     runner: 'run-stage4-autonomous-dry-run.js',
-    mode: 'validate_and_plan',
-    note: 'Scaffold only. --execute not yet implemented. See README for required stub changes.',
-    filter: ONLY_FILTER ? { only: ONLY_RAW, matched: filesToProcess } : null,
+    mode: EXECUTE_MODE ? 'preflight' : 'validate_and_plan',
+    note: EXECUTE_MODE
+      ? 'Preflight mode. POST guard is active — execution not yet started.'
+      : 'Validate + plan mode. No runtime performed.',
+    filter: ONLY_FILTER
+      ? { only: ONLY_RAW, matched: filesToProcess, turn: TURN_RAW ?? null }
+      : null,
+    selected_scenario: ONLY_FILTER ?? null,
+    selected_turn: TURN_FILTER ?? null,
+    planned_webhook_url: plannedWebhookUrl,
+    expected_nodes_to_verify: EXPECTED_NODES_TO_VERIFY,
+    expected_no_mutation_tables: EXPECTED_NO_MUTATION_TABLES,
     real_whatsapp_send_approved: false,
     live_autonomous_operation_approved: false,
     payload_dir: PAYLOAD_DIR,
     scenarios: [],
+    execute_preflight: null,
     summary: {
       total: 0,
       valid: 0,
@@ -315,7 +409,7 @@ function main() {
       entry.errors.push('payload file not found');
       report.scenarios.push(entry);
       totalErrors++;
-      console.error(`\n  ✗  ${scenarioId}: FILE NOT FOUND`);
+      console.error(`\n  MISSING  ${scenarioId}: FILE NOT FOUND`);
       continue;
     }
 
@@ -327,7 +421,7 @@ function main() {
       entry.errors.push(`JSON parse failed: ${e.message}`);
       report.scenarios.push(entry);
       totalErrors++;
-      console.error(`\n  ✗  ${scenarioId}: JSON PARSE ERROR — ${e.message}`);
+      console.error(`\n  ERROR  ${scenarioId}: JSON PARSE ERROR -- ${e.message}`);
       continue;
     }
 
@@ -347,7 +441,7 @@ function main() {
       entry.stub_shapes_required = Object.keys(scenario.stub_overrides).filter((k) => !k.startsWith('_'));
     }
 
-    printScenarioSummary(scenario, errors, warnings);
+    printScenarioSummary(scenario, errors, warnings, TURN_FILTER);
 
     if (errors.length > 0) totalErrors += errors.length;
     if (warnings.length > 0) report.summary.scenarios_with_warnings++;
@@ -356,6 +450,59 @@ function main() {
     report.summary.total++;
     if (entry.valid) report.summary.valid++; else report.summary.invalid++;
     report.summary.total_turns += entry.turns_count;
+
+    // ── Execute preflight (only when --execute + --only + --turn) ─────────────
+    if (EXECUTE_MODE && ONLY_FILTER && TURN_FILTER && entry.valid) {
+      const matchedTurns = (scenario.turns ?? []).filter((t) => {
+        const tid = normaliseId(String(t.turn_id ?? ''));
+        // Match by various forms: "1" matches "1", "t1", "a1-t1", "turn-1"
+        if (tid === TURN_FILTER) return true;                        // exact
+        if (tid === 't' + TURN_FILTER) return true;                  // "t1"
+        if (tid.endsWith('-t' + TURN_FILTER)) return true;           // "a1-t1"
+        if (tid.endsWith('-' + TURN_FILTER)) return true;            // "turn-1"
+        // Match trailing numeric: "a1-t1" numeric suffix = "1"
+        const numericSuffix = tid.replace(/^.*?(\d+)$/, '$1');
+        if (numericSuffix === TURN_FILTER) return true;
+        return false;
+      });
+
+      if (matchedTurns.length === 0) {
+        console.error(`\n--turn "${TURN_RAW}": no turn matches in scenario ${entry.scenario_id}.`);
+        console.error(`Available turns: ${(scenario.turns ?? []).map((t) => t.turn_id).join(', ')}`);
+        process.exit(1);
+      }
+
+      const selectedTurn = matchedTurns[0];
+      const preflight = buildExecutePreflight(scenario, selectedTurn);
+      report.execute_preflight = preflight;
+
+      console.log('\n' + '-'.repeat(70));
+      console.log(' EXECUTE PREFLIGHT');
+      console.log('-'.repeat(70));
+      console.log(`  Scenario:     ${preflight.scenario_id}`);
+      console.log(`  Turn:         ${preflight.turn_id}`);
+      console.log(`  Webhook URL:  ${preflight.webhook_url}`);
+      console.log(`  DRY_RUN env:  ${preflight.whatsapp_dry_run_env} (ok: ${preflight.whatsapp_dry_run_ok})`);
+      console.log(`  Route:        ${preflight.expected_route}`);
+      console.log(`  POST body preview:\n    ${preflight.post_body_preview}`);
+      console.log('\n  Nodes to verify after execution:');
+      for (const n of preflight.expected_nodes_to_verify) {
+        console.log(`    - ${n}`);
+      }
+      console.log('\n  No-mutation tables:');
+      for (const t of preflight.expected_no_mutation_tables) {
+        console.log(`    - ${t}`);
+      }
+
+      if (preflight.preflight_errors.length > 0) {
+        console.error('\n  PREFLIGHT ERRORS:');
+        for (const e of preflight.preflight_errors) {
+          console.error(`    ! ${e}`);
+        }
+        console.error('\n  Preflight FAILED. Fix errors above before running.');
+        process.exit(1);
+      }
+    }
   }
 
   // ── Stub shape requirements summary ───────────────────────────────────────
@@ -367,34 +514,48 @@ function main() {
   report.stub_shapes_required_across_scenarios = [...allStubShapes];
 
   report.required_implementation_changes = [
-    'hold_stub: must return pg_ok=true + booking_id/booking_code/status/expires_in_minutes/amounts (scripts/build-main-local-stripe.js)',
-    'payment_link_stub: must return checkout_url/session_id/amount_cents/currency/payment_kind (scripts/build-main-local-stripe.js)',
-    'stripe_webhook_dry_run_path: webhook handler must accept simulated event and proceed through confirmation path',
-    'confirmation_stub: must expose draft_text including address/gate_code/room_number from config (not bed_number)',
-    'conversation_state_persistence: verify Turn 2 can read session data written in Turn 1 when Airtable is stubbed',
-    'closed_month_guard: verify packages.closed_months is checked before hold creation in booking_flow',
-    'spanish_language_detection: verify language=es triggers Spanish reply generation',
-    'runner_multi_turn_post_sequencing: extend runner to POST each turn sequentially and poll for execution completion',
+    '[DONE] hold_stub: returns pg_ok=true + booking_id/booking_code/status/payment_status/session fields (scripts/build-main-local-stripe.js)',
+    '[DONE] payment_link_stub: returns checkout_url/session_id/amount_due_cents/currency/payment_kind via inline CPS check (scripts/build-main-local-stripe.js)',
+    '[DONE] Postgres - Ensure Booking In Postgres gated as dry-run gate 70',
+    '[PENDING] stripe_webhook_dry_run_path: webhook handler must accept simulated event and proceed through confirmation path',
+    '[PENDING] confirmation_stub: must expose draft_text including address/gate_code/room_number from config',
+    '[PENDING] conversation_state_persistence: verify Turn 2 can read session data written in Turn 1 when Airtable is stubbed',
+    '[PENDING] closed_month_guard: verify packages.closed_months is checked before hold creation in booking_flow',
+    '[PENDING] spanish_language_detection: verify language=es triggers Spanish reply generation',
+    '[PENDING] runner_multi_turn_post_sequencing: extend runner to POST each turn sequentially and poll for execution completion',
   ];
 
   // ── Write report ───────────────────────────────────────────────────────────
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
 
-  console.log('\n' + '─'.repeat(70));
+  console.log('\n' + '-'.repeat(70));
   console.log(`Scenarios: ${report.summary.valid}/${report.summary.total} valid | Total turns: ${report.summary.total_turns}`);
-  console.log(`Stub shapes required: ${[...allStubShapes].join(', ')}`);
+  if (ONLY_FILTER) console.log(`Selected scenario: ${ONLY_FILTER} | Selected turn: ${TURN_FILTER ?? '(all)'}`);
+  console.log(`Planned webhook: ${plannedWebhookUrl}`);
   console.log(`Report: ${REPORT_PATH}`);
 
   if (totalErrors > 0) {
-    console.error(`\n✗ ${totalErrors} validation error(s). Fix payload files before runtime.`);
+    console.error(`\nFAIL: ${totalErrors} validation error(s). Fix payload files before runtime.`);
     process.exit(1);
   }
 
-  console.log('\n✓ All scenarios valid. Ready for stub implementation and runner extension.');
-  console.log('  Next: implement stub shapes in scripts/build-main-local-stripe.js');
-  console.log('  See test-payloads/stage4/autonomous-dry-run/README.md for details.');
-  console.log('\nNOTE: No runtime performed. --execute exits with "not implemented yet".');
+  console.log('\nOK: All scenarios valid.');
+
+  if (EXECUTE_MODE && report.execute_preflight) {
+    const pf = report.execute_preflight;
+    if (pf.preflight_errors.length === 0) {
+      console.log('\nPREFLIGHT OK.');
+      console.log(`  Scenario ${pf.scenario_id} turn ${pf.turn_id} is ready to POST to ${pf.webhook_url}`);
+      console.log('  POST guard is active — Stage 4 runtime not yet started.');
+      console.log('  To run tomorrow: activate local Main, ensure WHATSAPP_DRY_RUN=true,');
+      console.log('  then add --run flag (or remove POST guard) to execute.');
+    }
+  } else if (!EXECUTE_MODE) {
+    console.log('  Next: --only a1 --turn 1 --execute to verify A1 turn-1 preflight.');
+    console.log('  Then: runtime gate 1 (activate Main + --run).');
+    console.log('\nNOTE: No runtime performed. POST guard active until --run is added.');
+  }
 }
 
 main();

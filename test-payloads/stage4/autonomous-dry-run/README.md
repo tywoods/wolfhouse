@@ -327,10 +327,19 @@ If not, a Code node or IF node is needed to check the month before hold creation
 **Status:** LLM routing should detect `language` from the input. Verify that the reply
 generation nodes are prompted to respond in the detected language.
 
-### 8. Runner multi-turn POST sequencing
+### 8. Runner multi-turn POST sequencing — **PARTIAL / READY FOR RUNTIME GATE 1**
 
 **File:** `scripts/run-stage4-autonomous-dry-run.js`
-**Change:** Currently the runner scaffold only validates. To execute:
+
+**Single-turn preflight — IMPLEMENTED / NOT YET RUN:**
+The runner supports `--only <id> --turn <n> --execute` to build a full preflight:
+- Resolves webhook URL from `N8N_WEBHOOK_BASE_URL || localhost:5678`
+- Validates `WHATSAPP_DRY_RUN=true` before allowing execution (refuses if not set)
+- Prints post_body preview, expected nodes to verify, no-mutation tables
+- **POST guard is active** — does not POST. Runtime gate 1 will add `--run`.
+
+**Multi-turn POST sequencing — PENDING:**
+To execute full multi-turn scenarios:
 - For each scenario, iterate through turns
 - POST each turn's `post_body` to the webhook
 - Wait for n8n execution to complete (same poll pattern as Mode A runner)
