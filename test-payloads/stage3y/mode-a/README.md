@@ -1,7 +1,7 @@
 # Stage 3y Mode A — Offline Shadow Test Payloads
 
 **Stage:** 3y shadow/co-pilot — Mode A (offline)  
-**Status:** PAYLOADS CREATED / NOT RUNTIME TESTED (2026-05-29)  
+**Status:** OFFLINE-SAFE BUILD IMPLEMENTED / NOT RUNTIME TESTED (2026-05-29)  
 **Plan doc:** [`docs/PHASE-3y-SHADOW-COPILOT-PLAN.md`](../../../docs/PHASE-3y-SHADOW-COPILOT-PLAN.md)
 
 ---
@@ -19,61 +19,95 @@ These JSON payloads simulate realistic guest WhatsApp messages for offline shado
 
 ---
 
-## Webhook format discovered
+## Payload format — Meta-envelope (WhatsApp path)
 
-The local Main workflow's `Normalize Incoming Message` node supports **two input paths**:
+### Why the previous flat format was blocked
 
-### Path 1 — Test input (used in Mode A payloads)
+The Mode A payloads were originally designed using a flat `phone` / `guest_message` shape, based on the assumption that `Normalize Incoming Message` would read those fields at the top level of the webhook body.
 
-If the webhook body contains `phone` and `guest_message` at the top level, the node takes these directly:
+**What the runtime gate discovered:** n8n's webhook node nests the entire POST body under `input.body`. So `input.phone` is never set by an external POST — it would only be present if the n8n execution itself set it upstream. The `Normalize Incoming Message` node's test path checks `input.phone` (only reachable by internal upstream injection, not by an external POST). As a result, the flat payload was silently misrouted and the workflow stopped at `IF - Ignore Non Guest Message`.
 
-```json
-{
-  "phone": "+34600000001",
-  "guest_message": "Hi, I want to book...",
-  "whatsapp_message_id": "wamid.3Y-T1-TEST001",
-  "source": "test"
-}
-```
+### Correct format for Mode A POSTs — Meta-envelope
 
-Output from Normalize node:
-```json
-{
-  "source": "test",
-  "phone": "+34600000001",
-  "guest_message": "...",
-  "whatsapp_message_id": "wamid.3Y-T1-TEST001",
-  "ignore": false
-}
-```
+The `Normalize Incoming Message` node's **WhatsApp path** reads from `input.body.entry[0].changes[0].value.messages[0]` — exactly what a real Meta webhook delivers.
 
-### Path 2 — Real Meta WhatsApp envelope (Mode B, not used here)
+POSTing the Meta-envelope directly causes n8n to nest it under `input.body`, which is what the WhatsApp path expects.
+
+**The POST body must be the Meta-envelope:**
 
 ```json
 {
-  "body": {
-    "object": "whatsapp_business_account",
-    "entry": [{
-      "changes": [{
-        "value": {
-          "messages": [{ "from": "34600000001", "id": "wamid.xyz", "text": { "body": "..." }, "type": "text" }],
-          "contacts": [{ "profile": { "name": "Guest Name" }, "wa_id": "34600000001" }]
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "FAKE_WABA_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "34600000001",
+              "phone_number_id": "FAKE_PHONE_NUMBER_ID"
+            },
+            "contacts": [
+              {
+                "profile": { "name": "Test Guest T1" },
+                "wa_id": "34600000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "34600000001",
+                "id": "wamid.3Y-T1-TEST001",
+                "timestamp": "1777000001",
+                "text": { "body": "Hi, I want to book for 2 people..." },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
         }
-      }]
-    }]
-  }
+      ]
+    }
+  ]
 }
 ```
 
-**Mode A payloads use Path 1.** Each JSON file also contains a `_meta_envelope_reference` block showing the equivalent Mode B format for future reference.
+**All five payload files now use this format.** Each file is POSTable directly — the `_meta`, `_webhook`, and `_assertions` top-level keys are underscore-prefixed metadata and are ignored by the workflow.
 
-**Local webhook endpoint (when activated):**
+### How Normalize Incoming Message parses a Meta-envelope POST
+
+```
+n8n webhook node receives POST
+  → wraps body as: input.body = { object, entry, ... }
+  → Normalize Incoming Message reads:
+      msg   = input.body.entry[0].changes[0].value.messages[0]
+      phone = msg.from                            → "+34600000001"
+      text  = msg.text.body                       → "Hi, I want to book..."
+      wamid = msg.id                              → "wamid.3Y-T1-TEST001"
+      source = "whatsapp"
+```
+
+---
+
+## Local webhook endpoint (when activated)
+
 ```
 POST http://localhost:5678/webhook/booking-assistant
 Content-Type: application/json
 ```
 
-> ⚠️ **DO NOT POST THESE PAYLOADS YET.** This task is design/docs only. Runtime testing requires a separate explicit gate and activation approval.
+> **DO NOT POST THESE PAYLOADS YET.** Runtime testing requires a separate explicit gate and activation approval.
+>
+> **Mode A requires a fully offline-safe Main build.** Runtime gate 2 (2026-05-29) found critical live side effects (real WhatsApp send, Airtable writes, Postgres booking hold). This build fixes all three categories:
+>
+> - **WhatsApp sends gated** (16 `Send WhatsApp Reply*` nodes): `IF - DRY RUN?` gate added before every send node. Hardcoded Bearer token replaced with `$env.WHATSAPP_ACCESS_TOKEN`.
+> - **Airtable writes gated** (47 nodes, all create/update/upsert): same `IF - DRY RUN?` pattern. Stubs return typed synthetic data so routing/LLM/draft logic continues.
+> - **Postgres writes gated** (3 nodes: Create Booking Hold, Upsert Conversation Hold, Backfill AT Record Id): same pattern. PG Hold stub returns a shaped record so `Code - Validate PG Hold` proceeds and the LLM still generates the draft reply.
+> - **Typing indicator gated** (existing fix, preserved): `IF - Send Typing Indicator (Local Guard)` checks `$env.WHATSAPP_DRY_RUN`.
+> - **Static verifier passes**: `node scripts/build-main-local-stripe.js --verify-targets` includes `verifyShadowModeSafety` checks.
+>
+> **Do not rerun until this static verifier passes on the current build.** Current build: PASSES (2026-05-29).
 
 ---
 
@@ -83,16 +117,18 @@ When the Mode A offline runtime gate is approved:
 
 1. Confirm working tree clean.
 2. Confirm all dangerous workflows are `active=false`.
-3. Confirm `WHATSAPP_DRY_RUN=true` (or equivalent guard active).
+3. Confirm `WHATSAPP_DRY_RUN=true` in `.env` (gated at the workflow level — 66 IF gates check `$env.WHATSAPP_DRY_RUN` across all send/write nodes).
 4. Activate local Main workflow only.
 5. Record baseline counts: `workflow_events`, `automation_errors`, `payments`, `payment_events`, `booking_beds`, `bookings`.
-6. POST each payload to `http://localhost:5678/webhook/booking-assistant`.
+6. POST each file directly to `http://localhost:5678/webhook/booking-assistant` (whole file is the POST body).
 7. Inspect n8n execution output: resolved route, confidence, missing fields, draft text.
-8. Record `workflow_events` rows added (expected: ≥1 per execution).
-9. Confirm protected counts unchanged.
-10. Record draft in staff review table below.
-11. Deactivate workflow after all tests.
-12. Run teardown if any test created DB state (expected: none for Mode A, but verify).
+8. Confirm `Send Typing Indicator` node was skipped (false branch of `IF - Send Typing Indicator (Local Guard)` taken) — no Meta Graph API call.
+9. Confirm `Send WhatsApp Reply*` nodes were intercepted by `IF - DRY RUN?` gates (false branch → `Code - DRY RUN Stub`, no real send).
+9. Record `workflow_events` rows added (expected: ≥1 per execution).
+10. Confirm protected counts unchanged.
+11. Record draft in staff review table below.
+12. Deactivate workflow after all tests.
+13. Run teardown if any test created DB state (expected: none for Mode A, but verify).
 
 ---
 
@@ -100,14 +136,15 @@ When the Mode A offline runtime gate is approved:
 
 | Assertion | Expected |
 |-----------|----------|
-| Real WhatsApp send | NONE — `WHATSAPP_DRY_RUN=true` or node inactive |
+| Real WhatsApp send | NONE — `WHATSAPP_DRY_RUN=true` blocks send |
+| Typing indicator Meta API call | NONE — `IF - Send Typing Indicator (Local Guard)` now checks `WHATSAPP_DRY_RUN` |
 | Payment link creation | NONE |
 | Booking confirmation | NONE |
 | Bed assignment / rooming | NONE |
 | Cancellation / reschedule | NONE |
 | `payments` / `payment_events` count | UNCHANGED |
 | `booking_beds` count | UNCHANGED |
-| `bookings` count | UNCHANGED (no new holds created from test-input payloads without full context) |
+| `bookings` count | UNCHANGED |
 | Airtable write | NONE (local fork only) |
 | `automation_errors` count | UNCHANGED (unless workflow itself errors) |
 | `workflow_events` count | +1 or more per test (route + confidence logged) |
@@ -186,7 +223,8 @@ When the Mode A offline runtime gate is approved:
 
 ## No-send / no-mutation checklist (before each runtime session)
 
-- [ ] `WHATSAPP_DRY_RUN=true` confirmed (or send node verified inactive)
+- [ ] `WHATSAPP_DRY_RUN=true` confirmed in `.env`
+- [ ] Workflow-level guards confirmed: `IF - Send Typing Indicator (Local Guard)` + 66 `IF - DRY RUN?` gates cover all sends, Airtable writes, and Postgres hold writes (implemented 2026-05-29, static verifier passes)
 - [ ] All workflows except local Main confirmed `active=false`
 - [ ] Baseline counts recorded (`workflow_events`, `automation_errors`, `payments`, `payment_events`, `booking_beds`, `bookings`)
 - [ ] No infra/.env secrets in working tree

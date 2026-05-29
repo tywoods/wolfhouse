@@ -402,12 +402,20 @@ function runVerifyTargets(workflow, opts = {}) {
   const { exitOnFail = true, filePath = OUT } = opts;
   const wf = workflow || loadGeneratedWorkflowForVerify();
   const raw = verifyProductionTargets(wf);
+  const shadow = verifyShadowModeSafety(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
     workflowId: wf.id,
     workflowName: wf.name,
+    shadowModeSafety: shadow,
   };
+  if (!shadow.ok) {
+    console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
+    for (const e of shadow.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...shadow.errors.map((e) => `[shadow] ${e}`)];
+  }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
     process.exit(1);
@@ -932,7 +940,9 @@ function applyLocalTypingIndicatorBypass(workflow) {
   const source = String(n.source || '').toLowerCase();
   const messageId = String(n.whatsapp_message_id || '');
   const isPhaseTestMessageId = /^wamid\\.PHASE[0-9A-Z]+/i.test(messageId);
-  return source === 'whatsapp' && messageId.length > 0 && !isPhaseTestMessageId;
+  // Stage 3y: also skip typing indicator when WHATSAPP_DRY_RUN=true (offline/shadow mode).
+  const isDryRun = String($env.WHATSAPP_DRY_RUN || '').toLowerCase() === 'true';
+  return source === 'whatsapp' && messageId.length > 0 && !isPhaseTestMessageId && !isDryRun;
 })() }}`,
             rightValue: '',
             operator: { type: 'boolean', operation: 'true', singleValue: true },
@@ -964,6 +974,419 @@ function applyLocalTypingIndicatorBypass(workflow) {
       [{ node: 'Create Inbound Message', type: 'main', index: 0 }],
     ],
   };
+}
+
+/**
+ * Stage 3y: make the local Main fork fully offline-safe for Mode A shadow testing.
+ *
+ * When WHATSAPP_DRY_RUN=true, ALL live side-effect nodes are bypassed via IF gates.
+ * Each gated node gets:
+ *   - an "IF - DRY RUN? (node name)" node: true = live (send), false = dry-run (stub)
+ *   - a "Code - DRY RUN Stub (node name)" node: returns synthetic data so downstream
+ *     routing/draft logic can continue without writes.
+ *
+ * Categories:
+ *   A. All "Send WhatsApp Reply*" HTTP nodes — gate + remove hardcoded Bearer token.
+ *   B. Airtable write nodes (create/update/upsert) — gate with typed stubs.
+ *   C. Postgres write nodes (hold creation, conv hold, backfill) — gate with typed stubs.
+ *   D. Typing indicator — already gated by applyLocalTypingIndicatorBypass; token replaced here.
+ */
+function applyShadowModeDryRunGates(workflow) {
+  // Helper: find all predecessor connections pointing to a node
+  function findPredecessors(nodeName) {
+    const found = [];
+    for (const [src, conn] of Object.entries(workflow.connections)) {
+      for (let oi = 0; oi < (conn.main || []).length; oi++) {
+        const out = conn.main[oi] || [];
+        for (let li = 0; li < out.length; li++) {
+          if (out[li] && out[li].node === nodeName) found.push({ src, oi, li });
+        }
+      }
+    }
+    return found;
+  }
+
+  // Helper: insert IF + Code-stub gate before a node.
+  //   true branch (NOT dry-run) → original node (all original successors preserved)
+  //   false branch (dry-run)    → Code stub node (terminates; no further writes)
+  function addDryRunGate(targetNodeName, stubJsCode, idSuffix) {
+    const orig = workflow.nodes.find((n) => n.name === targetNodeName);
+    if (!orig) {
+      console.warn(`applyShadowModeDryRunGates: node not found, skipping: ${targetNodeName}`);
+      return;
+    }
+
+    const ifName = `IF - DRY RUN? (${targetNodeName})`;
+    const stubName = `Code - DRY RUN Stub (${targetNodeName})`;
+
+    const ifNode = {
+      id: `shadow-if-${idSuffix}`,
+      name: ifName,
+      type: 'n8n-nodes-base.if',
+      typeVersion: 2.2,
+      position: [orig.position[0] - 200, orig.position[1]],
+      parameters: {
+        conditions: {
+          options: { caseSensitive: false, leftValue: '', typeValidation: 'loose', version: 2 },
+          conditions: [
+            {
+              id: `shadow-cond-${idSuffix}`,
+              leftValue: `={{ String($env.WHATSAPP_DRY_RUN || '').toLowerCase() }}`,
+              rightValue: 'true',
+              operator: { type: 'string', operation: 'notEquals' },
+            },
+          ],
+          combinator: 'and',
+        },
+        options: {},
+      },
+    };
+
+    const stubNode = {
+      id: `shadow-stub-${idSuffix}`,
+      name: stubName,
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [orig.position[0] - 200, orig.position[1] + 140],
+      parameters: {
+        mode: 'runOnceForAllItems',
+        jsCode: stubJsCode,
+      },
+    };
+
+    workflow.nodes.push(ifNode, stubNode);
+
+    // Rewire: predecessors that pointed to targetNode now point to IF node
+    const preds = findPredecessors(targetNodeName);
+    for (const { src, oi, li } of preds) {
+      workflow.connections[src].main[oi][li].node = ifName;
+    }
+
+    // IF connections: true → original node, false → stub
+    workflow.connections[ifName] = {
+      main: [
+        [{ node: targetNodeName, type: 'main', index: 0 }],
+        [{ node: stubName, type: 'main', index: 0 }],
+      ],
+    };
+    // Stub inherits original node's successors so the pipeline continues in dry-run mode.
+    // For terminal nodes (no successors) the stub also terminates, which is correct.
+    const origConns = workflow.connections[targetNodeName];
+    if (origConns) {
+      workflow.connections[stubName] = JSON.parse(JSON.stringify(origConns));
+    }
+  }
+
+  // ── Replace hardcoded Bearer token with env-var reference in ALL Meta HTTP nodes ──
+  // Covers Send WhatsApp Reply*, Send Typing Indicator, and any future Meta HTTP node.
+  const HARDCODED_TOKEN_RE = /^Bearer [A-Za-z0-9+/]{20,}$/;
+  for (const node of workflow.nodes) {
+    if (node.type !== 'n8n-nodes-base.httpRequest') continue;
+    const url = String(node.parameters?.url || '');
+    if (!url.includes('graph.facebook.com')) continue;
+    const headers = node.parameters?.headerParameters?.parameters || [];
+    for (const h of headers) {
+      if (h.name === 'Authorization' && HARDCODED_TOKEN_RE.test(String(h.value || ''))) {
+        h.value = "={{ 'Bearer ' + ($env.WHATSAPP_ACCESS_TOKEN || '') }}";
+      }
+    }
+    // Also replace hardcoded phone_number_id in URL with env var
+    if (/graph\.facebook\.com\/v[\d.]+\/\d{10,}\/messages/.test(url)) {
+      node.parameters.url =
+        "={{ 'https://graph.facebook.com/v20.0/' + ($env.WHATSAPP_PHONE_NUMBER_ID || '0') + '/messages' }}";
+    }
+  }
+
+  let counter = 3001;
+  const next = () => String(counter++);
+
+  // ── Category A: All Send WhatsApp Reply* HTTP nodes ──
+  const WA_SEND_STUB = `// Stage 3y shadow mode: WHATSAPP_DRY_RUN=true — no real WhatsApp send
+return [{ json: {
+  messaging_product: 'whatsapp',
+  contacts: [],
+  messages: [{ id: 'dry-run-no-send' }],
+  dry_run: true,
+  _shadow_note: 'WhatsApp send bypassed by WHATSAPP_DRY_RUN=true'
+}}];`;
+
+  const sendNodes = workflow.nodes
+    .filter((n) => n.name.startsWith('Send WhatsApp Reply') && n.type === 'n8n-nodes-base.httpRequest')
+    .map((n) => n.name);
+
+  for (const name of sendNodes) {
+    addDryRunGate(name, WA_SEND_STUB, next());
+  }
+
+  // ── Category B: Airtable write nodes ──
+  const AT_CONV_STUB = `// Stage 3y shadow: Airtable conversation write bypassed
+return [{ json: {
+  id: 'dry-run-at-conv',
+  fields: { Name: 'DRY RUN', Phone: '', 'Bot Mode': 'bot_active', 'Needs Human': false },
+  dry_run: true
+}}];`;
+
+  const AT_MSG_STUB = `// Stage 3y shadow: Airtable message write bypassed
+return [{ json: {
+  id: 'dry-run-at-msg',
+  fields: { 'Message Text': '(shadow draft — not written to Airtable)', Source: 'test' },
+  dry_run: true
+}}];`;
+
+  const AT_BOOKING_STUB = `// Stage 3y shadow: Airtable booking write bypassed
+return [{ json: {
+  id: 'dry-run-at-booking',
+  fields: { Status: 'hold', Notes: 'DRY RUN — not a real booking', dry_run: true },
+  dry_run: true
+}}];`;
+
+  const AT_PASSTHROUGH_STUB = `// Stage 3y shadow: Airtable update bypassed
+return [{ json: { id: 'dry-run-at-passthrough', dry_run: true } }];`;
+
+  // Airtable write node targets: [name, stub]
+  const atWriteGates = [
+    // Inbound conversation path (early — must stub so downstream Code nodes continue)
+    ['Create Inbound Message', AT_MSG_STUB],
+    ['Create Conversation', AT_CONV_STUB],
+    ['Update Inbound Message - Link Conversation', AT_PASSTHROUGH_STUB],
+    ['Update Conversation - Append Guest Message', AT_CONV_STUB],
+    ['Update Conversation Summary', AT_CONV_STUB],
+    ['Create or update Conversation', AT_CONV_STUB],
+    // Booking write nodes
+    ['Create Booking Hold', AT_BOOKING_STUB],
+    ['Update Booking - Payment Claim', AT_BOOKING_STUB],
+    ['Update Booking - Cancel', AT_BOOKING_STUB],
+    ['Update Booking - Rooming Info', AT_BOOKING_STUB],
+    ['Update Booking - Stripe Payment Link', AT_BOOKING_STUB],
+    ['Update Booking Hold - Apply Staged Contact', AT_BOOKING_STUB],
+    ['Update Booking - Rooming Details', AT_BOOKING_STUB],
+    ['Update Hold With Guest Details', AT_BOOKING_STUB],
+    ['Update record', AT_BOOKING_STUB],
+    // Outbound message creates (all routes)
+    ['Create Outbound Message', AT_MSG_STUB],
+    ['Create Outbound Message1', AT_MSG_STUB],
+    ['Create Outbound Message - Payment Claim', AT_MSG_STUB],
+    ['Create Outbound Message - Payment Not Found', AT_MSG_STUB],
+    ['Create Outbound Message - Payment Pending', AT_MSG_STUB],
+    ['Create Outbound Message - General Question', AT_MSG_STUB],
+    ['Create Outbound Message - Unknown', AT_MSG_STUB],
+    ['Create Outbound Message - Human Handoff', AT_MSG_STUB],
+    ['Create Outbound Message - Modify Booking', AT_MSG_STUB],
+    ['Create Outbound Message - Cancel Booking', AT_MSG_STUB],
+    ['Create Outbound Message - Payment Details', AT_MSG_STUB],
+    ['Create Outbound Message - No Availability Alternatives', AT_MSG_STUB],
+    ['Create Outbound Message - Status', AT_MSG_STUB],
+    ['Create Outbound Message - Status1', AT_MSG_STUB],
+    ['Create Outbound Message - Rooming Info Saved', AT_MSG_STUB],
+    ['Create Outbound Message - Rooming Reply', AT_MSG_STUB],
+    // Conversation updates (terminal — but gate for completeness)
+    ['Update Conversation After Reply', AT_CONV_STUB],
+    ['Create/update Conversation - Payment Pending', AT_CONV_STUB],
+    ['Create/update Conversation - Modify Booking', AT_CONV_STUB],
+    ['Create/update Conversation - Cancel Booking', AT_CONV_STUB],
+    ['Create/update Conversation - Booking Status', AT_CONV_STUB],
+    ['Create/update Conversation - Status', AT_CONV_STUB],
+    ['Update Conversation - Payment Claim Found', AT_CONV_STUB],
+    ['Update Conversation - Payment Lookup Needed', AT_CONV_STUB],
+    ['Update Conversation - Unknown', AT_CONV_STUB],
+    ['Update Conversation - General Question', AT_CONV_STUB],
+    ['Update Conversation - Human Handoff', AT_CONV_STUB],
+    ['Update Conversation - No Availability Alternatives', AT_CONV_STUB],
+    ['Update Conversation - Rooming Info Saved', AT_CONV_STUB],
+    ['Update Conversation - Rooming Reply', AT_CONV_STUB],
+    ['Update Conversation - Guest Details', AT_CONV_STUB],
+    ['Create or update Conversation - Payment Details', AT_CONV_STUB],
+  ];
+
+  for (const [name, stub] of atWriteGates) {
+    addDryRunGate(name, stub, next());
+  }
+
+  // ── Category C: Postgres write nodes ──
+  // Stub shapes must satisfy downstream Code - Validate PG Hold / IF - PG Hold OK logic.
+  const PG_HOLD_STUB = `// Stage 3y shadow: Postgres booking hold creation bypassed
+// Returns a hold-shaped stub so Code - Validate PG Hold can proceed and the LLM
+// still generates the availability draft reply without mutating the DB.
+return [{ json: {
+  booking_code: 'DRY-RUN-HOLD',
+  id: null,
+  status: 'hold',
+  check_in: null,
+  check_out: null,
+  actionable: [{ booking_code: 'DRY-RUN-HOLD', status: 'hold', dry_run: true }],
+  pg_errors: [],
+  pg_query_ok: true,
+  dry_run: true
+}}];`;
+
+  const PG_CONV_STUB = `// Stage 3y shadow: Postgres conversation hold upsert bypassed
+return [{ json: { phone: 'dry-run', current_hold_booking_id: 'DRY-RUN-HOLD', dry_run: true } }];`;
+
+  const PG_BACKFILL_STUB = `// Stage 3y shadow: Postgres AT record backfill bypassed
+return [{ json: { affected: 0, dry_run: true } }];`;
+
+  addDryRunGate('Postgres - Create Booking Hold', PG_HOLD_STUB, next());
+  addDryRunGate('Postgres - Upsert Conversation Hold', PG_CONV_STUB, next());
+  addDryRunGate('Postgres - Backfill Booking AT Record Id', PG_BACKFILL_STUB, next());
+
+  // ── Category D: Airtable read stubs ──────────────────────────────────────
+  // Search Messages - Recent Conversation returns 0 items for new phone numbers
+  // (nothing in Airtable yet) causing n8n to silently terminate. In dry-run mode
+  // stub it with the current incoming message so Code - Build Conversation Memory
+  // always has at least 1 item and the routing/LLM path can run.
+  const SEARCH_MSGS_STUB = `// Stage 3y shadow: Search Messages stub — returns current message as minimal history
+const msg = $('Normalize Incoming Message').first().json || {};
+const msgText = msg.guest_message || msg.message_body || msg.body || msg.text || '';
+return [{ json: {
+  id: 'dry-run-msg-1',
+  fields: {
+    'Message Text': msgText,
+    'Direction': 'Inbound',
+    'Conversation Phone': msg.phone || '',
+    'Source': 'WhatsApp',
+    dry_run: true
+  }
+}}];`;
+  addDryRunGate('Search Messages - Recent Conversation', SEARCH_MSGS_STUB, next());
+
+  // ── Patch ALL nodes that reference gated nodes in expressions ───────────────
+  // Code nodes use $('NodeName') in jsCode (JS). Other nodes (SET, IF, etc.)
+  // use $('NodeName') inside ={{ ... }} expression strings in their parameters.
+  // Use .isExecuted ternary — safe for both JS code and n8n expression strings.
+  const allGatedNames = [
+    ...sendNodes,
+    ...atWriteGates.map(([name]) => name),
+    'Search Messages - Recent Conversation',
+    'Postgres - Create Booking Hold',
+    'Postgres - Upsert Conversation Hold',
+    'Postgres - Backfill Booking AT Record Id',
+  ];
+
+  /** Recursively patch $('GatedName') references in parameter values. */
+  function patchParamValue(val, needle, repl) {
+    if (typeof val === 'string') {
+      if (!val.includes(needle)) return val;
+      return val.split(needle).join(repl);
+    }
+    if (Array.isArray(val)) return val.map((item) => patchParamValue(item, needle, repl));
+    if (val && typeof val === 'object') {
+      const out = {};
+      for (const [k, v] of Object.entries(val)) out[k] = patchParamValue(v, needle, repl);
+      return out;
+    }
+    return val;
+  }
+
+  let allNodePatches = 0;
+  for (const node of workflow.nodes) {
+    // Skip the gate/stub nodes themselves to avoid circular self-patches
+    if (node.name.startsWith('IF - DRY RUN?') || node.name.startsWith('Code - DRY RUN Stub')) continue;
+    if (!node.parameters) continue;
+    let nodePatches = 0;
+    for (const gatedName of allGatedNames) {
+      const needle = `$('${gatedName}')`;
+      const paramsStr = JSON.stringify(node.parameters);
+      if (!paramsStr.includes(needle)) continue;
+      const stubName = `Code - DRY RUN Stub (${gatedName})`;
+      const count = paramsStr.split(needle).length - 1;
+      // .isExecuted ternary: $('NodeName') returns a Proxy, never throws on access.
+      // .first()/.all() throw on un-executed nodes — so check .isExecuted first.
+      const repl = `($('${gatedName}').isExecuted ? $('${gatedName}') : $('${stubName}'))`;
+      node.parameters = patchParamValue(node.parameters, needle, repl);
+      nodePatches += count;
+    }
+    allNodePatches += nodePatches;
+  }
+  if (allNodePatches > 0) {
+    console.log(`Shadow-mode expression patches: ${allNodePatches} reference(s) wrapped across all node types`);
+  }
+
+  const ifCount = workflow.nodes.filter((n) => n.name.startsWith('IF - DRY RUN?')).length;
+  const stubCount = workflow.nodes.filter((n) => n.name.startsWith('Code - DRY RUN Stub')).length;
+  console.log(`Shadow-mode gates added: ${ifCount} IF nodes + ${stubCount} Code stubs (${sendNodes.length} WA sends, ${atWriteGates.length} AT writes, 4 PG+read nodes gated)`);
+  if (ifCount !== stubCount) throw new Error('Shadow gate IF/stub count mismatch — BUG');
+}
+
+/**
+ * Verify that the generated local Main fork is fully offline-safe for shadow testing.
+ * Called from runVerifyTargets (--verify-targets) and the default build path.
+ */
+function verifyShadowModeSafety(workflow) {
+  const errors = [];
+
+  // Build set of nodes that are the "true" (live) branch of a DRY RUN IF gate
+  const ifGatedSet = new Set();
+  for (const [src, conn] of Object.entries(workflow.connections)) {
+    if (!src.startsWith('IF - DRY RUN?')) continue;
+    for (const link of conn.main?.[0] || []) {
+      if (link?.node) ifGatedSet.add(link.node);
+    }
+  }
+
+  // 1. No hardcoded WhatsApp Bearer token in any node
+  const HARDCODED_TOKEN_RE = /Bearer [A-Za-z0-9+/]{30,}/;
+  for (const node of workflow.nodes) {
+    const blob = JSON.stringify(node.parameters || '');
+    if (HARDCODED_TOKEN_RE.test(blob) && !blob.includes('$env')) {
+      errors.push(`Hardcoded WA Bearer token in node: ${node.name}`);
+    }
+  }
+
+  // 2. All Send WhatsApp Reply* HTTP nodes must be dry-run gated
+  const sendNodes = workflow.nodes.filter(
+    (n) => n.name.startsWith('Send WhatsApp Reply') && n.type === 'n8n-nodes-base.httpRequest'
+  );
+  for (const n of sendNodes) {
+    if (!ifGatedSet.has(n.name)) {
+      errors.push(`Send node not protected by dry-run IF gate: ${n.name}`);
+    }
+  }
+
+  // 3. Send Typing Indicator must be gated (by existing Local Guard, not dry-run gate)
+  const typingGuard = workflow.nodes.find((n) => n.name === 'IF - Send Typing Indicator (Local Guard)');
+  if (!typingGuard) {
+    errors.push('IF - Send Typing Indicator (Local Guard) not found — typing indicator ungated');
+  } else {
+    const typingCond = JSON.stringify(typingGuard.parameters?.conditions?.conditions?.[0]?.leftValue || '');
+    if (!typingCond.includes('WHATSAPP_DRY_RUN')) {
+      errors.push('IF - Send Typing Indicator (Local Guard) does not reference WHATSAPP_DRY_RUN');
+    }
+  }
+
+  // 4. Postgres - Create Booking Hold must be dry-run gated
+  if (!ifGatedSet.has('Postgres - Create Booking Hold')) {
+    errors.push('Postgres - Create Booking Hold not protected by dry-run IF gate');
+  }
+
+  // 5. Postgres - Upsert Conversation Hold must be dry-run gated
+  if (!ifGatedSet.has('Postgres - Upsert Conversation Hold')) {
+    errors.push('Postgres - Upsert Conversation Hold not protected by dry-run IF gate');
+  }
+
+  // 6. Create Inbound Message (Airtable) must be dry-run gated
+  if (!ifGatedSet.has('Create Inbound Message')) {
+    errors.push('Create Inbound Message (Airtable) not protected by dry-run IF gate');
+  }
+
+  // 7. No graph.facebook.com URL in any ungated HTTP node
+  for (const node of workflow.nodes) {
+    if (node.type !== 'n8n-nodes-base.httpRequest') continue;
+    const url = String(node.parameters?.url || '');
+    if (!url.includes('graph.facebook.com')) continue;
+    // Must be either gated by IF-DRY-RUN or by the existing Local Guard (typing indicator)
+    const isTypingNode = node.name === 'Send Typing Indicator';
+    if (!isTypingNode && !ifGatedSet.has(node.name)) {
+      errors.push(`graph.facebook.com HTTP node ungated in dry-run: ${node.name}`);
+    }
+  }
+
+  const gateCount = ifGatedSet.size;
+  if (errors.length > 0) {
+    const msg = `Shadow-mode safety FAIL (${errors.length} error(s)):\n  ${errors.join('\n  ')}`;
+    return { ok: false, errors, gateCount };
+  }
+  console.log(`Shadow-mode safety: OK (${gateCount} nodes gated, token clean, hold gated, typing gated)`);
+  return { ok: true, errors: [], gateCount };
 }
 
 function applyHumanActivePaymentLinkBypass(workflow) {
@@ -2020,6 +2443,7 @@ applyDeterministicPaymentUrl(workflow);
 applyPhase3cAvailabilityGate(workflow);
 applyPhase3cHoldGate(workflow);
 applyLocalTypingIndicatorBypass(workflow);
+applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode A shadow
 applyHumanActivePaymentLinkBypass(workflow);
 applyPostgresCredentialMapping(workflow);
 const reassignRemap = applyLocalReassignWebhookRemap(workflow);
@@ -2033,6 +2457,7 @@ workflow.tags = [
   { name: 'phase3c-e5' },
   { name: 'phase3c-g1d' },
   { name: 'phase3e-e2' },
+  { name: 'phase3y-shadow-safe' }, // Stage 3y: offline-safe for Mode A shadow testing
 ];
 
 if (reassignRemap.patched > 0) {
