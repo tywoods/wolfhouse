@@ -314,7 +314,9 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 
 **Stage 3y planning — STARTED (2026-05-29).** Plan doc: [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md). Entry criteria Y-E1–Y-E13 defined. 4 operating modes (A–D) with gates. 15-test matrix (Y-T1–Y-T15). Exit criteria (Y-X1–Y-X13) defined.
 
-**Immediate next step: Stage 3y Mode A — offline shadow Y-T1–Y-T5.** Create 5 test message payloads → activate local Main → observe draft output → share with Ale/Cami for review → log corrections. No new infrastructure required. Separately gate Mode B (real inbound), Mode C (draft queue), Mode D (action proposals).
+**Stage 3y Mode A payloads — CREATED (2026-05-29, NOT RUNTIME TESTED).** 5 payloads (Y-T1/Y-T2/Y-T5/Y-T6/Y-T9) in `test-payloads/stage3y/mode-a/`. Webhook format confirmed (test-input path: `phone + guest_message`). Assertions, guardrail checks, and staff review table documented.
+
+**Immediate next step: Stage 3y Mode A — offline shadow runtime gate Y-T1–Y-T5.** Activate local Main → POST each payload → observe route/confidence/missing-fields/draft → record `workflow_events` rows → confirm counts unchanged → deactivate. No new infra required. Share draft output with Ale/Cami for first staff review. Separately gate Mode B/C/D.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices → promoted config from v0.3 to confirmed.

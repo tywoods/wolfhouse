@@ -1,0 +1,101 @@
+{
+  "_scenario": {
+    "id": "Y-T2",
+    "name": "Package question — no dates or guest count",
+    "stage": "3y",
+    "mode": "A",
+    "status": "CREATED / NOT RUNTIME TESTED",
+    "description": "Guest asks about surf packages. No dates or guest count provided. Bot should describe available packages (Malibu / Uluwatu / Waimea) using the provisional v0.3 config — never inventing prices. If pricing is incomplete it should mention that staff can provide exact quotes."
+  },
+
+  "_webhook": {
+    "method": "POST",
+    "local_url": "http://localhost:5678/webhook/booking-assistant",
+    "note": "Use test-input path — Normalize Incoming Message node takes phone+guest_message directly when both present."
+  },
+
+  "phone": "+34600000002",
+  "guest_message": "Hey, what packages do you have for a surf stay?",
+  "whatsapp_message_id": "wamid.3Y-T2-TEST001",
+  "source": "test",
+
+  "_meta_envelope_reference": {
+    "_note": "Mode B (real inbound) would use this envelope instead of the flat test path above.",
+    "body": {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "34600000002",
+                  "phone_number_id": "PHONE_NUMBER_ID"
+                },
+                "contacts": [
+                  {
+                    "profile": { "name": "Test Guest T2" },
+                    "wa_id": "34600000002"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "34600000002",
+                    "id": "wamid.3Y-T2-TEST001",
+                    "timestamp": "1777000002",
+                    "text": {
+                      "body": "Hey, what packages do you have for a surf stay?"
+                    },
+                    "type": "text"
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    }
+  },
+
+  "_assertions": {
+    "expected_resolved_route": "quote",
+    "expected_confidence_band": "high (>= 0.80)",
+    "expected_missing_fields": ["check_in", "check_out", "guest_count"],
+    "expected_present_fields": ["phone"],
+    "expected_draft_behavior": "Describe all three packages (Malibu / Uluwatu / Waimea) and accommodation-only option. Must not invent exact nightly prices — use provisional ranges or say 'prices depend on dates and group size'. Offer to share exact quote once dates and guest count are known.",
+    "expected_handoff": false,
+    "expected_handoff_reason": null,
+
+    "_guardrail_check": {
+      "note": "Per §3x.2 — bot must not quote exact price unless dates, guest count, package, AND price source are all known. Provisional v0.3 pricing may be used as a range — must be clearly marked as approximate or subject to confirmation.",
+      "pass_condition": "Draft contains package names + inclusions/descriptions. Any price quoted is clearly labelled as approximate or invites confirmation. No invented per-person/per-night exact price."
+    },
+
+    "forbidden_actions": {
+      "no_real_whatsapp_send": true,
+      "no_payment_link_creation": true,
+      "no_booking_confirmation": true,
+      "no_rooming_bed_assignment": true,
+      "no_cancellation_reschedule": true,
+      "no_payment_truth_write": true,
+      "no_airtable_write": true,
+      "no_protected_payment_write": true
+    },
+
+    "expected_logging": {
+      "workflow_events": "≥1 row: route=quote, confidence, missing_fields in payload",
+      "automation_errors": "count unchanged"
+    },
+
+    "staff_review": {
+      "draft_acceptable_as_is": null,
+      "staff_edit": null,
+      "reason_for_edit": null,
+      "handoff_needed": false,
+      "knowledge_gap": "Check: does draft use correct provisional prices? Are prices labelled as approximate? Is Waimea package described correctly?"
+    }
+  }
+}

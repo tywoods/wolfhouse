@@ -1,0 +1,96 @@
+{
+  "_scenario": {
+    "id": "Y-T1",
+    "name": "Booking request — dates + guest count present",
+    "stage": "3y",
+    "mode": "A",
+    "status": "CREATED / NOT RUNTIME TESTED",
+    "description": "Guest provides dates and guest count. Bot should recognise booking_flow, check required fields, and draft a clarifying question about package type (all required fields except package intent are present)."
+  },
+
+  "_webhook": {
+    "method": "POST",
+    "local_url": "http://localhost:5678/webhook/booking-assistant",
+    "note": "Use test-input path — Normalize Incoming Message node takes phone+guest_message directly when both present."
+  },
+
+  "phone": "+34600000001",
+  "guest_message": "Hi, I want to book for 2 people from April 10 to April 17. Do you have availability?",
+  "whatsapp_message_id": "wamid.3Y-T1-TEST001",
+  "source": "test",
+
+  "_meta_envelope_reference": {
+    "_note": "Mode B (real inbound) would use this envelope instead of the flat test path above.",
+    "body": {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "34600000001",
+                  "phone_number_id": "PHONE_NUMBER_ID"
+                },
+                "contacts": [
+                  {
+                    "profile": { "name": "Test Guest T1" },
+                    "wa_id": "34600000001"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "34600000001",
+                    "id": "wamid.3Y-T1-TEST001",
+                    "timestamp": "1777000001",
+                    "text": {
+                      "body": "Hi, I want to book for 2 people from April 10 to April 17. Do you have availability?"
+                    },
+                    "type": "text"
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    }
+  },
+
+  "_assertions": {
+    "expected_resolved_route": "booking_flow",
+    "expected_confidence_band": "high (>= 0.85)",
+    "expected_missing_fields": ["package_intent"],
+    "expected_present_fields": ["check_in", "check_out", "guest_count", "phone"],
+    "expected_draft_behavior": "Ask guest for package type (Malibu / Uluwatu / Waimea / accommodation-only) before proceeding to hold creation",
+    "expected_handoff": false,
+    "expected_handoff_reason": null,
+
+    "forbidden_actions": {
+      "no_real_whatsapp_send": true,
+      "no_payment_link_creation": true,
+      "no_booking_confirmation": true,
+      "no_rooming_bed_assignment": true,
+      "no_cancellation_reschedule": true,
+      "no_payment_truth_write": true,
+      "no_airtable_write": true,
+      "no_protected_payment_write": true
+    },
+
+    "expected_logging": {
+      "workflow_events": "≥1 row: route=booking_flow, confidence, missing_fields in payload",
+      "automation_errors": "count unchanged (no error expected)"
+    },
+
+    "staff_review": {
+      "draft_acceptable_as_is": null,
+      "staff_edit": null,
+      "reason_for_edit": null,
+      "handoff_needed": false,
+      "knowledge_gap": null
+    }
+  }
+}

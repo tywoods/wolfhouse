@@ -1,6 +1,6 @@
 # Phase 3y — Shadow / Co-pilot Plan
 
-**Status:** PLANNING (2026-05-29)  
+**Status:** PLANNING — Mode A payloads created / NOT RUNTIME TESTED (2026-05-29)  
 **Stage 3.5 closeout commit:** `d08c64e`  
 **Purpose:** Bridge the gap between isolated dry-run proof and autonomous live guest operation. The bot reads (or classifies) real or real-ish guest messages, drafts proposed replies and actions, and presents them to staff for approval. Staff remains the final actor for every send, payment, and booking mutation. No autonomous dangerous action.
 
@@ -93,7 +93,9 @@ How it works:
 
 **Gate to start:** This doc accepted; entry criteria Y-E1–Y-E13 met. No additional approval needed.
 
-**Source of test messages:** 3x.6 golden message fixtures (when created) + redacted real WhatsApp samples from Ale/Cami.
+**Source of test messages:** [`test-payloads/stage3y/mode-a/`](../test-payloads/stage3y/mode-a/) — Y-T1/Y-T2/Y-T5/Y-T6/Y-T9 payloads created (CREATED / NOT RUNTIME TESTED). Also: 3x.6 golden message fixtures (when created) + redacted real WhatsApp samples from Ale/Cami.
+
+**Payload format:** Test-input path — `{ phone, guest_message, whatsapp_message_id, source: "test" }` — handled directly by `Normalize Incoming Message` node without a Meta envelope. Webhook: `POST http://localhost:5678/webhook/booking-assistant`.
 
 ---
 
@@ -281,23 +283,25 @@ This log becomes the first batch of real golden-message labeled data for Stage 3
 
 These tests are all Mode A (offline/pasted messages) unless noted.
 
-| Test ID | Message type | Expected route | Expected bot behavior | No-send assertion | No-mutation assertion |
-|---------|-------------|----------------|----------------------|-------------------|----------------------|
-| Y-T1 | "I want to book for 2 people, April 10–17" | `booking_flow` | Ask for package type or availability check | ✅ | ✅ |
-| Y-T2 | "What packages do you have?" | `quote` | List all packages (Malibu / Uluwatu / Waimea) without guessing price | ✅ | ✅ |
-| Y-T3 | "I want to pay" (no booking context) | `payment_details_provided` or `handoff_needed` | Ask for booking reference or hand off | ✅ | ✅ |
-| Y-T4 | "I just sent the payment" | `payment_received_check` or `handoff_needed` | Log note, hand off to staff (do not mark paid) | ✅ | ✅ (no payment write) |
-| Y-T5 | Message with missing dates | `booking_flow` | Request missing fields: check-in / check-out | ✅ | ✅ |
-| Y-T6 | Message with missing guest count | `booking_flow` | Request missing field: number of guests | ✅ | ✅ |
-| Y-T7 | Cancellation request | `cancel` or `handoff_needed` | Surface policy window, propose staff review; do NOT cancel | ✅ | ✅ (no booking write) |
-| Y-T8 | "Can I change my dates?" | `date_change` or `handoff_needed` | Check policy, hand off to staff | ✅ | ✅ |
-| Y-T9 | Low-confidence message ("hey what's up") | `unknown` / `handoff_needed` | Route to handoff with reason: low confidence | ✅ | ✅ |
-| Y-T10 | Complaint / angry message | `handoff_needed` | Immediate handoff signal; no draft action | ✅ | ✅ |
-| Y-T11 | Medical / emergency mention | `handoff_needed` | Immediate handoff signal; no draft action | ✅ | ✅ |
-| Y-T12 | Message in Spanish | `booking_flow` (or relevant) | Draft in Spanish if language detected | ✅ | ✅ |
-| Y-T13 | "I paid but my booking is still pending" | `handoff_needed` | Hand off to staff with context; do NOT mark paid | ✅ | ✅ (no payment write) |
-| Y-T14 | Rooming preference ("can I be with my girlfriend?") | `rooming_info` or `handoff_needed` | Log preference; do NOT assign beds | ✅ | ✅ (no booking_beds write) |
-| Y-T15 | Same message sent twice (duplicate) | Any | Idempotent: same draft, no double mutation | ✅ | ✅ |
+**Payload directory:** [`test-payloads/stage3y/mode-a/`](../test-payloads/stage3y/mode-a/)
+
+| Test ID | Message type | Expected route | Expected bot behavior | No-send | No-mutation | Payload status |
+|---------|-------------|----------------|----------------------|---------|-------------|----------------|
+| Y-T1 | "I want to book for 2 people, April 10–17" | `booking_flow` | Ask for package type; do NOT hold/pay | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
+| Y-T2 | "What packages do you have?" | `quote` | Describe packages; do NOT invent prices | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
+| Y-T3 | "I want to pay" (no booking context) | `payment_details_provided` or `handoff_needed` | Ask for booking reference or hand off | ✅ | ✅ | NOT YET CREATED |
+| Y-T4 | "I just sent the payment" | `payment_received_check` or `handoff_needed` | Hand off; do NOT mark paid | ✅ | ✅ (no payment write) | NOT YET CREATED |
+| Y-T5 | Booking intent, no dates | `booking_flow` | Request check-in / check-out dates | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
+| Y-T6 | Dates present, no guest count | `booking_flow` | Request guest count | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
+| Y-T7 | Cancellation request | `cancel` or `handoff_needed` | Surface policy; do NOT cancel | ✅ | ✅ (no booking write) | NOT YET CREATED |
+| Y-T8 | "Can I change my dates?" | `date_change` or `handoff_needed` | Check policy, hand off | ✅ | ✅ | NOT YET CREATED |
+| Y-T9 | Low-confidence ("hey what's up") | `unknown` / `handoff_needed` | Ask clarifying question; low confidence | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
+| Y-T10 | Complaint / angry message | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | NOT YET CREATED |
+| Y-T11 | Medical / emergency mention | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | NOT YET CREATED |
+| Y-T12 | Message in Spanish | `booking_flow` (or relevant) | Draft in Spanish if language detected | ✅ | ✅ | NOT YET CREATED |
+| Y-T13 | "I paid but booking still pending" | `handoff_needed` | Hand off; do NOT mark paid | ✅ | ✅ (no payment write) | NOT YET CREATED |
+| Y-T14 | Rooming preference | `rooming_info` or `handoff_needed` | Log preference; do NOT assign beds | ✅ | ✅ (no booking_beds write) | NOT YET CREATED |
+| Y-T15 | Same message sent twice | Any | Idempotent: same draft, no double mutation | ✅ | ✅ | NOT YET CREATED |
 
 **Logging assertion (all tests):** `workflow_events` must have ≥1 row per execution (route + confidence + action).  
 **Automation_errors assertion (all tests):** Count must not increase unexpectedly.
