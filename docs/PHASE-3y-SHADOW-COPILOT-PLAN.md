@@ -727,6 +727,61 @@ Stage 3y is complete when all of the following are met:
 
 ---
 
+## Y-X13 — Stage 3y closeout decision (2026-05-30)
+
+**Decision: Proceed to Stage 4 Autonomous Booking Dry-Run. Mode B/C/D deferred.**
+
+### Exit criteria status at closeout
+
+| Criterion | Status |
+|-----------|--------|
+| Y-X1: Y-T1–Y-T10 runtime PASS | **MET** |
+| Y-X1: Y-T11–Y-T15 not yet created | open — parallel/non-blocking |
+| Y-X1: staff review of all 10 drafts | open — parallel/non-blocking |
+| Y-X2: no autonomous sends | **MET** — `send_whatsapp_nodes_executed_directly: []` all 10 tests |
+| Y-X3: no dangerous mutations | **MET** — all count deltas zero, all 10 tests |
+| Y-X4: useful drafts ≥80% standard messages | **MET (soft)** — 5/6 standard booking messages have drafts (83%); quality pending staff review |
+| Y-X5: handoff fires correctly | **PARTIALLY MET** — Y-T10 (complaint/refund) PASS; Y-T9 borderline (general_question vs handoff); Y-T11/Y-T13 not yet created |
+| Y-X6: missing-field detection accurate | **MET** — Y-T5, Y-T6 both correct |
+| Y-X7: package quoting safe | **MET (soft)** — Y-T2 surf packages link, no invented prices |
+| Y-X8: idempotency test | open — Y-T15 not created; parallel/non-blocking |
+| Y-X9: workflow_events logging confirmed | open — not directly verified; parallel/non-blocking |
+| Y-X10: staff draft review ≥5 rows | open — parallel/non-blocking |
+| Y-X11: labeled correction log ≥5 rows | open — parallel/non-blocking |
+| Y-X12: real WhatsApp send gate CLOSED | **MET** — WHATSAPP_DRY_RUN=true throughout |
+| Y-X13: decision documented | **MET — this section** |
+
+### Rationale for proceeding to Stage 4
+
+The baseline entry gate (`wolfhouse-somo.baseline.json § stage4_entry_gate`) has five conditions, all met:
+1. All dangerous-action rules confirmed/provisional/handoff_only — v0.6 baseline complete.
+2. No null dangerous-action rule without safe fallback — all rules have safe_default.
+3. Golden fixture schema exists — 3x.6 schema in STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md.
+4. Stage 3 technical proof complete — Stage 3.5 CLOSED.
+5. Real WhatsApp send is separate gate — policy confirmed, WHATSAPP_DRY_RUN=true throughout.
+
+The Autonomous Booking Dry-Run (Stage 4 first milestone) is all-stubbed end-to-end — the same safety class as Mode A but testing multi-turn state transitions rather than individual message types. It does not require staff review of drafts, Y-T11–Y-T15, or Mode B infrastructure.
+
+### Mode B/C/D disposition
+
+| Mode | Disposition | Reason |
+|------|-------------|--------|
+| Mode B (real inbound, no sends) | Deferred — optional parallel track | Requires WhatsApp Cloud API webhook infrastructure not yet set up; useful for message corpus enrichment but not on critical path to autonomous booking |
+| Mode C (draft queue) | Deferred | Requires Mode B stable + staff review UI; Stage 6 dependency |
+| Mode D (action proposals) | Deferred | Explicitly requires Stage 6 Staff UI + all 3x complete |
+
+### Open parallel work (non-blocking for Stage 4)
+
+- Create Y-T11 (medical/emergency handoff), Y-T12 (payment claim), Y-T13 (unavailable dates), Y-T14 (Spanish), Y-T15 (duplicate message idempotency)
+- Staff (Ale/Cami) review of Y-T1–Y-T10 draft quality — update staff-review-log verdicts
+- Wire Y-T3 (`existing_booking_status`) and Y-T4 (`existing_booking_cancel`) reply branches in Main
+- Verify Y-T9 route decision: should `hey what's up` be `general_question` (current) or `low_confidence`/`handoff`?
+- Confirm `workflow_events` captures route + confidence per execution
+
+**Real WhatsApp send remains NOT approved. Live autonomous operation remains NOT approved.**
+
+---
+
 ## Stage 3y and Stage 3x parallelism
 
 Stage 3y does not wait for all of Stage 3x to complete. The following are the minimum 3x prerequisites per stage 3y mode:
