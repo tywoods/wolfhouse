@@ -2,7 +2,7 @@
 
 **Purpose:** Capture answers the **public website does not provide**. Feeds [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](../STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) and the provisional baseline config [`config/clients/wolfhouse-somo.baseline.json`](../../config/clients/wolfhouse-somo.baseline.json).
 
-**Status:** Questionnaire only — **not filled** (2026-05-28). Priorities added 2026-05-29 (Stage 3x.2 baseline).
+**Status:** Mostly answered — **P1 prices/policies applied 2026-05-29 (Stage 3x.2c–3x.2d)** to baseline config v0.3 as **PROVISIONAL**. Remaining items are mainly to **confirm** provisional prices and fill a few gaps below.
 
 ---
 
@@ -22,40 +22,61 @@
 
 ---
 
-## 🔴 P1 — Required before autonomous live mode
+## ✅ Answered 3x.2c–3x.2d (2026-05-29) — applied to baseline config (v0.3)
 
-*Bot uses handoff-only or no-action defaults until these are answered.*
+*No longer blocking. Prices below are **PROVISIONAL** (working values pending Ale/Cami sign-off): safe for dry-run/shadow, not for live autonomous charging until confirmed.*
 
-### Deposit + payment
+**3x.2c (rules):**
+- [x] Bot may auto-send payment link after required details (asks deposit vs full); **hold = 60 min**.
+- [x] Balance payable at arrival (cash / bank transfer / Stripe-planned).
+- [x] Auto-confirm after payment truth; confirmation includes **address, gate `2684#`, room number**; not bed number.
+- [x] Auto-assign rooms when config clear; never move staff/manual; **R6 protected**; R7/R9/R10 assignable unless operator-blocked.
+- [x] Conditional auto cancel/date-change; else staff.
 
-- [ ] **P1** Deposit rule (fixed EUR / per person / per package — which?):
-- [ ] **P1** Production deposit amount (EUR):
-- [ ] **P1** Is standard deposit the same across Malibu / Uluwatu / Waimea, or package-specific?:
-- [ ] **P1** Payment deadline after link sent (hours/days):
-- [ ] **P1** Hold expiry (hours/days) before auto-cancel or manual release:
-- [ ] **P1** Is bot allowed to send payment link without staff review for standard packages?:
+**3x.2d (prices + policies, provisional):**
+- [x] **Deposit = flat €200 per booking** (for now).
+- [x] **2026 package table** (per person, 7nt, shared room): shoulder (Apr/May/Jun/Oct) Malibu 249 / Uluwatu 349 / Waimea 499 · high (Jul/Sep) 299 / 399 / 549 · peak (Aug) 349 / 449 / 599. **Double room +€10/night/person.**
+- [x] **Inclusions:** Malibu = room + shirt; Uluwatu = + surfboard + wetsuit (6 days); Waimea = + lesson each day (6 days).
+- [x] **Non-7-night:** prorate per night, **round up to nearest €5**.
+- [x] **Cancellation:** unpaid → bot cancels; paid → staff. **Changes → staff unless same nights + same rate + availability**, then bot moves. Refunds always manual.
+- [x] **Check-out 11:00 / check-in 15:00.** Freed room still cleaned even with no next guest (whole-room).
+- [x] **Add-on prices derived:** lesson **€25/day**; surfboard+wetsuit bundle **€16.67/day** (split 50/50 placeholder).
+- [x] **Handoff:** WhatsApp message to **Cami** (number editable per client).
+- [x] **Bad weather / no waves:** refund possible but **staff does it manually**.
+- [x] **Staff numbers:** managed by messaging the bot a **password** to unlock edit (mechanism spec'd).
 
-### Cancellation + refunds
+---
 
-- [ ] **P1** Guest-cancel windows and refund % (e.g. >30 days = 100%, 14–30 days = 50%, <14 days = 0%):
-- [ ] **P1** No-show policy:
-- [ ] **P1** Date-change fee or free-change window:
+**3x.2e (added):**
+- [x] **Dinner = €15** (per person per meal); **surfboard €20/day**, **wetsuit €20/day** (round up to nearest 5).
+- [x] **Handoff** WhatsApp number = operator number **+491726422307** (TEST stand-in for Cami; editable).
+- [x] **Master-admin numbers** can manage staff numbers + admin tasks via the bot; operator number set as admin.
+- [x] **No-show:** keep deposit, return the rest (refund executed manually by staff).
+- [x] **Recommendation:** don't ask skill level — ask what they **want** (wetsuit / board / lessons) → Malibu / Uluwatu / Waimea.
+- [x] **Non-7-night:** prorate **accommodation** per night (Malibu base) + **add-ons per day** at catalog rates.
+- [x] **No minimum nights.**
+- [x] **Add-on days** capped by **free days remaining** in the booking.
+- [x] **No bundle discount** (board/wetsuit/lesson day rates just stack).
+- [x] **Dinners** bookable during stay; guest shows the booking message / payment to staff when collecting food.
+- [x] **Secrets** (handoff number, master-admin numbers, admin password) moved to an untracked secret file (`*.secrets.json`, gitignored); easy to edit later.
+- [x] **March + November = shoulder**; **Dec / Jan / Feb = CLOSED** (no bookings).
+- [x] **Yoga** bookable like dinners (pay → show Cami the WhatsApp conversation + payment confirmation before the lesson); **provisional €15**.
+- [x] **No cleaning buffer** (0 min).
+- [x] **Cami = operator number** for now (in secret file; replace at deploy).
 
-### Confirmation approval
+---
 
-- [ ] **P1** Should bot send confirmation automatically after deposit, or does staff approve first?:
-- [ ] **P1** What should confirmation include beyond booking summary? (room assignment, balance, check-in/out, house rules, cancellation policy):
+## 🔴 Remaining — needed to CONFIRM (flip provisional → confirmed) / unblock live
 
-### Rooming auto-assign
-
-- [ ] **P1** Is bot allowed to auto-assign rooms/beds based on rooming rules, or should all rooming go to staff?:
-- [ ] **P1** What happens if a guest explicitly requests a specific room the bot cannot verify?:
-
-### Always-handoff triggers
-
-- [ ] **P1** What phrases from a guest mean "take over immediately"? (e.g. "I want to speak to someone"):
-- [ ] **P1** What hours/channels should the bot use to ping Cami or Ale for urgent handoffs?:
-- [ ] **P1** Emergency script — what should bot say when medical/legal/emergency comes in?:
+- [ ] **P1** **Confirm** the provisional prices are correct for 2026 (deposit €200, package table, double-room +€10/nt/person, dinner €15, board/wetsuit €20/day, lesson €25/day).
+- [ ] **P1** **Cami's real WhatsApp number** for production (currently operator test number in the secret file; update at deploy):
+- [ ] **P1** **Emergency script** wording (medical/legal/emergency):
+- [ ] **P1** Real **approved staff numbers + roles** (operator number is the only admin so far) + the **admin password** if you want the optional second factor (send securely, not in chat):
+- [ ] **P2** Confirm accommodation-only = Malibu base is fine:
+- [ ] **P2** How lessons are scheduled/tracked (slots / instructors / capacity):
+- [ ] **P2** Payment deadline after link sent + reminders:
+- [ ] **P3** Confirm the bot may say "I'll ask the team" before handoff (wording):
+- [ ] **P3** Anything else the owner thinks matters:
 
 ---
 

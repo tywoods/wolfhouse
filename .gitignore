@@ -7,6 +7,9 @@ docs/api keys.txt
 reports/*.csv
 reports/*.json
 
+# Client secrets (real phone numbers, passwords) — never commit; keep .example versions
+config/clients/*.secrets.json
+
 # Private / raw WhatsApp exports (never commit)
 data/private/
 data/raw-whatsapp/

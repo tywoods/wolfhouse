@@ -1,0 +1,167 @@
+{
+  "_meta": {
+    "status": "sample_paper_test",
+    "version": "0.1",
+    "created": "2026-05-29",
+    "purpose": "PAPER TEST ONLY (Stage 3x.3 portability validation). Not a real client. Drafted against the wolfhouse-somo.baseline.json schema to surface where the engine is still surf-house-shaped. This is NOT used at runtime. See docs/ROADMAP.md § Engine portability.",
+    "client_slug": "demo-surf-shop-rental",
+    "vertical": "rental",
+    "based_on_schema": "config/clients/wolfhouse-somo.baseline.json"
+  },
+
+  "vertical_profile": {
+    "_status": "sample",
+    "_note": "Vertical-specific shape. The shared spine (payment/confirmation/handoff/llm_safety/privacy) is reused unchanged; only this block + catalog + inventory differ.",
+    "vertical_type": "rental",
+    "bookable_resource": "rental_item",
+    "capabilities": ["availability", "payment_link", "confirmation", "handoff"],
+    "capabilities_not_used": ["rooming", "bed_assignment", "package_nights", "gender_dorms"],
+    "availability_model": "item_x_timewindow_x_quantity_x_size"
+  },
+
+  "inventory": {
+    "_status": "sample",
+    "_note": "Replaces the lodging beds/rooms model. Provider type = 'rentals'. Unit = item with size variants; availability = overlapping time windows minus reserved quantity.",
+    "provider": "rentals",
+    "rooming_uses_rooms_table": false,
+    "items": {
+      "surfboard": {
+        "sizes": ["6'0", "6'6", "7'2", "8'0_softtop"],
+        "quantity_by_size": { "6'0": 4, "6'6": 6, "7'2": 5, "8'0_softtop": 8 },
+        "fit_question": "rider height/weight or experience level",
+        "fit_owner_required": true
+      },
+      "wetsuit": {
+        "sizes": ["S", "M", "L", "XL"],
+        "quantity_by_size": { "S": 10, "M": 14, "L": 12, "XL": 6 }
+      },
+      "sup": {
+        "sizes": ["allround_10'6"],
+        "quantity_by_size": { "allround_10'6": 5 }
+      }
+    },
+    "rental_windows": {
+      "_owner_required": true,
+      "units_allowed": ["hour", "half_day", "day", "week"],
+      "min_window": null,
+      "max_window": null,
+      "buffer_between_rentals_minutes": null
+    },
+    "safe_default": "do_not_reserve_item_without_confirmed_size_window_and_quantity_available"
+  },
+
+  "catalog": {
+    "_status": "sample",
+    "_note": "Replaces 'packages'. Generic priced offerings. No surf-camp package names; pricing is per item per window.",
+    "offerings": [
+      { "code": "board_rental", "item": "surfboard", "price_basis": "per_item_per_window", "prices": null, "prices_owner_required": true },
+      { "code": "wetsuit_rental", "item": "wetsuit", "price_basis": "per_item_per_window", "prices": null, "prices_owner_required": true },
+      { "code": "sup_rental", "item": "sup", "price_basis": "per_item_per_window", "prices": null, "prices_owner_required": true },
+      { "code": "board_plus_wetsuit", "item": "bundle", "price_basis": "bundle", "prices": null, "prices_owner_required": true }
+    ],
+    "price_quote_requires": ["item", "size", "window_length", "quantity", "config_price_source"],
+    "custom_or_bulk_behavior": "handoff",
+    "safe_default": "no_exact_price_quote_without_confirmed_config_row"
+  },
+
+  "required_fields": {
+    "_status": "sample",
+    "_note": "Vertical override of the spine's required-field map. Note: NO dates-as-nights, NO guest_count-as-beds — this is where lodging assumptions leak.",
+    "reserve_item": ["item", "size_or_fit_info", "rental_window_start", "rental_window_length", "quantity", "contact_phone"],
+    "send_payment_link": ["active_reservation", "name", "email", "deposit_rule_known"]
+  },
+
+  "payment": {
+    "_status": "owner_required",
+    "_note": "Reused spine section, unchanged shape. Deposit vs full-upfront unknown for this demo.",
+    "deposit_amount_eur": null,
+    "deposit_scope": null,
+    "_deposit_scope_options": ["per_item", "per_reservation", "full_upfront"],
+    "deposit_currency": "EUR",
+    "payment_link_requires_name": true,
+    "payment_link_requires_email": true,
+    "security_deposit_or_damage_hold": null,
+    "_security_deposit_note": "RENTAL-SPECIFIC: damage/security hold has no equivalent in the lodging baseline schema — see _portability_findings.",
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm",
+    "safe_default": "do_not_send_payment_link_without_confirmed_deposit_rule"
+  },
+
+  "confirmation": {
+    "_status": "provisional",
+    "_note": "Reused spine section. Confirmation should include pickup time/location instead of check-in/checkout.",
+    "confirmation_send_mode": "dry_run",
+    "confirmation_requires_payment_truth": true,
+    "include_pickup_time_location": null,
+    "include_return_time": null,
+    "include_damage_policy": null,
+    "safe_default": "keep_dry_run_or_staff_approval_until_real_send_gate"
+  },
+
+  "cancellation": {
+    "_status": "handoff_only",
+    "_note": "Reused spine section, unchanged.",
+    "auto_cancel_allowed": false,
+    "refund_requests_handoff": true,
+    "date_change_handoff": true,
+    "cancellation_policy_windows": null,
+    "safe_default": "never_cancel_refund_or_change_automatically_without_confirmed_policy"
+  },
+
+  "handoff": {
+    "_status": "confirmed",
+    "_note": "Reused spine section, unchanged across verticals.",
+    "always_handoff": [
+      "refund_request",
+      "complaint_or_angry_guest",
+      "discount_request",
+      "bulk_or_group_rental_beyond_limit",
+      "damage_dispute",
+      "guest_claims_paid_but_no_payment_record",
+      "cancellation_ambiguity",
+      "medical_legal_emergency",
+      "low_route_confidence",
+      "llm_parse_error_or_api_failure"
+    ],
+    "handoff_safe_reply": "Let me connect you with our team — they'll be with you shortly."
+  },
+
+  "llm_safety": {
+    "_status": "confirmed",
+    "_note": "Reused spine section verbatim. Not vertical-specific.",
+    "low_confidence_behavior": "handoff",
+    "api_error_behavior": "handoff_or_logged_safe_fallback",
+    "parsing_uncertainty_behavior": "ask_clarification_not_act",
+    "never_mark_from_llm_alone": ["paid", "confirmed", "cancelled"],
+    "multilingual_test_required": ["en", "es"]
+  },
+
+  "customer_memory_privacy": {
+    "_status": "blocked_until_privacy_gate",
+    "_note": "Reused spine section verbatim. Not vertical-specific.",
+    "layer2_personal_data_to_pg_allowed": false,
+    "safe_default": "no_personal_data_to_pg_until_all_privacy_gate_items_checked"
+  },
+
+  "_portability_findings": {
+    "_note": "OUTPUT of the paper test — these are the gaps where wolfhouse-somo.baseline.json assumes a surf house. Each becomes a Stage 5 extraction backlog item so the spine is vertical-neutral.",
+    "fits_unchanged": [
+      "payment (shape)",
+      "confirmation (shape)",
+      "cancellation",
+      "handoff",
+      "llm_safety",
+      "customer_memory_privacy",
+      "stage gates"
+    ],
+    "required_schema_generalizations": [
+      "Top-level 'packages' must become generic 'catalog.offerings' (package names are surf-camp-specific).",
+      "'rooming' block must be optional/capability-gated — absent entirely for rentals.",
+      "Availability model must be abstracted: lodging uses date-range bed overlap; rentals use item x time-window x quantity x size. Needs InventoryProvider interface.",
+      "required_fields keyed on (check_in/check_out nights, guest_count->beds) leak lodging assumptions; must be per-vertical required-field map.",
+      "deposit_scope options are lodging-flavored (per_person/per_package); rentals need per_item/full_upfront and a SECURITY/DAMAGE hold concept that does not exist in baseline.",
+      "confirmation include_* fields assume check-in/checkout + house rules; rentals need pickup/return time+location + damage policy.",
+      "'guest' vocabulary vs 'customer/renter' — keep spine vocabulary neutral or config-driven."
+    ],
+    "verdict": "Backbone is ~70% reusable as-is (entire payment/confirmation/handoff/safety spine). The non-reusable 30% is concentrated exactly at the catalog + inventory/availability seam — confirming the ROADMAP portability plan. No spine rewrite needed; build InventoryProvider + generic catalog and gate rooming."
+  }
+}

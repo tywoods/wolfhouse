@@ -1,0 +1,169 @@
+{
+  "_meta": {
+    "status": "sample_paper_test",
+    "version": "0.1",
+    "created": "2026-05-29",
+    "purpose": "PAPER TEST ONLY (Stage 3x.3 portability validation). Not a real client. Drafted against the wolfhouse-somo.baseline.json schema to surface where the engine is still surf-house-shaped. NOT used at runtime. See docs/ROADMAP.md § Engine portability.",
+    "client_slug": "demo-surf-school",
+    "vertical": "lessons",
+    "based_on_schema": "config/clients/wolfhouse-somo.baseline.json"
+  },
+
+  "vertical_profile": {
+    "_status": "sample",
+    "_note": "Lesson/slot vertical. Shared spine reused unchanged; catalog + inventory differ. Closest neighbor of the lodging model because both reserve capacity over time, but the unit is a time-slot seat, not a bed-night.",
+    "vertical_type": "lessons",
+    "bookable_resource": "lesson_slot_seat",
+    "capabilities": ["availability", "payment_link", "confirmation", "handoff", "skill_level_matching"],
+    "capabilities_not_used": ["rooming", "bed_assignment", "package_nights", "gender_dorms"],
+    "availability_model": "slot_x_instructor_capacity"
+  },
+
+  "inventory": {
+    "_status": "sample",
+    "_note": "Replaces lodging beds/rooms. Provider type = 'slots'. Unit = seat in a scheduled lesson slot; availability = slot capacity minus booked seats. Instructor is a constraint, analogous to a room but time-bounded.",
+    "provider": "slots",
+    "rooming_uses_rooms_table": false,
+    "slots": {
+      "_owner_required": true,
+      "schedule_source": null,
+      "_schedule_source_options": ["fixed_weekly_template", "google_calendar", "staff_managed"],
+      "session_lengths": ["90min", "half_day"],
+      "default_slot_capacity": null,
+      "instructors": {
+        "_note": "Instructor availability constrains slot supply. No equivalent in lodging baseline.",
+        "tracked": null,
+        "max_students_per_instructor": null
+      }
+    },
+    "skill_levels": {
+      "_owner_required": true,
+      "values": ["never_surfed", "beginner", "intermediate", "advanced"],
+      "level_gating": "match_lesson_type_to_declared_level_or_handoff"
+    },
+    "safe_default": "do_not_book_seat_without_confirmed_slot_capacity_date_time_and_level_fit"
+  },
+
+  "catalog": {
+    "_status": "sample",
+    "_note": "Replaces 'packages'. Generic offerings = lesson types. Priced per seat per session (group) or per session (private).",
+    "offerings": [
+      { "code": "group_lesson", "price_basis": "per_seat_per_session", "level": "beginner_intermediate", "prices": null, "prices_owner_required": true },
+      { "code": "private_lesson", "price_basis": "per_session", "level": "any", "prices": null, "prices_owner_required": true },
+      { "code": "kids_lesson", "price_basis": "per_seat_per_session", "level": "beginner", "age_rule_owner_required": true, "prices": null },
+      { "code": "multi_day_course", "price_basis": "per_course", "sessions": null, "prices": null, "prices_owner_required": true }
+    ],
+    "price_quote_requires": ["lesson_type", "date_time_or_slot", "participant_count", "config_price_source"],
+    "custom_or_group_behavior": "handoff",
+    "recommendation_map": {
+      "_status": "sample",
+      "never_surfed": "group_lesson",
+      "wants_fast_progress": "private_lesson",
+      "child": "kids_lesson",
+      "week_long": "multi_day_course"
+    },
+    "safe_default": "no_exact_price_quote_without_confirmed_config_row"
+  },
+
+  "required_fields": {
+    "_status": "sample",
+    "_note": "Vertical override. Introduces skill_level + participant_count(seats) instead of nights+beds.",
+    "book_lesson": ["lesson_type", "preferred_date_time_or_slot", "participant_count", "skill_level", "contact_phone"],
+    "send_payment_link": ["active_lesson_reservation", "name", "email", "deposit_rule_known"]
+  },
+
+  "payment": {
+    "_status": "owner_required",
+    "_note": "Reused spine section, unchanged shape.",
+    "deposit_amount_eur": null,
+    "deposit_scope": null,
+    "_deposit_scope_options": ["per_seat", "per_session", "full_upfront"],
+    "deposit_currency": "EUR",
+    "payment_link_requires_name": true,
+    "payment_link_requires_email": true,
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm",
+    "safe_default": "do_not_send_payment_link_without_confirmed_deposit_rule"
+  },
+
+  "confirmation": {
+    "_status": "provisional",
+    "_note": "Reused spine section. Should include lesson date/time + meeting point + what to bring instead of check-in/checkout.",
+    "confirmation_send_mode": "dry_run",
+    "confirmation_requires_payment_truth": true,
+    "include_lesson_datetime": null,
+    "include_meeting_point": null,
+    "include_what_to_bring": null,
+    "include_weather_cancellation_policy": null,
+    "safe_default": "keep_dry_run_or_staff_approval_until_real_send_gate"
+  },
+
+  "cancellation": {
+    "_status": "handoff_only",
+    "_note": "Reused spine section. Weather cancellation is lesson-specific and likely needs its own rule later.",
+    "auto_cancel_allowed": false,
+    "refund_requests_handoff": true,
+    "date_change_handoff": true,
+    "weather_cancellation_policy": null,
+    "safe_default": "never_cancel_refund_or_reschedule_automatically_without_confirmed_policy"
+  },
+
+  "handoff": {
+    "_status": "confirmed",
+    "_note": "Reused spine section, unchanged across verticals.",
+    "always_handoff": [
+      "refund_request",
+      "complaint_or_angry_guest",
+      "discount_request",
+      "group_lesson_beyond_limit",
+      "guest_claims_paid_but_no_payment_record",
+      "cancellation_ambiguity",
+      "weather_reschedule_ambiguity",
+      "medical_legal_emergency",
+      "minor_without_guardian_consent",
+      "low_route_confidence",
+      "llm_parse_error_or_api_failure"
+    ],
+    "handoff_safe_reply": "Let me connect you with our team — they'll be with you shortly."
+  },
+
+  "llm_safety": {
+    "_status": "confirmed",
+    "_note": "Reused spine section verbatim. Not vertical-specific.",
+    "low_confidence_behavior": "handoff",
+    "api_error_behavior": "handoff_or_logged_safe_fallback",
+    "parsing_uncertainty_behavior": "ask_clarification_not_act",
+    "never_mark_from_llm_alone": ["paid", "confirmed", "cancelled"],
+    "multilingual_test_required": ["en", "es"]
+  },
+
+  "customer_memory_privacy": {
+    "_status": "blocked_until_privacy_gate",
+    "_note": "Reused spine section verbatim. Note: minors' data raises extra privacy obligations — flagged for owner.",
+    "layer2_personal_data_to_pg_allowed": false,
+    "minor_participant_data_extra_gate": true,
+    "safe_default": "no_personal_data_to_pg_until_all_privacy_gate_items_checked"
+  },
+
+  "_portability_findings": {
+    "_note": "OUTPUT of the paper test — gaps where the lodging baseline assumes a surf house. Each becomes a Stage 5 extraction backlog item.",
+    "fits_unchanged": [
+      "payment (shape)",
+      "confirmation (shape)",
+      "cancellation",
+      "handoff",
+      "llm_safety",
+      "customer_memory_privacy",
+      "stage gates"
+    ],
+    "required_schema_generalizations": [
+      "'packages' → generic 'catalog.offerings' (lesson types, not surf-camp packages).",
+      "'rooming' block absent — must be capability-gated, not assumed present.",
+      "Availability: lodging = bed-night date overlap; lessons = slot capacity + instructor constraint. Needs InventoryProvider('slots') with a scheduling/instructor concept absent from baseline.",
+      "New first-class dimension 'skill_level' has no home in the lodging schema; must live in vertical config + required_fields.",
+      "required_fields use participant_count(seats) + date_time(slot), not guest_count(beds) + nights.",
+      "confirmation include_* fields assume accommodation; lessons need datetime + meeting point + what-to-bring + weather policy.",
+      "Minor/guardian consent + weather cancellation are vertical-specific rules with no baseline slot."
+    ],
+    "verdict": "Closest vertical to lodging (both reserve time-bounded capacity), yet still ~30% non-reusable, concentrated at catalog + inventory/availability + a new skill_level dimension. Confirms: build InventoryProvider + generic catalog + per-vertical required_fields; spine stays intact."
+  }
+}

@@ -1,31 +1,89 @@
 {
   "_meta": {
-    "status": "baseline_provisional",
-    "version": "0.1",
+    "status": "baseline_provisional_with_owner_answers",
+    "version": "0.5",
     "created": "2026-05-29",
-    "purpose": "Stage 3x.2 minimum business logic baseline for Stage 4 entry. All rules are classified: confirmed / provisional / handoff_only / owner_required / nice_to_have. Rules marked owner_required must not be used as if known — safe defaults apply until Ale/Cami confirm. Do not invent prices, policies, or room rules.",
+    "updated": "2026-05-29 (Stage 3x.2f — 2026 package prices CONFIRMED; yoga €15; Dec/Jan/Feb closed; no cleaning buffer; formalized DEPLOY-CONFIG pattern: this file is the per-client deploy config, with template + guide for new clients/verticals)",
+    "purpose": "Stage 3x.2 minimum business logic baseline for Stage 4 entry. All rules are classified: confirmed / provisional / partially_confirmed / handoff_only / owner_required / nice_to_have. Rules marked owner_required must not be used as if known — safe defaults apply until Ale/Cami confirm. 3x.2c applied confirmed owner answers (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming + operator-room logic). 3x.2d added WORKING/PROVISIONAL prices and policies (deposit €200, 2026 package table, proration, derived add-on prices, check-in/out times, cancellation/date-change conditions, handoff to WhatsApp, staff-directory password edit). Pricing is PROVISIONAL — see pricing_policy. A real autonomous charge to a real guest requires pricing_status=confirmed; provisional prices are safe for dry-run/shadow only.",
     "client_slug": "wolfhouse-somo",
     "owner_questionnaire": "docs/knowledge/wolfhouse-somo-gaps.md",
     "technical_proof": "docs/PROJECT-STATE.md",
     "master_spec": "docs/STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md"
   },
 
+  "secrets": {
+    "_status": "confirmed",
+    "_note": "3x.2e: real phone numbers + admin password are NOT stored in this committed config. They live in an untracked secret file (gitignored). Anything referenced as 'secret:<key>' is resolved from that file. To update a number/password later, edit the secret file only.",
+    "secret_file": "config/clients/wolfhouse-somo.secrets.json",
+    "example_file": "config/clients/wolfhouse-somo.secrets.example.json",
+    "gitignored": true,
+    "keys": ["handoff_whatsapp_phone", "master_admin_numbers", "staff_admin_password"]
+  },
+
+  "deploy_config": {
+    "_status": "confirmed",
+    "_note": "PORTABILITY: this whole file IS the per-client DEPLOY CONFIG. The engine is generic and reads these values; nothing surf-house-specific is hardcoded in code/workflows. Deploying a NEW client = copy the template, fill these deploy-time values, create a secret file, (and for a different vertical) pick an inventory model. See docs/DEPLOYMENT-CONFIG.md and config/clients/_deploy-config.template.json.",
+    "is_client_deploy_config": true,
+    "template": "config/clients/_deploy-config.template.json",
+    "guide": "docs/DEPLOYMENT-CONFIG.md",
+    "deploy_time_fields": [
+      "_meta.client_slug",
+      "secrets (handoff number, master-admin numbers, admin password)",
+      "operations.check_in_time / check_out_time / housekeeping",
+      "confirmation.gate_code / address",
+      "packages.* (catalog, seasons, prices, inclusions, room-type modifiers)",
+      "packages.closed_months",
+      "payment.deposit_amount / deposit_scope",
+      "service_addons.service_catalog (prices)",
+      "rooming.rooms (inventory map — lodging vertical)",
+      "cancellation.* (policy)",
+      "handoff.handoff_whatsapp_target (via secret)",
+      "staff_directory.master_admin (via secret)"
+    ],
+    "engine_default_fields_rarely_changed": [
+      "llm_safety", "pricing_policy (mechanism)", "customer_memory_privacy", "stage4_entry_gate"
+    ],
+    "vertical": "lodging_surf_house",
+    "_vertical_note": "Surf shop / surf school reuse the same engine; they swap packages->offerings and rooming->slots/rentals inventory. See ROADMAP § Engine portability and the surf-*.sample.json paper tests."
+  },
+
+  "pricing_policy": {
+    "_status": "confirmed",
+    "_note": "3x.2d: governs how prices may be used. Every priced item carries pricing_status. PROVISIONAL prices (the working numbers below, supplied by the operator pending Ale/Cami sign-off) may be used in dry-run, golden tests, and Stage 3y shadow drafts (staff approve before send). They must NOT be used to autonomously charge or quote a real guest in live mode — that requires pricing_status=confirmed. Flip provisional -> confirmed when owner verifies; values are kept in single easy-to-edit fields.",
+    "currency": "EUR",
+    "global_pricing_status": "provisional",
+    "provisional_allowed_contexts": ["dry_run", "golden_tests", "shadow_staff_approved"],
+    "live_autonomous_charge_requires": "pricing_status_confirmed",
+    "on_provisional_in_live": "handoff_or_block_do_not_autocharge",
+    "rounding_rule_packages": "prorate_per_night_then_round_up_to_nearest_5_eur",
+    "rounding_rule_addons": "round_up_to_nearest_1_eur_provisional"
+  },
+
   "payment": {
-    "_status": "owner_required",
-    "_note": "Stripe checkout and webhook payment truth proven technically. Exact deposit rules unknown. Bot must not quote final price or send payment link without confirmed deposit rule.",
-    "deposit_amount_eur": null,
-    "deposit_scope": null,
-    "_deposit_scope_options": ["per_booking", "per_person", "per_package"],
-    "deposit_currency": "EUR",
-    "payment_link_auto_allowed": null,
+    "_status": "partially_confirmed",
+    "_note": "3x.2c: bot may auto-send payment link once required details collected, asks deposit-vs-full, hold 1 hour, balance payable at arrival via cash/bank/stripe. 3x.2d: deposit set to a PROVISIONAL flat €200/booking and package prices supplied (see packages + pricing_policy). Provisional prices are safe for dry-run/shadow only; live autonomous charge requires pricing_status=confirmed.",
+    "payment_link_auto_allowed": true,
+    "payment_link_options": ["deposit", "full"],
+    "ask_deposit_or_full": true,
     "payment_link_requires_name": true,
     "payment_link_requires_email": true,
-    "hold_expiry_hours": null,
+    "hold_expiry_minutes": 60,
+    "hold_expiry_hours": 1,
     "payment_link_expiry_hours": null,
     "payment_reminders_allowed": null,
-    "balance_payment_process": null,
+    "balance_payment_timing": "at_arrival_or_checkin",
+    "balance_payment_methods": ["cash", "bank_transfer", "stripe"],
+    "balance_stripe_supported": "planned",
+    "deposit_amount_eur": 200,
+    "deposit_amount": 200,
+    "deposit_scope": "per_booking",
+    "_deposit_scope_options": ["per_booking", "per_person", "per_package"],
+    "deposit_pricing_status": "provisional",
+    "_deposit_note": "3x.2d: flat €200 per booking for now (operator decision, pending Ale/Cami confirmation). Easy to edit here.",
+    "variable_deposit_rule": "flat_for_now",
+    "deposit_currency": "EUR",
     "payment_claim_behavior": "check_stripe_payment_events_not_llm",
-    "safe_default": "do_not_quote_final_price_or_send_payment_link_without_confirmed_deposit_rule",
+    "safe_default": "may_send_payment_link_after_required_details_collected_but_never_quote_deposit_or_final_price_without_confirmed_amount_rule",
     "technically_proven": [
       "stripe_checkout_link_creation_3d7b",
       "stripe_webhook_payment_truth_3d5b",
@@ -35,19 +93,26 @@
   },
 
   "confirmation": {
-    "_status": "provisional",
-    "_note": "Send Confirmation dry-run proven. Real WhatsApp send not yet tested. Keep in dry_run or staff_approval until real-send gate or Stage 3y shadow mode.",
-    "auto_confirm_after_deposit": false,
-    "confirmation_send_mode": "dry_run",
-    "_confirmation_send_mode_options": ["dry_run", "staff_approval", "auto"],
+    "_status": "partially_confirmed",
+    "_note": "3x.2c: owner approved auto-confirm AFTER payment truth, and confirmed content (address, gate code, room number; NOT bed number). IMPORTANT distinction: the auto-confirm DECISION is approved, but the actual REAL WhatsApp send is still a separate gate — keep dry_run / staff_approval send until Stage 3y shadow mode or a real-send gate proves it. confirmation_send_mode 'auto_after_payment_truth' describes the trigger logic, not authorization to send live WhatsApp yet.",
+    "auto_confirm_after_deposit": true,
+    "confirmation_send_mode": "auto_after_payment_truth",
+    "_confirmation_send_mode_options": ["dry_run", "staff_approval", "auto_after_payment_truth"],
     "confirmation_requires_payment_truth": true,
-    "include_room_assignment": null,
+    "real_whatsapp_send_gate": "separate_gate_or_shadow_mode_until_proven",
+    "include_address": true,
+    "include_gate_code": true,
+    "gate_code": "2684#",
+    "include_room_number": true,
+    "include_bed_number": false,
+    "include_room_assignment": true,
     "include_remaining_balance": null,
-    "include_checkin_checkout": null,
+    "include_checkin_checkout": true,
+    "_checkin_checkout_note": "3x.2d: check-in 15:00 / check-out 11:00 from operations block.",
     "include_house_rules": null,
     "include_cancellation_policy": null,
     "confirmation_language_strategy": null,
-    "safe_default": "keep_dry_run_or_staff_approval_until_real_whatsapp_send_gate_or_shadow_mode",
+    "safe_default": "auto_confirm_logic_after_payment_truth_but_keep_real_whatsapp_send_gated_until_shadow_mode_or_real_send_gate",
     "technically_proven": [
       "send_confirmation_dry_run_3d6e",
       "integrated_confirmation_after_payment_truth_3d9b",
@@ -56,81 +121,133 @@
   },
 
   "cancellation": {
-    "_status": "handoff_only",
-    "_note": "No confirmed policy yet. Always handoff until Ale/Cami confirm windows and refund percentages. Safe replies provided for bot to use before handoff.",
-    "auto_cancel_allowed": false,
+    "_status": "partially_confirmed",
+    "_note": "3x.2d: owner clarified. UNPAID bookings can be cancelled by the bot. PAID cancellations -> staff. ALL changes -> staff UNLESS the new booking has the SAME night/day count AND the SAME rate AND availability exists -> then the bot may move it. Refunds are always manual/staff. no_show_policy still owner_required.",
+    "auto_cancel_allowed_if_unpaid": true,
+    "paid_cancellation_handoff": true,
+    "auto_date_change_allowed_if_unpaid": true,
+    "auto_date_change_allowed_if_same_nights": true,
+    "auto_date_change_requires": ["same_night_count", "same_rate", "availability_exists"],
+    "auto_date_change_else": "handoff",
+    "paid_reschedule_handoff": true,
     "refund_requests_handoff": true,
-    "date_change_handoff": true,
-    "cancellation_policy_windows": null,
-    "refund_percentages": null,
-    "no_show_policy": null,
-    "date_change_fee": null,
+    "refund_policy": "paid_cancellations_and_refunds_handled_manually_by_staff",
+    "unknown_question_handoff": true,
+    "cancellation_policy_windows": "unpaid_free_cancel_paid_to_staff",
+    "refund_percentages": "owner_required",
+    "no_show_policy": "keep_deposit_return_remaining_balance",
+    "_no_show_note": "3x.2e: on no-show, keep the deposit and return the rest. Any actual refund of the remainder is executed manually by staff.",
+    "date_change_fee": "free_if_same_nights_same_rate_and_available_else_staff",
     "cancellation_safe_reply": "I'll connect you with our team to handle this — please give us a moment.",
     "refund_safe_reply": "Refunds are handled by our team directly. Let me pass you over.",
     "date_change_safe_reply": "Date changes need to be confirmed by our team. I'll flag this for them now.",
-    "safe_default": "never_cancel_refund_or_change_dates_automatically_without_confirmed_policy_and_exact_booking_match"
+    "safe_default": "auto_cancel_only_if_unpaid_auto_move_only_if_same_nights_same_rate_and_available_else_handoff_with_exact_booking_match"
   },
 
   "rooming": {
     "_status": "provisional",
-    "_note": "Room map confirmed by Cami. Airtable Rooms table is authoritative — config is guidance only. Auto-assign approval still pending owner answer. Staff/Surfweek rooms excluded. Matrimonial/private only on explicit request.",
+    "_note": "3x.2c: owner approved bot auto-assign when Rooms table/config is clear. Airtable Rooms table is authoritative — config is guidance only. Bot must never move staff/manual assignments. R6 protected for couples/private/matrimonial. R7/R9/R10 are NOT inherently forbidden: they are normally held by operator bookings; if an operator block covers them they are unavailable, but if released/available they may be assigned. Operator blocks are authoritative. Operator-room release is a supported function (existing Operator Room Release workflow / planned flow).",
     "rooming_uses_rooms_table": true,
-    "rooming_auto_assign_allowed": null,
-    "rooming_auto_assign_owner_approval_pending": true,
+    "rooming_auto_assign_allowed": true,
+    "rooming_requires_clear_room_config": true,
+    "rooming_auto_assign_owner_approval_pending": false,
+    "manual_assignment_lock": true,
+    "manual_assignment_lock_respected": true,
+    "never_move_staff_assignments": true,
+    "r6_private_matrimonial_protected": true,
+    "operator_rooms_available_if_not_blocked": true,
+    "operator_blocks_authoritative": true,
+    "surfweek_rooms_not_excluded_if_available": true,
+    "operator_room_release_supported": "planned_or_existing_function",
     "rooms": {
-      "_note": "Cami 2026 room map — guidance only; Airtable Rooms table is source of truth",
+      "_note": "Cami 2026 room map — guidance only; Airtable Rooms table is source of truth. guest_assignable reflects whether the bot may auto-place a guest; operator_block_dependent rooms are assignable only when no operator block covers the dates.",
       "R1": { "capacity": 5, "type": "mixed", "status": "confirmed_by_cami", "guest_assignable": true },
       "R2": { "capacity": 5, "type": "male_only", "status": "confirmed_by_cami", "guest_assignable": true },
       "R3": { "capacity": 4, "type": "matrimonial_or_mixed", "note": "beds joined = matrimonial couple room; otherwise mixed", "status": "confirmed_by_cami", "guest_assignable": true },
       "R4": { "capacity": 9, "type": "male_only", "status": "confirmed_by_cami", "guest_assignable": true },
       "R5": { "capacity": 6, "type": "female_only", "status": "confirmed_by_cami", "guest_assignable": true },
-      "R6": { "capacity": 2, "type": "matrimonial_private_couple", "status": "confirmed_by_cami", "guest_assignable": true },
-      "R7": { "capacity": 4, "type": "staff_surfweek", "status": "exclude_from_guest_auto_assign", "guest_assignable": false },
+      "R6": { "capacity": 2, "type": "matrimonial_private_couple", "status": "confirmed_by_cami", "guest_assignable": true, "protected": true, "note": "couples/private/matrimonial only; do not place unrelated guests" },
+      "R7": { "capacity": 4, "type": "operator_surfweek", "availability": "operator_block_dependent", "status": "confirmed_by_cami", "guest_assignable": true, "note": "assignable only when not covered by an operator block" },
       "R8": { "capacity": 5, "type": "female_only", "status": "confirmed_by_cami", "guest_assignable": true },
-      "R9": { "capacity": 6, "type": "surfweek", "status": "exclude_from_guest_auto_assign", "guest_assignable": false },
-      "R10": { "capacity": 6, "type": "surfweek", "status": "exclude_from_guest_auto_assign", "guest_assignable": false }
+      "R9": { "capacity": 6, "type": "operator_surfweek", "availability": "operator_block_dependent", "status": "confirmed_by_cami", "guest_assignable": true, "note": "assignable only when not covered by an operator block" },
+      "R10": { "capacity": 6, "type": "operator_surfweek", "availability": "operator_block_dependent", "status": "confirmed_by_cami", "guest_assignable": true, "note": "assignable only when not covered by an operator block" }
     },
-    "staff_reserved_rooms_behavior": "exclude_from_auto_assign_or_handoff",
-    "surfweek_rooms_behavior": "exclude_from_auto_assign_or_handoff",
+    "operator_room_behavior": "assignable_if_available_unavailable_while_operator_block_covers_dates",
     "private_room_protection": "require_explicit_request_or_config_approval",
     "matrimonial_room_requires_explicit_request": true,
     "couple_strategy": "prefer_R3_or_R6_if_available_else_handoff",
     "solo_female_strategy": "prefer_R5_or_R8_else_handoff",
     "solo_male_strategy": "prefer_R2_or_R4_else_handoff",
-    "mixed_group_strategy": null,
-    "manual_assignment_lock": true,
+    "mixed_group_strategy": "owner_required",
     "missing_rooming_info_behavior": "ask_one_clarification_or_handoff",
-    "safe_default": "auto_assign_only_when_exact_booking_and_room_config_clear_else_handoff"
+    "safe_default": "auto_assign_only_when_exact_booking_and_room_config_clear_respect_operator_blocks_and_manual_locks_else_handoff"
   },
 
   "packages": {
     "_status": "provisional",
-    "_note": "Public package names confirmed. 2026 prices, availability, and operational rules still owner_required. Bot may explain packages at a high level from public website facts. Must not quote exact EUR amount without config row.",
+    "_note": "3x.2f: 2026 price table CONFIRMED by owner. Prices are PER PERSON for the 7-night package in a SHARED room. Double room = +€10 per night per person. Shorter/longer stays: prorate accommodation per night + add-ons per day. Dec/Jan/Feb closed.",
+    "pricing_status": "confirmed_2026",
     "known_packages": ["malibu", "uluwatu", "waimea"],
-    "packages_valid_2026": null,
-    "prices_2026": null,
-    "minimum_nights": null,
-    "always_7_nights": null,
-    "accommodation_only_allowed": null,
-    "accommodation_only_rules": null,
+    "price_basis": "per_person",
+    "base_nights": 7,
+    "currency": "EUR",
+    "inclusions": {
+      "malibu": { "nights": 7, "includes": ["shared_room", "shirt"] },
+      "uluwatu": { "nights": 7, "includes": ["shared_room", "shirt", "surfboard_6_days", "wetsuit_6_days"] },
+      "waimea": { "nights": 7, "includes": ["shared_room", "shirt", "surfboard_6_days", "wetsuit_6_days", "surf_lesson_each_day_6_days"] }
+    },
+    "room_type_pricing": {
+      "shared": { "modifier_eur": 0, "_note": "base price as listed" },
+      "double": { "modifier_eur_per_night_per_person": 10, "_note": "+€10 per night per person on top of base" }
+    },
+    "seasons_2026": {
+      "_note": "month -> season. 3x.2e: Mar+Nov shoulder; Jul+Sep high; Aug peak; Dec/Jan/Feb CLOSED (no bookings).",
+      "march": "shoulder", "april": "shoulder", "may": "shoulder", "june": "shoulder", "october": "shoulder", "november": "shoulder",
+      "july": "high", "september": "high",
+      "august": "peak",
+      "december": "closed", "january": "closed", "february": "closed"
+    },
+    "closed_months": ["december", "january", "february"],
+    "closed_months_behavior": "do_not_quote_or_book_inform_closed_and_handoff_if_insistent",
+    "prices_2026_per_person_7nt_shared": {
+      "shoulder": { "malibu": 249, "uluwatu": 349, "waimea": 499 },
+      "high":     { "malibu": 299, "uluwatu": 399, "waimea": 549 },
+      "peak":     { "malibu": 349, "uluwatu": 449, "waimea": 599 }
+    },
+    "non_7_night_pricing": {
+      "_status": "provisional",
+      "method": "prorate_accommodation_per_night_plus_chosen_addons_per_day",
+      "_note": "3x.2e (owner): for non-standard stays, prorate ACCOMMODATION separately and add gear/lessons per day. Accommodation base = Malibu seasonal price (room + shirt; same shared room for all packages). Add-ons billed per day requested at service_catalog day rates (board €20, wetsuit €20, lesson €25). The named 7-night packages keep their bundled (cheaper) prices; this build-up is for partial/custom stays.",
+      "accommodation_base_source": "malibu_seasonal_price",
+      "accommodation_per_night_formula": "malibu_season_price / 7",
+      "accommodation_rounding": "round_up_to_nearest_5_eur",
+      "addons_per_day_source": "service_catalog_day_rates",
+      "addon_days": "guest_specified_capped_by_free_days_remaining_in_booking",
+      "_addon_days_note": "3x.2e (owner): a guest can add gear/lessons for as many days as they have FREE/remaining in their booking — cannot exceed days left.",
+      "example": "shoulder, 4 nights, wants board+wetsuit 3 days: accommodation = round_up_5(249/7*4=142.3)=145; add-ons = 3*(20+20)=120; total=265 per person."
+    },
+    "minimum_nights": "none",
+    "always_7_nights": false,
+    "accommodation_only_allowed": "yes_malibu_is_room_plus_shirt_base",
     "custom_packages_allowed": null,
     "custom_packages_behavior": "handoff",
-    "lessons_rentals_sold_separately": null,
     "recommendation_map": {
       "_status": "provisional",
-      "beginner": "malibu",
-      "intermediate": "uluwatu",
-      "advanced_or_no_lessons_needed": "waimea_or_accommodation_plus_rentals",
-      "cheapest": "accommodation_only_if_allowed_else_malibu",
-      "all_inclusive_unclear": "handoff_to_confirm"
+      "_note": "3x.2e (owner): do NOT ask the guest's skill level. Ask what they WANT (wetsuit / board / lessons) and map to the package that bundles it; or build a custom stay from accommodation + add-ons.",
+      "ask": "what_do_you_want_wetsuit_board_lessons",
+      "wants_room_only": "malibu",
+      "wants_board_and_or_wetsuit": "uluwatu",
+      "wants_lessons": "waimea",
+      "non_standard_stay": "build_from_accommodation_plus_addons_per_day",
+      "unclear": "handoff_to_confirm"
     },
-    "price_quote_requires": ["dates", "guest_count", "package_code", "config_price_source"],
-    "safe_default": "no_exact_price_quote_without_confirmed_config_row_for_dates_count_package"
+    "price_quote_requires": ["dates", "guest_count", "desired_services", "room_type", "season", "config_price_source"],
+    "safe_default": "quote_only_from_this_table_with_pricing_status_respected_else_handoff"
   },
 
   "handoff": {
     "_status": "confirmed",
-    "_note": "Handoff triggers are confirmed safe defaults. Channel and notification timing still owner_required.",
+    "_note": "3x.2c: trigger list confirmed; added paid-cancellation, non-safe reschedule, and any-unanswerable-question triggers. Handoff is a product feature, not just a failure state — short-term + future Staff UI design in docs/STAFF-HANDOFF-PLAN.md. Channel/notification destination still owner_required.",
     "always_handoff": [
       "refund_request",
       "complaint_or_angry_guest",
@@ -139,18 +256,40 @@
       "group_booking_beyond_configured_limit",
       "multiple_active_bookings_same_conversation",
       "guest_claims_paid_but_no_payment_record",
+      "paid_booking_cancellation",
+      "reschedule_unless_unpaid_or_same_night_count",
       "cancellation_ambiguity",
       "date_change_ambiguity",
       "rooming_uncertainty",
-      "staff_or_surfweek_room_request",
+      "staff_or_manual_room_assignment_change",
+      "question_bot_cannot_answer",
       "medical_legal_emergency",
       "low_route_confidence",
       "conflicting_dates_or_guest_count",
       "llm_parse_error_or_api_failure"
     ],
-    "handoff_channel": null,
+    "handoff_plan_doc": "docs/STAFF-HANDOFF-PLAN.md",
+    "handoff_channel": "whatsapp",
+    "_handoff_channel_note": "3x.2d: start with a WhatsApp message to Cami. The target number is EDITABLE in config so other clients can point elsewhere. Single destination for now (no topic routing yet).",
+    "handoff_routing": "single_destination",
+    "handoff_whatsapp_target": {
+      "label": "Cami (TEST = operator number)",
+      "phone_ref": "secret:handoff_whatsapp_phone",
+      "phone_status": "provisional_test_number",
+      "editable": true,
+      "_note": "3x.2e: number lives in the secret file (currently operator's number as a stand-in for Cami). Edit secret file to change for production. Per-client editable."
+    },
+    "tell_guest_before_handoff": true,
+    "_tell_guest_before_handoff_note": "Default assumption: bot says it will check with the team before handing off. Confirm wording with owner.",
     "handoff_notify_within_hours": null,
-    "emergency_script": null,
+    "emergency_script": "owner_required",
+    "handoff_short_term_state": {
+      "conversation_status": "human_handoff",
+      "store_handoff_reason": true,
+      "store_last_bot_summary": true,
+      "store_suggested_reply": true,
+      "staff_can_return_to_bot": true
+    },
     "handoff_safe_reply": "Let me connect you with our team — they'll be with you shortly."
   },
 
@@ -181,6 +320,106 @@
     "safe_default": "no_personal_data_to_pg_until_all_privacy_gate_items_checked"
   },
 
+  "service_addons": {
+    "_status": "planned",
+    "_note": "3x.2c: owner wants guests to text the bot DURING their stay to add services (dinner, wetsuit, surfboard, surf lesson, etc.) with a number of days/quantity. Bot creates a Stripe payment link; after webhook-confirmed payment, a voucher is issued that the guest shows to staff ON-SITE to verify and redeem. Plan + data model in docs/DURING-STAY-ADDONS-PLAN.md. No runtime yet. Reuses the proven Stripe link + webhook payment-truth spine (NOT a new payment integration). Pricing, scheduling, and weather rules are owner_required.",
+    "during_stay_requests_enabled": "planned",
+    "bot_may_collect": ["service_type", "start_date", "end_date_or_number_of_days", "quantity"],
+    "bot_may_quote_if": "price_and_inventory_known_and_config_allows",
+    "bot_creates_stripe_link": "planned_reuses_proven_payment_spine",
+    "payment_truth_source": "stripe_webhook_not_llm",
+    "fulfillment_model": "issue_voucher_on_paid_then_staff_redeems_onsite",
+    "redemption_is_staff_action": true,
+    "bot_never_marks_redeemed": true,
+    "otherwise": "create_service_request_and_handoff",
+    "tracking_target": "staff_ui_or_airtable_initially_then_postgres_service_table",
+    "pricing_status": "provisional",
+    "service_catalog": {
+      "_note": "3x.2e: operator-set per-day/per-meal add-on prices. Easy to edit each price_eur here. Provisional until owner confirms; provisional prices are dry-run/shadow only (pricing_policy). These add-on day rates are also used to build non-7-night quotes (accommodation prorated + add-ons per day requested).",
+      "surf_lesson": { "pricing_unit": "per_day", "price_eur": 25, "pricing_status": "provisional", "fulfillment": "onsite_redeem" },
+      "surfboard_rental": { "pricing_unit": "per_day", "price_eur": 20, "pricing_status": "provisional", "fulfillment": "onsite_redeem" },
+      "wetsuit_rental": { "pricing_unit": "per_day", "price_eur": 20, "pricing_status": "provisional", "fulfillment": "onsite_redeem" },
+      "surfboard_wetsuit_bundle": { "pricing_unit": "per_day", "price_eur": 40, "pricing_status": "provisional", "_note": "3x.2e: NO bundle discount — price = sum of individual day rates (20 + 20)." },
+      "dinner_meal": { "pricing_unit": "per_person_per_meal", "price_eur": 15, "pricing_status": "provisional", "fulfillment": "onsite_redeem", "_note": "3x.2e: guests may book dinners during stay; they show the booking message / payment to staff when collecting their food. Quantity = number of meals / people." },
+      "yoga_class": { "pricing_unit": "per_person_per_class", "price_eur": 15, "pricing_status": "provisional", "fulfillment": "onsite_redeem", "_note": "3x.2e: bookable like dinners — guest pays for a yoga class, then shows Cami the WhatsApp conversation + payment confirmation before the lesson. Provisional €15; easy to edit." }
+    },
+    "bundle_discount": "none",
+    "addon_days_capped_by_free_days_remaining": true,
+    "dinner_booking_enabled": true,
+    "yoga_booking_enabled": true,
+    "onsite_redeem_proof": "show_whatsapp_conversation_and_payment_confirmation_to_staff",
+    "bad_weather_or_no_waves_policy": "refund_possible_but_manual_staff_handoff",
+    "owner_required": [
+      "yoga_class_price",
+      "lesson_scheduling_and_tracking"
+    ]
+  },
+
+  "staff_queries": {
+    "_status": "planned",
+    "_note": "3x.2c: staff want to ask the bot read-only operational questions ('who has a surfboard today?', 'who has dinner tonight?', 'who arrives today?'). Plan in docs/STAFF-QUERY-ASSISTANT-PLAN.md. Read-only, staff-channel only, never exposed to guests. LLM maps NL -> fixed safe parameterized intents; NEVER generates arbitrary SQL. No mutation on this path ever.",
+    "read_only": true,
+    "staff_channel_only": true,
+    "never_exposed_to_guests": true,
+    "no_freeform_sql": true,
+    "maps_nl_to_fixed_intents": true,
+    "mutation_allowed": false,
+    "safe_intents": [
+      "arrivals_on_date",
+      "departures_on_date",
+      "room_occupancy_on_date",
+      "free_beds_on_range",
+      "balance_outstanding",
+      "guests_with_service_on_date",
+      "service_redemptions_today",
+      "rooms_to_clean_on_date"
+    ],
+    "unmapped_question_behavior": "decline_or_offer_closest_intent_no_guessing",
+    "auth_required": "approved_staff_number_in_staff_directory"
+  },
+
+  "staff_directory": {
+    "_status": "planned",
+    "_note": "3x.2e: roles model. MASTER ADMIN numbers can manage the directory and run admin tasks via the bot (add/remove staff numbers, etc.). Approved STAFF numbers get staff-channel features (queries, handoff replies, redemptions). A number in neither list is treated as a guest. This allowlist gates every staff-only capability. Interim store = config/Airtable; management PORTAL = Stage 6 Staff UI.",
+    "approved_numbers_source": "config_or_airtable_interim_then_postgres",
+    "management_portal": "stage6_staff_ui",
+    "default_for_unknown_number": "treat_as_guest_no_staff_privileges",
+    "master_admin": {
+      "_note": "3x.2e: MASTER ADMIN numbers can add/remove staff numbers and run admin tasks via the bot. The actual numbers live in the secret file (currently the operator number as test admin). Default permissions below apply to admins.",
+      "numbers_ref": "secret:master_admin_numbers",
+      "default_permissions": { "can_query": true, "can_reply_handoff": true, "can_redeem_vouchers": true, "can_manage_staff": true }
+    },
+    "fields_per_staff": ["name", "phone", "role", "active", "can_query", "can_reply_handoff", "can_redeem_vouchers", "can_manage_staff"],
+    "approved_numbers": [],
+    "admin_via_whatsapp": {
+      "_status": "planned",
+      "_note": "3x.2e: a MASTER ADMIN number can manage approved staff numbers and run admin tasks by messaging the bot. Primary auth = sender is in master_admin.numbers_ref. Optional second factor = the secret password. Every change is logged and the session is time-boxed.",
+      "enabled": "planned",
+      "primary_auth": "sender_in_master_admin_numbers",
+      "optional_second_factor_password_ref": "secret:staff_admin_password",
+      "password_in_committed_config": false,
+      "edit_session_timeout_minutes": 10,
+      "log_all_changes": true,
+      "allowed_admin_operations": ["add_staff_number", "remove_staff_number", "list_staff_numbers", "set_staff_role", "set_handoff_number"]
+    }
+  },
+
+  "operations": {
+    "_status": "partially_confirmed",
+    "_note": "3x.2d: check-out 11:00, check-in 15:00 (may change later — easy to edit). Housekeeping: a room freed by checkout must be cleaned; cleaning window is checkout -> next check-in (11:00 -> 15:00 on turnover). A freed room with no next guest STILL needs cleaning the same day. Cleaning buffer not specified -> owner_required.",
+    "check_in_time": "15:00",
+    "check_out_time": "11:00",
+    "times_status": "provisional_may_change",
+    "housekeeping": {
+      "_status": "partially_confirmed",
+      "cleaning_scope": "whole_room",
+      "_cleaning_scope_options": ["per_bed_changeover", "whole_room_daily", "whole_room_on_turnover"],
+      "cleaning_buffer_minutes": 0,
+      "same_day_turnover_deadline_rule": "ready_before_next_checkin_15_00_else_end_of_day",
+      "no_next_guest_rule": "still_clean_same_day"
+    }
+  },
+
   "stage4_entry_gate": {
     "_note": "Stage 4 may begin when all dangerous action rules have confirmed, provisional, or handoff_only classification — no null rule without an explicit safe default.",
     "required_conditions": [
@@ -191,13 +430,51 @@
       "rooming_e2e_proof_complete",
       "real_whatsapp_send_is_separate_gate_or_shadow_mode_not_blocker"
     ],
+    "resolved_in_3x2c": [
+      "payment_link_auto_send_approved",
+      "hold_expiry_set_60_minutes",
+      "confirmation_auto_after_payment_truth_approved",
+      "confirmation_content_address_gate_code_room_number_confirmed_no_bed_number",
+      "rooming_auto_assign_approved_when_config_clear",
+      "manual_and_operator_room_logic_confirmed",
+      "r6_protection_confirmed",
+      "conditional_auto_cancel_and_date_change_rules_confirmed"
+    ],
+    "resolved_in_3x2d_provisional": [
+      "deposit_flat_200_per_booking",
+      "package_2026_price_table_shoulder_high_peak",
+      "non_7_night_proration_round_up_5",
+      "double_room_plus_10_per_night_per_person",
+      "cancellation_unpaid_auto_paid_to_staff",
+      "date_change_auto_only_if_same_nights_same_rate_and_available",
+      "checkin_15_checkout_11",
+      "housekeeping_whole_room_clean_even_with_no_next_guest",
+      "addon_prices_derived_lesson_25_board_wetsuit_bundle_16_67",
+      "handoff_channel_whatsapp_to_cami_editable_number",
+      "bad_weather_refund_manual_staff"
+    ],
+    "resolved_in_3x2e_provisional": [
+      "dinner_15_eur",
+      "surfboard_20_wetsuit_20_per_day",
+      "yoga_15_eur",
+      "handoff_whatsapp_test_number_in_secret_file",
+      "master_admin_numbers_model_operator_number",
+      "no_show_keep_deposit_return_remainder_manual",
+      "want_based_recommendation_no_skill_level",
+      "non_7_night_accommodation_prorated_plus_addons_per_day",
+      "dec_jan_feb_closed",
+      "mar_nov_shoulder",
+      "no_cleaning_buffer"
+    ],
+    "resolved_in_3x2f": [
+      "package_2026_prices_confirmed_by_owner",
+      "deploy_config_pattern_formalized_template_and_guide"
+    ],
     "current_blockers": [
-      "deposit_amount_eur_null_owner_required",
-      "confirmation_send_mode_still_dry_run_pending_real_send_gate",
-      "rooming_auto_assign_allowed_null_owner_approval_pending",
-      "cancellation_policy_windows_null_handoff_only_pending_owner_rules",
-      "packages_valid_2026_null_owner_required",
-      "prices_2026_null_owner_required"
+      "deposit_and_addon_prices_provisional_confirm_before_live_autonomous_charge",
+      "real_cami_handoff_number_for_production_set_in_secret_file_at_deploy",
+      "emergency_script_owner_required",
+      "real_whatsapp_send_gate_or_shadow_mode_for_confirmation"
     ],
     "non_blockers": [
       "exact_package_copy_perfection",

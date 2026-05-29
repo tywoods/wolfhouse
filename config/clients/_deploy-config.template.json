@@ -1,0 +1,129 @@
+{
+  "_README": "DEPLOY CONFIG TEMPLATE — copy to config/clients/<client-slug>.baseline.json and fill the values. This is the ONLY file you edit per client (plus a secret file). The engine is generic and reads these values; never hardcode client/vertical specifics in code or workflows. Legend: <FILL> = set per client; secret:<key> = lives in the gitignored secret file; engine_default = usually leave as-is. See docs/DEPLOYMENT-CONFIG.md.",
+
+  "_meta": {
+    "client_slug": "<FILL: e.g. wolfhouse-somo>",
+    "client_name": "<FILL>",
+    "vertical": "<FILL: lodging_surf_house | surf_shop_rentals | surf_school_lessons | tours>",
+    "timezone": "<FILL: e.g. Europe/Madrid>",
+    "languages": ["<FILL: en, es, it>"],
+    "currency": "<FILL: EUR>",
+    "status": "deploy_draft"
+  },
+
+  "secrets": {
+    "_note": "engine_default mechanism. Real numbers/passwords go in <client-slug>.secrets.json (gitignored). Reference by 'secret:<key>'.",
+    "secret_file": "config/clients/<client-slug>.secrets.json",
+    "example_file": "config/clients/<client-slug>.secrets.example.json",
+    "keys": ["handoff_whatsapp_phone", "master_admin_numbers", "staff_admin_password"]
+  },
+
+  "property": {
+    "_note": "Physical/operational facts shown in confirmations and used for housekeeping.",
+    "address": "<FILL>",
+    "gate_code": "<FILL or null>",
+    "check_in_time": "<FILL: e.g. 15:00>",
+    "check_out_time": "<FILL: e.g. 11:00>",
+    "closed_months": ["<FILL: e.g. december, january, february>"],
+    "housekeeping": {
+      "cleaning_scope": "<FILL: whole_room | per_bed_changeover | whole_room_daily>",
+      "cleaning_buffer_minutes": "<FILL: e.g. 0>",
+      "no_next_guest_rule": "<FILL: e.g. still_clean_same_day>"
+    }
+  },
+
+  "pricing_policy": {
+    "_note": "engine_default mechanism. Each priced item carries pricing_status; provisional prices are dry-run/shadow only, confirmed required for live autonomous charge.",
+    "currency": "<FILL: EUR>",
+    "rounding_rule_packages": "prorate_per_night_then_round_up_to_nearest_5_eur",
+    "rounding_rule_addons": "round_up_to_nearest_1_eur",
+    "live_autonomous_charge_requires": "pricing_status_confirmed"
+  },
+
+  "catalog": {
+    "_note": "VERTICAL SEAM. Lodging = packages; surf shop = rental SKUs; school = lesson types; tours = departures. Fill the shape that matches the vertical; delete the others.",
+    "offering_type": "<FILL: packages | rentals | lessons | departures>",
+    "price_basis": "<FILL: per_person | per_item | per_seat>",
+    "base_nights_or_unit": "<FILL: e.g. 7 nights | per_day | per_session>",
+    "seasons": { "<season_key>": ["<months>"] },
+    "prices": { "<season_key>": { "<offering_code>": "<price>" } },
+    "inclusions": { "<offering_code>": ["<what is included>"] },
+    "room_or_unit_type_modifiers": { "<type>": { "modifier": "<e.g. +10 per night per person>" } },
+    "non_standard_duration_pricing": {
+      "method": "<FILL: prorate_accommodation_per_night_plus_addons_per_day | prorate_per_unit>",
+      "rounding": "round_up_to_nearest_5_eur"
+    },
+    "recommendation": {
+      "_note": "Ask what the guest WANTS, map to an offering. Avoid asking skill level unless the vertical needs it.",
+      "ask": "<FILL: e.g. what_do_you_want_wetsuit_board_lessons>",
+      "map": { "<want>": "<offering_code>" },
+      "unclear": "handoff_to_confirm"
+    }
+  },
+
+  "payment": {
+    "_note": "engine_default behavior; deploy values = deposit.",
+    "deposit_amount": "<FILL: e.g. 200>",
+    "deposit_scope": "<FILL: per_booking | per_person | per_package>",
+    "hold_expiry_minutes": "<FILL: e.g. 60>",
+    "payment_link_options": ["deposit", "full"],
+    "balance_payment_methods": ["<FILL: cash, bank_transfer, stripe>"],
+    "pricing_status": "<provisional | confirmed>"
+  },
+
+  "service_addons": {
+    "_note": "During-stay add-ons (rentals/lessons/meals/yoga/etc). Onsite redeem = guest shows booking msg + payment to staff.",
+    "enabled": true,
+    "addon_days_capped_by_free_days_remaining": true,
+    "onsite_redeem_proof": "show_whatsapp_conversation_and_payment_confirmation_to_staff",
+    "bundle_discount": "<FILL: none | describe>",
+    "service_catalog": {
+      "<service_id>": { "pricing_unit": "<per_day|per_session|per_person|fixed>", "price_eur": "<FILL>", "pricing_status": "<provisional|confirmed>", "fulfillment": "onsite_redeem" }
+    }
+  },
+
+  "inventory": {
+    "_note": "VERTICAL SEAM (InventoryProvider). Lodging = rooms/beds map (+ rooming rules). Slots = lesson/tour time-slot capacity. Rentals = item x window x quantity x size. Only fill the relevant model.",
+    "model": "<FILL: lodging | slots | rentals>",
+    "lodging_rooms": { "<R#>": { "capacity": "<n>", "type": "<mixed|male_only|female_only|private>", "guest_assignable": true } },
+    "rooming_rules": {
+      "_note": "lodging only — behind a capability flag; omit for non-lodging verticals.",
+      "auto_assign_allowed": true,
+      "never_move_staff_assignments": true,
+      "protected_rooms": [],
+      "operator_block_dependent_rooms": []
+    }
+  },
+
+  "cancellation": {
+    "auto_cancel_allowed_if_unpaid": true,
+    "paid_cancellation_handoff": true,
+    "auto_date_change_requires": ["same_night_count", "same_rate", "availability_exists"],
+    "refund_policy": "<FILL>",
+    "no_show_policy": "<FILL: e.g. keep_deposit_return_remaining_balance>",
+    "bad_weather_or_no_waves_policy": "<FILL or n/a>"
+  },
+
+  "handoff": {
+    "handoff_channel": "<FILL: whatsapp>",
+    "handoff_whatsapp_target": { "label": "<FILL>", "phone_ref": "secret:handoff_whatsapp_phone", "editable": true },
+    "tell_guest_before_handoff": true,
+    "emergency_script": "<FILL>",
+    "always_handoff": "engine_default_list_plus_client_additions"
+  },
+
+  "staff_directory": {
+    "default_for_unknown_number": "treat_as_guest_no_staff_privileges",
+    "master_admin": { "numbers_ref": "secret:master_admin_numbers", "default_permissions": { "can_manage_staff": true } },
+    "admin_via_whatsapp": { "primary_auth": "sender_in_master_admin_numbers", "optional_second_factor_password_ref": "secret:staff_admin_password" }
+  },
+
+  "staff_queries": {
+    "_note": "engine_default; read-only ops Q&A gated by staff_directory. Add/remove safe intents per vertical.",
+    "read_only": true,
+    "safe_intents": ["arrivals_on_date", "departures_on_date", "balance_outstanding", "guests_with_service_on_date", "rooms_to_clean_on_date"]
+  },
+
+  "llm_safety": "engine_default",
+  "customer_memory_privacy": "engine_default_blocked_until_privacy_gate"
+}

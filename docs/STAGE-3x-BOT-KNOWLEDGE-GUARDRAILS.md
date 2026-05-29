@@ -396,15 +396,39 @@ Stage 4 may begin when:
 | Rooming E2E proof complete | **Done** — 3e.4 PASS `WH-260528-5322` |
 | Real WhatsApp send is separate gate or Stage 3y shadow mode (not a Stage 4 blocker) | Confirmed — deferred |
 
-**Remaining blockers (unlock when owner answers):**
-1. `deposit_amount_eur` — owner_required → blocks payment link automation
-2. `confirmation_send_mode` — provisional (`dry_run`) → unlocks after real-send gate or Stage 3y
-3. `rooming_auto_assign_allowed` — owner approval pending
-4. Cancellation/date-change policy — handoff_only until windows confirmed
-5. Package prices 2026 — owner_required → blocks exact price quotes
+**Remaining blockers (after 3x.2c — reduced):**
+1. `deposit_amount` + `deposit_scope` — owner_required → blocks deposit/price quoting (payment-link auto-send itself is now approved)
+2. Package pricing math for non-7-night stays — owner_required → blocks exact price quotes
+3. Cancellation / refund **policy details** (windows, %) — bot uses conditional safe rules + handoff until confirmed
+4. Add-on services pricing/scheduling — owner_required *if* add-ons are in Stage 4 scope ([`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md))
+5. Real WhatsApp send gate or Stage 3y shadow mode for confirmation
+6. Final handoff channel/destination plan ([`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md))
 
 **Non-blockers for Stage 4 start:**
-- Exact package copy polish · tone and emoji · full customer memory import · advanced returning-guest behavior · full FAQ · marketing opt-in · staff UI
+- Exact package copy polish · tone and emoji · full customer memory import · advanced returning-guest behavior · full FAQ · marketing opt-in · staff UI · exact add-on automation
+
+---
+
+## 3x.2c — Applied owner answers (2026-05-29)
+
+Owner/user answered many P1 questions; the baseline config was updated from `null`/`handoff_only` toward `confirmed` / `partially_confirmed`. Source: `config/clients/wolfhouse-somo.baseline.json` (v0.2).
+
+### Now confirmed / partially confirmed
+
+| Domain | Change | New status |
+|--------|--------|-----------|
+| Payment | Bot may auto-send payment link once required details collected; must ask **deposit vs full**; **hold valid 60 min**; balance payable at arrival via cash / bank transfer / Stripe (Stripe-at-arrival = `planned`) | `partially_confirmed` |
+| Confirmation | **Auto-confirm after payment truth** approved; include **address, gate code `2684#`, room number**; **no bed number**. Real WhatsApp send still a separate gate (dry-run/shadow until proven) | `partially_confirmed` |
+| Cancellation / date change | Auto-cancel **only if unpaid**; auto-date-change **only if unpaid OR same night-count**; paid cancel/reschedule → staff; refunds → staff. Policy windows/% still owner_required | `partially_confirmed` |
+| Rooming | Bot may **auto-assign when room config is clear**; never move staff/manual assignments; **R6 protected**; R7/R9/R10 assignable **only when not operator-blocked**; operator blocks authoritative; operator-room release supported | `provisional` (approved) |
+| Handoff | Added triggers: paid-cancellation, non-safe reschedule, any unanswerable question. Channel/destination still owner_required | `confirmed` (triggers) |
+
+### Still owner_required (P1/P2)
+Deposit amount + scope · variable-deposit rule · non-7-night pricing math · cancellation/refund windows & % · add-on service prices/scheduling · yoga rules · bad-weather/no-waves policy · final handoff channel.
+
+### New plans created
+- [`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md) — handoff as a product feature (short-term state + future Inbox UI).
+- [`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md) — during-stay service add-ons (catalog + request model).
 
 ---
 
@@ -748,6 +772,8 @@ Bot **must stop guessing** and alert staff when:
 
 **Guest-facing pattern:** Acknowledge; “Cami/Ale will reply shortly”; **do not** promise refund, room, or price.
 
+**Full handoff design (short-term state + future Staff Inbox UI):** [`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md). Handoff is treated as a **product feature**, not just a failure state, and is the basis of Stage 3y shadow/co-pilot mode.
+
 ---
 
 ## 3x.9 — Wrong-booking protection
@@ -904,7 +930,9 @@ Stage 3x is **complete** when all of the following exist as reviewed docs/specs 
 | **3x.1** | Full roadmap spec §3x.1–3x.11 + exit criteria | **Done** |
 | **3x.1b** | Customer memory layered model (§3x.5) | **Done** |
 | **3x.2b** | Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) |
-| **3x.2** | Ale/Cami owner answers → promote provisional → confirmed config | In progress |
+| **3x.2c** | Applied owner/user P1 answers → baseline v0.2; staff-handoff + add-on plans | **Done** (2026-05-29) |
+| **3x.2d** | Working prices + policies → baseline v0.3 (deposit, 2026 package table, proration, derived add-ons, check-in/out, cancellation conditions, WhatsApp handoff, staff-directory password) — **PROVISIONAL pricing** | **Done** (2026-05-29) |
+| **3x.2** | Ale/Cami **confirm** provisional prices + fill remaining gaps → promote provisional → confirmed | In progress |
 | **3x.3** | WhatsApp mining + golden fixtures + customer extract review | Planned |
 | **3x.4** | Golden runner stub + Stage 4 reliability hooks | Planned |
 

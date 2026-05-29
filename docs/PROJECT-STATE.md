@@ -1,7 +1,7 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-29 (Stage 3x.2b: minimum business logic baseline + Stage 4 entry gate)  
-**HEAD (expected):** `9f38392` (3e.4 docs)
+**Last updated:** 2026-05-29 (Stage 3x.2e: prices/policies refined → baseline v0.4, PROVISIONAL pricing)  
+**HEAD (expected):** `e6a17ae` (3x.2 baseline) + uncommitted 3x.2c–3x.2e docs/config patch
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -282,7 +282,9 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 | **3x.1** Full planning roadmap | **Done** | [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) §3x.1–3x.11 + exit criteria |
 | **3x.1b** Customer memory + WhatsApp migration | **Done** | Same doc §3x.5; three-layer model *(no import/DB yet)* |
 | **3x.2b** Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) | [config/clients/wolfhouse-somo.baseline.json](../config/clients/wolfhouse-somo.baseline.json) |
-| **3x.2** Ale/Cami owner answers → confirm provisional rules | In progress | [knowledge/wolfhouse-somo-gaps.md](knowledge/wolfhouse-somo-gaps.md) — P1/P2/P3 priorities added |
+| **3x.2c** Applied owner/user P1 answers → baseline v0.2 + handoff/add-on plans | **Done** (2026-05-29) | baseline v0.2 · [STAFF-HANDOFF-PLAN.md](STAFF-HANDOFF-PLAN.md) · [DURING-STAY-ADDONS-PLAN.md](DURING-STAY-ADDONS-PLAN.md) · [STAFF-QUERY-ASSISTANT-PLAN.md](STAFF-QUERY-ASSISTANT-PLAN.md) |
+| **3x.2d** Working prices + policies → baseline v0.3 (PROVISIONAL pricing) | **Done** (2026-05-29) | deposit €200 · 2026 package table · proration · derived add-ons · check-in/out · WhatsApp handoff · `pricing_policy` guard |
+| **3x.2** Ale/Cami **confirm** provisional prices + fill gaps → confirmed config | In progress | [knowledge/wolfhouse-somo-gaps.md](knowledge/wolfhouse-somo-gaps.md) — remaining items |
 | **3x.3** WhatsApp mining + golden + customer extract | Planned | Layer 1 off-repo; Layer 2/3 outputs; staff review queue |
 | **3x.4** Golden runner (Stage 4 prep) | Planned | 	est:golden-messages stub |
 
@@ -297,7 +299,8 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 **Stage 3d (engineering):** Integrated pay + webhook + dry-run confirmation **complete** on `WH-260528-5369` (terminal; do not reuse).
 
 **Immediate (Stage 3x execution):**
-- **3x.2** — Ale/Cami complete [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md); draft `config/clients/wolfhouse-somo.json`.
+- **3x.2c done** — applied owner P1 answers to baseline v0.2 (payment-link auto-send, 60-min hold, auto-confirm content, conditional cancel/date-change, rooming auto-assign + operator-room logic). Created [`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md) and [`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md).
+- **3x.2** — Ale/Cami complete remaining P1 in [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) (deposit amount/scope, non-7-night pricing, cancel/refund windows, add-on prices, handoff channel); then promote provisional → confirmed and draft `config/clients/wolfhouse-somo.json`.
 - **3x.3** — Redacted WhatsApp mining (§3x.4 + §3x.5): Layer 3 fixtures + Layer 2 customer extract (owner-approved fields only).
 
 **Parallel (Stage 3 residual):**

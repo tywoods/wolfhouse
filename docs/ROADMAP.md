@@ -202,6 +202,10 @@ Each gap found ("this field has no home," "this rule assumes beds") becomes a li
 
 **Do not** build multi-vertical infra early. **Do** lock the seam now so Stage 5 cleanup produces portable modules instead of a tidied-up surf-house monolith.
 
+### Deploy config (the onboarding contract)
+
+Every client-specific value (prices, seasons, gate code, phone numbers, packages, room map, policies) lives in **one per-client deploy config** + a gitignored secret file — never hardcoded in code/workflows. A new client = fill the template, not rewrite logic. Template: [`config/clients/_deploy-config.template.json`](../config/clients/_deploy-config.template.json) · Guide: [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md). Wolfhouse's `wolfhouse-somo.baseline.json` is the worked example (`vertical: lodging_surf_house`).
+
 ---
 
 ## Legacy phase map (reference)
@@ -388,11 +392,13 @@ Define the business knowledge and decision rules the bot needs to act safely, as
 | **3x.1** Full roadmap §3x.1–3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
 | **3x.1b** Customer memory layered model (§3x.5) | **Done** (2026-05-28) |
 | **3x.2b** Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) |
-|| **3x.2** Ale/Cami owner answers → confirm provisional rules | In progress |
+| **3x.2c** Applied owner P1 answers → baseline v0.2 + handoff/add-on plans | **Done** (2026-05-29) |
+| **3x.2d** Working prices + policies → baseline v0.3 (provisional pricing) | **Done** (2026-05-29) |
+| **3x.2** Ale/Cami **confirm** provisional prices + fill gaps → confirmed config | In progress |
 | **3x.3** WhatsApp mining + golden fixtures + customer extract | Planned |
 | **3x.4** Golden runner + Stage 4 reliability hooks | Planned |
 
-**Stage 3x includes:** required-field map · package decision flow · Wolfhouse knowledge collection · **WhatsApp history mining** · **customer memory migration** · golden message tests · dangerous-action gates · human handoff · wrong-booking protection · duplicate protection · client-config architecture · **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
+**Stage 3x includes:** required-field map · package decision flow · Wolfhouse knowledge collection · **WhatsApp history mining** · **customer memory migration** · golden message tests · dangerous-action gates · human handoff ([`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md)) · during-stay add-ons ([`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md)) · wrong-booking protection · duplicate protection · client-config architecture · **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
 
 ### Summary index (detail in master spec)
 
@@ -608,6 +614,12 @@ This is a **first-class roadmap event**, not a scattered implementation detail. 
 
 Make the working system **dependable and observable** after Stage 3 behavior is proven and Stage 3x rules are specified.
 
+### Entry gate (defined in baseline config + §3x.2b)
+
+Gate definition: [`config/clients/wolfhouse-somo.baseline.json`](../config/clients/wolfhouse-somo.baseline.json) (`stage4_entry_gate`) and [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` §3x.2b/§3x.2c](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x2c--applied-owner-answers-2026-05-29).
+
+**Reduced after 3x.2c** (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming auto-assign + operator-room logic all confirmed). **Remaining owner blockers:** deposit amount/scope · non-7-night pricing math · cancellation/refund windows & % · add-on service prices/scheduling (if in Stage 4 scope) · real WhatsApp send gate or Stage 3y shadow · final handoff channel. **Not blockers:** perfect tone · full customer memory · marketing opt-in · exact add-on automation.
+
 ### Includes
 
 - Better error handling and safe retries (where idempotent)
@@ -629,6 +641,7 @@ May begin here if needed before full Stage 6 UI:
 - Human handoff queue
 - Pending confirmations
 - Failed workflow executions
+- **Staff query assistant** (read-only ops Q&A: "who has a surfboard today?", "who arrives today?", "which rooms need cleaning and by when?") gated by an **approved-staff allowlist** (`staff_directory`; portal = Stage 6) — [`STAFF-QUERY-ASSISTANT-PLAN.md`](STAFF-QUERY-ASSISTANT-PLAN.md)
 
 ---
 
