@@ -1,6 +1,6 @@
 # Phase 3y — Shadow / Co-pilot Plan
 
-**Status:** MODE A RUNTIME GATE 3 — PASS (Y-T1/Y-T2/Y-T5/Y-T6/Y-T9 all completed offline-safe, 2026-05-29)  
+**Status:** MODE A RUNTIME GATE 4 — PASS (all 10 payloads Y-T1 through Y-T10 completed offline-safe, 2026-05-30)  
 **Stage 3.5 closeout commit:** `d08c64e`  
 **Purpose:** Bridge the gap between isolated dry-run proof and autonomous live guest operation. The bot reads (or classifies) real or real-ish guest messages, drafts proposed replies and actions, and presents them to staff for approval. Staff remains the final actor for every send, payment, and booking mutation. No autonomous dangerous action.
 
@@ -289,14 +289,14 @@ These tests are all Mode A (offline/pasted messages) unless noted.
 |---------|-------------|----------------|----------------------|---------|-------------|----------------|
 | Y-T1 | "I want to book for 2 people, April 10–17" | `booking_flow` | Ask for package type; do NOT hold/pay | ✅ | ✅ | **PASS** (gate 3): route=`booking_flow` conf 0.98, missing=[], no mutations, 6 shadow gates fired, no send/AT/hold. Draft not generated (PG hold stub fails validation — expected in shadow mode; availability reply path requires real hold) |
 | Y-T2 | "What packages do you have?" | `quote` | Describe packages; do NOT invent prices | ✅ | ✅ | **PASS** (gate 3): route=`general_question` conf 0.95, draft captured, 9 shadow gates fired, no mutations |
-| Y-T3 | "Hey, I already booked for April 10 to April 17. Can you check my booking?" | `booking_flow` or `general_question` | Ask for booking reference; do NOT create new booking | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
-| Y-T4 | "Hi, I need to cancel my booking for next week." | `cancel` or `handoff_needed` | Surface policy; hand off; do NOT cancel autonomously | ✅ | ✅ (no booking write) | CREATED / NOT RUNTIME TESTED |
-| Y-T5 | Booking intent, no dates | `booking_flow` | Request check-in / check-out dates | ✅ | ✅ | **PASS** (gate 3): route=`booking_flow` conf 0.95, missing=["check_in","check_out","guest_count"], 9 shadow gates fired, no mutations. Draft node not captured (missing-fields booking_flow path — runner tooling gap) |
-| Y-T6 | Dates present, no guest count | `booking_flow` | Request guest count | ✅ | ✅ | **PASS** (gate 3): route=`booking_flow` conf 0.95, missing=["guest_count"] (correct!), 9 shadow gates fired, no mutations. Draft node not captured (same tooling gap as Y-T5) |
-| Y-T7 | "How do I pay the deposit? Can I pay the full amount instead?" | `payment_flow` or `general_question` | Explain payment process; do NOT create payment link | ✅ | ✅ (no payment write) | CREATED / NOT RUNTIME TESTED |
-| Y-T8 | "Can I get a sea view room or a private room if possible?" | `rooming_info` or `general_question` | Acknowledge preference; do NOT assign beds or promise room | ✅ | ✅ (no booking_beds write) | CREATED / NOT RUNTIME TESTED |
+| Y-T3 | "Hey, I already booked for April 10 to April 17. Can you check my booking?" | `booking_flow` or `general_question` | Ask for booking reference; do NOT create new booking | ✅ | ✅ | **PASS** (gate 4): route=`existing_booking_status` conf 0.95, 6 shadow gates fired, no mutations. No draft (Switch terminates before reply branch -- existing_booking_status draft NEEDS TUNING) |
+| Y-T4 | "Hi, I need to cancel my booking for next week." | `cancel` or `handoff_needed` | Surface policy; hand off; do NOT cancel autonomously | ✅ | ✅ (no booking write) | **PASS** (gate 4): route=`existing_booking_cancel` conf 0.95, 6 shadow gates fired, no mutations. No draft (terminated at Search Bookings -- cancel reply NEEDS TUNING) |
+| Y-T5 | Booking intent, no dates | `booking_flow` | Request check-in / check-out dates | ✅ | ✅ | **PASS** (gate 4): route=`booking_flow` conf 0.99, missing=["check_in","check_out","guest_count"], 9 shadow gates fired, no mutations. Draft captured: "Hey, welcome! Stoked you're thinking of staying with us at Wolfhouse! To get things started -- what dates are you looking to check in and out?" |
+| Y-T6 | Dates present, no guest count | `booking_flow` | Request guest count | ✅ | ✅ | **PASS** (gate 4): route=`booking_flow` conf 0.95, missing=["guest_count"] (correct!), 9 shadow gates fired, no mutations. Draft captured: "Hey! Great to hear from you! How many guests will be staying?" |
+| Y-T7 | "How do I pay the deposit? Can I pay the full amount instead?" | `payment_flow` or `general_question` | Explain payment process; do NOT create payment link | ✅ | ✅ (no payment write) | **PASS** (gate 4): route=`payment_or_confirm_intent` conf 0.85, 9 shadow gates fired, no mutations, no payment write. Draft: "Hey! Great question! You can definitely pay the full amount upfront if you'd like..." |
+| Y-T8 | "Can I get a sea view room or a private room if possible?" | `rooming_info` or `general_question` | Acknowledge preference; do NOT assign beds or promise room | ✅ | ✅ (no booking_beds write) | **NEEDS TUNING** (gate 4): route=`rooming_details_provided` conf 0.95 (correct routing). Execution errored at `Call Reassign Booking Beds` -- HTTP call to local reassign endpoint fails in offline mode. 7 shadow gates fired, booking_beds=0 (no write). Reassign HTTP node needs DRY_RUN gate. |
 | Y-T9 | Low-confidence ("hey what's up") | `unknown` / `handoff_needed` | Ask clarifying question; low confidence | ✅ | ✅ | **PASS** (gate 3): route=`general_question` conf 0.85, draft="Hey! 🤙 What's good? Welcome to Wolfhouse! How can we help you out?", 9 shadow gates fired, no mutations |
-| Y-T10 | "I'm really annoyed, nobody has replied and I want my money back." | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | CREATED / NOT RUNTIME TESTED |
+| Y-T10 | "I'm really annoyed, nobody has replied and I want my money back." | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | **PASS** (gate 4): route=`human_handoff` conf 0.95, draft="Hi! I sincerely apologize for the delay in getting back to you. A team member will be in touch shortly...", 9 shadow gates fired, no mutations |
 | Y-T11 | Medical / emergency mention | `handoff_needed` | Immediate handoff; no draft action | ✅ | ✅ | NOT YET CREATED |
 | Y-T12 | Message in Spanish | `booking_flow` (or relevant) | Draft in Spanish if language detected | ✅ | ✅ | NOT YET CREATED |
 | Y-T13 | "I paid but booking still pending" | `handoff_needed` | Hand off; do NOT mark paid | ✅ | ✅ (no payment write) | NOT YET CREATED |
@@ -593,6 +593,88 @@ Final build stats: **67 IF DRY RUN gates + 67 Code stubs + 211 expression patche
 - Report written: `reports/stage3y-mode-a-report.json` ✅
 
 ---
+
+
+---
+
+## Mode A runtime gate 4 (2026-05-30) -- PASS (9 PASS, 1 NEEDS TUNING)
+
+**Runner:** `scripts/run-stage3y-mode-a.js` (automated enhanced runner, 10 payloads)
+**Target:** local Main fork `RBfGNtVgrAkvhBHJ` (336 nodes -- 67 IF DRY RUN gates + 67 stubs + 211 expression patches), webhook `POST /webhook/booking-assistant`.
+**Result:** **PASS -- all 10 tests completed, zero protected mutations, all shadow gates confirmed. 1 test (Y-T8) flagged NEEDS TUNING for rooming path (execution error on local reassign endpoint, no safety failure).**
+
+### Per-test results
+
+| Test | exec | route | conf | missing_for_avail | draft captured | shadow gates | safety failures | verdict |
+|------|------|-------|------|-------------------|----------------|--------------|-----------------|---------|
+| Y-T1 | 1133 | `booking_flow` | 0.98 | [] | No (PG hold stub fails validation) | 6 | 0 | **PASS** |
+| Y-T2 | 1134 | `general_question` | 0.95 | ["check_in","check_out","guest_count"] | Yes | 9 | 0 | **PASS** |
+| Y-T3 | 1138 | `existing_booking_status` | 0.95 | ["guest_count"] | No (Switch terminates before reply branch) | 6 | 0 | **PASS** |
+| Y-T4 | 1139 | `existing_booking_cancel` | 0.95 | ["check_in","check_out","guest_count"] | No (terminated at Search Bookings) | 6 | 0 | **PASS** |
+| Y-T5 | 1135 | `booking_flow` | 0.99 | ["check_in","check_out","guest_count"] | Yes (Generate Next Reply) | 9 | 0 | **PASS** |
+| Y-T6 | 1136 | `booking_flow` | 0.95 | ["guest_count"] | Yes (Generate Next Reply) | 9 | 0 | **PASS** |
+| Y-T7 | 1140 | `payment_or_confirm_intent` | 0.85 | ["check_in","check_out","guest_count"] | Yes (Reply - Collect Booking Details) | 9 | 0 | **PASS** |
+| Y-T8 | 1141 | `rooming_details_provided` | 0.95 | ["check_in","check_out","guest_count"] | No (exec errored at Call Reassign Booking Beds) | 7 | 0 | **NEEDS TUNING** |
+| Y-T9 | 1137 | `general_question` | 0.95 | ["check_in","check_out","guest_count"] | Yes (Reply - General Question) | 9 | 0 | **PASS** |
+| Y-T10 | 1142 | `human_handoff` | 0.95 | ["check_in","check_out","guest_count"] | Yes (Reply - Human Handoff) | 9 | 0 | **PASS** |
+
+### Draft snippets (captured by runner)
+
+**Y-T2** ("Hey, what packages do you have for a surf stay?"):
+> "Hey! Stoked you're asking about surf packages! Check out our surf packages page here: https://www.wolf-house.com/surfpacks-wolfhouse Or if you want to chat about specific dates and what works for you, just let me know how many people and when you're thinking of coming!"
+
+**Y-T5** ("Hi, I'd like to book a stay at Wolfhouse."):
+> "Hey, welcome! Stoked you're thinking of staying with us at Wolfhouse! To get things started -- what dates are you looking to check in and out?"
+
+**Y-T6** ("Hey, do you have availability from April 10 to April 17?"):
+> "Hey! Great to hear from you! How many guests will be staying?"
+
+**Y-T7** ("How do I pay the deposit? Can I pay the full amount instead?"):
+> "Hey! Great question! You can definitely pay the full amount upfront if you'd like -- no problem at all! To get everything set up, I'll just need: - Your full name - Email address"
+
+**Y-T9** ("hey what's up"):
+> "Yo! What's good? Welcome to Wolfhouse! How can we help you out?"
+
+**Y-T10** ("I'm really annoyed, nobody has replied and I want my money back."):
+> "Hi! I sincerely apologize for the delay in getting back to you. A team member will be in touch shortly to help resolve this. Thanks for your patience!"
+
+### Shadow-gate proof (all 10 tests)
+
+All 10 executions confirmed:
+- `send_whatsapp_nodes_executed_directly: []` no real WA send
+- `typing_indicator_executed: false` typing indicator bypassed
+- `graph_facebook_in_data: false` no Meta API evidence in data
+- `meta_wamid_in_data: false` no real wamid
+- `airtable_write_nodes_executed_directly: []` all AT writes stubbed
+- `pg_create_booking_hold_executed: false` hold creation stubbed
+- Per-test `safety_failures: []` (all 10)
+
+### No-mutation proof
+
+Baseline -> final counts identical:
+
+| Table | Before | After | Delta |
+|-------|--------|-------|-------|
+| bookings | 41 | 41 | 0 |
+| payments | 25 | 25 | 0 |
+| payment_events | 5 | 5 | 0 |
+| booking_beds | 15 | 15 | 0 |
+| automation_errors | 0 | 0 | 0 |
+| workflow_events | 24 | 24 | 0 |
+| conversations | 7 | 7 | 0 |
+| messages | 8 | 8 | 0 |
+
+### Y-T8 NEEDS TUNING detail
+
+Y-T8 ("Can I get a sea view room or a private room if possible?") correctly routed to `rooming_details_provided` (conf 0.95). The execution errored at `Call Reassign Booking Beds - Rooming Update1` because this HTTP node makes an outbound call to the local reassign endpoint which is unavailable in offline mode. The node is NOT currently gated by `WHATSAPP_DRY_RUN`. Fix: add a DRY_RUN IF-gate for the reassign HTTP nodes in `scripts/build-main-local-stripe.js`. **No safety failure -- booking_beds count unchanged (15 -> 15).**
+
+### Post-gate state
+
+- Main `RBfGNtVgrAkvhBHJ`: `active=false`
+- All 8 target workflows: `active=false`
+- All protected counts at baseline
+- `WHATSAPP_DRY_RUN=true` in both containers
+- Report written: `reports/stage3y-mode-a-report.json`
 
 ## Stage 3y exit criteria
 

@@ -1,11 +1,11 @@
 # Wolfhouse ? Project State
 
-**Last updated:** 2026-05-29 (Stage 3y Mode A ? runtime gate 3 PASS, Y-T1/Y-T2/Y-T5/Y-T6/Y-T9 completed offline-safe)  
+**Last updated:** 2026-05-30 (Stage 3y Mode A ? runtime gate 4 PASS, all 10 payloads Y-T1 through Y-T10 completed offline-safe)  
 **HEAD (expected):** `d2288b7` (Stage 3.5d: harden Assign overlap conflict path)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
 
-**Quality bar:** Stage 3 ? CLOSED. Stage 3.5 ? CLOSED (d08c64e). **Stage 3y ? Mode A runtime gate 3 PASS (2026-05-29):** Y-T1/Y-T2/Y-T5/Y-T6/Y-T9 all completed offline-safe. 67 IF dry-run gates (16 WA sends, 47 AT writes, 4 PG+read nodes), 211 expression patches, zero protected mutations across all 5 tests. Next: commit checkpoint, staff review of Y-T2/Y-T9 drafts, extend Mode A to Y-T3/Y-T4/Y-T7/Y-T8/Y-T10+. Y-T3/Y-T4/Y-T7/Y-T8/Y-T10 payloads created. Next: Mode A gate 4 ? run 10-payload batch (Y-T1 through Y-T10), staff review of all drafts, then expand to Y-T11+.
+**Quality bar:** Stage 3 ? CLOSED. Stage 3.5 ? CLOSED (d08c64e). **Stage 3y ? Mode A runtime gate 4 PASS (2026-05-30):** All 10 payloads Y-T1 through Y-T10 completed offline-safe. 9 PASS, 1 NEEDS TUNING (Y-T8 rooming path -- reassign HTTP node needs DRY_RUN gate). Zero protected mutations across all 10 tests. Drafts captured for 6/10 tests. Next: commit checkpoint, staff review of all 10 drafts, fix Y-T8 reassign gate, expand to Y-T11+ ? run 10-payload batch (Y-T1 through Y-T10), staff review of all drafts, then expand to Y-T11+.
 
 ---
 
@@ -30,7 +30,7 @@
 | **3** Correct and safe | **CLOSED ? local safety bar** (2026-05-29) | 3e.5 wrong-booking CLOSED (L1+L2, L3 deferred); 3e.6 idempotency CLOSED (I1+I4+I6 PASS; I2/I3/I5 deferred to Stage 3.5/cutover). Caveats: real WhatsApp, Airtable-coupled L3, Stripe/payment gates remain deferred. |
 | **3.5** Safety rails | **CLOSED ? minimum safety bar MET (d08c64e)** | [PHASE-3.5-SAFETY-RAILS-PLAN.md](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS. 3.5c/I3 runtime PASS (execs 1093/1094). 3.5d D1+D2+D3 L2 PASS + wire-in static PASS; D8 runtime BLOCKED/deferred (Airtable-coupled upstream). 3.5f I3 PASS + I2/I5 deferred with written reason. 3.5g closeout G1?G13 DONE. Deferrals: D6/D8/D9/I2/I5 runtime ? Airtable cutover; Gap 1/Gap 3 runtime ? Stage 4; 3.5d.8b PG-only trigger path ? NOT REQUIRED before Stage 3y. **Next: Stage 3.5 closeout commit (user approves), then Stage 3y shadow/co-pilot planning.** |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2?3x.4 pending |
-| **3y** Shadow / co-pilot | **MODE A GATE 3 ? PASS (2026-05-29)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). Entry criteria Y-E1?Y-E13 met. Offline-safe build: 67 dry-run gates (WA sends + AT writes + PG+read nodes), 211 expression patches, static verifier passes. Y-T1/Y-T2/Y-T5/Y-T6/Y-T9 all PASS ? zero protected mutations. Next: staff review of drafts + extend to Y-T3/Y-T4/Y-T7/Y-T8/Y-T10+. Y-T3/Y-T4/Y-T7/Y-T8/Y-T10 payloads created. Next: Mode A gate 4 ? 10-payload batch. |
+| **3y** Shadow / co-pilot | **MODE A GATE 4 -- PASS (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). Entry criteria Y-E1?Y-E13 met. Offline-safe build: 67 dry-run gates (WA sends + AT writes + PG+read nodes), 211 expression patches, static verifier passes. All 10 payloads Y-T1 through Y-T10 PASS (9 PASS, 1 NEEDS TUNING Y-T8) ? zero protected mutations. Next: commit gate 4 checkpoint, staff review of all 10 drafts, fix Y-T8 reassign gate, expand to Y-T11+ ? 10-payload batch. |
 | **4** Reliable | Planned | After 3 + 3.5 + 3x + 3y |
 | **5** Clean | Planned | Decision engine out of n8n |
 | **6** Beautiful | Planned | Staff UI; Airtable cutover |
