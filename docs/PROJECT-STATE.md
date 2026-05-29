@@ -1,11 +1,11 @@
 # Wolfhouse — Project State
 
-**Last updated:** 2026-05-29 (Stage 3.5 closeout gap review — minimum bar MET)  
+**Last updated:** 2026-05-29 (Stage 3y shadow/co-pilot planning — plan doc created)  
 **HEAD (expected):** `d2288b7` (Stage 3.5d: harden Assign overlap conflict path)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3–7, 3x guardrails) · **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) · **Agent:** [CURSOR.md](../CURSOR.md)
 
-**Quality bar:** Stage 3 — CLOSED. Stage 3.5 — **MINIMUM SAFETY BAR MET (2026-05-29).** Awaiting Stage 3.5 closeout commit, then Stage 3y shadow/co-pilot planning.
+**Quality bar:** Stage 3 — CLOSED. Stage 3.5 — CLOSED (d08c64e). **Stage 3y — planning started (2026-05-29).** First step: Mode A offline shadow Y-T1–Y-T5.
 
 ---
 
@@ -28,9 +28,9 @@
 | Stage | Status | Notes |
 |-------|--------|--------|
 | **3** Correct and safe | **CLOSED — local safety bar** (2026-05-29) | 3e.5 wrong-booking CLOSED (L1+L2, L3 deferred); 3e.6 idempotency CLOSED (I1+I4+I6 PASS; I2/I3/I5 deferred to Stage 3.5/cutover). Caveats: real WhatsApp, Airtable-coupled L3, Stripe/payment gates remain deferred. |
-| **3.5** Safety rails | **MINIMUM SAFETY BAR MET — pending closeout commit** | [PHASE-3.5-SAFETY-RAILS-PLAN.md](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS. 3.5c/I3 runtime PASS (execs 1093/1094). 3.5d D1+D2+D3 L2 PASS + wire-in static PASS; D8 runtime BLOCKED/deferred (Airtable-coupled upstream). 3.5f I3 PASS + I2/I5 deferred with written reason. 3.5g closeout G1–G13 DONE. Deferrals: D6/D8/D9/I2/I5 runtime → Airtable cutover; Gap 1/Gap 3 runtime → Stage 4; 3.5d.8b PG-only trigger path → NOT REQUIRED before Stage 3y. **Next: Stage 3.5 closeout commit (user approves), then Stage 3y shadow/co-pilot planning.** |
+| **3.5** Safety rails | **CLOSED — minimum safety bar MET (d08c64e)** | [PHASE-3.5-SAFETY-RAILS-PLAN.md](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS. 3.5c/I3 runtime PASS (execs 1093/1094). 3.5d D1+D2+D3 L2 PASS + wire-in static PASS; D8 runtime BLOCKED/deferred (Airtable-coupled upstream). 3.5f I3 PASS + I2/I5 deferred with written reason. 3.5g closeout G1–G13 DONE. Deferrals: D6/D8/D9/I2/I5 runtime → Airtable cutover; Gap 1/Gap 3 runtime → Stage 4; 3.5d.8b PG-only trigger path → NOT REQUIRED before Stage 3y. **Next: Stage 3.5 closeout commit (user approves), then Stage 3y shadow/co-pilot planning.** |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
-| **3y** Shadow / co-pilot | Planned | Bot drafts, staff approves/sends; generates real labeled data |
+| **3y** Shadow / co-pilot | **PLANNING STARTED (2026-05-29)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). Entry criteria Y-E1–Y-E13 defined. 4 operating modes (A–D). 15-test matrix (Y-T1–Y-T15). Mode A ready (no new infra). Mode B/C/D require separate gates. First step: Mode A offline shadow Y-T1–Y-T5. |
 | **4** Reliable | Planned | After 3 + 3.5 + 3x + 3y |
 | **5** Clean | Planned | Decision engine out of n8n |
 | **6** Beautiful | Planned | Staff UI; Airtable cutover |
@@ -310,13 +310,17 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **Deferred (not blocked):** I2 → manual-pay gate · I3 → Stage 3.5/manual-pay gate (structural schema guard proven; runtime needs `payments` write) · I5 → Postgres cutover. Airtable-coupled L3 runtime (T2, T5) → post-cutover.
 - **Caveats remaining:** real WhatsApp send (dry-run only) · schedule-poll mode · single-window integrated E2E · Stripe/payment idempotency (I2, I3).
 
-**Stage 3.5 — MINIMUM SAFETY BAR MET (2026-05-29):** All sub-phases PASS or DEFERRED with written reason. Closeout checklist G1–G13 DONE. All deferrals (D6/D8/D9, I2/I5 runtime) are Airtable-coupled and correctly deferred to cutover. 3.5d.8b PG-only trigger path is NOT REQUIRED before Stage 3y. Gap 1/Gap 3 runtime NOT REQUIRED before Stage 3y. Stage 3.5 is READY TO CLOSE.
+**Stage 3.5 — CLOSED (d08c64e).** Minimum safety bar MET. G1–G13 DONE. Deferrals documented.
 
-**Immediate next step: Stage 3.5 closeout commit** (user must explicitly approve). Commit message should capture: closeout gap review DONE, G1–G13 all DONE, minimum safety bar MET, recommendation READY TO CLOSE, next is Stage 3y planning.
+**Stage 3y planning — STARTED (2026-05-29).** Plan doc: [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md). Entry criteria Y-E1–Y-E13 defined. 4 operating modes (A–D) with gates. 15-test matrix (Y-T1–Y-T15). Exit criteria (Y-X1–Y-X13) defined.
 
-**After closeout commit: Stage 3y shadow/co-pilot planning.** Review `ROADMAP.md §Stage 3y` for operating constraints. Separately gate real WhatsApp send.
+**Immediate next step: Stage 3y Mode A — offline shadow Y-T1–Y-T5.** Create 5 test message payloads → activate local Main → observe draft output → share with Ale/Cami for review → log corrections. No new infrastructure required. Separately gate Mode B (real inbound), Mode C (draft queue), Mode D (action proposals).
 
-**Not next:** Stage 3.5d.8b (not required before 3y); I2/I5 runtime (Airtable-coupled); Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7); Airtable cutover without staff UI; autonomous live replies without Stage 3y staff-approval mode.
+**Parallel: Stage 3x completion.**
+- 3x.2: Ale/Cami confirm provisional prices → promoted config from v0.3 to confirmed.
+- 3x.3: Ale/Cami provide redacted WhatsApp samples → enriches Mode A test messages.
+
+**Not next:** Mode B/C/D without separate gate; Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7); Airtable cutover without staff UI; autonomous live replies without per-action staff approval.
 
 ---
 

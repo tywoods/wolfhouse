@@ -347,34 +347,46 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 **Purpose:** Bridge the gap between isolated dry-run proof and autonomous live guest operation. Reduces the dry-run → real-guest cliff; generates real labeled data; builds Ale/Cami trust in the system.
 
+**Full plan:** [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md) — entry criteria, operating modes A–D, allowed/forbidden actions, staff approval workflow, infrastructure requirements, 15-test matrix (Y-T1–Y-T15), exit criteria.
+
 ### How shadow/co-pilot mode works
 
 | Step | Who acts |
 |------|----------|
-| Real guest message arrives | n8n / Main reads it |
+| Real guest message arrives (or pasted in offline shadow) | n8n / Main reads it |
 | Bot resolves route + drafts response | Bot (automated) |
 | Bot suggests safe action (if any) | Bot outputs draft; **no autonomous send** |
 | Staff reviews draft | Ale / Cami |
-| Staff approves and sends | Staff (manual) |
-| Staff edit logged as labeled example | System records correction |
+| Staff approves and sends | **Staff (manual)** |
+| Staff edit logged as labeled example | System records correction (interim: offline log) |
+
+### Operating modes (ascending risk — gate each separately)
+
+| Mode | Description | Gate |
+|------|-------------|------|
+| **A — Offline shadow** | Pasted/copied messages; local n8n; no live connection | ✅ Ready to start (no new infra) |
+| **B — Real inbound, no sends** | Real WhatsApp inbound; `DRY_RUN=true` enforced | Separate explicit approval required |
+| **C — Staff-approved draft queue** | Bot writes draft to review queue; staff approves and sends manually | Mode B stable + review UI |
+| **D — Staff-approved action proposals** | Bot proposes dangerous action; staff clicks approve | Stage 6 Staff UI + all 3x complete |
 
 ### What is and is not allowed in Stage 3y
 
 | Allowed | Not allowed without explicit approval |
 |---------|--------------------------------------|
-| Bot reads real messages | Autonomous WhatsApp reply |
+| Bot reads / classifies message text | Autonomous WhatsApp reply |
 | Bot resolves route and flags uncertainty | Autonomous payment link creation |
-| Bot drafts response for staff approval | Autonomous confirmation |
-| Staff-approved sends | Autonomous cancellation or room reassign |
-| Bot logs suggested action + confidence | Any dangerous action without staff approval |
+| Bot drafts response for staff review | Autonomous booking confirmation |
+| Bot identifies missing required fields | Autonomous cancellation or room reassign |
+| Bot logs decision to `workflow_events` | Payment truth writes |
+| Staff-approved sends (manual copy-paste) | Any dangerous action without per-action gate |
 
 ### Why Stage 3y before Stage 4
 
 - Avoids big-bang flip from dry-run to fully autonomous
-- Creates real golden-message data from actual guest interactions
-- Staff corrections become labeled training examples
+- Creates real labeled guest-message data from actual interactions
+- Staff corrections become labeled training examples for Stage 4
 - Ale/Cami can see and trust bot behavior before handing over
-- Sellable capability: "AI drafts, staff approves" is a distinct product tier
+- "AI drafts, staff approves" is a distinct, sellable product tier
 
 ---
 
