@@ -153,6 +153,111 @@ RETURNING
   send_confirmation,
   confirmation_sent_at;`;
 
+// ---------------------------------------------------------------------------
+// Stage 3.5b — Error capture: shared INSERT SQL (used by Gap 2 and Gap 3)
+// $1 = JSON.stringify(Code node output) — unpacked via JSONB operators
+// ---------------------------------------------------------------------------
+
+const writeAutomationErrorsSql = `INSERT INTO automation_errors (
+  client_id, workflow_name, node_name, execution_id,
+  error_message, severity, status, booking_id, payload
+)
+SELECT
+  c.id,
+  ($1::jsonb)->>'workflow_name',
+  ($1::jsonb)->>'node_name',
+  ($1::jsonb)->>'execution_id',
+  ($1::jsonb)->>'error_message',
+  ($1::jsonb)->>'severity',
+  'open'::automation_error_status,
+  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,
+  ($1::jsonb)->'payload'
+FROM clients c
+WHERE c.slug = 'wolfhouse-somo'
+RETURNING id;`;
+
+const writeWorkflowEventsSendFailSql = `INSERT INTO workflow_events (
+  client_id, workflow_name, node_name, execution_id,
+  event_level, message, booking_id, payload
+)
+SELECT
+  c.id,
+  ($1::jsonb)->>'workflow_name',
+  ($1::jsonb)->>'node_name',
+  ($1::jsonb)->>'execution_id',
+  'error'::workflow_event_level,
+  ($1::jsonb)->>'error_message',
+  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,
+  ($1::jsonb)->'payload'
+FROM clients c
+WHERE c.slug = 'wolfhouse-somo';`;
+
+// Gap 1 (no pending booking): info-level event; workflow_name is a literal in SQL;
+// $1 = execution_id (string)
+const writeWorkflowEventsNoPendingSql = `INSERT INTO workflow_events (
+  client_id, workflow_name, execution_id,
+  event_level, message, payload
+)
+SELECT
+  c.id,
+  'Wolfhouse - Send Confirmation (local)',
+  $1,
+  'info'::workflow_event_level,
+  'send_confirmation: no eligible bookings found for this trigger',
+  '{"action":"send_confirmation","outcome":"no_eligible_booking"}'::jsonb
+FROM clients c
+WHERE c.slug = 'wolfhouse-somo';`;
+
+// ---------------------------------------------------------------------------
+// Stage 3.5b — Code node JS strings
+// ---------------------------------------------------------------------------
+
+// Gap 2: build normalized error payload when WhatsApp send returns whatsapp_sent=false
+const BUILD_WA_SEND_ERROR_JS = [
+  "const sendResult = $('Code - Send WhatsApp').first().json;",
+  "const booking = $('Code - Format Booking For LLM').first().json;",
+  'return [{',
+  '  json: {',
+  "    workflow_name: 'Wolfhouse - Send Confirmation (local)',",
+  "    node_name: 'Code - Send WhatsApp',",
+  "    execution_id: String($execution.id ?? ''),",
+  "    error_message: sendResult.whatsapp_error || 'WhatsApp send failed (unknown)',",
+  "    severity: 'error',",
+  '    booking_id: booking.booking_id || null,',
+  '    payload: {',
+  '      booking_code: booking.booking_code,',
+  '      whatsapp_sent: sendResult.whatsapp_sent,',
+  '      whatsapp_error: sendResult.whatsapp_error,',
+  "      dry_run: String($env.WHATSAPP_DRY_RUN || 'true').toLowerCase() === 'true',",
+  "      action: 'send_confirmation',",
+  "      outcome: 'whatsapp_send_failed',",
+  '    },',
+  '  },',
+  '}];',
+].join('\n');
+
+// Gap 3: build normalized error payload from n8n Error Trigger context
+const BUILD_WORKFLOW_ERROR_JS = [
+  "const err = $json.execution?.error || {};",
+  "const failedNodeName = err.node?.name || 'unknown';",
+  'return [{',
+  '  json: {',
+  "    workflow_name: 'Wolfhouse - Send Confirmation (local)',",
+  '    node_name: failedNodeName,',
+  "    execution_id: String($json.execution?.id ?? ''),",
+  "    error_message: err.message || 'Unhandled workflow error',",
+  "    severity: 'critical',",
+  '    booking_id: null,',
+  '    payload: {',
+  "      action: 'send_confirmation',",
+  "      outcome: 'workflow_crash',",
+  '      failed_node: failedNodeName,',
+  '      error_type: err.name || null,',
+  '    },',
+  '  },',
+  '}];',
+].join('\n');
+
 const llmPrompt = llmChain.parameters.text;
 llmChain.parameters.text = llmPrompt
   .replace(
@@ -367,6 +472,105 @@ const workflow = {
       id: '2d010016-0016-4000-8000-000000000016',
       name: 'Sticky Note - Phase 2d',
     },
+
+    // -----------------------------------------------------------------------
+    // Stage 3.5b — Addition A (Gap 2): WhatsApp send failure → error capture
+    // Wired from: IF - WhatsApp Sent OK false branch (main[1])
+    // -----------------------------------------------------------------------
+    {
+      parameters: { jsCode: BUILD_WA_SEND_ERROR_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [80, 340],
+      id: '2d010017-0017-4000-8000-000000000001',
+      name: 'Code - Build WA Send Error',
+    },
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: writeAutomationErrorsSql,
+        options: {
+          queryReplacement: "={{ JSON.stringify($json) }}",
+        },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [280, 340],
+      id: '2d010018-0018-4000-8000-000000000001',
+      name: 'Postgres - Write automation_errors (send fail)',
+      credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+    },
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: writeWorkflowEventsSendFailSql,
+        options: {
+          queryReplacement: "={{ JSON.stringify($('Code - Build WA Send Error').first().json) }}",
+        },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [480, 340],
+      id: '2d010019-0019-4000-8000-000000000001',
+      name: 'Postgres - Write workflow_events (send fail)',
+      credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+    },
+
+    // -----------------------------------------------------------------------
+    // Stage 3.5b — Addition B (Gap 1): no eligible booking → info event
+    // Wired from: IF - Pending Booking Found false branch (main[1])
+    // -----------------------------------------------------------------------
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: writeWorkflowEventsNoPendingSql,
+        options: {
+          queryReplacement: "={{ String($execution.id ?? '') }}",
+        },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [-1540, 420],
+      id: '2d010020-0020-4000-8000-000000000001',
+      name: 'Postgres - Write workflow_events (no pending booking)',
+      credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+    },
+
+    // -----------------------------------------------------------------------
+    // Stage 3.5b — Addition C (Gap 3): workflow crash → error capture
+    // n8n fires Error Trigger on any unhandled node exception
+    // -----------------------------------------------------------------------
+    {
+      parameters: {},
+      type: 'n8n-nodes-base.errorTrigger',
+      typeVersion: 1,
+      position: [-2200, 600],
+      id: '2d010021-0021-4000-8000-000000000001',
+      name: 'Error Trigger - Send Confirmation',
+    },
+    {
+      parameters: { jsCode: BUILD_WORKFLOW_ERROR_JS },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [-2000, 600],
+      id: '2d010022-0022-4000-8000-000000000001',
+      name: 'Code - Build Workflow Error Payload',
+    },
+    {
+      parameters: {
+        operation: 'executeQuery',
+        query: writeAutomationErrorsSql,
+        options: {
+          queryReplacement: "={{ JSON.stringify($('Code - Build Workflow Error Payload').first().json) }}",
+        },
+      },
+      type: 'n8n-nodes-base.postgres',
+      typeVersion: 2.5,
+      position: [-1800, 600],
+      id: '2d010023-0023-4000-8000-000000000001',
+      name: 'Postgres - Write automation_errors (crash)',
+      credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+    },
   ],
   connections: {
     'Schedule - Poll Postgres': {
@@ -385,7 +589,10 @@ const workflow = {
       main: [[{ node: 'IF - Pending Booking Found', type: 'main', index: 0 }]],
     },
     'IF - Pending Booking Found': {
-      main: [[{ node: 'Code - Format Booking For LLM', type: 'main', index: 0 }], []],
+      main: [
+        [{ node: 'Code - Format Booking For LLM', type: 'main', index: 0 }],
+        [{ node: 'Postgres - Write workflow_events (no pending booking)', type: 'main', index: 0 }],
+      ],
     },
     'Code - Format Booking For LLM': {
       main: [[{ node: 'Search Conversation - Confirmation', type: 'main', index: 0 }]],
@@ -409,7 +616,24 @@ const workflow = {
       main: [[{ node: 'IF - WhatsApp Sent OK', type: 'main', index: 0 }]],
     },
     'IF - WhatsApp Sent OK': {
-      main: [[{ node: 'Postgres - Mark Booking Confirmed', type: 'main', index: 0 }], []],
+      main: [
+        [{ node: 'Postgres - Mark Booking Confirmed', type: 'main', index: 0 }],
+        [{ node: 'Code - Build WA Send Error', type: 'main', index: 0 }],
+      ],
+    },
+    // Stage 3.5b Addition A: WhatsApp failure chain
+    'Code - Build WA Send Error': {
+      main: [[{ node: 'Postgres - Write automation_errors (send fail)', type: 'main', index: 0 }]],
+    },
+    'Postgres - Write automation_errors (send fail)': {
+      main: [[{ node: 'Postgres - Write workflow_events (send fail)', type: 'main', index: 0 }]],
+    },
+    // Stage 3.5b Addition C: Error Trigger chain
+    'Error Trigger - Send Confirmation': {
+      main: [[{ node: 'Code - Build Workflow Error Payload', type: 'main', index: 0 }]],
+    },
+    'Code - Build Workflow Error Payload': {
+      main: [[{ node: 'Postgres - Write automation_errors (crash)', type: 'main', index: 0 }]],
     },
   },
   pinData: {},

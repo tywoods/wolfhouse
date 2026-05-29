@@ -337,6 +337,10 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 **Stage 3.5 does not include:** full monitoring dashboards, Azure deploy, Staff UI, broad n8n → backend refactor.
 
+**Full sub-phase spec:** [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md) — 3.5a–3.5g with entry/exit criteria, work-type classification, and first implementation step.
+
+**Key schema finding:** `automation_errors` and `workflow_events` tables exist in migration 001 but are not yet wired into any n8n workflow. Stage 3.5b is a pure wire-in task.
+
 ---
 
 ## Stage 3y — Shadow / Co-pilot Pilot

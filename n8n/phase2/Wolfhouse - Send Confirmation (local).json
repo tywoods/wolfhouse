@@ -1,5 +1,4 @@
 {
-  "id": "gxivKRJexzTCw9x6",
   "name": "Wolfhouse - Send Confirmation (local)",
   "nodes": [
     {
@@ -175,13 +174,13 @@
       ],
       "id": "2d010008-0008-4000-8000-000000000008",
       "name": "Search Conversation - Confirmation",
-      "alwaysOutputData": true,
       "credentials": {
         "airtableTokenApi": {
           "id": "",
           "name": "Airtable Personal Access Token account"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
@@ -219,13 +218,13 @@
       ],
       "id": "2d010009-0009-4000-8000-000000000009",
       "name": "Search Booking Beds - Confirmation",
-      "alwaysOutputData": true,
       "credentials": {
         "airtableTokenApi": {
           "id": "",
           "name": "Airtable Personal Access Token account"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
@@ -364,6 +363,135 @@
       ],
       "id": "2d010016-0016-4000-8000-000000000016",
       "name": "Sticky Note - Phase 2d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sendResult = $('Code - Send WhatsApp').first().json;\nconst booking = $('Code - Format Booking For LLM').first().json;\nreturn [{\n  json: {\n    workflow_name: 'Wolfhouse - Send Confirmation (local)',\n    node_name: 'Code - Send WhatsApp',\n    execution_id: String($execution.id ?? ''),\n    error_message: sendResult.whatsapp_error || 'WhatsApp send failed (unknown)',\n    severity: 'error',\n    booking_id: booking.booking_id || null,\n    payload: {\n      booking_code: booking.booking_code,\n      whatsapp_sent: sendResult.whatsapp_sent,\n      whatsapp_error: sendResult.whatsapp_error,\n      dry_run: String($env.WHATSAPP_DRY_RUN || 'true').toLowerCase() === 'true',\n      action: 'send_confirmation',\n      outcome: 'whatsapp_send_failed',\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        340
+      ],
+      "id": "2d010017-0017-4000-8000-000000000001",
+      "name": "Code - Build WA Send Error"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO automation_errors (\n  client_id, workflow_name, node_name, execution_id,\n  error_message, severity, status, booking_id, payload\n)\nSELECT\n  c.id,\n  ($1::jsonb)->>'workflow_name',\n  ($1::jsonb)->>'node_name',\n  ($1::jsonb)->>'execution_id',\n  ($1::jsonb)->>'error_message',\n  ($1::jsonb)->>'severity',\n  'open'::automation_error_status,\n  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,\n  ($1::jsonb)->'payload'\nFROM clients c\nWHERE c.slug = 'wolfhouse-somo'\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        280,
+        340
+      ],
+      "id": "2d010018-0018-4000-8000-000000000001",
+      "name": "Postgres - Write automation_errors (send fail)",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_events (\n  client_id, workflow_name, node_name, execution_id,\n  event_level, message, booking_id, payload\n)\nSELECT\n  c.id,\n  ($1::jsonb)->>'workflow_name',\n  ($1::jsonb)->>'node_name',\n  ($1::jsonb)->>'execution_id',\n  'error'::workflow_event_level,\n  ($1::jsonb)->>'error_message',\n  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,\n  ($1::jsonb)->'payload'\nFROM clients c\nWHERE c.slug = 'wolfhouse-somo';",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Code - Build WA Send Error').first().json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        340
+      ],
+      "id": "2d010019-0019-4000-8000-000000000001",
+      "name": "Postgres - Write workflow_events (send fail)",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_events (\n  client_id, workflow_name, execution_id,\n  event_level, message, payload\n)\nSELECT\n  c.id,\n  'Wolfhouse - Send Confirmation (local)',\n  $1,\n  'info'::workflow_event_level,\n  'send_confirmation: no eligible bookings found for this trigger',\n  '{\"action\":\"send_confirmation\",\"outcome\":\"no_eligible_booking\"}'::jsonb\nFROM clients c\nWHERE c.slug = 'wolfhouse-somo';",
+        "options": {
+          "queryReplacement": "={{ String($execution.id ?? '') }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1540,
+        420
+      ],
+      "id": "2d010020-0020-4000-8000-000000000001",
+      "name": "Postgres - Write workflow_events (no pending booking)",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2200,
+        600
+      ],
+      "id": "2d010021-0021-4000-8000-000000000001",
+      "name": "Error Trigger - Send Confirmation"
+    },
+    {
+      "parameters": {
+        "jsCode": "const err = $json.execution?.error || {};\nconst failedNodeName = err.node?.name || 'unknown';\nreturn [{\n  json: {\n    workflow_name: 'Wolfhouse - Send Confirmation (local)',\n    node_name: failedNodeName,\n    execution_id: String($json.execution?.id ?? ''),\n    error_message: err.message || 'Unhandled workflow error',\n    severity: 'critical',\n    booking_id: null,\n    payload: {\n      action: 'send_confirmation',\n      outcome: 'workflow_crash',\n      failed_node: failedNodeName,\n      error_type: err.name || null,\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        600
+      ],
+      "id": "2d010022-0022-4000-8000-000000000001",
+      "name": "Code - Build Workflow Error Payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO automation_errors (\n  client_id, workflow_name, node_name, execution_id,\n  error_message, severity, status, booking_id, payload\n)\nSELECT\n  c.id,\n  ($1::jsonb)->>'workflow_name',\n  ($1::jsonb)->>'node_name',\n  ($1::jsonb)->>'execution_id',\n  ($1::jsonb)->>'error_message',\n  ($1::jsonb)->>'severity',\n  'open'::automation_error_status,\n  NULLIF(($1::jsonb)->>'booking_id', '')::uuid,\n  ($1::jsonb)->'payload'\nFROM clients c\nWHERE c.slug = 'wolfhouse-somo'\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Code - Build Workflow Error Payload').first().json) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1800,
+        600
+      ],
+      "id": "2d010023-0023-4000-8000-000000000001",
+      "name": "Postgres - Write automation_errors (crash)",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
     }
   ],
   "connections": {
@@ -431,7 +559,13 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Postgres - Write workflow_events (no pending booking)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Code - Format Booking For LLM": {
@@ -520,7 +654,57 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Code - Build WA Send Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build WA Send Error": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Write automation_errors (send fail)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Write automation_errors (send fail)": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Write workflow_events (send fail)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger - Send Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Workflow Error Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Workflow Error Payload": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Write automation_errors (crash)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },

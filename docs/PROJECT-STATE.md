@@ -28,7 +28,7 @@
 | Stage | Status | Notes |
 |-------|--------|--------|
 | **3** Correct and safe | **CLOSED — local safety bar** (2026-05-29) | 3e.5 wrong-booking CLOSED (L1+L2, L3 deferred); 3e.6 idempotency CLOSED (I1+I4+I6 PASS; I2/I3/I5 deferred to Stage 3.5/cutover). Caveats: real WhatsApp, Airtable-coupled L3, Stripe/payment gates remain deferred. |
-| **3.5** Safety rails | Planned | Idempotency, error capture, overlap guards, exec logging — before live/shadow |
+| **3.5** Safety rails | **In progress — 3.5b Gap 2 runtime PASS** | [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED (12 dangerous actions). 3.5b Send Confirmation: 7 error-capture nodes added; static PASS. **Gap 2 (WhatsApp send-fail) runtime PASS** (exec 1089: `automation_errors`+1, `workflow_events`+1, booking not confirmed, protected counts unchanged, env restored). Next: 3.5b Gap 3 (Error Trigger crash) + Gap 1 (no-pending info) runtime, or 3.5c idempotency enforcement. |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2–3x.4 pending |
 | **3y** Shadow / co-pilot | Planned | Bot drafts, staff approves/sends; generates real labeled data |
 | **4** Reliable | Planned | After 3 + 3.5 + 3x + 3y |
@@ -310,7 +310,7 @@ Verified on `8abfd4d`: hold → promote same `booking_id`; idempotent refresh; m
 - **Deferred (not blocked):** I2 → manual-pay gate · I3 → Stage 3.5/manual-pay gate (structural schema guard proven; runtime needs `payments` write) · I5 → Postgres cutover. Airtable-coupled L3 runtime (T2, T5) → post-cutover.
 - **Caveats remaining:** real WhatsApp send (dry-run only) · schedule-poll mode · single-window integrated E2E · Stripe/payment idempotency (I2, I3).
 
-**Then:** **Stage 3.5 safety rails** (idempotency enforcement in code, error capture, overlap guards, execution logging) → **Stage 3y** shadow/co-pilot → **Stage 4 Reliable** (golden runner, monitors, full idempotency, real WhatsApp + live prod path).
+**Then:** **Stage 3.5b** — Send Confirmation error capture wire-in (design ready in `PHASE-3.5-SAFETY-RAILS-PLAN.md §3.5b`). Adds 3 nodes: Gap 2 error path (`Code - Build WA Send Error` + `Postgres - Write automation_errors`), Gap 1 info log, Error Trigger for workflow crashes. Then 3.5d overlap guard hardening, 3.5e logging, 3.5f Stripe gates → **Stage 3y** shadow/co-pilot.
 
 **Not next:** Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7); Airtable cutover without staff UI; autonomous live replies without Stage 3y staff-approval mode.
 
