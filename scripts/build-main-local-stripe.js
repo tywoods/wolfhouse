@@ -1238,8 +1238,21 @@ return [{ json: {
   _stub_note: 'Stage 4 dry-run hold — not a real PG row'
 }}];`;
 
-  const PG_CONV_STUB = `// Stage 3y shadow: Postgres conversation hold upsert bypassed
-return [{ json: { phone: 'dry-run', current_hold_booking_id: 'DRY-RUN-HOLD', dry_run: true } }];`;
+  const PG_CONV_STUB = `// Stage 4 dry-run: Postgres conversation hold upsert bypassed.
+// Returns pg_ok=true so IF - PG Conversation OK goes to the true branch and
+// the flow continues past the conversation hold point without mutating the DB.
+const _holdValidate = (() => {
+  try { return $('Code - Validate PG Hold').first().json || {}; } catch { return {}; }
+})();
+const _bookingId = _holdValidate.booking_id || 'dry-run-conv';
+return [{ json: {
+  pg_ok: true,
+  phone: 'dry-run',
+  current_hold_booking_id: _bookingId,
+  dry_run: true,
+  stub_type: 'conv_hold_stub',
+  _stub_note: 'Stage 4 dry-run: conversation hold upsert bypassed — not a real PG mutation'
+} }];`;
 
   const PG_BACKFILL_STUB = `// Stage 3y shadow: Postgres AT record backfill bypassed
 return [{ json: { affected: 0, dry_run: true } }];`;

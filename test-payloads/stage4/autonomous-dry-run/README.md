@@ -27,7 +27,46 @@ dangerous live writes, correct handoff for exceptions.
 
 ---
 
-## WARNING: scaffolding only — no runtime yet
+## ✅ Runtime gate 1 PASS — A1 turn 1 (2026-05-30)
+
+Execution 1147 (success, ~55s). WHATSAPP_DRY_RUN=true. Main workflow only active (RBfGNtVgrAkvhBHJ).
+
+| Check | Result |
+|-------|--------|
+| route | booking_flow |
+| confidence | 0.95 |
+| IF - PG Hold OK | TRUE ✓ |
+| Hold stub pg_ok | true ✓ |
+| IF - PG Conversation OK | TRUE ✓ |
+| Conv stub pg_ok | true ✓ (PG_CONV_STUB fixed) |
+| Nodes executed | 69 |
+| WhatsApp send | stubbed — no real send ✓ |
+| Airtable writes | all stubbed ✓ |
+| Postgres hold | stubbed ✓ |
+| bookings count | 41 → 41 (unchanged) ✓ |
+| payments count | 25 → 25 (unchanged) ✓ |
+| payment_events count | 5 → 5 (unchanged) ✓ |
+| booking_beds count | 15 → 15 (unchanged) ✓ |
+| draft reply | captured ✓ |
+| graph.facebook.com | not called ✓ |
+
+**Draft reply (A1-T1):**
+> Hey! Great news — we have availability for the Uluwatu package for 2 people from April 10–17 🤙
+> We've temporarily held space for your group for the next hour.
+> To secure the booking, could you drop us one lead guest name and one email address? That's all we need to get things moving! 🏄
+
+**NOT reached in T1 (expected):**
+- `IF - Booking ID Ready` — only reached after T2 (deposit selection) + T3 (name/email)
+- `Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)` — same
+- `Code - Call Create Payment Session` dry-run branch — same
+
+**Fix applied during gate 1:** `PG_CONV_STUB` in `build-main-local-stripe.js` updated to return `pg_ok: true` so `IF - PG Conversation OK` goes to TRUE branch. Previous Stage 3y stub only returned `{ phone: 'dry-run' }` without `pg_ok`.
+
+**Next:** A1 turns 2 + 3 to verify payment-link path.
+
+---
+
+## WARNING: scaffolding only — no runtime yet (original note — superseded by gate 1 PASS above)
 
 These files are scenario definitions. The runner (`scripts/run-stage4-autonomous-dry-run.js`)
 currently only validates and reports — it does NOT POST to n8n.

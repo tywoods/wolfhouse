@@ -1,11 +1,11 @@
 # Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 4 stubs committed (8500176) + runner prepped for A1 turn-1 runtime gate)
+**Last updated:** 2026-05-30 (Stage 4 runtime gate 1 PASS — A1 turn 1 dry-run executed, hold+conv stubs working, draft reply captured)
 **HEAD (expected):** `d2288b7` (Stage 3.5d: harden Assign overlap conflict path)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
 
-**Quality bar:** Stage 3 — CLOSED. Stage 3.5 — CLOSED (d08c64e). Stage 3y — Mode A gate 5 all 10 PASS (Y-X13 decision: fbd6fbc). **Stage 4 — Autonomous Booking Dry-Run scaffolded + stubs implemented (2026-05-30):** A1-A10 scenarios, validator runner, shaped hold stub (pg_ok:true + booking_id + session fields) and payment-link stub (checkout_url + session_id + inline CPS dry-run check) implemented. Postgres - Ensure Booking In Postgres gated (gate 70). Node count: 342. Static only — no runtime yet.
+**Quality bar:** Stage 3 — CLOSED. Stage 3.5 — CLOSED (d08c64e). Stage 3y — Mode A gate 5 all 10 PASS (Y-X13 decision: fbd6fbc). **Stage 4 — Autonomous Booking Dry-Run runtime gate 1 PASS (2026-05-30):** A1 turn 1 executed — route=booking_flow (confidence=0.9), hold stub pg_ok=true, IF PG Hold OK TRUE, IF PG Conv OK TRUE, 69 nodes executed, WhatsApp stub (no real send), draft reply captured. No DB mutations (bookings/payments/payment_events/booking_beds all unchanged). PG_CONV_STUB shaped with pg_ok=true. NOTE: IF - Booking ID Ready + CPS not reached in T1 (expected — T1 is availability + hold only; T2/T3 needed for payment-link path).
 
 ---
 
@@ -31,7 +31,7 @@
 | **3.5** Safety rails | **CLOSED ? minimum safety bar MET (d08c64e)** | [PHASE-3.5-SAFETY-RAILS-PLAN.md](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS. 3.5c/I3 runtime PASS (execs 1093/1094). 3.5d D1+D2+D3 L2 PASS + wire-in static PASS; D8 runtime BLOCKED/deferred (Airtable-coupled upstream). 3.5f I3 PASS + I2/I5 deferred with written reason. 3.5g closeout G1?G13 DONE. Deferrals: D6/D8/D9/I2/I5 runtime ? Airtable cutover; Gap 1/Gap 3 runtime ? Stage 4; 3.5d.8b PG-only trigger path ? NOT REQUIRED before Stage 3y. **Next: Stage 3.5 closeout commit (user approves), then Stage 3y shadow/co-pilot planning.** |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2?3x.4 pending |
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
-| **4** Reliable | **Autonomous Booking Dry-Run — stubs committed + runner prepped (2026-05-30)** | A1–A10 scenarios + validator runner. Hold/payment-link stubs shaped (8500176). 70 dry-run gates, 342 nodes. Runner: --only a1 --turn 1 --execute preflight ready, POST guard active. **Next: runtime gate 1 — activate local Main + WHATSAPP_DRY_RUN=true + run A1 turn 1.** |
+| **4** Reliable | **Autonomous Booking Dry-Run — runtime gate 1 PASS (2026-05-30)** | A1–A10 scenarios + validator runner. Hold/payment-link/conv stubs shaped. 70 dry-run gates, 342 nodes. A1-T1: route=booking_flow (conf=0.9), hold stub pg_ok=true, IF PG Hold OK TRUE, IF PG Conv OK TRUE, 69 nodes, WA stub (no real send), draft reply captured. PG_CONV_STUB fixed to return pg_ok=true. DB: bookings=41, payments=25, payment_events=5, booking_beds=15 — all unchanged. Runner: --only a1 --turn 1 --execute --run. Exec 1147 (success, 55s). **Next: run A1 turns 2+3 to verify payment-link path (IF Booking ID Ready + CPS dry-run + checkout_url), then A2–A10.** |
 | **5** Clean | Planned | Decision engine out of n8n |
 | **6** Beautiful | Planned | Staff UI; Airtable cutover |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
@@ -329,6 +329,10 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 - 3x.3: Ale/Cami provide redacted WhatsApp samples ? enriches Mode A test messages.
 
 **Not next:** Mode B/C/D without separate gate; Stage 5 backend migration; Stage 6 staff UI; Azure (Stage 7); Airtable cutover without staff UI; autonomous live replies without per-action staff approval.
+
+---
+
+**Stage 4 Autonomous Booking Dry-Run — runtime gate 1 PASS (2026-05-30).** A1 turn 1 executed. Execution 1147 (success, ~55s). Route=booking_flow, confidence=0.95. Hold stub pg_ok=true (booking_id="dry-run-nodate"). IF - PG Hold OK → TRUE branch ✓. Conv stub pg_ok=true (PG_CONV_STUB fixed from Stage 3y stub). IF - PG Conversation OK → TRUE branch ✓. 69 nodes executed. All 70 dry-run gates active — WhatsApp send stubbed (no graph.facebook.com), Airtable writes stubbed, Postgres hold stubbed. Draft reply captured: "Hey! Great news — we have availability for the Uluwatu package for 2 people from April 10–17 🤙 We've temporarily held space for your group for the next hour. To secure the booking, could you drop us one lead guest name and one email address?" Protected table counts all unchanged: bookings=41, payments=25, payment_events=5, booking_beds=15. Only Main exec count increased (81→85). NOTE: IF - Booking ID Ready, Ensure Booking stub, and CPS dry-run branch NOT reached in T1 (correct — T1 is availability check + hold creation only; T2 selects deposit, T3 provides name/email → payment-link path). Next gate: A1 turns 2+3.
 
 ---
 

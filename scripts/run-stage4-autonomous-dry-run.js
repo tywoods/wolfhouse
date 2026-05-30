@@ -47,6 +47,7 @@ const TURN_RAW = TURN_IDX !== -1 ? ARGS[TURN_IDX + 1] : null;
 const TURN_FILTER = TURN_RAW ? normaliseId(TURN_RAW) : null;
 
 const EXECUTE_MODE = ARGS_SET.has('--execute');
+const RUN_MODE = ARGS_SET.has('--run'); // POST guard lifted — actually sends the request
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -266,6 +267,76 @@ function printScenarioSummary(scenario, errors, warnings, activeTurnFilter) {
   }
 }
 
+// ── HTTP POST + execution poll helpers ────────────────────────────────────────
+
+function postWebhook(webhookUrl, body) {
+  const http = require('http');
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const url = new URL(webhookUrl);
+    const opts = {
+      hostname: url.hostname, port: parseInt(url.port) || 5678,
+      path: url.pathname, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+    };
+    const req = http.request(opts, res => {
+      let buf = '';
+      res.on('data', d => buf += d);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(buf) }); }
+        catch { resolve({ status: res.statusCode, body: buf }); }
+      });
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+async function pollExecution(afterExecId, timeoutMs = 75000) {
+  const { Client } = require('pg');
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 3000));
+    const c = new Client({
+      host: 'localhost', port: 5434, database: 'n8n',
+      user: 'n8n', password: process.env.N8N_DB_PASSWORD || '37AwT5X0pHgCVEO',
+    });
+    try {
+      await c.connect();
+      const r = await c.query(
+        `SELECT e.id, e.status, e."workflowId", e."startedAt", e."stoppedAt",
+                ed.data as exec_data
+         FROM execution_entity e
+         LEFT JOIN execution_data ed ON ed."executionId" = e.id
+         WHERE e."workflowId" = 'RBfGNtVgrAkvhBHJ' AND e.id > $1
+         ORDER BY e.id DESC LIMIT 1`,
+        [afterExecId]
+      );
+      await c.end();
+      if (r.rows.length) {
+        const s = r.rows[0].status;
+        if (s === 'success' || s === 'error' || s === 'crashed') return r.rows[0];
+      }
+    } catch (e) {
+      try { await c.end(); } catch {}
+    }
+  }
+  return null;
+}
+
+async function getBaselineExecId() {
+  const { Client } = require('pg');
+  const c = new Client({
+    host: 'localhost', port: 5434, database: 'n8n',
+    user: 'n8n', password: process.env.N8N_DB_PASSWORD || '37AwT5X0pHgCVEO',
+  });
+  await c.connect();
+  const r = await c.query("SELECT COALESCE(MAX(id), 0) as max_id FROM execution_entity WHERE \"workflowId\" = 'RBfGNtVgrAkvhBHJ'");
+  await c.end();
+  return Number(r.rows[0].max_id);
+}
+
 // ── Execute preflight ─────────────────────────────────────────────────────────
 
 function buildExecutePreflight(scenario, turn) {
@@ -307,10 +378,10 @@ function buildExecutePreflight(scenario, turn) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-function main() {
+async function main() {
   console.log('\n' + '='.repeat(70));
   console.log(' Stage 4 Autonomous Booking Dry-Run — Scenario Validator');
-  console.log(' Mode: ' + (EXECUTE_MODE ? 'PREFLIGHT (no POST — post guard active)' : 'VALIDATE + PLAN (no runtime, no POST, no DB)'));
+  console.log(' Mode: ' + (RUN_MODE ? 'EXECUTE (POST + poll — post guard LIFTED)' : EXECUTE_MODE ? 'PREFLIGHT (no POST — post guard active)' : 'VALIDATE + PLAN (no runtime, no POST, no DB)'));
   console.log('='.repeat(70));
 
   if (TURN_FILTER && !ONLY_FILTER) {
@@ -453,8 +524,7 @@ function main() {
 
     // ── Execute preflight (only when --execute + --only + --turn) ─────────────
     if (EXECUTE_MODE && ONLY_FILTER && TURN_FILTER && entry.valid) {
-      const matchedTurns = (scenario.turns ?? []).filter((t) => {
-        const tid = normaliseId(String(t.turn_id ?? ''));
+      const matchedTurns = (scenario.turns ?? []).filter((t) => {        const tid = normaliseId(String(t.turn_id ?? ''));
         // Match by various forms: "1" matches "1", "t1", "a1-t1", "turn-1"
         if (tid === TURN_FILTER) return true;                        // exact
         if (tid === 't' + TURN_FILTER) return true;                  // "t1"
@@ -501,6 +571,108 @@ function main() {
         }
         console.error('\n  Preflight FAILED. Fix errors above before running.');
         process.exit(1);
+      }
+
+      // ── Actually POST if --run is present ───────────────────────────────────
+      if (RUN_MODE) {
+        console.log('\n' + '-'.repeat(70));
+        console.log(' EXECUTING: POST to webhook (--run flag active)');
+        console.log('-'.repeat(70));
+        const beforeExecId = await getBaselineExecId();
+        console.log(`  Baseline exec id: ${beforeExecId}`);
+        console.log(`  POSTing to ${preflight.webhook_url}...`);
+
+        let postResult;
+        try {
+          postResult = await postWebhook(preflight.webhook_url, selectedTurn.post_body);
+        } catch (e) {
+          console.error('  POST failed:', e.message);
+          process.exit(1);
+        }
+        console.log(`  POST status: ${postResult.status}`);
+        console.log(`  POST body: ${JSON.stringify(postResult.body).slice(0, 200)}`);
+
+        if (postResult.status !== 200) {
+          console.error('  Non-200 response — execution may not have started. Check n8n logs.');
+          report.execute_result = { status: 'post_failed', post_status: postResult.status, post_body: postResult.body };
+        } else {
+          console.log('\n  Polling for execution completion (up to 45s)...');
+          const execRow = await pollExecution(beforeExecId);
+          if (!execRow) {
+            console.error('  Execution timed out — not found in n8n DB within 45s.');
+            report.execute_result = { status: 'timeout', post_status: postResult.status };
+          } else {
+            console.log(`  Execution id: ${execRow.id} | status: ${execRow.status}`);
+            console.log(`  Started: ${execRow.startedAt} | Stopped: ${execRow.stoppedAt}`);
+
+            // Parse execution data for key nodes
+            let execData = null;
+            try { execData = typeof execRow.exec_data === 'string' ? JSON.parse(execRow.exec_data) : execRow.exec_data; } catch {}
+
+            const result = {
+              status: execRow.status,
+              execution_id: execRow.id,
+              post_status: postResult.status,
+              started_at: execRow.startedAt,
+              stopped_at: execRow.stoppedAt,
+              node_results: {},
+            };
+
+            if (execData && execData.resultData && execData.resultData.runData) {
+              const runData = execData.resultData.runData;
+              const lastNode = execData.resultData.lastNodeExecuted;
+              result.last_node_executed = lastNode;
+              console.log(`  Last node executed: ${lastNode}`);
+
+              // Extract key nodes
+              const keyNodes = [
+                'IF - PG Hold OK',
+                'IF - Booking ID Ready',
+                'Code - DRY RUN Stub (Postgres - Create Booking Hold)',
+                'Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)',
+                'Code - Validate PG Hold',
+                'Code - Call Create Payment Session',
+                'Code - Parse Route',
+                'Code - Booking State Resolver',
+              ];
+              for (const nodeName of keyNodes) {
+                if (runData[nodeName]) {
+                  const nodeRun = runData[nodeName][0];
+                  const outputData = nodeRun?.data?.main?.[0]?.[0]?.json ?? nodeRun?.data?.main?.[1]?.[0]?.json ?? null;
+                  result.node_results[nodeName] = {
+                    executed: true,
+                    output_summary: outputData ? JSON.stringify(outputData).slice(0, 300) : null,
+                  };
+                  if (nodeName === 'Code - Parse Route') {
+                    console.log(`  Route: ${outputData?.route || '?'} | confidence: ${outputData?.confidence || '?'}`);
+                  }
+                  if (nodeName === 'IF - PG Hold OK') {
+                    console.log(`  IF - PG Hold OK: branch=${nodeRun?.data?.main?.[0]?.length ? 'TRUE(0)' : nodeRun?.data?.main?.[1]?.length ? 'FALSE(1)' : '?'}`);
+                  }
+                  if (nodeName === 'Code - DRY RUN Stub (Postgres - Create Booking Hold)') {
+                    console.log(`  Hold stub executed: ${outputData ? 'YES' : 'NO'} | pg_ok=${outputData?.pg_ok} | booking_id=${outputData?.booking_id}`);
+                  }
+                  if (nodeName === 'Code - Call Create Payment Session') {
+                    console.log(`  CPS dry-run: checkout_url=${outputData?.checkout_url} | amount=${outputData?.amount_due_cents}`);
+                  }
+                }
+              }
+
+              // Try to find draft reply text
+              const replyNodes = Object.keys(runData).filter(n => n.startsWith('Reply -'));
+              for (const rn of replyNodes) {
+                const rdata = runData[rn]?.[0]?.data?.main?.[0]?.[0]?.json;
+                if (rdata?.text || rdata?.reply_text) {
+                  result.draft_reply = (rdata.text || rdata.reply_text || '').slice(0, 500);
+                  console.log(`  Draft reply (${rn}): "${result.draft_reply.slice(0, 150)}..."`);
+                  break;
+                }
+              }
+            }
+
+            report.execute_result = result;
+          }
+        }
       }
     }
   }
@@ -558,4 +730,4 @@ function main() {
   }
 }
 
-main();
+main().catch(e => { console.error('FATAL:', e.message); process.exit(1); });

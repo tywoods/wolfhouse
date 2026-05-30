@@ -24388,7 +24388,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 3y shadow: Postgres conversation hold upsert bypassed\nreturn [{ json: { phone: 'dry-run', current_hold_booking_id: 'DRY-RUN-HOLD', dry_run: true } }];"
+        "jsCode": "// Stage 4 dry-run: Postgres conversation hold upsert bypassed.\n// Returns pg_ok=true so IF - PG Conversation OK goes to the true branch and\n// the flow continues past the conversation hold point without mutating the DB.\nconst _holdValidate = (() => {\n  try { return $('Code - Validate PG Hold').first().json || {}; } catch { return {}; }\n})();\nconst _bookingId = _holdValidate.booking_id || 'dry-run-conv';\nreturn [{ json: {\n  pg_ok: true,\n  phone: 'dry-run',\n  current_hold_booking_id: _bookingId,\n  dry_run: true,\n  stub_type: 'conv_hold_stub',\n  _stub_note: 'Stage 4 dry-run: conversation hold upsert bypassed — not a real PG mutation'\n} }];"
       }
     },
     {
