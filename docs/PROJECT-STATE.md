@@ -1,6 +1,6 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 5.3d static scaffold)
+**Last updated:** 2026-05-31 (Stage 5.3d retry PARTIAL PASS — structural Airtable formula blocker confirmed)
 **HEAD (expected):** `bd891ba`
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
@@ -35,7 +35,7 @@
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
 | **4** Reliable | **CLOSE WITH DEFERRALS — Autonomous Booking Dry-Run complete (2026-05-30, commit 6cd9a21)** | All 14 runtime scenarios PASS (A1–A10, A9, IT-1/2/3, DE-1). Full dry-run booking path, payment webhook sim, confirmation draft, closed-month guard, multi-turn PG state, add-on pricing, multilingual baseline proven. Protected tables Δ=0 across all gates. **Deferrals:** real WhatsApp, live holds/Stripe/confirmation writes, structured add-on DB records (Stage 5), staff assistant (Stage 6), Airtable cutover, extensive multilingual polish. **Next: Stage 5 — source-of-truth cleanup + pilot readiness.** |
 
-| **5** Clean | **5.1 PASS. 5.2 CLOSE WITH DEFERRALS. 5.3a–5.3c STATIC DONE. 5.3d STATIC SCAFFOLD DONE 2026-05-30.** `IF - Stage53 Fixture?` guard wired on Ensure Booking stub. Pre-seed SQL (`stage5.3d-payment-seed.sql`) + cleanup SQL (`stage5.3d-cleanup.sql`) + proof runner (`verify-stage53d-payment-proof.js`) ready. Default dry-run behavior unchanged. `STAGE53_FIXTURE_PAYMENT` env var added to docker-compose. **Next: Stage 5.3d runtime gate.** | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
+| **5** Clean | **5.1 PASS. 5.2 CLOSE WITH DEFERRALS. 5.3a–5.3c STATIC DONE. 5.3d PARTIAL PASS (2× retried, structural blocker).** Seed proof: `WH-53-FIXTURE-001` payment_pending booking + `checkout_created` payments row created/deleted. Query E (waiting payment)=1 during gate, 0 after cleanup. Guard statically proven OK. Ensure-promote TRUE branch blocked: `Search Active Booking - Current Hold ID` filterByFormula resolves to `{Booking ID}=""` when fixture phone has no Airtable conversation — Airtable matches records with empty `{Booking ID}` field (returns `rec4VXB7Rf1VxDr0C`), BSR routes to "collect booking details" instead of ensure-promote path. Changing fixture phone (153→155) did not fix this — root cause is a formula bug, not a phone collision. Baseline restored: bookings=41, payments=25, payment_events=5. **Next: Stage 5.3e — fix `Search Active Booking - Current Hold ID` filterByFormula to return `FALSE` when hold ID is empty, then retry ensure-promote + Stripe webhook replay.** | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
 | **6** Beautiful | Planned | Staff UI + Staff Operations Assistant + approval controls; Airtable cutover. Not started. Staff queries answered from Stage 5 structured records. |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
@@ -325,7 +325,7 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
-**Immediate next step: Stage 5.3d runtime gate.** Static scaffold committed. `IF - Stage53 Fixture?` guard is wired; fixture seed SQL and cleanup SQL are ready. Activate `STAGE53_FIXTURE_PAYMENT=true`, run the gate with fixture phone `34600000153`, prove `bookings` promote to `payment_pending` and pre-seeded `payments` row appears in Query E, then run cleanup and verify baseline restored. No live Stripe, no real WhatsApp.
+**Immediate next step: Stage 5.3e — fix `Search Active Booking - Current Hold ID` filterByFormula.** The formula resolves to `{Booking ID}=""` when no hold ID is available (fixture phone has no Airtable conversation). Airtable interprets this as "find records with empty Booking ID" and returns `rec4VXB7Rf1VxDr0C`. Fix: update the formula in `scripts/build-main-local-stripe.js` so that when `hold_id` is empty, the formula evaluates to `FALSE` (no match). Then retry the ensure-promote guard proof for Stage 5.3d.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.

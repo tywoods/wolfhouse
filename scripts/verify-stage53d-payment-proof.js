@@ -27,7 +27,7 @@ const PG_URL =
   process.env.WOLFHOUSE_DATABASE_URL ||
   'postgres://wolfhouse:oGFMhl9w59Ym4Gf@localhost:5433/wolfhouse';
 
-const FIXTURE_PHONES = ['34600000153', '+34600000153'];
+const FIXTURE_PHONES = ['34600000155', '+34600000155'];
 
 function isFixture(row) {
   return FIXTURE_PHONES.includes(String(row.phone || ''));

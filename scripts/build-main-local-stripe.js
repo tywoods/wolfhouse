@@ -1831,7 +1831,7 @@ function verifyStage52FixtureGuard(workflow) {
  * Stage 5.3d: Adds a fixture guard on the Ensure Booking dry-run stub so the real
  * Postgres - Ensure Booking In Postgres node can fire under controlled conditions:
  *   1. STAGE53_FIXTURE_PAYMENT=true (explicit opt-in env var)
- *   2. phone is 34600000153 or +34600000153
+ *   2. phone is 34600000155 or +34600000155
  *
  * Design: same pattern as Stage 5.2d.
  *   - Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres) → IF - Stage53 Fixture?
@@ -1851,7 +1851,7 @@ function applyStage53FixtureEnsureGuard(workflow) {
   const STUB_NAME = 'Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)';
   const REAL_NAME = 'Postgres - Ensure Booking In Postgres';
   const IF_NAME = 'IF - Stage53 Fixture?';
-  const FIXTURE_PHONES = ['34600000153', '+34600000153'];
+  const FIXTURE_PHONES = ['34600000155', '+34600000155'];
 
   const stubNode = workflow.nodes.find((n) => n.name === STUB_NAME);
   const realNode = workflow.nodes.find((n) => n.name === REAL_NAME);
@@ -1965,8 +1965,8 @@ function verifyStage53FixtureGuard(workflow) {
     const expr = conds[0]?.leftValue || '';
     if (!expr.includes('STAGE53_FIXTURE_PAYMENT'))
       errors.push('IF - Stage53 Fixture? does not check STAGE53_FIXTURE_PAYMENT env var');
-    if (!expr.includes('34600000153'))
-      errors.push('IF - Stage53 Fixture? does not check fixture phone 34600000153');
+    if (!expr.includes('34600000155'))
+      errors.push('IF - Stage53 Fixture? does not check fixture phone 34600000155');
   }
 
   const stubConns = workflow.connections[STUB_NAME];

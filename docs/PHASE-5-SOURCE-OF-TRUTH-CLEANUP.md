@@ -1229,16 +1229,48 @@ Verifier: `scripts/verify-staff-payment-queries.js` — checks all 7 exports (1 
 
 Runtime gate proving the full live hold→payment_pending→payments-row path under controlled fixture guard.
 
-**Static scaffold (2026-05-30):**
+#### 5.3d — Fixture ensure-promote + payment session proof (PARTIAL PASS — structural Airtable blocker)
+
+**Static scaffold (2026-05-30):** (see above)
+
+**Runtime attempt 1 (2026-05-31) — fixture phone `+34600000153`:** PARTIAL PASS
+
+**Runtime attempt 2 (2026-05-31) — fixture phone `+34600000155`:** PARTIAL PASS (same structural blocker)
+
+**Root cause (confirmed after retry):** Changing the fixture phone did NOT fix the blocker. The `Search Active Booking - Current Hold ID` Airtable node uses a `filterByFormula` that resolves to `{Booking ID}=""` when the fixture phone has no Airtable conversation (i.e., no `Current Hold ID` stored). In Airtable, this formula matches records with an empty `{Booking ID}` field — returning `rec4VXB7Rf1VxDr0C` regardless of phone. `Code - Pick Active Booking` then sets `active_booking_found: true` and BSR routes to `Reply - Collect Booking Details` instead of the ensure-promote path. This is a **workflow formula bug**, not a phone collision issue.
+
+**Required fix (Stage 5.3e pre-work):** Change the `filterByFormula` in `Search Active Booking - Current Hold ID` so that when the resolved hold ID is empty (`''`), the formula evaluates to `FALSE` (matches nothing) instead of `{Booking ID}=""` (which matches records with empty Booking ID). Fix in `scripts/build-main-local-stripe.js`.
+
+**Exec summary (attempt 2, exec 1238):**
+- Phone `+34600000155` — not in Airtable, no collision.
+- `Search Conversation` (Airtable) returned `{}` (correct — phone not in Airtable).
+- `Search Active Booking - Current Hold ID` formula → `{Booking ID}=""` → returned `rec4VXB7Rf1VxDr0C` (Airtable record with empty `{Booking ID}` field).
+- `Code - Pick Active Booking` → `active_booking_found: true` → BSR → `Reply - Collect Booking Details`.
+- `IF - Stage53 Fixture?` NOT reached. `Postgres - Ensure Booking In Postgres` NOT exercised.
+
+**PASS criteria met (both attempts):**
+- ✅ Seed SQL creates correct `payment_pending` booking (`WH-53-FIXTURE-001`) and `payments` row (`checkout_created`, `cs_test_stage53_fixture_001`)
+- ✅ `payment_balances` query returns fixture row (1 row confirmed)
+- ✅ Query E (waiting payment) returns fixture row (1 row confirmed)
+- ✅ Query D (no payments row) returns 0 for fixture (payments row seeded)
+- ✅ Queries A/B/C/F return 0 for fixture (not paid, no confirmation needed)
+- ✅ `IF - Stage53 Fixture?` guard node wired correctly (verified via --verify-targets)
+- ✅ `payment_events` Δ=0, `booking_beds` Δ=0 throughout
+- ✅ Cleanup SQL restored baseline: bookings=41, payments=25, payment_events=5, booking_beds=15, fixture conversations=0
+- ✅ New fixture phone `+34600000155` confirmed clean (not in PG, not in Airtable conversations)
+
+**BLOCKED criteria:**
+- ❌ `IF - Stage53 Fixture?` TRUE branch not runtime-executed: structural formula bug in `Search Active Booking - Current Hold ID` causes false positive regardless of fixture phone
+- ❌ Real `Postgres - Ensure Booking In Postgres` node not exercised under fixture guard
 
 **Chosen fixture design — Option A (pre-seed payments row):** CPS inline guard still returns a stub checkout URL and does NOT create a real `payments` row or call Stripe. A fixture `payments` row is pre-seeded via `scripts/fixtures/stage5.3d-payment-seed.sql`. This is the safest approach — no Stripe API call can happen at any point during the gate.
 
 - `IF - Stage53 Fixture?` guard node added after `Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)`
-  - `STAGE53_FIXTURE_PAYMENT=true` + phone `34600000153` / `+34600000153` required (both n8n-main and n8n-worker containers)
+  - `STAGE53_FIXTURE_PAYMENT=true` + phone `34600000155` / `+34600000155` required (both n8n-main and n8n-worker containers)
   - TRUE → real `Postgres - Ensure Booking In Postgres` node
   - FALSE → `Code - Stage53 DRY RUN Passthrough` (stub output unchanged)
 - Verifier `verifyStage53FixtureGuard(workflow)` wired into `runVerifyTargets`: OK
-- `scripts/fixtures/stage5.3d-payment-seed.sql` — pre-seeds fixture `bookings` (payment_pending) + `payments` (checkout_created, `cs_test_stage53_fixture_001`) for phone `+34600000153` / wolfhouse-somo
+- `scripts/fixtures/stage5.3d-payment-seed.sql` — pre-seeds fixture `bookings` (payment_pending) + `payments` (checkout_created, `cs_test_stage53_fixture_001`) for phone `+34600000155` / wolfhouse-somo
 - `scripts/fixtures/stage5.3d-cleanup.sql` — deletes fixture `payment_events`, `payments`, `bookings`, `conversations` for fixture phone; safe to re-run
 - `scripts/verify-stage53d-payment-proof.js` — read-only proof runner using `payment_balances` + 6 staff payment queries; prints fixture rows; safe before/after fixture exists
 - `STAGE53_FIXTURE_PAYMENT` env var added (default false) to both n8n and n8n-worker in `infra/docker-compose.local.yml`

@@ -24794,7 +24794,7 @@
           "conditions": [
             {
               "id": "stage53-fixture-cond",
-              "leftValue": "={{ (() => {\n  const fixtureEnabled = String($env.STAGE53_FIXTURE_PAYMENT || '').toLowerCase() === 'true';\n  const phone = String($('Normalize Incoming Message').first().json.phone || '');\n  const isFixturePhone = ['34600000153', '+34600000153'].includes(phone);\n  return fixtureEnabled && isFixturePhone;\n})() }}",
+              "leftValue": "={{ (() => {\n  const fixtureEnabled = String($env.STAGE53_FIXTURE_PAYMENT || '').toLowerCase() === 'true';\n  const phone = String($('Normalize Incoming Message').first().json.phone || '');\n  const isFixturePhone = ['34600000155', '+34600000155'].includes(phone);\n  return fixtureEnabled && isFixturePhone;\n})() }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
