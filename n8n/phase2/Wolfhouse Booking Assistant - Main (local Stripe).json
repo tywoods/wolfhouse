@@ -119,7 +119,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const convo =\n  $('Search Conversation').first().json || {};\n\nconst atSession =\n  convo['Session State'] ||\n  convo.fields?.['Session State'] ||\n  null;\n\n// PG fallback: when Airtable session is absent (dry-run or no prior Airtable\n// write), read session from Postgres conversations for multi-turn continuity.\nconst pgRow = (() => {\n  try {\n    const r = $('Postgres - Search Conversation (PG)').first().json;\n    return r && typeof r === 'object' ? r : {};\n  } catch (_) {\n    return {};\n  }\n})();\n\nconst pgSessionRaw = pgRow.session_state != null\n  ? (typeof pgRow.session_state === 'object'\n      ? JSON.stringify(pgRow.session_state)\n      : String(pgRow.session_state))\n  : null;\n\nconst oldRaw = atSession || pgSessionRaw || '{}';\n\nconst currentHoldId =\n  convo['Current Hold ID'] ||\n  convo.fields?.['Current Hold ID'] ||\n  (pgRow.session_state && typeof pgRow.session_state === 'object'\n    ? (pgRow.session_state.current_hold_id || null)\n    : null) ||\n  null;\n\nconst newRaw =\n  $('Parser Node').first().json.text || '{}';\n\nfunction clean(raw) {\n  return String(raw)\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/```$/i, '')\n    .trim();\n}\n\nconst oldState = JSON.parse(clean(oldRaw));\nconst newState = JSON.parse(clean(newRaw));\n\nconst merged = { ...oldState };\n\nfor (const [key, value] of Object.entries(newState)) {\n  if (value === null) continue;\n  if (value === '') continue;\n  if (Array.isArray(value) && value.length === 0) continue;\n\n  merged[key] = value;\n}\n\n// Default room type logic.\n// Wolfhouse default is shared unless guest clearly asks for private/own room/family room.\nconst guestMessage = String(\n  $('Normalize Incoming Message').first().json.guest_message ||\n  (($('Create Inbound Message').isExecuted ? $('Create Inbound Message') : $('Code - DRY RUN Stub (Create Inbound Message)')).isExecuted ? ($('Create Inbound Message').isExecuted ? $('Create Inbound Message') : $('Code - DRY RUN Stub (Create Inbound Message)')) : $('Code - DRY RUN Stub (Create Inbound Message)')).first().json.fields?.['Message Text'] ||\n  ''\n).toLowerCase();\n\nconst privateKeywords = [\n  'private room',\n  'private',\n  'own room',\n  'room to ourselves',\n  'room for ourselves',\n  'not shared',\n  'family room',\n  'family',\n  'matrimonial',\n  'double room',\n  'double bed'\n];\n\nconst sharedKeywords = [\n  'shared',\n  'shared room',\n  'dorm',\n  'bed',\n  'bunk',\n  'hostel bed'\n];\n\nconst asksPrivate = privateKeywords.some(word => guestMessage.includes(word));\nconst asksShared = sharedKeywords.some(word => guestMessage.includes(word));\n\nif (asksPrivate) {\n  merged.room_type = 'private';\n} else if (asksShared) {\n  merged.room_type = 'shared';\n} else if (!merged.room_type || merged.room_type === 'unknown') {\n  merged.room_type = 'shared';\n}\n\n// Determine if we have enough info.\n// Do NOT require room_type anymore because it defaults to shared.\nmerged.ready_for_availability_check =\n  !!merged.check_in &&\n  !!merged.check_out &&\n  !!merged.guest_count;\n\nreturn [\n  {\n    json: {\n      old_state: oldState,\n      new_state: newState,\n\n      current_hold_id: currentHoldId,\n\n      session: merged,\n\n      session_state: JSON.stringify(merged, null, 2),\n\n      _pg_fallback_used: !atSession && !!pgSessionRaw,\n      _pg_conversation_id: pgRow.conversation_id || null,\n    }\n  }\n];"
+        "jsCode": "const convo =\n  $('Search Conversation').first().json || {};\n\nconst atSession =\n  convo['Session State'] ||\n  convo.fields?.['Session State'] ||\n  null;\n\n// Stage 5.1 PG-primary: read session from Postgres conversations first.\n// Airtable session is bridge/fallback for transition from legacy AT-first path.\nconst pgRow = (() => {\n  try {\n    const r = $('Postgres - Search Conversation (PG)').first().json;\n    return r && typeof r === 'object' ? r : {};\n  } catch (_) {\n    return {};\n  }\n})();\n\nconst pgSessionRaw = pgRow.session_state != null\n  ? (typeof pgRow.session_state === 'object'\n      ? JSON.stringify(pgRow.session_state)\n      : String(pgRow.session_state))\n  : null;\n\n// Stage 5.1: PG-primary — pgSession first, AT bridge/fallback.\nconst oldRaw = pgSessionRaw || atSession || '{}';\n\n// Stage 5.1: current_hold_id from PG session first, AT bridge/fallback.\nconst currentHoldId =\n  (pgRow.session_state && typeof pgRow.session_state === 'object'\n    ? (pgRow.session_state.current_hold_id ||\n       pgRow.session_state.current_hold_booking_code ||\n       null)\n    : null) ||\n  convo['Current Hold ID'] ||\n  convo.fields?.['Current Hold ID'] ||\n  null;\n\nconst newRaw =\n  $('Parser Node').first().json.text || '{}';\n\nfunction clean(raw) {\n  return String(raw)\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/```$/i, '')\n    .trim();\n}\n\nconst oldState = JSON.parse(clean(oldRaw));\nconst newState = JSON.parse(clean(newRaw));\n\nconst merged = { ...oldState };\n\nfor (const [key, value] of Object.entries(newState)) {\n  if (value === null) continue;\n  if (value === '') continue;\n  if (Array.isArray(value) && value.length === 0) continue;\n\n  merged[key] = value;\n}\n\n// Default room type logic.\n// Wolfhouse default is shared unless guest clearly asks for private/own room/family room.\nconst guestMessage = String(\n  $('Normalize Incoming Message').first().json.guest_message ||\n  (($('Create Inbound Message').isExecuted ? $('Create Inbound Message') : $('Code - DRY RUN Stub (Create Inbound Message)')).isExecuted ? ($('Create Inbound Message').isExecuted ? $('Create Inbound Message') : $('Code - DRY RUN Stub (Create Inbound Message)')) : $('Code - DRY RUN Stub (Create Inbound Message)')).first().json.fields?.['Message Text'] ||\n  ''\n).toLowerCase();\n\nconst privateKeywords = [\n  'private room',\n  'private',\n  'own room',\n  'room to ourselves',\n  'room for ourselves',\n  'not shared',\n  'family room',\n  'family',\n  'matrimonial',\n  'double room',\n  'double bed'\n];\n\nconst sharedKeywords = [\n  'shared',\n  'shared room',\n  'dorm',\n  'bed',\n  'bunk',\n  'hostel bed'\n];\n\nconst asksPrivate = privateKeywords.some(word => guestMessage.includes(word));\nconst asksShared = sharedKeywords.some(word => guestMessage.includes(word));\n\nif (asksPrivate) {\n  merged.room_type = 'private';\n} else if (asksShared) {\n  merged.room_type = 'shared';\n} else if (!merged.room_type || merged.room_type === 'unknown') {\n  merged.room_type = 'shared';\n}\n\n// Determine if we have enough info.\n// Do NOT require room_type anymore because it defaults to shared.\nmerged.ready_for_availability_check =\n  !!merged.check_in &&\n  !!merged.check_out &&\n  !!merged.guest_count;\n\nreturn [\n  {\n    json: {\n      old_state: oldState,\n      new_state: newState,\n\n      current_hold_id: currentHoldId,\n\n      session: merged,\n\n      session_state: JSON.stringify(merged, null, 2),\n\n      _pg_fallback_used: !pgSessionRaw && !!atSession,\n      _pg_primary_used: !!pgSessionRaw,\n      _pg_conversation_id: pgRow.conversation_id || null,\n    }\n  }\n];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -6494,22 +6494,30 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
-            "version": 3
+            "typeValidation": "loose",
+            "version": 2
           },
           "conditions": [
             {
-              "id": "06f5c66a-da7a-47c5-9684-95973b3a43d1",
-              "leftValue": "={{ !!$('Search Conversation').first().json.id }}",
+              "id": "stage51-pg-conv-exists",
+              "leftValue": "={{ $('Postgres - Search Conversation (PG)').first().json.conversation_id }}",
               "rightValue": "",
               "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "stage51-at-conv-exists",
+              "leftValue": "={{ ($('Search Conversation').first().json.records?.length ?? 0) }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
               }
             }
           ],
-          "combinator": "and"
+          "combinator": "or"
         },
         "options": {}
       },
@@ -21182,7 +21190,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH params AS (\n  SELECT\n    NULLIF($1, '__NULL__') AS phone,\n    NULLIF($2, '__NULL__') AS booking_code,\n    COALESCE(NULLIF($3, '__NULL__'), 'booking_flow') AS conversation_stage,\n    NULLIF($4, '__NULL__') AS pending_action,\n    NULLIF($5, '__NULL__') AS language,\n    COALESCE(NULLIF($6, '__NULL__')::jsonb, '{}'::jsonb) AS session_state_json,\n    CASE\n      WHEN lower(COALESCE(NULLIF($7, '__NULL__'), '')) IN ('true', '1', 'yes') THEN TRUE\n      ELSE NULL\n    END AS needs_human_value,\n    NULLIF($8, '__NULL__') AS bot_mode_value\n),\nclient AS (\n  SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1\n),\nbooking AS (\n  SELECT\n    b.id::text AS booking_id,\n    b.id AS booking_uuid,\n    b.booking_code,\n    b.phone,\n    b.status::text AS status\n  FROM bookings b\n  INNER JOIN client c ON b.client_id = c.id\n  CROSS JOIN params p\n  WHERE b.booking_code = p.booking_code\n  LIMIT 1\n),\nguard AS (\n  SELECT\n    p.*,\n    b.booking_id,\n    b.booking_uuid,\n    b.booking_code AS found_booking_code,\n    b.phone AS booking_phone,\n    b.status AS booking_status,\n    (p.phone IS NULL OR p.booking_code IS NULL) AS missing_required,\n    (b.booking_id IS NULL) AS booking_missing,\n    (b.status IN ('confirmed', 'checked_in', 'cancelled', 'expired')) AS blocked_booking_status,\n    (b.status IS NOT NULL AND b.status NOT IN ('hold', 'payment_pending')) AS status_not_allowed,\n    (b.phone IS NOT NULL AND p.phone IS NOT NULL AND b.phone <> p.phone) AS phone_mismatch\n  FROM params p\n  LEFT JOIN booking b ON TRUE\n),\nupserted AS (\n  INSERT INTO conversations (\n    client_id,\n    phone,\n    current_hold_booking_id,\n    conversation_stage,\n    session_state,\n    pending_action,\n    language,\n    needs_human,\n    bot_mode\n  )\n  SELECT\n    c.id,\n    g.phone,\n    g.booking_uuid,\n    g.conversation_stage,\n    g.session_state_json || jsonb_build_object('current_hold_booking_code', g.found_booking_code),\n    g.pending_action,\n    g.language,\n    COALESCE(g.needs_human_value, FALSE),\n    COALESCE(g.bot_mode_value::bot_mode, 'bot'::bot_mode)\n  FROM guard g\n  INNER JOIN client c ON TRUE\n  WHERE NOT g.missing_required\n    AND NOT g.booking_missing\n    AND NOT g.blocked_booking_status\n    AND NOT g.status_not_allowed\n    AND NOT g.phone_mismatch\n  ON CONFLICT (client_id, phone) DO UPDATE SET\n    current_hold_booking_id = EXCLUDED.current_hold_booking_id,\n    conversation_stage = EXCLUDED.conversation_stage,\n    session_state = COALESCE(conversations.session_state, '{}'::jsonb) || EXCLUDED.session_state,\n    pending_action = COALESCE(EXCLUDED.pending_action, conversations.pending_action),\n    language = COALESCE(EXCLUDED.language, conversations.language),\n    needs_human = COALESCE(EXCLUDED.needs_human, conversations.needs_human),\n    bot_mode = COALESCE(EXCLUDED.bot_mode, conversations.bot_mode),\n    updated_at = NOW()\n  RETURNING\n    id::text AS conversation_id,\n    current_hold_booking_id::text AS current_hold_booking_id,\n    conversation_stage,\n    (xmax = 0) AS created,\n    (xmax <> 0) AS updated\n)\nSELECT\n  CASE\n    WHEN g.missing_required THEN FALSE\n    WHEN g.booking_missing THEN FALSE\n    WHEN g.blocked_booking_status THEN FALSE\n    WHEN g.status_not_allowed THEN FALSE\n    WHEN g.phone_mismatch THEN FALSE\n    WHEN u.conversation_id IS NULL THEN FALSE\n    ELSE TRUE\n  END AS pg_ok,\n  u.conversation_id,\n  g.booking_id,\n  g.found_booking_code AS booking_code,\n  u.current_hold_booking_id,\n  u.conversation_stage,\n  COALESCE(u.created, FALSE) AS created,\n  COALESCE(u.updated, FALSE) AS updated,\n  CASE\n    WHEN g.missing_required THEN '[\"missing_phone_or_booking_code\"]'::jsonb\n    WHEN g.booking_missing THEN '[\"booking_not_found\"]'::jsonb\n    WHEN g.blocked_booking_status THEN '[\"blocked_booking_status\"]'::jsonb\n    WHEN g.status_not_allowed THEN '[\"booking_status_not_allowed\"]'::jsonb\n    WHEN g.phone_mismatch THEN '[\"phone_mismatch\"]'::jsonb\n    WHEN u.conversation_id IS NULL THEN '[\"conversation_upsert_failed\"]'::jsonb\n    ELSE '[]'::jsonb\n  END AS actionable,\n  CASE\n    WHEN g.missing_required THEN ARRAY['missing_phone_or_booking_code']::text[]\n    WHEN g.booking_missing THEN ARRAY['booking_not_found']::text[]\n    WHEN g.blocked_booking_status THEN ARRAY['blocked_booking_status']::text[]\n    WHEN g.status_not_allowed THEN ARRAY['booking_status_not_allowed']::text[]\n    WHEN g.phone_mismatch THEN ARRAY['phone_mismatch']::text[]\n    WHEN u.conversation_id IS NULL THEN ARRAY['conversation_upsert_failed']::text[]\n    ELSE ARRAY[]::text[]\n  END AS pg_errors\nFROM guard g\nLEFT JOIN upserted u ON TRUE;",
+        "query": "WITH params AS (\n  SELECT\n    NULLIF($1, '__NULL__') AS phone,\n    NULLIF($2, '__NULL__') AS booking_code,\n    COALESCE(NULLIF($3, '__NULL__'), 'booking_flow') AS conversation_stage,\n    NULLIF($4, '__NULL__') AS pending_action,\n    NULLIF($5, '__NULL__') AS language,\n    COALESCE(NULLIF($6, '__NULL__')::jsonb, '{}'::jsonb) AS session_state_json,\n    CASE\n      WHEN lower(COALESCE(NULLIF($7, '__NULL__'), '')) IN ('true', '1', 'yes') THEN TRUE\n      ELSE NULL\n    END AS needs_human_value,\n    NULLIF($8, '__NULL__') AS bot_mode_value\n),\nclient AS (\n  SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1\n),\nbooking AS (\n  SELECT\n    b.id::text AS booking_id,\n    b.id AS booking_uuid,\n    b.booking_code,\n    b.phone,\n    b.status::text AS status\n  FROM bookings b\n  INNER JOIN client c ON b.client_id = c.id\n  CROSS JOIN params p\n  WHERE b.booking_code = p.booking_code\n  LIMIT 1\n),\nguard AS (\n  SELECT\n    p.*,\n    b.booking_id,\n    b.booking_uuid,\n    b.booking_code AS found_booking_code,\n    b.phone AS booking_phone,\n    b.status AS booking_status,\n    (p.phone IS NULL) AS missing_required,\n    (b.booking_id IS NULL) AS booking_missing,\n    (b.status IN ('confirmed', 'checked_in', 'cancelled', 'expired')) AS blocked_booking_status,\n    (b.status IS NOT NULL AND b.status NOT IN ('hold', 'payment_pending')) AS status_not_allowed,\n    (b.phone IS NOT NULL AND p.phone IS NOT NULL AND b.phone <> p.phone) AS phone_mismatch\n  FROM params p\n  LEFT JOIN booking b ON TRUE\n),\nupserted AS (\n  INSERT INTO conversations (\n    client_id,\n    phone,\n    current_hold_booking_id,\n    conversation_stage,\n    session_state,\n    pending_action,\n    language,\n    needs_human,\n    bot_mode\n  )\n  SELECT\n    c.id,\n    g.phone,\n    -- Stage 5.1 FK null-safety: only link booking UUID when booking exists and is\n    -- in an allowed status. When booking is missing (dry-run stub) or has blocked\n    -- status, pass NULL — session_state still carries current_hold_booking_code.\n    CASE\n      WHEN NOT g.booking_missing AND NOT g.blocked_booking_status AND NOT g.status_not_allowed\n        THEN g.booking_uuid\n      ELSE NULL\n    END,\n    g.conversation_stage,\n    g.session_state_json || jsonb_build_object(\n      'current_hold_booking_code', COALESCE(g.found_booking_code, '')\n    ),\n    g.pending_action,\n    g.language,\n    COALESCE(g.needs_human_value, FALSE),\n    COALESCE(g.bot_mode_value::bot_mode, 'bot'::bot_mode)\n  FROM guard g\n  INNER JOIN client c ON TRUE\n  -- Stage 5.1: only phone is required; booking_missing no longer blocks upsert.\n  -- Session state is always persisted; FK is set conditionally above.\n  WHERE NOT g.missing_required\n    AND NOT g.phone_mismatch\n  ON CONFLICT (client_id, phone) DO UPDATE SET\n    -- Preserve existing booking FK when new value would be NULL (dry-run stub case).\n    current_hold_booking_id = CASE\n      WHEN EXCLUDED.current_hold_booking_id IS NOT NULL\n        THEN EXCLUDED.current_hold_booking_id\n      ELSE conversations.current_hold_booking_id\n    END,\n    conversation_stage = EXCLUDED.conversation_stage,\n    session_state = COALESCE(conversations.session_state, '{}'::jsonb) || EXCLUDED.session_state,\n    pending_action = COALESCE(EXCLUDED.pending_action, conversations.pending_action),\n    language = COALESCE(EXCLUDED.language, conversations.language),\n    needs_human = COALESCE(EXCLUDED.needs_human, conversations.needs_human),\n    bot_mode = COALESCE(EXCLUDED.bot_mode, conversations.bot_mode),\n    updated_at = NOW()\n  RETURNING\n    id::text AS conversation_id,\n    current_hold_booking_id::text AS current_hold_booking_id,\n    conversation_stage,\n    (xmax = 0) AS created,\n    (xmax <> 0) AS updated\n)\nSELECT\n  -- Stage 5.1: pg_ok = TRUE as long as conversation was written.\n  -- booking_not_in_pg is informational — FK is NULL for dry-run stubs.\n  CASE\n    WHEN g.missing_required THEN FALSE\n    WHEN g.phone_mismatch THEN FALSE\n    WHEN u.conversation_id IS NULL THEN FALSE\n    ELSE TRUE\n  END AS pg_ok,\n  u.conversation_id,\n  g.booking_id,\n  g.found_booking_code AS booking_code,\n  u.current_hold_booking_id,\n  u.conversation_stage,\n  g.booking_missing AS booking_not_in_pg,\n  COALESCE(u.created, FALSE) AS created,\n  COALESCE(u.updated, FALSE) AS updated,\n  CASE\n    WHEN g.missing_required THEN '[\"missing_phone\"]'::jsonb\n    WHEN g.phone_mismatch THEN '[\"phone_mismatch\"]'::jsonb\n    WHEN u.conversation_id IS NULL THEN '[\"conversation_upsert_failed\"]'::jsonb\n    ELSE '[]'::jsonb\n  END AS actionable,\n  CASE\n    WHEN g.missing_required THEN ARRAY['missing_phone']::text[]\n    WHEN g.phone_mismatch THEN ARRAY['phone_mismatch']::text[]\n    WHEN u.conversation_id IS NULL THEN ARRAY['conversation_upsert_failed']::text[]\n    ELSE ARRAY[]::text[]\n  END AS pg_errors\nFROM guard g\nLEFT JOIN upserted u ON TRUE;",
         "options": {
           "queryReplacement": "={{ (($('Code - Prepare Hold Records').first().json.guest_phone || $('Normalize Incoming Message').first().json.phone) != null && String($('Code - Prepare Hold Records').first().json.guest_phone || $('Normalize Incoming Message').first().json.phone).trim() !== '') ? String($('Code - Prepare Hold Records').first().json.guest_phone || $('Normalize Incoming Message').first().json.phone).trim() : '__NULL__' }},={{ (($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id) != null && String($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id).trim() !== '') ? String($('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id).trim() : '__NULL__' }},={{ (('booking_flow') != null && String('booking_flow').trim() !== '') ? String('booking_flow').trim() : '__NULL__' }},={{ (((($('Code - Prepare Hold Records').first().json.session) || {}).pending_action || 'collect_guest_details') != null && String((($('Code - Prepare Hold Records').first().json.session) || {}).pending_action || 'collect_guest_details').trim() !== '') ? String((($('Code - Prepare Hold Records').first().json.session) || {}).pending_action || 'collect_guest_details').trim() : '__NULL__' }},={{ (($('Code - Parse Route').first().json.language || (($('Code - Prepare Hold Records').first().json.session) || {}).language) != null && String($('Code - Parse Route').first().json.language || (($('Code - Prepare Hold Records').first().json.session) || {}).language).trim() !== '') ? String($('Code - Parse Route').first().json.language || (($('Code - Prepare Hold Records').first().json.session) || {}).language).trim() : '__NULL__' }},={{ ((JSON.stringify({\n      current_hold_booking_code: $('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id || '',\n      check_in: (($('Code - Prepare Hold Records').first().json.session) || {}).check_in || null,\n      check_out: (($('Code - Prepare Hold Records').first().json.session) || {}).check_out || null,\n      guest_count: $('Code - Prepare Hold Records').first().json.guest_count || null,\n      primary_room_code: $('Code - Validate PG Hold').first().json.primary_room_code || $('Code - Map PG Availability').first().json.primary_room_code || $('Code - Map PG Availability').first().json.pg_primary_room_code || null\n    })) != null && String(JSON.stringify({\n      current_hold_booking_code: $('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id || '',\n      check_in: (($('Code - Prepare Hold Records').first().json.session) || {}).check_in || null,\n      check_out: (($('Code - Prepare Hold Records').first().json.session) || {}).check_out || null,\n      guest_count: $('Code - Prepare Hold Records').first().json.guest_count || null,\n      primary_room_code: $('Code - Validate PG Hold').first().json.primary_room_code || $('Code - Map PG Availability').first().json.primary_room_code || $('Code - Map PG Availability').first().json.pg_primary_room_code || null\n    })).trim() !== '') ? String(JSON.stringify({\n      current_hold_booking_code: $('Code - Validate PG Hold').first().json.booking_code || $('Code - Prepare Hold Records').first().json.hold_booking_id || '',\n      check_in: (($('Code - Prepare Hold Records').first().json.session) || {}).check_in || null,\n      check_out: (($('Code - Prepare Hold Records').first().json.session) || {}).check_out || null,\n      guest_count: $('Code - Prepare Hold Records').first().json.guest_count || null,\n      primary_room_code: $('Code - Validate PG Hold').first().json.primary_room_code || $('Code - Map PG Availability').first().json.primary_room_code || $('Code - Map PG Availability').first().json.pg_primary_room_code || null\n    })).trim() : '__NULL__' }},={{ (('__NULL__') != null && String('__NULL__').trim() !== '') ? String('__NULL__').trim() : '__NULL__' }},={{ (('bot') != null && String('bot').trim() !== '') ? String('bot').trim() : '__NULL__' }}"
         }
@@ -21215,7 +21223,7 @@
           "conditions": [
             {
               "id": "pg-conversation-ok",
-              "leftValue": "={{ ($('Postgres - Upsert Conversation Hold').isExecuted ? $('Postgres - Upsert Conversation Hold') : $('Code - DRY RUN Stub (Postgres - Upsert Conversation Hold)')).first().json.pg_ok === true }}",
+              "leftValue": "={{ $('Postgres - Upsert Conversation Hold').first().json.pg_ok === true }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -21239,7 +21247,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const convo = ($('Postgres - Upsert Conversation Hold').isExecuted ? $('Postgres - Upsert Conversation Hold') : $('Code - DRY RUN Stub (Postgres - Upsert Conversation Hold)')).first().json || {};\nreturn [\n  {\n    json: {\n      pg_conversation_failed: true,\n      pg_ok: false,\n      booking_code: convo.booking_code || null,\n      pg_errors: convo.pg_errors || convo.actionable || ['pg_conversation_upsert_failed'],\n      note: 'Phase 3c.e.5 safety stop: no Airtable writes on PG conversation failure.',\n    },\n  },\n];"
+        "jsCode": "const convo = $('Postgres - Upsert Conversation Hold').first().json || {};\nreturn [\n  {\n    json: {\n      pg_conversation_failed: true,\n      pg_ok: false,\n      booking_code: convo.booking_code || null,\n      pg_errors: convo.pg_errors || convo.actionable || ['pg_conversation_upsert_failed'],\n      note: 'Phase 3c.e.5 safety stop: no Airtable writes on PG conversation failure.',\n    },\n  },\n];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -24460,11 +24468,11 @@
     },
     {
       "id": "shadow-if-3065",
-      "name": "IF - DRY RUN? (Postgres - Upsert Conversation Hold)",
+      "name": "IF - DRY RUN? (Postgres - Backfill Booking AT Record Id)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        4296,
+        4440,
         800
       ],
       "parameters": {
@@ -24493,26 +24501,26 @@
     },
     {
       "id": "shadow-stub-3065",
-      "name": "Code - DRY RUN Stub (Postgres - Upsert Conversation Hold)",
+      "name": "Code - DRY RUN Stub (Postgres - Backfill Booking AT Record Id)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4296,
+        4440,
         940
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 4 dry-run: Postgres conversation hold upsert bypassed.\n// Returns pg_ok=true so IF - PG Conversation OK goes to the true branch and\n// the flow continues past the conversation hold point without mutating the DB.\nconst _holdValidate = (() => {\n  try { return $('Code - Validate PG Hold').first().json || {}; } catch { return {}; }\n})();\nconst _bookingId = _holdValidate.booking_id || 'dry-run-conv';\nreturn [{ json: {\n  pg_ok: true,\n  phone: 'dry-run',\n  current_hold_booking_id: _bookingId,\n  dry_run: true,\n  stub_type: 'conv_hold_stub',\n  _stub_note: 'Stage 4 dry-run: conversation hold upsert bypassed — not a real PG mutation'\n} }];"
+        "jsCode": "// Stage 3y shadow: Postgres AT record backfill bypassed\nreturn [{ json: { affected: 0, dry_run: true } }];"
       }
     },
     {
       "id": "shadow-if-3066",
-      "name": "IF - DRY RUN? (Postgres - Backfill Booking AT Record Id)",
+      "name": "IF - DRY RUN? (Postgres - Ensure Booking In Postgres)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        4440,
-        800
+        3020,
+        560
       ],
       "parameters": {
         "conditions": {
@@ -24540,26 +24548,26 @@
     },
     {
       "id": "shadow-stub-3066",
-      "name": "Code - DRY RUN Stub (Postgres - Backfill Booking AT Record Id)",
+      "name": "Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4440,
-        940
+        3020,
+        700
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 3y shadow: Postgres AT record backfill bypassed\nreturn [{ json: { affected: 0, dry_run: true } }];"
+        "jsCode": "// Stage 4 dry-run: Postgres Ensure Booking (hold→payment_pending promote) bypassed.\n// Returns shaped booking_id/booking_code from the hold stub so IF - Booking ID Ready\n// goes to the true branch and Code - Call Create Payment Session can run its own\n// inline dry-run check to return a stub checkout URL.\nconst _holdValidate = (() => {\n  try { return $('Code - Validate PG Hold').first().json || {}; } catch { return {}; }\n})();\nconst _bookingId = _holdValidate.booking_id || 'dry-run-ensure-fallback';\nconst _bookingCode = _holdValidate.booking_code || 'DRY-ENSURE';\nreturn [{ json: {\n  booking_id: _bookingId,\n  booking_code: _bookingCode,\n  created: false,\n  promoted: false,\n  action: 'dry_run_bypass',\n  status: 'hold',\n  payment_status: 'unpaid',\n  dry_run: true,\n  stub_type: 'ensure_booking_stub',\n  _stub_note: 'Stage 4 dry-run: hold→payment_pending promotion bypassed — not a real PG mutation'\n}}];"
       }
     },
     {
       "id": "shadow-if-3067",
-      "name": "IF - DRY RUN? (Postgres - Ensure Booking In Postgres)",
+      "name": "IF - DRY RUN? (Search Messages - Recent Conversation)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3020,
-        560
+        -696,
+        1024
       ],
       "parameters": {
         "conditions": {
@@ -24587,26 +24595,26 @@
     },
     {
       "id": "shadow-stub-3067",
-      "name": "Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)",
+      "name": "Code - DRY RUN Stub (Search Messages - Recent Conversation)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3020,
-        700
+        -696,
+        1164
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 4 dry-run: Postgres Ensure Booking (hold→payment_pending promote) bypassed.\n// Returns shaped booking_id/booking_code from the hold stub so IF - Booking ID Ready\n// goes to the true branch and Code - Call Create Payment Session can run its own\n// inline dry-run check to return a stub checkout URL.\nconst _holdValidate = (() => {\n  try { return $('Code - Validate PG Hold').first().json || {}; } catch { return {}; }\n})();\nconst _bookingId = _holdValidate.booking_id || 'dry-run-ensure-fallback';\nconst _bookingCode = _holdValidate.booking_code || 'DRY-ENSURE';\nreturn [{ json: {\n  booking_id: _bookingId,\n  booking_code: _bookingCode,\n  created: false,\n  promoted: false,\n  action: 'dry_run_bypass',\n  status: 'hold',\n  payment_status: 'unpaid',\n  dry_run: true,\n  stub_type: 'ensure_booking_stub',\n  _stub_note: 'Stage 4 dry-run: hold→payment_pending promotion bypassed — not a real PG mutation'\n}}];"
+        "jsCode": "// Stage 3y shadow: Search Messages stub — returns current message as minimal history\nconst msg = $('Normalize Incoming Message').first().json || {};\nconst msgText = msg.guest_message || msg.message_body || msg.body || msg.text || '';\nreturn [{ json: {\n  id: 'dry-run-msg-1',\n  fields: {\n    'Message Text': msgText,\n    'Direction': 'Inbound',\n    'Conversation Phone': msg.phone || '',\n    'Source': 'WhatsApp',\n    dry_run: true\n  }\n}}];"
       }
     },
     {
       "id": "shadow-if-3068",
-      "name": "IF - DRY RUN? (Search Messages - Recent Conversation)",
+      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -696,
-        1024
+        2888,
+        2528
       ],
       "parameters": {
         "conditions": {
@@ -24634,26 +24642,26 @@
     },
     {
       "id": "shadow-stub-3068",
-      "name": "Code - DRY RUN Stub (Search Messages - Recent Conversation)",
+      "name": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -696,
-        1164
+        2888,
+        2668
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 3y shadow: Search Messages stub — returns current message as minimal history\nconst msg = $('Normalize Incoming Message').first().json || {};\nconst msgText = msg.guest_message || msg.message_body || msg.body || msg.text || '';\nreturn [{ json: {\n  id: 'dry-run-msg-1',\n  fields: {\n    'Message Text': msgText,\n    'Direction': 'Inbound',\n    'Conversation Phone': msg.phone || '',\n    'Source': 'WhatsApp',\n    dry_run: true\n  }\n}}];"
+        "jsCode": "// Stage 3y shadow: reassign HTTP call bypassed (endpoint unavailable in offline mode)\nreturn [{ json: {\n  status: 'ok',\n  dry_run: true,\n  action: 'reassign_booking_beds',\n  skipped: true,\n  reason: 'shadow_mode',\n  _shadow_note: 'Call Reassign Booking Beds bypassed by WHATSAPP_DRY_RUN=true'\n}}];"
       }
     },
     {
       "id": "shadow-if-3069",
-      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update)",
+      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2888,
-        2528
+        4776,
+        -48
       ],
       "parameters": {
         "conditions": {
@@ -24681,53 +24689,6 @@
     },
     {
       "id": "shadow-stub-3069",
-      "name": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2888,
-        2668
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Stage 3y shadow: reassign HTTP call bypassed (endpoint unavailable in offline mode)\nreturn [{ json: {\n  status: 'ok',\n  dry_run: true,\n  action: 'reassign_booking_beds',\n  skipped: true,\n  reason: 'shadow_mode',\n  _shadow_note: 'Call Reassign Booking Beds bypassed by WHATSAPP_DRY_RUN=true'\n}}];"
-      }
-    },
-    {
-      "id": "shadow-if-3070",
-      "name": "IF - DRY RUN? (Call Reassign Booking Beds - Rooming Update1)",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        4776,
-        -48
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": false,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "shadow-cond-3070",
-              "leftValue": "={{ String($env.WHATSAPP_DRY_RUN || '').toLowerCase() }}",
-              "rightValue": "true",
-              "operator": {
-                "type": "string",
-                "operation": "notEquals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "shadow-stub-3070",
       "name": "Code - DRY RUN Stub (Call Reassign Booking Beds - Rooming Update1)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -26808,7 +26769,7 @@
       "main": [
         [
           {
-            "node": "IF - DRY RUN? (Postgres - Upsert Conversation Hold)",
+            "node": "Postgres - Upsert Conversation Hold",
             "type": "main",
             "index": 0
           }
@@ -28600,35 +28561,6 @@
         [
           {
             "node": "Code - Validate PG Hold",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "IF - DRY RUN? (Postgres - Upsert Conversation Hold)": {
-      "main": [
-        [
-          {
-            "node": "Postgres - Upsert Conversation Hold",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Code - DRY RUN Stub (Postgres - Upsert Conversation Hold)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - DRY RUN Stub (Postgres - Upsert Conversation Hold)": {
-      "main": [
-        [
-          {
-            "node": "IF - PG Conversation OK",
             "type": "main",
             "index": 0
           }

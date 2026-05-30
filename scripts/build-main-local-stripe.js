@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Build n8n/phase2/Wolfhouse Booking Assistant - Main (local Stripe).json
  * Fork of hosted Main with Stripe checkout on payment_details_provided path.
  *
@@ -966,17 +966,16 @@ function applyPhase3cAvailabilityGate(workflow) {
   }
 }
 
-// ─── Stage 4 — PG conversation read fallback ────────────────────────────────
+// ─── Stage 5.1 — PG-primary conversation read ───────────────────────────────
 //
-// Adds `Postgres - Search Conversation (PG)` between `Parser Node` and
-// `Merge Session State`.  When Airtable writes are stubbed (dry-run), this
-// node provides T1 session state so T2 can continue the conversation.
+// Adds `Postgres - Search Conversation (PG)` on the shared path in series between
+// `Search Conversation` (Airtable) and `IF Conversation Exists?`.
 //
-// Wire: Parser Node → Postgres - Search Conversation (PG) → Merge Session State
+// Wire: Search Conversation (AT) → Postgres - Search Conversation (PG) → IF Conversation Exists?
 //
-// The PG node is SELECT-only (alwaysOutputData=true so the chain never breaks
-// when no row is found).  Merge Session State falls back to PG when the
-// Airtable session is empty, preserving Airtable-first priority in production.
+// IF Conversation Exists? uses OR combinator: PG-primary, AT-bridge/fallback.
+// Merge Session State priority: pgSession (primary) || atSession (bridge/fallback).
+// Postgres - Upsert Conversation Hold writes to PG even in dry-run (conversations ≠ protected).
 
 const PG_SEARCH_CONV_JS_CODE = `const convo =
   $('Search Conversation').first().json || {};
@@ -986,8 +985,8 @@ const atSession =
   convo.fields?.['Session State'] ||
   null;
 
-// PG fallback: when Airtable session is absent (dry-run or no prior Airtable
-// write), read session from Postgres conversations for multi-turn continuity.
+// Stage 5.1 PG-primary: read session from Postgres conversations first.
+// Airtable session is bridge/fallback for transition from legacy AT-first path.
 const pgRow = (() => {
   try {
     const r = $('Postgres - Search Conversation (PG)').first().json;
@@ -1003,14 +1002,18 @@ const pgSessionRaw = pgRow.session_state != null
       : String(pgRow.session_state))
   : null;
 
-const oldRaw = atSession || pgSessionRaw || '{}';
+// Stage 5.1: PG-primary — pgSession first, AT bridge/fallback.
+const oldRaw = pgSessionRaw || atSession || '{}';
 
+// Stage 5.1: current_hold_id from PG session first, AT bridge/fallback.
 const currentHoldId =
+  (pgRow.session_state && typeof pgRow.session_state === 'object'
+    ? (pgRow.session_state.current_hold_id ||
+       pgRow.session_state.current_hold_booking_code ||
+       null)
+    : null) ||
   convo['Current Hold ID'] ||
   convo.fields?.['Current Hold ID'] ||
-  (pgRow.session_state && typeof pgRow.session_state === 'object'
-    ? (pgRow.session_state.current_hold_id || null)
-    : null) ||
   null;
 
 const newRaw =
@@ -1098,7 +1101,8 @@ return [
 
       session_state: JSON.stringify(merged, null, 2),
 
-      _pg_fallback_used: !atSession && !!pgSessionRaw,
+      _pg_fallback_used: !pgSessionRaw && !!atSession,
+      _pg_primary_used: !!pgSessionRaw,
       _pg_conversation_id: pgRow.conversation_id || null,
     }
   }
@@ -1202,16 +1206,41 @@ function applyPGConversationRead(workflow) {
     }
   }
 
+  // ── S1 (Stage 5.1): Patch IF Conversation Exists? to PG-primary ──────────────
+  // Old: checks only Airtable records.length > 0 — always false in pilot/dry-run.
+  // New: OR combinator — true when PG conversation_id exists (primary) OR Airtable
+  //      records exist (bridge/fallback). Airtable remains available for transition.
+  ifConvNode.parameters.conditions = {
+    options: { caseSensitive: true, leftValue: '', typeValidation: 'loose', version: 2 },
+    conditions: [
+      {
+        id: 'stage51-pg-conv-exists',
+        leftValue: "={{ $('Postgres - Search Conversation (PG)').first().json.conversation_id }}",
+        rightValue: '',
+        operator: { type: 'string', operation: 'notEmpty' },
+      },
+      {
+        id: 'stage51-at-conv-exists',
+        leftValue: "={{ ($('Search Conversation').first().json.records?.length ?? 0) }}",
+        rightValue: '0',
+        operator: { type: 'number', operation: 'gt' },
+      },
+    ],
+    combinator: 'or',
+  };
+
   console.log(
-    'applyPGConversationRead: Postgres - Search Conversation (PG) wired on shared path as Search Conversation → PG → IF Conversation Exists?. Parser Node → Merge Session State direct.'
+    'applyPGConversationRead: Postgres - Search Conversation (PG) wired on shared path as Search Conversation → PG → IF Conversation Exists? (Stage 5.1: PG-primary OR AT-bridge). Parser Node → Merge Session State direct.'
   );
 }
 
 /**
- * Verifies that the PG conversation read fallback is correctly wired.
+ * Verifies Stage 5.1 PG-primary conversation path is correctly wired.
  * Wiring: Search Conversation → Postgres - Search Conversation (PG) → IF Conversation Exists? [shared path, series]
+ *         IF Conversation Exists? uses OR combinator: PG-primary, AT-bridge.
  *         Parser Node → Merge Session State [direct]
- *         Merge Session State code references $('Postgres - Search Conversation (PG)') internally.
+ *         Merge Session State: pgSession || atSession (PG-first priority).
+ *         Postgres - Upsert Conversation Hold: NOT dry-run gated (conversations ≠ protected).
  *
  * @param {object} workflow
  * @returns {{ ok: boolean, errors: string[] }}
@@ -1242,7 +1271,25 @@ function verifyPGConversationRead(workflow) {
   if (parserOuts.includes('Postgres - Search Conversation (PG)'))
     errors.push('Parser Node still connects to Postgres - Search Conversation (PG) (should be direct to MSS)');
 
-  // Merge Session State jsCode must reference the PG node
+  // S1 (Stage 5.1): IF Conversation Exists? must use OR combinator with PG-primary condition
+  const ifConvNode = workflow.nodes.find((n) => n.name === 'IF Conversation Exists?');
+  if (!ifConvNode) {
+    errors.push('IF Conversation Exists? node missing');
+  } else {
+    const conds = ifConvNode.parameters?.conditions || {};
+    if (conds.combinator !== 'or')
+      errors.push('IF Conversation Exists? does not use OR combinator (Stage 5.1: must be PG-primary OR AT-bridge)');
+    const condList = conds.conditions || [];
+    const hasPgCond = condList.some(
+      (c) =>
+        String(c.leftValue || '').includes('Postgres - Search Conversation (PG)') &&
+        String(c.leftValue || '').includes('conversation_id')
+    );
+    if (!hasPgCond)
+      errors.push('IF Conversation Exists? missing PG conversation_id condition (Stage 5.1: PG-primary check required)');
+  }
+
+  // S2 (Stage 5.1): Merge Session State must use PG-first priority
   const mergeNode = workflow.nodes.find((n) => n.name === 'Merge Session State');
   if (!mergeNode) {
     errors.push('Merge Session State node missing');
@@ -1250,8 +1297,10 @@ function verifyPGConversationRead(workflow) {
     const jsCode = mergeNode.parameters?.jsCode || '';
     if (!jsCode.includes('Postgres - Search Conversation (PG)'))
       errors.push('Merge Session State jsCode does not reference Postgres - Search Conversation (PG)');
-    if (!jsCode.includes('atSession || pgSessionRaw'))
-      errors.push('Merge Session State jsCode missing PG fallback logic (atSession || pgSessionRaw)');
+    if (!jsCode.includes('pgSessionRaw || atSession'))
+      errors.push('Merge Session State jsCode not using PG-first priority (Stage 5.1: must be pgSessionRaw || atSession)');
+    if (jsCode.includes('atSession || pgSessionRaw'))
+      errors.push('Merge Session State jsCode still using AT-first priority (Stage 5.1: must be pgSessionRaw || atSession)');
   }
 
   // PG read node must be read-only (SELECT only, no INSERT/UPDATE/DELETE in query)
@@ -1266,7 +1315,7 @@ function verifyPGConversationRead(workflow) {
 
   const ok = errors.length === 0;
   if (ok) {
-    console.log('PG conversation read verify: OK');
+    console.log('PG conversation read verify (Stage 5.1 PG-primary): OK');
   } else {
     console.error(`PG conversation read verify: FAIL (${errors.length} error(s)):`);
     for (const e of errors) console.error(`  ${e}`);
@@ -2019,22 +2068,6 @@ return [{ json: {
   _stub_note: 'Stage 4 dry-run hold — not a real PG row'
 }}];`;
 
-  const PG_CONV_STUB = `// Stage 4 dry-run: Postgres conversation hold upsert bypassed.
-// Returns pg_ok=true so IF - PG Conversation OK goes to the true branch and
-// the flow continues past the conversation hold point without mutating the DB.
-const _holdValidate = (() => {
-  try { return $('Code - Validate PG Hold').first().json || {}; } catch { return {}; }
-})();
-const _bookingId = _holdValidate.booking_id || 'dry-run-conv';
-return [{ json: {
-  pg_ok: true,
-  phone: 'dry-run',
-  current_hold_booking_id: _bookingId,
-  dry_run: true,
-  stub_type: 'conv_hold_stub',
-  _stub_note: 'Stage 4 dry-run: conversation hold upsert bypassed — not a real PG mutation'
-} }];`;
-
   const PG_BACKFILL_STUB = `// Stage 3y shadow: Postgres AT record backfill bypassed
 return [{ json: { affected: 0, dry_run: true } }];`;
 
@@ -2061,7 +2094,6 @@ return [{ json: {
 }}];`;
 
   addDryRunGate('Postgres - Create Booking Hold', PG_HOLD_STUB, next());
-  addDryRunGate('Postgres - Upsert Conversation Hold', PG_CONV_STUB, next());
   addDryRunGate('Postgres - Backfill Booking AT Record Id', PG_BACKFILL_STUB, next());
   addDryRunGate('Postgres - Ensure Booking In Postgres', PG_ENSURE_STUB, next());
 
@@ -2118,7 +2150,8 @@ return [{ json: {
     ...atWriteGates.map(([name]) => name),
     'Search Messages - Recent Conversation',
     'Postgres - Create Booking Hold',
-    'Postgres - Upsert Conversation Hold',
+    // Stage 5.1: Postgres - Upsert Conversation Hold removed from gated list —
+    // conversations is not a protected table; writes allowed even in dry-run.
     'Postgres - Backfill Booking AT Record Id',
     'Postgres - Ensure Booking In Postgres',
     ...REASSIGN_NODES,
@@ -2220,9 +2253,10 @@ function verifyShadowModeSafety(workflow) {
     errors.push('Postgres - Create Booking Hold not protected by dry-run IF gate');
   }
 
-  // 5. Postgres - Upsert Conversation Hold must be dry-run gated
-  if (!ifGatedSet.has('Postgres - Upsert Conversation Hold')) {
-    errors.push('Postgres - Upsert Conversation Hold not protected by dry-run IF gate');
+  // 5. Stage 5.1: Postgres - Upsert Conversation Hold must NOT be dry-run gated
+  //    (conversations is not a protected table; writes allowed in dry-run mode)
+  if (ifGatedSet.has('Postgres - Upsert Conversation Hold')) {
+    errors.push('Postgres - Upsert Conversation Hold is dry-run gated but should not be (Stage 5.1: conversations ≠ protected table)');
   }
 
   // 6. Create Inbound Message (Airtable) must be dry-run gated

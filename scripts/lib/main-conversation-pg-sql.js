@@ -332,7 +332,7 @@ guard AS (
     b.booking_code AS found_booking_code,
     b.phone AS booking_phone,
     b.status AS booking_status,
-    (p.phone IS NULL OR p.booking_code IS NULL) AS missing_required,
+    (p.phone IS NULL) AS missing_required,
     (b.booking_id IS NULL) AS booking_missing,
     (b.status IN ('confirmed', 'checked_in', 'cancelled', 'expired')) AS blocked_booking_status,
     (b.status IS NOT NULL AND b.status NOT IN ('hold', 'payment_pending')) AS status_not_allowed,
@@ -355,22 +355,35 @@ upserted AS (
   SELECT
     c.id,
     g.phone,
-    g.booking_uuid,
+    -- Stage 5.1 FK null-safety: only link booking UUID when booking exists and is
+    -- in an allowed status. When booking is missing (dry-run stub) or has blocked
+    -- status, pass NULL — session_state still carries current_hold_booking_code.
+    CASE
+      WHEN NOT g.booking_missing AND NOT g.blocked_booking_status AND NOT g.status_not_allowed
+        THEN g.booking_uuid
+      ELSE NULL
+    END,
     g.conversation_stage,
-    g.session_state_json || jsonb_build_object('current_hold_booking_code', g.found_booking_code),
+    g.session_state_json || jsonb_build_object(
+      'current_hold_booking_code', COALESCE(g.found_booking_code, '')
+    ),
     g.pending_action,
     g.language,
     COALESCE(g.needs_human_value, FALSE),
     COALESCE(g.bot_mode_value::bot_mode, 'bot'::bot_mode)
   FROM guard g
   INNER JOIN client c ON TRUE
+  -- Stage 5.1: only phone is required; booking_missing no longer blocks upsert.
+  -- Session state is always persisted; FK is set conditionally above.
   WHERE NOT g.missing_required
-    AND NOT g.booking_missing
-    AND NOT g.blocked_booking_status
-    AND NOT g.status_not_allowed
     AND NOT g.phone_mismatch
   ON CONFLICT (client_id, phone) DO UPDATE SET
-    current_hold_booking_id = EXCLUDED.current_hold_booking_id,
+    -- Preserve existing booking FK when new value would be NULL (dry-run stub case).
+    current_hold_booking_id = CASE
+      WHEN EXCLUDED.current_hold_booking_id IS NOT NULL
+        THEN EXCLUDED.current_hold_booking_id
+      ELSE conversations.current_hold_booking_id
+    END,
     conversation_stage = EXCLUDED.conversation_stage,
     session_state = COALESCE(conversations.session_state, '{}'::jsonb) || EXCLUDED.session_state,
     pending_action = COALESCE(EXCLUDED.pending_action, conversations.pending_action),
@@ -386,11 +399,10 @@ upserted AS (
     (xmax <> 0) AS updated
 )
 SELECT
+  -- Stage 5.1: pg_ok = TRUE as long as conversation was written.
+  -- booking_not_in_pg is informational — FK is NULL for dry-run stubs.
   CASE
     WHEN g.missing_required THEN FALSE
-    WHEN g.booking_missing THEN FALSE
-    WHEN g.blocked_booking_status THEN FALSE
-    WHEN g.status_not_allowed THEN FALSE
     WHEN g.phone_mismatch THEN FALSE
     WHEN u.conversation_id IS NULL THEN FALSE
     ELSE TRUE
@@ -400,22 +412,17 @@ SELECT
   g.found_booking_code AS booking_code,
   u.current_hold_booking_id,
   u.conversation_stage,
+  g.booking_missing AS booking_not_in_pg,
   COALESCE(u.created, FALSE) AS created,
   COALESCE(u.updated, FALSE) AS updated,
   CASE
-    WHEN g.missing_required THEN '["missing_phone_or_booking_code"]'::jsonb
-    WHEN g.booking_missing THEN '["booking_not_found"]'::jsonb
-    WHEN g.blocked_booking_status THEN '["blocked_booking_status"]'::jsonb
-    WHEN g.status_not_allowed THEN '["booking_status_not_allowed"]'::jsonb
+    WHEN g.missing_required THEN '["missing_phone"]'::jsonb
     WHEN g.phone_mismatch THEN '["phone_mismatch"]'::jsonb
     WHEN u.conversation_id IS NULL THEN '["conversation_upsert_failed"]'::jsonb
     ELSE '[]'::jsonb
   END AS actionable,
   CASE
-    WHEN g.missing_required THEN ARRAY['missing_phone_or_booking_code']::text[]
-    WHEN g.booking_missing THEN ARRAY['booking_not_found']::text[]
-    WHEN g.blocked_booking_status THEN ARRAY['blocked_booking_status']::text[]
-    WHEN g.status_not_allowed THEN ARRAY['booking_status_not_allowed']::text[]
+    WHEN g.missing_required THEN ARRAY['missing_phone']::text[]
     WHEN g.phone_mismatch THEN ARRAY['phone_mismatch']::text[]
     WHEN u.conversation_id IS NULL THEN ARRAY['conversation_upsert_failed']::text[]
     ELSE ARRAY[]::text[]
