@@ -359,77 +359,152 @@ whichever endpoint handles Stripe events):
 
 ## Required implementation changes
 
-### 1. Hold stub shaped return (BLOCKING for A1/A2/A3/A4/A8/A10 flow to continue)
+### 1. Hold stub shaped return — ✅ DONE (gate 1 PASS, d6e9fcd)
 
-**File:** `scripts/build-main-local-stripe.js`
-**Change:** The `PG_HOLD_STUB` (or equivalent Code stub for `Postgres - Create Booking Hold`)
-currently returns `{ pg_ok: false, dry_run: true, ... }`. For Stage 4, it needs to return
-`{ pg_ok: true, booking_id: ..., booking_code: ..., status: 'hold', ... }`.
-**Risk:** Downstream nodes that currently short-circuit at `pg_ok: false` will now continue.
-Verify that all follow-on nodes are also gated or stubbed before enabling.
+### 2. Payment-link stub shaped return — ✅ DONE (gate 2 PASS, 634366b)
 
-### 2. Payment-link stub shaped return (BLOCKING for deposit/full payment flow)
+### 3. Stripe webhook dry-run path — ⏳ PENDING
 
-**File:** `scripts/build-main-local-stripe.js`
-**Change:** The Stripe checkout session creation node stub must return a valid-shaped
-`{ checkout_url, session_id, amount_cents, ... }`. Currently returns minimal safe output.
+**File:** Stripe Webhook Handler workflow (`KZUQvwR6SPWpvaZ5`, `scripts/build-send-confirmation-local.js` n/a — this is a separate workflow with no build script). **See § Payment confirmation simulation strategy.**
 
-### 3. Stripe webhook dry-run path
+**Current blocker:** Handler has zero dry-run guards on DB writes. `Postgres - Apply Payment Success` writes `payment_events` INSERT + `payments` UPDATE + `bookings` UPDATE in one CTE. No `WHATSAPP_DRY_RUN`-style bypass exists. `STRIPE_WEBHOOK_SKIP_VERIFY=true` only skips HMAC — still hits real PG.
 
-**File:** `scripts/build-main-local-stripe.js` (or Stripe webhook workflow)
-**Change:** The Stripe webhook handler needs a dry-run path that accepts the simulated
-webhook event, reads `metadata.booking_id` from it, and proceeds through the confirmation
-path without mutating payment_events.
+**Recommended approach:** Option D — fixture-scoped disposable booking row. See strategy section.
 
-### 4. Confirmation draft capture
+### 4. Confirmation draft capture — ⏳ PENDING
 
-**File:** `scripts/build-main-local-stripe.js`
-**Change:** Confirmation send stub must expose `draft_text` so the runner can capture what
-the confirmation would say. Currently the confirmation path may not be reached in dry-run.
+**File:** `n8n/phase2/Wolfhouse - Send Confirmation (local).json` (built by `scripts/build-send-confirmation-local.js`)  
+**Situation:** WhatsApp send already gated by `WHATSAPP_DRY_RUN=true` (default). Draft text captured in `Send confirmation reply` node output (full) and `Code - Send WhatsApp` output (`body_preview`, 120 chars). But `Postgres - Mark Booking Confirmed` STILL runs on dry-run "send OK" — would flip `bookings.status=confirmed` and set `confirmation_sent_at`. Requires fixture booking row OR a dry-run gate on the Mark Confirmed node.
 
-### 5. Conversation state persistence across turns
+### 5. Conversation state persistence across turns — ✅ OBSERVED in gates 1+2
 
-**Infrastructure:** n8n Main uses phone number (`from`) as conversation key. For multi-turn
-tests, the runner must use the same `from` phone per scenario and send turns sequentially
-with enough delay for each execution to complete. If the conversation state is stored in
-Airtable (currently) and Airtable write is stubbed, the state may not persist between turns.
-**Risk:** Turn 2 may not see the session data from Turn 1. This is the most significant
-multi-turn infrastructure concern.
-**Mitigation options:**
-- Allow a limited Postgres conversation record (non-Airtable) to be written per dry-run turn
-- Inject session state as part of the Turn 2 webhook payload (less realistic)
-- Verify that `Postgres - Upsert Conversation Hold` stub returns sufficient session data
-  for subsequent turns to reconstruct state
+Bot reads existing Postgres booking data for phone `34600000101` via `Search Active Booking`. Airtable stub does not break multi-turn flow for A1 (phone already has PG records). Re-evaluate for fresh-phone scenarios (A2–A10).
 
-### 6. Closed-month guard (A5)
+### 6. Closed-month guard (A5) — ⏳ PENDING
 
-**Status:** May already be implemented in the LLM routing / booking_flow path.
-**Verify:** Check that `packages.closed_months` from config is read before creating a hold.
-If not, a Code node or IF node is needed to check the month before hold creation.
+### 7. Spanish language detection (A10) — ⏳ PENDING
 
-### 7. Spanish language detection (A10)
+### 8. Runner multi-turn POST sequencing — ✅ DONE (gates 1+2 PASS)
 
-**Status:** LLM routing should detect `language` from the input. Verify that the reply
-generation nodes are prompted to respond in the detected language.
+---
 
-### 8. Runner multi-turn POST sequencing — **PARTIAL / READY FOR RUNTIME GATE 1**
+## Payment confirmation simulation strategy (Stage 4 planning, 2026-05-30)
 
-**File:** `scripts/run-stage4-autonomous-dry-run.js`
+### What must happen for A1 to continue after checkout_url is returned
 
-**Single-turn preflight — IMPLEMENTED / NOT YET RUN:**
-The runner supports `--only <id> --turn <n> --execute` to build a full preflight:
-- Resolves webhook URL from `N8N_WEBHOOK_BASE_URL || localhost:5678`
-- Validates `WHATSAPP_DRY_RUN=true` before allowing execution (refuses if not set)
-- Prints post_body preview, expected nodes to verify, no-mutation tables
-- **POST guard is active** — does not POST. Runtime gate 1 will add `--run`.
+1. **Simulate Stripe payment success** — POSTing a `checkout.session.completed` event to the Stripe Webhook Handler.
+2. **Apply payment state** — `payments`, `payment_events`, `bookings.send_confirmation=true` updated.
+3. **Trigger Send Confirmation** — POST to `send-confirmation-local` webhook with `booking_id`.
+4. **Generate confirmation draft** — LLM produces confirmation text including address/gate_code/room.
+5. **Capture draft** — extract from execution data without real WhatsApp send or real DB confirm.
 
-**Multi-turn POST sequencing — PENDING:**
-To execute full multi-turn scenarios:
-- For each scenario, iterate through turns
-- POST each turn's `post_body` to the webhook
-- Wait for n8n execution to complete (same poll pattern as Mode A runner)
-- Capture state after each turn
-- Pass the rolling n8n max_execution_id forward
+### Option A — Pure runner simulation (no webhook execution)
+
+**Approach:** Runner reads the `stub_overrides.stripe_webhook_sim` from the scenario JSON and asserts expected state without running any workflow.
+
+**Pros:** No DB side effects, simplest, no new gates needed.  
+**Cons:** Does not prove the workflow actually works end-to-end. Confirmation draft not generated. Doesn't validate the LLM confirmation text or config field inclusion.
+
+### Option B — Dedicated dry-run fixture table/file state
+
+**Approach:** Insert a synthetic `workflow_events` or `dry_run_events` record instead of real DB writes. Runner reads it back.
+
+**Pros:** Avoids touching real tables.  
+**Cons:** Requires schema migration, complex to set up, doesn't exercise the real confirmation path.
+
+### Option C — Add `WHATSAPP_DRY_RUN` gate to Stripe webhook handler build
+
+**Approach:** Create `scripts/build-stripe-webhook-local.js` that wraps `Postgres - Apply Payment Success` in an `IF - DRY RUN?` gate + stub, similar to how Main is built. Import with `active=false`, activate only for the gate.
+
+**Pros:** Exercises the real workflow path. No PG mutations in dry-run. Can be activated safely.  
+**Cons:** New build script. The Stripe webhook handler is a Phase 2 frozen workflow — changes must be careful. Execution of the stub won't actually set `send_confirmation=true`, so confirmation workflow won't trigger without a fixture.
+
+### Option D — Fixture-scoped disposable booking row ✅ RECOMMENDED
+
+**Approach:**
+1. Insert a synthetic `bookings` row in Wolfhouse PG with `status='payment_pending'`, `payment_status='deposit_paid'`, `send_confirmation=true`, using the dry-run `booking_id` and `session_id` from T3. Use a dedicated test phone (`34600000199` or similar) NOT used by any real guest.
+2. Activate Stripe Webhook Handler with `STRIPE_WEBHOOK_SKIP_VERIFY=true`. POST simulated `checkout.session.completed` event with matching `session_id` and `booking_id`. The handler will write `payment_events`, update `payments`/`bookings` — all on the fixture row only.
+3. POST to Send Confirmation webhook with the fixture `booking_id`. Workflow runs with `WHATSAPP_DRY_RUN=true`, generates LLM draft, stubs WhatsApp send, but WILL write `Postgres - Mark Booking Confirmed` (flipping `status=confirmed` on the fixture row — acceptable since it's a disposable row).
+4. Runner captures confirmation draft from execution data.
+5. After gate: DELETE fixture rows (`bookings`, `payments` WHERE `booking_code LIKE 'DRY-STAGE4-%'`).
+
+**Pros:** Exercises real workflow paths end-to-end. Confirms address/gate_code/room_number in LLM output. No mutation to real guest data. Cleanup is trivial.  
+**Cons:** Requires a fixture INSERT (explicit pre-gate step, clearly documented). Anthropic API call for draft generation (cost, latency). Mark Booking Confirmed runs on fixture row.
+
+**Safety guards for Option D:**
+- Use a dedicated fixture booking_code prefix e.g. `DRY-STAGE4-FX-*`
+- Use a phone number never used by a real guest
+- Activate Stripe Webhook Handler ONLY during the gate window
+- Activate Send Confirmation ONLY during the gate window
+- Delete fixture rows immediately after gate (or at start of next gate as cleanup)
+- Confirm `payment_events` count delta = 1 (fixture row only)
+- Confirm `bookings` fixture row has `status=confirmed`, all others unchanged
+
+### Simulated Stripe event shape (for Option D)
+
+```json
+{
+  "id": "evt_dry_run_a1_stage4_001",
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_dryrun_dry-ensure",
+      "object": "checkout.session",
+      "payment_status": "paid",
+      "amount_total": 20000,
+      "currency": "eur",
+      "payment_intent": "pi_dry_run_a1_stage4_001",
+      "metadata": {
+        "booking_id": "<fixture_booking_uuid>",
+        "booking_code": "DRY-STAGE4-FX-A1-001",
+        "payment_kind": "deposit_only",
+        "client_id": "<wolfhouse_client_uuid>",
+        "amount_due_cents": "20000"
+      }
+    }
+  }
+}
+```
+
+### Confirmation draft requirements (from config `wolfhouse-somo.baseline.json`)
+
+**Must include (confirmed config fields):**
+- Booking confirmed ✓
+- Property address (from config)
+- Gate code: `2684#` (confirmed)
+- Room number if assigned
+- Check-in time: `15:00`, Check-out time: `11:00`
+- Check-in date / check-out date from booking
+
+**Must exclude:**
+- Bed number (`include_bed_number: false`)
+
+**Must NOT:**
+- Send real WhatsApp (`WHATSAPP_DRY_RUN=true` throughout)
+- Mark real guest booking confirmed (only fixture row)
+- Write `payment_events` for real guest rows
+
+### Minimum implementation batch for next gate (gate 3)
+
+| Step | What | File | Risk |
+|------|------|------|------|
+| 1 | Write fixture INSERT script | `scripts/fixtures/stage4-a1-payment-sim-up.sql` | Low — clearly labelled rows |
+| 2 | Write fixture DELETE script | `scripts/fixtures/stage4-a1-payment-sim-down.sql` | Low |
+| 3 | Verify `STRIPE_WEBHOOK_SKIP_VERIFY=true` in n8n-main env | docker env | None (already in env?) |
+| 4 | Build simulated Stripe event JSON payload | `test-payloads/stage4/autonomous-dry-run/a1-stripe-sim.json` | None |
+| 5 | Add gate 3 steps to runner or document as manual | `scripts/run-stage4-autonomous-dry-run.js` | Low |
+| 6 | Add dry-run gate to `Postgres - Mark Booking Confirmed` in `build-send-confirmation-local.js` | `scripts/build-send-confirmation-local.js` | Medium — prevents real booking state mutation during dry-run |
+| 7 | Activate Stripe Webhook, POST sim event, capture execution | runtime gate | Fixture-scoped only |
+| 8 | Activate Send Confirmation, POST with booking_id, capture draft | runtime gate | Fixture-scoped, WA dry-run |
+| 9 | Delete fixture rows, confirm counts restored | cleanup | None |
+
+**Risks / unknowns:**
+- `payments` table: fixture row needs `stripe_checkout_session_id` matching the sim event `session_id`. Need to insert a `payments` row too.
+- `client_id` UUID: fixture INSERT needs the real `clients` table UUID for `wolfhouse-somo`. Query: `SELECT id FROM clients WHERE slug='wolfhouse-somo'`.
+- LLM draft quality: `Anthropic Chat Model13` runs live — expect ~10-15s add to confirmation gate runtime.
+- `IF - Payment Link Safe For Reply` in Main went FALSE in T3 (stub domain). This does NOT affect the confirmation path — the confirmation workflow is triggered independently via Send Confirmation webhook, not via Main.
+
+
 
 ---
 
