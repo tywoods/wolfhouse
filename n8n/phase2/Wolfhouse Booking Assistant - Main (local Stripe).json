@@ -24724,6 +24724,55 @@
         "mode": "runOnceForAllItems",
         "jsCode": "// Stage 3y shadow: reassign HTTP call bypassed (endpoint unavailable in offline mode)\nreturn [{ json: {\n  status: 'ok',\n  dry_run: true,\n  action: 'reassign_booking_beds',\n  skipped: true,\n  reason: 'shadow_mode',\n  _shadow_note: 'Call Reassign Booking Beds bypassed by WHATSAPP_DRY_RUN=true'\n}}];"
       }
+    },
+    {
+      "id": "stage52-fixture-if-001",
+      "name": "IF - Stage52 Fixture?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3928,
+        1200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "stage52-fixture-cond",
+              "leftValue": "={{ (() => {\n  const fixtureEnabled = String($env.STAGE52_FIXTURE_HOLD || '').toLowerCase() === 'true';\n  const phone = String($('Normalize Incoming Message').first().json.phone || '');\n  const prepare = (() => { try { return $('Code - Prepare Hold Records').first().json || {}; } catch { return {}; } })();\n  const bookingCode = String(prepare.hold_booking_id || prepare.booking_code || '');\n  const isFixturePhone = ['34600000152', '+34600000152'].includes(phone);\n  const isFixtureCode = bookingCode.startsWith('DRY-52-');\n  return fixtureEnabled && isFixturePhone && isFixtureCode;\n})() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "stage52-passthrough-001",
+      "name": "Code - Stage52 DRY RUN Passthrough",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4188,
+        1320
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Stage 5.2d: fixture guard FALSE branch — pass stub output through unchanged.\nconst stub = (() => { try { return $('Code - DRY RUN Stub (Postgres - Create Booking Hold)').first().json; } catch { return {}; } })();\nreturn [{ json: { ...stub, stage52_passthrough: true } }];"
+      },
+      "alwaysOutputData": true
     }
   ],
   "pinData": {},
@@ -28595,7 +28644,7 @@
       "main": [
         [
           {
-            "node": "Code - Validate PG Hold",
+            "node": "IF - Stage52 Fixture?",
             "type": "main",
             "index": 0
           }
@@ -28746,6 +28795,35 @@
           }
         ]
       ]
+    },
+    "Code - Stage52 DRY RUN Passthrough": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate PG Hold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Stage52 Fixture?": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate PG Hold",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Stage52 DRY RUN Passthrough",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -28822,6 +28900,9 @@
     },
     {
       "name": "stage5.1c-sess-write"
+    },
+    {
+      "name": "stage5.2d-fixture-guard"
     }
   ]
 }

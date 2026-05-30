@@ -412,6 +412,7 @@ function runVerifyTargets(workflow, opts = {}) {
   const pgSessionWrite = verifyPGSessionWrite(wf);
   const summarizeHoldsPG = verifySummarizeHoldsPGPrimary(wf);
   const ensurePromoteInsert = verifyEnsurePromoteInsertDefaults(wf);
+  const stage52Guard = verifyStage52FixtureGuard(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -427,6 +428,7 @@ function runVerifyTargets(workflow, opts = {}) {
     pgSessionWrite,
     summarizeHoldsPGPrimary: summarizeHoldsPG,
     ensurePromoteInsertDefaults: ensurePromoteInsert,
+    stage52FixtureGuard: stage52Guard,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -485,6 +487,12 @@ function runVerifyTargets(workflow, opts = {}) {
     for (const e of ensurePromoteInsert.errors) console.error(`  ${e}`);
     result.ok = false;
     result.errors = [...(result.errors || []), ...ensurePromoteInsert.errors.map((e) => `[ensure-promote-insert] ${e}`)];
+  }
+  if (!stage52Guard.ok) {
+    console.error(`Stage52 fixture hold guard FAIL (${stage52Guard.errors.length} error(s)):`);
+    for (const e of stage52Guard.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...stage52Guard.errors.map((e) => `[stage52-guard] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -1621,6 +1629,196 @@ function verifyEnsurePromoteInsertDefaults(workflow) {
     console.log('Ensure promote INSERT defaults verify (Stage 5.2c): OK');
   } else {
     console.error(`Ensure promote INSERT defaults verify: FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
+}
+
+/**
+ * Stage 5.2d: Fixture hold guard — allows real Postgres - Create Booking Hold
+ * to execute when ALL of these are true:
+ *   1. STAGE52_FIXTURE_HOLD=true (explicit opt-in env var)
+ *   2. booking_code starts with 'DRY-52-' (from Code - Prepare Hold Records)
+ *   3. phone is 34600000152 or +34600000152
+ *
+ * All other traffic (including normal WHATSAPP_DRY_RUN flows) goes to the existing stub.
+ * Must be called AFTER applyShadowModeDryRunGates so the stub node exists.
+ *
+ * @param {object} workflow
+ */
+function applyStage52FixtureHoldGuard(workflow) {
+  const STUB_NAME = 'Code - DRY RUN Stub (Postgres - Create Booking Hold)';
+  const REAL_NAME = 'Postgres - Create Booking Hold';
+  const IF_NAME = 'IF - Stage52 Fixture?';
+  const FIXTURE_PHONES = ['34600000152', '+34600000152'];
+  const FIXTURE_CODE_PREFIX = 'DRY-52-';
+
+  const stubNode = workflow.nodes.find((n) => n.name === STUB_NAME);
+  const realNode = workflow.nodes.find((n) => n.name === REAL_NAME);
+  if (!stubNode || !realNode) {
+    throw new Error(
+      `applyStage52FixtureHoldGuard: required nodes not found (stub=${!!stubNode}, real=${!!realNode}). Run after applyShadowModeDryRunGates.`
+    );
+  }
+  if (workflow.nodes.find((n) => n.name === IF_NAME)) {
+    console.log('applyStage52FixtureHoldGuard: IF - Stage52 Fixture? already exists, skipping');
+    return;
+  }
+
+  // Position the fixture IF node between the stub and its successors.
+  const ifPos = [stubNode.position[0], stubNode.position[1] + 180];
+
+  const phoneListExpr = FIXTURE_PHONES.map((p) => `'${p}'`).join(', ');
+
+  // Combined condition expression: all three guards must be true.
+  const guardExpr = `={{ (() => {
+  const fixtureEnabled = String($env.STAGE52_FIXTURE_HOLD || '').toLowerCase() === 'true';
+  const phone = String($('Normalize Incoming Message').first().json.phone || '');
+  const prepare = (() => { try { return $('Code - Prepare Hold Records').first().json || {}; } catch { return {}; } })();
+  const bookingCode = String(prepare.hold_booking_id || prepare.booking_code || '');
+  const isFixturePhone = [${phoneListExpr}].includes(phone);
+  const isFixtureCode = bookingCode.startsWith('${FIXTURE_CODE_PREFIX}');
+  return fixtureEnabled && isFixturePhone && isFixtureCode;
+})() }}`;
+
+  const ifNode = {
+    id: 'stage52-fixture-if-001',
+    name: IF_NAME,
+    type: 'n8n-nodes-base.if',
+    typeVersion: 2.2,
+    position: ifPos,
+    parameters: {
+      conditions: {
+        options: { caseSensitive: false, leftValue: '', typeValidation: 'loose', version: 2 },
+        conditions: [
+          {
+            id: 'stage52-fixture-cond',
+            leftValue: guardExpr,
+            rightValue: '',
+            operator: { type: 'boolean', operation: 'true', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+  };
+
+  workflow.nodes.push(ifNode);
+
+  // Capture the stub's current outgoing connections (shared with real node's successors).
+  const stubConns = workflow.connections[STUB_NAME];
+  const realConns = workflow.connections[REAL_NAME];
+
+  // Stub now points to the fixture IF node.
+  workflow.connections[STUB_NAME] = {
+    main: [[{ node: IF_NAME, type: 'main', index: 0 }]],
+  };
+
+  // IF - Stage52 Fixture? TRUE → real Postgres node (shares real node's successors)
+  // IF - Stage52 Fixture? FALSE → stub output passthrough node (Code - Stage52 Stub Passthrough)
+  // Since n8n stubs already have the correct successor wiring from the real node,
+  // we replicate it here: TRUE → real node successors, FALSE → stub terminal (no-op output).
+  //
+  // The real node already has successors (Code - Validate PG Hold etc.), so:
+  //   TRUE branch → Code - Validate PG Hold (first successor of Postgres - Create Booking Hold)
+  //   FALSE branch → a passthrough Code node that emits the stub's last output
+  const PASSTHROUGH_NAME = 'Code - Stage52 DRY RUN Passthrough';
+  const passthroughNode = {
+    id: 'stage52-passthrough-001',
+    name: PASSTHROUGH_NAME,
+    type: 'n8n-nodes-base.code',
+    typeVersion: 2,
+    position: [ifPos[0] + 260, ifPos[1] + 120],
+    parameters: {
+      mode: 'runOnceForAllItems',
+      jsCode: `// Stage 5.2d: fixture guard FALSE branch — pass stub output through unchanged.
+const stub = (() => { try { return $('Code - DRY RUN Stub (Postgres - Create Booking Hold)').first().json; } catch { return {}; } })();
+return [{ json: { ...stub, stage52_passthrough: true } }];`,
+    },
+    alwaysOutputData: true,
+  };
+
+  workflow.nodes.push(passthroughNode);
+
+  // Passthrough has same successors as the stub (Code - Validate PG Hold chain)
+  if (stubConns) {
+    workflow.connections[PASSTHROUGH_NAME] = JSON.parse(JSON.stringify(stubConns));
+  }
+
+  // Real node's first successor (Code - Validate PG Hold chain) is already wired.
+  // We just need the IF to route: TRUE → first real successor, FALSE → passthrough.
+  const firstRealSuccessor = realConns?.main?.[0]?.[0]?.node || null;
+  workflow.connections[IF_NAME] = {
+    main: [
+      firstRealSuccessor ? [{ node: firstRealSuccessor, type: 'main', index: 0 }] : [],
+      [{ node: PASSTHROUGH_NAME, type: 'main', index: 0 }],
+    ],
+  };
+
+  console.log(
+    `applyStage52FixtureHoldGuard: Stage 5.2d fixture hold guard added — STAGE52_FIXTURE_HOLD + DRY-52- prefix + fixture phone required`
+  );
+}
+
+/**
+ * Stage 5.2d: Verifies the fixture hold guard is correctly wired.
+ *
+ * @param {object} workflow
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifyStage52FixtureGuard(workflow) {
+  const errors = [];
+  const IF_NAME = 'IF - Stage52 Fixture?';
+  const STUB_NAME = 'Code - DRY RUN Stub (Postgres - Create Booking Hold)';
+  const REAL_NAME = 'Postgres - Create Booking Hold';
+  const PASSTHROUGH_NAME = 'Code - Stage52 DRY RUN Passthrough';
+
+  const ifNode = workflow.nodes.find((n) => n.name === IF_NAME);
+  const stubNode = workflow.nodes.find((n) => n.name === STUB_NAME);
+  const realNode = workflow.nodes.find((n) => n.name === REAL_NAME);
+
+  if (!ifNode) errors.push('IF - Stage52 Fixture? node missing');
+  if (!stubNode) errors.push('Code - DRY RUN Stub (Postgres - Create Booking Hold) missing');
+  if (!realNode) errors.push('Postgres - Create Booking Hold node missing');
+
+  if (ifNode) {
+    const conds = ifNode.parameters?.conditions?.conditions || [];
+    const expr = conds[0]?.leftValue || '';
+    if (!expr.includes('STAGE52_FIXTURE_HOLD'))
+      errors.push('IF - Stage52 Fixture? does not check STAGE52_FIXTURE_HOLD env var');
+    if (!expr.includes('DRY-52-'))
+      errors.push('IF - Stage52 Fixture? does not check DRY-52- booking code prefix');
+    if (!expr.includes('34600000152'))
+      errors.push('IF - Stage52 Fixture? does not check fixture phone 34600000152');
+  }
+
+  // Stub must point to IF node
+  const stubConns = workflow.connections[STUB_NAME];
+  const stubFirst = stubConns?.main?.[0]?.[0]?.node;
+  if (stubFirst !== IF_NAME)
+    errors.push(`Code - DRY RUN Stub must connect to ${IF_NAME}, found: ${stubFirst}`);
+
+  // IF TRUE branch must connect to real node's successor (not stub)
+  const ifConns = workflow.connections[IF_NAME];
+  const trueBranch = ifConns?.main?.[0]?.[0]?.node;
+  const falseBranch = ifConns?.main?.[1]?.[0]?.node;
+  if (trueBranch === STUB_NAME || trueBranch === IF_NAME)
+    errors.push('IF - Stage52 Fixture? TRUE branch must go to real node successor, not stub');
+  if (!falseBranch || falseBranch === REAL_NAME)
+    errors.push('IF - Stage52 Fixture? FALSE branch must go to passthrough, not real node');
+  if (falseBranch !== PASSTHROUGH_NAME)
+    errors.push(`IF - Stage52 Fixture? FALSE branch should go to ${PASSTHROUGH_NAME}, found: ${falseBranch}`);
+
+  // Passthrough must exist
+  if (!workflow.nodes.find((n) => n.name === PASSTHROUGH_NAME))
+    errors.push(`${PASSTHROUGH_NAME} node missing`);
+
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('Stage52 fixture hold guard verify (Stage 5.2d): OK');
+  } else {
+    console.error(`Stage52 fixture hold guard verify: FAIL (${errors.length} error(s)):`);
     for (const e of errors) console.error(`  ${e}`);
   }
   return { ok, errors };
@@ -4014,6 +4212,7 @@ applyPackageRequirement(workflow);
 applyPGSessionWriteNonHoldPath(workflow); // Stage 5.1c: non-hold session write
 applyLocalTypingIndicatorBypass(workflow);
 applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode A shadow
+applyStage52FixtureHoldGuard(workflow); // Stage 5.2d: fixture hold guard (after shadow gates)
 applyHumanActivePaymentLinkBypass(workflow);
 applyPostgresCredentialMapping(workflow);
 const reassignRemap = applyLocalReassignWebhookRemap(workflow);
@@ -4035,6 +4234,7 @@ workflow.tags = [
   { name: 'stage4-hold-id-guard' }, // Stage 4: FALSE() guard for empty hold_id in Search Active Booking
   { name: 'stage4-addons-prompt' }, // Stage 4 A9: service_addons pricing injected into Reply - General Question
   { name: 'stage5.1c-sess-write' }, // Stage 5.1c: non-hold PG session write on missing-fields path
+  { name: 'stage5.2d-fixture-guard' }, // Stage 5.2d: fixture hold guard for real hold write
 ];
 
 if (reassignRemap.patched > 0) {
@@ -4123,6 +4323,7 @@ module.exports = {
   verifyPGSessionWrite,
   verifySummarizeHoldsPGPrimary,
   verifyEnsurePromoteInsertDefaults,
+  verifyStage52FixtureGuard,
   SERVICE_ADDONS_CONFIG,
   OUT,
   PROD_AIRTABLE_BASE_ID,

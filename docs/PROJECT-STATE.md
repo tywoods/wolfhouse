@@ -1,7 +1,7 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 5.2d planning — fixture dry-run hold gate)
-**HEAD (expected):** `a80646f` + Stage 5.2d planning docs (uncommitted)
+**Last updated:** 2026-05-30 (Stage 5.2d static scaffold — fixture hold guard, cleanup SQL, query proof runner)
+**HEAD (expected):** `bad01e2` + Stage 5.2d static changes (uncommitted)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -325,7 +325,7 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
-**Immediate next step: Stage 5.2d PLANNED.** Fixture guard design: `IF - Stage52 Fixture?` on stub TRUE branch, gated on `STAGE52_FIXTURE_HOLD=true` + `booking_code LIKE 'DRY-52-%'`. Next: static implementation of `applyStage52FixtureHoldGuard()` in build script + cleanup SQL + query proof runner, then runtime gate with `STAGE52_FIXTURE_HOLD=true WHATSAPP_DRY_RUN=true`.
+**Immediate next step: Stage 5.2d STATIC SCAFFOLD DONE.** Fixture hold guard wired (`IF - Stage52 Fixture?`), cleanup SQL in `scripts/fixtures/stage5.2d-cleanup.sql`, query proof runner in `scripts/verify-stage52d-hold-proof.js`. All verifiers pass. Next: Stage 5.2d runtime gate — set `STAGE52_FIXTURE_HOLD=true WHATSAPP_DRY_RUN=true`, POST A3-T1 payload for phone `34600000152`, verify real `bookings` row created with `DRY-52-` code, run query proof, cleanup.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.

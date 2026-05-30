@@ -788,11 +788,26 @@ All four queries work against `001_init.sql` schema today **once real booking ro
 - Static checks: `--verify-targets` `Ensure promote INSERT defaults verify (Stage 5.2c): OK`, payment/rooming contracts OK, active=false.
 - No schema migration required.
 
-#### 5.2d — Fixture-scoped dry-run hold gate (PLANNING 2026-05-30 — not implemented)
+#### 5.2d — Fixture-scoped dry-run hold gate (STATIC SCAFFOLD DONE 2026-05-30 — runtime pending)
 
-##### Scenario design
+Fixture scenario: phone `34600000152`, code prefix `DRY-52-`, check-in 2026-06-01, package malibu/shared.
 
-**New dedicated fixture scenario** rather than reusing A1/A3/A4. Rationale:
+**Guard design (Option B):** `applyStage52FixtureHoldGuard(workflow)` runs after `applyShadowModeDryRunGates`. Rewires `Code - DRY RUN Stub (Postgres - Create Booking Hold)` to route through new `IF - Stage52 Fixture?` node:
+- TRUE (all three guards met) → real `Postgres - Create Booking Hold` node
+- FALSE → `Code - Stage52 DRY RUN Passthrough` (emits stub output unchanged)
+
+Three required conditions (all must be true):
+1. `STAGE52_FIXTURE_HOLD=true` (explicit opt-in env var — absent = normal stub behaviour)
+2. `booking_code` starts with `DRY-52-` (from `Code - Prepare Hold Records`)
+3. `phone` in `['34600000152', '+34600000152']`
+
+**Verifier:** `verifyStage52FixtureGuard(workflow)` (7 checks) wired into `runVerifyTargets`. Confirms guard checks all three conditions, TRUE branch reaches real node successor, FALSE branch reaches passthrough.
+
+**Cleanup SQL:** `scripts/fixtures/stage5.2d-cleanup.sql` — transaction-safe, scoped to wolfhouse-somo + `DRY-52-%` + fixture phone. Unlinks conversation FK, deletes fixture booking, deletes fixture conversation.
+
+**Query proof runner:** `scripts/verify-stage52d-hold-proof.js` — read-only, runs four staff queries, prints fixture row counts per query. Safe to run before/after gate.
+
+Static checks: `--verify-targets` `Stage52 fixture hold guard verify (Stage 5.2d): OK`, payment/rooming contracts OK, active=false.
 - A1/A3/A4 use `DRY-STAGE4-*` booking codes; mixing with a real hold write would conflate Stage 4 dry-run stubs with Stage 5.2 first-real-write evidence.
 - A dedicated scenario uses `DRY-52-*` booking codes and a reserved fake phone, making cleanup unambiguous.
 - Scenario is a single-turn hold creation only (no Stripe CPS, no payment path), minimising surface area for first real write.
