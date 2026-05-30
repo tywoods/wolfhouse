@@ -431,6 +431,60 @@ FROM guard g
 LEFT JOIN upserted u ON TRUE;`;
 }
 
+/**
+ * n8n session write for non-hold booking path.
+ * Upserts conversations with session_state for turns where no hold is created
+ * (e.g. missing-fields turns like A2 T1). No current_hold_booking_id FK.
+ *
+ * Parameters:
+ *   $1 phone, $2 language, $3 conversation_stage, $4 session_state_json
+ *
+ * Writes conversations only. No bookings, payments, payment_events, booking_beds.
+ * Returns pg_ok=true, conversation_id, created/updated indicators.
+ */
+function buildSessionWriteN8nSql() {
+  return `WITH params AS (
+  SELECT
+    NULLIF($1, '${NULL_SENTINEL}') AS phone,
+    NULLIF($2, '${NULL_SENTINEL}') AS language,
+    COALESCE(NULLIF($3, '${NULL_SENTINEL}'), 'booking_flow') AS conversation_stage,
+    COALESCE(NULLIF($4, '${NULL_SENTINEL}')::jsonb, '{}'::jsonb) AS session_state_json
+),
+client AS (
+  SELECT id FROM clients WHERE slug = '${CLIENT_SLUG}' LIMIT 1
+)
+INSERT INTO conversations (
+  client_id,
+  phone,
+  conversation_stage,
+  session_state,
+  language
+)
+SELECT
+  c.id,
+  p.phone,
+  p.conversation_stage,
+  p.session_state_json,
+  p.language
+FROM params p
+INNER JOIN client c ON TRUE
+WHERE p.phone IS NOT NULL
+ON CONFLICT (client_id, phone) DO UPDATE SET
+  conversation_stage = EXCLUDED.conversation_stage,
+  -- Merge: preserve existing fields, overlay incoming non-null fields.
+  -- Incoming session is pre-filtered (IIFE builder strips null/empty values).
+  session_state = COALESCE(conversations.session_state, '{}'::jsonb) || EXCLUDED.session_state,
+  language = COALESCE(EXCLUDED.language, conversations.language),
+  updated_at = NOW()
+RETURNING
+  id::text AS conversation_id,
+  phone,
+  conversation_stage,
+  (xmax = 0) AS created,
+  (xmax <> 0) AS updated,
+  TRUE AS pg_ok;`;
+}
+
 module.exports = {
   CLIENT_SLUG,
   ALLOWED_BOOKING_STATUSES,
@@ -439,5 +493,6 @@ module.exports = {
   parseConversationUpsertInput,
   buildConversationUpsertPlan,
   buildConversationHoldUpsertN8nSql,
+  buildSessionWriteN8nSql,
   upsertConversationForHold,
 };

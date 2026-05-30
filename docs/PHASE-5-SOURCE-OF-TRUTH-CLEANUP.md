@@ -482,7 +482,165 @@ Save as `scripts/fixtures/stage5.1-conversations-cleanup.sql`.
 - Run on all paths where Airtable currently writes `Create Conversation` / `Update Conversation`
 - Be the natural counterpart to `Postgres - Search Conversation (PG)` (read + write pair)
 
-**Scope of Stage 5.1b:** design the node, place it in the workflow, verify A2 T1 writes session, A2 T2 reads naturally. This is the next Stage 5.1 slice after this gate passes.
+**Scope of Stage 5.1b:** design the node, place it in the workflow, verify A2 T1 writes session, A2 T2 reads naturally. This is the next Stage 5.1 slice after this gate passes. *(Stage 5.1b in this doc became the session_state enrichment — §5.1.13. The non-hold write path is now Stage 5.1c — §5.1.14.)*
+
+---
+
+### 5.1.14 Stage 5.1c — non-hold PG session write path (A2) (STATIC DONE 2026-05-30 — runtime pending)
+
+#### A2 T1 path (traced)
+
+```
+Normalize Incoming Message
+→ Search Conversation (AT) → Postgres - Search Conversation (PG)
+→ IF Conversation Exists? [FALSE — no PG row yet]
+→ Router - Classify Message [LLM → booking_flow]
+→ Code - Parse Route
+→ Code - Booking State Resolver → Switch [booking_flow branch]
+→ Parser Node  (extracts check_in, check_out, guest_count — no package)
+→ Merge Session State  (PG primary | AT bridge)
+→ Determine Missing Fields
+    output: { session: {check_in, check_out, guest_count, missing_fields:['package_intent'], ready_for_availability_check:false}, ... }
+→ Code - Check Closed Month → IF - Closed Month? [FALSE]
+→ IF - Ready For Availability [FALSE — missing_fields non-empty]
+→ Generate Next Reply  ← "ask for package" reply generated here
+→ IF - DRY RUN? (Create Outbound Message)  →  [dry-run stub path]
+```
+
+`Postgres - Upsert Conversation Hold` is on the **TRUE** branch of `IF - PG Hold OK`, which is only reachable after hold creation succeeds. A2 T1 never gets there.
+
+#### Best write point
+
+Between `IF - Ready For Availability` **FALSE branch** (main[1]) and `Generate Next Reply`.
+
+Rationale:
+- Only fires when `ready_for_availability_check = false` (missing fields in booking context)
+- Does not fire when ready (that path is covered by `Postgres - Upsert Conversation Hold`)
+- Covers A2 and all future missing-fields booking turns
+- Does not fire for non-booking routes (human_handoff, general_question, etc.)
+
+#### New node: `Postgres - Write Session State`
+
+| Property | Value |
+|----------|-------|
+| Type | `n8n-nodes-base.postgres` |
+| Operation | `executeQuery` |
+| Query | `buildSessionWriteN8nSql()` — new function in `main-conversation-pg-sql.js` |
+| `alwaysOutputData` | `true` (chain must not break if write fails) |
+| Credentials | `Wolfhouse Postgres (local)` |
+| Node ID | `3ce006001-0001-4000-8000-000000000601` |
+| Position | between `IF - Ready For Availability` FALSE and `Generate Next Reply` |
+
+#### SQL design (`buildSessionWriteN8nSql`)
+
+```sql
+WITH params AS (
+  SELECT
+    NULLIF($1, '__NULL__') AS phone,
+    NULLIF($2, '__NULL__') AS language,
+    COALESCE(NULLIF($3, '__NULL__'), 'booking_flow') AS conversation_stage,
+    COALESCE(NULLIF($4, '__NULL__')::jsonb, '{}'::jsonb) AS session_state_json
+),
+client AS (
+  SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1
+)
+INSERT INTO conversations (client_id, phone, conversation_stage, session_state, language)
+SELECT c.id, p.phone, p.conversation_stage, p.session_state_json, p.language
+FROM params p INNER JOIN client c ON TRUE
+WHERE p.phone IS NOT NULL
+ON CONFLICT (client_id, phone) DO UPDATE SET
+  conversation_stage = EXCLUDED.conversation_stage,
+  session_state = COALESCE(conversations.session_state, '{}'::jsonb) || EXCLUDED.session_state,
+  language = COALESCE(EXCLUDED.language, conversations.language),
+  updated_at = NOW()
+RETURNING
+  id::text AS conversation_id, phone, conversation_stage,
+  (xmax = 0) AS created, (xmax <> 0) AS updated,
+  TRUE AS pg_ok;
+```
+
+Key properties:
+- No `current_hold_booking_id` column — FK stays `NULL` for new rows, preserved for existing rows
+- `session_state` merges with existing: `existing || incoming` (incoming never has null/empty fields — IIFE builder filters them)
+- Only guard: `phone IS NOT NULL`
+- Returns `pg_ok=TRUE` always on success
+
+#### queryReplacement parameter mapping
+
+| Param | Value source |
+|-------|-------------|
+| `$1` phone | `$('Normalize Incoming Message').first().json.phone` |
+| `$2` language | `$('Code - Parse Route').first().json.language \|\| $('Determine Missing Fields').first().json.session?.language` |
+| `$3` conversation_stage | `'booking_flow'` (hard-coded) |
+| `$4` session_state_json | IIFE reading from `$('Determine Missing Fields').first().json.session` — same conditional builder pattern as Stage 5.1b (only non-null/non-empty fields set) |
+
+Session_state_json fields included (when non-null):
+`check_in`, `check_out`, `guest_count`, `package` (if known), `language`, `route`, `room_type`, `room_preference`, `guest_name`, `guest_email`, `missing_fields` (always written, even if `[]`), `ready_for_availability_check`, `current_hold_booking_code` (if known)
+
+#### Wiring change
+
+```
+BEFORE:  IF - Ready For Availability main[1]  →  Generate Next Reply
+AFTER:   IF - Ready For Availability main[1]  →  Postgres - Write Session State  →  Generate Next Reply
+```
+
+No other connections change. `Postgres - Upsert Conversation Hold` (hold-success path) is unaffected.
+
+#### Safety rules
+
+- Writes `conversations` only — no bookings, payments, payment_events, booking_beds
+- No `current_hold_booking_id` set (no FK to bookings)
+- No Airtable writes
+- No Stripe/CPS calls
+- No WhatsApp live send
+- `WHATSAPP_DRY_RUN=true` is sufficient — conversations is an allowed state table
+- Test rows cleaned by fake phone numbers (same cleanup SQL pattern as Stage 5.1)
+
+#### Verifier checks (to add to `verifyPGConversationRead` or separate `verifyPGSessionWrite`)
+
+1. `Postgres - Write Session State` node exists in workflow
+2. Node SQL does not contain `bookings`, `payments`, `payment_events`, `booking_beds` (writes only `conversations`)
+3. Node SQL does not contain `current_hold_booking_id` in the INSERT column list
+4. `IF - Ready For Availability` main[1] connects to `Postgres - Write Session State` (not directly to `Generate Next Reply`)
+5. `Postgres - Write Session State` connects to `Generate Next Reply`
+6. `Postgres - Write Session State` is NOT on the TRUE branch of `IF - Ready For Availability` (hold path must not double-write)
+7. `alwaysOutputData: true` on the node
+
+#### Static implementation (2026-05-30)
+
+- `scripts/lib/main-conversation-pg-sql.js` — `buildSessionWriteN8nSql()` added; exported.
+- `scripts/build-main-local-stripe.js` — `applyPGSessionWriteNonHoldPath(workflow)` adds and wires the node; `verifyPGSessionWrite(workflow)` checks all 7 verifier criteria; both wired into main build flow and `runVerifyTargets`.
+- `n8n/phase2/Wolfhouse Booking Assistant - Main (local Stripe).json` — regenerated; 346 nodes (was 345); `Postgres - Write Session State` added; `active=false` confirmed after `--import-inactive`.
+- Tag `stage5.1c-sess-write` added to workflow.
+
+**Static checks (all pass):**
+- `PG session write verify (Stage 5.1c non-hold path): OK`
+- `PG conversation read verify (Stage 5.1 PG-primary): OK`
+- `--verify-targets`: OK: hard safety checks passed
+- `report-main-payment-contract.js`: Overall OK: true
+- `report-main-rooming-contract.js`: Overall OK: true
+- `node --check run-stage4-autonomous-dry-run.js`: OK
+- `--import-inactive`: Import OK (active=false)
+
+#### A2 runtime proof criteria (after implementation)
+
+**A2 T1:**
+- `missing_fields = ['package_intent']`
+- `IF - Ready For Availability` → FALSE (main[1])
+- `Postgres - Write Session State` executes; `pg_ok=true`; `created=true`
+- Conversation row exists for `+34600000102` with `session_state` containing `check_in=2026-05-01`, `check_out=2026-05-08`, `guest_count=1`, `missing_fields=['package_intent']`, `ready_for_availability_check=false`
+- `current_hold_booking_id` is NULL
+
+**A2 T2:**
+- `IF Conversation Exists?` → TRUE via PG `conversation_id`
+- `Merge Session State` uses PG session as `old_state`
+- Parser extracts `package=malibu` from T2 message
+- `Determine Missing Fields` → `missing_fields=[]`, `ready_for_availability_check=true`
+- `IF - Ready For Availability` → TRUE → hold-success path fires
+- `Postgres - Upsert Conversation Hold` executes; `pg_ok=true`
+- Hold stub fires (dry-run code)
+- Protected counts: bookings Δ=0, payments Δ=0, payment_events Δ=0, booking_beds Δ=0
+- Cleanup: conversation row for `+34600000102` deleted; remaining=0
 
 ---
 

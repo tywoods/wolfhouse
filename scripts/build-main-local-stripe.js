@@ -29,7 +29,7 @@ const {
   buildHoldUpsertN8nSql,
   buildHoldBackfillAirtableN8nSql,
 } = require('./lib/main-booking-hold-pg-sql');
-const { buildConversationHoldUpsertN8nSql } = require('./lib/main-conversation-pg-sql');
+const { buildConversationHoldUpsertN8nSql, buildSessionWriteN8nSql } = require('./lib/main-conversation-pg-sql');
 const {
   HOSTED_REASSIGN_URL,
   DEFAULT_REASSIGN_BOOKING_BEDS_URL,
@@ -409,6 +409,7 @@ function runVerifyTargets(workflow, opts = {}) {
   const poiNoHoldFallback = verifyPaymentOrConfirmFallback(wf);
   const holdIdGuard = verifyActiveBookingHoldIdGuard(wf);
   const addonsPrompt = verifyGeneralQuestionAddonsPrompt(wf, SERVICE_ADDONS_CONFIG);
+  const pgSessionWrite = verifyPGSessionWrite(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -421,6 +422,7 @@ function runVerifyTargets(workflow, opts = {}) {
     paymentOrConfirmFallback: poiNoHoldFallback,
     activeBookingHoldIdGuard: holdIdGuard,
     generalQuestionAddonsPrompt: addonsPrompt,
+    pgSessionWrite,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -461,6 +463,12 @@ function runVerifyTargets(workflow, opts = {}) {
     for (const e of addonsPrompt.errors) console.error(`  ${e}`);
     result.ok = false;
     result.errors = [...(result.errors || []), ...addonsPrompt.errors.map((e) => `[addons-prompt] ${e}`)];
+  }
+  if (!pgSessionWrite.ok) {
+    console.error(`PG session write FAIL (${pgSessionWrite.errors.length} error(s)):`);
+    for (const e of pgSessionWrite.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...pgSessionWrite.errors.map((e) => `[pg-session-write] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -1345,6 +1353,161 @@ function verifyPGConversationRead(workflow) {
     console.log('PG conversation read verify (Stage 5.1 PG-primary): OK');
   } else {
     console.error(`PG conversation read verify: FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
+}
+
+// ── Stage 5.1c: PG session write on non-hold booking path ───────────────────
+//
+// Postgres - Write Session State sits on the IF - Ready For Availability FALSE
+// branch (missing-fields turns). It persists whatever session context is known
+// (dates, guest_count, language, missing_fields, etc.) so the NEXT turn can
+// read it from PG without a runner seed or Airtable fallback.
+//
+// Wiring (after applyPGSessionWriteNonHoldPath):
+//   IF - Ready For Availability  main[1]  →  Postgres - Write Session State
+//   Postgres - Write Session State        →  Generate Next Reply
+//
+// Safety: conversations is NOT a protected table; no dry-run gate needed.
+
+/**
+ * Inserts Postgres - Write Session State between IF - Ready For Availability
+ * FALSE branch and Generate Next Reply.
+ */
+function applyPGSessionWriteNonHoldPath(workflow) {
+  const ifReady = workflow.nodes.find((n) => n.name === 'IF - Ready For Availability');
+  if (!ifReady) throw new Error('applyPGSessionWriteNonHoldPath: IF - Ready For Availability not found');
+
+  const NULL_SENTINEL = '__NULL__';
+  const sess = `$('Determine Missing Fields').first().json.session`;
+  const pr = `$('Code - Parse Route').first().json`;
+
+  function pgParam(innerExpr) {
+    return `={{ ((${innerExpr}) != null && String(${innerExpr}).trim() !== '') ? String(${innerExpr}).trim() : '${NULL_SENTINEL}' }}`;
+  }
+
+  const sessionWriteQueryReplacement = [
+    pgParam(`$('Normalize Incoming Message').first().json.phone`),
+    pgParam(`${pr}.language || ${sess}?.language`),
+    pgParam(`'booking_flow'`),
+    // Stage 5.1c: build session_state from Determine Missing Fields enriched session.
+    // Only include non-null/non-empty fields. missing_fields and ready_for_availability_check
+    // are always written (even [] and false) so T2 can distinguish "no missing fields" from
+    // "never computed".
+    pgParam(`JSON.stringify((() => {
+      const _sess = ${sess} || {};
+      const _pr = ${pr};
+      const _s = {};
+      const _ci = _sess.check_in; if (_ci) _s.check_in = _ci;
+      const _co = _sess.check_out; if (_co) _s.check_out = _co;
+      const _gc = _sess.guest_count; if (_gc != null && _gc !== '') _s.guest_count = _gc;
+      const _pkg = _sess.package || _sess.package_code; if (_pkg) _s.package = _pkg;
+      const _lang = _pr.language || _sess.language; if (_lang) _s.language = _lang;
+      const _route = _pr.route; if (_route) _s.route = _route;
+      const _rt = _sess.room_type || _sess.requested_room_type; if (_rt) _s.room_type = _rt;
+      const _rp = _sess.room_preference; if (_rp) _s.room_preference = _rp;
+      const _gn = _sess.guest_name; if (_gn) _s.guest_name = _gn;
+      const _ge = _sess.guest_email; if (_ge) _s.guest_email = _ge;
+      const _mf = _sess.missing_fields; if (Array.isArray(_mf)) _s.missing_fields = _mf;
+      const _rfa = _sess.ready_for_availability_check;
+      if (_rfa !== undefined && _rfa !== null) _s.ready_for_availability_check = _rfa;
+      const _bc = _sess.current_hold_booking_code; if (_bc) _s.current_hold_booking_code = _bc;
+      return _s;
+    })()`),
+  ].join(',');
+
+  const sessionWriteNode = {
+    parameters: {
+      operation: 'executeQuery',
+      query: buildSessionWriteN8nSql(),
+      options: { queryReplacement: sessionWriteQueryReplacement },
+    },
+    type: 'n8n-nodes-base.postgres',
+    typeVersion: 2.5,
+    position: [3128, 1376],
+    id: '3ce006001-0001-4000-8000-000000000601',
+    name: 'Postgres - Write Session State',
+    alwaysOutputData: true,
+    credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+  };
+
+  workflow.nodes.push(sessionWriteNode);
+
+  // Rewire: IF - Ready For Availability main[1] → new node (was → Generate Next Reply)
+  const conn = workflow.connections['IF - Ready For Availability'];
+  if (!conn) throw new Error('applyPGSessionWriteNonHoldPath: IF - Ready For Availability has no connections');
+  // Preserve TRUE branch (main[0]); replace FALSE branch (main[1])
+  const trueBranch = conn.main[0] || [];
+  conn.main[1] = [{ node: 'Postgres - Write Session State', type: 'main', index: 0 }];
+
+  // Wire: Postgres - Write Session State → Generate Next Reply
+  workflow.connections['Postgres - Write Session State'] = {
+    main: [[{ node: 'Generate Next Reply', type: 'main', index: 0 }]],
+  };
+
+  console.log(
+    'applyPGSessionWriteNonHoldPath: Postgres - Write Session State inserted on IF - Ready For Availability FALSE → Generate Next Reply (Stage 5.1c)'
+  );
+}
+
+/**
+ * Verifies Stage 5.1c: Postgres - Write Session State on non-hold path.
+ */
+function verifyPGSessionWrite(workflow) {
+  const errors = [];
+
+  const node = workflow.nodes.find((n) => n.name === 'Postgres - Write Session State');
+  if (!node) {
+    errors.push('Postgres - Write Session State node missing');
+  } else {
+    const query = node.parameters?.query || '';
+
+    // SQL must reference conversations
+    if (!query.toLowerCase().includes('conversations'))
+      errors.push('Postgres - Write Session State SQL does not reference conversations table');
+
+    // SQL must NOT reference protected tables
+    for (const tbl of ['bookings', 'payment_events', 'booking_beds']) {
+      if (new RegExp(`\\b${tbl}\\b`, 'i').test(query))
+        errors.push(`Postgres - Write Session State SQL references protected table: ${tbl}`);
+    }
+    // payments is a separate check (avoid false positive on 'payment_events' or partial matches)
+    if (/\bpayments\b/i.test(query))
+      errors.push('Postgres - Write Session State SQL references protected table: payments');
+
+    // SQL must NOT include current_hold_booking_id in INSERT column list
+    if (/current_hold_booking_id/i.test(query))
+      errors.push('Postgres - Write Session State SQL contains current_hold_booking_id (FK must not be set on non-hold writes)');
+
+    // alwaysOutputData must be true (chain must not break if row already exists)
+    if (!node.alwaysOutputData)
+      errors.push('Postgres - Write Session State missing alwaysOutputData:true');
+  }
+
+  // IF - Ready For Availability main[1] must connect to Postgres - Write Session State
+  const ifReadyConn = workflow.connections['IF - Ready For Availability'];
+  const falseBranch = (ifReadyConn?.main?.[1] || []).map((n) => n.node);
+  if (!falseBranch.includes('Postgres - Write Session State'))
+    errors.push('IF - Ready For Availability FALSE branch does not connect to Postgres - Write Session State');
+  if (falseBranch.includes('Generate Next Reply'))
+    errors.push('IF - Ready For Availability FALSE branch still connects directly to Generate Next Reply (should go via Postgres - Write Session State)');
+
+  // Postgres - Write Session State must connect to Generate Next Reply
+  const wssOuts = (workflow.connections['Postgres - Write Session State']?.main?.[0] || []).map((n) => n.node);
+  if (!wssOuts.includes('Generate Next Reply'))
+    errors.push('Postgres - Write Session State does not connect to Generate Next Reply');
+
+  // IF - Ready For Availability TRUE branch must NOT connect to Postgres - Write Session State
+  const trueBranch = (ifReadyConn?.main?.[0] || []).map((n) => n.node);
+  if (trueBranch.includes('Postgres - Write Session State'))
+    errors.push('Postgres - Write Session State incorrectly wired on IF - Ready For Availability TRUE branch (must only be on FALSE)');
+
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('PG session write verify (Stage 5.1c non-hold path): OK');
+  } else {
+    console.error(`PG session write verify: FAIL (${errors.length} error(s)):`);
     for (const e of errors) console.error(`  ${e}`);
   }
   return { ok, errors };
@@ -3735,6 +3898,7 @@ applyGeneralQuestionAddonsPrompt(workflow, SERVICE_ADDONS_CONFIG);
 applyPackageRequirement(workflow);
 // applyActiveBookingHoldIdGuard is deferred — Airtable IIFE formula needs further testing.
 // The BSR fix (removing !holdUsable from the payment_or_confirm_intent override) is sufficient.
+applyPGSessionWriteNonHoldPath(workflow); // Stage 5.1c: non-hold session write
 applyLocalTypingIndicatorBypass(workflow);
 applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode A shadow
 applyHumanActivePaymentLinkBypass(workflow);
@@ -3757,6 +3921,7 @@ workflow.tags = [
   { name: 'stage4-poi-fallback' }, // Stage 4: payment_or_confirm_intent no-hold → booking_flow
   { name: 'stage4-hold-id-guard' }, // Stage 4: FALSE() guard for empty hold_id in Search Active Booking
   { name: 'stage4-addons-prompt' }, // Stage 4 A9: service_addons pricing injected into Reply - General Question
+  { name: 'stage5.1c-sess-write' }, // Stage 5.1c: non-hold PG session write on missing-fields path
 ];
 
 if (reassignRemap.patched > 0) {
@@ -3841,6 +4006,8 @@ module.exports = {
   formatServiceAddonsForPrompt,
   applyGeneralQuestionAddonsPrompt,
   verifyGeneralQuestionAddonsPrompt,
+  applyPGSessionWriteNonHoldPath,
+  verifyPGSessionWrite,
   SERVICE_ADDONS_CONFIG,
   OUT,
   PROD_AIRTABLE_BASE_ID,

@@ -21426,6 +21426,30 @@
     },
     {
       "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT\n    NULLIF($1, '__NULL__') AS phone,\n    NULLIF($2, '__NULL__') AS language,\n    COALESCE(NULLIF($3, '__NULL__'), 'booking_flow') AS conversation_stage,\n    COALESCE(NULLIF($4, '__NULL__')::jsonb, '{}'::jsonb) AS session_state_json\n),\nclient AS (\n  SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1\n)\nINSERT INTO conversations (\n  client_id,\n  phone,\n  conversation_stage,\n  session_state,\n  language\n)\nSELECT\n  c.id,\n  p.phone,\n  p.conversation_stage,\n  p.session_state_json,\n  p.language\nFROM params p\nINNER JOIN client c ON TRUE\nWHERE p.phone IS NOT NULL\nON CONFLICT (client_id, phone) DO UPDATE SET\n  conversation_stage = EXCLUDED.conversation_stage,\n  -- Merge: preserve existing fields, overlay incoming non-null fields.\n  -- Incoming session is pre-filtered (IIFE builder strips null/empty values).\n  session_state = COALESCE(conversations.session_state, '{}'::jsonb) || EXCLUDED.session_state,\n  language = COALESCE(EXCLUDED.language, conversations.language),\n  updated_at = NOW()\nRETURNING\n  id::text AS conversation_id,\n  phone,\n  conversation_stage,\n  (xmax = 0) AS created,\n  (xmax <> 0) AS updated,\n  TRUE AS pg_ok;",
+        "options": {
+          "queryReplacement": "={{ (($('Normalize Incoming Message').first().json.phone) != null && String($('Normalize Incoming Message').first().json.phone).trim() !== '') ? String($('Normalize Incoming Message').first().json.phone).trim() : '__NULL__' }},={{ (($('Code - Parse Route').first().json.language || $('Determine Missing Fields').first().json.session?.language) != null && String($('Code - Parse Route').first().json.language || $('Determine Missing Fields').first().json.session?.language).trim() !== '') ? String($('Code - Parse Route').first().json.language || $('Determine Missing Fields').first().json.session?.language).trim() : '__NULL__' }},={{ (('booking_flow') != null && String('booking_flow').trim() !== '') ? String('booking_flow').trim() : '__NULL__' }},={{ ((JSON.stringify((() => {\n      const _sess = $('Determine Missing Fields').first().json.session || {};\n      const _pr = $('Code - Parse Route').first().json;\n      const _s = {};\n      const _ci = _sess.check_in; if (_ci) _s.check_in = _ci;\n      const _co = _sess.check_out; if (_co) _s.check_out = _co;\n      const _gc = _sess.guest_count; if (_gc != null && _gc !== '') _s.guest_count = _gc;\n      const _pkg = _sess.package || _sess.package_code; if (_pkg) _s.package = _pkg;\n      const _lang = _pr.language || _sess.language; if (_lang) _s.language = _lang;\n      const _route = _pr.route; if (_route) _s.route = _route;\n      const _rt = _sess.room_type || _sess.requested_room_type; if (_rt) _s.room_type = _rt;\n      const _rp = _sess.room_preference; if (_rp) _s.room_preference = _rp;\n      const _gn = _sess.guest_name; if (_gn) _s.guest_name = _gn;\n      const _ge = _sess.guest_email; if (_ge) _s.guest_email = _ge;\n      const _mf = _sess.missing_fields; if (Array.isArray(_mf)) _s.missing_fields = _mf;\n      const _rfa = _sess.ready_for_availability_check;\n      if (_rfa !== undefined && _rfa !== null) _s.ready_for_availability_check = _rfa;\n      const _bc = _sess.current_hold_booking_code; if (_bc) _s.current_hold_booking_code = _bc;\n      return _s;\n    })()) != null && String(JSON.stringify((() => {\n      const _sess = $('Determine Missing Fields').first().json.session || {};\n      const _pr = $('Code - Parse Route').first().json;\n      const _s = {};\n      const _ci = _sess.check_in; if (_ci) _s.check_in = _ci;\n      const _co = _sess.check_out; if (_co) _s.check_out = _co;\n      const _gc = _sess.guest_count; if (_gc != null && _gc !== '') _s.guest_count = _gc;\n      const _pkg = _sess.package || _sess.package_code; if (_pkg) _s.package = _pkg;\n      const _lang = _pr.language || _sess.language; if (_lang) _s.language = _lang;\n      const _route = _pr.route; if (_route) _s.route = _route;\n      const _rt = _sess.room_type || _sess.requested_room_type; if (_rt) _s.room_type = _rt;\n      const _rp = _sess.room_preference; if (_rp) _s.room_preference = _rp;\n      const _gn = _sess.guest_name; if (_gn) _s.guest_name = _gn;\n      const _ge = _sess.guest_email; if (_ge) _s.guest_email = _ge;\n      const _mf = _sess.missing_fields; if (Array.isArray(_mf)) _s.missing_fields = _mf;\n      const _rfa = _sess.ready_for_availability_check;\n      if (_rfa !== undefined && _rfa !== null) _s.ready_for_availability_check = _rfa;\n      const _bc = _sess.current_hold_booking_code; if (_bc) _s.current_hold_booking_code = _bc;\n      return _s;\n    })()).trim() !== '') ? String(JSON.stringify((() => {\n      const _sess = $('Determine Missing Fields').first().json.session || {};\n      const _pr = $('Code - Parse Route').first().json;\n      const _s = {};\n      const _ci = _sess.check_in; if (_ci) _s.check_in = _ci;\n      const _co = _sess.check_out; if (_co) _s.check_out = _co;\n      const _gc = _sess.guest_count; if (_gc != null && _gc !== '') _s.guest_count = _gc;\n      const _pkg = _sess.package || _sess.package_code; if (_pkg) _s.package = _pkg;\n      const _lang = _pr.language || _sess.language; if (_lang) _s.language = _lang;\n      const _route = _pr.route; if (_route) _s.route = _route;\n      const _rt = _sess.room_type || _sess.requested_room_type; if (_rt) _s.room_type = _rt;\n      const _rp = _sess.room_preference; if (_rp) _s.room_preference = _rp;\n      const _gn = _sess.guest_name; if (_gn) _s.guest_name = _gn;\n      const _ge = _sess.guest_email; if (_ge) _s.guest_email = _ge;\n      const _mf = _sess.missing_fields; if (Array.isArray(_mf)) _s.missing_fields = _mf;\n      const _rfa = _sess.ready_for_availability_check;\n      if (_rfa !== undefined && _rfa !== null) _s.ready_for_availability_check = _rfa;\n      const _bc = _sess.current_hold_booking_code; if (_bc) _s.current_hold_booking_code = _bc;\n      return _s;\n    })()).trim() : '__NULL__' }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3128,
+        1376
+      ],
+      "id": "3ce006001-0001-4000-8000-000000000601",
+      "name": "Postgres - Write Session State",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MnnrrLecI7oVoIGq",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": false,
@@ -24854,7 +24878,7 @@
         ],
         [
           {
-            "node": "Generate Next Reply",
+            "node": "Postgres - Write Session State",
             "type": "main",
             "index": 0
           }
@@ -26891,6 +26915,17 @@
         ]
       ]
     },
+    "Postgres - Write Session State": {
+      "main": [
+        [
+          {
+            "node": "Generate Next Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "IF - Send Typing Indicator (Local Guard)": {
       "main": [
         [
@@ -28784,6 +28819,9 @@
     },
     {
       "name": "stage4-addons-prompt"
+    },
+    {
+      "name": "stage5.1c-sess-write"
     }
   ]
 }
