@@ -1670,15 +1670,15 @@ function applyStage52FixtureHoldGuard(workflow) {
 
   const phoneListExpr = FIXTURE_PHONES.map((p) => `'${p}'`).join(', ');
 
-  // Combined condition expression: all three guards must be true.
+  // Combined condition expression: env flag + fixture phone.
+  // Note: booking_code prefix check removed — Code - Prepare Hold Records always generates
+  // 'WH-YYMMDD-XXXX' format which never starts with 'DRY-52-'. The fixture phone + explicit
+  // env flag is sufficient guard. The 'DRY-52-' prefix is used only in cleanup SQL scope.
   const guardExpr = `={{ (() => {
   const fixtureEnabled = String($env.STAGE52_FIXTURE_HOLD || '').toLowerCase() === 'true';
   const phone = String($('Normalize Incoming Message').first().json.phone || '');
-  const prepare = (() => { try { return $('Code - Prepare Hold Records').first().json || {}; } catch { return {}; } })();
-  const bookingCode = String(prepare.hold_booking_id || prepare.booking_code || '');
   const isFixturePhone = [${phoneListExpr}].includes(phone);
-  const isFixtureCode = bookingCode.startsWith('${FIXTURE_CODE_PREFIX}');
-  return fixtureEnabled && isFixturePhone && isFixtureCode;
+  return fixtureEnabled && isFixturePhone;
 })() }}`;
 
   const ifNode = {
@@ -1747,11 +1747,11 @@ return [{ json: { ...stub, stage52_passthrough: true } }];`,
   }
 
   // Real node's first successor (Code - Validate PG Hold chain) is already wired.
-  // We just need the IF to route: TRUE → first real successor, FALSE → passthrough.
-  const firstRealSuccessor = realConns?.main?.[0]?.[0]?.node || null;
+  // We just need the IF to route: TRUE → the REAL postgres node itself, FALSE → passthrough.
+  // (The real node already connects to Code - Validate PG Hold via its own existing connections.)
   workflow.connections[IF_NAME] = {
     main: [
-      firstRealSuccessor ? [{ node: firstRealSuccessor, type: 'main', index: 0 }] : [],
+      [{ node: REAL_NAME, type: 'main', index: 0 }],
       [{ node: PASSTHROUGH_NAME, type: 'main', index: 0 }],
     ],
   };
@@ -1787,10 +1787,11 @@ function verifyStage52FixtureGuard(workflow) {
     const expr = conds[0]?.leftValue || '';
     if (!expr.includes('STAGE52_FIXTURE_HOLD'))
       errors.push('IF - Stage52 Fixture? does not check STAGE52_FIXTURE_HOLD env var');
-    if (!expr.includes('DRY-52-'))
-      errors.push('IF - Stage52 Fixture? does not check DRY-52- booking code prefix');
     if (!expr.includes('34600000152'))
       errors.push('IF - Stage52 Fixture? does not check fixture phone 34600000152');
+    // Note: DRY-52- booking_code prefix check removed from guard expression because
+    // Code - Prepare Hold Records always generates 'WH-YYMMDD-XXXX' format.
+    // The fixture phone + env flag combination is the effective narrow gate.
   }
 
   // Stub must point to IF node
@@ -1799,12 +1800,12 @@ function verifyStage52FixtureGuard(workflow) {
   if (stubFirst !== IF_NAME)
     errors.push(`Code - DRY RUN Stub must connect to ${IF_NAME}, found: ${stubFirst}`);
 
-  // IF TRUE branch must connect to real node's successor (not stub)
+  // IF TRUE branch must connect to the real Postgres node itself (not stub, not its successor)
   const ifConns = workflow.connections[IF_NAME];
   const trueBranch = ifConns?.main?.[0]?.[0]?.node;
   const falseBranch = ifConns?.main?.[1]?.[0]?.node;
-  if (trueBranch === STUB_NAME || trueBranch === IF_NAME)
-    errors.push('IF - Stage52 Fixture? TRUE branch must go to real node successor, not stub');
+  if (trueBranch !== REAL_NAME)
+    errors.push(`IF - Stage52 Fixture? TRUE branch must point to ${REAL_NAME}, found: ${trueBranch}`);
   if (!falseBranch || falseBranch === REAL_NAME)
     errors.push('IF - Stage52 Fixture? FALSE branch must go to passthrough, not real node');
   if (falseBranch !== PASSTHROUGH_NAME)

@@ -788,26 +788,45 @@ All four queries work against `001_init.sql` schema today **once real booking ro
 - Static checks: `--verify-targets` `Ensure promote INSERT defaults verify (Stage 5.2c): OK`, payment/rooming contracts OK, active=false.
 - No schema migration required.
 
-#### 5.2d — Fixture-scoped dry-run hold gate (STATIC SCAFFOLD DONE 2026-05-30 — runtime pending)
+#### 5.2d — Fixture-scoped dry-run hold gate (**RUNTIME PASS 2026-05-30** — exec 1230)
 
-Fixture scenario: phone `34600000152`, code prefix `DRY-52-`, check-in 2026-06-01, package malibu/shared.
+Fixture scenario: phone `+34600000152`, booking_code `WH-260530-8226` (WH- prefix, since `Code - Prepare Hold Records` always generates WH- format), check-in 2026-06-01, package malibu/shared.
 
-**Guard design (Option B):** `applyStage52FixtureHoldGuard(workflow)` runs after `applyShadowModeDryRunGates`. Rewires `Code - DRY RUN Stub (Postgres - Create Booking Hold)` to route through new `IF - Stage52 Fixture?` node:
-- TRUE (all three guards met) → real `Postgres - Create Booking Hold` node
-- FALSE → `Code - Stage52 DRY RUN Passthrough` (emits stub output unchanged)
-
-Three required conditions (all must be true):
+**Guard design (Option B, revised):** Two-condition guard (booking_code prefix check removed — `Code - Prepare Hold Records` always generates `WH-YYMMDD-XXXX` format, not `DRY-52-`):
 1. `STAGE52_FIXTURE_HOLD=true` (explicit opt-in env var — absent = normal stub behaviour)
-2. `booking_code` starts with `DRY-52-` (from `Code - Prepare Hold Records`)
-3. `phone` in `['34600000152', '+34600000152']`
+2. `phone` in `['34600000152', '+34600000152']`
 
-**Verifier:** `verifyStage52FixtureGuard(workflow)` (7 checks) wired into `runVerifyTargets`. Confirms guard checks all three conditions, TRUE branch reaches real node successor, FALSE branch reaches passthrough.
+Both `n8n-main` and `n8n-worker` containers must have `STAGE52_FIXTURE_HOLD=true` (workers execute the queue; main only registers webhooks).
 
-**Cleanup SQL:** `scripts/fixtures/stage5.2d-cleanup.sql` — transaction-safe, scoped to wolfhouse-somo + `DRY-52-%` + fixture phone. Unlinks conversation FK, deletes fixture booking, deletes fixture conversation.
+**Runtime proof (exec 1230):**
+- `IF - DRY RUN? (Postgres - Create Booking Hold)` → TRUE (WHATSAPP_DRY_RUN) → stub
+- `Code - DRY RUN Stub (Postgres - Create Booking Hold)` executed
+- `IF - Stage52 Fixture?` evaluated TRUE (STAGE52_FIXTURE_HOLD=true + fixture phone)
+- **Real `Postgres - Create Booking Hold` executed**
+- `booking_code=WH-260530-8226`, `status=hold`, `hold_expires_at` set, `assignment_status=unassigned`, `availability_check_status=available`
+- `conversations.current_hold_booking_id` = real booking UUID
+- `Postgres - Upsert Conversation Hold` pg_ok=true, booking_id linked
+- bookings: 41→42 (+1), payments/payment_events/booking_beds Δ=0
 
-**Query proof runner:** `scripts/verify-stage52d-hold-proof.js` — read-only, runs four staff queries, prints fixture row counts per query. Safe to run before/after gate.
+**Staff query proof (pre-cleanup):**
+- Query A (active holds): 1 fixture row found ✓
+- Query B (expired): 0 ✓
+- Query C (payment_pending): 0 ✓
+- Query D (no payment): 1 fixture row found ✓
 
-Static checks: `--verify-targets` `Stage52 fixture hold guard verify (Stage 5.2d): OK`, payment/rooming contracts OK, active=false.
+**Cleanup proof:** `scripts/fixtures/stage5.2d-cleanup.sql` (updated to scope by phone, not DRY-52- prefix). bookings=41 restored, conversations=0 for fixture phone.
+
+**Bugs fixed during gate:**
+1. `IF - Stage52 Fixture?` TRUE branch was routing to `Code - Validate PG Hold` (real node's successor) instead of `Postgres - Create Booking Hold` itself — fixed in `applyStage52FixtureHoldGuard`.
+2. Cleanup SQL scoped to `DRY-52-%` prefix but booking codes are `WH-` format — updated to scope by fixture phone.
+3. `staff-booking-hold-queries.js` `getNoPaymentRecordQuery` referenced `p.amount_cents` (not in schema) — fixed to `p.amount_due_cents`.
+4. Proof runner `verify-stage52d-hold-proof.js` filtered by `DRY-52-` prefix — updated to also match by fixture phone.
+
+**Verifier:** `verifyStage52FixtureGuard(workflow)` updated to assert TRUE branch points to real `Postgres - Create Booking Hold` node (not its successor). Passes as `Stage52 fixture hold guard verify (Stage 5.2d): OK`.
+
+**Cleanup SQL:** `scripts/fixtures/stage5.2d-cleanup.sql` — transaction-safe, scoped to wolfhouse-somo + fixture phone. Unlinks conversation FK, deletes fixture booking, deletes fixture conversation.
+
+**Query proof runner:** `scripts/verify-stage52d-hold-proof.js` — updated to filter by fixture phone + DRY-52- prefix. Safe to run before/after gate.
 - A1/A3/A4 use `DRY-STAGE4-*` booking codes; mixing with a real hold write would conflate Stage 4 dry-run stubs with Stage 5.2 first-real-write evidence.
 - A dedicated scenario uses `DRY-52-*` booking codes and a reserved fake phone, making cleanup unambiguous.
 - Scenario is a single-turn hold creation only (no Stripe CPS, no payment path), minimising surface area for first real write.

@@ -148,7 +148,7 @@ SELECT
   b.created_at,
   p.id::text          AS payment_id,
   p.status::text      AS payment_record_status,
-  p.amount_cents,
+  p.amount_due_cents,
   p.checkout_url
 FROM bookings b
 INNER JOIN clients c ON c.id = b.client_id

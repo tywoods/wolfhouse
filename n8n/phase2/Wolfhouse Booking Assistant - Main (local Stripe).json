@@ -24745,7 +24745,7 @@
           "conditions": [
             {
               "id": "stage52-fixture-cond",
-              "leftValue": "={{ (() => {\n  const fixtureEnabled = String($env.STAGE52_FIXTURE_HOLD || '').toLowerCase() === 'true';\n  const phone = String($('Normalize Incoming Message').first().json.phone || '');\n  const prepare = (() => { try { return $('Code - Prepare Hold Records').first().json || {}; } catch { return {}; } })();\n  const bookingCode = String(prepare.hold_booking_id || prepare.booking_code || '');\n  const isFixturePhone = ['34600000152', '+34600000152'].includes(phone);\n  const isFixtureCode = bookingCode.startsWith('DRY-52-');\n  return fixtureEnabled && isFixturePhone && isFixtureCode;\n})() }}",
+              "leftValue": "={{ (() => {\n  const fixtureEnabled = String($env.STAGE52_FIXTURE_HOLD || '').toLowerCase() === 'true';\n  const phone = String($('Normalize Incoming Message').first().json.phone || '');\n  const isFixturePhone = ['34600000152', '+34600000152'].includes(phone);\n  return fixtureEnabled && isFixturePhone;\n})() }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -28811,7 +28811,7 @@
       "main": [
         [
           {
-            "node": "Code - Validate PG Hold",
+            "node": "Postgres - Create Booking Hold",
             "type": "main",
             "index": 0
           }

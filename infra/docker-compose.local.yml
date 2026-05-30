@@ -108,6 +108,8 @@ services:
       WHATSAPP_DRY_RUN: ${WHATSAPP_DRY_RUN:-true}
       WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      # Stage 5.2d fixture hold guard (off by default; set true only for fixture runtime gate)
+      STAGE52_FIXTURE_HOLD: ${STAGE52_FIXTURE_HOLD:-false}
     volumes:
       - n8n_data:/home/node/.n8n
 
@@ -174,6 +176,8 @@ services:
       WHATSAPP_DRY_RUN: ${WHATSAPP_DRY_RUN:-true}
       WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      # Stage 5.2d fixture hold guard (off by default; set true only for fixture runtime gate)
+      STAGE52_FIXTURE_HOLD: ${STAGE52_FIXTURE_HOLD:-false}
 
 volumes:
   wolfhouse_pg_data:

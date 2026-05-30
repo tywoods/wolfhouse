@@ -1,7 +1,7 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 5.2d static scaffold — fixture hold guard, cleanup SQL, query proof runner)
-**HEAD (expected):** `bad01e2` + Stage 5.2d static changes (uncommitted)
+**Last updated:** 2026-05-30 (Stage 5.2d runtime PASS — real fixture hold write proven)
+**HEAD (expected):** `5e68c43` + Stage 5.2d runtime fixes (uncommitted)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -35,7 +35,7 @@
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
 | **4** Reliable | **CLOSE WITH DEFERRALS — Autonomous Booking Dry-Run complete (2026-05-30, commit 6cd9a21)** | All 14 runtime scenarios PASS (A1–A10, A9, IT-1/2/3, DE-1). Full dry-run booking path, payment webhook sim, confirmation draft, closed-month guard, multi-turn PG state, add-on pricing, multilingual baseline proven. Protected tables Δ=0 across all gates. **Deferrals:** real WhatsApp, live holds/Stripe/confirmation writes, structured add-on DB records (Stage 5), staff assistant (Stage 6), Airtable cutover, extensive multilingual polish. **Next: Stage 5 — source-of-truth cleanup + pilot readiness.** |
 
-| **5** Clean | **5.1 PASS. 5.1b STATIC DONE. 5.1c RUNTIME PASS 2026-05-30.** A2 T1 (exec 1226): `IF Conversation Exists?` FALSE, `Postgres - Write Session State` fires, conversation row created (`+34600000102`, session_state with check_in/check_out/guest_count/missing_fields=["package_intent"], current_hold_booking_id=NULL). A2 T2 (exec 1227, no seed): `IF Conversation Exists?` TRUE via PG conversation_id from T1, Merge Session State old_state=T1 PG session, hold stub fires, `Postgres - Upsert Conversation Hold` pg_ok=true. Protected Δ=0. Cleanup: 1 row deleted. Bug fixed: IIFE paren mismatch in `pgParam` template (`JSON.stringify(` was missing closing `)` in both UCH and WSS template literals). | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
+| **5** Clean | **5.1 PASS. 5.1b STATIC. 5.1c PASS. 5.2b/c/e STATIC. 5.2d RUNTIME PASS 2026-05-30.** Stage 5.2d exec 1230: real `Postgres - Create Booking Hold` fired under STAGE52_FIXTURE_HOLD guard. booking `WH-260530-8226` created (status=hold, hold_expires_at set, assignment_status=unassigned, availability_check_status=available). conversations.current_hold_booking_id linked to real booking UUID. Staff queries confirmed: Query A (active holds)=1, Query D (no-payment)=1 for fixture phone. Cleanup SQL ran: bookings=41 restored, conversations=0 for fixture phone. Protected Δ=0 (payments/payment_events/booking_beds unchanged). Bugs fixed: (1) IF-Stage52-Fixture? TRUE branch was routing to Code-Validate-PG-Hold instead of real Postgres node — fixed. (2) Cleanup SQL scoped to DRY-52- prefix but booking code is WH- format — updated to scope by fixture phone. (3) staff query `amount_cents` column fixed to `amount_due_cents`. | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
 | **6** Beautiful | Planned | Staff UI + Staff Operations Assistant + approval controls; Airtable cutover. Not started. Staff queries answered from Stage 5 structured records. |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
