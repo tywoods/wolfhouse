@@ -410,6 +410,7 @@ function runVerifyTargets(workflow, opts = {}) {
   const holdIdGuard = verifyActiveBookingHoldIdGuard(wf);
   const addonsPrompt = verifyGeneralQuestionAddonsPrompt(wf, SERVICE_ADDONS_CONFIG);
   const pgSessionWrite = verifyPGSessionWrite(wf);
+  const summarizeHoldsPG = verifySummarizeHoldsPGPrimary(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -423,6 +424,7 @@ function runVerifyTargets(workflow, opts = {}) {
     activeBookingHoldIdGuard: holdIdGuard,
     generalQuestionAddonsPrompt: addonsPrompt,
     pgSessionWrite,
+    summarizeHoldsPGPrimary: summarizeHoldsPG,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -469,6 +471,12 @@ function runVerifyTargets(workflow, opts = {}) {
     for (const e of pgSessionWrite.errors) console.error(`  ${e}`);
     result.ok = false;
     result.errors = [...(result.errors || []), ...pgSessionWrite.errors.map((e) => `[pg-session-write] ${e}`)];
+  }
+  if (!summarizeHoldsPG.ok) {
+    console.error(`Summarize Holds PG-primary FAIL (${summarizeHoldsPG.errors.length} error(s)):`);
+    for (const e of summarizeHoldsPG.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...summarizeHoldsPG.errors.map((e) => `[summarize-holds-pg] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -847,7 +855,7 @@ function applyPhase3cHoldGate(workflow) {
   workflow.connections['Code - PG Hold Failed Stop'] = { main: [] };
   workflow.connections['Code - PG Conversation Failed Stop'] = { main: [] };
 
-  summarizeHolds.parameters.jsCode = `const atHold = $('Create Booking Hold').first().json;
+  summarizeHolds.parameters.jsCode = `const atHold = $('Create Booking Hold').first().json || {};
 const backfill = $('Postgres - Backfill Booking AT Record Id').first().json || {};
 const availability =
   $('Code - Map PG Availability').first().json ||
@@ -856,31 +864,36 @@ const prepareHold = $('Code - Prepare Hold Records').first().json;
 const pgHold = $('Code - Validate PG Hold').first().json;
 const resolver = $('Code - Booking State Resolver').first().json;
 
+// Stage 5.2b: PG hold is authoritative; AT Booking ID is fallback only.
+// Priority: pgHold.booking_code > dry-run stub > AT Booking ID field > prepare fallback
 const bookingCode =
+  pgHold.booking_code ||
+  pgHold.hold_booking_id ||
   atHold.fields?.['Booking ID'] ||
   atHold['Booking ID'] ||
-  pgHold.booking_code ||
   prepareHold.hold_booking_id ||
   '';
 
 const holdRecordId = atHold.id || '';
 const roomIds = [
-  atHold.fields?.['Room ID'] ||
-    atHold.fields?.['hold_room_id'] ||
-    availability.hold_room_id ||
+  availability.hold_room_id ||
     availability.selected_room?.room_id ||
+    pgHold.pg_primary_room_code ||
     pgHold.primary_room_code ||
+    atHold.fields?.['Room ID'] ||
+    atHold.fields?.['hold_room_id'] ||
     '',
 ];
 const roomNames = [
-  atHold.fields?.['Room Name'] ||
-    availability.hold_room_name ||
+  availability.hold_room_name ||
     availability.selected_room?.room_name ||
+    atHold.fields?.['Room Name'] ||
     '',
 ];
 
 const hasGuestDetails = !!prepareHold.has_guest_details;
 const applyAfterHold = resolver.staged_contact?.apply_after_hold === true;
+const isDryRun = pgHold.dry_run === true || backfill.dry_run === true || false;
 
 return [
   {
@@ -894,6 +907,10 @@ return [
       hold_record_id: holdRecordId,
       pg_booking_id: pgHold.booking_id || backfill.booking_id || null,
       booking_code: bookingCode,
+      booking_id: pgHold.booking_id || null,
+      hold_expires_at: pgHold.hold_expires_at || null,
+      dry_run: isDryRun,
+      pg_hold_ok: pgHold.pg_ok === true,
       has_guest_details: hasGuestDetails,
       should_run_stripe_payment:
         applyAfterHold ||
@@ -1508,6 +1525,50 @@ function verifyPGSessionWrite(workflow) {
     console.log('PG session write verify (Stage 5.1c non-hold path): OK');
   } else {
     console.error(`PG session write verify: FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
+}
+
+/**
+ * Stage 5.2b: Verifies Code - Summarize Holds uses PG hold as primary source.
+ * AT Booking ID must NOT be the first priority for booking_code.
+ *
+ * @param {object} workflow
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifySummarizeHoldsPGPrimary(workflow) {
+  const errors = [];
+  const node = workflow.nodes.find((n) => n.name === 'Code - Summarize Holds');
+  if (!node) {
+    errors.push('Code - Summarize Holds node missing');
+  } else {
+    const code = node.parameters?.jsCode || '';
+    // Must reference pgHold for booking_code
+    if (!code.includes('pgHold.booking_code'))
+      errors.push('Code - Summarize Holds does not read pgHold.booking_code (PG must be primary source)');
+    // PG booking_code must appear BEFORE AT fields in the bookingCode assignment
+    const pgIdx = code.indexOf('pgHold.booking_code');
+    const atIdx = code.indexOf("atHold.fields?.['Booking ID']");
+    if (pgIdx === -1 || atIdx === -1 || pgIdx > atIdx)
+      errors.push('Code - Summarize Holds: pgHold.booking_code must appear before AT Booking ID field in bookingCode priority chain');
+    // Must include hold_expires_at in output
+    if (!code.includes('hold_expires_at'))
+      errors.push('Code - Summarize Holds does not include hold_expires_at in output');
+    // Must include booking_id in output
+    if (!code.includes('booking_id: pgHold.booking_id'))
+      errors.push('Code - Summarize Holds does not include booking_id: pgHold.booking_id in output');
+    // Must still include holds_created, has_guest_details, should_run_stripe_payment (downstream contracts)
+    for (const field of ['holds_created', 'has_guest_details', 'should_run_stripe_payment']) {
+      if (!code.includes(field))
+        errors.push(`Code - Summarize Holds missing required output field: ${field}`);
+    }
+  }
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('Summarize Holds PG-primary verify (Stage 5.2b): OK');
+  } else {
+    console.error(`Summarize Holds PG-primary verify: FAIL (${errors.length} error(s)):`);
     for (const e of errors) console.error(`  ${e}`);
   }
   return { ok, errors };
@@ -4008,6 +4069,7 @@ module.exports = {
   verifyGeneralQuestionAddonsPrompt,
   applyPGSessionWriteNonHoldPath,
   verifyPGSessionWrite,
+  verifySummarizeHoldsPGPrimary,
   SERVICE_ADDONS_CONFIG,
   OUT,
   PROD_AIRTABLE_BASE_ID,

@@ -772,7 +772,11 @@ All four queries work against `001_init.sql` schema today **once real booking ro
 - Confirm ensure-promote insert gap: `hold_expires_at` / `assignment_status` / `availability_check_status` not set on INSERT path.
 - Document: no schema migration needed for 5.2a.
 
-#### 5.2b — Decouple AT mirror from PG hold success gate (static code change)
+#### 5.2b — Decouple AT mirror from PG hold success gate (STATIC DONE 2026-05-30 — runtime pending)
+- `Code - Summarize Holds` jsCode updated: `pgHold.booking_code` is now **first** in the `bookingCode` priority chain; `atHold.fields['Booking ID']` is fallback only. Also added `booking_id`, `hold_expires_at`, `dry_run`, `pg_hold_ok` to output. AT fields kept for room data fallback.
+- New verifier `verifySummarizeHoldsPGPrimary(workflow)` (7 checks) wired into `runVerifyTargets`.
+- Static checks: `--verify-targets` `Summarize Holds PG-primary verify (Stage 5.2b): OK`, payment/rooming contracts OK, active=false.
+- AT mirror nodes (`Create Booking Hold`, `Backfill AT rec id`) kept in place; full AT branch decoupling deferred to 5.2d fixture runtime gate.
 - `Code - Summarize Holds`: patch to prefer `PG booking_code` over AT Booking ID field, so payment path works when AT mirror is not run.
 - `IF - PG Conversation OK` → `IF - DRY RUN? (Create Booking Hold)`: make AT mirror path a **soft branch** (alwaysOutputData=true) so hold success is not gated on AT record existing.
 - `Postgres - Backfill Booking AT Record Id`: keep as optional bridge, not in critical success path.
