@@ -12,6 +12,27 @@ dangerous live writes, correct handoff for exceptions.
 
 ---
 
+## Stage 4 closeout — CLOSE WITH DEFERRALS (2026-05-30)
+
+**Decision:** Stage 4 Autonomous Booking Dry-Run objectives are met. All 14 runtime scenarios PASS. Live operation is **not** approved.
+
+**Exit criteria met:**
+- Full dry-run booking path (A1 execs 1147–1150 + gate 3)
+- Payment-link stub + simulated Stripe webhook + confirmation draft (gate 3)
+- Closed-month guard (A5)
+- Multi-turn PG conversation state (A2/A3/A4)
+- Add-on config-backed pricing (A9)
+- Multilingual baseline (IT-1/2/3, DE-1, A10)
+- No protected mutations across all gates (bookings/payments/payment_events/booking_beds Δ=0)
+- WHATSAPP_DRY_RUN throughout; no graph.facebook.com
+
+**Explicit deferrals (not Stage 4 blockers):**
+- Real WhatsApp send · live Postgres holds · live Stripe checkout · live confirmation writes · real rooming assignment · structured add-on DB records (Stage 5) · staff ops assistant (Stage 6) · Airtable cutover · extensive native tone polish · multi-client productization
+
+**Next phase:** Stage 5 — targeted source-of-truth cleanup + pilot readiness (see `docs/ROADMAP.md`).
+
+---
+
 ## Difference from Stage 3y Mode A
 
 | Dimension | Stage 3y Mode A | Stage 4 Autonomous Dry-Run |

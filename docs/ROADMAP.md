@@ -626,6 +626,8 @@ This is a **first-class roadmap event**, not a scattered implementation detail. 
 
 ## Stage 4 — Reliable
 
+**Status (2026-05-30): CLOSE WITH DEFERRALS.** Autonomous Booking Dry-Run complete — all 14 scenarios PASS (commit `6cd9a21`). Evidence: `test-payloads/stage4/autonomous-dry-run/README.md`. Live WhatsApp, live holds, live Stripe, and live confirmation writes remain deferred. Structured add-on records and staff ops assistant deferred to Stages 5–6.
+
 ### Purpose
 
 Make the working system **dependable and observable** after Stage 3 behavior is proven and Stage 3x rules are specified.
