@@ -4,7 +4,7 @@
     "title": "Deposit option selected — amount check",
     "stage": "4",
     "mode": "autonomous-dry-run",
-    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "status": "PASS — 2026-05-30 exec 1199 (T1) + 1200 (T2). T1: route=booking_flow conf=0.95 missing_fields=[] hold_stub=dry-run-nodate. T2: initial=payment_or_confirm_intent resolved=payment_or_confirm_intent overridden=false (BSR reads PG seed current_hold_id=WH-DRYA3-0001 on shared path). 12/12 checks PASS. Protected counts Δ=0. PG cleanup confirmed.",
     "goal": "Focused test: guest sends a complete booking request and explicitly selects deposit. Verify the deposit amount is €200 from config, not invented. Short-stay tier (€100) is NOT expected here — standard 7-night package.",
     "notes": "Config source: payment.deposit_rule.tiers.standard_package.amount_eur = 200. The bot must read this value; it must not invent or hardcode an amount."
   },

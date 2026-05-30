@@ -1110,28 +1110,32 @@ LIMIT 1`;
 /**
  * Stage 4 — PG conversation read fallback (Option A, revised).
  *
- * Adds `Postgres - Search Conversation (PG)` on the SHARED PATH, triggered
- * by `Search Conversation` (Airtable) in parallel. This means the PG node
- * runs before routing, so ALL routes (booking_flow AND payment_or_confirm_intent
- * etc.) can reference `$('Postgres - Search Conversation (PG)')` via $() lookups.
+ * Adds `Postgres - Search Conversation (PG)` on the SHARED PATH in SERIES, inserted
+ * between `Search Conversation` (Airtable) and `IF Conversation Exists?`. This ensures
+ * the PG node executes before the Booking State Resolver (BSR), so BSR can read the
+ * seeded PG session (including current_hold_id) to make correct routing decisions for
+ * multi-turn scenarios (A3/A4 T2 must NOT be overridden to booking_flow when a hold exists).
  *
  * Wiring:
- *   Parser Node → Postgres - Search Conversation (PG) → Merge Session State  [series, guaranteed order]
+ *   Search Conversation → Postgres - Search Conversation (PG) → IF Conversation Exists?  [shared path, series]
+ *   Parser Node → Merge Session State  [direct, no PG in booking_flow series]
+ *   Booking State Resolver Code merges PG session into input.session for hold-hint detection.
  *   Merge Session State code references $('Postgres - Search Conversation (PG)') internally.
  *
  * @param {object} workflow
  */
 function applyPGConversationRead(workflow) {
-  const parserNode = workflow.nodes.find((n) => n.name === 'Parser Node');
+  const searchConvNode = workflow.nodes.find((n) => n.name === 'Search Conversation');
+  const ifConvNode = workflow.nodes.find((n) => n.name === 'IF Conversation Exists?');
   const mergeNode = workflow.nodes.find((n) => n.name === 'Merge Session State');
-  if (!parserNode || !mergeNode) {
+  if (!searchConvNode || !ifConvNode || !mergeNode) {
     throw new Error(
-      'applyPGConversationRead: Parser Node or Merge Session State not found'
+      'applyPGConversationRead: Search Conversation, IF Conversation Exists?, or Merge Session State not found'
     );
   }
 
   // ── Postgres read node ─────────────────────────────────────────────────────
-  // Positioned between Parser Node and Merge Session State.
+  // Positioned between Search Conversation and IF Conversation Exists? on the shared path.
   // alwaysOutputData=true so the chain never breaks when no row is found.
   const pgReadNode = {
     parameters: {
@@ -1144,8 +1148,8 @@ function applyPGConversationRead(workflow) {
     type: 'n8n-nodes-base.postgres',
     typeVersion: 2.5,
     position: [
-      parserNode.position[0] + 220,
-      parserNode.position[1],
+      Math.round((searchConvNode.position[0] + ifConvNode.position[0]) / 2),
+      searchConvNode.position[1] + 160,
     ],
     id: '3ce005001-0001-4000-8000-000000000501',
     name: 'Postgres - Search Conversation (PG)',
@@ -1158,37 +1162,47 @@ function applyPGConversationRead(workflow) {
   // ── Update Merge Session State jsCode with PG fallback ─────────────────────
   mergeNode.parameters.jsCode = PG_SEARCH_CONV_JS_CODE;
 
-  // ── Re-wire: Parser Node → PG → Merge Session State (series) ──────────────
-  // Remove any direct Parser Node → Merge Session State connection.
-  const parserConns = workflow.connections['Parser Node'];
-  if (parserConns?.main?.[0]) {
-    parserConns.main[0] = parserConns.main[0].filter(
-      (e) => e.node !== 'Merge Session State'
-    );
-    // Add Parser Node → PG (if not already there)
-    if (!parserConns.main[0].some((e) => e.node === 'Postgres - Search Conversation (PG)')) {
-      parserConns.main[0].push({ node: 'Postgres - Search Conversation (PG)', type: 'main', index: 0 });
+  // ── Re-wire: Search Conversation → PG → IF Conversation Exists? (shared path series) ──
+  // Remove Search Conversation → IF Conversation Exists? direct connection.
+  const scConns = workflow.connections['Search Conversation'];
+  if (scConns?.main?.[0]) {
+    scConns.main[0] = scConns.main[0].filter((e) => e.node !== 'IF Conversation Exists?');
+    if (!scConns.main[0].some((e) => e.node === 'Postgres - Search Conversation (PG)')) {
+      scConns.main[0].push({ node: 'Postgres - Search Conversation (PG)', type: 'main', index: 0 });
     }
   }
 
-  // Add PG → Merge Session State
+  // Add PG → IF Conversation Exists?
   if (!workflow.connections['Postgres - Search Conversation (PG)']) {
     workflow.connections['Postgres - Search Conversation (PG)'] = { main: [[]] };
   }
   const pgConns = workflow.connections['Postgres - Search Conversation (PG)'];
   pgConns.main[0] = pgConns.main[0] || [];
-  if (!pgConns.main[0].some((e) => e.node === 'Merge Session State')) {
-    pgConns.main[0].push({ node: 'Merge Session State', type: 'main', index: 0 });
+  if (!pgConns.main[0].some((e) => e.node === 'IF Conversation Exists?')) {
+    pgConns.main[0].push({ node: 'IF Conversation Exists?', type: 'main', index: 0 });
+  }
+
+  // ── Ensure Parser Node → Merge Session State is direct (no PG in booking_flow) ──
+  // Remove any Parser Node → PG connection if it exists.
+  const parserConns = workflow.connections['Parser Node'];
+  if (parserConns?.main?.[0]) {
+    parserConns.main[0] = parserConns.main[0].filter(
+      (e) => e.node !== 'Postgres - Search Conversation (PG)'
+    );
+    if (!parserConns.main[0].some((e) => e.node === 'Merge Session State')) {
+      parserConns.main[0].push({ node: 'Merge Session State', type: 'main', index: 0 });
+    }
   }
 
   console.log(
-    'applyPGConversationRead: Postgres - Search Conversation (PG) wired as Parser Node → PG → Merge Session State (series).'
+    'applyPGConversationRead: Postgres - Search Conversation (PG) wired on shared path as Search Conversation → PG → IF Conversation Exists?. Parser Node → Merge Session State direct.'
   );
 }
 
 /**
  * Verifies that the PG conversation read fallback is correctly wired.
- * Wiring: Parser Node → Postgres - Search Conversation (PG) → Merge Session State [series]
+ * Wiring: Search Conversation → Postgres - Search Conversation (PG) → IF Conversation Exists? [shared path, series]
+ *         Parser Node → Merge Session State [direct]
  *         Merge Session State code references $('Postgres - Search Conversation (PG)') internally.
  *
  * @param {object} workflow
@@ -1201,19 +1215,25 @@ function verifyPGConversationRead(workflow) {
   if (!nodeNames.has('Postgres - Search Conversation (PG)'))
     errors.push('Postgres - Search Conversation (PG) node missing');
 
-  // Parser Node must connect to PG (NOT directly to Merge Session State)
-  const parserOuts = (workflow.connections['Parser Node']?.main?.[0] || []).map((n) => n.node);
-  if (!parserOuts.includes('Postgres - Search Conversation (PG)'))
-    errors.push('Parser Node does not connect to Postgres - Search Conversation (PG) (series path)');
-  if (parserOuts.includes('Merge Session State'))
-    errors.push('Parser Node still directly connects to Merge Session State (PG should be in series)');
+  // Search Conversation must connect to PG (in series, not IF Conversation Exists? directly)
+  const scOuts = (workflow.connections['Search Conversation']?.main?.[0] || []).map((n) => n.node);
+  if (!scOuts.includes('Postgres - Search Conversation (PG)'))
+    errors.push('Search Conversation does not connect to Postgres - Search Conversation (PG) (shared path series)');
+  if (scOuts.includes('IF Conversation Exists?'))
+    errors.push('Search Conversation still directly connects to IF Conversation Exists? (PG must be in series between them)');
 
-  // PG node must connect to Merge Session State
+  // PG must connect to IF Conversation Exists?
   const pgOuts = (workflow.connections['Postgres - Search Conversation (PG)']?.main?.[0] || []).map((n) => n.node);
-  if (!pgOuts.includes('Merge Session State'))
-    errors.push('Postgres - Search Conversation (PG) does not connect to Merge Session State');
+  if (!pgOuts.includes('IF Conversation Exists?'))
+    errors.push('Postgres - Search Conversation (PG) does not connect to IF Conversation Exists?');
 
-  // Merge Session State jsCode must reference the PG node  } else {
+  // Parser Node must connect directly to Merge Session State (not via PG)
+  const parserOuts = (workflow.connections['Parser Node']?.main?.[0] || []).map((n) => n.node);
+  if (!parserOuts.includes('Merge Session State'))
+    errors.push('Parser Node does not connect directly to Merge Session State');
+  if (parserOuts.includes('Postgres - Search Conversation (PG)'))
+    errors.push('Parser Node still connects to Postgres - Search Conversation (PG) (should be direct to MSS)');
+
   // Merge Session State jsCode must reference the PG node
   const mergeNode = workflow.nodes.find((n) => n.name === 'Merge Session State');
   if (!mergeNode) {
@@ -1421,6 +1441,8 @@ function verifyPaymentOrConfirmFallback(workflow) {
       errors.push('Booking State Resolver missing payment_or_confirm_intent no-hold override (R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW)');
     if (!code.includes("routerRoute === 'payment_or_confirm_intent'"))
       errors.push('Booking State Resolver does not reference payment_or_confirm_intent override');
+    if (!code.includes("Postgres - Search Conversation (PG)"))
+      errors.push('Booking State Resolver does not merge PG session (required for A3/A4 hold-hint detection)');
     // Assert no new ungated protected writes
     if (/\bINSERT\b/i.test(code) || /\bUPDATE\b/i.test(code) || /\bDELETE\b/i.test(code))
       errors.push('Code - Booking State Resolver contains SQL write operations (not expected in a routing node)');

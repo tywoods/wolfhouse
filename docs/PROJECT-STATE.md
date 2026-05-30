@@ -1,7 +1,7 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 4 A2 multi-turn re-run PASS — PG series wiring fix, all 18 checks green)
-**HEAD (expected):** `f5d99f7` → A2 PASS
+**Last updated:** 2026-05-30 (Stage 4 A3+A4 multi-turn PASS — PG shared-path series wiring + BSR session deep-merge, all 12/12 checks green)
+**HEAD (expected):** `f5d99f7` → A2 PASS (A3/A4 PASS evidence staged, not yet committed)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -21,6 +21,8 @@
 
 **Architecture direction:** n8n orchestrates; backend/code decides; Postgres remembers; client config controls; staff UI manages (later). Do not grow business logic indefinitely inside n8n ? Stage 3x defines specs; Stage 5 migrates logic to `src/booking-assistant/`.
 
+**Staff operations ? explicit roadmap requirement (added 2026-05-30):** The product has two sides: (1) the guest-facing WhatsApp assistant (built in Stages 3?4) and (2) a staff-facing operations assistant + admin layer (Stage 6). Stage 4/5 must preserve data in structured Postgres records so Stage 6 staff queries are answered from reliable source-of-truth, not chat logs. Key tables needed before Stage 6: `add_on_orders`, `add_on_items`, `lesson_requests`, `rental_requests`, `yoga_requests`, `staff_handoffs`, and a `payment_balances` view. Stage 6 is not started. No implementation performed for the staff assistant layer. Detail: [ROADMAP.md Stage 6](ROADMAP.md#stage-6--beautiful-staff--admin-layer) ? [ROADMAP.md Stage 5 staff-queryable data](ROADMAP.md#staff-queryable-operational-data-stage-5-requirement).
+
 ---
 
 ## Stage snapshot (product roadmap)
@@ -31,10 +33,10 @@
 | **3.5** Safety rails | **CLOSED ? minimum safety bar MET (d08c64e)** | [PHASE-3.5-SAFETY-RAILS-PLAN.md](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS. 3.5c/I3 runtime PASS (execs 1093/1094). 3.5d D1+D2+D3 L2 PASS + wire-in static PASS; D8 runtime BLOCKED/deferred (Airtable-coupled upstream). 3.5f I3 PASS + I2/I5 deferred with written reason. 3.5g closeout G1?G13 DONE. Deferrals: D6/D8/D9/I2/I5 runtime ? Airtable cutover; Gap 1/Gap 3 runtime ? Stage 4; 3.5d.8b PG-only trigger path ? NOT REQUIRED before Stage 3y. **Next: Stage 3.5 closeout commit (user approves), then Stage 3y shadow/co-pilot planning.** |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2?3x.4 pending |
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
-| **4** Reliable | **Autonomous Booking Dry-Run - Gate 4 Batch 1 + A5 re-test ALL PASS; A2 multi-turn PASS (2026-05-30)** | A5 PASS (closed-month guard, exec 1159). A6/A7/A8/A10 PASS. Execs 1154-1159. A2 multi-turn RE-RUN PASS: execs 1180+1181. T1: route=booking_flow, missing_fields=[package_intent], hold NOT fired, draft asked for package. T2: initial_route=payment_or_confirm_intent → override → booking_flow (R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW), _pg_fallback_used=true, check_in/check_out/guest_count/package all merged, hold stub fired (dry-run-nodate, pg_ok=true), draft asked name+email. All 18 checks PASS. Protected counts all unchanged. PG conversation row seeded + cleaned up. PG node wired series (Parser Node → PG → Merge Session State). **Package-required guard RUNTIME PROVEN. PG conversation fallback RUNTIME PROVEN.** Next: A3/A4 or multilingual batch. |
+| **4** Reliable | **Autonomous Booking Dry-Run - Gate 4 Batch 1 + A5 re-test ALL PASS; A2+A3+A4 multi-turn PASS (2026-05-30)** | A5 PASS (closed-month guard, exec 1159). A6/A7/A8/A10 PASS. Execs 1154-1159. A2 multi-turn RE-RUN PASS: execs 1180+1181. T1: route=booking_flow, missing_fields=[package_intent], hold NOT fired, draft asked for package. T2: initial_route=payment_or_confirm_intent → override → booking_flow, _pg_fallback_used=true, session merged, hold stub fired (dry-run-nodate), draft asked name+email. 18 checks PASS. **A3+A4 multi-turn PASS (execs 1199-1202):** PG node moved to SHARED PATH (Search Conversation → PG → IF Conversation Exists?) so BSR reads hold hint at routing time. BSR session deep-merge (PG + AT + parseRoute). A3 T1: booking_flow, hold fires, draft asks name+email. A3 T2: payment_or_confirm_intent (NOT overridden — PG hold hint WH-DRYA3-0001 seen by BSR), asks name+email. A4 T1: booking_flow, hold fires. A4 T2: payment_or_confirm_intent (NOT overridden — PG hold hint WH-DRYA4-0001 seen by BSR), asks name+email. All 12/12 checks PASS. Protected counts all unchanged. PG conversation rows seeded + cleaned up. **Package-required guard PROVEN. PG fallback multi-turn PROVEN (A2: booking_flow override path; A3/A4: payment path preserve).** RESOLVER_VERSION 2f.9. Next: A9 (multilingual) or docs commit. |
 
-| **5** Clean | Planned | Decision engine out of n8n |
-| **6** Beautiful | Planned | Staff UI; Airtable cutover |
+| **5** Clean | Planned | Decision engine out of n8n; must produce staff-queryable structured records (add_on_orders, lesson_requests, etc.) — see ROADMAP.md |
+| **6** Beautiful | Planned | Staff UI + Staff Operations Assistant + approval controls; Airtable cutover. Not started. Staff queries answered from Stage 5 structured records. |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
 ---

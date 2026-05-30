@@ -2,7 +2,7 @@
  * Phase 2f — deterministic booking route resolver (pure logic for tests + n8n Code node).
  */
 
-const RESOLVER_VERSION = '2f.6';
+const RESOLVER_VERSION = '2f.9';
 
 function safeJsonParse(value, fallback = {}) {
   if (!value) return fallback;
@@ -341,7 +341,6 @@ function resolveBookingRoute(input) {
   if (
     !routeOverridden &&
     routerRoute === 'payment_or_confirm_intent' &&
-    !holdUsable &&
     !conversationHoldHint &&
     !hasContact
   ) {
@@ -480,6 +479,15 @@ const parseRoute = $('Code - Parse Route').first().json;
 const pickActive = $('Code - Pick Active Booking').first().json;
 const conversation = $('Search Conversation').first().json.fields || {};
 
+// PG session fallback: read from Postgres - Search Conversation (PG) which runs on shared
+// path (before BSR), so hold hints like current_hold_id are visible at routing time.
+const pgConvRow = (() => { try { return $('Postgres - Search Conversation (PG)').first().json || {}; } catch(e) { return {}; } })();
+const pgSession = safeJsonParse(pgConvRow?.session_state, {});
+const atSession = safeJsonParse(conversation['Session State'], {});
+// Merge: PG provides defaults, AT overrides (production), parseRoute overrides (current message).
+// Using Object.assign so current_hold_id from PG is always visible to getConversationHoldHint.
+const effectiveSession = Object.assign({}, pgSession, atSession, parseRoute.session || {});
+
 const result = resolveBookingRoute({
   router_route: parseRoute.route,
   router_reason: parseRoute.reason,
@@ -489,7 +497,7 @@ const result = resolveBookingRoute({
   pending_action: conversation['Pending Action'] || 'none',
   conversation_stage: conversation['Conversation Stage'] || '',
   phone: $('Normalize Incoming Message').first().json.phone || '',
-  session: parseRoute.session || safeJsonParse(conversation['Session State'], {}),
+  session: effectiveSession,
   conversation,
   active_booking: pickActive,
 });

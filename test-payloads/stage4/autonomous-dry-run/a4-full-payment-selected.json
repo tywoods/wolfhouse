@@ -4,7 +4,7 @@
     "title": "Full payment selected — amount check",
     "stage": "4",
     "mode": "autonomous-dry-run",
-    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "status": "PASS — 2026-05-30 exec 1201 (T1) + 1202 (T2). T1: route=booking_flow conf=0.95 missing_fields=[] hold_stub=dry-run-nodate. T2: initial=payment_or_confirm_intent resolved=payment_or_confirm_intent overridden=false (BSR reads PG seed current_hold_id=WH-DRYA4-0001 on shared path). 12/12 checks PASS. Protected counts Δ=0. PG cleanup confirmed.",
     "goal": "Guest selects full payment. Verify the full amount quoted matches config package table, not deposit. No invented pricing.",
     "notes": "Waimea peak (August) 1 guest = €599 total. Full payment path. Config source: packages.prices_2026_per_person_7nt_shared.peak.waimea = 599."
   },

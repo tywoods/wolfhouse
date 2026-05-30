@@ -41,6 +41,29 @@ Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. 18/18 checks PASS.
 
 ---
 
+## ✅ Runtime gate 4 Batch 2 — A3 + A4 multi-turn (2026-05-30)
+
+Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. 12/12 checks PASS each scenario. RESOLVER_VERSION 2f.9.
+
+| ID | T1 Exec | T2 Exec | T1 Route | T2 Route | Result | Notes |
+|----|---------|---------|----------|----------|--------|-------|
+| A3 | 1199 | 1200 | booking_flow | payment_or_confirm_intent (no override) | ✅ PASS | PG hold hint → BSR does not override |
+| A4 | 1201 | 1202 | booking_flow | payment_or_confirm_intent (no override) | ✅ PASS | PG hold hint → BSR does not override |
+
+**T1 behavior (both):** Route=booking_flow, confidence≥0.95, missing_fields=[], hold stub fires (booking_id=dry-run-nodate), bot asks for name+email to lock in hold.
+**T2 behavior — A3 "Deposit please.":** initial_route=payment_or_confirm_intent, resolved=payment_or_confirm_intent, overridden=**false**. BSR reads PG seed `current_hold_id=WH-DRYA3-0001` via shared-path PG node → `conversationHoldHint=true` → override guard does NOT fire. Bot asks name+email.
+**T2 behavior — A4 "I want to pay the full amount.":** Same — initial_route=payment_or_confirm_intent, resolved=payment_or_confirm_intent, overridden=**false**. BSR reads PG seed `current_hold_id=WH-DRYA4-0001` → no override. Bot asks name+email.
+**PG node on shared path:** `Search Conversation (AT) → Postgres - Search Conversation (PG) → IF Conversation Exists?` — PG runs before BSR, so BSR can see seeded hold hints at routing time.
+**BSR deep-merge:** `effectiveSession = Object.assign({}, pgSession, atSession, parseRoute.session)` — PG session provides base; AT overrides in production; current parse overrides for current message. `getConversationHoldHint` sees `current_hold_id` from PG seed.
+**Protected counts:** bookings/payments/payment_events/booking_beds all Δ=0 (baseline 41/25/5/15 unchanged).
+**PG cleanup:** Both phones (+34600000103, +34600000104) seeded before T2, deleted after scenario. Remaining=0 confirmed.
+**No real WhatsApp:** All WhatsApp sends bypassed by WHATSAPP_DRY_RUN=true (dry-run-no-send).
+**Main deactivated:** active=false after final turn.
+
+**Key fix (A3/A4 needed, A2 unaffected):** The A2 fix (series `Parser Node → PG → MSS`) ensured PG ran before MSS in booking_flow, but BSR still couldn't see PG data at routing time. For A3/A4, BSR needed to know about the seeded `current_hold_id` to avoid overriding `payment_or_confirm_intent` to `booking_flow`. Fix: move PG to shared path (`Search Conversation → PG → IF Conversation Exists?`) so PG executes before BSR. BSR updated to deep-merge PG session into `effectiveSession`.
+
+---
+
 ## ✅ Runtime gate 4 Batch 1 — A5, A6, A7, A8, A10 (2026-05-30)
 
 Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. All executions: success. Protected counts unchanged.
