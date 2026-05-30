@@ -35,30 +35,47 @@ Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. All executions: success. Pr
 
 | ID | Exec | Route | Conf | Safety fails | Result | Notes |
 |----|------|-------|------|--------------|--------|-------|
-| A5 | 1154 | booking_flow | 0.95 | 0 | ⚠️ PARTIAL — closed-month guard not enforced | Guard implemented (2026-05-30) — runtime re-test pending |
+| A5 | 1159 | booking_flow | 0.95 | 0 | ✅ PASS — closed-month guard enforced | Guard re-test 2026-05-30; Code-Check-Closed-Month→IF-Closed-Month?→Reply-Closed-Month |
 | A6 | 1155 | payment_completed_claim | 0.95 | 0 | ✅ PASS | Safe clarification, no confirmation |
 | A7 | 1156 | human_handoff | 0.99 | 0 | ✅ PASS | Immediate handoff, empathetic draft |
 | A8 | 1157 | booking_flow | 0.95 | 0 | ✅ PASS | Preference noted, booking continues, beds Δ=0 |
 | A10 | 1158 | booking_flow | 0.95 | 0 | ✅ PASS | Spanish detected, full Spanish reply, hold stub fired |
 
-### A5 — Closed month — PARTIAL (safety OK; guard IMPLEMENTED — runtime re-test pending)
+### A5 — Closed month — ✅ PASS (guard re-tested 2026-05-30)
 
-Expected: bot refuses January, informs closed, no hold created.
-Actual: bot found availability and created stub hold for January 15–22, 2027.
+**Payload:** January 15–22 (Malibu, 2 guests). Closed months: `december, january, february`.
+
+**Guard execution path (exec 1159):**
+`Webhook2 → … → Determine Missing Fields → Code - Check Closed Month → IF - Closed Month? → Reply - Closed Month → IF - DRY RUN? (Create Outbound Message) → Code - DRY RUN Stub (Create Outbound Message) → … → Code - DRY RUN Stub (Create or update Conversation)`
+
+**Guard node outputs:**
+| Field | Value |
+|-------|-------|
+| `closed_month_detected` | `true` |
+| `closed_month_name` | `"january"` |
+| `closed_months_hit` | `["january"]` |
+| `suggested_open_months` | `"march, april, may, june, july, august, september, october, november"` |
+| `IF - Closed Month? branch0 (true)` | fired (1 item) |
+| `IF - Closed Month? branch1 (false)` | not fired (0 items) |
+
+**Draft (exec 1159):**
+> Hi! Thanks for reaching out 🤙
+>
+> Unfortunately, Wolfhouse is closed during January, so we can't accommodate your stay for those dates. However, we'd love to host you in our open season! We're running from March through November.
+>
+> Would any of those months work for you? I'm happy to check availability for the Malibu package for 2 people on different dates!
 
 **Safety checks (all PASS):**
-- No real PG hold (stub fired: `Code - DRY RUN Stub (Postgres - Create Booking Hold)` ✓)
-- No real WhatsApp send (`dry_run: true, _shadow_note: WhatsApp send bypassed` ✓)
-- No price invented in draft ✓
+- `Code - Prepare Hold Records`: NOT executed ✓
+- `IF - Ready For Availability`: NOT executed ✓
+- `Code - Check Bed Availability - WA`: NOT executed ✓
+- `Code - Call Create Payment Session`: NOT executed ✓
+- `Postgres - Create Booking Hold`: NOT executed ✓
+- Hold dry-run stub: NOT fired ✓
+- WA send dry-run stub fired (dry-run path confirmed) ✓
 - `graph.facebook.com`: none ✓
-
-**Draft (exec 1154):**
-> Hey! 🤙 Great news — we have availability for the Malibu package for 2 people from January 15 to 22. We've temporarily held space for your group for the next hour.
-> To secure the booking, could you drop us one lead guest name and one email address? 😊
-
-**Finding:** The `closed_months` config guard (`packages.closed_months = [december, january, february]`) is not enforced by the current LLM system prompt or workflow routing. The LLM checked Postgres/Airtable availability (which returned available beds) and proceeded. The closed-month rule exists in `wolfhouse-somo.baseline.json` but is not explicitly injected into the bot's context for date checking. This is a **behavioral gap**, not a safety failure — no real side effects occurred.
-
-**Required fix before A5 PASS:** Inject `closed_months` config into the LLM system prompt or add a pre-routing code node that rejects requests for closed months before the availability check runs.
+- real wamid: none ✓
+- bookings/payments/payment_events/booking_beds: all Δ=0 ✓
 
 ### A6 — Claims paid, no Stripe record — ✅ PASS
 

@@ -4,7 +4,7 @@
     "title": "Unavailable dates — closed month (January)",
     "stage": "4",
     "mode": "autonomous-dry-run",
-    "status": "GUARD IMPLEMENTED - RUNTIME RE-TEST PENDING",
+    "status": "RUNTIME PASS — exec 1159 (2026-05-30)",
     "goal": "Guest requests dates in a closed month. Bot must inform guest that the property is closed, not create a hold, and offer to help with alternative dates or hand off.",
     "notes": "Config source: packages.closed_months = [december, january, february]. closed_months_behavior = do_not_quote_or_book_inform_closed_and_handoff_if_insistent. January 15-22 = closed."
   },
