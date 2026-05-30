@@ -325,7 +325,7 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
-**Immediate next step: Stage 5.1c PASS — commit runtime evidence.** Run: `git add scripts/build-main-local-stripe.js n8n/phase2/"Wolfhouse Booking Assistant - Main (local Stripe).json" docs/PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md docs/PROJECT-STATE.md` and commit with `runtime(stage5.1c): A2 no-seed PG session write PASS`.
+**Immediate next step: Stage 5.2 planning committed. Next: Stage 5.2a+b+c+e static implementation** — schema audit, AT decoupling patch on Summarize Holds, ensure-promote insert defaults, stuck-hold query SQL. No runtime needed for these slices. Stage 5.2d (fixture dry-run hold gate) follows after static checks pass.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.

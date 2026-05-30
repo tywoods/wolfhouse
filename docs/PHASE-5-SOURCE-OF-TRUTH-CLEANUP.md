@@ -653,3 +653,167 @@ No other connections change. `Postgres - Upsert Conversation Hold` (hold-success
 | [test-payloads/stage4/autonomous-dry-run/README.md](../test-payloads/stage4/autonomous-dry-run/README.md) | Stage 4 evidence + deferrals |
 | `config/clients/wolfhouse-somo.baseline.json` | Add-on catalog, payment, confirmation rules |
 | [STAFF-QUERY-ASSISTANT-PLAN.md](STAFF-QUERY-ASSISTANT-PLAN.md) | Stage 6 query assistant (blocked on Stage 5 tables) |
+
+---
+
+## Stage 5.2 — Bookings/Holds Source-of-Truth Cleanup (PLANNING 2026-05-30)
+
+### Objective
+
+Make `bookings` in Postgres the authoritative, queryable record for hold and payment-pending state during the Wolfhouse pilot. Eliminate the dependency on Airtable writes on the booking/hold **critical path**. Ensure holds, expiry, and payment state are readable by staff and detectable by automated tooling — without enabling live holds or live payments.
+
+### 5.2.1 Current booking/hold path (traced from Main workflow)
+
+```
+Code - Prepare Hold Records
+  → IF - DRY RUN? (Postgres - Create Booking Hold)
+      TRUE  → Code - DRY RUN Stub (Postgres - Create Booking Hold)   ← fake booking_id/code, no DB write
+      FALSE → Postgres - Create Booking Hold                         ← buildHoldUpsertN8nSql()
+  → Code - Validate PG Hold
+  → IF - PG Hold OK
+      TRUE  → Postgres - Upsert Conversation Hold                    ← real write, FK guard
+      TRUE  → IF - PG Conversation OK
+                → IF - DRY RUN? (Create Booking Hold)
+                    TRUE  → Code - DRY RUN Stub (Create Booking Hold) ← fake AT id
+                    FALSE → Create Booking Hold (Airtable)            ← mirror
+                  → IF - DRY RUN? (Postgres - Backfill Booking AT Record Id)
+                    TRUE  → Code - DRY RUN Stub (Backfill AT Rec Id)  ← noop
+                    FALSE → Postgres - Backfill Booking AT Record Id  ← UPDATE bookings.airtable_record_id
+                  → Code - Summarize Holds
+                  → IF - Apply Stripe After Hold
+                  → (payment / confirmation path)
+```
+
+**On T3 (payment details provided):**
+```
+  → IF - DRY RUN? (Postgres - Ensure Booking In Postgres)
+      TRUE  → Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)  ← stub; passes through hold ids
+      FALSE → Postgres - Ensure Booking In Postgres                         ← buildEnsurePromoteN8nSql()
+                 promotes: hold → payment_pending + waiting_payment
+  → IF - Booking ID Ready
+  → Code - Call Create Payment Session (dry-run branch)
+  → (Stripe CPS / checkout)
+```
+
+### 5.2.2 What still depends on Airtable on the critical path
+
+| Node | Airtable dependency | Criticality |
+|------|--------------------|----|
+| `Create Booking Hold` (AT) | Creates AT record; returns `rec…` id | High — backfill writes to `bookings.airtable_record_id`; Summarize Holds reads AT Booking ID field |
+| `Code - Summarize Holds` | Prefers AT Booking ID over PG booking_code | Medium — breaks payment path if AT id missing |
+| `Postgres - Backfill Booking AT Record Id` | `UPDATE bookings SET airtable_record_id` | Medium — ties PG record to AT; not needed if AT mirror removed |
+| `Postgres - Ensure Booking In Postgres` ($12 param) | Accepts `airtable_record_id` as fallback lookup | Low — fallback only; PG booking_code is primary |
+| `Search Conversation` (AT) | Parallel to PG search | Already a bridge since Stage 5.1; PG is primary |
+
+### 5.2.3 Gaps vs Stage 5.2 objective
+
+| Gap | Impact | Fix scope |
+|-----|--------|-----------|
+| `Postgres - Create Booking Hold` is fully stubbed in dry-run | No real `bookings` row during any test | Must define a fixture-scoped dry-run gate (similar to Stage 5.1 conversation gate) to prove real hold write |
+| `Code - Summarize Holds` reads AT Booking ID field, not PG booking_code | If AT mirror removed, payment path can't find the booking | Must patch Summarize Holds to use PG booking_code first |
+| Backfill node ties hold success to AT mirror success | Critical path coupled to AT | Make backfill optional/deferred; remove from PG hold success gate |
+| `hold_expires_at` set correctly in SQL but not surfaced in session_state | Staff can't see expiry from session | Add `hold_expires_at` to Conversation Hold upsert session_state |
+| `proposeStatuses()` in hold SQL always writes `not_requested` | payment_pending is deferred to Ensure node — fine but undocumented explicitly | Document that hold → payment_pending promote is intentionally a separate node |
+| `Postgres - Ensure Booking In Postgres` insert path doesn't set `hold_expires_at`, `assignment_status`, `availability_check_status` | Promoted row missing some metadata | Patch ensure insert to carry these through |
+| No expired-hold query/view exists | Stuck holds invisible to staff | Define SQL/view for expired + active + payment_pending holds |
+| `booking_not_in_pg=true` in dry-run means conversation FK is always NULL | PG conversation row has no FK to booking | After Stage 5.2 gate, FK should be set when PG hold is real |
+
+### 5.2.4 Proposed booking/hold state contract
+
+Fields that must be set at each lifecycle stage:
+
+| Stage | Field | Required | Source |
+|-------|-------|----------|--------|
+| **hold** | `booking_code`, `client_id`, `phone`, `status=hold`, `payment_status=not_requested` | ✓ | hold upsert |
+| **hold** | `check_in`, `check_out`, `guest_count`, `package_code` | ✓ | hold upsert |
+| **hold** | `hold_expires_at = NOW() + interval '1 hour'` | ✓ | hold upsert (already present) |
+| **hold** | `guest_name`, `email` | optional at hold; required at payment_pending | hold upsert when provided |
+| **hold** | `primary_room_code`, `requested_room_type`, `room_preference` | optional | hold upsert when available |
+| **hold** | `airtable_record_id` | bridge only — not required for PG-primary path | backfill (deferred) |
+| **payment_pending** | `status=payment_pending`, `payment_status=waiting_payment` | ✓ | ensure promote |
+| **payment_pending** | `guest_name`, `email` (required for Stripe) | ✓ | ensure promote |
+| **payment_pending** | `hold_expires_at`, `assignment_status`, `availability_check_status` | should-have | ensure promote (gap to fix) |
+| **conversation FK** | `conversations.current_hold_booking_id` → `bookings.id` | ✓ once booking is real | conversation hold upsert |
+
+Fields tracked in session_state (not bookings, should be):
+
+- `current_hold_booking_code` — already in session_state
+- `hold_expires_at` — NOT currently surfaced in session_state
+
+### 5.2.5 Staff query requirements (must be answerable from PG after Stage 5.2)
+
+```sql
+-- Who has active holds right now?
+SELECT booking_code, phone, check_in, check_out, guest_count, package_code, hold_expires_at
+FROM bookings WHERE client_id = ? AND status = 'hold' AND hold_expires_at > NOW();
+
+-- Which holds are expired/stuck?
+SELECT booking_code, phone, check_in, hold_expires_at, payment_status
+FROM bookings WHERE client_id = ? AND status = 'hold' AND hold_expires_at < NOW();
+
+-- Who is payment_pending?
+SELECT booking_code, phone, check_in, guest_count, package_code
+FROM bookings WHERE client_id = ? AND status = 'payment_pending';
+
+-- Which holds have no payment record?
+SELECT b.booking_code, b.phone, b.check_in
+FROM bookings b
+LEFT JOIN payments p ON p.booking_id = b.id
+WHERE b.client_id = ? AND b.status IN ('hold','payment_pending') AND p.id IS NULL;
+```
+
+All four queries work against `001_init.sql` schema today **once real booking rows exist**. The gap is that dry-run stubs prevent any real rows from being created during test runs.
+
+### 5.2.6 Implementation slices
+
+#### 5.2a — Schema audit (static, no DB changes)
+- Verify `bookings` has all required columns for the state contract above (it does — `hold_expires_at`, status/payment_status enums, `package_code`, `primary_room_code`, `room_preference`, `airtable_record_id`).
+- Identify any missing: `confirmation_sent_at` (added in 006), `assignment_status`, `availability_check_status` — confirm all present.
+- Confirm ensure-promote insert gap: `hold_expires_at` / `assignment_status` / `availability_check_status` not set on INSERT path.
+- Document: no schema migration needed for 5.2a.
+
+#### 5.2b — Decouple AT mirror from PG hold success gate (static code change)
+- `Code - Summarize Holds`: patch to prefer `PG booking_code` over AT Booking ID field, so payment path works when AT mirror is not run.
+- `IF - PG Conversation OK` → `IF - DRY RUN? (Create Booking Hold)`: make AT mirror path a **soft branch** (alwaysOutputData=true) so hold success is not gated on AT record existing.
+- `Postgres - Backfill Booking AT Record Id`: keep as optional bridge, not in critical success path.
+- Static verifier: payment path can reach Stripe CPS using PG booking_code without AT rec id.
+
+#### 5.2c — Patch ensure-promote insert defaults (static code change)
+- `buildEnsurePromoteN8nSql()` / `scripts/lib/main-ensure-booking-pg-sql.js`: add `hold_expires_at`, `assignment_status = 'unassigned'`, `availability_check_status = 'available'` to the INSERT defaults on new-row path.
+- No schema change needed.
+- Static verifier: ensure insert includes these columns.
+
+#### 5.2d — Fixture-scoped dry-run hold gate (runtime)
+- Define a fixture dry-run gate that allows **real** `Postgres - Create Booking Hold` to fire for test booking codes (e.g. `DRY-52-…`) on isolated test phones.
+- Proof: real `bookings` row created in PG; `bookings` count increments by 1 for test phone; `booking_beds` unchanged (assignment not triggered); conversation FK set.
+- Cleanup: DELETE test booking row by `booking_code LIKE 'DRY-52-%'`.
+- Constraint: `WHATSAPP_DRY_RUN=true`; no Stripe CPS fired; no AT writes.
+
+#### 5.2e — Expired/stuck hold query (static)
+- Define SQL view or function in `scripts/lib/` for the four staff queries in §5.2.5.
+- Verifiable against test data once 5.2d runs.
+
+#### 5.2f — Pilot readiness gate
+- Smoke test: create one hold (fixture), run ensure-promote, run stuck-hold query, confirm session_state has correct fields, cleanup.
+- Written gate checklist (extends the Stage 4 gate discipline).
+
+### 5.2.7 Safety rules (same discipline as Stage 5.1)
+- `bookings` write is gated behind `IF - DRY RUN?` in all run modes.
+- `payments`, `payment_events` remain write-protected (Stripe webhook is the only writer).
+- `booking_beds` write is gated; no assignment in Stage 5.2.
+- Test phones use `DRY-52-…` booking codes only.
+- Cleanup SQL removes test rows by `booking_code` prefix.
+- Protected count gates: bookings Δ=+1 exactly for test run, then Δ=0 after cleanup.
+
+### 5.2.8 Recommended implementation order
+
+| Step | Slice | Risk | Needs runtime |
+|------|-------|------|---------------|
+| 1 | 5.2a schema audit | Zero — read-only | No |
+| 2 | 5.2b AT decoupling patch | Low — static wiring change | No |
+| 3 | 5.2c ensure-promote insert defaults | Low — SQL only | No |
+| 4 | 5.2e stuck-hold query | Zero — SQL only | No |
+| 5 | 5.2d fixture dry-run hold gate | Medium — first real bookings write | Yes |
+| 6 | 5.2f pilot readiness gate | Low — smoke test after 5.2d | Yes |
+
+Steps 1–3 + 5.2e can be done in a single static implementation session. 5.2d requires a runtime gate similar to the Stage 5.1 conversation gates.
