@@ -119,7 +119,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const convo =\n  $('Search Conversation').first().json || {};\n\nconst oldRaw =\n  convo['Session State'] ||\n  convo.fields?.['Session State'] ||\n  '{}';\n\nconst currentHoldId =\n  convo['Current Hold ID'] ||\n  convo.fields?.['Current Hold ID'] ||\n  null;\n\nconst newRaw =\n  $('Parser Node').first().json.text || '{}';\n\nfunction clean(raw) {\n  return String(raw)\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/```$/i, '')\n    .trim();\n}\n\nconst oldState = JSON.parse(clean(oldRaw));\nconst newState = JSON.parse(clean(newRaw));\n\nconst merged = { ...oldState };\n\nfor (const [key, value] of Object.entries(newState)) {\n  if (value === null) continue;\n  if (value === '') continue;\n  if (Array.isArray(value) && value.length === 0) continue;\n\n  merged[key] = value;\n}\n\n// Default room type logic.\n// Wolfhouse default is shared unless guest clearly asks for private/own room/family room.\nconst guestMessage = String(\n  $('Normalize Incoming Message').first().json.guest_message ||\n  ($('Create Inbound Message').isExecuted ? $('Create Inbound Message') : $('Code - DRY RUN Stub (Create Inbound Message)')).first().json.fields?.['Message Text'] ||\n  ''\n).toLowerCase();\n\nconst privateKeywords = [\n  'private room',\n  'private',\n  'own room',\n  'room to ourselves',\n  'room for ourselves',\n  'not shared',\n  'family room',\n  'family',\n  'matrimonial',\n  'double room',\n  'double bed'\n];\n\nconst sharedKeywords = [\n  'shared',\n  'shared room',\n  'dorm',\n  'bed',\n  'bunk',\n  'hostel bed'\n];\n\nconst asksPrivate = privateKeywords.some(word => guestMessage.includes(word));\nconst asksShared = sharedKeywords.some(word => guestMessage.includes(word));\n\nif (asksPrivate) {\n  merged.room_type = 'private';\n} else if (asksShared) {\n  merged.room_type = 'shared';\n} else if (!merged.room_type || merged.room_type === 'unknown') {\n  merged.room_type = 'shared';\n}\n\n// Determine if we have enough info.\n// Do NOT require room_type anymore because it defaults to shared.\nmerged.ready_for_availability_check =\n  !!merged.check_in &&\n  !!merged.check_out &&\n  !!merged.guest_count;\n\nreturn [\n  {\n    json: {\n      old_state: oldState,\n      new_state: newState,\n\n      current_hold_id: currentHoldId,\n\n      session: merged,\n\n      session_state: JSON.stringify(merged, null, 2)\n    }\n  }\n];"
+        "jsCode": "const convo =\n  $('Search Conversation').first().json || {};\n\nconst atSession =\n  convo['Session State'] ||\n  convo.fields?.['Session State'] ||\n  null;\n\n// PG fallback: when Airtable session is absent (dry-run or no prior Airtable\n// write), read session from Postgres conversations for multi-turn continuity.\nconst pgRow = (() => {\n  try {\n    const r = $('Postgres - Search Conversation (PG)').first().json;\n    return r && typeof r === 'object' ? r : {};\n  } catch (_) {\n    return {};\n  }\n})();\n\nconst pgSessionRaw = pgRow.session_state != null\n  ? (typeof pgRow.session_state === 'object'\n      ? JSON.stringify(pgRow.session_state)\n      : String(pgRow.session_state))\n  : null;\n\nconst oldRaw = atSession || pgSessionRaw || '{}';\n\nconst currentHoldId =\n  convo['Current Hold ID'] ||\n  convo.fields?.['Current Hold ID'] ||\n  (pgRow.session_state && typeof pgRow.session_state === 'object'\n    ? (pgRow.session_state.current_hold_id || null)\n    : null) ||\n  null;\n\nconst newRaw =\n  $('Parser Node').first().json.text || '{}';\n\nfunction clean(raw) {\n  return String(raw)\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/```$/i, '')\n    .trim();\n}\n\nconst oldState = JSON.parse(clean(oldRaw));\nconst newState = JSON.parse(clean(newRaw));\n\nconst merged = { ...oldState };\n\nfor (const [key, value] of Object.entries(newState)) {\n  if (value === null) continue;\n  if (value === '') continue;\n  if (Array.isArray(value) && value.length === 0) continue;\n\n  merged[key] = value;\n}\n\n// Default room type logic.\n// Wolfhouse default is shared unless guest clearly asks for private/own room/family room.\nconst guestMessage = String(\n  $('Normalize Incoming Message').first().json.guest_message ||\n  (($('Create Inbound Message').isExecuted ? $('Create Inbound Message') : $('Code - DRY RUN Stub (Create Inbound Message)')).isExecuted ? ($('Create Inbound Message').isExecuted ? $('Create Inbound Message') : $('Code - DRY RUN Stub (Create Inbound Message)')) : $('Code - DRY RUN Stub (Create Inbound Message)')).first().json.fields?.['Message Text'] ||\n  ''\n).toLowerCase();\n\nconst privateKeywords = [\n  'private room',\n  'private',\n  'own room',\n  'room to ourselves',\n  'room for ourselves',\n  'not shared',\n  'family room',\n  'family',\n  'matrimonial',\n  'double room',\n  'double bed'\n];\n\nconst sharedKeywords = [\n  'shared',\n  'shared room',\n  'dorm',\n  'bed',\n  'bunk',\n  'hostel bed'\n];\n\nconst asksPrivate = privateKeywords.some(word => guestMessage.includes(word));\nconst asksShared = sharedKeywords.some(word => guestMessage.includes(word));\n\nif (asksPrivate) {\n  merged.room_type = 'private';\n} else if (asksShared) {\n  merged.room_type = 'shared';\n} else if (!merged.room_type || merged.room_type === 'unknown') {\n  merged.room_type = 'shared';\n}\n\n// Determine if we have enough info.\n// Do NOT require room_type anymore because it defaults to shared.\nmerged.ready_for_availability_check =\n  !!merged.check_in &&\n  !!merged.check_out &&\n  !!merged.guest_count;\n\nreturn [\n  {\n    json: {\n      old_state: oldState,\n      new_state: newState,\n\n      current_hold_id: currentHoldId,\n\n      session: merged,\n\n      session_state: JSON.stringify(merged, null, 2),\n\n      _pg_fallback_used: !atSession && !!pgSessionRaw,\n      _pg_conversation_id: pgRow.conversation_id || null,\n    }\n  }\n];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -21394,6 +21394,30 @@
     },
     {
       "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  session_state,\n  current_hold_booking_id::text AS current_hold_booking_id,\n  conversation_stage,\n  language,\n  id::text AS conversation_id\nFROM conversations\nWHERE client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1)\n  AND phone = $1\nLIMIT 1",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Incoming Message').first().json.phone || '' }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2424,
+        1120
+      ],
+      "id": "3ce005001-0001-4000-8000-000000000501",
+      "name": "Postgres - Search Conversation (PG)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MnnrrLecI7oVoIGq",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
+    },
+    {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": false,
@@ -24734,7 +24758,7 @@
       "main": [
         [
           {
-            "node": "Merge Session State",
+            "node": "Postgres - Search Conversation (PG)",
             "type": "main",
             "index": 0
           }
@@ -26895,6 +26919,17 @@
         ]
       ]
     },
+    "Postgres - Search Conversation (PG)": {
+      "main": [
+        [
+          {
+            "node": "Merge Session State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "IF - Send Typing Indicator (Local Guard)": {
       "main": [
         [
@@ -28802,6 +28837,9 @@
     },
     {
       "name": "stage4-cm-guard"
+    },
+    {
+      "name": "stage4-pg-conv-read"
     }
   ]
 }

@@ -404,6 +404,7 @@ function runVerifyTargets(workflow, opts = {}) {
   const raw = verifyProductionTargets(wf);
   const shadow = verifyShadowModeSafety(wf);
   const cmGuard = verifyClosedMonthGuard(wf, CLOSED_MONTHS_CONFIG);
+  const pgConvRead = verifyPGConversationRead(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -411,6 +412,7 @@ function runVerifyTargets(workflow, opts = {}) {
     workflowName: wf.name,
     shadowModeSafety: shadow,
     closedMonthGuard: cmGuard,
+    pgConversationRead: pgConvRead,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -423,6 +425,12 @@ function runVerifyTargets(workflow, opts = {}) {
     for (const e of cmGuard.errors) console.error(`  ${e}`);
     result.ok = false;
     result.errors = [...(result.errors || []), ...cmGuard.errors.map((e) => `[cm-guard] ${e}`)];
+  }
+  if (!pgConvRead.ok) {
+    console.error(`PG conversation read FAIL (${pgConvRead.errors.length} error(s)):`);
+    for (const e of pgConvRead.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...pgConvRead.errors.map((e) => `[pg-conv-read] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -926,6 +934,275 @@ function applyPhase3cAvailabilityGate(workflow) {
     cond.leftValue =
       "={{ $('Code - Map PG Availability').first().json.availability_found === true }}";
   }
+}
+
+// ─── Stage 4 — PG conversation read fallback ────────────────────────────────
+//
+// Adds `Postgres - Search Conversation (PG)` between `Parser Node` and
+// `Merge Session State`.  When Airtable writes are stubbed (dry-run), this
+// node provides T1 session state so T2 can continue the conversation.
+//
+// Wire: Parser Node → Postgres - Search Conversation (PG) → Merge Session State
+//
+// The PG node is SELECT-only (alwaysOutputData=true so the chain never breaks
+// when no row is found).  Merge Session State falls back to PG when the
+// Airtable session is empty, preserving Airtable-first priority in production.
+
+const PG_SEARCH_CONV_JS_CODE = `const convo =
+  $('Search Conversation').first().json || {};
+
+const atSession =
+  convo['Session State'] ||
+  convo.fields?.['Session State'] ||
+  null;
+
+// PG fallback: when Airtable session is absent (dry-run or no prior Airtable
+// write), read session from Postgres conversations for multi-turn continuity.
+const pgRow = (() => {
+  try {
+    const r = $('Postgres - Search Conversation (PG)').first().json;
+    return r && typeof r === 'object' ? r : {};
+  } catch (_) {
+    return {};
+  }
+})();
+
+const pgSessionRaw = pgRow.session_state != null
+  ? (typeof pgRow.session_state === 'object'
+      ? JSON.stringify(pgRow.session_state)
+      : String(pgRow.session_state))
+  : null;
+
+const oldRaw = atSession || pgSessionRaw || '{}';
+
+const currentHoldId =
+  convo['Current Hold ID'] ||
+  convo.fields?.['Current Hold ID'] ||
+  (pgRow.session_state && typeof pgRow.session_state === 'object'
+    ? (pgRow.session_state.current_hold_id || null)
+    : null) ||
+  null;
+
+const newRaw =
+  $('Parser Node').first().json.text || '{}';
+
+function clean(raw) {
+  return String(raw)
+    .replace(/^\`\`\`json\\s*/i, '')
+    .replace(/^\`\`\`\\s*/i, '')
+    .replace(/\`\`\`$/i, '')
+    .trim();
+}
+
+const oldState = JSON.parse(clean(oldRaw));
+const newState = JSON.parse(clean(newRaw));
+
+const merged = { ...oldState };
+
+for (const [key, value] of Object.entries(newState)) {
+  if (value === null) continue;
+  if (value === '') continue;
+  if (Array.isArray(value) && value.length === 0) continue;
+
+  merged[key] = value;
+}
+
+// Default room type logic.
+// Wolfhouse default is shared unless guest clearly asks for private/own room/family room.
+const guestMessage = String(
+  $('Normalize Incoming Message').first().json.guest_message ||
+  ($('Create Inbound Message').isExecuted ? $('Create Inbound Message') : $('Code - DRY RUN Stub (Create Inbound Message)')).first().json.fields?.['Message Text'] ||
+  ''
+).toLowerCase();
+
+const privateKeywords = [
+  'private room',
+  'private',
+  'own room',
+  'room to ourselves',
+  'room for ourselves',
+  'not shared',
+  'family room',
+  'family',
+  'matrimonial',
+  'double room',
+  'double bed'
+];
+
+const sharedKeywords = [
+  'shared',
+  'shared room',
+  'dorm',
+  'bed',
+  'bunk',
+  'hostel bed'
+];
+
+const asksPrivate = privateKeywords.some(word => guestMessage.includes(word));
+const asksShared = sharedKeywords.some(word => guestMessage.includes(word));
+
+if (asksPrivate) {
+  merged.room_type = 'private';
+} else if (asksShared) {
+  merged.room_type = 'shared';
+} else if (!merged.room_type || merged.room_type === 'unknown') {
+  merged.room_type = 'shared';
+}
+
+// Determine if we have enough info.
+// Do NOT require room_type anymore because it defaults to shared.
+merged.ready_for_availability_check =
+  !!merged.check_in &&
+  !!merged.check_out &&
+  !!merged.guest_count;
+
+return [
+  {
+    json: {
+      old_state: oldState,
+      new_state: newState,
+
+      current_hold_id: currentHoldId,
+
+      session: merged,
+
+      session_state: JSON.stringify(merged, null, 2),
+
+      _pg_fallback_used: !atSession && !!pgSessionRaw,
+      _pg_conversation_id: pgRow.conversation_id || null,
+    }
+  }
+];`;
+
+const PG_SEARCH_CONV_SQL = `SELECT
+  session_state,
+  current_hold_booking_id::text AS current_hold_booking_id,
+  conversation_stage,
+  language,
+  id::text AS conversation_id
+FROM conversations
+WHERE client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1)
+  AND phone = $1
+LIMIT 1`;
+
+/**
+ * Stage 4 — PG conversation read fallback (Option A).
+ *
+ * Adds `Postgres - Search Conversation (PG)` between Parser Node and
+ * Merge Session State so multi-turn dry-run scenarios retain T1 context.
+ *
+ * @param {object} workflow
+ */
+function applyPGConversationRead(workflow) {
+  const parserNode = workflow.nodes.find((n) => n.name === 'Parser Node');
+  const mergeNode = workflow.nodes.find((n) => n.name === 'Merge Session State');
+  if (!parserNode || !mergeNode) {
+    throw new Error(
+      'applyPGConversationRead: Parser Node or Merge Session State not found'
+    );
+  }
+
+  // ── Postgres read node ─────────────────────────────────────────────────────
+  const pgReadNode = {
+    parameters: {
+      operation: 'executeQuery',
+      query: PG_SEARCH_CONV_SQL,
+      options: {
+        queryReplacement: "={{ $('Normalize Incoming Message').first().json.phone || '' }}",
+      },
+    },
+    type: 'n8n-nodes-base.postgres',
+    typeVersion: 2.5,
+    position: [
+      Math.round((parserNode.position[0] + mergeNode.position[0]) / 2),
+      parserNode.position[1],
+    ],
+    id: '3ce005001-0001-4000-8000-000000000501',
+    name: 'Postgres - Search Conversation (PG)',
+    alwaysOutputData: true,
+    credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+  };
+
+  workflow.nodes.push(pgReadNode);
+
+  // ── Update Merge Session State jsCode with PG fallback ─────────────────────
+  mergeNode.parameters.jsCode = PG_SEARCH_CONV_JS_CODE;
+
+  // ── Re-wire: Parser Node → PG read → Merge Session State ──────────────────
+  // Parser Node currently connects to Merge Session State; redirect to PG read first.
+  const parserOuts = workflow.connections['Parser Node']?.main?.[0] || [];
+  for (const edge of parserOuts) {
+    if (edge.node === 'Merge Session State') {
+      edge.node = 'Postgres - Search Conversation (PG)';
+    }
+  }
+
+  workflow.connections['Postgres - Search Conversation (PG)'] = {
+    main: [[{ node: 'Merge Session State', type: 'main', index: 0 }]],
+  };
+
+  console.log(
+    'applyPGConversationRead: Postgres - Search Conversation (PG) injected between Parser Node and Merge Session State'
+  );
+}
+
+/**
+ * Verifies that the PG conversation read fallback is correctly wired.
+ *
+ * @param {object} workflow
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifyPGConversationRead(workflow) {
+  const errors = [];
+  const nodeNames = new Set(workflow.nodes.map((n) => n.name));
+
+  if (!nodeNames.has('Postgres - Search Conversation (PG)'))
+    errors.push('Postgres - Search Conversation (PG) node missing');
+
+  // Parser Node must connect to PG read (not directly to Merge Session State)
+  const parserOuts = (workflow.connections['Parser Node']?.main?.[0] || []).map((n) => n.node);
+  if (!parserOuts.includes('Postgres - Search Conversation (PG)'))
+    errors.push('Parser Node does not connect to Postgres - Search Conversation (PG)');
+  if (parserOuts.includes('Merge Session State'))
+    errors.push('Parser Node still connects directly to Merge Session State (bypasses PG read)');
+
+  // PG read must connect to Merge Session State
+  const pgOuts = (workflow.connections['Postgres - Search Conversation (PG)']?.main?.[0] || []).map(
+    (n) => n.node
+  );
+  if (!pgOuts.includes('Merge Session State'))
+    errors.push('Postgres - Search Conversation (PG) does not connect to Merge Session State');
+
+  // Merge Session State jsCode must reference the PG node
+  const mergeNode = workflow.nodes.find((n) => n.name === 'Merge Session State');
+  if (!mergeNode) {
+    errors.push('Merge Session State node missing');
+  } else {
+    const jsCode = mergeNode.parameters?.jsCode || '';
+    if (!jsCode.includes('Postgres - Search Conversation (PG)'))
+      errors.push('Merge Session State jsCode does not reference Postgres - Search Conversation (PG)');
+    if (!jsCode.includes('atSession || pgSessionRaw'))
+      errors.push('Merge Session State jsCode missing PG fallback logic (atSession || pgSessionRaw)');
+  }
+
+  // PG read node must be read-only (SELECT only, no INSERT/UPDATE/DELETE in query)
+  const pgNode = workflow.nodes.find((n) => n.name === 'Postgres - Search Conversation (PG)');
+  if (pgNode) {
+    const query = pgNode.parameters?.query || '';
+    if (/\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|CREATE)\b/i.test(query))
+      errors.push('Postgres - Search Conversation (PG) query contains write operations');
+    if (!pgNode.alwaysOutputData)
+      errors.push('Postgres - Search Conversation (PG) missing alwaysOutputData:true (chain breaks on no-row)');
+  }
+
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('PG conversation read verify: OK');
+  } else {
+    console.error(`PG conversation read verify: FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
 }
 
 /**
@@ -2905,6 +3182,7 @@ applyDeterministicPaymentUrl(workflow);
 applyPhase3cAvailabilityGate(workflow);
 applyPhase3cHoldGate(workflow);
 applyClosedMonthGuard(workflow, CLOSED_MONTHS_CONFIG);
+applyPGConversationRead(workflow);
 applyLocalTypingIndicatorBypass(workflow);
 applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode A shadow
 applyHumanActivePaymentLinkBypass(workflow);
@@ -2922,6 +3200,7 @@ workflow.tags = [
   { name: 'phase3e-e2' },
   { name: 'phase3y-shadow-safe' }, // Stage 3y: offline-safe for Mode A shadow testing
   { name: 'stage4-cm-guard' }, // Stage 4: deterministic closed-month guard
+  { name: 'stage4-pg-conv-read' }, // Stage 4: PG conversation read fallback for multi-turn
 ];
 
 if (reassignRemap.patched > 0) {
@@ -2998,6 +3277,7 @@ module.exports = {
   runVerifyTargets,
   importMainWorkflowInactive,
   analyzeReassignContract,
+  verifyPGConversationRead,
   OUT,
   PROD_AIRTABLE_BASE_ID,
   TEST_AIRTABLE_BASE_ID,

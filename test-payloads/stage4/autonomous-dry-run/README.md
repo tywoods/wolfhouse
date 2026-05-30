@@ -901,24 +901,79 @@ Removing `addDryRunGate('Postgres - Upsert Conversation Hold', ...)` would:
 - Not fix T2 context (wrong source — state lives in Airtable reads)
 - Introduce a functional regression without solving the stated problem
 
-**Real fix paths for A2/A3/A4 (future work):**
+**Real fix paths for A2/A3/A4 — design decision (2026-05-30):**
 
 | Option | What | Risk | When |
 |--------|------|------|------|
-| A | Add a `Search Conversation (PG)` Postgres read node to Main workflow; allow real conv PG writes with fixture bookings | Medium — architectural change + fixture scope expansion | Before A2/A3/A4 runtime gate |
-| B | Accept Airtable coupling: run A2/A3/A4 only with phones that have live Airtable records (real guests, not test phones) | Low infra but breaks isolation | After Airtable cutover (Stage 6) |
-| C | Runner-level state injection: T2 POST body includes explicit session_state fields that the LLM can use without DB lookup | Medium — requires LLM prompt to accept injected context | Could be validated empirically with A2 |
+| **A** ← **SELECTED** | Add `Code - Search Conversation (PG)` Postgres read node to Main; runner seeds Postgres `conversations` between turns via direct SQL | Medium — targeted workflow change, no fixture bookings needed | Before A2/A3/A4 runtime gate |
+| B | Accept Airtable coupling: run A2/A3/A4 only with phones that have live Airtable records | Low infra but breaks isolation | After Airtable cutover (Stage 6) |
+| C | Runner-level state injection via POST payload | Medium — requires LLM prompt to accept injected context | Could be validated empirically |
 
-**Stage 4 dry-run `conversations` table status:**
-- `conversations` may be written by other workflows during runtime (not by Main in dry-run)
-- Protected business tables (bookings, payments, payment_events, booking_beds) remain zero-delta in all Stage 4 dry-run tests
-- `conversations` and `messages` can be treated as **allowed state tables** for multi-turn test scenarios (not protected business data)
+---
 
-**Gate 4 Batch 1 is completely unaffected** — A5/A6/A7/A8/A10 are single-turn; no multi-turn state needed.
+### A2/A3/A4 multi-turn state fix — **IMPLEMENTED** — NOT RUNTIME TESTED (2026-05-30)
 
-**Current static verification results (2026-05-30):**
-- `node scripts/build-main-local-stripe.js --verify-targets`: Shadow-mode safety: OK (70 nodes gated, token clean, hold gated, ensure-booking gated, typing gated, reassign gated)
+**Option A selected:** add `Postgres - Search Conversation (PG)` node + `Merge Session State` PG fallback. Runner seeds `conversations` between turns.
+
+**Implementation complete:**
+- `applyPGConversationRead(workflow)` added to `scripts/build-main-local-stripe.js`
+- `Postgres - Search Conversation (PG)` node wired: `Parser Node → Postgres - Search Conversation (PG) → Merge Session State`
+- `Merge Session State` jsCode updated with PG fallback (Airtable-first, PG if AT session empty)
+- `verifyPGConversationRead(workflow)` asserts correct wiring + read-only query
+- `seedConversationState` + `teardownConversationState` added to runner
+- `PG_CONVERSATION_SEED_PLANS` defined per scenario (A2/A3/A4)
+- Report fields: `pg_conversation_state_required`, `planned_pg_conversation_seed`, `planned_pg_conversation_cleanup`, `allowed_state_table_deltas`, `protected_no_mutation_tables`
+- Imported inactive into n8n DB: 347 nodes, `Postgres - Search Conversation (PG)` confirmed present
+
+**Why Option A:**
+- Fits Postgres-first architectural direction (see ARCHITECTURE-NORTH-STAR.md)
+- No live Airtable writes needed
+- No `fixture bookings` required — runner writes directly to `conversations` (bypasses PG upsert booking validation)
+- Consistent with how Stage 5+ will work once Airtable is retired
+- Low production blast radius (PG is a pure fallback; Airtable session takes precedence when present)
+
+#### Allowed vs protected state tables for A2/A3/A4 runtime
+
+| Table | Status | Reason |
+|-------|--------|--------|
+| `conversations` | **ALLOWED delta** | Runner seeds/reads between turns; teardown deletes after |
+| `messages` | **ALLOWED delta** | n8n logging may write inbound/outbound messages |
+| `workflow_events` | **ALLOWED delta** | n8n execution logging |
+| `bookings` | **PROTECTED — must be Δ=0** | No real holds in dry-run |
+| `payments` | **PROTECTED — must be Δ=0** | No real Stripe in dry-run |
+| `payment_events` | **PROTECTED — must be Δ=0** | No real payment events |
+| `booking_beds` | **PROTECTED — must be Δ=0** | No real bed assignment |
+
+#### Cleanup requirement
+
+Runner calls `teardownConversationState(pgClient, phones)` after each multi-turn scenario completes or fails, scoped to `wolfhouse-somo` client. Phones: `34600000102`, `34600000103`, `34600000104`.
+
+#### State seeded by runner between T1 and T2
+
+| Scenario | Phone | Key state fields seeded |
+|----------|-------|------------------------|
+| A2 | 34600000102 | `check_in=2026-05-01`, `check_out=2026-05-08`, `guest_count=1`, no package |
+| A3 | 34600000103 | `check_in=2026-07-01`, `check_out=2026-07-08`, `guest_count=2`, `package=uluwatu`, `current_hold_id=WH-DRYA3-0001`, `deposit_amount_eur=200`, `total_amount=798` |
+| A4 | 34600000104 | `check_in=2026-08-03`, `check_out=2026-08-10`, `guest_count=1`, `package=waimea`, `current_hold_id=WH-DRYA4-0001`, `full_amount_eur=599`, `deposit_amount_eur=200` |
+
+#### Static verification results (2026-05-30)
+
+- `node scripts/build-main-local-stripe.js --verify-targets`: Shadow-mode safety: OK · Closed-month guard: OK · **PG conversation read verify: OK**
 - `node scripts/report-main-payment-contract.js`: Overall OK: true
+- `node scripts/report-main-rooming-contract.js`: Overall OK: true
+- `node --check scripts/run-stage4-autonomous-dry-run.js`: syntax OK
+- `node scripts/run-stage4-autonomous-dry-run.js --only a2/a3/a4`: all valid, PG seed plan printed, no DB writes
+- n8n DB import-inactive: active=false, 347 nodes, `Postgres - Search Conversation (PG)` count=1
+
+#### Risks and mitigations
+
+| Risk | Mitigation |
+|------|-----------|
+| PG read failure (DB down, auth error) | `alwaysOutputData=true`; Merge Session State try/catch returns `{}`; falls back to Airtable-only |
+| Stale conversation row from previous test run | Teardown deletes by phone; validate row absent before seeding |
+| PG vs Airtable state conflict | Airtable explicitly takes precedence in `Merge Session State` |
+| `Postgres - Upsert Conversation Hold` remains stubbed | Runner writes directly to conversations — no booking_code validation needed |
+| Modifying `Merge Session State` breaks single-turn tests | PG row absent for single-turn phones → `pgRow={}` → `pgSessionRaw=null` → `oldRaw='{}'` — behaviour unchanged |
 - `node scripts/report-main-rooming-contract.js`: Overall OK: true
 - `node --check scripts/run-stage4-autonomous-dry-run.js`: no syntax errors
 - **No changes made to `build-main-local-stripe.js` or Main workflow JSON**

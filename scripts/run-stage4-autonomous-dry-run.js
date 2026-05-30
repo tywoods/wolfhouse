@@ -12,6 +12,14 @@
  *   Does NOT POST — a POST guard is active. Remove the guard or add --run to enable.
  *   This mode is designed so tomorrow's A1 turn-1 runtime gate only needs --run added.
  *
+ * Multi-turn PG conversation state (A2/A3/A4):
+ *   These scenarios require T2 to read T1 state from Postgres. The runner provides:
+ *   - seedConversationState(pgClient, phone, sessionState): upserts a row into
+ *     conversations (wolfhouse-somo client, phone, session_state).
+ *   - teardownConversationState(pgClient, phones): deletes rows by phone.
+ *   Both functions are implementation-only; they are guarded and never called in
+ *   validation-only mode. In --run mode, they will be invoked between turns.
+ *
  * Usage:
  *   node scripts/run-stage4-autonomous-dry-run.js                            (validate all)
  *   node scripts/run-stage4-autonomous-dry-run.js --only A1                  (validate A1 only)
@@ -376,6 +384,186 @@ function buildExecutePreflight(scenario, turn) {
   return preflight;
 }
 
+// ── Multi-turn PG conversation state (A2/A3/A4) ──────────────────────────────
+
+// Client slug used for Stage 4 dry-run conversation seeds.
+const STAGE4_CLIENT_SLUG = 'wolfhouse-somo';
+
+// Tables that may change during multi-turn dry-run (conversations, messages).
+// These are NOT protected business tables and changes are expected/allowed.
+const ALLOWED_STATE_TABLE_DELTAS = ['conversations', 'messages', 'workflow_events'];
+
+// Tables that must NEVER change in any Stage 4 dry-run execution.
+const PROTECTED_NO_MUTATION_TABLES = ['bookings', 'payments', 'payment_events', 'booking_beds'];
+
+/**
+ * Per-scenario PG conversation seed plan.
+ *
+ * Keys: scenario_id (lowercase).
+ * Values: array of { turn_before: number, phone: string, session_state: object }
+ *   - `turn_before`: seed this state BEFORE executing the given turn number
+ *   - `phone`: the from-phone in the scenario's post_body
+ *   - `session_state`: the JSONB to store in conversations.session_state
+ *
+ * All phones are fake dry-run test phones.
+ * These seeds are planned here so validation mode can print the plan.
+ * Actual DB writes only happen in --run mode (guarded by RUN_MODE).
+ */
+const PG_CONVERSATION_SEED_PLANS = {
+  a2: [
+    {
+      turn_before: 2,
+      phone: '34600000102',
+      session_state: {
+        intent: 'booking_flow',
+        check_in: '2026-05-01',
+        check_out: '2026-05-08',
+        guest_count: 1,
+        room_type: 'shared',
+        language: 'en',
+        _source: 'stage4_dry_run_seed',
+        _scenario: 'A2-T1',
+      },
+    },
+  ],
+  a3: [
+    {
+      turn_before: 2,
+      phone: '34600000103',
+      session_state: {
+        intent: 'booking_flow',
+        check_in: '2026-07-01',
+        check_out: '2026-07-08',
+        guest_count: 2,
+        package: 'uluwatu',
+        room_type: 'shared',
+        language: 'en',
+        current_hold_id: 'WH-DRYA3-0001',
+        booking_code: 'WH-DRYA3-0001',
+        total_amount: 798,
+        deposit_amount: 200,
+        deposit_amount_eur: 200,
+        full_amount_eur: 798,
+        _source: 'stage4_dry_run_seed',
+        _scenario: 'A3-T1',
+      },
+    },
+  ],
+  a4: [
+    {
+      turn_before: 2,
+      phone: '34600000104',
+      session_state: {
+        intent: 'booking_flow',
+        check_in: '2026-08-03',
+        check_out: '2026-08-10',
+        guest_count: 1,
+        package: 'waimea',
+        room_type: 'shared',
+        language: 'en',
+        current_hold_id: 'WH-DRYA4-0001',
+        booking_code: 'WH-DRYA4-0001',
+        total_amount: 599,
+        deposit_amount: 200,
+        deposit_amount_eur: 200,
+        full_amount_eur: 599,
+        _source: 'stage4_dry_run_seed',
+        _scenario: 'A4-T1',
+      },
+    },
+  ],
+};
+
+/**
+ * Upsert a conversation row into `conversations` for a Stage 4 dry-run phone.
+ *
+ * Safety:
+ *  - Only writes to `conversations` table.
+ *  - Never writes bookings / payments / payment_events / booking_beds.
+ *  - Uses wolfhouse-somo client slug to resolve client_id.
+ *  - Phone must be a fake test phone (not a real guest phone).
+ *
+ * @param {import('pg').Client} pgClient - connected wolfhouse Postgres client
+ * @param {string} phone - fake test phone (e.g. '34600000102')
+ * @param {object} sessionState - session_state JSONB to store
+ * @returns {Promise<{ conversation_id: string, created: boolean }>}
+ */
+async function seedConversationState(pgClient, phone, sessionState) {
+  // Resolve client_id from slug
+  const clientRes = await pgClient.query(
+    `SELECT id FROM clients WHERE slug = $1 LIMIT 1`,
+    [STAGE4_CLIENT_SLUG]
+  );
+  if (!clientRes.rows.length) throw new Error(`seedConversationState: client slug "${STAGE4_CLIENT_SLUG}" not found`);
+  const clientId = clientRes.rows[0].id;
+
+  const sql = `
+    INSERT INTO conversations (client_id, phone, session_state, conversation_stage, language, bot_mode)
+    VALUES ($1, $2, $3::jsonb, 'booking_flow', $4, 'bot')
+    ON CONFLICT (client_id, phone) DO UPDATE SET
+      session_state = EXCLUDED.session_state,
+      conversation_stage = EXCLUDED.conversation_stage,
+      language = COALESCE(EXCLUDED.language, conversations.language),
+      updated_at = NOW()
+    RETURNING id::text AS conversation_id, (xmax = 0) AS created
+  `;
+  const { rows } = await pgClient.query(sql, [
+    clientId,
+    phone,
+    JSON.stringify(sessionState),
+    sessionState.language || 'en',
+  ]);
+  return {
+    conversation_id: rows[0].conversation_id,
+    created: rows[0].created,
+    phone,
+    client_id: clientId,
+    _note: 'stage4_dry_run_seed — conversations only, no business table writes',
+  };
+}
+
+/**
+ * Remove Stage 4 dry-run conversation seed rows by phone.
+ *
+ * Safety:
+ *  - Deletes from `conversations` only.
+ *  - Scoped to wolfhouse-somo client.
+ *  - Only removes rows where phone matches (fake test phones only).
+ *
+ * @param {import('pg').Client} pgClient - connected wolfhouse Postgres client
+ * @param {string[]} phones - fake test phones to clean up
+ * @returns {Promise<{ deleted_count: number, phones: string[] }>}
+ */
+async function teardownConversationState(pgClient, phones) {
+  if (!phones || phones.length === 0) return { deleted_count: 0, phones: [] };
+
+  const clientRes = await pgClient.query(
+    `SELECT id FROM clients WHERE slug = $1 LIMIT 1`,
+    [STAGE4_CLIENT_SLUG]
+  );
+  if (!clientRes.rows.length) throw new Error(`teardownConversationState: client slug "${STAGE4_CLIENT_SLUG}" not found`);
+  const clientId = clientRes.rows[0].id;
+
+  const placeholders = phones.map((_, i) => `$${i + 2}`).join(', ');
+  const { rowCount } = await pgClient.query(
+    `DELETE FROM conversations WHERE client_id = $1 AND phone IN (${placeholders})`,
+    [clientId, ...phones]
+  );
+  return { deleted_count: rowCount, phones, client_id: clientId };
+}
+
+/**
+ * Build the PG conversation seed plan for a given scenario.
+ * Returns null if the scenario has no seed requirements.
+ *
+ * @param {string} scenarioId - lowercase scenario id (e.g. 'a2')
+ * @returns {{ turn_before: number, phone: string, session_state: object }[] | null}
+ */
+function getScenarioSeedPlan(scenarioId) {
+  const id = String(scenarioId || '').toLowerCase();
+  return PG_CONVERSATION_SEED_PLANS[id] || null;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -446,6 +634,34 @@ async function main() {
     real_whatsapp_send_approved: false,
     live_autonomous_operation_approved: false,
     payload_dir: PAYLOAD_DIR,
+    // Multi-turn PG conversation state (A2/A3/A4)
+    pg_conversation_state_required: Object.keys(PG_CONVERSATION_SEED_PLANS),
+    planned_pg_conversation_seed: (() => {
+      const plan = {};
+      for (const [sid, seeds] of Object.entries(PG_CONVERSATION_SEED_PLANS)) {
+        plan[sid] = seeds.map((s) => ({
+          turn_before: s.turn_before,
+          phone: s.phone,
+          session_fields: Object.keys(s.session_state),
+          _note: 'seed written by runner seedConversationState() in --run mode only',
+        }));
+      }
+      return plan;
+    })(),
+    planned_pg_conversation_cleanup: (() => {
+      const phonesPerScenario = {};
+      for (const [sid, seeds] of Object.entries(PG_CONVERSATION_SEED_PLANS)) {
+        phonesPerScenario[sid] = [...new Set(seeds.map((s) => s.phone))];
+      }
+      return {
+        method: 'teardownConversationState(pgClient, phones)',
+        scoped_to: `client_id = (SELECT id FROM clients WHERE slug = '${STAGE4_CLIENT_SLUG}')`,
+        phones_per_scenario: phonesPerScenario,
+        _note: 'cleanup run after each multi-turn scenario completes or fails in --run mode',
+      };
+    })(),
+    allowed_state_table_deltas: ALLOWED_STATE_TABLE_DELTAS,
+    protected_no_mutation_tables: PROTECTED_NO_MUTATION_TABLES,
     scenarios: [],
     execute_preflight: null,
     summary: {
@@ -685,14 +901,37 @@ async function main() {
 
   report.stub_shapes_required_across_scenarios = [...allStubShapes];
 
+  // ── PG conversation seed plan summary ─────────────────────────────────────
+  const seedScenarios = Object.keys(PG_CONVERSATION_SEED_PLANS);
+  if (!ONLY_FILTER || seedScenarios.includes(ONLY_FILTER)) {
+    console.log('\n' + '-'.repeat(70));
+    console.log(' Multi-turn PG Conversation State (A2/A3/A4)');
+    console.log('-'.repeat(70));
+    console.log('  Required for: ' + seedScenarios.join(', '));
+    console.log('  Allowed state table deltas: ' + ALLOWED_STATE_TABLE_DELTAS.join(', '));
+    console.log('  Protected (must not change): ' + PROTECTED_NO_MUTATION_TABLES.join(', '));
+    console.log('');
+    for (const sid of seedScenarios) {
+      if (ONLY_FILTER && !ONLY_FILTER.startsWith(sid) && sid !== ONLY_FILTER) continue;
+      const seeds = PG_CONVERSATION_SEED_PLANS[sid];
+      for (const seed of seeds) {
+        console.log(`  ${sid.toUpperCase()} — seed before turn ${seed.turn_before}:`);
+        console.log(`    phone: ${seed.phone}`);
+        console.log(`    session fields: ${Object.keys(seed.session_state).join(', ')}`);
+        console.log(`    cleanup: teardownConversationState(pgClient, ['${seed.phone}'])`);
+      }
+    }
+    console.log('\n  NOTE: Seeds only execute in --run mode. Validation mode never touches DB.');
+  }
+
   report.required_implementation_changes = [
     '[DONE] hold_stub: returns pg_ok=true + booking_id/booking_code/status/payment_status/session fields (scripts/build-main-local-stripe.js)',
     '[DONE] payment_link_stub: returns checkout_url/session_id/amount_due_cents/currency/payment_kind via inline CPS check (scripts/build-main-local-stripe.js)',
     '[DONE] Postgres - Ensure Booking In Postgres gated as dry-run gate 70',
+    '[DONE] closed_month_guard: Code - Check Closed Month + IF - Closed Month? guard before hold creation (scripts/build-main-local-stripe.js)',
+    '[DONE] conversation_state_persistence: Postgres - Search Conversation (PG) added before Merge Session State; runner seeds PG between turns for A2/A3/A4',
     '[PENDING] stripe_webhook_dry_run_path: webhook handler must accept simulated event and proceed through confirmation path',
     '[PENDING] confirmation_stub: must expose draft_text including address/gate_code/room_number from config',
-    '[PENDING] conversation_state_persistence: verify Turn 2 can read session data written in Turn 1 when Airtable is stubbed',
-    '[PENDING] closed_month_guard: verify packages.closed_months is checked before hold creation in booking_flow',
     '[PENDING] spanish_language_detection: verify language=es triggers Spanish reply generation',
     '[PENDING] runner_multi_turn_post_sequencing: extend runner to POST each turn sequentially and poll for execution completion',
   ];
