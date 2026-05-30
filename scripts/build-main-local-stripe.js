@@ -405,6 +405,8 @@ function runVerifyTargets(workflow, opts = {}) {
   const shadow = verifyShadowModeSafety(wf);
   const cmGuard = verifyClosedMonthGuard(wf, CLOSED_MONTHS_CONFIG);
   const pgConvRead = verifyPGConversationRead(wf);
+  const pkgRequired = verifyPackageRequirement(wf);
+  const poiNoHoldFallback = verifyPaymentOrConfirmFallback(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -413,6 +415,8 @@ function runVerifyTargets(workflow, opts = {}) {
     shadowModeSafety: shadow,
     closedMonthGuard: cmGuard,
     pgConversationRead: pgConvRead,
+    packageRequired: pkgRequired,
+    paymentOrConfirmFallback: poiNoHoldFallback,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -431,6 +435,18 @@ function runVerifyTargets(workflow, opts = {}) {
     for (const e of pgConvRead.errors) console.error(`  ${e}`);
     result.ok = false;
     result.errors = [...(result.errors || []), ...pgConvRead.errors.map((e) => `[pg-conv-read] ${e}`)];
+  }
+  if (!pkgRequired.ok) {
+    console.error(`Package requirement FAIL (${pkgRequired.errors.length} error(s)):`);
+    for (const e of pkgRequired.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...pkgRequired.errors.map((e) => `[pkg-required] ${e}`)];
+  }
+  if (!poiNoHoldFallback.ok) {
+    console.error(`Payment/confirm fallback FAIL (${poiNoHoldFallback.errors.length} error(s)):`);
+    for (const e of poiNoHoldFallback.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...poiNoHoldFallback.errors.map((e) => `[poi-fallback] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -1086,23 +1102,33 @@ WHERE client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1)
 LIMIT 1`;
 
 /**
- * Stage 4 — PG conversation read fallback (Option A).
+ * Stage 4 — PG conversation read fallback (Option A, revised).
  *
- * Adds `Postgres - Search Conversation (PG)` between Parser Node and
- * Merge Session State so multi-turn dry-run scenarios retain T1 context.
+ * Adds `Postgres - Search Conversation (PG)` on the SHARED PATH, triggered
+ * by `Search Conversation` (Airtable) in parallel. This means the PG node
+ * runs before routing, so ALL routes (booking_flow AND payment_or_confirm_intent
+ * etc.) can reference `$('Postgres - Search Conversation (PG)')` via $() lookups.
+ *
+ * Wiring:
+ *   Search Conversation (Airtable) → Postgres - Search Conversation (PG)  [new parallel branch]
+ *   Parser Node → Merge Session State                                       [direct, no PG in chain]
+ *   Merge Session State code references $('Postgres - Search Conversation (PG)') internally.
  *
  * @param {object} workflow
  */
 function applyPGConversationRead(workflow) {
   const parserNode = workflow.nodes.find((n) => n.name === 'Parser Node');
   const mergeNode = workflow.nodes.find((n) => n.name === 'Merge Session State');
-  if (!parserNode || !mergeNode) {
+  const searchConvNode = workflow.nodes.find((n) => n.name === 'Search Conversation');
+  if (!parserNode || !mergeNode || !searchConvNode) {
     throw new Error(
-      'applyPGConversationRead: Parser Node or Merge Session State not found'
+      'applyPGConversationRead: Parser Node, Merge Session State, or Search Conversation not found'
     );
   }
 
   // ── Postgres read node ─────────────────────────────────────────────────────
+  // Position: to the right and slightly below Search Conversation node,
+  // on the parallel branch so it doesn't disrupt the main conversation flow.
   const pgReadNode = {
     parameters: {
       operation: 'executeQuery',
@@ -1114,8 +1140,8 @@ function applyPGConversationRead(workflow) {
     type: 'n8n-nodes-base.postgres',
     typeVersion: 2.5,
     position: [
-      Math.round((parserNode.position[0] + mergeNode.position[0]) / 2),
-      parserNode.position[1],
+      searchConvNode.position[0] + 220,
+      searchConvNode.position[1] + 200,
     ],
     id: '3ce005001-0001-4000-8000-000000000501',
     name: 'Postgres - Search Conversation (PG)',
@@ -1128,26 +1154,37 @@ function applyPGConversationRead(workflow) {
   // ── Update Merge Session State jsCode with PG fallback ─────────────────────
   mergeNode.parameters.jsCode = PG_SEARCH_CONV_JS_CODE;
 
-  // ── Re-wire: Parser Node → PG read → Merge Session State ──────────────────
-  // Parser Node currently connects to Merge Session State; redirect to PG read first.
-  const parserOuts = workflow.connections['Parser Node']?.main?.[0] || [];
-  for (const edge of parserOuts) {
-    if (edge.node === 'Merge Session State') {
-      edge.node = 'Postgres - Search Conversation (PG)';
-    }
+  // ── Re-wire: Parser Node → Merge Session State directly ───────────────────
+  // Parser Node currently connects to Merge Session State. Keep this direct.
+  // (Nothing to change here; just ensure no indirect chain via PG.)
+
+  // ── Re-wire: Search Conversation → PG read (parallel branch) ─────────────
+  // Add PG read as an additional connection target from Search Conversation.
+  const scConns = workflow.connections['Search Conversation'];
+  if (!scConns) {
+    workflow.connections['Search Conversation'] = { main: [[]] };
+  }
+  const scBranch0 = workflow.connections['Search Conversation'].main[0] || [];
+  // Only add if not already present
+  if (!scBranch0.some((e) => e.node === 'Postgres - Search Conversation (PG)')) {
+    scBranch0.push({ node: 'Postgres - Search Conversation (PG)', type: 'main', index: 0 });
+    workflow.connections['Search Conversation'].main[0] = scBranch0;
   }
 
-  workflow.connections['Postgres - Search Conversation (PG)'] = {
-    main: [[{ node: 'Merge Session State', type: 'main', index: 0 }]],
-  };
+  // PG node has no direct outbound connection; downstream nodes reference it via $().
+  // Do NOT connect PG → Merge Session State directly (avoids double-triggering MSS).
+  // Merge Session State is triggered only by Parser Node (booking_flow path).
 
   console.log(
-    'applyPGConversationRead: Postgres - Search Conversation (PG) injected between Parser Node and Merge Session State'
+    'applyPGConversationRead: Postgres - Search Conversation (PG) added on shared path (parallel from Search Conversation). Parser Node → Merge Session State direct.'
   );
 }
 
 /**
  * Verifies that the PG conversation read fallback is correctly wired.
+ * New wiring: Search Conversation → Postgres - Search Conversation (PG) [shared path / parallel]
+ *             Parser Node → Merge Session State [direct]
+ *             Merge Session State code references $('Postgres - Search Conversation (PG)') internally.
  *
  * @param {object} workflow
  * @returns {{ ok: boolean, errors: string[] }}
@@ -1159,19 +1196,15 @@ function verifyPGConversationRead(workflow) {
   if (!nodeNames.has('Postgres - Search Conversation (PG)'))
     errors.push('Postgres - Search Conversation (PG) node missing');
 
-  // Parser Node must connect to PG read (not directly to Merge Session State)
-  const parserOuts = (workflow.connections['Parser Node']?.main?.[0] || []).map((n) => n.node);
-  if (!parserOuts.includes('Postgres - Search Conversation (PG)'))
-    errors.push('Parser Node does not connect to Postgres - Search Conversation (PG)');
-  if (parserOuts.includes('Merge Session State'))
-    errors.push('Parser Node still connects directly to Merge Session State (bypasses PG read)');
+  // Search Conversation must connect to PG read (shared path, parallel branch)
+  const scOuts = (workflow.connections['Search Conversation']?.main?.[0] || []).map((n) => n.node);
+  if (!scOuts.includes('Postgres - Search Conversation (PG)'))
+    errors.push('Search Conversation does not connect to Postgres - Search Conversation (PG) (shared path)');
 
-  // PG read must connect to Merge Session State
-  const pgOuts = (workflow.connections['Postgres - Search Conversation (PG)']?.main?.[0] || []).map(
-    (n) => n.node
-  );
-  if (!pgOuts.includes('Merge Session State'))
-    errors.push('Postgres - Search Conversation (PG) does not connect to Merge Session State');
+  // Parser Node must connect directly to Merge Session State (no PG in series)
+  const parserOuts = (workflow.connections['Parser Node']?.main?.[0] || []).map((n) => n.node);
+  if (!parserOuts.includes('Merge Session State'))
+    errors.push('Parser Node does not connect directly to Merge Session State');
 
   // Merge Session State jsCode must reference the PG node
   const mergeNode = workflow.nodes.find((n) => n.name === 'Merge Session State');
@@ -1205,8 +1238,152 @@ function verifyPGConversationRead(workflow) {
   return { ok, errors };
 }
 
+// ── Determine Missing Fields JS code with package requirement ───────────────
+const DMF_JS_CODE = `const state = $json.session || {};
+
+const required = [
+  'guest_count',
+  'room_type',
+  'check_in',
+  'check_out'
+];
+
+const missing_fields = required.filter(field => {
+  const value = state[field];
+
+  return (
+    value === null ||
+    value === undefined ||
+    value === '' ||
+    value === 'unknown'
+  );
+});
+
+// Package/stay type must be confirmed before availability and hold creation.
+// If dates and guest count are known but no package has been explicitly selected,
+// ask the guest which package (malibu/uluwatu/waimea) or accommodation-only.
+if (
+  (state.intent === 'booking_request' || state.intent === 'availability_check') &&
+  state.check_in &&
+  state.check_out &&
+  state.guest_count &&
+  (!state.package || state.package === 'unknown')
+) {
+  missing_fields.push('package_intent');
+}
+
+state.missing_fields = missing_fields;
+
+state.ready_for_availability_check =
+  (
+    state.intent === 'booking_request' ||
+    state.intent === 'availability_check'
+  ) &&
+  missing_fields.length === 0 &&
+  state.needs_human !== true;
+
+return [
+  {
+    json: {
+      ...$json,
+
+      session: state,
+
+      session_state: JSON.stringify(state),
+
+      missing_fields,
+
+      ready_for_availability_check:
+        state.ready_for_availability_check
+    }
+  }
+];`;
+
 /**
- * Stage 4 — Closed-month guard (Option C: deterministic Code node + LLM reply).
+ * Stage 4 — Package-required fix.
+ *
+ * Updates `Determine Missing Fields` so booking_flow cannot reach
+ * availability/hold unless package (or stay type) is known.
+ *
+ * @param {object} workflow
+ */
+function applyPackageRequirement(workflow) {
+  const dmf = workflow.nodes.find((n) => n.name === 'Determine Missing Fields');
+  if (!dmf) throw new Error('applyPackageRequirement: Determine Missing Fields node not found');
+
+  dmf.parameters.jsCode = DMF_JS_CODE;
+
+  console.log('applyPackageRequirement: Determine Missing Fields updated — package required before hold');
+}
+
+/**
+ * Verifies that Determine Missing Fields requires package before hold.
+ *
+ * @param {object} workflow
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifyPackageRequirement(workflow) {
+  const errors = [];
+  const dmf = workflow.nodes.find((n) => n.name === 'Determine Missing Fields');
+  if (!dmf) {
+    errors.push('Determine Missing Fields node missing');
+  } else {
+    const code = dmf.parameters?.jsCode || '';
+    if (!code.includes('package_intent'))
+      errors.push('Determine Missing Fields does not push package_intent to missing_fields');
+    if (!code.includes("!state.package || state.package === 'unknown'"))
+      errors.push('Determine Missing Fields missing package null/unknown check');
+  }
+
+  // IF - Ready For Availability must NOT be directly reachable from DMF without the closed-month guard
+  const dmfOuts = (workflow.connections['Determine Missing Fields']?.main?.[0] || []).map((n) => n.node);
+  if (dmfOuts.includes('IF - Ready For Availability'))
+    errors.push('Determine Missing Fields still connects directly to IF - Ready For Availability (bypass guard)');
+
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('Package requirement verify: OK');
+  } else {
+    console.error(`Package requirement verify: FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
+}
+
+/**
+ * Verifies that the Booking State Resolver has the payment_or_confirm_intent
+ * → booking_flow fallback override for the no-hold / no-contact case.
+ *
+ * @param {object} workflow
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifyPaymentOrConfirmFallback(workflow) {
+  const errors = [];
+  const bsr = workflow.nodes.find((n) => n.name === 'Code - Booking State Resolver');
+  if (!bsr) {
+    errors.push('Code - Booking State Resolver node missing');
+  } else {
+    const code = bsr.parameters?.jsCode || '';
+    if (!code.includes('R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW'))
+      errors.push('Booking State Resolver missing payment_or_confirm_intent no-hold override (R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW)');
+    if (!code.includes("routerRoute === 'payment_or_confirm_intent'"))
+      errors.push('Booking State Resolver does not reference payment_or_confirm_intent override');
+    // Assert no new ungated protected writes
+    if (/\bINSERT\b/i.test(code) || /\bUPDATE\b/i.test(code) || /\bDELETE\b/i.test(code))
+      errors.push('Code - Booking State Resolver contains SQL write operations (not expected in a routing node)');
+  }
+
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('Payment/confirm fallback verify: OK');
+  } else {
+    console.error(`Payment/confirm fallback verify: FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
+}
+
+/**
  *
  * Inserts between `Determine Missing Fields` and `IF - Ready For Availability`:
  *   Code - Check Closed Month  →  IF - Closed Month?
@@ -3183,6 +3360,7 @@ applyPhase3cAvailabilityGate(workflow);
 applyPhase3cHoldGate(workflow);
 applyClosedMonthGuard(workflow, CLOSED_MONTHS_CONFIG);
 applyPGConversationRead(workflow);
+applyPackageRequirement(workflow);
 applyLocalTypingIndicatorBypass(workflow);
 applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode A shadow
 applyHumanActivePaymentLinkBypass(workflow);
@@ -3200,7 +3378,9 @@ workflow.tags = [
   { name: 'phase3e-e2' },
   { name: 'phase3y-shadow-safe' }, // Stage 3y: offline-safe for Mode A shadow testing
   { name: 'stage4-cm-guard' }, // Stage 4: deterministic closed-month guard
-  { name: 'stage4-pg-conv-read' }, // Stage 4: PG conversation read fallback for multi-turn
+  { name: 'stage4-pg-conv-read' }, // Stage 4: PG conversation read fallback for multi-turn (shared path)
+  { name: 'stage4-pkg-required' }, // Stage 4: package required before hold
+  { name: 'stage4-poi-fallback' }, // Stage 4: payment_or_confirm_intent no-hold → booking_flow
 ];
 
 if (reassignRemap.patched > 0) {
@@ -3278,6 +3458,8 @@ module.exports = {
   importMainWorkflowInactive,
   analyzeReassignContract,
   verifyPGConversationRead,
+  verifyPackageRequirement,
+  verifyPaymentOrConfirmFallback,
   OUT,
   PROD_AIRTABLE_BASE_ID,
   TEST_AIRTABLE_BASE_ID,

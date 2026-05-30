@@ -1,7 +1,7 @@
-# Wolfhouse ? Project State
+﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 4 A2 multi-turn PARTIAL PASS — execs 1162+1163 — safety clean — PG fallback not triggered — finding: package optional + T2 payment_or_confirm_intent route)
-**HEAD (expected):** `a0d2c2f` → docs update pending
+**Last updated:** 2026-05-30 (Stage 4 A2 static fixes — package required before hold + payment_or_confirm_intent PG fallback — re-run pending)
+**HEAD (expected):** `208d80a` → static fixes committed
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -31,7 +31,8 @@
 | **3.5** Safety rails | **CLOSED ? minimum safety bar MET (d08c64e)** | [PHASE-3.5-SAFETY-RAILS-PLAN.md](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS. 3.5c/I3 runtime PASS (execs 1093/1094). 3.5d D1+D2+D3 L2 PASS + wire-in static PASS; D8 runtime BLOCKED/deferred (Airtable-coupled upstream). 3.5f I3 PASS + I2/I5 deferred with written reason. 3.5g closeout G1?G13 DONE. Deferrals: D6/D8/D9/I2/I5 runtime ? Airtable cutover; Gap 1/Gap 3 runtime ? Stage 4; 3.5d.8b PG-only trigger path ? NOT REQUIRED before Stage 3y. **Next: Stage 3.5 closeout commit (user approves), then Stage 3y shadow/co-pilot planning.** |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2?3x.4 pending |
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
-| **4** Reliable | **Autonomous Booking Dry-Run — Gate 4 Batch 1 + A5 re-test ALL PASS; A2 multi-turn PARTIAL PASS (2026-05-30)** | A5 PASS (closed-month guard, exec 1159). A6/A7/A8/A10 PASS. Execs 1154–1159. All protected counts unchanged. A2 multi-turn: execs 1162+1163, PARTIAL PASS — safety clean, PG infra proven (seed/cleanup), T1=booking_flow/0.99, T2=payment_or_confirm_intent/0.95. Finding: Determine Missing Fields treats package as optional (T1 missing_fields=[]); T2 "I'll go with Malibu" routed as payment_or_confirm_intent (PG fallback not triggered — it's on booking_flow path). PG activation fix: activeVersionId+publishedVersionId must both be set for n8n 2.x webhook registration. **Next: A3 multi-turn runtime proof (or re-design A2 so T2 routes through booking_flow).** |
+| **4** Reliable | **Autonomous Booking Dry-Run - Gate 4 Batch 1 + A5 re-test ALL PASS; A2 multi-turn PARTIAL PASS; STATIC FIXES APPLIED (2026-05-30)** | A5 PASS (closed-month guard, exec 1159). A6/A7/A8/A10 PASS. Execs 1154-1159. All protected counts unchanged. A2 multi-turn: execs 1162+1163, PARTIAL PASS - safety clean, PG infra proven. **Static fixes (not yet runtime-tested):** (1) `Determine Missing Fields` requires `package_intent` before availability/hold. (2) `Code - Booking State Resolver` override: `payment_or_confirm_intent && !holdUsable && !conversationHoldHint && !hasContact -> booking_flow`. (3) PG read node moved to shared path (parallel from `Search Conversation`). All 5 verifiers pass. Import inactive OK. **Next: re-run A2 multi-turn runtime gate.** |
+
 | **5** Clean | Planned | Decision engine out of n8n |
 | **6** Beautiful | Planned | Staff UI; Airtable cutover |
 | **7** Scalable | Planned | Multi-client + Azure when approved |

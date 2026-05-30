@@ -972,10 +972,29 @@ _tmp_a2_run.js now sets all three atomically before restart.
 - PG fallback state-read proof: ❌ NOT TESTED (T2 routed to payment_or_confirm_intent, not booking_flow)
 - T1 package-question behavior: ❌ NOT TRIGGERED (Determine Missing Fields treats package as optional)
 
-**Next for A2/A3/A4:**
-The PG fallback requires a test where T2 routes through `booking_flow`/`Merge Session State`. Options:
-- A3/A4 may be better candidates: T1 collects full booking details → hold fires → T2 asks for deposit/full → if T2 routes through payment path, check if prior session state (amounts, hold_id) is needed
-- Alternatively, design a new scenario where T2 provides a booking field that routes back through booking_flow
+**Static fixes applied (2026-05-30) — NOT YET RUNTIME-TESTED:**
+1. **`Determine Missing Fields` now requires `package_intent`** — when dates + guest_count are known but `package` is null/unknown, pushes `package_intent` to `missing_fields`. T1 will now ask the guest which package they want before proceeding to availability/hold.
+2. **`Code - Booking State Resolver` override added** — when `routerRoute === 'payment_or_confirm_intent' && !holdUsable && !conversationHoldHint && !hasContact`, overrides to `booking_flow` (`R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW`). This ensures T2 "I'll go with the Malibu package" routes through `Parser Node → Postgres - Search Conversation (PG) → Merge Session State`, exercising the PG fallback. A1 T2 (which provides name+email — `hasContact=true`) is unaffected.
+3. **PG read node moved to shared path** — `Postgres - Search Conversation (PG)` now runs from `Search Conversation` (Airtable) as a parallel branch, BEFORE routing. This means all routes (not only booking_flow) can reference the PG session via `$('Postgres - Search Conversation (PG)')`. `Parser Node → Merge Session State` is now a direct connection; MSS still references PG internally.
+
+**Static verifier results (2026-05-30, post-fix):**
+- `node scripts/build-main-local-stripe.js --verify-targets`:
+  - Shadow-mode safety: OK
+  - Closed-month guard: OK
+  - PG conversation read verify: OK (Search Conversation → PG, Parser Node → MSS direct)
+  - **Package requirement verify: OK** (package_intent pushed to missing_fields when package=null)
+  - **Payment/confirm fallback verify: OK** (R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW present)
+- `node scripts/report-main-payment-contract.js`: Overall OK: true
+- `node scripts/report-main-rooming-contract.js`: Overall OK: true
+- `node --check scripts/run-stage4-autonomous-dry-run.js`: syntax OK
+- `node scripts/run-stage4-autonomous-dry-run.js --only a2`: valid, expected_missing_fields=["package_intent"], T2 expected_route=booking_flow
+- Import inactive: active=false, 347 nodes
+
+**Next for A2:**
+Re-run A2 multi-turn runtime gate. Expected new behavior:
+- T1: `missing_fields=["package_intent"]`, bot asks which package, NO hold
+- T2: `payment_or_confirm_intent` → override → `booking_flow` → Parser extracts `package=malibu` → PG read finds seeded T1 session → MSS merges → `missing_fields=[]` → hold stub fires
+- PG fallback state-read proof: ✅ (expected on re-run)
 
 ---
 
@@ -985,9 +1004,10 @@ The PG fallback requires a test where T2 routes through `booking_flow`/`Merge Se
 
 **Implementation complete:**
 - `applyPGConversationRead(workflow)` added to `scripts/build-main-local-stripe.js`
-- `Postgres - Search Conversation (PG)` node wired: `Parser Node → Postgres - Search Conversation (PG) → Merge Session State`
+- `Postgres - Search Conversation (PG)` node wired on **shared path** (parallel from `Search Conversation`): `Search Conversation → Postgres - Search Conversation (PG)` (no direct output; MSS references it internally)
+- `Parser Node → Merge Session State` direct connection (PG node no longer in series)
 - `Merge Session State` jsCode updated with PG fallback (Airtable-first, PG if AT session empty)
-- `verifyPGConversationRead(workflow)` asserts correct wiring + read-only query
+- `verifyPGConversationRead(workflow)` asserts new wiring (Search Conversation → PG, Parser Node → MSS direct) + read-only query
 - `seedConversationState` + `teardownConversationState` added to runner
 - `PG_CONVERSATION_SEED_PLANS` defined per scenario (A2/A3/A4)
 - Report fields: `pg_conversation_state_required`, `planned_pg_conversation_seed`, `planned_pg_conversation_cleanup`, `allowed_state_table_deltas`, `protected_no_mutation_tables`
@@ -1024,9 +1044,14 @@ Runner calls `teardownConversationState(pgClient, phones)` after each multi-turn
 | A3 | 34600000103 | `check_in=2026-07-01`, `check_out=2026-07-08`, `guest_count=2`, `package=uluwatu`, `current_hold_id=WH-DRYA3-0001`, `deposit_amount_eur=200`, `total_amount=798` |
 | A4 | 34600000104 | `check_in=2026-08-03`, `check_out=2026-08-10`, `guest_count=1`, `package=waimea`, `current_hold_id=WH-DRYA4-0001`, `full_amount_eur=599`, `deposit_amount_eur=200` |
 
-#### Static verification results (2026-05-30)
+#### Static verification results (2026-05-30, post static-fix)
 
-- `node scripts/build-main-local-stripe.js --verify-targets`: Shadow-mode safety: OK · Closed-month guard: OK · **PG conversation read verify: OK**
+- `node scripts/build-main-local-stripe.js --verify-targets`:
+  - Shadow-mode safety: OK (70 nodes gated)
+  - Closed-month guard: OK
+  - PG conversation read verify: OK (Search Conversation → PG parallel, Parser Node → MSS direct)
+  - Package requirement verify: OK
+  - Payment/confirm fallback verify: OK
 - `node scripts/report-main-payment-contract.js`: Overall OK: true
 - `node scripts/report-main-rooming-contract.js`: Overall OK: true
 - `node --check scripts/run-stage4-autonomous-dry-run.js`: syntax OK

@@ -332,6 +332,26 @@ function resolveBookingRoute(input) {
     decisionCode = 'R2F_GENERAL_QUESTION';
   }
 
+  // payment_or_confirm_intent without an active hold and without contact details:
+  // the guest is likely completing booking details (e.g. supplying a package preference).
+  // Redirect to booking_flow so Parser Node + PG session fallback can complete the booking.
+  // Guards: must have no hold (holdUsable=false), no conversation hold hint, no name/email.
+  // This allows A2 T2 "I'll go with Malibu" to route correctly after T1 asks for the package.
+  // A1 T2 (which provides name+email) is unaffected because hasContact=true.
+  if (
+    !routeOverridden &&
+    routerRoute === 'payment_or_confirm_intent' &&
+    !holdUsable &&
+    !conversationHoldHint &&
+    !hasContact
+  ) {
+    resolvedRoute = 'booking_flow';
+    resolvedSubRoute = 'booking_collect_missing';
+    routeOverridden = true;
+    overrideReason = 'payment_intent_without_hold_or_contact';
+    decisionCode = 'R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW';
+  }
+
   if (!routeOverridden && routerRoute === 'booking_flow') {
     resolvedSubRoute = messageSignals.has_booking_core
       ? 'booking_check_availability'
