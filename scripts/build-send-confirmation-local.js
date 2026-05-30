@@ -5,10 +5,12 @@
  * - Polls bookings.send_confirmation=true
  * - Sends WhatsApp via env (WHATSAPP_DRY_RUN=true by default locally)
  * - Sets status=confirmed only after successful send
+ * - Stage 4: IF - DRY RUN? (Mark Confirmed) gates Postgres - Mark Booking Confirmed
  *
  * Does NOT modify n8n/Wolfhouse - Send Confirmation.json (hosted export).
  *
  * Run: npm run build:send-confirmation:local
+ *      node scripts/build-send-confirmation-local.js --import-inactive
  */
 const fs = require('fs');
 const path = require('path');
@@ -21,6 +23,24 @@ const OUT = path.join(
   'phase2',
   'Wolfhouse - Send Confirmation (local).json'
 );
+
+// ---------------------------------------------------------------------------
+// Wolfhouse-somo arrival context — sourced from config/clients/wolfhouse-somo.baseline.json
+// gate_code, check_in_time, check_out_time are confirmed values.
+// address is not yet in config (owner_required) — placeholder used; edit when confirmed.
+// include_bed_number: false (confirmed in config.confirmation.include_bed_number)
+// ---------------------------------------------------------------------------
+const WH_CONFIG_PATH = path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.baseline.json');
+const whConfig = (() => {
+  try { return JSON.parse(fs.readFileSync(WH_CONFIG_PATH, 'utf8')); } catch { return {}; }
+})();
+const ARRIVAL = {
+  gate_code: whConfig.confirmation?.gate_code || '2684#',
+  check_in_time: whConfig.operations?.check_in_time || '15:00',
+  check_out_time: whConfig.operations?.check_out_time || '11:00',
+  // address not yet confirmed by owner — update when available
+  address: whConfig.confirmation?.address || null,
+};
 
 const hosted = JSON.parse(fs.readFileSync(HOSTED, 'utf8'));
 
@@ -337,6 +357,7 @@ searchConversation.alwaysOutputData = true;
 searchBeds.alwaysOutputData = true;
 
 const workflow = {
+  id: 'gxivKRJexzTCw9x6',
   name: 'Wolfhouse - Send Confirmation (local)',
   nodes: [
     {
@@ -435,7 +456,7 @@ const workflow = {
     },
     {
       parameters: {
-        jsCode: `const b = $json;\nreturn [{\n  json: {\n    booking_id: b.booking_id,\n    booking_code: b.booking_code,\n    phone: b.phone,\n    language: 'en',\n    fields: {\n      'Booking ID': b.booking_code,\n      'Guest Name': b.guest_name,\n      'Phone': b.phone,\n      'Email': b.email,\n      'Check In': b.check_in,\n      'Check Out': b.check_out,\n      'Guest Count': b.guest_count,\n      'Package': b.package_code,\n      'Status': 'Payment_Pending',\n      'Payment Status': b.payment_status,\n    },\n  },\n}];`,
+        jsCode: `const b = $json;\nconst arrival = ${JSON.stringify(ARRIVAL)};\nreturn [{\n  json: {\n    booking_id: b.booking_id,\n    booking_code: b.booking_code,\n    phone: b.phone,\n    language: 'en',\n    fields: {\n      'Booking ID': b.booking_code,\n      'Guest Name': b.guest_name,\n      'Phone': b.phone,\n      'Email': b.email,\n      'Check In': b.check_in,\n      'Check Out': b.check_out,\n      'Guest Count': b.guest_count,\n      'Package': b.package_code,\n      'Status': 'Payment_Pending',\n      'Payment Status': b.payment_status,\n      'Gate Code': arrival.gate_code || null,\n      'Check In Time': arrival.check_in_time || null,\n      'Check Out Time': arrival.check_out_time || null,\n      'Property Address': arrival.address || null,\n    },\n  },\n}];`,
       },
       type: 'n8n-nodes-base.code',
       typeVersion: 2,
@@ -789,3 +810,41 @@ const workflow = {
 fs.writeFileSync(OUT, JSON.stringify(workflow, null, 2) + '\n');
 console.log(`Wrote ${OUT}`);
 console.log(`Nodes: ${workflow.nodes.length}`);
+
+// ---------------------------------------------------------------------------
+// --import-inactive: import generated workflow into local n8n (active=false)
+// Same pattern used by build-main-local-stripe.js and build-assign-beds-local.js
+// ---------------------------------------------------------------------------
+function importSendConfirmationInactive() {
+  const { execSync } = require('child_process');
+  const container = 'n8n-main';
+  const remote = '/tmp/send-confirmation-local-import.json';
+  try {
+    execSync('docker --version', { stdio: 'ignore' });
+  } catch {
+    console.log('Import skipped: docker CLI not available');
+    console.log(`  docker cp "${OUT}" ${container}:${remote}`);
+    console.log(`  docker exec ${container} n8n import:workflow --input=${remote}`);
+    return false;
+  }
+  try {
+    execSync(`docker cp "${OUT}" ${container}:${remote}`, { stdio: 'inherit' });
+    const out = execSync(`docker exec ${container} n8n import:workflow --input=${remote}`, {
+      encoding: 'utf8',
+    });
+    console.log(out.trim());
+    console.log('Import: OK (workflow JSON has active=false)');
+    return true;
+  } catch (err) {
+    console.error(`Import failed: ${err.message}`);
+    if (err.stdout) console.error(String(err.stdout));
+    if (err.stderr) console.error(String(err.stderr));
+    return false;
+  }
+}
+
+const args = process.argv.slice(2);
+if (args.includes('--import-inactive')) {
+  importSendConfirmationInactive();
+  console.log('Done. No workflow activation or POST executed by this script.');
+}

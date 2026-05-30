@@ -469,11 +469,13 @@ See you soon! 🌊🐺
 | automation_errors | 0 | 0 | ✓ |
 | workflow_events | 25 | 24 | ✓ |
 
-### Required for full gate 3 PASS
+### Required for full gate 3 PASS — STATIC FIXES APPLIED
 
-1. **Import new Send Confirmation local workflow into n8n DB** (`gxivKRJexzTCw9x6`) — update `workflow_entity.nodes`, create new `workflow_history` entry, update `workflow_published_version.publishedVersionId`
-2. **Gate code in confirmation draft** — pass `gate_code` from `wolfhouse-somo.baseline.json` via `Code - Format Booking For LLM` so LLM receives it when Airtable returns empty
-3. **Fixture SQL enum** — `payment_status: unpaid` → `not_requested` (already fixed in scaffolded file)
+1. **Import new Send Confirmation local workflow into n8n DB** — ✅ STATIC FIX APPLIED (`node scripts/build-send-confirmation-local.js --import-inactive`, workflow `gxivKRJexzTCw9x6` updated, active=false, 27 nodes, all gate wiring verified in n8n DB)
+2. **Gate code in confirmation draft** — ✅ STATIC FIX APPLIED (`Code - Format Booking For LLM` now passes `Gate Code: 2684#`, `Check In Time: 15:00`, `Check Out Time: 11:00` from `wolfhouse-somo.baseline.json`; `Property Address: null` — owner confirm required)
+3. **Fixture SQL enum** — ✅ ALREADY FIXED (`not_requested`)
+
+**Next: gate 3 confirmation re-run** — sub-gate B only (Stripe webhook payment state already applied; re-seed fixture + re-run Send Confirmation).
 
 ---
 

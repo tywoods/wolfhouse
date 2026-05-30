@@ -1,4 +1,5 @@
 {
+  "id": "gxivKRJexzTCw9x6",
   "name": "Wolfhouse - Send Confirmation (local)",
   "nodes": [
     {
@@ -135,7 +136,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const b = $json;\nreturn [{\n  json: {\n    booking_id: b.booking_id,\n    booking_code: b.booking_code,\n    phone: b.phone,\n    language: 'en',\n    fields: {\n      'Booking ID': b.booking_code,\n      'Guest Name': b.guest_name,\n      'Phone': b.phone,\n      'Email': b.email,\n      'Check In': b.check_in,\n      'Check Out': b.check_out,\n      'Guest Count': b.guest_count,\n      'Package': b.package_code,\n      'Status': 'Payment_Pending',\n      'Payment Status': b.payment_status,\n    },\n  },\n}];"
+        "jsCode": "const b = $json;\nconst arrival = {\"gate_code\":\"2684#\",\"check_in_time\":\"15:00\",\"check_out_time\":\"11:00\",\"address\":null};\nreturn [{\n  json: {\n    booking_id: b.booking_id,\n    booking_code: b.booking_code,\n    phone: b.phone,\n    language: 'en',\n    fields: {\n      'Booking ID': b.booking_code,\n      'Guest Name': b.guest_name,\n      'Phone': b.phone,\n      'Email': b.email,\n      'Check In': b.check_in,\n      'Check Out': b.check_out,\n      'Guest Count': b.guest_count,\n      'Package': b.package_code,\n      'Status': 'Payment_Pending',\n      'Payment Status': b.payment_status,\n      'Gate Code': arrival.gate_code || null,\n      'Check In Time': arrival.check_in_time || null,\n      'Check Out Time': arrival.check_out_time || null,\n      'Property Address': arrival.address || null,\n    },\n  },\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
