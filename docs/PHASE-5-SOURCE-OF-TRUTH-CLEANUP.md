@@ -782,10 +782,11 @@ All four queries work against `001_init.sql` schema today **once real booking ro
 - `Postgres - Backfill Booking AT Record Id`: keep as optional bridge, not in critical success path.
 - Static verifier: payment path can reach Stripe CPS using PG booking_code without AT rec id.
 
-#### 5.2c — Patch ensure-promote insert defaults (static code change)
-- `buildEnsurePromoteN8nSql()` / `scripts/lib/main-ensure-booking-pg-sql.js`: add `hold_expires_at`, `assignment_status = 'unassigned'`, `availability_check_status = 'available'` to the INSERT defaults on new-row path.
-- No schema change needed.
-- Static verifier: ensure insert includes these columns.
+#### 5.2c — Patch ensure-promote insert defaults (STATIC DONE 2026-05-30 — runtime pending)
+- `scripts/lib/main-ensure-booking-pg-sql.js`: ensure-promote INSERT path now sets `hold_expires_at = NOW() + interval '1 hour'`, `assignment_status = 'unassigned'`, `availability_check_status = 'available'`.
+- New verifier `verifyEnsurePromoteInsertDefaults(workflow)` (7 checks) wired into `runVerifyTargets`; confirms protected tables (`payments`, `payment_events`, `booking_beds`) not referenced.
+- Static checks: `--verify-targets` `Ensure promote INSERT defaults verify (Stage 5.2c): OK`, payment/rooming contracts OK, active=false.
+- No schema migration required.
 
 #### 5.2d — Fixture-scoped dry-run hold gate (runtime)
 - Define a fixture dry-run gate that allows **real** `Postgres - Create Booking Hold` to fire for test booking codes (e.g. `DRY-52-…`) on isolated test phones.

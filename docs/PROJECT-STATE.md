@@ -1,7 +1,7 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 5.2b static — Summarize Holds PG-primary, AT Booking ID fallback)
-**HEAD (expected):** `90d1846` + Stage 5.2b static changes (uncommitted)
+**Last updated:** 2026-05-30 (Stage 5.2c static — ensure-promote INSERT hold/status defaults)
+**HEAD (expected):** `e288b52` + Stage 5.2c static changes (uncommitted)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
 
@@ -325,7 +325,7 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
-**Immediate next step: Stage 5.2b STATIC DONE.** `Code - Summarize Holds` now uses `pgHold.booking_code` first; AT Booking ID is fallback. Verifier `verifySummarizeHoldsPGPrimary` passes. Next: Stage 5.2c (patch ensure-promote INSERT defaults) or Stage 5.2e (stuck-hold query SQL) — both static, no runtime needed.
+**Immediate next step: Stage 5.2c STATIC DONE.** Ensure-promote INSERT now sets `hold_expires_at`, `assignment_status='unassigned'`, `availability_check_status='available'`. Verifier `verifyEnsurePromoteInsertDefaults` passes. Next: Stage 5.2e (stuck-hold staff query SQL) — static, no runtime needed — or Stage 5.2d (fixture dry-run hold gate) when ready for first real bookings write.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.

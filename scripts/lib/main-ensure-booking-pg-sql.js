@@ -166,6 +166,9 @@ inserted AS (
     room_preference,
     guest_gender_group_type,
     booking_source,
+    hold_expires_at,
+    assignment_status,
+    availability_check_status,
     deposit_required_cents,
     send_confirmation,
     metadata
@@ -196,6 +199,9 @@ inserted AS (
     NULLIF($10, '${NULL_SENTINEL}'),
     NULLIF($11, '${NULL_SENTINEL}'),
     'whatsapp'::booking_source,
+    NOW() + interval '1 hour',
+    'unassigned'::assignment_status,
+    'available'::availability_check_status,
     NULL,
     FALSE,
     '{"source":"phase3c_ensure_booking_cli"}'::jsonb

@@ -411,6 +411,7 @@ function runVerifyTargets(workflow, opts = {}) {
   const addonsPrompt = verifyGeneralQuestionAddonsPrompt(wf, SERVICE_ADDONS_CONFIG);
   const pgSessionWrite = verifyPGSessionWrite(wf);
   const summarizeHoldsPG = verifySummarizeHoldsPGPrimary(wf);
+  const ensurePromoteInsert = verifyEnsurePromoteInsertDefaults(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -425,6 +426,7 @@ function runVerifyTargets(workflow, opts = {}) {
     generalQuestionAddonsPrompt: addonsPrompt,
     pgSessionWrite,
     summarizeHoldsPGPrimary: summarizeHoldsPG,
+    ensurePromoteInsertDefaults: ensurePromoteInsert,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -477,6 +479,12 @@ function runVerifyTargets(workflow, opts = {}) {
     for (const e of summarizeHoldsPG.errors) console.error(`  ${e}`);
     result.ok = false;
     result.errors = [...(result.errors || []), ...summarizeHoldsPG.errors.map((e) => `[summarize-holds-pg] ${e}`)];
+  }
+  if (!ensurePromoteInsert.ok) {
+    console.error(`Ensure promote INSERT defaults FAIL (${ensurePromoteInsert.errors.length} error(s)):`);
+    for (const e of ensurePromoteInsert.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...ensurePromoteInsert.errors.map((e) => `[ensure-promote-insert] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -1569,6 +1577,50 @@ function verifySummarizeHoldsPGPrimary(workflow) {
     console.log('Summarize Holds PG-primary verify (Stage 5.2b): OK');
   } else {
     console.error(`Summarize Holds PG-primary verify: FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
+}
+
+/**
+ * Stage 5.2c: Verifies ensure-promote INSERT path includes hold/status defaults.
+ *
+ * @param {object} workflow
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifyEnsurePromoteInsertDefaults(workflow) {
+  const errors = [];
+  const node = workflow.nodes.find((n) => n.name === 'Postgres - Ensure Booking In Postgres');
+  if (!node) {
+    errors.push('Postgres - Ensure Booking In Postgres node missing');
+  } else {
+    const query = node.parameters?.query || '';
+    const insertSection = query.split('inserted AS (')[1]?.split('RETURNING')[0] || query;
+    if (!insertSection.includes('INSERT INTO bookings'))
+      errors.push('Ensure promote SQL missing INSERT INTO bookings block');
+    if (!insertSection.includes('hold_expires_at'))
+      errors.push('Ensure promote INSERT missing hold_expires_at column');
+    if (!insertSection.includes("interval '1 hour'"))
+      errors.push('Ensure promote INSERT missing hold_expires_at = NOW() + interval \'1 hour\' default');
+    if (!insertSection.includes('assignment_status'))
+      errors.push('Ensure promote INSERT missing assignment_status column');
+    if (!insertSection.includes("'unassigned'::assignment_status"))
+      errors.push('Ensure promote INSERT missing assignment_status = unassigned default');
+    if (!insertSection.includes('availability_check_status'))
+      errors.push('Ensure promote INSERT missing availability_check_status column');
+    if (!insertSection.includes("'available'::availability_check_status"))
+      errors.push('Ensure promote INSERT missing availability_check_status = available default');
+    const lower = query.toLowerCase();
+    for (const protectedTable of ['payments', 'payment_events', 'booking_beds']) {
+      if (lower.includes(protectedTable))
+        errors.push(`Ensure promote SQL must not reference protected table: ${protectedTable}`);
+    }
+  }
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('Ensure promote INSERT defaults verify (Stage 5.2c): OK');
+  } else {
+    console.error(`Ensure promote INSERT defaults verify: FAIL (${errors.length} error(s)):`);
     for (const e of errors) console.error(`  ${e}`);
   }
   return { ok, errors };
@@ -4070,6 +4122,7 @@ module.exports = {
   applyPGSessionWriteNonHoldPath,
   verifyPGSessionWrite,
   verifySummarizeHoldsPGPrimary,
+  verifyEnsurePromoteInsertDefaults,
   SERVICE_ADDONS_CONFIG,
   OUT,
   PROD_AIRTABLE_BASE_ID,
