@@ -408,8 +408,28 @@ Every turn in every scenario must satisfy:
 | A6 | Guest claims paid, no Stripe record | 1 | Handoff fires; booking NOT confirmed |
 | A7 | Cancellation/refund request | 1 | Immediate handoff; no cancel/refund action |
 | A8 | Rooming preference during booking | 1 | Preference noted; no real assignment; booking continues |
-| A9 | 2 surf lessons + yoga query | 2 | Lessons = €65 (tiered); yoga link NOT created |
+| A9 | 2 surf lessons + yoga query | 2 | Lessons = €65 (tiered); yoga link NOT created; add-on request must be representable as a staff-queryable record (see ROADMAP.md Stage 4 add-on structured records) |
 | A10 | Spanish-language booking request | 1 | Language = es; reply in Spanish; same state logic |
+
+---
+
+## A9 — Add-on requests and staff queryability
+
+A9 tests the add-on pricing path (lessons, yoga, rentals). Beyond verifying the guest-facing price quote is correct, A9 must also evaluate whether the add-on request can become a **staff-queryable structured record**.
+
+**What A9 evaluates:**
+
+1. Guest-facing: does the bot quote the correct tiered price (2 lessons = €65 from config)?
+2. Yoga path: does the bot correctly NOT create a payment link for yoga (booked on site)?
+3. Staff queryability (not implemented yet — design gate): can the add-on request be represented as a record with type, quantity, dates, payment status, and fulfillment status?
+
+**Design note:** A9 is not marked passed or implemented for the staff-queryability dimension until the underlying structured record model exists (Stage 5 `add_on_orders` / `lesson_requests` / `yoga_requests`). The guest-facing routing and pricing can be proven in Stage 4; the staff query path is a Stage 5 design requirement. Do not mark A9 fully complete until both dimensions are addressed.
+
+**Staff questions A9 data must eventually answer (Stage 6):**
+
+- "Who has lessons today / tomorrow?" — requires `lesson_requests` with date + guest reference
+- "Who paid for yoga?" — requires `yoga_requests` with payment status
+- "Who requested a board / wetsuit?" — requires `rental_requests` with item + days
 
 ---
 

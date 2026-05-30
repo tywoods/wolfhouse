@@ -15,7 +15,7 @@
    Shadow / co-pilot     ← Stage 3y (staff-approved replies, real guest data)
 2. Reliable              ← Stage 4
 3. Clean                 ← Stage 5
-4. Beautiful             ← Stage 6
+4. Beautiful             ← Stage 6  (Staff / Admin Layer + Staff Operations Assistant)
 5. Scalable              ← Stage 7
 ```
 
@@ -37,7 +37,7 @@ Stage 3 is **not** about making the bot beautiful or fully productized. It is ab
 | **Backend / code** | Decides — routing, required fields, package logic, safety guards, handoff rules |
 | **Postgres** | Remembers — bookings, payments, conversations, beds, audit trail |
 | **Client config** | Controls — packages, pricing, room rules, policies per property (Wolfhouse = client #1) |
-| **Staff UI** | Manages — holds, payments, assignments, takeover (Stage 6+) |
+| **Staff UI + Staff Assistant** | Manages — holds, payments, assignments, takeover; answers operational queries; approves risky bot actions (Stage 6+) |
 
 The current **n8n-heavy** implementation is acceptable for **proving behavior** in Stage 3. Future stages migrate decision logic into code/config modules; n8n calls the decision engine instead of owning the business brain.
 
@@ -662,6 +662,21 @@ May begin here if needed before full Stage 6 UI:
 - Failed workflow executions
 - **Staff query assistant** (read-only ops Q&A: "who has a surfboard today?", "who arrives today?", "which rooms need cleaning and by when?") gated by an **approved-staff allowlist** (`staff_directory`; portal = Stage 6) — [`STAFF-QUERY-ASSISTANT-PLAN.md`](STAFF-QUERY-ASSISTANT-PLAN.md)
 
+### Add-on structured records (Stage 4 design requirement)
+
+Add-on dry-run tests (e.g. A9 — lessons, yoga, rentals) must do more than verify the guest-facing price quote is correct. They must also prove the system can **represent add-on requests as structured, staff-queryable records**. This is the data foundation that makes Stage 6 staff queries possible.
+
+Each add-on request that passes through the bot should be representable as a record with at minimum:
+- Guest / booking reference
+- Add-on type (lesson, wetsuit, board, yoga, dinner)
+- Quantity / number of days
+- Requested date(s)
+- Payment status (pending / paid)
+- Fulfillment status (not redeemed / redeemed — staff-managed)
+- A flag indicating whether staff scheduling / manual tracking applies (e.g. lessons require a manual slot assignment)
+
+**Stage 4 does not require full add-on automation.** It requires that when the bot processes an add-on request, the output can be persisted in a shape that is queryable by staff. If no structured add-on record is written yet, the design must identify where it would be written and what the schema looks like — so Stage 5 does not have to invent it from scratch.
+
 ---
 
 ## Stage 5 — Clean
@@ -692,17 +707,81 @@ Do **not** do broad Stage 5 refactor before Stage 3 / 3.5 safety gates. However,
 
 **Portability acceptance for Stage 5:** the Wolfhouse spine compiles and passes golden tests with **zero surf-house nouns** outside `inventory/lodging.*` and `client_config`. (Verify against the portability gate checklist.)
 
+### Staff-queryable operational data (Stage 5 requirement)
+
+Source-of-truth cleanup must explicitly produce the structured Postgres records that power Stage 6 staff queries. The data design goal is: **staff questions are answered from reliable structured records, not guessed from chat logs or Airtable exports.**
+
+The following tables/models must be designed (and at minimum stubbed in schema) during Stage 5, before the Stage 6 staff assistant is built:
+
+| Table / model | Answers the question |
+|---|---|
+| `add_on_orders` | Which guests have requested add-ons? What is the payment status per order? |
+| `add_on_items` | Line-item detail per order (type, qty, days, dates, price) |
+| `lesson_requests` | Who has lessons today / tomorrow? What slot? (staff assigns; bot records request) |
+| `rental_requests` | Who requested a board / wetsuit? For how many days? Pickup status? |
+| `yoga_requests` | Who paid for yoga? For which date? (redeemed on-site by staff) |
+| `staff_handoffs` / `staff_tasks` | Which conversations need a human reply? Why was it handed off? Current state? |
+| `payment_balances` (view or table) | Who still owes money? Who paid deposit but not full balance? |
+
+These are **not new features** — they are the structured forms of data the bot already collects. The goal of Stage 5 is to ensure that data lands in Postgres in a queryable shape instead of only in Airtable or serialized chat session state.
+
+**Design gate for Stage 5:** before beginning Stage 6 staff UI work, verify that a staff member can ask each of the following questions and get a correct answer from Postgres without touching Airtable or reading raw WhatsApp messages:
+
+- "Who paid for yoga today?"
+- "Who has lessons tomorrow?"
+- "Who still owes money?"
+- "Who requested a board?"
+- "Which bookings need a human reply?"
+- "Show today's arrivals and departures."
+- "Who paid deposit but not full balance?"
+- "Which guests requested rooming preferences?"
+
 ---
 
-## Stage 6 — Beautiful
+## Stage 6 — Beautiful (Staff / Admin Layer)
 
 ### Purpose
 
-Excellent staff and owner experience.
+Excellent staff and owner experience. This is where the **two-sided product** becomes visible: the guest-facing assistant (already built) and the **staff-facing operations assistant** (built here).
 
-### Includes
+### Two sides of the product
 
-- Staff UI: calendar / bed grid, guest list, booking detail
+| Side | Who uses it | What it does |
+|------|------------|--------------|
+| **Guest assistant** | Guests on WhatsApp | Bookings, questions, payments, confirmations, add-ons, rooming, handoff |
+| **Staff assistant / admin** | Ale, Cami, operators | Operational queries, action review/approval, conversation takeover, status dashboards |
+
+### Staff Operations Assistant
+
+Staff can ask operational questions and get answers from **structured Postgres records** (not chat logs or guesses). All queries are read-only, gated by `staff_directory` approved numbers.
+
+**Example questions the staff assistant must answer:**
+
+- "Who paid for yoga today?"
+- "Who has lessons tomorrow?"
+- "Who still owes money?"
+- "Who requested a board?"
+- "Which conversations need a human reply?"
+- "Show today's arrivals and departures."
+- "Who paid deposit but not full balance?"
+- "Which guests requested rooming preferences?"
+
+**Design constraint:** these questions are answered from the structured records built in Stage 5 (`lesson_requests`, `add_on_orders`, `staff_handoffs`, `payment_balances`, etc.). The assistant maps natural-language questions to fixed safe parameterized intents — it never generates arbitrary SQL.
+
+### Staff Approval Controls
+
+Staff can review, approve, and act on bot proposals without going directly into n8n or Airtable:
+
+- View bot draft reply before it is sent
+- Approve or reject risky bot action proposals (payment, cancellation, room reassign)
+- Take over a conversation from the bot
+- View payment / hold / rooming / add-on status per booking
+- Mark add-on as redeemed (voucher fulfilled on site)
+- Release or block operator rooms
+
+### Staff UI
+
+- Calendar / bed grid, guest list, booking detail
 - Payment status, pending holds, confirmation queue
 - Conversation history, human takeover
 - Manual booking / edit / cancel tools
@@ -711,6 +790,8 @@ Excellent staff and owner experience.
 - Owner dashboard
 
 Airtable may remain a **bridge** during transition; long-term goal is a proper staff UI, not Airtable as daily ops surface.
+
+**Airtable cutover prerequisite:** the staff UI (or equivalent) must cover all use cases Airtable currently serves before Airtable is removed as a dependency — see the Source-of-truth cutover table above.
 
 ---
 
