@@ -18501,7 +18501,7 @@
           "cachedResultName": "Bookings",
           "cachedResultUrl": "https://airtable.com/appiyO4FmkKsyHZdK/tblYWm3zKFafe4qu7"
         },
-        "filterByFormula": "=={{ \n'{Booking ID}=\"' + (\n  $('Search Conversation').first().json.fields?.['Current Hold ID'] ||\n  JSON.parse($('Search Conversation').first().json.fields?.['Session State'] || '{}').current_hold_id ||\n  JSON.parse($('Search Conversation').first().json.fields?.['Session State'] || '{}').hold_booking_id ||\n  JSON.parse($('Search Conversation').first().json.fields?.['Session State'] || '{}').booking_id ||\n  ''\n) + '\"'\n}}",
+        "filterByFormula": "={{ (() => { try { const f = ($('Search Conversation').first().json.fields || {}); const holdId = (f['Current Hold ID'] || '').trim(); return holdId ? ('{Booking ID}=\"' + holdId + '\"') : 'FALSE()'; } catch (e) { return 'FALSE()'; } })() }}",
         "options": {}
       },
       "type": "n8n-nodes-base.airtable",

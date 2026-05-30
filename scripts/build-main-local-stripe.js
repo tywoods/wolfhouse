@@ -2120,7 +2120,11 @@ function applyActiveBookingHoldIdGuard(workflow) {
     console.log('applyActiveBookingHoldIdGuard: node not found, skipping');
     return;
   }
-  const fixed = `=={{ ((() => {const holdId = ($('Search Conversation').first().json.fields?.['Current Hold ID'] || JSON.parse($('Search Conversation').first().json.fields?.['Session State'] || '{}').current_hold_id || JSON.parse($('Search Conversation').first().json.fields?.['Session State'] || '{}').hold_booking_id || JSON.parse($('Search Conversation').first().json.fields?.['Session State'] || '{}').booking_id || '');return holdId ? ('{Booking ID}="' + holdId + '"') : 'FALSE()';})()} }}`;
+  // Safe formula: if no Current Hold ID in Airtable conversation, return FALSE() so Airtable
+  // matches nothing instead of matching records with empty {Booking ID} field.
+  // Uses try/catch to handle empty Search Conversation results safely.
+  // Avoids JSON.parse (not reliably available in n8n expression sandbox).
+  const fixed = `={{ (() => { try { const f = ($('Search Conversation').first().json.fields || {}); const holdId = (f['Current Hold ID'] || '').trim(); return holdId ? ('{Booking ID}="' + holdId + '"') : 'FALSE()'; } catch (e) { return 'FALSE()'; } })() }}`;
   node.parameters.filterByFormula = fixed;
   console.log('applyActiveBookingHoldIdGuard: patched Search Active Booking - Current Hold ID formula');
 }
@@ -4378,8 +4382,7 @@ applyClosedMonthGuard(workflow, CLOSED_MONTHS_CONFIG);
 applyPGConversationRead(workflow);
 applyGeneralQuestionAddonsPrompt(workflow, SERVICE_ADDONS_CONFIG);
 applyPackageRequirement(workflow);
-// applyActiveBookingHoldIdGuard is deferred — Airtable IIFE formula needs further testing.
-// The BSR fix (removing !holdUsable from the payment_or_confirm_intent override) is sufficient.
+applyActiveBookingHoldIdGuard(workflow); // Stage 5.3e: safe FALSE() guard when hold_id is empty
 applyPGSessionWriteNonHoldPath(workflow); // Stage 5.1c: non-hold session write
 applyLocalTypingIndicatorBypass(workflow);
 applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode A shadow
