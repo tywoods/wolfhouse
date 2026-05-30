@@ -1046,3 +1046,262 @@ Steps 1–3 + 5.2e can be done in a single static implementation session. 5.2d r
 #### Next recommended slice
 
 **Stage 5.3 — Payments + balances source-of-truth cleanup** (see workstream §2 row 3): align `payments` / `payment_events` / `bookings.payment_status` with webhook truth; define `payment_balances` view; prove ensure-promote fixture path under dry-run guard.
+
+---
+
+## Stage 5.3 — Payments + Balances Source-of-Truth Cleanup (PLANNING 2026-05-30)
+
+### Objective
+
+Make `payments`, `payment_events`, and `bookings.payment_status` the authoritative, queryable record of payment state for the Wolfhouse pilot. Ensure staff can answer "who paid?", "who owes a balance?", and "which bookings need confirmation?" directly from Postgres — without Airtable, without live Stripe, and without reading WhatsApp logs.
+
+### 5.3.1 Current payment path (traced from Main → Stripe Webhook → Send Confirmation)
+
+```
+Guest → payment_or_confirm_intent → holds_created + guest details provided
+  → IF - Use Stripe Checkout (env USE_STRIPE_CHECKOUT=true)
+    → Postgres - Ensure Booking In Postgres         [hold→payment_pending in DB]
+         dry-run gate: IF - DRY RUN? (Postgres - Ensure Booking In Postgres)
+         TRUE (dry-run) → Code - Stub (no DB write, returns booking_id="dry-run-ensure-fallback")
+         FALSE (live)   → buildEnsurePromoteN8nSql() CTE:
+                            UPDATE bookings SET status='payment_pending',
+                              payment_status='waiting_payment'
+                            OR INSERT new payment_pending row
+    → IF - Booking ID Ready (booking_id NOT like 'dry-run-%')
+    → Code - Call Create Payment Session
+         dry-run inline branch: WHATSAPP_DRY_RUN=true → stub checkout_url
+         live branch: POST to CPS workflow → creates payments row + Stripe checkout session
+    → Send payment link to guest (via WhatsApp, dry-run gated)
+
+Stripe → checkout.session.completed → Stripe Webhook Handler
+  → Code - Verify Signature  (STRIPE_WEBHOOK_SKIP_VERIFY=true allowed locally)
+  → Code - Parse Stripe Event  (checkout.session.completed only; needs metadata.booking_id)
+  → Postgres - Apply Payment Success (single CTE):
+       INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING   ← idempotent
+       UPDATE payments SET status='paid', amount_paid_cents, paid_at
+       UPDATE bookings SET payment_status=('deposit_paid'|'paid'),
+                           deposit_paid_cents, amount_paid_cents, balance_due_cents,
+                           send_confirmation=TRUE
+  → IF - New Payment Row? (idempotency gate — duplicate event → 200 acknowledged, no update)
+  → Respond (processed or duplicate)
+
+Send Confirmation workflow
+  → Trigger: Schedule poll (3 min) OR Webhook /send-confirmation-local
+  → Postgres: SELECT bookings WHERE
+       send_confirmation=TRUE AND status='payment_pending'
+       AND payment_status IN ('deposit_paid','paid')
+       AND confirmation_sent_at IS NULL
+  → LLM draft → Code - Send WhatsApp (WHATSAPP_DRY_RUN=true → stub)
+  → IF - DRY RUN? (Mark Confirmed)
+       TRUE  → stub (no DB write)
+       FALSE → UPDATE bookings SET status='confirmed', send_confirmation=FALSE,
+                  confirmation_sent_at=NOW()
+```
+
+**What is stubbed/gated in dry-run today:**
+
+| Node | Gate | Stub behaviour |
+|------|------|---------------|
+| `Postgres - Ensure Booking In Postgres` | `IF - DRY RUN?` | Returns `booking_id="dry-run-ensure-fallback"`, no DB write |
+| `Code - Call Create Payment Session` | Inline `WHATSAPP_DRY_RUN` | Returns stub `checkout_url`, no `payments` row created |
+| Stripe Webhook Verify | `STRIPE_WEBHOOK_SKIP_VERIFY=true` | Bypasses HMAC; allows local replay |
+| `Postgres - Apply Payment Success` | Not gated — requires real `payments` row | Event INSERT fails if no matching `payments` row for session_id |
+| `Postgres - Mark Booking Confirmed` | `IF - DRY RUN? (Mark Confirmed)` | Stub return, no DB write |
+| WhatsApp sends | Per-node `IF - DRY RUN?` | All 16 WA send nodes stubbed |
+
+### 5.3.2 Stage 5.3 objective
+
+Postgres is the authoritative payment ledger for the Wolfhouse pilot. Staff can answer each of the following directly from Postgres without Airtable or Stripe dashboard access:
+
+| Staff question | Source table / field |
+|---------------|---------------------|
+| Who paid deposit? | `bookings.payment_status='deposit_paid'` |
+| Who paid in full? | `bookings.payment_status='paid'` |
+| Who still owes balance? | `balance_due_cents > 0 AND payment_status='deposit_paid'` |
+| Who has payment_pending with no payment row? | `bookings.status='payment_pending'` LEFT JOIN `payments` WHERE none |
+| Which paid bookings need confirmation? | `send_confirmation=TRUE AND confirmation_sent_at IS NULL` |
+| Which bookings have a `payments` record vs not? | JOIN query |
+| What is the payment timeline for booking X? | `payment_events WHERE booking_id=X` |
+
+### 5.3.3 Payment/balance state contract
+
+Fields that must be reliable at each stage:
+
+| Stage | Field | Must-have | Writer |
+|-------|-------|-----------|--------|
+| **payment_pending** | `status`, `payment_status=waiting_payment` | ✓ | Ensure promote |
+| **payment_pending** | `total_amount_cents`, `deposit_required_cents` | ✓ | CPS / config — currently NULL on stub path |
+| **payment_pending** | `hold_expires_at`, `assignment_status`, `availability_check_status` | ✓ | Ensure INSERT (5.2c done) |
+| **payment row created** | `payments.status=checkout_created`, `amount_due_cents`, `stripe_checkout_session_id` | ✓ | CPS workflow |
+| **payment paid** | `payments.status=paid`, `amount_paid_cents`, `paid_at` | ✓ | Stripe webhook |
+| **payment paid** | `bookings.payment_status` (`deposit_paid`\|`paid`) | ✓ | Stripe webhook |
+| **payment paid** | `bookings.amount_paid_cents`, `balance_due_cents`, `deposit_paid_cents` | ✓ | Stripe webhook |
+| **payment paid** | `bookings.send_confirmation=TRUE` | ✓ | Stripe webhook |
+| **payment event** | `payment_events` row; `processed=TRUE`; idempotent on `stripe_event_id` | ✓ | Stripe webhook |
+| **confirmed** | `bookings.status=confirmed`, `confirmation_sent_at` | ✓ | Send Confirmation |
+
+**`payment_balances` view (to define):** Computed view joining `bookings` + `payments` + `payment_events` to expose balance-due, deposit-paid, and overpayment/duplicate detection for staff queries.
+
+### 5.3.4 Gaps vs Stage 5.3 objective
+
+| Gap | Impact | Fix scope |
+|-----|--------|-----------|
+| `payment_balances` view not defined | Staff cannot query "who owes?" in one query | 5.3b — SQL helper |
+| `total_amount_cents`, `deposit_required_cents` NULL on ensure insert | Balance-due calculation unreliable until CPS fires | 5.3a/5.3d — must be sourced from config/CPS result |
+| Ensure-promote **live** path not runtime-proven | `bookings.status` transition hold→payment_pending never run under test | 5.3d fixture gate |
+| No `payments` row exists in dry-run (CPS stub skips creation) | Stripe webhook replay requires a `payments` row with matching `stripe_checkout_session_id` | 5.3d — fixture must INSERT payments row as part of setup SQL, or use existing Stage 4 gate 3 pattern |
+| `Postgres - Apply Payment Success` not dry-run gated | A fixture-replayed webhook will write to `payments`/`payment_events`/`bookings` unconditionally | 5.3e — acceptable under fixture scope; must be scoped by fixture booking_id only |
+| No staff payment query helpers | Cannot answer who paid / who owes from a script | 5.3c — new module |
+| `send_confirmation` / `confirmation_sent_at` confirmation-needed query not a named helper | Confirmation backlog invisible to staff | 5.3f |
+| Hold stub returns `payment_status: 'unpaid'` (not a valid enum) | Potential mismatch in query filters | Known non-issue (stub only; never hits DB) |
+| `booking_code` uniqueness on ensure INSERT | If fixture hold (5.2d) created `WH-260530-XXXX` and cleanup ran, ensure can INSERT same code — fine; but code must not collide with live rows | 5.3d fixture must use reserved prefix |
+
+### 5.3.5 Implementation slices
+
+#### 5.3a — Schema/status audit (static, no DB changes)
+
+- Verify `bookings` columns for payment aggregates: `total_amount_cents`, `deposit_required_cents`, `deposit_paid_cents`, `amount_paid_cents`, `balance_due_cents` all present.
+- Verify `payments` post-004 columns: `amount_due_cents`, `amount_paid_cents`, `payment_kind`.
+- Confirm `payment_events.stripe_event_id` UNIQUE constraint (idempotency anchor).
+- Note gap: `deposit_required_cents` / `total_amount_cents` not set on ensure INSERT — must come from CPS response (acceptable; document explicitly).
+- No migration needed. Document: no 5.3 schema migration required.
+
+#### 5.3b — `payment_balances` SQL helper/view (static)
+
+New module `scripts/lib/payment-balances-query.js` (or inline SQL helper) defining the staff balance view:
+
+```sql
+-- payment_balances (logical view — not a DB object yet; materialized as a function/query)
+SELECT
+  b.id::text          AS booking_id,
+  b.booking_code,
+  b.phone,
+  b.guest_name,
+  b.package_code,
+  b.check_in, b.check_out,
+  b.status::text,
+  b.payment_status::text,
+  b.total_amount_cents,
+  b.deposit_required_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents,
+  b.deposit_paid_cents,
+  b.send_confirmation,
+  b.confirmation_sent_at,
+  p.id::text          AS payment_id,
+  p.status::text      AS payment_record_status,
+  p.payment_kind::text,
+  p.amount_due_cents  AS payment_amount_due_cents,
+  p.amount_paid_cents AS payment_amount_paid_cents,
+  p.stripe_checkout_session_id,
+  p.paid_at,
+  (SELECT COUNT(*) FROM payment_events pe WHERE pe.booking_id = b.id) AS payment_event_count
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+LEFT JOIN payments p  ON p.booking_id = b.id
+WHERE c.slug = $1
+  AND b.status IN ('payment_pending','confirmed')
+ORDER BY b.updated_at DESC;
+```
+
+Add static verifier: SELECT-only, references `bookings` + `payments` + `payment_events`, parameterised by `$1`.
+
+#### 5.3c — Staff payment query helpers (static)
+
+New exports in `scripts/lib/staff-payment-queries.js`:
+
+| Function | Query | Staff question answered |
+|----------|-------|------------------------|
+| `getDepositPaidQuery()` | `payment_status='deposit_paid'` | Who paid deposit but owes balance? |
+| `getFullyPaidQuery()` | `payment_status='paid'` | Who paid in full? |
+| `getBalanceDueQuery()` | `balance_due_cents > 0 AND payment_status='deposit_paid'` | Who owes remaining balance? |
+| `getPaymentPendingNoPaymentRowQuery()` | `status='payment_pending'` LEFT JOIN `payments` WHERE none | Who is payment_pending with no `payments` row? |
+| `getConfirmationNeededQuery()` | `send_confirmation=TRUE AND confirmation_sent_at IS NULL AND payment_status IN (deposit_paid, paid)` | Which paid bookings need confirmation sent? |
+| `getPaymentTimelineQuery()` | `payment_events WHERE booking_id=$2` parameterised by client + booking_id | Full payment event history for one booking |
+
+All: SELECT-only, `$1` = client slug, verifier checks no mutation keywords.
+
+#### 5.3d — Fixture ensure-promote + payment session proof (runtime gate)
+
+Runtime gate proving the full live hold→payment_pending→payments-row path under controlled fixture guard.
+
+**Fixture:**
+- `STAGE53_FIXTURE_PAYMENT=true` env flag (analogous to `STAGE52_FIXTURE_HOLD`)
+- fixture booking_code prefix: `WH-53-` (reserved, cleaned by cleanup SQL)
+- fixture phone: `34600000153` (new reserved phone)
+- Approach: reuse/extend `IF - Stage52 Fixture?` pattern or add new `IF - Stage53 Fixture?` node before `Postgres - Ensure Booking In Postgres` stub
+
+**Allowed mutations:**
+- `bookings` Δ=+1 (hold → payment_pending promote, or new insert) ← reverted after cleanup
+- `payments` Δ=+1 (CPS creates row) ← reverted after cleanup
+- `payment_events` Δ=0 (no Stripe webhook in this sub-gate)
+- `booking_beds` Δ=0
+
+**Proof:** `bookings.status=payment_pending`, `payment_status=waiting_payment`, `payments.status=checkout_created`, `amount_due_cents` set from stub CPS response.
+
+#### 5.3e — Stripe webhook fixture replay proof (runtime gate)
+
+Extends Stage 4 gate 3 pattern. Uses `STRIPE_WEBHOOK_SKIP_VERIFY=true` with a prepared fixture.
+
+**Fixture:** Pre-insert `bookings` (payment_pending) + `payments` (checkout_created) rows for fixture phone; simulated `checkout.session.completed` payload with matching `stripe_checkout_session_id`.
+
+**Proof:**
+- `payment_events` Δ=+1, `stripe_event_id` unique, `processed=TRUE`
+- `payments.status=paid`, `amount_paid_cents` set
+- `bookings.payment_status=deposit_paid` (or `paid`)
+- `bookings.send_confirmation=TRUE`
+- Replay same event → `IF - New Payment Row?` FALSE → duplicate acknowledged (idempotency proof)
+
+**Cleanup:** DELETE fixture `payment_events`, `payments`, `bookings` rows for fixture phone.
+
+#### 5.3f — Confirmation-needed query proof (static + runtime smoke)
+
+Static: `getConfirmationNeededQuery()` returns the correct eligibility set.
+Runtime smoke: after 5.3e gate, run query to confirm fixture booking appears in confirmation-needed list; run cleanup; confirm query returns 0.
+
+#### 5.3g — Payment/staff smoke gate (runtime, after 5.3d–5.3f)
+
+Combined sanity check using `scripts/verify-stage53-payment-proof.js`:
+
+- Run all `staff-payment-queries.js` helpers against wolfhouse-somo
+- Print fixture rows in each result bucket
+- Verify balance_due / amount_paid computations against known fixture values
+- Confirm cleanup restores baseline
+
+### 5.3.6 Proof criteria
+
+| Criterion | Gate |
+|-----------|------|
+| Fixture booking moves hold→payment_pending with `waiting_payment` | 5.3d |
+| `payments` row created with `amount_due_cents` and `stripe_checkout_session_id` | 5.3d |
+| Stripe webhook sets `payment_status=deposit_paid`, `send_confirmation=TRUE` | 5.3e |
+| `payment_events` idempotent (duplicate event → acknowledged, no extra row) | 5.3e |
+| `balance_due_cents` computed correctly after partial payment | 5.3e |
+| `getConfirmationNeededQuery()` returns fixture before cleanup, 0 after | 5.3f |
+| `payment_balances` view returns correct balance for fixture | 5.3g |
+| `booking_beds` unchanged throughout all gates | 5.3d–5.3g |
+| No real Stripe, no real WhatsApp | All gates |
+| Cleanup restores `bookings`, `payments`, `payment_events` baseline | All gates |
+
+### 5.3.7 Deferrals
+
+- Live Stripe checkout (real guest payments, real `checkout.session.completed`)
+- Refunds / voucher automation
+- Add-on payment records → Stage 5.5–5.6
+- Multi-currency / multi-Stripe-account → Stage 7
+- Staff UI / payment dashboard → Stage 6
+- Multi-client payment config → Stage 7
+- Balance-due automated follow-up / retry → future automation
+- Full `payment_balances` as a DB VIEW (migration) — plan as SQL helper first; promote to VIEW in Stage 6 if needed
+
+### 5.3.8 Recommended implementation order
+
+| Step | Slice | Risk | Needs runtime |
+|------|-------|------|---------------|
+| 1 | 5.3a schema audit | Zero | No |
+| 2 | 5.3b payment_balances SQL helper | Zero | No |
+| 3 | 5.3c staff payment query helpers | Zero | No |
+| 4 | 5.3d fixture ensure-promote + payment session | Medium — first real ensure-promote + payments write | Yes |
+| 5 | 5.3e Stripe webhook fixture replay | Medium — first real payment_events + payments.paid write | Yes |
+| 6 | 5.3f confirmation-needed query proof | Low | Yes (smoke) |
+| 7 | 5.3g payment/staff smoke gate | Low | Yes |
