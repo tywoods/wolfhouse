@@ -94,6 +94,10 @@ const SCENARIO_ORDER = [
   'a8-rooming-preference-during-booking.json',
   'a9-addons-lessons-rentals-yoga.json',
   'a10-spanish-booking-request.json',
+  'it-1-booking-full-fields.json',
+  'it-2-booking-missing-fields.json',
+  'it-3-deposit-payment-question.json',
+  'de-1-booking-full-fields.json',
 ];
 
 // ── Schema validation ─────────────────────────────────────────────────────────

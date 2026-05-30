@@ -1,0 +1,95 @@
+{
+  "_meta": {
+    "scenario_id": "IT-2",
+    "title": "Italian booking request — missing dates, package, and guest count",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "PASS — exec 1208 (booking_flow, it, missing-fields asked in Italian, no hold). Multilingual batch.",
+    "goal": "Guest sends a vague Italian availability request without exact dates, package, or guest count. Bot must route to booking_flow, detect language=it, ask for missing fields in Italian. No hold. No payment link.",
+    "notes": "Primary acceptance language. Message is intentionally vague ('una settimana', 'avete posto?'). Bot must collect missing booking fields before hold."
+  },
+
+  "config_expectations": {
+    "language": "it",
+    "multilingual_required": true,
+    "expected_missing_at_minimum": ["check_in", "check_out", "package_intent", "guest_count"],
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {},
+
+  "turns": [
+    {
+      "turn_id": "IT-2-T1",
+      "description": "Guest asks vaguely about availability for a week",
+      "guest_message": "Ciao, vorrei venire a Wolfhouse per una settimana. Avete posto?",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000112", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Ospite IT-2" }, "wa_id": "34600000112" }],
+                  "messages": [
+                    {
+                      "from": "34600000112",
+                      "id": "wamid.4IT2-T1-TEST001",
+                      "timestamp": "1780000101",
+                      "text": { "body": "Ciao, vorrei venire a Wolfhouse per una settimana. Avete posto?" },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.80,
+      "expected_language": "it",
+      "expected_missing_fields": ["check_in", "check_out", "package_intent", "guest_count"],
+      "expected_bot_behavior": "Bot detects Italian. Routes to booking_flow. Asks for missing dates, package preference, and guest count IN ITALIAN. Hold must NOT fire.",
+      "expected_state_after_turn": {
+        "language_detected": "it",
+        "reply_language": "it",
+        "hold_stub_fired": false,
+        "missing_fields_question_issued": true
+      },
+      "assertions": {
+        "language_must_be_it": true,
+        "reply_must_be_in_italian": true,
+        "route_must_be_booking_flow": true,
+        "hold_must_not_fire": true,
+        "no_payment_link": true
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_real_hold": true,
+        "no_payment_events_write": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "language": "it",
+    "hold_stub_fired": false,
+    "payment_events_delta": 0,
+    "booking_beds_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "language_detection_works_for_it": true,
+    "italian_reply_generated": true,
+    "missing_fields_collected_in_italian": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

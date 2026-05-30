@@ -1,0 +1,122 @@
+{
+  "_meta": {
+    "scenario_id": "DE-1",
+    "title": "German booking request — full fields (Uluwatu, 2 guests, September)",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "PASS — exec 1209 (booking_flow, de, German reply, hold stub). Multilingual batch.",
+    "goal": "Guest sends a complete booking request in German. Bot must route to booking_flow, detect language=de, reply in German, extract dates/package/guest count, and may fire hold stub. No real mutations.",
+    "notes": "German control (~10% of guests). Same dates/package as IT-1 for cross-language comparison. Config: llm_safety.multilingual_test_required should include 'de' when enabled."
+  },
+
+  "config_expectations": {
+    "language": "de",
+    "multilingual_required": true,
+    "multilingual_source": "llm_safety.multilingual_test_required",
+    "package_key": "uluwatu",
+    "season": "shoulder",
+    "check_in": "2026-09-10",
+    "check_out": "2026-09-17",
+    "nights": 7,
+    "guest_count": 2,
+    "price_per_person_eur": 349,
+    "total_eur": 698,
+    "deposit_eur": 200,
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {
+    "hold_stub": {
+      "booking_id": "aaa00000-0000-0000-0000-00000000de01",
+      "booking_code": "WH-DRYDE1-001",
+      "status": "hold",
+      "expires_in_minutes": 60,
+      "check_in": "2026-09-10",
+      "check_out": "2026-09-17",
+      "guest_count": 2,
+      "package_key": "uluwatu",
+      "total_amount_cents": 69800,
+      "deposit_amount_cents": 20000,
+      "currency": "EUR",
+      "dry_run": true
+    }
+  },
+
+  "turns": [
+    {
+      "turn_id": "DE-1-T1",
+      "description": "Guest sends complete German booking request",
+      "guest_message": "Hallo! Ich möchte das Uluwatu-Paket für 2 Personen vom 10. bis 17. September buchen. Ist das verfügbar?",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000114", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Gast DE-1" }, "wa_id": "34600000114" }],
+                  "messages": [
+                    {
+                      "from": "34600000114",
+                      "id": "wamid.4DE1-T1-TEST001",
+                      "timestamp": "1780000301",
+                      "text": { "body": "Hallo! Ich möchte das Uluwatu-Paket für 2 Personen vom 10. bis 17. September buchen. Ist das verfügbar?" },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "booking_flow",
+      "expected_confidence_min": 0.85,
+      "expected_language": "de",
+      "expected_missing_fields": [],
+      "expected_bot_behavior": "Bot detects German (language=de). Routes to booking_flow. Extracts check_in=2026-09-10, check_out=2026-09-17, guest_count=2, package_key=uluwatu. Replies IN GERMAN. Hold stub may fire.",
+      "expected_state_after_turn": {
+        "language_detected": "de",
+        "reply_language": "de",
+        "session_check_in": "2026-09-10",
+        "session_check_out": "2026-09-17",
+        "session_guest_count": 2,
+        "session_package_key": "uluwatu",
+        "hold_stub_fired": true
+      },
+      "assertions": {
+        "language_must_be_de": true,
+        "reply_must_be_in_german": true,
+        "route_must_be_booking_flow": true,
+        "field_extraction_same_as_english": true
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_real_hold": true,
+        "no_payment_events_write": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "language": "de",
+    "booking_status": "hold",
+    "reply_in_german": true,
+    "payment_events_delta": 0,
+    "booking_beds_delta": 0,
+    "payments_delta": 0
+  },
+
+  "assertions": {
+    "language_detection_works_for_de": true,
+    "german_reply_generated": true,
+    "booking_flow_unaffected_by_language": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

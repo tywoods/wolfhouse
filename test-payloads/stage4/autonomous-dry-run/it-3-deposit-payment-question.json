@@ -1,0 +1,96 @@
+{
+  "_meta": {
+    "scenario_id": "IT-3",
+    "title": "Italian deposit vs full-payment question",
+    "stage": "4",
+    "mode": "autonomous-dry-run",
+    "status": "PASS — exec 1211 (general_question, it, deposit policy explained in Italian, no payment link, no hold). Multilingual batch complete.",
+    "goal": "Guest asks in Italian whether they can pay only the deposit now or must pay in full. Bot must detect language=it, explain deposit/full-payment options correctly in Italian. No payment link without booking context. No mutations.",
+    "notes": "Expected route: general_question (acceptable alternate: payment_or_confirm_intent if parser treats as payment intent). No hold context seeded — bot should explain policy, not generate Stripe link."
+  },
+
+  "config_expectations": {
+    "language": "it",
+    "multilingual_required": true,
+    "deposit_standard_package_eur": 200,
+    "deposit_custom_or_short_stay_eur": 100,
+    "deposit_source": "payments.deposit.tiers",
+    "config_source": "wolfhouse-somo.baseline.json v0.6"
+  },
+
+  "stub_overrides": {},
+
+  "turns": [
+    {
+      "turn_id": "IT-3-T1",
+      "description": "Guest asks policy-only deposit vs full payment question (no dates yet)",
+      "guest_message": "Domanda veloce: per prenotare da Wolfhouse, si può pagare solo un deposito all'inizio oppure bisogna pagare tutto subito? Non sto ancora scegliendo le date.",
+      "post_body": {
+        "object": "whatsapp_business_account",
+        "entry": [
+          {
+            "id": "FAKE_WABA_ID",
+            "changes": [
+              {
+                "value": {
+                  "messaging_product": "whatsapp",
+                  "metadata": { "display_phone_number": "34600000113", "phone_number_id": "FAKE_PHONE_NUMBER_ID" },
+                  "contacts": [{ "profile": { "name": "Test Ospite IT-3" }, "wa_id": "34600000113" }],
+                  "messages": [
+                    {
+                      "from": "34600000113",
+                      "id": "wamid.4IT3-T1-TEST001",
+                      "timestamp": "1780000201",
+                      "text": { "body": "Domanda veloce: per prenotare da Wolfhouse, si può pagare solo un deposito all'inizio oppure bisogna pagare tutto subito? Non sto ancora scegliendo le date." },
+                      "type": "text"
+                    }
+                  ]
+                },
+                "field": "messages"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_route": "general_question",
+      "expected_confidence_min": 0.80,
+      "expected_language": "it",
+      "expected_bot_behavior": "Bot detects Italian. Explains deposit vs full-payment options in Italian using config-backed deposit rules (€200 standard package / €100 custom or short stay). Does NOT create payment link without active booking context.",
+      "expected_state_after_turn": {
+        "language_detected": "it",
+        "reply_language": "it",
+        "payment_link_created": false,
+        "hold_stub_fired": false
+      },
+      "assertions": {
+        "language_must_be_it": true,
+        "reply_must_be_in_italian": true,
+        "acceptable_routes": ["general_question", "payment_or_confirm_intent"],
+        "no_payment_link_without_booking_context": true,
+        "deposit_policy_explained": true
+      },
+      "forbidden_live_actions": {
+        "no_real_whatsapp_send": true,
+        "no_real_stripe_session": true,
+        "no_payment_events_write": true
+      }
+    }
+  ],
+
+  "expected_final_state": {
+    "language": "it",
+    "payment_link_created": false,
+    "payment_events_delta": 0,
+    "payments_delta": 0,
+    "booking_beds_delta": 0
+  },
+
+  "assertions": {
+    "language_detection_works_for_it": true,
+    "italian_reply_generated": true,
+    "no_payment_link_without_context": true,
+    "protected_count_deltas_all_zero": true
+  },
+
+  "staff_review_notes": ""
+}

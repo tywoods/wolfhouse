@@ -27,7 +27,22 @@ dangerous live writes, correct handoff for exceptions.
 
 ---
 
-## ✅ Runtime gate 4 Batch 3 — A9 add-ons (2026-05-30) — PASS
+## ✅ Runtime gate 4 Batch 4 — Multilingual (2026-05-30) — PASS
+
+Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. Protected counts Δ=0 (41/25/5/15).
+
+| Scenario | Exec | Route | Lang | Result | Notes |
+|----------|------|-------|------|--------|-------|
+| IT-1 | 1207 | booking_flow | it | ✅ PASS | Italian reply, hold stub fired |
+| IT-2 | 1208 | booking_flow | it | ✅ PASS | Asks missing dates/count in Italian, no hold |
+| IT-3 | 1211 | general_question | it | ✅ PASS | Policy-only message re-run; deposit explained in Italian |
+| DE-1 | 1209 | booking_flow | de | ✅ PASS | German reply, hold stub fired |
+
+**IT-3 fix (exec 1211):** Message updated to policy-only: *"Domanda veloce: … Non sto ancora scegliendo le date."* Route=general_question (conf=0.95). Reply: deposit to secure booking, balance paid later. No payment link, no hold.
+
+**Italian is primary acceptance language (~65%).** All four multilingual scenarios runtime proven.
+
+---
 
 Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. Execs 1206 (T1 re-run) + 1205 (T2). Protected counts all Δ=0.
 
@@ -332,20 +347,25 @@ Determine Missing Fields
 
 Italian must be treated as the **primary acceptance language**, not an afterthought. Scenarios passing in English/Spanish but not Italian are not acceptable for production sign-off.
 
-**Proposed multilingual batch (Gate 4 Batch 2 or dedicated multilingual gate):**
-| Scenario | Language | Intent | Priority |
-|----------|----------|--------|----------|
-| Italian booking request (all fields) | IT | booking_flow → hold | P1 |
-| Italian missing-fields request | IT | booking_flow → collect details | P1 |
-| Italian payment/deposit question | IT | payment_pending_intent | P1 |
-| German booking request | DE | booking_flow → hold | P2 |
-| Spanish booking control | ES | booking_flow → hold | P3 (A10 partial) |
-| English control | EN | booking_flow → hold | P4 (A1 series) |
+**Proposed multilingual batch (Gate 4 Batch 4 — scaffolded 2026-05-30):**
+
+| Scenario | File | Language | Purpose | Turns | Status | Priority |
+|----------|------|----------|---------|-------|--------|----------|
+| IT-1 | it-1-booking-full-fields.json | IT | Full-fields booking → hold | 1 | ✅ PASS (exec 1207) | P1 |
+| IT-2 | it-2-booking-missing-fields.json | IT | Missing fields → collect in Italian | 1 | ✅ PASS (exec 1208) | P1 |
+| IT-3 | it-3-deposit-payment-question.json | IT | Deposit vs full-payment question | 1 | ✅ PASS (exec 1211) | P1 |
+| DE-1 | de-1-booking-full-fields.json | DE | Full-fields booking control | 1 | ✅ PASS (exec 1209) | P2 |
+| A10 | a10-spanish-booking-request.json | ES | Spanish booking control | 1 | ✅ PASS | P3 |
+
+**Italian is the primary acceptance language (~65%).** Production sign-off requires IT-1/IT-2/IT-3 runtime PASS, not just English/Spanish.
+
+**Runtime gate order (recommended):** IT-1 → IT-2 → IT-3 → DE-1 (all single-turn, Main only, WHATSAPP_DRY_RUN=true, protected Δ=0).
 
 **Notes:**
-- A10 (Spanish) already PASSED for `booking_flow` routing and Spanish reply detection
-- Italian scenarios require verifying that `language = "it"` is detected, reply is fully in Italian, and hold/reply nodes do not fall back to English
-- `closed_months` reply (post A5 fix) must be tested in Italian and German as well
+- A10 (Spanish) already PASSED for `booking_flow` routing and Spanish reply detection (exec 1158)
+- IT-1/DE-1 use same Uluwatu Sep 10–17 dates for cross-language comparison
+- IT-3 acceptable routes: `general_question` (primary) or `payment_or_confirm_intent`
+- `closed_months` reply should be tested in Italian/German in a future batch extension
 
 ---
 
