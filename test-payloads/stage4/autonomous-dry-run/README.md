@@ -642,20 +642,68 @@ Real WhatsApp send remains NOT approved. Live autonomous operation remains NOT a
 | A9 | Surf lessons + yoga (addon pricing) | 2 | 34600000109 | addon_payment_link_stub (NEW shape) | MED — T2 yoga query is simple follow-up, may work | Investigate whether addon CPS path exists in Main | No | No | Δ=0 | 6 | HIGH — addon payment link path may not be implemented |
 | A10 | Spanish booking request | 1 | 34600000110 | hold_stub (proven) | None — 1 turn, all fields present | None | No | No | All Δ=0 | 1 | LOW — same hold_stub, language detection test |
 
-### Multi-turn state risk (A2/A3/A4) — analysis
+### Multi-turn state risk (A2/A3/A4) — full static analysis (2026-05-30)
 
-The Main workflow's `Postgres - Upsert Conversation Hold` is stubbed in Stage 4 dry-run via `PG_CONV_STUB`, which returns `{ pg_ok: true }` but writes nothing. For NEW phones (A2–A4), this means:
-- T1: bot sees empty conversation → processes normally, stub fires instead of writing
-- T2: bot sees **still-empty conversation** → treats as a new contact with no booking context
+**Root cause: Conversation state is read from AIRTABLE, not Postgres.**
 
-**Symptom:** T2 message "I'll go with the Malibu package" (A2) or "Deposit please" (A3) will arrive with no prior context — the LLM may misroute or respond generically. Amount assertions (€200, €599) cannot be validated if T2 context is missing.
+The Main workflow's `Search Conversation` node is an **Airtable read** — it retrieves `Current Hold ID`, `Language`, `Session State`, etc. from the Airtable Conversations table for the guest's phone number. All Airtable write nodes (`Create Conversation`, `Update Conversation After Reply`, and 18+ other conversation update nodes) are stubbed via `AT_CONV_STUB` in Stage 4 dry-run — they write nothing.
 
-**Options before A2/A3/A4 runtime:**
-1. *(Low risk, preferred)* Allow the real `Postgres - Upsert Conversation Hold` to run during Stage 4 dry-run (remove from stub scope) — conversation records are not sensitive business data and only contain phone/booking context fields
-2. *(Medium risk)* Pre-seed fixture conversation records for A2–A4 phones before each T1 run, then delete after T2
-3. *(Accept failure)* Run T2 as-is; document if LLM handles "Deposit please" without context → prove or disprove the risk empirically
+For new phones (A2–A4):
+- T1: `Search Conversation` (Airtable) returns empty — no record for this phone ✓ expected
+- T1: Bot processes, hold stub fires, `Create Conversation` (Airtable) **STUBBED** → writes nothing
+- T1: `Postgres - Upsert Conversation Hold` **STUBBED** → writes nothing  
+- T2: `Search Conversation` (Airtable) **STILL returns empty** — nothing was written in T1
+- T2: Bot has no context about T1 → misroutes or responds generically
 
-This must be decided before A2/A3/A4 are run. Not required for Batch 1 (A5/A6/A7/A8/A10).
+**Safety review of `Postgres - Upsert Conversation Hold`:**
+
+| Dimension | Finding |
+|-----------|---------|
+| Tables written | `conversations` ONLY (INSERT ON CONFLICT DO UPDATE) |
+| Tables read (SELECT) | `clients` (id lookup), `bookings` (validation read) |
+| `bookings` mutations | NONE — bookings is read only, never mutated |
+| `payments` | NONE |
+| `payment_events` | NONE |
+| `booking_beds` | NONE |
+| Airtable | NONE |
+| Stripe | NONE |
+| WhatsApp | NONE |
+| Comment in source | "Writes conversations only. No messages, payments, booking_beds." |
+| **VERDICT** | **SAFE from data-mutation perspective** |
+
+**Why removing the gate alone would NOT fix multi-turn state AND would BREAK the flow:**
+
+1. **Flow breakage**: The stub booking_codes (WH-DRYA2-0001, etc.) do not exist in the DB. The real SQL guards fail with `booking_missing = TRUE` → `pg_ok = FALSE` → `IF - PG Conversation OK` routes to `Code - PG Conversation Failed Stop` → workflow terminates
+2. **State problem remains**: Even if the PG write succeeded, `Search Conversation` is an Airtable read — T2 still reads from Airtable and finds nothing. The Postgres conversations table is not consulted by the Main workflow for state lookups.
+
+**Static fix decision: DO NOT REMOVE THE GATE**
+
+Removing `addDryRunGate('Postgres - Upsert Conversation Hold', ...)` would:
+- Break T1 execution (flow terminates with pg_ok=false for stub booking_codes)
+- Not fix T2 context (wrong source — state lives in Airtable reads)
+- Introduce a functional regression without solving the stated problem
+
+**Real fix paths for A2/A3/A4 (future work):**
+
+| Option | What | Risk | When |
+|--------|------|------|------|
+| A | Add a `Search Conversation (PG)` Postgres read node to Main workflow; allow real conv PG writes with fixture bookings | Medium — architectural change + fixture scope expansion | Before A2/A3/A4 runtime gate |
+| B | Accept Airtable coupling: run A2/A3/A4 only with phones that have live Airtable records (real guests, not test phones) | Low infra but breaks isolation | After Airtable cutover (Stage 6) |
+| C | Runner-level state injection: T2 POST body includes explicit session_state fields that the LLM can use without DB lookup | Medium — requires LLM prompt to accept injected context | Could be validated empirically with A2 |
+
+**Stage 4 dry-run `conversations` table status:**
+- `conversations` may be written by other workflows during runtime (not by Main in dry-run)
+- Protected business tables (bookings, payments, payment_events, booking_beds) remain zero-delta in all Stage 4 dry-run tests
+- `conversations` and `messages` can be treated as **allowed state tables** for multi-turn test scenarios (not protected business data)
+
+**Gate 4 Batch 1 is completely unaffected** — A5/A6/A7/A8/A10 are single-turn; no multi-turn state needed.
+
+**Current static verification results (2026-05-30):**
+- `node scripts/build-main-local-stripe.js --verify-targets`: Shadow-mode safety: OK (70 nodes gated, token clean, hold gated, ensure-booking gated, typing gated, reassign gated)
+- `node scripts/report-main-payment-contract.js`: Overall OK: true
+- `node scripts/report-main-rooming-contract.js`: Overall OK: true
+- `node --check scripts/run-stage4-autonomous-dry-run.js`: no syntax errors
+- **No changes made to `build-main-local-stripe.js` or Main workflow JSON**
 
 ### Recommended next runtime batch — Option: Single-turn routing + guard batch
 
@@ -674,4 +722,6 @@ This must be decided before A2/A3/A4 are run. Not required for Batch 1 (A5/A6/A7
 
 **Required implementation before Batch 1:** NONE — all 4-5 scenarios use proven stubs or no stubs.
 
-**Required implementation before A2/A3/A4/A9:** Resolve multi-turn conversation state (see options above) + investigate addon CPS path for A9.
+**Required implementation before A2/A3/A4:** Add `Search Conversation (PG)` node to Main workflow + fixture hold bookings. Separate planning task.
+
+**Required investigation before A9:** Verify whether addon payment-link path exists in Main workflow. Separate planning task.
