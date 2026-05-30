@@ -24773,6 +24773,55 @@
         "jsCode": "// Stage 5.2d: fixture guard FALSE branch — pass stub output through unchanged.\nconst stub = (() => { try { return $('Code - DRY RUN Stub (Postgres - Create Booking Hold)').first().json; } catch { return {}; } })();\nreturn [{ json: { ...stub, stage52_passthrough: true } }];"
       },
       "alwaysOutputData": true
+    },
+    {
+      "id": "stage53-fixture-if-001",
+      "name": "IF - Stage53 Fixture?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3020,
+        900
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "stage53-fixture-cond",
+              "leftValue": "={{ (() => {\n  const fixtureEnabled = String($env.STAGE53_FIXTURE_PAYMENT || '').toLowerCase() === 'true';\n  const phone = String($('Normalize Incoming Message').first().json.phone || '');\n  const isFixturePhone = ['34600000153', '+34600000153'].includes(phone);\n  return fixtureEnabled && isFixturePhone;\n})() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "stage53-passthrough-001",
+      "name": "Code - Stage53 DRY RUN Passthrough",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        1020
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Stage 5.3d: fixture guard FALSE branch — pass stub output through unchanged.\nconst stub = (() => { try { return $('Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)').first().json; } catch { return {}; } })();\nreturn [{ json: { ...stub, stage53_passthrough: true } }];"
+      },
+      "alwaysOutputData": true
     }
   ],
   "pinData": {},
@@ -28702,7 +28751,7 @@
       "main": [
         [
           {
-            "node": "IF - Booking ID Ready",
+            "node": "IF - Stage53 Fixture?",
             "type": "main",
             "index": 0
           }
@@ -28819,6 +28868,35 @@
         [
           {
             "node": "Code - Stage52 DRY RUN Passthrough",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Stage53 DRY RUN Passthrough": {
+      "main": [
+        [
+          {
+            "node": "IF - Booking ID Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Stage53 Fixture?": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Ensure Booking In Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Stage53 DRY RUN Passthrough",
             "type": "main",
             "index": 0
           }

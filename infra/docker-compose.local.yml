@@ -110,6 +110,8 @@ services:
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       # Stage 5.2d fixture hold guard (off by default; set true only for fixture runtime gate)
       STAGE52_FIXTURE_HOLD: ${STAGE52_FIXTURE_HOLD:-false}
+      # Stage 5.3d fixture ensure-promote guard (off by default; set true only for fixture runtime gate)
+      STAGE53_FIXTURE_PAYMENT: ${STAGE53_FIXTURE_PAYMENT:-false}
     volumes:
       - n8n_data:/home/node/.n8n
 
@@ -178,6 +180,8 @@ services:
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       # Stage 5.2d fixture hold guard (off by default; set true only for fixture runtime gate)
       STAGE52_FIXTURE_HOLD: ${STAGE52_FIXTURE_HOLD:-false}
+      # Stage 5.3d fixture ensure-promote guard (off by default; set true only for fixture runtime gate)
+      STAGE53_FIXTURE_PAYMENT: ${STAGE53_FIXTURE_PAYMENT:-false}
 
 volumes:
   wolfhouse_pg_data:

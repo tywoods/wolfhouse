@@ -1225,23 +1225,31 @@ All: SELECT-only, `$1` = client slug, `LEFT JOIN payments`, no mutation keywords
 
 Verifier: `scripts/verify-staff-payment-queries.js` — checks all 7 exports (1 balance + 6 payment), SELECT-only, client-scoped, `bookings` reference, `payments` reference for applicable queries. All 7/7 OK.
 
-#### 5.3d — Fixture ensure-promote + payment session proof (runtime gate)
+#### 5.3d — Fixture ensure-promote + payment session proof (STATIC SCAFFOLD DONE 2026-05-30 — runtime pending)
 
 Runtime gate proving the full live hold→payment_pending→payments-row path under controlled fixture guard.
 
-**Fixture:**
-- `STAGE53_FIXTURE_PAYMENT=true` env flag (analogous to `STAGE52_FIXTURE_HOLD`)
-- fixture booking_code prefix: `WH-53-` (reserved, cleaned by cleanup SQL)
-- fixture phone: `34600000153` (new reserved phone)
-- Approach: reuse/extend `IF - Stage52 Fixture?` pattern or add new `IF - Stage53 Fixture?` node before `Postgres - Ensure Booking In Postgres` stub
+**Static scaffold (2026-05-30):**
 
-**Allowed mutations:**
-- `bookings` Δ=+1 (hold → payment_pending promote, or new insert) ← reverted after cleanup
-- `payments` Δ=+1 (CPS creates row) ← reverted after cleanup
-- `payment_events` Δ=0 (no Stripe webhook in this sub-gate)
+**Chosen fixture design — Option A (pre-seed payments row):** CPS inline guard still returns a stub checkout URL and does NOT create a real `payments` row or call Stripe. A fixture `payments` row is pre-seeded via `scripts/fixtures/stage5.3d-payment-seed.sql`. This is the safest approach — no Stripe API call can happen at any point during the gate.
+
+- `IF - Stage53 Fixture?` guard node added after `Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)`
+  - `STAGE53_FIXTURE_PAYMENT=true` + phone `34600000153` / `+34600000153` required (both n8n-main and n8n-worker containers)
+  - TRUE → real `Postgres - Ensure Booking In Postgres` node
+  - FALSE → `Code - Stage53 DRY RUN Passthrough` (stub output unchanged)
+- Verifier `verifyStage53FixtureGuard(workflow)` wired into `runVerifyTargets`: OK
+- `scripts/fixtures/stage5.3d-payment-seed.sql` — pre-seeds fixture `bookings` (payment_pending) + `payments` (checkout_created, `cs_test_stage53_fixture_001`) for phone `+34600000153` / wolfhouse-somo
+- `scripts/fixtures/stage5.3d-cleanup.sql` — deletes fixture `payment_events`, `payments`, `bookings`, `conversations` for fixture phone; safe to re-run
+- `scripts/verify-stage53d-payment-proof.js` — read-only proof runner using `payment_balances` + 6 staff payment queries; prints fixture rows; safe before/after fixture exists
+- `STAGE53_FIXTURE_PAYMENT` env var added (default false) to both n8n and n8n-worker in `infra/docker-compose.local.yml`
+
+**Allowed mutations during runtime gate:**
+- `bookings` Δ=+1 (real ensure-promote: hold-seeded or direct payment_pending insert) ← reverted by cleanup
+- `payments` Δ=+1 (pre-seeded via fixture SQL, not via CPS) ← reverted by cleanup
+- `payment_events` Δ=0 (no Stripe webhook in 5.3d sub-gate)
 - `booking_beds` Δ=0
 
-**Proof:** `bookings.status=payment_pending`, `payment_status=waiting_payment`, `payments.status=checkout_created`, `amount_due_cents` set from stub CPS response.
+**Expected proof at runtime:** `bookings.status=payment_pending`, `payment_status=waiting_payment`, `payments.status=checkout_created`, `amount_due_cents=20000`, Query E (waiting payment) returns fixture row, Query D (no payment row) returns 0 (payment pre-seeded), cleanup restores all baselines.
 
 #### 5.3e — Stripe webhook fixture replay proof (runtime gate)
 
