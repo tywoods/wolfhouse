@@ -911,7 +911,75 @@ Removing `addDryRunGate('Postgres - Upsert Conversation Hold', ...)` would:
 
 ---
 
-### A2/A3/A4 multi-turn state fix — **IMPLEMENTED** — NOT RUNTIME TESTED (2026-05-30)
+### A2/A3/A4 multi-turn state fix — **IMPLEMENTED** — A2 runtime PARTIAL PASS (2026-05-30)
+
+---
+
+#### A2 multi-turn runtime results (Gate 4 Batch 2 — 2026-05-30)
+
+**T1 exec 1162 / T2 exec 1163** — Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true.
+
+| Turn | Exec | Route | Conf | Last node | Status |
+|------|------|-------|------|-----------|--------|
+| T1 | 1162 | booking_flow | 0.99 | Code - DRY RUN Stub (Update Conversation After Reply) | success |
+| T2 | 1163 | payment_or_confirm_intent | 0.95 | Code - DRY RUN Stub (Create or update Conversation - Payment Details) | success |
+
+**T1 evidence (exec 1162):**
+- `check_in=2026-05-01`, `check_out=2026-05-08`, `guest_count=1` extracted ✓
+- `Postgres - Search Conversation (PG)` executed → returned `{}` (no prior session, correct) ✓
+- `Code - Check Closed Month` ran → `closed_month_detected=false` (May is open) ✓
+- `IF - Closed Month?` → false branch ✓
+- `Determine Missing Fields` → `missing_fields=[]` — **package treated as optional** (T1 found no required missing fields)
+- Hold stub fired with `booking_code=DRY-STAGE4-nodate` (package_key=null — stub null-date fallback) ✓
+- Draft: _"Hey! 👋 Great news — we have availability for May 1–8 and we've temporarily held space for you for the next hour. To lock in the booking, could you drop me your name and email address? 🤙"_
+- `_pg_fallback_used: false` (no prior conversation to fall back to)
+
+**T2 evidence (exec 1163):**
+- Route: `payment_or_confirm_intent` (LLM interpreted "I'll go with the Malibu package" as confirming a package, not a new booking_flow request)
+- `Merge Session State` and `Postgres - Search Conversation (PG)` NOT IN RUN — these are on the `booking_flow` path; `payment_or_confirm_intent` path skips them
+- Draft: _"Great choice! 🤙 The Malibu package is awesome. To finalize your booking, I just need a couple of quick details: 1. What's your full name? 2. What's your email address?"_
+- Hold stub: NOT FIRED (T2 went to payment-details collection path)
+
+**PG infra proof (PASS):**
+- PG conversation seeded before T2: `conversation_id=730e035e-daee-4f8e-bf0c-c8cd240aec91` created=true
+- PG conversation cleaned up after T2: 1 row deleted, phone 34600000102 = 0 rows ✓
+- Baseline exec id: 1160 → T1: 1162 → T2: 1163 (both Main-only) ✓
+
+**Safety proof (all PASS):**
+- bookings: 41→41 (Δ0) ✓
+- payments: 25→25 (Δ0) ✓
+- payment_events: 5→5 (Δ0) ✓
+- booking_beds: 15→15 (Δ0) ✓
+- conversations: 7→7 (Δ0 net — seeded then torn down) ✓
+- No graph.facebook.com / no real wamid / no Airtable writes / no Stripe/CPS call ✓
+- WHATSAPP_DRY_RUN=true before and after ✓
+- Main deactivated immediately after T2 ✓
+
+**Activation fix (new finding — 2026-05-30):**
+Setting `active=true` in `workflow_entity` alone is insufficient for webhook registration.
+n8n 2.x also requires `activeVersionId = versionId` AND `workflow_published_version.publishedVersionId = versionId`.
+_tmp_a2_run.js now sets all three atomically before restart.
+
+**Findings:**
+1. **`Determine Missing Fields` treats package as optional** — T1 returned `missing_fields=[]` despite `package=null`. Bot proceeded to availability and hold without asking for the package. This means A2 as designed (T1 asks for package, T2 supplies it) doesn't trigger the expected flow.
+2. **T2 "I'll go with Malibu" → `payment_or_confirm_intent`** — The LLM correctly classified this as a payment/confirm intent. The PG fallback is on the `booking_flow` path and was not in T2's execution path.
+3. **PG fallback was NOT exercised** — The `Postgres - Search Conversation (PG)` node ran on T1 (correctly returning `{}`) but was not reached on T2.
+
+**Gate result: PARTIAL PASS**
+- Safety/mutation proof: ✅ PASS
+- Multi-turn webhook execution: ✅ PASS
+- PG seed/cleanup infrastructure: ✅ PASS
+- PG fallback state-read proof: ❌ NOT TESTED (T2 routed to payment_or_confirm_intent, not booking_flow)
+- T1 package-question behavior: ❌ NOT TRIGGERED (Determine Missing Fields treats package as optional)
+
+**Next for A2/A3/A4:**
+The PG fallback requires a test where T2 routes through `booking_flow`/`Merge Session State`. Options:
+- A3/A4 may be better candidates: T1 collects full booking details → hold fires → T2 asks for deposit/full → if T2 routes through payment path, check if prior session state (amounts, hold_id) is needed
+- Alternatively, design a new scenario where T2 provides a booking field that routes back through booking_flow
+
+---
+
+### A2/A3/A4 multi-turn state fix — original implementation record
 
 **Option A selected:** add `Postgres - Search Conversation (PG)` node + `Merge Session State` PG fallback. Runner seeds `conversations` between turns.
 
