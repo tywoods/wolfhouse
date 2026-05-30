@@ -486,7 +486,7 @@ Save as `scripts/fixtures/stage5.1-conversations-cleanup.sql`.
 
 ---
 
-### 5.1.14 Stage 5.1c — non-hold PG session write path (A2) (STATIC DONE 2026-05-30 — runtime pending)
+### 5.1.14 Stage 5.1c — non-hold PG session write path (A2) (RUNTIME PASS 2026-05-30)
 
 #### A2 T1 path (traced)
 
@@ -624,23 +624,24 @@ No other connections change. `Postgres - Upsert Conversation Hold` (hold-success
 
 #### A2 runtime proof criteria (after implementation)
 
-**A2 T1:**
-- `missing_fields = ['package_intent']`
-- `IF - Ready For Availability` → FALSE (main[1])
-- `Postgres - Write Session State` executes; `pg_ok=true`; `created=true`
-- Conversation row exists for `+34600000102` with `session_state` containing `check_in=2026-05-01`, `check_out=2026-05-08`, `guest_count=1`, `missing_fields=['package_intent']`, `ready_for_availability_check=false`
-- `current_hold_booking_id` is NULL
+**A2 T1 (exec 1226 — 2026-05-30 PASS):**
+- `IF Conversation Exists?` → FALSE (no prior row, clean baseline)
+- `Postgres - Write Session State` executed (IIFE paren bug fixed in `pgParam` template)
+- `Postgres - Upsert Conversation Hold` did NOT execute
+- Conversation row created: `id=69164229-affe-4baa-bd2d-5eaecf74d5b1`, `phone=+34600000102`, `current_hold_booking_id=null`
+- `session_state`: `check_in=2026-05-01`, `check_out=2026-05-08`, `guest_count=1`, `missing_fields=["package_intent"]`, `ready_for_availability_check=false`
 
-**A2 T2:**
-- `IF Conversation Exists?` → TRUE via PG `conversation_id`
-- `Merge Session State` uses PG session as `old_state`
-- Parser extracts `package=malibu` from T2 message
-- `Determine Missing Fields` → `missing_fields=[]`, `ready_for_availability_check=true`
-- `IF - Ready For Availability` → TRUE → hold-success path fires
-- `Postgres - Upsert Conversation Hold` executes; `pg_ok=true`
-- Hold stub fires (dry-run code)
+**A2 T2 (exec 1227 — 2026-05-30 PASS, no seed):**
+- `IF Conversation Exists?` → TRUE via PG `conversation_id=69164229` (from T1 WSS write)
+- `Merge Session State` `old_state` = T1 session (check_in/check_out/guest_count/missing_fields from PG)
+- `Code - Parse Route` → `route=payment_or_confirm_intent` (Malibu package confirmed)
+- `IF - Ready For Availability` → TRUE branch
+- `Postgres - Upsert Conversation Hold` executed: `pg_ok=true`, `booking_not_in_pg=true`, `conversation_id=69164229`
+- Hold stub fired (`Code - DRY RUN Stub (Postgres - Create Booking Hold)`)
 - Protected counts: bookings Δ=0, payments Δ=0, payment_events Δ=0, booking_beds Δ=0
-- Cleanup: conversation row for `+34600000102` deleted; remaining=0
+- Cleanup: conversation row `+34600000102` deleted; remaining=0
+
+**Fix applied:** Both `Postgres - Upsert Conversation Hold` and `Postgres - Write Session State` IIFEs had a missing closing `)` for `JSON.stringify(` in the `pgParam` template in `scripts/build-main-local-stripe.js`. This caused `esprima-next` to throw `ExpressionExtensionError: invalid syntax (Unexpected token :)`. Fixed by adding the missing `)` to close `JSON.stringify(` in both template literals (lines 686 and 1417 of build script).
 
 ---
 

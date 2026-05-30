@@ -683,7 +683,7 @@ function applyPhase3cHoldGate(workflow) {
       const _ge = ${holdData}.guest_email; if (_ge) _s.guest_email = _ge;
       const _mf = ${sess}.missing_fields; if (Array.isArray(_mf) && _mf.length > 0) _s.missing_fields = _mf;
       return _s;
-    })()`),
+    })())`),
     pgParam(`'__NULL__'`),
     pgParam(`'bot'`),
   ].join(',');
@@ -1389,7 +1389,7 @@ function applyPGSessionWriteNonHoldPath(workflow) {
 
   const sessionWriteQueryReplacement = [
     pgParam(`$('Normalize Incoming Message').first().json.phone`),
-    pgParam(`${pr}.language || ${sess}?.language`),
+    pgParam(`${pr}.language || (${sess} || {}).language`),
     pgParam(`'booking_flow'`),
     // Stage 5.1c: build session_state from Determine Missing Fields enriched session.
     // Only include non-null/non-empty fields. missing_fields and ready_for_availability_check
@@ -1411,10 +1411,10 @@ function applyPGSessionWriteNonHoldPath(workflow) {
       const _ge = _sess.guest_email; if (_ge) _s.guest_email = _ge;
       const _mf = _sess.missing_fields; if (Array.isArray(_mf)) _s.missing_fields = _mf;
       const _rfa = _sess.ready_for_availability_check;
-      if (_rfa !== undefined && _rfa !== null) _s.ready_for_availability_check = _rfa;
+      if (_rfa != null) _s.ready_for_availability_check = _rfa;
       const _bc = _sess.current_hold_booking_code; if (_bc) _s.current_hold_booking_code = _bc;
       return _s;
-    })()`),
+    })())`),
   ].join(',');
 
   const sessionWriteNode = {
