@@ -340,8 +340,7 @@ node scripts/run-sql.js --file scripts/fixtures/stage5.1-conversations-cleanup.s
 
 ## Stage 5.1 runtime gate — A3/A4 without seed (plan)
 
-**Status:** Planning only — **not yet run** (2026-05-30)  
-**Gate scope:** A3 and A4 only. A2 deferred (see §5.1.8 below).
+**Status:** **PASS** — 2026-05-30 (execs 1214/1215/1216/1217). No runner seed. WHATSAPP_DRY_RUN=true. Only Main RBfGNtVgrAkvhBHJ active.
 
 ---
 
@@ -369,7 +368,20 @@ Before defining the gate, a key constraint was identified:
 - No manual conversation seed for phones `34600000103` or `34600000104`
 - Protected table baseline: bookings=41, payments=25, payment_events=5, booking_beds=15 (verify before starting)
 
-**Run order:**
+**Per-turn runtime evidence:**
+
+| Turn | Exec | Status | Key proof |
+|------|------|--------|-----------|
+| A3-T1 | 1214 | success | `Postgres - Upsert Conversation Hold` pg_ok=true, created=true, booking_not_in_pg=true, conversation_id=150ee5a7 for +34600000103 |
+| A3-T2 | 1215 | success | `IF Conversation Exists?` → branch0 (TRUE via PG conv_id), `Merge Session State` old_state from PG, route=payment_or_confirm_intent (LLM conf=0.85) |
+| A4-T1 | 1216 | success | `Postgres - Upsert Conversation Hold` pg_ok=true, created=true, booking_not_in_pg=true, conversation_id=22b14336 for +34600000104 |
+| A4-T2 | 1217 | success | `IF Conversation Exists?` → branch0 (TRUE via PG conv_id), `Merge Session State` old_state from PG, route=payment_or_confirm_intent (LLM conf=0.95) |
+
+**Notes:**
+- Phones stored with `+` prefix by n8n normalisation (e.g. `+34600000103`, not `34600000103`). Cleanup SQL updated to include both formats.
+- `session_state` written by T1 contains `check_in/check_out/guest_count/primary_room_code/current_hold_booking_code`. `package` and `language` not included in the conversation upsert SQL template — BSR lacked full booking context in T2. LLM still correctly classified payment intent from guest message alone.
+- Protected counts baseline confirmed unchanged: bookings=41, payments=25, payment_events=5, booking_beds=15.
+- Cleanup: 2 rows deleted from `conversations`, remaining=0.
 
 ```
 # A3 T1
