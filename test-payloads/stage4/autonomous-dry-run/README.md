@@ -27,6 +27,20 @@ dangerous live writes, correct handoff for exceptions.
 
 ---
 
+## ✅ Runtime gate 4 Batch 2 — A2 multi-turn (2026-05-30)
+
+Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. 18/18 checks PASS.
+
+| ID | T1 Exec | T2 Exec | T1 Route | T2 Route | Result | Notes |
+|----|---------|---------|----------|----------|--------|-------|
+| A2 | 1180 | 1181 | booking_flow | poi→booking_flow (override) | ✅ PASS | Package-required guard + PG fallback proven |
+
+**Package-required guard:** T1 → `missing_fields=["package_intent"]`, hold NOT fired, bot asks for package.
+**PG conversation fallback:** Runner seeds PG row before T2 → T2 PG node finds row → `_pg_fallback_used=true` → merged session `{check_in, check_out, guest_count, package=malibu}` → hold stub fires.
+**Key fix:** PG node moved from parallel-branch (post-booking_flow) to series (`Parser Node → PG → Merge Session State`).
+
+---
+
 ## ✅ Runtime gate 4 Batch 1 — A5, A6, A7, A8, A10 (2026-05-30)
 
 Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. All executions: success. Protected counts unchanged.
@@ -915,7 +929,80 @@ Removing `addDryRunGate('Postgres - Upsert Conversation Hold', ...)` would:
 
 ---
 
-#### A2 multi-turn runtime results (Gate 4 Batch 2 — 2026-05-30)
+#### A2 multi-turn runtime results (Gate 4 Batch 2 — FINAL RE-RUN PASS 2026-05-30)
+
+**T1 exec 1180 / T2 exec 1181** — Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. PG node wired as `Parser Node → Postgres - Search Conversation (PG) → Merge Session State` (series). All 18 checks PASS.
+
+| Turn | Exec | Route | Conf | Last node | Status |
+|------|------|-------|------|-----------|--------|
+| T1 | 1180 | booking_flow | 0.95 | Code - DRY RUN Stub (Create or update Conversation) | success |
+| T2 | 1181 | payment_or_confirm_intent → **booking_flow (override)** | 0.95 | Code - DRY RUN Stub (Update Conversation After Reply) | success |
+
+**T1 evidence (exec 1180):**
+- `check_in=2026-05-01`, `check_out=2026-05-08`, `guest_count=1` extracted ✓
+- `Determine Missing Fields` → `missing_fields=["package_intent"]` ✅ (package required before hold)
+- `IF - Ready For Availability` → false (package missing) ✓
+- Hold stub: NOT FIRED ✓
+- Draft: _"Hey! Welcome 🤙 Stoked you want to stay with us! Just one quick question — are you looking for just a bed, or would you like to add surf lessons or a surf package to your stay? 🏄"_
+- `_pg_fallback_used: false` (no seeded row yet — correct)
+
+**T2 evidence (exec 1181):**
+- Initial route: `payment_or_confirm_intent` (LLM classification)
+- Resolved route: `booking_flow` via BSR override ✅
+- Decision code: `R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW` ✓
+- `Postgres - Search Conversation (PG)` found seeded row: `{check_in, check_out, guest_count, intent, room_type, language}` ✓
+- `_pg_fallback_used: true` ✅ **PG FALLBACK PROVEN**
+- `Merge Session State` merged session: `check_in=2026-05-01`, `check_out=2026-05-08`, `guest_count=1`, `package=malibu` ✅
+- `Determine Missing Fields` → `missing_fields=[]` ✅ (all fields present after merge)
+- `IF - Ready For Availability` → true ✓
+- Hold stub fired: YES ✅ (`booking_id=dry-run-nodate`, `booking_code=DRY-STAGE4-nodate`, `pg_ok=true`)
+- Draft: _"Great choice! 🤙 We've got availability for your dates and have temporarily held space for you — but the hold only lasts **1 hour**, so let's get things locked in! To complete the booking, could you share your **name** and **email address**?"_
+
+**PG infra proof (PASS):**
+- PG conversation seeded before T2: `conversation_id=4720d87d-7e6e-4c29-bf16-15a7278f37c1` created=true ✓
+- PG conversation cleaned up after T2: 1 row deleted, phone 34600000102 = 0 rows ✓
+- Baseline exec id: 1178 → T1: 1180 → T2: 1181 (both Main-only, Δ=3) ✓
+
+**Safety proof (all PASS):**
+- bookings: 41→41 (Δ0) ✓
+- payments: 25→25 (Δ0) ✓
+- payment_events: 5→5 (Δ0) ✓
+- booking_beds: 15→15 (Δ0) ✓
+- conversations: 7→7 (Δ0 net — seeded then torn down) ✓
+- No graph.facebook.com / no real wamid / no Airtable writes / no Stripe/CPS call ✓
+- WHATSAPP_DRY_RUN=true before and after ✓
+- Main deactivated immediately after T2 ✓
+
+**Checks (18/18 PASS):**
+
+| Check | Result |
+|-------|--------|
+| t1_route_booking_flow | ✅ |
+| t1_missing_fields_has_package_intent | ✅ |
+| t1_no_hold_stub | ✅ |
+| t2_initial_route_payment_or_confirm | ✅ |
+| t2_resolved_route_booking_flow | ✅ |
+| t2_route_overridden | ✅ |
+| t2_decision_code_correct | ✅ |
+| t2_pg_fallback_used | ✅ |
+| t2_session_check_in | ✅ |
+| t2_session_check_out | ✅ |
+| t2_session_guest_count | ✅ |
+| t2_session_package_malibu | ✅ |
+| t2_hold_stub_fired | ✅ |
+| t2_no_closed_month | ✅ |
+| protected_tables_clean | ✅ |
+| pg_conversation_cleaned_up | ✅ |
+| whatsapp_dry_run | ✅ |
+| main_deactivated | ✅ |
+
+**Key fix that unlocked PASS:** PG node re-wired from parallel branch (Search Conversation → PG, n8n executes after entire booking_flow branch) to series (`Parser Node → Postgres - Search Conversation (PG) → Merge Session State`). n8n depth-first execution means parallel branches from an early node run AFTER the main branch completes — `$()` references to the PG node in MSS returned `{}`. Series wiring guarantees PG executes immediately before MSS.
+
+**Gate result: ✅ PASS — Package-required guard RUNTIME PROVEN. PG conversation fallback RUNTIME PROVEN.**
+
+---
+
+#### A2 multi-turn runtime results (Gate 4 Batch 2 — first attempt PARTIAL PASS 2026-05-30)
 
 **T1 exec 1162 / T2 exec 1163** — Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true.
 
@@ -1004,10 +1091,9 @@ Re-run A2 multi-turn runtime gate. Expected new behavior:
 
 **Implementation complete:**
 - `applyPGConversationRead(workflow)` added to `scripts/build-main-local-stripe.js`
-- `Postgres - Search Conversation (PG)` node wired on **shared path** (parallel from `Search Conversation`): `Search Conversation → Postgres - Search Conversation (PG)` (no direct output; MSS references it internally)
-- `Parser Node → Merge Session State` direct connection (PG node no longer in series)
+- `Postgres - Search Conversation (PG)` node wired **in series**: `Parser Node → Postgres - Search Conversation (PG) → Merge Session State` (guarantees PG executes before MSS regardless of n8n depth-first branch ordering)
 - `Merge Session State` jsCode updated with PG fallback (Airtable-first, PG if AT session empty)
-- `verifyPGConversationRead(workflow)` asserts new wiring (Search Conversation → PG, Parser Node → MSS direct) + read-only query
+- `verifyPGConversationRead(workflow)` asserts series wiring (Parser Node → PG, PG → MSS, Parser Node NOT direct to MSS) + read-only query
 - `seedConversationState` + `teardownConversationState` added to runner
 - `PG_CONVERSATION_SEED_PLANS` defined per scenario (A2/A3/A4)
 - Report fields: `pg_conversation_state_required`, `planned_pg_conversation_seed`, `planned_pg_conversation_cleanup`, `allowed_state_table_deltas`, `protected_no_mutation_tables`

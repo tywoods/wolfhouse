@@ -4,7 +4,7 @@
     "title": "Missing package type resolved in turn 2",
     "stage": "4",
     "mode": "autonomous-dry-run",
-    "status": "PARTIAL PASS — runtime 2026-05-30 (execs 1162+1163). T1=booking_flow/0.99, T2=payment_or_confirm_intent/0.95. Safety clean. PG seed/cleanup proven. PG fallback NOT triggered (T2 routed to payment path). package treated as optional by Determine Missing Fields. STATIC FIXES APPLIED 2026-05-30: (1) package required before hold, (2) payment_or_confirm_intent no-hold override → booking_flow, (3) PG read on shared path. Re-run pending.",
+    "status": "PASS — runtime 2026-05-30 (execs 1180+1181). T1=booking_flow, missing_fields=[package_intent], hold NOT fired, asked for package. T2=payment_or_confirm_intent→booking_flow (override R2F_PAYMENT_INTENT_NO_HOLD_NO_CONTACT_TO_BOOKING_FLOW), _pg_fallback_used=true, session merged (check_in/check_out/guest_count from T1 + package=malibu from T2), hold stub fired (dry-run-nodate, pg_ok=true), draft asked name+email. All 18 checks PASS. Protected counts unchanged. PG conversation seeded+cleaned. Package-required guard RUNTIME PROVEN. PG conversation fallback RUNTIME PROVEN.",
     "goal": "Guest provides dates and guest count but no package. Bot asks for package preference. Guest supplies it in turn 2. Hold stub fires only AFTER package is known.",
     "notes": "Tests multi-turn missing-field accumulation. package_intent must be absent in turn 1, present in turn 2. Hold must not be attempted until all booking fields are complete."
   },
