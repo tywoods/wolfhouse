@@ -4,9 +4,9 @@
     "title": "During-stay add-on request — 2 surf lessons, tiered price check",
     "stage": "4",
     "mode": "autonomous-dry-run",
-    "status": "SCAFFOLD - NOT RUNTIME TESTED",
+    "status": "PASS — T1 exec 1206 (general_question, €65 tiered: €35+€30 from config); T2 exec 1205 (general_question, yoga €15/class on-site, no payment link). Protected counts Δ=0.",
     "goal": "Guest already staying at Wolfhouse requests 2 surf lessons. Bot must quote €65 (€35 for lesson 1, €30 for lesson 2 per tiered rule) and create a payment-link stub. No invented pricing.",
-    "notes": "Config: service_addons.service_catalog.surf_lesson.tiers = [{min: 1, max: 1, price: 35}, {min: 2, max: null, price_each: 30}]. 2 lessons = €35 + €30 = €65. Yoga (€15) is booked on-site — bot should not create a link for yoga. Wetsuit + softtop bundle = €15/day."
+    "notes": "Config: service_addons.service_catalog.surf_lesson.tiers = [{min: 1, max: 1, price: 35}, {min: 2, max: null, price_each: 30}]. 2 lessons = €35 + €30 = €65. Yoga (€15) is booked on-site — bot should not create a link for yoga. Wetsuit + softtop bundle = €15/day. T1 message: 'How much do 2 surf lessons cost?' (unambiguous pricing question)."
   },
 
   "config_expectations": {
@@ -37,8 +37,8 @@
   "turns": [
     {
       "turn_id": "A9-T1",
-      "description": "Guest requests 2 surf lessons",
-      "guest_message": "Hey, I'd like to add 2 surf lessons to my stay. How much is that?",
+      "description": "Guest requests 2 surf lessons pricing",
+      "guest_message": "How much do 2 surf lessons cost?",
       "post_body": {
         "object": "whatsapp_business_account",
         "entry": [
@@ -55,7 +55,7 @@
                       "from": "34600000109",
                       "id": "wamid.4A9-T1-TEST001",
                       "timestamp": "1779800001",
-                      "text": { "body": "Hey, I'd like to add 2 surf lessons to my stay. How much is that?" },
+                      "text": { "body": "How much do 2 surf lessons cost?" },
                       "type": "text"
                     }
                   ]

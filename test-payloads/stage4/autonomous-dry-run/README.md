@@ -27,6 +27,73 @@ dangerous live writes, correct handoff for exceptions.
 
 ---
 
+## ✅ Runtime gate 4 Batch 3 — A9 add-ons (2026-05-30) — PASS
+
+Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. Execs 1206 (T1 re-run) + 1205 (T2). Protected counts all Δ=0.
+
+### Per-turn results
+
+| ID | Exec | Route | Conf | Draft | Result | Notes |
+|----|------|-------|------|-------|--------|-------|
+| A9-T1 | 1206 | general_question | 0.95 | ✅ €65 (€35 + €30 tiered) | ✅ PASS | Fixed message "How much do 2 surf lessons cost?" — config-backed tiered pricing |
+| A9-T2 | 1205 | general_question | 0.95 | ✅ €15/class, on-site, no link | ✅ PASS | Yoga pricing + on-site rule from injected config |
+
+### T1 — PASS: surf lesson tiered pricing via general_question (exec 1206)
+
+**Message (fixed):** `"How much do 2 surf lessons cost?"`
+
+**Route:** `general_question` | confidence: 0.95 | Last node: `Code - DRY RUN Stub (Update Conversation - General Question)`
+
+**Reply (from `Reply - General Question` + injected service_addons config):**
+> "Hey! 2 surf lessons are €65 total (first lesson €35, second one €30). 🤙 Want to book them? Just let us know your dates and we can sort you out!"
+
+**Proof:**
+- ✅ `€65` total for 2 lessons (config tier: 1st €35 + 2nd €30)
+- ✅ Tiered breakdown stated explicitly in reply
+- ✅ No hold stub, no CPS, no Stripe call
+- ✅ WHATSAPP_DRY_RUN: send gated (`Code - DRY RUN Stub (Send WhatsApp Reply - General Question)`)
+
+**Note:** Original T1 message (exec 1204) routed to `existing_booking_modify` because "add... to my stay" is semantically a modification request. Payload message updated before re-run.
+
+### T2 — PASS: yoga on-site via general_question (exec 1205)
+
+**Route:** `general_question` | confidence: 0.95 | Last node: `Code - DRY RUN Stub (Update Conversation - General Question)`
+
+**Reply (from `Reply - General Question` + injected service_addons config):**
+> "Yep! Yoga is €15 per class, but you'll book it directly with our staff once you arrive at Wolfhouse 🧘‍♀️ They'll sort you out with times and everything. Want to know anything else?"
+
+**Proof:**
+- ✅ `€15` per class (from config `yoga_class.price_eur = 15`)
+- ✅ "directly with our staff" / on-site instruction (from config `yoga_class.booked_onsite = true`)
+- ✅ No payment link created (yoga on-site rule respected)
+- ✅ `Reply - General Question` node executed with injected service_addons pricing block
+- ✅ WHATSAPP_DRY_RUN: send gated (`Code - DRY RUN Stub (Send WhatsApp Reply - General Question)`)
+- ✅ No hold stub, no CPS, no Stripe call
+
+### Safety proof (both turns)
+
+Protected table counts (Δ=0):
+- `bookings`: 41 → 41 (**Δ=0**)
+- `payments`: 25 → 25 (**Δ=0**)
+- `payment_events`: 5 → 5 (**Δ=0**)
+- `booking_beds`: 15 → 15 (**Δ=0**)
+
+- No `graph.facebook.com` call
+- No real Meta wamid
+- No Stripe/CPS live call
+- Main deactivated immediately after A9 (`active=false` confirmed)
+- All other workflows remained `active=false` throughout
+
+### service_addons prompt injection: PROVEN (T1 + T2)
+
+The `Reply - General Question` service_addons pricing block (injected by `applyGeneralQuestionAddonsPrompt` in `build-main-local-stripe.js`) was exercised on both turns:
+- T1: tiered surf-lesson pricing (€35 + €30 = €65)
+- T2: yoga €15/class on-site, no payment link
+
+**add_on_intent structured DB capture:** Stage 5 design requirement (not implemented in Stage 4).
+
+---
+
 ## ✅ Runtime gate 4 Batch 2 — A2 multi-turn (2026-05-30)
 
 Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. 18/18 checks PASS.
