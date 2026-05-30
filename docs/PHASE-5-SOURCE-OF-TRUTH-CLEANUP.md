@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** Planning only — **not started for implementation** (2026-05-30)  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); Stage 5.3 next (2026-05-30)  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -656,7 +656,7 @@ No other connections change. `Postgres - Upsert Conversation Hold` (hold-success
 
 ---
 
-## Stage 5.2 — Bookings/Holds Source-of-Truth Cleanup (PLANNING 2026-05-30)
+## Stage 5.2 — Bookings/Holds Source-of-Truth Cleanup (**CLOSE WITH DEFERRALS** 2026-05-30 — commit `6306846`)
 
 ### Objective
 
@@ -1004,3 +1004,45 @@ All queries are parameterised by `$1 = client slug`, SELECT-only, reference `boo
 | 6 | 5.2f pilot readiness gate | Low — smoke test after 5.2d | Yes |
 
 Steps 1–3 + 5.2e can be done in a single static implementation session. 5.2d requires a runtime gate similar to the Stage 5.1 conversation gates.
+
+### 5.2.9 Closeout review (2026-05-30 — HEAD `6306846`)
+
+**Recommendation: Stage 5.2 CLOSE WITH DEFERRALS.** Core bookings/holds source-of-truth objectives are proven under controlled fixture conditions. Live guest holds, Airtable mirror removal, and full pilot readiness remain deferred.
+
+#### Closeout matrix
+
+| Slice | Status | Proof | Remaining caveat / deferral |
+|-------|--------|-------|----------------------------|
+| **5.2a** Schema audit / planning | **DONE (planning)** | §5.2.3–5.2.4 gap analysis; `001_init.sql` has required columns; no migration needed | Formal standalone audit commit not required; audit absorbed into 5.2 planning |
+| **5.2b** Summarize Holds PG-primary | **STATIC PASS** | `verifySummarizeHoldsPGPrimary`; runtime exercised on hold path in exec 1230 | Airtable mirror nodes still present as fallback; not removed |
+| **5.2c** ensure-promote INSERT defaults | **STATIC PASS** | `verifyEnsurePromoteInsertDefaults`; INSERT includes `hold_expires_at`, `assignment_status`, `availability_check_status` | ensure-promote **live** path not runtime-proven in 5.2d (hold-only fixture) |
+| **5.2d** Fixture real hold write | **RUNTIME PASS** | Exec 1230: real `Postgres - Create Booking Hold` under `STAGE52_FIXTURE_HOLD`; booking `WH-260530-8226`; FK linked; bookings Δ=+1 then cleanup restored; protected Δ=0 | Guard uses env flag + fixture phone (not `DRY-52-` prefix — booking codes are `WH-*`); only fixture phone `34600000152` |
+| **5.2e** Staff query helpers | **STATIC PASS + runtime smoke** | Four queries in `staff-booking-hold-queries.js`; verifier OK; `verify-stage52d-hold-proof.js` found fixture in Query A + D pre-cleanup, 0 post-cleanup | Queries not yet wired into staff UI (Stage 6); `hold_expires_at` not yet in session_state |
+| **5.2f** Pilot readiness gate | **DEFERRED** | Checklist defined in §5.2f only | Full smoke (hold → ensure-promote → stuck-hold query → session_state audit) not run; defer to Stage 5.3 / pre-pilot gate |
+
+#### Stage 5.2 exit criteria
+
+| Criterion | Met? |
+|-----------|------|
+| PG hold result drives hold summary without requiring Airtable Booking ID | ✓ (5.2b static + 5.2d runtime hold path) |
+| ensure-promote rows include hold/status defaults on INSERT | ✓ (5.2c static) |
+| Controlled fixture real booking row write proven | ✓ (5.2d exec 1230) |
+| Staff queries identify active hold and no-payment hold | ✓ (5.2e + 5.2d query proof) |
+| Fixture cleanup restores baseline | ✓ (bookings=41, fixture conversations=0) |
+| Protected payment/rooming tables unchanged | ✓ (payments/payment_events/booking_beds Δ=0) |
+| Live holds still not approved | ✓ (`STAGE52_FIXTURE_HOLD` defaults false; `WHATSAPP_DRY_RUN=true` required) |
+
+#### Deferrals (explicit)
+
+- Real guest holds remain gated/unapproved — only fixture phone under explicit env flag
+- Airtable mirror (`Create Booking Hold`, `Backfill AT Record Id`) still on workflow as fallback/bridge
+- Full Airtable removal deferred to Stage 6 cutover / later Stage 5 slice
+- ensure-promote and payment_pending **live** path proof deferred to **Stage 5.3**
+- `hold_expires_at` in conversation session_state deferred (minor)
+- Staff UI / staff assistant deferred to **Stage 6**
+- Multi-client productization deferred to **Stage 7**
+- **5.2f** pilot readiness smoke gate not complete — acceptable deferral; core hold SoT proven
+
+#### Next recommended slice
+
+**Stage 5.3 — Payments + balances source-of-truth cleanup** (see workstream §2 row 3): align `payments` / `payment_events` / `bookings.payment_status` with webhook truth; define `payment_balances` view; prove ensure-promote fixture path under dry-run guard.

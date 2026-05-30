@@ -683,7 +683,7 @@ Each add-on request that passes through the bot should be representable as a rec
 
 ## Stage 5 — Clean
 
-**Status (2026-05-30): Planning only — not started for implementation.** Targeted source-of-truth cleanup for Wolfhouse pilot readiness. Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). Live WhatsApp, live autonomous operation, and full staff UI remain deferred (Stages 4 deferrals / Stage 6).
+**Status (2026-05-30): In progress — Stage 5.1 PASS; Stage 5.2 bookings/holds SoT CLOSE WITH DEFERRALS (`6306846`); Stage 5.3 payments/balances next.** Targeted source-of-truth cleanup for Wolfhouse pilot readiness. Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). Live WhatsApp, live autonomous operation, real guest holds, and full staff UI remain deferred (Stages 4–5 deferrals / Stage 6).
 
 ### Purpose
 
