@@ -683,6 +683,8 @@ Each add-on request that passes through the bot should be representable as a rec
 
 ## Stage 5 — Clean
 
+**Status (2026-05-30): Planning only — not started for implementation.** Targeted source-of-truth cleanup for Wolfhouse pilot readiness. Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). Live WhatsApp, live autonomous operation, and full staff UI remain deferred (Stages 4 deferrals / Stage 6).
+
 ### Purpose
 
 Simplify implementation after behavior is proven and reliability checks exist.
