@@ -403,18 +403,26 @@ function runVerifyTargets(workflow, opts = {}) {
   const wf = workflow || loadGeneratedWorkflowForVerify();
   const raw = verifyProductionTargets(wf);
   const shadow = verifyShadowModeSafety(wf);
+  const cmGuard = verifyClosedMonthGuard(wf, CLOSED_MONTHS_CONFIG);
   const result = {
     ...raw,
     workflowActive: wf.active,
     workflowId: wf.id,
     workflowName: wf.name,
     shadowModeSafety: shadow,
+    closedMonthGuard: cmGuard,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
     for (const e of shadow.errors) console.error(`  ${e}`);
     result.ok = false;
     result.errors = [...(result.errors || []), ...shadow.errors.map((e) => `[shadow] ${e}`)];
+  }
+  if (!cmGuard.ok) {
+    console.error(`Closed-month guard FAIL (${cmGuard.errors.length} error(s)):`);
+    for (const e of cmGuard.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...cmGuard.errors.map((e) => `[cm-guard] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -917,6 +925,242 @@ function applyPhase3cAvailabilityGate(workflow) {
   if (cond) {
     cond.leftValue =
       "={{ $('Code - Map PG Availability').first().json.availability_found === true }}";
+  }
+}
+
+/**
+ * Stage 4 — Closed-month guard (Option C: deterministic Code node + LLM reply).
+ *
+ * Inserts between `Determine Missing Fields` and `IF - Ready For Availability`:
+ *   Code - Check Closed Month  →  IF - Closed Month?
+ *     true  →  Reply - Closed Month  →  IF - DRY RUN? (Create Outbound Message)
+ *     false →  IF - Ready For Availability  (existing availability path, unchanged)
+ *
+ * Also injects advisory `closed_months` note into Parser Node prompt.
+ *
+ * @param {object} workflow
+ * @param {string[]} closedMonths - lowercase month names from client config
+ */
+function applyClosedMonthGuard(workflow, closedMonths) {
+  if (!Array.isArray(closedMonths) || closedMonths.length === 0) {
+    console.log('applyClosedMonthGuard: skipped (no closed months configured)');
+    return;
+  }
+
+  const dmf = workflow.nodes.find((n) => n.name === 'Determine Missing Fields');
+  const ifReady = workflow.nodes.find((n) => n.name === 'IF - Ready For Availability');
+  const gnr = workflow.nodes.find((n) => n.name === 'Generate Next Reply');
+  if (!dmf || !ifReady || !gnr) {
+    throw new Error(
+      'applyClosedMonthGuard: required nodes not found (Determine Missing Fields / IF - Ready For Availability / Generate Next Reply)'
+    );
+  }
+
+  const closedMonthsLiteral = JSON.stringify(closedMonths);
+
+  // ── Code - Check Closed Month ─────────────────────────────────────────────
+  const CHECK_CLOSED_MONTH_JS = `const session = $json.session || {};
+const check_in = session.check_in || $json.check_in || null;
+const check_out = session.check_out || $json.check_out || null;
+
+// Injected at build time from config/clients/wolfhouse-somo.baseline.json
+const CLOSED_MONTHS = ${closedMonthsLiteral};
+
+const MONTH_NAMES = [
+  'january','february','march','april','may','june',
+  'july','august','september','october','november','december'
+];
+
+function getMonthName(isoDate) {
+  if (!isoDate) return null;
+  const parts = String(isoDate).trim().split('-');
+  if (parts.length < 2) return null;
+  const idx = parseInt(parts[1], 10) - 1;
+  return MONTH_NAMES[idx] || null;
+}
+
+const checkInMonth = getMonthName(check_in);
+const checkOutMonth = getMonthName(check_out);
+
+const monthsHit = [];
+if (checkInMonth && CLOSED_MONTHS.includes(checkInMonth)) monthsHit.push(checkInMonth);
+if (checkOutMonth && checkOutMonth !== checkInMonth && CLOSED_MONTHS.includes(checkOutMonth)) {
+  monthsHit.push(checkOutMonth);
+}
+
+const closed_month_detected = monthsHit.length > 0;
+const closed_month_name = monthsHit[0] || null;
+const suggested_open_months = MONTH_NAMES.filter(m => !CLOSED_MONTHS.includes(m)).join(', ');
+
+return [{
+  json: {
+    ...$json,
+    closed_month_detected,
+    closed_month_name,
+    closed_months_hit: monthsHit,
+    closed_months: CLOSED_MONTHS,
+    closed_months_behavior: 'do_not_quote_or_book_inform_closed_and_handoff_if_insistent',
+    suggested_open_months,
+  }
+}];`;
+
+  // ── Reply - Closed Month prompt ────────────────────────────────────────────
+  const REPLY_CLOSED_MONTH_PROMPT = `=You are the Wolfhouse surf hostel guest assistant.
+
+Guest language:
+{{ $('Code - Parse Route').item.json.language || 'en' }}
+Reply in the guest's detected language.
+
+Guest message:
+{{ $('Normalize Incoming Message').first().json.guest_message }}
+
+Situation:
+The guest has requested dates that fall in a CLOSED month.
+
+Closed months at Wolfhouse: {{ $json.closed_months.join(', ') }}
+Detected closed month: {{ $json.closed_month_name }}
+Open months available: {{ $json.suggested_open_months }}
+
+Instructions:
+* Inform the guest warmly that Wolfhouse is closed in the requested month.
+* Suggest that the guest considers booking in an open month.
+* Offer to check availability for a different month.
+* Do NOT quote any price.
+* Do NOT confirm availability for the closed month.
+* Do NOT confirm a booking.
+* Do NOT mention AI.
+* Keep the reply short, friendly, and in the surf hostel tone.
+* If the guest insists on a closed month, offer to connect them with a staff member.
+
+Return ONLY the WhatsApp message text. No explanation. No markdown.`;
+
+  // ── Node positions ──────────────────────────────────────────────────────────
+  // Determine Missing Fields: [2752, 1040] → insert guard row at y=1256
+  const CCM_POS = [dmf.position[0], dmf.position[1] + 216];
+  const IF_CM_POS = [dmf.position[0] + 200, dmf.position[1] + 216];
+  const REPLY_CM_POS = [gnr.position[0] - 192, gnr.position[1]];
+  const REPLY_CM_MODEL_POS = [gnr.position[0] - 192, gnr.position[1] + 180];
+
+  // ── Anthropic model node (lmChatAnthropic) ─────────────────────────────────
+  // Reuse same credentials as existing Anthropic model nodes.
+  const existingAnthropicModel = workflow.nodes.find(
+    (n) => n.type === '@n8n/n8n-nodes-langchain.lmChatAnthropic' && n.credentials?.anthropicApi
+  );
+  const anthropicCredentials = existingAnthropicModel?.credentials || {
+    anthropicApi: { id: 'a9iPsEV9gB8jlJMt', name: 'Anthropic account' },
+  };
+
+  const modelNode = {
+    id: 'stage4-cm-model-0001',
+    name: 'Anthropic Chat Model (Closed Month)',
+    type: '@n8n/n8n-nodes-langchain.lmChatAnthropic',
+    typeVersion: 1.3,
+    position: REPLY_CM_MODEL_POS,
+    parameters: {
+      model: {
+        __rl: true,
+        value: 'claude-haiku-4-5',
+        mode: 'list',
+        cachedResultName: 'Claude Haiku 4.5',
+      },
+      options: {},
+    },
+    credentials: JSON.parse(JSON.stringify(anthropicCredentials)),
+  };
+
+  const replyNode = {
+    id: 'stage4-cm-reply-0001',
+    name: 'Reply - Closed Month',
+    type: '@n8n/n8n-nodes-langchain.chainLlm',
+    typeVersion: 1.4,
+    position: REPLY_CM_POS,
+    parameters: {
+      promptType: 'define',
+      text: REPLY_CLOSED_MONTH_PROMPT,
+      batching: { batchSize: 1, delayBetweenBatches: 0 },
+    },
+  };
+
+  const checkNode = {
+    id: 'stage4-cm-check-0001',
+    name: 'Code - Check Closed Month',
+    type: 'n8n-nodes-base.code',
+    typeVersion: 2,
+    position: CCM_POS,
+    parameters: {
+      mode: 'runOnceForAllItems',
+      jsCode: CHECK_CLOSED_MONTH_JS,
+    },
+  };
+
+  const ifCmNode = {
+    id: 'stage4-cm-if-0001',
+    name: 'IF - Closed Month?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: 2.2,
+    position: IF_CM_POS,
+    parameters: {
+      conditions: {
+        options: { caseSensitive: false, leftValue: '', typeValidation: 'loose', version: 2 },
+        conditions: [
+          {
+            id: 'stage4-cm-cond-0001',
+            leftValue: '={{ $json.closed_month_detected }}',
+            rightValue: true,
+            operator: { type: 'boolean', operation: 'true' },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+  };
+
+  workflow.nodes.push(checkNode, ifCmNode, replyNode, modelNode);
+
+  // ── Rewire connections ──────────────────────────────────────────────────────
+  // 1. Determine Missing Fields → Code - Check Closed Month (was → IF - Ready For Availability)
+  workflow.connections['Determine Missing Fields'] = {
+    main: [[{ node: 'Code - Check Closed Month', type: 'main', index: 0 }]],
+  };
+
+  // 2. Code - Check Closed Month → IF - Closed Month?
+  workflow.connections['Code - Check Closed Month'] = {
+    main: [[{ node: 'IF - Closed Month?', type: 'main', index: 0 }]],
+  };
+
+  // 3. IF - Closed Month?:
+  //    true  (main[0]) → Reply - Closed Month
+  //    false (main[1]) → IF - Ready For Availability (existing path)
+  workflow.connections['IF - Closed Month?'] = {
+    main: [
+      [{ node: 'Reply - Closed Month', type: 'main', index: 0 }],
+      [{ node: 'IF - Ready For Availability', type: 'main', index: 0 }],
+    ],
+  };
+
+  // 4. Reply - Closed Month → IF - DRY RUN? (Create Outbound Message) (same as GNR)
+  workflow.connections['Reply - Closed Month'] = {
+    main: [[{ node: 'IF - DRY RUN? (Create Outbound Message)', type: 'main', index: 0 }]],
+  };
+
+  // 5. Model sub-node → Reply - Closed Month via ai_languageModel
+  workflow.connections['Anthropic Chat Model (Closed Month)'] = {
+    ai_languageModel: [[{ node: 'Reply - Closed Month', type: 'ai_languageModel', index: 0 }]],
+  };
+
+  // ── Advisory injection into Parser Node prompt ─────────────────────────────
+  const parserNode = workflow.nodes.find((n) => n.name === 'Parser Node');
+  if (parserNode?.parameters?.text) {
+    const advisoryNote = `\nOperational context:
+* Wolfhouse is CLOSED in: ${closedMonths.join(', ')}.
+* If the guest requests dates in a closed month, still extract check_in and check_out.
+* The booking workflow will automatically detect and handle closed-month dates.
+* Do not set needs_human based on closed-month dates alone.\n`;
+    parserNode.parameters.text = parserNode.parameters.text.replace(
+      '\nSchema:\n',
+      `${advisoryNote}\nSchema:\n`
+    );
   }
 }
 
@@ -1484,6 +1728,94 @@ function verifyShadowModeSafety(workflow) {
   }
   console.log(`Shadow-mode safety: OK (${gateCount} nodes gated, token clean, hold gated, ensure-booking gated, typing gated, reassign gated)`);
   return { ok: true, errors: [], gateCount };
+}
+
+/**
+ * Verify closed-month guard is correctly wired in the workflow.
+ * Skips silently if closedMonths is empty.
+ * @param {object} workflow
+ * @param {string[]} closedMonths
+ */
+function verifyClosedMonthGuard(workflow, closedMonths) {
+  if (!Array.isArray(closedMonths) || closedMonths.length === 0) {
+    console.log('Closed-month guard verify: SKIP (no closed months configured)');
+    return { ok: true, errors: [], skipped: true };
+  }
+
+  const errors = [];
+  const nodeNames = new Set(workflow.nodes.map((n) => n.name));
+
+  if (!nodeNames.has('Code - Check Closed Month'))
+    errors.push('Code - Check Closed Month node missing');
+  if (!nodeNames.has('IF - Closed Month?')) errors.push('IF - Closed Month? node missing');
+  if (!nodeNames.has('Reply - Closed Month')) errors.push('Reply - Closed Month node missing');
+  if (!nodeNames.has('Anthropic Chat Model (Closed Month)'))
+    errors.push('Anthropic Chat Model (Closed Month) node missing');
+
+  // DMF must connect to Code - Check Closed Month (not directly to IF-Ready-For-Availability)
+  const dmfOut = (workflow.connections['Determine Missing Fields']?.main?.[0] || []).map(
+    (n) => n.node
+  );
+  if (!dmfOut.includes('Code - Check Closed Month'))
+    errors.push('Determine Missing Fields does not connect to Code - Check Closed Month');
+  if (dmfOut.includes('IF - Ready For Availability'))
+    errors.push(
+      'Determine Missing Fields still connects directly to IF - Ready For Availability (bypass guard)'
+    );
+
+  // Code - Check Closed Month → IF - Closed Month?
+  const ccmOut = (workflow.connections['Code - Check Closed Month']?.main?.[0] || []).map(
+    (n) => n.node
+  );
+  if (!ccmOut.includes('IF - Closed Month?'))
+    errors.push('Code - Check Closed Month does not connect to IF - Closed Month?');
+
+  // IF - Closed Month? true (main[0]) → Reply - Closed Month
+  const ifCmTrue = (workflow.connections['IF - Closed Month?']?.main?.[0] || []).map((n) => n.node);
+  const ifCmFalse = (workflow.connections['IF - Closed Month?']?.main?.[1] || []).map(
+    (n) => n.node
+  );
+  if (!ifCmTrue.includes('Reply - Closed Month'))
+    errors.push('IF - Closed Month? true branch does not connect to Reply - Closed Month');
+  if (!ifCmFalse.includes('IF - Ready For Availability'))
+    errors.push(
+      'IF - Closed Month? false branch does not connect to IF - Ready For Availability'
+    );
+
+  // Reply - Closed Month → IF - DRY RUN? (Create Outbound Message)
+  const rcmOut = (workflow.connections['Reply - Closed Month']?.main?.[0] || []).map((n) => n.node);
+  if (!rcmOut.includes('IF - DRY RUN? (Create Outbound Message)'))
+    errors.push(
+      'Reply - Closed Month does not connect to IF - DRY RUN? (Create Outbound Message)'
+    );
+
+  // Reply - Closed Month must NOT connect to hold-path nodes
+  const holdNodes = ['Code - Prepare Hold Records', 'Postgres - Create Booking Hold', 'Create Booking Hold'];
+  for (const hn of holdNodes) {
+    if (rcmOut.includes(hn)) errors.push(`Reply - Closed Month connects to hold node: ${hn}`);
+  }
+
+  // Parser Node advisory injection present
+  const parserNode = workflow.nodes.find((n) => n.name === 'Parser Node');
+  const parserText = parserNode?.parameters?.text || '';
+  if (!parserText.includes('CLOSED in:'))
+    errors.push('Parser Node prompt missing closed-month advisory (expected "CLOSED in:")');
+
+  // Code - Check Closed Month contains the correct closed_months literal
+  const checkNode = workflow.nodes.find((n) => n.name === 'Code - Check Closed Month');
+  const checkCode = checkNode?.parameters?.jsCode || '';
+  for (const m of closedMonths) {
+    if (!checkCode.includes(m))
+      errors.push(`Code - Check Closed Month JS missing closed month: "${m}"`);
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+  console.log(
+    'Closed-month guard: OK (4 nodes present, wiring correct, hold path unreachable, advisory injected)'
+  );
+  return { ok: true, errors: [] };
 }
 
 function applyHumanActivePaymentLinkBypass(workflow) {
@@ -2238,6 +2570,17 @@ const OUT = path.join(
   'Wolfhouse Booking Assistant - Main (local Stripe).json'
 );
 
+const WOLFHOUSE_CLIENT_CONFIG = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.baseline.json'),
+    'utf8'
+  )
+);
+/** Lowercase month names that Wolfhouse is closed, sourced from wolfhouse-somo.baseline.json. */
+const CLOSED_MONTHS_CONFIG = (WOLFHOUSE_CLIENT_CONFIG?.packages?.closed_months || []).map((m) =>
+  String(m).toLowerCase()
+);
+
 /** @returns {object} workflow before neutralization / active=false */
 function buildMainLocalStripeWorkflow() {
 const workflow = JSON.parse(fs.readFileSync(SRC, 'utf8'));
@@ -2561,6 +2904,7 @@ applyMergedPaymentPathFixes(workflow);
 applyDeterministicPaymentUrl(workflow);
 applyPhase3cAvailabilityGate(workflow);
 applyPhase3cHoldGate(workflow);
+applyClosedMonthGuard(workflow, CLOSED_MONTHS_CONFIG);
 applyLocalTypingIndicatorBypass(workflow);
 applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode A shadow
 applyHumanActivePaymentLinkBypass(workflow);
@@ -2577,6 +2921,7 @@ workflow.tags = [
   { name: 'phase3c-g1d' },
   { name: 'phase3e-e2' },
   { name: 'phase3y-shadow-safe' }, // Stage 3y: offline-safe for Mode A shadow testing
+  { name: 'stage4-cm-guard' }, // Stage 4: deterministic closed-month guard
 ];
 
 if (reassignRemap.patched > 0) {

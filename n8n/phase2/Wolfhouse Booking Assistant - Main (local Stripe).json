@@ -19,7 +19,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=You are the Wolfhouse booking parser.\n\nExtract booking information from the new guest message only.\n\nReturn ONLY raw JSON.\nNo markdown.\nNo code fences.\nNo explanation.\nDo not wrap output in ```json.\nThe response must begin with { and end with }.\n\nNew guest message:\n{{ $('Restore Guest Input').first().json.guest_message }}\n\nConversation summary:\n{{ $('Restore Guest Input').first().json.conversation_summary || 'No summary yet.' }}\n\nExisting session state:\n{{ $('Search Conversation').first().json.fields?.['Session State'] || '{}' }}\n\nLast bot reply:\n{{ $('Search Conversation').first().json.fields?.['Last Bot Reply'] || '' }}\n\nRules:\n* Today is {{ DateTime.now().toISODate() }}.\n* Use today's date when interpreting relative dates.\n* Never infer past dates unless explicitly stated.\n* If a field is unknown, use null, except room_type.\n* room_type should default to \"shared\" unless the guest clearly asks for private.\n* room_preference should default to \"shared\" unless the guest clearly gives a rooming preference.\n* guest_gender_group_type should default to \"unknown\" unless clearly stated or strongly implied by rooming preference.\n* custom_extras must always be an array.\n* needs_human defaults to false.\n* The guest may speak any language.\n* Extract booking details regardless of language.\n* Extract guest_count from phrases like \"2 people\", \"we are 3\", \"for 4 guests\".\n* Extract name and email if provided.\n* Extract arrival_time/departure_time only if explicitly provided.\n* Do not include filler words like \"and\", \"&\", \"plus\", \"with\" at the end of a name.\n* If the guest writes a name and email together, such as \"Kim and kim@gmail.com\", extract name as \"Kim\" and email as \"kim@gmail.com\".\n\nRoom type rules:\n* Never ask the guest to choose between private and shared.\n* Default room_type to \"shared\" unless the guest clearly asks for something else.\n* Gender-specific room requests are NOT private room requests.\n* Female-only, girls-only, women-only, ladies-only, male-only, guys-only, boys-only, or men-only room requests should keep room_type = \"shared\" unless the guest also clearly asks for private/own room/not shared/family room/matrimonial/double room.\n* Set room_type = \"shared\" when:\n  * the guest asks for a bed\n  * the guest asks for accommodation without saying private\n  * the guest says they want to stay\n  * the guest gives dates and guest count but no room type\n  * the guest says shared, dorm, bed, bunk, or hostel bed\n  * the guest asks for a female room, female-only room, girls room, women-only room, ladies room, male room, male-only room, guys room, boys room, or men-only room\n* Set room_type = \"private\" only when:\n  * the guest says private room\n  * the guest says own room\n  * the guest says room to ourselves\n  * the guest says room for ourselves\n  * the guest says not shared\n  * the guest says family room\n  * the guest says they are a family and want to stay together\n  * the guest says couple and asks for private/own room\n  * the guest says matrimonial or double room\n* Set room_type = \"either\" only if the guest explicitly says either is fine, any room is fine, whatever is available, or no preference.\n* If guest_count, check_in, and check_out are known, and room_type is missing, set room_type = \"shared\".\n* Do not include room_type as missing.\n* If unclear or missing, use \"shared\".\n\nRoom preference and gender rules:\n* If the guest asks for female room, female-only room, girls room, women-only room, ladies room, girls only, women only, female dorm, or similar:\n  * room_type = \"shared\"\n  * room_preference = \"female_only\"\n  * guest_gender_group_type = \"female_group\" if guest_count is greater than 1\n  * guest_gender_group_type = \"solo_female\" if guest_count is 1\n  * rooming_notes should mention that the guest requested a female-only room.\n* If the guest asks for male room, male-only room, guys room, boys room, men-only room, guys only, men only, male dorm, or similar:\n  * room_type = \"shared\"\n  * room_preference = \"male_only\"\n  * guest_gender_group_type = \"male_group\" if guest_count is greater than 1\n  * guest_gender_group_type = \"solo_male\" if guest_count is 1\n  * rooming_notes should mention that the guest requested a male-only room.\n* If the guest says mixed group, mixed is fine, mixed room is okay, or similar:\n  * room_preference = \"mixed_ok\"\n  * guest_gender_group_type = \"mixed_group\"\n  * rooming_notes should mention that mixed rooming is okay.\n* If the guest asks for private, own room, room to ourselves, family room, matrimonial, or double room:\n  * room_preference should match the request when possible: \"private\", \"family_room\", or \"double\".\n* Never set room_type = \"private\" from gender-only wording.\n\nAllowed intent values:\n* booking_request\n* availability_check\n* package_question\n* cancellation\n* reschedule\n* complaint\n* human_request\n* unknown\n\nAllowed room_type values:\n* private\n* shared\n* either\n* unknown\n\nAllowed room_preference values:\n* shared\n* private\n* female_only\n* male_only\n* double\n* family_room\n* mixed_ok\n* any\n* unknown\n\nAllowed guest_gender_group_type values:\n* unknown\n* solo_female\n* solo_male\n* female_group\n* male_group\n* mixed_group\n* couple\n* family\n* operator_group\n\nAllowed package values:\n* malibu\n* uluwatu\n* waimea\n* custom\n* unknown\n* null\n\nConversational context rules:\n* Do not ask whether the guest wants private or shared.\n* If the guest does not clearly request private, default room_type to \"shared\".\n* If the last bot reply asked how many guests and the guest replies with only a number like \"2\", extract guest_count: 2.\n* If the last bot reply asked for one lead guest name and one email, and the guest replies with \"Kim and kim@gmail.com\", extract name = \"Kim\" and email = \"kim@gmail.com\".\n* If the guest says only \"private\", treat it as room_type: \"private\" and room_preference: \"private\".\n* If the guest says only \"shared\" or \"dorm\", treat it as room_type: \"shared\" and room_preference: \"shared\".\n* If the guest says only \"either\", \"whatever is available\", or \"no preference\", treat room_type as \"either\" and room_preference as \"any\".\n* If the guest gives a rooming preference after a booking is already underway, still extract room_preference, guest_gender_group_type, and rooming_notes.\n\nSet needs_human true ONLY if:\n* guest is angry or upset\n* payment/refund dispute\n* explicit human request\n* safety/legal issue\n* the message is impossible to understand after context\n\nDo NOT set needs_human true just because:\n* the booking is for a large group\n* the guest count is high\n* the guest asks for 8, 10, 12, or more people\n* the stay is long\n* the guest gives all booking details in one message\n\nLarge group bookings should still go through booking_flow and availability checking.\n\nSchema:\n{\n  \"intent\": \"\",\n  \"language\": \"\",\n  \"guest_count\": null,\n  \"room_type\": \"shared\",\n  \"room_preference\": \"shared\",\n  \"guest_gender_group_type\": \"unknown\",\n  \"rooming_notes\": null,\n  \"check_in\": null,\n  \"check_out\": null,\n  \"package\": null,\n  \"custom_extras\": [],\n  \"needs_human\": false,\n  \"confidence\": 0.0,\n  \"name\": null,\n  \"email\": null,\n  \"phone\": null,\n  \"arrival_time\": null,\n  \"departure_time\": null\n}",
+        "text": "=You are the Wolfhouse booking parser.\n\nExtract booking information from the new guest message only.\n\nReturn ONLY raw JSON.\nNo markdown.\nNo code fences.\nNo explanation.\nDo not wrap output in ```json.\nThe response must begin with { and end with }.\n\nNew guest message:\n{{ $('Restore Guest Input').first().json.guest_message }}\n\nConversation summary:\n{{ $('Restore Guest Input').first().json.conversation_summary || 'No summary yet.' }}\n\nExisting session state:\n{{ $('Search Conversation').first().json.fields?.['Session State'] || '{}' }}\n\nLast bot reply:\n{{ $('Search Conversation').first().json.fields?.['Last Bot Reply'] || '' }}\n\nRules:\n* Today is {{ DateTime.now().toISODate() }}.\n* Use today's date when interpreting relative dates.\n* Never infer past dates unless explicitly stated.\n* If a field is unknown, use null, except room_type.\n* room_type should default to \"shared\" unless the guest clearly asks for private.\n* room_preference should default to \"shared\" unless the guest clearly gives a rooming preference.\n* guest_gender_group_type should default to \"unknown\" unless clearly stated or strongly implied by rooming preference.\n* custom_extras must always be an array.\n* needs_human defaults to false.\n* The guest may speak any language.\n* Extract booking details regardless of language.\n* Extract guest_count from phrases like \"2 people\", \"we are 3\", \"for 4 guests\".\n* Extract name and email if provided.\n* Extract arrival_time/departure_time only if explicitly provided.\n* Do not include filler words like \"and\", \"&\", \"plus\", \"with\" at the end of a name.\n* If the guest writes a name and email together, such as \"Kim and kim@gmail.com\", extract name as \"Kim\" and email as \"kim@gmail.com\".\n\nRoom type rules:\n* Never ask the guest to choose between private and shared.\n* Default room_type to \"shared\" unless the guest clearly asks for something else.\n* Gender-specific room requests are NOT private room requests.\n* Female-only, girls-only, women-only, ladies-only, male-only, guys-only, boys-only, or men-only room requests should keep room_type = \"shared\" unless the guest also clearly asks for private/own room/not shared/family room/matrimonial/double room.\n* Set room_type = \"shared\" when:\n  * the guest asks for a bed\n  * the guest asks for accommodation without saying private\n  * the guest says they want to stay\n  * the guest gives dates and guest count but no room type\n  * the guest says shared, dorm, bed, bunk, or hostel bed\n  * the guest asks for a female room, female-only room, girls room, women-only room, ladies room, male room, male-only room, guys room, boys room, or men-only room\n* Set room_type = \"private\" only when:\n  * the guest says private room\n  * the guest says own room\n  * the guest says room to ourselves\n  * the guest says room for ourselves\n  * the guest says not shared\n  * the guest says family room\n  * the guest says they are a family and want to stay together\n  * the guest says couple and asks for private/own room\n  * the guest says matrimonial or double room\n* Set room_type = \"either\" only if the guest explicitly says either is fine, any room is fine, whatever is available, or no preference.\n* If guest_count, check_in, and check_out are known, and room_type is missing, set room_type = \"shared\".\n* Do not include room_type as missing.\n* If unclear or missing, use \"shared\".\n\nRoom preference and gender rules:\n* If the guest asks for female room, female-only room, girls room, women-only room, ladies room, girls only, women only, female dorm, or similar:\n  * room_type = \"shared\"\n  * room_preference = \"female_only\"\n  * guest_gender_group_type = \"female_group\" if guest_count is greater than 1\n  * guest_gender_group_type = \"solo_female\" if guest_count is 1\n  * rooming_notes should mention that the guest requested a female-only room.\n* If the guest asks for male room, male-only room, guys room, boys room, men-only room, guys only, men only, male dorm, or similar:\n  * room_type = \"shared\"\n  * room_preference = \"male_only\"\n  * guest_gender_group_type = \"male_group\" if guest_count is greater than 1\n  * guest_gender_group_type = \"solo_male\" if guest_count is 1\n  * rooming_notes should mention that the guest requested a male-only room.\n* If the guest says mixed group, mixed is fine, mixed room is okay, or similar:\n  * room_preference = \"mixed_ok\"\n  * guest_gender_group_type = \"mixed_group\"\n  * rooming_notes should mention that mixed rooming is okay.\n* If the guest asks for private, own room, room to ourselves, family room, matrimonial, or double room:\n  * room_preference should match the request when possible: \"private\", \"family_room\", or \"double\".\n* Never set room_type = \"private\" from gender-only wording.\n\nAllowed intent values:\n* booking_request\n* availability_check\n* package_question\n* cancellation\n* reschedule\n* complaint\n* human_request\n* unknown\n\nAllowed room_type values:\n* private\n* shared\n* either\n* unknown\n\nAllowed room_preference values:\n* shared\n* private\n* female_only\n* male_only\n* double\n* family_room\n* mixed_ok\n* any\n* unknown\n\nAllowed guest_gender_group_type values:\n* unknown\n* solo_female\n* solo_male\n* female_group\n* male_group\n* mixed_group\n* couple\n* family\n* operator_group\n\nAllowed package values:\n* malibu\n* uluwatu\n* waimea\n* custom\n* unknown\n* null\n\nConversational context rules:\n* Do not ask whether the guest wants private or shared.\n* If the guest does not clearly request private, default room_type to \"shared\".\n* If the last bot reply asked how many guests and the guest replies with only a number like \"2\", extract guest_count: 2.\n* If the last bot reply asked for one lead guest name and one email, and the guest replies with \"Kim and kim@gmail.com\", extract name = \"Kim\" and email = \"kim@gmail.com\".\n* If the guest says only \"private\", treat it as room_type: \"private\" and room_preference: \"private\".\n* If the guest says only \"shared\" or \"dorm\", treat it as room_type: \"shared\" and room_preference: \"shared\".\n* If the guest says only \"either\", \"whatever is available\", or \"no preference\", treat room_type as \"either\" and room_preference as \"any\".\n* If the guest gives a rooming preference after a booking is already underway, still extract room_preference, guest_gender_group_type, and rooming_notes.\n\nSet needs_human true ONLY if:\n* guest is angry or upset\n* payment/refund dispute\n* explicit human request\n* safety/legal issue\n* the message is impossible to understand after context\n\nDo NOT set needs_human true just because:\n* the booking is for a large group\n* the guest count is high\n* the guest asks for 8, 10, 12, or more people\n* the stay is long\n* the guest gives all booking details in one message\n\nLarge group bookings should still go through booking_flow and availability checking.\n\nOperational context:\n* Wolfhouse is CLOSED in: december, january, february.\n* If the guest requests dates in a closed month, still extract check_in and check_out.\n* The booking workflow will automatically detect and handle closed-month dates.\n* Do not set needs_human based on closed-month dates alone.\n\nSchema:\n{\n  \"intent\": \"\",\n  \"language\": \"\",\n  \"guest_count\": null,\n  \"room_type\": \"shared\",\n  \"room_preference\": \"shared\",\n  \"guest_gender_group_type\": \"unknown\",\n  \"rooming_notes\": null,\n  \"check_in\": null,\n  \"check_out\": null,\n  \"package\": null,\n  \"custom_extras\": [],\n  \"needs_human\": false,\n  \"confidence\": 0.0,\n  \"name\": null,\n  \"email\": null,\n  \"phone\": null,\n  \"arrival_time\": null,\n  \"departure_time\": null\n}",
         "batching": {}
       },
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
@@ -21303,6 +21303,96 @@
       "name": "Sticky Note - Phase 3c.e.4"
     },
     {
+      "id": "stage4-cm-check-0001",
+      "name": "Code - Check Closed Month",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        1256
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const session = $json.session || {};\nconst check_in = session.check_in || $json.check_in || null;\nconst check_out = session.check_out || $json.check_out || null;\n\n// Injected at build time from config/clients/wolfhouse-somo.baseline.json\nconst CLOSED_MONTHS = [\"december\",\"january\",\"february\"];\n\nconst MONTH_NAMES = [\n  'january','february','march','april','may','june',\n  'july','august','september','october','november','december'\n];\n\nfunction getMonthName(isoDate) {\n  if (!isoDate) return null;\n  const parts = String(isoDate).trim().split('-');\n  if (parts.length < 2) return null;\n  const idx = parseInt(parts[1], 10) - 1;\n  return MONTH_NAMES[idx] || null;\n}\n\nconst checkInMonth = getMonthName(check_in);\nconst checkOutMonth = getMonthName(check_out);\n\nconst monthsHit = [];\nif (checkInMonth && CLOSED_MONTHS.includes(checkInMonth)) monthsHit.push(checkInMonth);\nif (checkOutMonth && checkOutMonth !== checkInMonth && CLOSED_MONTHS.includes(checkOutMonth)) {\n  monthsHit.push(checkOutMonth);\n}\n\nconst closed_month_detected = monthsHit.length > 0;\nconst closed_month_name = monthsHit[0] || null;\nconst suggested_open_months = MONTH_NAMES.filter(m => !CLOSED_MONTHS.includes(m)).join(', ');\n\nreturn [{\n  json: {\n    ...$json,\n    closed_month_detected,\n    closed_month_name,\n    closed_months_hit: monthsHit,\n    closed_months: CLOSED_MONTHS,\n    closed_months_behavior: 'do_not_quote_or_book_inform_closed_and_handoff_if_insistent',\n    suggested_open_months,\n  }\n}];"
+      }
+    },
+    {
+      "id": "stage4-cm-if-0001",
+      "name": "IF - Closed Month?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2952,
+        1256
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "stage4-cm-cond-0001",
+              "leftValue": "={{ $json.closed_month_detected }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "stage4-cm-reply-0001",
+      "name": "Reply - Closed Month",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        3152,
+        1376
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Wolfhouse surf hostel guest assistant.\n\nGuest language:\n{{ $('Code - Parse Route').item.json.language || 'en' }}\nReply in the guest's detected language.\n\nGuest message:\n{{ $('Normalize Incoming Message').first().json.guest_message }}\n\nSituation:\nThe guest has requested dates that fall in a CLOSED month.\n\nClosed months at Wolfhouse: {{ $json.closed_months.join(', ') }}\nDetected closed month: {{ $json.closed_month_name }}\nOpen months available: {{ $json.suggested_open_months }}\n\nInstructions:\n* Inform the guest warmly that Wolfhouse is closed in the requested month.\n* Suggest that the guest considers booking in an open month.\n* Offer to check availability for a different month.\n* Do NOT quote any price.\n* Do NOT confirm availability for the closed month.\n* Do NOT confirm a booking.\n* Do NOT mention AI.\n* Keep the reply short, friendly, and in the surf hostel tone.\n* If the guest insists on a closed month, offer to connect them with a staff member.\n\nReturn ONLY the WhatsApp message text. No explanation. No markdown.",
+        "batching": {
+          "batchSize": 1,
+          "delayBetweenBatches": 0
+        }
+      }
+    },
+    {
+      "id": "stage4-cm-model-0001",
+      "name": "Anthropic Chat Model (Closed Month)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        3152,
+        1556
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "anthropicApi": {
+          "id": "a9iPsEV9gB8jlJMt",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
       "parameters": {
         "conditions": {
           "options": {
@@ -24699,7 +24789,7 @@
       "main": [
         [
           {
-            "node": "IF - Ready For Availability",
+            "node": "Code - Check Closed Month",
             "type": "main",
             "index": 0
           }
@@ -26754,6 +26844,57 @@
     "Code - PG Conversation Failed Stop": {
       "main": []
     },
+    "Code - Check Closed Month": {
+      "main": [
+        [
+          {
+            "node": "IF - Closed Month?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Closed Month?": {
+      "main": [
+        [
+          {
+            "node": "Reply - Closed Month",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF - Ready For Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply - Closed Month": {
+      "main": [
+        [
+          {
+            "node": "IF - DRY RUN? (Create Outbound Message)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model (Closed Month)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reply - Closed Month",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "IF - Send Typing Indicator (Local Guard)": {
       "main": [
         [
@@ -28658,6 +28799,9 @@
     },
     {
       "name": "phase3y-shadow-safe"
+    },
+    {
+      "name": "stage4-cm-guard"
     }
   ]
 }

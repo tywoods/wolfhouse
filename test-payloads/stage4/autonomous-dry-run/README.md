@@ -35,13 +35,13 @@ Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. All executions: success. Pr
 
 | ID | Exec | Route | Conf | Safety fails | Result | Notes |
 |----|------|-------|------|--------------|--------|-------|
-| A5 | 1154 | booking_flow | 0.95 | 0 | ⚠️ PARTIAL — closed-month guard not enforced | See note below |
+| A5 | 1154 | booking_flow | 0.95 | 0 | ⚠️ PARTIAL — closed-month guard not enforced | Guard implemented (2026-05-30) — runtime re-test pending |
 | A6 | 1155 | payment_completed_claim | 0.95 | 0 | ✅ PASS | Safe clarification, no confirmation |
 | A7 | 1156 | human_handoff | 0.99 | 0 | ✅ PASS | Immediate handoff, empathetic draft |
 | A8 | 1157 | booking_flow | 0.95 | 0 | ✅ PASS | Preference noted, booking continues, beds Δ=0 |
 | A10 | 1158 | booking_flow | 0.95 | 0 | ✅ PASS | Spanish detected, full Spanish reply, hold stub fired |
 
-### A5 — Closed month — PARTIAL (safety OK, behavioral gap)
+### A5 — Closed month — PARTIAL (safety OK; guard IMPLEMENTED — runtime re-test pending)
 
 Expected: bot refuses January, informs closed, no hold created.
 Actual: bot found availability and created stub hold for January 15–22, 2027.
@@ -111,13 +111,120 @@ Language detection ✓. Spanish reply ✓. Same state transitions as English boo
 | workflow_events | 24 | 24 | (allowed state) | — |
 | conversations | 7 | 7 | (allowed state) | — |
 
-### A5 closed-month gap — next steps
+### A5 closed-month gap — design plan (2026-05-30)
 
-The `closed_months` behavioral guard needs to be added to the workflow before A5 can PASS fully. Two options:
-1. Add a `Code - Check Closed Month` node early in `booking_flow` sub-path, reading from `wolfhouse-somo.baseline.json`, which returns a closed-month reply and terminates the booking flow
-2. Inject `closed_months: [december, january, february]` into the LLM system prompt context so the classifier or parser can recognize and refuse closed-month requests
+This is a **Stage 3x / bot-knowledge guardrail** item, not a safety failure. All dry-run gates operated correctly. The plan below defines how to fix it.
 
-This is a **Stage 3x / bot-knowledge guardrail** item, not a safety failure. All dry-run gates operated correctly.
+**Config confirmed** (`wolfhouse-somo.baseline.json`):
+```json
+"closed_months": ["december", "january", "february"],
+"closed_months_behavior": "do_not_quote_or_book_inform_closed_and_handoff_if_insistent"
+```
+`closed_months` is also present in `_deploy-config.template.json` — all future clients must supply it.
+
+**Booking-flow insertion point:**
+```
+Determine Missing Fields
+       ↓  (all four fields present: check_in, check_out, room_type, guest_count)
+[NEW] Code - Check Closed Month        ← injected here by build script
+       ↓
+[NEW] IF - Closed Month?
+    true  → [NEW] Reply - Closed Month  → IF - DRY RUN? (Create Outbound Message)
+    false → IF - Ready For Availability  (existing path, unchanged)
+```
+`Determine Missing Fields` already has `check_in` and `check_out` resolved in `session` — this is the earliest safe point to check closed months (all required fields verified present, before any availability query or hold stub).
+
+**Recommended approach: Option C — deterministic guard + LLM context injection**
+
+| Option | Description | Safety | Quality |
+|--------|-------------|--------|---------|
+| A — Deterministic Code node only | Parse ISO dates → extract month names → compare to `closed_months` → block and reply | ✅ deterministic, cannot be overridden | ⚠️ reply is templated, less conversational |
+| B — LLM context injection only | Add `closed_months` to booking-flow LLM system prompt | ⚠️ LLM can still hallucinate or ignore | ✅ conversational, multilingual |
+| **C — Both (recommended)** | Deterministic guard blocks hold; LLM context improves reply quality | ✅ production-safe | ✅ better reply, multilingual-aware |
+
+**Do not rely on LLM-only guard.** The deterministic check must run before any availability query, hold stub, or price quote.
+
+**Nodes to add in `scripts/build-main-local-stripe.js`:**
+
+1. **`Code - Check Closed Month`** (n8n-nodes-base.code)
+   - Reads `session.check_in` and `session.check_out` from `Determine Missing Fields` output
+   - Extracts month name(s) from ISO date strings (e.g. `"2027-01-15"` → `"january"`)
+   - Compares against `CLOSED_MONTHS` injected as a literal by the build script (loaded from `wolfhouse-somo.baseline.json` at build time)
+   - Outputs: `{ ...all_existing_fields, closed_month_detected: boolean, closed_month_name: string, suggested_open_months: string }`
+
+2. **`IF - Closed Month?`** (n8n-nodes-base.if)
+   - Condition: `{{ $json.closed_month_detected === true }}`
+   - `true` (branch 0) → `Reply - Closed Month`
+   - `false` (branch 1) → `IF - Ready For Availability` (existing)
+
+3. **`Reply - Closed Month`** (n8n-nodes-base.code or Anthropic LLM node)
+   - For Option C: LLM node with system prompt containing `closed_months`, `suggested_open_months`, guest `language` — so the reply is conversational and multilingual
+   - Must produce `response_text` in the same shape as `Generate Next Reply`
+   - Wires to → `IF - DRY RUN? (Create Outbound Message)` (same sink as other reply nodes)
+   - Must NOT fire hold stub, payment link, or price quote
+
+**LLM context injection point (secondary, Option C):**
+- The `Parser Node` Anthropic system prompt is the booking-flow LLM that extracts intent/dates from guest messages
+- Injecting `closed_months` there lets the classifier at least flag obvious closed-month requests — but this is advisory; the Code guard is the enforcement layer
+
+**Fields required at guard point:**
+- `session.check_in` (ISO date string, from Parser Node)
+- `session.check_out` (ISO date string)
+- `session.language` (for multilingual reply)
+- `CLOSED_MONTHS` array (injected as literal by build script from `wolfhouse-somo.baseline.json`)
+
+**Build script changes needed:**
+- New function `applyClosedMonthGuard(workflow, closedMonths)` that inserts the three new nodes and rewires connections
+- Called after existing gate functions (after `applyPhase3cHoldGate`, etc.)
+- Load `closed_months` from `wolfhouse-somo.baseline.json` at build time (same pattern as `gate_code`, `check_in_time`, `check_out_time`)
+
+**Static verifier update (`--verify-targets`):**
+- Add assertion: when `closed_months.length > 0`, `Code - Check Closed Month` node must exist in workflow
+
+**Runner assertion update for A5:**
+- Expect `Code - Check Closed Month` node executed
+- Expect `closed_month_detected === true` in its output
+- Expect `Reply - Closed Month` executed
+- Expect hold stub NOT fired
+- Expect NO `payment_link` in draft
+- Expect draft mentions "closed" or "unavailable" for the requested month
+
+**Expected A5 PASS behavior after fix:**
+- Guest asks for January 15–22, 2027
+- Bot detects January → closed month
+- No availability check, no hold, no price quote, no payment link
+- Reply (in guest's language): "Wolfhouse is closed in January. We're open March through November. Would you like to pick dates in a different month? I can check availability for March, April, or any open month you prefer."
+- `bookings` / `payments` / `payment_events` / `booking_beds` all unchanged (Δ=0)
+- No real WhatsApp send, no Airtable write
+
+---
+
+### Multilingual testing plan (Stage 4 batch — to follow A5 guard fix)
+
+**Expected usage mix (approximate):**
+| Language | Share | Priority |
+|----------|-------|----------|
+| Italian | ~65% | **Primary acceptance language** |
+| English | ~20% | Control (A1 series) |
+| Spanish | ~10% | Control (A10) |
+| German | ~10% | — |
+
+Italian must be treated as the **primary acceptance language**, not an afterthought. Scenarios passing in English/Spanish but not Italian are not acceptable for production sign-off.
+
+**Proposed multilingual batch (Gate 4 Batch 2 or dedicated multilingual gate):**
+| Scenario | Language | Intent | Priority |
+|----------|----------|--------|----------|
+| Italian booking request (all fields) | IT | booking_flow → hold | P1 |
+| Italian missing-fields request | IT | booking_flow → collect details | P1 |
+| Italian payment/deposit question | IT | payment_pending_intent | P1 |
+| German booking request | DE | booking_flow → hold | P2 |
+| Spanish booking control | ES | booking_flow → hold | P3 (A10 partial) |
+| English control | EN | booking_flow → hold | P4 (A1 series) |
+
+**Notes:**
+- A10 (Spanish) already PASSED for `booking_flow` routing and Spanish reply detection
+- Italian scenarios require verifying that `language = "it"` is detected, reply is fully in Italian, and hold/reply nodes do not fall back to English
+- `closed_months` reply (post A5 fix) must be tested in Italian and German as well
 
 ---
 
