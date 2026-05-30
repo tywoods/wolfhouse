@@ -788,11 +788,148 @@ All four queries work against `001_init.sql` schema today **once real booking ro
 - Static checks: `--verify-targets` `Ensure promote INSERT defaults verify (Stage 5.2c): OK`, payment/rooming contracts OK, active=false.
 - No schema migration required.
 
-#### 5.2d — Fixture-scoped dry-run hold gate (runtime)
-- Define a fixture dry-run gate that allows **real** `Postgres - Create Booking Hold` to fire for test booking codes (e.g. `DRY-52-…`) on isolated test phones.
-- Proof: real `bookings` row created in PG; `bookings` count increments by 1 for test phone; `booking_beds` unchanged (assignment not triggered); conversation FK set.
-- Cleanup: DELETE test booking row by `booking_code LIKE 'DRY-52-%'`.
-- Constraint: `WHATSAPP_DRY_RUN=true`; no Stripe CPS fired; no AT writes.
+#### 5.2d — Fixture-scoped dry-run hold gate (PLANNING 2026-05-30 — not implemented)
+
+##### Scenario design
+
+**New dedicated fixture scenario** rather than reusing A1/A3/A4. Rationale:
+- A1/A3/A4 use `DRY-STAGE4-*` booking codes; mixing with a real hold write would conflate Stage 4 dry-run stubs with Stage 5.2 first-real-write evidence.
+- A dedicated scenario uses `DRY-52-*` booking codes and a reserved fake phone, making cleanup unambiguous.
+- Scenario is a single-turn hold creation only (no Stripe CPS, no payment path), minimising surface area for first real write.
+
+**Fixture parameters:**
+```
+phone:         34600000152   (fake test phone, reserved for Stage 5.2d)
+booking_code:  DRY-52-20260601  (deterministic; check_in date suffix)
+check_in:      2026-06-01
+check_out:     2026-06-08
+guest_count:   1
+package_code:  malibu
+requested_room_type: shared
+client_slug:   wolfhouse-somo
+```
+
+##### Un-gate design
+
+The current `IF - DRY RUN? (Postgres - Create Booking Hold)` gate fires when `WHATSAPP_DRY_RUN=true`, routing to the stub. Stage 5.2d needs a **secondary guard** inside the stub (or a second IF layer) that passes through to the real node only when all fixture conditions are met:
+
+```
+IF - DRY RUN? (Postgres - Create Booking Hold)
+  TRUE (dry-run env) →
+    Code - DRY RUN Stub (Postgres - Create Booking Hold)  [modified for 5.2d]
+      IF env.STAGE52_FIXTURE_HOLD=true AND booking_code starts with 'DRY-52-' AND phone in fixture list:
+        → pass to Postgres - Create Booking Hold (real node)
+      ELSE:
+        → return stub output (current behaviour, unchanged)
+  FALSE (live) →
+    Postgres - Create Booking Hold (real node)
+```
+
+Alternatively — and simpler — the stub can check the env flag and output a special `fixture_passthrough: true` marker, and a new downstream IF routes to the real node when that marker is set. The cleanest approach is:
+
+**Option B (preferred):** Add a second `IF - Stage52 Fixture?` node on the stub TRUE branch. When `STAGE52_FIXTURE_HOLD=true`, route to real node. The real node's output is already shaped correctly. This preserves Stage 4 dry-run behaviour exactly when `STAGE52_FIXTURE_HOLD` is absent.
+
+Guard requirements (all must be true to pass through):
+1. `WHATSAPP_DRY_RUN=true` — still required; no live-mode holds allowed
+2. `STAGE52_FIXTURE_HOLD=true` — explicit opt-in env var
+3. booking_code starts with `DRY-52-` — enforced in guard expression (read from `Code - Prepare Hold Records`)
+4. phone in `['34600000152', '+34600000152']` — enforced in guard expression
+5. client_slug = `wolfhouse-somo` — enforced by SQL itself
+
+##### Allowed mutations for 5.2d gate
+
+| Table | Allowed | Notes |
+|-------|---------|-------|
+| `bookings` | Δ=+1 (fixture row only) | `booking_code LIKE 'DRY-52-%'`, test phone |
+| `conversations` | Δ=0 or +1 update | FK `current_hold_booking_id` set to real `bookings.id` |
+| `payments` | Δ=0 | Stripe CPS must not run |
+| `payment_events` | Δ=0 | |
+| `booking_beds` | Δ=0 | No assignment step |
+| Airtable | 0 writes | AT mirror stubs remain active |
+| WhatsApp | dry-run only | No real send |
+
+##### Cleanup SQL
+
+```sql
+-- Stage 5.2d fixture cleanup
+-- Run after gate completes (pass or fail)
+BEGIN;
+
+-- 1. Unlink conversations from fixture booking
+UPDATE conversations
+SET current_hold_booking_id = NULL, updated_at = NOW()
+WHERE phone IN ('34600000152', '+34600000152')
+  AND current_hold_booking_id IN (
+    SELECT id FROM bookings
+    WHERE booking_code LIKE 'DRY-52-%'
+    AND phone IN ('34600000152', '+34600000152')
+  );
+
+-- 2. Delete fixture bookings row
+DELETE FROM bookings
+WHERE booking_code LIKE 'DRY-52-%'
+  AND phone IN ('34600000152', '+34600000152')
+  AND client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo');
+
+-- 3. Delete fixture conversation rows
+DELETE FROM conversations
+WHERE phone IN ('34600000152', '+34600000152')
+  AND client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo');
+
+COMMIT;
+```
+
+Post-cleanup verification:
+```sql
+SELECT COUNT(*) FROM bookings WHERE booking_code LIKE 'DRY-52-%';              -- expect 0
+SELECT COUNT(*) FROM conversations WHERE phone IN ('34600000152', '+34600000152'); -- expect 0
+```
+
+##### Staff query proof
+
+After the fixture hold write (before cleanup), the staff queries should return:
+
+| Query | Expected |
+|-------|----------|
+| A — `getActiveHoldsQuery()` | Returns fixture row: `booking_code=DRY-52-20260601`, `hold_expires_at > NOW()` |
+| B — `getExpiredHoldsQuery()` | Returns 0 rows (hold is not yet expired) |
+| C — `getPaymentPendingQuery()` | Returns 0 rows (status=hold, not payment_pending) |
+| D — `getNoPaymentRecordQuery()` | Returns fixture row (hold, no payment record) |
+
+##### Pass/fail criteria
+
+**PASS** requires all of:
+- `Postgres - Create Booking Hold` real node executes (not stub)
+- `bookings` Δ=+1 during test; `booking_code` starts with `DRY-52-`
+- `hold_expires_at` is set (≈ NOW() + 1 hour)
+- `assignment_status = 'unassigned'`, `availability_check_status = 'available'`
+- `conversations.current_hold_booking_id` set to real `bookings.id`
+- Staff query A returns fixture row; query B returns 0; query D returns fixture row
+- `payments` Δ=0, `payment_events` Δ=0, `booking_beds` Δ=0
+- No Airtable writes (AT nodes stubbed)
+- `WHATSAPP_DRY_RUN=true` (no real WhatsApp)
+- Cleanup restores both fixture `bookings` and `conversations` rows to 0
+
+**PARTIAL** if:
+- Hold row created but `current_hold_booking_id` not linked in conversation
+- Hold row created but `hold_expires_at` not set (ensure-promote INSERT defaults gap)
+
+**FAIL** if:
+- Real node runs but `pg_ok=false` or DB error
+- Any protected table mutated
+- AT mirror write occurs
+- Real WhatsApp send occurs
+
+##### Static implementation slices (for next session)
+
+| Slice | File | Notes |
+|-------|------|-------|
+| Fixture guard node | `scripts/build-main-local-stripe.js` | `applyStage52FixtureHoldGuard(workflow)` — adds `IF - Stage52 Fixture?` after stub gate |
+| Fixture env check | `IF - Stage52 Fixture?` expression | `STAGE52_FIXTURE_HOLD === 'true'` AND `booking_code starts with DRY-52-` |
+| Cleanup SQL | `scripts/fixtures/stage5.2d-cleanup.sql` | New fixture SQL |
+| Query proof runner | `scripts/verify-stage52d-hold-proof.js` | Runs four staff queries after gate, prints table |
+| Docs updates | `PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md` | Mark static done when implemented |
+| Runtime gate | runner or ad-hoc | Must set `STAGE52_FIXTURE_HOLD=true` explicitly |
 
 #### 5.2e — Expired/stuck hold query (STATIC DONE 2026-05-30 — not runtime tested)
 
