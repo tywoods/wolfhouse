@@ -414,6 +414,7 @@ function runVerifyTargets(workflow, opts = {}) {
   const ensurePromoteInsert = verifyEnsurePromoteInsertDefaults(wf);
   const stage52Guard = verifyStage52FixtureGuard(wf);
   const stage53Guard = verifyStage53FixtureGuard(wf);
+  const stage53HoldSearchStub = verifyStage53FixtureHoldSearchStub(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -431,6 +432,7 @@ function runVerifyTargets(workflow, opts = {}) {
     ensurePromoteInsertDefaults: ensurePromoteInsert,
     stage52FixtureGuard: stage52Guard,
     stage53FixtureGuard: stage53Guard,
+    stage53FixtureHoldSearchStub: stage53HoldSearchStub,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -1938,6 +1940,312 @@ return [{ json: { ...stub, stage53_passthrough: true } }];`,
   console.log(
     'applyStage53FixtureEnsureGuard: Stage 5.3d fixture ensure-promote guard added — STAGE53_FIXTURE_PAYMENT + fixture phone required'
   );
+}
+
+/**
+ * Stage 5.3e: Inserts a fixture hold-search stub between `Search Hold With Guest Details`
+ * and `IF - Hold Found`.
+ *
+ * When STAGE53_FIXTURE_PAYMENT=true and fixture phone 34600000155 / +34600000155:
+ *   TRUE branch → Code - Stage53 Fixture Hold Synthetic (returns synthetic Airtable hold record)
+ *                 → IF - Hold Found  (with id='WH-53-FIXTURE-001' → TRUE branch fires)
+ *   FALSE branch → IF - Hold Found  (passes Search Hold With Guest Details result through)
+ *
+ * This allows IF - Hold Found → TRUE → ... → IF - Stage53 Fixture? → TRUE
+ * → real Postgres - Ensure Booking In Postgres to execute.
+ *
+ * @param {object} workflow
+ */
+function applyStage53FixtureHoldSearchStub(workflow) {
+  const SEARCH_NODE = 'Search Hold With Guest Details';
+  const IF_HOLD_FOUND = 'IF - Hold Found';
+  const IF_NAME = 'IF - Stage53 Fixture Hold Search?';
+  const SYNTHETIC_NAME = 'Code - Stage53 Fixture Hold Synthetic';
+  const FIXTURE_PHONES = ['34600000155', '+34600000155'];
+
+  if (workflow.nodes.find((n) => n.name === IF_NAME)) {
+    console.log('applyStage53FixtureHoldSearchStub: already applied, skipping');
+    return;
+  }
+
+  const searchNode = workflow.nodes.find((n) => n.name === SEARCH_NODE);
+  const holdFoundNode = workflow.nodes.find((n) => n.name === IF_HOLD_FOUND);
+  if (!searchNode || !holdFoundNode) {
+    throw new Error(
+      `applyStage53FixtureHoldSearchStub: required nodes not found (search=${!!searchNode}, holdFound=${!!holdFoundNode})`
+    );
+  }
+
+  const phoneListExpr = FIXTURE_PHONES.map((p) => `'${p}'`).join(', ');
+  const guardExpr = `={{ (() => {
+  const fixtureEnabled = String($env.STAGE53_FIXTURE_PAYMENT || '').toLowerCase() === 'true';
+  const phone = String($('Normalize Incoming Message').first().json.phone || '');
+  const isFixturePhone = [${phoneListExpr}].includes(phone);
+  return fixtureEnabled && isFixturePhone;
+})() }}`;
+
+  // IF node positioned between Search and IF - Hold Found
+  const ifPos = [searchNode.position[0] + 240, searchNode.position[1]];
+  const ifNode = {
+    id: 'stage53e-fixture-hold-if-001',
+    name: IF_NAME,
+    type: 'n8n-nodes-base.if',
+    typeVersion: 2.2,
+    position: ifPos,
+    parameters: {
+      conditions: {
+        options: { caseSensitive: false, leftValue: '', typeValidation: 'loose', version: 2 },
+        conditions: [
+          {
+            id: 'stage53e-fixture-hold-cond',
+            leftValue: guardExpr,
+            rightValue: '',
+            operator: { type: 'boolean', operation: 'true', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+  };
+
+  // Synthetic hold node — outputs a fake Airtable hold record for the fixture phone.
+  // Shape matches Search Hold With Guest Details return format (id + fields).
+  const syntheticNode = {
+    id: 'stage53e-fixture-hold-synthetic-001',
+    name: SYNTHETIC_NAME,
+    type: 'n8n-nodes-base.code',
+    typeVersion: 2,
+    position: [ifPos[0] + 280, ifPos[1] - 120],
+    parameters: {
+      mode: 'runOnceForAllItems',
+      jsCode: `// Stage 5.3e: fixture hold-search stub — synthetic Airtable hold record for WH-53-FIXTURE-001.
+// Shape matches Search Hold With Guest Details output (id + fields) so downstream nodes work.
+return [{ json: {
+  id: 'WH-53-FIXTURE-001',
+  fields: {
+    'Booking ID': 'WH-53-FIXTURE-001',
+    'Guest Name': 'Test Guest 53d',
+    'Email': 'stage53d@example.test',
+    'Phone': '+34600000155',
+    'Check In': '2026-07-01',
+    'Check Out': '2026-07-08',
+    'Guest Count': 2,
+    'Package': 'malibu',
+    'Requested Room Type': 'shared',
+    'Room Preference': 'shared',
+    'Guest Gender / Group Type': 'mixed',
+    'Status': 'hold',
+    '_fixture': true,
+  },
+  _fixture_hold_stub: true,
+}}];`,
+    },
+    alwaysOutputData: true,
+  };
+
+  workflow.nodes.push(ifNode, syntheticNode);
+
+  // Rewire:
+  // Before: Search Hold With Guest Details → IF - Hold Found
+  // After:  Search Hold With Guest Details → IF - Stage53 Fixture Hold Search?
+  //           TRUE  → Code - Stage53 Fixture Hold Synthetic → IF - Hold Found
+  //           FALSE → IF - Hold Found (passes Search Hold result through)
+  workflow.connections[SEARCH_NODE] = {
+    main: [[{ node: IF_NAME, type: 'main', index: 0 }]],
+  };
+  workflow.connections[IF_NAME] = {
+    main: [
+      [{ node: SYNTHETIC_NAME, type: 'main', index: 0 }], // TRUE
+      [{ node: IF_HOLD_FOUND, type: 'main', index: 0 }],  // FALSE
+    ],
+  };
+  workflow.connections[SYNTHETIC_NAME] = {
+    main: [[{ node: IF_HOLD_FOUND, type: 'main', index: 0 }]],
+  };
+
+  console.log(
+    'applyStage53FixtureHoldSearchStub: Stage 5.3e fixture hold-search stub added — STAGE53_FIXTURE_PAYMENT + fixture phone required'
+  );
+
+  // Patch Code - Prepare Stripe Payment Context to use fixture synthetic hold as first source.
+  // Without this, holdSources tries 'Search Hold With Guest Details' (empty for fixture phone)
+  // and booking_code resolves to '' → ensure query can't find the fixture booking.
+  const pspcNode = workflow.nodes.find((n) => n.name === 'Code - Prepare Stripe Payment Context');
+  if (pspcNode) {
+    pspcNode.parameters.jsCode = pspcNode.parameters.jsCode.replace(
+      'const holdSources = [\n',
+      "const holdSources = [\n  'Code - Stage53 Fixture Hold Synthetic', // Stage 5.3e: fixture hold (highest priority)\n"
+    );
+    console.log('applyStage53FixtureHoldSearchStub: patched Code - Prepare Stripe Payment Context holdSources');
+  }
+
+  // Add BSR fixture route override: insert IF - Stage53 Fixture BSR Route Override?
+  // between Code - Booking State Resolver and Switch.
+  // When STAGE53_FIXTURE_PAYMENT=true AND fixture phone, forces resolved_route=payment_details_provided.
+  // This is needed because the AI classifier (Router - Classify Message) has no Airtable context
+  // for the fixture phone and consistently returns booking_flow.
+  const BSR_OVERRIDE_IF = 'IF - Stage53 Fixture BSR Route Override?';
+  const BSR_OVERRIDE_CODE = 'Code - Stage53 Fixture BSR Route Patch';
+  const bsrNode = workflow.nodes.find((n) => n.name === 'Code - Booking State Resolver');
+  const switchNode = workflow.nodes.find((n) => n.name === 'Switch');
+  if (bsrNode && switchNode && !workflow.nodes.find((n) => n.name === BSR_OVERRIDE_IF)) {
+    const bsrPos = bsrNode.position;
+    const overrideIfPos = [bsrPos[0] + 240, bsrPos[1]];
+    const overrideCodePos = [overrideIfPos[0] + 240, overrideIfPos[1] - 120];
+
+    const bsrOverrideIf = {
+      id: 'stage53e-bsr-route-if-001',
+      name: BSR_OVERRIDE_IF,
+      type: 'n8n-nodes-base.if',
+      typeVersion: 2.2,
+      position: overrideIfPos,
+      parameters: {
+        conditions: {
+          options: { caseSensitive: false, leftValue: '', typeValidation: 'loose', version: 2 },
+          conditions: [
+            {
+              id: 'stage53e-bsr-override-cond',
+              leftValue: guardExpr,
+              rightValue: '',
+              operator: { type: 'boolean', operation: 'true', singleValue: true },
+            },
+          ],
+          combinator: 'and',
+        },
+        options: {},
+      },
+    };
+
+    // Produces a BSR-shaped output with resolved_route=payment_details_provided
+    const bsrOverrideCode = {
+      id: 'stage53e-bsr-route-code-001',
+      name: BSR_OVERRIDE_CODE,
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: overrideCodePos,
+      parameters: {
+        mode: 'runOnceForAllItems',
+        jsCode: `// Stage 5.3e: force payment_details_provided route for fixture phone.
+// Without this, Router - Classify Message returns booking_flow (no Airtable context for fixture phone).
+const orig = (() => { try { return $('Code - Booking State Resolver').first().json; } catch(e) { return {}; } })();
+return [{ json: {
+  ...orig,
+  route: 'payment_details_provided',
+  resolved_route: 'payment_details_provided',
+  has_payment_link_intent: true,
+  hasContact: true,
+  stage53_fixture_bsr_override: true,
+}}];`,
+      },
+      alwaysOutputData: true,
+    };
+
+    workflow.nodes.push(bsrOverrideIf, bsrOverrideCode);
+
+    // Rewire: BSR → IF, TRUE → Code (patch), FALSE → Switch (existing), Code → Switch
+    workflow.connections['Code - Booking State Resolver'] = {
+      main: [[{ node: BSR_OVERRIDE_IF, type: 'main', index: 0 }]],
+    };
+    workflow.connections[BSR_OVERRIDE_IF] = {
+      main: [
+        [{ node: BSR_OVERRIDE_CODE, type: 'main', index: 0 }], // TRUE: fixture
+        [{ node: 'Switch', type: 'main', index: 0 }],           // FALSE: normal path
+      ],
+    };
+    workflow.connections[BSR_OVERRIDE_CODE] = {
+      main: [[{ node: 'Switch', type: 'main', index: 0 }]],
+    };
+
+    console.log('applyStage53FixtureHoldSearchStub: added BSR route override (Stage 5.3e)');
+
+    // Patch IF - Should Search Hold to also check the fixture BSR override.
+    // This node reads $('Code - Booking State Resolver').first().json.hold_lookup?.should_search_hold,
+    // but BSR returned booking_flow (should_search_hold=false) for fixture phone.
+    // When the fixture route patch ran, we need this IF to fire TRUE.
+    const ifShouldSearchHold = workflow.nodes.find((n) => n.name === 'IF - Should Search Hold');
+    if (ifShouldSearchHold?.parameters?.conditions?.conditions?.[0]) {
+      const original = ifShouldSearchHold.parameters.conditions.conditions[0].leftValue;
+      ifShouldSearchHold.parameters.conditions.conditions[0].leftValue =
+        `={{ (${original.slice(3, -3)}) || (() => { try { return $('${BSR_OVERRIDE_CODE}').isExecuted && $('${BSR_OVERRIDE_CODE}').first().json.stage53_fixture_bsr_override === true; } catch(_) { return false; } })() }}`;
+      console.log('applyStage53FixtureHoldSearchStub: patched IF - Should Search Hold to check fixture BSR override');
+    }
+  }
+}
+
+/**
+ * Stage 5.3e: Verifies the fixture hold-search stub is correctly wired.
+ *
+ * @param {object} workflow
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifyStage53FixtureHoldSearchStub(workflow) {
+  const errors = [];
+  const IF_NAME = 'IF - Stage53 Fixture Hold Search?';
+  const SYNTHETIC_NAME = 'Code - Stage53 Fixture Hold Synthetic';
+
+  const ifNode = workflow.nodes.find((n) => n.name === IF_NAME);
+  const synthNode = workflow.nodes.find((n) => n.name === SYNTHETIC_NAME);
+
+  if (!ifNode) errors.push(`${IF_NAME} node not found`);
+  if (!synthNode) errors.push(`${SYNTHETIC_NAME} node not found`);
+
+  if (ifNode) {
+    const expr = JSON.stringify(ifNode.parameters?.conditions || '');
+    if (!expr.includes('STAGE53_FIXTURE_PAYMENT'))
+      errors.push(`${IF_NAME} guard does not check STAGE53_FIXTURE_PAYMENT`);
+    if (!expr.includes('34600000155'))
+      errors.push(`${IF_NAME} guard does not check fixture phone 34600000155`);
+  }
+  if (synthNode) {
+    const code = synthNode.parameters?.jsCode || '';
+    if (!code.includes('WH-53-FIXTURE-001'))
+      errors.push(`${SYNTHETIC_NAME} does not return WH-53-FIXTURE-001`);
+  }
+
+  // Verify IF TRUE → Synthetic, FALSE → IF - Hold Found
+  const ifConns = workflow.connections[IF_NAME];
+  if (!ifConns?.main?.[0]?.[0]?.node || ifConns.main[0][0].node !== SYNTHETIC_NAME)
+    errors.push(`${IF_NAME} TRUE branch does not connect to ${SYNTHETIC_NAME}`);
+  if (!ifConns?.main?.[1]?.[0]?.node || ifConns.main[1][0].node !== 'IF - Hold Found')
+    errors.push(`${IF_NAME} FALSE branch does not connect to IF - Hold Found`);
+
+  // Verify Synthetic → IF - Hold Found
+  const synthConns = workflow.connections[SYNTHETIC_NAME];
+  if (!synthConns?.main?.[0]?.[0]?.node || synthConns.main[0][0].node !== 'IF - Hold Found')
+    errors.push(`${SYNTHETIC_NAME} does not connect to IF - Hold Found`);
+
+  // Verify Code - Prepare Stripe Payment Context includes fixture synthetic as hold source
+  const pspcNode = workflow.nodes.find((n) => n.name === 'Code - Prepare Stripe Payment Context');
+  if (!pspcNode) {
+    errors.push('Code - Prepare Stripe Payment Context node not found');
+  } else {
+    const code = pspcNode.parameters?.jsCode || '';
+    if (!code.includes(SYNTHETIC_NAME))
+      errors.push(`Code - Prepare Stripe Payment Context holdSources does not include ${SYNTHETIC_NAME}`);
+  }
+
+  // Verify BSR fixture route override nodes exist
+  const BSR_OVERRIDE_IF = 'IF - Stage53 Fixture BSR Route Override?';
+  const BSR_OVERRIDE_CODE = 'Code - Stage53 Fixture BSR Route Patch';
+  if (!workflow.nodes.find((n) => n.name === BSR_OVERRIDE_IF))
+    errors.push(`${BSR_OVERRIDE_IF} node not found`);
+  if (!workflow.nodes.find((n) => n.name === BSR_OVERRIDE_CODE))
+    errors.push(`${BSR_OVERRIDE_CODE} node not found`);
+  const bsrOverrideConns = workflow.connections[BSR_OVERRIDE_IF];
+  if (!bsrOverrideConns?.main?.[0]?.[0]?.node || bsrOverrideConns.main[0][0].node !== BSR_OVERRIDE_CODE)
+    errors.push(`${BSR_OVERRIDE_IF} TRUE does not connect to ${BSR_OVERRIDE_CODE}`);
+  if (!bsrOverrideConns?.main?.[1]?.[0]?.node || bsrOverrideConns.main[1][0].node !== 'Switch')
+    errors.push(`${BSR_OVERRIDE_IF} FALSE does not connect to Switch`);
+
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('Stage53 fixture hold-search stub verify (Stage 5.3e): OK');
+  } else {
+    console.error(`Stage53 fixture hold-search stub verify (Stage 5.3e): FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
 }
 
 /**
@@ -4081,7 +4389,8 @@ const bookingCodeExpr =
 const holdRecordIdExpr =
   "={{ $('Search Hold With Guest Details').first().json.id }}";
 
-const holdFields = "$('Search Hold With Guest Details').first().json.fields";
+const holdFields =
+  "(($('Code - Stage53 Fixture Hold Synthetic').isExecuted ? $('Code - Stage53 Fixture Hold Synthetic') : $('Search Hold With Guest Details')).first().json.fields)";
 const NULL_SENTINEL = '__NULL__';
 
 /** n8n Postgres drops empty query params and shifts $n — use sentinel for every parameter. */
@@ -4388,6 +4697,7 @@ applyLocalTypingIndicatorBypass(workflow);
 applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode A shadow
 applyStage52FixtureHoldGuard(workflow); // Stage 5.2d: fixture hold guard (after shadow gates)
 applyStage53FixtureEnsureGuard(workflow); // Stage 5.3d: fixture ensure-promote guard (after shadow gates)
+applyStage53FixtureHoldSearchStub(workflow); // Stage 5.3e: fixture hold-search stub (bypasses Airtable hold search for fixture phone)
 applyHumanActivePaymentLinkBypass(workflow);
 applyPostgresCredentialMapping(workflow);
 const reassignRemap = applyLocalReassignWebhookRemap(workflow);

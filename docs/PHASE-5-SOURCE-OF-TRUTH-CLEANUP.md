@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); Stage 5.3 next (2026-05-30)  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); Stage 5.3d/e PASS (`runtime(stage5.3e)` commit); Stage 5.3f next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1286,20 +1286,41 @@ Runtime gate proving the full live hold→payment_pending→payments-row path un
 
 **Expected proof at runtime:** `bookings.status=payment_pending`, `payment_status=waiting_payment`, `payments.status=checkout_created`, `amount_due_cents=20000`, Query E (waiting payment) returns fixture row, Query D (no payment row) returns 0 (payment pre-seeded), cleanup restores all baselines.
 
-#### 5.3e — Fixture hold-search stub + ensure-promote path proof (runtime gate)
+#### 5.3e — Fixture hold-search stub + ensure-promote path proof (PASS — 2026-05-31, exec 1245)
+
+**Static fixes applied (Stage 5.3e):**
+- `applyStage53FixtureHoldSearchStub(workflow)` added in `scripts/build-main-local-stripe.js`.
+  - Inserts `IF - Stage53 Fixture Hold Search?` between `Search Hold With Guest Details` and `IF - Hold Found`. TRUE (fixture phone + `STAGE53_FIXTURE_PAYMENT=true`) → `Code - Stage53 Fixture Hold Synthetic` (synthetic hold `WH-53-FIXTURE-001`). FALSE → existing `Search Hold With Guest Details` path.
+  - Inserts `IF - Stage53 Fixture BSR Route Override?` between `Code - Booking State Resolver` and `Switch`. TRUE → `Code - Stage53 Fixture BSR Route Patch` (forces `resolved_route=payment_details_provided`). This was required because `Router - Classify Message` (AI) returns `booking_flow` for the fixture phone (no Airtable context). Execs 1242–1244 confirmed the need.
+  - Patches `IF - Should Search Hold` condition to also check the fixture BSR override node (reads from `$('Code - Booking State Resolver')` by name — falls back to fixture signal when override ran).
+  - Patches `Code - Prepare Stripe Payment Context` `holdSources` to include `Code - Stage53 Fixture Hold Synthetic` as the highest-priority source. This ensures `booking_code=WH-53-FIXTURE-001` flows to `Postgres - Ensure Booking In Postgres`.
+  - Updated `holdFields` constant to prefer synthetic node when executed (for `ensureQueryReplacement` expressions).
+- `verifyStage53FixtureHoldSearchStub(workflow)` added — verifies all new nodes, connections, PSPC hold source, and BSR override wiring. All OK.
+- All static checks pass: `--verify-targets`, payment/rooming contracts, staff queries, syntax checks.
+
+**Runtime PASS (exec 1245, 2026-05-31):**
+- Seed/cleanup baseline: 0 fixture rows.
+- After seed: `WH-53-FIXTURE-001` booking (`payment_pending/waiting_payment`) + `payments` row (`checkout_created`) confirmed by `verify-stage53d-payment-proof.js`.
+- Execution 1245 node trace:
+  - ✅ `IF - Stage53 Fixture BSR Route Override?` TRUE (1 item) → `Code - Stage53 Fixture BSR Route Patch` executed
+  - ✅ `IF - Stage53 Fixture Hold Search?` TRUE (1 item) → `Code - Stage53 Fixture Hold Synthetic` (id: `WH-53-FIXTURE-001`, fields['Booking ID']: `WH-53-FIXTURE-001`)
+  - ✅ `IF - Hold Found` TRUE (1 item)
+  - ✅ `IF - DRY RUN? (Postgres - Ensure Booking In Postgres)` FALSE (1 item = dry-run stub branch)
+  - ✅ `Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)` executed
+  - ✅ `IF - Stage53 Fixture?` TRUE (1 item)
+  - ✅ **`Postgres - Ensure Booking In Postgres` executed** — result: `{booking_code: 'WH-53-FIXTURE-001', action: 'refreshed', status: 'payment_pending', payment_status: 'waiting_payment'}`
+  - ✅ `IF - Booking ID Ready` TRUE
+  - ✅ Full payment-pending reply path ran (dry-run stubs for WhatsApp, Airtable writes)
+- `payment_events` Δ=0 ✅, `booking_beds` Δ=0 ✅
+- No Airtable writes ✅, no Stripe/CPS live call ✅, no real WhatsApp ✅
+- Cleanup restored: bookings=0, payments=0, payment_events=0, booking_beds=0, conversations=0 for fixture phone ✅
+- All workflows inactive after gate ✅
+
+**Webhook message used:** `"Hi, I already have a reservation, booking code WH-53-FIXTURE-001. I need the deposit payment link. My name is Test Guest 53d, email stage53d@example.test."`
 
 **Pre-work:** Add a fixture stub for `Search Hold With Guest Details` in `scripts/build-main-local-stripe.js`. When `STAGE53_FIXTURE_PAYMENT=true` AND fixture phone, the stub returns a synthetic Airtable hold record (booking_code=WH-53-FIXTURE-001, phone=+34600000155, check-in/out from fixture seed, package=malibu). This allows `IF - Hold Found` → TRUE → `Code - Validate PG Hold` → `IF - PG Hold OK` → ... → `Code - DRY RUN Stub (Postgres - Ensure Booking In Postgres)` → `IF - Stage53 Fixture?` TRUE → real `Postgres - Ensure Booking In Postgres`.
 
 **Webhook message:** Must include email + "payment link" keywords so BSR detects `hasContact=true` and `has_payment_link_intent=true` → overrides to `payment_details_provided` route.
-
-**Proof:**
-- `payment_events` Δ=+1, `stripe_event_id` unique, `processed=TRUE`
-- `payments.status=paid`, `amount_paid_cents` set
-- `bookings.payment_status=deposit_paid` (or `paid`)
-- `bookings.send_confirmation=TRUE`
-- Replay same event → `IF - New Payment Row?` FALSE → duplicate acknowledged (idempotency proof)
-
-**Cleanup:** DELETE fixture `payment_events`, `payments`, `bookings` rows for fixture phone.
 
 #### 5.3f — Confirmation-needed query proof (static + runtime smoke)
 
