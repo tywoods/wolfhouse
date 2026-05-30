@@ -338,7 +338,116 @@ node scripts/run-sql.js --file scripts/fixtures/stage5.1-conversations-cleanup.s
 
 ---
 
-## 7. Related docs
+## Stage 5.1 runtime gate — A3/A4 without seed (plan)
+
+**Status:** Planning only — **not yet run** (2026-05-30)  
+**Gate scope:** A3 and A4 only. A2 deferred (see §5.1.8 below).
+
+---
+
+### 5.1.8 Runtime gate scope analysis
+
+Before defining the gate, a key constraint was identified:
+
+| Scenario | T1 fires hold? | T1 writes conversation to PG? | T2 can read T1 session? | Gate scope |
+|----------|---------------|-------------------------------|------------------------|------------|
+| **A3** | ✅ Yes (all fields present) | ✅ Yes — `Postgres - Upsert Conversation Hold` now ungated, FK null-safe write | ✅ Yes — PG-primary | **Stage 5.1 gate** |
+| **A4** | ✅ Yes (all fields present) | ✅ Yes | ✅ Yes | **Stage 5.1 gate** |
+| **A2** | ❌ No (missing package) | ❌ No — upsert only runs on hold-success path | ❌ No — no PG row from T1 | **Deferred to Stage 5.1b** |
+
+**A2 deferral reason:** `Postgres - Upsert Conversation Hold` is wired on the hold-success path only. When T1 has missing fields and doesn't create a hold, no PG conversation row is written. T2 cannot read T1 session. A2 still requires either a seed or a new Stage 5.1b fix: a "write session state on any routing" PG path (not gated on hold creation).
+
+**Runner note:** `seedConversationState()` is defined in the runner but **not called automatically** in `main()`. Stage 4 seeds were applied via manual `_tmp*.js` scripts between turns. No `--no-seed` flag is needed — the runner does not auto-seed. The Stage 5.1 gate runs T1 then T2 with no manual seed between turns.
+
+---
+
+### 5.1.9 Runtime gate — A3 and A4
+
+**Preconditions:**
+- Main workflow active (`node scripts/build-main-local-stripe.js --import-inactive` then activate in n8n UI)
+- `WHATSAPP_DRY_RUN=true`
+- No manual conversation seed for phones `34600000103` or `34600000104`
+- Protected table baseline: bookings=41, payments=25, payment_events=5, booking_beds=15 (verify before starting)
+
+**Run order:**
+
+```
+# A3 T1
+node scripts/run-stage4-autonomous-dry-run.js --only a3 --turn 1 --execute --run
+
+# A3 T2 (no seed — T1 should have written conversations row naturally)
+node scripts/run-stage4-autonomous-dry-run.js --only a3 --turn 2 --execute --run
+
+# A4 T1
+node scripts/run-stage4-autonomous-dry-run.js --only a4 --turn 1 --execute --run
+
+# A4 T2 (no seed)
+node scripts/run-stage4-autonomous-dry-run.js --only a4 --turn 2 --execute --run
+```
+
+**Expected per-turn behavior:**
+
+| Turn | Expected | Key check |
+|------|----------|-----------|
+| A3-T1 | route=booking_flow, hold stub fires, `Postgres - Upsert Conversation Hold` executes, `pg_ok=true`, `booking_not_in_pg=true` (FK null, session_state written) | `conversations` Δ=+1 for phone 34600000103 |
+| A3-T2 | `IF Conversation Exists?` → TRUE (via PG `conversation_id`), `Merge Session State` reads PG session, route=payment_or_confirm_intent or booking_flow with hold hint | `_pg_primary_used=true` in session state |
+| A4-T1 | Same as A3-T1 for phone 34600000104 | `conversations` Δ=+1 for phone 34600000104 |
+| A4-T2 | Same as A3-T2 for phone 34600000104 | |
+
+---
+
+### 5.1.10 Pass/fail criteria
+
+| Criterion | Pass | Fail |
+|-----------|------|------|
+| A3-T1 `Postgres - Upsert Conversation Hold` executes | `pg_ok=true`, `booking_not_in_pg=true` | node not executed, or `pg_ok=false` due to missing phone |
+| A3-T1 writes conversation to PG | `conversations` Δ=+1 for 34600000103 | Δ=0 |
+| A3-T2 IF Conversation Exists? via PG | `stage51-pg-conv-exists` condition TRUE | FALSE — meaning PG write from T1 failed |
+| A3-T2 uses PG session | `_pg_primary_used=true` in merged session | false |
+| A4 same as A3 for phone 34600000104 | both T1/T2 pass | — |
+| Protected tables Δ=0 | bookings=41, payments=25, payment_events=5, booking_beds=15 | any non-zero delta |
+| WHATSAPP_DRY_RUN=true throughout | no graph.facebook.com | any live WA call |
+| Cleanup succeeds | conversations rows deleted, count=0 | row still present after cleanup |
+| **A2 without seed** | _not tested in this gate_ | — |
+
+---
+
+### 5.1.11 Cleanup SQL
+
+Run after A3/A4 gate completes (success or failure):
+
+```sql
+-- Delete Stage 5.1 gate conversation rows
+-- Scoped to wolfhouse-somo client; only dry-run test phones
+DELETE FROM conversations
+WHERE client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1)
+  AND phone IN ('34600000102', '34600000103', '34600000104');
+
+-- Verify: expect 0 rows
+SELECT COUNT(*) AS remaining
+FROM conversations
+WHERE client_id = (SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1)
+  AND phone IN ('34600000102', '34600000103', '34600000104');
+-- expected: remaining = 0
+```
+
+Save as `scripts/fixtures/stage5.1-conversations-cleanup.sql`.
+
+---
+
+### 5.1.12 Deferral: Stage 5.1b — write session without hold (A2)
+
+**Problem:** A2 T1 does not create a hold (missing package → no hold path). `Postgres - Upsert Conversation Hold` never runs. No PG conversation row is written. T2 cannot read T1 state from PG.
+
+**Required fix for A2:** A new PG node — "Postgres - Write Session State" — on the non-hold routing path. This node would upsert `conversations` with session_state after every routing decision (not just on hold success). It would:
+- Write `phone`, `language`, `conversation_stage`, `session_state` to PG
+- Not require a booking_code (no FK dependency)
+- Run on all paths where Airtable currently writes `Create Conversation` / `Update Conversation`
+- Be the natural counterpart to `Postgres - Search Conversation (PG)` (read + write pair)
+
+**Scope of Stage 5.1b:** design the node, place it in the workflow, verify A2 T1 writes session, A2 T2 reads naturally. This is the next Stage 5.1 slice after this gate passes.
+
+---
 
 | Doc | Role |
 |-----|------|
