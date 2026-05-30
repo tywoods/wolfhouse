@@ -447,6 +447,31 @@ Save as `scripts/fixtures/stage5.1-conversations-cleanup.sql`.
 
 ---
 
+### 5.1.13 Stage 5.1b — enrich PG conversation session_state (STATIC DONE 2026-05-30)
+
+**Problem addressed:** T1 `session_state` only stored `check_in/check_out/guest_count/primary_room_code/current_hold_booking_code`. BSR in T2 lacked `package` and `language` and relied on LLM classification alone.
+
+**Changes (static only, no runtime):**
+
+- `scripts/build-main-local-stripe.js` — `conversationQueryReplacement` `$6` (session_state_json) extended to an IIFE that conditionally populates all booking-relevant fields present at hold time:
+  - `current_hold_booking_code`, `check_in`, `check_out`, `guest_count`, `primary_room_code` (existing)
+  - **new:** `package`, `language`, `route`, `room_type`, `room_preference`, `guest_name`, `guest_email`, `missing_fields`
+  - Null-safety: each field is only set if non-null/non-empty — `jsonb ||` merge on conflict means empty values never erase live session fields.
+- `verifyPGConversationRead` — new S5b checks assert `_s.package` and `_s.language` present in the conversation hold node queryReplacement.
+- `n8n/phase2/Wolfhouse Booking Assistant - Main (local Stripe).json` — regenerated; `active=false` confirmed after `--import-inactive`.
+
+**Static checks passed:**
+- `build-main-local-stripe.js` — PG conversation read verify (Stage 5.1 PG-primary): OK
+- `--verify-targets` — OK: hard safety checks passed
+- `report-main-payment-contract.js` — Overall OK: true
+- `report-main-rooming-contract.js` — Overall OK: true
+- `node --check run-stage4-autonomous-dry-run.js` — syntax OK
+- `--import-inactive` — Import OK (active=false)
+
+**Still deferred (see 5.1.12 below):** A2 non-hold session write path. The enriched session_state means once A2 gains a session write path, T2 will immediately have full context without LLM guessing.
+
+---
+
 ### 5.1.12 Deferral: Stage 5.1b — write session without hold (A2)
 
 **Problem:** A2 T1 does not create a hold (missing package → no hold path). `Postgres - Upsert Conversation Hold` never runs. No PG conversation row is written. T2 cannot read T1 state from PG.

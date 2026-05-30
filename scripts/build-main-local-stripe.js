@@ -654,13 +654,28 @@ function applyPhase3cHoldGate(workflow) {
     pgParam(`'booking_flow'`),
     pgParam(`${sess}.pending_action || 'collect_guest_details'`),
     pgParam(`$('Code - Parse Route').first().json.language || ${sess}.language`),
-    pgParam(`JSON.stringify({
-      current_hold_booking_code: $('Code - Validate PG Hold').first().json.booking_code || ${holdData}.hold_booking_id || '',
-      check_in: ${sess}.check_in || null,
-      check_out: ${sess}.check_out || null,
-      guest_count: ${holdData}.guest_count || null,
-      primary_room_code: $('Code - Validate PG Hold').first().json.primary_room_code || ${mapPg}.primary_room_code || ${mapPg}.pg_primary_room_code || null
-    })`),
+    // Stage 5.1b: enrich session_state with all booking-relevant fields available at hold time.
+    // Use an IIFE to build the object conditionally — only include non-null/non-empty values so
+    // that subsequent ON CONFLICT updates (SQL: existing || incoming) never overwrite live fields
+    // with empty values from a partial turn.
+    pgParam(`JSON.stringify((() => {
+      const _s = {};
+      const _bc = $('Code - Validate PG Hold').first().json.booking_code || ${holdData}.hold_booking_id;
+      _s.current_hold_booking_code = _bc || '';
+      const _ci = ${sess}.check_in; if (_ci) _s.check_in = _ci;
+      const _co = ${sess}.check_out; if (_co) _s.check_out = _co;
+      const _gc = ${holdData}.guest_count; if (_gc != null && _gc !== '') _s.guest_count = _gc;
+      const _pr = $('Code - Validate PG Hold').first().json.primary_room_code || ${mapPg}.primary_room_code || ${mapPg}.pg_primary_room_code; if (_pr) _s.primary_room_code = _pr;
+      const _pkg = ${sess}.package || ${sess}.package_code; if (_pkg) _s.package = _pkg;
+      const _lang = $('Code - Parse Route').first().json.language || ${sess}.language; if (_lang) _s.language = _lang;
+      const _route = $('Code - Parse Route').first().json.route; if (_route) _s.route = _route;
+      const _rt = ${sess}.room_type || ${sess}.requested_room_type; if (_rt) _s.room_type = _rt;
+      const _rp = ${sess}.room_preference; if (_rp) _s.room_preference = _rp;
+      const _gn = ${holdData}.guest_name; if (_gn) _s.guest_name = _gn;
+      const _ge = ${holdData}.guest_email; if (_ge) _s.guest_email = _ge;
+      const _mf = ${sess}.missing_fields; if (Array.isArray(_mf) && _mf.length > 0) _s.missing_fields = _mf;
+      return _s;
+    })()`),
     pgParam(`'__NULL__'`),
     pgParam(`'bot'`),
   ].join(',');
@@ -1311,6 +1326,18 @@ function verifyPGConversationRead(workflow) {
       errors.push('Postgres - Search Conversation (PG) query contains write operations');
     if (!pgNode.alwaysOutputData)
       errors.push('Postgres - Search Conversation (PG) missing alwaysOutputData:true (chain breaks on no-row)');
+  }
+
+  // S5b (Stage 5.1b): Postgres - Upsert Conversation Hold session_state must include package and language
+  const convHoldNode = workflow.nodes.find((n) => n.name === 'Postgres - Upsert Conversation Hold');
+  if (!convHoldNode) {
+    errors.push('Postgres - Upsert Conversation Hold node missing');
+  } else {
+    const qr = String(convHoldNode.parameters?.options?.queryReplacement || '');
+    if (!qr.includes('_s.package'))
+      errors.push('Postgres - Upsert Conversation Hold session_state missing package field (Stage 5.1b)');
+    if (!qr.includes('_s.language'))
+      errors.push('Postgres - Upsert Conversation Hold session_state missing language field (Stage 5.1b)');
   }
 
   const ok = errors.length === 0;
