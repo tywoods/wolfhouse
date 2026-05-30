@@ -623,3 +623,55 @@ per turn. After any runtime execution:
 - Flag any handoff decisions that seem wrong
 
 Real WhatsApp send remains NOT approved. Live autonomous operation remains NOT approved.
+
+---
+
+## A2–A10 runtime planning (2026-05-30)
+
+### Planning table
+
+| ID | Scenario | Turns | New phone | Stubs needed | Multi-turn state risk | New infra needed | Stripe webhook | Send Confirm | No-mutation assertions | Priority | Risk |
+|----|----------|-------|-----------|--------------|----------------------|-----------------|----------------|--------------|----------------------|----------|------|
+| A2 | Missing package → supplied T2 | 2 | 34600000102 | hold_stub (proven) | **HIGH** — T2 requires T1 conversation state; `PG_CONV_STUB` doesn't write, so T2 sees empty conversation | Need real conversation writes OR fixture conversation record OR accept T2 ambiguity | No | No | bookings/payments/booking_beds Δ=0 | 4 | HIGH — multi-turn state accumulation |
+| A3 | Deposit selected | 2 | 34600000103 | hold_stub + payment_link_stub (both proven) | HIGH — T2 "Deposit please" needs T1 booking context | Same as A2 | No | No | Δ=0 | 5 | HIGH — multi-turn state + amount assertion €200 |
+| A4 | Full payment selected | 2 | 34600000104 | hold_stub + payment_link_stub (both proven) | HIGH — T2 needs T1 context | Same as A2 | No | No | Δ=0 | 5 | HIGH — multi-turn state + amount assertion €599 |
+| A5 | Closed month (January) | 1 | 34600000105 | **None** (`stub_overrides: {}`) | None — single turn | None | No | No | All Δ=0, no hold created | 1 | LOW — 1 turn, no stubs, closed-month config read |
+| A6 | Claims paid, no Stripe record | 1 | 34600000106 | None needed (booking WH-TEST-0042 won't exist) | None — single turn | None | No | No | Δ=0, booking NOT confirmed | 2 | LOW-MED — route accuracy + handoff behavior |
+| A7 | Cancellation/refund handoff | 1 | 34600000107 | **None** (`stub_overrides: {}`) | None — single turn | None | No | No | All Δ=0, no cancel action | 1 | LOW — 1 turn, no stubs, handoff path |
+| A8 | Rooming preference during booking | 1 | 34600000108 | hold_stub (proven) | None — 1 turn, all fields present T1 | None | No | No | booking_beds Δ=0 | 2 | LOW — same hold_stub, no room assignment |
+| A9 | Surf lessons + yoga (addon pricing) | 2 | 34600000109 | addon_payment_link_stub (NEW shape) | MED — T2 yoga query is simple follow-up, may work | Investigate whether addon CPS path exists in Main | No | No | Δ=0 | 6 | HIGH — addon payment link path may not be implemented |
+| A10 | Spanish booking request | 1 | 34600000110 | hold_stub (proven) | None — 1 turn, all fields present | None | No | No | All Δ=0 | 1 | LOW — same hold_stub, language detection test |
+
+### Multi-turn state risk (A2/A3/A4) — analysis
+
+The Main workflow's `Postgres - Upsert Conversation Hold` is stubbed in Stage 4 dry-run via `PG_CONV_STUB`, which returns `{ pg_ok: true }` but writes nothing. For NEW phones (A2–A4), this means:
+- T1: bot sees empty conversation → processes normally, stub fires instead of writing
+- T2: bot sees **still-empty conversation** → treats as a new contact with no booking context
+
+**Symptom:** T2 message "I'll go with the Malibu package" (A2) or "Deposit please" (A3) will arrive with no prior context — the LLM may misroute or respond generically. Amount assertions (€200, €599) cannot be validated if T2 context is missing.
+
+**Options before A2/A3/A4 runtime:**
+1. *(Low risk, preferred)* Allow the real `Postgres - Upsert Conversation Hold` to run during Stage 4 dry-run (remove from stub scope) — conversation records are not sensitive business data and only contain phone/booking context fields
+2. *(Medium risk)* Pre-seed fixture conversation records for A2–A4 phones before each T1 run, then delete after T2
+3. *(Accept failure)* Run T2 as-is; document if LLM handles "Deposit please" without context → prove or disprove the risk empirically
+
+This must be decided before A2/A3/A4 are run. Not required for Batch 1 (A5/A6/A7/A8/A10).
+
+### Recommended next runtime batch — Option: Single-turn routing + guard batch
+
+**Run A5 + A7 + A8 + A10 as Gate 4 Batch 1 (all single-turn, zero new infrastructure):**
+
+| Scenario | Why include |
+|----------|-------------|
+| A5 (closed month) | 1 turn, no stubs, tests closed-month config guard — cheapest expansion |
+| A7 (cancellation handoff) | 1 turn, no stubs, tests handoff path |
+| A8 (rooming preference) | 1 turn, uses proven hold_stub, confirms booking_beds Δ=0 |
+| A10 (Spanish) | 1 turn, uses proven hold_stub, tests language detection |
+
+**Also include A6 (claims paid) but flag it:** A6 depends on route accuracy for `existing_booking_status` against a phone with no records. Run it; if route is wrong, document and fix.
+
+**Exclude until multi-turn state is resolved:** A2, A3, A4, A9.
+
+**Required implementation before Batch 1:** NONE — all 4-5 scenarios use proven stubs or no stubs.
+
+**Required implementation before A2/A3/A4/A9:** Resolve multi-turn conversation state (see options above) + investigate addon CPS path for A9.
