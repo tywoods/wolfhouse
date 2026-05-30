@@ -408,7 +408,7 @@ Every turn in every scenario must satisfy:
 | A6 | Guest claims paid, no Stripe record | 1 | Handoff fires; booking NOT confirmed |
 | A7 | Cancellation/refund request | 1 | Immediate handoff; no cancel/refund action |
 | A8 | Rooming preference during booking | 1 | Preference noted; no real assignment; booking continues |
-| A9 | 2 surf lessons + yoga query | 2 | Lessons = €65 (tiered); yoga link NOT created; add-on request must be representable as a staff-queryable record (see ROADMAP.md Stage 4 add-on structured records) |
+| A9 | 2 surf lessons + yoga query | 2 | Lessons = €65 (tiered); yoga link NOT created; add-on request must be representable as a staff-queryable record (see ROADMAP.md Stage 4 add-on structured records). **service_addons pricing injected into Reply - General Question prompt (static, NOT RUNTIME TESTED)** |
 | A10 | Spanish-language booking request | 1 | Language = es; reply in Spanish; same state logic |
 
 ---
@@ -417,19 +417,44 @@ Every turn in every scenario must satisfy:
 
 A9 tests the add-on pricing path (lessons, yoga, rentals). Beyond verifying the guest-facing price quote is correct, A9 must also evaluate whether the add-on request can become a **staff-queryable structured record**.
 
-**What A9 evaluates:**
+### Static fix applied (2026-05-30)
 
-1. Guest-facing: does the bot quote the correct tiered price (2 lessons = €65 from config)?
-2. Yoga path: does the bot correctly NOT create a payment link for yoga (booked on site)?
-3. Staff queryability (not implemented yet — design gate): can the add-on request be represented as a record with type, quantity, dates, payment status, and fulfillment status?
+`scripts/build-main-local-stripe.js` now injects confirmed service_addons pricing into the `Reply - General Question` LLM system prompt at build time. Values are read from `config/clients/wolfhouse-somo.baseline.json` — never hard-coded. The injected block includes:
 
-**Design note:** A9 is not marked passed or implemented for the staff-queryability dimension until the underlying structured record model exists (Stage 5 `add_on_orders` / `lesson_requests` / `yoga_requests`). The guest-facing routing and pricing can be proven in Stage 4; the staff query path is a Stage 5 design requirement. Do not mark A9 fully complete until both dimensions are addressed.
+- Surf lessons (tiered): 1 lesson = €35; 2 lessons = €65 (1st €35 + 2nd €30); 3+ = €35 first, €30 each additional
+- Yoga: €15/class, booked ON SITE — bot does NOT create a payment link for yoga
+- Rentals (per day): wetsuit €5, soft top €15, hard board €20
+- Bundle promos: wetsuit + soft top €15/day (wetsuit free), wetsuit + hard board €20/day (wetsuit free)
 
-**Staff questions A9 data must eventually answer (Stage 6):**
+The old "Do not invent exact prices." rule was replaced with "Use only confirmed prices from the service add-ons section below."
 
-- "Who has lessons today / tomorrow?" — requires `lesson_requests` with date + guest reference
-- "Who paid for yoga?" — requires `yoga_requests` with payment status
-- "Who requested a board / wetsuit?" — requires `rental_requests` with item + days
+Tag added: `stage4-addons-prompt`. `verifyGeneralQuestionAddonsPrompt` added to `runVerifyTargets`. All 7 static checks pass.
+
+**Next: A9 runtime test** (activate Main only, POST A9-T1 + A9-T2, verify €65 quote and yoga on-site reply, Δ=0 on all protected tables).
+
+### add_on_intent structured capture — Stage 5 design requirement (NOT implemented in Stage 4)
+
+When a guest requests an add-on, the bot should eventually write a structured `add_on_intent` record to `session_state` so staff can query it. Proposed shape:
+
+```json
+{
+  "type": "surf_lesson" | "yoga_class" | "wetsuit_rental" | "softtop_rental" | "hardboard_rental",
+  "item": "surf_lesson",
+  "quantity": 2,
+  "date": null,
+  "price_eur": 65,
+  "payment_status": "not_requested" | "pending" | "paid",
+  "scheduling_status": "staff_required",
+  "source": "guest_message"
+}
+```
+
+This enables Stage 6 staff queries:
+- "Who paid for yoga today?" → `yoga_class` records with `payment_status=paid` + date
+- "Who has lessons tomorrow?" → `surf_lesson` records with `date=tomorrow`
+- "Who requested a board?" → rental records filtered by `item` type
+
+Implementation deferred to Stage 5 (`add_on_orders` / `lesson_requests` / `yoga_requests` table design). Stage 4 proves only that the guest-facing quote uses the correct config prices.
 
 ---
 

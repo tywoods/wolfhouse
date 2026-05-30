@@ -408,6 +408,7 @@ function runVerifyTargets(workflow, opts = {}) {
   const pkgRequired = verifyPackageRequirement(wf);
   const poiNoHoldFallback = verifyPaymentOrConfirmFallback(wf);
   const holdIdGuard = verifyActiveBookingHoldIdGuard(wf);
+  const addonsPrompt = verifyGeneralQuestionAddonsPrompt(wf, SERVICE_ADDONS_CONFIG);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -419,6 +420,7 @@ function runVerifyTargets(workflow, opts = {}) {
     packageRequired: pkgRequired,
     paymentOrConfirmFallback: poiNoHoldFallback,
     activeBookingHoldIdGuard: holdIdGuard,
+    generalQuestionAddonsPrompt: addonsPrompt,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -453,6 +455,12 @@ function runVerifyTargets(workflow, opts = {}) {
   if (!holdIdGuard.ok) {
     // Note: the active booking hold-id guard is deferred — informational only, does not block.
     console.warn(`Active booking hold-id guard: PENDING (deferred Airtable formula fix)`);
+  }
+  if (!addonsPrompt.ok) {
+    console.error(`General question add-ons prompt FAIL (${addonsPrompt.errors.length} error(s)):`);
+    for (const e of addonsPrompt.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...addonsPrompt.errors.map((e) => `[addons-prompt] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -3109,6 +3117,233 @@ const WOLFHOUSE_CLIENT_CONFIG = JSON.parse(
 const CLOSED_MONTHS_CONFIG = (WOLFHOUSE_CLIENT_CONFIG?.packages?.closed_months || []).map((m) =>
   String(m).toLowerCase()
 );
+/** Service add-ons catalog (lessons, yoga, rentals, bundles), sourced from wolfhouse-somo.baseline.json. */
+const SERVICE_ADDONS_CONFIG = WOLFHOUSE_CLIENT_CONFIG?.service_addons || {};
+
+// ── Stage 4 A9: Service add-ons prompt injection ──────────────────────────────
+/**
+ * Format service_addons config into a human-readable pricing block for LLM prompt injection.
+ * Reads only from client config — never hard-codes price values.
+ * @param {object} serviceAddons  wolfhouse-somo.baseline.json service_addons object
+ * @returns {string}  multi-line pricing block
+ */
+function formatServiceAddonsForPrompt(serviceAddons) {
+  const cat = serviceAddons?.service_catalog || {};
+  const bundles = serviceAddons?.bundles || {};
+  const lines = [];
+
+  // Surf lessons (tiered by quantity)
+  const lesson = cat.surf_lesson;
+  if (lesson?.tiers?.length) {
+    const tier1 = lesson.tiers.find((t) => t.min_qty === 1 && t.max_qty === 1);
+    const tier2 = lesson.tiers.find((t) => t.min_qty === 2 && t.max_qty === null);
+    const p1 = tier1?.price_eur;
+    const p2 = tier2?.price_eur_each;
+    lines.push('Surf lessons (tiered pricing):');
+    if (p1 != null) lines.push(`* 1 lesson: €${p1}`);
+    if (p1 != null && p2 != null) {
+      lines.push(`* 2 lessons: €${p1 + p2} (1st €${p1} + 2nd €${p2})`);
+      lines.push(`* 3+ lessons: 1st €${p1}, each additional €${p2}`);
+    }
+    lines.push('* Scheduling: staff manages lesson slots on-site. Two daily slots available.');
+    lines.push('* Payment: if guest wants to pay now, you can create a payment link — ask for quantity and preferred dates.');
+    lines.push('');
+  }
+
+  // Yoga
+  const yoga = cat.yoga_class;
+  if (yoga) {
+    lines.push('Yoga classes:');
+    lines.push(`* €${yoga.price_eur} per class`);
+    if (yoga.booked_onsite) {
+      lines.push('* Booked ON SITE — guests arrange directly with staff at Wolfhouse.');
+      lines.push('* The bot does NOT create a payment link for yoga.');
+      lines.push('* Exception: special camps/retreats may include yoga if staff confirms.');
+    }
+    lines.push('');
+  }
+
+  // Individual gear rentals
+  const wetsuit = cat.wetsuit_rental;
+  const softtop = cat.softtop_surfboard_rental;
+  const hardboard = cat.hardboard_surfboard_rental;
+  if (wetsuit || softtop || hardboard) {
+    lines.push('Gear rentals (per day):');
+    if (wetsuit) lines.push(`* Wetsuit: €${wetsuit.price_eur}/day`);
+    if (softtop) lines.push(`* Soft top surfboard: €${softtop.price_eur}/day`);
+    if (hardboard) lines.push(`* Hard board: €${hardboard.price_eur}/day`);
+    lines.push('');
+  }
+
+  // Bundle promos
+  const b1 = bundles.wetsuit_plus_softtop;
+  const b2 = bundles.wetsuit_plus_hardboard;
+  if (b1 || b2) {
+    lines.push('Bundle promos (per day — wetsuit included free):');
+    if (b1) lines.push(`* Wetsuit + soft top: €${b1.price_eur}/day (wetsuit free)`);
+    if (b2) lines.push(`* Wetsuit + hard board: €${b2.price_eur}/day (wetsuit free)`);
+    lines.push('');
+  }
+
+  return lines.join('\n').trim();
+}
+
+/**
+ * Inject confirmed service_addons pricing into the Reply - General Question LLM system prompt.
+ *
+ * Replaces the old "Do not invent exact prices." anti-hallucination rule with:
+ *   "Use only confirmed prices from the service add-ons section below."
+ * Inserts a priced services block before "Return ONLY the WhatsApp reply text."
+ *
+ * ── Stage 5/6 add_on_intent design note (NOT implemented in Stage 4) ──────────
+ * When a guest requests an add-on, the bot should eventually write a structured
+ * add_on_intent record to session_state so staff can query it later. Proposed shape:
+ *   {
+ *     "type": "surf_lesson" | "yoga_class" | "wetsuit_rental" | "softtop_rental" | "hardboard_rental",
+ *     "item": "surf_lesson",
+ *     "quantity": 2,
+ *     "date": null,                    // populated if guest provides it
+ *     "price_eur": 65,
+ *     "payment_status": "not_requested" | "pending" | "paid",
+ *     "scheduling_status": "staff_required",   // for lessons / yoga
+ *     "source": "guest_message"
+ *   }
+ * This enables Stage 6 staff queries:
+ *   "Who paid for yoga today?"     → yoga_class records with payment_status=paid + date
+ *   "Who has lessons tomorrow?"    → surf_lesson records with date=tomorrow
+ *   "Who requested a board?"       → rental records filtered by item type
+ * Implementation: deferred to Stage 5 (add_on_orders / lesson_requests table design).
+ * In Stage 4 we prove only that the guest-facing quote uses the correct config prices.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * @param {object} workflow
+ * @param {object} serviceAddons  wolfhouse-somo.baseline.json service_addons object
+ */
+function applyGeneralQuestionAddonsPrompt(workflow, serviceAddons) {
+  const genQNode = workflow.nodes.find((n) => n.name === 'Reply - General Question');
+  if (!genQNode) {
+    throw new Error('applyGeneralQuestionAddonsPrompt: Reply - General Question node not found');
+  }
+
+  const pricingBlock = formatServiceAddonsForPrompt(serviceAddons);
+  if (!pricingBlock) {
+    console.log('applyGeneralQuestionAddonsPrompt: no service_addons data found; prompt not updated');
+    return;
+  }
+
+  const addonsSection =
+    `\nConfirmed service add-on prices (Wolfhouse config — use ONLY these values):\n${pricingBlock}\n\nAdd-on rules:\n` +
+    `* Use only the prices listed above.\n` +
+    `* If a requested item is not listed, say staff will confirm the exact price.\n` +
+    `* Never invent, estimate, or guess prices.\n` +
+    `* For lesson scheduling, say staff handles slots on-site.\n` +
+    `* For yoga, always say it is booked on-site with staff — never create a payment link for yoga.\n` +
+    `* For rentals, ask how many days and calculate from the per-day rate above.`;
+
+  let prompt = String(genQNode.parameters.text || '');
+
+  // Replace "Do not invent exact prices." with config-backed rule
+  prompt = prompt.replace(
+    '* Do not invent exact prices.',
+    '* Use only confirmed prices listed in the service add-ons section below. If a requested item is not listed, say staff will confirm the exact price.'
+  );
+
+  // Insert pricing section before the final "Return ONLY" sentinel
+  const RETURN_SENTINEL = 'Return ONLY the WhatsApp reply text.';
+  if (prompt.includes(RETURN_SENTINEL)) {
+    prompt = prompt.replace(RETURN_SENTINEL, addonsSection + '\n\n' + RETURN_SENTINEL);
+  } else {
+    prompt += '\n' + addonsSection;
+  }
+
+  genQNode.parameters.text = prompt;
+  console.log(
+    'applyGeneralQuestionAddonsPrompt: Reply - General Question prompt updated with service_addons pricing block.'
+  );
+}
+
+/**
+ * Verify that the generated Reply - General Question prompt contains service_addons pricing.
+ * @param {object} workflow
+ * @param {object} serviceAddons  wolfhouse-somo.baseline.json service_addons object
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifyGeneralQuestionAddonsPrompt(workflow, serviceAddons) {
+  const errors = [];
+  const genQNode = workflow.nodes.find((n) => n.name === 'Reply - General Question');
+  if (!genQNode) {
+    errors.push('Reply - General Question node not found');
+    return { ok: false, errors };
+  }
+
+  const prompt = String(genQNode.parameters.text || '');
+  const cat = serviceAddons?.service_catalog || {};
+  const bundles = serviceAddons?.bundles || {};
+
+  // Surf lesson tiers
+  const lesson = cat.surf_lesson;
+  if (lesson?.tiers?.length) {
+    const tier1 = lesson.tiers.find((t) => t.min_qty === 1 && t.max_qty === 1);
+    const tier2 = lesson.tiers.find((t) => t.min_qty === 2 && t.max_qty === null);
+    if (tier1?.price_eur != null && !prompt.includes(`€${tier1.price_eur}`)) {
+      errors.push(`Reply - General Question prompt missing surf lesson 1-lesson price €${tier1.price_eur}`);
+    }
+    if (tier1?.price_eur != null && tier2?.price_eur_each != null) {
+      const twoLessonTotal = tier1.price_eur + tier2.price_eur_each;
+      if (!prompt.includes(`€${twoLessonTotal}`)) {
+        errors.push(`Reply - General Question prompt missing 2-lesson total €${twoLessonTotal}`);
+      }
+    }
+  }
+
+  // Yoga price and on-site instruction
+  const yoga = cat.yoga_class;
+  if (yoga) {
+    if (!prompt.includes(`€${yoga.price_eur}`)) {
+      errors.push(`Reply - General Question prompt missing yoga price €${yoga.price_eur}`);
+    }
+    if (
+      yoga.booked_onsite &&
+      !prompt.toLowerCase().includes('on site') &&
+      !prompt.toLowerCase().includes('onsite')
+    ) {
+      errors.push('Reply - General Question prompt missing yoga on-site instruction');
+    }
+  }
+
+  // Wetsuit rental price
+  const wetsuit = cat.wetsuit_rental;
+  if (wetsuit?.price_eur != null && !prompt.includes(`€${wetsuit.price_eur}/day`)) {
+    errors.push(`Reply - General Question prompt missing wetsuit price €${wetsuit.price_eur}/day`);
+  }
+
+  // Soft top price
+  const softtop = cat.softtop_surfboard_rental;
+  if (softtop?.price_eur != null && !prompt.includes(`€${softtop.price_eur}/day`)) {
+    errors.push(`Reply - General Question prompt missing soft top price €${softtop.price_eur}/day`);
+  }
+
+  // Bundle promo prices
+  const b1 = bundles.wetsuit_plus_softtop;
+  if (b1?.price_eur != null) {
+    const b1str = `€${b1.price_eur}/day`;
+    // Allow the softtop standalone price to cover the bundle (same value €15)
+    // but check the bundle promo section is present
+    if (!prompt.includes('Bundle promo') && !prompt.includes('bundle promo')) {
+      errors.push('Reply - General Question prompt missing bundle promo section');
+    }
+  }
+
+  // Old "Do not invent exact prices." rule must be replaced
+  if (prompt.includes('* Do not invent exact prices.')) {
+    errors.push(
+      'Reply - General Question prompt still contains old "Do not invent exact prices." rule — must be replaced with config-backed rule'
+    );
+  }
+
+  const ok = errors.length === 0;
+  return { ok, errors };
+}
 
 /** @returns {object} workflow before neutralization / active=false */
 function buildMainLocalStripeWorkflow() {
@@ -3435,6 +3670,7 @@ applyPhase3cAvailabilityGate(workflow);
 applyPhase3cHoldGate(workflow);
 applyClosedMonthGuard(workflow, CLOSED_MONTHS_CONFIG);
 applyPGConversationRead(workflow);
+applyGeneralQuestionAddonsPrompt(workflow, SERVICE_ADDONS_CONFIG);
 applyPackageRequirement(workflow);
 // applyActiveBookingHoldIdGuard is deferred — Airtable IIFE formula needs further testing.
 // The BSR fix (removing !holdUsable from the payment_or_confirm_intent override) is sufficient.
@@ -3459,6 +3695,7 @@ workflow.tags = [
   { name: 'stage4-pkg-required' }, // Stage 4: package required before hold
   { name: 'stage4-poi-fallback' }, // Stage 4: payment_or_confirm_intent no-hold → booking_flow
   { name: 'stage4-hold-id-guard' }, // Stage 4: FALSE() guard for empty hold_id in Search Active Booking
+  { name: 'stage4-addons-prompt' }, // Stage 4 A9: service_addons pricing injected into Reply - General Question
 ];
 
 if (reassignRemap.patched > 0) {
@@ -3540,6 +3777,10 @@ module.exports = {
   verifyPaymentOrConfirmFallback,
   verifyActiveBookingHoldIdGuard,
   applyActiveBookingHoldIdGuard,
+  formatServiceAddonsForPrompt,
+  applyGeneralQuestionAddonsPrompt,
+  verifyGeneralQuestionAddonsPrompt,
+  SERVICE_ADDONS_CONFIG,
   OUT,
   PROD_AIRTABLE_BASE_ID,
   TEST_AIRTABLE_BASE_ID,
