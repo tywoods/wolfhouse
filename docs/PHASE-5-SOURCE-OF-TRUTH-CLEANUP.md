@@ -1158,7 +1158,7 @@ Fields that must be reliable at each stage:
 
 ### 5.3.5 Implementation slices
 
-#### 5.3a — Schema/status audit (static, no DB changes)
+#### 5.3a — Schema/status audit (static, no DB changes) — DONE 2026-05-30
 
 - Verify `bookings` columns for payment aggregates: `total_amount_cents`, `deposit_required_cents`, `deposit_paid_cents`, `amount_paid_cents`, `balance_due_cents` all present.
 - Verify `payments` post-004 columns: `amount_due_cents`, `amount_paid_cents`, `payment_kind`.
@@ -1166,7 +1166,7 @@ Fields that must be reliable at each stage:
 - Note gap: `deposit_required_cents` / `total_amount_cents` not set on ensure INSERT — must come from CPS response (acceptable; document explicitly).
 - No migration needed. Document: no 5.3 schema migration required.
 
-#### 5.3b — `payment_balances` SQL helper/view (static)
+#### 5.3b — `payment_balances` SQL helper/view (STATIC DONE 2026-05-30 — not runtime tested)
 
 New module `scripts/lib/payment-balances-query.js` (or inline SQL helper) defining the staff balance view:
 
@@ -1206,20 +1206,24 @@ ORDER BY b.updated_at DESC;
 
 Add static verifier: SELECT-only, references `bookings` + `payments` + `payment_events`, parameterised by `$1`.
 
-#### 5.3c — Staff payment query helpers (static)
+#### 5.3c — Staff payment query helpers (STATIC DONE 2026-05-30 — not runtime tested)
 
-New exports in `scripts/lib/staff-payment-queries.js`:
+New module `scripts/lib/staff-payment-queries.js` exports six read-only helpers:
 
-| Function | Query | Staff question answered |
-|----------|-------|------------------------|
-| `getDepositPaidQuery()` | `payment_status='deposit_paid'` | Who paid deposit but owes balance? |
-| `getFullyPaidQuery()` | `payment_status='paid'` | Who paid in full? |
-| `getBalanceDueQuery()` | `balance_due_cents > 0 AND payment_status='deposit_paid'` | Who owes remaining balance? |
-| `getPaymentPendingNoPaymentRowQuery()` | `status='payment_pending'` LEFT JOIN `payments` WHERE none | Who is payment_pending with no `payments` row? |
-| `getConfirmationNeededQuery()` | `send_confirmation=TRUE AND confirmation_sent_at IS NULL AND payment_status IN (deposit_paid, paid)` | Which paid bookings need confirmation sent? |
-| `getPaymentTimelineQuery()` | `payment_events WHERE booking_id=$2` parameterised by client + booking_id | Full payment event history for one booking |
+| Function | What it answers |
+|----------|-----------------|
+| `getDepositPaidQuery()` | Who paid deposit but still owes balance? (`payment_status='deposit_paid'`) |
+| `getFullyPaidQuery()` | Who paid in full? (`payment_status='paid'`) |
+| `getBalanceDueQuery()` | Who owes remaining balance? (`deposit_paid` + `balance_due_cents > 0`; computed fallback included) |
+| `getNoPaymentRecordQuery()` | `payment_pending` bookings with no `payments` row (CPS never ran) — proxy for "no link sent" |
+| `getWaitingPaymentQuery()` | `payment_pending` + `waiting_payment` — link sent, Stripe not yet confirmed |
+| `getConfirmationNeededQuery()` | `send_confirmation=TRUE` + `confirmation_sent_at IS NULL` + `deposit_paid`/`paid` |
 
-All: SELECT-only, `$1` = client slug, verifier checks no mutation keywords.
+All: SELECT-only, `$1` = client slug, `LEFT JOIN payments`, no mutation keywords.
+
+**TODO (claimed-paid/no-record):** A query for "guest claimed they paid but no record exists" requires a claim marker (`conversations.metadata` or `staff_handoffs.reason='payment_claimed'`). Neither exists in the current schema. `getNoPaymentRecordQuery()` is the safe proxy until `staff_handoffs` is available in Stage 5.7. Documented inline in `staff-payment-queries.js`.
+
+Verifier: `scripts/verify-staff-payment-queries.js` — checks all 7 exports (1 balance + 6 payment), SELECT-only, client-scoped, `bookings` reference, `payments` reference for applicable queries. All 7/7 OK.
 
 #### 5.3d — Fixture ensure-promote + payment session proof (runtime gate)
 
