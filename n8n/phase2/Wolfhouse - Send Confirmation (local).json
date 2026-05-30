@@ -328,6 +328,53 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-dry-run-mark-confirmed",
+              "leftValue": "={{ String($env.WHATSAPP_DRY_RUN || 'true').toLowerCase() === 'true' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        100,
+        80
+      ],
+      "id": "2d010026-0026-4000-8000-000000000001",
+      "name": "IF - DRY RUN? (Mark Confirmed)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const booking = $('Code - Format Booking For LLM').first().json;\n// Stage 4 dry-run: Postgres - Mark Booking Confirmed bypassed by WHATSAPP_DRY_RUN=true.\n// Returns shaped output so Code - Build Confirmation Success Event receives expected fields.\nreturn [{ json: {\n  booking_id: booking.booking_id || null,\n  booking_code: booking.booking_code || null,\n  status: 'confirmed',\n  send_confirmation: false,\n  confirmation_sent_at: null,\n  dry_run: true,\n  stub_type: 'mark_confirmed_stub',\n  _stub_note: 'Postgres - Mark Booking Confirmed bypassed by WHATSAPP_DRY_RUN=true',\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -60
+      ],
+      "id": "2d010027-0027-4000-8000-000000000001",
+      "name": "Code - DRY RUN Stub (Mark Booking Confirmed)"
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE bookings SET\n  status = 'confirmed'::booking_status,\n  send_confirmation = FALSE,\n  confirmation_sent_at = COALESCE(confirmation_sent_at, NOW()),\n  updated_at = NOW()\nWHERE id = $1::uuid\n  AND send_confirmation = TRUE\n  AND status = 'payment_pending'::booking_status\n  AND confirmation_sent_at IS NULL\nRETURNING\n  id AS booking_id,\n  booking_code,\n  status,\n  send_confirmation,\n  confirmation_sent_at;",
         "options": {
@@ -337,8 +384,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        100,
-        80
+        320,
+        200
       ],
       "id": "2d010015-0015-4000-8000-000000000015",
       "name": "Postgres - Mark Booking Confirmed",
@@ -351,7 +398,7 @@
     },
     {
       "parameters": {
-        "content": "## Phase 2d — Send Confirmation (local)\n\n**Trigger:** Postgres `send_confirmation=true` (schedule every 3 min + webhook).\n\n**Order:** WhatsApp first → Postgres `confirmed` only on success.\n\n**Default:** `WHATSAPP_DRY_RUN=true` (no production Graph API).\n\n**Airtable:** Conversation + Booking Beds searches use `alwaysOutputData` — 0 rows continues with PG booking defaults (language from Format node; empty room summary).\n\nDoes **not** update Airtable Send Confirmation checkbox.",
+        "content": "## Phase 2d — Send Confirmation (local)\n\n**Trigger:** Postgres `send_confirmation=true` (schedule every 3 min + webhook).\n\n**Order:** WhatsApp first → Postgres `confirmed` only on success.\n\n**Default:** `WHATSAPP_DRY_RUN=true` (no production Graph API).\n\n**Stage 4 gate:** `IF - DRY RUN? (Mark Confirmed)` wraps `Postgres - Mark Booking Confirmed`. With `WHATSAPP_DRY_RUN=true`, the stub fires instead — bookings table is NOT updated. Confirmation draft is still generated and logged.\n\n**Airtable:** Conversation + Booking Beds searches use `alwaysOutputData` — 0 rows continues with PG booking defaults (language from Format node; empty room summary).\n\nDoes **not** update Airtable Send Confirmation checkbox.",
         "height": 280,
         "width": 420
       },
@@ -500,7 +547,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        300,
+        540,
         80
       ],
       "id": "2d010024-0024-4000-8000-000000000001",
@@ -517,7 +564,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        500,
+        740,
         80
       ],
       "id": "2d010025-0025-4000-8000-000000000001",
@@ -685,7 +732,7 @@
       "main": [
         [
           {
-            "node": "Postgres - Mark Booking Confirmed",
+            "node": "IF - DRY RUN? (Mark Confirmed)",
             "type": "main",
             "index": 0
           }
@@ -693,6 +740,35 @@
         [
           {
             "node": "Code - Build WA Send Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - DRY RUN? (Mark Confirmed)": {
+      "main": [
+        [
+          {
+            "node": "Code - DRY RUN Stub (Mark Booking Confirmed)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Mark Booking Confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - DRY RUN Stub (Mark Booking Confirmed)": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Confirmation Success Event",
             "type": "main",
             "index": 0
           }

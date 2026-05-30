@@ -276,6 +276,24 @@ const BUILD_CONFIRM_SUCCESS_EVENT_JS = [
   '}];',
 ].join('\n');
 
+// Stage 4 dry-run: Mark Booking Confirmed stub — returns shaped output that
+// Code - Build Confirmation Success Event expects, without touching the bookings table.
+const MARK_CONFIRMED_STUB_JS = [
+  "const booking = $('Code - Format Booking For LLM').first().json;",
+  '// Stage 4 dry-run: Postgres - Mark Booking Confirmed bypassed by WHATSAPP_DRY_RUN=true.',
+  '// Returns shaped output so Code - Build Confirmation Success Event receives expected fields.',
+  'return [{ json: {',
+  '  booking_id: booking.booking_id || null,',
+  '  booking_code: booking.booking_code || null,',
+  "  status: 'confirmed',",
+  '  send_confirmation: false,',
+  '  confirmation_sent_at: null,',
+  '  dry_run: true,',
+  "  stub_type: 'mark_confirmed_stub',",
+  "  _stub_note: 'Postgres - Mark Booking Confirmed bypassed by WHATSAPP_DRY_RUN=true',",
+  '} }];',
+].join('\n');
+
 // Gap 3: build normalized error payload from n8n Error Trigger context
 const BUILD_WORKFLOW_ERROR_JS = [
   "const err = $json.execution?.error || {};",
@@ -482,6 +500,44 @@ const workflow = {
       id: '2d010014-0014-4000-8000-000000000014',
       name: 'IF - WhatsApp Sent OK',
     },
+    // -----------------------------------------------------------------------
+    // Stage 4 — dry-run gate: Postgres - Mark Booking Confirmed
+    // IF WHATSAPP_DRY_RUN=true → stub (no bookings write)
+    // IF WHATSAPP_DRY_RUN=false → real Postgres - Mark Booking Confirmed
+    // Both branches converge at Code - Build Confirmation Success Event
+    // -----------------------------------------------------------------------
+    {
+      parameters: {
+        conditions: {
+          options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+          conditions: [
+            {
+              id: 'is-dry-run-mark-confirmed',
+              leftValue: "={{ String($env.WHATSAPP_DRY_RUN || 'true').toLowerCase() === 'true' }}",
+              rightValue: '',
+              operator: { type: 'boolean', operation: 'true', singleValue: true },
+            },
+          ],
+          combinator: 'and',
+        },
+        options: {},
+      },
+      type: 'n8n-nodes-base.if',
+      typeVersion: 2.2,
+      position: [100, 80],
+      id: '2d010026-0026-4000-8000-000000000001',
+      name: 'IF - DRY RUN? (Mark Confirmed)',
+    },
+    {
+      parameters: {
+        jsCode: MARK_CONFIRMED_STUB_JS,
+      },
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
+      position: [320, -60],
+      id: '2d010027-0027-4000-8000-000000000001',
+      name: 'Code - DRY RUN Stub (Mark Booking Confirmed)',
+    },
     {
       parameters: {
         operation: 'executeQuery',
@@ -492,7 +548,7 @@ const workflow = {
       },
       type: 'n8n-nodes-base.postgres',
       typeVersion: 2.5,
-      position: [100, 80],
+      position: [320, 200],
       id: '2d010015-0015-4000-8000-000000000015',
       name: 'Postgres - Mark Booking Confirmed',
       credentials: {
@@ -502,7 +558,7 @@ const workflow = {
     {
       parameters: {
         content:
-          '## Phase 2d — Send Confirmation (local)\n\n**Trigger:** Postgres `send_confirmation=true` (schedule every 3 min + webhook).\n\n**Order:** WhatsApp first → Postgres `confirmed` only on success.\n\n**Default:** `WHATSAPP_DRY_RUN=true` (no production Graph API).\n\n**Airtable:** Conversation + Booking Beds searches use `alwaysOutputData` — 0 rows continues with PG booking defaults (language from Format node; empty room summary).\n\nDoes **not** update Airtable Send Confirmation checkbox.',
+          '## Phase 2d — Send Confirmation (local)\n\n**Trigger:** Postgres `send_confirmation=true` (schedule every 3 min + webhook).\n\n**Order:** WhatsApp first → Postgres `confirmed` only on success.\n\n**Default:** `WHATSAPP_DRY_RUN=true` (no production Graph API).\n\n**Stage 4 gate:** `IF - DRY RUN? (Mark Confirmed)` wraps `Postgres - Mark Booking Confirmed`. With `WHATSAPP_DRY_RUN=true`, the stub fires instead — bookings table is NOT updated. Confirmation draft is still generated and logged.\n\n**Airtable:** Conversation + Booking Beds searches use `alwaysOutputData` — 0 rows continues with PG booking defaults (language from Format node; empty room summary).\n\nDoes **not** update Airtable Send Confirmation checkbox.',
         height: 280,
         width: 420,
       },
@@ -612,15 +668,15 @@ const workflow = {
       credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
     },
 
-    // -----------------------------------------------------------------------
     // Stage 3.5e — success-path execution log: booking confirmed
-    // Wired from: Postgres - Mark Booking Confirmed success output
+    // Wired from: both Code - DRY RUN Stub (Mark Booking Confirmed) [dry-run]
+    //             and Postgres - Mark Booking Confirmed [live]
     // -----------------------------------------------------------------------
     {
       parameters: { jsCode: BUILD_CONFIRM_SUCCESS_EVENT_JS },
       type: 'n8n-nodes-base.code',
       typeVersion: 2,
-      position: [300, 80],
+      position: [540, 80],
       id: '2d010024-0024-4000-8000-000000000001',
       name: 'Code - Build Confirmation Success Event',
     },
@@ -634,7 +690,7 @@ const workflow = {
       },
       type: 'n8n-nodes-base.postgres',
       typeVersion: 2.5,
-      position: [500, 80],
+      position: [740, 80],
       id: '2d010025-0025-4000-8000-000000000001',
       name: 'Postgres - Write workflow_events (confirmation success)',
       credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
@@ -685,9 +741,19 @@ const workflow = {
     },
     'IF - WhatsApp Sent OK': {
       main: [
-        [{ node: 'Postgres - Mark Booking Confirmed', type: 'main', index: 0 }],
+        [{ node: 'IF - DRY RUN? (Mark Confirmed)', type: 'main', index: 0 }],
         [{ node: 'Code - Build WA Send Error', type: 'main', index: 0 }],
       ],
+    },
+    // Stage 4: dry-run gate for Mark Booking Confirmed
+    'IF - DRY RUN? (Mark Confirmed)': {
+      main: [
+        [{ node: 'Code - DRY RUN Stub (Mark Booking Confirmed)', type: 'main', index: 0 }],
+        [{ node: 'Postgres - Mark Booking Confirmed', type: 'main', index: 0 }],
+      ],
+    },
+    'Code - DRY RUN Stub (Mark Booking Confirmed)': {
+      main: [[{ node: 'Code - Build Confirmation Success Event', type: 'main', index: 0 }]],
     },
     // Stage 3.5e: success-path logging chain
     'Postgres - Mark Booking Confirmed': {

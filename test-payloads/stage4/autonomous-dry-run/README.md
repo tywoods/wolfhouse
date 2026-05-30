@@ -363,18 +363,24 @@ whichever endpoint handles Stripe events):
 
 ### 2. Payment-link stub shaped return — ✅ DONE (gate 2 PASS, 634366b)
 
-### 3. Stripe webhook dry-run path — ⏳ PENDING
+### 3. Stripe webhook dry-run path — ⏳ PENDING (runtime gate 3)
 
-**File:** Stripe Webhook Handler workflow (`KZUQvwR6SPWpvaZ5`, `scripts/build-send-confirmation-local.js` n/a — this is a separate workflow with no build script). **See § Payment confirmation simulation strategy.**
+**File:** Stripe Webhook Handler workflow (`KZUQvwR6SPWpvaZ5`, no build script). **See § Payment confirmation simulation strategy.**
 
-**Current blocker:** Handler has zero dry-run guards on DB writes. `Postgres - Apply Payment Success` writes `payment_events` INSERT + `payments` UPDATE + `bookings` UPDATE in one CTE. No `WHATSAPP_DRY_RUN`-style bypass exists. `STRIPE_WEBHOOK_SKIP_VERIFY=true` only skips HMAC — still hits real PG.
+**Approach:** Option D — fixture-scoped disposable booking row. Handler runs with `STRIPE_WEBHOOK_SKIP_VERIFY=true`; all writes scoped to `DRY-STAGE4-FX-A1-001` fixture row only.
 
-**Recommended approach:** Option D — fixture-scoped disposable booking row. See strategy section.
+**Scaffold status:** Fixture SQL + simulated event payload created. Runtime gate 3 pending.
 
-### 4. Confirmation draft capture — ⏳ PENDING
+### 4. Confirmation draft capture — ✅ SCAFFOLDED (not runtime tested)
 
-**File:** `n8n/phase2/Wolfhouse - Send Confirmation (local).json` (built by `scripts/build-send-confirmation-local.js`)  
-**Situation:** WhatsApp send already gated by `WHATSAPP_DRY_RUN=true` (default). Draft text captured in `Send confirmation reply` node output (full) and `Code - Send WhatsApp` output (`body_preview`, 120 chars). But `Postgres - Mark Booking Confirmed` STILL runs on dry-run "send OK" — would flip `bookings.status=confirmed` and set `confirmation_sent_at`. Requires fixture booking row OR a dry-run gate on the Mark Confirmed node.
+**File:** `scripts/build-send-confirmation-local.js` + `n8n/phase2/Wolfhouse - Send Confirmation (local).json`  
+**Implementation (2026-05-30):** `IF - DRY RUN? (Mark Confirmed)` gate added wrapping `Postgres - Mark Booking Confirmed`. With `WHATSAPP_DRY_RUN=true`:
+- `Code - DRY RUN Stub (Mark Booking Confirmed)` fires → returns `{ booking_id, booking_code, status: 'confirmed', dry_run: true, stub_type: 'mark_confirmed_stub', confirmation_sent_at: null }`
+- `Code - Build Confirmation Success Event` → `Postgres - Write workflow_events (confirmation success)` — observability logging still runs
+- `bookings` table NOT mutated
+**Live path:** `WHATSAPP_DRY_RUN=false` → real `Postgres - Mark Booking Confirmed` → same downstream.  
+**Draft text:** Captured in `Send confirmation reply` node (full text) + `Code - Send WhatsApp` output (`body_preview`, 120 chars).  
+**Runtime gate 3:** To be validated by activating Send Confirmation with fixture booking row.
 
 ### 5. Conversation state persistence across turns — ✅ OBSERVED in gates 1+2
 

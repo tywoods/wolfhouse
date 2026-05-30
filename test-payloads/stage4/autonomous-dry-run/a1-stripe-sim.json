@@ -1,0 +1,56 @@
+{
+  "id": "evt_dry_run_a1_stage4_001",
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_test_dryrun_dry-ensure",
+      "object": "checkout.session",
+      "payment_status": "paid",
+      "amount_total": 20000,
+      "currency": "eur",
+      "payment_intent": "pi_dry_run_a1_001",
+      "metadata": {
+        "booking_id": "b4000000-0000-4000-8000-a1000000001a",
+        "booking_code": "DRY-STAGE4-FX-A1-001",
+        "payment_kind": "deposit_only",
+        "client_id": "__REPLACE_WITH_WOLFHOUSE_SOMO_CLIENT_UUID__",
+        "amount_due_cents": "20000"
+      }
+    }
+  },
+  "_meta": {
+    "stage": "4",
+    "scenario_id": "A1",
+    "gate": "3",
+    "purpose": "Simulated Stripe checkout.session.completed event for disposable fixture booking DRY-STAGE4-FX-A1-001",
+    "session_id_note": "Matches stripe_checkout_session_id in stage4-a1-payment-sim-up.sql fixture payments row",
+    "booking_id_note": "Matches fixed UUID in stage4-a1-payment-sim-up.sql fixture bookings row",
+    "client_id_note": "Replace __REPLACE_WITH_WOLFHOUSE_SOMO_CLIENT_UUID__ with: SELECT id FROM clients WHERE slug='wolfhouse-somo'",
+    "dry_run": true
+  },
+  "_gate3_runner_patch": {
+    "step": "Before POSTing this event, patch client_id in metadata",
+    "query": "SELECT id FROM clients WHERE slug = 'wolfhouse-somo'",
+    "field": "data.object.metadata.client_id"
+  },
+  "_assertions": {
+    "expected_event_type": "checkout.session.completed",
+    "expected_session_id": "cs_test_dryrun_dry-ensure",
+    "expected_booking_code": "DRY-STAGE4-FX-A1-001",
+    "expected_payment_kind": "deposit_only",
+    "expected_amount_cents": 20000,
+    "post_run_checks": {
+      "payment_events_delta": 1,
+      "payments_status": "paid",
+      "bookings_payment_status": "deposit_paid",
+      "bookings_send_confirmation": true,
+      "no_non_fixture_mutations": true
+    },
+    "forbidden_live_actions": [
+      "real_stripe_checkout",
+      "real_whatsapp_send",
+      "non_fixture_booking_update",
+      "booking_beds_write"
+    ]
+  }
+}
