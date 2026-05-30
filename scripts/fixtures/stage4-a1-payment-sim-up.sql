@@ -35,7 +35,7 @@ INSERT INTO bookings (
   '+34600099999',
   'stage4-fx-a1@example.invalid',
   'payment_pending'::booking_status,
-  'unpaid'::payment_status,
+  'not_requested'::payment_status,
   CURRENT_DATE + INTERVAL '30 days',
   CURRENT_DATE + INTERVAL '37 days',
   2,
