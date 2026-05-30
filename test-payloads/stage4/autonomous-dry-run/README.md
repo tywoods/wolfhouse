@@ -27,6 +27,100 @@ dangerous live writes, correct handoff for exceptions.
 
 ---
 
+## ✅ Runtime gate 4 Batch 1 — A5, A6, A7, A8, A10 (2026-05-30)
+
+Main only (RBfGNtVgrAkvhBHJ). WHATSAPP_DRY_RUN=true. All executions: success. Protected counts unchanged.
+
+### Per-scenario results
+
+| ID | Exec | Route | Conf | Safety fails | Result | Notes |
+|----|------|-------|------|--------------|--------|-------|
+| A5 | 1154 | booking_flow | 0.95 | 0 | ⚠️ PARTIAL — closed-month guard not enforced | See note below |
+| A6 | 1155 | payment_completed_claim | 0.95 | 0 | ✅ PASS | Safe clarification, no confirmation |
+| A7 | 1156 | human_handoff | 0.99 | 0 | ✅ PASS | Immediate handoff, empathetic draft |
+| A8 | 1157 | booking_flow | 0.95 | 0 | ✅ PASS | Preference noted, booking continues, beds Δ=0 |
+| A10 | 1158 | booking_flow | 0.95 | 0 | ✅ PASS | Spanish detected, full Spanish reply, hold stub fired |
+
+### A5 — Closed month — PARTIAL (safety OK, behavioral gap)
+
+Expected: bot refuses January, informs closed, no hold created.
+Actual: bot found availability and created stub hold for January 15–22, 2027.
+
+**Safety checks (all PASS):**
+- No real PG hold (stub fired: `Code - DRY RUN Stub (Postgres - Create Booking Hold)` ✓)
+- No real WhatsApp send (`dry_run: true, _shadow_note: WhatsApp send bypassed` ✓)
+- No price invented in draft ✓
+- `graph.facebook.com`: none ✓
+
+**Draft (exec 1154):**
+> Hey! 🤙 Great news — we have availability for the Malibu package for 2 people from January 15 to 22. We've temporarily held space for your group for the next hour.
+> To secure the booking, could you drop us one lead guest name and one email address? 😊
+
+**Finding:** The `closed_months` config guard (`packages.closed_months = [december, january, february]`) is not enforced by the current LLM system prompt or workflow routing. The LLM checked Postgres/Airtable availability (which returned available beds) and proceeded. The closed-month rule exists in `wolfhouse-somo.baseline.json` but is not explicitly injected into the bot's context for date checking. This is a **behavioral gap**, not a safety failure — no real side effects occurred.
+
+**Required fix before A5 PASS:** Inject `closed_months` config into the LLM system prompt or add a pre-routing code node that rejects requests for closed months before the availability check runs.
+
+### A6 — Claims paid, no Stripe record — ✅ PASS
+
+Route: `payment_completed_claim` | `IF - Payment Booking Found` → false branch (booking WH-TEST-0042 not found).
+
+**Draft (exec 1155):**
+> Thanks! I couldn't find an active payment-pending booking for this WhatsApp number. Could you send your booking ID or the email used for the booking?
+
+No booking confirmed ✓. No payment write ✓. Safe clarification response ✓.
+
+### A7 — Cancellation/refund handoff — ✅ PASS
+
+Route: `human_handoff` (conf=0.99). Cancellation + urgency → immediate handoff, no cancel action.
+
+**Draft (exec 1156):**
+> Hey! 👋 Thanks for reaching out. We understand this is urgent for you. A team member will be with you shortly to help with your cancellation request. We appreciate your patience! 🙏
+
+No cancel write ✓. No refund action ✓. No real hold ✓.
+
+### A8 — Rooming preference during booking — ✅ PASS
+
+Route: `booking_flow`. Preference extracted as `room_type: private, room_preference: private, rooming_notes: "Guest requested sea view room or private"` in session_state. Booking continued to hold stub.
+
+**Draft (exec 1157):**
+> Hey! Great news — we have availability for the Uluwatu package for 2 guests from June 7–14 🤙
+> We've temporarily held space for your group for the next hour, so you're good for now!
+> To lock in the booking, I just need one lead guest name and one email address. What are those?
+
+Hold stub fired ✓. `booking_beds` Δ=0 ✓. No bed assignment node executed (only Airtable READ nodes: `Search Active Beds - WA`, `Search Rooms - WA`, `Search Existing Bed Assignments - WA`) ✓.
+
+### A10 — Spanish booking request — ✅ PASS
+
+Route: `booking_flow`. Language detected: `es`. Reply fully in Spanish. Hold stub fired.
+
+**Draft (exec 1158):**
+> ¡Hola! 🤙 Tenemos disponibilidad para el paquete Uluwatu del 20 al 27 de abril para 2 personas. Hemos reservado temporalmente un espacio para vosotros durante 1 hora.
+> Para confirmar la reserva, solo necesito un nombre de contacto y un email. ¿Me los puedes dar?
+
+Language detection ✓. Spanish reply ✓. Same state transitions as English booking_flow ✓.
+
+### Count proof (Gate 4 Batch 1)
+
+| Table | Pre | Post | Baseline | Protected |
+|-------|-----|------|----------|-----------|
+| bookings | 41 | 41 | ✓ | YES |
+| payments | 25 | 25 | ✓ | YES |
+| payment_events | 5 | 5 | ✓ | YES |
+| booking_beds | 15 | 15 | ✓ | YES |
+| automation_errors | 0 | 0 | ✓ | YES |
+| workflow_events | 24 | 24 | (allowed state) | — |
+| conversations | 7 | 7 | (allowed state) | — |
+
+### A5 closed-month gap — next steps
+
+The `closed_months` behavioral guard needs to be added to the workflow before A5 can PASS fully. Two options:
+1. Add a `Code - Check Closed Month` node early in `booking_flow` sub-path, reading from `wolfhouse-somo.baseline.json`, which returns a closed-month reply and terminates the booking flow
+2. Inject `closed_months: [december, january, february]` into the LLM system prompt context so the classifier or parser can recognize and refuse closed-month requests
+
+This is a **Stage 3x / bot-knowledge guardrail** item, not a safety failure. All dry-run gates operated correctly.
+
+---
+
 ## ✅ Runtime gate 2 PASS — A1 turns 2 + 3 (2026-05-30)
 
 ### A1 Turn 2 — exec 1149 (success, 52s)

@@ -1,6 +1,6 @@
 # Wolfhouse ? Project State
 
-**Last updated:** 2026-05-30 (Stage 4 Gate 4 Batch 1 planned — A1 full payment confirmation path proven; A5/A6/A7/A8/A10 queued next)
+**Last updated:** 2026-05-30 (Stage 4 Gate 4 Batch 1 PARTIAL — A6/A7/A8/A10 PASS; A5 closed-month guard gap identified)
 **HEAD (expected):** `d2288b7` (Stage 3.5d: harden Assign overlap conflict path)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
@@ -31,7 +31,7 @@
 | **3.5** Safety rails | **CLOSED ? minimum safety bar MET (d08c64e)** | [PHASE-3.5-SAFETY-RAILS-PLAN.md](PHASE-3.5-SAFETY-RAILS-PLAN.md). 3.5a ACCEPTED. 3.5b Gap 2 runtime PASS (exec 1089). 3.5e success-path logging runtime PASS. 3.5c/I3 runtime PASS (execs 1093/1094). 3.5d D1+D2+D3 L2 PASS + wire-in static PASS; D8 runtime BLOCKED/deferred (Airtable-coupled upstream). 3.5f I3 PASS + I2/I5 deferred with written reason. 3.5g closeout G1?G13 DONE. Deferrals: D6/D8/D9/I2/I5 runtime ? Airtable cutover; Gap 1/Gap 3 runtime ? Stage 4; 3.5d.8b PG-only trigger path ? NOT REQUIRED before Stage 3y. **Next: Stage 3.5 closeout commit (user approves), then Stage 3y shadow/co-pilot planning.** |
 | **3x** Bot knowledge + guardrails | **3x.1 planning complete (docs)** | Master spec [STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md); execution 3x.2?3x.4 pending |
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
-| **4** Reliable | **Autonomous Booking Dry-Run — runtime gate 3 FULL PASS (2026-05-30); Gate 4 Batch 1 planned** | A1 all 3 turns + payment confirmation proven (execs 1147/1149/1150/1151/1153). All dry-run gates confirmed. A2–A10 planning complete. **Gate 4 Batch 1: A5+A6+A7+A8+A10** (all single-turn, no new infra). A2/A3/A4 deferred pending multi-turn conversation state resolution. A9 deferred pending addon CPS path investigation. |
+| **4** Reliable | **Autonomous Booking Dry-Run — Gate 4 Batch 1 PARTIAL PASS (2026-05-30)** | A6/A7/A8/A10 all PASS. A5 closed-month guard: safety PASS, behavioral gap (bot booked January anyway — closed_months config not in LLM context). Execs 1154–1158. All protected counts unchanged (bookings/payments/payment_events/booking_beds=0 delta). **A6 PASS** (route=payment_completed_claim, safe clarification). **A7 PASS** (route=human_handoff conf=0.99, empathetic draft, no cancel action). **A8 PASS** (route=booking_flow, rooming preference recorded in session_state, beds Δ=0). **A10 PASS** (booking_flow, language=es, full Spanish reply, hold stub fired). **A5 gap**: requires closed_months guard in workflow. A2/A3/A4 deferred (multi-turn state). A9 deferred (addon CPS path). |
 | **5** Clean | Planned | Decision engine out of n8n |
 | **6** Beautiful | Planned | Staff UI; Airtable cutover |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
@@ -406,3 +406,5 @@ Get-Content scripts/fixtures/main-ensure-3cc-promote-cleanup-down.sql | docker c
 | 3c proposal | [PHASE-3c-PROPOSAL.md](PHASE-3c-PROPOSAL.md) |
 | Regression | [regression-test-plan.md](regression-test-plan.md) |
 | Azure (later) | [azure-n8n-hosting-plan.md](azure-n8n-hosting-plan.md) |
+
+**Stage 4 Gate 4 Batch 1 PARTIAL PASS (2026-05-30):** Execs 1154-1158, Main only (RBfGNtVgrAkvhBHJ). A6 PASS (route=payment_completed_claim, safe clarification no confirmation). A7 PASS (route=human_handoff conf=0.99, empathetic handoff draft, no cancel action). A8 PASS (route=booking_flow conf=0.95, rooming preference recorded as private in session_state, booking_beds Δ=0, no bed assignment). A10 PASS (route=booking_flow, language=es detected, full Spanish reply, hold stub fired). A5 PARTIAL — safety OK (hold stub, no real send, no mutations, no graph.facebook.com), behavioral gap: bot booked January 2027 dates without checking closed_months config (“december, january, february” from wolfhouse-somo.baseline.json). Root cause: closed_months not injected into LLM context. Required fix: add Code - Check Closed Month node or inject config into system prompt. Protected counts all match baseline. All workflows inactive after run.
