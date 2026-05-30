@@ -794,9 +794,20 @@ All four queries work against `001_init.sql` schema today **once real booking ro
 - Cleanup: DELETE test booking row by `booking_code LIKE 'DRY-52-%'`.
 - Constraint: `WHATSAPP_DRY_RUN=true`; no Stripe CPS fired; no AT writes.
 
-#### 5.2e — Expired/stuck hold query (static)
-- Define SQL view or function in `scripts/lib/` for the four staff queries in §5.2.5.
-- Verifiable against test data once 5.2d runs.
+#### 5.2e — Expired/stuck hold query (STATIC DONE 2026-05-30 — not runtime tested)
+
+New module `scripts/lib/staff-booking-hold-queries.js` exports four read-only SQL helpers:
+
+| Query | Function | What it answers |
+|-------|----------|-----------------|
+| A — Active holds | `getActiveHoldsQuery()` | `status='hold'` AND `hold_expires_at > NOW()`, ordered soonest-to-expire |
+| B — Expired/stuck holds | `getExpiredHoldsQuery()` | `status='hold'` AND `hold_expires_at < NOW()`, includes `expired_minutes_ago` |
+| C — payment_pending | `getPaymentPendingQuery()` | `status='payment_pending'` AND payment not complete |
+| D — No payment record | `getNoPaymentRecordQuery()` | `status IN (hold, payment_pending)` LEFT JOIN `payments` WHERE no paid row |
+
+All queries are parameterised by `$1 = client slug`, SELECT-only, reference `bookings`/`payments` (D). Verifier `scripts/verify-staff-booking-hold-queries.js` checks all four exports, client-scope, SELECT-only, no mutation keywords, `bookings` reference, `payments` reference for D. Verifier: 4/4 OK.
+
+**Groundwork for Stage 6 staff assistant**: these queries answer the pilot-readiness questions defined in §5.2.5 once real booking rows exist (Stage 5.2d).
 
 #### 5.2f — Pilot readiness gate
 - Smoke test: create one hold (fixture), run ensure-promote, run stuck-hold query, confirm session_state has correct fields, cleanup.
