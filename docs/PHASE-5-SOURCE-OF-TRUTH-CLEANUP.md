@@ -1655,10 +1655,12 @@ Post-cleanup: 0 fixture rows; `booking_beds` = 15 → 16 → 15 (baseline restor
 | `lesson_requests` | Typed surf lesson detail (staff assigns slot) | `add_on_item_id`, `booking_id`, `lesson_date`, `guest_count`, `scheduling_status` |
 | `yoga_requests` | Typed yoga class (on-site redemption only) | `add_on_item_id`, `booking_id`, `class_date`, `payment_status`, `redeemed`, `fulfillment_status` |
 | `rental_requests` | Typed gear rental (wetsuit, surfboard) | `add_on_item_id`, `booking_id`, `rental_type`, `start_date`, `end_date`, `pickup_status` |
+| `meal_requests` | Typed dinner/meal request **(5.6b)** | `add_on_item_id`, `booking_id`, `meal_type`, `meal_date`, `guest_count`, `service_status` |
+| `transfer_requests` | Typed airport pickup/dropoff **(5.6b)** | `add_on_item_id`, `booking_id`, `transfer_type`, `arrival_datetime`, `departure_datetime`, `driver_status` |
 
 Design: `item_type` is TEXT (not enum) — config-driven, matches `service_catalog` keys in `wolfhouse-somo.baseline.json` (e.g. `surf_lesson`, `yoga_class`, `wetsuit_rental`, `softtop_surfboard_rental`, `hardboard_surfboard_rental`, `dinner_meal`). Status columns use CHECK constraints (not enums) for easy extension.
 
-### 5.6.2 Staff add-on queries (A–F)
+### 5.6.2 Staff add-on queries (A–I)
 
 | Query | Helper | Staff question answered |
 |-------|--------|------------------------|
@@ -1668,13 +1670,16 @@ Design: `item_type` is TEXT (not enum) — config-driven, matches `service_catal
 | D | `getActiveRentalsByDateQuery($1,$2)` | Which gear rentals are active on a given date? |
 | E | `getAddonsByBookingQuery($1,$2)` | What add-ons does a booking have? |
 | F | `getStaffRequiredAddOnsQuery()` | Which lessons need staff scheduling? |
+| G | `getMealsByDateQuery($1,$2)` | Who has dinner/meals on a given date? **(5.6b)** |
+| H | `getTransfersByDateQuery($1,$2)` | Who has airport transfers on a given date? **(5.6b)** |
+| I | `getStaffActionRequiredAddOnsQuery()` | Which meal/transfer add-ons need staff action? **(5.6b)** |
 
 ### 5.6.3 Verifier results
 
 | Verifier | Result |
 |----------|--------|
-| `verify-staff-addon-queries.js` — 6 queries, all SELECT-only | ✅ PASS (all checks green) |
-| `verify-addon-schema-migration.js` — 5 tables, 9 FKs, 10 indexes, triggers, no DROP | ✅ PASS (all checks green) |
+| `verify-staff-addon-queries.js` — 9 queries A–I, all SELECT-only **(5.6b: +G,H,I)** | ✅ PASS |
+| `verify-addon-schema-migration.js` — 7 tables, 11 FKs, 14 indexes, 7 triggers, no DROP **(5.6b: +2 tables)** | ✅ PASS |
 | `build-main-local-stripe.js --verify-targets` | ✅ OK |
 | `report-main-payment-contract.js` | ✅ OK |
 | `report-main-rooming-contract.js` | ✅ OK |

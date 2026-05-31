@@ -281,6 +281,170 @@ ORDER BY lr.lesson_date ASC NULLS LAST, lr.preferred_time ASC NULLS LAST
 `;
 }
 
+// ---------------------------------------------------------------------------
+// G. Meals by date (5.6b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Dinner/meal requests for a specific date.
+ * Ordered by meal_type, then check_in, then guest_name.
+ *
+ * @returns {string} Parameterised SQL ($1 = client slug, $2 = meal_date DATE)
+ */
+function getMealsByDateQuery() {
+  return `
+SELECT
+  mr.id::text               AS meal_request_id,
+  mr.meal_type,
+  mr.meal_date,
+  mr.guest_count,
+  mr.dietary_notes,
+  mr.service_status,
+  ai.item_type,
+  ai.quantity,
+  ai.unit_price_cents,
+  ai.total_price_cents,
+  ao.order_code,
+  ao.phone,
+  ao.status                 AS order_status,
+  ao.payment_status         AS order_payment_status,
+  b.booking_code,
+  b.guest_name,
+  b.check_in,
+  b.check_out
+FROM meal_requests mr
+INNER JOIN add_on_items ai ON ai.id = mr.add_on_item_id
+INNER JOIN add_on_orders ao ON ao.id = ai.order_id
+INNER JOIN clients c ON c.id = ao.client_id
+LEFT JOIN bookings b ON b.id = mr.booking_id
+WHERE c.slug = $1
+  AND mr.meal_date = $2::date
+  AND mr.service_status NOT IN ('cancelled')
+ORDER BY mr.meal_type ASC, b.check_in ASC NULLS LAST, b.guest_name ASC
+`;
+}
+
+// ---------------------------------------------------------------------------
+// H. Transfers by date (5.6b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Airport pickup/dropoff transfers for a specific date.
+ * Matches both arrival_datetime::date and departure_datetime::date.
+ * Ordered by arrival_datetime, then departure_datetime.
+ *
+ * @returns {string} Parameterised SQL ($1 = client slug, $2 = transfer_date DATE)
+ */
+function getTransfersByDateQuery() {
+  return `
+SELECT
+  tr.id::text               AS transfer_request_id,
+  tr.transfer_type,
+  tr.airport,
+  tr.flight_number,
+  tr.arrival_datetime,
+  tr.departure_datetime,
+  tr.pickup_location,
+  tr.dropoff_location,
+  tr.guest_count,
+  tr.driver_status,
+  ai.item_type,
+  ai.total_price_cents,
+  ao.order_code,
+  ao.phone,
+  ao.status                 AS order_status,
+  ao.payment_status         AS order_payment_status,
+  b.booking_code,
+  b.guest_name,
+  b.check_in,
+  b.check_out
+FROM transfer_requests tr
+INNER JOIN add_on_items ai ON ai.id = tr.add_on_item_id
+INNER JOIN add_on_orders ao ON ao.id = ai.order_id
+INNER JOIN clients c ON c.id = ao.client_id
+LEFT JOIN bookings b ON b.id = tr.booking_id
+WHERE c.slug = $1
+  AND (
+    tr.arrival_datetime::date   = $2::date
+    OR tr.departure_datetime::date = $2::date
+  )
+  AND tr.driver_status NOT IN ('cancelled', 'completed')
+ORDER BY tr.arrival_datetime ASC NULLS LAST, tr.departure_datetime ASC NULLS LAST
+`;
+}
+
+// ---------------------------------------------------------------------------
+// I. Staff-action-required add-ons — meals + transfers needing confirmation (5.6b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Meals and transfers that need staff action (not yet confirmed/assigned).
+ * Combines meal_requests (service_status='requested') and
+ * transfer_requests (driver_status IN 'requested'/'assigned').
+ * Ordered by requested_at ascending.
+ *
+ * @returns {string} Parameterised SQL ($1 = client slug)
+ */
+function getStaffActionRequiredAddOnsQuery() {
+  return `
+SELECT
+  'meal'                    AS request_type,
+  mr.id::text               AS typed_request_id,
+  mr.meal_type              AS detail_type,
+  mr.meal_date              AS service_date,
+  mr.service_status         AS action_status,
+  NULL                      AS driver_status,
+  mr.guest_count,
+  ao.order_code,
+  ao.phone,
+  ao.status                 AS order_status,
+  ao.payment_status         AS order_payment_status,
+  ao.requested_at,
+  b.booking_code,
+  b.guest_name,
+  b.check_in,
+  b.check_out
+FROM meal_requests mr
+INNER JOIN add_on_items ai ON ai.id = mr.add_on_item_id
+INNER JOIN add_on_orders ao ON ao.id = ai.order_id
+INNER JOIN clients c ON c.id = ao.client_id
+LEFT JOIN bookings b ON b.id = mr.booking_id
+WHERE c.slug = $1
+  AND mr.service_status = 'requested'
+  AND ao.status NOT IN ('cancelled')
+
+UNION ALL
+
+SELECT
+  'transfer'                AS request_type,
+  tr.id::text               AS typed_request_id,
+  tr.transfer_type          AS detail_type,
+  COALESCE(tr.arrival_datetime::date, tr.departure_datetime::date) AS service_date,
+  NULL                      AS action_status,
+  tr.driver_status,
+  tr.guest_count,
+  ao.order_code,
+  ao.phone,
+  ao.status                 AS order_status,
+  ao.payment_status         AS order_payment_status,
+  ao.requested_at,
+  b.booking_code,
+  b.guest_name,
+  b.check_in,
+  b.check_out
+FROM transfer_requests tr
+INNER JOIN add_on_items ai ON ai.id = tr.add_on_item_id
+INNER JOIN add_on_orders ao ON ao.id = ai.order_id
+INNER JOIN clients c ON c.id = ao.client_id
+LEFT JOIN bookings b ON b.id = tr.booking_id
+WHERE c.slug = $1
+  AND tr.driver_status IN ('requested', 'assigned')
+  AND ao.status NOT IN ('cancelled')
+
+ORDER BY requested_at ASC
+`;
+}
+
 module.exports = {
   CLIENT_SLUG,
   getUnpaidAddOnsQuery,
@@ -289,4 +453,7 @@ module.exports = {
   getActiveRentalsByDateQuery,
   getAddonsByBookingQuery,
   getStaffRequiredAddOnsQuery,
+  getMealsByDateQuery,
+  getTransfersByDateQuery,
+  getStaffActionRequiredAddOnsQuery,
 };

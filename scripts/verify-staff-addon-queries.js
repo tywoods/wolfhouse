@@ -28,6 +28,9 @@ const EXPECTED_EXPORTS = [
   'getActiveRentalsByDateQuery',
   'getAddonsByBookingQuery',
   'getStaffRequiredAddOnsQuery',
+  'getMealsByDateQuery',
+  'getTransfersByDateQuery',
+  'getStaffActionRequiredAddOnsQuery',
 ];
 
 const QUERY_SPECS = [
@@ -73,6 +76,27 @@ const QUERY_SPECS = [
     mustReference: ['lesson_requests', 'add_on_items', 'add_on_orders'],
     hasDateParam: false,
     mustContain: ['scheduling_status', 'staff_required'],
+  },
+  {
+    name: 'getMealsByDateQuery',
+    label: 'G — Meals by date',
+    mustReference: ['meal_requests', 'add_on_items', 'add_on_orders'],
+    hasDateParam: true,
+    mustContain: ['meal_date', 'meal_type', 'service_status'],
+  },
+  {
+    name: 'getTransfersByDateQuery',
+    label: 'H — Transfers by date',
+    mustReference: ['transfer_requests', 'add_on_items', 'add_on_orders'],
+    hasDateParam: true,
+    mustContain: ['transfer_type', 'driver_status', 'arrival_datetime'],
+  },
+  {
+    name: 'getStaffActionRequiredAddOnsQuery',
+    label: 'I — Staff-action-required (meals + transfers)',
+    mustReference: ['meal_requests', 'transfer_requests', 'add_on_orders'],
+    hasDateParam: false,
+    mustContain: ['service_status', 'driver_status', 'requested_at'],
   },
 ];
 

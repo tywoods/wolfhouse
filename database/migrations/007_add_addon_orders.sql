@@ -1,10 +1,12 @@
--- Stage 5.6 — Add-on orders schema
+-- Stage 5.6 / 5.6b — Add-on orders schema
 -- Creates tables for structured add-on service records:
 --   add_on_orders    — one record per guest add-on checkout/request
 --   add_on_items     — line items per order (service type × quantity)
 --   lesson_requests  — typed surfing lesson detail (requires staff scheduling)
 --   yoga_requests    — typed yoga class request (on-site redemption)
 --   rental_requests  — typed gear rental request (wetsuit, surfboard, etc.)
+--   meal_requests    — typed dinner/meal request (5.6b)
+--   transfer_requests — typed airport pickup/dropoff request (5.6b)
 --
 -- Design principles:
 --   * Config (wolfhouse-somo.baseline.json → service_addons.service_catalog) owns prices/rules.
@@ -14,7 +16,7 @@
 --   * Migration is IDEMPOTENT via CREATE TABLE IF NOT EXISTS.
 --   * No changes to existing tables.
 --
--- NOT YET APPLIED — stub for Stage 5.6. Apply only when approved for pilot.
+-- NOT YET APPLIED — stub for Stage 5.6 / 5.6b. Apply only when approved for pilot.
 
 BEGIN;
 
@@ -223,5 +225,85 @@ CREATE INDEX IF NOT EXISTS idx_rental_requests_pickup_status
 
 CREATE TRIGGER rental_requests_updated_at
   BEFORE UPDATE ON rental_requests FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- meal_requests (5.6b)
+-- ---------------------------------------------------------------------------
+-- Typed record for dinner/meal add-on requests. Staff confirms and serves.
+-- meal_type is TEXT (config-driven: dinner, breakfast, lunch, other).
+
+CREATE TABLE IF NOT EXISTS meal_requests (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  add_on_item_id          UUID NOT NULL REFERENCES add_on_items(id) ON DELETE CASCADE,
+  booking_id              UUID REFERENCES bookings(id) ON DELETE SET NULL,
+  meal_type               TEXT NOT NULL DEFAULT 'dinner'
+                          CHECK (meal_type IN ('dinner', 'breakfast', 'lunch', 'other')),
+  meal_date               DATE,
+  guest_count             INTEGER NOT NULL DEFAULT 1 CHECK (guest_count > 0),
+  dietary_notes           TEXT,
+  service_status          TEXT NOT NULL DEFAULT 'requested'
+                          CHECK (service_status IN ('requested', 'confirmed', 'served', 'cancelled')),
+  notes                   TEXT,
+  metadata                JSONB NOT NULL DEFAULT '{}',
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_meal_requests_item
+  ON meal_requests (add_on_item_id);
+CREATE INDEX IF NOT EXISTS idx_meal_requests_booking
+  ON meal_requests (booking_id);
+CREATE INDEX IF NOT EXISTS idx_meal_requests_date
+  ON meal_requests (meal_date)
+  WHERE meal_date IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_meal_requests_service_status
+  ON meal_requests (service_status);
+
+CREATE TRIGGER meal_requests_updated_at
+  BEFORE UPDATE ON meal_requests FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- transfer_requests (5.6b)
+-- ---------------------------------------------------------------------------
+-- Typed record for airport pickup/dropoff requests. Staff assigns driver/vehicle.
+-- transfer_type: airport_pickup (arrival) or airport_dropoff (departure) or other.
+
+CREATE TABLE IF NOT EXISTS transfer_requests (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  add_on_item_id          UUID NOT NULL REFERENCES add_on_items(id) ON DELETE CASCADE,
+  booking_id              UUID REFERENCES bookings(id) ON DELETE SET NULL,
+  transfer_type           TEXT NOT NULL DEFAULT 'airport_pickup'
+                          CHECK (transfer_type IN ('airport_pickup', 'airport_dropoff', 'other')),
+  airport                 TEXT,
+  flight_number           TEXT,
+  arrival_datetime        TIMESTAMPTZ,
+  departure_datetime      TIMESTAMPTZ,
+  pickup_location         TEXT,
+  dropoff_location        TEXT,
+  guest_count             INTEGER NOT NULL DEFAULT 1 CHECK (guest_count > 0),
+  driver_status           TEXT NOT NULL DEFAULT 'requested'
+                          CHECK (driver_status IN ('requested', 'assigned', 'confirmed',
+                                                    'completed', 'cancelled')),
+  notes                   TEXT,
+  metadata                JSONB NOT NULL DEFAULT '{}',
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_transfer_requests_item
+  ON transfer_requests (add_on_item_id);
+CREATE INDEX IF NOT EXISTS idx_transfer_requests_booking
+  ON transfer_requests (booking_id);
+CREATE INDEX IF NOT EXISTS idx_transfer_requests_arrival
+  ON transfer_requests (arrival_datetime)
+  WHERE arrival_datetime IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_transfer_requests_departure
+  ON transfer_requests (departure_datetime)
+  WHERE departure_datetime IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_transfer_requests_driver_status
+  ON transfer_requests (driver_status);
+
+CREATE TRIGGER transfer_requests_updated_at
+  BEFORE UPDATE ON transfer_requests FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMIT;

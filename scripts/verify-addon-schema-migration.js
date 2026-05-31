@@ -70,6 +70,8 @@ const REQUIRED_TABLES = [
   'lesson_requests',
   'yoga_requests',
   'rental_requests',
+  'meal_requests',
+  'transfer_requests',
 ];
 
 for (const table of REQUIRED_TABLES) {
@@ -91,6 +93,8 @@ const FK_CHECKS = [
   ['lesson_requests → bookings', /lesson_requests[\s\S]{1,800}REFERENCES bookings\s*\(id\)/i],
   ['yoga_requests → add_on_items', /yoga_requests[\s\S]{1,500}REFERENCES add_on_items\s*\(id\)/i],
   ['rental_requests → add_on_items', /rental_requests[\s\S]{1,500}REFERENCES add_on_items\s*\(id\)/i],
+  ['meal_requests → add_on_items', /meal_requests[\s\S]{1,500}REFERENCES add_on_items\s*\(id\)/i],
+  ['transfer_requests → add_on_items', /transfer_requests[\s\S]{1,500}REFERENCES add_on_items\s*\(id\)/i],
 ];
 
 for (const [label, pattern] of FK_CHECKS) {
@@ -112,6 +116,10 @@ const INDEX_CHECKS = [
   'idx_yoga_requests_class_date',
   'idx_rental_requests_dates',
   'idx_rental_requests_pickup_status',
+  'idx_meal_requests_date',
+  'idx_meal_requests_service_status',
+  'idx_transfer_requests_arrival',
+  'idx_transfer_requests_driver_status',
 ];
 
 for (const idx of INDEX_CHECKS) {
