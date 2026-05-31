@@ -220,7 +220,7 @@ Actions behind explicit `--action` flags or confirmation prompts. Initially: sta
 | 6.4c | Add-ons batch report | `scripts/report-staff-addons.js` — all 9 add-on intents in one pass | DONE |
 | 6.4d | Combined ops digest | `scripts/report-staff-digest.js` — all 4 categories, per-category summary, grand total | DONE |
 | 6.5a | Staff action runner — proposal only | `scripts/staff-action-runner.js` — `handoff.resolve` proposal, `--confirm` hard-fails, SQL preview only | DONE |
-| 6.5b | Staff action runner — confirmed write | Wire `--confirm` gate; execute `resolveHandoffSql` against DB; proof requires fixture + rollback | PENDING |
+| 6.5b | Staff action runner — confirmed write | Wire `--confirm` gate; execute `resolveHandoffSql` against DB; proof requires fixture + rollback | DONE |
 | 6.6 | Minimal HTTP API (optional) | Express GET `/staff/query?intent=X&date=Y` — thin wrapper over registry; no auth yet | DEFERRED |
 | 6.7 | Pilot staff smoke test | Run all 30+ intents against live dev DB; confirm answers match expected Wolfhouse state; collect staff feedback | PENDING |
 

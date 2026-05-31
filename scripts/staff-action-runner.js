@@ -1,37 +1,45 @@
 /**
- * Stage 6.5a — Proposal-only staff action runner.
+ * Stage 6.5b — Staff action runner with confirmed write gate.
  *
- * Supports one action in this stage:
- *   handoff.resolve  — propose resolving an open staff handoff
+ * Supports one action:
+ *   handoff.resolve  — mark an open staff handoff resolved
  *
- * Usage:
+ * Usage (proposal — no DB write):
  *   node scripts/staff-action-runner.js \
  *     --client wolfhouse-somo \
  *     --action handoff.resolve \
  *     --handoff-id <uuid> \
- *     --resolution "Resolved during proposal test" \
- *     --staff "Test Staff" \
+ *     --resolution "Resolved" \
+ *     --staff "Name" \
  *     --dry-run
+ *
+ * Usage (confirmed write — executes UPDATE):
+ *   node scripts/staff-action-runner.js \
+ *     --client wolfhouse-somo \
+ *     --action handoff.resolve \
+ *     --handoff-id <uuid> \
+ *     --resolution "Resolved" \
+ *     --staff "Name" \
+ *     --confirm
  *
  * CLI flags:
  *   --client       Client slug (default: wolfhouse-somo)
  *   --action       Action key from the allowlist
  *   --handoff-id   UUID of the target staff_handoffs row
- *   --resolution   Resolution summary text
- *   --staff        Resolving staff member name
- *   --dry-run      Proposal mode (always active in 6.5a; flag accepted for explicitness)
- *   --confirm      Hard-fails — confirmed writes NOT implemented in 6.5a
+ *   --resolution   Resolution summary text (required)
+ *   --staff        Resolving staff member name (required)
+ *   --dry-run      Proposal mode — prints proposal, no DB write (default if no --confirm)
+ *   --confirm      Executes the UPDATE against staff_handoffs
  *
  * Safety constraints:
- *   - Proposal-only: no UPDATE/INSERT/DELETE to any table in 6.5a
- *   - bookings, payments, payment_events, booking_beds never touched
- *   - staff_handoffs never mutated in 6.5a
+ *   - Confirmed write only affects staff_handoffs (one row, client-scoped)
+ *   - bookings, payments, payment_events, booking_beds are never touched
+ *   - Only actions in ACTION_ALLOWLIST may be confirmed — no arbitrary SQL
+ *   - resolveHandoffSql() used exclusively in the --confirm branch
  *   - No workflow JSON modified; no guest workflows activated
  *   - No shell-out, no eval, no webhook POST
- *   - SQL preview is a string only — it is never executed
- *   - One optional audit log entry written to logs/staff-query-log.jsonl
- *
- * Stage 6.5b will add the --confirm gate and the actual UPDATE execution.
+ *   - Audit log entry written to logs/staff-query-log.jsonl
+ *     (intent: action:handoff.resolve:confirmed when --confirm is present)
  */
 
 'use strict';
@@ -148,10 +156,10 @@ function printProposal(action, handoff, flags) {
   const resolutionText = flags['--resolution'] || '(none provided)';
   const staffName      = flags['--staff']      || '(none provided)';
 
-  // SQL preview — string only, NEVER executed in 6.5a
+  // SQL preview — string only, NEVER executed in proposal mode
   const sqlPreview = `
--- SQL PREVIEW (proposal only — NOT executed in Stage 6.5a)
--- Stage 6.5b will execute this behind an explicit --confirm gate.
+-- SQL PREVIEW (proposal only — NOT executed without --confirm)
+-- Run with --confirm to execute this UPDATE against staff_handoffs.
 UPDATE staff_handoffs h
 SET
   status             = 'resolved',
@@ -193,9 +201,8 @@ RETURNING h.id::text, h.reason_code, h.resolved_at;
   const indented = sqlPreview.split('\n').map((l) => '  ' + l).join('\n');
   console.log(indented);
   console.log('');
-  console.log('  ── To execute in Stage 6.5b ──────────────────────────────────');
-  console.log('  Add --confirm flag once Stage 6.5b confirmed-write path is wired.');
-  console.log('  The --confirm flag is NOT implemented in Stage 6.5a.');
+  console.log('  ── To execute ────────────────────────────────────────────────');
+  console.log('  Re-run with --confirm to execute this UPDATE against staff_handoffs.');
   console.log('══════════════════════════════════════════════════════════════════\n');
 }
 
@@ -207,13 +214,8 @@ async function main() {
   const flags   = parseArgs(process.argv);
   const started = Date.now();
 
-  // ── Hard-fail if --confirm is passed ──────────────────────────────────────
-  if (flags['--confirm'] && flags['--confirm'] !== 'false') {
-    console.error('\n[ERROR] --confirm is NOT implemented in Stage 6.5a.');
-    console.error('        Confirmed staff writes are deferred to Stage 6.5b.');
-    console.error('        No writes were made.\n');
-    process.exit(1);
-  }
+  // ── Confirm mode flag ─────────────────────────────────────────────────────
+  const confirmMode = flags['--confirm'] && flags['--confirm'] !== 'false';
 
   // ── Client slug ────────────────────────────────────────────────────────────
   let clientSlug = flags['--client'] || DEFAULT_CLIENT_SLUG;
@@ -265,7 +267,9 @@ async function main() {
       console.error(`\n[ERROR] ${errMsg}\n`);
       appendAuditLog({
         ts:          new Date().toISOString(),
-        intent:      'action:handoff.resolve:proposal',
+        intent:      confirmMode
+          ? 'action:handoff.resolve:confirmed'
+          : 'action:handoff.resolve:proposal',
         category:    'staff_action',
         client_slug: clientSlug,
         params:      { handoff_id: handoffId },
@@ -279,15 +283,18 @@ async function main() {
 
     // ── Handoff not found ─────────────────────────────────────────────────────
     if (!handoff) {
+      const modeLabel = confirmMode ? 'CONFIRMED — NO-OP' : 'PROPOSAL — NO-OP';
       console.log('\n══════════════════════════════════════════════════════════════════');
-      console.log('  STAFF ACTION PROPOSAL — NO-OP');
+      console.log(`  STAFF ACTION ${modeLabel}`);
       console.log('══════════════════════════════════════════════════════════════════');
       console.log(`  Handoff not found: ${handoffId}`);
       console.log(`  Client: ${clientSlug}`);
-      console.log('  No action proposed. Nothing to resolve.\n');
+      console.log('  No action taken. Nothing to resolve.\n');
       appendAuditLog({
         ts:          new Date().toISOString(),
-        intent:      'action:handoff.resolve:proposal',
+        intent:      confirmMode
+          ? 'action:handoff.resolve:confirmed'
+          : 'action:handoff.resolve:proposal',
         category:    'staff_action',
         client_slug: clientSlug,
         params:      { handoff_id: handoffId },
@@ -299,16 +306,19 @@ async function main() {
       process.exit(0);
     }
 
-    // ── Already resolved — print no-op ────────────────────────────────────────
+    // ── Already resolved/cancelled — no-op ───────────────────────────────────
     if (handoff.status === 'resolved' || handoff.status === 'cancelled') {
+      const label = confirmMode ? 'CONFIRMED — NO-OP' : 'PROPOSAL — NO-OP';
       console.log('\n══════════════════════════════════════════════════════════════════');
-      console.log('  STAFF ACTION PROPOSAL — NO-OP');
+      console.log(`  STAFF ACTION ${label}`);
       console.log('══════════════════════════════════════════════════════════════════');
       console.log(`  Handoff ${handoffId} is already '${handoff.status}'.`);
       console.log('  Nothing to do — no change would be made.\n');
       appendAuditLog({
         ts:          new Date().toISOString(),
-        intent:      'action:handoff.resolve:proposal',
+        intent:      confirmMode
+          ? 'action:handoff.resolve:confirmed'
+          : 'action:handoff.resolve:proposal',
         category:    'staff_action',
         client_slug: clientSlug,
         params:      { handoff_id: handoffId },
@@ -320,14 +330,89 @@ async function main() {
       process.exit(0);
     }
 
-    // ── Print proposal ─────────────────────────────────────────────────────────
-    printProposal(action, handoff, { ...flags, '--client': clientSlug, '--resolution': resolutionText, '--staff': staffName });
+    // ── Proposal mode (no --confirm) ──────────────────────────────────────────
+    if (!confirmMode) {
+      printProposal(action, handoff, {
+        ...flags,
+        '--client':     clientSlug,
+        '--resolution': resolutionText,
+        '--staff':      staffName,
+      });
+      appendAuditLog({
+        ts:          new Date().toISOString(),
+        intent:      'action:handoff.resolve:proposal',
+        category:    'staff_action',
+        client_slug: clientSlug,
+        params:      { handoff_id: handoffId, staff: staffName },
+        row_count:   1,
+        success:     true,
+        error:       null,
+        elapsed_ms:  Date.now() - started,
+      });
+      return;
+    }
 
-    auditSuccess = true;
+    // ── Confirmed write path (--confirm present) ──────────────────────────────
+    // Only staff_handoffs is mutated. resolveHandoffSql is client-scoped by
+    // $1=client_slug and $2=handoff_id so no other rows can be affected.
+    // bookings, payments, payment_events, booking_beds are never touched.
+    let updatedRow;
+    try {
+      const sql = resolveHandoffSql();
+      updatedRow = await withPgClient(async (client) => {
+        const result = await client.query(sql, [clientSlug, handoffId, resolutionText]);
+        return result.rows[0] || null;
+      });
+    } catch (err) {
+      const errMsg = `Confirmed write failed: ${err.message}`;
+      console.error(`\n[ERROR] ${errMsg}\n`);
+      appendAuditLog({
+        ts:          new Date().toISOString(),
+        intent:      'action:handoff.resolve:confirmed',
+        category:    'staff_action',
+        client_slug: clientSlug,
+        params:      { handoff_id: handoffId, staff: staffName },
+        row_count:   0,
+        success:     false,
+        error:       errMsg,
+        elapsed_ms:  Date.now() - started,
+      });
+      process.exit(1);
+    }
+
+    if (!updatedRow) {
+      // Guard should not normally be hit after earlier checks, but handle safely
+      console.log('\n[WARN] UPDATE returned no rows — handoff may have already been resolved by another process.');
+      appendAuditLog({
+        ts:          new Date().toISOString(),
+        intent:      'action:handoff.resolve:confirmed',
+        category:    'staff_action',
+        client_slug: clientSlug,
+        params:      { handoff_id: handoffId, staff: staffName },
+        row_count:   0,
+        success:     true,
+        error:       'no_rows_updated',
+        elapsed_ms:  Date.now() - started,
+      });
+      process.exit(0);
+    }
+
+    console.log('\n══════════════════════════════════════════════════════════════════');
+    console.log('  STAFF ACTION CONFIRMED — EXECUTED');
+    console.log('══════════════════════════════════════════════════════════════════');
+    console.log(`  Action:          ${action}`);
+    console.log(`  Handoff ID:      ${updatedRow.id || handoffId}`);
+    console.log(`  Reason code:     ${updatedRow.reason_code || handoff.reason_code || '(none)'}`);
+    console.log(`  Status before:   ${handoff.status}`);
+    console.log(`  Status after:    resolved`);
+    console.log(`  Resolved at:     ${updatedRow.resolved_at || new Date().toISOString()}`);
+    console.log(`  Resolved by:     ${staffName}`);
+    console.log(`  Resolution:      ${resolutionText}`);
+    console.log('══════════════════════════════════════════════════════════════════\n');
 
     appendAuditLog({
       ts:          new Date().toISOString(),
-      intent:      'action:handoff.resolve:proposal',
+      intent:      'action:handoff.resolve:confirmed',
       category:    'staff_action',
       client_slug: clientSlug,
       params:      { handoff_id: handoffId, staff: staffName },

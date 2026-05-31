@@ -6,7 +6,6 @@ BEGIN;
 DELETE FROM staff_handoffs
 WHERE phone = '+34600000190'
   AND (metadata->>'fixture')::boolean = true
-  AND (metadata->>'stage') = '6.5a'
-  AND status = 'open';
+  AND (metadata->>'stage') = '6.5a';
 
 COMMIT;
