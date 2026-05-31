@@ -6,6 +6,7 @@ infra/.env
 docs/api keys.txt
 reports/*.csv
 reports/*.json
+logs/*.jsonl
 
 # Client secrets (real phone numbers, passwords) — never commit; keep .example versions
 config/clients/*.secrets.json

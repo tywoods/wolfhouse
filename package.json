@@ -43,7 +43,9 @@
     "db:migrate:006": "node scripts/run-sql.js database/migrations/006_confirmation_sent_at.sql",
     "db:migrate:pricing": "node scripts/run-sql.js database/migrations/002_package_pricing.sql",
     "test:stage3y-mode-a": "node scripts/run-stage3y-mode-a.js",
-    "verify:staff-query-registry": "node scripts/verify-staff-query-registry.js"
+    "verify:staff-query-registry": "node scripts/verify-staff-query-registry.js",
+    "verify:staff-query-runner": "node scripts/verify-staff-query-runner.js",
+    "staff:query": "node scripts/staff-query-runner.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

@@ -287,7 +287,9 @@ const REGISTRY = [
     helperFn:        'getArrivalsNeedingAssignmentQuery',
     helperRef:       roomingQueries.getArrivalsNeedingAssignmentQuery,
     requiredParams:  [],
-    optionalParams:  [],
+    optionalParams:  [
+      { name: 'date', description: 'Cutoff check-in date — show arrivals on or before this date (ISO date)', example: '2026-07-07', default: 'TODAY' },
+    ],
     clientSlugged:   true,
     readOnly:        true,
     migrationRequired: null,
