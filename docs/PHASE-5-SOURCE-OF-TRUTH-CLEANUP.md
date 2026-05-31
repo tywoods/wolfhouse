@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.4 next  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.5 next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1472,3 +1472,74 @@ Two items in the `5.3.6` criteria table reference work that belongs to the **Sta
 | 5 | 5.3e Stripe webhook fixture replay | Medium — first real payment_events + payments.paid write | Yes |
 | 6 | 5.3f confirmation-needed query proof | Low | Yes (smoke) |
 | 7 | 5.3g payment/staff smoke gate | Low | Yes |
+
+---
+
+## Stage 5.4 — Confirmation State Cleanup (**CLOSE WITH DEFERRALS** 2026-05-31)
+
+**Status:** **CLOSE WITH DEFERRALS** — confirmation state query semantics proven; mark-confirmed gate remains gated; no workflow activation needed.
+
+**Purpose (Workstream 4):** Use existing `confirmation_sent_at` + `send_confirmation` flags; prove "pending confirmation" list is queryable; confirm the gating logic is correct.
+
+### 5.4.1 Background
+
+`getConfirmationNeededQuery()` was proven in Stage 5.3f for the positive case: a booking with `deposit_paid`, `send_confirmation=TRUE`, `confirmation_sent_at=NULL` appears in Query F.
+
+Stage 5.4 closes the gap by proving the **negative case** — a booking with `confirmation_sent_at IS NOT NULL` does **not** appear in Query F — and by documenting the mark-confirmed gate as safe.
+
+### 5.4.2 Proof (PASS — 2026-05-31)
+
+**Script:** `scripts/verify-stage54-confirmation-state-proof.js`
+
+**Fixture phones:** `+34600000158` (A — needs confirmation) / `+34600000159` (B — already confirmed)
+
+**Proof sequence:**
+
+```
+1. Pre-run cleanup (idempotent)
+2. Baseline: 0 fixture rows in Query F ✓
+3. Seed A + B
+4. Assert: A in Query F, B not in Query F
+5. Cleanup
+6. Post-cleanup: 0 fixture rows in Query F ✓
+7. booking_beds: 15 → 15 (unchanged) ✓
+```
+
+**Result table:**
+
+| Fixture | Booking code | `send_confirmation` | `confirmation_sent_at` | In Query F? | Expected |
+|---------|-------------|---------------------|------------------------|-------------|----------|
+| A — needs confirmation | `WH-54-NEEDS-001` | TRUE | NULL | ✅ YES | YES |
+| B — already confirmed | `WH-54-CONFIRMED-001` | TRUE | 2026-06-01 10:00:00+00 | ✅ NO | NO |
+
+All 12 assertions green. Exit code 0.
+
+**Mark-confirmed gate:** The Send Confirmation workflow's dry-run mark-confirmed behavior was proven in Stage 3d.6e (isolated dry-run) and 3d.9b (integrated Main→CPS→webhook→confirmation, exec 1077). The gate (`WHATSAPP_DRY_RUN=true`) prevents real WhatsApp sends. Not re-run in Stage 5.4; evidence carries from Stage 3.
+
+### 5.4.3 Exit criteria
+
+| Criterion | Status |
+|-----------|--------|
+| `confirmation_sent_at=NULL` booking appears in Query F | ✅ proven (5.3f + 5.4) |
+| `confirmation_sent_at IS NOT NULL` booking does NOT appear in Query F | ✅ proven (5.4) |
+| Cleanup restores baseline | ✅ |
+| `booking_beds` unchanged | ✅ (15 throughout) |
+| No workflow activation | ✅ |
+| No webhook POST | ✅ |
+| No real WhatsApp / Stripe | ✅ |
+
+### 5.4.4 Deferrals
+
+| Deferral | Target |
+|----------|--------|
+| Live confirmation send (real WhatsApp to real guest) | Explicit approval required |
+| Confirmation retry / idempotency audit trail | "Should-have before pilot" |
+| Send Confirmation schedule-poll (cron gate) | Stage 3.5 / 3y |
+| Branded confirmation templates per client | Stage 7 |
+
+### 5.4.5 Artifacts
+
+- `scripts/verify-stage54-confirmation-state-proof.js` — self-contained proof runner
+- `scripts/fixtures/stage5.4-confirmation-state-seed.sql` — standalone seed SQL
+- `scripts/fixtures/stage5.4-confirmation-state-cleanup.sql` — standalone cleanup SQL
+
