@@ -1,6 +1,6 @@
 # Stage 7 — Production Hardening + Pilot Deployment Plan
 
-**Status:** PLANNING (2026-05-31) — Stage 7.0 plan complete (this document). No implementation.
+**Status:** PLANNING (2026-05-31) — Stage 7.0 plan DONE · Stage 7.1 env/secrets inventory DONE. No implementation; no live operation approved.
 **Prerequisites:** Stage 4 CLOSE WITH DEFERRALS (`6cd9a21`). Stage 5 SoT cleanup CLOSE WITH DEFERRALS (`ae545a2`). Stage 6 CLOSED WITH DEFERRALS (`f7813d3`).
 **Scope:** Prepare Wolfhouse for a controlled pilot. Harden the local/dev proof into a deployable staging/pilot setup. Keep live WhatsApp / live Stripe / autonomous sends **disabled** until explicit go/no-go gates pass.
 
@@ -147,7 +147,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 | Slice | Name | Scope | Status |
 |---|---|---|---|
 | 7.0 | Planning | This document | DONE |
-| 7.1 | Environment / secrets inventory | Enumerate local/staging/prod env vars, secrets, integration keys; secrets-manager plan | PENDING |
+| 7.1 | Environment / secrets inventory | Enumerate local/staging/prod env vars, secrets, integration keys; secrets-manager plan | **DONE** — [PHASE-7.1-ENV-SECRETS-INVENTORY.md](PHASE-7.1-ENV-SECRETS-INVENTORY.md) |
 | 7.2 | Auth model + staff accounts | Roles, `staff_directory`, production auth design; operator token scoped to local/dev | PENDING |
 | 7.3 | Staging deployment plan | HTTPS, domain, deploy target, reproducible from `infra/`; staging stands up with workflows inactive | PENDING |
 | 7.4 | Backup/restore + migration rollback | Automated backups; restore drill executed in staging; rollback paths for migrations | PENDING |
