@@ -744,6 +744,10 @@ These are **not new features** — they are the structured forms of data the bot
 
 ## Stage 6 — Beautiful (Staff / Admin Layer)
 
+**Status: PLANNING** (2026-05-31) — Stage 6.0 plan complete. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
+
+**Implementation slices:** 6.1 query registry → 6.2 CLI runner → 6.3 handoff queue proof → 6.4 formatter → 6.5 safe action stubs → 6.6 HTTP API (deferred) → 6.7 pilot smoke.
+
 ### Purpose
 
 Excellent staff and owner experience. This is where the **two-sided product** becomes visible: the guest-facing assistant (already built) and the **staff-facing operations assistant** (built here).
