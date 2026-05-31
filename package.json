@@ -46,8 +46,10 @@
     "verify:staff-query-registry": "node scripts/verify-staff-query-registry.js",
     "verify:staff-query-runner": "node scripts/verify-staff-query-runner.js",
     "verify:report-staff-handoff-queue": "node scripts/verify-report-staff-handoff-queue.js",
+    "verify:report-staff-payments": "node scripts/verify-report-staff-payments.js",
     "staff:query": "node scripts/staff-query-runner.js",
-    "report:handoff-queue": "node scripts/report-staff-handoff-queue.js"
+    "report:handoff-queue": "node scripts/report-staff-handoff-queue.js",
+    "report:payments": "node scripts/report-staff-payments.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
