@@ -1,6 +1,6 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-31 (Stage 5.3g PASS — combined payment/staff query smoke gate)
+**Last updated:** 2026-05-31 (Stage 5.3 CLOSE WITH DEFERRALS — all must-have criteria met; Stripe webhook replay + add-ons + staff UI deferred)
 **HEAD (expected):** `bd891ba`
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
@@ -35,7 +35,7 @@
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
 | **4** Reliable | **CLOSE WITH DEFERRALS — Autonomous Booking Dry-Run complete (2026-05-30, commit 6cd9a21)** | All 14 runtime scenarios PASS (A1–A10, A9, IT-1/2/3, DE-1). Full dry-run booking path, payment webhook sim, confirmation draft, closed-month guard, multi-turn PG state, add-on pricing, multilingual baseline proven. Protected tables Δ=0 across all gates. **Deferrals:** real WhatsApp, live holds/Stripe/confirmation writes, structured add-on DB records (Stage 5), staff assistant (Stage 6), Airtable cutover, extensive multilingual polish. **Next: Stage 5 — source-of-truth cleanup + pilot readiness.** |
 
-| **5** Clean | **5.1 PASS. 5.2 CLOSE WITH DEFERRALS. 5.3a–5.3g PASS (2026-05-31).** All six staff payment queries + `payment_balances` proven against three fixture states (waiting-payment, deposit-paid/confirm-needed, no-payment-row). All query buckets correct; `booking_beds` unchanged; cleanup restores baseline. **Next: Stage 5.4.** | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
+| **5** Clean | **5.1 PASS. 5.2 CLOSE WITH DEFERRALS. 5.3 CLOSE WITH DEFERRALS (2026-05-31).** All six staff payment queries + `payment_balances` proven (5.3a–5.3g); fixture ensure-promote path proven (exec 1245); confirmation-needed query proven; combined smoke PASS. Real Stripe, `payment_events` replay, add-on records, staff UI deferred. **Next: Stage 5.4 — confirmation state cleanup.** | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
 | **6** Beautiful | Planned | Staff UI + Staff Operations Assistant + approval controls; Airtable cutover. Not started. Staff queries answered from Stage 5 structured records. |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
@@ -325,7 +325,7 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
-**Immediate next step: Stage 5.4.** Stage 5.3a–5.3g complete (2026-05-31). All staff payment queries proven: `payment_balances`, A–F all correct buckets, cleanup clean, `booking_beds` unchanged. Commit: `runtime(stage5.3g): pass combined payment staff-query smoke`.
+**Immediate next step: Stage 5.4 — confirmation state cleanup.** Stage 5.3 CLOSE WITH DEFERRALS (2026-05-31): all six staff payment queries + `payment_balances` proven; fixture ensure-promote/payment path proven (exec 1245); confirmation-needed query proven; combined smoke PASS. Deferred: real Stripe, `payment_events` idempotency standalone gate, add-on records, staff UI.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.

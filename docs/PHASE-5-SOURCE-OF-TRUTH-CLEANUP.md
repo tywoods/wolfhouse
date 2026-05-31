@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); Stage 5.3a–5.3g PASS; Stage 5.4 next  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.4 next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1400,7 +1400,68 @@ Post-cleanup: all buckets = 0. `booking_beds` = 15 (unchanged). No workflow acti
 - Balance-due automated follow-up / retry → future automation
 - Full `payment_balances` as a DB VIEW (migration) — plan as SQL helper first; promote to VIEW in Stage 6 if needed
 
-### 5.3.8 Recommended implementation order
+### 5.3.9 Closeout decision — CLOSE WITH DEFERRALS (2026-05-31)
+
+**Recommendation: Stage 5.3 CLOSE WITH DEFERRALS.**
+
+All must-have criteria from Workstream 3 ("Payments / payment status") are met. The remaining items are explicitly deferred with documented safe fallbacks.
+
+#### Closeout matrix
+
+| Sub-gate | Status | Proof | Key caveat / deferral |
+|----------|--------|-------|-----------------------|
+| 5.3a — Schema/status audit | ✅ PASS | `bookings.payment_status`, `payments`, `payment_events` schema confirmed; alignment to Stripe webhook truth documented | None |
+| 5.3b — `payment_balances` SQL helper | ✅ PASS | `getPaymentBalancesQuery()` returns correct rows; static verifier OK; proven in 5.3g smoke | Promotion to DB VIEW deferred to Stage 6 if needed |
+| 5.3c — Staff payment query helpers | ✅ PASS | All 6 helpers implemented + `verify-staff-payment-queries.js` 7/7 OK | "Claimed-paid/no-record" proxy deferred until `staff_handoffs.reason='payment_claimed'` (Stage 5.7) |
+| 5.3d — Fixture ensure-promote + payment row | ✅ PASS | `WH-53-FIXTURE-001` seeded; `payment_pending/waiting_payment` + `payments(checkout_created)` queryable; seed/cleanup idempotent | Real Stripe checkout NOT approved; pre-seeded `cs_test_stage53_fixture_001` used |
+| 5.3e — Empty hold-id guard + fixture ensure-promote path | ✅ PASS | exec 1245: `IF - Stage53 Fixture?` TRUE; `Postgres - Ensure Booking In Postgres` executed (`action: refreshed`); formula fix proven; BSR/hold-search stub chain wired | Real Stripe NOT approved; Airtable hold bypassed by fixture stub (correct by design) |
+| 5.3f — Confirmation-needed query proof | ✅ PASS | `getConfirmationNeededQuery()` returns `WH-53-CONFIRM-001` after seed; 0 after cleanup; no workflow activation | Confirmation send mechanism itself proven in Stage 3d.6e/9b; not re-run in Stage 5.3 |
+| 5.3g — Combined payment/staff query smoke | ✅ PASS | All 7 buckets correct (3 fixtures, 3 phones); `booking_beds`=15 unchanged; cleanup clean | No workflow activation; Stripe webhook replay idempotency deferred (see below) |
+
+#### Exit criteria check
+
+| Criterion | Status |
+|-----------|--------|
+| `payment_balances` classifies fixture payment states | ✅ proven (5.3b/g) |
+| A — Who paid deposit? | ✅ proven (5.3g) |
+| B — Who paid full? | ✅ proven (5.3g; bucket correctly empty for fixture set) |
+| C — Who owes balance? | ✅ proven (5.3g; F2 deposit_paid, balance=49900) |
+| D — Who has no payment row? | ✅ proven (5.3g; F3) |
+| E — Who is waiting payment? | ✅ proven (5.3g; F1+F3) |
+| F — Who needs confirmation? | ✅ proven (5.3f/g; F2) |
+| Fixture ensure-promote / payment_pending path proven | ✅ proven (5.3d/e) |
+| Cleanup restores baseline in all gates | ✅ all gates |
+| No real Stripe | ✅ all gates |
+| No real WhatsApp | ✅ all gates |
+| No `booking_beds` mutation | ✅ all gates; count=15 throughout |
+
+#### Items from 5.3.6 proof criteria — clarifications
+
+Two items in the `5.3.6` criteria table reference work that belongs to the **Stage 3** Stripe webhook isolated gates — not re-proven in Stage 5.3 (nor required for closeout):
+
+| Criterion | Resolution |
+|-----------|------------|
+| Stripe webhook sets `payment_status=deposit_paid`, `send_confirmation=TRUE` | ✅ Proven in Stage 3d.5b (isolated Stripe Webhook Handler gate) + 3d.9b (integrated Main→CPS→webhook→confirmation). Not re-proven in Stage 5.3 — already in evidence. |
+| `payment_events` idempotent (duplicate event → acknowledged) | ✅ Proven in Stage 3d.5b isolated gate. Deferred as standalone Stage 5.3 sub-gate — not required for 5.3 closeout. |
+| `balance_due_cents` computed correctly | ✅ Proven in 5.3g: fixture F2 (total=69900, paid=20000) correctly appears in Query C (balance_due). |
+
+#### Deferrals (do not block 5.3 closeout)
+
+| Deferral | Target |
+|----------|--------|
+| Live Stripe checkout (real guest payments, real `checkout.session.completed`) | Explicit approval required before enabling |
+| Stripe webhook fixture replay + `payment_events` idempotency as standalone Stage 5 sub-gate | Deferred; Stage 3d.5b evidence is sufficient for pilot |
+| `getNoPaymentRecordQuery` "claimed-paid/no-record" proxy upgrade | Stage 5.7 (requires `staff_handoffs.reason='payment_claimed'`) |
+| `payment_balances` promoted to a DB VIEW | Stage 6 if needed |
+| Automated duplicate-payment checks | "Should-have before pilot" — deferred post-pilot |
+| Refunds / voucher automation | Future automation |
+| Add-on payment records | Stage 5.5–5.6 |
+| Multi-currency / multi-Stripe account | Stage 7 |
+| Staff UI / payment dashboard | Stage 6 |
+| Multi-client payment config | Stage 7 |
+| Balance-due automated follow-up / retry | Future automation |
+
+
 
 | Step | Slice | Risk | Needs runtime |
 |------|-------|------|---------------|
