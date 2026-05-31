@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.5 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.6 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.7 next  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.5 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.6 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.7 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.8 next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1221,7 +1221,7 @@ New module `scripts/lib/staff-payment-queries.js` exports six read-only helpers:
 
 All: SELECT-only, `$1` = client slug, `LEFT JOIN payments`, no mutation keywords.
 
-**TODO (claimed-paid/no-record):** A query for "guest claimed they paid but no record exists" requires a claim marker (`conversations.metadata` or `staff_handoffs.reason='payment_claimed'`). Neither exists in the current schema. `getNoPaymentRecordQuery()` is the safe proxy until `staff_handoffs` is available in Stage 5.7. Documented inline in `staff-payment-queries.js`.
+**RESOLVED (claimed-paid/no-record) — Stage 5.7:** A query for "guest claimed they paid but no record exists" now uses `staff_handoffs.reason_code IN ('payment_claimed','payment_claimed_no_record')` (migration 008, NOT YET APPLIED). New helper `getPaymentClaimedNoRecordQuery()` added in `staff-payment-queries.js`. The structural proxy `getNoPaymentRecordQuery()` is retained unchanged (works without migration 008); the upgrade is additive.
 
 Verifier: `scripts/verify-staff-payment-queries.js` — checks all 7 exports (1 balance + 6 payment), SELECT-only, client-scoped, `bookings` reference, `payments` reference for applicable queries. All 7/7 OK.
 
@@ -1702,4 +1702,68 @@ Design: `item_type` is TEXT (not enum) — config-driven, matches `service_catal
 - `scripts/lib/staff-addon-queries.js` — 6 read-only add-on query helpers
 - `scripts/verify-staff-addon-queries.js` — query static verifier (no DB)
 - `scripts/verify-addon-schema-migration.js` — migration static verifier (no DB)
+
+---
+
+## Stage 5.7 — Staff Handoffs / Tasks Schema Stub (**CLOSE WITH DEFERRALS** 2026-05-31)
+
+**Status:** **CLOSE WITH DEFERRALS** — migration 008 stub created (`staff_handoffs` + `staff_tasks`); 8 staff handoff query helpers static-verified; schema + migration verifiers 100% green. Migration **NOT APPLIED** (stub only; apply when pilot-approved). Staff UI is **Stage 6**.
+
+**Purpose (Workstream 7):** Schema + query design for human-handoff tracking. The bot opens a `staff_handoffs` row when it cannot/must not act autonomously (low confidence, payment claim, cancellation/refund, angry guest, etc.). Staff resolve them. This makes "which conversations need a human reply?" answerable from Postgres source-of-truth rather than chat logs, and unblocks the Stage 5.3 deferred payment-claimed query.
+
+### 5.7.1 Tables defined (migration 008 — NOT YET APPLIED)
+
+| Table | Purpose | Key fields |
+|-------|---------|-----------|
+| `staff_handoffs` | One record per conversation/booking needing a human | `client_id`, `conversation_id`, `booking_id`, `reason_code`, `summary`, `priority`, `status`, `assigned_staff`, `opened_at`, `resolved_at`, `metadata` |
+| `staff_tasks` | Optional follow-up task list (linked to a handoff/booking) | `client_id`, `handoff_id`, `booking_id`, `task_type`, `status`, `priority`, `due_at`, `assigned_staff` |
+
+Design: `reason_code` / `task_type` are TEXT (config-driven, not enums — easy to extend). `priority` (low/normal/high/urgent) and `status` (open/assigned/waiting_guest/resolved/cancelled) use CHECK constraints, matching migration 007 style. Includes a partial index (`idx_staff_handoffs_open`) for the common "still-open handoffs" staff query. Reason-code examples: `cancellation_request`, `refund_request`, `date_change_paid_booking`, `payment_claimed`, `payment_claimed_no_record`, `guest_angry`, `unclear_request`, `staff_required`, `manual_rooming_review`, `add_on_staff_required`.
+
+### 5.7.2 Staff handoff queries (A–H)
+
+| Query | Helper | Staff question answered |
+|-------|--------|------------------------|
+| A | `getOpenHandoffsQuery($1)` | Which conversations need a human reply? |
+| B | `getHighPriorityHandoffsQuery($1)` | Which handoffs are urgent/high (escalation queue)? |
+| C | `getHandoffsByReasonQuery($1,$2)` | Open handoffs for a specific reason_code |
+| D | `getPaymentClaimedHandoffsQuery($1)` | Which payment claims need staff review? |
+| E | `getCancellationRefundHandoffsQuery($1)` | Which cancellations/refunds need staff review? |
+| F | `getHandoffsByStaffQuery($1,$2)` | Which handoffs are assigned to a staff member? |
+| G | `getStaleHandoffsQuery($1,$2)` | Unresolved handoffs older than N hours (SLA) |
+| H | `getBookingHandoffsQuery($1,$2)` | All handoffs linked to a booking_code |
+
+### 5.7.3 Payment-claimed query upgrade (Stage 5.3 deferral resolved — additive)
+
+Stage 5.3 deferred a real "claimed paid but no record" query because no claim marker existed. Stage 5.7 adds `staff_handoffs.reason_code IN ('payment_claimed','payment_claimed_no_record')` as that marker. New helper `getPaymentClaimedNoRecordQuery()` in `staff-payment-queries.js` uses it (requires migration 008). The Stage 5.3 structural proxy `getNoPaymentRecordQuery()` is **retained unchanged** (works without migration 008) — the upgrade is additive, not a replacement.
+
+### 5.7.4 Verifier results
+
+| Verifier | Result |
+|----------|--------|
+| `verify-staff-handoff-queries.js` — 8 queries A–H, all SELECT-only, client-scoped | ✅ PASS |
+| `verify-staff-handoff-migration.js` — 2 tables, FKs (clients/conversations/bookings/staff_handoffs), 13+ indexes, 2 triggers, no DROP | ✅ PASS |
+| `verify-staff-payment-queries.js` — now 7 helpers incl. `getPaymentClaimedNoRecordQuery` | ✅ PASS |
+| `verify-staff-addon-queries.js` | ✅ PASS |
+| `verify-staff-rooming-queries.js` | ✅ PASS |
+| `build-main-local-stripe.js --verify-targets` | ✅ OK |
+| `report-main-payment-contract.js` / `report-main-rooming-contract.js` | ✅ OK |
+
+### 5.7.5 Deferrals
+
+| Deferral | Target |
+|----------|--------|
+| Migration 008 applied to live DB | Explicit approval required before piloting handoffs |
+| Bot write path for staff_handoffs (open on handoff routes A6/A7) | Stage 5.x write stub or Stage 6 |
+| Staff UI / handoff queue view | Stage 6 |
+| `staff_tasks` task-workflow engine (assignment, SLA automation) | Stage 6 |
+| `getPaymentClaimedNoRecordQuery()` runtime proof | Requires migration 008 applied + fixture handoff row |
+
+### 5.7.6 Artifacts
+
+- `database/migrations/008_add_staff_handoffs.sql` — migration stub (NOT YET APPLIED)
+- `scripts/lib/staff-handoff-queries.js` — 8 read-only handoff query helpers
+- `scripts/verify-staff-handoff-queries.js` — query static verifier (no DB)
+- `scripts/verify-staff-handoff-migration.js` — migration static verifier (no DB)
+- `scripts/lib/staff-payment-queries.js` — +`getPaymentClaimedNoRecordQuery()` (additive)
 

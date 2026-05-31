@@ -62,6 +62,7 @@ const REQUIRED_PAYMENT_EXPORTS = [
   'getNoPaymentRecordQuery',
   'getWaitingPaymentQuery',
   'getConfirmationNeededQuery',
+  'getPaymentClaimedNoRecordQuery',
 ];
 
 // Queries that must reference the payments table

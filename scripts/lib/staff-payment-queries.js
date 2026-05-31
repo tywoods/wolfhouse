@@ -10,12 +10,11 @@
  *   F. getConfirmationNeededQuery — paid bookings awaiting confirmation send
  *
  * TODO (D): A "claimed paid but no record" query (e.g. guest said they paid but
- * bot/staff hasn't verified) requires a claim marker — either a `metadata` JSONB
- * field on `conversations` or a `staff_handoffs.reason = 'payment_claimed'` row.
- * Neither exists in the current schema. Query D instead covers the structurally
- * detectable proxy: bookings that are payment_pending but have no `payments` row
- * at all (i.e. the CPS workflow never ran or the link was never sent). This is the
- * closest safe approximation until Stage 5.7 staff_handoffs is implemented.
+ * bot/staff hasn't verified) requires a claim marker. As of Stage 5.7 this marker
+ * exists: staff_handoffs.reason_code IN ('payment_claimed','payment_claimed_no_record')
+ * (migration 008, not yet applied). getPaymentClaimedNoRecordQuery() below uses it.
+ * getNoPaymentRecordQuery() is retained as the structural proxy (payment_pending with
+ * no payments row) and works without migration 008.
  *
  * All queries are scoped by client slug ($1) and are SELECT-only.
  *
@@ -277,6 +276,50 @@ ORDER BY b.updated_at ASC
 `;
 }
 
+// ---------------------------------------------------------------------------
+// D2. Payment claimed but no record (Stage 5.7 — uses staff_handoffs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Bookings/conversations where the guest claims they paid but staff must verify.
+ * Uses staff_handoffs.reason_code IN ('payment_claimed','payment_claimed_no_record').
+ * Requires migration 008_add_staff_handoffs.sql to be applied.
+ * This is the Stage 5.7 upgrade of the Stage 5.3 structural proxy
+ * (getNoPaymentRecordQuery), and is additive — it does not replace it.
+ * Ordered by handoff opened_at ascending.
+ *
+ * @returns {string} Parameterised SQL ($1 = client slug)
+ */
+function getPaymentClaimedNoRecordQuery() {
+  return `
+SELECT
+  h.id::text                AS handoff_id,
+  h.reason_code,
+  h.summary,
+  h.priority,
+  h.status                  AS handoff_status,
+  h.phone,
+  h.opened_at,
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.check_in,
+  b.check_out,
+  b.payment_status::text,
+  b.status::text            AS booking_status,
+  p.id::text                AS payment_id,
+  p.status::text            AS payment_record_status
+FROM staff_handoffs h
+INNER JOIN clients c ON c.id = h.client_id
+LEFT JOIN bookings b ON b.id = h.booking_id
+LEFT JOIN payments p ON p.booking_id = b.id AND p.status = 'paid'
+WHERE c.slug = $1
+  AND h.reason_code IN ('payment_claimed', 'payment_claimed_no_record')
+  AND h.status IN ('open', 'assigned', 'waiting_guest')
+ORDER BY h.opened_at ASC
+`;
+}
+
 module.exports = {
   CLIENT_SLUG,
   getDepositPaidQuery,
@@ -285,4 +328,5 @@ module.exports = {
   getNoPaymentRecordQuery,
   getWaitingPaymentQuery,
   getConfirmationNeededQuery,
+  getPaymentClaimedNoRecordQuery,
 };
