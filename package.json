@@ -42,7 +42,8 @@
     "test:phase2f-resolver": "node scripts/test-booking-state-resolver.js",
     "db:migrate:006": "node scripts/run-sql.js database/migrations/006_confirmation_sent_at.sql",
     "db:migrate:pricing": "node scripts/run-sql.js database/migrations/002_package_pricing.sql",
-    "test:stage3y-mode-a": "node scripts/run-stage3y-mode-a.js"
+    "test:stage3y-mode-a": "node scripts/run-stage3y-mode-a.js",
+    "verify:staff-query-registry": "node scripts/verify-staff-query-registry.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
