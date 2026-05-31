@@ -746,7 +746,7 @@ These are **not new features** — they are the structured forms of data the bot
 
 ## Stage 6 — Beautiful (Staff / Admin Layer)
 
-**Status: IN PROGRESS** (2026-05-31) — Read-only milestone achieved. 6.0–6.8 DONE: 35-intent query registry, CLI runner, batch reports (payments/rooming/add-ons/digest), CLI write action (handoff.resolve), read-only HTTP API, read-only browser UI. Stage 6.9 (token-gated write endpoint) pending approval. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
+**Status: CLOSED WITH DEFERRALS** (2026-05-31) — All exit criteria MET. 6.0–6.9 DONE: 35-intent registry, CLI runner, batch reports, CLI write action, HTTP API, browser UI, smoke test, token-gated write endpoint. Production auth/TLS/live-ops deferred to Stage 7. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
 
 **Implementation slices:** 6.1 registry DONE → 6.2 CLI runner DONE → 6.3 handoffs DONE → 6.4a/b/c/d batch reports DONE → 6.5a/b CLI write action DONE → 6.6 HTTP API DONE → 6.7 intent smoke DONE → 6.8 read-only UI DONE → 6.9 token-gated write endpoint DONE.
 

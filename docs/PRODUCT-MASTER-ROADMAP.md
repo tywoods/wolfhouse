@@ -35,7 +35,7 @@
 |---|--------|------------------|--------|
 | 1 | Guest Booking Assistant | 3, 3x, 3y, 4 | Proven (dry-run); live deferred |
 | 2 | Source-of-Truth Database | 3c, 5 | Proven (schema + cleanup); cutover deferred |
-| 3 | Staff Assistant Brain | 5 (data), 6 | In progress |
+| 3 | Staff Assistant Brain | 5 (data), 6 | CLOSED WITH DEFERRALS |
 | 4 | Staff Operations Dashboard | 6 | Planned (CLI-first underway) |
 | 5 | Rooming / Bed Grid UI | 3e (engine), 6 (UI) | Engine proven; UI not started |
 | 6 | Add-ons & Revenue Layer | 4 (pricing), 5 (records), 6 (queries) | In progress |
@@ -96,7 +96,7 @@
 
 **Purpose:** The read-only operations brain that answers staff questions ("who still owes money?", "who arrives today?", "which conversations need a human reply?") from structured Postgres records via a fixed, safe query registry — never arbitrary SQL.
 
-**Current status:** **In progress — read-only milestone achieved.** Stage 6 registry (35 intents), CLI runner, batch reports (payments 6.4a, rooming 6.4b, add-ons 6.4c, digest 6.4d), CLI write action (handoff.resolve 6.5a/b), read-only HTTP API (6.6), intent smoke test (6.7), read-only browser UI (6.8) — all DONE and proven against dev DB with zero protected-table delta. Stage 6.9 (token-gated HTTP write endpoint) pending approval.
+**Current status:** **CLOSED WITH DEFERRALS (2026-05-31).** All Stage 6 exit criteria MET: 35-intent registry, CLI runner, batch reports (6.4a–6.4d), CLI write action (6.5a/b), read-only HTTP API (6.6), 35-intent smoke test (6.7), read-only browser UI (6.8), token-gated HTTP write endpoint (6.9). All proofs against dev DB with zero protected-table delta. Production auth/TLS/live-ops deferred to Stage 7.
 
 **Related stages:** Stage 5 (data foundation), Stage 6 (assistant layer).
 
@@ -109,7 +109,7 @@
 - Stage 6.6 — read-only HTTP API (GET /staff/query, GET /staff/intents) — DONE.
 - Stage 6.7 — 35-intent smoke test, 0 failed, 144 rows, protected tables unchanged — DONE.
 - Stage 6.8 — read-only browser UI at GET /staff/ui — DONE.
-- Stage 6.9 — token-gated POST /staff/handoff/:id/resolve — PENDING approval.
+- Stage 6.9 — token-gated POST /staff/handoff/:id/resolve — DONE.
 
 **Deferrals / not started:**
 - Natural-language question parsing (intent classification) — currently explicit intent keys only.
@@ -122,12 +122,12 @@
 
 **Purpose:** The staff-facing surface for daily operations: stuck bookings, payment status, pending confirmations, handoff queue, arrivals/departures, add-on fulfillment.
 
-**Current status:** **Planned — CLI-first underway.** Per the Stage 6 plan, the first implementation is a CLI/report layer (batch reports already produce readable tables + audit log). A visual dashboard (web UI) is not started.
+**Current status:** **CLI and read-only browser UI proven (Stage 6).** Batch reports, HTTP API, and GET /staff/ui read-only browser page implemented. Full dashboard (calendar, bed grid, write controls, conversation history) deferred to Stage 7 after auth gate.
 
 **Related stages:** Stage 6.
 
 **Major milestones:**
-- CLI batch reports (handoffs / payments / rooming) — in progress (Stage 6.3–6.4).
+- CLI batch reports (handoffs / payments / rooming / add-ons / digest) — DONE (Stage 6.3–6.4d).
 - Add-ons batch report — planned (Stage 6.4c).
 - Visual dashboard / web UI — planned, later in Stage 6.
 

@@ -1,6 +1,6 @@
 # Stage 6 — Staff / Admin Assistant Plan
 
-**Status:** IN PROGRESS (2026-05-31) — read-only milestone achieved (6.0–6.8 DONE); write endpoint DONE (6.9 PASS)
+**Status:** CLOSED WITH DEFERRALS (2026-05-31) — all exit criteria MET. Production auth/TLS/live-ops deferred to Stage 7.
 **Prerequisites:** Stage 5 SoT cleanup CLOSED WITH DEFERRALS (de6c3c0). Migrations 007+008 applied. Luna handoff write path wired (Stage 5.9b).
 **Scope:** Staff-facing operational query layer. Not guest-facing automation. Not live WhatsApp. Not production.
 
@@ -355,3 +355,55 @@ param schema, and client_slug binding for all 30+ query helpers from Stage 5.
 Add static verifier scripts/verify-staff-query-registry.js.
 No DB connection. No runtime. Static only.
 ```
+
+---
+
+## Stage 6 Closeout
+
+**Decision: CLOSE WITH DEFERRALS — 2026-05-31**
+
+### Exit criteria — all met
+
+| Criterion | Evidence |
+|---|---|
+| Query registry proven | 35 intents, 5 categories, static verifier |
+| Batch reports proven | payments, rooming, add-ons, combined digest |
+| HTTP API read-only proven | GET /staff/query, GET /staff/intents — 39/39 verifier, 5 live proofs |
+| UI read-only proven | GET /staff/ui — 29/29 verifier, no write controls |
+| All-intent smoke test | 35/35 intents, 0 failed, 144 rows, tables Δ=0 |
+| CLI write proven | handoff.resolve --confirm gate, fixture seed/cleanup |
+| HTTP write proven | POST /staff/handoff/:id/resolve — token gate, flag gate, idempotent, 43/43 verifier |
+| Audit log throughout | every query, action attempt, and write result logged |
+| Protected tables clean | bookings/payments/payment_events/booking_beds unchanged across all proofs |
+
+### Deferrals — explicitly moved to Stage 7+
+
+| Item | Target |
+|---|---|
+| Production auth / roles / JWT | Stage 7 |
+| TLS / deployment config | Stage 7 |
+| UI write controls (resolve button, etc.) | Stage 7 after auth gate |
+| Real staff accounts / staff_directory | Stage 7 / pilot |
+| Live WhatsApp staff bridge | Stage 7 / pilot approval |
+| Live Stripe / live booking writes | Stage 7 / pilot approval |
+| Additional write actions (handoff.assign, task.complete, add-on.mark_redeemed, rental.mark_returned) | Stage 7+ |
+| Full dashboard polish (calendar, bed grid, conversation history) | Stage 7+ |
+| Analytics / owner dashboard | Stage 7+ |
+| Multi-client admin / client picker | Stage 7 |
+| Airtable cutover | Stage 7 (gated on staff UI covering all AT use cases) |
+| Bot auto-resolve handoffs (auto-trigger) | Stage 7+ approval gate |
+| Natural-language question parsing (NL → intent) | Stage 7+ |
+
+### What Stage 6 is NOT
+
+- Not production-ready (no auth, no TLS, no real accounts).
+- Not approved for live WhatsApp or live Stripe.
+- Not a replacement for Airtable yet.
+- Not a full staff dashboard.
+
+### Next stage recommendation
+
+**Stage 7 — Scalable / Production hardening + pilot deployment.**
+Focus: auth layer, TLS, deployment config, multi-client, real staff accounts, pilot soak.
+Do not add more local/dev write actions before Stage 7 auth/TLS plan is in place.
+
