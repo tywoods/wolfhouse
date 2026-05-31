@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.5 next  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.5 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.6 next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1543,3 +1543,97 @@ All 12 assertions green. Exit code 0.
 - `scripts/fixtures/stage5.4-confirmation-state-seed.sql` — standalone seed SQL
 - `scripts/fixtures/stage5.4-confirmation-state-cleanup.sql` — standalone cleanup SQL
 
+---
+
+## Stage 5.5 — Rooming / Bed Assignment Source-of-Truth Query Audit (**CLOSE WITH DEFERRALS** 2026-05-31)
+
+**Status:** **CLOSE WITH DEFERRALS** — rooming/bed assignment state proven queryable from Postgres without Airtable; static verifier 56/56; smoke proof PASS.
+
+**Purpose (Workstream 5):** `booking_beds` + `bookings.assignment_status` / rooming preference fields queryable; no Airtable required for read path. Bed assignment E2E was proven in Stage 3e.4 — Stage 5.5 confirms the SoT read path.
+
+### 5.5.1 Schema audit
+
+| Field | Table | Type | Notes |
+|-------|-------|------|-------|
+| `assignment_status` | `bookings` | enum (unassigned/assigning/assigned/needs_review) | Primary assignment gate |
+| `needs_rooming_review` | `bookings` | boolean | Staff review flag |
+| `requested_room_type` | `bookings` | text | e.g. shared, private |
+| `room_preference` | `bookings` | text | Free-text preference |
+| `rooming_notes` | `bookings` | text | Staff notes on rooming |
+| `rooming_confidence` | `bookings` | numeric(4,3) | Bot confidence in rooming decision |
+| `guest_gender_group_type` | `bookings` | text | Gender/group preference |
+| `primary_room_code` | `bookings` | text | Room code after assignment |
+| `booking_beds` | table | — | One row per bed per booking; `assignment_start_date`, `assignment_end_date`, `room_code`, `bed_code` |
+| `rooms` | table | — | `room_code`, `room_type`, `gender_strategy`, `can_be_matrimonial` |
+| `beds` | table | — | `bed_code`, `bed_label`, `bed_number` |
+
+Schema note: `hostel_id` → `client_id` rename via migration 003 (`hostels` → `clients`). All queries use `clients` table.
+
+### 5.5.2 Staff rooming queries (A–F)
+
+| Query | Helper | Purpose |
+|-------|--------|---------|
+| A | `getRoomingRosterQuery()` | Who is assigned where — full roster with room/bed detail |
+| B | `getUnassignedBookingsQuery()` | Bookings with no bed assignment (not hold/cancelled/expired) |
+| C | `getRoomingReviewQuery()` | Bookings flagged `needs_rooming_review=TRUE` or `assignment_status=needs_review` |
+| D | `getRoomingPreferencesQuery()` | Bookings with `requested_room_type`, `room_preference`, `guest_gender_group_type`, or `rooming_notes` set |
+| E | `getOccupiedBedsQuery($1,$2,$3)` | Beds occupied during a date range (half-open overlap: start < $3 AND end > $2) |
+| F | `getArrivalsNeedingAssignmentQuery($1,$2)` | Bookings checking in on/before cutoff date with `assignment_status=unassigned` |
+
+All queries: SELECT-only, `clients` scoped via `$1`, no Airtable dependency.
+
+### 5.5.3 Static verifier results (56/56 green)
+
+`node scripts/verify-staff-rooming-queries.js` — all checks pass:
+- 7 exports correct
+- 6 queries × SELECT-only (no mutation keywords)
+- All client-scoped via `$1` + `clients` table JOIN
+- `booking_beds` referenced in roster + occupied queries
+- `needs_rooming_review` referenced in review query
+- Preference fields referenced in preferences query
+- Date overlap logic verified in occupied-beds query
+- Arrivals cutoff check verified in arrivals query
+
+### 5.5.4 Smoke proof (PASS — 2026-05-31)
+
+**Script:** `scripts/verify-stage55-rooming-smoke.js`
+
+**Fixture phones:** `+34600000160` (A — assigned) / `+34600000161` (B — unassigned)
+
+| Fixture | booking_beds | In roster | In unassigned | In occupied | In arrivals-needing |
+|---------|-------------|-----------|--------------|-------------|---------------------|
+| A — assigned to R1-B1 | ✅ 1 row | ✅ YES | ✅ NO | ✅ YES (Jul 16–17 probe) | ✅ NO (assigned) |
+| B — unassigned, no beds | ✅ 0 rows | ✅ NO | ✅ YES | — | ✅ YES (check_in Jul 15) |
+
+Post-cleanup: 0 fixture rows; `booking_beds` = 15 → 16 → 15 (baseline restored). No workflow activation. No webhook POST.
+
+### 5.5.5 Exit criteria
+
+| Criterion | Status |
+|-----------|--------|
+| Assigned roster query returns correct fixture | ✅ (5.5.4) |
+| Unassigned query excludes assigned bookings | ✅ (5.5.4) |
+| Occupied beds query uses correct half-open overlap | ✅ (5.5.4) |
+| Arrivals-needing-assignment excludes assigned bookings | ✅ (5.5.4) |
+| All 6 queries SELECT-only, no mutation keywords | ✅ (5.5.3, 56/56) |
+| Client-scoped; no Airtable dependency | ✅ |
+| `booking_beds` baseline restored | ✅ (15 → 15) |
+| No workflow activation | ✅ |
+| No Airtable writes | ✅ |
+| No real rooming for live guests | ✅ |
+
+### 5.5.6 Deferrals
+
+| Deferral | Target |
+|----------|--------|
+| Live rooming for real guests | Explicit approval required |
+| Auto-assign optimization across rooms | Future automation |
+| Needs-rooming-review queue UI | Stage 6 |
+| `getRoomingReviewQuery` + `getRoomingPreferencesQuery` smoke (C/D) | Deferred; schema fields proven present; query logic follows same SELECT-only pattern verified in static checks |
+| Airtable rooming dependency removal from write path | Stage 6 (requires staff UI) |
+
+### 5.5.7 Artifacts
+
+- `scripts/lib/staff-rooming-queries.js` — 6 read-only rooming query helpers
+- `scripts/verify-staff-rooming-queries.js` — static verifier (no DB)
+- `scripts/verify-stage55-rooming-smoke.js` — fixture smoke proof runner
