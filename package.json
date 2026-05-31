@@ -45,7 +45,9 @@
     "test:stage3y-mode-a": "node scripts/run-stage3y-mode-a.js",
     "verify:staff-query-registry": "node scripts/verify-staff-query-registry.js",
     "verify:staff-query-runner": "node scripts/verify-staff-query-runner.js",
-    "staff:query": "node scripts/staff-query-runner.js"
+    "verify:report-staff-handoff-queue": "node scripts/verify-report-staff-handoff-queue.js",
+    "staff:query": "node scripts/staff-query-runner.js",
+    "report:handoff-queue": "node scripts/report-staff-handoff-queue.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
