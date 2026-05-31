@@ -36,7 +36,7 @@
 | 1 | Guest Booking Assistant | 3, 3x, 3y, 4 | Proven (dry-run); live deferred |
 | 2 | Source-of-Truth Database | 3c, 5 | Proven (schema + cleanup); cutover deferred |
 | 3 | Staff Assistant Brain | 5 (data), 6 | CLOSED WITH DEFERRALS |
-| 4 | Staff Operations Dashboard | 6 | Planned (CLI-first underway) |
+| 4 | Staff Operations Dashboard | 6, 7.7 | CLI + read-only UI done (Stage 6); review dashboard + bed calendar DESIGNED (Stage 7.7), build pending |
 | 5 | Rooming / Bed Grid UI | 3e (engine), 6 (UI) | Engine proven; UI not started |
 | 6 | Add-ons & Revenue Layer | 4 (pricing), 5 (records), 6 (queries) | In progress |
 | 7 | Staff Messaging Bridge | 3y (handoff), 6+ | Planned / deferred |
@@ -45,7 +45,7 @@
 | 10 | PMS / Integration Layer | 7 | Not started |
 | 11 | AI Intent Layer | 3x, 4 | Proven (guest); staff NL deferred |
 | 12 | Analytics / Owner Dashboard | 6+ / 7 | Not started |
-| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 PLANNING CLOSED: 7.0–7.6 design done. Implementation pending: Azure deploy, auth (migration 009), restore drill, Cami dashboard, monitoring config. Pilot decision: NO_GO. |
+| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 PLANNING CLOSED: 7.0–7.7 design done (incl. Cami dashboard + bed calendar plan). Scaffolds: 7.2b/7.2c/7.3b. Implementation pending: Azure deploy, auth wiring, restore drill, dashboard build (7.7b+), monitoring config. Pilot decision: NO_GO (81 gates). |
 | 14 | Multi-Client Admin | 7 | Not started |
 | 15 | Productization / Scale | 7 | Not started |
 
@@ -122,14 +122,14 @@
 
 **Purpose:** The staff-facing surface for daily operations: stuck bookings, payment status, pending confirmations, handoff queue, arrivals/departures, add-on fulfillment.
 
-**Current status:** **CLI and read-only browser UI proven (Stage 6).** Batch reports, HTTP API, and GET /staff/ui read-only browser page implemented. Full dashboard (calendar, bed grid, write controls, conversation history) deferred to Stage 7 after auth gate.
+**Current status:** **CLI and read-only browser UI proven (Stage 6); full review dashboard DESIGNED (Stage 7.7).** Batch reports, HTTP API, and GET /staff/ui read-only browser page implemented. The Cami review dashboard — conversation inbox, conversation detail + Luna draft review, booking/payment/rooming/add-on context, handoff queue, daily ops, and a spreadsheet-style bed calendar grid — is **designed** in [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) (read-only first; send/edit/resolve deferred behind gates). Not built.
 
-**Related stages:** Stage 6.
+**Related stages:** Stage 6 (CLI/read-only), Stage 7.7 (review dashboard + bed calendar plan).
 
 **Major milestones:**
 - CLI batch reports (handoffs / payments / rooming / add-ons / digest) — DONE (Stage 6.3–6.4d).
-- Add-ons batch report — planned (Stage 6.4c).
-- Visual dashboard / web UI — planned, later in Stage 6.
+- Read-only HTTP API + browser UI — DONE (Stage 6.6/6.8).
+- Cami review dashboard + bed calendar — DESIGN DONE (Stage 7.7); build slices 7.7b–7.7m pending; bed calendar = hard launch gate.
 
 **Deferrals / not started:**
 - Web dashboard, auth/roles, real-time views.
@@ -141,17 +141,18 @@
 
 **Purpose:** Visual bed/room assignment management — calendar/bed grid, drag-to-assign, conflict and gender-rule visibility — on top of the proven rooming engine.
 
-**Current status:** **Engine proven; UI not started.** Rooming/reassign E2E proven in Stage 3e (`WH-260528-5322`, beds R3-B1/R3-B2). Read-only rooming queries (roster, unassigned, review, preferences, occupied beds, arrivals) proven via Stage 6 batch report. No graphical grid UI yet.
+**Current status:** **Engine proven; bed calendar grid DESIGNED (Stage 7.7); interactive UI not built.** Rooming/reassign E2E proven in Stage 3e (`WH-260528-5322`, beds R3-B1/R3-B2). Read-only rooming queries (roster, unassigned, review, preferences, occupied beds, arrivals) proven via Stage 6 batch report. The spreadsheet-style bed calendar grid (rooms/beds × dates, `booking_beds` as date-span blocks, existing `planning-row-format` color/label model) is **designed** in [`PHASE-7.7`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) as a hard launch requirement; read-only render first, edits gated. No graphical grid UI built yet.
 
-**Related stages:** Stage 3e (engine), Stage 6 (UI).
+**Related stages:** Stage 3e (engine), Stage 6 (read-only reporting), Stage 7.7 (bed calendar grid design).
 
 **Major milestones:**
 - Bed-ops assign / cancel / reassign forks — Stage 3b/3e, proven.
 - Read-only rooming reporting — Stage 6.4b, proven (dev DB).
+- Bed calendar grid (read-only render + safe-edit plan) — DESIGN DONE (Stage 7.7); build pending (7.7g–7.7l).
 
 **Deferrals / not started:**
-- Graphical bed grid / calendar UI.
-- Interactive staff-driven reassignment from a UI (vs CLI/n8n today).
+- Graphical bed grid render and booking-block drawer (7.7h/7.7i — designed, not built).
+- Interactive staff-driven reassignment / date-change from a UI (7.7k/7.7l — plan-only; gated, audited, overlap-guarded, paid→handoff).
 
 ---
 

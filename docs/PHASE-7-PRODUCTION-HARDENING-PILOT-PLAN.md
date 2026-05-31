@@ -206,7 +206,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 
 ## Stage 7 planning closeout (2026-05-31)
 
-**Planning status:** CLOSED WITH DESIGN DONE (slices 7.0–7.6). **Implementation status:** NOT STARTED. **Pilot decision:** NO_GO — all 79 gates in [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) must PASS before any live operation.
+**Planning status:** CLOSED WITH DESIGN DONE (slices 7.0–7.7). **Implementation status:** scaffolds only (7.2b/7.2c/7.3b). **Pilot decision:** NO_GO — all 81 gates in [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) must PASS before any live operation.
 
 ### Planning closeout matrix
 
@@ -218,7 +218,8 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 | **7.3** | Staging deployment + TLS | **DESIGN DONE · 7.3b IaC scaffold PASS (local only)** | [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md) | Azure Container Apps not created; DNS not configured; TLS not active; staging Postgres not provisioned; Key Vault not provisioned | Gates C1–C9 in 7.6 |
 | **7.4** | Backup / restore + rollback | **DESIGN DONE** | [`PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md`](PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md) | Backup not configured; restore drill not executed; emergency toggles not drilled; migration 009 rollback pending migration creation | Gates D1–D6 in 7.6 |
 | **7.5** | Monitoring / alerting | **DESIGN DONE** | [`PHASE-7.5-MONITORING-ALERTING-PLAN.md`](PHASE-7.5-MONITORING-ALERTING-PLAN.md) | Azure Monitor alerts not created; n8n error workflow not built; business-state queries not scheduled; audit log not wired to Log Analytics | Gates E1–E8 in 7.6 |
-| **7.6** | Pilot readiness go/no-go checklist | **DESIGN DONE** | [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) | 76 of 79 gates NOT_STARTED; pilot decision recorded as NO_GO | All 79 gates must PASS |
+| **7.6** | Pilot readiness go/no-go checklist | **DESIGN DONE** | [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) | 78 of 81 gates NOT_STARTED; pilot decision recorded as NO_GO | All 81 gates must PASS |
+| **7.7** | Cami review dashboard + editable bed calendar | **DESIGN DONE** | [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) | Dashboard not built; conversation read endpoints, inbox/detail UI, Luna draft panel, handoff queue, bed calendar grid all pending; calendar edit gates plan-only | Gates F1–F8 in 7.6 (bed calendar = hard requirement) |
 
 ### What Stage 7 planning has achieved
 
@@ -227,7 +228,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 - Auth model chosen: per-user email/password + hashed passwords + secure session cookies for staging/pilot; operator token scoped to local/dev only.
 - Backup/restore strategy defined: Azure Postgres automated backups; restore drill required before pilot.
 - Monitoring and alerting strategy defined: 7-category scope; P0–P3 model; 10 runbooks.
-- Pilot readiness checklist created: 79 gates, 11 sections, 5 pilot phases, hard no-go conditions.
+- Pilot readiness checklist created: 81 gates, 11 sections, 5 pilot phases, hard no-go conditions.
 - **Live operation remains blocked and is not approved by any of these docs.**
 
 ### What is NOT done (implementation pending)
@@ -238,7 +239,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 - No staff accounts created (no Cami or Ale accounts).
 - No restore drill executed.
 - No monitoring or alerts configured.
-- No Cami review dashboard (conversation inbox, draft review, handoff queue UI).
+- No Cami review dashboard built (conversation inbox, draft review, handoff queue, bed calendar) — **design done in [`PHASE-7.7`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md)**; not implemented.
 - No live WhatsApp send (dry-run only; `WHATSAPP_DRY_RUN=true`).
 - No live Stripe (test mode only; no `sk_live_*`).
 - No Airtable cutover.
@@ -251,7 +252,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 | 1 | **7.2b — Migration 009** (`staff_users` / `auth_sessions` schema) | Auth schema is the foundation — everything else (login, sessions, role enforcement) depends on it. Small, safe, additive, follows the existing migration pattern. |
 | 2 | **7.2c — Auth middleware scaffold** (local static proof) | Can be done without staging; proves the session + role enforcement works locally before any deploy. |
 | 3 | **7.3b — Azure resource plan/scaffold** | Once auth schema exists, Azure resource creation unblocks staging deploy. Key Vault and Postgres must exist before migration 009 can be applied to staging. |
-| 4 | **Cami review dashboard (plan → build)** | Highest priority from a Wolfhouse operations standpoint — Cami cannot do meaningful shadow-mode review without a dashboard that shows draft, context, and handoff queue. Gates F1–F7 in 7.6. |
+| 4 | **Cami review dashboard** — **plan DONE (7.7)**; build slices 7.7b–7.7m pending | Highest priority from a Wolfhouse operations standpoint — Cami cannot do meaningful shadow-mode review without a dashboard that shows draft, context, handoff queue, and bed calendar. Gates F1–F8 in 7.6. Start: 7.7b conversation read endpoints. |
 | 5 | **7.4c — Restore drill** | Requires staging DB to exist (depends on 7.3b); execute after first successful staging deploy. |
 
 **Recommended first prompt:** `7.2b — migration 009 staff auth schema`. It is a self-contained, local, docs + migration task that unlocks all downstream auth work and can be written, verified, and committed without touching Azure.
@@ -261,19 +262,24 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 ## Next recommended prompt
 
 <!-- prior: Stage 7.2c auth middleware scaffold — DONE (5b9c42f) -->
-<!-- prior: Stage 7.3b Azure IaC scaffold — DONE (this commit) -->
+<!-- prior: Stage 7.3b Azure IaC scaffold — DONE (cc53e1e) -->
+<!-- prior: Stage 7.7 Cami review dashboard + bed calendar plan — DONE (this commit) -->
 
-Next implementation task: **Cami review dashboard (plan → build)** — the highest-priority Wolfhouse operations requirement. Cami and Ale cannot do meaningful shadow-mode review without a dashboard that shows the draft reply, guest context, and handoff queue. See gates F1–F7 in [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md).
-
-Alternatively, continue staging infrastructure: **7.3c DNS/TLS plan** (subdomain records + managed cert plan) or **7.3e Dockerfile scaffold** for the staff API container image.
+Next implementation task: **Stage 7.7b — conversation API read endpoints** — the first buildable dashboard slice (read-only, depends only on existing tables). This unblocks the inbox/detail UI and is the foundation for Cami's shadow-mode review loop. See [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) §7 and §10, gates F1–F8 in 7.6.
 
 ```
-Use Sonnet. Planning + local scaffold only. Minimize API use.
+Use Sonnet. Static implementation + local fixture proof. Minimize API use.
 
-Task: Stage 7.3c — DNS/TLS plan for staging.
+Task: Stage 7.7b — conversation API read endpoints (read-only).
 
-Goal: Define the DNS records, subdomain naming, TLS termination strategy,
-HTTPS enforcement, and HSTS plan for the Wolfhouse staging environment
-(Azure Container Apps managed certs). No DNS changes, no domain purchase,
-no cert issuance — docs and scaffold only.
+Goal: Add read-only GET endpoints to scripts/staff-query-api.js for the Cami
+dashboard: /staff/conversations (inbox list), /staff/conversations/:id,
+/staff/conversations/:id/messages, /staff/conversations/:id/context,
+/staff/conversations/:id/draft. Use parameterised SQL from a new
+scripts/lib/staff-conversation-queries.js helper (no raw param SQL),
+requireAuth when STAFF_AUTH_REQUIRED=true, audit each read, GET-only.
+Prove with a seeded fixture conversation + static verifier. No writes,
+no send, no calendar edit, no protected-table mutation.
 ```
+
+Alternatively: **7.3c DNS/TLS plan** (subdomain records + managed cert plan) or **7.7g bed-calendar query/API** (read-only, built on `getOccupiedBedsQuery`).

@@ -143,15 +143,19 @@ Decision:   [ hold / proceed ]
 
 ### Section F — Cami Review Dashboard
 
+*Reference: [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) (design). Dashboard is read-only by default; send/edit/resolve deferred behind later gates.*
+
 | # | Gate | Status | Owner | Evidence | Date | Decision |
 |---|---|---|---|---|---|---|
-| F1 | Conversation inbox / handoff queue visible to Cami | NOT_STARTED | Ty + Cami | Staff UI or query shows open handoffs; Cami can access | — | Hold |
-| F2 | Conversation detail visible (guest message, Luna draft, booking/payment context) | NOT_STARTED | Ty + Cami | Cami reviews a test handoff and sees required context | — | Hold |
-| F3 | Luna draft visible and clearly labelled as draft (not sent) | NOT_STARTED | Ty + Cami | Shadow mode dry-run; draft captured but not delivered | — | Hold |
-| F4 | Booking / payment / rooming context visible in the handoff | NOT_STARTED | Ty + Cami | Handoff row includes or links to booking context | — | Hold |
-| F5 | Copy/approve workflow defined and understood by Cami | NOT_STARTED | Cami | Cami can describe the step-by-step: review draft → copy → send manually | — | Hold |
-| F6 | No autonomous send is possible from the dashboard UI | NOT_STARTED | Ty | UI code review: no send button in current staff UI; write endpoint disabled | — | Hold |
-| F7 | Cami can take over a conversation without the bot interfering | NOT_STARTED | Ty + Cami | Deactivate Main workflow; Cami handles manually; confirm no bot response | — | Hold |
+| F1 | **Conversation inbox** visible to Cami (guest, latest message, language, status, needs_human, handoff reason, booking code, last activity, priority) | NOT_STARTED | Ty + Cami | Inbox view (7.7c) shows fixture conversations; Cami can access | — | Hold |
+| F2 | **Conversation detail** visible (message thread, latest guest message, route/intent, staff notes, takeover status) | NOT_STARTED | Ty + Cami | Conversation detail (7.7d) loads message history for a test conversation | — | Hold |
+| F3 | **Luna draft review** visible and clearly labelled as DRAFT — NOT SENT | NOT_STARTED | Ty + Cami | Shadow-mode dry-run; `staff_reply_draft` shown, not delivered (7.7e) | — | Hold |
+| F4 | **Booking context** visible (dates, guest count, package, room/bed assignment, payment/hold/confirmation status) + add-ons (lessons/yoga/rentals/dinners/transfers) | NOT_STARTED | Ty + Cami | Context panels (7.7e) load beside the conversation | — | Hold |
+| F5 | **Handoff queue** visible (open/stale/urgent, reason, assigned staff, SLA); resolve action deferred until write gate | NOT_STARTED | Ty + Cami | Handoff queue view (7.7f); resolve button absent until auth/TLS + 6.9 route | — | Hold |
+| F6 | **Bed calendar grid** available (rooms/beds down side, dates across top, booking_beds as date-span blocks, status by color/label, arrivals/departures clear) — **or** explicit Cami/Ale-approved written deferral (gate F7-CAL) | NOT_STARTED | Ty + Cami + Ale | Read-only calendar render (7.7h) modelled on Wolfhouse Excel planning calendar; **hard requirement** | — | Hold |
+| F7 | **Copy/review workflow** defined and understood by Cami; **no autonomous send** possible from the UI; Cami can take over without the bot interfering | NOT_STARTED | Cami + Ty | Cami describes review→copy→manual-send (7.7j); UI code review shows no send button; deactivate Main → no bot response | — | Hold |
+| F7-CAL | Bed calendar **deferral** (only if F6 calendar grid is not shipped at launch) | NOT_STARTED | Cami + Ale | Written deferral recorded with reason, risk, and time limit; both sign off | — | Hold |
+| F8 | **Basic safe booking edit path** designed (audited, gated, overlap-guarded, paid→handoff, rollback defined) — **or** explicit deferral | NOT_STARTED | Ty + Cami | Edit-mode plan (7.7k/7.7l) approved; or deferral recorded | — | Hold |
 
 ### Section G — Guest / Luna Shadow-Mode
 
@@ -245,7 +249,8 @@ These conditions block **all phases**. No waiver is possible.
 | No per-user auth for staff UI | Phase 1+ |
 | No backup/restore drill completed and documented | Phase 1+ |
 | No P0/P1 alerting active | Phase 1+ |
-| No Cami dashboard (can see handoffs, context, draft) | Phase 1+ |
+| No Cami dashboard (inbox, conversation detail, Luna draft, booking context, handoff queue) | Phase 1+ |
+| No bed calendar grid AND no Cami/Ale-approved written deferral (gate F7-CAL) | Phase 1+ |
 | No owner-approved business rules (packages/prices/policy) | Phase 1+ |
 | `WHATSAPP_DRY_RUN=false` before live-send gate (Stage 7.8) | Phase 1+ |
 | `STAFF_ACTIONS_ENABLED=true` without auth + TLS | Phase 1+ |
@@ -265,13 +270,13 @@ These conditions block **all phases**. No waiver is possible.
 | C — Staging/TLS | 9 | 0 | 0 | 9 | 9 (not deployed) |
 | D — Backup/restore | 6 | 0 | 1 | 5 | 2 required before pilot |
 | E — Monitoring | 8 | 0 | 0 | 8 | 8 (not configured) |
-| F — Cami dashboard | 7 | 0 | 0 | 7 | 7 (not built) |
+| F — Cami dashboard | 9 | 0 | 0 | 9 | 9 (not built; incl. bed calendar grid + edit-path gates) |
 | G — Shadow mode | 7 | 0 | 0 | 7 | 7 (staging needed first) |
 | H — Payment/Stripe | 6 | 0 | 0 | 6 | 1 hard (no live key) |
 | I — WhatsApp | 5 | 0 | 0 | 5 | 1 hard (dry-run must stay on) |
 | J — Client config | 8 | 1 | 0 | 7 | 7 (owner sign-off needed) |
 | K — Staff training | 6 | 0 | 0 | 6 | 6 (staging first) |
-| **Total** | **79** | **1** | **2** | **76** | **Phase 1 requires all 79** |
+| **Total** | **81** | **1** | **2** | **78** | **Phase 1 requires all 81** |
 
 **Overall pilot status:** `NOT_STARTED` → checklist defined. No phase approved.
 
