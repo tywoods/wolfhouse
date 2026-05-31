@@ -129,7 +129,7 @@
 **Major milestones:**
 - CLI batch reports (handoffs / payments / rooming / add-ons / digest) — DONE (Stage 6.3–6.4d).
 - Read-only HTTP API + browser UI — DONE (Stage 6.6/6.8).
-- Cami review dashboard + bed calendar — DESIGN DONE (Stage 7.7); build slices 7.7b–7.7m pending; bed calendar = hard launch gate.
+- Cami review dashboard + bed calendar — DESIGN DONE (Stage 7.7); inline staff reply (edit-draft, copy/manual-send, approve/send gate, takeover controls) made explicit hard requirement (7.7a amendment); build slices 7.7b–7.7o pending; bed calendar + inline reply = hard launch gates.
 
 **Deferrals / not started:**
 - Web dashboard, auth/roles, real-time views.

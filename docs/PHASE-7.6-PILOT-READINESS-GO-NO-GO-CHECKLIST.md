@@ -148,12 +148,12 @@ Decision:   [ hold / proceed ]
 | # | Gate | Status | Owner | Evidence | Date | Decision |
 |---|---|---|---|---|---|---|
 | F1 | **Conversation inbox** visible to Cami (guest, latest message, language, status, needs_human, handoff reason, booking code, last activity, priority) | NOT_STARTED | Ty + Cami | Inbox view (7.7c) shows fixture conversations; Cami can access | — | Hold |
-| F2 | **Conversation detail** visible (message thread, latest guest message, route/intent, staff notes, takeover status) | NOT_STARTED | Ty + Cami | Conversation detail (7.7d) loads message history for a test conversation | — | Hold |
-| F3 | **Luna draft review** visible and clearly labelled as DRAFT — NOT SENT | NOT_STARTED | Ty + Cami | Shadow-mode dry-run; `staff_reply_draft` shown, not delivered (7.7e) | — | Hold |
+| F2 | **Conversation detail** visible (full message thread, latest guest message, route/intent, staff notes, takeover status, **inline reply composer**) | NOT_STARTED | Ty + Cami | Conversation detail (7.7d) loads message history; composer is present and editable | — | Hold |
+| F3 | **Luna draft review** visible and clearly labelled as DRAFT — NOT SENT; **Cami can edit the draft and compose a custom reply inline** | NOT_STARTED | Ty + Cami | Shadow-mode dry-run; `staff_reply_draft` pre-populated in composer; editable (7.7e) | — | Hold |
 | F4 | **Booking context** visible (dates, guest count, package, room/bed assignment, payment/hold/confirmation status) + add-ons (lessons/yoga/rentals/dinners/transfers) | NOT_STARTED | Ty + Cami | Context panels (7.7e) load beside the conversation | — | Hold |
 | F5 | **Handoff queue** visible (open/stale/urgent, reason, assigned staff, SLA); resolve action deferred until write gate | NOT_STARTED | Ty + Cami | Handoff queue view (7.7f); resolve button absent until auth/TLS + 6.9 route | — | Hold |
 | F6 | **Bed calendar grid** available (rooms/beds down side, dates across top, booking_beds as date-span blocks, status by color/label, arrivals/departures clear) — **or** explicit Cami/Ale-approved written deferral (gate F7-CAL) | NOT_STARTED | Ty + Cami + Ale | Read-only calendar render (7.7h) modelled on Wolfhouse Excel planning calendar; **hard requirement** | — | Hold |
-| F7 | **Copy/review workflow** defined and understood by Cami; **no autonomous send** possible from the UI; Cami can take over without the bot interfering | NOT_STARTED | Cami + Ty | Cami describes review→copy→manual-send (7.7j); UI code review shows no send button; deactivate Main → no bot response | — | Hold |
+| F7 | **Copy/review/inline-reply workflow** understood by Cami: open conversation → read thread → see Luna draft → edit inline → copy → send manually via WhatsApp; **approve/send button visible but disabled**; Cami can take over without the bot interfering; **staff takeover / return-to-Luna status visible** | NOT_STARTED | Cami + Ty | Cami describes full review→edit→copy→manual-send loop (7.7j); copy-to-clipboard works; no active send button; takeover status shown; deactivate Main → no bot response | — | Hold |
 | F7-CAL | Bed calendar **deferral** (only if F6 calendar grid is not shipped at launch) | NOT_STARTED | Cami + Ale | Written deferral recorded with reason, risk, and time limit; both sign off | — | Hold |
 | F8 | **Basic safe booking edit path** designed (audited, gated, overlap-guarded, paid→handoff, rollback defined) — **or** explicit deferral | NOT_STARTED | Ty + Cami | Edit-mode plan (7.7k/7.7l) approved; or deferral recorded | — | Hold |
 
@@ -250,6 +250,7 @@ These conditions block **all phases**. No waiver is possible.
 | No backup/restore drill completed and documented | Phase 1+ |
 | No P0/P1 alerting active | Phase 1+ |
 | No Cami dashboard (inbox, conversation detail, Luna draft, booking context, handoff queue) | Phase 1+ |
+| No inline reply composer (Cami cannot edit Luna draft / compose reply / copy for manual send) | Phase 1+ |
 | No bed calendar grid AND no Cami/Ale-approved written deferral (gate F7-CAL) | Phase 1+ |
 | No owner-approved business rules (packages/prices/policy) | Phase 1+ |
 | `WHATSAPP_DRY_RUN=false` before live-send gate (Stage 7.8) | Phase 1+ |
