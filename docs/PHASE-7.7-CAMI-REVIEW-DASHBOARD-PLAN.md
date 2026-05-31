@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** PLANNING / DESIGN ONLY — amended 2026-05-31 (7.7a amendment: inline staff reply made an explicit hard requirement). No implementation; no dashboard built; no bed calendar built; no live operation approved.
+**Status:** IN PROGRESS — 7.7a design DONE · **7.7b conversation API read endpoints DONE (2026-06-01)**. No dashboard UI built yet; no bed calendar built; no live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -322,8 +322,8 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 
 | Slice | Name | Scope | Gate |
 |---|---|---|---|
-| **7.7a** | Dashboard plan (+ amendment) | this document | — |
-| **7.7b** | Conversation API read endpoints | `GET /staff/conversations*` (inbox, detail, messages, context, draft, staff-state) read-only | read |
+| **7.7a** | Dashboard plan (+ amendment) | this document | — | **DONE** |
+| **7.7b** | Conversation API read endpoints | `GET /staff/conversations*` (inbox, detail, messages, context, draft, staff-state) read-only | read | **DONE** |
 | **7.7c** | Conversation inbox UI | view A | read |
 | **7.7d** | Conversation detail + full message thread | view B — thread renders; Luna draft pre-populated in composer; copy-to-clipboard works | read |
 | **7.7e** | Luna draft + context panel | views B/C/D — draft labelled DRAFT — NOT SENT; booking/add-on context visible | read |
@@ -384,8 +384,35 @@ These are proven with seed/cleanup fixtures + a static verifier, mirroring the S
 
 ## 13. What this plan does NOT do
 
-- Does not implement any dashboard, endpoint, UI, or calendar.
-- Does not create or migrate any table.
 - Does not enable any send, edit, or resolve action.
 - Does not approve live operation, real WhatsApp, or live Stripe.
-- Does not mark the bed calendar or dashboard as implemented.
+- Does not mark the bed calendar or dashboard as fully implemented.
+
+---
+
+## 14. Implementation log
+
+### 7.7a — Dashboard plan (design)
+- **Status:** DONE (commit `11b09ce`)
+- Created this document. Defined inbox, conversation detail, booking/payment/rooming/add-on context, handoff queue, daily ops sidebar, and bed calendar grid. Inline staff reply composer added as a hard requirement.
+
+### 7.7b — Conversation API read endpoints
+- **Status:** DONE (commit: this change)
+- **Date:** 2026-06-01
+- **Files added:**
+  - `scripts/lib/staff-conversation-queries.js` — 6 SELECT-only SQL helpers (inbox, detail, messages, context, draft, staff-state)
+  - `scripts/verify-staff-conversation-queries.js` — 29 static checks
+  - `scripts/verify-staff-conversation-api.js` — 33 static checks
+  - `scripts/fixtures/stage7.7b-conversation-api-seed.sql` — fixture conversation for +34600000191
+  - `scripts/fixtures/stage7.7b-conversation-api-cleanup.sql` — cleanup SQL
+- **Files updated:** `scripts/staff-query-api.js`, `package.json`, `docs/*`
+- **Endpoints added:**
+  - `GET /staff/conversations` — inbox (200+ active conversations, urgency-ordered)
+  - `GET /staff/conversations/:id` — full conversation detail + booking/handoff overview
+  - `GET /staff/conversations/:id/messages` — message thread (inbound/outbound, chronological)
+  - `GET /staff/conversations/:id/context` — booking/payment/rooming context (partial if no booking linked)
+  - `GET /staff/conversations/:id/draft` — Luna draft with `draft_available` flag
+  - `GET /staff/conversations/:id/staff-state` — `bot_mode`, `needs_human`, open handoff state
+- **Fixture proof:** PASS — login as operator, all 6 endpoints returned 200, audit log confirmed 12 `api:conversation.*` entries, protected table delta = 0, cleanup confirmed.
+- **Known gaps:** draft history not implemented (single `staff_reply_draft` field only); add-ons context not included in `/context` (served by `staff-addon-queries.js` separately); `lunafrontdesk.com` domain purchased but DNS not yet configured.
+- **Next:** 7.7c — conversation inbox UI (render the inbox as a browser view using the new API).

@@ -63,7 +63,9 @@
     "verify:staff-query-ui": "node scripts/verify-staff-query-ui.js",
     "verify:staff-write-api": "node scripts/verify-staff-write-api.js",
     "staff:api": "node scripts/staff-query-api.js",
-    "verify:staff-auth-api": "node scripts/verify-staff-auth-api.js"
+    "verify:staff-auth-api": "node scripts/verify-staff-auth-api.js",
+    "verify:staff-conversation-queries": "node scripts/verify-staff-conversation-queries.js",
+    "verify:staff-conversation-api": "node scripts/verify-staff-conversation-api.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

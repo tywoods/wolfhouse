@@ -53,6 +53,14 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { withPgClient }       = require('./lib/pg-connect');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
+const {
+  getConversationInboxQuery,
+  getConversationDetailQuery,
+  getConversationMessagesQuery,
+  getConversationContextQuery,
+  getConversationDraftQuery,
+  getConversationStaffStateQuery,
+} = require('./lib/staff-conversation-queries');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -73,6 +81,11 @@ const WRITE_ACTION_ALLOWLIST = ['handoff.resolve'];
 
 // Matches: /staff/handoff/<uuid>/resolve
 const WRITE_HANDOFF_RE = /^\/staff\/handoff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/resolve$/i;
+
+// Stage 7.7b — conversation route regexes (read-only GET)
+const UUID_RE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
+const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth config (Stage 7.2c scaffold)
@@ -1040,6 +1053,217 @@ function handleUI(res, port) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stage 7.7b — Conversation API handlers (read-only)
+//
+// All six handlers share the same safety contract:
+//   • SELECT-only via staff-conversation-queries.js helpers
+//   • client-scoped ($1 = client slug, $2 = UUID for per-conversation routes)
+//   • audit entry per call with intent prefix api:conversation.*
+//   • requireAuth enforced when STAFF_AUTH_REQUIRED=true (viewer minimum)
+//   • no writes to any table (conversations / bookings / payments / handoffs / etc.)
+//   • last_seen_at slide on auth_sessions is the only DB write (via loadAuthSession)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleConversationInbox(query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:conversation.inbox',
+    category:      'conversation_api',
+    client_slug:   clientSlug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  let rows;
+  try {
+    rows = await withPgClient(async (pg) => {
+      const r = await pg.query(getConversationInboxQuery(), [clientSlug]);
+      return r.rows;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({ ...auditBase, success: true, row_count: rows.length, elapsed_ms: elapsed });
+  return sendJSON(res, 200, { success: true, conversations: rows, count: rows.length, elapsed_ms: elapsed });
+}
+
+async function handleConversationDetail(convId, query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:conversation.detail',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  let rows;
+  try {
+    rows = await withPgClient(async (pg) => {
+      const r = await pg.query(getConversationDetailQuery(), [clientSlug, convId]);
+      return r.rows;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+
+  const elapsed = Date.now() - started;
+  if (!rows.length) {
+    appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
+    return send404(res);
+  }
+
+  appendAuditLog({ ...auditBase, success: true, row_count: 1, elapsed_ms: elapsed });
+  return sendJSON(res, 200, { success: true, conversation: rows[0], elapsed_ms: elapsed });
+}
+
+async function handleConversationMessages(convId, query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:conversation.messages',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  let rows;
+  try {
+    rows = await withPgClient(async (pg) => {
+      const r = await pg.query(getConversationMessagesQuery(), [clientSlug, convId]);
+      return r.rows;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({ ...auditBase, success: true, row_count: rows.length, elapsed_ms: elapsed });
+  return sendJSON(res, 200, { success: true, messages: rows, count: rows.length, elapsed_ms: elapsed });
+}
+
+async function handleConversationContext(convId, query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:conversation.context',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  let rows;
+  try {
+    rows = await withPgClient(async (pg) => {
+      const r = await pg.query(getConversationContextQuery(), [clientSlug, convId]);
+      return r.rows;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+
+  const elapsed = Date.now() - started;
+  if (!rows.length) {
+    appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
+    return send404(res);
+  }
+
+  appendAuditLog({ ...auditBase, success: true, row_count: 1, elapsed_ms: elapsed });
+  return sendJSON(res, 200, { success: true, context: rows[0], elapsed_ms: elapsed });
+}
+
+async function handleConversationDraft(convId, query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:conversation.draft',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  let rows;
+  try {
+    rows = await withPgClient(async (pg) => {
+      const r = await pg.query(getConversationDraftQuery(), [clientSlug, convId]);
+      return r.rows;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+
+  const elapsed = Date.now() - started;
+  if (!rows.length) {
+    appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
+    return send404(res);
+  }
+
+  appendAuditLog({ ...auditBase, success: true, draft_available: rows[0].draft_available, elapsed_ms: elapsed });
+  return sendJSON(res, 200, { success: true, draft: rows[0], elapsed_ms: elapsed });
+}
+
+async function handleConversationStaffState(convId, query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:conversation.staff-state',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  let rows;
+  try {
+    rows = await withPgClient(async (pg) => {
+      const r = await pg.query(getConversationStaffStateQuery(), [clientSlug, convId]);
+      return r.rows;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+
+  const elapsed = Date.now() - started;
+  if (!rows.length) {
+    appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
+    return send404(res);
+  }
+
+  appendAuditLog({ ...auditBase, success: true, row_count: 1, elapsed_ms: elapsed });
+  return sendJSON(res, 200, { success: true, staff_state: rows[0], elapsed_ms: elapsed });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Request router
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1099,13 +1323,41 @@ async function router(req, res) {
     return handleQuery(parsed.query, res);
   }
 
+  // ── Stage 7.7b — Conversation API (read-only) ─────────────────────────────
+  if (pathname === '/staff/conversations') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleConversationInbox(parsed.query, res, auth.user);
+  }
+
+  const convSubMatch = CONV_SUB_RE.exec(pathname);
+  if (convSubMatch) {
+    const [, convId, sub] = convSubMatch;
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    switch (sub) {
+      case 'messages':    return handleConversationMessages(convId, parsed.query, res, auth.user);
+      case 'context':     return handleConversationContext(convId, parsed.query, res, auth.user);
+      case 'draft':       return handleConversationDraft(convId, parsed.query, res, auth.user);
+      case 'staff-state': return handleConversationStaffState(convId, parsed.query, res, auth.user);
+      default:            return send404(res);
+    }
+  }
+
+  const convIdMatch = CONV_ID_RE.exec(pathname);
+  if (convIdMatch) {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleConversationDetail(convIdMatch[1], parsed.query, res, auth.user);
+  }
+
   if (pathname === '/healthz' || pathname === '/') {
     return sendJSON(res, 200, {
       status:       'ok',
       service:      'wolfhouse-staff-query-api',
-      stage:        '7.2c',
+      stage:        '7.7b',
       auth_enabled: STAFF_AUTH_REQUIRED,
-      note:         'read-only local/dev API + UI with session auth scaffold',
+      note:         'read-only staff API + UI + conversation endpoints (shadow-mode review)',
     });
   }
 
@@ -1126,15 +1378,21 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\nWolfhouse staff query API + UI (Stage 7.2c) running on http://127.0.0.1:${PORT}`);
+  console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://127.0.0.1:${PORT}`);
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
   console.log('  Endpoints:');
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/login    <- login (returns session cookie)`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/logout   <- revoke session + clear cookie`);
-  console.log(`    GET  http://127.0.0.1:${PORT}/staff/ui            <- browser UI (requires viewer+ when auth on)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/login    <- login`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/logout   <- revoke session`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/ui            <- read-only query UI`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/intents`);
-  console.log(`    GET  http://127.0.0.1:${PORT}/staff/query?client=wolfhouse-somo&intent=payments.waiting`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/query?intent=...`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations  <- inbox (Stage 7.7b)`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/messages`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/context`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/draft`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/staff-state`);
   if (STAFF_ACTIONS_ENABLED) {
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);

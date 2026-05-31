@@ -1,6 +1,6 @@
 # Stage 7 — Production Hardening + Pilot Deployment Plan
 
-**Status:** PLANNING (2026-05-31) — Stage 7.0 plan DONE · Stage 7.1 env/secrets inventory DONE · Stage 7.2 auth/staff-accounts design DONE · Stage 7.3 staging deployment + TLS design DONE · Stage 7.4 backup/restore + rollback plan DONE · Stage 7.5 monitoring + alerting plan DONE · Stage 7.6 pilot readiness go/no-go checklist DONE. No implementation; no pilot approved; live operation NOT approved.
+**Status:** IN PROGRESS (2026-06-01) — 7.0–7.6 planning DONE · 7.2b migration 009 DONE · 7.2c auth middleware DONE · 7.3b Azure IaC scaffold DONE · 7.7 dashboard plan DONE · **7.7b conversation API read endpoints DONE**. No pilot approved; live operation NOT approved.
 **Prerequisites:** Stage 4 CLOSE WITH DEFERRALS (`6cd9a21`). Stage 5 SoT cleanup CLOSE WITH DEFERRALS (`ae545a2`). Stage 6 CLOSED WITH DEFERRALS (`f7813d3`).
 **Scope:** Prepare Wolfhouse for a controlled pilot. Harden the local/dev proof into a deployable staging/pilot setup. Keep live WhatsApp / live Stripe / autonomous sends **disabled** until explicit go/no-go gates pass.
 
@@ -252,7 +252,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 | 1 | **7.2b — Migration 009** (`staff_users` / `auth_sessions` schema) | Auth schema is the foundation — everything else (login, sessions, role enforcement) depends on it. Small, safe, additive, follows the existing migration pattern. |
 | 2 | **7.2c — Auth middleware scaffold** (local static proof) | Can be done without staging; proves the session + role enforcement works locally before any deploy. |
 | 3 | **7.3b — Azure resource plan/scaffold** | Once auth schema exists, Azure resource creation unblocks staging deploy. Key Vault and Postgres must exist before migration 009 can be applied to staging. |
-| 4 | **Cami review dashboard** — **plan DONE (7.7)**; build slices 7.7b–7.7m pending | Highest priority from a Wolfhouse operations standpoint — Cami cannot do meaningful shadow-mode review without a dashboard that shows draft, context, handoff queue, and bed calendar. Gates F1–F8 in 7.6. Start: 7.7b conversation read endpoints. |
+| 4 | **Cami review dashboard** — plan DONE (7.7) · **7.7b conversation API endpoints DONE**; build slices 7.7c–7.7o pending | Highest priority from a Wolfhouse operations standpoint — Cami cannot do meaningful shadow-mode review without a dashboard that shows draft, context, handoff queue, and bed calendar. Gates F1–F8 in 7.6. Next: 7.7c inbox UI. |
 | 5 | **7.4c — Restore drill** | Requires staging DB to exist (depends on 7.3b); execute after first successful staging deploy. |
 
 **Recommended first prompt:** `7.2b — migration 009 staff auth schema`. It is a self-contained, local, docs + migration task that unlocks all downstream auth work and can be written, verified, and committed without touching Azure.
@@ -263,9 +263,10 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 
 <!-- prior: Stage 7.2c auth middleware scaffold — DONE (5b9c42f) -->
 <!-- prior: Stage 7.3b Azure IaC scaffold — DONE (cc53e1e) -->
-<!-- prior: Stage 7.7 Cami review dashboard + bed calendar plan — DONE (this commit) -->
+<!-- prior: Stage 7.7 Cami review dashboard + bed calendar plan — DONE (11b09ce) -->
+<!-- prior: Stage 7.7b conversation API read endpoints — DONE (this commit) -->
 
-Next implementation task: **Stage 7.7b — conversation API read endpoints** — the first buildable dashboard slice (read-only, depends only on existing tables). This unblocks the inbox/detail UI and is the foundation for Cami's shadow-mode review loop. See [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) §7 and §10, gates F1–F8 in 7.6.
+Next implementation task: **Stage 7.7c — conversation inbox UI** — render the conversation inbox as an HTML view in the staff UI, using the new `/staff/conversations` endpoint. First browser-visible dashboard surface for Cami's shadow-mode review loop. See [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) §3, §10 (slice 7.7c).
 
 ```
 Use Sonnet. Static implementation + local fixture proof. Minimize API use.
