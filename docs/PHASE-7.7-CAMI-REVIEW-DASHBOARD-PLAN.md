@@ -324,7 +324,7 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 |---|---|---|---|
 | **7.7a** | Dashboard plan (+ amendment) | this document | — | **DONE** |
 | **7.7b** | Conversation API read endpoints | `GET /staff/conversations*` (inbox, detail, messages, context, draft, staff-state) read-only | read | **DONE** |
-| **7.7c** | Conversation inbox UI | view A | read |
+| **7.7c** | Conversation inbox UI | view A | read | **DONE** |
 | **7.7d** | Conversation detail + full message thread | view B — thread renders; Luna draft pre-populated in composer; copy-to-clipboard works | read |
 | **7.7e** | Luna draft + context panel | views B/C/D — draft labelled DRAFT — NOT SENT; booking/add-on context visible | read |
 | **7.7f** | Handoff queue integration | view E (read; resolve deferred) | read |
@@ -416,3 +416,21 @@ These are proven with seed/cleanup fixtures + a static verifier, mirroring the S
 - **Fixture proof:** PASS — login as operator, all 6 endpoints returned 200, audit log confirmed 12 `api:conversation.*` entries, protected table delta = 0, cleanup confirmed.
 - **Known gaps:** draft history not implemented (single `staff_reply_draft` field only); add-ons context not included in `/context` (served by `staff-addon-queries.js` separately); `lunafrontdesk.com` domain purchased but DNS not yet configured.
 - **Next:** 7.7c — conversation inbox UI (render the inbox as a browser view using the new API).
+
+### 7.7c — Conversation inbox UI
+- **Status:** DONE (commit: this change)
+- **Date:** 2026-06-01
+- **Files added:**
+  - `scripts/verify-staff-conversation-ui.js` — 34 static checks
+- **Files updated:** `scripts/staff-query-api.js` (`buildUiHtml` → two-tab Cami dashboard), `package.json`
+- **UI features added:**
+  - Tab 1: Conversations (default) — Cami inbox table populated from `GET /staff/conversations`; columns: guest name, phone, language, status/mode, handoff, booking code, latest message preview, last activity; priority pills (URGENT / NEEDS HUMAN / HANDOFF / BOT); loading / empty / error / 401 states; refresh button.
+  - Tab 2: Query Tools — existing registry-based staff query interface (unchanged).
+  - Conversation detail pane (opens on row click): guest name/phone/language, Luna draft (labelled DRAFT — NOT SENT, read-only), linked booking summary, open handoff summary, staff notes, pending action, read-only reminder.
+  - No reply composer, no send button, no approve-send, no handoff.resolve action — all deferred to Stage 7.7d/7.7j.
+  - Banner: "Luna Front Desk — Cami Dashboard" + "READ-ONLY • SHADOW MODE".
+  - Auth: 401 surfaced with "Authentication required — POST /staff/auth/login first."
+- **Verifier:** `scripts/verify-staff-conversation-ui.js` — 34/34 PASS
+- **Fixture proof:** PASS — `GET /staff/ui` 200 HTML; fixture conversation (+34600000191) visible in inbox; detail pane renders draft_length=119; audit log shows 9 `api:conversation.*` entries; protected table delta = 0; cleanup confirmed.
+- **Known gaps:** inline reply composer (7.7d/7.7j); conversation message thread view (7.7d); bed calendar (7.7g/7.7h); `lunafrontdesk.com` domain purchased but DNS not yet configured.
+- **Next:** 7.7d — conversation detail + full message thread render.

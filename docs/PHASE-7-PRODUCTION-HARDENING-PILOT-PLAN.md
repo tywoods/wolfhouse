@@ -1,6 +1,6 @@
 # Stage 7 — Production Hardening + Pilot Deployment Plan
 
-**Status:** IN PROGRESS (2026-06-01) — 7.0–7.6 planning DONE · 7.2b migration 009 DONE · 7.2c auth middleware DONE · 7.3b Azure IaC scaffold DONE · 7.7 dashboard plan DONE · **7.7b conversation API read endpoints DONE**. No pilot approved; live operation NOT approved.
+**Status:** IN PROGRESS (2026-06-01) — 7.0–7.6 planning DONE · 7.2b migration 009 DONE · 7.2c auth middleware DONE · 7.3b Azure IaC scaffold DONE · 7.7 dashboard plan DONE · 7.7b conversation API DONE · **7.7c conversation inbox UI DONE**. No pilot approved; live operation NOT approved.
 **Prerequisites:** Stage 4 CLOSE WITH DEFERRALS (`6cd9a21`). Stage 5 SoT cleanup CLOSE WITH DEFERRALS (`ae545a2`). Stage 6 CLOSED WITH DEFERRALS (`f7813d3`).
 **Scope:** Prepare Wolfhouse for a controlled pilot. Harden the local/dev proof into a deployable staging/pilot setup. Keep live WhatsApp / live Stripe / autonomous sends **disabled** until explicit go/no-go gates pass.
 
@@ -219,7 +219,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 | **7.4** | Backup / restore + rollback | **DESIGN DONE** | [`PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md`](PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md) | Backup not configured; restore drill not executed; emergency toggles not drilled; migration 009 rollback pending migration creation | Gates D1–D6 in 7.6 |
 | **7.5** | Monitoring / alerting | **DESIGN DONE** | [`PHASE-7.5-MONITORING-ALERTING-PLAN.md`](PHASE-7.5-MONITORING-ALERTING-PLAN.md) | Azure Monitor alerts not created; n8n error workflow not built; business-state queries not scheduled; audit log not wired to Log Analytics | Gates E1–E8 in 7.6 |
 | **7.6** | Pilot readiness go/no-go checklist | **DESIGN DONE** | [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) | 78 of 81 gates NOT_STARTED; pilot decision recorded as NO_GO | All 81 gates must PASS |
-| **7.7** | Cami review dashboard + editable bed calendar | **DESIGN DONE** | [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) | Dashboard not built; conversation read endpoints, inbox/detail UI, Luna draft panel, handoff queue, bed calendar grid all pending; calendar edit gates plan-only | Gates F1–F8 in 7.6 (bed calendar = hard requirement) |
+| **7.7** | Cami review dashboard + editable bed calendar | **IN PROGRESS** | [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) | 7.7a plan DONE · 7.7b conversation API DONE · **7.7c inbox UI DONE**; detail/thread, Luna draft panel, handoff queue, bed calendar still pending | Gates F1–F8 in 7.6 (bed calendar = hard requirement) |
 
 ### What Stage 7 planning has achieved
 

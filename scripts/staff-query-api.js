@@ -817,59 +817,183 @@ async function handleResolveHandoff(handoffId, req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Route: GET /staff/ui  (Stage 6.8 — read-only browser UI)
+// Route: GET /staff/ui  (Stage 7.7c — Cami dashboard + query tools)
+//
+// Two-tab self-contained HTML UI. No CDN, no framework, no write controls.
+//   Tab 1 (default): Conversations — Cami inbox from GET /staff/conversations
+//   Tab 2: Query Tools — existing registry-based staff query interface
+//
+// Safety constraints (same as Stage 6.8):
+//   - All data via GET fetch to same-origin endpoints only
+//   - GET-only fetch calls from JS (no mutation methods)
+//   - No external scripts, no write form controls, no dynamic code execution
+//   - No handoff.resolve, no approve-send, no reply composer, no send button
+//   - READ-ONLY / SHADOW MODE banner visible at all times
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildUiHtml(port) {
-  // Inline self-contained HTML. No CDN, no framework, no write controls.
-  // All data fetched from /staff/intents and /staff/query on this same origin.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Wolfhouse Staff Query UI</title>
+<title>Luna Front Desk — Cami Dashboard</title>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:system-ui,sans-serif;font-size:14px;background:#f4f5f7;color:#1a1a2e}
-  #banner{background:#c0392b;color:#fff;padding:10px 18px;font-weight:700;letter-spacing:.04em;text-align:center}
-  #banner span{background:#fff;color:#c0392b;border-radius:4px;padding:1px 7px;margin-right:8px}
-  #wrap{max-width:1100px;margin:24px auto;padding:0 16px}
-  h1{font-size:18px;font-weight:700;margin-bottom:16px;color:#2c3e50}
-  #form-card{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:18px 20px;margin-bottom:18px}
-  .row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
-  label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#5a6a85}
-  input,select{border:1px solid #cdd5df;border-radius:5px;padding:6px 9px;font-size:13px;min-width:160px;background:#fff}
-  input:focus,select:focus{outline:none;border-color:#3498db}
-  #btn-run{background:#2980b9;color:#fff;border:none;border-radius:5px;padding:8px 22px;font-size:13px;font-weight:700;cursor:pointer}
-  #btn-run:hover{background:#1f6fa3}
-  #btn-run:disabled{background:#aab4c4;cursor:default}
-  #params-row label{display:none}
-  #params-row label.visible{display:flex}
-  #results-card{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:16px 20px}
-  #meta{font-size:12px;color:#5a6a85;margin-bottom:10px}
-  #error-panel{background:#fdf2f2;border:1px solid #e74c3c;color:#c0392b;border-radius:6px;padding:10px 14px;margin-bottom:12px;display:none}
-  table{width:100%;border-collapse:collapse;font-size:12px}
-  th{background:#f0f2f5;text-align:left;padding:6px 9px;border-bottom:2px solid #dde1e7;font-weight:700;white-space:nowrap}
-  td{padding:5px 9px;border-bottom:1px solid #eef0f3;vertical-align:top;word-break:break-word;max-width:280px}
-  tr:hover td{background:#f7f9fb}
-  #json-view{background:#f8f9fb;border:1px solid #dde1e7;border-radius:5px;padding:12px;font-size:12px;white-space:pre-wrap;max-height:400px;overflow:auto;display:none}
-  #view-toggle{font-size:11px;color:#2980b9;cursor:pointer;margin-left:10px;text-decoration:underline}
-  .mig-note{font-size:11px;color:#e67e22;background:#fef9ec;border:1px solid #f5cba7;border-radius:4px;padding:4px 8px;display:inline-block;margin-bottom:8px}
-  #placeholder{color:#9aabb8;text-align:center;padding:32px 0;font-size:13px}
+/* ── Reset + base ───────────────────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:#f4f5f7;color:#1a1a2e}
+/* ── Top banner ─────────────────────────────────────────────────────────── */
+#banner{background:#1a1a2e;color:#fff;padding:10px 18px;display:flex;align-items:center;gap:12px}
+#banner .brand{font-size:15px;font-weight:700;letter-spacing:.03em;flex:1}
+#banner .brand em{color:#7ecbff;font-style:normal}
+#banner .badge{background:#c0392b;color:#fff;font-size:11px;font-weight:700;letter-spacing:.08em;padding:3px 10px;border-radius:20px;white-space:nowrap}
+#banner .badge-sm{background:#2c3e50;color:#aab4c4;font-size:10px;padding:2px 8px;border-radius:20px}
+/* ── Tabs ───────────────────────────────────────────────────────────────── */
+#tabs{background:#fff;border-bottom:2px solid #dde1e7;display:flex;padding:0 24px}
+.tab-btn{padding:12px 20px;font-size:13px;font-weight:600;color:#5a6a85;border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-2px;transition:color .15s}
+.tab-btn:hover{color:#2c3e50}
+.tab-btn.active{color:#2980b9;border-bottom-color:#2980b9}
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+#wrap{max-width:1200px;margin:0 auto;padding:20px 16px}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+.card{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:16px 20px;margin-bottom:16px}
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.toolbar h2{font-size:15px;font-weight:700;color:#2c3e50;flex:1}
+.btn{border:none;border-radius:5px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer}
+.btn-primary{background:#2980b9;color:#fff}
+.btn-primary:hover{background:#1f6fa3}
+.btn-primary:disabled{background:#aab4c4;cursor:default}
+.btn-ghost{background:none;border:1px solid #cdd5df;color:#5a6a85}
+.btn-ghost:hover{background:#f0f2f5}
+/* ── Status pills ───────────────────────────────────────────────────────── */
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.pill-red{background:#fdecea;color:#c0392b}
+.pill-orange{background:#fef3e2;color:#e67e22}
+.pill-blue{background:#ebf5fb;color:#2980b9}
+.pill-green{background:#eafaf1;color:#1e8449}
+.pill-grey{background:#f0f2f5;color:#7f8c8d}
+/* ── Inbox table ─────────────────────────────────────────────────────────── */
+.inbox-table{width:100%;border-collapse:collapse;font-size:12px}
+.inbox-table th{background:#f0f2f5;text-align:left;padding:7px 10px;border-bottom:2px solid #dde1e7;font-weight:700;white-space:nowrap;font-size:11px;color:#5a6a85;text-transform:uppercase;letter-spacing:.04em}
+.inbox-table td{padding:8px 10px;border-bottom:1px solid #eef0f3;vertical-align:middle;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inbox-table tr:hover td{background:#f7f9fb;cursor:pointer}
+.inbox-table tr.selected td{background:#ebf5fb}
+.guest-name{font-weight:600;color:#2c3e50}
+.phone-cell{color:#5a6a85;font-size:11px}
+.preview-cell{color:#7f8c8d;font-size:11px;max-width:280px}
+.ts-cell{color:#9aabb8;font-size:11px;white-space:nowrap}
+/* ── Detail pane ─────────────────────────────────────────────────────────── */
+#conv-detail{display:none}
+#conv-detail.visible{display:block}
+.detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+.detail-name{font-size:16px;font-weight:700;color:#2c3e50}
+.detail-meta{font-size:12px;color:#5a6a85;margin-top:3px}
+.detail-section{margin-top:14px;padding-top:14px;border-top:1px solid #eef0f3}
+.detail-section h3{font-size:12px;font-weight:700;color:#7f8c8d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.kv{display:flex;flex-direction:column;gap:2px}
+.kv .k{font-size:11px;color:#9aabb8;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.kv .v{font-size:13px;color:#2c3e50;font-weight:500}
+.back-btn{background:none;border:none;color:#2980b9;cursor:pointer;font-size:13px;padding:0;margin-bottom:12px}
+.back-btn:hover{text-decoration:underline}
+/* ── Empty / loading / error ─────────────────────────────────────────────── */
+.state-msg{text-align:center;padding:40px 0;color:#9aabb8;font-size:13px}
+.state-msg.error{color:#c0392b;background:#fdf2f2;border:1px solid #e74c3c;border-radius:6px;padding:14px 18px;text-align:left}
+/* ── Query tools (existing) ──────────────────────────────────────────────── */
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#5a6a85}
+input,select{border:1px solid #cdd5df;border-radius:5px;padding:6px 9px;font-size:13px;min-width:160px;background:#fff}
+input:focus,select:focus{outline:none;border-color:#3498db}
+#q-error{background:#fdf2f2;border:1px solid #e74c3c;color:#c0392b;border-radius:6px;padding:10px 14px;margin-bottom:12px;display:none}
+#q-meta{font-size:12px;color:#5a6a85;margin-bottom:10px}
+#q-table-wrap table{width:100%;border-collapse:collapse;font-size:12px}
+#q-table-wrap th{background:#f0f2f5;text-align:left;padding:6px 9px;border-bottom:2px solid #dde1e7;font-weight:700;white-space:nowrap}
+#q-table-wrap td{padding:5px 9px;border-bottom:1px solid #eef0f3;vertical-align:top;word-break:break-word;max-width:280px}
+#q-table-wrap tr:hover td{background:#f7f9fb}
+#q-json{background:#f8f9fb;border:1px solid #dde1e7;border-radius:5px;padding:12px;font-size:12px;white-space:pre-wrap;max-height:400px;overflow:auto;display:none}
+#q-params label{display:none}
+#q-params label.visible{display:flex}
+.mig-note{font-size:11px;color:#e67e22;background:#fef9ec;border:1px solid #f5cba7;border-radius:4px;padding:4px 8px;display:inline-block;margin-bottom:8px}
+.view-toggle{font-size:11px;color:#2980b9;cursor:pointer;margin-left:10px;text-decoration:underline}
 </style>
 </head>
 <body>
-<div id="banner"><span>READ-ONLY</span>Local/dev staff query UI &mdash; no write actions &mdash; Stage 6.8</div>
+
+<!-- ── Top banner ─────────────────────────────────────────────────────────── -->
+<div id="banner">
+  <div class="brand">Luna Front Desk &mdash; <em>Cami Dashboard</em></div>
+  <span class="badge-sm">Stage 7.7c</span>
+  <span class="badge">READ-ONLY &bull; SHADOW MODE</span>
+</div>
+
+<!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
+<div id="tabs">
+  <button class="tab-btn active" data-tab="conversations">Conversations</button>
+  <button class="tab-btn" data-tab="query-tools">Query Tools</button>
+</div>
+
+<!-- ── Conversations tab ──────────────────────────────────────────────────── -->
+<div id="tab-conversations" class="tab-panel active">
 <div id="wrap">
-  <h1>Wolfhouse Staff Query</h1>
-  <div id="form-card">
+
+  <!-- Inbox card -->
+  <div class="card" id="inbox-card">
+    <div class="toolbar">
+      <h2>Conversation Inbox</h2>
+      <span id="inbox-count" style="font-size:12px;color:#9aabb8"></span>
+      <button class="btn btn-primary" id="btn-refresh">&#8635; Refresh</button>
+      <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85">
+        Client
+        <input id="c-client" value="wolfhouse-somo" style="min-width:160px;font-size:12px;padding:5px 8px">
+      </label>
+    </div>
+    <div id="inbox-state" class="state-msg">Loading conversations&hellip;</div>
+    <div id="inbox-table-wrap" style="display:none;overflow-x:auto">
+      <table class="inbox-table">
+        <thead>
+          <tr>
+            <th>Guest</th>
+            <th>Phone</th>
+            <th>Lang</th>
+            <th>Status / Mode</th>
+            <th>Handoff</th>
+            <th>Booking</th>
+            <th>Latest message</th>
+            <th>Last activity</th>
+          </tr>
+        </thead>
+        <tbody id="inbox-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Conversation detail pane (shown when row is clicked) -->
+  <div class="card" id="conv-detail">
+    <button class="back-btn" id="btn-back">&#8592; Back to inbox</button>
+    <div id="detail-content">
+      <div class="state-msg">Loading&hellip;</div>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+</div><!-- /tab-conversations -->
+
+<!-- ── Query Tools tab ────────────────────────────────────────────────────── -->
+<div id="tab-query-tools" class="tab-panel">
+<div id="wrap-q" style="max-width:1100px;margin:0 auto;padding:20px 16px">
+  <div style="font-size:11px;color:#9aabb8;margin-bottom:12px;padding:6px 10px;background:#f0f2f5;border-radius:5px;display:inline-block">
+    READ-ONLY &mdash; no write actions &mdash; Query Tools (Stage 6.8)
+  </div>
+  <div class="card">
     <div class="row">
       <label>Client<input id="f-client" value="wolfhouse-somo" style="min-width:200px"></label>
       <label>Category<select id="f-cat"><option value="">-- loading --</option></select></label>
       <label>Intent<select id="f-intent" disabled><option value="">-- pick category --</option></select></label>
     </div>
-    <div class="row" id="params-row">
+    <div class="row" id="q-params">
       <label id="lbl-date">Date (YYYY-MM-DD)<input id="f-date" placeholder="2026-07-16"></label>
       <label id="lbl-start">Start date<input id="f-start" placeholder="2026-07-01"></label>
       <label id="lbl-end">End date<input id="f-end" placeholder="2026-07-31"></label>
@@ -879,163 +1003,392 @@ function buildUiHtml(port) {
       <label id="lbl-hours">Hours<input id="f-hours" placeholder="24" style="min-width:80px"></label>
     </div>
     <div class="row" style="margin-bottom:0">
-      <button id="btn-run" disabled>Run query</button>
+      <button class="btn btn-primary" id="btn-run" disabled>Run query</button>
       <span id="status-txt" style="font-size:12px;color:#5a6a85;margin-left:8px"></span>
     </div>
   </div>
-  <div id="results-card">
-    <div id="error-panel"></div>
-    <div id="meta"></div>
-    <div id="table-wrap"><div id="placeholder">Select a category and intent, then click Run query.</div></div>
-    <pre id="json-view"></pre>
+  <div class="card">
+    <div id="q-error"></div>
+    <div id="q-meta"></div>
+    <div id="q-table-wrap"><div style="color:#9aabb8;text-align:center;padding:28px 0;font-size:13px">Select a category and intent, then click Run query.</div></div>
+    <pre id="q-json"></pre>
   </div>
 </div>
+</div><!-- /tab-query-tools -->
+
 <script>
 (function(){
-  'use strict';
-  const API = '';  // same origin
-  let registry = {};  // category -> [{key,description,requiredParams,optionalParams}]
-  const PARAM_MAP = {
-    date: 'f-date', start_date: 'f-start', end_date: 'f-end',
-    booking_code: 'f-booking', reason_code: 'f-reason',
-    staff_name: 'f-staff', hours: 'f-hours',
-  };
-  const LABEL_MAP = {
-    date: 'lbl-date', start_date: 'lbl-start', end_date: 'lbl-end',
-    booking_code: 'lbl-booking', reason_code: 'lbl-reason',
-    staff_name: 'lbl-staff', hours: 'lbl-hours',
-  };
+'use strict';
 
-  function el(id){ return document.getElementById(id); }
+/* ── Helpers ──────────────────────────────────────────────────────────────── */
+function el(id){ return document.getElementById(id); }
+function escHtml(s){
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtTs(ts){
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    const now = new Date();
+    const diffMs = now - d;
+    if (diffMs < 60000) return 'just now';
+    if (diffMs < 3600000) return Math.floor(diffMs/60000) + 'm ago';
+    if (diffMs < 86400000) return Math.floor(diffMs/3600000) + 'h ago';
+    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  } catch(_){ return String(ts); }
+}
 
-  function showError(msg){
-    const p = el('error-panel'); p.textContent = msg; p.style.display = 'block';
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+document.querySelectorAll('.tab-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    const target = this.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+    this.classList.add('active');
+    el('tab-' + target).classList.add('active');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONVERSATIONS TAB — inbox + detail
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+var selectedConvId = null;
+
+function getClient(){
+  return (el('c-client').value || 'wolfhouse-somo').trim();
+}
+
+/* Priority badge */
+function priorityPill(conv){
+  if (conv.needs_human && conv.handoff_priority === 'urgent')
+    return '<span class="pill pill-red">URGENT</span>';
+  if (conv.needs_human)
+    return '<span class="pill pill-orange">NEEDS HUMAN</span>';
+  if (conv.handoff_status === 'open')
+    return '<span class="pill pill-blue">HANDOFF</span>';
+  return '<span class="pill pill-grey">BOT</span>';
+}
+
+/* Mode badge */
+function modePill(mode){
+  if (mode === 'staff') return '<span class="pill pill-orange">STAFF</span>';
+  if (mode === 'paused') return '<span class="pill pill-grey">PAUSED</span>';
+  return '<span class="pill pill-green">BOT</span>';
+}
+
+/* Render inbox rows */
+function renderInbox(convs){
+  var tbody = el('inbox-tbody');
+  if (!convs || convs.length === 0){
+    el('inbox-state').textContent = 'No active conversations.';
+    el('inbox-state').classList.remove('error');
+    el('inbox-state').style.display = 'block';
+    el('inbox-table-wrap').style.display = 'none';
+    el('inbox-count').textContent = '';
+    return;
   }
-  function clearError(){ el('error-panel').style.display = 'none'; }
+  el('inbox-state').style.display = 'none';
+  el('inbox-table-wrap').style.display = 'block';
+  el('inbox-count').textContent = convs.length + ' conversation' + (convs.length===1?'':'s');
 
-  function showAllParamLabels(visible){
-    Object.values(LABEL_MAP).forEach(id => {
-      el(id).classList.toggle('visible', visible);
+  var rows = convs.map(function(c){
+    return '<tr data-id="' + escHtml(c.conversation_id) + '">' +
+      '<td><span class="guest-name">' + escHtml(c.guest_name || '—') + '</span>' +
+        '<br>' + priorityPill(c) + '</td>' +
+      '<td class="phone-cell">' + escHtml(c.phone) + '</td>' +
+      '<td>' + escHtml(c.language || '—') + '</td>' +
+      '<td>' + modePill(c.bot_mode) + '</td>' +
+      '<td>' + escHtml(c.handoff_reason || (c.handoff_status ? c.handoff_status : '—')) + '</td>' +
+      '<td>' + escHtml(c.booking_code || '—') + '</td>' +
+      '<td class="preview-cell">' + escHtml((c.last_message_preview || '').slice(0,80)) + '</td>' +
+      '<td class="ts-cell">' + fmtTs(c.last_activity) + '</td>' +
+    '</tr>';
+  }).join('');
+  tbody.innerHTML = rows;
+
+  /* Row click → detail */
+  tbody.querySelectorAll('tr').forEach(function(row){
+    row.addEventListener('click', function(){
+      tbody.querySelectorAll('tr').forEach(function(r){ r.classList.remove('selected'); });
+      this.classList.add('selected');
+      loadConvDetail(this.dataset.id);
     });
-  }
-  function updateParamLabels(intentEntry){
-    Object.values(LABEL_MAP).forEach(id => el(id).classList.remove('visible'));
-    if (!intentEntry) return;
-    const needed = new Set([
-      ...intentEntry.requiredParams,
-      ...intentEntry.optionalParams
-    ]);
-    needed.forEach(p => { if (LABEL_MAP[p]) el(LABEL_MAP[p]).classList.add('visible'); });
-  }
+  });
+}
 
-  // Load intents
-  fetch(API + '/staff/intents')
-    .then(r => r.json())
-    .then(data => {
-      if (!data.success) { showError('Failed to load intents: ' + (data.error||'unknown')); return; }
-      registry = data.intents;
-      const catSel = el('f-cat');
-      catSel.innerHTML = '<option value="">-- pick category --</option>';
-      data.categories.forEach(cat => {
-        const o = document.createElement('option'); o.value = cat; o.textContent = cat;
-        catSel.appendChild(o);
+/* Load inbox */
+function loadInbox(){
+  el('inbox-state').textContent = 'Loading conversations\u2026';
+  el('inbox-state').classList.remove('error');
+  el('inbox-state').style.display = 'block';
+  el('inbox-table-wrap').style.display = 'none';
+  el('inbox-count').textContent = '';
+  el('conv-detail').classList.remove('visible');
+  selectedConvId = null;
+
+  fetch('/staff/conversations?client=' + encodeURIComponent(getClient()))
+    .then(function(r){
+      if (r.status === 401){
+        el('inbox-state').innerHTML = '\u26a0 Authentication required &mdash; <strong>POST /staff/auth/login</strong> first.';
+        el('inbox-state').classList.add('error');
+        el('inbox-table-wrap').style.display = 'none';
+        return null;
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      if (!data) return;
+      if (!data.success) throw new Error(data.error || 'API error');
+      renderInbox(data.conversations);
+    })
+    .catch(function(err){
+      el('inbox-state').textContent = 'Error loading inbox: ' + err.message;
+      el('inbox-state').classList.add('error');
+      el('inbox-state').style.display = 'block';
+      el('inbox-table-wrap').style.display = 'none';
+    });
+}
+
+/* Load conversation detail */
+function loadConvDetail(convId){
+  selectedConvId = convId;
+  el('conv-detail').classList.add('visible');
+  el('detail-content').innerHTML = '<div class="state-msg">Loading\u2026</div>';
+
+  fetch('/staff/conversations/' + encodeURIComponent(convId) + '?client=' + encodeURIComponent(getClient()))
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(data){
+      if (!data.success) throw new Error(data.error || 'API error');
+      var c = data.conversation;
+      var html = '';
+      html += '<div class="detail-header">';
+      html +=   '<div>';
+      html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
+      html +=     '<div class="detail-meta">' + escHtml(c.phone) +
+                  (c.language ? ' &bull; ' + escHtml(c.language) : '') +
+                  ' &bull; Stage: ' + escHtml(c.conversation_stage || '—') + '</div>';
+      html +=   '</div>';
+      html +=   '<div style="margin-left:auto;display:flex;gap:6px;align-items:flex-start">';
+      html +=     modePill(c.bot_mode);
+      if (c.needs_human) html += '<span class="pill pill-orange">NEEDS HUMAN</span>';
+      html +=   '</div>';
+      html += '</div>';
+
+      /* Latest message preview */
+      if (c.last_message_preview){
+        html += '<div class="detail-section">';
+        html +=   '<h3>Latest message</h3>';
+        html +=   '<div style="font-size:13px;color:#2c3e50;white-space:pre-wrap">' + escHtml(c.last_message_preview) + '</div>';
+        html += '</div>';
+      }
+
+      /* Luna draft (read-only) */
+      html += '<div class="detail-section">';
+      html +=   '<h3>Luna draft reply <span style="font-weight:400;color:#e67e22;font-size:11px">— DRAFT, NOT SENT — view only</span></h3>';
+      if (c.staff_reply_draft){
+        html += '<div style="background:#fef9ec;border:1px solid #f5cba7;border-radius:6px;padding:10px 14px;font-size:13px;white-space:pre-wrap;color:#2c3e50">' +
+                escHtml(c.staff_reply_draft) + '</div>';
+        html += '<div style="font-size:11px;color:#9aabb8;margin-top:6px">Inline reply composer coming in Stage 7.7d. For now: copy text manually for WhatsApp send.</div>';
+      } else {
+        html += '<div style="color:#9aabb8;font-size:13px;font-style:italic">No draft stored yet.</div>';
+      }
+      html += '</div>';
+
+      /* Booking context summary */
+      if (c.booking_code){
+        html += '<div class="detail-section">';
+        html +=   '<h3>Linked booking</h3>';
+        html +=   '<div class="kv-grid">';
+        html +=     kv('Code', c.booking_code) + kv('Status', c.booking_status) +
+                    kv('Payment', c.booking_payment_status) +
+                    kv('Check-in', c.check_in) + kv('Check-out', c.check_out);
+        html +=   '</div>';
+        html += '</div>';
+      }
+
+      /* Handoff summary */
+      if (c.handoff_id){
+        html += '<div class="detail-section">';
+        html +=   '<h3>Open handoff</h3>';
+        html +=   '<div class="kv-grid">';
+        html +=     kv('Reason', c.handoff_reason) + kv('Priority', c.handoff_priority) +
+                    kv('Status', c.handoff_status) + kv('Assigned', c.assigned_staff) +
+                    kv('Opened', fmtTs(c.handoff_opened_at));
+        html +=   '</div>';
+        html += '</div>';
+      }
+
+      /* Notes */
+      if (c.human_notes){
+        html += '<div class="detail-section">';
+        html +=   '<h3>Staff notes</h3>';
+        html +=   '<div style="font-size:13px;color:#2c3e50;white-space:pre-wrap">' + escHtml(c.human_notes) + '</div>';
+        html += '</div>';
+      }
+
+      /* Pending action */
+      if (c.pending_action){
+        html += '<div class="detail-section">';
+        html +=   '<h3>Pending action</h3>';
+        html +=   '<span class="pill pill-orange">' + escHtml(c.pending_action) + '</span>';
+        html += '</div>';
+      }
+
+      /* Read-only reminder */
+      html += '<div style="margin-top:16px;padding:10px 14px;background:#f0f2f5;border-radius:6px;font-size:11px;color:#7f8c8d">';
+      html +=   'READ-ONLY VIEW &mdash; SHADOW MODE. No send actions available in this version.';
+      html +=   ' Inline reply composer and copy-to-send workflow come in Stage 7.7d.';
+      html += '</div>';
+
+      el('detail-content').innerHTML = html;
+    })
+    .catch(function(err){
+      el('detail-content').innerHTML = '<div class="state-msg error">Error: ' + escHtml(err.message) + '</div>';
+    });
+}
+
+function kv(label, val){
+  return '<div class="kv"><span class="k">' + escHtml(label) + '</span><span class="v">' + escHtml(val==null?'—':String(val)) + '</span></div>';
+}
+
+/* Back button */
+el('btn-back').addEventListener('click', function(){
+  el('conv-detail').classList.remove('visible');
+  el('inbox-tbody').querySelectorAll('tr').forEach(function(r){ r.classList.remove('selected'); });
+  selectedConvId = null;
+});
+
+/* Refresh button */
+el('btn-refresh').addEventListener('click', loadInbox);
+
+/* Auto-load inbox on page load */
+loadInbox();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   QUERY TOOLS TAB — existing staff query interface (unchanged)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+var registry = {};
+var LABEL_MAP = {
+  date:'lbl-date', start_date:'lbl-start', end_date:'lbl-end',
+  booking_code:'lbl-booking', reason_code:'lbl-reason',
+  staff_name:'lbl-staff', hours:'lbl-hours',
+};
+
+function qShowError(msg){
+  var p = el('q-error'); p.textContent = msg; p.style.display = 'block';
+}
+function qClearError(){ el('q-error').style.display = 'none'; }
+
+function updateParamLabels(entry){
+  Object.values(LABEL_MAP).forEach(function(id){ el(id).classList.remove('visible'); });
+  if (!entry) return;
+  var needed = new Set(entry.requiredParams.concat(entry.optionalParams));
+  needed.forEach(function(p){ if (LABEL_MAP[p]) el(LABEL_MAP[p]).classList.add('visible'); });
+}
+
+/* Load intents */
+fetch('/staff/intents')
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if (!data.success){ qShowError('Failed to load intents: ' + (data.error||'unknown')); return; }
+    registry = data.intents;
+    var catSel = el('f-cat');
+    catSel.innerHTML = '<option value="">-- pick category --</option>';
+    data.categories.forEach(function(cat){
+      var o = document.createElement('option'); o.value = cat; o.textContent = cat;
+      catSel.appendChild(o);
+    });
+  })
+  .catch(function(e){ qShowError('Could not reach API: ' + e.message); });
+
+el('f-cat').addEventListener('change', function(){
+  var cat = this.value;
+  var intentSel = el('f-intent');
+  intentSel.innerHTML = '<option value="">-- pick intent --</option>';
+  intentSel.disabled = !cat;
+  el('btn-run').disabled = true;
+  updateParamLabels(null);
+  if (!cat) return;
+  (registry[cat]||[]).forEach(function(entry){
+    var o = document.createElement('option');
+    o.value = entry.key; o.textContent = entry.key + ' \u2014 ' + entry.description;
+    intentSel.appendChild(o);
+  });
+  intentSel.disabled = false;
+});
+
+el('f-intent').addEventListener('change', function(){
+  var key = this.value;
+  el('btn-run').disabled = !key;
+  if (!key){ updateParamLabels(null); return; }
+  var cat = el('f-cat').value;
+  var entry = (registry[cat]||[]).find(function(e){ return e.key === key; });
+  updateParamLabels(entry);
+});
+
+el('btn-run').addEventListener('click', function(){
+  qClearError();
+  var client = el('f-client').value.trim() || 'wolfhouse-somo';
+  var intent = el('f-intent').value.trim();
+  if (!intent){ qShowError('No intent selected.'); return; }
+  var params = new URLSearchParams({ client: client, intent: intent });
+  var fieldMap = {date:'f-date',start:'f-start',end:'f-end',booking:'f-booking',
+                  reason:'f-reason',staff:'f-staff',hours:'f-hours'};
+  Object.entries(fieldMap).forEach(function(kv){
+    var v = el(kv[1]).value.trim(); if (v) params.set(kv[0], v);
+  });
+
+  el('btn-run').disabled = true;
+  el('status-txt').textContent = 'Running\u2026';
+  el('q-meta').textContent = '';
+  el('q-table-wrap').innerHTML = '';
+  el('q-json').style.display = 'none';
+
+  fetch('/staff/query?' + params.toString())
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      el('btn-run').disabled = false;
+      el('status-txt').textContent = '';
+      if (!data.success){
+        qShowError((data.error||'Query failed') + (data.detail ? ' \u2014 ' + data.detail : ''));
+        return;
+      }
+      var html = '';
+      if (data.migration_note)
+        html += '<div class="mig-note">\u26a0 Migration advisory: ' + data.migration_note + '</div>';
+      html += '<span class="view-toggle" id="q-toggle">JSON</span>';
+      el('q-meta').innerHTML = '<strong>' + data.intent + '</strong> &mdash; ' + data.category +
+                               ' &mdash; ' + data.row_count + ' row(s) &mdash; ' + data.elapsed_ms + 'ms';
+      if (!data.rows || data.rows.length === 0){
+        el('q-table-wrap').innerHTML = html + '<div style="color:#9aabb8;padding:20px 0;text-align:center">No rows returned.</div>';
+      } else {
+        var cols = Object.keys(data.rows[0]);
+        var tbl = '<table><thead><tr>' + cols.map(function(c){ return '<th>' + escHtml(c) + '</th>'; }).join('') + '</tr></thead><tbody>';
+        data.rows.forEach(function(row){
+          tbl += '<tr>' + cols.map(function(c){ return '<td>' + escHtml(row[c]==null?'':String(row[c])) + '</td>'; }).join('') + '</tr>';
+        });
+        tbl += '</tbody></table>';
+        el('q-table-wrap').innerHTML = html + tbl;
+      }
+      el('q-json').textContent = JSON.stringify(data, null, 2);
+      var tog = el('q-toggle');
+      if (tog) tog.addEventListener('click', function(){
+        var jv = el('q-json');
+        if (jv.style.display==='none'){ jv.style.display='block'; this.textContent='Table'; }
+        else { jv.style.display='none'; this.textContent='JSON'; }
       });
     })
-    .catch(e => showError('Could not reach API: ' + e.message));
-
-  el('f-cat').addEventListener('change', function(){
-    const cat = this.value;
-    const intentSel = el('f-intent');
-    intentSel.innerHTML = '<option value="">-- pick intent --</option>';
-    intentSel.disabled = !cat;
-    el('btn-run').disabled = true;
-    updateParamLabels(null);
-    if (!cat) return;
-    (registry[cat] || []).forEach(entry => {
-      const o = document.createElement('option');
-      o.value = entry.key;
-      o.textContent = entry.key + ' — ' + entry.description;
-      intentSel.appendChild(o);
+    .catch(function(e){
+      el('btn-run').disabled = false;
+      el('status-txt').textContent = '';
+      qShowError('Network error: ' + e.message);
     });
-    intentSel.disabled = false;
-  });
+});
 
-  el('f-intent').addEventListener('change', function(){
-    const key = this.value;
-    el('btn-run').disabled = !key;
-    if (!key) { updateParamLabels(null); return; }
-    const cat = el('f-cat').value;
-    const entry = (registry[cat]||[]).find(e => e.key === key);
-    updateParamLabels(entry);
-  });
-
-  el('btn-run').addEventListener('click', function(){
-    clearError();
-    const client = el('f-client').value.trim() || 'wolfhouse-somo';
-    const intent = el('f-intent').value.trim();
-    if (!intent){ showError('No intent selected.'); return; }
-
-    const params = new URLSearchParams({ client, intent });
-    const fieldMap = { date:'f-date', start:'f-start', end:'f-end',
-      booking:'f-booking', reason:'f-reason', staff:'f-staff', hours:'f-hours' };
-    Object.entries(fieldMap).forEach(([k, id]) => {
-      const v = el(id).value.trim();
-      if (v) params.set(k, v);
-    });
-
-    el('btn-run').disabled = true;
-    el('status-txt').textContent = 'Running\u2026';
-    el('meta').textContent = '';
-    el('table-wrap').innerHTML = '';
-    el('json-view').style.display = 'none';
-
-    fetch(API + '/staff/query?' + params.toString())
-      .then(r => r.json())
-      .then(data => {
-        el('btn-run').disabled = false;
-        el('status-txt').textContent = '';
-        if (!data.success){
-          showError((data.error || 'Query failed') + (data.detail ? ' — ' + data.detail : ''));
-          return;
-        }
-        let html = '';
-        if (data.migration_note) {
-          html += '<div class="mig-note">\u26a0 Migration advisory: ' + data.migration_note + '</div>';
-        }
-        html += '<span id="view-toggle" title="Toggle JSON view">JSON</span>';
-        el('meta').innerHTML =
-          '<strong>' + data.intent + '</strong> &mdash; ' + data.category +
-          ' &mdash; ' + data.row_count + ' row(s) &mdash; ' + data.elapsed_ms + 'ms';
-
-        if (!data.rows || data.rows.length === 0){
-          el('table-wrap').innerHTML = html + '<div style="color:#9aabb8;padding:20px 0;text-align:center">No rows returned.</div>';
-        } else {
-          const cols = Object.keys(data.rows[0]);
-          let tbl = '<table><thead><tr>' + cols.map(c => '<th>' + escHtml(c) + '</th>').join('') + '</tr></thead><tbody>';
-          data.rows.forEach(row => {
-            tbl += '<tr>' + cols.map(c => '<td>' + escHtml(row[c] == null ? '' : String(row[c])) + '</td>').join('') + '</tr>';
-          });
-          tbl += '</tbody></table>';
-          el('table-wrap').innerHTML = html + tbl;
-        }
-        el('json-view').textContent = JSON.stringify(data, null, 2);
-        el('table-wrap').querySelector('#view-toggle') &&
-          el('table-wrap').querySelector('#view-toggle').addEventListener('click', function(){
-            const jv = el('json-view');
-            if (jv.style.display === 'none'){ jv.style.display = 'block'; this.textContent = 'Table'; }
-            else { jv.style.display = 'none'; this.textContent = 'JSON'; }
-          });
-      })
-      .catch(e => {
-        el('btn-run').disabled = false;
-        el('status-txt').textContent = '';
-        showError('Network error: ' + e.message);
-      });
-  });
-
-  function escHtml(s){
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
 })();
 </script>
 </body>
@@ -1047,7 +1400,7 @@ function handleUI(res, port) {
   res.writeHead(200, {
     'Content-Type':  'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
-    'X-Powered-By':  'wolfhouse-staff-api/6.8',
+    'X-Powered-By':  'wolfhouse-staff-api/7.7c',
   });
   res.end(html);
 }
