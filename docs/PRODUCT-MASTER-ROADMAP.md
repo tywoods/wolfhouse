@@ -96,7 +96,7 @@
 
 **Purpose:** The read-only operations brain that answers staff questions ("who still owes money?", "who arrives today?", "which conversations need a human reply?") from structured Postgres records via a fixed, safe query registry — never arbitrary SQL.
 
-**Current status:** **In progress.** Stage 6 query registry built: `scripts/lib/staff-query-registry.js` maps 35 stable intent keys to read-only, client-scoped Stage 5 query helpers. CLI runner + category batch reports (handoffs, payments, rooming) implemented and proven against dev DB with zero protected-table delta.
+**Current status:** **In progress — read-only milestone achieved.** Stage 6 registry (35 intents), CLI runner, batch reports (payments 6.4a, rooming 6.4b, add-ons 6.4c, digest 6.4d), CLI write action (handoff.resolve 6.5a/b), read-only HTTP API (6.6), intent smoke test (6.7), read-only browser UI (6.8) — all DONE and proven against dev DB with zero protected-table delta. Stage 6.9 (token-gated HTTP write endpoint) pending approval.
 
 **Related stages:** Stage 5 (data foundation), Stage 6 (assistant layer).
 
@@ -104,7 +104,12 @@
 - Stage 6.1 — staff query registry (35 intents) + static verifier.
 - Stage 6.2 — staff query CLI runner with audit log.
 - Stage 6.3 — handoff queue batch report.
-- Stage 6.4a/6.4b — payments / rooming batch reports.
+- Stage 6.4a/6.4b/6.4c/6.4d — payments, rooming, add-ons batch reports + combined digest — DONE.
+- Stage 6.5a/6.5b — proposal-only + confirmed CLI handoff.resolve write action — DONE.
+- Stage 6.6 — read-only HTTP API (GET /staff/query, GET /staff/intents) — DONE.
+- Stage 6.7 — 35-intent smoke test, 0 failed, 144 rows, protected tables unchanged — DONE.
+- Stage 6.8 — read-only browser UI at GET /staff/ui — DONE.
+- Stage 6.9 — token-gated POST /staff/handoff/:id/resolve — PENDING approval.
 
 **Deferrals / not started:**
 - Natural-language question parsing (intent classification) — currently explicit intent keys only.

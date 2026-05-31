@@ -1,6 +1,6 @@
 # Stage 6 — Staff / Admin Assistant Plan
 
-**Status:** PLANNING (2026-05-31)
+**Status:** IN PROGRESS (2026-05-31) — read-only milestone achieved (6.0–6.8 DONE); write endpoint pending (6.9 plan below)
 **Prerequisites:** Stage 5 SoT cleanup CLOSED WITH DEFERRALS (de6c3c0). Migrations 007+008 applied. Luna handoff write path wired (Stage 5.9b).
 **Scope:** Staff-facing operational query layer. Not guest-facing automation. Not live WhatsApp. Not production.
 
@@ -224,6 +224,7 @@ Actions behind explicit `--action` flags or confirmation prompts. Initially: sta
 | 6.6 | Minimal HTTP API | scripts/staff-query-api.js — Node http GET /staff/query + /staff/intents; no Express dep; 39/39 verifier checks PASS; 5 live API proofs PASS; protected tables Δ0; local/dev read-only only | DONE |
 | 6.7 | Pilot staff smoke test | All 35 intents run; 0 failed; 0 skipped; 144 rows; 496ms; protected tables Δ=0 | DONE |
 | 6.8 | Thin read-only staff UI | GET /staff/ui inline HTML in staff-query-api.js; category/intent dropdowns; param fields; table results; READ-ONLY banner; 29/29 verifier PASS; UI 200 HTML; protected tables Δ0; local/dev only | DONE |
+| 6.9 | Token-gated HTTP write endpoint | POST /staff/handoff/:id/resolve; STAFF_ACTIONS_ENABLED gate; x-staff-operator-token header; action allowlist; idempotent; audit log; static verifier; fixture seed/cleanup | PENDING |
 
 ---
 
@@ -242,6 +243,60 @@ Actions behind explicit `--action` flags or confirmation prompts. Initially: sta
 
 ---
 
+## Stage 6.9 — Write Endpoint Readiness Plan
+
+### Safety checklist (all required before implementing)
+
+| Gate | Requirement |
+|---|---|
+| Auth | `x-staff-operator-token` header required — checked against `STAFF_OPERATOR_TOKEN` env var |
+| Feature flag | `STAFF_ACTIONS_ENABLED=true` env var required — endpoint returns 403 by default |
+| Action allowlist | Only `handoff.resolve` for v1 — no arbitrary write intents |
+| Row lookup | Target `staff_handoffs` row must exist and match `client_slug` before write |
+| Client scoping | `client_slug` param required; `$1` in SQL always `client_slug` |
+| SQL source | Write SQL from `resolveHandoffSql()` only — no template literals, no user-controlled SQL |
+| Idempotency | Already-resolved handoff returns 200 + `{already_resolved: true}` — no error, no duplicate write |
+| Audit log | One entry per write attempt (both rejected and confirmed) with `action:api:handoff.resolve` prefix |
+| Protected tables | `bookings`, `payments`, `payment_events`, `booking_beds` must not be mutated |
+| No UI write button | `/staff/ui` remains read-only — no resolve button until explicit UI-write approval |
+| Static verifier | `scripts/verify-staff-write-api.js` must pass before any live proof |
+| Fixture test | Seed test handoff, call POST endpoint, verify resolved, cleanup — delta 0 on protected tables |
+| Docs warning | Header comment + docs must say local/dev only, no production auth, no TLS |
+
+### Endpoint design
+
+```
+POST /staff/handoff/:id/resolve
+Headers:
+  x-staff-operator-token: <value matching STAFF_OPERATOR_TOKEN env>
+Body (JSON):
+  { client, resolution, staff, confirm: true }
+Responses:
+  200  { success: true, handoff_id, resolved_at, resolution }
+  200  { success: true, already_resolved: true }
+  400  missing body fields
+  403  missing/invalid token
+  403  STAFF_ACTIONS_ENABLED not set
+  404  handoff not found / client mismatch
+  405  non-POST to write path
+```
+
+### Prerequisite decisions before implementing
+
+- [ ] Confirm STAFF_OPERATOR_TOKEN approach is acceptable for local/dev scope
+- [ ] Confirm write action stays CLI + API but NOT surfaced in /staff/ui yet
+- [ ] Confirm fixture seed/cleanup strategy
+- [ ] User approves Stage 6.9 implementation task
+
+### Recommendation
+
+**Proceed to Stage 6.9 when:** safety checklist above is reviewed and approved by user.
+**Do not:** expose write endpoint before token gate.
+**Do not:** add resolve button to /staff/ui in Stage 6.9 — keep UI read-only.
+**Do not:** approve live/production write path here — local/dev scope only.
+
+---
+
 ## Deferrals
 
 | Item | Reason | Target |
@@ -253,7 +308,7 @@ Actions behind explicit `--action` flags or confirmation prompts. Initially: sta
 | Analytics dashboard | Post-pilot | Stage 7 |
 | Airtable cutover (remove Airtable entirely) | Requires staff UI to cover all AT use cases first | Stage 7 |
 | Decision-engine extraction (`src/booking-assistant/`) | Separate workstream; independent of staff layer | Stage 5 engine track |
-| Bot auto-resolve handoffs | Write path wired; auto-resolve logic needs approval gate design | Stage 6.5+ |
+| Bot auto-resolve handoffs | Write path wired (CLI 6.5b proven); HTTP write endpoint planned (Stage 6.9 pending approval); auto-trigger not approved | Stage 6.9 |
 | Historical `needs_human=TRUE` backfill to `staff_handoffs` | Post-pilot data hygiene | Post-pilot |
 | Stripe webhook idempotency replay fixture | Deferred from Stage 5.3 | Stage 6 or 7 |
 | `payment_balances` promoted to DB VIEW | Not needed for query helper approach yet | Stage 6 if needed |
