@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.5 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.6 next  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.5 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.6 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.7 next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1637,3 +1637,64 @@ Post-cleanup: 0 fixture rows; `booking_beds` = 15 → 16 → 15 (baseline restor
 - `scripts/lib/staff-rooming-queries.js` — 6 read-only rooming query helpers
 - `scripts/verify-staff-rooming-queries.js` — static verifier (no DB)
 - `scripts/verify-stage55-rooming-smoke.js` — fixture smoke proof runner
+
+---
+
+## Stage 5.6 — Add-ons Schema Stub (**CLOSE WITH DEFERRALS** 2026-05-31)
+
+**Status:** **CLOSE WITH DEFERRALS** — migration stub created; 6 staff add-on query helpers static-verified; schema + migration verifier 100% green. Migration not applied (stub only; apply when pilot-approved).
+
+**Purpose (Workstream 6):** Schema + write-path design for structured add-on records. Stage 4 A9 proved add-on pricing in Luna replies. Stage 5.6 makes add-on intent representable in queryable Postgres form so Stage 6 can answer: *"Who paid for yoga today?", "Who has lessons tomorrow?", "Who requested a board?"*
+
+### 5.6.1 Tables defined (migration 007 — NOT YET APPLIED)
+
+| Table | Purpose | Key fields |
+|-------|---------|-----------|
+| `add_on_orders` | One record per guest add-on request/checkout | `client_id`, `booking_id`, `order_code`, `status`, `payment_status`, `total_amount_cents` |
+| `add_on_items` | Line items per order (1 row per service × quantity) | `order_id`, `item_type` (TEXT, config-driven), `quantity`, `unit_price_cents`, `fulfillment_status` |
+| `lesson_requests` | Typed surf lesson detail (staff assigns slot) | `add_on_item_id`, `booking_id`, `lesson_date`, `guest_count`, `scheduling_status` |
+| `yoga_requests` | Typed yoga class (on-site redemption only) | `add_on_item_id`, `booking_id`, `class_date`, `payment_status`, `redeemed`, `fulfillment_status` |
+| `rental_requests` | Typed gear rental (wetsuit, surfboard) | `add_on_item_id`, `booking_id`, `rental_type`, `start_date`, `end_date`, `pickup_status` |
+
+Design: `item_type` is TEXT (not enum) — config-driven, matches `service_catalog` keys in `wolfhouse-somo.baseline.json` (e.g. `surf_lesson`, `yoga_class`, `wetsuit_rental`, `softtop_surfboard_rental`, `hardboard_surfboard_rental`, `dinner_meal`). Status columns use CHECK constraints (not enums) for easy extension.
+
+### 5.6.2 Staff add-on queries (A–F)
+
+| Query | Helper | Staff question answered |
+|-------|--------|------------------------|
+| A | `getUnpaidAddOnsQuery()` | Which add-on orders are not yet paid? |
+| B | `getLessonsByDateQuery($1,$2)` | Who has surf lessons on a given date? |
+| C | `getYogaByDateQuery($1,$2)` | Who paid/is signed up for yoga on a given date? |
+| D | `getActiveRentalsByDateQuery($1,$2)` | Which gear rentals are active on a given date? |
+| E | `getAddonsByBookingQuery($1,$2)` | What add-ons does a booking have? |
+| F | `getStaffRequiredAddOnsQuery()` | Which lessons need staff scheduling? |
+
+### 5.6.3 Verifier results
+
+| Verifier | Result |
+|----------|--------|
+| `verify-staff-addon-queries.js` — 6 queries, all SELECT-only | ✅ PASS (all checks green) |
+| `verify-addon-schema-migration.js` — 5 tables, 9 FKs, 10 indexes, triggers, no DROP | ✅ PASS (all checks green) |
+| `build-main-local-stripe.js --verify-targets` | ✅ OK |
+| `report-main-payment-contract.js` | ✅ OK |
+| `report-main-rooming-contract.js` | ✅ OK |
+
+### 5.6.4 Deferrals
+
+| Deferral | Target |
+|----------|--------|
+| Migration 007 applied to live DB | Explicit approval required before piloting add-ons |
+| Bot write path for add_on_orders / add_on_items | Stage 5.6 write stub or Stage 6 |
+| Add-on Stripe payment link + webhook truth | Reuses proven payment spine (Stage 3d); deferred until add-on orders live |
+| Voucher issuance / staff redemption flow | Stage 6 staff UI |
+| `dinner_meal` request handling | Deferred (requires menu/scheduling config) |
+| Bundle pricing records | Deferred (bundles span multiple items; add after single-item flow works) |
+| Full during-stay automation | `DURING-STAY-ADDONS-PLAN.md` |
+
+### 5.6.5 Artifacts
+
+- `database/migrations/007_add_addon_orders.sql` — migration stub (NOT YET APPLIED)
+- `scripts/lib/staff-addon-queries.js` — 6 read-only add-on query helpers
+- `scripts/verify-staff-addon-queries.js` — query static verifier (no DB)
+- `scripts/verify-addon-schema-migration.js` — migration static verifier (no DB)
+
