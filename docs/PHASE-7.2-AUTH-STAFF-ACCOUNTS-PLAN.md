@@ -1,6 +1,6 @@
 # Stage 7.2 — Auth Model + Staff Accounts Plan
 
-**Status:** PLANNING / DESIGN DONE (2026-05-31). No implementation; no auth built; staging/production NOT secure.
+**Status:** DESIGN DONE · **7.2b migration 009 APPLIED to local/dev (2026-05-31)**. Auth middleware not built; staging/production NOT secure. See implementation log at bottom.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream B (auth and staff accounts).
 **Depends on:** [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) (env separation, secrets manager, danger rules).
 **Scope:** Design the production auth model for the staff API/UI before any staging/production write surface is enabled. Define staff users, roles, sessions/JWT, operator-token deprecation, action permissions, and go/no-go rules.
@@ -247,10 +247,24 @@ Each implementation slice (7.2b+) is a separate approved task with its own stati
 - Auth options evaluated; recommendation chosen (Option A for pilot; operator token local/dev only).
 - Roles + permission matrix defined.
 - Session/token model defined (cookie, expiry, CSRF/XSS, actor audit).
-- Migration 009 schema designed (not created).
+- Migration 009 schema designed (not created in design doc; **created in 7.2b**).
 - API auth-enforcement changes specified.
 - Hard go/no-go blocks defined.
 - Pilot staff model + onboarding checklist defined.
-- Implementation slices enumerated (not started).
+- Implementation slices enumerated.
 
-**NOT claimed:** auth is not implemented; staging/production is not secure; no migration created; no endpoint changed; live operation not approved.
+---
+
+## Implementation log
+
+### 7.2b — Migration 009 (PASS — 2026-05-31)
+
+- **Created:** `database/migrations/009_auth_staff_users.sql`
+- **Applied:** local/dev DB (localhost:5433 / wolfhouse)
+- **Tables:** `staff_users` (6 indexes + 1 unique functional + 1 partial), `auth_sessions` (5 indexes + 1 unique + 2 partial)
+- **Verifier:** `scripts/verify-auth-staff-migration.js` — 62 checks, PASS
+- **DB proof:** `staff_users` 0 rows, `auth_sessions` 0 rows; protected tables unchanged (bookings 41, payments 25, payment_events 5, booking_beds 15, staff_handoffs 0)
+- **Deferred (documented in migration):** `staff_user_client_access` join table; `NOW()` partial index (Postgres immutability constraint)
+- **NOT done:** auth middleware, login/logout, password set, staff accounts, staging/production deployment
+
+**NOT claimed:** auth is not implemented; staging/production is not secure; no endpoint changed; live operation not approved.
