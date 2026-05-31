@@ -807,7 +807,7 @@ Airtable may remain a **bridge** during transition; long-term goal is a proper s
 
 ## Stage 7 — Scalable
 
-**Status: PLANNING** (2026-05-31) — 7.0 plan + 7.1–7.4 complete + **7.5 monitoring + alerting plan** complete: [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md), [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md), [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md). Production hardening + pilot deployment defined (environments, auth, TLS, monitoring, backups, rollback, Airtable cutover gate, live WhatsApp/Stripe gates, pilot soak, go/no-go). 7.3 recommends Azure Container Apps (aligned with [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md)). No implementation; live operation NOT approved.
+**Status: PLANNING** (2026-05-31) — 7.0 plan + 7.1–7.5 complete + **7.6 pilot readiness go/no-go checklist** complete (79 gates, 5 phases, NO_GO until all PASS): [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md), [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md), [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md). Production hardening + pilot deployment defined (environments, auth, TLS, monitoring, backups, rollback, Airtable cutover gate, live WhatsApp/Stripe gates, pilot soak, go/no-go). 7.3 recommends Azure Container Apps (aligned with [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md)). No implementation; live operation NOT approved.
 
 ### Purpose
 

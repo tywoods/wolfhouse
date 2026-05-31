@@ -1,6 +1,6 @@
 # Stage 7 — Production Hardening + Pilot Deployment Plan
 
-**Status:** PLANNING (2026-05-31) — Stage 7.0 plan DONE · Stage 7.1 env/secrets inventory DONE · Stage 7.2 auth/staff-accounts design DONE · Stage 7.3 staging deployment + TLS design DONE · Stage 7.4 backup/restore + rollback plan DONE · Stage 7.5 monitoring + alerting plan DONE. No implementation; no live operation approved.
+**Status:** PLANNING (2026-05-31) — Stage 7.0 plan DONE · Stage 7.1 env/secrets inventory DONE · Stage 7.2 auth/staff-accounts design DONE · Stage 7.3 staging deployment + TLS design DONE · Stage 7.4 backup/restore + rollback plan DONE · Stage 7.5 monitoring + alerting plan DONE · Stage 7.6 pilot readiness go/no-go checklist DONE. No implementation; no pilot approved; live operation NOT approved.
 **Prerequisites:** Stage 4 CLOSE WITH DEFERRALS (`6cd9a21`). Stage 5 SoT cleanup CLOSE WITH DEFERRALS (`ae545a2`). Stage 6 CLOSED WITH DEFERRALS (`f7813d3`).
 **Scope:** Prepare Wolfhouse for a controlled pilot. Harden the local/dev proof into a deployable staging/pilot setup. Keep live WhatsApp / live Stripe / autonomous sends **disabled** until explicit go/no-go gates pass.
 
@@ -152,7 +152,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 | 7.3 | Staging deployment plan | HTTPS, domain, deploy target, reproducible from `infra/`; staging stands up with workflows inactive | **DONE (design)** — [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md) |
 | 7.4 | Backup/restore + migration rollback | Automated backups; restore drill executed in staging; rollback paths for migrations | **DONE (design)** — [`PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md`](PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md) |
 | 7.5 | Monitoring / error alerting | Failure/error/webhook/send/stuck-handoff alerts; health checks | **DONE (design)** — [`PHASE-7.5-MONITORING-ALERTING-PLAN.md`](PHASE-7.5-MONITORING-ALERTING-PLAN.md) |
-| 7.6 | Pilot checklist + go/no-go gates | Finalize go/no-go; owner sign-off process | PENDING |
+| 7.6 | Pilot checklist + go/no-go gates | Finalize go/no-go; owner sign-off process | **DONE (checklist defined)** — [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) |
 | 7.7 | Shadow / co-pilot live inbound | Stage 3y Mode A on real inbound; staff approve/send manually; no autonomous action | PENDING (gated) |
 | 7.8 | Limited live send approval | First narrow real WhatsApp sends behind flag + approval | PENDING (gated) |
 | 7.9 | Limited live payment approval | First live Stripe behind test-soak + idempotency + approval | PENDING (gated) |
