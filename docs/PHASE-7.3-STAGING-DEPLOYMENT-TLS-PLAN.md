@@ -1,6 +1,6 @@
 # Stage 7.3 — Staging Deployment + TLS Plan
 
-**Status:** PLANNING / DESIGN DONE (2026-05-31). No implementation; nothing deployed; no Azure resources; no DNS changes; no TLS/auth built.
+**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31). No Azure resources created; no DNS changed; TLS not active; staging not deployed.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream C (TLS/deployment).
 **Depends on:** [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) (env separation, secrets), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md) (auth before write surface).
 **Aligns with:** [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) (existing Container Apps + Key Vault topology).
@@ -246,3 +246,20 @@ Each slice is a separate approved task with its own proof. None are started here
 - Implementation slices enumerated (not started).
 
 **NOT claimed:** staging is not deployed; no Azure resources created; no DNS changed; TLS/auth not implemented; live operation not approved.
+
+---
+
+## 12. Implementation log
+
+### 7.3b — IaC scaffold PASS (2026-05-31)
+
+**Files created:**
+- `docs/PHASE-7.3B-AZURE-STAGING-RESOURCE-SCAFFOLD.md` — resource inventory, KV secret map, networking assumptions, deployment gates
+- `infra/azure/staging/main.bicep` — Bicep template: Log Analytics, App Insights, managed identity, Key Vault, ACR, Redis, 2× Postgres Flexible Server, Container Apps environment, staff-api + n8n-main + n8n-worker Container Apps, KV role assignments, ACR pull role assignment
+- `infra/azure/staging/parameters.example.json` — example parameters (no secrets, no real IDs)
+- `infra/azure/staging/README.md` — runbook: prerequisites, KV secret-set commands, dry-run (`what-if`), deploy (marked DO NOT RUN), post-deploy checklist, rollback/teardown (marked DESTRUCTIVE)
+- `scripts/verify-azure-staging-scaffold.js` — 57 static checks: file existence, no real secrets, required resource types, safety env defaults (WHATSAPP_DRY_RUN/STAFF_ACTIONS_ENABLED/STAFF_AUTH_REQUIRED/STRIPE_WEBHOOK_SKIP_VERIFY/N8N_BLOCK_ENV_ACCESS_IN_NODE), KV secret refs, no worker ingress, DO NOT RUN warning, destructive rollback label
+
+**Verifier result:** PASS — 57/57 checks green (0 failures)
+
+**What is still NOT done:** No Azure resources created. No deployment run. No DNS configured. No TLS active. Staging not live.

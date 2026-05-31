@@ -1,0 +1,67 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "staging"
+    },
+    "location": {
+      "value": "westeurope"
+    },
+    "appNamePrefix": {
+      "value": "wh-staging"
+    },
+    "staffApiImage": {
+      "value": "whstagingacr.azurecr.io/wh-staff-api:latest"
+    },
+    "n8nImage": {
+      "value": "n8nio/n8n:latest"
+    },
+    "postgresSku": {
+      "value": "Standard_B1ms"
+    },
+    "postgresVersion": {
+      "value": "15"
+    },
+    "redisSku": {
+      "value": {
+        "name": "Basic",
+        "family": "C",
+        "capacity": 0
+      }
+    },
+    "staffApiCpu": {
+      "value": "0.5"
+    },
+    "staffApiMemory": {
+      "value": "1Gi"
+    },
+    "n8nCpu": {
+      "value": "1.0"
+    },
+    "n8nMemory": {
+      "value": "2Gi"
+    },
+    "n8nWorkerCpu": {
+      "value": "0.5"
+    },
+    "n8nWorkerMemory": {
+      "value": "1Gi"
+    },
+    "logRetentionDays": {
+      "value": 30
+    },
+    "postgresAdminUser": {
+      "value": "whadmin"
+    },
+    "appDbName": {
+      "value": "wolfhouse_staging"
+    },
+    "n8nDbName": {
+      "value": "n8n_staging"
+    },
+    "n8nTimezone": {
+      "value": "Europe/Madrid"
+    }
+  }
+}

@@ -1,0 +1,498 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Wolfhouse staging environment — Azure Bicep scaffold
+// Stage 7.3b — LOCAL SCAFFOLD ONLY. DO NOT DEPLOY without explicit approval.
+//
+// Design: docs/PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md
+// Runbook: infra/azure/staging/README.md
+// Go/no-go: docs/PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md
+//
+// SAFETY DEFAULTS (hardcoded — not overridable via parameters):
+//   WHATSAPP_DRY_RUN=true
+//   STAFF_ACTIONS_ENABLED=false
+//   STAFF_AUTH_REQUIRED=true
+//   STRIPE_WEBHOOK_SKIP_VERIFY=false
+//   N8N_BLOCK_ENV_ACCESS_IN_NODE=true
+//
+// All secrets injected from Key Vault via managed identity secret refs.
+// No secret values appear in this file.
+// ─────────────────────────────────────────────────────────────────────────────
+
+targetScope = 'resourceGroup'
+
+// ── Parameters ───────────────────────────────────────────────────────────────
+
+@description('Short environment label, e.g. staging')
+param environmentName string = 'staging'
+
+@description('Azure region for all resources')
+param location string = resourceGroup().location
+
+@description('App name prefix used for resource naming')
+param appNamePrefix string = 'wh-staging'
+
+@description('Container image for the Wolfhouse staff API (from ACR)')
+param staffApiImage string = 'whstagingacr.azurecr.io/wh-staff-api:latest'
+
+@description('Container image for n8n (official or custom)')
+param n8nImage string = 'n8nio/n8n:latest'
+
+@description('Postgres SKU for app DB and n8n DB')
+param postgresSku string = 'Standard_B1ms'
+
+@description('Postgres version')
+param postgresVersion string = '15'
+
+@description('Redis SKU')
+param redisSku object = {
+  name: 'Basic'
+  family: 'C'
+  capacity: 0
+}
+
+@description('Staff API container CPU (vCPU)')
+param staffApiCpu string = '0.5'
+
+@description('Staff API container memory')
+param staffApiMemory string = '1Gi'
+
+@description('n8n main container CPU')
+param n8nCpu string = '1.0'
+
+@description('n8n main container memory')
+param n8nMemory string = '2Gi'
+
+@description('n8n worker container CPU')
+param n8nWorkerCpu string = '0.5'
+
+@description('n8n worker container memory')
+param n8nWorkerMemory string = '1Gi'
+
+@description('Log Analytics retention in days')
+param logRetentionDays int = 30
+
+@description('Postgres admin username (not a secret — DB password is in Key Vault)')
+param postgresAdminUser string = 'whadmin'
+
+@description('Wolfhouse app DB name')
+param appDbName string = 'wolfhouse_staging'
+
+@description('n8n DB name')
+param n8nDbName string = 'n8n_staging'
+
+@description('n8n generic timezone')
+param n8nTimezone string = 'Europe/Madrid'
+
+// ── Variables ─────────────────────────────────────────────────────────────────
+
+var prefix    = appNamePrefix
+var kvName    = '${prefix}-kv'
+var logName   = '${prefix}-logs'
+var aiName    = '${prefix}-appinsights'
+var envName   = '${prefix}-env'
+var acrName   = replace('${prefix}acr', '-', '') // ACR names cannot contain hyphens
+var idName    = '${prefix}-identity'
+
+// ── Log Analytics workspace ───────────────────────────────────────────────────
+
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
+  name: logName
+  location: location
+  properties: {
+    sku: { name: 'PerGB2018' }
+    retentionInDays: logRetentionDays
+  }
+}
+
+// ── Application Insights ──────────────────────────────────────────────────────
+
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: aiName
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
+  }
+}
+
+// ── User-assigned managed identity ────────────────────────────────────────────
+
+resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: idName
+  location: location
+}
+
+// ── Key Vault ─────────────────────────────────────────────────────────────────
+// Secrets are NOT created by this template — they must be populated manually
+// or via a secrets pipeline before deployment. See README.md §Prerequisites.
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: kvName
+  location: location
+  properties: {
+    sku: { family: 'A', name: 'standard' }
+    tenantId: subscription().tenantId
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 7
+    enableRbacAuthorization: true  // Use RBAC (not access policies) — assign Key Vault Secrets User to managed identity
+  }
+}
+
+// Key Vault Secrets User role assignment for the managed identity
+// Role definition ID for 'Key Vault Secrets User': 4633458b-17de-408a-b874-0445c86b69e6
+resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, managedIdentity.id, '4633458b-17de-408a-b874-0445c86b69e6')
+  scope: keyVault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ── Container Registry ────────────────────────────────────────────────────────
+
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+  name: acrName
+  location: location
+  sku: { name: 'Basic' }
+  properties: {
+    adminUserEnabled: false  // Use managed identity pull, not admin credentials
+  }
+}
+
+// ACR Pull role assignment for managed identity
+// Role definition ID for 'AcrPull': 7f951dda-4ed3-4680-a7ca-43fe172d538d
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(acr.id, managedIdentity.id, '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+  scope: acr
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ── Azure Cache for Redis ──────────────────────────────────────────────────────
+
+resource redis 'Microsoft.Cache/redis@2023-08-01' = {
+  name: '${prefix}-redis'
+  location: location
+  properties: {
+    sku: redisSku
+    enableNonSslPort: false    // TLS-only (port 6380)
+    minimumTlsVersion: '1.2'
+    redisConfiguration: {
+      maxmemory-policy: 'noeviction'  // Queue integrity — never evict queue messages
+    }
+  }
+}
+
+// ── Postgres Flexible Server — Wolfhouse app DB ───────────────────────────────
+// Password stored in Key Vault (wolfhouse-db-password) — NOT in this template.
+
+resource pgApp 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
+  name: '${prefix}-pg-app'
+  location: location
+  sku: {
+    name: postgresSku
+    tier: 'Burstable'
+  }
+  properties: {
+    version: postgresVersion
+    administratorLogin: postgresAdminUser
+    // administratorLoginPassword: pulled from Key Vault at deploy time — see README §Deploy
+    storage: { storageSizeGB: 32 }
+    backup: {
+      backupRetentionDays: 7
+      geoRedundantBackup: 'Disabled'  // Enable for production
+    }
+    highAvailability: { mode: 'Disabled' }  // Enable for production
+    network: {
+      publicNetworkAccess: 'Enabled'  // Restrict to Container Apps outbound IPs post-deploy (see README)
+    }
+  }
+}
+
+resource appDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = {
+  parent: pgApp
+  name: appDbName
+  properties: {
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
+  }
+}
+
+// ── Postgres Flexible Server — n8n system DB ──────────────────────────────────
+
+resource pgN8n 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
+  name: '${prefix}-pg-n8n'
+  location: location
+  sku: {
+    name: postgresSku
+    tier: 'Burstable'
+  }
+  properties: {
+    version: postgresVersion
+    administratorLogin: postgresAdminUser
+    storage: { storageSizeGB: 32 }
+    backup: {
+      backupRetentionDays: 7
+      geoRedundantBackup: 'Disabled'
+    }
+    highAvailability: { mode: 'Disabled' }
+    network: { publicNetworkAccess: 'Enabled' }
+  }
+}
+
+resource n8nDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = {
+  parent: pgN8n
+  name: n8nDbName
+  properties: {
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
+  }
+}
+
+// ── Container Apps environment ────────────────────────────────────────────────
+
+resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
+  name: envName
+  location: location
+  properties: {
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logAnalytics.properties.customerId
+        sharedKey: logAnalytics.listKeys().primarySharedKey
+      }
+    }
+  }
+}
+
+// ── Key Vault secret URI helper (used in secret refs below) ───────────────────
+// Format: https://<kvname>.vault.azure.net/secrets/<secretname>
+// Container Apps secret refs pull latest version automatically.
+
+var kvBaseUri = 'https://${kvName}.vault.azure.net/secrets'
+
+// ── Container App — Wolfhouse Staff API ───────────────────────────────────────
+// HTTPS ingress enabled. Safety env vars hardcoded (not overridable via params).
+
+resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = {
+  name: '${prefix}-staff-api'
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: containerAppsEnv.id
+    configuration: {
+      ingress: {
+        external: true
+        targetPort: 3036
+        transport: 'http'
+        allowInsecure: false  // HTTPS only
+      }
+      // Key Vault secret refs — pulled via managed identity
+      secrets: [
+        { name: 'wolfhouse-database-url',  keyVaultUrl: '${kvBaseUri}/wolfhouse-database-url',  identity: managedIdentity.id }
+        { name: 'stripe-secret-key',       keyVaultUrl: '${kvBaseUri}/stripe-secret-key',       identity: managedIdentity.id }
+        { name: 'stripe-webhook-secret',   keyVaultUrl: '${kvBaseUri}/stripe-webhook-secret',   identity: managedIdentity.id }
+        { name: 'staff-session-secret',    keyVaultUrl: '${kvBaseUri}/staff-session-secret',    identity: managedIdentity.id }
+      ]
+      registries: [
+        {
+          server: acr.properties.loginServer
+          identity: managedIdentity.id
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'staff-api'
+          image: staffApiImage
+          resources: { cpu: json(staffApiCpu), memory: staffApiMemory }
+          env: [
+            // ── Safety defaults (hardcoded) ──────────────────────────────────
+            { name: 'WHATSAPP_DRY_RUN',             value: 'true' }   // NEVER false in staging without Stage 7.8 gate
+            { name: 'STAFF_ACTIONS_ENABLED',         value: 'false' }  // Enable only after 7.6 gate + explicit approval
+            { name: 'STAFF_AUTH_REQUIRED',           value: 'true' }   // Session auth mandatory in staging
+            { name: 'STAFF_AUTH_HTTPS',              value: 'true' }   // Secure cookie flag
+            { name: 'STRIPE_WEBHOOK_SKIP_VERIFY',    value: 'false' }  // Always verify webhook signatures
+            // ── App config ───────────────────────────────────────────────────
+            { name: 'STAFF_QUERY_API_PORT',          value: '3036' }
+            { name: 'STAFF_SESSION_COOKIE_NAME',     value: 'luna_staff_session' }
+            { name: 'STAFF_SESSION_TTL_HOURS',       value: '12' }
+            { name: 'NODE_ENV',                      value: 'staging' }
+            // ── Secrets (from Key Vault refs) ────────────────────────────────
+            { name: 'WOLFHOUSE_DATABASE_URL',  secretRef: 'wolfhouse-database-url' }
+            { name: 'STRIPE_SECRET_KEY',       secretRef: 'stripe-secret-key' }
+            { name: 'STRIPE_WEBHOOK_SECRET',   secretRef: 'stripe-webhook-secret' }
+            { name: 'STAFF_SESSION_SECRET',    secretRef: 'staff-session-secret' }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 2
+      }
+    }
+  }
+}
+
+// ── Container App — n8n main (queue mode, HTTPS ingress) ─────────────────────
+
+resource n8nMainApp 'Microsoft.App/containerApps@2023-05-01' = {
+  name: '${prefix}-n8n-main'
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: containerAppsEnv.id
+    configuration: {
+      ingress: {
+        external: true
+        targetPort: 5678
+        transport: 'http'
+        allowInsecure: false
+      }
+      secrets: [
+        { name: 'n8n-database-url',    keyVaultUrl: '${kvBaseUri}/n8n-database-url',    identity: managedIdentity.id }
+        { name: 'n8n-encryption-key',  keyVaultUrl: '${kvBaseUri}/n8n-encryption-key',  identity: managedIdentity.id }
+        { name: 'redis-conn-string',   keyVaultUrl: '${kvBaseUri}/redis-connection-string', identity: managedIdentity.id }
+        { name: 'meta-wa-token',       keyVaultUrl: '${kvBaseUri}/meta-whatsapp-token',  identity: managedIdentity.id }
+        { name: 'meta-wa-phone-id',    keyVaultUrl: '${kvBaseUri}/meta-whatsapp-phone-id', identity: managedIdentity.id }
+        { name: 'wh-airtable-token',   keyVaultUrl: '${kvBaseUri}/wolfhouse-airtable-token', identity: managedIdentity.id }
+        { name: 'stripe-secret-key',   keyVaultUrl: '${kvBaseUri}/stripe-secret-key',   identity: managedIdentity.id }
+        { name: 'n8n-webhook-secret',  keyVaultUrl: '${kvBaseUri}/n8n-webhook-shared-secret', identity: managedIdentity.id }
+      ]
+      registries: [
+        { server: acr.properties.loginServer, identity: managedIdentity.id }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'n8n-main'
+          image: n8nImage
+          resources: { cpu: json(n8nCpu), memory: n8nMemory }
+          env: [
+            // ── Safety defaults (hardcoded) ──────────────────────────────────
+            { name: 'WHATSAPP_DRY_RUN',              value: 'true' }
+            { name: 'N8N_BLOCK_ENV_ACCESS_IN_NODE',  value: 'true' }   // Block $env in code nodes
+            { name: 'STRIPE_WEBHOOK_SKIP_VERIFY',    value: 'false' }
+            // ── n8n config ───────────────────────────────────────────────────
+            { name: 'N8N_PORT',                      value: '5678' }
+            { name: 'N8N_PROTOCOL',                  value: 'https' }
+            { name: 'GENERIC_TIMEZONE',              value: n8nTimezone }
+            { name: 'N8N_QUEUE_MODE',                value: 'true' }
+            { name: 'QUEUE_BULL_REDIS_PORT',         value: '6380' }
+            { name: 'QUEUE_BULL_REDIS_TLS',          value: 'true' }
+            { name: 'NODE_FUNCTION_ALLOW_BUILTIN',   value: 'crypto' }
+            // ── Secrets ──────────────────────────────────────────────────────
+            { name: 'DB_TYPE',                  value: 'postgresdb' }
+            { name: 'N8N_ENCRYPTION_KEY',       secretRef: 'n8n-encryption-key' }
+            { name: 'DB_POSTGRESDB_URL',        secretRef: 'n8n-database-url' }
+            { name: 'QUEUE_BULL_REDIS_HOST',    secretRef: 'redis-conn-string' }  // full connection string
+            { name: 'META_WHATSAPP_TOKEN',      secretRef: 'meta-wa-token' }
+            { name: 'META_WHATSAPP_PHONE_NUMBER_ID', secretRef: 'meta-wa-phone-id' }
+            { name: 'AIRTABLE_TOKEN',           secretRef: 'wh-airtable-token' }
+            { name: 'STRIPE_SECRET_KEY',        secretRef: 'stripe-secret-key' }
+            { name: 'N8N_WEBHOOK_SHARED_SECRET', secretRef: 'n8n-webhook-secret' }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 2
+      }
+    }
+  }
+}
+
+// ── Container App — n8n worker (queue mode, NO ingress) ──────────────────────
+
+resource n8nWorkerApp 'Microsoft.App/containerApps@2023-05-01' = {
+  name: '${prefix}-n8n-worker'
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: containerAppsEnv.id
+    configuration: {
+      // No ingress — worker is internal only
+      secrets: [
+        { name: 'n8n-database-url',    keyVaultUrl: '${kvBaseUri}/n8n-database-url',    identity: managedIdentity.id }
+        { name: 'n8n-encryption-key',  keyVaultUrl: '${kvBaseUri}/n8n-encryption-key',  identity: managedIdentity.id }
+        { name: 'redis-conn-string',   keyVaultUrl: '${kvBaseUri}/redis-connection-string', identity: managedIdentity.id }
+        { name: 'meta-wa-token',       keyVaultUrl: '${kvBaseUri}/meta-whatsapp-token',  identity: managedIdentity.id }
+        { name: 'meta-wa-phone-id',    keyVaultUrl: '${kvBaseUri}/meta-whatsapp-phone-id', identity: managedIdentity.id }
+        { name: 'wh-airtable-token',   keyVaultUrl: '${kvBaseUri}/wolfhouse-airtable-token', identity: managedIdentity.id }
+        { name: 'stripe-secret-key',   keyVaultUrl: '${kvBaseUri}/stripe-secret-key',   identity: managedIdentity.id }
+        { name: 'wolfhouse-db-url',    keyVaultUrl: '${kvBaseUri}/wolfhouse-database-url', identity: managedIdentity.id }
+      ]
+      registries: [
+        { server: acr.properties.loginServer, identity: managedIdentity.id }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'n8n-worker'
+          image: n8nImage
+          command: [ 'n8n', 'worker' ]
+          resources: { cpu: json(n8nWorkerCpu), memory: n8nWorkerMemory }
+          env: [
+            // ── Safety defaults (hardcoded) ──────────────────────────────────
+            { name: 'WHATSAPP_DRY_RUN',             value: 'true' }
+            { name: 'N8N_BLOCK_ENV_ACCESS_IN_NODE', value: 'true' }
+            // ── Worker config ────────────────────────────────────────────────
+            { name: 'N8N_PORT',                     value: '5678' }
+            { name: 'N8N_PROTOCOL',                 value: 'https' }
+            { name: 'GENERIC_TIMEZONE',             value: n8nTimezone }
+            { name: 'N8N_QUEUE_MODE',               value: 'true' }
+            { name: 'QUEUE_BULL_REDIS_PORT',        value: '6380' }
+            { name: 'QUEUE_BULL_REDIS_TLS',         value: 'true' }
+            { name: 'NODE_FUNCTION_ALLOW_BUILTIN',  value: 'crypto' }
+            // ── Secrets ──────────────────────────────────────────────────────
+            { name: 'DB_TYPE',                  value: 'postgresdb' }
+            { name: 'N8N_ENCRYPTION_KEY',       secretRef: 'n8n-encryption-key' }
+            { name: 'DB_POSTGRESDB_URL',        secretRef: 'n8n-database-url' }
+            { name: 'QUEUE_BULL_REDIS_HOST',    secretRef: 'redis-conn-string' }
+            { name: 'META_WHATSAPP_TOKEN',      secretRef: 'meta-wa-token' }
+            { name: 'META_WHATSAPP_PHONE_NUMBER_ID', secretRef: 'meta-wa-phone-id' }
+            { name: 'AIRTABLE_TOKEN',           secretRef: 'wh-airtable-token' }
+            { name: 'STRIPE_SECRET_KEY',        secretRef: 'stripe-secret-key' }
+            { name: 'WOLFHOUSE_DATABASE_URL',   secretRef: 'wolfhouse-db-url' }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 3
+      }
+    }
+  }
+}
+
+// ── Outputs (no secret values) ────────────────────────────────────────────────
+
+output staffApiFqdn        string = staffApiApp.properties.configuration.ingress.fqdn
+output n8nMainFqdn         string = n8nMainApp.properties.configuration.ingress.fqdn
+output keyVaultUri         string = keyVault.properties.vaultUri
+output acrLoginServer      string = acr.properties.loginServer
+output managedIdentityId   string = managedIdentity.id
+output containerAppsEnvId  string = containerAppsEnv.id

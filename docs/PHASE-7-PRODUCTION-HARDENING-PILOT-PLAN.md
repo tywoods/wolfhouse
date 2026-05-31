@@ -215,7 +215,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 | **7.0** | Production hardening + pilot plan | **DESIGN DONE** | [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) | Nothing — this is the plan | — |
 | **7.1** | Environment / secrets inventory | **DESIGN DONE** | [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) | Azure Key Vault provisioned; staging env vars set; `.env.example` placeholders added ✓ | Gates A1–A9 in 7.6 |
 | **7.2** | Auth model + staff accounts | **DESIGN DONE · 7.2b migration 009 APPLIED (local/dev)** | [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md) | Auth middleware not built; login/logout not implemented; staff accounts not created; staging/production NOT secure | Gates B1–B8 in 7.6 |
-| **7.3** | Staging deployment + TLS | **DESIGN DONE** | [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md) | Azure Container Apps not created; DNS not configured; TLS not active; staging Postgres not provisioned; Key Vault not provisioned | Gates C1–C9 in 7.6 |
+| **7.3** | Staging deployment + TLS | **DESIGN DONE · 7.3b IaC scaffold PASS (local only)** | [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md) | Azure Container Apps not created; DNS not configured; TLS not active; staging Postgres not provisioned; Key Vault not provisioned | Gates C1–C9 in 7.6 |
 | **7.4** | Backup / restore + rollback | **DESIGN DONE** | [`PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md`](PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md) | Backup not configured; restore drill not executed; emergency toggles not drilled; migration 009 rollback pending migration creation | Gates D1–D6 in 7.6 |
 | **7.5** | Monitoring / alerting | **DESIGN DONE** | [`PHASE-7.5-MONITORING-ALERTING-PLAN.md`](PHASE-7.5-MONITORING-ALERTING-PLAN.md) | Azure Monitor alerts not created; n8n error workflow not built; business-state queries not scheduled; audit log not wired to Log Analytics | Gates E1–E8 in 7.6 |
 | **7.6** | Pilot readiness go/no-go checklist | **DESIGN DONE** | [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) | 76 of 79 gates NOT_STARTED; pilot decision recorded as NO_GO | All 79 gates must PASS |
@@ -232,7 +232,7 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 
 ### What is NOT done (implementation pending)
 
-- No Azure resources created (Container Apps, Postgres, Redis, Key Vault, Azure Monitor).
+- No Azure resources created (Container Apps, Postgres, Redis, Key Vault, Azure Monitor) — Bicep scaffold exists locally (`infra/azure/staging/`), not deployed.
 - No staging deployment, DNS, TLS, or domain configured.
 - No production auth implemented (migration 009 **created + applied local/dev** ✓; middleware not built; no login/logout; staging/prod NOT secure).
 - No staff accounts created (no Cami or Ale accounts).
@@ -260,18 +260,20 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 
 ## Next recommended prompt
 
+<!-- prior: Stage 7.2c auth middleware scaffold — DONE (5b9c42f) -->
+<!-- prior: Stage 7.3b Azure IaC scaffold — DONE (this commit) -->
+
+Next implementation task: **Cami review dashboard (plan → build)** — the highest-priority Wolfhouse operations requirement. Cami and Ale cannot do meaningful shadow-mode review without a dashboard that shows the draft reply, guest context, and handoff queue. See gates F1–F7 in [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md).
+
+Alternatively, continue staging infrastructure: **7.3c DNS/TLS plan** (subdomain records + managed cert plan) or **7.3e Dockerfile scaffold** for the staff API container image.
+
 ```
-Use Sonnet. Static implementation + local proof. Minimize API use.
+Use Sonnet. Planning + local scaffold only. Minimize API use.
 
-Task: Stage 7.2c — auth middleware scaffold (local static proof).
+Task: Stage 7.3c — DNS/TLS plan for staging.
 
-Goal: Add a minimal auth middleware layer to scripts/staff-query-api.js
-that reads the session cookie, looks up the auth_sessions + staff_users
-tables in local Postgres, and enforces role-based route permissions
-(viewer = read-only, operator = handoff.resolve, admin = all operator +
-user mgmt stubs). Build login/logout route stubs (POST /staff/auth/login,
-POST /staff/auth/logout) that hash and store/revoke session tokens.
-No real password-setting yet (password_hash is NULL for now). Prove with
-a static verifier and a local DB round-trip test using a manually-inserted
-test row. Do not enable any live operation.
+Goal: Define the DNS records, subdomain naming, TLS termination strategy,
+HTTPS enforcement, and HSTS plan for the Wolfhouse staging environment
+(Azure Container Apps managed certs). No DNS changes, no domain purchase,
+no cert issuance — docs and scaffold only.
 ```
