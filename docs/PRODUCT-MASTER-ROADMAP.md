@@ -41,11 +41,11 @@
 | 6 | Add-ons & Revenue Layer | 4 (pricing), 5 (records), 6 (queries) | In progress |
 | 7 | Staff Messaging Bridge | 3y (handoff), 6+ | Planned / deferred |
 | 8 | Multi-Client Config System | 3x.11, 5 | Planned (config schema started) |
-| 9 | Client Onboarding System | 7 | Not started |
+| 9 | Client Onboarding System | 7 | Planning (Stage 7 plan) |
 | 10 | PMS / Integration Layer | 7 | Not started |
 | 11 | AI Intent Layer | 3x, 4 | Proven (guest); staff NL deferred |
 | 12 | Analytics / Owner Dashboard | 6+ / 7 | Not started |
-| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven) |
+| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 plan started |
 | 14 | Multi-Client Admin | 7 | Not started |
 | 15 | Productization / Scale | 7 | Not started |
 
