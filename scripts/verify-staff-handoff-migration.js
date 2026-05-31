@@ -93,6 +93,9 @@ const INDEX_CHECKS = [
   'idx_staff_tasks_client',
   'idx_staff_tasks_status',
   'idx_staff_tasks_handoff',
+  // Idempotency indexes (added in Stage 5.8b)
+  'uq_staff_handoffs_conv_reason_open',
+  'uq_staff_handoffs_booking_reason_open',
 ];
 for (const idx of INDEX_CHECKS) {
   check(sql.includes(idx), `index ${idx} present`);
@@ -101,6 +104,27 @@ for (const idx of INDEX_CHECKS) {
 check(
   /idx_staff_handoffs_open[\s\S]{1,200}WHERE status IN/i.test(sql),
   'partial index idx_staff_handoffs_open has WHERE status filter'
+);
+// Idempotency index conditions
+check(
+  /uq_staff_handoffs_conv_reason_open[\s\S]{1,300}conversation_id IS NOT NULL/i.test(sql),
+  'uq_staff_handoffs_conv_reason_open has conversation_id IS NOT NULL condition'
+);
+check(
+  /uq_staff_handoffs_conv_reason_open[\s\S]{1,300}status IN/i.test(sql),
+  'uq_staff_handoffs_conv_reason_open has status IN active-set condition'
+);
+check(
+  /uq_staff_handoffs_booking_reason_open[\s\S]{1,300}booking_id IS NOT NULL/i.test(sql),
+  'uq_staff_handoffs_booking_reason_open has booking_id IS NOT NULL condition'
+);
+check(
+  /uq_staff_handoffs_booking_reason_open[\s\S]{1,300}conversation_id IS NULL/i.test(sql),
+  'uq_staff_handoffs_booking_reason_open has conversation_id IS NULL guard'
+);
+check(
+  /uq_staff_handoffs_booking_reason_open[\s\S]{1,300}status IN/i.test(sql),
+  'uq_staff_handoffs_booking_reason_open has status IN active-set condition'
 );
 
 // 6. Triggers

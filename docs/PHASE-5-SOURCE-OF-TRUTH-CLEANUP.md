@@ -1813,11 +1813,9 @@ Luna's current handoff logic lives in two places:
 
 ### 5.8.3 Idempotency design
 
-Idempotency key: `(client_id, conversation_id, reason_code)` WHERE status IN active set — enforced by partial unique index `uq_staff_handoffs_conv_reason_open` (DDL documented in `staff-handoff-write-sql.js`, NOT YET in migration 008).
+Idempotency key: `(client_id, conversation_id, reason_code)` WHERE status IN active set — enforced by partial unique index `uq_staff_handoffs_conv_reason_open` (added to migration 008 in Stage 5.8b).
 
-Fallback key when `conversation_id` is NULL: `(client_id, booking_id, reason_code)` — enforced by `uq_staff_handoffs_booking_reason_open`.
-
-**Migration 008 amendment needed before applying:** add both partial unique indexes to `008_add_staff_handoffs.sql` before the migration is applied to any database.
+Fallback key when `conversation_id` is NULL: `(client_id, booking_id, reason_code)` — enforced by `uq_staff_handoffs_booking_reason_open` (added to migration 008 in Stage 5.8b).
 
 ### 5.8.4 Reconciliation query (Query I — Stage 5.8)
 
@@ -1855,7 +1853,6 @@ Reference constants:
 
 | Deferral | Target |
 |----------|--------|
-| Add partial unique indexes from `IDEMPOTENCY_INDEX_DDL` to migration 008 | Before applying migration 008 to any DB |
 | Apply migration 008 to live DB | Explicit pilot approval required |
 | Wire write-path: add `Postgres - Open Staff Handoff` n8n node after `Update Conversation - Human Handoff` | Stage 5.8 write stub |
 | Reconcile historical `needs_human=TRUE` rows without handoff records | Backfill script (post-migration) |
@@ -1868,5 +1865,23 @@ Reference constants:
 - `scripts/verify-staff-handoff-queries.js` — updated for 9 queries A–I
 - `scripts/lib/staff-handoff-write-sql.js` — write-path SQL (NOT WIRED)
 - `scripts/verify-staff-handoff-write-sql.js` — write-path static verifier (no DB)
+
+---
+
+## Stage 5.8b — Add Idempotency Indexes to Migration 008 (**PASS** 2026-05-31)
+
+**Status:** **PASS** — `database/migrations/008_add_staff_handoffs.sql` amended with both partial unique indexes; migration verifier updated and all checks green; migration remains NOT APPLIED.
+
+**Purpose:** Prerequisite amendment before migration 008 is applied. The `ON CONFLICT` clauses in `staff-handoff-write-sql.js` require the indexes to exist in the database for the upsert idempotency to work.
+
+**Indexes added:**
+| Index name | Key | Partial WHERE |
+|---|---|---|
+| `uq_staff_handoffs_conv_reason_open` | `(client_id, conversation_id, reason_code)` | `conversation_id IS NOT NULL AND status IN ('open','assigned','waiting_guest')` |
+| `uq_staff_handoffs_booking_reason_open` | `(client_id, booking_id, reason_code)` | `booking_id IS NOT NULL AND conversation_id IS NULL AND status IN ('open','assigned','waiting_guest')` |
+
+**Verifier result:** `verify-staff-handoff-migration.js` — 6 new checks added (presence + WHERE conditions for both idempotency indexes). ✅ PASS (all checks green; 21 `IF NOT EXISTS` found).
+
+**Artifacts:** `database/migrations/008_add_staff_handoffs.sql` (amended), `scripts/verify-staff-handoff-migration.js` (updated).
 
 

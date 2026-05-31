@@ -1,6 +1,6 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-31 (Stage 5.8 CLOSE WITH DEFERRALS — handoff write-path design; `getNeedsHumanWithoutOpenHandoffQuery()` reconciliation query; `staff-handoff-write-sql.js` static helper; all verifiers green; write-path NOT WIRED, migration NOT YET APPLIED)
+**Last updated:** 2026-05-31 (Stage 5.8b PASS — migration 008 amended with idempotency indexes `uq_staff_handoffs_conv_reason_open` + `uq_staff_handoffs_booking_reason_open`; migration verifier updated; migration NOT YET APPLIED)
 **HEAD (expected):** `bd891ba`
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
@@ -325,7 +325,7 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
-**Immediate next step: Stage 5.9 / pilot migration apply.** Stage 5.8 CLOSE WITH DEFERRALS (2026-05-31): handoff write-path design documented; `getNeedsHumanWithoutOpenHandoffQuery()` reconciliation query added; `staff-handoff-write-sql.js` static write helpers created (NOT WIRED); all verifiers green. Actual handoff write activation requires: (1) add idempotency partial unique indexes to migration 008, (2) pilot-approve and apply migrations 007+008, (3) wire `Postgres - Open Staff Handoff` node in n8n Main workflow.
+**Immediate next step: apply migrations 007+008 (pilot approval) or Stage 5.9.** Stage 5.8b PASS (2026-05-31): migration 008 now includes idempotency indexes `uq_staff_handoffs_conv_reason_open` + `uq_staff_handoffs_booking_reason_open`. Migration 008 is complete and ready to apply once pilot-approved. Remaining pre-activation work: wire `Postgres - Open Staff Handoff` n8n node in Main workflow (Stage 5.9 write-stub).
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.

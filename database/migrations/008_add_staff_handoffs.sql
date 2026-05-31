@@ -122,4 +122,25 @@ CREATE INDEX IF NOT EXISTS idx_staff_tasks_due_at
 CREATE TRIGGER staff_tasks_updated_at
   BEFORE UPDATE ON staff_tasks FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ---------------------------------------------------------------------------
+-- Idempotency indexes for the handoff write path
+-- ---------------------------------------------------------------------------
+-- These partial unique indexes prevent duplicate open handoffs for the same
+-- (client, conversation, reason_code) or (client, booking, reason_code) pair
+-- while a prior handoff with that key is still active (open/assigned/waiting).
+-- Required by the ON CONFLICT clauses in staff-handoff-write-sql.js.
+
+-- Primary: dedup by conversation + reason (normal write path).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_handoffs_conv_reason_open
+  ON staff_handoffs (client_id, conversation_id, reason_code)
+  WHERE conversation_id IS NOT NULL
+    AND status IN ('open', 'assigned', 'waiting_guest');
+
+-- Fallback: dedup by booking + reason when conversation_id is not yet available.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_handoffs_booking_reason_open
+  ON staff_handoffs (client_id, booking_id, reason_code)
+  WHERE booking_id IS NOT NULL
+    AND conversation_id IS NULL
+    AND status IN ('open', 'assigned', 'waiting_guest');
+
 COMMIT;
