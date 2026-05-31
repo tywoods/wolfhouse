@@ -32,6 +32,7 @@ const EXPECTED_EXPORTS = [
   'getHandoffsByStaffQuery',
   'getStaleHandoffsQuery',
   'getBookingHandoffsQuery',
+  'getNeedsHumanWithoutOpenHandoffQuery',
 ];
 
 const QUERY_SPECS = [
@@ -43,6 +44,7 @@ const QUERY_SPECS = [
   { name: 'getHandoffsByStaffQuery',          label: 'F — By assigned staff',        hasSecondParam: true, mustContain: ['assigned_staff = $2'] },
   { name: 'getStaleHandoffsQuery',            label: 'G — Stale (older than N hrs)', hasSecondParam: true, mustContain: ['hours'] },
   { name: 'getBookingHandoffsQuery',          label: 'H — Booking-linked',           hasSecondParam: true, mustContain: ['booking_code = $2'] },
+  { name: 'getNeedsHumanWithoutOpenHandoffQuery', label: 'I — needs_human reconciliation (Stage 5.8)', hasSecondParam: false, mustContain: ['needs_human', 'NOT EXISTS', 'conversations'] },
 ];
 
 let failures = 0;

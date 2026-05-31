@@ -1,6 +1,6 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-31 (Stage 5.7 CLOSE WITH DEFERRALS — migration 008 stub `staff_handoffs`/`staff_tasks`; 8 handoff query helpers A–H; payment-claimed query upgraded additively; migration NOT YET APPLIED)
+**Last updated:** 2026-05-31 (Stage 5.8 CLOSE WITH DEFERRALS — handoff write-path design; `getNeedsHumanWithoutOpenHandoffQuery()` reconciliation query; `staff-handoff-write-sql.js` static helper; all verifiers green; write-path NOT WIRED, migration NOT YET APPLIED)
 **HEAD (expected):** `bd891ba`
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
@@ -35,7 +35,7 @@
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
 | **4** Reliable | **CLOSE WITH DEFERRALS — Autonomous Booking Dry-Run complete (2026-05-30, commit 6cd9a21)** | All 14 runtime scenarios PASS (A1–A10, A9, IT-1/2/3, DE-1). Full dry-run booking path, payment webhook sim, confirmation draft, closed-month guard, multi-turn PG state, add-on pricing, multilingual baseline proven. Protected tables Δ=0 across all gates. **Deferrals:** real WhatsApp, live holds/Stripe/confirmation writes, structured add-on DB records (Stage 5), staff assistant (Stage 6), Airtable cutover, extensive multilingual polish. **Next: Stage 5 — source-of-truth cleanup + pilot readiness.** |
 
-| **5** Clean | **5.1–5.5 PASS/CLOSE. 5.6+5.6b + 5.7 CLOSE WITH DEFERRALS (2026-05-31).** Migration 007: 7 add-on tables, 9 helpers A–I. Migration 008: `staff_handoffs` + `staff_tasks`, 8 handoff helpers A–H + additive `getPaymentClaimedNoRecordQuery`. All query + migration verifiers green. Migrations NOT applied. **Next: Stage 5.8 / pilot migration apply.** | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
+| **5** Clean | **5.1–5.5 PASS/CLOSE. 5.6+5.6b + 5.7 + 5.8 CLOSE WITH DEFERRALS (2026-05-31).** Migration 007: 7 add-on tables, 9 helpers A–I. Migration 008: `staff_handoffs`+`staff_tasks`, 9 handoff helpers A–I (incl. reconciliation I), write-path design (`staff-handoff-write-sql.js` NOT WIRED). Migrations NOT applied. **Next: pilot migration apply or Stage 5.9.** | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
 | **6** Beautiful | Planned | Staff UI + Staff Operations Assistant + approval controls; Airtable cutover. Not started. Staff queries answered from Stage 5 structured records. |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
@@ -325,7 +325,7 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
-**Immediate next step: Stage 5.8 (or apply staged migrations 007/008 when pilot-approved).** Stage 5.7 CLOSE WITH DEFERRALS (2026-05-31): migration 008 stub (`staff_handoffs` + `staff_tasks`); 8 handoff query helpers A–H; query + migration verifiers 100% green; migration NOT applied. Stage 5.3 deferred "claimed-paid/no-record" query upgraded additively via new `getPaymentClaimedNoRecordQuery()` (uses `staff_handoffs.reason_code`; structural proxy retained). Staff UI remains Stage 6.
+**Immediate next step: Stage 5.9 / pilot migration apply.** Stage 5.8 CLOSE WITH DEFERRALS (2026-05-31): handoff write-path design documented; `getNeedsHumanWithoutOpenHandoffQuery()` reconciliation query added; `staff-handoff-write-sql.js` static write helpers created (NOT WIRED); all verifiers green. Actual handoff write activation requires: (1) add idempotency partial unique indexes to migration 008, (2) pilot-approve and apply migrations 007+008, (3) wire `Postgres - Open Staff Handoff` node in n8n Main workflow.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.

@@ -257,6 +257,57 @@ ORDER BY h.opened_at DESC
 `;
 }
 
+// ---------------------------------------------------------------------------
+// I. conversations.needs_human reconciliation (Stage 5.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Conversations marked needs_human=true but with no open staff_handoff row.
+ * This is the reconciliation gap: the flag exists in conversations but no
+ * structured handoff record has been written yet (bot pre-dates migration 008,
+ * or the handoff row was created before migration 008 was applied).
+ *
+ * Use this query to find the conversations that need a staff_handoffs row
+ * created when the write path is activated in Stage 5.8+.
+ * After the write path is live, this query should return 0 rows if all
+ * handoff events are being written correctly.
+ *
+ * Ordered by last updated_at ascending (oldest unresolved first).
+ *
+ * @returns {string} Parameterised SQL ($1 = client slug)
+ */
+function getNeedsHumanWithoutOpenHandoffQuery() {
+  return `
+SELECT
+  conv.id::text             AS conversation_id,
+  conv.phone,
+  conv.language,
+  conv.conversation_stage,
+  conv.pending_action,
+  conv.bot_mode::text,
+  conv.needs_human,
+  conv.updated_at,
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.check_in,
+  b.check_out,
+  b.payment_status::text    AS booking_payment_status
+FROM conversations conv
+INNER JOIN clients c ON c.id = conv.hostel_id
+LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
+WHERE c.slug = $1
+  AND conv.needs_human = TRUE
+  AND NOT EXISTS (
+    SELECT 1
+    FROM staff_handoffs h
+    WHERE h.conversation_id = conv.id
+      AND h.status IN ('open', 'assigned', 'waiting_guest')
+  )
+ORDER BY conv.updated_at ASC
+`;
+}
+
 module.exports = {
   CLIENT_SLUG,
   PAYMENT_CLAIM_REASONS,
@@ -269,4 +320,5 @@ module.exports = {
   getHandoffsByStaffQuery,
   getStaleHandoffsQuery,
   getBookingHandoffsQuery,
+  getNeedsHumanWithoutOpenHandoffQuery,
 };

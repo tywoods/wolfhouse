@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.5 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.6 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.7 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.8 next  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.5 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.6 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.7 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.8 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.9 / pilot migration apply next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1766,4 +1766,107 @@ Stage 5.3 deferred a real "claimed paid but no record" query because no claim ma
 - `scripts/verify-staff-handoff-queries.js` — query static verifier (no DB)
 - `scripts/verify-staff-handoff-migration.js` — migration static verifier (no DB)
 - `scripts/lib/staff-payment-queries.js` — +`getPaymentClaimedNoRecordQuery()` (additive)
+
+---
+
+## Stage 5.8 — Handoff Write-Path Plan + conversations.needs_human Reconciliation (**CLOSE WITH DEFERRALS** 2026-05-31)
+
+**Status:** **CLOSE WITH DEFERRALS** — write-path design documented; reconciliation query added; write-path SQL helper created (NOT WIRED); all static verifiers green. Actual handoff write activation deferred until migration 008 applied + pilot approval.
+
+**Purpose (Workstream 7b):** Document exactly how Luna's existing human-handoff routes will eventually write structured `staff_handoffs` rows, add a `getNeedsHumanWithoutOpenHandoffQuery()` reconciliation query that identifies the gap between the flag and the structured record, and provide a static write-path SQL design for Stage 5.8+ implementation.
+
+### 5.8.1 Current handoff state mapping
+
+Luna's current handoff logic lives in two places:
+
+**BSR (`booking-state-resolver.js`) — route-level:**
+| `router_route` / `resolved_route` | Signal / trigger | Desired `reason_code` | Default priority |
+|----------------------------------|------------------|-----------------------|-----------------|
+| `human_handoff` (passthrough) | generic unclear message | `unclear_request` | normal |
+| `existing_booking_cancel` | cancel/refund intent | `cancellation_request` | **high** |
+| `existing_booking_modify` | date change, paid booking | `date_change_paid_booking` | **high** |
+| `payment_completed_claim` | "I already paid" | `payment_claimed` | **high** |
+| `human_handoff` + `has_escalation_signals` | refund/angry/dispute keyword | `guest_angry` | **urgent** |
+| `rooming_details_provided` (no hold, no pending) | rooming without booking | `manual_rooming_review` | normal |
+| `existing_booking` | general existing-booking query | `staff_required` | normal |
+
+**Airtable `conversations` (currently Airtable-sourced):**
+- `Conversation Stage` = `'human_handoff'` — the Airtable-side flag set by `Update Conversation - Human Handoff` node.
+- `Pending Action` — carries any pending action context.
+- Both are mirrored into Postgres `conversations.conversation_stage` / `conversations.pending_action` when the Upsert Conversation node writes.
+
+**Postgres `conversations` table (migration 001):**
+- `conversations.needs_human BOOLEAN DEFAULT FALSE` — the Postgres-side flag.
+- `conversations.bot_mode ENUM(bot, staff, paused)` — mode switch.
+- `conversations.conversation_stage TEXT` — mirrors Airtable stage.
+- `conversations.pending_action TEXT` — pending action from Airtable.
+- `conversations.current_hold_booking_id UUID` — links to `bookings`.
+
+**Gap:** When `needs_human=TRUE` is written to `conversations`, no corresponding `staff_handoffs` row is created (migration 008 not yet applied; write-path not yet wired). The reconciliation query (Query I) surfaces this gap.
+
+### 5.8.2 Desired write-path behavior (Stage 5.8+ / pilot)
+
+1. When the bot resolves to a handoff route, a `staff_handoffs` row is **upserted** (idempotent) alongside the existing `Update Conversation - Human Handoff` Airtable node execution.
+2. `conversations.needs_human` and `staff_handoffs.status IN (open/assigned/waiting_guest)` stay reconcilable: one implies the other.
+3. When a handoff is resolved (staff marks it done, or bot detects payment confirmed after `payment_claimed`), `staff_handoffs.status='resolved'` and `conversations.needs_human=FALSE` are updated together.
+4. The reconciliation query `getNeedsHumanWithoutOpenHandoffQuery()` returns 0 rows when the write path is working correctly.
+
+### 5.8.3 Idempotency design
+
+Idempotency key: `(client_id, conversation_id, reason_code)` WHERE status IN active set — enforced by partial unique index `uq_staff_handoffs_conv_reason_open` (DDL documented in `staff-handoff-write-sql.js`, NOT YET in migration 008).
+
+Fallback key when `conversation_id` is NULL: `(client_id, booking_id, reason_code)` — enforced by `uq_staff_handoffs_booking_reason_open`.
+
+**Migration 008 amendment needed before applying:** add both partial unique indexes to `008_add_staff_handoffs.sql` before the migration is applied to any database.
+
+### 5.8.4 Reconciliation query (Query I — Stage 5.8)
+
+`getNeedsHumanWithoutOpenHandoffQuery()` added to `staff-handoff-queries.js`:
+- Finds `conversations.needs_human=TRUE` with no open/assigned/waiting_guest `staff_handoffs` row.
+- Staff-facing answer to: "Which conversations have the human flag set but no structured handoff record yet?"
+- Expected to return 0 rows once the write path is active and all historical backfill is complete.
+
+### 5.8.5 Write-path helper (NOT WIRED — static design only)
+
+`scripts/lib/staff-handoff-write-sql.js` — three SQL export functions, all clearly labelled **NOT WIRED / NOT RUNTIME**:
+- `upsertHandoffByConversationAndReasonSql()` — primary insert/upsert path (conversation + reason).
+- `upsertHandoffByBookingAndReasonSql()` — fallback (booking + reason, no conversation).
+- `resolveHandoffSql()` — UPDATE to resolved status.
+
+Reference constants:
+- `HANDOFF_REASON_MAP` — `resolved_route → reason_code` mapping.
+- `HANDOFF_PRIORITY_DEFAULTS` — `reason_code → default priority`.
+- `IDEMPOTENCY_INDEX_DDL` / `IDEMPOTENCY_INDEX_BOOKING_DDL` — partial unique index DDL to add to migration 008 before applying.
+
+### 5.8.6 Verifier results
+
+| Verifier | Result |
+|----------|--------|
+| `verify-staff-handoff-queries.js` — 9 queries A–I (incl. new reconciliation I) | ✅ PASS |
+| `verify-staff-handoff-write-sql.js` — write helpers, no protected-table writes, idempotency, NOT WIRED labels | ✅ PASS |
+| `verify-staff-handoff-migration.js` | ✅ PASS |
+| `verify-staff-payment-queries.js` | ✅ PASS |
+| `verify-staff-addon-queries.js` | ✅ PASS |
+| `verify-staff-rooming-queries.js` | ✅ PASS |
+| `build-main-local-stripe.js --verify-targets` | ✅ OK |
+| `report-main-payment-contract.js` / `report-main-rooming-contract.js` | ✅ OK |
+
+### 5.8.7 Deferrals
+
+| Deferral | Target |
+|----------|--------|
+| Add partial unique indexes from `IDEMPOTENCY_INDEX_DDL` to migration 008 | Before applying migration 008 to any DB |
+| Apply migration 008 to live DB | Explicit pilot approval required |
+| Wire write-path: add `Postgres - Open Staff Handoff` n8n node after `Update Conversation - Human Handoff` | Stage 5.8 write stub |
+| Reconcile historical `needs_human=TRUE` rows without handoff records | Backfill script (post-migration) |
+| Bot auto-resolve handoffs (e.g. payment confirmed → close `payment_claimed` handoff) | Stage 5.8+ |
+| Staff UI handoff queue | Stage 6 |
+
+### 5.8.8 Artifacts
+
+- `scripts/lib/staff-handoff-queries.js` — +`getNeedsHumanWithoutOpenHandoffQuery()` (Query I)
+- `scripts/verify-staff-handoff-queries.js` — updated for 9 queries A–I
+- `scripts/lib/staff-handoff-write-sql.js` — write-path SQL (NOT WIRED)
+- `scripts/verify-staff-handoff-write-sql.js` — write-path static verifier (no DB)
+
 
