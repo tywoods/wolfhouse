@@ -204,14 +204,71 @@ Before pilot go-live, confirm with owner (Ale/Cami):
 
 ---
 
+## Stage 7 planning closeout (2026-05-31)
+
+**Planning status:** CLOSED WITH DESIGN DONE (slices 7.0–7.6). **Implementation status:** NOT STARTED. **Pilot decision:** NO_GO — all 79 gates in [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) must PASS before any live operation.
+
+### Planning closeout matrix
+
+| Slice | Name | Status | Doc | Implementation still pending | Hard gate before pilot |
+|---|---|---|---|---|---|
+| **7.0** | Production hardening + pilot plan | **DESIGN DONE** | [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) | Nothing — this is the plan | — |
+| **7.1** | Environment / secrets inventory | **DESIGN DONE** | [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) | Azure Key Vault provisioned; staging env vars set; `.env.example` placeholders added ✓ | Gates A1–A9 in 7.6 |
+| **7.2** | Auth model + staff accounts | **DESIGN DONE** | [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md) | Migration 009 (`staff_users`/`auth_sessions`) not created; auth middleware not built; login/logout not implemented; staff accounts not created | Gates B1–B8 in 7.6 |
+| **7.3** | Staging deployment + TLS | **DESIGN DONE** | [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md) | Azure Container Apps not created; DNS not configured; TLS not active; staging Postgres not provisioned; Key Vault not provisioned | Gates C1–C9 in 7.6 |
+| **7.4** | Backup / restore + rollback | **DESIGN DONE** | [`PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md`](PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md) | Backup not configured; restore drill not executed; emergency toggles not drilled; migration 009 rollback pending migration creation | Gates D1–D6 in 7.6 |
+| **7.5** | Monitoring / alerting | **DESIGN DONE** | [`PHASE-7.5-MONITORING-ALERTING-PLAN.md`](PHASE-7.5-MONITORING-ALERTING-PLAN.md) | Azure Monitor alerts not created; n8n error workflow not built; business-state queries not scheduled; audit log not wired to Log Analytics | Gates E1–E8 in 7.6 |
+| **7.6** | Pilot readiness go/no-go checklist | **DESIGN DONE** | [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) | 76 of 79 gates NOT_STARTED; pilot decision recorded as NO_GO | All 79 gates must PASS |
+
+### What Stage 7 planning has achieved
+
+- All production-hardening areas identified and documented (env, auth, TLS, backup, monitoring, pilot phases).
+- Azure Container Apps confirmed as the staging/production deployment target (aligned with [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md)).
+- Auth model chosen: per-user email/password + hashed passwords + secure session cookies for staging/pilot; operator token scoped to local/dev only.
+- Backup/restore strategy defined: Azure Postgres automated backups; restore drill required before pilot.
+- Monitoring and alerting strategy defined: 7-category scope; P0–P3 model; 10 runbooks.
+- Pilot readiness checklist created: 79 gates, 11 sections, 5 pilot phases, hard no-go conditions.
+- **Live operation remains blocked and is not approved by any of these docs.**
+
+### What is NOT done (implementation pending)
+
+- No Azure resources created (Container Apps, Postgres, Redis, Key Vault, Azure Monitor).
+- No staging deployment, DNS, TLS, or domain configured.
+- No production auth implemented (migration 009 not created; middleware not built; no login/logout).
+- No staff accounts created (no Cami or Ale accounts).
+- No restore drill executed.
+- No monitoring or alerts configured.
+- No Cami review dashboard (conversation inbox, draft review, handoff queue UI).
+- No live WhatsApp send (dry-run only; `WHATSAPP_DRY_RUN=true`).
+- No live Stripe (test mode only; no `sk_live_*`).
+- No Airtable cutover.
+- Slices 7.7–7.11 not started (shadow/co-pilot live, live send, live payment, Airtable cutover, multi-client readiness).
+
+### Recommended first implementation tasks
+
+| Priority | Task | Why first |
+|---|---|---|
+| 1 | **7.2b — Migration 009** (`staff_users` / `auth_sessions` schema) | Auth schema is the foundation — everything else (login, sessions, role enforcement) depends on it. Small, safe, additive, follows the existing migration pattern. |
+| 2 | **7.2c — Auth middleware scaffold** (local static proof) | Can be done without staging; proves the session + role enforcement works locally before any deploy. |
+| 3 | **7.3b — Azure resource plan/scaffold** | Once auth schema exists, Azure resource creation unblocks staging deploy. Key Vault and Postgres must exist before migration 009 can be applied to staging. |
+| 4 | **Cami review dashboard (plan → build)** | Highest priority from a Wolfhouse operations standpoint — Cami cannot do meaningful shadow-mode review without a dashboard that shows draft, context, and handoff queue. Gates F1–F7 in 7.6. |
+| 5 | **7.4c — Restore drill** | Requires staging DB to exist (depends on 7.3b); execute after first successful staging deploy. |
+
+**Recommended first prompt:** `7.2b — migration 009 staff auth schema`. It is a self-contained, local, docs + migration task that unlocks all downstream auth work and can be written, verified, and committed without touching Azure.
+
+---
+
 ## Next recommended prompt
 
 ```
-Use Sonnet. Planning/docs only. Minimize API use.
+Use Sonnet. Static implementation + local proof. Minimize API use.
 
-Task: Stage 7.1 — environment and secrets inventory.
+Task: Stage 7.2b — migration 009 staff auth schema.
 
-Goal: Enumerate every env var, secret, and integration key across
-local/staging/production; define the secrets-manager approach and the
-local→staging→production separation. No code, no secret changes.
+Goal: Create database/migrations/009_auth_staff_users.sql following
+the existing migration conventions (idempotent CREATE TABLE IF NOT
+EXISTS, CHECK constraints, set_updated_at trigger, UUID PKs). Define
+staff_users and auth_sessions tables as designed in PHASE-7.2-AUTH-
+STAFF-ACCOUNTS-PLAN.md. Apply to local dev DB. Run a static verifier.
+Do not build auth middleware or login in this task.
 ```

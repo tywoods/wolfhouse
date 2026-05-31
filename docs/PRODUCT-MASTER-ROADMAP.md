@@ -45,7 +45,7 @@
 | 10 | PMS / Integration Layer | 7 | Not started |
 | 11 | AI Intent Layer | 3x, 4 | Proven (guest); staff NL deferred |
 | 12 | Analytics / Owner Dashboard | 6+ / 7 | Not started |
-| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 planning — 7.0–7.6 design done (pilot checklist defined; final decision NO_GO until all 79 gates PASS) |
+| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 PLANNING CLOSED: 7.0–7.6 design done. Implementation pending: Azure deploy, auth (migration 009), restore drill, Cami dashboard, monitoring config. Pilot decision: NO_GO. |
 | 14 | Multi-Client Admin | 7 | Not started |
 | 15 | Productization / Scale | 7 | Not started |
 
