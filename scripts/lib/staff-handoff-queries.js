@@ -294,7 +294,7 @@ SELECT
   b.check_out,
   b.payment_status::text    AS booking_payment_status
 FROM conversations conv
-INNER JOIN clients c ON c.id = conv.hostel_id
+INNER JOIN clients c ON c.id = conv.client_id
 LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
 WHERE c.slug = $1
   AND conv.needs_human = TRUE

@@ -1,6 +1,6 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-31 (**Stage 5 SoT cleanup CLOSE WITH DEFERRALS** `ae545a2` — all sub-stages 5.1–5.8b complete; migrations 007/008 ready to apply; write path designed but NOT WIRED; live operation NOT approved)
+**Last updated:** 2026-05-31 (**Stage 5.9 PASS** — migrations 007+008 applied to local/dev DB; fixture smoke 26/26 green; `getNeedsHumanWithoutOpenHandoffQuery()` `hostel_id` bugfix applied)
 **HEAD (expected):** `bd891ba`
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
@@ -35,7 +35,7 @@
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
 | **4** Reliable | **CLOSE WITH DEFERRALS — Autonomous Booking Dry-Run complete (2026-05-30, commit 6cd9a21)** | All 14 runtime scenarios PASS (A1–A10, A9, IT-1/2/3, DE-1). Full dry-run booking path, payment webhook sim, confirmation draft, closed-month guard, multi-turn PG state, add-on pricing, multilingual baseline proven. Protected tables Δ=0 across all gates. **Deferrals:** real WhatsApp, live holds/Stripe/confirmation writes, structured add-on DB records (Stage 5), staff assistant (Stage 6), Airtable cutover, extensive multilingual polish. **Next: Stage 5 — source-of-truth cleanup + pilot readiness.** |
 
-| **5** Clean | **CLOSE WITH DEFERRALS** (`ae545a2`, 2026-05-31). SoT cleanup track (5.1–5.8b): all staff-queryable schemas stubbed; migrations 007+008 ready; query helpers for payments/rooming/add-ons/handoffs proven; live operation NOT approved. Engine extraction track (portability/InventoryProvider) deferred. | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
+| **5** Clean | **CLOSE WITH DEFERRALS** (`ae545a2`, 2026-05-31). SoT cleanup track (5.1–5.8b): all staff-queryable schemas stubbed; **migrations 007+008 applied to local/dev DB**; fixture smoke 26/26 PASS; `hostel_id→client_id` bugfix in reconciliation query. Write path NOT wired; live operation NOT approved. Engine extraction deferred. | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
 | **6** Beautiful | Planned | Staff UI + Staff Operations Assistant + approval controls; Airtable cutover. Not started. Staff queries answered from Stage 5 structured records. |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
@@ -326,9 +326,9 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
 **Immediate next step (choose one):**
-- **A (preferred):** Apply migrations 007+008 to dev DB — run fixture smoke proofs against live schema.
+- **A:** Wire the `Postgres - Open Staff Handoff` n8n node (Stage 5.9 write-stub) — runtime gate for the first bot handoff write.
 - **B:** Stage 6 planning — map proven staff queries to staff-assistant API design.
-- **C:** Stage 5 engine extraction track — extract decision logic from n8n Code nodes into `src/booking-assistant/` modules.
+- **C:** Stage 5 engine extraction — extract decision logic from n8n Code nodes into `src/booking-assistant/`.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.

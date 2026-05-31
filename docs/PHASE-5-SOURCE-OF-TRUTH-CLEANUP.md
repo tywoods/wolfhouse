@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **CLOSE WITH DEFERRALS** (`ae545a2`, 2026-05-31) — Stage 5.1 PASS; Stage 5.2–5.8b CLOSE WITH DEFERRALS. All staff-queryable data schemas stubbed and query helpers proven. Migrations 007/008 ready to apply. Engine extraction / portability scope deferred (separate Stage 5 workstream). Detail below.  
+**Status:** **CLOSE WITH DEFERRALS** (`ae545a2`, 2026-05-31) — Stage 5.1 PASS; Stage 5.2–5.8b CLOSE WITH DEFERRALS. All staff-queryable data schemas stubbed and query helpers proven. **Migrations 007+008 applied to local/dev DB (2026-05-31)**. Engine extraction / portability scope deferred (separate Stage 5 workstream). Detail below.  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1928,7 +1928,7 @@ All staff-queryable data schemas are stubbed, proven queryable, and migration-re
 
 | Deferral | Reason | Target |
 |----------|--------|--------|
-| Apply migrations 007+008 to dev DB | Explicit pilot approval required | Pilot gate / Stage 5.9 |
+| Apply migrations 007+008 to dev DB | ✅ **Applied to local/dev DB (2026-05-31)** — fixture smoke PASS | ~~Pilot gate / Stage 5.9~~ DONE |
 | Wire `Postgres - Open Staff Handoff` in n8n Main | Write path not approved yet | Stage 5.9 write-stub |
 | Live WhatsApp sends | Not approved | Stage 6 pilot |
 | Live Stripe checkout (real guest payments) | Not approved | Stage 6 pilot |
@@ -1953,3 +1953,43 @@ All staff-queryable data schemas are stubbed, proven queryable, and migration-re
 **C:** Stage 5 engine extraction track — extract decision logic from n8n Code nodes into `src/booking-assistant/` modules. This is the ROADMAP's "portability" Stage 5 scope and is independent of the SoT cleanup track.
 
 **Recommended commit:** `docs(stage5): close source-of-truth cleanup with deferrals`
+
+---
+
+## Stage 5.9 — Apply Migrations 007+008 to Dev DB + Fixture Smoke (**PASS** 2026-05-31)
+
+**Status:** **PASS** — migrations 007 and 008 applied to local/dev `wolfhouse` DB; all 9 tables created; both idempotency indexes confirmed; `getNeedsHumanWithoutOpenHandoffQuery()` query fixed (`hostel_id→client_id`); fixture smoke 26/26 checks green.
+
+**DB target confirmed:** local/dev `wolfhouse` @ localhost:5432 (Docker container). Not production.
+
+**Migrations applied:**
+| Migration | Tables created | Result |
+|---|---|---|
+| `007_add_addon_orders.sql` | `add_on_orders`, `add_on_items`, `lesson_requests`, `yoga_requests`, `rental_requests`, `meal_requests`, `transfer_requests` | ✅ Applied |
+| `008_add_staff_handoffs.sql` | `staff_handoffs`, `staff_tasks` + `uq_staff_handoffs_conv_reason_open` + `uq_staff_handoffs_booking_reason_open` | ✅ Applied |
+
+**Fixture smoke (`verify-stage5-migrations-smoke.js`) — 26 checks, all green:**
+| Probe | Result |
+|---|---|
+| Seed 2 fixture bookings (`WH-5MIG-ADDON-001`, `WH-5MIG-HOFF-001`) | ✅ |
+| Seed conversation (`needs_human=TRUE`) | ✅ |
+| Seed `add_on_order` + `lesson_request` + `meal_request` | ✅ |
+| Seed `staff_handoff` + `staff_task` | ✅ |
+| `getUnpaidAddOnsQuery()` returns 1 fixture row | ✅ |
+| `getLessonsByDateQuery()` returns 1 fixture row | ✅ |
+| `getMealsByDateQuery()` returns 1 fixture row | ✅ |
+| `getStaffRequiredAddOnsQuery()` returns 1 fixture row | ✅ |
+| `getAddonsByBookingQuery()` returns 2 fixture items | ✅ |
+| `getOpenHandoffsQuery()` returns 1 fixture handoff | ✅ |
+| `getHighPriorityHandoffsQuery()` returns 1 fixture handoff | ✅ |
+| `getHandoffsByReasonQuery('cancellation_request')` returns 1 | ✅ |
+| `getCancellationRefundHandoffsQuery()` returns 1 | ✅ |
+| `getBookingHandoffsQuery(WH-5MIG-HOFF-001)` returns 1 | ✅ |
+| `getNeedsHumanWithoutOpenHandoffQuery()` returns 0 (gap closed — handoff exists) | ✅ |
+| Idempotency: duplicate open handoff rejected (PG `23505 unique_violation`) | ✅ |
+| Cleanup: all fixture rows removed | ✅ |
+| Post-cleanup counts: add_on_orders=0, staff_handoffs=0, bookings=0 | ✅ |
+
+**Bugfix discovered:** `getNeedsHumanWithoutOpenHandoffQuery()` in `staff-handoff-queries.js` joined `conversations` via `conv.hostel_id` — this column was renamed to `client_id` in migration 003. Fixed.
+
+**Artifacts:** `scripts/verify-stage5-migrations-smoke.js`, `scripts/lib/staff-handoff-queries.js` (bugfix).
