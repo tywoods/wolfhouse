@@ -807,7 +807,7 @@ Airtable may remain a **bridge** during transition; long-term goal is a proper s
 
 ## Stage 7 — Scalable
 
-**Status: PLANNING** (2026-05-31) — Stage 7.0 plan complete: [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md). Production hardening + pilot deployment defined (environments, auth, TLS, monitoring, backups, rollback, Airtable cutover gate, live WhatsApp/Stripe gates, pilot soak, go/no-go). No implementation; live operation NOT approved.
+**Status: PLANNING** (2026-05-31) — 7.0 plan + 7.1 env/secrets inventory + **7.2 auth/staff-accounts design** complete: [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md), [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md). Production hardening + pilot deployment defined (environments, auth, TLS, monitoring, backups, rollback, Airtable cutover gate, live WhatsApp/Stripe gates, pilot soak, go/no-go). No implementation; live operation NOT approved.
 
 ### Purpose
 

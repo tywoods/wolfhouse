@@ -45,7 +45,7 @@
 | 10 | PMS / Integration Layer | 7 | Not started |
 | 11 | AI Intent Layer | 3x, 4 | Proven (guest); staff NL deferred |
 | 12 | Analytics / Owner Dashboard | 6+ / 7 | Not started |
-| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 plan started |
+| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 planning — 7.0/7.1/7.2 design done |
 | 14 | Multi-Client Admin | 7 | Not started |
 | 15 | Productization / Scale | 7 | Not started |
 
@@ -301,7 +301,7 @@
 
 **Purpose:** Cross-client administration — per-`client_id` isolation, per-client monitoring, support tooling, tenant management.
 
-**Current status:** **Not started.** All data is `client_id`-scoped by design (Wolfhouse = `wolfhouse-somo`), which is the prerequisite, but there is no multi-client admin surface.
+**Current status:** **Not started (design begun).** All data is `client_id`-scoped by design (Wolfhouse = `wolfhouse-somo`), which is the prerequisite, but there is no multi-client admin surface. Stage 7.2 designed the staff auth model (per-user accounts, viewer/operator/admin roles, optional `staff_user_client_access` for multi-client) — design only, not built. See [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md).
 
 **Related stages:** Stage 7.
 
