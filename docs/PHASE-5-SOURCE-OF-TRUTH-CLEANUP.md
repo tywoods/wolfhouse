@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); Stage 5.3d/e/f PASS (`runtime(stage5.3f)` commit); Stage 5.3g next  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); Stage 5.3a–5.3g PASS; Stage 5.4 next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1350,14 +1350,29 @@ Runtime gate proving the full live hold→payment_pending→payments-row path un
 6. Post-cleanup: `EXPECT_FIXTURE_ROWS=0` → OK
 7. `booking_beds` unchanged (15 before/after); no workflow activation; no webhook execution
 
-#### 5.3g — Payment/staff smoke gate (runtime, after 5.3d–5.3f)
+#### 5.3g — Payment/staff smoke gate (PASS — 2026-05-31, fixture SQL only)
 
-Combined sanity check using `scripts/verify-stage53-payment-proof.js`:
+**Script:** `scripts/verify-stage53g-payment-smoke.js` — self-contained, seeds three fixture states inline, asserts per-bucket counts, cleans up, confirms 0 rows + `booking_beds` unchanged.
 
-- Run all `staff-payment-queries.js` helpers against wolfhouse-somo
-- Print fixture rows in each result bucket
-- Verify balance_due / amount_paid computations against known fixture values
-- Confirm cleanup restores baseline
+**Fixtures seeded:**
+| ID | Phone | Code | State |
+|----|-------|------|-------|
+| F1 | `+34600000155` | `WH-53-FIXTURE-001` | `payment_pending/waiting_payment` + `payments(checkout_created)` |
+| F2 | `+34600000156` | `WH-53-CONFIRM-001` | `payment_pending/deposit_paid` + `payments(paid)` + `send_confirmation=TRUE` |
+| F3 | `+34600000157` | `WH-53G-NOPAY-001`  | `payment_pending/waiting_payment`, **no payments row** (tests Query D) |
+
+**Query bucket results (all fixtures seeded):**
+| Query | Expected fixture rows | Result |
+|-------|-----------------------|--------|
+| `payment_balances` | 3 (F1+F2+F3) | ✓ 3 |
+| A `deposit_paid` | 1 (F2 only) | ✓ 1 |
+| B `fully_paid` | 0 | ✓ 0 |
+| C `balance_due` | 1 (F2 only; total=69900, paid=20000) | ✓ 1 |
+| D `no_payment_row` | 1 (F3 only) | ✓ 1 |
+| E `waiting_payment` | 2 (F1+F3) | ✓ 2 |
+| F `confirm_needed` | 1 (F2 only) | ✓ 1 |
+
+Post-cleanup: all buckets = 0. `booking_beds` = 15 (unchanged). No workflow activation. No webhook. No `payment_events` writes.
 
 ### 5.3.6 Proof criteria
 
