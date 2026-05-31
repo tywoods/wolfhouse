@@ -2,7 +2,9 @@
 
 **Product:** AI booking operations for WhatsApp-first experience businesses — **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
-**Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) · **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+**Product-level roadmap (15 pillars):** [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md) · **Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) · **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+
+> **This file is the stage-level / engineering roadmap.** For the **product-level view** — the full 15-pillar product vision (Guest Assistant, SoT DB, Staff Brain, Dashboard, Rooming UI, Add-ons, Messaging Bridge, Multi-Client Config, Onboarding, PMS, AI Intent, Analytics, Production Hardening, Multi-Client Admin, Productization) mapped to these stages — see [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md).
 
 ---
 
@@ -841,6 +843,7 @@ By Stage 7 this should be a **checklist, not a project** — provided the Stage 
 
 | Role | Doc |
 |------|-----|
+| Product vision (15 pillars) | [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md) |
 | Engineer (today) | [`PROJECT-STATE.md`](PROJECT-STATE.md) |
 | Stage 3x spec | [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md) |
 | Owner / non-engineer | [`PROJECT-ROADMAP.md`](PROJECT-ROADMAP.md) |

@@ -402,6 +402,7 @@ Get-Content scripts/fixtures/main-ensure-3cc-promote-cleanup-down.sql | docker c
 
 | Need | Doc |
 |------|-----|
+| Product vision (15 pillars) | [PRODUCT-MASTER-ROADMAP.md](PRODUCT-MASTER-ROADMAP.md) |
 | Product roadmap (stages) | [ROADMAP.md](ROADMAP.md) |
 | North star | [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) |
 | This snapshot | PROJECT-STATE.md |
