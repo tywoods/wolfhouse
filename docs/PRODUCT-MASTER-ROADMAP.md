@@ -45,7 +45,7 @@
 | 10 | PMS / Integration Layer | 7 | Not started |
 | 11 | AI Intent Layer | 3x, 4 | Proven (guest); staff NL deferred |
 | 12 | Analytics / Owner Dashboard | 6+ / 7 | Not started |
-| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 planning — 7.0/7.1/7.2 design done |
+| 13 | Production Hardening | 3.5, 4, 7 | Partial (safety rails proven); Stage 7 planning — 7.0/7.1/7.2/7.3 design done |
 | 14 | Multi-Client Admin | 7 | Not started |
 | 15 | Productization / Scale | 7 | Not started |
 
@@ -292,7 +292,7 @@
 
 **Deferrals / not started:**
 - Full monitoring dashboards, alerts, health checks across n8n/PG/Redis/webhooks.
-- Azure deploy, production URLs, backup/restore automation — Stage 7.
+- Azure deploy, production URLs, backup/restore automation — Stage 7 (staging deployment + TLS designed in [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md): Azure Container Apps, Key Vault, HTTPS — design only, not deployed).
 - Stuck-booking detection at production bar.
 
 ---
