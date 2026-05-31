@@ -415,6 +415,7 @@ function runVerifyTargets(workflow, opts = {}) {
   const stage52Guard = verifyStage52FixtureGuard(wf);
   const stage53Guard = verifyStage53FixtureGuard(wf);
   const stage53HoldSearchStub = verifyStage53FixtureHoldSearchStub(wf);
+  const handoffWritePath = verifyHandoffWritePath(wf);
   const result = {
     ...raw,
     workflowActive: wf.active,
@@ -433,6 +434,7 @@ function runVerifyTargets(workflow, opts = {}) {
     stage52FixtureGuard: stage52Guard,
     stage53FixtureGuard: stage53Guard,
     stage53FixtureHoldSearchStub: stage53HoldSearchStub,
+    handoffWritePath,
   };
   if (!shadow.ok) {
     console.error(`Shadow-mode safety FAIL (${shadow.errors.length} error(s)):`);
@@ -497,6 +499,12 @@ function runVerifyTargets(workflow, opts = {}) {
     for (const e of stage52Guard.errors) console.error(`  ${e}`);
     result.ok = false;
     result.errors = [...(result.errors || []), ...stage52Guard.errors.map((e) => `[stage52-guard] ${e}`)];
+  }
+  if (!handoffWritePath.ok) {
+    console.error(`Handoff write path FAIL (${handoffWritePath.errors.length} error(s)):`);
+    for (const e of handoffWritePath.errors) console.error(`  ${e}`);
+    result.ok = false;
+    result.errors = [...(result.errors || []), ...handoffWritePath.errors.map((e) => `[handoff-write] ${e}`)];
   }
   printVerifyTargetsReport(result, filePath);
   if (exitOnFail && !result.ok) {
@@ -3373,6 +3381,242 @@ function verifyClosedMonthGuard(workflow, closedMonths) {
   return { ok: true, errors: [] };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 5.9 — Postgres - Open Staff Handoff write path
+// ─────────────────────────────────────────────────────────────────────────────
+// Wires a Postgres executeQuery node after the Human Handoff path (both the
+// real Airtable node and its DRY RUN stub) so handoff events create structured
+// staff_handoffs rows in Postgres.
+//
+// Design:
+//   - Uses a NOT EXISTS guard (phone + reason_code + active status) so the
+//     insert is idempotent without relying on ON CONFLICT partial index syntax.
+//   - staff_handoffs is NOT a protected table; the write is allowed in
+//     WHATSAPP_DRY_RUN mode (same as conversations).
+//   - alwaysOutputData:true so the node never stops the flow when 0 rows
+//     are inserted (idempotency hit).
+//   - reason_code is mapped inline from the BSR resolved_route.
+//   - conversation_id / booking_id are nullable; use __NULL__ sentinel.
+
+/**
+ * Returns the SQL for the Postgres - Open Staff Handoff node.
+ * Uses NOT EXISTS dedup (phone + reason_code + active status).
+ * Requires migration 008_add_staff_handoffs.sql applied.
+ *
+ * Parameters:
+ *   $1  client_slug TEXT  (wolfhouse-somo)
+ *   $2  conversation_id UUID or '__NULL__'
+ *   $3  booking_id UUID or '__NULL__'
+ *   $4  phone TEXT
+ *   $5  reason_code TEXT
+ *   $6  summary TEXT
+ *   $7  priority TEXT
+ *   $8  guest_message TEXT
+ *   $9  language TEXT
+ *   $10 metadata TEXT (JSON)
+ */
+function buildHandoffInsertSql() {
+  return `
+INSERT INTO staff_handoffs (
+  client_id, conversation_id, booking_id, phone,
+  reason_code, summary, priority, status,
+  guest_message, language, metadata
+)
+SELECT
+  c.id,
+  NULLIF($2, '__NULL__')::uuid,
+  NULLIF($3, '__NULL__')::uuid,
+  $4,
+  $5,
+  $6,
+  $7,
+  'open',
+  $8,
+  COALESCE(NULLIF($9, '__NULL__'), 'en'),
+  COALESCE(NULLIF($10, '__NULL__'), '{}')::jsonb
+FROM clients c
+WHERE c.slug = $1
+  AND NOT EXISTS (
+    SELECT 1 FROM staff_handoffs h2
+    WHERE h2.client_id = c.id
+      AND h2.phone = $4
+      AND h2.reason_code = $5
+      AND h2.status IN ('open', 'assigned', 'waiting_guest')
+  )
+RETURNING id::text AS handoff_id, reason_code, status, phone, opened_at
+`.trim();
+}
+
+/**
+ * Inserts Postgres - Open Staff Handoff node and wires it after both:
+ *   Update Conversation - Human Handoff  (real Airtable, dry-run TRUE branch)
+ *   Code - DRY RUN Stub (Update Conversation - Human Handoff)  (FALSE branch)
+ *
+ * Must be called AFTER applyShadowModeDryRunGates so the stub node exists.
+ *
+ * @param {object} workflow
+ */
+function applyHandoffWritePath(workflow) {
+  const REAL_NODE   = 'Update Conversation - Human Handoff';
+  const STUB_NODE   = 'Code - DRY RUN Stub (Update Conversation - Human Handoff)';
+  const HANDOFF_PG  = 'Postgres - Open Staff Handoff';
+
+  if (workflow.nodes.find((n) => n.name === HANDOFF_PG)) {
+    console.log('applyHandoffWritePath: already applied, skipping');
+    return;
+  }
+
+  if (!workflow.nodes.find((n) => n.name === REAL_NODE))
+    throw new Error(`applyHandoffWritePath: required node not found: ${REAL_NODE}`);
+  if (!workflow.nodes.find((n) => n.name === STUB_NODE))
+    throw new Error(`applyHandoffWritePath: required stub node not found: ${STUB_NODE}. Run after applyShadowModeDryRunGates.`);
+
+  const NULL_SENTINEL = '__NULL__';
+  function pgParam(innerExpr) {
+    return `={{ ((${innerExpr}) != null && String(${innerExpr}).trim() !== '') ? String(${innerExpr}).trim() : '${NULL_SENTINEL}' }}`;
+  }
+
+  const REASON_MAP_JS = `({
+    existing_booking_cancel:'cancellation_request',
+    existing_booking_modify:'date_change_paid_booking',
+    existing_booking:'staff_required',
+    payment_completed_claim:'payment_claimed',
+    human_handoff:'unclear_request'
+  })`;
+
+  const PRIORITY_MAP_JS = `({
+    cancellation_request:'high',
+    date_change_paid_booking:'high',
+    payment_claimed:'high',
+    payment_claimed_no_record:'urgent',
+    guest_angry:'urgent',
+    unclear_request:'normal',
+    staff_required:'normal',
+    manual_rooming_review:'normal',
+    add_on_staff_required:'normal'
+  })`;
+
+  const bsrResult = `$('Code - Booking State Resolver').first().json`;
+  const normMsg   = `$('Normalize Incoming Message').first().json`;
+
+  const convIdExpr = `(() => {
+    try {
+      const id = $('Postgres - Upsert Conversation Hold').first().json?.id;
+      return id || '${NULL_SENTINEL}';
+    } catch(_) { return '${NULL_SENTINEL}'; }
+  })()`;
+
+  const bookingIdExpr = `(() => {
+    try {
+      const id = $('Postgres - Ensure Booking In Postgres').first().json?.booking_id;
+      return id || '${NULL_SENTINEL}';
+    } catch(_) {
+      try {
+        const id = $('Code - Validate PG Hold').first().json?.booking_id;
+        return id || '${NULL_SENTINEL}';
+      } catch(_) { return '${NULL_SENTINEL}'; }
+    }
+  })()`;
+
+  const reasonCodeExpr = `${REASON_MAP_JS}[${bsrResult}.resolved_route] || (${bsrResult}.has_escalation_signals ? 'guest_angry' : 'staff_required')`;
+  const priorityExpr   = `${PRIORITY_MAP_JS}[${REASON_MAP_JS}[${bsrResult}.resolved_route] || 'staff_required'] || 'normal'`;
+  const summaryExpr    = `'Luna handoff: ' + (${bsrResult}.resolved_route || 'unknown') + ' (stage5.9)'`;
+  const guestMsgExpr   = `${normMsg}.message_text || ''`;
+  const langExpr       = `${bsrResult}.language || 'en'`;
+  const metadataExpr   = `JSON.stringify({ resolved_route: ${bsrResult}.resolved_route, router_route: ${bsrResult}.router_route, confidence: ${bsrResult}.confidence, bot_version: 'stage5.9' })`;
+
+  const handoffQueryReplacement = [
+    `={{ 'wolfhouse-somo' }}`,
+    pgParam(convIdExpr),
+    pgParam(bookingIdExpr),
+    pgParam(`${normMsg}.phone`),
+    pgParam(reasonCodeExpr),
+    pgParam(summaryExpr),
+    pgParam(priorityExpr),
+    pgParam(guestMsgExpr),
+    pgParam(langExpr),
+    pgParam(metadataExpr),
+  ].join(',');
+
+  const handoffNode = {
+    parameters: {
+      operation: 'executeQuery',
+      query: buildHandoffInsertSql(),
+      options: { queryReplacement: handoffQueryReplacement },
+    },
+    type: 'n8n-nodes-base.postgres',
+    typeVersion: 2.5,
+    position: [2680, -60],
+    id: '5e900001-0001-4000-8000-000000000901',
+    name: HANDOFF_PG,
+    alwaysOutputData: true,
+    credentials: { postgres: { id: '', name: 'Wolfhouse Postgres (local)' } },
+  };
+
+  workflow.nodes.push(handoffNode);
+
+  // Wire real Airtable node → Postgres - Open Staff Handoff
+  workflow.connections[REAL_NODE] = {
+    main: [[{ node: HANDOFF_PG, type: 'main', index: 0 }]],
+  };
+  // Wire DRY RUN stub → Postgres - Open Staff Handoff
+  workflow.connections[STUB_NODE] = {
+    main: [[{ node: HANDOFF_PG, type: 'main', index: 0 }]],
+  };
+
+  console.log(
+    'applyHandoffWritePath: Postgres - Open Staff Handoff added after human-handoff path (Stage 5.9)'
+  );
+}
+
+/**
+ * Verifies the Stage 5.9 handoff write path is correctly wired.
+ *
+ * @param {object} workflow
+ * @returns {{ ok: boolean, errors: string[] }}
+ */
+function verifyHandoffWritePath(workflow) {
+  const errors = [];
+  const REAL_NODE   = 'Update Conversation - Human Handoff';
+  const STUB_NODE   = 'Code - DRY RUN Stub (Update Conversation - Human Handoff)';
+  const HANDOFF_PG  = 'Postgres - Open Staff Handoff';
+  const PROTECTED   = ['bookings', 'payments', 'payment_events', 'booking_beds'];
+
+  const node = workflow.nodes.find((n) => n.name === HANDOFF_PG);
+  if (!node) { errors.push(`${HANDOFF_PG} node missing`); return { ok: false, errors }; }
+
+  const sql = node.parameters?.query || '';
+  if (!sql.includes('staff_handoffs')) errors.push('SQL does not reference staff_handoffs');
+
+  for (const tbl of PROTECTED) {
+    if (new RegExp(`\\bINSERT\\s+INTO\\s+${tbl}\\b`, 'i').test(sql))
+      errors.push(`SQL has INSERT INTO protected table: ${tbl}`);
+    if (new RegExp(`\\bUPDATE\\s+${tbl}\\b`, 'i').test(sql))
+      errors.push(`SQL has UPDATE protected table: ${tbl}`);
+  }
+
+  if (!/NOT EXISTS|ON CONFLICT/i.test(sql)) errors.push('SQL missing idempotency guard (NOT EXISTS or ON CONFLICT)');
+  if (node.type !== 'n8n-nodes-base.postgres') errors.push(`Node type should be postgres, got: ${node.type}`);
+  if (!node.alwaysOutputData) errors.push('alwaysOutputData should be true');
+
+  const realConns = (workflow.connections[REAL_NODE]?.main?.[0] || []).map((c) => c.node);
+  if (!realConns.includes(HANDOFF_PG))
+    errors.push(`${REAL_NODE} does not connect to ${HANDOFF_PG}`);
+
+  const stubConns = (workflow.connections[STUB_NODE]?.main?.[0] || []).map((c) => c.node);
+  if (!stubConns.includes(HANDOFF_PG))
+    errors.push(`${STUB_NODE} does not connect to ${HANDOFF_PG}`);
+
+  const ok = errors.length === 0;
+  if (ok) {
+    console.log('Handoff write path verify (Stage 5.9): OK');
+  } else {
+    console.error(`Handoff write path verify (Stage 5.9): FAIL (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  ${e}`);
+  }
+  return { ok, errors };
+}
+
 function applyHumanActivePaymentLinkBypass(workflow) {
   const ifNeedsHuman = workflow.nodes.find((n) => n.name === 'IF - Needs Human');
   if (!ifNeedsHuman?.parameters?.conditions?.conditions?.[0]) {
@@ -4698,6 +4942,7 @@ applyShadowModeDryRunGates(workflow); // Stage 3y: full offline safety for Mode 
 applyStage52FixtureHoldGuard(workflow); // Stage 5.2d: fixture hold guard (after shadow gates)
 applyStage53FixtureEnsureGuard(workflow); // Stage 5.3d: fixture ensure-promote guard (after shadow gates)
 applyStage53FixtureHoldSearchStub(workflow); // Stage 5.3e: fixture hold-search stub (bypasses Airtable hold search for fixture phone)
+applyHandoffWritePath(workflow); // Stage 5.9: wire Postgres - Open Staff Handoff after human-handoff path
 applyHumanActivePaymentLinkBypass(workflow);
 applyPostgresCredentialMapping(workflow);
 const reassignRemap = applyLocalReassignWebhookRemap(workflow);
@@ -4720,6 +4965,7 @@ workflow.tags = [
   { name: 'stage4-addons-prompt' }, // Stage 4 A9: service_addons pricing injected into Reply - General Question
   { name: 'stage5.1c-sess-write' }, // Stage 5.1c: non-hold PG session write on missing-fields path
   { name: 'stage5.2d-fixture-guard' }, // Stage 5.2d: fixture hold guard for real hold write
+  { name: 'stage5.9-handoff-write' },  // Stage 5.9: Postgres - Open Staff Handoff write path
 ];
 
 if (reassignRemap.patched > 0) {
@@ -4809,6 +5055,7 @@ module.exports = {
   verifySummarizeHoldsPGPrimary,
   verifyEnsurePromoteInsertDefaults,
   verifyStage52FixtureGuard,
+  verifyHandoffWritePath,
   SERVICE_ADDONS_CONFIG,
   OUT,
   PROD_AIRTABLE_BASE_ID,

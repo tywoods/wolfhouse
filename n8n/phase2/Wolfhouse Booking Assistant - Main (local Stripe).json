@@ -24920,6 +24920,30 @@
         "jsCode": "// Stage 5.3e: force payment_details_provided route for fixture phone.\n// Without this, Router - Classify Message returns booking_flow (no Airtable context for fixture phone).\nconst orig = (() => { try { return $('Code - Booking State Resolver').first().json; } catch(e) { return {}; } })();\nreturn [{ json: {\n  ...orig,\n  route: 'payment_details_provided',\n  resolved_route: 'payment_details_provided',\n  has_payment_link_intent: true,\n  hasContact: true,\n  stage53_fixture_bsr_override: true,\n}}];"
       },
       "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO staff_handoffs (\n  client_id, conversation_id, booking_id, phone,\n  reason_code, summary, priority, status,\n  guest_message, language, metadata\n)\nSELECT\n  c.id,\n  NULLIF($2, '__NULL__')::uuid,\n  NULLIF($3, '__NULL__')::uuid,\n  $4,\n  $5,\n  $6,\n  $7,\n  'open',\n  $8,\n  COALESCE(NULLIF($9, '__NULL__'), 'en'),\n  COALESCE(NULLIF($10, '__NULL__'), '{}')::jsonb\nFROM clients c\nWHERE c.slug = $1\n  AND NOT EXISTS (\n    SELECT 1 FROM staff_handoffs h2\n    WHERE h2.client_id = c.id\n      AND h2.phone = $4\n      AND h2.reason_code = $5\n      AND h2.status IN ('open', 'assigned', 'waiting_guest')\n  )\nRETURNING id::text AS handoff_id, reason_code, status, phone, opened_at",
+        "options": {
+          "queryReplacement": "={{ 'wolfhouse-somo' }},={{ (((() => {\n    try {\n      const id = $('Postgres - Upsert Conversation Hold').first().json?.id;\n      return id || '__NULL__';\n    } catch(_) { return '__NULL__'; }\n  })()) != null && String((() => {\n    try {\n      const id = $('Postgres - Upsert Conversation Hold').first().json?.id;\n      return id || '__NULL__';\n    } catch(_) { return '__NULL__'; }\n  })()).trim() !== '') ? String((() => {\n    try {\n      const id = $('Postgres - Upsert Conversation Hold').first().json?.id;\n      return id || '__NULL__';\n    } catch(_) { return '__NULL__'; }\n  })()).trim() : '__NULL__' }},={{ (((() => {\n    try {\n      const id = $('Postgres - Ensure Booking In Postgres').first().json?.booking_id;\n      return id || '__NULL__';\n    } catch(_) {\n      try {\n        const id = $('Code - Validate PG Hold').first().json?.booking_id;\n        return id || '__NULL__';\n      } catch(_) { return '__NULL__'; }\n    }\n  })()) != null && String((() => {\n    try {\n      const id = $('Postgres - Ensure Booking In Postgres').first().json?.booking_id;\n      return id || '__NULL__';\n    } catch(_) {\n      try {\n        const id = $('Code - Validate PG Hold').first().json?.booking_id;\n        return id || '__NULL__';\n      } catch(_) { return '__NULL__'; }\n    }\n  })()).trim() !== '') ? String((() => {\n    try {\n      const id = $('Postgres - Ensure Booking In Postgres').first().json?.booking_id;\n      return id || '__NULL__';\n    } catch(_) {\n      try {\n        const id = $('Code - Validate PG Hold').first().json?.booking_id;\n        return id || '__NULL__';\n      } catch(_) { return '__NULL__'; }\n    }\n  })()).trim() : '__NULL__' }},={{ (($('Normalize Incoming Message').first().json.phone) != null && String($('Normalize Incoming Message').first().json.phone).trim() !== '') ? String($('Normalize Incoming Message').first().json.phone).trim() : '__NULL__' }},={{ ((({\n    existing_booking_cancel:'cancellation_request',\n    existing_booking_modify:'date_change_paid_booking',\n    existing_booking:'staff_required',\n    payment_completed_claim:'payment_claimed',\n    human_handoff:'unclear_request'\n  })[$('Code - Booking State Resolver').first().json.resolved_route] || ($('Code - Booking State Resolver').first().json.has_escalation_signals ? 'guest_angry' : 'staff_required')) != null && String(({\n    existing_booking_cancel:'cancellation_request',\n    existing_booking_modify:'date_change_paid_booking',\n    existing_booking:'staff_required',\n    payment_completed_claim:'payment_claimed',\n    human_handoff:'unclear_request'\n  })[$('Code - Booking State Resolver').first().json.resolved_route] || ($('Code - Booking State Resolver').first().json.has_escalation_signals ? 'guest_angry' : 'staff_required')).trim() !== '') ? String(({\n    existing_booking_cancel:'cancellation_request',\n    existing_booking_modify:'date_change_paid_booking',\n    existing_booking:'staff_required',\n    payment_completed_claim:'payment_claimed',\n    human_handoff:'unclear_request'\n  })[$('Code - Booking State Resolver').first().json.resolved_route] || ($('Code - Booking State Resolver').first().json.has_escalation_signals ? 'guest_angry' : 'staff_required')).trim() : '__NULL__' }},={{ (('Luna handoff: ' + ($('Code - Booking State Resolver').first().json.resolved_route || 'unknown') + ' (stage5.9)') != null && String('Luna handoff: ' + ($('Code - Booking State Resolver').first().json.resolved_route || 'unknown') + ' (stage5.9)').trim() !== '') ? String('Luna handoff: ' + ($('Code - Booking State Resolver').first().json.resolved_route || 'unknown') + ' (stage5.9)').trim() : '__NULL__' }},={{ ((({\n    cancellation_request:'high',\n    date_change_paid_booking:'high',\n    payment_claimed:'high',\n    payment_claimed_no_record:'urgent',\n    guest_angry:'urgent',\n    unclear_request:'normal',\n    staff_required:'normal',\n    manual_rooming_review:'normal',\n    add_on_staff_required:'normal'\n  })[({\n    existing_booking_cancel:'cancellation_request',\n    existing_booking_modify:'date_change_paid_booking',\n    existing_booking:'staff_required',\n    payment_completed_claim:'payment_claimed',\n    human_handoff:'unclear_request'\n  })[$('Code - Booking State Resolver').first().json.resolved_route] || 'staff_required'] || 'normal') != null && String(({\n    cancellation_request:'high',\n    date_change_paid_booking:'high',\n    payment_claimed:'high',\n    payment_claimed_no_record:'urgent',\n    guest_angry:'urgent',\n    unclear_request:'normal',\n    staff_required:'normal',\n    manual_rooming_review:'normal',\n    add_on_staff_required:'normal'\n  })[({\n    existing_booking_cancel:'cancellation_request',\n    existing_booking_modify:'date_change_paid_booking',\n    existing_booking:'staff_required',\n    payment_completed_claim:'payment_claimed',\n    human_handoff:'unclear_request'\n  })[$('Code - Booking State Resolver').first().json.resolved_route] || 'staff_required'] || 'normal').trim() !== '') ? String(({\n    cancellation_request:'high',\n    date_change_paid_booking:'high',\n    payment_claimed:'high',\n    payment_claimed_no_record:'urgent',\n    guest_angry:'urgent',\n    unclear_request:'normal',\n    staff_required:'normal',\n    manual_rooming_review:'normal',\n    add_on_staff_required:'normal'\n  })[({\n    existing_booking_cancel:'cancellation_request',\n    existing_booking_modify:'date_change_paid_booking',\n    existing_booking:'staff_required',\n    payment_completed_claim:'payment_claimed',\n    human_handoff:'unclear_request'\n  })[$('Code - Booking State Resolver').first().json.resolved_route] || 'staff_required'] || 'normal').trim() : '__NULL__' }},={{ (($('Normalize Incoming Message').first().json.message_text || '') != null && String($('Normalize Incoming Message').first().json.message_text || '').trim() !== '') ? String($('Normalize Incoming Message').first().json.message_text || '').trim() : '__NULL__' }},={{ (($('Code - Booking State Resolver').first().json.language || 'en') != null && String($('Code - Booking State Resolver').first().json.language || 'en').trim() !== '') ? String($('Code - Booking State Resolver').first().json.language || 'en').trim() : '__NULL__' }},={{ ((JSON.stringify({ resolved_route: $('Code - Booking State Resolver').first().json.resolved_route, router_route: $('Code - Booking State Resolver').first().json.router_route, confidence: $('Code - Booking State Resolver').first().json.confidence, bot_version: 'stage5.9' })) != null && String(JSON.stringify({ resolved_route: $('Code - Booking State Resolver').first().json.resolved_route, router_route: $('Code - Booking State Resolver').first().json.router_route, confidence: $('Code - Booking State Resolver').first().json.confidence, bot_version: 'stage5.9' })).trim() !== '') ? String(JSON.stringify({ resolved_route: $('Code - Booking State Resolver').first().json.resolved_route, router_route: $('Code - Booking State Resolver').first().json.router_route, confidence: $('Code - Booking State Resolver').first().json.confidence, bot_version: 'stage5.9' })).trim() : '__NULL__' }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2680,
+        -60
+      ],
+      "id": "5e900001-0001-4000-8000-000000000901",
+      "name": "Postgres - Open Staff Handoff",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MnnrrLecI7oVoIGq",
+          "name": "Wolfhouse Postgres (local)"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -29058,6 +29082,28 @@
           }
         ]
       ]
+    },
+    "Update Conversation - Human Handoff": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Open Staff Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - DRY RUN Stub (Update Conversation - Human Handoff)": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Open Staff Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -29137,6 +29183,9 @@
     },
     {
       "name": "stage5.2d-fixture-guard"
+    },
+    {
+      "name": "stage5.9-handoff-write"
     }
   ]
 }

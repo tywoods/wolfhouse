@@ -1993,3 +1993,41 @@ All staff-queryable data schemas are stubbed, proven queryable, and migration-re
 **Bugfix discovered:** `getNeedsHumanWithoutOpenHandoffQuery()` in `staff-handoff-queries.js` joined `conversations` via `conv.hostel_id` — this column was renamed to `client_id` in migration 003. Fixed.
 
 **Artifacts:** `scripts/verify-stage5-migrations-smoke.js`, `scripts/lib/staff-handoff-queries.js` (bugfix).
+
+---
+
+## Stage 5.9b — Wire Luna Staff Handoff Write Path (**PASS** 2026-05-31)
+
+**Status:** **PASS** — `Postgres - Open Staff Handoff` node wired into Main workflow after the human-handoff path; dry-run runtime gate proved handoff row created; idempotency confirmed; protected table counts unchanged; cleanup complete.
+
+**Static implementation:**
+- `buildHandoffInsertSql()` — NOT EXISTS–guarded INSERT into `staff_handoffs` (phone+reason+active-status dedup). 10 positional params: client_slug, conversation_id, booking_id, phone, reason_code, summary, priority, guest_message, language, metadata.
+- `applyHandoffWritePath(workflow)` — adds `Postgres - Open Staff Handoff` node (type: postgres, executeQuery, alwaysOutputData:true) and wires it after both `Update Conversation - Human Handoff` (real) and `Code - DRY RUN Stub (Update Conversation - Human Handoff)` (dry-run). reason_code mapped inline from BSR `resolved_route`.
+- `verifyHandoffWritePath(workflow)` — asserts node exists, SQL targets `staff_handoffs`, no protected table mutations, idempotency guard present, both branches wired.
+- Tag `stage5.9-handoff-write` added to workflow.
+- All static checks green: `--verify-targets`, `verify-staff-handoff-queries.js`, `verify-staff-handoff-write-sql.js`, `verify-staff-payment-queries.js`, payment/rooming contracts.
+
+**Runtime gate (fixture phone: +34600000180, execution 1247):**
+| Proof | Result |
+|---|---|
+| `Postgres - Open Staff Handoff` node fired on A7 cancellation/refund message | ✅ |
+| `staff_handoffs` row created (`reason_code=unclear_request`, `status=open`, `priority=normal`) | ✅ |
+| Reason `unclear_request` — BSR routed `human_handoff` (no existing booking context for phone) | ✅ |
+| `getOpenHandoffsQuery()` returns 1 fixture row | ✅ |
+| Idempotency: second message with same phone+reason → 0 new rows (NOT EXISTS guard fired) | ✅ |
+| `bookings` Δ=0 (41→41) | ✅ |
+| `payments` Δ=0 (25→25) | ✅ |
+| `payment_events` Δ=0 (5→5) | ✅ |
+| `booking_beds` Δ=0 (15→15) | ✅ |
+| No real WhatsApp send | ✅ (WHATSAPP_DRY_RUN=true) |
+| No Airtable writes | ✅ (shadow gate stubs active) |
+| Main deactivated immediately after gate | ✅ |
+| Cleanup: `staff_handoffs` fixture rows restored to 0 | ✅ |
+| Post-cleanup all counts baseline | ✅ |
+
+**Note:** `conversation_id` in handoff row is NULL because the human-handoff path fires before a Postgres conversation hold is established. This is expected for new phones with no existing hold.
+
+**Deferrals carried forward:**
+- conversation_id linkage to staff_handoffs: requires conversation hold established before handoff fires (or post-hoc backfill)
+- Bot auto-resolve handoffs: requires write path operational (now done) + resolve SQL wired
+- Historical `needs_human=TRUE` backfill to staff_handoffs: post-pilot
