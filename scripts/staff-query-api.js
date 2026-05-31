@@ -51,6 +51,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { withPgClient }       = require('./lib/pg-connect');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
+const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -61,6 +62,16 @@ const DEFAULT_CLIENT     = 'wolfhouse-somo';
 const MAX_ROWS           = 500;
 const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
+
+// Write endpoint config — disabled unless explicitly enabled
+const STAFF_ACTIONS_ENABLED = process.env.STAFF_ACTIONS_ENABLED === 'true';
+const STAFF_OPERATOR_TOKEN  = process.env.STAFF_OPERATOR_TOKEN || '';
+
+// Only handoff.resolve is allowed in v1
+const WRITE_ACTION_ALLOWLIST = ['handoff.resolve'];
+
+// Matches: /staff/handoff/<uuid>/resolve
+const WRITE_HANDOFF_RE = /^\/staff\/handoff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/resolve$/i;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Maps URL query param names → registry param names
@@ -280,6 +291,162 @@ async function handleQuery(query, res) {
     rows:            sliced,
     elapsed_ms:      elapsed,
     migration_note:  entry.migrationRequired || null,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/handoff/:id/resolve  (Stage 6.9 — token-gated write)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => {
+      chunks.push(chunk);
+      if (Buffer.concat(chunks).length > 10240) req.destroy(new Error('body too large'));
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+async function handleResolveHandoff(handoffId, req, res) {
+  const started = Date.now();
+
+  // ── Feature flag gate ──────────────────────────────────────────────────────
+  if (!STAFF_ACTIONS_ENABLED) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'action:api:handoff.resolve',
+      category: 'staff_write', handoff_id: handoffId,
+      success: false, error: 'feature_flag_disabled', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+    });
+  }
+
+  // ── Token gate ─────────────────────────────────────────────────────────────
+  const providedToken = (req.headers['x-staff-operator-token'] || '').trim();
+  if (!STAFF_OPERATOR_TOKEN || !providedToken || providedToken !== STAFF_OPERATOR_TOKEN) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'action:api:handoff.resolve',
+      category: 'staff_write', handoff_id: handoffId,
+      success: false, error: 'invalid_token', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 401, { success: false, error: 'Missing or invalid x-staff-operator-token header.' });
+  }
+
+  // ── Parse body ─────────────────────────────────────────────────────────────
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = (String(body.client     || DEFAULT_CLIENT)).trim();
+  const resolutionRaw  = String(body.resolution  || '').trim();
+  const staffName      = String(body.staff       || 'Staff').trim().slice(0, 200);
+  const confirmFlag    = body.confirm;
+
+  // ── Validate body ──────────────────────────────────────────────────────────
+  if (confirmFlag !== true) {
+    return send400(res, 'confirm: true is required in request body');
+  }
+  if (!resolutionRaw) {
+    return send400(res, 'resolution is required and must be non-empty');
+  }
+  if (SQL_INJECT_RE.test(resolutionRaw) || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'unsafe characters in request body');
+  }
+  const resolutionText = resolutionRaw.slice(0, 1000);
+
+  const auditBase = {
+    ts:          new Date().toISOString(),
+    intent:      'action:api:handoff.resolve',
+    category:    'staff_write',
+    client_slug: clientSlug,
+    handoff_id:  handoffId,
+    staff:       staffName,
+  };
+
+  // ── Lookup target row ──────────────────────────────────────────────────────
+  let handoff;
+  try {
+    handoff = await withPgClient(async (pgClient) => {
+      const result = await pgClient.query(
+        `SELECT h.id::text, h.status, h.reason_code, h.phone
+         FROM staff_handoffs h
+         JOIN clients c ON c.id = h.client_id
+         WHERE h.id = $1::uuid AND c.slug = $2`,
+        [handoffId, clientSlug]
+      );
+      return result.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: 'lookup_failed: ' + err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'handoff lookup failed' });
+  }
+
+  if (!handoff) {
+    appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, {
+      success: false,
+      error:   `handoff ${handoffId} not found or client mismatch`,
+    });
+  }
+
+  // ── Idempotency: already resolved/cancelled ────────────────────────────────
+  if (handoff.status === 'resolved' || handoff.status === 'cancelled') {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, already_resolved: true, status_before: handoff.status, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success:          true,
+      action:           'handoff.resolve',
+      handoff_id:       handoffId,
+      already_resolved: true,
+      status_before:    handoff.status,
+      status_after:     handoff.status,
+      elapsed_ms:       elapsed,
+    });
+  }
+
+  // ── Execute write ──────────────────────────────────────────────────────────
+  let updated;
+  try {
+    const sql = resolveHandoffSql();
+    updated = await withPgClient(async (pgClient) => {
+      const result = await pgClient.query(sql, [clientSlug, handoffId, resolutionText]);
+      return result.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success:       true,
+    already_resolved: false,
+    status_before: handoff.status,
+    status_after:  'resolved',
+    elapsed_ms:    elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success:          true,
+    action:           'handoff.resolve',
+    handoff_id:       handoffId,
+    status_before:    handoff.status,
+    status_after:     'resolved',
+    already_resolved: false,
+    resolution:       resolutionText,
+    staff:            staffName,
+    resolved_at:      updated ? updated.resolved_at : null,
+    elapsed_ms:       elapsed,
   });
 }
 
@@ -528,7 +695,17 @@ async function router(req, res) {
   const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
   const method   = req.method.toUpperCase();
 
-  // Only GET is allowed
+  // ── POST /staff/handoff/:id/resolve (Stage 6.9 — write endpoint) ──────────
+  const writeMatch = WRITE_HANDOFF_RE.exec(pathname);
+  if (writeMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for write endpoint' }));
+    }
+    return handleResolveHandoff(writeMatch[1], req, res);
+  }
+
+  // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
     return send405(res);
   }
@@ -571,12 +748,16 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\nWolfhouse staff query API + UI (Stage 6.8) running on http://127.0.0.1:${PORT}`);
+  console.log(`\nWolfhouse staff query API + UI (Stage 6.8/6.9) running on http://127.0.0.1:${PORT}`);
   console.log('  Read-only. Local/dev only. No auth.');
+  console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED (set STAFF_ACTIONS_ENABLED=true to enable)'}`);
   console.log('  Endpoints:');
-  console.log(`    GET http://127.0.0.1:${PORT}/staff/ui       <- browser UI`);
-  console.log(`    GET http://127.0.0.1:${PORT}/staff/intents`);
-  console.log(`    GET http://127.0.0.1:${PORT}/staff/query?client=wolfhouse-somo&intent=payments.waiting`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/ui       <- browser UI`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/intents`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/query?client=wolfhouse-somo&intent=payments.waiting`);
+  if (STAFF_ACTIONS_ENABLED) {
+    console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve  <- requires x-staff-operator-token`);
+  }
   console.log('\nCtrl+C to stop.\n');
 });
 

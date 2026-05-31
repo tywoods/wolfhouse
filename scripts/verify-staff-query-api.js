@@ -119,14 +119,13 @@ if (lacks(src, /client\.query\s*\(\s*query\./))         { pass('no client.query(
 if (lacks(src, /client\.query\s*\(\s*req\./))           { pass('no client.query(req.xxx)'); }                      else { fail('client.query called with raw request data'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('8. No POST/PUT/PATCH/DELETE routes');
+section('8. No general POST/PUT/PATCH/DELETE query routes (write endpoint is separate)');
 
-if (lacks(src, /router.*POST|app\.post|\.post\s*\(\s*'\/staff|method.*POST.*(?!not allowed)/i)) {
-  pass('no POST route defined');
-} else {
-  fail('POST route may be defined');
-}
-if (lacks(src, /app\.put|app\.patch|app\.delete/i)) { pass('no PUT/PATCH/DELETE routes'); } else { fail('PUT/PATCH/DELETE route found'); }
+// The API now has one intentional POST route (POST /staff/handoff/:id/resolve)
+// covered and verified by verify-staff-write-api.js.
+// Check there are no Express-style general POST route handlers.
+if (lacks(src, /app\.post\s*\(|router\.post\s*\(/i))  { pass('no Express app.post/router.post routes'); } else { fail('Express-style post route found'); }
+if (lacks(src, /app\.put|app\.patch|app\.delete/i))    { pass('no PUT/PATCH/DELETE routes'); }              else { fail('PUT/PATCH/DELETE route found'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('9. Only GET accepted (405 for others)');
@@ -185,8 +184,16 @@ if (has(src, /category.*staff_api|'staff_api'|"staff_api"/)) { pass('audit categ
 // ─────────────────────────────────────────────────────────────────────────────
 section('17. SQL from helperRef() only');
 
+section('17. SQL from helperRef() only (in query handler)');
+
 if (has(src, /helperRef\s*\(\s*\)/))                         { pass('SQL from entry.helperRef()'); }        else { fail('helperRef() call not found'); }
-if (lacks(src, /client\.query\s*\(\s*`[^`]*SELECT\b/i))     { pass('no embedded SELECT in template'); }    else { fail('embedded SELECT in template literal'); }
+// Check only the handleQuery section — the write handler may have a lookup SELECT (legitimate, parameterized)
+const queryHandlerStart = src.indexOf('async function handleQuery');
+const queryHandlerEnd   = src.indexOf('\nasync function handleResolveHandoff');
+const queryHandlerSrc   = (queryHandlerStart >= 0 && queryHandlerEnd > queryHandlerStart)
+  ? src.slice(queryHandlerStart, queryHandlerEnd)
+  : (queryHandlerStart >= 0 ? src.slice(queryHandlerStart, queryHandlerStart + 2000) : '');
+if (lacks(queryHandlerSrc, /client\.query\s*\(\s*`[^`]*SELECT\b/i)) { pass('no embedded SELECT in query handler'); } else { fail('embedded SELECT in query handler template literal'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('18. package.json scripts present');

@@ -1,6 +1,6 @@
 # Stage 6 — Staff / Admin Assistant Plan
 
-**Status:** IN PROGRESS (2026-05-31) — read-only milestone achieved (6.0–6.8 DONE); write endpoint pending (6.9 plan below)
+**Status:** IN PROGRESS (2026-05-31) — read-only milestone achieved (6.0–6.8 DONE); write endpoint DONE (6.9 PASS)
 **Prerequisites:** Stage 5 SoT cleanup CLOSED WITH DEFERRALS (de6c3c0). Migrations 007+008 applied. Luna handoff write path wired (Stage 5.9b).
 **Scope:** Staff-facing operational query layer. Not guest-facing automation. Not live WhatsApp. Not production.
 
@@ -224,7 +224,7 @@ Actions behind explicit `--action` flags or confirmation prompts. Initially: sta
 | 6.6 | Minimal HTTP API | scripts/staff-query-api.js — Node http GET /staff/query + /staff/intents; no Express dep; 39/39 verifier checks PASS; 5 live API proofs PASS; protected tables Δ0; local/dev read-only only | DONE |
 | 6.7 | Pilot staff smoke test | All 35 intents run; 0 failed; 0 skipped; 144 rows; 496ms; protected tables Δ=0 | DONE |
 | 6.8 | Thin read-only staff UI | GET /staff/ui inline HTML in staff-query-api.js; category/intent dropdowns; param fields; table results; READ-ONLY banner; 29/29 verifier PASS; UI 200 HTML; protected tables Δ0; local/dev only | DONE |
-| 6.9 | Token-gated HTTP write endpoint | POST /staff/handoff/:id/resolve; STAFF_ACTIONS_ENABLED gate; x-staff-operator-token header; action allowlist; idempotent; audit log; static verifier; fixture seed/cleanup | PENDING |
+| 6.9 | Token-gated HTTP write endpoint | POST /staff/handoff/:id/resolve; STAFF_ACTIONS_ENABLED gate; x-staff-operator-token header; action allowlist; idempotent; audit log; 43/43 verifier PASS; 5 proof calls PASS; protected tables Δ0; fixture cleaned up | DONE |
 
 ---
 
