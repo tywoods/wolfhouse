@@ -53,7 +53,9 @@
     "report:handoff-queue": "node scripts/report-staff-handoff-queue.js",
     "report:payments": "node scripts/report-staff-payments.js",
     "report:rooming": "node scripts/report-staff-rooming.js",
-    "report:addons": "node scripts/report-staff-addons.js"
+    "report:addons": "node scripts/report-staff-addons.js",
+    "verify:report-staff-digest": "node scripts/verify-report-staff-digest.js",
+    "report:digest": "node scripts/report-staff-digest.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
