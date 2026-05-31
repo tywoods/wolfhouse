@@ -899,6 +899,41 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:#f
 .kv .v{font-size:13px;color:#2c3e50;font-weight:500}
 .back-btn{background:none;border:none;color:#2980b9;cursor:pointer;font-size:13px;padding:0;margin-bottom:12px}
 .back-btn:hover{text-decoration:underline}
+/* ── Detail two-column layout ────────────────────────────────────────────── */
+.detail-layout{display:flex;gap:16px;align-items:flex-start;margin-top:14px}
+.detail-main{flex:1;min-width:0}
+.detail-sidebar{width:280px;flex-shrink:0}
+@media(max-width:860px){.detail-layout{flex-direction:column}.detail-sidebar{width:100%}}
+/* ── Message thread ──────────────────────────────────────────────────────── */
+.thread-section h3{font-size:12px;font-weight:700;color:#7f8c8d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.thread{display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;padding:12px;background:#f8f9fb;border:1px solid #eef0f3;border-radius:8px}
+.msg{display:flex;flex-direction:column;max-width:82%}
+.msg.inbound{align-self:flex-start}
+.msg.outbound{align-self:flex-end}
+.msg-bubble{padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.msg.inbound .msg-bubble{background:#ebf5fb;color:#1a2e3e;border-bottom-left-radius:3px}
+.msg.outbound .msg-bubble{background:#eafaf1;color:#1a3a2a;border-bottom-right-radius:3px}
+.msg-meta{font-size:10px;color:#9aabb8;margin-top:3px}
+.msg.outbound .msg-meta{text-align:right}
+.thread-empty{color:#9aabb8;text-align:center;padding:24px;font-size:13px;font-style:italic}
+/* ── Luna draft panel ────────────────────────────────────────────────────── */
+.draft-panel{margin-top:16px;padding-top:14px;border-top:1px solid #eef0f3}
+.draft-label{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.draft-label h3{font-size:12px;font-weight:700;color:#7f8c8d;text-transform:uppercase;letter-spacing:.06em;margin:0}
+.draft-not-sent{background:#fdecea;color:#c0392b;font-size:10px;font-weight:700;letter-spacing:.06em;padding:2px 7px;border-radius:3px;white-space:nowrap}
+#draft-textarea{width:100%;min-height:100px;border:1px solid #cdd5df;border-radius:6px;padding:10px 12px;font-size:13px;line-height:1.5;font-family:inherit;resize:vertical;background:#fff;color:#2c3e50}
+#draft-textarea:focus{outline:none;border-color:#f39c12}
+.draft-actions{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.draft-warning{font-size:11px;color:#e67e22;flex:1;min-width:180px}
+.btn-copy{background:#f39c12;color:#fff;border:none;border-radius:5px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn-copy:hover{background:#d68910}
+.btn-send-disabled{background:#bdc3c7;color:#fff;border:none;border-radius:5px;padding:7px 14px;font-size:12px;font-weight:700;cursor:not-allowed;opacity:.7;white-space:nowrap}
+.copy-confirm{font-size:11px;color:#27ae60;font-weight:700}
+/* ── Sidebar cards ───────────────────────────────────────────────────────── */
+.sidebar-card{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.sidebar-card h3{font-size:11px;font-weight:700;color:#7f8c8d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+.kv2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.kv2 .kv{font-size:12px}
 /* ── Empty / loading / error ─────────────────────────────────────────────── */
 .state-msg{text-align:center;padding:40px 0;color:#9aabb8;font-size:13px}
 .state-msg.error{color:#c0392b;background:#fdf2f2;border:1px solid #e74c3c;border-radius:6px;padding:14px 18px;text-align:left}
@@ -925,7 +960,7 @@ input:focus,select:focus{outline:none;border-color:#3498db}
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
   <div class="brand">Luna Front Desk &mdash; <em>Cami Dashboard</em></div>
-  <span class="badge-sm">Stage 7.7c</span>
+  <span class="badge-sm">Stage 7.7d</span>
   <span class="badge">READ-ONLY &bull; SHADOW MODE</span>
 </div>
 
@@ -1152,102 +1187,210 @@ function loadInbox(){
     });
 }
 
-/* Load conversation detail */
+/* Load conversation detail — Stage 7.7d: fetches all 5 sub-endpoints */
 function loadConvDetail(convId){
   selectedConvId = convId;
   el('conv-detail').classList.add('visible');
   el('detail-content').innerHTML = '<div class="state-msg">Loading\u2026</div>';
 
-  fetch('/staff/conversations/' + encodeURIComponent(convId) + '?client=' + encodeURIComponent(getClient()))
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(data){
-      if (!data.success) throw new Error(data.error || 'API error');
-      var c = data.conversation;
-      var html = '';
-      html += '<div class="detail-header">';
-      html +=   '<div>';
-      html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
-      html +=     '<div class="detail-meta">' + escHtml(c.phone) +
-                  (c.language ? ' &bull; ' + escHtml(c.language) : '') +
-                  ' &bull; Stage: ' + escHtml(c.conversation_stage || '—') + '</div>';
-      html +=   '</div>';
-      html +=   '<div style="margin-left:auto;display:flex;gap:6px;align-items:flex-start">';
-      html +=     modePill(c.bot_mode);
-      if (c.needs_human) html += '<span class="pill pill-orange">NEEDS HUMAN</span>';
-      html +=   '</div>';
-      html += '</div>';
+  var base = '/staff/conversations/' + encodeURIComponent(convId);
+  var qs   = '?client=' + encodeURIComponent(getClient());
 
-      /* Latest message preview */
-      if (c.last_message_preview){
-        html += '<div class="detail-section">';
-        html +=   '<h3>Latest message</h3>';
-        html +=   '<div style="font-size:13px;color:#2c3e50;white-space:pre-wrap">' + escHtml(c.last_message_preview) + '</div>';
+  function gjson(path){ return fetch(path).then(function(r){ return r.json(); }); }
+
+  Promise.all([
+    gjson(base + qs),
+    gjson(base + '/messages' + qs),
+    gjson(base + '/context'  + qs),
+    gjson(base + '/draft'    + qs),
+    gjson(base + '/staff-state' + qs),
+  ]).then(function(results){
+    var detailData = results[0];
+    var msgsData   = results[1];
+    var ctxData    = results[2];
+    var draftData  = results[3];
+    var stateData  = results[4];
+
+    if (!detailData.success) throw new Error(detailData.error || 'detail error');
+
+    var c     = detailData.conversation;
+    var msgs  = (msgsData.success  && msgsData.messages)  ? msgsData.messages  : [];
+    var ctx   = (ctxData.success   && ctxData.context)    ? ctxData.context    : null;
+    var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
+    var state = (stateData.success && stateData.state)     ? stateData.state    : null;
+
+    /* ── Header ── */
+    var html = '<div class="detail-header">';
+    html +=   '<div>';
+    html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
+    html +=     '<div class="detail-meta">' + escHtml(c.phone) +
+                (c.language ? ' &bull; ' + escHtml(c.language) : '') +
+                ' &bull; Stage: ' + escHtml(c.conversation_stage || '—') + '</div>';
+    html +=   '</div>';
+    html +=   '<div style="margin-left:auto;display:flex;gap:6px;align-items:flex-start">';
+    html +=     modePill(c.bot_mode);
+    if (c.needs_human) html += '<span class="pill pill-orange">NEEDS HUMAN</span>';
+    html +=   '</div>';
+    html += '</div>';
+
+    /* ── Two-column layout ── */
+    html += '<div class="detail-layout">';
+
+    /* ═══ LEFT — thread + draft panel ═══ */
+    html += '<div class="detail-main">';
+
+    /* Message thread */
+    html += '<div class="thread-section">';
+    html +=   '<h3>Message thread <span style="font-weight:400;font-size:10px;color:#9aabb8">' +
+              msgs.length + ' message' + (msgs.length===1?'':'s') + '</span></h3>';
+    html +=   '<div class="thread" id="thread-container">';
+    if (msgs.length === 0){
+      html += '<div class="thread-empty">No message history yet &mdash; messages appear here once the guest contacts via WhatsApp.</div>';
+    } else {
+      msgs.forEach(function(m){
+        var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
+        var sender = dir === 'inbound' ? 'Guest' : (m.source || 'Luna');
+        html += '<div class="msg ' + dir + '">';
+        html +=   '<div class="msg-bubble">' + escHtml(m.message_text || '') + '</div>';
+        html +=   '<div class="msg-meta">' + escHtml(sender) + ' &bull; ' + escHtml(fmtTs(m.created_at));
+        if (m.route) html += ' &bull; ' + escHtml(m.route);
+        html +=   '</div>';
         html += '</div>';
-      }
+      });
+    }
+    html +=   '</div>'; /* /thread */
+    html += '</div>'; /* /thread-section */
 
-      /* Luna draft (read-only) */
-      html += '<div class="detail-section">';
-      html +=   '<h3>Luna draft reply <span style="font-weight:400;color:#e67e22;font-size:11px">— DRAFT, NOT SENT — view only</span></h3>';
-      if (c.staff_reply_draft){
-        html += '<div style="background:#fef9ec;border:1px solid #f5cba7;border-radius:6px;padding:10px 14px;font-size:13px;white-space:pre-wrap;color:#2c3e50">' +
-                escHtml(c.staff_reply_draft) + '</div>';
-        html += '<div style="font-size:11px;color:#9aabb8;margin-top:6px">Inline reply composer coming in Stage 7.7d. For now: copy text manually for WhatsApp send.</div>';
-      } else {
-        html += '<div style="color:#9aabb8;font-size:13px;font-style:italic">No draft stored yet.</div>';
-      }
+    /* Luna draft panel — editable textarea for copy, NOT for saving/sending */
+    var draftText = (draft && draft.draft_text) ? draft.draft_text : (c.staff_reply_draft || '');
+    var draftAvail = draftText && draftText.trim().length > 0;
+
+    html += '<div class="draft-panel">';
+    html +=   '<div class="draft-label">';
+    html +=     '<h3>Luna draft reply</h3>';
+    html +=     '<span class="draft-not-sent">NOT SENT</span>';
+    html +=     '<span style="font-size:11px;color:#7f8c8d">— copy for manual WhatsApp send (shadow mode)</span>';
+    html +=   '</div>';
+    if (!draftAvail){
+      html += '<div style="color:#9aabb8;font-size:12px;font-style:italic;margin-bottom:8px">No Luna draft available yet &mdash; type a manual reply below to copy.</div>';
+    }
+    html += '<textarea id="draft-textarea" placeholder="No Luna draft \u2014 type a manual reply here to copy">' +
+            escHtml(draftText) + '</textarea>';
+    html += '<div class="draft-actions">';
+    html +=   '<button class="btn-copy" id="btn-copy-draft">Copy to clipboard</button>';
+    html +=   '<span class="copy-confirm" id="copy-confirm" style="display:none">Copied!</span>';
+    html +=   '<button class="btn-send-disabled" disabled>Approve &amp; Send &mdash; disabled (live-send gate required)</button>';
+    html +=   '<span class="draft-warning">Shadow mode: copy this reply and send it manually in WhatsApp. No live sends from this dashboard.</span>';
+    html += '</div>';
+    html += '</div>'; /* /draft-panel */
+
+    /* Read-only footer */
+    html += '<div style="margin-top:12px;padding:8px 12px;background:#f0f2f5;border-radius:6px;font-size:11px;color:#7f8c8d">';
+    html +=   'READ-ONLY VIEW &mdash; SHADOW MODE. No live sends from this dashboard. ';
+    html +=   'Draft is not sent automatically.';
+    html += '</div>';
+
+    html += '</div>'; /* /detail-main */
+
+    /* ═══ RIGHT — context sidebar ═══ */
+    html += '<div class="detail-sidebar">';
+
+    /* Bot / staff state card */
+    var ss = state || {};
+    html += '<div class="sidebar-card">';
+    html +=   '<h3>Bot state</h3>';
+    html +=   '<div class="kv2">';
+    html +=     kv('Mode',        ss.bot_mode   || c.bot_mode) +
+                kv('Needs human', ss.needs_human != null ? String(ss.needs_human) : String(c.needs_human)) +
+                kv('Pending',     ss.pending_action || c.pending_action || '—') +
+                kv('Last reply',  fmtTs(ss.last_staff_reply_at || c.last_staff_reply_at) || '—');
+    html +=   '</div>';
+    if (ss.handoff_id){
+      html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
+      html +=   '<div style="font-size:11px;font-weight:700;color:#e67e22;margin-bottom:6px">OPEN HANDOFF</div>';
+      html +=   '<div class="kv2">';
+      html +=     kv('Reason',   ss.handoff_reason) +
+                  kv('Priority', ss.handoff_priority) +
+                  kv('Assigned', ss.assigned_staff || '—') +
+                  kv('Opened',   fmtTs(ss.handoff_opened_at));
+      html +=   '</div>';
       html += '</div>';
+    }
+    html += '</div>'; /* /sidebar-card */
 
-      /* Booking context summary */
-      if (c.booking_code){
-        html += '<div class="detail-section">';
-        html +=   '<h3>Linked booking</h3>';
-        html +=   '<div class="kv-grid">';
-        html +=     kv('Code', c.booking_code) + kv('Status', c.booking_status) +
-                    kv('Payment', c.booking_payment_status) +
-                    kv('Check-in', c.check_in) + kv('Check-out', c.check_out);
+    /* Booking + payment context card */
+    var bctx = ctx || {};
+    html += '<div class="sidebar-card">';
+    html +=   '<h3>Booking</h3>';
+    if (!bctx.booking_code){
+      html += '<div style="color:#9aabb8;font-size:12px;font-style:italic">No booking linked yet.</div>';
+    } else {
+      html += '<div class="kv2">';
+      html +=   kv('Code',        bctx.booking_code) +
+                kv('Status',      bctx.booking_status) +
+                kv('Payment',     bctx.booking_payment_status) +
+                kv('Check-in',    bctx.check_in) +
+                kv('Check-out',   bctx.check_out) +
+                kv('Guests',      bctx.guest_count) +
+                kv('Package',     bctx.package_code) +
+                kv('Room pref',   bctx.room_preference || bctx.requested_room_type || '—') +
+                kv('Assigned',    (bctx.assigned_room_code || '—') + (bctx.assigned_bed_code ? ' / ' + bctx.assigned_bed_code : '')) +
+                kv('Confirm',     bctx.confirmation_sent_at ? fmtTs(bctx.confirmation_sent_at) : '—');
+      html += '</div>';
+      if (bctx.payment_amount_due_cents != null){
+        html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
+        html +=   '<div style="font-size:11px;font-weight:700;color:#5a6a85;margin-bottom:6px">Payment</div>';
+        html +=   '<div class="kv2">';
+        html +=     kv('Due',    '\u20ac' + (bctx.payment_amount_due_cents/100).toFixed(2)) +
+                    kv('Paid',   '\u20ac' + ((bctx.payment_amount_paid_cents||0)/100).toFixed(2)) +
+                    kv('Status', bctx.payment_record_status || '—');
         html +=   '</div>';
         html += '</div>';
       }
+    }
+    html += '</div>'; /* /sidebar-card */
 
-      /* Handoff summary */
-      if (c.handoff_id){
-        html += '<div class="detail-section">';
-        html +=   '<h3>Open handoff</h3>';
-        html +=   '<div class="kv-grid">';
-        html +=     kv('Reason', c.handoff_reason) + kv('Priority', c.handoff_priority) +
-                    kv('Status', c.handoff_status) + kv('Assigned', c.assigned_staff) +
-                    kv('Opened', fmtTs(c.handoff_opened_at));
-        html +=   '</div>';
-        html += '</div>';
-      }
-
-      /* Notes */
-      if (c.human_notes){
-        html += '<div class="detail-section">';
-        html +=   '<h3>Staff notes</h3>';
-        html +=   '<div style="font-size:13px;color:#2c3e50;white-space:pre-wrap">' + escHtml(c.human_notes) + '</div>';
-        html += '</div>';
-      }
-
-      /* Pending action */
-      if (c.pending_action){
-        html += '<div class="detail-section">';
-        html +=   '<h3>Pending action</h3>';
-        html +=   '<span class="pill pill-orange">' + escHtml(c.pending_action) + '</span>';
-        html += '</div>';
-      }
-
-      /* Read-only reminder */
-      html += '<div style="margin-top:16px;padding:10px 14px;background:#f0f2f5;border-radius:6px;font-size:11px;color:#7f8c8d">';
-      html +=   'READ-ONLY VIEW &mdash; SHADOW MODE. No send actions available in this version.';
-      html +=   ' Inline reply composer and copy-to-send workflow come in Stage 7.7d.';
+    /* Notes / summary */
+    if (c.human_notes || c.conversation_summary){
+      html += '<div class="sidebar-card">';
+      html +=   '<h3>Notes</h3>';
+      if (c.human_notes)          html += '<div style="font-size:12px;color:#2c3e50;white-space:pre-wrap;margin-bottom:6px">' + escHtml(c.human_notes) + '</div>';
+      if (c.conversation_summary) html += '<div style="font-size:11px;color:#7f8c8d;white-space:pre-wrap">' + escHtml(c.conversation_summary) + '</div>';
       html += '</div>';
+    }
 
-      el('detail-content').innerHTML = html;
-    })
-    .catch(function(err){
-      el('detail-content').innerHTML = '<div class="state-msg error">Error: ' + escHtml(err.message) + '</div>';
-    });
+    html += '</div>'; /* /detail-sidebar */
+    html += '</div>'; /* /detail-layout */
+
+    el('detail-content').innerHTML = html;
+
+    /* Wire copy button after DOM update */
+    var copyBtn   = document.getElementById('btn-copy-draft');
+    var confirmEl = document.getElementById('copy-confirm');
+    var textaEl   = document.getElementById('draft-textarea');
+    if (copyBtn && textaEl){
+      copyBtn.addEventListener('click', function(){
+        var text = textaEl.value;
+        var doConfirm = function(){
+          if (confirmEl){ confirmEl.style.display='inline'; setTimeout(function(){ confirmEl.style.display='none'; }, 2500); }
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(doConfirm).catch(function(){
+            textaEl.select(); document.execCommand('copy'); doConfirm();
+          });
+        } else {
+          textaEl.select(); document.execCommand('copy'); doConfirm();
+        }
+      });
+    }
+
+    /* Scroll thread to bottom */
+    var threadEl = document.getElementById('thread-container');
+    if (threadEl) threadEl.scrollTop = threadEl.scrollHeight;
+  })
+  .catch(function(err){
+    el('detail-content').innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
+  });
 }
 
 function kv(label, val){

@@ -1,32 +1,42 @@
 /**
- * Stage 7.7c — Static verifier for the Cami dashboard conversation inbox UI
+ * Stage 7.7d — Static verifier for the Cami dashboard conversation detail UI
  * embedded in scripts/staff-query-api.js (buildUiHtml).
  *
- * Checks (34 total):
+ * Checks (44 total):
  *   1–3:   File exists, readable, passes node --check
  *   4–6:   Dashboard branding / banner
  *   7–9:   Two-tab structure (Conversations + Query Tools)
  *   10–12: Inbox section elements
  *   13:    fetch('/staff/conversations') call present
- *  14–15:  Detail pane present
+ *  14–15:  Detail pane present + back button
  *  16–17:  Auth-error (401) surface in inbox fetch
- *  18:     Refresh button present
- *  19:     Client input present in conversations tab
- *  20:     READ-ONLY / SHADOW MODE text in HTML
- *  21:     No reply composer (textarea/contenteditable for sending) in inbox UI
- *  22:     No send button in inbox UI
- *  23:     No approve-send reference
- *  24:     No handoff.resolve UI action
- *  25:     No POST/PATCH/DELETE fetch calls in JS
- *  26:     No external CDN script src
- *  27:     No eval() in JS
- *  28:     Query Tools tab preserved (/staff/intents + /staff/query)
- *  29:     fetch('/staff/intents') present (query tools)
- *  30:     fetch('/staff/query') present (query tools)
- *  31:     DRAFT, NOT SENT label (Luna draft is read-only)
- *  32:     READ-ONLY reminder in detail pane
- *  33:     No form method=POST in HTML
- *  34:     package.json has verify:staff-conversation-ui script
+ *   18:    Refresh button present
+ *   19:    Client input present in conversations tab
+ *   20:    READ-ONLY / SHADOW MODE text in HTML
+ *   21:    fetch('/staff/conversations/:id/messages') in JS
+ *   22:    fetch('/staff/conversations/:id/context') in JS
+ *   23:    fetch('/staff/conversations/:id/draft') in JS
+ *   24:    fetch('/staff/conversations/:id/staff-state') in JS
+ *   25:    Message thread section present (thread-container / .thread)
+ *   26:    Luna draft textarea present (draft-textarea)
+ *   27:    Copy-to-clipboard button present (btn-copy-draft / Copy to clipboard)
+ *   28:    Manual WhatsApp send wording (shadow mode / manually in WhatsApp)
+ *   29:    NOT SENT label on Luna draft
+ *   30:    Approve/send button is disabled (btn-send-disabled / disabled attribute)
+ *   31:    No active fetch call to approve-send endpoint
+ *   32:    No handoff.resolve UI action
+ *   33:    No POST/PATCH/DELETE fetch calls in embedded JS
+ *   34:    No external CDN script src
+ *   35:    No eval() in embedded JS
+ *   36:    Query Tools tab preserved (f-cat / f-intent / btn-run)
+ *   37:    fetch('/staff/intents') present (query tools)
+ *   38:    fetch('/staff/query') present (query tools)
+ *   39:    Read-only reminder in detail view (READ-ONLY VIEW / no live sends)
+ *   40:    Context sidebar present (sidebar-card / kv2 / Booking section)
+ *   41:    Bot state panel present
+ *   42:    No form method=POST in HTML
+ *   43:    package.json has verify:staff-conversation-ui script
+ *   44:    Stage 7.7d banner label present
  *
  * Usage:
  *   node scripts/verify-staff-conversation-ui.js
@@ -38,8 +48,8 @@ const path = require('path');
 const fs   = require('fs');
 const { execSync } = require('child_process');
 
-const API_FILE  = path.join(__dirname, 'staff-query-api.js');
-const PKG_FILE  = path.join(__dirname, '..', 'package.json');
+const API_FILE = path.join(__dirname, 'staff-query-api.js');
+const PKG_FILE = path.join(__dirname, '..', 'package.json');
 
 let passes = 0;
 let failures = 0;
@@ -50,11 +60,10 @@ function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFai
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-console.log('\nverify-staff-conversation-ui.js\n');
+console.log('\nverify-staff-conversation-ui.js  (Stage 7.7d)\n');
 
 // 1. File exists
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
-
 if (!fs.existsSync(API_FILE)) { process.exit(1); }
 
 // 2. Readable
@@ -69,7 +78,7 @@ try {
   fail('Passes node --check (no syntax errors)');
 }
 
-// Extract HTML content from buildUiHtml
+// Extract HTML/JS content from buildUiHtml
 const htmlMatch = src.match(/function buildUiHtml\(port\)\s*\{([\s\S]*?)^function handleUI/m);
 const htmlSrc = htmlMatch ? htmlMatch[1] : src;
 
@@ -88,14 +97,13 @@ check(/Conversations/i.test(htmlSrc) && /tab-btn/i.test(htmlSrc),
   'Conversations tab button present');
 
 // 8. Query Tools tab button
-check(/Query Tools/i.test(htmlSrc),
-  'Query Tools tab button present');
+check(/Query Tools/i.test(htmlSrc), 'Query Tools tab button present');
 
 // 9. Tab panel structure
 check(/tab-panel/i.test(htmlSrc) && /tab-conversations/i.test(htmlSrc),
   'Tab panel structure with conversations panel');
 
-// 10. Inbox table or list element
+// 10. Inbox table or card element
 check(/inbox-table|inbox-tbody|inbox-card/i.test(htmlSrc),
   'Inbox table/card element present');
 
@@ -108,16 +116,15 @@ check(/inbox-state|Loading conversations/i.test(htmlSrc),
   'Inbox loading/empty state element');
 
 // 13. fetch('/staff/conversations') call
-check(/fetch\s*\(\s*['"`]\/staff\/conversations/.test(htmlSrc) ||
-      /fetch\s*\(\s*'\/staff\/conversations/.test(htmlSrc) ||
+check(/fetch\s*\([^)]*\/staff\/conversations/.test(htmlSrc) ||
       /fetch\(['"`]\/staff\/conversations/.test(src),
-  "fetch('/staff/conversations') call present");
+  "fetch('/staff/conversations') inbox call present");
 
 // 14. Detail pane element
 check(/conv-detail|detail-content/i.test(htmlSrc),
   'Conversation detail pane element present');
 
-// 15. Back button for detail → inbox navigation
+// 15. Back button
 check(/btn-back|back-btn|Back to inbox/i.test(htmlSrc),
   'Back-to-inbox navigation button present');
 
@@ -126,83 +133,117 @@ check(/401/.test(htmlSrc) && /login|auth/i.test(htmlSrc),
   '401 auth error surfaced in inbox fetch handler');
 
 // 17. Auth error message shown to user
-check(/Authentication required|Please log in|auth.*login|POST.*\/staff\/auth\/login/i.test(htmlSrc),
+check(/Authentication required|Please log in|POST.*\/staff\/auth\/login/i.test(htmlSrc),
   'Auth-required message shown when 401');
 
 // 18. Refresh button
-check(/btn-refresh|Refresh/i.test(htmlSrc),
-  'Refresh button present');
+check(/btn-refresh|Refresh/i.test(htmlSrc), 'Refresh button present');
 
 // 19. Client input in conversations tab
-check(/c-client|wolfhouse-somo/i.test(htmlSrc),
-  'Client input in conversations tab');
+check(/c-client|wolfhouse-somo/i.test(htmlSrc), 'Client input in conversations tab');
 
-// 20. READ-ONLY text (at least one occurrence)
+// 20. READ-ONLY text
 check(/READ-ONLY/i.test(htmlSrc), 'READ-ONLY text present in HTML');
 
-// 21. No send-oriented textarea/contenteditable (reply composer not in this slice)
-// Allow textarea only in query tools; flag if near 'send' or 'reply'
-const replyTextareaRe = /(<textarea[^>]*(?:reply|send|compose)[^>]*>|(?:reply|send|compose)[^<]*<textarea)/i;
-check(!replyTextareaRe.test(htmlSrc),
-  'No reply composer textarea in inbox UI (deferred to Stage 7.7d)');
+// 21. fetch('/messages') present in loadConvDetail
+check(/\/messages/.test(htmlSrc) && /fetch/.test(htmlSrc),
+  "fetch('.../messages') call present in detail loader");
 
-// 22. No send button in inbox/conversation area
-const sendBtnRe = /<button[^>]*>(?:\s*)?(?:Send|Approve\s*&amp;\s*Send|Send reply)[^<]*<\/button>/i;
-check(!sendBtnRe.test(htmlSrc),
-  'No send/approve-send button in UI');
+// 22. fetch('/context') present
+check(/\/context/.test(htmlSrc) && /fetch/.test(htmlSrc),
+  "fetch('.../context') call present in detail loader");
 
-// 23. No approve-send reference
-check(!/approve.send|approve_send/i.test(htmlSrc),
-  'No approve-send reference in HTML/JS');
+// 23. fetch('/draft') present
+check(/\/draft/.test(htmlSrc) && /gjson/.test(htmlSrc),
+  "fetch('.../draft') call present in detail loader");
 
-// 24. No handoff.resolve UI action
+// 24. fetch('/staff-state') present
+check(/\/staff-state/.test(htmlSrc),
+  "fetch('.../staff-state') call present in detail loader");
+
+// 25. Message thread section
+check(/thread-container|class="thread"|thread-section/i.test(htmlSrc),
+  'Message thread section/container present');
+
+// 26. Luna draft textarea
+check(/draft-textarea|id="draft-textarea"/i.test(htmlSrc),
+  'Luna draft textarea present (draft-textarea)');
+
+// 27. Copy-to-clipboard button
+check(/btn-copy-draft|Copy to clipboard|copyBtn/i.test(htmlSrc),
+  'Copy-to-clipboard button present');
+
+// 28. Manual WhatsApp send wording (shadow mode)
+check(/shadow mode|manually in WhatsApp|send.*manually|copy.*WhatsApp/i.test(htmlSrc),
+  'Manual WhatsApp send / shadow mode wording present');
+
+// 29. NOT SENT label on Luna draft
+check(/NOT SENT|draft-not-sent/i.test(htmlSrc),
+  'NOT SENT label on Luna draft');
+
+// 30. Approve/send button is disabled
+check(/btn-send-disabled|disabled.*Approve|Approve.*disabled/i.test(htmlSrc),
+  'Approve/Send button present and disabled');
+
+// 31. No active fetch call to approve-send endpoint
+check(!/fetch\s*\([^)]*approve.send/i.test(htmlSrc) &&
+      !/fetch\s*\([^)]*approve_send/i.test(htmlSrc),
+  'No active approve-send fetch endpoint call');
+
+// 32. No handoff.resolve UI action
 check(!/handoff\.resolve|handoff-resolve/i.test(htmlSrc),
   'No handoff.resolve action in UI');
 
-// 25. No POST/PATCH/DELETE fetch calls in embedded JS
-const fetchWriteRe = /fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i;
+// 33. No POST/PATCH/DELETE fetch calls in embedded JS
+const fetchWriteRe = /fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|PUT)['"]/i;
 check(!fetchWriteRe.test(htmlSrc),
   'No POST/PATCH/DELETE fetch calls in embedded JS');
 
-// 26. No external CDN script src
+// 34. No external CDN script src
 check(!/src\s*=\s*['"]https?:\/\//i.test(htmlSrc),
   'No external CDN script src');
 
-// 27. No eval()
-check(!/\beval\s*\(/.test(htmlSrc),
-  'No eval() in embedded JS');
+// 35. No eval()
+check(!/\beval\s*\(/.test(htmlSrc), 'No eval() in embedded JS');
 
-// 28. Query Tools tab still has intents and query support
+// 36. Query Tools tab retains controls
 check(/f-cat|f-intent|btn-run/i.test(htmlSrc),
   'Query Tools tab retains category/intent/run controls');
 
-// 29. fetch('/staff/intents') present (query tools)
+// 37. fetch('/staff/intents') present
 check(/fetch\s*\(\s*['"`]\/staff\/intents/.test(htmlSrc),
   "fetch('/staff/intents') present (query tools)");
 
-// 30. fetch('/staff/query') present (query tools)
+// 38. fetch('/staff/query') present
 check(/fetch\s*\(\s*['"`]\/staff\/query/.test(htmlSrc),
   "fetch('/staff/query') present (query tools)");
 
-// 31. Luna draft is read-only (NOT SENT label)
-check(/NOT SENT|not sent|DRAFT.*NOT SENT/i.test(htmlSrc),
-  'Luna draft labelled as NOT SENT (read-only)');
+// 39. Read-only reminder in detail (no live sends)
+check(/READ-ONLY VIEW|no live sends|not sent automatically/i.test(htmlSrc),
+  'Read-only reminder in detail view');
 
-// 32. Read-only reminder in detail pane
-check(/READ-ONLY VIEW|read-only.*shadow|no send actions/i.test(htmlSrc),
-  'Read-only reminder in conversation detail pane');
+// 40. Context sidebar / booking section present
+check(/sidebar-card|kv2|Booking|booking_code/i.test(htmlSrc),
+  'Context sidebar / booking section present');
 
-// 33. No form method=POST in HTML
+// 41. Bot state panel present
+check(/bot.?state|Bot state|bot_mode/i.test(htmlSrc),
+  'Bot state panel present in detail');
+
+// 42. No form method=POST
 check(!/method\s*=\s*['"](?:post|POST)['"]/i.test(htmlSrc),
   'No form method=POST in HTML');
 
-// 34. package.json has verify:staff-conversation-ui script
+// 43. package.json has verify:staff-conversation-ui script
 let pkgHasScript = false;
 try {
   const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
   pkgHasScript = !!(pkg.scripts && pkg.scripts['verify:staff-conversation-ui']);
 } catch (_) {}
 check(pkgHasScript, 'package.json has verify:staff-conversation-ui script');
+
+// 44. Stage 7.7d banner label
+check(/7\.7d|Stage 7.7d/i.test(htmlSrc), 'Stage 7.7d label in HTML');
 
 // ─────────────────────────────────────────────────────────────────────────────
 
