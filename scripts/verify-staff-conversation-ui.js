@@ -1,12 +1,12 @@
 /**
- * Stage 7.7d — Static verifier for the Cami dashboard conversation detail UI
+ * Stage 7.7f — Static verifier for the Cami dashboard conversation UI
  * embedded in scripts/staff-query-api.js (buildUiHtml).
  *
- * Checks (44 total):
+ * Checks (52 total):
  *   1–3:   File exists, readable, passes node --check
  *   4–6:   Dashboard branding / banner
  *   7–9:   Two-tab structure (Conversations + Query Tools)
- *   10–12: Inbox section elements
+ *  10–12:  Inbox section elements
  *   13:    fetch('/staff/conversations') call present
  *  14–15:  Detail pane present + back button
  *  16–17:  Auth-error (401) surface in inbox fetch
@@ -36,7 +36,15 @@
  *   41:    Bot state panel present
  *   42:    No form method=POST in HTML
  *   43:    package.json has verify:staff-conversation-ui script
- *   44:    Stage 7.7d banner label present
+ *   44:    Stage 7.7f banner label present
+ *   45:    Conversations sub-tabs present (sub-tab / subtab-inbox / subtab-handoffs)
+ *   46:    Needs Human / Handoffs sub-tab button present
+ *   47:    Handoff queue card element present (handoff-card / hq-tbody)
+ *   48:    fetch('/staff/handoffs') call present
+ *   49:    Handoff queue empty state ("No open handoffs right now")
+ *   50:    READ-ONLY HANDOFF QUEUE label present
+ *   51:    Resolve disabled notice present in handoff queue UI
+ *   52:    timeSince / time-since-open rendering logic present
  *
  * Usage:
  *   node scripts/verify-staff-conversation-ui.js
@@ -60,7 +68,7 @@ function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFai
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-console.log('\nverify-staff-conversation-ui.js  (Stage 7.7d)\n');
+console.log('\nverify-staff-conversation-ui.js  (Stage 7.7f)\n');
 
 // 1. File exists
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
@@ -242,8 +250,43 @@ try {
 } catch (_) {}
 check(pkgHasScript, 'package.json has verify:staff-conversation-ui script');
 
-// 44. Stage 7.7d banner label
-check(/7\.7d|Stage 7.7d/i.test(htmlSrc), 'Stage 7.7d label in HTML');
+// 44. Stage 7.7f banner label
+check(/7\.7f|Stage 7\.7f/i.test(htmlSrc), 'Stage 7.7f label in HTML');
+
+// ── Stage 7.7f — Handoff queue checks ─────────────────────────────────────
+
+// 45. Conversations sub-tabs present
+check(/sub-tab|subtab-inbox|subtab-handoffs/i.test(htmlSrc),
+  'Conversations sub-tab structure present (sub-tab, subtab-inbox, subtab-handoffs)');
+
+// 46. Needs Human / Handoffs sub-tab button
+check(/Needs Human|Handoffs/i.test(htmlSrc) && /sub-tab/i.test(htmlSrc),
+  '"Needs Human" handoff sub-tab button present');
+
+// 47. Handoff queue card element
+check(/handoff-card|hq-tbody|hq-table/i.test(htmlSrc),
+  'Handoff queue card/table element present (handoff-card / hq-tbody)');
+
+// 48. fetch('/staff/handoffs') call present
+check(/fetch\s*\([^)]*\/staff\/handoffs/.test(htmlSrc) ||
+      /\/staff\/handoffs/.test(htmlSrc),
+  "fetch('/staff/handoffs') call present in handoff queue loader");
+
+// 49. Empty state "No open handoffs right now"
+check(/No open handoffs/i.test(htmlSrc),
+  'Handoff queue empty state message ("No open handoffs right now")');
+
+// 50. READ-ONLY HANDOFF QUEUE label
+check(/READ-ONLY HANDOFF QUEUE/i.test(htmlSrc),
+  'READ-ONLY HANDOFF QUEUE label present');
+
+// 51. Resolve disabled notice
+check(/Resolve actions are disabled|resolve.*disabled.*UI|disabled.*resolve/i.test(htmlSrc),
+  'Resolve-disabled notice present in handoff queue UI');
+
+// 52. timeSince / time-since rendering logic
+check(/timeSince|time.*since.*open|since.*opened/i.test(htmlSrc),
+  'Time-since-opened rendering logic present (timeSince function)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 

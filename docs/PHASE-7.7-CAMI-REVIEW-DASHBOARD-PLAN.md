@@ -327,7 +327,7 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 | **7.7c** | Conversation inbox UI | view A | read | **DONE** |
 | **7.7d** | Conversation detail + full message thread | view B — thread renders; Luna draft pre-populated in composer; copy-to-clipboard works | read | **DONE** |
 | **7.7e** | Luna draft + context panel | views B/C/D — draft labelled DRAFT — NOT SENT; booking/add-on context visible | read |
-| **7.7f** | Handoff queue integration | view E (read; resolve deferred) | read |
+| **7.7f** | Handoff queue integration | view E (read; resolve deferred) | read | **DONE** |
 | **7.7g** | Bed calendar query / API | `GET /staff/bed-calendar*` (built on `getOccupiedBedsQuery`) | read |
 | **7.7h** | Bed calendar read-only render | view G grid | read |
 | **7.7i** | Booking detail drawer from calendar block | drawer from a block → context | read |
@@ -450,3 +450,24 @@ These are proven with seed/cleanup fixtures + a static verifier, mirroring the S
 - **Fixture proof:** all 5 endpoints 200; draft_available=true, text_len=119; messages count=1; 18 `api:conversation.*` audit entries (all 6 intents); protected table delta=0; cleanup confirmed.
 - **Known gaps:** inline reply save (POST to save edited draft — deferred to Stage 7.7j); staff takeover write (7.7k); mark-replied-manually (7.7j); bed calendar (7.7g/7.7h); `lunafrontdesk.com` DNS not configured.
 - **Next:** 7.7e — Luna draft context panel (conversation summary, last bot reply, routing intent, confidence info) or 7.7f handoff queue integration.
+
+### 7.7f — Handoff queue integration in Cami dashboard
+- **Status:** DONE (commit: this change)
+- **Date:** 2026-06-01
+- **Files updated:** `scripts/staff-query-api.js` (new `handleHandoffQueue` + `GET /staff/handoffs`; Conversations tab now has Inbox / Needs Human sub-tabs), `scripts/verify-staff-conversation-ui.js` (52 checks, up from 44), `scripts/fixtures/stage7.7f-handoff-seed.sql`, `scripts/fixtures/stage7.7f-handoff-cleanup.sql`
+- **UI features added:**
+  - Conversations tab now has two sub-tabs: **Inbox** and **Needs Human** (badge count)
+  - Needs Human panel fetches `GET /staff/handoffs?client=...`
+  - Handoff queue table: Priority (pill: URGENT/HIGH/NORMAL/LOW), Guest, Phone, Reason, Status, Assigned staff, Booking code, Opened timestamp, Time since opened
+  - Time since opened: relative (Xh Ym) with "stale" red highlighting for > 4 hours
+  - Empty state: "No open handoffs right now."
+  - Row click → navigates to linked conversation detail in Inbox sub-tab (or shows "No conversation linked yet" placeholder)
+  - Badge count on Needs Human tab updates after load
+  - READ-ONLY HANDOFF QUEUE label; resolve-disabled notice
+  - No resolve button. No write actions of any kind.
+- **API endpoint added:**
+  - `GET /staff/handoffs?client=<slug>` — auth-gated (viewer minimum), returns `handoffs[]` (open/assigned/waiting_guest rows) + `needs_human_without_handoff[]` (conversations needing reconciliation), audited with intent `api:handoffs.open`
+- **Verifier:** `scripts/verify-staff-conversation-ui.js` — 52/52 PASS (8 new handoff queue checks)
+- **Fixture proof:** open handoffs in DB=1; `/staff/handoffs` 200 count=1 conv_id=present; `/staff/conversations` 200 count=1; audit log shows `api:handoffs.open OK hq=1`; protected table delta=0; cleanup confirmed.
+- **Known gaps:** handoff resolve UI (deferred — requires production auth/TLS + Stage 6.9 write gate approval); inline reply composer (7.7j); bed calendar (7.7g/7.7h).
+- **Next:** 7.7g — bed calendar query/API (`GET /staff/bed-calendar`), or 7.7e — Luna draft context panel enhancements.

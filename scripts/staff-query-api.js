@@ -61,6 +61,10 @@ const {
   getConversationDraftQuery,
   getConversationStaffStateQuery,
 } = require('./lib/staff-conversation-queries');
+const {
+  getOpenHandoffsQuery,
+  getNeedsHumanWithoutOpenHandoffQuery,
+} = require('./lib/staff-handoff-queries');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -929,6 +933,25 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:#f
 .btn-copy:hover{background:#d68910}
 .btn-send-disabled{background:#bdc3c7;color:#fff;border:none;border-radius:5px;padding:7px 14px;font-size:12px;font-weight:700;cursor:not-allowed;opacity:.7;white-space:nowrap}
 .copy-confirm{font-size:11px;color:#27ae60;font-weight:700}
+/* ── Conversations sub-tabs ──────────────────────────────────────────────── */
+#conv-subtabs{display:flex;gap:0;border-bottom:2px solid #dde1e7;margin-bottom:16px;background:#fff;border-radius:8px 8px 0 0;padding:0 12px}
+.sub-tab{padding:10px 16px;font-size:12px;font-weight:600;color:#5a6a85;border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-2px}
+.sub-tab:hover{color:#2c3e50}
+.sub-tab.active{color:#2980b9;border-bottom-color:#2980b9}
+.sub-tab .hq-count{background:#c0392b;color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:10px;margin-left:5px;display:none}
+.sub-tab .hq-count.visible{display:inline}
+.sub-panel{display:none}
+.sub-panel.active{display:block}
+/* ── Handoff queue ───────────────────────────────────────────────────────── */
+.hq-note{font-size:11px;color:#e67e22;background:#fef9ec;border:1px solid #f5cba7;border-radius:5px;padding:7px 12px;margin-bottom:12px}
+.hq-table{width:100%;border-collapse:collapse;font-size:12px}
+.hq-table th{background:#f0f2f5;text-align:left;padding:6px 10px;border-bottom:2px solid #dde1e7;font-weight:700;white-space:nowrap;font-size:11px;color:#5a6a85;text-transform:uppercase;letter-spacing:.04em}
+.hq-table td{padding:7px 10px;border-bottom:1px solid #eef0f3;vertical-align:middle;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hq-table tr:hover td{background:#fff8f0;cursor:pointer}
+.hq-table tr.selected td{background:#fef3e2}
+.hq-ro-label{font-size:10px;font-weight:700;letter-spacing:.08em;color:#7f8c8d;background:#f0f2f5;padding:2px 7px;border-radius:3px;margin-left:8px}
+.since{font-size:11px;color:#e67e22;font-weight:600}
+.since.stale{color:#c0392b}
 /* ── Sidebar cards ───────────────────────────────────────────────────────── */
 .sidebar-card{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px 14px;margin-bottom:12px}
 .sidebar-card h3{font-size:11px;font-weight:700;color:#7f8c8d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
@@ -960,7 +983,7 @@ input:focus,select:focus{outline:none;border-color:#3498db}
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
   <div class="brand">Luna Front Desk &mdash; <em>Cami Dashboard</em></div>
-  <span class="badge-sm">Stage 7.7d</span>
+  <span class="badge-sm">Stage 7.7f</span>
   <span class="badge">READ-ONLY &bull; SHADOW MODE</span>
 </div>
 
@@ -973,6 +996,15 @@ input:focus,select:focus{outline:none;border-color:#3498db}
 <!-- ── Conversations tab ──────────────────────────────────────────────────── -->
 <div id="tab-conversations" class="tab-panel active">
 <div id="wrap">
+
+  <!-- Conversations sub-tab nav -->
+  <div id="conv-subtabs">
+    <button class="sub-tab active" data-subtab="inbox">Inbox</button>
+    <button class="sub-tab" data-subtab="handoffs">Needs Human <span class="hq-count" id="hq-badge">0</span></button>
+  </div>
+
+  <!-- Sub-panel: Inbox -->
+  <div class="sub-panel active" id="subtab-inbox">
 
   <!-- Inbox card -->
   <div class="card" id="inbox-card">
@@ -1012,6 +1044,39 @@ input:focus,select:focus{outline:none;border-color:#3498db}
       <div class="state-msg">Loading&hellip;</div>
     </div>
   </div>
+
+  </div><!-- /subtab-inbox -->
+
+  <!-- Sub-panel: Handoff queue -->
+  <div class="sub-panel" id="subtab-handoffs">
+  <div class="card" id="handoff-card">
+    <div class="toolbar">
+      <h2>Needs Human &mdash; Handoff Queue <span class="hq-ro-label">READ-ONLY HANDOFF QUEUE</span></h2>
+      <span id="hq-count-txt" style="font-size:12px;color:#9aabb8"></span>
+      <button class="btn btn-primary" id="btn-refresh-hq">&#8635; Refresh</button>
+    </div>
+    <div class="hq-note">Resolve actions are disabled in the UI until production auth/TLS and write gates are approved. This is a read-only view only.</div>
+    <div id="hq-state" class="state-msg">Loading&hellip;</div>
+    <div id="hq-table-wrap" style="display:none;overflow-x:auto">
+      <table class="hq-table">
+        <thead>
+          <tr>
+            <th>Priority</th>
+            <th>Guest</th>
+            <th>Phone</th>
+            <th>Reason</th>
+            <th>Status</th>
+            <th>Assigned</th>
+            <th>Booking</th>
+            <th>Opened</th>
+            <th>Since opened</th>
+          </tr>
+        </thead>
+        <tbody id="hq-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  </div><!-- /subtab-handoffs -->
 
 </div><!-- /wrap -->
 </div><!-- /tab-conversations -->
@@ -1410,6 +1475,146 @@ el('btn-refresh').addEventListener('click', loadInbox);
 /* Auto-load inbox on page load */
 loadInbox();
 
+/* ── Conversations sub-tabs ───────────────────────────────────────────────── */
+document.querySelectorAll('.sub-tab').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
+    document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
+    this.classList.add('active');
+    el('subtab-' + this.dataset.subtab).classList.add('active');
+    if (this.dataset.subtab === 'handoffs' && !hqLoaded) loadHandoffQueue();
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HANDOFF QUEUE — Stage 7.7f
+   Fetches GET /staff/handoffs (open + needs_human_without_handoff rows).
+   Row click → opens linked conversation detail in Inbox sub-tab.
+   NO resolve button. NO write actions.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+var hqLoaded = false;
+
+/* Relative time with "stale" threshold */
+function timeSince(ts){
+  if (!ts) return '—';
+  try {
+    var ms = Date.now() - new Date(ts).getTime();
+    var h = Math.floor(ms/3600000);
+    var m = Math.floor((ms%3600000)/60000);
+    if (h >= 24) return Math.floor(h/24) + 'd ' + (h%24) + 'h';
+    if (h >= 1)  return h + 'h ' + m + 'm';
+    return m + 'm';
+  } catch(_){ return '?'; }
+}
+function isStale(ts){ return ts && (Date.now() - new Date(ts).getTime()) > 4*3600000; }
+
+/* Priority pill */
+function hqPriorityPill(p){
+  if (p === 'urgent') return '<span class="pill pill-red">URGENT</span>';
+  if (p === 'high')   return '<span class="pill pill-orange">HIGH</span>';
+  if (p === 'normal') return '<span class="pill pill-blue">NORMAL</span>';
+  return '<span class="pill pill-grey">' + escHtml(p||'—') + '</span>';
+}
+
+/* Render handoff queue table */
+function renderHandoffQueue(handoffs){
+  var tbody = el('hq-tbody');
+
+  if (!handoffs || handoffs.length === 0){
+    el('hq-state').textContent = 'No open handoffs right now.';
+    el('hq-state').classList.remove('error');
+    el('hq-state').style.display = 'block';
+    el('hq-table-wrap').style.display = 'none';
+    el('hq-count-txt').textContent = '';
+    return;
+  }
+
+  el('hq-state').style.display = 'none';
+  el('hq-table-wrap').style.display = 'block';
+  el('hq-count-txt').textContent = handoffs.length + ' open handoff' + (handoffs.length===1?'':'s');
+
+  /* Update badge */
+  var badge = el('hq-badge');
+  badge.textContent = handoffs.length;
+  badge.classList.add('visible');
+
+  var rows = handoffs.map(function(h){
+    var since = timeSince(h.opened_at);
+    var staleClass = isStale(h.opened_at) ? ' stale' : '';
+    return '<tr data-conv-id="' + escHtml(h.conversation_id||'') + '" data-hid="' + escHtml(h.handoff_id) + '">' +
+      '<td>' + hqPriorityPill(h.priority) + '</td>' +
+      '<td class="guest-name">' + escHtml(h.guest_name || '—') + '</td>' +
+      '<td class="phone-cell">' + escHtml(h.phone || '—') + '</td>' +
+      '<td>' + escHtml(h.reason_code || '—') + '</td>' +
+      '<td>' + escHtml(h.status || '—') + '</td>' +
+      '<td>' + escHtml(h.assigned_staff || '—') + '</td>' +
+      '<td>' + escHtml(h.booking_code || '—') + '</td>' +
+      '<td class="ts-cell">' + escHtml(h.opened_at ? new Date(h.opened_at).toLocaleDateString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—') + '</td>' +
+      '<td><span class="since' + staleClass + '">' + escHtml(since) + '</span></td>' +
+    '</tr>';
+  }).join('');
+  tbody.innerHTML = rows;
+
+  tbody.querySelectorAll('tr').forEach(function(row){
+    row.addEventListener('click', function(){
+      var convId = this.dataset.convId;
+      tbody.querySelectorAll('tr').forEach(function(r){ r.classList.remove('selected'); });
+      this.classList.add('selected');
+      if (convId && convId !== 'null' && convId !== ''){
+        /* Switch to Inbox sub-tab and open detail */
+        document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
+        document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
+        document.querySelector('.sub-tab[data-subtab="inbox"]').classList.add('active');
+        el('subtab-inbox').classList.add('active');
+        loadConvDetail(convId);
+      } else {
+        el('conv-detail').classList.add('visible');
+        el('detail-content').innerHTML = '<div class="state-msg" style="color:#9aabb8">No conversation linked to this handoff yet.</div>';
+        document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
+        document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
+        document.querySelector('.sub-tab[data-subtab="inbox"]').classList.add('active');
+        el('subtab-inbox').classList.add('active');
+      }
+    });
+  });
+}
+
+/* Load handoff queue */
+function loadHandoffQueue(){
+  hqLoaded = true;
+  el('hq-state').textContent = 'Loading\u2026';
+  el('hq-state').classList.remove('error');
+  el('hq-state').style.display = 'block';
+  el('hq-table-wrap').style.display = 'none';
+
+  fetch('/staff/handoffs?client=' + encodeURIComponent(getClient()))
+    .then(function(r){
+      if (r.status === 401){
+        el('hq-state').innerHTML = '\u26a0 Authentication required &mdash; please log in first.';
+        el('hq-state').classList.add('error');
+        return null;
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      if (!data) return;
+      if (!data.success) throw new Error(data.error || 'API error');
+      renderHandoffQueue(data.handoffs);
+    })
+    .catch(function(err){
+      el('hq-state').textContent = 'Error loading handoff queue: ' + err.message;
+      el('hq-state').classList.add('error');
+      el('hq-state').style.display = 'block';
+      el('hq-table-wrap').style.display = 'none';
+    });
+}
+
+el('btn-refresh-hq').addEventListener('click', function(){
+  hqLoaded = false; loadHandoffQueue();
+});
+
 /* ═══════════════════════════════════════════════════════════════════════════
    QUERY TOOLS TAB — existing staff query interface (unchanged)
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1760,6 +1965,63 @@ async function handleConversationStaffState(convId, query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stage 7.7f — Handoff queue handler (read-only)
+//
+// GET /staff/handoffs?client=<slug>
+//   Returns all open/active staff_handoffs rows plus conversations that have
+//   needs_human=true but no structured handoff row yet.
+//
+// Safety: SELECT-only. No mutations. Viewer auth minimum. Fully audited.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleHandoffQueue(query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:handoffs.open',
+    category:      'handoff_api',
+    client_slug:   clientSlug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  let handoffs = [];
+  let needsHumanUnlinked = [];
+  try {
+    [handoffs, needsHumanUnlinked] = await withPgClient(async (pg) => {
+      const [hRows, nhRows] = await Promise.all([
+        pg.query(getOpenHandoffsQuery(), [clientSlug]),
+        pg.query(getNeedsHumanWithoutOpenHandoffQuery(), [clientSlug]),
+      ]);
+      return [hRows.rows, nhRows.rows];
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success:                true,
+    handoff_count:          handoffs.length,
+    needs_human_unlinked:   needsHumanUnlinked.length,
+    elapsed_ms:             elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success:              true,
+    count:                handoffs.length,
+    needs_human_unlinked: needsHumanUnlinked.length,
+    handoffs,
+    needs_human_without_handoff: needsHumanUnlinked,
+    elapsed_ms:           elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Request router
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1799,6 +2061,13 @@ async function router(req, res) {
   // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
     return send405(res);
+  }
+
+  // ── Stage 7.7f — Handoff queue (read-only) ────────────────────────────────
+  if (pathname === '/staff/handoffs') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleHandoffQueue(parsed.query, res, auth.user);
   }
 
   if (pathname === '/staff/ui') {

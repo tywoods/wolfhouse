@@ -807,7 +807,7 @@ Airtable may remain a **bridge** during transition; long-term goal is a proper s
 
 ## Stage 7 — Scalable
 
-**Status: IN PROGRESS** (2026-06-01) — 7.0–7.7 DESIGN DONE · **7.2b+7.2c+7.3b+7.7a–d DONE**. **7.7d DONE**: full message thread (inbound/outbound bubbles, scroll), Luna draft textarea (NOT SENT label, copy-to-clipboard, disabled approve/send), context sidebar (bot state, booking/payment/room, notes); 5 sub-endpoints loaded in parallel; 44-check verifier PASS; fixture proof PASS; protected table delta=0. `lunafrontdesk.com` purchased (DNS not configured). No Azure. Next: 7.7e or 7.7f.﻿# Wolfhouse Booking Assistant — Product Roadmap
+**Status: IN PROGRESS** (2026-06-01) — 7.0–7.7 DESIGN DONE · **7.2b+7.2c+7.3b+7.7a–d+7.7f DONE**. **7.7f DONE**: Needs Human sub-tab with handoff queue (`GET /staff/handoffs`); priority pills (URGENT/HIGH); time-since-open (relative, stale red); row click → conversation detail; READ-ONLY HANDOFF QUEUE; no resolve button; 52-check verifier PASS; fixture proof PASS. `lunafrontdesk.com` purchased (DNS not configured). No Azure. Next: 7.7g bed calendar API.﻿# Wolfhouse Booking Assistant — Product Roadmap
 
 **Product:** AI booking operations for WhatsApp-first experience businesses — **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
