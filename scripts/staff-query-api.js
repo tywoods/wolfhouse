@@ -42,10 +42,11 @@
 
 'use strict';
 
-const http = require('http');
-const url  = require('url');
-const fs   = require('fs');
-const path = require('path');
+const http   = require('http');
+const url    = require('url');
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -72,6 +73,327 @@ const WRITE_ACTION_ALLOWLIST = ['handoff.resolve'];
 
 // Matches: /staff/handoff/<uuid>/resolve
 const WRITE_HANDOFF_RE = /^\/staff\/handoff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/resolve$/i;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth config (Stage 7.2c scaffold)
+//
+// STAFF_AUTH_REQUIRED=false  ← local/dev default; set true to enforce sessions
+// STAFF_SESSION_COOKIE_NAME  ← cookie name (default: luna_staff_session)
+// STAFF_SESSION_TTL_HOURS    ← session lifetime (default: 12 h)
+// STAFF_AUTH_HTTPS=true      ← adds Secure flag to cookie (staging/prod)
+//
+// When STAFF_AUTH_REQUIRED=false, all read routes are open (local/dev compat).
+// When STAFF_AUTH_REQUIRED=true,  all routes require a valid session + role.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STAFF_AUTH_REQUIRED = process.env.STAFF_AUTH_REQUIRED === 'true';
+const COOKIE_NAME         = process.env.STAFF_SESSION_COOKIE_NAME || 'luna_staff_session';
+const SESSION_TTL_HOURS   = parseInt(process.env.STAFF_SESSION_TTL_HOURS || '12', 10);
+const STAFF_AUTH_HTTPS    = process.env.STAFF_AUTH_HTTPS === 'true';
+
+// Role hierarchy: higher rank = superset of permissions
+const ROLE_RANK = { viewer: 1, operator: 2, admin: 3, owner: 4 };
+function hasRole(userRole, minRole) {
+  return (ROLE_RANK[userRole] || 0) >= (ROLE_RANK[minRole] || 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Crypto helpers (Node built-in crypto — zero new dependencies)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Session tokens: 256-bit random, only stored as SHA-256 hash in DB.
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// Password format: scrypt$<N>$<r>$<p>$<salt_hex>$<hash_hex>
+// N=16384, r=8, p=1, keylen=32 — OWASP-acceptable minimums for scrypt.
+// password_hash NULL means account is not yet activated (login will fail).
+const SCRYPT_N = 16384, SCRYPT_R = 8, SCRYPT_P = 1, SCRYPT_KEYLEN = 32;
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, SCRYPT_KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${hash.toString('hex')}`;
+}
+
+function verifyPassword(password, storedHash) {
+  if (!storedHash) return false;
+  const parts = storedHash.split('$');
+  if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
+  const [, N, r, p, salt, hashHex] = parts;
+  try {
+    const expected = crypto.scryptSync(password, salt, SCRYPT_KEYLEN,
+      { N: parseInt(N, 10), r: parseInt(r, 10), p: parseInt(p, 10) });
+    const actual = Buffer.from(hashHex, 'hex');
+    if (actual.length !== expected.length) return false;
+    return crypto.timingSafeEqual(expected, actual);
+  } catch (_) {
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cookie helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function parseCookies(req) {
+  const header  = req.headers.cookie || '';
+  const cookies = {};
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    cookies[part.slice(0, eq).trim()] = decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return cookies;
+}
+
+function setSessionCookie(res, token) {
+  const parts = [
+    `${COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${SESSION_TTL_HOURS * 3600}`,
+    'Path=/staff',
+  ];
+  // Secure flag: only set when STAFF_AUTH_HTTPS=true (staging/prod with TLS).
+  // Local/dev omits Secure intentionally to work over http://127.0.0.1.
+  if (STAFF_AUTH_HTTPS) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie',
+    `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/staff`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session loader — reads cookie, validates against auth_sessions + staff_users
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadAuthSession(req) {
+  const cookies  = parseCookies(req);
+  const rawToken = cookies[COOKIE_NAME];
+  if (!rawToken) return null;
+  const tokenHash = hashToken(rawToken);
+
+  return withPgClient(async (pgClient) => {
+    const result = await pgClient.query(
+      `SELECT su.id::text        AS staff_user_id,
+              su.email,
+              su.role,
+              su.status,
+              su.display_name,
+              su.client_id::text AS client_id,
+              c.slug             AS client_slug,
+              s.id::text         AS session_id,
+              s.expires_at,
+              s.revoked_at
+         FROM auth_sessions s
+         JOIN staff_users su ON su.id = s.staff_user_id
+         JOIN clients    c  ON c.id  = su.client_id
+        WHERE s.session_token_hash = $1
+          AND s.revoked_at IS NULL
+          AND s.expires_at > NOW()
+          AND su.status    = 'active'`,
+      [tokenHash]
+    );
+    if (!result.rows[0]) return null;
+    const row = result.rows[0];
+    // Slide last_seen_at (fire and forget — no await to avoid blocking response)
+    pgClient.query(
+      'UPDATE auth_sessions SET last_seen_at = NOW() WHERE id = $1::uuid',
+      [row.session_id]
+    ).catch(() => {});
+    return row;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireAuth — returns {ok, user} or sends 401/403 and returns {ok:false}
+// When STAFF_AUTH_REQUIRED=false: always returns {ok:true, user:null} (no-auth mode)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function requireAuth(req, res, minRole) {
+  if (!STAFF_AUTH_REQUIRED) return { ok: true, user: null };
+
+  let user;
+  try {
+    user = await loadAuthSession(req);
+  } catch (_) {
+    sendJSON(res, 500, { success: false, error: 'auth session lookup failed' });
+    return { ok: false };
+  }
+
+  if (!user) {
+    sendJSON(res, 401, {
+      success:  false,
+      error:    'Authentication required. POST /staff/auth/login first.',
+      auth_url: '/staff/auth/login',
+    });
+    return { ok: false };
+  }
+
+  if (minRole && !hasRole(user.role, minRole)) {
+    sendJSON(res, 403, {
+      success:      false,
+      error:        `Role '${minRole}' or higher required.`,
+      current_role: user.role,
+    });
+    return { ok: false };
+  }
+
+  return { ok: true, user };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/auth/login
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleLogin(req, res) {
+  const started = Date.now();
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client   || '').trim();
+  const email      = String(body.email    || '').toLowerCase().trim();
+  const password   = String(body.password || '');
+
+  if (!clientSlug || !email || !password) {
+    return send400(res, 'client, email, and password are required');
+  }
+  if (SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(email)) {
+    return send400(res, 'invalid client or email');
+  }
+
+  let user;
+  try {
+    user = await withPgClient(async (pgClient) => {
+      const r = await pgClient.query(
+        `SELECT su.id::text        AS id,
+                su.email,
+                su.role,
+                su.status,
+                su.display_name,
+                su.password_hash,
+                su.client_id::text AS client_id,
+                c.slug             AS client_slug
+           FROM staff_users su
+           JOIN clients c ON c.id = su.client_id
+          WHERE c.slug         = $1
+            AND lower(su.email) = $2
+            AND su.status       = 'active'`,
+        [clientSlug, email]
+      );
+      return r.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'action:api:auth.login',
+      category: 'staff_auth', client_slug: clientSlug, email,
+      success: false, error: 'db_error', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'auth lookup failed' });
+  }
+
+  // Constant-time comparison — no user-not-found vs wrong-password oracle.
+  // If user not found, still run verifyPassword against a dummy hash.
+  const hashToCheck = (user && user.password_hash)
+    ? user.password_hash
+    : `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$deadbeef00000000000000000000000000$` +
+      '0'.repeat(64);
+  const ok = user !== null && verifyPassword(password, hashToCheck);
+
+  if (!ok) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'action:api:auth.login',
+      category: 'staff_auth', client_slug: clientSlug, email,
+      success: false, error: 'invalid_credentials', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 401, { success: false, error: 'Invalid credentials.' });
+  }
+
+  // Create session
+  const rawToken  = generateSessionToken();
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_HOURS * 3600 * 1000).toISOString();
+
+  try {
+    await withPgClient(async (pgClient) => {
+      await pgClient.query(
+        `INSERT INTO auth_sessions
+           (staff_user_id, client_id, session_token_hash, expires_at, last_seen_at)
+         VALUES ($1::uuid, $2::uuid, $3, $4, NOW())`,
+        [user.id, user.client_id, tokenHash, expiresAt]
+      );
+      await pgClient.query(
+        'UPDATE staff_users SET last_login_at = NOW() WHERE id = $1::uuid',
+        [user.id]
+      );
+    });
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'action:api:auth.login',
+      category: 'staff_auth', client_slug: clientSlug, email,
+      success: false, error: 'session_create_failed', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'session creation failed' });
+  }
+
+  setSessionCookie(res, rawToken);
+  appendAuditLog({
+    ts: new Date().toISOString(), intent: 'action:api:auth.login',
+    category: 'staff_auth', client_slug: clientSlug,
+    email: user.email, role: user.role, success: true, elapsed_ms: Date.now() - started,
+  });
+
+  return sendJSON(res, 200, {
+    success:      true,
+    message:      'Logged in.',
+    role:         user.role,
+    email:        user.email,
+    display_name: user.display_name || null,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/auth/logout
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleLogout(req, res) {
+  const started  = Date.now();
+  const cookies  = parseCookies(req);
+  const rawToken = cookies[COOKIE_NAME];
+
+  if (rawToken) {
+    const tokenHash = hashToken(rawToken);
+    try {
+      await withPgClient((pgClient) =>
+        pgClient.query(
+          `UPDATE auth_sessions SET revoked_at = NOW()
+            WHERE session_token_hash = $1 AND revoked_at IS NULL`,
+          [tokenHash]
+        )
+      );
+    } catch (_) {}
+  }
+
+  clearSessionCookie(res);
+  appendAuditLog({
+    ts: new Date().toISOString(), intent: 'action:api:auth.logout',
+    category: 'staff_auth', success: true, elapsed_ms: Date.now() - started,
+  });
+
+  return sendJSON(res, 200, { success: true, message: 'Logged out.' });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Maps URL query param names → registry param names
@@ -326,15 +648,46 @@ async function handleResolveHandoff(handoffId, req, res) {
     });
   }
 
-  // ── Token gate ─────────────────────────────────────────────────────────────
-  const providedToken = (req.headers['x-staff-operator-token'] || '').trim();
-  if (!STAFF_OPERATOR_TOKEN || !providedToken || providedToken !== STAFF_OPERATOR_TOKEN) {
-    appendAuditLog({
-      ts: new Date().toISOString(), intent: 'action:api:handoff.resolve',
-      category: 'staff_write', handoff_id: handoffId,
-      success: false, error: 'invalid_token', elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 401, { success: false, error: 'Missing or invalid x-staff-operator-token header.' });
+  // ── Auth gate (session when STAFF_AUTH_REQUIRED=true, else operator token) ──
+  // Session path: requires authenticated session with role operator or admin.
+  // Token path: local/dev backward compat (STAFF_AUTH_REQUIRED=false only).
+  if (STAFF_AUTH_REQUIRED) {
+    let sessionUser;
+    try { sessionUser = await loadAuthSession(req); } catch (_) { sessionUser = null; }
+    if (!sessionUser) {
+      appendAuditLog({
+        ts: new Date().toISOString(), intent: 'action:api:handoff.resolve',
+        category: 'staff_write', handoff_id: handoffId,
+        success: false, error: 'invalid_token', elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 401, {
+        success: false,
+        error: 'Authentication required for write actions when STAFF_AUTH_REQUIRED=true.',
+      });
+    }
+    if (!hasRole(sessionUser.role, 'operator')) {
+      appendAuditLog({
+        ts: new Date().toISOString(), intent: 'action:api:handoff.resolve',
+        category: 'staff_write', handoff_id: handoffId,
+        success: false, error: 'insufficient_role', elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 403, {
+        success:      false,
+        error:        `Role 'operator' or higher required for handoff.resolve.`,
+        current_role: sessionUser.role,
+      });
+    }
+  } else {
+    // Token gate (local/dev only — never used in staging/prod)
+    const providedToken = (req.headers['x-staff-operator-token'] || '').trim();
+    if (!STAFF_OPERATOR_TOKEN || !providedToken || providedToken !== STAFF_OPERATOR_TOKEN) {
+      appendAuditLog({
+        ts: new Date().toISOString(), intent: 'action:api:handoff.resolve',
+        category: 'staff_write', handoff_id: handoffId,
+        success: false, error: 'invalid_token', elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 401, { success: false, error: 'Missing or invalid x-staff-operator-token header.' });
+    }
   }
 
   // ── Parse body ─────────────────────────────────────────────────────────────
@@ -695,6 +1048,24 @@ async function router(req, res) {
   const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
   const method   = req.method.toUpperCase();
 
+  // ── POST /staff/auth/login  (Stage 7.2c — session auth) ──────────────────
+  if (pathname === '/staff/auth/login') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    return handleLogin(req, res);
+  }
+
+  // ── POST /staff/auth/logout  (Stage 7.2c — session revocation) ───────────
+  if (pathname === '/staff/auth/logout') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    return handleLogout(req, res);
+  }
+
   // ── POST /staff/handoff/:id/resolve (Stage 6.9 — write endpoint) ──────────
   const writeMatch = WRITE_HANDOFF_RE.exec(pathname);
   if (writeMatch) {
@@ -711,23 +1082,30 @@ async function router(req, res) {
   }
 
   if (pathname === '/staff/ui') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
     return handleUI(res, PORT);
   }
 
   if (pathname === '/staff/intents') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
     return handleIntents(res);
   }
 
   if (pathname === '/staff/query') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
     return handleQuery(parsed.query, res);
   }
 
   if (pathname === '/healthz' || pathname === '/') {
     return sendJSON(res, 200, {
-      status:  'ok',
-      service: 'wolfhouse-staff-query-api',
-      stage:   '6.8',
-      note:    'read-only local/dev API + UI',
+      status:       'ok',
+      service:      'wolfhouse-staff-query-api',
+      stage:        '7.2c',
+      auth_enabled: STAFF_AUTH_REQUIRED,
+      note:         'read-only local/dev API + UI with session auth scaffold',
     });
   }
 
@@ -748,15 +1126,18 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\nWolfhouse staff query API + UI (Stage 6.8/6.9) running on http://127.0.0.1:${PORT}`);
-  console.log('  Read-only. Local/dev only. No auth.');
-  console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED (set STAFF_ACTIONS_ENABLED=true to enable)'}`);
+  console.log(`\nWolfhouse staff query API + UI (Stage 7.2c) running on http://127.0.0.1:${PORT}`);
+  console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
+  console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
   console.log('  Endpoints:');
-  console.log(`    GET  http://127.0.0.1:${PORT}/staff/ui       <- browser UI`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/login    <- login (returns session cookie)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/logout   <- revoke session + clear cookie`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/ui            <- browser UI (requires viewer+ when auth on)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/intents`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/query?client=wolfhouse-somo&intent=payments.waiting`);
   if (STAFF_ACTIONS_ENABLED) {
-    console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve  <- requires x-staff-operator-token`);
+    console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
+    console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);
   }
   console.log('\nCtrl+C to stop.\n');
 });

@@ -1,6 +1,6 @@
 # Stage 7.2 — Auth Model + Staff Accounts Plan
 
-**Status:** DESIGN DONE · **7.2b migration 009 APPLIED to local/dev (2026-05-31)**. Auth middleware not built; staging/production NOT secure. See implementation log at bottom.
+**Status:** DESIGN DONE · **7.2b migration 009 APPLIED · 7.2c auth middleware scaffold APPLIED (local/dev, 2026-05-31)**. Production auth not built; staging NOT secure. See implementation log at bottom.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream B (auth and staff accounts).
 **Depends on:** [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) (env separation, secrets manager, danger rules).
 **Scope:** Design the production auth model for the staff API/UI before any staging/production write surface is enabled. Define staff users, roles, sessions/JWT, operator-token deprecation, action permissions, and go/no-go rules.
@@ -267,4 +267,15 @@ Each implementation slice (7.2b+) is a separate approved task with its own stati
 - **Deferred (documented in migration):** `staff_user_client_access` join table; `NOW()` partial index (Postgres immutability constraint)
 - **NOT done:** auth middleware, login/logout, password set, staff accounts, staging/production deployment
 
-**NOT claimed:** auth is not implemented; staging/production is not secure; no endpoint changed; live operation not approved.
+### 7.2c — Auth middleware scaffold (PASS — 2026-05-31)
+
+- **Modified:** `scripts/staff-query-api.js` — added auth config, crypto helpers, cookie helpers, `loadAuthSession`, `requireAuth`, `handleLogin`, `handleLogout`; updated router with `/staff/auth/login`, `/staff/auth/logout`; added `STAFF_AUTH_REQUIRED` guards on all read routes; updated handoff.resolve gate to accept session (operator/admin) when `STAFF_AUTH_REQUIRED=true`, token when `false`
+- **New env vars:** `STAFF_AUTH_REQUIRED`, `STAFF_SESSION_COOKIE_NAME`, `STAFF_SESSION_TTL_HOURS`, `STAFF_AUTH_HTTPS` (placeholders in `infra/.env.example`)
+- **Verifier:** `scripts/verify-staff-auth-api.js` — 48 checks, PASS
+- **Fixtures:** `scripts/fixtures/stage7.2c-auth-seed.sql` + `stage7.2c-auth-cleanup.sql` — viewer/operator/admin test users with scrypt-hashed passwords
+- **Live proof (13 checks, PASS):** viewer login → query allowed → handoff.resolve 403 → logout → stale cookie 401; operator login → query allowed → handoff.resolve past auth gate (404, not 401/403); bad credentials 401; admin login; cleanup → 0 fixture rows, protected tables unchanged
+- **Updated:** `scripts/verify-staff-query-api.js` (check 11 scoped to handleQuery; auth writes exempted)
+- **Hash format:** `scrypt$N$r$p$<salt_hex>$<hash_hex>` (Node built-in crypto, zero new deps)
+- **NOT done:** production auth; staging/prod TLS; real staff accounts; password reset; login UI; staging deployment
+
+**NOT claimed:** production auth not implemented; staging/production not secure; no real staff credentials set; live operation not approved.

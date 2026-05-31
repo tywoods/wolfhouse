@@ -139,11 +139,16 @@ section('10. No staff-action-runner import');
 if (lacks(src, /require\s*\(\s*['"][./]*staff-action-runner/)) { pass('no staff-action-runner import'); } else { fail('staff-action-runner is imported'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('11. No unguarded UPDATE/INSERT/DELETE in client.query');
+section('11. No unguarded UPDATE/INSERT/DELETE in handleQuery handler');
 
-if (lacks(src, /client\.query\s*\(\s*[`'"][\s\S]*?UPDATE\b/i))  { pass('no UPDATE in client.query'); }  else { fail('UPDATE in client.query found'); }
-if (lacks(src, /client\.query\s*\(\s*[`'"][\s\S]*?INSERT\b/i))  { pass('no INSERT in client.query'); }  else { fail('INSERT in client.query found'); }
-if (lacks(src, /client\.query\s*\(\s*[`'"][\s\S]*?DELETE\b/i))  { pass('no DELETE in client.query'); }  else { fail('DELETE in client.query found'); }
+// Stage 7.2c adds auth routes (handleLogin, handleLogout, loadAuthSession) that
+// legitimately write to auth_sessions / staff_users. Checks are now scoped to
+// the handleQuery function body only (read-only query handler must not write).
+const queryFnMatch = src.match(/async function handleQuery[\s\S]{0,12000}?(?=\n\/\/ ─────|^\/\/ ─────)/m);
+const queryFnSrc = queryFnMatch ? queryFnMatch[0] : src;
+if (lacks(queryFnSrc, /client\.query\s*\(\s*[`'"][\s\S]*?UPDATE\b/i)) { pass('no UPDATE in handleQuery'); }  else { fail('UPDATE in handleQuery found'); }
+if (lacks(queryFnSrc, /client\.query\s*\(\s*[`'"][\s\S]*?INSERT\b/i)) { pass('no INSERT in handleQuery'); }  else { fail('INSERT in handleQuery found'); }
+if (lacks(queryFnSrc, /client\.query\s*\(\s*[`'"][\s\S]*?DELETE\b/i)) { pass('no DELETE in handleQuery'); }  else { fail('DELETE in handleQuery found'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('12. No eval / no shell-out');
