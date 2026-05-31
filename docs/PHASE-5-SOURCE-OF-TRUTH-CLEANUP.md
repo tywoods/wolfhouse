@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); Stage 5.3d/e PASS (`runtime(stage5.3e)` commit); Stage 5.3f next  
+**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); Stage 5.3d/e/f PASS (`runtime(stage5.3f)` commit); Stage 5.3g next  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1322,10 +1322,33 @@ Runtime gate proving the full live hold→payment_pending→payments-row path un
 
 **Webhook message:** Must include email + "payment link" keywords so BSR detects `hasContact=true` and `has_payment_link_intent=true` → overrides to `payment_details_provided` route.
 
-#### 5.3f — Confirmation-needed query proof (static + runtime smoke)
+#### 5.3f — Confirmation-needed query proof (PASS — 2026-05-31, fixture SQL only)
 
-Static: `getConfirmationNeededQuery()` returns the correct eligibility set.
-Runtime smoke: after 5.3e gate, run query to confirm fixture booking appears in confirmation-needed list; run cleanup; confirm query returns 0.
+**Approach:** Fixture SQL only — no workflow activation, no webhook POST, no Luna runtime.
+
+**Fixture design (phone `34600000156` / `+34600000156`, separate from 5.3d phone `34600000155`):**
+- `booking_code`: `WH-53-CONFIRM-001`
+- `bookings.status`: `payment_pending`
+- `bookings.payment_status`: `deposit_paid`
+- `bookings.send_confirmation`: `TRUE`
+- `bookings.confirmation_sent_at`: `NULL`
+- `bookings.amount_paid_cents`: `20000`
+- `payments.status`: `paid`, `amount_paid_cents`: `20000`
+- No `booking_beds`, no `payment_events`
+
+**Artifacts:**
+- `scripts/fixtures/stage5.3f-confirmation-needed-seed.sql`
+- `scripts/fixtures/stage5.3f-confirmation-needed-cleanup.sql`
+- `scripts/verify-stage53f-confirmation-needed-proof.js` — read-only runner for `getConfirmationNeededQuery()`; supports `EXPECT_FIXTURE_ROWS=0|1` for gate assertions
+
+**Proof sequence (2026-05-31):**
+1. Cleanup first → fixture rows = 0
+2. Baseline: `EXPECT_FIXTURE_ROWS=0` → OK (Query F total rows = 0)
+3. Seed applied → booking + payments inserted
+4. After seed: `EXPECT_FIXTURE_ROWS=1` → OK — fixture row returned with `booking_code=WH-53-CONFIRM-001`, `phone=+34600000156`, `payment_status=deposit_paid`, `send_confirmation=true`, `confirmation_sent_at=NULL`
+5. Cleanup → DELETE 1 booking, DELETE 1 payments
+6. Post-cleanup: `EXPECT_FIXTURE_ROWS=0` → OK
+7. `booking_beds` unchanged (15 before/after); no workflow activation; no webhook execution
 
 #### 5.3g — Payment/staff smoke gate (runtime, after 5.3d–5.3f)
 

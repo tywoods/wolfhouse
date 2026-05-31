@@ -1,6 +1,6 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-31 (Stage 5.3e PASS — fixture ensure-promote gate proven, exec 1245)
+**Last updated:** 2026-05-31 (Stage 5.3f PASS — confirmation-needed query proof via fixture SQL)
 **HEAD (expected):** `bd891ba`
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
@@ -35,7 +35,7 @@
 | **3y** Shadow / co-pilot | **MODE A GATE 5 ALL 10 PASS — closeout decision made (2026-05-30)** | [PHASE-3y-SHADOW-COPILOT-PLAN.md](PHASE-3y-SHADOW-COPILOT-PLAN.md). All 10 payloads offline-safe PASS. 69 dry-run gates, zero mutations. Y-X13 decision: proceed to Stage 4. Mode B/C/D deferred (non-blocking parallel work). Next: Stage 4 Autonomous Booking Dry-Run. |
 | **4** Reliable | **CLOSE WITH DEFERRALS — Autonomous Booking Dry-Run complete (2026-05-30, commit 6cd9a21)** | All 14 runtime scenarios PASS (A1–A10, A9, IT-1/2/3, DE-1). Full dry-run booking path, payment webhook sim, confirmation draft, closed-month guard, multi-turn PG state, add-on pricing, multilingual baseline proven. Protected tables Δ=0 across all gates. **Deferrals:** real WhatsApp, live holds/Stripe/confirmation writes, structured add-on DB records (Stage 5), staff assistant (Stage 6), Airtable cutover, extensive multilingual polish. **Next: Stage 5 — source-of-truth cleanup + pilot readiness.** |
 
-| **5** Clean | **5.1 PASS. 5.2 CLOSE WITH DEFERRALS. 5.3a–5.3c STATIC DONE. 5.3d/e PASS (exec 1245, 2026-05-31).** Formula fix: `applyActiveBookingHoldIdGuard` (`FALSE()` guard proven). Fixture stub chain: `IF - Stage53 Fixture BSR Route Override?` → `IF - Stage53 Fixture Hold Search?` → `Code - Stage53 Fixture Hold Synthetic` → `IF - Hold Found` TRUE → `IF - Stage53 Fixture?` TRUE → **`Postgres - Ensure Booking In Postgres` executed** (`action: refreshed`, `WH-53-FIXTURE-001`). Seed proof: payment_balances=1, waiting-payment query=1. All counts Δ=0 (payment_events, booking_beds). Cleanup restored baseline. **Next: Stage 5.3f — confirmation-needed query proof.** | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
+| **5** Clean | **5.1 PASS. 5.2 CLOSE WITH DEFERRALS. 5.3a–5.3c STATIC DONE. 5.3d/e PASS (exec 1245). 5.3f PASS (fixture SQL, 2026-05-31).** `getConfirmationNeededQuery()` returns `WH-53-CONFIRM-001` after seed (`deposit_paid`, `send_confirmation=true`, `confirmation_sent_at=NULL`); 0 after cleanup. Phone `34600000156` (separate from 5.3d). No workflow activation, no webhook. **Next: Stage 5.3g — payment/staff smoke gate.** | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
 | **6** Beautiful | Planned | Staff UI + Staff Operations Assistant + approval controls; Airtable cutover. Not started. Staff queries answered from Stage 5 structured records. |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
@@ -325,7 +325,7 @@ Verified on `8abfd4d`: hold ? promote same `booking_id`; idempotent refresh; mis
 
 **Stage 3y Mode A runtime gate 3 ? PASS (2026-05-29).** `applyShadowModeDryRunGates(workflow)` in `scripts/build-main-local-stripe.js`. 67 `IF - DRY RUN?` gates added: 16 WA sends + 47 Airtable writes + 4 PG+read nodes (including `Search Messages - Recent Conversation` for new-conversation path). 211 expression patches across all node types (`.isExecuted` ternary). Stub pass-through connections added. Enhanced runner `scripts/run-stage3y-mode-a.js` with 90s queue-mode poll. Generated workflow: 336 nodes, `active=false`, `phase3y-shadow-safe` tag. All 5 tests PASS ? zero protected mutations.
 
-**Immediate next step: Stage 5.3f — confirmation-needed query proof.** Stage 5.3e PASS (exec 1245, 2026-05-31): `Postgres - Ensure Booking In Postgres` proven under fixture guard (`action: refreshed`, `WH-53-FIXTURE-001`). All fixture stub nodes wired and verified: BSR route override, hold-search stub, holdSources patch, `IF - Should Search Hold` patch. Cleanup restored baseline. Commit: `runtime(stage5.3e): pass fixture ensure-promote payment gate`.
+**Immediate next step: Stage 5.3g — payment/staff smoke gate.** Stage 5.3f PASS (2026-05-31): `getConfirmationNeededQuery()` proven via fixture SQL (`WH-53-CONFIRM-001`, phone `+34600000156`, `deposit_paid`, `send_confirmation=true`, `confirmation_sent_at=NULL`). Cleanup restored baseline. Commit: `runtime(stage5.3f): prove confirmation-needed payment query`.
 
 **Parallel: Stage 3x completion.**
 - 3x.2: Ale/Cami confirm provisional prices ? promoted config from v0.3 to confirmed.
