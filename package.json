@@ -58,7 +58,9 @@
     "report:digest": "node scripts/report-staff-digest.js",
     "verify:staff-action-runner": "node scripts/verify-staff-action-runner.js",
     "staff:action": "node scripts/staff-action-runner.js",
-    "verify:stage67-staff-intent-smoke": "node scripts/verify-stage67-staff-intent-smoke.js"
+    "verify:stage67-staff-intent-smoke": "node scripts/verify-stage67-staff-intent-smoke.js",
+    "verify:staff-query-api": "node scripts/verify-staff-query-api.js",
+    "staff:api": "node scripts/staff-query-api.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

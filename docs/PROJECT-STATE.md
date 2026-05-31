@@ -1,6 +1,6 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-05-31 (**Stage 6.7 DONE** — staff query intent smoke PASS: all 35 intents run, 0 failed, 144 rows, 496ms; protected tables Δ=0)
+**Last updated:** 2026-05-31 (**Stage 6.6 DONE** — read-only staff query HTTP API PASS: 39/39 verifier checks; 5 live API proofs (payments.waiting 3 rows, rooming.roster 15 rows, addons.lessons 0 rows, handoffs.open 0 rows, 400 for unknown intent); protected tables Δ=0; audit log api: prefix confirmed)
 **HEAD (expected):** `ce189aa` → pending commit (Stage 6.7)
 
 **Roadmap:** [ROADMAP.md](ROADMAP.md) (stages 3?7, 3x guardrails) ? **Architecture:** [ARCHITECTURE-NORTH-STAR.md](ARCHITECTURE-NORTH-STAR.md) ? **Agent:** [CURSOR.md](../CURSOR.md)
@@ -36,7 +36,7 @@
 | **4** Reliable | **CLOSE WITH DEFERRALS — Autonomous Booking Dry-Run complete (2026-05-30, commit 6cd9a21)** | All 14 runtime scenarios PASS (A1–A10, A9, IT-1/2/3, DE-1). Full dry-run booking path, payment webhook sim, confirmation draft, closed-month guard, multi-turn PG state, add-on pricing, multilingual baseline proven. Protected tables Δ=0 across all gates. **Deferrals:** real WhatsApp, live holds/Stripe/confirmation writes, structured add-on DB records (Stage 5), staff assistant (Stage 6), Airtable cutover, extensive multilingual polish. **Next: Stage 5 — source-of-truth cleanup + pilot readiness.** |
 
 | **5** Clean | **CLOSE WITH DEFERRALS** (`ae545a2`, 2026-05-31). SoT cleanup track (5.1–5.8b): all staff-queryable schemas stubbed; **migrations 007+008 applied to local/dev DB**; fixture smoke 26/26 PASS; `hostel_id→client_id` bugfix in reconciliation query. **Stage 5.9b PASS**: Luna staff handoff write path wired; `Postgres - Open Staff Handoff` proved; idempotency confirmed (de6c3c0). | Targeted SoT cleanup for Wolfhouse pilot readiness. Plan: [PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md). |
-| **6** Beautiful | **IN PROGRESS** (2026-05-31). 6.0 plan DONE · 6.1 registry DONE · 6.2 CLI runner DONE · 6.3 handoffs DONE · 6.4a payments DONE · 6.4b rooming DONE · 6.4c addons DONE · **6.4d digest DONE** · 6.4d digest DONE · **6.5a proposal DONE** · **6.5b confirmed write DONE** · **6.7 smoke PASS** · 6.6 HTTP API deferred. No live ops / real WhatsApp approved. | Staff/admin assistant. Plan: [PHASE-6-STAFF-ASSISTANT-PLAN.md](PHASE-6-STAFF-ASSISTANT-PLAN.md). |
+| **6** Beautiful | **IN PROGRESS** (2026-05-31). 6.0 plan DONE · 6.1 registry DONE · 6.2 CLI runner DONE · 6.3 handoffs DONE · 6.4a payments DONE · 6.4b rooming DONE · 6.4c addons DONE · **6.4d digest DONE** · 6.4d digest DONE · **6.5a proposal DONE** · **6.5b confirmed write DONE** · **6.7 smoke PASS** · **6.6 HTTP API DONE**. No live ops / real WhatsApp approved. | Staff/admin assistant. Plan: [PHASE-6-STAFF-ASSISTANT-PLAN.md](PHASE-6-STAFF-ASSISTANT-PLAN.md). |
 | **7** Scalable | Planned | Multi-client + Azure when approved |
 
 ---
