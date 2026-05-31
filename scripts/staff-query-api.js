@@ -1,5 +1,5 @@
 /**
- * Stage 6.6 — Read-only staff query HTTP API.
+ * Stage 6.6 / 6.8 — Read-only staff query HTTP API + thin staff UI.
  *
  * Minimal local/dev HTTP server wrapping the staff query registry.
  * Staff tools can GET safe, allowlisted Postgres queries without the terminal.
@@ -9,6 +9,7 @@
  *   STAFF_QUERY_API_PORT=3036 node scripts/staff-query-api.js
  *
  * Endpoints:
+ *   GET /staff/ui               — browser UI (Stage 6.8, read-only)
  *   GET /staff/intents          — list all allowlisted intents grouped by category
  *   GET /staff/query            — execute a single intent
  *
@@ -283,6 +284,242 @@ async function handleQuery(query, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Route: GET /staff/ui  (Stage 6.8 — read-only browser UI)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildUiHtml(port) {
+  // Inline self-contained HTML. No CDN, no framework, no write controls.
+  // All data fetched from /staff/intents and /staff/query on this same origin.
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wolfhouse Staff Query UI</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,sans-serif;font-size:14px;background:#f4f5f7;color:#1a1a2e}
+  #banner{background:#c0392b;color:#fff;padding:10px 18px;font-weight:700;letter-spacing:.04em;text-align:center}
+  #banner span{background:#fff;color:#c0392b;border-radius:4px;padding:1px 7px;margin-right:8px}
+  #wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+  h1{font-size:18px;font-weight:700;margin-bottom:16px;color:#2c3e50}
+  #form-card{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:18px 20px;margin-bottom:18px}
+  .row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
+  label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#5a6a85}
+  input,select{border:1px solid #cdd5df;border-radius:5px;padding:6px 9px;font-size:13px;min-width:160px;background:#fff}
+  input:focus,select:focus{outline:none;border-color:#3498db}
+  #btn-run{background:#2980b9;color:#fff;border:none;border-radius:5px;padding:8px 22px;font-size:13px;font-weight:700;cursor:pointer}
+  #btn-run:hover{background:#1f6fa3}
+  #btn-run:disabled{background:#aab4c4;cursor:default}
+  #params-row label{display:none}
+  #params-row label.visible{display:flex}
+  #results-card{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:16px 20px}
+  #meta{font-size:12px;color:#5a6a85;margin-bottom:10px}
+  #error-panel{background:#fdf2f2;border:1px solid #e74c3c;color:#c0392b;border-radius:6px;padding:10px 14px;margin-bottom:12px;display:none}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{background:#f0f2f5;text-align:left;padding:6px 9px;border-bottom:2px solid #dde1e7;font-weight:700;white-space:nowrap}
+  td{padding:5px 9px;border-bottom:1px solid #eef0f3;vertical-align:top;word-break:break-word;max-width:280px}
+  tr:hover td{background:#f7f9fb}
+  #json-view{background:#f8f9fb;border:1px solid #dde1e7;border-radius:5px;padding:12px;font-size:12px;white-space:pre-wrap;max-height:400px;overflow:auto;display:none}
+  #view-toggle{font-size:11px;color:#2980b9;cursor:pointer;margin-left:10px;text-decoration:underline}
+  .mig-note{font-size:11px;color:#e67e22;background:#fef9ec;border:1px solid #f5cba7;border-radius:4px;padding:4px 8px;display:inline-block;margin-bottom:8px}
+  #placeholder{color:#9aabb8;text-align:center;padding:32px 0;font-size:13px}
+</style>
+</head>
+<body>
+<div id="banner"><span>READ-ONLY</span>Local/dev staff query UI &mdash; no write actions &mdash; Stage 6.8</div>
+<div id="wrap">
+  <h1>Wolfhouse Staff Query</h1>
+  <div id="form-card">
+    <div class="row">
+      <label>Client<input id="f-client" value="wolfhouse-somo" style="min-width:200px"></label>
+      <label>Category<select id="f-cat"><option value="">-- loading --</option></select></label>
+      <label>Intent<select id="f-intent" disabled><option value="">-- pick category --</option></select></label>
+    </div>
+    <div class="row" id="params-row">
+      <label id="lbl-date">Date (YYYY-MM-DD)<input id="f-date" placeholder="2026-07-16"></label>
+      <label id="lbl-start">Start date<input id="f-start" placeholder="2026-07-01"></label>
+      <label id="lbl-end">End date<input id="f-end" placeholder="2026-07-31"></label>
+      <label id="lbl-booking">Booking code<input id="f-booking" placeholder="WH-260528-1493"></label>
+      <label id="lbl-reason">Reason code<input id="f-reason" placeholder="cancellation_request"></label>
+      <label id="lbl-staff">Staff name<input id="f-staff" placeholder="Ana"></label>
+      <label id="lbl-hours">Hours<input id="f-hours" placeholder="24" style="min-width:80px"></label>
+    </div>
+    <div class="row" style="margin-bottom:0">
+      <button id="btn-run" disabled>Run query</button>
+      <span id="status-txt" style="font-size:12px;color:#5a6a85;margin-left:8px"></span>
+    </div>
+  </div>
+  <div id="results-card">
+    <div id="error-panel"></div>
+    <div id="meta"></div>
+    <div id="table-wrap"><div id="placeholder">Select a category and intent, then click Run query.</div></div>
+    <pre id="json-view"></pre>
+  </div>
+</div>
+<script>
+(function(){
+  'use strict';
+  const API = '';  // same origin
+  let registry = {};  // category -> [{key,description,requiredParams,optionalParams}]
+  const PARAM_MAP = {
+    date: 'f-date', start_date: 'f-start', end_date: 'f-end',
+    booking_code: 'f-booking', reason_code: 'f-reason',
+    staff_name: 'f-staff', hours: 'f-hours',
+  };
+  const LABEL_MAP = {
+    date: 'lbl-date', start_date: 'lbl-start', end_date: 'lbl-end',
+    booking_code: 'lbl-booking', reason_code: 'lbl-reason',
+    staff_name: 'lbl-staff', hours: 'lbl-hours',
+  };
+
+  function el(id){ return document.getElementById(id); }
+
+  function showError(msg){
+    const p = el('error-panel'); p.textContent = msg; p.style.display = 'block';
+  }
+  function clearError(){ el('error-panel').style.display = 'none'; }
+
+  function showAllParamLabels(visible){
+    Object.values(LABEL_MAP).forEach(id => {
+      el(id).classList.toggle('visible', visible);
+    });
+  }
+  function updateParamLabels(intentEntry){
+    Object.values(LABEL_MAP).forEach(id => el(id).classList.remove('visible'));
+    if (!intentEntry) return;
+    const needed = new Set([
+      ...intentEntry.requiredParams,
+      ...intentEntry.optionalParams
+    ]);
+    needed.forEach(p => { if (LABEL_MAP[p]) el(LABEL_MAP[p]).classList.add('visible'); });
+  }
+
+  // Load intents
+  fetch(API + '/staff/intents')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.success) { showError('Failed to load intents: ' + (data.error||'unknown')); return; }
+      registry = data.intents;
+      const catSel = el('f-cat');
+      catSel.innerHTML = '<option value="">-- pick category --</option>';
+      data.categories.forEach(cat => {
+        const o = document.createElement('option'); o.value = cat; o.textContent = cat;
+        catSel.appendChild(o);
+      });
+    })
+    .catch(e => showError('Could not reach API: ' + e.message));
+
+  el('f-cat').addEventListener('change', function(){
+    const cat = this.value;
+    const intentSel = el('f-intent');
+    intentSel.innerHTML = '<option value="">-- pick intent --</option>';
+    intentSel.disabled = !cat;
+    el('btn-run').disabled = true;
+    updateParamLabels(null);
+    if (!cat) return;
+    (registry[cat] || []).forEach(entry => {
+      const o = document.createElement('option');
+      o.value = entry.key;
+      o.textContent = entry.key + ' — ' + entry.description;
+      intentSel.appendChild(o);
+    });
+    intentSel.disabled = false;
+  });
+
+  el('f-intent').addEventListener('change', function(){
+    const key = this.value;
+    el('btn-run').disabled = !key;
+    if (!key) { updateParamLabels(null); return; }
+    const cat = el('f-cat').value;
+    const entry = (registry[cat]||[]).find(e => e.key === key);
+    updateParamLabels(entry);
+  });
+
+  el('btn-run').addEventListener('click', function(){
+    clearError();
+    const client = el('f-client').value.trim() || 'wolfhouse-somo';
+    const intent = el('f-intent').value.trim();
+    if (!intent){ showError('No intent selected.'); return; }
+
+    const params = new URLSearchParams({ client, intent });
+    const fieldMap = { date:'f-date', start:'f-start', end:'f-end',
+      booking:'f-booking', reason:'f-reason', staff:'f-staff', hours:'f-hours' };
+    Object.entries(fieldMap).forEach(([k, id]) => {
+      const v = el(id).value.trim();
+      if (v) params.set(k, v);
+    });
+
+    el('btn-run').disabled = true;
+    el('status-txt').textContent = 'Running\u2026';
+    el('meta').textContent = '';
+    el('table-wrap').innerHTML = '';
+    el('json-view').style.display = 'none';
+
+    fetch(API + '/staff/query?' + params.toString())
+      .then(r => r.json())
+      .then(data => {
+        el('btn-run').disabled = false;
+        el('status-txt').textContent = '';
+        if (!data.success){
+          showError((data.error || 'Query failed') + (data.detail ? ' — ' + data.detail : ''));
+          return;
+        }
+        let html = '';
+        if (data.migration_note) {
+          html += '<div class="mig-note">\u26a0 Migration advisory: ' + data.migration_note + '</div>';
+        }
+        html += '<span id="view-toggle" title="Toggle JSON view">JSON</span>';
+        el('meta').innerHTML =
+          '<strong>' + data.intent + '</strong> &mdash; ' + data.category +
+          ' &mdash; ' + data.row_count + ' row(s) &mdash; ' + data.elapsed_ms + 'ms';
+
+        if (!data.rows || data.rows.length === 0){
+          el('table-wrap').innerHTML = html + '<div style="color:#9aabb8;padding:20px 0;text-align:center">No rows returned.</div>';
+        } else {
+          const cols = Object.keys(data.rows[0]);
+          let tbl = '<table><thead><tr>' + cols.map(c => '<th>' + escHtml(c) + '</th>').join('') + '</tr></thead><tbody>';
+          data.rows.forEach(row => {
+            tbl += '<tr>' + cols.map(c => '<td>' + escHtml(row[c] == null ? '' : String(row[c])) + '</td>').join('') + '</tr>';
+          });
+          tbl += '</tbody></table>';
+          el('table-wrap').innerHTML = html + tbl;
+        }
+        el('json-view').textContent = JSON.stringify(data, null, 2);
+        el('table-wrap').querySelector('#view-toggle') &&
+          el('table-wrap').querySelector('#view-toggle').addEventListener('click', function(){
+            const jv = el('json-view');
+            if (jv.style.display === 'none'){ jv.style.display = 'block'; this.textContent = 'Table'; }
+            else { jv.style.display = 'none'; this.textContent = 'JSON'; }
+          });
+      })
+      .catch(e => {
+        el('btn-run').disabled = false;
+        el('status-txt').textContent = '';
+        showError('Network error: ' + e.message);
+      });
+  });
+
+  function escHtml(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+})();
+</script>
+</body>
+</html>`;
+}
+
+function handleUI(res, port) {
+  const html = buildUiHtml(port);
+  res.writeHead(200, {
+    'Content-Type':  'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Powered-By':  'wolfhouse-staff-api/6.8',
+  });
+  res.end(html);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Request router
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -294,6 +531,10 @@ async function router(req, res) {
   // Only GET is allowed
   if (method !== 'GET') {
     return send405(res);
+  }
+
+  if (pathname === '/staff/ui') {
+    return handleUI(res, PORT);
   }
 
   if (pathname === '/staff/intents') {
@@ -308,8 +549,8 @@ async function router(req, res) {
     return sendJSON(res, 200, {
       status:  'ok',
       service: 'wolfhouse-staff-query-api',
-      stage:   '6.6',
-      note:    'read-only local/dev API',
+      stage:   '6.8',
+      note:    'read-only local/dev API + UI',
     });
   }
 
@@ -330,9 +571,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\nWolfhouse staff query API (Stage 6.6) running on http://127.0.0.1:${PORT}`);
+  console.log(`\nWolfhouse staff query API + UI (Stage 6.8) running on http://127.0.0.1:${PORT}`);
   console.log('  Read-only. Local/dev only. No auth.');
   console.log('  Endpoints:');
+  console.log(`    GET http://127.0.0.1:${PORT}/staff/ui       <- browser UI`);
   console.log(`    GET http://127.0.0.1:${PORT}/staff/intents`);
   console.log(`    GET http://127.0.0.1:${PORT}/staff/query?client=wolfhouse-somo&intent=payments.waiting`);
   console.log('\nCtrl+C to stop.\n');

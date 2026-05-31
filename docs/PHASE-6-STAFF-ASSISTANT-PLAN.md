@@ -223,6 +223,7 @@ Actions behind explicit `--action` flags or confirmation prompts. Initially: sta
 | 6.5b | Staff action runner — confirmed write | Wire `--confirm` gate; execute `resolveHandoffSql` against DB; proof requires fixture + rollback | DONE |
 | 6.6 | Minimal HTTP API | scripts/staff-query-api.js — Node http GET /staff/query + /staff/intents; no Express dep; 39/39 verifier checks PASS; 5 live API proofs PASS; protected tables Δ0; local/dev read-only only | DONE |
 | 6.7 | Pilot staff smoke test | All 35 intents run; 0 failed; 0 skipped; 144 rows; 496ms; protected tables Δ=0 | DONE |
+| 6.8 | Thin read-only staff UI | GET /staff/ui inline HTML in staff-query-api.js; category/intent dropdowns; param fields; table results; READ-ONLY banner; 29/29 verifier PASS; UI 200 HTML; protected tables Δ0; local/dev only | DONE |
 
 ---
 
