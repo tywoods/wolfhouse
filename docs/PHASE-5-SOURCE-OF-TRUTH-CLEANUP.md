@@ -1,6 +1,6 @@
 # Stage 5 — Targeted Source-of-Truth Cleanup (Planning)
 
-**Status:** **In progress** — Stage 5.1 PASS; Stage 5.2 **CLOSE WITH DEFERRALS** (`6306846`); **Stage 5.3 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.4 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.5 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.6 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.7 CLOSE WITH DEFERRALS** (2026-05-31); **Stage 5.8 CLOSE WITH DEFERRALS** (2026-05-31); Stage 5.9 / pilot migration apply next  
+**Status:** **CLOSE WITH DEFERRALS** (`ae545a2`, 2026-05-31) — Stage 5.1 PASS; Stage 5.2–5.8b CLOSE WITH DEFERRALS. All staff-queryable data schemas stubbed and query helpers proven. Migrations 007/008 ready to apply. Engine extraction / portability scope deferred (separate Stage 5 workstream). Detail below.  
 **Prerequisite:** Stage 4 Autonomous Booking Dry-Run **CLOSE WITH DEFERRALS** (`beeb312`)  
 **Next consumer:** Stage 6 staff/admin assistant (read-only queries first)
 
@@ -1884,4 +1884,72 @@ Reference constants:
 
 **Artifacts:** `database/migrations/008_add_staff_handoffs.sql` (amended), `scripts/verify-staff-handoff-migration.js` (updated).
 
+---
 
+## Stage 5 Closeout Review (**CLOSE WITH DEFERRALS** 2026-05-31 — commit `ae545a2`)
+
+**Recommendation: Stage 5 source-of-truth cleanup CLOSE WITH DEFERRALS.**
+
+All staff-queryable data schemas are stubbed, proven queryable, and migration-ready. The engine extraction / portability scope (decision-engine extraction, `InventoryProvider`, n8n → backend call migration) is a separate Stage 5 workstream that is not required for pilot readiness and is deferred.
+
+### Stage 5 Closeout Matrix
+
+| Sub-stage | Status | Proof | Key deferral |
+|-----------|--------|-------|-------------|
+| **5.1** Conversation PG memory | ✅ PASS | A2/A3/A4 no-seed execs 1214–1227; PG session read/write proven; `Code - Search Conversation (PG)` routing proven | Airtable mirror removal deferred |
+| **5.2** Bookings/holds SoT | ✅ CLOSE WITH DEFERRALS | exec 1230: real fixture hold write; `WH-260530-8226`; FK linked; staff hold queries A–D proven; cleanup clean | Live guest holds unapproved; ensure-promote live path not separately runtime-proven in 5.2 |
+| **5.3** Payments/balances SoT | ✅ CLOSE WITH DEFERRALS | execs 1241/1245: fixture ensure-promote; `payment_balances` + 6 staff payment queries smoke (3 fixture buckets); confirmation-needed proven | Live Stripe unapproved; Stripe webhook replay idempotency deferred; `getNoPaymentRecordQuery` proxy retained |
+| **5.4** Confirmation state | ✅ CLOSE WITH DEFERRALS | Fixture seed: `WH-54-NEEDS-001` in query, `WH-54-CONFIRMED-001` excluded; mark-confirmed gate gated | Confirmation send live path deferred |
+| **5.5** Rooming/bed assignment | ✅ CLOSE WITH DEFERRALS | Static verifier 56/56; smoke: Fixture A/B assigned/unassigned; roster/unassigned/occupied/arrivals queries correct | Live bed assignment for guests unapproved; Airtable rooming read removal deferred |
+| **5.6** Add-ons schema | ✅ CLOSE WITH DEFERRALS | Migration 007 stub; `verify-addon-schema-migration.js` 7 tables/11 FKs/14 indexes/7 triggers; 9 query helpers A–I | Migration NOT applied; add-on write automation deferred |
+| **5.6b** Meals/transfers schema | ✅ CLOSE WITH DEFERRALS | `meal_requests` + `transfer_requests` added to migration 007; verifiers updated; all checks green | Same as 5.6 |
+| **5.7** Staff handoffs schema | ✅ CLOSE WITH DEFERRALS | Migration 008 stub; `staff_handoffs`+`staff_tasks`; `verify-staff-handoff-migration.js` green; 8 query helpers A–H; `getPaymentClaimedNoRecordQuery` additive upgrade | Migration NOT applied; write path NOT wired; staff UI Stage 6 |
+| **5.8** Handoff reconciliation/write-path | ✅ CLOSE WITH DEFERRALS | `getNeedsHumanWithoutOpenHandoffQuery()` (Query I); `staff-handoff-write-sql.js` NOT WIRED; `HANDOFF_REASON_MAP`; `HANDOFF_PRIORITY_DEFAULTS`; write verifier green | Write path NOT activated; requires migration 008 applied first |
+| **5.8b** Handoff idempotency indexes | ✅ PASS | `uq_staff_handoffs_conv_reason_open` + `uq_staff_handoffs_booking_reason_open` added to migration 008; verifier 6 new checks green | Migration NOT applied |
+
+### Stage 5 Exit Criteria (met)
+
+| Criterion | Status |
+|-----------|--------|
+| Postgres is primary conversation memory | ✅ proven (5.1) |
+| bookings/holds are queryable from Postgres | ✅ proven (5.2) |
+| payments/balances are queryable from Postgres | ✅ proven (5.3) |
+| confirmation-needed state is queryable | ✅ proven (5.3f/5.4) |
+| rooming/bed assignment is queryable from Postgres | ✅ proven (5.5) |
+| add-ons are representable in schema | ✅ schema stub (5.6/5.6b) |
+| staff handoffs are representable in schema | ✅ schema stub (5.7) |
+| staff query helpers exist for all operational domains | ✅ 5 query helper modules |
+| handoff write-path is designed and verifiable | ✅ design only (5.8) |
+| idempotency indexes match write-path ON CONFLICT | ✅ (5.8b) |
+| migrations 007/008 are complete and ready to apply | ✅ both stubs done |
+| live operation remains explicitly unapproved | ✅ enforced |
+
+### Stage 5 Deferrals
+
+| Deferral | Reason | Target |
+|----------|--------|--------|
+| Apply migrations 007+008 to dev DB | Explicit pilot approval required | Pilot gate / Stage 5.9 |
+| Wire `Postgres - Open Staff Handoff` in n8n Main | Write path not approved yet | Stage 5.9 write-stub |
+| Live WhatsApp sends | Not approved | Stage 6 pilot |
+| Live Stripe checkout (real guest payments) | Not approved | Stage 6 pilot |
+| Real guest holds / booking mutations | Not approved | Stage 6 pilot |
+| Full Airtable mirror removal | Requires staff UI replacement first | Stage 6 Airtable cutover |
+| Staff UI / handoff queue / staff assistant | Not built | Stage 6 |
+| Add-on write automation (bot writes add_on_orders) | Schema only today | Stage 5.9 or Stage 6 |
+| Bot auto-resolve handoffs | Requires write path first | Stage 5.9+ |
+| Historical `needs_human=TRUE` backfill | Post-migration | Post-pilot |
+| Multi-client productization | Not needed for Wolfhouse pilot | Stage 7 |
+| Decision-engine extraction / `InventoryProvider` | Large scope; separate workstream | Stage 5 engine track (separate) |
+| n8n → backend call migration | Requires engine extraction | Stage 5 engine track |
+| Stripe webhook idempotency replay fixture | Deferred from 5.3 | Stage 5.9 or 6 |
+| `payment_balances` promoted to DB VIEW | Not needed for query helper approach | Stage 6 if needed |
+
+### Recommended next phase choices
+
+**A (preferred — lowest risk, highest payoff):** Apply migrations 007+008 to the dev DB in a controlled migration gate. Run fixture smoke proofs for add-on and handoff queries against the live schema. This proves the stubs work in a real DB before pilot.
+
+**B:** Stage 6 staff/admin assistant planning — map staff questions to the proven query helpers and design the staff-facing API layer.
+
+**C:** Stage 5 engine extraction track — extract decision logic from n8n Code nodes into `src/booking-assistant/` modules. This is the ROADMAP's "portability" Stage 5 scope and is independent of the SoT cleanup track.
+
+**Recommended commit:** `docs(stage5): close source-of-truth cleanup with deferrals`
