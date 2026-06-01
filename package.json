@@ -72,7 +72,8 @@
     "verify:staff-bed-calendar-ui": "node scripts/verify-staff-bed-calendar-ui.js",
     "verify:staff-booking-detail-queries": "node scripts/verify-staff-booking-detail-queries.js",
     "verify:staff-booking-detail-api": "node scripts/verify-staff-booking-detail-api.js",
-    "verify:stage77j-copy-review-workflow": "node scripts/verify-stage77j-copy-review-workflow.js"
+    "verify:stage77j-copy-review-workflow": "node scripts/verify-stage77j-copy-review-workflow.js",
+    "verify:staff-bed-reassignment-sql": "node scripts/verify-staff-bed-reassignment-sql.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
