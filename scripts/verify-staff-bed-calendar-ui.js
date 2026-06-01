@@ -159,9 +159,14 @@ check(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]
 check(!/draggable\s*=|addEventListener\s*\(\s*['"]dragstart|addEventListener\s*\(\s*['"]drop|ondrop\s*=/.test(src),
   'No drag/drop event listeners or attributes (draggable=/dragstart/drop listener)');
 
-// 26. No reassign/date-change endpoint in UI
-check(!/bed-calendar\/reassign|bed-calendar\/date-change|bed-calendar\/cancel/i.test(src),
-  'No bed-calendar write endpoint reference (reassign/date-change/cancel) in UI');
+// 26. No write reassign/date-change endpoint referenced in UI JS
+// Stage 7.7k3 adds server-side /reassign/preview route — that is NOT a UI fetch call.
+// Check that the embedded UI JS (inside buildUiHtml) does not fetch a write reassign path.
+// We scope to the UI HTML template to avoid matching server-side route strings.
+const uiHtmlIdx26 = src.indexOf('buildUiHtml');
+const uiHtmlSrc26 = uiHtmlIdx26 >= 0 ? src.slice(uiHtmlIdx26, uiHtmlIdx26 + 80000) : src;
+check(!/fetch\s*\(\s*['"`][^'"`.]*bed-calendar\/reassign(?!\/preview)|bed-calendar\/date-change|bed-calendar\/cancel/i.test(uiHtmlSrc26),
+  'No bed-calendar write endpoint reference in UI fetch calls (reassign/date-change/cancel)');
 
 // 27. No save/move booking button (excluding disabled explanatory text context)
 const calPanelIdx = src.indexOf('tab-bed-calendar');

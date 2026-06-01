@@ -78,6 +78,9 @@ const {
   getBookingHandoffQuery,
   getBookingAddOnSummaryQuery,
 } = require('./lib/staff-booking-detail-queries');
+const {
+  reassignBookingBedSql,
+} = require('./lib/staff-bed-reassignment-sql');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -103,6 +106,21 @@ const WRITE_HANDOFF_RE = /^\/staff\/handoff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4
 const UUID_RE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
+
+// Stage 7.7k3 — UUID validator for booking_bed_id query param
+const UUID_VALIDATE_RE = new RegExp('^' + UUID_RE + '$', 'i');
+
+// SQL for looking up booking_code from booking_bed_id (preview pre-flight)
+// SELECT-only; no mutations.
+const LOOKUP_BOOKING_CODE_SQL = `
+  SELECT b.booking_code
+  FROM booking_beds bb
+  INNER JOIN bookings b  ON b.id        = bb.booking_id
+  INNER JOIN clients  c  ON c.id        = bb.client_id
+  WHERE bb.id = $1::uuid
+    AND c.slug = $2
+  LIMIT 1
+`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth config (Stage 7.2c scaffold)
@@ -2686,6 +2704,168 @@ async function handleBedCalendar(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stage 7.7k3 — Bed reassignment preview handler (proposal-only, no write)
+//
+// GET /staff/bed-calendar/reassign/preview
+//   ?client=<slug>&booking_bed_id=<uuid>&target_bed_code=<bed>
+//   &booking_code=<optional>&reason=<optional>
+//
+// Calls reassignBookingBedSql() with confirm=false ($8=false).
+// The UPDATE CTE is gated by confirm, so rows_updated is always 0.
+// Wrapped in BEGIN/ROLLBACK — absolutely no booking_beds change can persist.
+// The audit_written CTE only fires when updated ran, so no workflow_events row.
+// Only the API's own audit log file is written on every call.
+//
+// Auth: operator/admin/owner minimum. Viewers get 403 when STAFF_AUTH_REQUIRED=true.
+// NOT gated by STAFF_ACTIONS_ENABLED — preview is read-only; no write gate needed.
+// Does NOT import or call reassign-booking-beds-pg-sql.js (bot reset path).
+//
+// Safety: booking_beds · bookings · payments · payment_events · staff_handoffs
+//         all remain untouched. Protected table delta = 0 guaranteed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBedReassignPreview(query, res, user) {
+  const started = Date.now();
+
+  // ── Extract params ─────────────────────────────────────────────────────────
+  const clientSlug    = String(query.client           || DEFAULT_CLIENT).trim();
+  const bookingBedId  = String(query.booking_bed_id   || '').trim();
+  const targetBedCode = String(query.target_bed_code  || '').trim();
+  const reasonNote    = String(query.reason           || 'preview only').trim().slice(0, 500);
+  const bookingCodeQ  = String(query.booking_code     || '').trim();
+
+  // ── Input validation ───────────────────────────────────────────────────────
+  if (SQL_INJECT_RE.test(clientSlug))
+    return send400(res, 'invalid client slug');
+  if (!bookingBedId)
+    return send400(res, 'booking_bed_id is required');
+  if (!UUID_VALIDATE_RE.test(bookingBedId))
+    return send400(res, 'booking_bed_id must be a valid UUID');
+  if (!targetBedCode)
+    return send400(res, 'target_bed_code is required');
+  if (SQL_INJECT_RE.test(targetBedCode))
+    return send400(res, 'invalid target_bed_code');
+  if (SQL_INJECT_RE.test(reasonNote))
+    return send400(res, 'invalid reason');
+
+  // ── Audit baseline ─────────────────────────────────────────────────────────
+  const actorId   = user ? user.staff_user_id : 'dev-preview-local';
+  const actorRole = user ? user.role          : 'operator';
+
+  const auditBase = {
+    ts:             new Date().toISOString(),
+    intent:         'api:bed_reassign_preview',
+    category:       'bed_reassign_api',
+    client_slug:    clientSlug,
+    booking_bed_id: bookingBedId,
+    target_bed_code: targetBedCode,
+    staff_user_id:  actorId,
+    staff_role:     actorRole,
+  };
+
+  let previewRow;
+  try {
+    previewRow = await withPgClient(async (pg) => {
+      // Step 1: resolve booking_code if not supplied by caller
+      let bookingCode = bookingCodeQ;
+      if (!bookingCode) {
+        const lkup = await pg.query(LOOKUP_BOOKING_CODE_SQL, [bookingBedId, clientSlug]);
+        if (lkup.rows.length === 0) {
+          // Return null to signal not-found (handled below after try/catch)
+          return null;
+        }
+        bookingCode = lkup.rows[0].booking_code;
+      }
+
+      // Step 2: run SQL inside BEGIN/ROLLBACK — always rolled back for preview.
+      // The helper's UPDATE is already gated by confirm=false, giving rows_updated=0.
+      // The ROLLBACK is defence-in-depth: no write can accidentally persist.
+      await pg.query('BEGIN');
+      let result;
+      try {
+        result = await pg.query(
+          reassignBookingBedSql(),
+          [
+            clientSlug,   // $1 client_slug
+            bookingCode,  // $2 booking_code
+            bookingBedId, // $3 booking_bed_id (UUID)
+            targetBedCode,// $4 target_bed_code
+            actorId,      // $5 staff_user_id
+            actorRole,    // $6 staff_role
+            reasonNote,   // $7 reason_note
+            false,        // $8 confirm = FALSE — preview only, never write
+          ]
+        );
+      } finally {
+        // Always rollback — this is a preview; no writes should persist.
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+      }
+      return result.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'preview query failed', detail: err.message });
+  }
+
+  // ── Not-found ──────────────────────────────────────────────────────────────
+  if (previewRow === null) {
+    appendAuditLog({ ...auditBase, success: false, error: 'assignment_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, {
+      success: false,
+      error:   'booking_bed_id not found for this client',
+      note:    'The assignment may not exist or may belong to a different client.',
+    });
+  }
+
+  // ── Safety assertion: rows_updated must be 0 for a preview call ───────────
+  const rowsUpdated = Number(previewRow.rows_updated || 0);
+  if (rowsUpdated !== 0) {
+    // This should never happen (confirm=false + ROLLBACK), but log and surface it.
+    appendAuditLog({
+      ...auditBase, success: false,
+      error: 'SAFETY_VIOLATION_rows_updated_nonzero', rows_updated: rowsUpdated,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, {
+      success: false,
+      error:   'Safety check failed: preview returned rows_updated != 0. No changes were committed (transaction was rolled back). Report this immediately.',
+      rows_updated: rowsUpdated,
+    });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success:      true,
+    blocked:      previewRow.blocked,
+    block_reason: previewRow.block_reason,
+    rows_updated: rowsUpdated,
+    elapsed_ms:   elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success:              true,
+    preview:              true,
+    note:                 'Proposal only — confirm=false. No booking_beds row was changed. Transaction was rolled back.',
+    action:               previewRow.action,
+    booking_code:         previewRow.booking_code,
+    old_room_code:        previewRow.old_room_code,
+    old_bed_code:         previewRow.old_bed_code,
+    new_room_code:        previewRow.new_room_code,
+    new_bed_code:         previewRow.new_bed_code,
+    assignment_start_date: previewRow.assignment_start_date,
+    assignment_end_date:   previewRow.assignment_end_date,
+    blocked:              previewRow.blocked,
+    block_reason:         previewRow.block_reason,
+    conflict_count:       previewRow.conflict_count,
+    rows_updated:         rowsUpdated,
+    audit_payload:        previewRow.audit_payload,
+    rollback_payload:     previewRow.rollback_payload,
+    elapsed_ms:           elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7i — Booking context handler (read-only)
 //
 // GET /staff/bookings/:bookingCode/context?client=<slug>
@@ -2882,6 +3062,14 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleBedCalendar(parsed.query, res, auth.user);
+  }
+
+  // ── Stage 7.7k3 — Bed reassignment preview (proposal-only, no write) ───────
+  // Requires operator/admin/owner — viewer gets 403 when STAFF_AUTH_REQUIRED=true.
+  if (pathname === '/staff/bed-calendar/reassign/preview') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBedReassignPreview(parsed.query, res, auth.user);
   }
 
   // ── Stage 7.7i — Booking context drawer (read-only) ───────────────────────

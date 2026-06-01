@@ -74,7 +74,8 @@
     "verify:staff-booking-detail-api": "node scripts/verify-staff-booking-detail-api.js",
     "verify:stage77j-copy-review-workflow": "node scripts/verify-stage77j-copy-review-workflow.js",
     "verify:staff-bed-reassignment-sql": "node scripts/verify-staff-bed-reassignment-sql.js",
-    "verify:staff-bed-reassignment-overlap": "node scripts/verify-staff-bed-reassignment-overlap.js"
+    "verify:staff-bed-reassignment-overlap": "node scripts/verify-staff-bed-reassignment-overlap.js",
+    "verify:staff-bed-reassignment-preview-api": "node scripts/verify-staff-bed-reassignment-preview-api.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

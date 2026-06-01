@@ -265,9 +265,9 @@ blocked_summary AS (
 audit_payload_cte AS (
   SELECT jsonb_build_object(
     'action',                'staff_reassign_bed',
-    'staff_user_id',         $5,
-    'staff_role',            $6,
-    'client_slug',           $1,
+    'staff_user_id',         $5::text,
+    'staff_role',            $6::text,
+    'client_slug',           $1::text,
     'booking_code',          COALESCE((SELECT booking_code           FROM current_assignment), 'unknown'),
     'old_room_code',         COALESCE((SELECT old_room_code          FROM current_assignment), 'unknown'),
     'old_bed_code',          COALESCE((SELECT old_bed_code           FROM current_assignment), 'unknown'),
@@ -275,7 +275,7 @@ audit_payload_cte AS (
     'new_bed_code',          COALESCE((SELECT bed_code               FROM target_bed),         'unknown'),
     'assignment_start_date', COALESCE((SELECT assignment_start_date::text FROM current_assignment), 'unknown'),
     'assignment_end_date',   COALESCE((SELECT assignment_end_date::text   FROM current_assignment), 'unknown'),
-    'reason',                $7,
+    'reason',                $7::text,
     'is_blocked',            (SELECT is_blocked    FROM blocked_summary),
     'block_reason',          (SELECT first_blocker FROM blocked_summary),
     'conflict_count',        (SELECT conflict_count FROM overlap_check)
@@ -311,7 +311,7 @@ updated AS (
     room_code        = (SELECT room_code FROM target_bed),
     bed_code         = (SELECT bed_code  FROM target_bed),
     assignment_type  = 'manual',
-    assignment_label = COALESCE($7, 'Staff reassignment'),
+    assignment_label = COALESCE($7::text, 'Staff reassignment'),
     updated_at       = NOW()
   FROM current_assignment ca
   CROSS JOIN ctx
