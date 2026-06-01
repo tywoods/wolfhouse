@@ -387,6 +387,7 @@ resource n8nMainApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
         { name: 'n8n-database-url',    keyVaultUrl: '${kvBaseUri}/n8n-database-url',    identity: managedIdentity.id }
         { name: 'n8n-encryption-key',  keyVaultUrl: '${kvBaseUri}/n8n-encryption-key',  identity: managedIdentity.id }
         { name: 'redis-conn-string',   keyVaultUrl: '${kvBaseUri}/redis-connection-string', identity: managedIdentity.id }
+        { name: 'redis-password',      keyVaultUrl: '${kvBaseUri}/redis-password', identity: managedIdentity.id }
         { name: 'meta-wa-token',       keyVaultUrl: '${kvBaseUri}/meta-whatsapp-token',  identity: managedIdentity.id }
         { name: 'meta-wa-phone-id',    keyVaultUrl: '${kvBaseUri}/meta-whatsapp-phone-id', identity: managedIdentity.id }
         { name: 'wh-airtable-token',   keyVaultUrl: '${kvBaseUri}/wolfhouse-airtable-token', identity: managedIdentity.id }
@@ -420,7 +421,8 @@ resource n8nMainApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
             { name: 'DB_TYPE',                  value: 'postgresdb' }
             { name: 'N8N_ENCRYPTION_KEY',       secretRef: 'n8n-encryption-key' }
             { name: 'DB_POSTGRESDB_URL',        secretRef: 'n8n-database-url' }
-            { name: 'QUEUE_BULL_REDIS_HOST',    secretRef: 'redis-conn-string' }  // full connection string
+            { name: 'QUEUE_BULL_REDIS_HOST',    secretRef: 'redis-conn-string' }
+            { name: 'QUEUE_BULL_REDIS_PASSWORD', secretRef: 'redis-password' }
             { name: 'META_WHATSAPP_TOKEN',      secretRef: 'meta-wa-token' }
             { name: 'META_WHATSAPP_PHONE_NUMBER_ID', secretRef: 'meta-wa-phone-id' }
             { name: 'AIRTABLE_TOKEN',           secretRef: 'wh-airtable-token' }
@@ -456,6 +458,7 @@ resource n8nWorkerApp 'Microsoft.App/containerApps@2023-05-01' = if (deployConta
         { name: 'n8n-database-url',    keyVaultUrl: '${kvBaseUri}/n8n-database-url',    identity: managedIdentity.id }
         { name: 'n8n-encryption-key',  keyVaultUrl: '${kvBaseUri}/n8n-encryption-key',  identity: managedIdentity.id }
         { name: 'redis-conn-string',   keyVaultUrl: '${kvBaseUri}/redis-connection-string', identity: managedIdentity.id }
+        { name: 'redis-password',      keyVaultUrl: '${kvBaseUri}/redis-password', identity: managedIdentity.id }
         { name: 'meta-wa-token',       keyVaultUrl: '${kvBaseUri}/meta-whatsapp-token',  identity: managedIdentity.id }
         { name: 'meta-wa-phone-id',    keyVaultUrl: '${kvBaseUri}/meta-whatsapp-phone-id', identity: managedIdentity.id }
         { name: 'wh-airtable-token',   keyVaultUrl: '${kvBaseUri}/wolfhouse-airtable-token', identity: managedIdentity.id }
@@ -490,6 +493,7 @@ resource n8nWorkerApp 'Microsoft.App/containerApps@2023-05-01' = if (deployConta
             { name: 'N8N_ENCRYPTION_KEY',       secretRef: 'n8n-encryption-key' }
             { name: 'DB_POSTGRESDB_URL',        secretRef: 'n8n-database-url' }
             { name: 'QUEUE_BULL_REDIS_HOST',    secretRef: 'redis-conn-string' }
+            { name: 'QUEUE_BULL_REDIS_PASSWORD', secretRef: 'redis-password' }
             { name: 'META_WHATSAPP_TOKEN',      secretRef: 'meta-wa-token' }
             { name: 'META_WHATSAPP_PHONE_NUMBER_ID', secretRef: 'meta-wa-phone-id' }
             { name: 'AIRTABLE_TOKEN',           secretRef: 'wh-airtable-token' }
