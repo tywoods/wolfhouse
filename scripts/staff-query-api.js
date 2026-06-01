@@ -946,6 +946,12 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:#f
 .btn-copy:hover{background:#d68910}
 .btn-send-disabled{background:#bdc3c7;color:#fff;border:none;border-radius:5px;padding:7px 14px;font-size:12px;font-weight:700;cursor:not-allowed;opacity:.7;white-space:nowrap}
 .copy-confirm{font-size:11px;color:#27ae60;font-weight:700}
+/* ── Shadow-mode workflow checklist (Stage 7.7j) ─────────────────────────── */
+.shadow-checklist{background:#f0faf4;border:1px solid #a9dfbf;border-radius:6px;padding:10px 14px;margin-top:10px}
+.shadow-checklist-title{font-size:11px;font-weight:700;color:#1e8449;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.shadow-checklist-steps{margin:0;padding-left:18px;font-size:12px;color:#2c3e50;line-height:1.7}
+.shadow-checklist-gate{color:#c0392b;font-size:11px;margin-top:4px}
+.draft-instructions{font-size:12px;color:#5a6a85;margin-bottom:8px;font-style:italic}
 /* ── Conversations sub-tabs ──────────────────────────────────────────────── */
 #conv-subtabs{display:flex;gap:0;border-bottom:2px solid #dde1e7;margin-bottom:16px;background:#fff;border-radius:8px 8px 0 0;padding:0 12px}
 .sub-tab{padding:10px 16px;font-size:12px;font-weight:600;color:#5a6a85;border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-2px}
@@ -1023,7 +1029,7 @@ input:focus,select:focus{outline:none;border-color:#3498db}
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
   <div class="brand">Luna Front Desk &mdash; <em>Cami Dashboard</em></div>
-  <span class="badge-sm">Stage 7.7h</span>
+  <span class="badge-sm">Stage 7.7j</span>
   <span class="badge">READ-ONLY &bull; SHADOW MODE</span>
 </div>
 
@@ -1421,6 +1427,7 @@ function loadConvDetail(convId){
     html +=     '<span class="draft-not-sent">NOT SENT</span>';
     html +=     '<span style="font-size:11px;color:#7f8c8d">— copy for manual WhatsApp send (shadow mode)</span>';
     html +=   '</div>';
+    html +=   '<div class="draft-instructions">Review and edit the draft below, then copy it and send manually in WhatsApp during shadow mode.</div>';
     if (!draftAvail){
       html += '<div style="color:#9aabb8;font-size:12px;font-style:italic;margin-bottom:8px">No Luna draft available yet &mdash; type a manual reply below to copy.</div>';
     }
@@ -1428,11 +1435,23 @@ function loadConvDetail(convId){
             escHtml(draftText) + '</textarea>';
     html += '<div class="draft-actions">';
     html +=   '<button class="btn-copy" id="btn-copy-draft">Copy to clipboard</button>';
-    html +=   '<span class="copy-confirm" id="copy-confirm" style="display:none">Copied!</span>';
+    html +=   '<span class="copy-confirm" id="copy-confirm" style="display:none">Copied &mdash; send manually in WhatsApp</span>';
     html +=   '<button class="btn-send-disabled" disabled>Approve &amp; Send &mdash; disabled (live-send gate required)</button>';
     html +=   '<span class="draft-warning">Shadow mode: copy this reply and send it manually in WhatsApp. No live sends from this dashboard.</span>';
     html += '</div>';
     html += '</div>'; /* /draft-panel */
+
+    /* Shadow-mode workflow checklist (Stage 7.7j) */
+    html += '<div class="shadow-checklist">';
+    html +=   '<div class="shadow-checklist-title">Shadow-mode workflow</div>';
+    html +=   '<ol class="shadow-checklist-steps">';
+    html +=     '<li>Read the guest message thread above</li>';
+    html +=     '<li>Review and edit the Luna draft in the text area</li>';
+    html +=     '<li>Click <strong>Copy to clipboard</strong></li>';
+    html +=     '<li>Paste and send manually in WhatsApp</li>';
+    html +=     '<li class="shadow-checklist-gate">Do <strong>not</strong> use this dashboard for live sends yet &mdash; live-send gate required</li>';
+    html +=   '</ol>';
+    html += '</div>';
 
     /* Read-only footer */
     html += '<div style="margin-top:12px;padding:8px 12px;background:#f0f2f5;border-radius:6px;font-size:11px;color:#7f8c8d">';

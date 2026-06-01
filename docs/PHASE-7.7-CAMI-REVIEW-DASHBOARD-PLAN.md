@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–h DONE · **7.7i booking detail drawer DONE (2026-06-01)**. Calendar editing (7.7k/7.7l) pending; no live operation approved.
+**Status:** IN PROGRESS — 7.7a–i DONE · **7.7j copy/review workflow proof DONE (2026-06-01)**. Calendar editing (7.7k/7.7l) pending; no live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -331,7 +331,7 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 | **7.7g** | Bed calendar query / API | `GET /staff/bed-calendar*` (built on `getOccupiedBedsQuery`) | read | **DONE** |
 | **7.7h** | Bed calendar read-only render | view G grid | read | **DONE** |
 | **7.7i** | Booking detail drawer from calendar block | drawer from a block → context | read | **DONE** |
-| **7.7j** | Inline reply composer + copy/manual-send proof | view H — composer visible; Luna draft editable; copy works; no send button active; fixture conversation proves end-to-end shadow loop | read |
+| **7.7j** | Inline reply composer + copy/manual-send proof | view H — composer visible; Luna draft editable; copy works; no send button active; fixture conversation proves end-to-end shadow loop | read | **DONE** |
 | **7.7k** | Staff takeover / return-to-Luna controls | view H — UI shows bot_mode status; toggle controls designed; write path deferred; plan for write endpoint + audit | **plan + read UI** |
 | **7.7l** | Approve-send gate plan | design the live-send write path (Phase 2+ gate), double-confirm UI, audit, and rollback; button disabled until gate passes | **plan only** |
 | **7.7m** | Shadow-mode checklist update | wire results into Stage 7.6 F-gates | — |
@@ -506,7 +506,54 @@ These are proven with seed/cleanup fixtures + a static verifier, mirroring the S
 - **Verifier output:** 30/30 PASS
 - **Local proof:** GET /staff/ui 200; all 15 HTML/JS checks PASS; GET /staff/bed-calendar 200 days=7 rooms=10 block confirmed; audit `api:bed_calendar OK days=7`; delta=0.
 - **Known gaps:** booking detail drawer (7.7i done); inline reply from calendar block; calendar editing (7.7k/7.7l deferred behind write gates).
-- **Next:** 7.7j — copy/review workflow proof, or 7.7k — safe bed reassignment plan.
+- **Next:** 7.7k — safe bed reassignment plan (design) or 7.7l — audited booking edit/write gates plan.
+
+### Stage 7.7j — Copy/review shadow workflow (DONE 2026-06-01)
+
+Implementation log:
+
+**UI upgrades in `/staff/ui`:**
+- Copy confirmation upgraded to "Copied — send manually in WhatsApp"
+- Manual-send instructions added: "Review and edit the draft below, then copy it and send manually in WhatsApp during shadow mode."
+- Shadow-mode workflow checklist added (`.shadow-checklist`):
+  1. Read the guest message thread
+  2. Review and edit the Luna draft
+  3. Click Copy to clipboard
+  4. Paste and send manually in WhatsApp
+  5. Gate warning: "Do NOT use this dashboard for live sends yet — live-send gate required"
+- Stage badge updated to `Stage 7.7j`
+- Disabled Approve/Send button remains visible
+- NOT SENT label retained
+- READ-ONLY · SHADOW MODE banner retained
+
+**Copy mechanism confirmed:**
+- `copyBtn.addEventListener('click', ...)` reads `textaEl.value` at click time (captures edits)
+- `navigator.clipboard.writeText` with `document.execCommand('copy')` fallback
+
+**Verifier created:**
+- `scripts/verify-stage77j-copy-review-workflow.js` — 28 checks (all PASS)
+
+**Local proof:**
+- Fixture conversation +34600000191 seeded (stage7.7b fixture)
+- `GET /staff/conversations` → success=true, fixture row visible
+- `GET /staff/conversations/:id/messages` → 1 inbound guest message
+- `GET /staff/conversations/:id/draft` → draft_available=true, draft_text populated
+- `GET /staff/conversations/:id/staff-state` → needs_human=true, bot_mode=bot
+- `GET /staff/ui` → Stage 7.7j badge, shadow-checklist, draft-instructions, copied confirmation, disabled button all present
+- Audit log: `api:conversation.messages/.draft/.staff-state` all success=true
+- Cleanup: protected table delta = 0
+
+**Shadow workflow proven (manual steps):**
+1. Cami opens Conversations tab → fixture row appears
+2. Click row → detail pane loads (thread + draft + context)
+3. Thread shows guest message: "Do you have beds available for next week?"
+4. Draft textarea shows Luna reply (editable)
+5. Shadow-mode checklist guides through the copy flow
+6. Copy button reads textarea value (after any edits)
+7. Confirmation shows: "Copied — send manually in WhatsApp"
+8. Approve/Send button remains disabled — no live send path exists
+
+**No writes except audit log. No WhatsApp. No live sends.**
 
 ### Stage 7.7i — Booking detail drawer (DONE 2026-06-01)
 
