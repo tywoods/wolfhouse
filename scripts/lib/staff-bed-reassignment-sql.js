@@ -24,6 +24,10 @@
  *   $6  staff_role TEXT           — must be 'operator'|'admin'|'owner'
  *   $7  reason_note TEXT          — required staff explanation (caller validates non-empty)
  *   $8  confirm BOOLEAN           — must be TRUE; FALSE returns blocked=true, no write
+ *   $9  manual_operator_lock_override BOOLEAN (default FALSE)
+ *       When TRUE and $6 IN ('admin','owner'): bypasses manual_operator_lock only.
+ *       Operators ($6='operator') CANNOT bypass even with TRUE — still blocked.
+ *       All other blockers (overlap, confirm, cancelled, etc.) are unaffected.
  *
  * Transaction requirement:
  *   This SQL must be executed inside an explicit BEGIN / COMMIT block.
@@ -112,6 +116,7 @@ function reassignBookingBedSql() {
 -- Never call the bot reset path (reassign-booking-beds-pg-sql.js) from here.
 -- Params: $1=client_slug $2=booking_code $3=booking_bed_id $4=target_bed_code
 --         $5=staff_user_id $6=staff_role $7=reason_note $8=confirm::boolean
+--         $9=manual_operator_lock_override::boolean (admin/owner only; default FALSE)
 -- ============================================================================
 
 WITH
@@ -228,10 +233,17 @@ blockers AS (
          THEN 'assignment_needs_review'::text END                  AS b_assignment_status,
 
     -- B6. Manual / operator assignment lock
-    -- TODO: if assignment_type = 'manual' or 'operator', block unless caller passes
-    --       an explicit override flag (not yet in v1 params). Hard block for now.
+    -- Bypassed ONLY when ALL of:
+    --   $9::boolean = TRUE (override explicitly requested)
+    --   $6::text IN ('admin','owner') (role permits override)
+    -- Operators ($6='operator') cannot bypass even with $9=TRUE.
+    -- All other blockers are unaffected by $9.
     CASE WHEN (SELECT assignment_type FROM current_assignment)
               IN ('manual', 'operator')
+          AND NOT (
+            COALESCE($9::boolean, FALSE)
+            AND $6::text IN ('admin', 'owner')
+          )
          THEN 'manual_operator_lock'::text END                    AS b_lock,
 
     -- B7. Staff role insufficient (SQL-level guard; caller must also enforce)
@@ -278,7 +290,14 @@ audit_payload_cte AS (
     'reason',                $7::text,
     'is_blocked',            (SELECT is_blocked    FROM blocked_summary),
     'block_reason',          (SELECT first_blocker FROM blocked_summary),
-    'conflict_count',        (SELECT conflict_count FROM overlap_check)
+    'conflict_count',        (SELECT conflict_count FROM overlap_check),
+    'manual_operator_lock_override_requested', COALESCE($9::boolean, FALSE),
+    'manual_operator_lock_override_applied',
+      CASE WHEN COALESCE($9::boolean, FALSE)
+                AND $6::text IN ('admin', 'owner')
+                AND (SELECT assignment_type FROM current_assignment) IN ('manual', 'operator')
+           THEN TRUE ELSE FALSE END,
+    'override_role',         $6::text
   ) AS payload
 ),
 rollback_payload_cte AS (

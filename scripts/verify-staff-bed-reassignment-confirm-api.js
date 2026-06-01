@@ -1,5 +1,5 @@
 /**
- * verify-staff-bed-reassignment-confirm-api.js (Stage 7.7k5)
+ * verify-staff-bed-reassignment-confirm-api.js (Stage 7.7k5/7.7k6)
  *
  * Static verifier for the confirmed bed reassignment write endpoint.
  * Checks that POST /staff/bed-calendar/reassign/confirm is:
@@ -7,11 +7,12 @@
  *   - Gated by STAFF_ACTIONS_ENABLED and STAFF_AUTH_REQUIRED
  *   - Authenticated operator/admin/owner via session (not token-only)
  *   - Validates confirm=true, reason, booking_bed_id (UUID), target_bed_code
- *   - Calls reassignBookingBedSql() with confirm=true
+ *   - Calls reassignBookingBedSql() with confirm=true and $9 override flag
  *   - Uses BEGIN/COMMIT/ROLLBACK transaction
  *   - rows_updated===1 success assertion
  *   - Blocked path returns 409
  *   - Audits with intent api:bed_reassign_confirm
+ *   - manual_operator_lock_override parsed; operator role blocked from override
  *   - Does NOT mutate protected tables directly
  *   - Does NOT call reassign-booking-beds-pg-sql.js
  *   - No UI references, no drag/drop
@@ -34,7 +35,7 @@ function check(id, cond, msg) { if (cond) ok(id, msg); else fail(id, msg); }
 // Strip JS line comments before checking for forbidden keywords
 function stripLineComments(src) { return src.replace(/\/\/.*$/gm, ''); }
 
-console.log('\nverify-staff-bed-reassignment-confirm-api.js  (Stage 7.7k5)\n');
+console.log('\nverify-staff-bed-reassignment-confirm-api.js  (Stage 7.7k5/7.7k6)\n');
 
 // ── A. File / syntax ──────────────────────────────────────────────────────────
 check('A1', fs.existsSync(TARGET),                          'staff-query-api.js exists');
@@ -102,7 +103,7 @@ check('G24', /reassignBookingBedSql\(\)/.test(src),
 check('G25', (() => {
   // Verify confirm=true is passed near handleBedReassignConfirm context
   const fnStart = src.indexOf('async function handleBedReassignConfirm');
-  const fnBody  = src.slice(fnStart, fnStart + 6000);
+  const fnBody  = src.slice(fnStart, fnStart + 8000);
   return /true,\s*\/\/ \$8 confirm = TRUE/.test(fnBody);
 })(), 'confirm=true ($8=true) passed to helper in confirm handler');
 check('G26', (() => {
@@ -114,7 +115,7 @@ check('G26', (() => {
 // ── H. Transaction ────────────────────────────────────────────────────────────
 check('H27', (() => {
   const fnStart = src.indexOf('async function handleBedReassignConfirm');
-  const fnBody  = src.slice(fnStart, fnStart + 6000);
+  const fnBody  = src.slice(fnStart, fnStart + 8000);
   return /pg\.query\('BEGIN'\)/.test(fnBody);
 })(), "BEGIN transaction present in confirm handler");
 check('H28', (() => {
@@ -140,7 +141,7 @@ check('J32', /409/.test(src),
 check('J33', /blocked.*true|block_reason/.test(src),
   'blocked=true / block_reason returned in response');
 check('J34', /manual_operator_lock/.test(src),
-  'manual_operator_lock mentioned (documented, no override in this slice)');
+  'manual_operator_lock mentioned');
 
 // ── K. Audit log ──────────────────────────────────────────────────────────────
 check('K35', /api:bed_reassign_confirm/.test(src),
@@ -181,6 +182,52 @@ const pkgPath = path.join(__dirname, '..', 'package.json');
 const pkg     = fs.existsSync(pkgPath) ? JSON.parse(fs.readFileSync(pkgPath, 'utf8')) : {};
 check('N48', !!(pkg.scripts && pkg.scripts['verify:staff-bed-reassignment-confirm-api']),
   'package.json has verify:staff-bed-reassignment-confirm-api script');
+
+// ── O. manual_operator_lock_override (Stage 7.7k6) ───────────────────────────
+check('O49', /overrideRaw\s*=\s*body\.manual_operator_lock_override/.test(src),
+  'overrideRaw parsed from body.manual_operator_lock_override');
+check('O50', /overrideFlag\s*=\s*overrideRaw\s*===\s*true/.test(src),
+  'overrideFlag strictly set to overrideRaw === true (only boolean true activates)');
+check('O51', /insufficient_override_role/.test(src),
+  'insufficient_override_role error label present');
+check('O52', (() => {
+  const fnStart = src.indexOf('async function handleBedReassignConfirm');
+  const fnBody  = src.slice(fnStart, fnStart + 8000);
+  return /overrideFlag.*\/\/ \$9/.test(fnBody) || /\/\/ \$9.*overrideFlag/.test(fnBody) ||
+         /overrideFlag,\s*\/\/ \$9/.test(fnBody);
+})(), 'overrideFlag passed as $9 to reassignBookingBedSql() in confirm handler');
+check('O53', /manual_operator_lock_override_requested/.test(src),
+  'manual_operator_lock_override_requested tracked in audit/response');
+check('O54', /manual_operator_lock_override_applied/.test(src),
+  'manual_operator_lock_override_applied tracked in success audit/response');
+check('O55', (() => {
+  // Operator-cannot-override gate: hasRole check for admin before SQL call
+  const fnStart = src.indexOf('async function handleBedReassignConfirm');
+  const fnBody  = src.slice(fnStart, fnStart + 8000);
+  return /overrideFlag.*hasRole|hasRole.*admin/.test(fnBody) &&
+         /insufficient_override_role/.test(fnBody);
+})(), 'operator override gate: overrideFlag + hasRole admin check present in handler');
+check('O56', (() => {
+  // Verify override does NOT bypass overlap — overlap check still exists in SQL helper
+  const sqlSrc = fs.readFileSync(path.join(__dirname, 'lib', 'staff-bed-reassignment-sql.js'), 'utf8');
+  return /conflict_count.*overlap|overlap_check/.test(sqlSrc);
+})(), 'overlap check still present in SQL helper (override does not bypass overlap)');
+check('O57', (() => {
+  // Verify override does NOT bypass confirm — confirm check still in SQL helper
+  const sqlSrc = fs.readFileSync(path.join(__dirname, 'lib', 'staff-bed-reassignment-sql.js'), 'utf8');
+  return /b_confirm|confirm_not_set/.test(sqlSrc);
+})(), 'confirm_not_set blocker still present in SQL helper (override does not bypass confirm)');
+check('O58', (() => {
+  // SQL helper must reference $9 for the override
+  const sqlSrc = fs.readFileSync(path.join(__dirname, 'lib', 'staff-bed-reassignment-sql.js'), 'utf8');
+  const sql    = (sqlSrc.match(/`[\s\S]*?`/) || [''])[0];
+  return sql.includes('9::boolean') || sqlSrc.includes('9::boolean');
+})(), 'SQL helper references $9::boolean for override');
+check('O59', (() => {
+  const sqlSrc = fs.readFileSync(path.join(__dirname, 'lib', 'staff-bed-reassignment-sql.js'), 'utf8');
+  return /manual_operator_lock_override_requested/.test(sqlSrc) &&
+         /manual_operator_lock_override_applied/.test(sqlSrc);
+})(), 'SQL helper includes override fields in audit_payload');
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\nResult: ${passed} passed, ${failed} failed\n`);
