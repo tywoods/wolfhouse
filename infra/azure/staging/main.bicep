@@ -356,8 +356,8 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
         }
       ]
       scale: {
-        minReplicas: 1
-        maxReplicas: 2
+        minReplicas: 0
+        maxReplicas: 1
       }
     }
   }
@@ -430,8 +430,8 @@ resource n8nMainApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
         }
       ]
       scale: {
-        minReplicas: 1
-        maxReplicas: 2
+        minReplicas: 0
+        maxReplicas: 1
       }
     }
   }
@@ -499,8 +499,8 @@ resource n8nWorkerApp 'Microsoft.App/containerApps@2023-05-01' = if (deployConta
         }
       ]
       scale: {
-        minReplicas: 1
-        maxReplicas: 3
+        minReplicas: 0
+        maxReplicas: 1
       }
     }
   }
