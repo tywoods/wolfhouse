@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · **7.7k1 static SQL helper DONE (2026-06-01 — see §5a.10)**. Reassignment write NOT implemented or approved; calendar editing pending behind gates; no live operation approved.
+**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1 SQL helper DONE · **7.7k2 overlap/conflict verifier DONE (2026-06-01 — see §5a.10)**. Reassignment write NOT implemented or approved; calendar editing pending behind gates; no live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -364,7 +364,7 @@ No drag/drop in v1. No inline editable cells. No write without the explicit conf
 |---|---|---|
 | **7.7k** | Safe bed reassignment plan (**this design**) | docs only — **DONE** |
 | **7.7k1** | Reassign SQL helper (static only) | `reassignBookingBedSql()` + `REASSIGN_BLOCK_CODES`; 38-check verifier 38/38 PASS; **DONE** — not wired to any route |
-| **7.7k2** | Conflict-checker verifier | static verifier proving overlap rule + SELECT-only + client scope + no bot-reset call |
+| **7.7k2** | Conflict-checker verifier | `verify-staff-bed-reassignment-overlap.js` — 25 checks: half-open interval operands, current-row exclusion, target-bed scoping, cancelled/expired guard, blocker pipeline, UPDATE re-check, FOR UPDATE lock, date-range preservation, conflict_count returned; 25/25 PASS — **DONE** |
 | **7.7k3** | Proposal-only API endpoint | `GET`/dry-run `POST` that returns the **preview** (old/new/conflicts/warnings) with **no write** |
 | **7.7k4** | Confirmed local fixture write proof | local-only gated write against a seeded fixture; protected-table delta verified; cleanup |
 | **7.7k5** | UI proposal modal (read-only preview) | preview/confirm modal renders; **no write button active** |
