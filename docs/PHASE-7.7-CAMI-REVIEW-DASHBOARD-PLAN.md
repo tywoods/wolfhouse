@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–i DONE · **7.7j copy/review workflow proof DONE (2026-06-01)**. Calendar editing (7.7k/7.7l) pending; no live operation approved.
+**Status:** IN PROGRESS — 7.7a–j DONE · **7.7k safe bed reassignment plan DONE (2026-06-01, design only — see §5a)**. Reassignment write NOT implemented or approved; calendar editing pending behind gates; no live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -216,6 +216,166 @@ Eventually Cami must be able to:
 
 ---
 
+## 5a. Stage 7.7k — Safe bed reassignment plan (design only)
+
+> **Status:** DESIGN DONE (2026-06-01). **No reassignment write is implemented or approved.** This section is the safety contract that every later reassignment slice (7.7k1–7.7k8) must satisfy before any `booking_beds` write from the calendar is enabled.
+>
+> **Naming note:** the slice table (§10) historically reserved "7.7n" for the bed-reassignment plan. This task supersedes that: the bed-reassignment design and all its sub-slices are tracked as **7.7k / 7.7k1–7.7k8**. The §10 row is reconciled accordingly.
+
+### 5a.1 Objective
+
+Allow Cami to **move one existing booking from bed A to bed B for the same date range**, directly from the bed calendar, **only after an explicit write gate is approved**. The design must:
+
+- prevent overlaps (double-booking the same bed),
+- prevent accidental room moves and payment-impacting changes,
+- prevent silent corruption of operator/manual assignments,
+- preserve a complete audit trail and a defined rollback path.
+
+This is a **surgical single-assignment move**. It is deliberately distinct from the existing bot/n8n reset path (`scripts/lib/reassign-booking-beds-pg-sql.js`), which **deletes all `booking_beds` for a booking and re-runs auto-assignment**. The Cami calendar action must **never** call that reset path.
+
+### 5a.2 Allowed v1 action (and only this)
+
+- Move an existing `booking_beds` assignment from **bed A → bed B** for the **same `assignment_start_date`/`assignment_end_date`**.
+- **No date change** in v1.
+- **No guest-count change** in v1.
+- **No payment change** in v1 (no deposit/refund/total recompute).
+- **No cancellation** in v1.
+- **No booking-status change** in v1 (`bookings.status` untouched).
+- **No automated guest notification** in v1 (no WhatsApp, no Luna runtime).
+- **Staff must explicitly confirm** before the write runs.
+
+Anything beyond a same-range bed-to-bed move is **out of scope** and routes to a `staff_handoffs` review row (date change → `date_change_paid_booking`, cancellation → `cancellation_request`, etc.).
+
+### 5a.3 Hard blockers (reject → no-op or convert to staff review)
+
+The reassignment is **blocked** (no write) and either returns an actionable error or opens a `staff_handoffs` review row if any of the following hold:
+
+1. **Target bed occupied** for overlapping dates (see §5a.5 overlap rule).
+2. **Booking is paid** *and* the move changes room type / package implications (e.g. dorm→private).
+3. **Manual/operator assignment lock** — current `booking_beds.assignment_type IN ('manual','operator')` (move requires elevated confirm; see §5a.4 — but a hard block if `STAFF_ACTIONS_ENABLED` is not set for operator-lock overrides).
+4. **Booking is cancelled or expired** (`bookings.status IN ('cancelled','expired')`).
+5. **`bookings.assignment_status = 'needs_review'`** (must be cleared by review first).
+6. **Date range not fully verifiable** — booking spans dates outside the loaded calendar window and the full `[start,end)` cannot be re-fetched and overlap-checked server-side.
+7. **Target room incompatible** — `rooms.gender_strategy` or `rooms.room_type` incompatible with the booking/guest.
+8. **Breaks private/couple/matrimonial requirements** — move into/out of a `can_be_matrimonial` / private room that violates the booking's requirement.
+9. **Protected/last-resort room constraints violated** — `rooms.avoid_until_needed = TRUE` or other R6/private/protected constraints not satisfied.
+10. **Target bed does not exist, is inactive (`beds.active = FALSE`), or not sellable (`beds.sellable = FALSE`).**
+11. **Client mismatch** — target bed/room `client_id` ≠ booking `client_id` (no cross-client moves).
+12. **Staff role insufficient** — actor is not `operator` or `admin` (`viewer` is read-only).
+13. **`STAFF_ACTIONS_ENABLED` is false** (feature flag off → all reassignment writes blocked).
+14. **Auth/TLS gate not satisfied** in staging/production (`STAFF_AUTH_REQUIRED=true` + HTTPS; no anonymous writes).
+
+### 5a.4 Allowed-with-warning (explicit confirm modal required)
+
+The write may proceed **only after a second explicit confirmation** if:
+
+- **Target room differs from current room** (not just a different bed in the same room).
+- **Guest preference changes** from preferred room type / `room_preference`.
+- **Shared room with gender/fill-strategy caveat** (e.g. `gender_strategy='Flexible'` mixing).
+- **Booking is confirmed but unpaid.**
+- **Booking has an open handoff** (`staff_handoffs` open row exists for this booking/phone).
+- **Same-day or next-day arrival** (check-in is today/tomorrow — high operational sensitivity).
+- **Move affects housekeeping / turnover** (e.g. into a bed that departs/arrives same day).
+
+Each warning shown must be **recorded in the audit row** (`warnings_shown`).
+
+### 5a.5 Overlap detection (authoritative rule)
+
+Using `booking_beds` rows, the target bed is **occupied** for the proposed range if there exists a row where:
+
+```
+existing.bed_id              = target_bed_id
+existing.id                 != current_booking_bed_id      -- exclude the row being moved
+existing.assignment_start_date < proposed_end_date         -- half-open overlap
+existing.assignment_end_date   > proposed_start_date
+existing.booking_id IN (bookings WHERE status NOT IN ('cancelled','expired'))
+```
+
+Requirements:
+
+- The overlap check **must run in the same transaction** as the `UPDATE`, after acquiring a row lock on the target bed's assignments (`SELECT ... FOR UPDATE` on `booking_beds` for that `bed_id`/date window) to prevent a read-then-write race.
+- **No DB-level exclusion constraint exists today** (`booking_beds` only has `CHECK (assignment_end_date > assignment_start_date)` and `idx_booking_beds_availability`). Until a `btree_gist` `EXCLUDE` constraint is added (documented as a **future hardening item**), the transaction lock is the sole guard and **must not be bypassed**.
+- Document for 7.7k-future: evaluate adding `EXCLUDE USING gist (bed_id WITH =, daterange(assignment_start_date, assignment_end_date) WITH &&)` (requires `btree_gist`) as defence-in-depth before high-volume multi-staff use.
+
+### 5a.6 Write SQL strategy (future — not built here)
+
+One explicit, single-purpose helper (mirrors the `handoff.resolve` write pattern and the existing `staff-handoff-write-sql.js` style):
+
+- `reassignBookingBedSql()` — **one transaction**, parameterized, client-scoped, no string interpolation of identifiers, **no raw SQL from the UI**.
+
+Transaction steps (all-or-nothing):
+
+1. Lookup booking + `client_id` + the specific current `booking_beds` row (by `booking_bed_id` + `booking_code` + `client_id`); `SELECT ... FOR UPDATE`.
+2. Validate target bed/room (exists, active, sellable, same `client_id`, compatible type/gender).
+3. Re-check conflicts (§5a.5) under lock.
+4. Write a **before/after audit row** (see §5a.7) — to a dedicated `booking_rooming_events` table (proposed; until it exists, use `workflow_events` with `workflow_name='staff_reassign'` + `payload` before/after) **and** the staff action audit log.
+5. `UPDATE booking_beds SET bed_id, room_code, bed_code, assignment_type='manual', assignment_label, updated_at = NOW() WHERE id = $booking_bed_id AND client_id = $client_id`.
+6. If room changed, update `bookings.primary_room_code` and, if needed, `bookings.assignment_status` (never auto-set to `needs_review` without surfacing it).
+7. **Never** touch `payments`, `payment_events`, `payment_status`, `bookings.status`, or run any guest-notification path.
+
+Forbidden in the write path: arbitrary booking edits, multi-row deletes, the bot reset path, date/guest/payment mutation.
+
+### 5a.7 Audit requirements (every attempt, success or failure)
+
+Each reassignment attempt logs:
+
+- `staff_user_id` + `staff_role`
+- `client_id`
+- `booking_id` + `booking_code`
+- `old_room_code` / `old_bed_code` / `old_bed_id`
+- `new_room_code` / `new_bed_code` / `new_bed_id`
+- `assignment_start_date` / `assignment_end_date` (dates affected — unchanged in v1)
+- `reason` / staff note (required free text)
+- `precheck_result` (passed / blocked + blocker code)
+- `warnings_shown` (array from §5a.4)
+- `confirm_timestamp`
+- `success` / `failure` (+ error)
+- `rollback_reference` (id of the before-state snapshot)
+
+Audit is written **in the same transaction** as the mutation so a successful write can never lack its audit row. Proposed home: a dedicated `booking_rooming_events` table (future migration); interim sink is `workflow_events` + the existing staff audit log (`logs/staff-query-log.jsonl`, intent prefix `action:api:reassign_bed`, category `reassign_bed_api`).
+
+### 5a.8 Rollback / undo
+
+- The before/after snapshot (old `bed_id`/`room_code`/`bed_code`/`assignment_type` + dates) is stored **before** the update, sufficient to reverse it.
+- **Undo path:**
+  - **If the old bed is still free** for the range → reverse the move (apply the same gated write back to bed A).
+  - **If the old bed is no longer free** → no destructive overwrite; open a `staff_handoffs` review row for manual resolution.
+- **No destructive overwrite** ever (no blind re-assign that could double-book bed A).
+- A **rollback proof** (move A→B then undo B→A, audited, with conflict-on-undo handled) is a **required gate (7.7k7)** before reassignment is enabled in staging or live.
+
+### 5a.9 UI flow (future, gated)
+
+1. Click a booking block → read-only context drawer (already shipped, 7.7i).
+2. **"Move bed" button is shown only when edit mode is enabled** (feature flag + role + HTTPS). Hidden/disabled otherwise.
+3. Choose a target bed.
+4. System **previews** (read-only proposal, no write): old assignment, new assignment, dates, and all conflicts/warnings (§5a.3/§5a.4).
+5. Staff enters a **reason** (required).
+6. Staff **confirms** (second confirm for §5a.4 warnings).
+7. System runs the **gated write** (§5a.6).
+8. Result shown (success/blocked + reason).
+9. Calendar **refreshes** from the read API.
+10. Audit entry is visible (and undo offered where safe).
+
+No drag/drop in v1. No inline editable cells. No write without the explicit confirm.
+
+### 5a.10 Staged implementation slices (all gated; none implemented)
+
+| Sub-slice | Name | Scope |
+|---|---|---|
+| **7.7k** | Safe bed reassignment plan (**this design**) | docs only — **DONE** |
+| **7.7k1** | Reassign SQL helper (static only) | `reassignBookingBedSql()` written + `node --check`; **not wired to any route** |
+| **7.7k2** | Conflict-checker verifier | static verifier proving overlap rule + SELECT-only + client scope + no bot-reset call |
+| **7.7k3** | Proposal-only API endpoint | `GET`/dry-run `POST` that returns the **preview** (old/new/conflicts/warnings) with **no write** |
+| **7.7k4** | Confirmed local fixture write proof | local-only gated write against a seeded fixture; protected-table delta verified; cleanup |
+| **7.7k5** | UI proposal modal (read-only preview) | preview/confirm modal renders; **no write button active** |
+| **7.7k6** | UI confirmed write behind auth/TLS/action gate | write enabled only with `operator`/`admin` + `STAFF_ACTIONS_ENABLED` + HTTPS |
+| **7.7k7** | Rollback/undo proof | move + undo, audited, conflict-on-undo handled — **required before staging/live** |
+| **7.7k8** | Cami/Ale sign-off | written approval to enable editable reassignment in the pilot |
+
+Each sub-slice must PASS (with proof) before the next is started. Editable reassignment is **not enabled** until 7.7k6 passes its gate and 7.7k7/7.7k8 are recorded.
+
+---
+
 ## 6. Shadow-mode workflow (Phase 1 — zero autonomous send)
 
 ```
@@ -335,10 +495,12 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 | **7.7k** | Staff takeover / return-to-Luna controls | view H — UI shows bot_mode status; toggle controls designed; write path deferred; plan for write endpoint + audit | **plan + read UI** |
 | **7.7l** | Approve-send gate plan | design the live-send write path (Phase 2+ gate), double-confirm UI, audit, and rollback; button disabled until gate passes | **plan only** |
 | **7.7m** | Shadow-mode checklist update | wire results into Stage 7.6 F-gates | — |
-| **7.7n** | Safe bed reassignment plan | design the reassign write path + overlap guard | **plan only** |
+| **7.7k** | **Safe bed reassignment plan** (supersedes old "7.7n") — design reassign write path, overlap guard, audit, rollback; sub-slices 7.7k1–7.7k8 in §5a.10 | **plan only** | **DONE** |
 | **7.7o** | Audited booking edit / write gates plan | design edit-mode gating + audit + rollback for calendar edits | **plan only** |
 
-Slices 7.7b–7.7j are read-only build slices. 7.7k has a read UI component (showing current state) plus a deferred write plan. 7.7l/7.7n/7.7o are **planning-only** slices that must pass before any corresponding write is implemented.
+> Note: §5a defines the bed-reassignment design as **7.7k / 7.7k1–7.7k8**. The earlier "7.7n" label for this work is retired; the separate "staff takeover / return-to-Luna" plan row above retains the 7.7k row id for historical continuity but is functionally tracked as a takeover-controls slice — see §5a.1 naming note.
+
+Slices 7.7b–7.7j are read-only build slices. 7.7l/7.7k(reassignment)/7.7o are **planning-only** slices that must pass before any corresponding write is implemented.
 
 ---
 
