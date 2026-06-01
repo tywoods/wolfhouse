@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–g DONE · **7.7h bed calendar read-only render DONE (2026-06-01)**. Calendar editing (7.7k/7.7l) and booking detail drawer (7.7i) pending; no live operation approved.
+**Status:** IN PROGRESS — 7.7a–h DONE · **7.7i booking detail drawer DONE (2026-06-01)**. Calendar editing (7.7k/7.7l) pending; no live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -330,7 +330,7 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 | **7.7f** | Handoff queue integration | view E (read; resolve deferred) | read | **DONE** |
 | **7.7g** | Bed calendar query / API | `GET /staff/bed-calendar*` (built on `getOccupiedBedsQuery`) | read | **DONE** |
 | **7.7h** | Bed calendar read-only render | view G grid | read | **DONE** |
-| **7.7i** | Booking detail drawer from calendar block | drawer from a block → context | read |
+| **7.7i** | Booking detail drawer from calendar block | drawer from a block → context | read | **DONE** |
 | **7.7j** | Inline reply composer + copy/manual-send proof | view H — composer visible; Luna draft editable; copy works; no send button active; fixture conversation proves end-to-end shadow loop | read |
 | **7.7k** | Staff takeover / return-to-Luna controls | view H — UI shows bot_mode status; toggle controls designed; write path deferred; plan for write endpoint + audit | **plan + read UI** |
 | **7.7l** | Approve-send gate plan | design the live-send write path (Phase 2+ gate), double-confirm UI, audit, and rollback; button disabled until gate passes | **plan only** |
@@ -505,5 +505,44 @@ These are proven with seed/cleanup fixtures + a static verifier, mirroring the S
   - Empty/error/loading states
 - **Verifier output:** 30/30 PASS
 - **Local proof:** GET /staff/ui 200; all 15 HTML/JS checks PASS; GET /staff/bed-calendar 200 days=7 rooms=10 block confirmed; audit `api:bed_calendar OK days=7`; delta=0.
-- **Known gaps:** booking detail drawer with booking context links (7.7i); inline reply from calendar block; calendar editing (7.7k/7.7l deferred behind write gates).
-- **Next:** 7.7i — booking detail drawer from calendar block click, or 7.7j — inline reply composer.
+- **Known gaps:** booking detail drawer (7.7i done); inline reply from calendar block; calendar editing (7.7k/7.7l deferred behind write gates).
+- **Next:** 7.7j — copy/review workflow proof, or 7.7k — safe bed reassignment plan.
+
+### Stage 7.7i — Booking detail drawer (DONE 2026-06-01)
+
+Implementation log:
+
+**Endpoint added:**
+- `GET /staff/bookings/:bookingCode/context?client=<slug>` — returns full booking context card
+  - `booking`, `payments`, `rooming`, `conversation`, `handoff`, `addons`, `warnings`
+  - auth-gated, client-scoped, audited (`api:booking_context` / `booking_context_api`)
+  - 404 on unknown booking; 400 on invalid code/client
+  - Protected tables unchanged (SELECT-only queries)
+
+**Query helpers created** (`scripts/lib/staff-booking-detail-queries.js`):
+- `getBookingDetailQuery()` — full booking row with all finance fields
+- `getBookingPaymentsQuery()` — payment rows newest-first
+- `getBookingRoomingAssignmentsQuery()` — booking_beds with room detail
+- `getBookingConversationQuery()` — conversation linked by phone, newest
+- `getBookingHandoffQuery()` — open/latest staff handoff by phone/booking
+- `getBookingAddOnSummaryQuery()` — add-on orders + items for booking
+
+**UI drawer (Bed Calendar tab):**
+- Clicking a block shows block summary immediately
+- Fetches `/staff/bookings/:bookingCode/context`
+- Renders enriched drawer with sections: Booking Details · Payments · Rooming/Beds · Conversation · Handoff · Add-ons · Warnings
+- "Open conversation" button navigates to Conversations tab (read-only, no write)
+- "Booking edits are disabled" warning retained
+
+**Verifiers:**
+- `scripts/verify-staff-booking-detail-queries.js` — 27 checks (all PASS)
+- `scripts/verify-staff-booking-detail-api.js` — 26 checks (all PASS)
+- `scripts/verify-staff-bed-calendar-ui.js` expanded to 40 checks (all PASS)
+
+**Local proof:**
+- Fixture `WH-77I-DETAIL-001` seeded: booking + bed + payment + handoff
+- `GET /staff/bookings/WH-77I-DETAIL-001/context` → 200, full context including rooming R1/R1-B1, payment record, open handoff
+- `GET /staff/bed-calendar?start=2026-08-01&end=2026-08-08` → 7 days, 10 rooms, 7+ blocks
+- `GET /staff/ui` → HTML contains loadBlockDetail, Booking Details, Open conversation
+- Audit log: `api:booking_context success=true`, `api:bed_calendar success=true`
+- Cleanup: booking_count=0, bed_count=0, handoff_count=0 → protected table delta = 0

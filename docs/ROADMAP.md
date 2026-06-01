@@ -807,7 +807,7 @@ Airtable may remain a **bridge** during transition; long-term goal is a proper s
 
 ## Stage 7 — Scalable
 
-**Status: IN PROGRESS** (2026-06-01) — 7.0–7.7 DESIGN DONE · **7.2b+7.2c+7.3b+7.7a–d+7.7f+7.7g+7.7h DONE**. **7.7h DONE**: Bed Calendar tab in `/staff/ui`; date range controls; scrollable table grid (rooms/beds left, dates header, colored colspan blocks: confirmed/hold/payment_pending/needs_review/cancelled); A/D arrival/departure markers; read-only block detail panel; no edit controls; 30-check verifier PASS; proof PASS. `lunafrontdesk.com` purchased (DNS not configured). No Azure. Next: 7.7i booking detail drawer or 7.7j inline reply.﻿# Wolfhouse Booking Assistant — Product Roadmap
+**Status: IN PROGRESS** (2026-06-01) — 7.0–7.7 DESIGN DONE · **7.2b+7.2c+7.3b+7.7a–d+7.7f+7.7g+7.7h+7.7i DONE**. **7.7i DONE**: `GET /staff/bookings/:bookingCode/context`; enriched calendar block drawer with Booking/Payments/Rooming/Conversation/Handoff/Add-ons sections; "Open conversation" read-only navigation; 6 SELECT-only query helpers; 27+26+40 verifier checks PASS; proof PASS (delta=0). `lunafrontdesk.com` purchased (DNS not configured). No Azure. Next: 7.7j copy/review workflow proof or 7.7k safe reassignment plan.﻿# Wolfhouse Booking Assistant — Product Roadmap
 
 **Product:** AI booking operations for WhatsApp-first experience businesses — **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 

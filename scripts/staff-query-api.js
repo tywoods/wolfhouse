@@ -70,6 +70,14 @@ const {
   getBedCalendarBlocksQuery,
   getBedCalendarSummaryQuery,
 } = require('./lib/staff-bed-calendar-queries');
+const {
+  getBookingDetailQuery,
+  getBookingPaymentsQuery,
+  getBookingRoomingAssignmentsQuery,
+  getBookingConversationQuery,
+  getBookingHandoffQuery,
+  getBookingAddOnSummaryQuery,
+} = require('./lib/staff-booking-detail-queries');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -1001,6 +1009,13 @@ input:focus,select:focus{outline:none;border-color:#3498db}
 .bc-summary-strip{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#5a6a85;padding:8px 0 10px;border-bottom:1px solid #eef0f3;margin-bottom:12px}
 .bc-summary-strip b{color:#2c3e50}
 .bc-detail-note{font-size:11px;color:#e67e22;background:#fef9ec;border:1px solid #f5cba7;border-radius:5px;padding:7px 12px;margin-top:12px}
+/* ── Booking context drawer (Stage 7.7i) ─────────────────────────────────── */
+.ctx-section{margin-top:14px;padding-top:12px;border-top:1px solid #eef0f3}
+.ctx-section h3{font-size:11px;font-weight:700;color:#7f8c8d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.ctx-loading{color:#9aabb8;font-size:12px;font-style:italic;padding:10px 0}
+.ctx-none{color:#bdc3c7;font-size:12px;font-style:italic}
+.btn-open-conv{background:#1e8449;color:#fff;border:none;border-radius:5px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.btn-open-conv:hover{background:#196f3d}
 </style>
 </head>
 <body>
@@ -1961,9 +1976,179 @@ function showBlockDetail(blk){
     kvBC('Arrival',           blk.is_arrival  ? 'Yes' : 'No') +
     kvBC('Departure',         blk.is_departure? 'Yes' : 'No') +
     '</div>' +
+    '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking context\u2026</div></div>' +
     '<div class="bc-detail-note">Booking edits are disabled until the calendar write gates are approved.</div>';
   el('bc-detail').style.display = 'block';
   el('bc-close-detail').addEventListener('click', function(){ el('bc-detail').style.display = 'none'; });
+  if (blk.booking_code) loadBlockDetail(blk.booking_code);
+}
+
+/* Load enriched booking context from API */
+function loadBlockDetail(bookingCode){
+  var client = getBcClient();
+  var url = '/staff/bookings/' + encodeURIComponent(bookingCode) + '/context?client=' + encodeURIComponent(client);
+  fetch(url)
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      var ctxEl = el('bc-ctx-body');
+      if (!ctxEl) return;
+      if (!res.ok || !res.data.success){
+        ctxEl.innerHTML = '<div class="state-msg error">Context load failed: ' + escHtml((res.data && res.data.error) || 'error') + '</div>';
+        return;
+      }
+      ctxEl.innerHTML = renderBookingContextDrawer(res.data);
+      /* Wire "Open conversation" button */
+      var btnConv = document.getElementById('bc-open-conv-btn');
+      if (btnConv){
+        btnConv.addEventListener('click', function(){
+          var convId = this.dataset.convid;
+          if (!convId) return;
+          /* Switch to Conversations tab and open that conversation */
+          document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+          document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+          var convTab = document.querySelector('.tab-btn[data-tab="conversations"]');
+          if (convTab){ convTab.classList.add('active'); }
+          var convPanel = el('tab-conversations');
+          if (convPanel){ convPanel.classList.add('active'); }
+          /* Switch to inbox sub-tab and load the conversation */
+          document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
+          document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
+          var inboxTab = document.querySelector('.sub-tab[data-subtab="inbox"]');
+          if (inboxTab) inboxTab.classList.add('active');
+          var inboxPanel = el('subtab-inbox');
+          if (inboxPanel) inboxPanel.classList.add('active');
+          /* Load conversation detail */
+          loadConvDetail(convId);
+        });
+      }
+    })
+    .catch(function(e){
+      var ctxEl = el('bc-ctx-body');
+      if (ctxEl) ctxEl.innerHTML = '<div class="state-msg error">Network error: ' + escHtml(e.message) + '</div>';
+    });
+}
+
+/* Render the enriched booking context drawer sections */
+function renderBookingContextDrawer(data){
+  var html = '';
+  var bk = data.booking || {};
+
+  /* Booking section */
+  html += '<div class="ctx-section"><h3>Booking Details</h3><div class="kv-grid">' +
+    kvBC('Guest',         bk.guest_name)              +
+    kvBC('Phone',         bk.phone)                   +
+    kvBC('Email',         bk.email)                   +
+    kvBC('Check-in',      bk.check_in)                +
+    kvBC('Check-out',     bk.check_out)               +
+    kvBC('Guests',        bk.guest_count)              +
+    kvBC('Package',       bk.package_code)             +
+    kvBC('Room pref',     bk.requested_room_type || bk.room_preference) +
+    kvBC('Status',        bk.status)                  +
+    kvBC('Payment',       bk.payment_status)           +
+    kvBC('Assignment',    bk.assignment_status)        +
+    kvBC('Total',         bk.total_amount_cents != null ? '\u20ac' + (bk.total_amount_cents/100).toFixed(2) : '\u2014') +
+    kvBC('Paid',          bk.amount_paid_cents  != null ? '\u20ac' + (bk.amount_paid_cents/100).toFixed(2)  : '\u2014') +
+    kvBC('Balance due',   bk.balance_due_cents  != null ? '\u20ac' + (bk.balance_due_cents/100).toFixed(2)  : '\u2014') +
+    (bk.needs_rooming_review ? '<div class="kv" style="grid-column:1/-1"><span class="pill pill-orange">NEEDS ROOMING REVIEW</span></div>' : '') +
+    '</div></div>';
+
+  /* Payments section */
+  var pmt = data.payments || {};
+  html += '<div class="ctx-section"><h3>Payments</h3>';
+  if (!pmt.rows || pmt.rows.length === 0){
+    html += '<div class="ctx-none">No payment records found.</div>';
+  } else {
+    html += '<div class="kv-grid">' +
+      kvBC('Records', pmt.rows.length) +
+      kvBC('Latest status', pmt.latest_status) +
+      kvBC('Amount paid', '\u20ac' + (pmt.amount_paid_cents/100).toFixed(2)) +
+      kvBC('Balance due', '\u20ac' + (pmt.balance_due_cents/100).toFixed(2)) +
+      '</div>';
+  }
+  html += '</div>';
+
+  /* Rooming section */
+  var rm = data.rooming || {};
+  html += '<div class="ctx-section"><h3>Rooming / Beds</h3>';
+  if (!rm.assignments || rm.assignments.length === 0){
+    html += '<div class="ctx-none">No bed assignments found.</div>';
+  } else {
+    html += '<div class="kv-grid">' +
+      kvBC('Rooms', (rm.assigned_room_codes||[]).join(', ') || '\u2014') +
+      kvBC('Beds',  (rm.assigned_bed_codes||[]).join(', ')  || '\u2014') +
+      '</div>';
+    rm.assignments.forEach(function(a){
+      html += '<div style="font-size:11px;color:#5a6a85;padding:3px 0">' +
+        escHtml(a.room_code||'\u2014') + ' / ' + escHtml(a.bed_code||'\u2014') +
+        ' &nbsp;&middot;&nbsp; ' + escHtml(a.assignment_start_date||'') +
+        ' \u2192 ' + escHtml(a.assignment_end_date||'') +
+        (a.assignment_label ? ' &nbsp;&middot;&nbsp; <em>' + escHtml(a.assignment_label) + '</em>' : '') +
+        '</div>';
+    });
+  }
+  html += '</div>';
+
+  /* Conversation section */
+  html += '<div class="ctx-section"><h3>Conversation</h3>';
+  if (!data.conversation){
+    html += '<div class="ctx-none">No linked conversation found.</div>';
+  } else {
+    var conv = data.conversation;
+    html += '<div class="kv-grid">' +
+      kvBC('Mode',           conv.bot_mode) +
+      kvBC('Needs human',    conv.needs_human ? 'YES' : 'No') +
+      kvBC('Pending action', conv.pending_action) +
+      kvBC('Last message',   conv.last_message_preview) +
+      '</div>' +
+      '<div style="margin-top:8px">' +
+      '<button class="btn-open-conv" id="bc-open-conv-btn" data-convid="' + escHtml(conv.conversation_id||'') + '">' +
+      '&#128172; Open conversation</button>' +
+      '<span style="font-size:11px;color:#7f8c8d;margin-left:8px">Switches to Conversations tab</span>' +
+      '</div>';
+  }
+  html += '</div>';
+
+  /* Handoff section */
+  html += '<div class="ctx-section"><h3>Handoff</h3>';
+  if (!data.handoff){
+    html += '<div class="ctx-none">No open handoff found.</div>';
+  } else {
+    var hf = data.handoff;
+    html += '<div class="kv-grid">' +
+      kvBC('Reason',   hf.reason_code)   +
+      kvBC('Priority', hf.priority)      +
+      kvBC('Status',   hf.status)        +
+      kvBC('Staff',    hf.assigned_staff)+
+      kvBC('Opened',   hf.opened_at ? new Date(hf.opened_at).toLocaleString() : '\u2014') +
+      '</div>';
+  }
+  html += '</div>';
+
+  /* Add-ons section */
+  var ao = data.addons || {};
+  html += '<div class="ctx-section"><h3>Add-ons</h3>';
+  if (!ao.rows || ao.rows.length === 0){
+    html += '<div class="ctx-none">' + escHtml(ao.note || 'No add-on orders found.') + '</div>';
+  } else {
+    html += '<div class="kv-grid">';
+    var seenOrders = {};
+    ao.rows.forEach(function(r){
+      if (!seenOrders[r.order_id]){
+        seenOrders[r.order_id] = true;
+        html += kvBC(r.order_code || r.order_id, (r.order_status||'') + ' / ' + (r.order_payment_status||''));
+      }
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
+  /* Warnings */
+  if (data.warnings && data.warnings.length > 0){
+    html += '<div class="ctx-section"><h3>Warnings</h3><div class="state-msg error">' +
+      data.warnings.map(function(w){ return escHtml(w); }).join('<br>') + '</div></div>';
+  }
+
+  return html;
 }
 
 function loadBedCalendar(){
@@ -2482,6 +2667,149 @@ async function handleBedCalendar(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stage 7.7i — Booking context handler (read-only)
+//
+// GET /staff/bookings/:bookingCode/context?client=<slug>
+//   Returns full booking detail: booking, payments, rooming, conversation,
+//   handoff state, and add-on summary for the Cami dashboard drawer.
+//
+// Safety: SELECT-only. No mutations. Viewer auth minimum. Fully audited.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BOOKING_CONTEXT_RE = /^\/staff\/bookings\/([A-Za-z0-9_\-]+)\/context$/;
+
+async function handleBookingContext(bookingCode, query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!bookingCode || bookingCode.length > 64 || SQL_INJECT_RE.test(bookingCode)) {
+    return send400(res, 'invalid booking code');
+  }
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:booking_context',
+    category:      'booking_context_api',
+    client_slug:   clientSlug,
+    booking_code:  bookingCode,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  let bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows;
+  try {
+    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows] =
+      await withPgClient(async (pg) => {
+        const [b, p, r, c, h, a] = await Promise.all([
+          pg.query(getBookingDetailQuery(),             [clientSlug, bookingCode]),
+          pg.query(getBookingPaymentsQuery(),           [clientSlug, bookingCode]),
+          pg.query(getBookingRoomingAssignmentsQuery(), [clientSlug, bookingCode]),
+          pg.query(getBookingConversationQuery(),       [clientSlug, bookingCode]),
+          pg.query(getBookingHandoffQuery(),            [clientSlug, bookingCode]),
+          pg.query(getBookingAddOnSummaryQuery(),       [clientSlug, bookingCode]).catch(() => ({ rows: [] })),
+        ]);
+        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows];
+      });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
+  }
+
+  if (bookingRows.length === 0) {
+    appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', booking_code: bookingCode });
+  }
+
+  const bk = bookingRows[0];
+
+  // Payments aggregate
+  const totalPaid = paymentRows.reduce((s, r) => s + Number(r.amount_paid_cents || 0), 0);
+  const latestStatus = paymentRows.length > 0 ? paymentRows[0].payment_status : null;
+
+  // Rooming
+  const assignedRooms = [...new Set(roomingRows.map(r => r.room_code).filter(Boolean))];
+  const assignedBeds  = [...new Set(roomingRows.map(r => r.bed_code).filter(Boolean))];
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success:          true,
+    payment_rows:     paymentRows.length,
+    rooming_rows:     roomingRows.length,
+    conv_linked:      convRows.length > 0,
+    handoff_open:     handoffRows.length > 0,
+    addon_rows:       addonRows.length,
+    elapsed_ms:       elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success:      true,
+    client_slug:  clientSlug,
+    booking_code: bookingCode,
+    booking: {
+      booking_id:          bk.booking_id,
+      booking_code:        bk.booking_code,
+      guest_name:          bk.guest_name,
+      phone:               bk.phone,
+      email:               bk.email,
+      guest_count:         bk.guest_count,
+      package_code:        bk.package_code,
+      check_in:            bk.check_in,
+      check_out:           bk.check_out,
+      status:              bk.status,
+      payment_status:      bk.payment_status,
+      assignment_status:   bk.assignment_status,
+      requested_room_type: bk.requested_room_type,
+      room_preference:     bk.room_preference,
+      primary_room_code:   bk.primary_room_code,
+      needs_rooming_review:bk.needs_rooming_review,
+      rooming_notes:       bk.rooming_notes,
+      total_amount_cents:  bk.total_amount_cents,
+      deposit_required_cents: bk.deposit_required_cents,
+      amount_paid_cents:   bk.amount_paid_cents,
+      balance_due_cents:   bk.balance_due_cents,
+    },
+    payments: {
+      rows:                  paymentRows,
+      amount_paid_cents:     totalPaid,
+      total_amount_cents:    Number(bk.total_amount_cents || 0),
+      deposit_required_cents:Number(bk.deposit_required_cents || 0),
+      balance_due_cents:     Number(bk.balance_due_cents || 0),
+      latest_status:         latestStatus,
+    },
+    rooming: {
+      assignments:       roomingRows,
+      assigned_room_codes: assignedRooms,
+      assigned_bed_codes:  assignedBeds,
+      notes:             bk.rooming_notes || null,
+    },
+    conversation: convRows.length > 0 ? {
+      conversation_id:     convRows[0].conversation_id,
+      needs_human:         convRows[0].needs_human,
+      bot_mode:            convRows[0].bot_mode,
+      pending_action:      convRows[0].pending_action,
+      conversation_status: convRows[0].conversation_status,
+      last_message_preview:convRows[0].last_message_preview,
+    } : null,
+    handoff: handoffRows.length > 0 ? {
+      handoff_id:    handoffRows[0].handoff_id,
+      reason_code:   handoffRows[0].reason_code,
+      priority:      handoffRows[0].priority,
+      status:        handoffRows[0].status,
+      assigned_staff:handoffRows[0].assigned_staff,
+      opened_at:     handoffRows[0].opened_at,
+    } : null,
+    addons: {
+      rows: addonRows,
+      note: addonRows.length === 0
+        ? 'No add-on orders found for this booking'
+        : null,
+    },
+    warnings: [],
+    elapsed_ms: elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Request router
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2535,6 +2863,14 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleBedCalendar(parsed.query, res, auth.user);
+  }
+
+  // ── Stage 7.7i — Booking context drawer (read-only) ───────────────────────
+  const bookingCtxMatch = BOOKING_CONTEXT_RE.exec(pathname);
+  if (bookingCtxMatch) {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleBookingContext(bookingCtxMatch[1], parsed.query, res, auth.user);
   }
 
   if (pathname === '/staff/ui') {

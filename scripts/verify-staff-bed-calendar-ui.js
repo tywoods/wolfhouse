@@ -183,6 +183,48 @@ try { pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8')); } catch (_) { pkg = {
 check(!!(pkg.scripts && pkg.scripts['verify:staff-bed-calendar-ui']),
   'package.json has verify:staff-bed-calendar-ui script');
 
+// ── Stage 7.7i additions ────────────────────────────────────────────────────
+
+// 31. loadBlockDetail function present (fetches booking context)
+check(/function loadBlockDetail/.test(src),
+  'loadBlockDetail function present (Stage 7.7i)');
+
+// 32. fetch('/staff/bookings/') booking context call present
+check(/\/staff\/bookings\/.*\/context/.test(src),
+  "'/staff/bookings/.../context' URL present in UI JS (Stage 7.7i)");
+
+// 33. Booking detail drawer has Booking Details section
+check(/Booking Details/i.test(src),
+  'Booking Details section present in drawer (Stage 7.7i)');
+
+// 34. Payments section in drawer
+check(/ctx-section.*Payments|Payments.*ctx-section/i.test(src) || /h3.*Payments/i.test(src),
+  'Payments section present in drawer (Stage 7.7i)');
+
+// 35. Rooming section in drawer
+check(/h3.*Rooming/i.test(src),
+  'Rooming / Beds section present in drawer (Stage 7.7i)');
+
+// 36. Conversation section in drawer
+check(/h3.*Conversation/i.test(src),
+  'Conversation section present in drawer (Stage 7.7i)');
+
+// 37. Handoff section in drawer
+check(/h3.*Handoff/i.test(src),
+  'Handoff section present in drawer (Stage 7.7i)');
+
+// 38. Add-ons section in drawer
+check(/h3.*Add-on/i.test(src),
+  'Add-ons section present in drawer (Stage 7.7i)');
+
+// 39. Open conversation button present
+check(/Open conversation|btn-open-conv/i.test(src),
+  '"Open conversation" button present in drawer (Stage 7.7i)');
+
+// 40. Booking edits disabled note still present
+check(/Booking edits are disabled/i.test(src),
+  '"Booking edits are disabled" note still present (Stage 7.7i)');
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
