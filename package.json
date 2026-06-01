@@ -76,7 +76,8 @@
     "verify:staff-bed-reassignment-sql": "node scripts/verify-staff-bed-reassignment-sql.js",
     "verify:staff-bed-reassignment-overlap": "node scripts/verify-staff-bed-reassignment-overlap.js",
     "verify:staff-bed-reassignment-preview-api": "node scripts/verify-staff-bed-reassignment-preview-api.js",
-    "verify:staff-bed-reassignment-confirm-api": "node scripts/verify-staff-bed-reassignment-confirm-api.js"
+    "verify:staff-bed-reassignment-confirm-api": "node scripts/verify-staff-bed-reassignment-confirm-api.js",
+    "verify:staff-login-ui": "node scripts/verify-staff-login-ui.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

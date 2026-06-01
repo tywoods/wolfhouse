@@ -160,7 +160,7 @@ The following commits were created during the Azure staging deployment:
 | DNS/custom domain not configured (`lunafrontdesk.com`) | NOT_STARTED — Azure FQDN only |
 | Custom TLS on `staff-staging.lunafrontdesk.com` | NOT_STARTED — no CNAME, no managed cert bound |
 | Container Apps env (North Europe) vs backing resources (West Europe) | Known; acceptable for staging |
-| Real login page | NOT_STARTED — first login via API POST only |
+| Real login page | DONE — Stage 7.3e: `GET /staff/login` serves Luna Front Desk branded form; browser redirect from `/staff/ui` |
 
 ### 6.2 Workflows
 

@@ -908,6 +908,8 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* ── Top banner ─────────────────────────────────────────────────────────── */
 #banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(68,80,74,.10)}
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:1;display:flex;align-items:center;gap:10px}
+.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:auto}
+.btn-logout:hover{background:rgba(255,255,255,.32)}
 #banner .brand::before{content:"";width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#FFFDFA 0%,#E9DDCF 55%,#DCC8B7 100%);box-shadow:0 1px 4px rgba(68,80,74,.25);flex-shrink:0}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
 #banner .badge{background:rgba(255,253,250,.22);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.10em;padding:4px 12px;border-radius:var(--radius-pill);white-space:nowrap;backdrop-filter:blur(2px);border:1px solid rgba(255,255,255,.28)}
@@ -1081,6 +1083,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
   <a href="/staff/ui" class="brand" style="text-decoration:none;color:inherit;">Luna Front Desk</a>
   <span class="badge-sm">Stage 7.7j</span>
   <span class="badge">READ-ONLY &bull; SHADOW MODE</span>
+  <button class="btn-logout" id="btn-logout" onclick="doLogout()">Sign out</button>
 </div>
 
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
@@ -2265,6 +2268,15 @@ function loadBedCalendar(){
 
 el('bc-load').addEventListener('click', loadBedCalendar);
 
+function doLogout(){
+  var x = new XMLHttpRequest();
+  x.open('POST', '/staff/auth/logout', true);
+  x.withCredentials = true;
+  x.onload = function(){ window.location.href='/staff/login'; };
+  x.onerror = function(){ window.location.href='/staff/login'; };
+  x.send();
+}
+
 })();
 </script>
 </body>
@@ -2277,6 +2289,217 @@ function handleUI(res, port) {
     'Content-Type':  'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
     'X-Powered-By':  'wolfhouse-staff-api/7.7c',
+  });
+  res.end(html);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: GET /staff/login  (Stage 7.3e — Luna Front Desk login page)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildLoginHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Luna Front Desk — Sign in</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --cream:#F7F3EC;
+  --surface:#FFFDFA;
+  --sand:#E9DDCF;
+  --tan:#DCC8B7;
+  --sage:#AFC3A3;
+  --olive:#8FA58E;
+  --dusty-blue:#B7CAD6;
+  --ocean:#95B4C7;
+  --text:#44504A;
+  --text-2:#7A8C82;
+  --text-3:#A8B5AE;
+  --border:#D8CEBF;
+  --radius:14px;
+  --radius-sm:8px;
+}
+body{
+  background:linear-gradient(135deg,var(--cream) 0%,#EBF0ED 60%,#E8EFF5 100%);
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  color:var(--text);
+}
+.card{
+  background:var(--surface);
+  border:1px solid var(--sand);
+  border-radius:var(--radius);
+  box-shadow:0 4px 32px rgba(68,80,74,.10),0 1px 4px rgba(68,80,74,.06);
+  padding:40px 40px 36px;
+  width:100%;
+  max-width:400px;
+}
+.logo{
+  text-align:center;
+  margin-bottom:28px;
+}
+.logo-mark{
+  width:48px;height:48px;border-radius:50%;
+  background:linear-gradient(135deg,var(--sage) 0%,var(--ocean) 100%);
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:22px;font-weight:800;color:#fff;letter-spacing:-.02em;
+  margin-bottom:12px;
+}
+.logo h1{
+  font-size:20px;font-weight:700;letter-spacing:.01em;color:var(--text);
+}
+.logo .sub{
+  font-size:12px;color:var(--text-2);margin-top:4px;letter-spacing:.04em;text-transform:uppercase;
+}
+.field{margin-bottom:16px;}
+.field label{
+  display:block;font-size:12px;font-weight:600;color:var(--text-2);
+  margin-bottom:5px;letter-spacing:.04em;text-transform:uppercase;
+}
+.field input{
+  width:100%;padding:10px 13px;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  background:var(--cream);
+  font-size:14px;color:var(--text);
+  transition:border-color .18s,box-shadow .18s;
+  outline:none;
+}
+.field input:focus{
+  border-color:var(--olive);
+  box-shadow:0 0 0 3px rgba(143,165,142,.18);
+}
+.btn-signin{
+  width:100%;padding:11px 0;margin-top:6px;
+  background:linear-gradient(120deg,var(--olive) 0%,var(--ocean) 100%);
+  border:none;border-radius:var(--radius-sm);
+  color:#fff;font-size:14px;font-weight:700;letter-spacing:.04em;
+  cursor:pointer;transition:opacity .18s;
+}
+.btn-signin:hover{opacity:.88}
+.btn-signin:disabled{opacity:.55;cursor:default}
+.msg{
+  margin-top:14px;padding:10px 13px;border-radius:var(--radius-sm);
+  font-size:13px;display:none;
+}
+.msg.error{background:#FEF1EC;border:1px solid #F2C4AC;color:#9B4020;}
+.msg.ok{background:#EFF5EE;border:1px solid #BACEA4;color:#3A6035;}
+.safety-strip{
+  margin-top:22px;padding-top:16px;border-top:1px solid var(--sand);
+  display:flex;gap:8px;flex-wrap:wrap;
+}
+.safety-badge{
+  font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  padding:3px 9px;border-radius:10px;
+}
+.safety-badge.staging{background:#EBF0F5;color:#5C7A90;border:1px solid #C5D6E3;}
+.safety-badge.disabled{background:#F3F6F1;color:#6B8469;border:1px solid #BFCFB9;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-mark">L</div>
+    <h1>Luna Front Desk</h1>
+    <div class="sub">Staff sign in</div>
+  </div>
+
+  <form id="login-form" autocomplete="on">
+    <div class="field">
+      <label for="client">Client</label>
+      <input id="client" name="client" type="text" value="wolfhouse-somo" autocomplete="organization" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" placeholder="staff@example.com" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="btn-signin" id="btn-signin" type="button">Sign in</button>
+    <div class="msg" id="msg"></div>
+  </form>
+
+  <div class="safety-strip">
+    <span class="safety-badge staging">Staging / shadow mode</span>
+    <span class="safety-badge disabled">Staff actions disabled</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var btn   = document.getElementById('btn-signin');
+  var msg   = document.getElementById('msg');
+
+  function showMsg(text, isError){
+    msg.className = 'msg ' + (isError ? 'error' : 'ok');
+    msg.textContent = text;
+    msg.style.display = 'block';
+  }
+
+  function doSignIn(){
+    btn.disabled = true;
+    msg.style.display = 'none';
+
+    var client   = document.getElementById('client').value.trim();
+    var email    = document.getElementById('email').value.trim();
+    var password = document.getElementById('password').value;
+
+    if (!client || !email || !password){
+      showMsg('All fields are required.', true);
+      btn.disabled = false;
+      return;
+    }
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/staff/auth/login', true);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function(){
+      var d = {};
+      try { d = JSON.parse(xhr.responseText); } catch(_){}
+      if (xhr.status === 200 && d.success){
+        showMsg('Signed in \u2014 redirecting\u2026', false);
+        window.location.href = '/staff/ui';
+      } else {
+        showMsg(d.error || 'Login failed. Please check your credentials.', true);
+        btn.disabled = false;
+      }
+    };
+    xhr.onerror = function(){
+      showMsg('Network error. Please try again.', true);
+      btn.disabled = false;
+    };
+    xhr.send(JSON.stringify({ client: client, email: email, password: password }));
+  }
+
+  btn.addEventListener('click', doSignIn);
+  document.getElementById('password').addEventListener('keydown', function(e){
+    if (e.key === 'Enter') doSignIn();
+  });
+  document.getElementById('email').addEventListener('keydown', function(e){
+    if (e.key === 'Enter') doSignIn();
+  });
+})();
+</script>
+</body>
+</html>`;
+}
+
+function handleLoginPage(res) {
+  const html = buildLoginHtml();
+  res.writeHead(200, {
+    'Content-Type':  'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Powered-By':  'wolfhouse-staff-api/7.3e',
   });
   res.end(html);
 }
@@ -3368,6 +3591,25 @@ async function handleBookingContext(bookingCode, query, res, user) {
 // Request router
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Browser redirect helper for /staff/ui (Stage 7.3e)
+// Returns true if a redirect was sent, false otherwise.
+// Only redirects browser requests (no Accept: application/json).
+// ─────────────────────────────────────────────────────────────────────────────
+async function browserLoginRedirect(req, res) {
+  if (!STAFF_AUTH_REQUIRED) return false;
+  const accept = req.headers['accept'] || '';
+  if (accept.includes('application/json')) return false;
+  let session;
+  try { session = await loadAuthSession(req); } catch (_) { session = null; }
+  if (!session) {
+    res.writeHead(302, { Location: '/staff/login', 'Cache-Control': 'no-store' });
+    res.end();
+    return true;
+  }
+  return false;
+}
+
 async function router(req, res) {
   const parsed   = url.parse(req.url, true);
   const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
@@ -3445,7 +3687,17 @@ async function router(req, res) {
     return handleBookingContext(bookingCtxMatch[1], parsed.query, res, auth.user);
   }
 
+  // ── GET /staff/login  (Stage 7.3e — Luna Front Desk login page) ─────────────
+  if (pathname === '/staff/login') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleLoginPage(res);
+  }
+
   if (pathname === '/staff/ui') {
+    if (await browserLoginRedirect(req, res)) return;
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleUI(res, PORT);

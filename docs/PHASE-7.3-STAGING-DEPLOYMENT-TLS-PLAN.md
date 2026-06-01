@@ -1,6 +1,6 @@
 # Stage 7.3 — Staging Deployment + TLS Plan
 
-**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31) + 7.3c deployment preflight PASS (2026-06-01) + **7.3d Azure staging deployed + login proven (2026-06-01)**. Staff API and n8n live over Azure HTTPS FQDNs. Ty owner login confirmed. 11 workflows imported inactive. All safety flags confirmed. DNS/custom TLS on lunafrontdesk.com not yet configured.
+**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31) + 7.3c deployment preflight PASS (2026-06-01) + 7.3d Azure staging deployed + login proven (2026-06-01) + **7.3e Luna Front Desk login page implemented (2026-06-01)**. `GET /staff/login` serves branded HTML form; browser redirect from `/staff/ui`; logout button wired; 30-check verifier PASS. DNS/custom TLS on lunafrontdesk.com not yet configured.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream C (TLS/deployment).
 **Depends on:** [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) (env separation, secrets), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md) (auth before write surface).
 **Aligns with:** [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) (existing Container Apps + Key Vault topology).
@@ -224,7 +224,7 @@ These verification gates can later be partially automated by the planned `script
 | 7.3b | Azure resource plan | Resource list (Container Apps env, 2× Postgres, Redis, Key Vault, Log Analytics); sizing; private networking | **DONE** — IaC scaffold PASS (2026-05-31) |
 | 7.3c | DNS / TLS plan | Subdomain records, managed certs, HTTPS-only ingress, HSTS/redirects | **DONE** — Preflight PASS (2026-06-01): scaffold validated, manual inputs defined, Phase A–M plan, what-if command prepared, smoke tests defined |
 | 7.3d | Staging secrets plan | Key Vault entries, secret refs per app, ownership + rotation wiring | **DONE** — Azure staging deployed + login proven (2026-06-01): Staff API + n8n live over Azure HTTPS FQDNs; Ty owner login confirmed; 11 workflows imported inactive; all safety flags confirmed |
-| 7.3e | Staging deploy scaffold | Real staff login page for Azure `/staff/ui` (first login currently via API POST) | PENDING |
+| 7.3e | Staging deploy scaffold | Real staff login page for Azure `/staff/ui` (first login currently via API POST) | **DONE** — Luna Front Desk login page implemented (2026-06-01): `GET /staff/login` serves branded HTML form; browser redirect from `/staff/ui`; logout button wired; 30-check verifier PASS |
 | 7.3f | Staging smoke checklist | DNS/custom domain plan for `staff-staging.lunafrontdesk.com` | PENDING |
 | 7.3g | n8n staging workflow import policy | Convert + import remaining 3 active-source workflows as inactive | PENDING |
 
@@ -330,4 +330,24 @@ Each slice is a separate approved task with its own proof. None are started here
 - No live WhatsApp, no live Stripe, no webhook POSTs: ✓
 
 **What is still NOT done:** DNS/custom domain not configured. No custom TLS on lunafrontdesk.com. No real login page (first login via API POST). 3 workflows not yet imported. No backup/restore drill. No monitoring/alerting. No Cami/Ale accounts. No pilot approved. No live operation.
+
+### 7.3e — Luna Front Desk Login Page Implemented (2026-06-01)
+
+**HEAD at implementation:** pending commit
+
+**Files changed:**
+- `scripts/staff-query-api.js` — added `buildLoginHtml()`, `handleLoginPage()`, `browserLoginRedirect()`, `GET /staff/login` route, browser redirect for `/staff/ui`, logout button + `doLogout()` in UI
+- `scripts/verify-staff-login-ui.js` — new 30-check static verifier
+- `package.json` — added `verify:staff-login-ui` script
+
+**Verifier result:** PASS — 30/30 checks green
+
+**Local proof:**
+- `GET /staff/login` → 200 HTML; contains "Luna Front Desk", "wolfhouse-somo", "Sign in", "Staging / shadow mode"
+- `GET /staff/ui` (auth disabled) → 200 HTML; loads correctly
+- `GET /staff/intents` → 200; `total: 35`
+
+**Azure proof:** Pending deployment. Code is committed; Azure deployment via normal staff API build/push flow required to verify on Azure FQDN.
+
+**What is still NOT done:** DNS/custom domain not configured. No custom TLS on lunafrontdesk.com. 3 workflows not yet imported. No backup/restore drill. No monitoring/alerting. No Cami/Ale accounts. No pilot approved.
 
