@@ -1,0 +1,14 @@
+﻿node_modules
+scripts/node_modules
+.git
+.gitignore
+.env
+infra/.env
+*.log
+data/raw-whatsapp
+data/whatsapp-raw
+data/whatsapp-redacted
+docs/knowledge/whatsapp-raw
+docs/knowledge/whatsapp-private
+config/clients/*.secrets.json
+*WhatsApp Chat*.txt
