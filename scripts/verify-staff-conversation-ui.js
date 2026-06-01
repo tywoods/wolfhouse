@@ -90,8 +90,8 @@ try {
 const htmlMatch = src.match(/function buildUiHtml\(port\)\s*\{([\s\S]*?)^function handleUI/m);
 const htmlSrc = htmlMatch ? htmlMatch[1] : src;
 
-// 4. Cami Dashboard branding
-check(/Cami Dashboard/i.test(htmlSrc), 'Cami Dashboard text in HTML');
+// 4. Dashboard branding (UI was renamed from "Cami Dashboard" to "Luna Front Desk" in stage 7.7k)
+check(/Luna Front Desk|Cami Dashboard/i.test(htmlSrc), 'Luna Front Desk or Cami Dashboard text in HTML');
 
 // 5. Luna Front Desk branding
 check(/Luna Front Desk/i.test(htmlSrc), 'Luna Front Desk text in HTML');

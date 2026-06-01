@@ -1,6 +1,6 @@
 # Stage 7.3 — Staging Deployment + TLS Plan
 
-**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31). No Azure resources created; no DNS changed; TLS not active; staging not deployed.
+**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31) + **7.3c deployment preflight PASS (2026-06-01)**. No Azure resources created; no DNS changed; TLS not active; staging not deployed.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream C (TLS/deployment).
 **Depends on:** [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) (env separation, secrets), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md) (auth before write surface).
 **Aligns with:** [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) (existing Container Apps + Key Vault topology).
@@ -221,8 +221,8 @@ These verification gates can later be partially automated by the planned `script
 | Slice | Name | Scope | Status |
 |---|---|---|---|
 | 7.3a | Deployment target decision | Confirm Container Apps (Option A) vs interim Option E; record decision | **DONE (this doc recommends A)** |
-| 7.3b | Azure resource plan | Resource list (Container Apps env, 2× Postgres, Redis, Key Vault, Log Analytics); sizing; private networking | PENDING |
-| 7.3c | DNS / TLS plan | Subdomain records, managed certs, HTTPS-only ingress, HSTS/redirects | PENDING |
+| 7.3b | Azure resource plan | Resource list (Container Apps env, 2× Postgres, Redis, Key Vault, Log Analytics); sizing; private networking | **DONE** — IaC scaffold PASS (2026-05-31) |
+| 7.3c | DNS / TLS plan | Subdomain records, managed certs, HTTPS-only ingress, HSTS/redirects | **DONE** — Preflight PASS (2026-06-01): scaffold validated, manual inputs defined, Phase A–M plan, what-if command prepared, smoke tests defined |
 | 7.3d | Staging secrets plan | Key Vault entries, secret refs per app, ownership + rotation wiring | PENDING |
 | 7.3e | Staging deploy scaffold | Dockerfile(s) for staff API, deploy manifest/IaC, build pipeline — no live deploy | PENDING |
 | 7.3f | Staging smoke checklist | Executable version of §9 gates (incl. `verify-env-safety.js`) | PENDING |
@@ -263,3 +263,35 @@ Each slice is a separate approved task with its own proof. None are started here
 **Verifier result:** PASS — 57/57 checks green (0 failures)
 
 **What is still NOT done:** No Azure resources created. No deployment run. No DNS configured. No TLS active. Staging not live.
+
+### 7.3c — Deployment preflight PASS (2026-06-01)
+
+**HEAD:** `8b60961`
+
+**Files created:**
+- `docs/PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md` — preflight doc: scaffold validation, manual inputs, Phase A–M plan, what-if command, smoke tests, go/no-go summary
+- `infra/azure/staging/parameters.ty-template.json` — Ty's fill-in template with `<FILL_ME: ...>` placeholder tokens
+- `scripts/verify-azure-staging-preflight.js` — 26-check preflight verifier (no Azure API calls)
+
+**Files updated:**
+- `infra/azure/staging/README.md` — Phase A–M table added; `az group create` annotated with APPROVAL REQUIRED; what-if updated to reference `parameters.ty-template.json`; post-deploy checklist includes lunafrontdesk.com subdomains
+- `scripts/verify-staff-conversation-ui.js` — "Cami Dashboard" check updated to "Luna Front Desk or Cami Dashboard" (UI renamed in stage 7.7k)
+- `docs/PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md` — 7.3c PASS recorded
+
+**Verifier results:**
+- `verify-azure-staging-preflight.js`: PASS — 26/26 checks
+- `verify-azure-staging-scaffold.js`: PASS — 57/57 checks
+- `verify-staff-auth-api.js`: PASS
+- `verify-staff-query-api.js`: PASS
+- `verify-staff-conversation-ui.js`: PASS — 52/52 checks
+- `verify-staff-bed-calendar-ui.js`: PASS — 40/40 checks
+- `build-main-local-stripe.js --verify-targets`: PASS
+- `node --check scripts/run-stage4-autonomous-dry-run.js`: PASS
+
+**Safety defaults confirmed:** WHATSAPP_DRY_RUN=true, STAFF_ACTIONS_ENABLED=false, STAFF_AUTH_REQUIRED=true, STRIPE_WEBHOOK_SKIP_VERIFY=false, N8N_BLOCK_ENV_ACCESS_IN_NODE=true — all hardcoded in main.bicep.
+
+**What-if command:** prepared and ready in `docs/PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md §5` and `infra/azure/staging/README.md Phase C`.
+
+**Required manual inputs:** subscription ID, region, resource group name, budget confirmation, DNS provider for lunafrontdesk.com, staging subdomains, Postgres admin password, container image strategy.
+
+**What is still NOT done:** No Azure resources created. No deployment run. No DNS configured. No TLS active. Staging not live. Key Vault secrets not set. Containers not built/pushed. Migrations not applied. Staff users not seeded.

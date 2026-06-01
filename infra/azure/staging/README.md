@@ -3,6 +3,8 @@
 > **⛔ DO NOT RUN any `az deployment` command until all go/no-go gates in [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](../../../docs/PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) sections A, B, and C are recorded PASS with evidence and sign-off.**
 >
 > Current status: **NOT_STARTED — deployment blocked.**
+>
+> **Preflight doc:** [`docs/PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md`](../../../docs/PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md) — Stage 7.3c PASS (2026-06-01). What-if command prepared; manual inputs defined; Phase A–M plan defined.
 
 ---
 
@@ -12,7 +14,28 @@
 |---|---|
 | `main.bicep` | Bicep template — all staging resources |
 | `parameters.example.json` | Example parameter values (no secrets) |
+| `parameters.ty-template.json` | Ty's fill-in template — replace `<FILL_ME: ...>` tokens before deploying |
 | `README.md` | This runbook |
+
+---
+
+## Deployment phase overview (Phase A–M)
+
+| Phase | Name | Safe to run now? | Command / action |
+|---|---|---|---|
+| **A** | Preflight validation | ✓ Yes | `node scripts/verify-azure-staging-scaffold.js && node scripts/verify-azure-staging-preflight.js` |
+| **B** | Create empty resource group | After Ty approves | `az group create` — see below |
+| **C** | Bicep what-if | After Phase B | `az deployment group what-if` — see below |
+| **D** | Deploy staging infra | ⛔ Approval required | `az deployment group create` — DO NOT RUN |
+| **E** | Inject Key Vault secrets | After Phase D | `az keyvault secret set` × 10 |
+| **F** | Build/push staff API container | After Phase D | `az acr build` or local `docker push` |
+| **G** | Run migrations 001–009 on staging DB | After Phase E | `node scripts/run-sql.js` |
+| **H** | Seed first staff users | After Phase G | `node scripts/seed-staff-users.js --env staging` |
+| **I** | Start staff API only | After Phase F+G | Container App auto-starts; verify FQDN |
+| **J** | Smoke test /staff/ui | After Phase I | `curl` checks — see §Smoke tests |
+| **K** | Import n8n workflows inactive | After Phase I | n8n UI import — all inactive |
+| **L** | DNS/TLS | After Phase I/K | CNAME records + Azure managed cert |
+| **M** | Backup/monitoring gates | Before pilot | Azure Monitor + restore drill |
 
 ---
 
@@ -33,12 +56,17 @@ az account set --subscription "<SUBSCRIPTION_ID_PLACEHOLDER>"
 az account show
 ```
 
-### 2. Resource group
+### 2. Resource group (Phase B — APPROVAL REQUIRED)
+
+> ⚠️ The command below creates a real Azure resource group and may incur cost. Run only after Ty confirms subscription, region, and budget.
+
 ```bash
-# Create the staging resource group (safe to run before full deploy)
+# Phase B — APPROVAL REQUIRED before running
+# Creates a real Azure resource group (billable)
+# DO NOT RUN until subscription and budget are confirmed by Ty.
 az group create \
   --name wh-staging-rg \
-  --location westeurope
+  --location "<FILL_ME: azure-region e.g. westeurope>"
 ```
 
 ### 3. Key Vault secrets (MUST be set before deploy)
@@ -106,44 +134,52 @@ npm run db:migrate:staging   # if script exists, or run each migration manually
 
 ---
 
-## Dry-run / what-if (SAFE — reads only, no changes)
+## Dry-run / what-if (Phase C — SAFE — reads only, no changes)
+
+> This command shows what WOULD be created. No resources are touched. Run this before Phase D.
 
 ```bash
-# Show what WOULD be created — no resources touched
+# Phase C — SAFE: reads only, no resources created or changed
 az deployment group what-if \
   --resource-group wh-staging-rg \
   --template-file infra/azure/staging/main.bicep \
-  --parameters @infra/azure/staging/parameters.example.json \
-  --parameters postgresAdminLoginPassword="$(az keyvault secret show --vault-name wh-staging-kv --name wolfhouse-db-admin-password --query value -o tsv)"
+  --parameters @infra/azure/staging/parameters.ty-template.json \
+  --parameters postgresAdminLoginPassword="placeholder-for-what-if-only"
 ```
+
+> When running `what-if`, you may use a placeholder for the password. Only Phase D requires the real password.
 
 ---
 
-## Deploy command — ⛔ DO NOT RUN WITHOUT APPROVAL
+## Deploy command — ⛔ DO NOT RUN WITHOUT APPROVAL (Phase D)
 
-> This command creates real Azure resources that incur cost. Run ONLY after all go/no-go gates pass.
+> This command creates real Azure resources that incur cost. Run ONLY after all go/no-go gates pass AND Ty provides explicit sign-off.
 
 ```bash
-# APPROVAL REQUIRED — do not run until PHASE-7.6 gates A, B, C are PASS
+# ⛔ Phase D — APPROVAL REQUIRED — do not run until PHASE-7.6 gates A, B, C are PASS
+# ⛔ DO NOT RUN this command without explicit sign-off from Ty.
 az deployment group create \
   --resource-group wh-staging-rg \
   --template-file infra/azure/staging/main.bicep \
-  --parameters @infra/azure/staging/parameters.example.json \
+  --parameters @infra/azure/staging/parameters.ty-template.json \
   --parameters postgresAdminLoginPassword="$(az keyvault secret show --vault-name wh-staging-kv --name wolfhouse-db-admin-password --query value -o tsv)" \
-  --name wh-staging-deploy-$(date +%Y%m%d%H%M)
+  --name "wh-staging-deploy-$(Get-Date -Format yyyyMMddHHmm)"
 ```
 
 ---
 
-## Post-deploy verification checklist
+## Post-deploy verification checklist (Phase J)
 
 After a successful deployment, verify each item before declaring staging ready:
 
-- [ ] `GET https://<staff-api-fqdn>/healthz` returns `{ "status": "ok", "auth_enabled": true }`
-- [ ] `GET https://<staff-api-fqdn>/staff/intents` returns 401 (auth required)
-- [ ] `POST https://<staff-api-fqdn>/staff/auth/login` succeeds with seeded staff user
-- [ ] `GET https://<staff-api-fqdn>/staff/ui` returns 200 after login
-- [ ] n8n UI accessible at `https://<n8n-fqdn>` and **all workflows are inactive**
+- [ ] `GET https://staff-staging.lunafrontdesk.com/healthz` returns `{ "status": "ok", "auth_enabled": true }`
+- [ ] `GET https://staff-staging.lunafrontdesk.com/staff/ui` returns 200
+- [ ] `GET https://staff-staging.lunafrontdesk.com/staff/intents` returns the registry list
+- [ ] `GET https://staff-staging.lunafrontdesk.com/staff/conversations` returns 200 (empty OK)
+- [ ] `GET https://staff-staging.lunafrontdesk.com/staff/bed-calendar` returns 200
+- [ ] `POST /staff/auth/login` succeeds with seeded staff user (Cami/Ale)
+- [ ] HTTP → HTTPS redirect active on `staff-staging.lunafrontdesk.com`
+- [ ] n8n UI accessible at `https://n8n-staging.lunafrontdesk.com` and **all workflows are inactive**
 - [ ] No `WHATSAPP_DRY_RUN=false` in any Container App revision
 - [ ] `STAFF_ACTIONS_ENABLED=false` confirmed in Container App environment variables
 - [ ] Stripe key confirmed `sk_test_*` (never `sk_live_*`)
@@ -151,7 +187,8 @@ After a successful deployment, verify each item before declaring staging ready:
 - [ ] Staff API container logs visible in Log Analytics
 - [ ] n8n worker logs visible in Log Analytics
 - [ ] `STAFF_OPERATOR_TOKEN` is NOT set in staging (local/dev only)
-- [ ] Run `scripts/verify-azure-staging-scaffold.js` static checks pass (this verifies the scaffold, not the live deployment)
+- [ ] Run `node scripts/verify-azure-staging-scaffold.js` — all checks pass
+- [ ] Run `node scripts/verify-azure-staging-preflight.js` — all checks pass
 
 ---
 

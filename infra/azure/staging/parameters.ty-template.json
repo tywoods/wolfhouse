@@ -1,0 +1,90 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "//": [
+    "──────────────────────────────────────────────────────────────────",
+    "Stage 7.3c — Ty's deployment parameter template (FILL IN BEFORE DEPLOYING)",
+    "Replace every <FILL_ME: ...> token with the real value.",
+    "DO NOT commit any file containing real subscription IDs, passwords, or tokens.",
+    "This template is safe to commit as-is — it contains only placeholders.",
+    "Domain: lunafrontdesk.com",
+    "──────────────────────────────────────────────────────────────────"
+  ],
+  "parameters": {
+    "environmentName": {
+      "//": "Short label — keep as 'staging'",
+      "value": "staging"
+    },
+    "location": {
+      "//": "FILL_ME: Azure region — e.g. westeurope, westus2, eastus",
+      "//2": "Must match the region where you created the resource group (Phase B)",
+      "value": "<FILL_ME: azure-region e.g. westeurope>"
+    },
+    "appNamePrefix": {
+      "//": "Prefix for all resource names — keep as wh-staging unless you need a different prefix",
+      "value": "wh-staging"
+    },
+    "staffApiImage": {
+      "//": "FILL_ME: Full ACR image URI for the staff API container",
+      "//2": "Format: <acr-login-server>/<image-name>:<tag>",
+      "//3": "Default ACR login server (based on appNamePrefix): whstagingacr.azurecr.io",
+      "//4": "Build the image first (Phase F) then update this value before deploy",
+      "value": "whstagingacr.azurecr.io/wh-staff-api:latest"
+    },
+    "n8nImage": {
+      "//": "Official n8n image — update tag if you need a specific version",
+      "value": "n8nio/n8n:latest"
+    },
+    "postgresSku": {
+      "//": "Postgres SKU — Standard_B1ms is the minimum burstable tier (~€12-15/month each)",
+      "value": "Standard_B1ms"
+    },
+    "postgresVersion": {
+      "value": "15"
+    },
+    "redisSku": {
+      "//": "Redis Basic C0 is sufficient for staging (~€15/month)",
+      "value": {
+        "name": "Basic",
+        "family": "C",
+        "capacity": 0
+      }
+    },
+    "staffApiCpu": {
+      "value": "0.5"
+    },
+    "staffApiMemory": {
+      "value": "1Gi"
+    },
+    "n8nCpu": {
+      "value": "1.0"
+    },
+    "n8nMemory": {
+      "value": "2Gi"
+    },
+    "n8nWorkerCpu": {
+      "value": "0.5"
+    },
+    "n8nWorkerMemory": {
+      "value": "1Gi"
+    },
+    "logRetentionDays": {
+      "//": "30 days is sufficient and cost-effective for staging",
+      "value": 30
+    },
+    "postgresAdminUser": {
+      "//": "Postgres admin username — not a secret; password is passed separately at deploy time",
+      "value": "whadmin"
+    },
+    "appDbName": {
+      "value": "wolfhouse_staging"
+    },
+    "n8nDbName": {
+      "value": "n8n_staging"
+    },
+    "n8nTimezone": {
+      "//": "FILL_ME: Timezone for n8n — confirm with Ty/Ale. Default: Europe/Madrid",
+      "value": "Europe/Madrid"
+    }
+  }
+}
