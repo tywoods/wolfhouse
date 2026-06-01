@@ -65,6 +65,11 @@ const {
   getOpenHandoffsQuery,
   getNeedsHumanWithoutOpenHandoffQuery,
 } = require('./lib/staff-handoff-queries');
+const {
+  getBedCalendarRoomsQuery,
+  getBedCalendarBlocksQuery,
+  getBedCalendarSummaryQuery,
+} = require('./lib/staff-bed-calendar-queries');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -2022,6 +2027,192 @@ async function handleHandoffQueue(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stage 7.7g — Bed calendar handler (read-only)
+//
+// GET /staff/bed-calendar?client=<slug>&start=YYYY-MM-DD&end=YYYY-MM-DD
+//   Returns rooms/beds hierarchy + booking_beds blocks overlapping the range.
+//   Date-span arithmetic (start_offset, span_days, is_arrival, is_departure)
+//   and color_type classification are computed in JS after the DB read.
+//
+// Safety: SELECT-only. No mutations. Viewer auth minimum. Fully audited.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_CALENDAR_DAYS = 90;
+
+function parseCalendarDate(str) {
+  if (!str || !DATE_RE.test(str)) return null;
+  const d = new Date(str + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+function generateCalendarDays(startDate, endDate) {
+  const DAY_MS = 86400000;
+  const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const days = [];
+  let cur = new Date(startDate.getTime());
+  while (cur < endDate) {
+    const iso = cur.toISOString().slice(0, 10);
+    days.push({ date: iso, label: DAY_LABELS[cur.getUTCDay()] + ' ' + String(cur.getUTCDate()).padStart(2, '0') });
+    cur = new Date(cur.getTime() + DAY_MS);
+  }
+  return days;
+}
+
+function bedCalendarColorType(row) {
+  const s  = (row.booking_status   || '').toLowerCase();
+  const p  = (row.payment_status   || '').toLowerCase();
+  const a  = (row.assignment_status || '').toLowerCase();
+  if (s === 'cancelled')   return 'cancelled';
+  if (a === 'needs_review' || row.needs_rooming_review) return 'needs_review';
+  if (s === 'confirmed' && p === 'paid') return 'confirmed';
+  if (s === 'confirmed')   return 'confirmed';
+  if (p === 'payment_pending' || s === 'payment_pending') return 'payment_pending';
+  if (s === 'hold')        return 'hold';
+  return 'hold';
+}
+
+function computeBlockSpan(row, startDate, endDate) {
+  const DAY_MS = 86400000;
+  const bStart = new Date(row.assignment_start_date + 'T00:00:00Z');
+  const bEnd   = new Date(row.assignment_end_date   + 'T00:00:00Z');
+  const clipStart = bStart < startDate ? startDate : bStart;
+  const clipEnd   = bEnd   > endDate   ? endDate   : bEnd;
+  return {
+    start_offset: Math.round((clipStart - startDate) / DAY_MS),
+    span_days:    Math.max(0, Math.round((clipEnd - clipStart) / DAY_MS)),
+    is_arrival:   bStart >= startDate && bStart < endDate,
+    is_departure: bEnd   >  startDate && bEnd   <= endDate,
+  };
+}
+
+function buildRoomHierarchy(roomRows) {
+  const rooms   = [];
+  const roomMap = {};
+  for (const row of roomRows) {
+    if (!roomMap[row.room_code]) {
+      roomMap[row.room_code] = {
+        room_code:   row.room_code,
+        room_name:   row.room_name  || row.room_code,
+        house:       row.house      || null,
+        room_type:   row.room_type  || null,
+        capacity:    row.capacity   || 0,
+        sort_order:  row.room_sort_order != null ? Number(row.room_sort_order) : 999,
+        beds: [],
+      };
+      rooms.push(roomMap[row.room_code]);
+    }
+    if (row.bed_code) {
+      roomMap[row.room_code].beds.push({
+        bed_code:  row.bed_code,
+        bed_label: row.bed_label || row.bed_code,
+        sort_order: row.bed_number != null ? Number(row.bed_number) : 0,
+      });
+    }
+  }
+  return rooms;
+}
+
+function buildCalendarBlocks(blockRows, startDate, endDate) {
+  return blockRows.map(row => {
+    const span = computeBlockSpan(row, startDate, endDate);
+    return {
+      booking_id:        row.booking_id,
+      booking_code:      row.booking_code,
+      guest_name:        row.guest_name || row.bed_guest_name || '—',
+      phone:             row.phone || null,
+      status:            row.booking_status,
+      payment_status:    row.payment_status,
+      assignment_status: row.assignment_status,
+      room_code:         row.room_code,
+      bed_code:          row.bed_code,
+      start_date:        row.assignment_start_date,
+      end_date:          row.assignment_end_date,
+      start_offset:      span.start_offset,
+      span_days:         span.span_days,
+      label:             (row.booking_code || '') + (row.guest_name ? ' \u2014 ' + row.guest_name : ''),
+      color_type:        bedCalendarColorType(row),
+      needs_review:      !!(row.needs_rooming_review || (row.assignment_status || '').toLowerCase() === 'needs_review'),
+      is_arrival:        span.is_arrival,
+      is_departure:      span.is_departure,
+    };
+  }).filter(b => b.span_days > 0);
+}
+
+async function handleBedCalendar(query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+
+  const startDate = parseCalendarDate(query.start);
+  const endDate   = parseCalendarDate(query.end);
+  if (!startDate) return send400(res, 'start is required and must be YYYY-MM-DD');
+  if (!endDate)   return send400(res, 'end is required and must be YYYY-MM-DD');
+  if (endDate <= startDate) return send400(res, 'end must be after start');
+
+  const daysDiff = Math.round((endDate - startDate) / 86400000);
+  if (daysDiff > MAX_CALENDAR_DAYS) {
+    return send400(res, `date range too large (max ${MAX_CALENDAR_DAYS} days)`);
+  }
+
+  const startISO = query.start;
+  const endISO   = query.end;
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:bed_calendar',
+    category:      'bed_calendar_api',
+    client_slug:   clientSlug,
+    params_start:  startISO,
+    params_end:    endISO,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  let roomRows = [], blockRows = [], summaryRows = [];
+  try {
+    [roomRows, blockRows, summaryRows] = await withPgClient(async (pg) => {
+      const [rr, br, sr] = await Promise.all([
+        pg.query(getBedCalendarRoomsQuery(),   [clientSlug]),
+        pg.query(getBedCalendarBlocksQuery(),  [clientSlug, startISO, endISO]),
+        pg.query(getBedCalendarSummaryQuery(), [clientSlug, startISO, endISO]),
+      ]);
+      return [rr.rows, br.rows, sr.rows];
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
+  }
+
+  const rooms  = buildRoomHierarchy(roomRows);
+  const days   = generateCalendarDays(startDate, endDate);
+  const blocks = buildCalendarBlocks(blockRows, startDate, endDate);
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success:     true,
+    room_count:  rooms.length,
+    day_count:   days.length,
+    block_count: blocks.length,
+    elapsed_ms:  elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success:      true,
+    client_slug:  clientSlug,
+    start:        startISO,
+    end:          endISO,
+    days,
+    rooms,
+    blocks,
+    summary:      summaryRows,
+    warnings:     [],
+    elapsed_ms:   elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Request router
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2068,6 +2259,13 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleHandoffQueue(parsed.query, res, auth.user);
+  }
+
+  // ── Stage 7.7g — Bed calendar (read-only) ─────────────────────────────────
+  if (pathname === '/staff/bed-calendar') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleBedCalendar(parsed.query, res, auth.user);
   }
 
   if (pathname === '/staff/ui') {

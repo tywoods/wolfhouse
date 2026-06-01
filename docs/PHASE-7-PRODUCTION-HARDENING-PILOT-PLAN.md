@@ -1,6 +1,6 @@
 # Stage 7 — Production Hardening + Pilot Deployment Plan
 
-**Status:** IN PROGRESS (2026-06-01) — 7.0–7.6 planning DONE · 7.2b migration 009 DONE · 7.2c auth middleware DONE · 7.3b Azure IaC scaffold DONE · 7.7a–d DONE · **7.7f handoff queue integration DONE**. No pilot approved; live operation NOT approved.
+**Status:** IN PROGRESS (2026-06-01) — 7.0–7.6 planning DONE · 7.2b migration 009 DONE · 7.2c auth middleware DONE · 7.3b Azure IaC scaffold DONE · 7.7a–d DONE · 7.7f handoff queue integration DONE · **7.7g bed calendar query/API DONE**. No pilot approved; live operation NOT approved.
 **Prerequisites:** Stage 4 CLOSE WITH DEFERRALS (`6cd9a21`). Stage 5 SoT cleanup CLOSE WITH DEFERRALS (`ae545a2`). Stage 6 CLOSED WITH DEFERRALS (`f7813d3`).
 **Scope:** Prepare Wolfhouse for a controlled pilot. Harden the local/dev proof into a deployable staging/pilot setup. Keep live WhatsApp / live Stripe / autonomous sends **disabled** until explicit go/no-go gates pass.
 

@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a design DONE · **7.7b conversation API read endpoints DONE (2026-06-01)**. No dashboard UI built yet; no bed calendar built; no live operation approved.
+**Status:** IN PROGRESS — 7.7a–f DONE · **7.7g bed calendar query/API DONE (2026-06-01)**. Bed calendar UI render (7.7h) pending; no live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -328,7 +328,7 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 | **7.7d** | Conversation detail + full message thread | view B — thread renders; Luna draft pre-populated in composer; copy-to-clipboard works | read | **DONE** |
 | **7.7e** | Luna draft + context panel | views B/C/D — draft labelled DRAFT — NOT SENT; booking/add-on context visible | read |
 | **7.7f** | Handoff queue integration | view E (read; resolve deferred) | read | **DONE** |
-| **7.7g** | Bed calendar query / API | `GET /staff/bed-calendar*` (built on `getOccupiedBedsQuery`) | read |
+| **7.7g** | Bed calendar query / API | `GET /staff/bed-calendar*` (built on `getOccupiedBedsQuery`) | read | **DONE** |
 | **7.7h** | Bed calendar read-only render | view G grid | read |
 | **7.7i** | Booking detail drawer from calendar block | drawer from a block → context | read |
 | **7.7j** | Inline reply composer + copy/manual-send proof | view H — composer visible; Luna draft editable; copy works; no send button active; fixture conversation proves end-to-end shadow loop | read |
@@ -471,3 +471,19 @@ These are proven with seed/cleanup fixtures + a static verifier, mirroring the S
 - **Fixture proof:** open handoffs in DB=1; `/staff/handoffs` 200 count=1 conv_id=present; `/staff/conversations` 200 count=1; audit log shows `api:handoffs.open OK hq=1`; protected table delta=0; cleanup confirmed.
 - **Known gaps:** handoff resolve UI (deferred — requires production auth/TLS + Stage 6.9 write gate approval); inline reply composer (7.7j); bed calendar (7.7g/7.7h).
 - **Next:** 7.7g — bed calendar query/API (`GET /staff/bed-calendar`), or 7.7e — Luna draft context panel enhancements.
+
+### 7.7g — Bed calendar query/API
+- **Status:** DONE (commit: this change)
+- **Date:** 2026-06-01
+- **Files created:** `scripts/lib/staff-bed-calendar-queries.js` (3 SELECT-only helpers), `scripts/verify-staff-bed-calendar-queries.js` (25 checks), `scripts/verify-staff-bed-calendar-api.js` (28 checks), fixture seed/cleanup SQL
+- **Files updated:** `scripts/staff-query-api.js` (`handleBedCalendar`, `GET /staff/bed-calendar`, date helpers), `package.json` (2 new verifier scripts)
+- **API endpoint added:**
+  - `GET /staff/bed-calendar?client=<slug>&start=YYYY-MM-DD&end=YYYY-MM-DD` — auth-gated (viewer minimum), audited `api:bed_calendar`
+  - Validates: date format, end > start, max 90-day range (returns 400 otherwise)
+  - Returns: `{ days[], rooms[], blocks[], summary[], warnings[] }`
+  - `blocks[]` fields: `start_offset`, `span_days`, `color_type`, `is_arrival`, `is_departure`, `label`, `needs_review`
+  - `color_type`: confirmed / payment_pending / hold / needs_review / cancelled
+- **Verifier output:** queries 25/25 PASS · API 28/28 PASS · all prior verifiers PASS
+- **Fixture proof:** baseline booking_beds=15; after seed=16; GET 200 success=true; days=7; rooms=10; blocks=1; block `start_offset=0 span_days=7 is_arrival=true color_type=confirmed`; validation 400 (bad date / end<start / >90d); audit `api:bed_calendar OK blocks=1 days=7`; after cleanup=15; delta=0.
+- **Known gaps:** bed calendar UI render (7.7h — HTML grid in `/staff/ui`); booking detail drawer (7.7i); calendar editing deferred behind gates.
+- **Next:** 7.7h — bed calendar read-only render in Cami dashboard.
