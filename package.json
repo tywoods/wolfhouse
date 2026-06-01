@@ -68,7 +68,8 @@
     "verify:staff-conversation-api": "node scripts/verify-staff-conversation-api.js",
     "verify:staff-conversation-ui": "node scripts/verify-staff-conversation-ui.js",
     "verify:staff-bed-calendar-queries": "node scripts/verify-staff-bed-calendar-queries.js",
-    "verify:staff-bed-calendar-api": "node scripts/verify-staff-bed-calendar-api.js"
+    "verify:staff-bed-calendar-api": "node scripts/verify-staff-bed-calendar-api.js",
+    "verify:staff-bed-calendar-ui": "node scripts/verify-staff-bed-calendar-ui.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

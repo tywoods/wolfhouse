@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–f DONE · **7.7g bed calendar query/API DONE (2026-06-01)**. Bed calendar UI render (7.7h) pending; no live operation approved.
+**Status:** IN PROGRESS — 7.7a–g DONE · **7.7h bed calendar read-only render DONE (2026-06-01)**. Calendar editing (7.7k/7.7l) and booking detail drawer (7.7i) pending; no live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -329,7 +329,7 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 | **7.7e** | Luna draft + context panel | views B/C/D — draft labelled DRAFT — NOT SENT; booking/add-on context visible | read |
 | **7.7f** | Handoff queue integration | view E (read; resolve deferred) | read | **DONE** |
 | **7.7g** | Bed calendar query / API | `GET /staff/bed-calendar*` (built on `getOccupiedBedsQuery`) | read | **DONE** |
-| **7.7h** | Bed calendar read-only render | view G grid | read |
+| **7.7h** | Bed calendar read-only render | view G grid | read | **DONE** |
 | **7.7i** | Booking detail drawer from calendar block | drawer from a block → context | read |
 | **7.7j** | Inline reply composer + copy/manual-send proof | view H — composer visible; Luna draft editable; copy works; no send button active; fixture conversation proves end-to-end shadow loop | read |
 | **7.7k** | Staff takeover / return-to-Luna controls | view H — UI shows bot_mode status; toggle controls designed; write path deferred; plan for write endpoint + audit | **plan + read UI** |
@@ -487,3 +487,23 @@ These are proven with seed/cleanup fixtures + a static verifier, mirroring the S
 - **Fixture proof:** baseline booking_beds=15; after seed=16; GET 200 success=true; days=7; rooms=10; blocks=1; block `start_offset=0 span_days=7 is_arrival=true color_type=confirmed`; validation 400 (bad date / end<start / >90d); audit `api:bed_calendar OK blocks=1 days=7`; after cleanup=15; delta=0.
 - **Known gaps:** bed calendar UI render (7.7h — HTML grid in `/staff/ui`); booking detail drawer (7.7i); calendar editing deferred behind gates.
 - **Next:** 7.7h — bed calendar read-only render in Cami dashboard.
+
+### 7.7h — Bed calendar read-only render
+- **Status:** DONE (commit: this change)
+- **Date:** 2026-06-01
+- **Files updated:** `scripts/staff-query-api.js` (new Bed Calendar tab, CSS, HTML, JS: `renderBedCalendar`, `renderBookingBlock`, `loadBedCalendar`, `showBlockDetail`), `scripts/verify-staff-bed-calendar-ui.js` (new, 30 checks), `package.json` (1 new verifier script)
+- **UI added to `/staff/ui`:**
+  - New "Bed Calendar" tab between Conversations and Query Tools
+  - Date range inputs (start/end) + client input + Load Calendar button
+  - READ-ONLY BED CALENDAR label (edits disabled notice)
+  - Scrollable grid: rooms/beds left, dates top, booking blocks as colored colspan cells
+  - Color classes: confirmed (green), hold (yellow), payment_pending (red), needs_review (orange), cancelled (grey)
+  - A/D arrival/departure markers on blocks
+  - Clicking a block opens a read-only detail panel with all block fields + "Booking edits are disabled" note
+  - Close button on detail panel
+  - Summary strip: room/bed/block counts
+  - Empty/error/loading states
+- **Verifier output:** 30/30 PASS
+- **Local proof:** GET /staff/ui 200; all 15 HTML/JS checks PASS; GET /staff/bed-calendar 200 days=7 rooms=10 block confirmed; audit `api:bed_calendar OK days=7`; delta=0.
+- **Known gaps:** booking detail drawer with booking context links (7.7i); inline reply from calendar block; calendar editing (7.7k/7.7l deferred behind write gates).
+- **Next:** 7.7i — booking detail drawer from calendar block click, or 7.7j — inline reply composer.
