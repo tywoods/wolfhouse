@@ -1,0 +1,64 @@
+-- Stage 7.7k4 fixture seed — confirmed bed reassignment write proof
+-- Creates booking WH-77K4-REASSIGN-001 assigned to one active bed.
+-- A second free bed is identified by the proof script at runtime (no forced creation).
+-- Cleanup: scripts/fixtures/stage7.7k4-reassign-confirm-cleanup.sql
+
+DO $$
+DECLARE
+  v_client_id  UUID;
+  v_booking_id UUID;
+  v_bed_a_id   UUID;
+  v_bed_a_code TEXT;
+  v_room_a_code TEXT;
+BEGIN
+  SELECT id INTO v_client_id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1;
+  IF v_client_id IS NULL THEN
+    RAISE EXCEPTION 'Client wolfhouse-somo not found';
+  END IF;
+
+  -- Bed A: first active, sellable bed
+  SELECT b.id, b.bed_code, r.room_code
+  INTO v_bed_a_id, v_bed_a_code, v_room_a_code
+  FROM beds b
+  INNER JOIN rooms r ON r.id = b.room_id
+  WHERE b.client_id = v_client_id
+    AND b.active    = TRUE
+    AND b.sellable  = TRUE
+    AND r.active    = TRUE
+  ORDER BY r.room_code, b.bed_code
+  LIMIT 1;
+  IF v_bed_a_id IS NULL THEN
+    RAISE EXCEPTION 'No active bed found for wolfhouse-somo';
+  END IF;
+
+  INSERT INTO bookings (
+    client_id, booking_code, guest_name, phone, email,
+    guest_count, package_code, check_in, check_out,
+    status, payment_status, assignment_status,
+    requested_room_type, room_preference, primary_room_code,
+    needs_rooming_review, total_amount_cents,
+    deposit_required_cents, amount_paid_cents, balance_due_cents
+  ) VALUES (
+    v_client_id, 'WH-77K4-REASSIGN-001', 'Fixture Reassign Guest',
+    '+34600000195', 'fixture-k4@example.com',
+    1, 'SURF_7', '2026-10-05', '2026-10-12',
+    'confirmed', 'deposit_paid', 'assigned',
+    'shared_dorm', 'no preference', v_room_a_code,
+    false, 84000, 21000, 21000, 63000
+  )
+  RETURNING id INTO v_booking_id;
+
+  INSERT INTO booking_beds (
+    booking_id, bed_id, client_id, room_code, bed_code,
+    assignment_start_date, assignment_end_date,
+    assignment_type, assignment_label, planning_row_label
+  ) VALUES (
+    v_booking_id, v_bed_a_id, v_client_id,
+    v_room_a_code, v_bed_a_code,
+    '2026-10-05', '2026-10-12',
+    'automatic', 'Auto-assigned', 'WH-77K4-REASSIGN-001'
+  );
+
+  RAISE NOTICE 'Stage 7.7k4 fixture seeded: booking=%, bed=%', v_booking_id, v_bed_a_code;
+END;
+$$;
