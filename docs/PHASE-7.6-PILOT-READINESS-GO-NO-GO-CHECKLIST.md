@@ -1,6 +1,6 @@
 # Stage 7.6 — Pilot Readiness Go/No-Go Checklist
 
-**Status:** PLANNING / CHECKLIST DEFINED (2026-06-01). No live operation approved. No pilot phase started. All gates are NOT_STARTED or PARTIAL (design only). **F8-CAL-EDIT updated 2026-06-01:** editable calendar staging gate checklist defined (7.7k8 — 17 gates, UI conditions, 6 approval phases, hard no-go conditions); edit controls not wired; all K8-G gates NOT_STARTED.
+**Status:** PLANNING / CHECKLIST DEFINED (2026-06-01). No live operation approved. No pilot phase started. **7.3d updated 2026-06-01:** Azure staging deployed and login proven — relevant A/C gates updated to IMPLEMENTATION_PROVEN where infra is confirmed live. Final pilot decision remains NO_GO. **F8-CAL-EDIT updated 2026-06-01:** editable calendar staging gate checklist defined (7.7k8 — 17 gates, UI conditions, 6 approval phases, hard no-go conditions); edit controls not wired; all K8-G gates NOT_STARTED.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream K (pilot soak) + Go/No-Go checklist.
 **Consolidates gates from:** 7.1 (env/secrets) · 7.2 (auth) · 7.3 (staging/TLS) · 7.4 (backup/restore) · 7.5 (monitoring/alerting) + Cami dashboard, shadow-mode, payment, WhatsApp, client config, and staff training.
 
@@ -72,15 +72,15 @@ Decision:   [ hold / proceed ]
 
 | # | Gate | Status | Owner | Evidence | Date | Decision |
 |---|---|---|---|---|---|---|
-| A1 | Local / staging / production environments fully separated (separate DB, secrets, n8n) | PARTIAL (design done) | Ty | 7.1 doc + 7.3 topology | 2026-05-31 | Hold — staging not deployed |
-| A2 | No shared database across environments | NOT_STARTED | Ty | Azure Postgres separate instances | — | Hold |
-| A3 | `WHATSAPP_DRY_RUN` explicitly set and `true` in staging | NOT_STARTED | Ty | Container App env verified | — | Hold |
-| A4 | `STAFF_ACTIONS_ENABLED=false` by default in staging | NOT_STARTED | Ty | Container App env verified | — | Hold |
-| A5 | `STRIPE_WEBHOOK_SKIP_VERIFY=false` in staging | NOT_STARTED | Ty | Container App env verified | — | Hold |
-| A6 | No `sk_live_*` Stripe key in staging or local | NOT_STARTED | Ty | Key Vault entry + staging env check | — | Hold |
-| A7 | Key Vault / secrets store configured; no secrets in repo | NOT_STARTED | Ty | Azure Key Vault provisioned; `.env.example` placeholders only | — | Hold |
-| A8 | `N8N_ENCRYPTION_KEY` is unique ≥32-char value from Key Vault (not placeholder) | NOT_STARTED | Ty | Key Vault entry confirmed; ops note for offline backup | — | Hold |
-| A9 | `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` in staging | NOT_STARTED | Ty | Container App env verified | — | Hold |
+| A1 | Local / staging / production environments fully separated (separate DB, secrets, n8n) | PARTIAL (staging deployed; DNS/custom TLS pending) | Ty | 7.1 doc + 7.3 topology + 7.3d deployment proof | 2026-06-01 | Hold — DNS/custom TLS not yet configured |
+| A2 | No shared database across environments | IMPLEMENTATION_PROVEN | Ty | Azure Postgres separate instances (`wh-staging-pg-app`, `wh-staging-pg-n8n`) provisioned and running | 2026-06-01 | Hold — verify no prod data present |
+| A3 | `WHATSAPP_DRY_RUN` explicitly set and `true` in staging | IMPLEMENTATION_PROVEN | Ty | Hardcoded in `main.bicep`; confirmed by 7.3c/7.3d; `WHATSAPP_DRY_RUN=true` | 2026-06-01 | Proceed (staging) |
+| A4 | `STAFF_ACTIONS_ENABLED=false` by default in staging | IMPLEMENTATION_PROVEN | Ty | Hardcoded in `main.bicep`; confirmed by 7.3c/7.3d; `STAFF_ACTIONS_ENABLED=false` | 2026-06-01 | Proceed (staging) |
+| A5 | `STRIPE_WEBHOOK_SKIP_VERIFY=false` in staging | IMPLEMENTATION_PROVEN | Ty | Hardcoded in `main.bicep`; confirmed by 7.3c/7.3d | 2026-06-01 | Proceed (staging) |
+| A6 | No `sk_live_*` Stripe key in staging or local | IMPLEMENTATION_PROVEN | Ty | No live Stripe key imported; no credentials imported into n8n; 7.3d confirms | 2026-06-01 | Proceed (staging) |
+| A7 | Key Vault / secrets store configured; no secrets in repo | IMPLEMENTATION_PROVEN | Ty | Azure Key Vault provisioned; all secrets injected via KV secret refs; no secrets in repo (7.3c scaffold audit PASS) | 2026-06-01 | Hold — verify KV entries complete |
+| A8 | `N8N_ENCRYPTION_KEY` is unique ≥32-char value from Key Vault (not placeholder) | NOT_STARTED | Ty | KV entry must be confirmed externally | — | Hold |
+| A9 | `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` in staging | IMPLEMENTATION_PROVEN | Ty | Hardcoded in `main.bicep`; confirmed by 7.3c/7.3d | 2026-06-01 | Proceed (staging) |
 
 ### Section B — Auth / Staff Accounts (from Stage 7.2)
 
@@ -103,15 +103,15 @@ Decision:   [ hold / proceed ]
 
 | # | Gate | Status | Owner | Evidence | Date | Decision |
 |---|---|---|---|---|---|---|
-| C1 | Azure staging deployed (Container Apps, Postgres, Redis, Key Vault) | NOT_STARTED | Ty | Azure portal; Container App running | — | Hold |
-| C2 | HTTPS reachable on `staff-staging.<domain>`; cert valid | NOT_STARTED | Ty | Browser check + curl; HTTP → HTTPS redirect | — | Hold |
-| C3 | `GET /staff/ui` returns 200 over HTTPS | NOT_STARTED | Ty | curl check | — | Hold |
-| C4 | `GET /staff/intents` returns registry JSON | NOT_STARTED | Ty | curl check | — | Hold |
-| C5 | `GET /staff/query` returns data from staging DB | NOT_STARTED | Ty | curl check with sample intent | — | Hold |
-| C6 | n8n staging reachable at `n8n-staging.<domain>` over HTTPS | NOT_STARTED | Ty | Browser / curl check | — | Hold |
-| C7 | `WEBHOOK_URL` / `N8N_WEBHOOK_URL` set to staging HTTPS host (not localhost) | NOT_STARTED | Ty | n8n settings page or Container App env | — | Hold |
-| C8 | All n8n workflows inactive on fresh staging deploy | NOT_STARTED | Ty | n8n workflow list; all `active=false` | — | Hold |
-| C9 | Stripe test keys only in staging (verified in n8n credentials) | NOT_STARTED | Ty | n8n credential check; no `sk_live_*` | — | Hold |
+| C1 | Azure staging deployed (Container Apps, Postgres, Redis, Key Vault) | IMPLEMENTATION_PROVEN | Ty | 3× Container Apps running (wh-staging-staff-api, wh-staging-n8n-main, wh-staging-n8n-worker all Succeeded); 7.3d proof | 2026-06-01 | Proceed (staging) |
+| C2 | HTTPS reachable on `staff-staging.<domain>`; cert valid | PARTIAL (Azure FQDN only) | Ty | Staff API reachable over Azure HTTPS FQDN; custom domain / managed cert on lunafrontdesk.com not yet configured | 2026-06-01 | Hold — DNS/CNAME + managed cert bind needed |
+| C3 | `GET /staff/ui` returns 200 over HTTPS | IMPLEMENTATION_PROVEN | Ty | `/staff/ui` accessible over Azure HTTPS FQDN after login; 7.3d proof | 2026-06-01 | Proceed (staging) |
+| C4 | `GET /staff/intents` returns registry JSON | IMPLEMENTATION_PROVEN | Ty | `/staff/intents` returns `total: 35`; 7.3d proof | 2026-06-01 | Proceed (staging) |
+| C5 | `GET /staff/query` returns data from staging DB | NOT_STARTED | Ty | Not yet verified against staging DB | — | Hold |
+| C6 | n8n staging reachable at `n8n-staging.<domain>` over HTTPS | PARTIAL (Azure FQDN only) | Ty | n8n reachable at Azure HTTPS FQDN `/home`; custom domain not yet configured | 2026-06-01 | Hold — DNS/CNAME needed |
+| C7 | `WEBHOOK_URL` / `N8N_WEBHOOK_URL` set to staging HTTPS host (not localhost) | NOT_STARTED | Ty | n8n settings not yet verified | — | Hold |
+| C8 | All n8n workflows inactive on fresh staging deploy | IMPLEMENTATION_PROVEN | Ty | 11 workflows imported, all `active=false`; 7.3d proof | 2026-06-01 | Proceed (staging) |
+| C9 | Stripe test keys only in staging (verified in n8n credentials) | IMPLEMENTATION_PROVEN | Ty | No credentials imported; no live Stripe key present; 7.3d confirms | 2026-06-01 | Proceed (staging) |
 
 ### Section D — Backup / Restore (from Stage 7.4)
 
@@ -264,16 +264,16 @@ These conditions block **all phases**. No waiver is possible.
 
 ---
 
-## 8. Current state summary (as of Stage 7.6 design — 2026-05-31)
+## 8. Current state summary (as of Stage 7.3d — 2026-06-01)
 
-| Section | Gates | PASS | PARTIAL | NOT_STARTED | Blocker count |
+| Section | Gates | PASS / IMPL_PROVEN | PARTIAL | NOT_STARTED | Blocker count |
 |---|---|---|---|---|---|
-| A — Env/secrets | 9 | 0 | 1 | 8 | 8 (staging not deployed) |
+| A — Env/secrets | 9 | 6 (A2–A7, A9 impl proven) | 1 (A1: DNS/TLS pending) | 1 (A8: KV encryption key) | 2 (DNS/TLS, A8) |
 | B — Auth | 8 | 0 | 0 | 8 | 8 (auth not built) |
-| C — Staging/TLS | 9 | 0 | 0 | 9 | 9 (not deployed) |
+| C — Staging/TLS | 9 | 6 (C1, C3, C4, C8, C9 impl proven) | 2 (C2: custom domain pending; C6: custom domain pending) | 1 (C5, C7) | 3 (DNS/custom domain, WEBHOOK_URL, query verify) |
 | D — Backup/restore | 6 | 0 | 1 | 5 | 2 required before pilot |
 | E — Monitoring | 8 | 0 | 0 | 8 | 8 (not configured) |
-| F — Cami dashboard | 10 | 0 | 2 | 8 | 8 (staging not deployed; F1–F8 impl proven locally; F8-CAL-EDIT staging gate defined (7.7k8); F9 design done, not blocking Phase 1) |
+| F — Cami dashboard | 10 | 0 | 2 | 8 | 8 (staging not deployed on custom domain; F1–F8 impl proven locally; F8-CAL-EDIT staging gate defined (7.7k8); F9 design done, not blocking Phase 1) |
 | G — Shadow mode | 7 | 0 | 0 | 7 | 7 (staging needed first) |
 | H — Payment/Stripe | 6 | 0 | 0 | 6 | 1 hard (no live key) |
 | I — WhatsApp | 5 | 0 | 0 | 5 | 1 hard (dry-run must stay on) |
@@ -281,7 +281,7 @@ These conditions block **all phases**. No waiver is possible.
 | K — Staff training | 6 | 0 | 0 | 6 | 6 (staging first) |
 | **Total** | **82** | **1** | **4** | **77** | **Phase 1 requires all except F9 (F9 = spreadsheet retirement gate, deferred)** |
 
-**Overall pilot status:** `NOT_STARTED` → checklist defined. No phase approved.
+**Overall pilot status:** `NOT_STARTED` → checklist defined. No phase approved. Staging deployed (7.3d) but multiple hard gates remain (auth, DNS/TLS, backup, monitoring, Cami/Ale accounts).
 
 ---
 
@@ -291,9 +291,9 @@ These conditions block **all phases**. No waiver is possible.
 
 | Section | Status | Owner sign-off | Date | Decision |
 |---|---|---|---|---|
-| A — Env/secrets | NOT_STARTED | — | — | Hold |
+| A — Env/secrets | PARTIAL (A2–A7, A9 impl proven; A1 DNS/TLS pending; A8 KV encryption key) | Ty | 2026-06-01 | Hold — DNS/TLS + A8 remaining |
 | B — Auth | NOT_STARTED | — | — | Hold |
-| C — Staging/TLS | NOT_STARTED | — | — | Hold |
+| C — Staging/TLS | PARTIAL (C1, C3, C4, C8, C9 impl proven; C2/C6 DNS pending; C5/C7 not verified) | Ty | 2026-06-01 | Hold — custom domain + WEBHOOK_URL needed |
 | D — Backup/restore | PARTIAL (design) | — | — | Hold — drill required |
 | E — Monitoring | NOT_STARTED | — | — | Hold |
 | F — Cami dashboard | PARTIAL (F1–F8 impl proven locally; F8-CAL-EDIT staging gate defined 7.7k8; F9 design done 2026-06-01) | Ty + Cami | 2026-06-01 | Hold — staging required |
