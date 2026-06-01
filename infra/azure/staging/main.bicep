@@ -416,6 +416,7 @@ resource n8nMainApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
             { name: 'N8N_HOST',                      value: '${prefix}-n8n-main.${containerAppsEnv.properties.defaultDomain}' }
             { name: 'N8N_EDITOR_BASE_URL',           value: 'https://${prefix}-n8n-main.${containerAppsEnv.properties.defaultDomain}' }
             { name: 'WEBHOOK_URL',                   value: 'https://${prefix}-n8n-main.${containerAppsEnv.properties.defaultDomain}' }
+            { name: 'N8N_PROXY_HOPS',                value: '1' }
             { name: 'GENERIC_TIMEZONE',              value: n8nTimezone }
             { name: 'N8N_QUEUE_MODE',                value: 'true' }
             { name: 'QUEUE_BULL_REDIS_PORT',         value: '6380' }
