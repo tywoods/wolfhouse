@@ -872,7 +872,7 @@ function buildUiHtml(port) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Luna Front Desk — Cami Dashboard</title>
+<title>Luna Front Desk</title>
 <style>
 /* ── Palette (soft boutique-hospitality) ────────────────────────────────── */
 :root{
@@ -1078,7 +1078,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
-  <div class="brand">Luna Front Desk &mdash; <em>Cami Dashboard</em></div>
+  <a href="/staff/ui" class="brand" style="text-decoration:none;color:inherit;">Luna Front Desk</a>
   <span class="badge-sm">Stage 7.7j</span>
   <span class="badge">READ-ONLY &bull; SHADOW MODE</span>
 </div>

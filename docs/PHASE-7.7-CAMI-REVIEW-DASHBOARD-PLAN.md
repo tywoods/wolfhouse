@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1 SQL helper DONE · 7.7k2 overlap verifier DONE · 7.7k3 preview API DONE · 7.7k4 write proof DONE · 7.7k5 confirmed write API endpoint DONE · **7.7k6 admin-only manual/operator lock override DONE (2026-06-01 — see §5a.10)**. POST /staff/bed-calendar/reassign/confirm now accepts manual_operator_lock_override:true for admin/owner roles only. Operators still blocked. Fixture-proven (44/44 PASS, A–E matrix). No UI wiring. Calendar editing NOT approved. **7.7m manual booking creation requirement added (2026-06-01 — see §5b). Design/planning only. No code. Not required for shadow pilot Phase 1. Required before replacing spreadsheet workflow.** No live operation approved.
+**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1–k7 DONE · **7.7k7 rollback/undo proof DONE (2026-06-01 — see §5a.10)**. Happy-path undo proven (move A→B, undo B→A, rows_updated=1, DB restored, rollback_payload with booking_bed_id/old_bed_code/new_bed_code/dates). Conflict-on-undo proven (blocked=true, block_reason=target_bed_overlap, rows_updated=0). 47/47 PASS. All protected table deltas=0. workflow_events cleanup confirmed. No UI wiring. Calendar editing NOT approved. Cami/Ale sign-off required before staging/live reassignment. **7.7m manual booking creation requirement added (2026-06-01 — see §5b). Design/planning only. No code. Not required for shadow pilot Phase 1. Required before replacing spreadsheet workflow.** No live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -369,7 +369,7 @@ No drag/drop in v1. No inline editable cells. No write without the explicit conf
 | **7.7k4** | Confirmed local fixture write proof | `stage7.7k4-reassign-confirm-proof.js`: 35/35 PASS; rows_updated=1; old→new→old; booking_beds/payments/payment_events/staff_handoffs delta=0; workflow_events +1 audit row (cleaned up); NO API route; NO UI; fixture-only — **DONE** |
 | **7.7k5** | Confirmed write API endpoint | `POST /staff/bed-calendar/reassign/confirm`: STAFF_ACTIONS_ENABLED+STAFF_AUTH_REQUIRED gated; session operator+; 42/42 proof PASS (GET→405, unauthenticated→401, viewer→403, missing confirm→400, valid→200 rows_updated=1, second→409 manual_operator_lock, delta=0); verifier 48/48; no UI wiring — **DONE** |
 | **7.7k6** | Admin-only manual/operator lock override | `manual_operator_lock_override:true` in body; operator→403 `insufficient_override_role`; admin/owner bypasses `manual_operator_lock` only; all other blockers unchanged; $9 param in SQL helper; override fields in audit_payload; verifier 59/59 PASS; fixture proof 44/44 PASS (A–E matrix); no UI wiring — **DONE** |
-| **7.7k7** | Rollback/undo proof | move + undo, audited, conflict-on-undo handled — **required before staging/live** |
+| **7.7k7** | Rollback/undo proof | move A→B · undo B→A (rows_updated=1, DB restored, rollback_payload proven) · conflict-on-undo blocked (target_bed_overlap, rows_updated=0) · 47/47 PASS · delta=0 · no UI wiring — **DONE** |
 | **7.7k8** | Cami/Ale sign-off | written approval to enable editable reassignment in the pilot |
 
 Each sub-slice must PASS (with proof) before the next is started. Editable reassignment is **not enabled** until 7.7k6 passes its gate and 7.7k7/7.7k8 are recorded.
@@ -878,3 +878,45 @@ Implementation log:
 - `GET /staff/ui` → HTML contains loadBlockDetail, Booking Details, Open conversation
 - Audit log: `api:booking_context success=true`, `api:bed_calendar success=true`
 - Cleanup: booking_count=0, bed_count=0, handoff_count=0 → protected table delta = 0
+
+### Stage 7.7k7 — Bed reassignment rollback/undo proof (DONE 2026-06-01)
+
+Implementation log:
+
+**SQL helper enhancement:**
+- `scripts/lib/staff-bed-reassignment-sql.js` — added `new_bed_code` to `rollback_payload_cte` JSONB so the payload carries the complete pre/post state for rollback consumers. All 38 verifier checks still pass.
+
+**Files created:**
+- `scripts/fixtures/stage7.7k7-reassign-rollback-seed.sql` — seeds `WH-77K7-UNDO-001` (2027-03-01→08) and `WH-77K7-CONFLICT-001` (2027-03-15→22), both with `assignment_type='automatic'`
+- `scripts/fixtures/stage7.7k7-reassign-rollback-cleanup.sql` — idempotent cleanup for both fixtures + `WH-77K7-BLOCKER-001` safety catch
+- `scripts/fixtures/stage7.7k7-reassign-rollback-proof.js` — local DB proof (no API server, no UI)
+
+**Approach:** reuses existing `reassignBookingBedSql()` for undo by passing `target_bed_code = rollback_payload.old_bed_code` with `manual_operator_lock_override=true` + `staff_role='admin'`. No new rollback helper needed.
+
+**Case A — Happy-path undo (PASS):**
+- Move `WH-77K7-UNDO-001` R1-B1 → R1-B2 (admin, confirm=true) → `rows_updated=1`
+- `rollback_payload`: `booking_bed_id` ✓ · `old_bed_code=R1-B1` ✓ · `new_bed_code=R1-B2` ✓ · `assignment_start_date=2027-03-01` ✓ · `assignment_end_date=2027-03-08` ✓
+- Undo R1-B2 → R1-B1 using `rollback_payload.old_bed_code` (admin, override=true) → `rows_updated=1`
+- DB: `bed_code` restored to R1-B1 ✓ · date range unchanged ✓ · `audit_event_id` present for both move and undo ✓
+- `workflow_events +2` (move audit + undo audit)
+
+**Case B — Conflict-on-undo (PASS):**
+- Move `WH-77K7-CONFLICT-001` R1-B1 → R1-B2 (admin) → `rows_updated=1`
+- Blocker `WH-77K7-BLOCKER-001` seeded on old bed R1-B1 with overlapping dates (2027-03-16→21)
+- Undo attempt R1-B2 → R1-B1 (admin, override=true): `blocked=true` · `block_reason=target_bed_overlap` · `rows_updated=0` · `conflict_count=1`
+- Booking remains on R1-B2 — no double-booking, no overwrite ✓
+- Blocker removed after test
+- `workflow_events +0` for blocked undo (blocked attempts write no audit row) ✓
+
+**UI fix:**
+- `scripts/staff-query-api.js` — title changed from "Luna Front Desk — Cami Dashboard" to "Luna Front Desk"; brand `<div>` replaced with `<a href="/staff/ui">` link to home
+
+**Proof result:** 47/47 PASS
+- All protected table deltas = 0 after cleanup
+- `workflow_events`: +3 during proof (A:move+undo=2, B:move=1, B:blocked_undo=0) → cleaned up → delta=0
+- No API server started. No UI wiring. No live data. No workflow activation.
+
+**Known gaps:**
+- UI calendar editing is still NOT wired and NOT approved
+- 7.7k8 (staging gate) remains before any live/staging reassignment
+- Cami/Ale sign-off required before editable calendar goes live

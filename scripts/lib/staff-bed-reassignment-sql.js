@@ -306,6 +306,7 @@ rollback_payload_cte AS (
     'old_bed_id',            COALESCE((SELECT old_bed_id::text           FROM current_assignment), null),
     'old_room_code',         COALESCE((SELECT old_room_code              FROM current_assignment), null),
     'old_bed_code',          COALESCE((SELECT old_bed_code               FROM current_assignment), null),
+    'new_bed_code',          COALESCE((SELECT bed_code                   FROM target_bed),         null),
     'assignment_start_date', COALESCE((SELECT assignment_start_date::text FROM current_assignment), null),
     'assignment_end_date',   COALESCE((SELECT assignment_end_date::text   FROM current_assignment), null),
     'assignment_type',       COALESCE((SELECT assignment_type             FROM current_assignment), null),
