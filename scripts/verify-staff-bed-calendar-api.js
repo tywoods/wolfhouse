@@ -135,11 +135,13 @@ const bedCalStr = bedCalSection ? bedCalSection[0] : src;
 check(!/method\s*===?\s*['"]POST['"]|method\s*===?\s*['"]PATCH['"]|method\s*===?\s*['"]DELETE['"]/i.test(bedCalStr),
   'No POST/PATCH/DELETE in bed-calendar handler');
 
-// 21. No booking edit / confirmed-write reassign endpoint
-// Stage 7.7k3 adds /staff/bed-calendar/reassign/preview (GET, proposal-only) — allowed.
-// This check blocks any write reassign path that is NOT the read-only /preview endpoint.
-check(!/\/staff\/bed-calendar\/reassign(?!\/preview)|\/staff\/bed-calendar\/edit/.test(src),
-  'No bed-calendar confirmed-write reassign/edit route (preview allowed)');
+// 21. No uncontrolled bed-calendar write endpoint.
+// Allowed: /staff/bed-calendar/reassign/preview (GET, proposal-only, 7.7k3)
+//          /staff/bed-calendar/reassign/confirm  (POST, STAFF_ACTIONS_ENABLED gated, 7.7k5)
+// Blocked: any other /reassign or /edit path not in the explicit allowlist above.
+check(
+  !/\/staff\/bed-calendar\/reassign(?!\/(preview|confirm))|\/staff\/bed-calendar\/edit/.test(src),
+  'No bed-calendar confirmed-write reassign/edit route (preview + confirm allowed)');
 
 // 22. No UPDATE bookings in handler
 check(!/UPDATE\s+bookings/i.test(src.slice(src.indexOf('handleBedCalendar'))),

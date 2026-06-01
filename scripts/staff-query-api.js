@@ -2866,6 +2866,294 @@ async function handleBedReassignPreview(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stage 7.7k5 — Bed reassignment confirmed write endpoint (staff-only, gated)
+//
+// POST /staff/bed-calendar/reassign/confirm
+//
+// Request body (JSON):
+//   { client, booking_bed_id, target_bed_code, reason, confirm: true,
+//     manual_operator_lock_override: false }
+//
+// Gates (all must pass):
+//   1. STAFF_ACTIONS_ENABLED=true (env flag)
+//   2. STAFF_AUTH_REQUIRED=true (env flag)
+//   3. Authenticated session with role operator/admin/owner
+//   4. confirm: true in request body (explicit acknowledgement)
+//
+// manual_operator_lock_override:
+//   Intentionally NOT implemented in this slice (7.7k5).
+//   If the current booking_beds row has assignment_type='manual', the helper
+//   will block with block_reason='manual_operator_lock' → 409 returned.
+//   Override is deferred to a later admin-only slice (7.7k6).
+//
+// Safety:
+//   - Calls reassignBookingBedSql() with confirm=true inside BEGIN/COMMIT.
+//   - If blocked OR rows_updated != 1 → ROLLBACK, never commits.
+//   - rows_updated safety assertion: if helper returns any value other than 0
+//     (blocked) or 1 (success), ROLLBACK and 500.
+//   - Does NOT call reassign-booking-beds-pg-sql.js (bot reset path).
+//   - Does NOT mutate: payments, payment_events, staff_handoffs, conversations.
+//   - Does NOT expose a UI control; NOT wired to any calendar edit button.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBedReassignConfirm(req, res) {
+  const started = Date.now();
+
+  // ── 1. Feature flag gate ────────────────────────────────────────────────────
+  if (!STAFF_ACTIONS_ENABLED) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:bed_reassign_confirm',
+      category: 'bed_reassignment_api',
+      success: false, error: 'feature_flag_disabled', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, {
+      success: false,
+      error:   'Bed reassignment write is disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+    });
+  }
+
+  // ── 2. Auth gate (session + role) ──────────────────────────────────────────
+  // Requires STAFF_AUTH_REQUIRED=true. Token-only path is NOT accepted for
+  // confirmed bed reassignment writes — session auth is mandatory.
+  if (!STAFF_AUTH_REQUIRED) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:bed_reassign_confirm',
+      category: 'bed_reassignment_api',
+      success: false, error: 'auth_not_enabled', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, {
+      success: false,
+      error:   'STAFF_AUTH_REQUIRED must be true for confirmed bed reassignment writes.',
+    });
+  }
+
+  let sessionUser;
+  try { sessionUser = await loadAuthSession(req); } catch (_) { sessionUser = null; }
+  if (!sessionUser) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:bed_reassign_confirm',
+      category: 'bed_reassignment_api',
+      success: false, error: 'unauthenticated', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 401, {
+      success: false,
+      error:   'Authentication required for confirmed bed reassignment.',
+    });
+  }
+  if (!hasRole(sessionUser.role, 'operator')) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:bed_reassign_confirm',
+      category: 'bed_reassignment_api',
+      staff_user_id: sessionUser.staff_user_id, staff_role: sessionUser.role,
+      success: false, error: 'insufficient_role', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, {
+      success:      false,
+      error:        `Role 'operator' or higher required for bed reassignment.`,
+      current_role: sessionUser.role,
+    });
+  }
+
+  // ── 3. Parse body ───────────────────────────────────────────────────────────
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug    = String(body.client          || DEFAULT_CLIENT).trim();
+  const bookingBedId  = String(body.booking_bed_id  || '').trim();
+  const targetBedCode = String(body.target_bed_code || '').trim();
+  const reasonRaw     = String(body.reason          || '').trim();
+  const confirmFlag   = body.confirm;
+
+  // ── 4. Validate body ────────────────────────────────────────────────────────
+  if (SQL_INJECT_RE.test(clientSlug))
+    return send400(res, 'invalid client slug');
+  if (!bookingBedId)
+    return send400(res, 'booking_bed_id is required');
+  if (!UUID_VALIDATE_RE.test(bookingBedId))
+    return send400(res, 'booking_bed_id must be a valid UUID');
+  if (!targetBedCode)
+    return send400(res, 'target_bed_code is required');
+  if (SQL_INJECT_RE.test(targetBedCode))
+    return send400(res, 'invalid target_bed_code');
+  if (!reasonRaw)
+    return send400(res, 'reason is required and must be non-empty');
+  if (SQL_INJECT_RE.test(reasonRaw))
+    return send400(res, 'unsafe characters in reason');
+  if (confirmFlag !== true)
+    return send400(res, 'confirm: true is required in request body');
+
+  const reasonNote    = reasonRaw.slice(0, 500);
+  const actorId       = sessionUser.staff_user_id;
+  const actorRole     = sessionUser.role;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:bed_reassign_confirm',
+    category:        'bed_reassignment_api',
+    client_slug:     clientSlug,
+    booking_bed_id:  bookingBedId,
+    target_bed_code: targetBedCode,
+    staff_user_id:   actorId,
+    staff_role:      actorRole,
+  };
+
+  // ── 5. Look up booking_code ─────────────────────────────────────────────────
+  let bookingCode;
+  try {
+    const lkup = await withPgClient(async (pg) =>
+      pg.query(LOOKUP_BOOKING_CODE_SQL, [bookingBedId, clientSlug])
+    );
+    if (lkup.rows.length === 0) {
+      appendAuditLog({ ...auditBase, success: false, error: 'assignment_not_found', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 404, {
+        success: false,
+        error:   'booking_bed_id not found for this client',
+      });
+    }
+    bookingCode = lkup.rows[0].booking_code;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: 'lookup_failed: ' + err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'booking lookup failed' });
+  }
+
+  // ── 6. Execute confirmed reassignment inside transaction ────────────────────
+  let resultRow;
+  try {
+    resultRow = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      let row;
+      try {
+        const r = await pg.query(
+          reassignBookingBedSql(),
+          [
+            clientSlug,   // $1 client_slug
+            bookingCode,  // $2 booking_code
+            bookingBedId, // $3 booking_bed_id (UUID)
+            targetBedCode,// $4 target_bed_code
+            actorId,      // $5 staff_user_id
+            actorRole,    // $6 staff_role
+            reasonNote,   // $7 reason_note
+            true,         // $8 confirm = TRUE — confirmed write
+          ]
+        );
+        row = r.rows[0] || null;
+
+        if (!row) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+
+        const rowsUpdated = Number(row.rows_updated || 0);
+
+        // Blocked by safety gate → rollback, return row for 409 response
+        if (row.blocked === true || rowsUpdated === 0) {
+          await pg.query('ROLLBACK');
+          row._rolled_back = true;
+          return row;
+        }
+
+        // Unexpected: more than one row updated → safety rollback
+        if (rowsUpdated !== 1) {
+          await pg.query('ROLLBACK');
+          row._safety_violation = true;
+          row._rolled_back = true;
+          return row;
+        }
+
+        // Success: commit
+        await pg.query('COMMIT');
+        return row;
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'bed reassignment write failed' });
+  }
+
+  if (!resultRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'no_result_row', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'no result row returned from helper' });
+  }
+
+  const rowsUpdated = Number(resultRow.rows_updated || 0);
+  const elapsed     = Date.now() - started;
+
+  // ── 7. Safety violation ─────────────────────────────────────────────────────
+  if (resultRow._safety_violation) {
+    appendAuditLog({
+      ...auditBase, success: false,
+      error: 'SAFETY_VIOLATION_rows_updated_not_1', rows_updated: rowsUpdated,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:      false,
+      error:        `Safety check failed: rows_updated=${rowsUpdated} (expected 1). Transaction rolled back.`,
+      rows_updated: rowsUpdated,
+    });
+  }
+
+  // ── 8. Blocked ──────────────────────────────────────────────────────────────
+  if (resultRow.blocked === true) {
+    appendAuditLog({
+      ...auditBase, success: false,
+      blocked: true, block_reason: resultRow.block_reason,
+      rows_updated: rowsUpdated, elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 409, {
+      success:        false,
+      blocked:        true,
+      block_reason:   resultRow.block_reason,
+      note:           resultRow.block_reason === 'manual_operator_lock'
+        ? 'Assignment is manually locked. Override is not yet implemented (planned 7.7k6, admin-only).'
+        : 'Reassignment blocked — see block_reason.',
+      rows_updated:   rowsUpdated,
+      old_bed_code:   resultRow.old_bed_code,
+      new_bed_code:   resultRow.new_bed_code,
+      conflict_count: resultRow.conflict_count,
+      elapsed_ms:     elapsed,
+    });
+  }
+
+  // ── 9. Success ──────────────────────────────────────────────────────────────
+  appendAuditLog({
+    ...auditBase,
+    success:         true,
+    rows_updated:    rowsUpdated,
+    booking_code:    resultRow.booking_code,
+    old_bed_code:    resultRow.old_bed_code,
+    new_bed_code:    resultRow.new_bed_code,
+    audit_event_id:  resultRow.audit_event_id,
+    elapsed_ms:      elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success:               true,
+    action:                'bed_reassignment',
+    booking_code:          resultRow.booking_code,
+    booking_bed_id:        bookingBedId,
+    old_room_code:         resultRow.old_room_code,
+    old_bed_code:          resultRow.old_bed_code,
+    new_room_code:         resultRow.new_room_code,
+    new_bed_code:          resultRow.new_bed_code,
+    assignment_start_date: resultRow.assignment_start_date,
+    assignment_end_date:   resultRow.assignment_end_date,
+    rows_updated:          rowsUpdated,
+    audit_event_id:        resultRow.audit_event_id,
+    audit_payload:         resultRow.audit_payload,
+    rollback_payload:      resultRow.rollback_payload,
+    elapsed_ms:            elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7i — Booking context handler (read-only)
 //
 // GET /staff/bookings/:bookingCode/context?client=<slug>
@@ -3043,6 +3331,15 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for write endpoint' }));
     }
     return handleResolveHandoff(writeMatch[1], req, res);
+  }
+
+  // ── Stage 7.7k5 — Bed reassignment confirmed write ───────────────────────
+  if (pathname === '/staff/bed-calendar/reassign/confirm') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for reassign/confirm' }));
+    }
+    return handleBedReassignConfirm(req, res);
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────

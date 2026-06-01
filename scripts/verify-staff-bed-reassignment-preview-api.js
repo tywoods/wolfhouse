@@ -166,9 +166,11 @@ check(/pg\.query\s*\(\s*['"]ROLLBACK['"]\s*\)/.test(handlerBody),
 
 // ── G. Write safety ────────────────────────────────────────────────────────
 
-// No confirmed write (POST) endpoint for reassign
-check(!/post.*reassign|reassign.*post|POST.*reassign.*confirm/i.test(src),
-  'G21: no confirmed write (POST) reassign route');
+// Stage 7.7k5 adds POST /staff/bed-calendar/reassign/confirm (gated write) — allowed.
+// Verify the preview handler passes $8=false (not true) to the SQL helper.
+// Scoped to the region between "false,  // $8 confirm = FALSE" marker.
+check(/false,\s*\/\/\s*\$8 confirm = FALSE/.test(src),
+  'G21: preview handler passes confirm=false ($8=false) to SQL helper (no write in preview)');
 
 // No direct UPDATE booking_beds outside helper
 const srcStripped = src.replace(/--[^\n]*/g, '');

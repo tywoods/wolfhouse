@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1 SQL helper DONE · 7.7k2 overlap verifier DONE · 7.7k3 preview API DONE · **7.7k4 confirmed write proof DONE (2026-06-01 — see §5a.10)**. No confirmed-write API route or UI. Calendar editing NOT approved. No live operation approved.
+**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1 SQL helper DONE · 7.7k2 overlap verifier DONE · 7.7k3 preview API DONE · 7.7k4 write proof DONE · **7.7k5 confirmed write API endpoint DONE (2026-06-01 — see §5a.10)**. POST /staff/bed-calendar/reassign/confirm exists, STAFF_ACTIONS_ENABLED+STAFF_AUTH_REQUIRED gated, operator+ session required, local/dev fixture-proven. No UI wiring. Calendar editing NOT approved. manual_operator_lock override deferred (7.7k6). No live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -367,7 +367,7 @@ No drag/drop in v1. No inline editable cells. No write without the explicit conf
 | **7.7k2** | Conflict-checker verifier | `verify-staff-bed-reassignment-overlap.js` — 25 checks: half-open interval operands, current-row exclusion, target-bed scoping, cancelled/expired guard, blocker pipeline, UPDATE re-check, FOR UPDATE lock, date-range preservation, conflict_count returned; 25/25 PASS — **DONE** |
 | **7.7k3** | Proposal-only API endpoint | `GET /staff/bed-calendar/reassign/preview` — confirm=false, BEGIN/ROLLBACK, rows_updated=0 proven; 32-check verifier 32/32 PASS; local proof 18/18 PASS; bug fix: `::text` casts on jsonb params — **DONE** |
 | **7.7k4** | Confirmed local fixture write proof | `stage7.7k4-reassign-confirm-proof.js`: 35/35 PASS; rows_updated=1; old→new→old; booking_beds/payments/payment_events/staff_handoffs delta=0; workflow_events +1 audit row (cleaned up); NO API route; NO UI; fixture-only — **DONE** |
-| **7.7k5** | UI proposal modal (read-only preview) | preview/confirm modal renders; **no write button active** |
+| **7.7k5** | Confirmed write API endpoint | `POST /staff/bed-calendar/reassign/confirm`: STAFF_ACTIONS_ENABLED+STAFF_AUTH_REQUIRED gated; session operator+; 42/42 proof PASS (GET→405, unauthenticated→401, viewer→403, missing confirm→400, valid→200 rows_updated=1, second→409 manual_operator_lock, delta=0); verifier 48/48; no UI wiring — **DONE** |
 | **7.7k6** | UI confirmed write behind auth/TLS/action gate | write enabled only with `operator`/`admin` + `STAFF_ACTIONS_ENABLED` + HTTPS |
 | **7.7k7** | Rollback/undo proof | move + undo, audited, conflict-on-undo handled — **required before staging/live** |
 | **7.7k8** | Cami/Ale sign-off | written approval to enable editable reassignment in the pilot |
