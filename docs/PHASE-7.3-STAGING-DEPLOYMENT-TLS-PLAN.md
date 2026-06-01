@@ -1,6 +1,6 @@
 # Stage 7.3 — Staging Deployment + TLS Plan
 
-**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31) + 7.3c deployment preflight PASS (2026-06-01) + 7.3d Azure staging deployed + login proven (2026-06-01) + **7.3e Luna Front Desk login page implemented (2026-06-01)**. `GET /staff/login` serves branded HTML form; browser redirect from `/staff/ui`; logout button wired; 30-check verifier PASS. DNS/custom TLS on lunafrontdesk.com not yet configured.
+**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31) + 7.3c deployment preflight PASS (2026-06-01) + 7.3d Azure staging deployed + login proven (2026-06-01) + **7.3e Luna Front Desk login page implemented + Azure PROOF PASS (2026-06-02)**. `GET /staff/login` serves branded HTML form; browser redirect from `/staff/ui`; logout button wired; 30-check verifier PASS; image `wh-staff-api:dc8c86c` deployed to Azure, revision `0000002` active; unauthenticated smoke tests PASS over HTTPS. DNS/custom TLS on lunafrontdesk.com not yet configured.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream C (TLS/deployment).
 **Depends on:** [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) (env separation, secrets), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md) (auth before write surface).
 **Aligns with:** [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) (existing Container Apps + Key Vault topology).
@@ -333,7 +333,7 @@ Each slice is a separate approved task with its own proof. None are started here
 
 ### 7.3e — Luna Front Desk Login Page Implemented (2026-06-01)
 
-**HEAD at implementation:** pending commit
+**HEAD at implementation:** `dc8c86c`
 
 **Files changed:**
 - `scripts/staff-query-api.js` — added `buildLoginHtml()`, `handleLoginPage()`, `browserLoginRedirect()`, `GET /staff/login` route, browser redirect for `/staff/ui`, logout button + `doLogout()` in UI
@@ -347,7 +347,7 @@ Each slice is a separate approved task with its own proof. None are started here
 - `GET /staff/ui` (auth disabled) → 200 HTML; loads correctly
 - `GET /staff/intents` → 200; `total: 35`
 
-**Azure proof:** Pending deployment. Code is committed; Azure deployment via normal staff API build/push flow required to verify on Azure FQDN.
+**Azure proof (2026-06-02):** PASS — image `wh-staff-api:dc8c86c` built/pushed to ACR (`cb1`); Container App revision `0000002` active; smoke tests over HTTPS all pass (see `docs/PHASE-7.3D-AZURE-STAGING-DEPLOYMENT-LOGIN-PROOF.md §6`). Manual login test script at `scripts/test-azure-login-proof.ps1`.
 
 **What is still NOT done:** DNS/custom domain not configured. No custom TLS on lunafrontdesk.com. 3 workflows not yet imported. No backup/restore drill. No monitoring/alerting. No Cami/Ale accounts. No pilot approved.
 

@@ -1,6 +1,6 @@
 # Stage 7.3d — Azure Staging Deployment + Login Proof
 
-**Status:** DEPLOYMENT PROVEN (2026-06-01) — Luna Front Desk staging is live on Azure. Staff API, staff UI, and n8n are reachable over HTTPS. Owner login confirmed. 11 Wolfhouse workflows imported inactive. All safety flags confirmed. No live WhatsApp. No live Stripe. No production deployment. Not a pilot approval.
+**Status:** DEPLOYMENT PROVEN (2026-06-01) + **7.3e LOGIN PAGE DEPLOYED + AZURE PROOF PASS (2026-06-02)** — Luna Front Desk staging is live on Azure. Staff API, staff UI, and n8n are reachable over HTTPS. Owner login confirmed. Real login page (`/staff/login`) deployed, verified over HTTPS. 11 Wolfhouse workflows imported inactive. All safety flags confirmed. No live WhatsApp. No live Stripe. No production deployment. Not a pilot approval.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream C (TLS/deployment).
 **Builds on:** [`PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md`](PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md) — preflight PASS (2026-06-01).
 **IaC:** `infra/azure/staging/main.bicep`
@@ -245,7 +245,7 @@ The following commits were created during the Azure staging deployment:
 **What is still NOT done:**
 - No DNS/custom domain configured.
 - No custom TLS on lunafrontdesk.com.
-- No real login page (first login via API POST).
+- Real login page deployed (7.3e Azure proof PASS — see §6 below).
 - 3 workflows not yet imported.
 - No credentials in n8n.
 - No backup/restore drill.
@@ -254,3 +254,68 @@ The following commits were created during the Azure staging deployment:
 - No pilot approved.
 - No live operation.
 - No production deployment.
+
+---
+
+## 6. Stage 7.3e — Login Page Azure Proof (2026-06-02)
+
+### 6.1 Deployment
+
+| Item | Value |
+|---|---|
+| Image tag deployed | `whstagingacr.azurecr.io/wh-staff-api:dc8c86c` |
+| ACR build ID | `cb1` |
+| Container App revision | `wh-staging-staff-api--0000002` |
+| Provision state | `Succeeded` |
+| Build command | `az acr build --registry whstagingacr --image wh-staff-api:dc8c86c --image wh-staff-api:latest --file Dockerfile .` |
+| Update command | `az containerapp update ... --image whstagingacr.azurecr.io/wh-staff-api:dc8c86c` |
+
+### 6.2 Safety flags (confirmed unchanged after deploy)
+
+| Flag | Value |
+|---|---|
+| `STAFF_AUTH_REQUIRED` | `true` |
+| `STAFF_ACTIONS_ENABLED` | `false` |
+| `WHATSAPP_DRY_RUN` | `true` |
+| `STRIPE_WEBHOOK_SKIP_VERIFY` | `false` |
+
+### 6.3 Smoke tests — automated (unauthenticated)
+
+| Check | Result |
+|---|---|
+| `GET /` → `{"status":"ok"}` | PASS (HTTP 200) |
+| `GET /staff/login` → HTTP 200 HTML | PASS |
+| `GET /staff/login` contains "Luna Front Desk" | PASS |
+| `GET /staff/login` contains "Staff sign in" | PASS |
+| `GET /staff/login` contains "wolfhouse-somo" | PASS |
+| `GET /staff/login` contains "Staging / shadow mode" | PASS |
+| `GET /staff/login` contains "Staff actions disabled" | PASS |
+| `GET /staff/ui` (unauthenticated) → redirects to `/staff/login` | PASS (302 → 200 login page) |
+| `GET /staff/intents` (unauthenticated) → 401 | PASS |
+
+### 6.4 Smoke tests — manual login (requires interactive input)
+
+Run `scripts/test-azure-login-proof.ps1` with Ty credentials to verify:
+- `POST /staff/auth/login` → 200 + session cookie
+- `GET /staff/ui` authenticated → 200 with Luna Front Desk UI + Sign out button
+- `GET /staff/intents` authenticated → `total: 35`
+- `POST /staff/auth/logout` → 200
+
+### 6.5 n8n — unchanged
+
+- n8n Container Apps untouched
+- No workflow imports
+- No workflow activations
+- No credentials changed
+
+### 6.6 What is still NOT done after 7.3e Azure proof
+
+- DNS/custom domain not configured.
+- No custom TLS on lunafrontdesk.com.
+- 3 workflows not yet imported.
+- No credentials in n8n.
+- No backup/restore drill.
+- No monitoring/alerting.
+- No Cami/Ale accounts.
+- No pilot approved.
+- No live operation.
