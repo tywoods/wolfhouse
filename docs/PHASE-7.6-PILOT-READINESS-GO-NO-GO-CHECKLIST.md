@@ -157,6 +157,7 @@ Decision:   [ hold / proceed ]
 | F7-CAL | Bed calendar **deferral** (only if F6 calendar grid is not shipped at launch) | NOT_STARTED | Cami + Ale | Written deferral recorded with reason, risk, and time limit; both sign off | — | Hold |
 | F8 | **Basic safe booking edit path** designed (audited, gated, overlap-guarded, paid→handoff, rollback defined) — **or** explicit deferral | DESIGN_DONE | Ty + Cami | **Safe bed reassignment design complete (7.7k, §5a of dashboard plan)**: allowed v1 = same-range bed→bed move only; hard blockers, warning cases, in-transaction overlap guard, audit + rollback all specified. **Write NOT implemented/enabled.** | 2026-06-01 | Hold |
 | F8-CAL-EDIT | **Editable bed calendar is NOT required for shadow-mode Phase 1** unless Cami/Ale explicitly require it. Read-only calendar (F6) + reassignment write-gate design (F8) suffice for Phase 1. | DESIGN_DONE | Ty + Cami + Ale | Read-only bed calendar implemented (7.7h/7.7i); reassignment write-gate design complete (7.7k); **editable reassignment not enabled until 7.7k1–7.7k8 safety gates pass (incl. rollback proof + Cami/Ale sign-off)** | 2026-06-01 | Hold |
+|| F9 | **Manual booking creation from dashboard** designed (required fields, modes A–D, safety requirements, UI flow, implementation slices 7.7m1–7.7m7) — **NOT required for shadow-pilot Phase 1; required before the spreadsheet / manual-entry CLI tool is retired** | DESIGN_DONE | Ty + Cami + Ale | Manual booking creation design complete (7.7m / §5b of dashboard plan): modes A–D, overlap guard, audit, rollback strategy, UI flow defined; write NOT implemented or enabled; existing spreadsheet + CLI tool (scripts/manual-entry-postgres.js) remains primary path for new bookings until 7.7m7 Cami/Ale sign-off | 2026-06-01 | Hold — not blocking Phase 1 |
 
 ### Section G — Guest / Luna Shadow-Mode
 
@@ -272,13 +273,13 @@ These conditions block **all phases**. No waiver is possible.
 | C — Staging/TLS | 9 | 0 | 0 | 9 | 9 (not deployed) |
 | D — Backup/restore | 6 | 0 | 1 | 5 | 2 required before pilot |
 | E — Monitoring | 8 | 0 | 0 | 8 | 8 (not configured) |
-| F — Cami dashboard | 9 | 0 | 0 | 9 | 9 (not built; incl. bed calendar grid + edit-path gates) |
+| F — Cami dashboard | 10 | 0 | 2 | 8 | 8 (staging not deployed; F1–F8 impl proven locally; F9 design done, not blocking Phase 1) |
 | G — Shadow mode | 7 | 0 | 0 | 7 | 7 (staging needed first) |
 | H — Payment/Stripe | 6 | 0 | 0 | 6 | 1 hard (no live key) |
 | I — WhatsApp | 5 | 0 | 0 | 5 | 1 hard (dry-run must stay on) |
 | J — Client config | 8 | 1 | 0 | 7 | 7 (owner sign-off needed) |
 | K — Staff training | 6 | 0 | 0 | 6 | 6 (staging first) |
-| **Total** | **81** | **1** | **2** | **78** | **Phase 1 requires all 81** |
+| **Total** | **82** | **1** | **4** | **77** | **Phase 1 requires all except F9 (F9 = spreadsheet retirement gate, deferred)** |
 
 **Overall pilot status:** `NOT_STARTED` → checklist defined. No phase approved.
 
@@ -295,7 +296,7 @@ These conditions block **all phases**. No waiver is possible.
 | C — Staging/TLS | NOT_STARTED | — | — | Hold |
 | D — Backup/restore | PARTIAL (design) | — | — | Hold — drill required |
 | E — Monitoring | NOT_STARTED | — | — | Hold |
-| F — Cami dashboard | NOT_STARTED | — | — | Hold |
+| F — Cami dashboard | PARTIAL (F1–F8 impl proven locally; F9 design done 2026-06-01) | Ty + Cami | 2026-06-01 | Hold — staging required |
 | G — Shadow mode | NOT_STARTED | — | — | Hold |
 | H — Payment/Stripe | NOT_STARTED | — | — | Hold |
 | I — WhatsApp | NOT_STARTED | — | — | Hold |

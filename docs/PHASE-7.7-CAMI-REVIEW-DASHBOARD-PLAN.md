@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1 SQL helper DONE · 7.7k2 overlap verifier DONE · 7.7k3 preview API DONE · 7.7k4 write proof DONE · 7.7k5 confirmed write API endpoint DONE · **7.7k6 admin-only manual/operator lock override DONE (2026-06-01 — see §5a.10)**. POST /staff/bed-calendar/reassign/confirm now accepts manual_operator_lock_override:true for admin/owner roles only. Operators still blocked. Fixture-proven (44/44 PASS, A–E matrix). No UI wiring. Calendar editing NOT approved. No live operation approved.
+**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1 SQL helper DONE · 7.7k2 overlap verifier DONE · 7.7k3 preview API DONE · 7.7k4 write proof DONE · 7.7k5 confirmed write API endpoint DONE · **7.7k6 admin-only manual/operator lock override DONE (2026-06-01 — see §5a.10)**. POST /staff/bed-calendar/reassign/confirm now accepts manual_operator_lock_override:true for admin/owner roles only. Operators still blocked. Fixture-proven (44/44 PASS, A–E matrix). No UI wiring. Calendar editing NOT approved. **7.7m manual booking creation requirement added (2026-06-01 — see §5b). Design/planning only. No code. Not required for shadow pilot Phase 1. Required before replacing spreadsheet workflow.** No live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -376,6 +376,128 @@ Each sub-slice must PASS (with proof) before the next is started. Editable reass
 
 ---
 
+---
+
+## 5b. Stage 7.7m — Manual booking creation from dashboard (design requirement)
+
+> **Status:** DESIGN / PLANNING (2026-06-01). **No manual booking write is implemented or approved.** This section is the requirement and safety contract that must be satisfied before any booking creation write from the dashboard is enabled.
+>
+> **Scope:** Cami must eventually be able to create a booking manually from the dashboard — replacing / extending the current spreadsheet / manual-entry workflow. This is **not required for shadow-pilot Phase 1** (conversation review, Luna draft, handoff queue). It is **required before the spreadsheet/manual-planning workflow is retired**.
+
+### 5b.1 Purpose
+
+- Cami can create a new booking directly from the staff dashboard without using the Wolfhouse Excel planning spreadsheet.
+- This replaces and extends the existing `scripts/manual-entry-postgres.js` manual-entry workflow.
+- Every manual booking creation must be **safe** (overlap-guarded, client-scoped, auth-gated), **audited** (actor + role + source + reason), and **conflict-checked** (no double-booking, no silent overwrite).
+- No automatic guest message, no automatic Stripe payment link, and no automatic confirmation send on creation.
+
+### 5b.2 Required fields for v1 manual booking
+
+| Field | Required | Notes |
+|---|---|---|
+| Guest name | Yes | |
+| Phone | Yes | WhatsApp-format preferred |
+| Email | Optional | |
+| Check-in date | Yes | ISO `YYYY-MM-DD` |
+| Check-out date | Yes | ISO `YYYY-MM-DD` |
+| Guest count | Yes | Number of guests |
+| Package / stay type | Yes | Must match a valid `package_code` from client config |
+| Room type or preference | Yes | `requested_room_type`, `room_preference` |
+| Language | Yes | Defaults to `en` |
+| Notes / staff note | Optional | Internal; not shared with guest |
+| Payment status | Yes | `unpaid` / `deposit_paid` / `paid` — entered explicitly; no auto-charge |
+| Deposit / full payment status if known | Optional | Manually recorded; no Stripe link unless explicitly requested |
+| Source / channel | Yes | e.g. `walk_in`, `whatsapp_staff`, `email`, `phone`, `direct` |
+| Assigned room / bed | Optional | If left blank → unassigned queue |
+| Add-ons (optional) | Optional | Lessons, rentals (wetsuit/board), yoga, dinners/meals, airport transfers — recorded as notes or `add_on_orders` rows |
+
+### 5b.3 Creation modes
+
+**Mode A — Create unassigned booking**
+- Booking record is created; no `booking_beds` row written.
+- Booking appears in the **unassigned / needs assignment** queue.
+- No bed conflict check needed (no bed assignment).
+- Suitable for future-arrivals and pre-payment holds.
+
+**Mode B — Create booking with bed assignment**
+- Booking record + `booking_beds` row written in **one transaction**.
+- Requires a full bed availability / overlap conflict check before the write (same half-open interval logic as reassignment, §5a.5).
+- Must block overlaps; rejected with a conflict error if target bed is occupied.
+- No orphaned `booking_beds` row without a valid `bookings` row.
+
+**Mode C — Create hold / payment-pending booking**
+- Booking created with `status='hold'` and `payment_status='unpaid'` (or `deposit_paid` if confirmed).
+- **No Stripe payment link is generated automatically.** Staff can request a payment link as a separate explicit step (deferred, requires Stage 7.9 / payment-send gate).
+- Hold expiry (`hold_expires_at`) set manually or left null for staff-managed holds.
+
+**Mode D — Create confirmed manual booking**
+- `status='confirmed'`, `payment_status='paid'` — allowed only for staff with `operator` or `admin` role.
+- Requires a mandatory **reason / source** field in the audit row.
+- No confirmation email / WhatsApp is sent automatically.
+- Staff must manually send any guest confirmation.
+
+### 5b.4 Safety requirements
+
+- **No overlapping bed assignments.** Mode B must run the same in-transaction overlap guard as bed reassignment (§5a.5), with a `SELECT ... FOR UPDATE` lock on the target bed before the write.
+- **No silent overwrite.** A second create for the same phone + overlapping dates must warn or be rejected; no silent merge.
+- **No automatic WhatsApp message.** No `send_message` call, no n8n workflow activation on booking create.
+- **No automatic Stripe payment link.** No `create-payment-session` call. Payment collection is a separate explicit step.
+- **No automatic confirmation send.** `confirmation_sent_at` must not be set by the create action.
+- **All creates audited.** Every create attempt (success or failure) must log: `staff_user_id`, `staff_role`, `client_id`, `source`, `reason`, `mode` (A/B/C/D), booking fields used, conflict check result, `success` / `failure` + error.
+- **Staff must enter reason and source.** Both fields required in the form; not optional.
+- **Payment-impacting fields clearly marked manual.** Any `payment_status` value entered via this form is tagged `payment_record_status = 'manual_staff'` or equivalent to distinguish from Stripe-confirmed payments.
+- **Rollback / delete strategy required before live use.** Before any create write is enabled in staging/live, a documented delete/undo path must exist. This is gate **7.7m6** (rollback/delete fixture proof).
+- **Create is client-scoped.** `client_id` resolved from authenticated session / `client` param; no cross-client writes.
+- **Auth required.** Anonymous → 401.
+- **Operator or admin role required** for all create write paths. Viewer role → 403.
+- **`STAFF_ACTIONS_ENABLED=true` required** for all create write actions. If false → 403 / feature-flagged off.
+
+### 5b.5 UI flow
+
+1. **"Create Booking" button** appears in the Bed Calendar tab (and optionally the main dashboard header).
+   - Button is **visible but disabled** (greyed out) unless `STAFF_ACTIONS_ENABLED=true` and role is `operator`/`admin`.
+2. **Opens a form / drawer** with the fields from §5b.2.
+3. Cami completes the form. Required fields are validated client-side and server-side.
+4. **Preview step** before any write:
+   - System shows: proposed dates, guest count, package, room/bed assignment (if Mode B), detected conflicts (if any), payment status as entered.
+   - Conflicts are highlighted (overlapping bed, existing booking for same phone+dates, etc.).
+   - No write occurs at the preview stage.
+5. **Cami confirms** (second confirm button, not the same as "preview").
+6. System runs the **gated write** (mode A/B/C/D per selection).
+7. Booking appears in:
+   - Booking list / bed calendar (if assigned).
+   - Unassigned queue (if Mode A / no bed assigned).
+8. **No guest message is sent.** Dashboard shows a notice: "Booking created — no guest notification was sent."
+
+### 5b.6 Implementation slices
+
+| Sub-slice | Name | Scope |
+|---|---|---|
+| **7.7m** | Manual booking creation plan (**this design**) | docs only — **DONE** |
+| **7.7m1** | Manual booking SQL helper (static only) | `createManualBookingSql()` — parameterized, client-scoped, no raw SQL, modes A–D; verifier only; not wired to any route |
+| **7.7m2** | Create booking preview / proposal endpoint | `POST /staff/bookings/create/preview` (or `GET` with body) — BEGIN/ROLLBACK, no write, returns conflict check + proposed summary |
+| **7.7m3** | Fixture create booking write proof | `stage7.7m3-create-booking-proof.js` — modes A+B proven locally; `booking_beds` delta=0 after cleanup; audit row verified; NO API route |
+| **7.7m4** | Manual booking UI form (read + proposal mode) | Form / drawer in `/staff/ui` — client-side only in first pass; connected to preview endpoint; no confirmed-write button active |
+| **7.7m5** | Confirmed create behind auth / action gate | `POST /staff/bookings/create` — STAFF_ACTIONS_ENABLED + operator/admin + STAFF_AUTH_REQUIRED; reason+source required; all 4 modes |
+| **7.7m6** | Rollback / delete fixture proof | Move A: create booking → delete/cancel; move B: create with bed → remove bed assignment → cancel booking; audited; delta=0 proven |
+| **7.7m7** | Cami / Ale sign-off | Written approval to enable manual booking creation in staging; confirms it is safe to retire spreadsheet for this workflow |
+
+Each sub-slice must PASS (with proof) before the next is started. Manual booking creation is **not enabled** until 7.7m5 passes its gate and 7.7m6/7.7m7 are recorded.
+
+### 5b.7 Relationship to existing manual-entry workflow
+
+The existing `scripts/manual-entry-postgres.js` CLI tool is the current path for staff-created bookings. The dashboard manual booking form (7.7m) is the **UI successor** to this workflow. Until 7.7m5 passes its gate and Cami/Ale sign off (7.7m7), the CLI tool remains the primary path for manual booking creation. Do not retire the CLI tool or the spreadsheet workflow until 7.7m7 is recorded.
+
+### 5b.8 Pilot phase placement
+
+| Phase | Manual booking status |
+|---|---|
+| Phase 1 — Shadow / co-pilot | **Not required.** Cami uses existing spreadsheet / CLI tool for new bookings. Dashboard is conversation-review only. |
+| Phase 2 / Phase 3 | Still not required; existing tools remain the primary path. |
+| **Pre-spreadsheet retirement** | **Required.** 7.7m1–7.7m7 must all PASS before the spreadsheet / CLI manual-entry workflow is retired. |
+
+---
+
 ## 6. Shadow-mode workflow (Phase 1 — zero autonomous send)
 
 ```
@@ -496,11 +618,12 @@ Everything in §2 (analytics, PMS, drag/drop, owner dashboard, multi-client admi
 | **7.7l** | Approve-send gate plan | design the live-send write path (Phase 2+ gate), double-confirm UI, audit, and rollback; button disabled until gate passes | **plan only** |
 | **7.7m** | Shadow-mode checklist update | wire results into Stage 7.6 F-gates | — |
 | **7.7k** | **Safe bed reassignment plan** (supersedes old "7.7n") — design reassign write path, overlap guard, audit, rollback; sub-slices 7.7k1–7.7k8 in §5a.10 | **plan only** | **DONE** |
+| **7.7m (booking)** | **Manual booking creation plan** — design, required fields, modes A–D (unassigned / with-bed / hold / confirmed), safety requirements, UI flow; sub-slices 7.7m1–7.7m7 in §5b; **not required for shadow pilot Phase 1; required before spreadsheet retirement** | **plan only** | **DONE (2026-06-01)** |
 | **7.7o** | Audited booking edit / write gates plan | design edit-mode gating + audit + rollback for calendar edits | **plan only** |
 
-> Note: §5a defines the bed-reassignment design as **7.7k / 7.7k1–7.7k8**. The earlier "7.7n" label for this work is retired; the separate "staff takeover / return-to-Luna" plan row above retains the 7.7k row id for historical continuity but is functionally tracked as a takeover-controls slice — see §5a.1 naming note.
+> Note: §5a defines the bed-reassignment design as **7.7k / 7.7k1–7.7k8**. The earlier "7.7n" label for this work is retired; the separate "staff takeover / return-to-Luna" plan row above retains the 7.7k row id for historical continuity but is functionally tracked as a takeover-controls slice — see §5a.1 naming note. §5b defines the manual booking creation design as **7.7m (booking) / 7.7m1–7.7m7** — not required for shadow pilot Phase 1; required before spreadsheet retirement.
 
-Slices 7.7b–7.7j are read-only build slices. 7.7l/7.7k(reassignment)/7.7o are **planning-only** slices that must pass before any corresponding write is implemented.
+Slices 7.7b–7.7j are read-only build slices. 7.7l/7.7k(reassignment)/7.7m(booking)/7.7o are **planning-only** slices that must pass before any corresponding write is implemented.
 
 ---
 
