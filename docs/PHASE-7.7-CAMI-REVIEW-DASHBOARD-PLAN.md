@@ -1,6 +1,6 @@
 # Stage 7.7 — Cami Review Dashboard + Editable Bed Calendar Plan
 
-**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1–k7 DONE · **7.7k7 rollback/undo proof DONE (2026-06-01 — see §5a.10)**. Happy-path undo proven (move A→B, undo B→A, rows_updated=1, DB restored, rollback_payload with booking_bed_id/old_bed_code/new_bed_code/dates). Conflict-on-undo proven (blocked=true, block_reason=target_bed_overlap, rows_updated=0). 47/47 PASS. All protected table deltas=0. workflow_events cleanup confirmed. No UI wiring. Calendar editing NOT approved. Cami/Ale sign-off required before staging/live reassignment. **7.7m manual booking creation requirement added (2026-06-01 — see §5b). Design/planning only. No code. Not required for shadow pilot Phase 1. Required before replacing spreadsheet workflow.** No live operation approved.
+**Status:** IN PROGRESS — 7.7a–j DONE · 7.7k plan DONE · 7.7k1–k8 DONE · **7.7k8 staging gate DESIGN DONE (2026-06-01 — see §5a.10 and §7.7k8 section)**. Backend fully locally proven (k1–k7). Staging gate checklist defined: 17 required gates before reassignment UI is enabled in staging; UI gate conditions; 6-phase approval flow (Phase 0 = current local-only state); hard no-go conditions. No UI wiring. Calendar editing NOT approved. Cami/Ale written sign-off required before any staging/live editable reassignment. Prior: **7.7k7 rollback/undo proof DONE (2026-06-01)**: happy-path undo (move A→B, undo B→A, rows_updated=1, DB restored, rollback_payload proven); conflict-on-undo blocked (target_bed_overlap, rows_updated=0); 47/47 PASS; delta=0. **7.7m manual booking creation requirement added (2026-06-01 — see §5b). Design/planning only. No code. Not required for shadow pilot Phase 1. Required before replacing spreadsheet workflow.** No live operation approved.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream F (Cami dashboard) + hard gate before Phase 1 (shadow/co-pilot).
 **Pilot gate:** [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) Section F (F1–F8).
 **Builds on:** Stage 6 staff tools (read-only API/UI, query registry, reports/digest, token-gated `handoff.resolve`), Stage 7.2 auth (`staff_users`/`auth_sessions`), Stage 7.3 staging/TLS.
@@ -370,7 +370,7 @@ No drag/drop in v1. No inline editable cells. No write without the explicit conf
 | **7.7k5** | Confirmed write API endpoint | `POST /staff/bed-calendar/reassign/confirm`: STAFF_ACTIONS_ENABLED+STAFF_AUTH_REQUIRED gated; session operator+; 42/42 proof PASS (GET→405, unauthenticated→401, viewer→403, missing confirm→400, valid→200 rows_updated=1, second→409 manual_operator_lock, delta=0); verifier 48/48; no UI wiring — **DONE** |
 | **7.7k6** | Admin-only manual/operator lock override | `manual_operator_lock_override:true` in body; operator→403 `insufficient_override_role`; admin/owner bypasses `manual_operator_lock` only; all other blockers unchanged; $9 param in SQL helper; override fields in audit_payload; verifier 59/59 PASS; fixture proof 44/44 PASS (A–E matrix); no UI wiring — **DONE** |
 | **7.7k7** | Rollback/undo proof | move A→B · undo B→A (rows_updated=1, DB restored, rollback_payload proven) · conflict-on-undo blocked (target_bed_overlap, rows_updated=0) · 47/47 PASS · delta=0 · no UI wiring — **DONE** |
-| **7.7k8** | Cami/Ale sign-off | written approval to enable editable reassignment in the pilot |
+| **7.7k8** | Staging gate for editable reassignment | 17-gate checklist; UI gate conditions; 6-phase approval flow; hard no-go conditions defined — **DESIGN DONE** (see §Stage 7.7k8 section) |
 
 Each sub-slice must PASS (with proof) before the next is started. Editable reassignment is **not enabled** until 7.7k6 passes its gate and 7.7k7/7.7k8 are recorded.
 
@@ -918,5 +918,155 @@ Implementation log:
 
 **Known gaps:**
 - UI calendar editing is still NOT wired and NOT approved
-- 7.7k8 (staging gate) remains before any live/staging reassignment
-- Cami/Ale sign-off required before editable calendar goes live
+- 7.7k8 staging gate DESIGN DONE; all actual gate items NOT_STARTED (staging not deployed)
+- Cami/Ale written sign-off required before editable calendar goes live
+
+---
+
+### Stage 7.7k8 — Staging gate for editable bed reassignment (DESIGN DONE 2026-06-01)
+
+> **What this section is:** A complete staging gate checklist that must be satisfied before editable bed reassignment is exposed to Cami in staging or enabled in the Luna Front Desk UI. This section is **design/planning only**. No code, no routes, no UI, no DB commands, no runtime changes are made here. It records the approval contract.
+>
+> **Current state:** The reassignment backend is fully locally proven (7.7k1–7.7k7). The UI calendar is read-only. Reassignment controls are intentionally not wired. This gate prevents accidental booking corruption, hidden moves, overlap bugs, or unclear staff behaviour when reassignment is eventually enabled.
+
+---
+
+#### Purpose
+
+The bed reassignment write path is locally proven across 7 sub-slices (SQL helper, overlap guard, preview API, write proof, confirmed API endpoint, admin override, rollback/undo). Before Cami can use it in staging or production, the following risks must be mitigated:
+
+| Risk | Mitigation required |
+|---|---|
+| Accidental booking corruption in staging data | DB backup + restore drill before any write gate opens |
+| Overlap introduced via UI action | overlap proof re-run in staging against real staging DB schema |
+| Hidden or unauditable moves | Durable audit log (not file-only) confirmed before write enabled |
+| Staff mis-click / no confirmation | Confirm modal required; reason required; preview-only path first |
+| No rollback path | rollback/undo proof re-run in staging; undo option in Phase 4+ |
+| Unauthorised access to confirm route | HTTPS + per-user auth + role check required |
+| Feature flag accidentally enabled | `STAGING_BED_REASSIGNMENT_ENABLED` flag required; `false` by default |
+| Cami/Ale not trained | Training gate (K4-CAL) required before edit controls shown |
+
+---
+
+#### §k8.1 Required staging gates before enabling reassignment UI
+
+All 17 gates must pass before edit controls are shown to any staff user in staging. No single gate may be waived without a written reason signed by Ty + Ale.
+
+| # | Gate | Status | Owner | Evidence required | Blocks |
+|---|---|---|---|---|---|
+| K8-G1 | Azure staging environment deployed and reachable | NOT_STARTED | Ty | Container App running; health check 200 | All |
+| K8-G2 | HTTPS / TLS active on `staff-staging.<domain>` | NOT_STARTED | Ty | Browser cert check; HTTP → HTTPS redirect | All |
+| K8-G3 | `STAFF_AUTH_REQUIRED=true` in staging env | NOT_STARTED | Ty | Container App env verified | All |
+| K8-G4 | `STAFF_ACTIONS_ENABLED=false` by default in staging | NOT_STARTED | Ty | Container App env verified; unauthenticated POST to confirm returns 403 | All |
+| K8-G5 | Per-user staff auth working (email/password, session cookies) | NOT_STARTED | Ty | Login → session cookie → protected route 200 | All |
+| K8-G6 | Cami staff account created in staging; role assigned | NOT_STARTED | Ty + Cami | Cami logs in; role = operator (or admin per decision) confirmed | All |
+| K8-G7 | Ale staff account created in staging; role = admin/owner | NOT_STARTED | Ty + Ale | Ale logs in; role confirmed | All |
+| K8-G8 | Durable audit log confirmed (not file-only) | NOT_STARTED | Ty | Write → row appears in Log Analytics or DB audit table within 60 s | All |
+| K8-G9 | Database backup configured for staging (≥ 7-day retention) | NOT_STARTED | Ty | Azure portal backup policy screenshot | All |
+| K8-G10 | Restore drill completed and documented | NOT_STARTED | Ty | Drill log: steps completed; time-to-restore recorded | All |
+| K8-G11 | rollback/undo proof repeated in staging against staging DB | NOT_STARTED | Ty | `stage7.7k7-reassign-rollback-proof.js` run against staging DB; 47/47 PASS | All |
+| K8-G12 | overlap/conflict proof repeated in staging | NOT_STARTED | Ty | `verify-staff-bed-reassignment-overlap.js` + fixture PASS against staging DB | All |
+| K8-G13 | Reassignment API smoke test passed in staging (POST /staff/bed-calendar/reassign/confirm with fixture) | NOT_STARTED | Ty | 200 response + rows_updated=1 + audit row written in staging DB | All |
+| K8-G14 | `STAGING_BED_REASSIGNMENT_ENABLED=false` by default; feature flag mechanism confirmed | NOT_STARTED | Ty | Staging env; confirm route rejects unless flag true | All |
+| K8-G15 | UI edit controls hidden by default; no "Move Bed" button visible without flag | NOT_STARTED | Ty | `GET /staff/ui` in staging; no edit button in DOM unless flag explicitly set | All |
+| K8-G16 | Cami/Ale sign-off recorded in writing (doc + dated acknowledgement) | NOT_STARTED | Cami + Ale | Written sign-off appended to this section | All |
+| K8-G17 | Emergency toggle drill for reassignment: disable `STAFF_ACTIONS_ENABLED` and confirm confirm-route returns 403 | NOT_STARTED | Ty | Toggle drill record; flag flip → 403 within 1 s | All |
+
+---
+
+#### §k8.2 UI gate conditions (before showing move/reassign controls to any staff user)
+
+Even after all K8-G gates pass, the "Move Bed" UI control must satisfy ALL of the following at the time of display:
+
+1. Authenticated staff session exists (cookie valid).
+2. Staff role is `operator`, `admin`, or `owner` — never `viewer`.
+3. `STAFF_ACTIONS_ENABLED=true` on the server.
+4. `STAGING_BED_REASSIGNMENT_ENABLED=true` (feature flag).
+5. Bed calendar date range is fully loaded (no partial-load state).
+6. Selected booking block has a valid `booking_bed_id` (UUID present).
+7. Booking status is not `cancelled` or `expired`.
+8. Preview endpoint (`GET /staff/bed-calendar/reassign/preview`) returns `rows_updated=0` (proposal-only) with no hard blockers.
+9. Staff has selected a valid target bed (different from current bed).
+10. Staff has entered a non-empty reason string.
+11. Staff has confirmed in the modal (confirm=true sent in body).
+
+If any condition fails, the confirm button remains disabled and the control shows the relevant blocker reason.
+
+---
+
+#### §k8.3 Approval phases for editable reassignment
+
+| Phase | Name | What is allowed | Prerequisites | Approvals required |
+|---|---|---|---|---|
+| **Phase 0** | Local proof only | `reassignBookingBedSql()` direct in proof scripts only; no API route wired; no UI | Current state (7.7k1–7.7k7 PASS) | None (already done) |
+| **Phase 1** | Staging hidden endpoint only | `POST /staff/bed-calendar/reassign/confirm` reachable in staging via `curl` only; no UI controls; fixture bookings only | K8-G1–G10, G13, G16 | Ty + Ale |
+| **Phase 2** | Staging preview modal only | Preview modal visible in UI; `GET /staff/bed-calendar/reassign/preview` shown; confirm button absent | Phase 1 stable ≥ 3 days; K8-G11–G15 | Ty + Cami + Ale |
+| **Phase 3** | Staging confirm for fixture bookings only | Confirm button enabled in staging for test/fixture bookings only (booking codes that match fixture pattern); real guest bookings blocked by additional guard | Phase 2 stable; K8-G16 written sign-off | Ty + Cami + Ale |
+| **Phase 4** | Cami/Ale training with real staging data | Cami can move fixture and limited real staging beds; undo available; all moves audited | Phase 3 stable; K-training gates pass; rollback option available in UI | Ty + Cami + Ale |
+| **Phase 5** | Limited real staging data (signed-off bookings) | Cami can move real bookings after written approval per booking; undo within 24h | Phase 4 stable ≥ 1 week; written per-booking approval | Ty + Cami + Ale |
+| **Phase 6** | Production / live | NOT ENABLED — separate production gate required; production gate not defined or approved here | Phase 5 stable; separate production gate document; explicit production sign-off | Ty + Cami + Ale + separate production approval |
+
+> **Phase 6 is explicitly not approved by this document.** Production editable reassignment requires a separate gate.
+
+---
+
+#### §k8.4 Required UI behaviour (for future implementation, not approved today)
+
+When edit controls are eventually implemented, the following behaviour is required. **No drag-and-drop in v1.**
+
+1. Calendar renders read-only by default (current state).
+2. Staff clicks a booking block → detail drawer opens (current: read-only, 7.7i).
+3. Staff clicks **"Move Bed"** button (hidden unless all UI gate conditions in §k8.2 pass).
+4. A proposal modal opens (no write yet).
+5. Modal shows: current bed, current dates, proposed target bed picker, any blockers from preview endpoint.
+6. Staff selects a target bed; system calls `GET /staff/bed-calendar/reassign/preview` and shows result.
+7. If preview returns any hard blocker → confirm button stays disabled; blocker reason shown prominently.
+8. If preview is clean → staff enters reason (non-empty required); confirm button enables.
+9. Admin/owner only: "Override manual lock" checkbox visible (hidden from operators).
+10. Staff clicks Confirm → `POST /staff/bed-calendar/reassign/confirm` called.
+11. On success: calendar refreshes; success toast with `audit_event_id`; "Undo" option offered (Phase 4+).
+12. On failure: error message with `block_reason`; no calendar state change.
+13. Audit event linkable from the drawer (future: link to `workflow_events` row).
+
+---
+
+#### §k8.5 Hard no-go conditions for editable reassignment
+
+These block all phases of editable reassignment. No waiver is possible.
+
+| No-go condition | Phase blocked |
+|---|---|
+| No HTTPS on staff UI/API | Phase 1+ |
+| No per-user auth (session + role) | Phase 1+ |
+| No durable audit log (file-only logging) | Phase 1+ |
+| No database backup configured | Phase 1+ |
+| No backup/restore drill completed | Phase 1+ |
+| No staging fixture rollback proof (K8-G11) | Phase 1+ |
+| `STAFF_ACTIONS_ENABLED=true` without HTTPS + auth + TLS | Phase 1+ |
+| Edit controls visible to `viewer` role | Phase 1+ |
+| Confirm route callable without valid session + role check | Phase 1+ |
+| overlap verifier failing in staging | Phase 1+ |
+| rollback proof failing in staging | Phase 1+ |
+| `STAGING_BED_REASSIGNMENT_ENABLED` flag absent or defaulting to `true` | Phase 1+ |
+| Cami not trained on move/undo flow before using edit controls | Phase 3+ |
+| No written Cami + Ale sign-off (K8-G16) | Phase 3+ |
+| Production gate not separately defined and approved | Phase 6 |
+
+---
+
+#### §k8.6 Current status (2026-06-01)
+
+| Item | Status |
+|---|---|
+| Local backend proof (7.7k1–7.7k7) | **DONE** |
+| Staging gate checklist (§k8.1) | **DESIGN DONE** — all 17 gates NOT_STARTED |
+| UI gate conditions (§k8.2) | **DEFINED** — not evaluated (staging not deployed) |
+| Approval phases (§k8.3) | **DEFINED** — Phase 0 = current state |
+| UI behaviour spec (§k8.4) | **DEFINED** — not implemented |
+| Hard no-go conditions (§k8.5) | **DEFINED** — all apply |
+| Pilot checklist gate F8-CAL-EDIT | Updated to DESIGN_DONE; see PHASE-7.6 §F8-CAL-EDIT |
+| Calendar edit controls | **NOT WIRED** |
+| Staging reassignment | **NOT ENABLED** |
+| Production reassignment | **NOT APPROVED** |
+
+**Next action:** deploy Azure staging (Workstream C, Stage 7.3b) → auth in staging (Workstream B) → then work through K8-G1–K8-G17 in order.
