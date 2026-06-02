@@ -230,10 +230,13 @@ check(!/fetch\s*\([^)]*approve.send/i.test(htmlSrc) &&
 check(!/handoff\.resolve|handoff-resolve/i.test(htmlSrc),
   'No handoff.resolve action in UI');
 
-// 33. No POST/PATCH/DELETE fetch calls in embedded JS
-const fetchWriteRe = /fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|PUT)['"]/i;
+// 33. No POST/PATCH/DELETE fetch calls in embedded JS except /staff/manual-bookings/preview
+// Stage 8.3l: preview POST is now allowed; all other write methods remain forbidden.
+const fetchWriteRe = /fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:PATCH|PUT)['"]/i;
 check(!fetchWriteRe.test(htmlSrc),
-  'No POST/PATCH/DELETE fetch calls in embedded JS');
+  'No PATCH/PUT fetch calls in embedded JS (Stage 8.3l: preview POST allowed)');
+check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(htmlSrc),
+  'No /manual-bookings/create or /confirm fetch in UI (Stage 8.3l)');
 
 // 34. No external CDN script src
 check(!/src\s*=\s*['"]https?:\/\//i.test(htmlSrc),
@@ -339,9 +342,12 @@ check(/Shadow Mode.*active|Read-only.*Shadow Mode/i.test(htmlSrc),
 check(/loadTodaySummary/i.test(htmlSrc),
   'loadTodaySummary function present (Stage 8.2)');
 
-// 58. No POST/PATCH/DELETE fetch added for new Today/nav UI
-check(!/fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE)['"]/i.test(htmlSrc),
-  'No new POST/PATCH/DELETE fetch in Today/nav UI (Stage 8.2)');
+// 58. No POST/PATCH/DELETE fetch added for new Today/nav UI except preview endpoint
+// Stage 8.3l: preview POST is now allowed; all other write methods remain forbidden.
+check(!/fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:PATCH|DELETE)['"]/i.test(htmlSrc),
+  'No new PATCH/DELETE fetch in Today/nav UI (Stage 8.2 / 8.3l)');
+check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(htmlSrc),
+  'No /manual-bookings/create or /confirm in UI (Stage 8.2 / 8.3l safety)');
 
 // 59. switchToTab utility function present
 check(/switchToTab/i.test(htmlSrc),

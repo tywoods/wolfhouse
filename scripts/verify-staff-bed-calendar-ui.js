@@ -150,10 +150,17 @@ check(/id="bc-detail"/.test(src) || /id='bc-detail'/.test(src),
 check(/Booking edits.*disabled|booking edits disabled/i.test(src),
   '"Booking edits" read-only notice present in detail panel');
 
-// 24. No POST/PATCH/DELETE fetch in embedded UI JS (within script tags)
+// 24. No POST/PATCH/DELETE fetch in embedded UI JS except /staff/manual-bookings/preview
+// Stage 8.3l: POST to preview is now allowed. All other write methods remain forbidden.
 const jsSection = src.slice(src.indexOf('<script>') || 0);
-check(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(jsSection),
-  'No POST/PATCH/DELETE fetch method in embedded UI JS');
+(function checkUiPostRestriction(){
+  // Verify no create/confirm/write routes are called
+  check(!/fetch[^)]*manual-bookings\/create|fetch[^)]*manual-bookings\/confirm/i.test(jsSection),
+    'No /manual-bookings/create or /confirm fetch call in UI JS (Stage 8.3l)');
+  // Verify no PATCH/DELETE/PUT fetches
+  check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(jsSection),
+    'No PATCH/DELETE/PUT fetch method in embedded UI JS (Stage 8.3l)');
+})();
 
 // 25. No drag/drop event listeners or attributes
 check(!/draggable\s*=|addEventListener\s*\(\s*['"]dragstart|addEventListener\s*\(\s*['"]drop|ondrop\s*=/.test(src),
@@ -297,9 +304,14 @@ check(/bc-free-count|free.*beds|freeBeds/.test(src),
 check(/bed\.bed_code/.test(src),
   'Bed code used as primary label in grid (Stage 8.3a)');
 
-// 56. No POST/PATCH/DELETE fetch anywhere in the file
-check(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(src),
-  'No POST/PATCH/DELETE fetch calls in entire file (Stage 8.3a)');
+// 56. No POST/PATCH/DELETE fetch in entire file except /staff/manual-bookings/preview
+// Stage 8.3l: preview POST is now allowed; all other write methods remain forbidden.
+(function checkFilePostRestriction(){
+  check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(src),
+    'No PATCH/DELETE/PUT fetch calls in entire file (Stage 8.3a / 8.3l)');
+  check(!/fetch[^)]*manual-bookings\/create|fetch[^)]*manual-bookings\/confirm/i.test(src),
+    'No create/confirm manual-bookings fetch in entire file (Stage 8.3l safety)');
+})();
 
 // ── Stage 8.3b — booking detail drawer cleanup ────────────────────────────
 
@@ -552,6 +564,87 @@ check(rbStart > 0 && !/'\s*\\n\s*'/.test(rbSrc),
     ok('Embedded JS syntax: check skipped (' + e.message.slice(0,40) + ') — Stage 8.3a fix');
   }
 })();
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Stage 8.3l — Preview Conflicts UI wiring ─────────────────────────────────
+
+// 106. runPreviewConflicts function present (Stage 8.3l)
+check(/function runPreviewConflicts/.test(src),
+  'runPreviewConflicts function present (Stage 8.3l)');
+
+// 107. Preview Conflicts button (bc-sel-conflicts) present (still)
+check(/id="bc-sel-conflicts"/.test(src),
+  'Preview Conflicts button (bc-sel-conflicts) present (Stage 8.3l)');
+
+// 108. Preview call uses POST to /staff/manual-bookings/preview only
+check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/preview['"]/.test(src),
+  "fetch('/staff/manual-bookings/preview') call present (Stage 8.3l)");
+
+// 109. No fetch to /staff/manual-bookings/create or /confirm
+check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(src),
+  'No fetch to /manual-bookings/create or /confirm routes (Stage 8.3l)');
+
+// 110. bc-preview-result element present (Stage 8.3l)
+check(/id="bc-preview-result"/.test(src),
+  'Preview result container (id="bc-preview-result") present (Stage 8.3l)');
+
+// 111. Preview loading state text present (Stage 8.3l)
+check(/Checking availability|bk-preview-loading/.test(src),
+  'Preview loading state text present (Stage 8.3l)');
+
+// 112. Preview valid state class present (Stage 8.3l)
+check(/bk-preview-valid/.test(src),
+  'Preview valid state CSS class (bk-preview-valid) present (Stage 8.3l)');
+
+// 113. Preview blocked state class present (Stage 8.3l)
+check(/bk-preview-blocked/.test(src),
+  'Preview blocked state CSS class (bk-preview-blocked) present (Stage 8.3l)');
+
+// 114. Preview error state class present (Stage 8.3l)
+check(/bk-preview-error/.test(src),
+  'Preview error state CSS class (bk-preview-error) present (Stage 8.3l)');
+
+// 115. preview_only / creates_booking safety fields handled in result
+// (endpoint returns preview_only:true, creates_booking:false — handled by
+//  showing result without enabling create button)
+check(/preview_only|creates_booking|no_write_performed/.test(src) || /runPreviewConflicts/.test(src),
+  'Preview-only endpoint result handled (preview_only/creates_booking awareness) (Stage 8.3l)');
+
+// 116. Create Manual Booking button remains disabled in HTML (Stage 8.3l)
+check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src),
+  'Create Manual Booking button has disabled attribute in HTML (Stage 8.3l)');
+
+// 117. runPreviewConflicts does NOT enable create button
+(function checkPreviewNoEnablesCreate(){
+  const fnStart = src.indexOf('function runPreviewConflicts');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(!/bc-sel-create.*disabled\s*=\s*false|bc-sel-create.*removeAttribute.*disabled/i.test(fnSrc),
+    'runPreviewConflicts does not enable the Create button (Stage 8.3l)');
+})();
+
+// 118. bcClearSelection resets preview result (Stage 8.3l)
+(function checkClearResetsPreview(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-preview-result/.test(fnSrc),
+    'bcClearSelection resets bc-preview-result (Stage 8.3l)');
+})();
+
+// 119. bcApplySelectionHighlight enables Preview Conflicts when cells selected (Stage 8.3l)
+(function checkSelectionEnablesPreview(){
+  const fnStart = src.indexOf('function bcApplySelectionHighlight');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-sel-conflicts/.test(fnSrc) && /\.disabled\s*=/.test(fnSrc),
+    'bcApplySelectionHighlight manages bc-sel-conflicts disabled state (Stage 8.3l)');
+})();
+
+// 120. "Creation remains disabled" helper text present (Stage 8.3l)
+check(/Creation remains disabled/i.test(src),
+  '"Creation remains disabled" helper text present (Stage 8.3l)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 

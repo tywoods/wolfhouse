@@ -54,7 +54,6 @@ SELECT
   bd.bed_label,
   bd.active           AS active,
   bd.sellable         AS sellable,
-  bd.capacity,
   r.id::text          AS room_id,
   r.room_code,
   r.name              AS room_name,

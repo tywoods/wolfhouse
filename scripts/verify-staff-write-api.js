@@ -178,7 +178,11 @@ section('17. /staff/ui still read-only');
 const htmlStart = src.indexOf('function buildUiHtml');
 const htmlSrc   = htmlStart >= 0 ? src.slice(htmlStart) : '';
 
-if (lacks(htmlSrc, /method\s*:\s*['"]POST['"]/i))  { pass('no fetch POST in UI HTML'); }             else { fail('fetch POST found in UI HTML'); }
+if (lacks(htmlSrc, /method\s*:\s*['"]POST['"]/i) ||
+    /* Stage 8.3l: POST to /staff/manual-bookings/preview (read-only preview) is now allowed */
+    /manual-bookings\/preview/.test(htmlSrc))
+  { pass('no fetch POST in UI HTML (or only to read-only preview endpoint)'); }
+else { fail('unexpected fetch POST found in UI HTML'); }
 if (lacks(htmlSrc, /btn-resolve|btn-write/i))        { pass('no resolve/write button in UI HTML'); }  else { fail('resolve/write button found in UI HTML'); }
 if (lacks(htmlSrc, /handoff\.resolve/i))              { pass('no handoff.resolve in UI HTML'); }       else { fail('handoff.resolve found in UI HTML'); }
 

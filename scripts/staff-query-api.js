@@ -1377,6 +1377,18 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bk-form-hint{font-size:11px;color:var(--text-3);font-style:italic;padding-left:158px;margin-top:-3px;margin-bottom:5px}
 .bk-safety-notice{margin-top:16px;padding:10px 14px;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);font-size:11px;color:#A2743D;line-height:1.7}
 .bk-avail-placeholder{font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0}
+/* Stage 8.3l — preview result states */
+.bk-preview-not-run{font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0}
+.bk-preview-loading{font-size:12px;color:var(--text-2);padding:8px 0}
+.bk-preview-valid{background:#f0f5f0;border-left:3px solid #5a8a5a;padding:10px 12px;border-radius:4px;font-size:12px;margin-top:4px}
+.bk-preview-blocked{background:#fff4e0;border-left:3px solid #d4830e;padding:10px 12px;border-radius:4px;font-size:12px;margin-top:4px}
+.bk-preview-error{background:#fef2f0;border-left:3px solid #c0392b;padding:10px 12px;border-radius:4px;font-size:12px;margin-top:4px}
+.bk-preview-badge{font-weight:600;font-size:13px;margin-bottom:5px}
+.bk-preview-list{margin:4px 0 0;padding-left:14px;font-size:11px;opacity:.85}
+.bk-preview-list li{margin:2px 0}
+.bk-preview-meta{margin-top:4px;font-size:11px;opacity:.8}
+.bk-preview-warn{background:#fffbe6;border-left:3px solid #e6c200;padding:8px 12px;border-radius:4px;margin-top:8px;font-size:11px}
+.bk-preview-create-note{font-size:11px;color:var(--text-3);font-style:italic;margin-top:4px;padding:0 4px}
 </style>
 </head>
 <body>
@@ -1699,10 +1711,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
-    <!-- Section: Availability / Conflicts (placeholder) -->
+    <!-- Section: Availability / Conflicts (Stage 8.3l — wired to read-only preview) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Availability / Conflicts</div>
-      <div class="bk-avail-placeholder">Availability and conflict preview will appear here before booking creation is enabled.</div>
+      <div id="bc-preview-result">
+        <div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>
+      </div>
     </div>
 
     <!-- Safety notice -->
@@ -1719,11 +1733,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
         title="Manual booking creation is planned but not enabled in staging.">
         Create Manual Booking
       </button>
-      <button class="btn bc-sel-create-btn" disabled id="bc-sel-conflicts"
-        title="Conflict preview is planned but not enabled in staging.">
+      <button class="btn" disabled id="bc-sel-conflicts"
+        title="Select empty cells to enable conflict preview">
         Preview Conflicts
       </button>
     </div>
+    <div class="bk-preview-create-note">Creation remains disabled until manual booking write gates are approved.</div>
   </div>
 
   <!-- Block detail panel (read-only) -->
@@ -2434,6 +2449,11 @@ function bcClearSelection(){
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'none';
+  /* Reset preview result and disable conflicts button (Stage 8.3l) */
+  var _prClear = el('bc-preview-result');
+  if (_prClear) _prClear.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
+  var _cBtnClear = el('bc-sel-conflicts');
+  if (_cBtnClear){ _cBtnClear.disabled = true; _cBtnClear.title = 'Select empty cells to enable conflict preview'; }
 }
 
 function bcApplySelectionHighlight(){
@@ -2489,12 +2509,131 @@ function bcApplySelectionHighlight(){
   }
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'block';
+  /* Enable/disable Preview Conflicts based on selection (Stage 8.3l) */
+  var _cBtnSel = el('bc-sel-conflicts');
+  if (_cBtnSel) {
+    _cBtnSel.disabled = (selCount < 1);
+    _cBtnSel.title = selCount >= 1 ? 'Check availability for selected dates and bed' : 'Select empty cells to enable conflict preview';
+  }
+  /* Clear stale preview when selection changes (Stage 8.3l) */
+  if (selCount >= 1) {
+    var _prSel = el('bc-preview-result');
+    if (_prSel) _prSel.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
+  }
+}
+
+/* ── Preview Conflicts (Stage 8.3l — read-only, no writes) ─────────────────── */
+/* Posts ONLY to /staff/manual-bookings/preview — no booking created, no writes. */
+function runPreviewConflicts() {
+  if (!bcSel) return;
+  var pr = el('bc-preview-result');
+  if (!pr) return;
+  var cinEl = el('bc-sel-cin');
+  var coutEl = el('bc-sel-cout');
+  var checkIn = cinEl ? cinEl.value : '';
+  var checkOut = coutEl ? coutEl.value : '';
+  if (!checkIn || !checkOut) {
+    pr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing dates</div>Select a date range to preview.</div>';
+    return;
+  }
+  var client = getBcClient();
+  var gcEl = el('bk-guest-count');
+  var guestCount = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
+  var pkgEl = el('bk-package');
+  var depositEl = el('bk-deposit');
+  var totalEl = el('bk-total');
+  var psEl = el('bk-payment-status');
+  var payload = {
+    client_slug: client,
+    check_in: checkIn,
+    check_out: checkOut,
+    selected_bed_codes: [bcSel.bed_code],
+    guest_count: guestCount
+  };
+  if (pkgEl && pkgEl.value) payload.package_or_stay_type = pkgEl.value;
+  if (depositEl && parseFloat(depositEl.value) > 0)
+    payload.deposit_amount_cents = Math.round(parseFloat(depositEl.value) * 100);
+  if (totalEl && parseFloat(totalEl.value) > 0)
+    payload.total_amount_cents = Math.round(parseFloat(totalEl.value) * 100);
+  if (psEl && psEl.value) payload.payment_status = psEl.value;
+  /* Loading state */
+  pr.innerHTML = '<div class="bk-preview-loading">Checking availability\u2026</div>';
+  /* POST to read-only preview endpoint — preview_only=true, creates_booking=false */
+  fetch('/staff/manual-bookings/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload)
+  })
+  .then(function(r) {
+    if (r.status === 401 || r.status === 403) {
+      pr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Could not run preview</div>Please refresh or log in again.</div>';
+      return null;
+    }
+    return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; });
+  })
+  .then(function(res) {
+    if (!res) return;
+    var d = res.data;
+    if (!res.ok || !d || !d.success) {
+      pr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Preview error</div>' +
+        escHtml((d && d.error) || 'Request failed. Please try again.') + '</div>';
+      return;
+    }
+    var avail = d.availability || {};
+    var isValid = avail.is_valid;
+    var blockers = avail.blockers || [];
+    var warnings = avail.warnings || [];
+    var nights = avail.proposed_nights || 0;
+    var bedCount = avail.selected_bed_count || 0;
+    var conflictBeds = avail.conflict_beds || [];
+    var conflictAssignments = avail.conflict_assignments || [];
+    var html = '';
+    if (isValid && blockers.length === 0) {
+      html = '<div class="bk-preview-valid">' +
+        '<div class="bk-preview-badge">\u2714 Available</div>' +
+        '<div>' + nights + ' night' + (nights === 1 ? '' : 's') + ' \u00b7 ' +
+        bedCount + ' bed' + (bedCount === 1 ? '' : 's') + ' selected</div>';
+      if (avail.summary) html += '<div class="bk-preview-meta">' + escHtml(avail.summary) + '</div>';
+      html += '</div>';
+    } else {
+      html = '<div class="bk-preview-blocked">' +
+        '<div class="bk-preview-badge">\u26a0 Not available</div>';
+      if (blockers.length > 0) {
+        html += '<ul class="bk-preview-list">';
+        blockers.forEach(function(b) {
+          html += '<li>' + escHtml(b.code || String(b)) +
+            (b.detail ? ': ' + escHtml(b.detail) : '') + '</li>';
+        });
+        html += '</ul>';
+      }
+      if (conflictBeds.length > 0) {
+        html += '<div class="bk-preview-meta">Conflict beds: ' +
+          conflictBeds.map(function(cb) { return escHtml(cb.bed_code || String(cb)); }).join(', ') +
+          '</div>';
+      }
+      if (conflictAssignments.length > 0) {
+        html += '<div class="bk-preview-meta">Conflicting: ' +
+          conflictAssignments.map(function(ca) {
+            return escHtml(ca.booking_code || ca.booking_id || '?');
+          }).join(', ') + '</div>';
+      }
+      html += '</div>';
+    }
+    if (warnings.length > 0) {
+      html += '<div class="bk-preview-warn">' +
+        warnings.map(function(w) {
+          return escHtml(w.code || String(w)) + (w.detail ? ': ' + escHtml(w.detail) : '');
+        }).join('<br>') + '</div>';
+    }
+    pr.innerHTML = html;
+  })
+  .catch(function() {
+    pr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Could not run preview</div>Please refresh or log in again.</div>';
+  });
 }
 
 function bcHandleCellClick(td){
-  var date = td.dataset.date;
-  var room = td.dataset.room;
-  var bed  = td.dataset.bed;
   if (!date || !room || !bed) return;
   if (!bcSel || bcSel.room_code !== room || bcSel.bed_code !== bed){
     /* Start new selection on this bed */
@@ -2648,6 +2787,9 @@ function renderBedCalendar(data){
   /* Wire selection panel clear button (re-wired each render) */
   var _clearBtn = el('bc-sel-clear');
   if (_clearBtn) _clearBtn.onclick = bcClearSelection;
+  /* Wire Preview Conflicts button (Stage 8.3l — re-wired each render) */
+  var _conflBtn = el('bc-sel-conflicts');
+  if (_conflBtn) _conflBtn.onclick = runPreviewConflicts;
 }
 
 function renderBookingBlock(blk, idx){
