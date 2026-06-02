@@ -1210,6 +1210,207 @@ async function handleQuotePreview(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/bot/booking-preview  (Stage 8.5.2 — Luna bot bridge)
+//
+// Receives parsed Luna/n8n booking details and returns a safe read-only preview:
+//   - missing_fields list (required before booking create)
+//   - quote preview from calculateWolfhouseQuote() if dates/guests/package present
+//   - availability.status = "not_checked" (DB availability requires bed codes)
+//   - next_action: ask_missing_fields | ready_for_create_dry_run |
+//                  staff_review_required | show_quote
+//   - reply_draft: suggested WhatsApp reply text (NOT sent by this endpoint)
+//
+// Safety: no DB write, no Stripe, no WhatsApp, no n8n, no booking creation.
+//   preview_only: true
+//   no_write_performed: true
+//   creates_booking: false
+//   creates_payment: false
+//   creates_stripe_link: false
+//   sends_whatsapp: false
+//
+// Auth: viewer+ (same as /staff/quote-preview).
+//   STAFF_AUTH_REQUIRED=false (local/dev): open.
+//   STAFF_AUTH_REQUIRED=true: requires session cookie with role >= viewer.
+//   n8n auth gap: n8n will need a staff session token or a pre-shared internal
+//   token. Auth model for n8n calls is documented in §7 of
+//   STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md and addressed later.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Required fields for a bot booking to proceed to create.
+// Email is recommended (Stripe receipt) but not hard-blocked here.
+const BOT_BOOKING_REQUIRED_FIELDS = [
+  'check_in',
+  'check_out',
+  'guest_count',
+  'package_code',
+  'room_type',
+  'guest_name',
+  'phone',
+  'payment_choice',
+];
+
+// Human-readable labels for missing-field messages
+const BOT_FIELD_LABELS = {
+  check_in:       'your check-in date',
+  check_out:      'your check-out date',
+  guest_count:    'how many guests',
+  package_code:   'which package (Malibu, Uluwatu, or Waimea)',
+  room_type:      'your room preference (shared or private)',
+  guest_name:     'your name',
+  phone:          'your WhatsApp number',
+  payment_choice: 'whether you prefer to pay a deposit or the full amount',
+};
+
+async function handleBotBookingPreview(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  // ── Extract input fields ──────────────────────────────────────────────────
+  const clientSlug    = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const phone         = String(body.phone        || '').trim();
+  const guestName     = String(body.guest_name   || '').trim();
+  const email         = String(body.email        || '').trim();
+  const checkIn       = String(body.check_in     || '').trim();
+  const checkOut      = String(body.check_out    || '').trim();
+  const guestCount    = body.guest_count != null ? Number(body.guest_count) : null;
+  const packageCode   = body.package_code != null
+    ? String(body.package_code).trim().toLowerCase() : null;
+  const roomType      = String(body.room_type     || 'shared').trim();
+  const paymentChoice = String(body.payment_choice || '').trim();
+  const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
+  const language      = String(body.language || 'en').trim().slice(0, 10);
+  const source        = String(body.source   || 'luna_whatsapp').trim().slice(0, 50);
+
+  const actorId   = user ? user.staff_user_id : 'dev-bot-preview-local';
+  const actorRole = user ? user.role          : 'viewer';
+
+  // ── Detect missing required fields ────────────────────────────────────────
+  const fieldValues = {
+    check_in:       checkIn     || null,
+    check_out:      checkOut    || null,
+    guest_count:    (guestCount != null && guestCount > 0) ? guestCount : null,
+    package_code:   packageCode || null,
+    room_type:      roomType    || null,
+    guest_name:     guestName   || null,
+    phone:          phone       || null,
+    payment_choice: paymentChoice || null,
+  };
+
+  const missingFields = BOT_BOOKING_REQUIRED_FIELDS.filter((f) => !fieldValues[f]);
+
+  // ── Quote preview ─────────────────────────────────────────────────────────
+  // Attempt if core quote fields are present: dates, guest count, package.
+  // room_type defaults to 'shared' and payment_choice to 'deposit' if absent.
+  const canQuote = !!(checkIn && checkOut && guestCount && guestCount > 0 && packageCode);
+  let quote = null;
+  let quoteError = null;
+  if (canQuote) {
+    try {
+      quote = calculateWolfhouseQuote({
+        client_slug:    clientSlug,
+        check_in:       checkIn,
+        check_out:      checkOut,
+        guest_count:    guestCount,
+        package_code:   packageCode,
+        room_type:      roomType || 'shared',
+        payment_choice: paymentChoice || 'deposit',
+        add_ons:        addOns,
+      });
+    } catch (err) {
+      quoteError = err.message;
+    }
+  }
+
+  // ── next_action ───────────────────────────────────────────────────────────
+  let nextAction;
+  if (missingFields.length > 0) {
+    nextAction = 'ask_missing_fields';
+  } else if (quoteError) {
+    nextAction = 'staff_review_required';
+  } else if (quote && !quote.success) {
+    nextAction = quote.staff_review_required ? 'staff_review_required' : 'ask_missing_fields';
+  } else if (quote && quote.success) {
+    nextAction = 'ready_for_create_dry_run';
+  } else {
+    nextAction = 'show_quote';
+  }
+
+  // ── reply_draft ───────────────────────────────────────────────────────────
+  let replyDraft;
+  if (nextAction === 'ask_missing_fields') {
+    const readable = missingFields.map((f) => BOT_FIELD_LABELS[f] || f);
+    const shown    = readable.slice(0, 3);
+    const extra    = readable.length > 3 ? ` and ${readable.length - 3} more` : '';
+    replyDraft = `Great, I can help you book. Could you also share: ${shown.join(', ')}${extra}?`;
+  } else if (nextAction === 'staff_review_required') {
+    replyDraft = "I'm going to have the team check this and get back to you shortly.";
+  } else if ((nextAction === 'ready_for_create_dry_run' || nextAction === 'show_quote') && quote) {
+    const totalEur   = (quote.total_cents / 100).toFixed(2);
+    const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
+    replyDraft = `For those dates, the estimated total is \u20ac${totalEur}. You can pay a \u20ac${depositEur} deposit now or the full amount.`;
+  } else {
+    replyDraft = 'Let me check those dates and get back to you.';
+  }
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts:                  new Date().toISOString(),
+    intent:              'api:bot_booking_preview',
+    category:            'bot_booking_preview',
+    preview_only:        true,
+    no_write_performed:  true,
+    creates_booking:     false,
+    creates_payment:     false,
+    creates_stripe_link: false,
+    sends_whatsapp:      false,
+    success:             true,
+    client_slug:         clientSlug,
+    source,
+    check_in:            checkIn  || null,
+    check_out:           checkOut || null,
+    guest_count:         guestCount,
+    package_code:        packageCode,
+    missing_fields:      missingFields,
+    next_action:         nextAction,
+    quote_success:       quote ? quote.success : null,
+    elapsed_ms:          elapsed,
+    staff_user_id:       actorId,
+    staff_role:          actorRole,
+  });
+
+  return sendJSON(res, 200, {
+    success:             true,
+    preview_only:        true,
+    no_write_performed:  true,
+    creates_booking:     false,
+    creates_payment:     false,
+    creates_stripe_link: false,
+    sends_whatsapp:      false,
+    source,
+    missing_fields:      missingFields,
+    has_missing_fields:  missingFields.length > 0,
+    next_action:         nextAction,
+    reply_draft:         replyDraft,
+    quote,
+    quote_error:         quoteError || null,
+    availability: {
+      status:  'not_checked',
+      message: 'Availability requires specific bed codes. Call /staff/manual-bookings/preview with selected_bed_codes for a full conflict check.',
+    },
+    email_recommended: !email,
+    elapsed_ms:        elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/stripe/webhook  (Stage 8.4.11 — Stripe payment truth)
@@ -6695,6 +6896,19 @@ async function router(req, res) {
     return handlePaymentCreateStripeLink(stripeMatch[1], req, res, auth.user);
   }
 
+  // ── Stage 8.5.2 — Luna bot booking preview (pure read-only, no DB writes) ──
+  // POST to carry JSON payload. No DB writes, no Stripe, no WhatsApp, no n8n.
+  // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  if (pathname === '/staff/bot/booking-preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/booking-preview' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleBotBookingPreview(req, res, auth.user);
+  }
+
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
   // POST to carry JSON payload; never touches DB, Stripe, or any external service.
   // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
@@ -6844,6 +7058,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   if (STAFF_ACTIONS_ENABLED) {
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);

@@ -80,6 +80,7 @@
     "verify:wolfhouse-pricing-config": "node scripts/verify-wolfhouse-pricing-config.js",
     "verify:wolfhouse-quote-calculator": "node scripts/verify-wolfhouse-quote-calculator.js",
     "verify:staff-quote-preview-api": "node scripts/verify-staff-quote-preview-api.js",
+    "verify:staff-bot-booking-preview-api": "node scripts/verify-staff-bot-booking-preview-api.js",
     "verify:staff-booking-detail-queries": "node scripts/verify-staff-booking-detail-queries.js",
     "verify:staff-booking-detail-api": "node scripts/verify-staff-booking-detail-api.js",
     "verify:stage77j-copy-review-workflow": "node scripts/verify-stage77j-copy-review-workflow.js",

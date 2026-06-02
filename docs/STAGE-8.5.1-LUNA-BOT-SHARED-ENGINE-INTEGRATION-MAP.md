@@ -340,6 +340,8 @@ Each slice is independently gated, independently provable, and does not depend o
 **Type:** Docs/static inspection only. No DB. No n8n activation.
 **Pass criteria:** Report of all payment-related Code nodes in bot workflows, with exact line references showing where amounts originate.
 
+> **Stage 8.5.2 RE-SCOPED AND DELIVERED (2026-06-02):** Instead of a passive JSON-reading verifier, 8.5.2 delivered the actual Luna bot booking preview API endpoint `POST /staff/bot/booking-preview` in `scripts/staff-query-api.js`. This is the first working bridge from Luna/n8n to the shared engine. Static verifier `scripts/verify-staff-bot-booking-preview-api.js` 53/53 PASS. Local proof: missing-fields → `ask_missing_fields` + reply_draft; complete Malibu 5-night → `ready_for_create_dry_run` + `quote.total_cents=45000` + `preview_only:true` + `no_write_performed:true`. No DB writes. No Stripe. No WhatsApp. No n8n activation.
+
 ### 8.5.3 — Bot quote preview call from parsed booking details, dry-run only
 **Goal:** Prove that a set of bot parser outputs (dates, guests, package, room_type) can be passed to `calculateWolfhouseQuote()` and return a valid quote snapshot. No DB write. No Stripe. No WhatsApp.
 **Type:** Static verifier script or unit test. Calls `calculateWolfhouseQuote()` directly with bot-parser-shaped inputs.
