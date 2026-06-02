@@ -1180,7 +1180,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* Preserve helper classes used in detail JS */
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
-#conv-detail{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
+#conv-detail,#hq-right{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
 .detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
@@ -1239,12 +1239,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .sub-panel.active{display:block}
 /* ── Handoff queue ───────────────────────────────────────────────────────── */
 .hq-note{font-size:11.5px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;line-height:1.5}
-.hq-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
-.hq-table th{background:var(--surface-soft);text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);font-weight:700;white-space:nowrap;font-size:10.5px;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
-.hq-table td{padding:10px 12px;border-bottom:1px solid var(--border-soft);vertical-align:middle;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hq-table tr{transition:background .14s}
-.hq-table tr:hover td{background:var(--surface-soft);cursor:pointer}
-.hq-table tr.selected td{background:#F5E6D2}
+/* .hq-table removed — Needs Human now uses same conv-card layout as Inbox */
 .hq-ro-label{font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--text-2);background:var(--sand);padding:3px 9px;border-radius:var(--radius-pill);margin-left:8px}
 .since{font-size:11px;color:#A2743D;font-weight:600}
 .since.stale{color:#9C5742}
@@ -1477,35 +1472,33 @@ textarea.bk-input{resize:vertical;min-height:60px}
   </div><!-- /inbox-two-col -->
   </div><!-- /subtab-inbox -->
 
-  <!-- Sub-panel: Handoff queue -->
+  <!-- Sub-panel: Needs Human (same two-column layout as Inbox, filtered to needs-human) -->
   <div class="sub-panel" id="subtab-handoffs">
-  <div class="card" id="handoff-card">
-    <div class="toolbar">
-      <h2>Needs Human &mdash; Handoff Queue <span class="hq-ro-label">READ-ONLY HANDOFF QUEUE</span></h2>
-      <span id="hq-count-txt" style="font-size:12px;color:#9aabb8"></span>
-      <button class="btn btn-primary" id="btn-refresh-hq">&#8635; Refresh</button>
+  <div class="inbox-two-col">
+
+    <!-- LEFT: needs-human conversation cards -->
+    <div class="inbox-left" id="handoff-card">
+      <div class="inbox-left-toolbar">
+        <h2>Needs Human</h2>
+        <span id="hq-count-txt" style="font-size:11px;color:var(--text-3)"></span>
+        <button class="btn btn-primary" id="btn-refresh-hq" style="padding:6px 12px;font-size:11px">&#8635;</button>
+      </div>
+      <div class="hq-note" style="padding:8px 14px;font-size:11px;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)">Resolve actions are disabled &mdash; read-only view. <span class="hq-ro-label">READ-ONLY HANDOFF QUEUE</span></div>
+      <div id="hq-state" class="state-msg" style="padding:16px;display:none">Loading&hellip;</div>
+      <div id="hq-list"></div>
     </div>
-    <div class="hq-note">Resolve actions are disabled in the UI until production auth/TLS and write gates are approved. This is a read-only view only.</div>
-    <div id="hq-state" class="state-msg">Loading&hellip;</div>
-    <div id="hq-table-wrap" style="display:none;overflow-x:auto">
-      <table class="hq-table">
-        <thead>
-          <tr>
-            <th>Priority</th>
-            <th>Guest</th>
-            <th>Phone</th>
-            <th>Reason</th>
-            <th>Status</th>
-            <th>Assigned</th>
-            <th>Booking</th>
-            <th>Opened</th>
-            <th>Since opened</th>
-          </tr>
-        </thead>
-        <tbody id="hq-tbody"></tbody>
-      </table>
+
+    <!-- RIGHT: conversation detail for selected needs-human conversation -->
+    <div id="hq-right">
+      <div id="hq-detail-content">
+        <div class="inbox-empty-right">
+          <p class="main-msg">Select a conversation to review.</p>
+          <p class="sub-msg">Luna drafts and booking context will appear here.</p>
+        </div>
+      </div>
     </div>
-  </div>
+
+  </div><!-- /inbox-two-col -->
   </div><!-- /subtab-handoffs -->
 
 </div><!-- /wrap -->
@@ -1762,6 +1755,12 @@ function fmtTs(ts){
   } catch(_){ return String(ts); }
 }
 
+/* Format date-only (no time) from ISO string or date value */
+function fmtDateOnly(d){
+  if (!d) return '—';
+  try { return String(d).slice(0, 10); } catch(_){ return String(d || '—'); }
+}
+
 /* ── Tab utilities ────────────────────────────────────────────────────────── */
 function switchToTab(tab, subtab){
   document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
@@ -1913,11 +1912,13 @@ function loadInbox(){
     });
 }
 
-/* Load conversation detail — Stage 7.7d: fetches all 5 sub-endpoints */
-function loadConvDetail(convId){
+/* Load conversation detail — Stage 7.7d: fetches all 5 sub-endpoints.
+   targetEl: optional DOM element to render into (defaults to el('detail-content')). */
+function loadConvDetail(convId, targetEl){
+  targetEl = targetEl || el('detail-content');
   selectedConvId = convId;
-  el('conv-detail').classList.add('visible');
-  el('detail-content').innerHTML = '<div class="state-msg">Loading\u2026</div>';
+  if (targetEl === el('detail-content')) el('conv-detail').classList.add('visible');
+  targetEl.innerHTML = '<div class="state-msg">Loading\u2026</div>';
 
   var base = '/staff/conversations/' + encodeURIComponent(convId);
   var qs   = '?client=' + encodeURIComponent(getClient());
@@ -1965,9 +1966,8 @@ function loadConvDetail(convId){
     /* ═══ LEFT — thread + draft panel ═══ */
     html += '<div class="detail-main">';
 
-    /* Message thread */
+    /* Message thread — no title per Stage 8.3y */
     html += '<div class="thread-section">';
-    html +=   '<h3>Messages</h3>';
     html +=   '<div class="thread" id="thread-container">';
     if (msgs.length === 0){
       html += '<div class="thread-empty">No message history yet &mdash; messages appear here once the guest contacts via WhatsApp.</div>';
@@ -2032,30 +2032,7 @@ function loadConvDetail(convId){
     /* ═══ RIGHT — context sidebar ═══ */
     html += '<div class="detail-sidebar">';
 
-    /* Bot / staff state card */
-    var ss = state || {};
-    html += '<div class="sidebar-card">';
-    html +=   '<h3>Bot state</h3>';
-    html +=   '<div class="kv2">';
-    html +=     kv('Mode',        ss.bot_mode   || c.bot_mode) +
-                kv('Needs human', ss.needs_human != null ? String(ss.needs_human) : String(c.needs_human)) +
-                kv('Pending',     ss.pending_action || c.pending_action || '—') +
-                kv('Last reply',  fmtTs(ss.last_staff_reply_at || c.last_staff_reply_at) || '—');
-    html +=   '</div>';
-    if (ss.handoff_id){
-      html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
-      html +=   '<div style="font-size:11px;font-weight:700;color:#e67e22;margin-bottom:6px">OPEN HANDOFF</div>';
-      html +=   '<div class="kv2">';
-      html +=     kv('Reason',   ss.handoff_reason) +
-                  kv('Priority', ss.handoff_priority) +
-                  kv('Assigned', ss.assigned_staff || '—') +
-                  kv('Opened',   fmtTs(ss.handoff_opened_at));
-      html +=   '</div>';
-      html += '</div>';
-    }
-    html += '</div>'; /* /sidebar-card */
-
-    /* Booking + payment context card */
+    /* ── 1. Booking + payment context card (shown first) ── */
     var bctx = ctx || {};
     html += '<div class="sidebar-card">';
     html +=   '<h3>Booking</h3>';
@@ -2066,8 +2043,7 @@ function loadConvDetail(convId){
       html +=   kv('Code',        bctx.booking_code) +
                 kv('Status',      bctx.booking_status) +
                 kv('Payment',     bctx.booking_payment_status) +
-                kv('Check-in',    bctx.check_in) +
-                kv('Check-out',   bctx.check_out) +
+                kv('Stay',        fmtDateOnly(bctx.check_in) + ' \u2192 ' + fmtDateOnly(bctx.check_out)) +
                 kv('Guests',      bctx.guest_count) +
                 kv('Package',     bctx.package_code) +
                 kv('Room pref',   bctx.room_preference || bctx.requested_room_type || '—') +
@@ -2087,6 +2063,27 @@ function loadConvDetail(convId){
     }
     html += '</div>'; /* /sidebar-card */
 
+    /* ── 2. Bot / staff state card (shown second, simplified) ── */
+    var ss = state || {};
+    html += '<div class="sidebar-card">';
+    html +=   '<h3>Bot state</h3>';
+    html +=   '<div class="kv2">';
+    html +=     kv('Mode',        ss.bot_mode   || c.bot_mode) +
+                kv('Needs human', ss.needs_human != null ? String(ss.needs_human) : String(c.needs_human));
+    html +=   '</div>';
+    if (ss.handoff_id){
+      html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
+      html +=   '<div style="font-size:11px;font-weight:700;color:#e67e22;margin-bottom:6px">OPEN HANDOFF</div>';
+      html +=   '<div class="kv2">';
+      html +=     kv('Reason',   ss.handoff_reason) +
+                  kv('Priority', ss.handoff_priority) +
+                  kv('Assigned', ss.assigned_staff || '—') +
+                  kv('Opened',   fmtTs(ss.handoff_opened_at));
+      html +=   '</div>';
+      html += '</div>';
+    }
+    html += '</div>'; /* /sidebar-card */
+
     /* Notes / summary */
     if (c.human_notes || c.conversation_summary){
       html += '<div class="sidebar-card">';
@@ -2099,12 +2096,12 @@ function loadConvDetail(convId){
     html += '</div>'; /* /detail-sidebar */
     html += '</div>'; /* /detail-layout */
 
-    el('detail-content').innerHTML = html;
+    targetEl.innerHTML = html;
 
     /* Wire copy button after DOM update */
-    var copyBtn   = document.getElementById('btn-copy-draft');
-    var confirmEl = document.getElementById('copy-confirm');
-    var textaEl   = document.getElementById('draft-textarea');
+    var copyBtn   = targetEl.querySelector('#btn-copy-draft');
+    var confirmEl = targetEl.querySelector('#copy-confirm');
+    var textaEl   = targetEl.querySelector('#draft-textarea');
     if (copyBtn && textaEl){
       copyBtn.addEventListener('click', function(){
         var text = textaEl.value;
@@ -2122,11 +2119,11 @@ function loadConvDetail(convId){
     }
 
     /* Scroll thread to bottom */
-    var threadEl = document.getElementById('thread-container');
+    var threadEl = targetEl.querySelector('#thread-container');
     if (threadEl) threadEl.scrollTop = threadEl.scrollHeight;
   })
   .catch(function(err){
-    el('detail-content').innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
+    targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
   });
 }
 
@@ -2196,76 +2193,66 @@ function hqPriorityPill(p){
   return '<span class="pill pill-grey">' + escHtml(p||'—') + '</span>';
 }
 
-/* Render handoff queue table */
+/* Render needs-human conversations as conv-cards (same style as Inbox) */
 function renderHandoffQueue(handoffs){
-  var tbody = el('hq-tbody');
+  var list = el('hq-list');
 
   if (!handoffs || handoffs.length === 0){
-    el('hq-state').textContent = 'No open handoffs right now.';
+    el('hq-state').textContent = 'No conversations need staff review right now.';
     el('hq-state').classList.remove('error');
     el('hq-state').style.display = 'block';
-    el('hq-table-wrap').style.display = 'none';
+    if (list) list.innerHTML = '';
     el('hq-count-txt').textContent = '';
     return;
   }
 
   el('hq-state').style.display = 'none';
-  el('hq-table-wrap').style.display = 'block';
-  el('hq-count-txt').textContent = handoffs.length + ' open handoff' + (handoffs.length===1?'':'s');
+  el('hq-count-txt').textContent = handoffs.length + ' open' + (handoffs.length === 1 ? '' : 's');
 
   /* Update badge */
   var badge = el('hq-badge');
-  badge.textContent = handoffs.length;
-  badge.classList.add('visible');
+  if (badge){ badge.textContent = handoffs.length; badge.classList.add('visible'); }
 
-  var rows = handoffs.map(function(h){
-    var since = timeSince(h.opened_at);
-    var staleClass = isStale(h.opened_at) ? ' stale' : '';
-    return '<tr data-conv-id="' + escHtml(h.conversation_id||'') + '" data-hid="' + escHtml(h.handoff_id) + '">' +
-      '<td>' + hqPriorityPill(h.priority) + '</td>' +
-      '<td class="guest-name">' + escHtml(h.guest_name || '—') + '</td>' +
-      '<td class="phone-cell">' + escHtml(h.phone || '—') + '</td>' +
-      '<td>' + escHtml(h.reason_code || '—') + '</td>' +
-      '<td>' + escHtml(h.status || '—') + '</td>' +
-      '<td>' + escHtml(h.assigned_staff || '—') + '</td>' +
-      '<td>' + escHtml(h.booking_code || '—') + '</td>' +
-      '<td class="ts-cell">' + escHtml(h.opened_at ? new Date(h.opened_at).toLocaleDateString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—') + '</td>' +
-      '<td><span class="since' + staleClass + '">' + escHtml(since) + '</span></td>' +
-    '</tr>';
+  if (!list) return;
+  list.innerHTML = handoffs.map(function(h){
+    var label = h.reason_code ? handoffLabel(h.reason_code) : '';
+    return '<div class="conv-card" data-conv-id="' + escHtml(h.conversation_id||'') + '" data-hid="' + escHtml(h.handoff_id||'') + '">' +
+      '<div class="conv-card-name">' + escHtml(h.guest_name || '—') + '</div>' +
+      '<div class="conv-card-phone">' + escHtml(h.phone || '—') + '</div>' +
+      '<div class="conv-card-pills">' + hqPriorityPill(h.priority) + '</div>' +
+      (label ? '<div class="conv-card-handoff">' + escHtml(label) + '</div>' : '') +
+    '</div>';
   }).join('');
-  tbody.innerHTML = rows;
 
-  tbody.querySelectorAll('tr').forEach(function(row){
-    row.addEventListener('click', function(){
-      var convId = this.dataset.convId;
-      tbody.querySelectorAll('tr').forEach(function(r){ r.classList.remove('selected'); });
+  list.querySelectorAll('.conv-card').forEach(function(card){
+    card.addEventListener('click', function(){
+      list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
       this.classList.add('selected');
+      var convId = this.dataset.convId;
+      var detailEl = el('hq-detail-content');
       if (convId && convId !== 'null' && convId !== ''){
-        /* Switch to Inbox sub-tab and open detail */
-        document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
-        document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
-        document.querySelector('.sub-tab[data-subtab="inbox"]').classList.add('active');
-        el('subtab-inbox').classList.add('active');
-        loadConvDetail(convId);
+        loadConvDetail(convId, detailEl);
       } else {
-        el('conv-detail').classList.add('visible');
-        el('detail-content').innerHTML = '<div class="state-msg" style="color:#9aabb8">No conversation linked to this handoff yet.</div>';
-        document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
-        document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
-        document.querySelector('.sub-tab[data-subtab="inbox"]').classList.add('active');
-        el('subtab-inbox').classList.add('active');
+        detailEl.innerHTML = '<div class="state-msg" style="color:#9aabb8">No conversation linked to this handoff yet.</div>';
       }
     });
   });
 }
 
-/* Load handoff queue */
+/* Load needs-human handoff queue */
 function loadHandoffQueue(){
   hqLoaded = true;
   el('hq-state').textContent = 'Loading\u2026';
   el('hq-state').classList.remove('error');
   el('hq-state').style.display = 'block';
-  el('hq-table-wrap').style.display = 'none';
+  if (el('hq-list')) el('hq-list').innerHTML = '';
+  el('hq-count-txt').textContent = '';
+  /* Reset NH right panel to empty state */
+  el('hq-detail-content').innerHTML =
+    '<div class="inbox-empty-right">' +
+    '<p class="main-msg">Select a conversation to review.</p>' +
+    '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
+    '</div>';
 
   fetch('/staff/handoffs?client=' + encodeURIComponent(getClient()))
     .then(function(r){
@@ -2286,7 +2273,6 @@ function loadHandoffQueue(){
       el('hq-state').textContent = 'Error loading handoff queue: ' + err.message;
       el('hq-state').classList.add('error');
       el('hq-state').style.display = 'block';
-      el('hq-table-wrap').style.display = 'none';
     });
 }
 

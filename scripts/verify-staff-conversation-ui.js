@@ -2,7 +2,7 @@
  * Stage 7.7f — Static verifier for the Cami dashboard conversation UI
  * embedded in scripts/staff-query-api.js (buildUiHtml).
  *
- * Checks (66 total, updated Stage 8.3x — WhatsApp-style inbox layout):
+ * Checks (77 total, updated Stage 8.3y — Needs Human two-column layout):
  *   1–3:   File exists, readable, passes node --check
  *   4–6:   Dashboard branding / banner
  *   7–9:   Two-tab structure (Conversations + Query Tools)
@@ -40,9 +40,9 @@
  *   44:    Stage 7.7f banner label present
  *   45:    Conversations sub-tabs present (sub-tab / subtab-inbox / subtab-handoffs)
  *   46:    Needs Human / Handoffs sub-tab button present
- *   47:    Handoff queue card element present (handoff-card / hq-tbody)
+ *   47:    Handoff queue list element present (handoff-card / hq-list) [updated 8.3y]
  *   48:    fetch('/staff/handoffs') call present
- *   49:    Handoff queue empty state ("No open handoffs right now")
+ *   49:    Needs Human empty state message updated [updated 8.3y]
  *   50:    READ-ONLY HANDOFF QUEUE label present
  *   51:    Resolve disabled notice present in handoff queue UI
  *   52:    timeSince / time-since-open rendering logic present
@@ -61,6 +61,18 @@
  *   64:    "Message thread" count title removed
  *   65:    Raw stage display removed from detail header
  *   66:    Friendly handoff label used in renderInbox (handoffLabel call)
+ *  --- Stage 8.3y: Needs Human two-column layout + detail cleanup ---
+ *   67:    Needs Human two-column layout elements (hq-right / hq-list / hq-detail-content)
+ *   68:    Needs Human uses conv-card layout via renderHandoffQueue
+ *   69:    handoffLabel() reused in renderHandoffQueue (Needs Human friendly labels)
+ *   70:    reason_code not directly passed to escHtml in list templates
+ *   71:    "Messages" section title removed from thread area
+ *   72:    Booking sidebar card appears before Bot state card
+ *   73:    Pending removed from Bot state
+ *   74:    Last reply removed from Bot state
+ *   75:    Check-in/Check-out on same line (Stay / fmtDateOnly)
+ *   76:    fmtDateOnly helper present for date-only display
+ *   77:    Signout functionality present
  *
  * Usage:
  *   node scripts/verify-staff-conversation-ui.js
@@ -84,7 +96,7 @@ function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFai
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-console.log('\nverify-staff-conversation-ui.js  (Stage 7.7f / 8.3x)\n');
+console.log('\nverify-staff-conversation-ui.js  (Stage 7.7f / 8.3y)\n');
 
 // 1. File exists
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
@@ -279,18 +291,18 @@ check(/sub-tab|subtab-inbox|subtab-handoffs/i.test(htmlSrc),
 check(/Needs Human|Handoffs/i.test(htmlSrc) && /sub-tab/i.test(htmlSrc),
   '"Needs Human" handoff sub-tab button present');
 
-// 47. Handoff queue card element
-check(/handoff-card|hq-tbody|hq-table/i.test(htmlSrc),
-  'Handoff queue card/table element present (handoff-card / hq-tbody)');
+// 47. Handoff queue list element (now uses hq-list / handoff-card — no longer hq-table/hq-tbody)
+check(/handoff-card|hq-list/i.test(htmlSrc),
+  'Handoff queue card/list element present (handoff-card / hq-list) (updated 8.3y)');
 
 // 48. fetch('/staff/handoffs') call present
 check(/fetch\s*\([^)]*\/staff\/handoffs/.test(htmlSrc) ||
       /\/staff\/handoffs/.test(htmlSrc),
   "fetch('/staff/handoffs') call present in handoff queue loader");
 
-// 49. Empty state "No open handoffs right now"
-check(/No open handoffs/i.test(htmlSrc),
-  'Handoff queue empty state message ("No open handoffs right now")');
+// 49. Needs Human empty state message (updated 8.3y: friendlier wording)
+check(/No conversations need staff review|No open handoffs/i.test(htmlSrc),
+  'Needs Human empty state message present (updated 8.3y)');
 
 // 50. READ-ONLY HANDOFF QUEUE label
 check(/READ-ONLY HANDOFF QUEUE/i.test(htmlSrc),
@@ -365,6 +377,57 @@ check(!/Stage:.*escHtml.*conversation_stage|conversation_stage.*Stage:/i.test(ht
 // 66. handoffLabel() called in renderInbox for friendly handoff display
 check(/handoffLabel\s*\(/.test(htmlSrc),
   'handoffLabel() called in renderInbox for friendly handoff text (Stage 8.3x)');
+
+// ── Stage 8.3y — Needs Human two-column + detail cleanup ─────────────────
+
+// 67. Needs Human two-column layout elements present
+check(/hq-right|hq-list|hq-detail-content/i.test(htmlSrc),
+  'Needs Human two-column layout elements present (hq-right / hq-list) (Stage 8.3y)');
+
+// 68. Needs Human uses conv-card layout via renderHandoffQueue
+check(/renderHandoffQueue/.test(htmlSrc) && /conv-card/.test(htmlSrc),
+  'Needs Human uses conv-card layout via renderHandoffQueue (Stage 8.3y)');
+
+// 69. handoffLabel() reused in renderHandoffQueue for friendly Needs Human labels
+const nhFnMatch = htmlSrc.match(/function renderHandoffQueue\(handoffs\)([\s\S]*?)^\}/m);
+const nhFnSrc = nhFnMatch ? nhFnMatch[0] : '';
+check(nhFnSrc.includes('handoffLabel'),
+  'handoffLabel() called inside renderHandoffQueue (Stage 8.3y)');
+
+// 70. reason_code not directly passed to escHtml in list templates (goes via handoffLabel)
+check(!/escHtml\s*\(\s*[a-z]+\.reason_code/i.test(htmlSrc),
+  'reason_code not directly passed to escHtml in list template (Stage 8.3y)');
+
+// 71. "Messages" section title removed from thread area
+check(!/'<h3>Messages<\/h3>'/.test(htmlSrc) &&
+      !/html\s*\+=\s*'<h3>Messages<\/h3>'/.test(htmlSrc),
+  '"Messages" section title removed from thread area (Stage 8.3y)');
+
+// 72. Booking sidebar card appears before Bot state card
+const bookingIdx = htmlSrc.indexOf("'<h3>Booking</h3>'");
+const botIdx     = htmlSrc.indexOf("'<h3>Bot state</h3>'");
+check(bookingIdx !== -1 && botIdx !== -1 && bookingIdx < botIdx,
+  'Booking sidebar card rendered before Bot state card (Stage 8.3y)');
+
+// 73. Pending row removed from Bot state
+check(!/kv\s*\(\s*['"]Pending['"]/i.test(htmlSrc),
+  'Pending row removed from Bot state sidebar (Stage 8.3y)');
+
+// 74. Last reply row removed from Bot state
+check(!/kv\s*\(\s*['"]Last reply['"]/i.test(htmlSrc),
+  'Last reply row removed from Bot state sidebar (Stage 8.3y)');
+
+// 75. Check-in and Check-out on same line using fmtDateOnly
+check(/kv\s*\(\s*['"]Stay['"]/.test(htmlSrc) || /fmtDateOnly.*fmtDateOnly/.test(htmlSrc),
+  'Check-in/Check-out combined on one line (Stay row / fmtDateOnly) (Stage 8.3y)');
+
+// 76. fmtDateOnly helper function present
+check(/function fmtDateOnly/.test(htmlSrc),
+  'fmtDateOnly() date-only formatter present (Stage 8.3y)');
+
+// 77. Signout functionality present
+check(/signout|logout|sign-out|log-out/i.test(htmlSrc),
+  'Signout functionality present (Stage 8.3y)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 
