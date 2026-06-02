@@ -428,7 +428,7 @@ Changes shipped in `scripts/staff-query-api.js`:
 
 **Safety flags:** `STAFF_ACTIONS_ENABLED=false` · `WHATSAPP_DRY_RUN=true` · n8n inactive.
 
-**Azure proof:** pending (see commit `ui(stage8.3b)`).
+**Azure proof:** DONE — image `whstagingacr.azurecr.io/wh-staff-api:404ee9a-8x3b` built (ACR run cb6), deployed to revision `wh-staging-staff-api--0000007`. Login page at `https://staff-staging.lunafrontdesk.com/staff/login` returns 200 with Luna Front Desk branding. Full drawer UI requires authenticated login. STAFF_ACTIONS_ENABLED=false, WHATSAPP_DRY_RUN=true, n8n inactive.
 
 ## 15. Next slice
 
