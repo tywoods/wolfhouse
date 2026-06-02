@@ -1,7 +1,7 @@
-# Stage 8.3e — Manual Booking Write Gate Plan (Luna Front Desk)
+ï»¿# Stage 8.3e ï¿½ Manual Booking Write Gate Plan (Luna Front Desk)
 
-**Status:** 8.3i DONE (2026-06-02). **8.3j DONE (2026-06-02) — schema mismatches fixed, fixture proof 65/65 PASS, helper production-schema-compatible.** No API route. No UI. No Azure. Staff writes disabled.
-**Parent:** [`STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md`](STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md) — §4 (manual booking creation).
+**Status:** 8.3i DONE (2026-06-02). **8.3j DONE (2026-06-02) ï¿½ schema mismatches fixed, fixture proof 65/65 PASS, helper production-schema-compatible.** **8.3k DONE (2026-06-02) ï¿½ rollback/undo proof 59/59 PASS, final delta=0, all blockers verified.** No API route. No UI. No Azure. Staff writes disabled.
+**Parent:** [`STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md`](STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md) ï¿½ ï¿½4 (manual booking creation).
 **Builds on:** Stage 8.3c (selection model DONE), Stage 8.3d (preview skeleton DONE), `scripts/lib/manual-entry-pg-sql.js` (proven local helper), `scripts/lib/staff-bed-reassignment-sql.js` (7.7k gate pattern), [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) (D1/D2/D4/D6/F8/F9 gates).
 **HEAD at authoring:** `c25a593`.
 **Pilot decision:** Remains **NO_GO**. Manual booking writes are **NOT implemented and NOT enabled**. `STAFF_ACTIONS_ENABLED=false`, `WHATSAPP_DRY_RUN=true`, all n8n workflows inactive.
@@ -16,7 +16,7 @@ Manual booking creation from the bed calendar is the **highest-risk staff write*
 
 It must not be enabled until the system can safely:
 
-- check availability for the exact selected beds × dates,
+- check availability for the exact selected beds ï¿½ dates,
 - prevent overlaps (no silent overwrite of an existing assignment),
 - create `bookings` + `booking_beds` **consistently in one transaction**,
 - record payment/deposit info **manually only** (no auto-charge),
@@ -24,15 +24,15 @@ It must not be enabled until the system can safely:
 - audit the staff actor (who/what/when/result),
 - roll back / undo a manual booking safely,
 - prove idempotency (no duplicate booking on retry),
-- pass the staging approval gates (§11) with human sign-off (§11, §16).
+- pass the staging approval gates (ï¿½11) with human sign-off (ï¿½11, ï¿½16).
 
-This plan also establishes the **reference write-gate pattern** that the other calendar write operations (move/cancel/date-change, tour-operator block, operator room release) will reuse (§13).
+This plan also establishes the **reference write-gate pattern** that the other calendar write operations (move/cancel/date-change, tour-operator block, operator room release) will reuse (ï¿½13).
 
 ---
 
 ## 2. What the write operation will eventually create
 
-When (and only when) all gates pass, a confirmed manual booking will create, **inside one explicit `BEGIN … COMMIT` transaction**, the following:
+When (and only when) all gates pass, a confirmed manual booking will create, **inside one explicit `BEGIN ï¿½ COMMIT` transaction**, the following:
 
 | Artefact | Condition | Source basis |
 |---|---|---|
@@ -41,7 +41,7 @@ When (and only when) all gates pass, a confirmed manual booking will create, **i
 | Manual payment/balance fields **or** one manual `payments` row | only if deposit/total entered | new helper; **never a Stripe charge** |
 | Conversation link | optional, if guest phone matches/created | link only; no message send |
 | `staff_handoffs` / task row | optional, if marked needs-review | review queue only; no auto-action |
-| Audit row (`workflow_events` interim ? durable table) | **always**, on attempt + result | §7 |
+| Audit row (`workflow_events` interim ? durable table) | **always**, on attempt + result | ï¿½7 |
 
 **Explicitly NOT created / triggered:**
 - No WhatsApp send (`WHATSAPP_DRY_RUN=true` regardless).
@@ -49,7 +49,7 @@ When (and only when) all gates pass, a confirmed manual booking will create, **i
 - No confirmation send (`confirmation_sent_at` stays `NULL`).
 - No n8n workflow activation, no webhook POST.
 
-**Transaction requirement:** all rows commit together or none do. The bed overlap guard relies on `SELECT … FOR UPDATE` locks held until COMMIT (same rule as `staff-bed-reassignment-sql.js` §5a.5). Running outside a transaction is itself a hard blocker (§4).
+**Transaction requirement:** all rows commit together or none do. The bed overlap guard relies on `SELECT ï¿½ FOR UPDATE` locks held until COMMIT (same rule as `staff-bed-reassignment-sql.js` ï¿½5a.5). Running outside a transaction is itself a hard blocker (ï¿½4).
 
 ---
 
@@ -64,20 +64,20 @@ Current 8.3d skeleton already renders these (read-only preview): guest name, pho
 | Guest name | Yes | non-empty, trimmed |
 | Phone | Yes | WhatsApp-format preferred; used for optional conversation link |
 | Email | Optional | format-checked if present |
-| Guest count | Yes | integer ? 1, ? selected capacity (§4) |
+| Guest count | Yes | integer ? 1, ? selected capacity (ï¿½4) |
 | Language | Yes | default `en` |
 | Package / stay type | Yes | must match a valid `package_code` |
 | Source / channel | **Yes (required)** | `walk_in` / `whatsapp_staff` / `email` / `phone` / `direct` |
 | Booking status | **Yes** | `hold` / `payment_pending` / `confirmed` |
-| Payment status | Yes | `unpaid` / `deposit_paid` / `paid` — **manual, no auto-charge** |
+| Payment status | Yes | `unpaid` / `deposit_paid` / `paid` ï¿½ **manual, no auto-charge** |
 | Deposit amount paid | Optional | numeric ? 0; only meaningful when `deposit_paid`/`paid` |
 | Total amount | Optional | numeric ? 0 |
 | Remaining balance | Derived/optional | total ? deposit; display-only, never charges |
 | Check-in | Yes | valid date; from selection |
-| Check-out | Yes | valid date; `> check-in` (§4) |
+| Check-out | Yes | valid date; `> check-in` (ï¿½4) |
 | Nights | Derived | `check-out ? check-in`; must be ? 1 |
-| Selected room / bed(s) | Yes | from selection; must exist + be sellable (§4) |
-| Room preference | Optional | informational; mismatch ? warning (§5) |
+| Selected room / bed(s) | Yes | from selection; must exist + be sellable (ï¿½4) |
+| Room preference | Optional | informational; mismatch ? warning (ï¿½5) |
 | **Reason / source for manual creation** | **Yes (required)** | free-text staff justification (audit) |
 | **Staff note (manual creation)** | **Yes (required)** | internal note explaining the manual booking |
 
@@ -86,17 +86,17 @@ Current 8.3d skeleton already renders these (read-only preview): guest name, pho
 - `metadata.source = 'staff_manual'` (and/or `manual_created = true`)
 - `confirmation_sent_at = NULL` (confirmation NOT sent)
 - `staff_user_id`, `staff_role`, `client_id` stamped into the audit row
-- `idempotency_key` (§9)
+- `idempotency_key` (ï¿½9)
 
 ---
 
-## 4. Hard blockers (write refused — `blocked=true`, no rows written)
+## 4. Hard blockers (write refused ï¿½ `blocked=true`, no rows written)
 
 Manual booking creation **must block** (return a structured `blocked` result, write nothing) if **any** of:
 
 **Authn / authz / flags**
 - `STAFF_ACTIONS_ENABLED=false`
-- `MANUAL_BOOKING_ENABLED=false` (new dedicated flag, §11)
+- `MANUAL_BOOKING_ENABLED=false` (new dedicated flag, ï¿½11)
 - staff not authenticated (`STAFF_AUTH_REQUIRED=true` and no valid session)
 - role below `operator` (must be `operator` / `admin` / `owner`)
 - no `staff_user_id`
@@ -139,7 +139,7 @@ These do **not** block, but the preview must surface a warning and the confirm a
 - an open conversation / handoff already exists for the same phone
 - duplicate guest phone, or an overlapping booking for the same guest/dates
 
-Each acknowledged warning is recorded in the audit row (`warnings_acknowledged`, §7).
+Each acknowledged warning is recorded in the audit row (`warnings_acknowledged`, ï¿½7).
 
 ---
 
@@ -147,11 +147,11 @@ Each acknowledged warning is recorded in the audit row (`warnings_acknowledged`,
 
 The write path is **always preview-first**. No confirm button is ever live without a passing preview.
 
-1. UI sends the selection + form fields to a **preview/proposal endpoint** (auth-gated, **read-only, no writes** — slice 8.3h).
+1. UI sends the selection + form fields to a **preview/proposal endpoint** (auth-gated, **read-only, no writes** ï¿½ slice 8.3h).
 2. Preview returns:
    - selected dates / beds (normalised),
-   - conflicts (hard blockers from §4),
-   - warnings (§5),
+   - conflicts (hard blockers from ï¿½4),
+   - warnings (ï¿½5),
    - calculated nights,
    - suggested `booking_code`,
    - total / deposit / remaining summary,
@@ -172,16 +172,16 @@ Every manual-booking **attempt** (success, block, or failure) must write a durab
 - selected dates, selected rooms/beds
 - guest name / phone (PII-minimised per retention policy)
 - payment / deposit fields entered
-- reason / source (required free-text, §3)
+- reason / source (required free-text, ï¿½3)
 - preview result (ok / blocked + block codes)
-- warnings acknowledged (§5)
+- warnings acknowledged (ï¿½5)
 - success / failure + booking_id / booking_code on success
-- rollback reference (id usable by the undo path, §8)
+- rollback reference (id usable by the undo path, ï¿½8)
 - before/after snapshots where a row is mutated (for the update path)
 
-**Sink:** prefer a **durable audit table** (e.g. a future `booking_rooming_events` / `staff_action_events`). `workflow_events` is acceptable **only as an explicitly documented interim sink** (same caveat as `staff-bed-reassignment-sql.js`), and migrating off it is a hardening item before real staff use (§11/§16).
+**Sink:** prefer a **durable audit table** (e.g. a future `booking_rooming_events` / `staff_action_events`). `workflow_events` is acceptable **only as an explicitly documented interim sink** (same caveat as `staff-bed-reassignment-sql.js`), and migrating off it is a hardening item before real staff use (ï¿½11/ï¿½16).
 
-**Guarantee:** if the audit write cannot be performed, the booking transaction is refused (§4 — "audit write cannot be guaranteed").
+**Guarantee:** if the audit write cannot be performed, the booking transaction is refused (ï¿½4 ï¿½ "audit write cannot be guaranteed").
 
 ---
 
@@ -195,7 +195,7 @@ Before any confirmed create is enabled, the following must be **proven by fixtur
 - linked conversation / handoff behaviour on rollback is defined and proven,
 - cleanup **does not delete non-demo / non-fixture data** (scoped by `booking_source='manual_staff'` + `metadata.source='staff_manual'` + fixture tag, mirroring `stage8-demo-cleanup.js` production-refusal + tag-scoped deletes),
 - rollback is **blocked** if the booking later acquired a live payment or guest communication (those route to handoff, never auto-undo),
-- a **rollback audit event** is written (§7).
+- a **rollback audit event** is written (ï¿½7).
 
 ---
 
@@ -205,7 +205,7 @@ Manual booking create must be idempotent:
 
 - a repeated identical request **cannot create a duplicate** booking,
 - idempotency key derived from `client_id` + `staff_user_id` + session + normalised selection (beds + dates) + form hash, **or** an explicit client-generated key sent with the request,
-- `booking_code` is unique (collision is a hard blocker, §4),
+- `booking_code` is unique (collision is a hard blocker, ï¿½4),
 - a duplicate attempt returns a **safe response** (the existing booking, `created=false`) rather than a second row,
 - **fixture proof required** (slice 8.3i): submit twice, assert exactly one `bookings` row and one set of `booking_beds`.
 
@@ -215,44 +215,44 @@ Manual booking create must be idempotent:
 
 ## 10. Implementation ladder + revised numbering (conflict resolution)
 
-**Conflict found.** The existing `STAGE-8.3` plan §4–§7 already assigns `8.3e–8.3o` to a *mixed* set of features:
-- existing `8.3e–8.3h` = manual booking SQL/fixture/API/UI,
-- existing `8.3i–8.3j` = move/cancel/change-dates,
-- existing `8.3k–8.3l` = tour operator,
-- existing `8.3m–8.3n` = operator room release.
+**Conflict found.** The existing `STAGE-8.3` plan ï¿½4ï¿½ï¿½7 already assigns `8.3eï¿½8.3o` to a *mixed* set of features:
+- existing `8.3eï¿½8.3h` = manual booking SQL/fixture/API/UI,
+- existing `8.3iï¿½8.3j` = move/cancel/change-dates,
+- existing `8.3kï¿½8.3l` = tour operator,
+- existing `8.3mï¿½8.3n` = operator room release.
 
-The user's requested manual-booking ladder (8.3e plan ? 8.3o sign-off) collides with the tour-operator slot (8.3k) and the operator-release slots (8.3m–n). **Resolution: give manual booking a clean contiguous block `8.3e–8.3o`, and renumber move/cancel and operator features to `8.3p+`.** Manual booking becomes the reference pattern (§13), which the later operations explicitly reuse.
+The user's requested manual-booking ladder (8.3e plan ? 8.3o sign-off) collides with the tour-operator slot (8.3k) and the operator-release slots (8.3mï¿½n). **Resolution: give manual booking a clean contiguous block `8.3eï¿½8.3o`, and renumber move/cancel and operator features to `8.3p+`.** Manual booking becomes the reference pattern (ï¿½13), which the later operations explicitly reuse.
 
 ### 10.1 Manual booking ladder (this plan = 8.3e)
 
 | Slice | Scope | Writes? | Gate to advance |
 |---|---|---|---|
 | **8.3e** | **Manual booking write gate plan** (this doc) | No | Plan reviewed |
-| **8.3f** | Manual booking **SQL helper static proof**  `scripts/lib/staff-manual-booking-create-sql.js`; 15-CTE chain; 14 blockers; `MANUAL_BOOKING_BLOCK_CODES`; half-open overlap guard + defense-in-depth; idempotency via `metadata` JSONB (column migration documented); `no_selected_beds`, `overlap_conflict`, `booking_code_collision`, `invalid_payment_amounts`, etc.; audit_payload + rollback_payload; `verify-staff-manual-booking-create-sql.js` **40/40 PASS** | No (static) | **DONE**  `node --check` + static verifier 40/40 PASS |
-| **8.3g** | **Conflict / availability preview helper**  `scripts/lib/staff-manual-booking-availability.js`; pure JS; `previewManualBookingAvailability()`; half-open overlap; cancelled/expired exclusion; 7 blockers; 5 warnings; `verify-staff-manual-booking-availability.js` **52/52 PASS** | No (static) | **DONE**  `node --check` + static verifier 52/52 PASS. No DB. No API. No writes. |
-| **8.3h** | **Preview / proposal endpoint**  `POST /staff/manual-bookings/preview`; auth-gated (operator+); SELECT-only queries via `staff-manual-booking-preview-queries.js`; calls `previewManualBookingAvailability()`; returns `preview_only:true`, `creates_booking:false`, `no_write_performed:true`; `staff_actions_enabled:false`, `manual_booking_enabled:false`; file-only audit (no workflow_events write); `verify-staff-manual-booking-preview-api.js` **48/48 PASS**; proof fixture **31/31 PASS**. | No (read-only) | **DONE**  SELECT only. No booking creation. No DB writes. No Stripe. No WhatsApp. Manual booking NOT enabled. |
-| **8.3i** | **Fixture write proof**  `scripts/fixtures/stage8.3i-manual-booking-create-proof.js`; happy-path create + idempotency duplicate + overlap conflict + invalid-payment blocker + confirm=false blocker + role/date/client blockers + touching-edge non-conflict; all in BEGIN/ROLLBACK; final delta=0 on all protected tables; `node --check` PASS; graceful SKIP when local DB unavailable; 3 schema mismatches documented (P1 `language` col missing; P2 `inserted_payment` col names; P3 `event_type`?`workflow_name`+`message`); patched SQL proves CTE logic correct. `proof:stage8.3i-manual-booking-create` added to `package.json`. | Yes (test DB only, BEGIN/ROLLBACK) | **DONE**  syntax PASS; runtime SKIP (local DB offline); schema mismatch report generated; zero delta guaranteed by ROLLBACK; no API route; no UI; no Azure; staff writes disabled. |
-| **8.3j** | **Schema-alignment fix**  fixed 3 schema mismatches (+ 2 enum cast issues) in `scripts/lib/staff-manual-booking-create-sql.js` directly. P1: removed `language` from bookings INSERT ? stored in metadata JSONB. P2: `inserted_payment` now uses `status/payment_kind/amount_due_cents/currency` (no `provider`/`amount_cents`/`payment_status`). P3: `audit_written` uses `workflow_name`+`message` (no `event_type`). Also fixed `$16::booking_status` and `$17::payment_status` enum casts. Verifier updated to **47/47 PASS**. Proof updated (no patching): **65/65 PASS**, final delta=0. No API route. No UI wiring. No Azure. Staff writes disabled. | Yes (test DB only, BEGIN/ROLLBACK) | **DONE**  47/47 static checks PASS; 65/65 runtime proof PASS; delta=0; helper production-schema-compatible. |
-| **8.3k** | **Rollback / delete / void proof** (§8 fixture) | Yes (test DB only) | rollback PASS + scoped-cleanup PASS |
+| **8.3f** | Manual booking **SQL helper static proof** ï¿½ `scripts/lib/staff-manual-booking-create-sql.js`; 15-CTE chain; 14 blockers; `MANUAL_BOOKING_BLOCK_CODES`; half-open overlap guard + defense-in-depth; idempotency via `metadata` JSONB (column migration documented); `no_selected_beds`, `overlap_conflict`, `booking_code_collision`, `invalid_payment_amounts`, etc.; audit_payload + rollback_payload; `verify-staff-manual-booking-create-sql.js` **40/40 PASS** | No (static) | **DONE** ï¿½ `node --check` + static verifier 40/40 PASS |
+| **8.3g** | **Conflict / availability preview helper** ï¿½ `scripts/lib/staff-manual-booking-availability.js`; pure JS; `previewManualBookingAvailability()`; half-open overlap; cancelled/expired exclusion; 7 blockers; 5 warnings; `verify-staff-manual-booking-availability.js` **52/52 PASS** | No (static) | **DONE** ï¿½ `node --check` + static verifier 52/52 PASS. No DB. No API. No writes. |
+| **8.3h** | **Preview / proposal endpoint** ï¿½ `POST /staff/manual-bookings/preview`; auth-gated (operator+); SELECT-only queries via `staff-manual-booking-preview-queries.js`; calls `previewManualBookingAvailability()`; returns `preview_only:true`, `creates_booking:false`, `no_write_performed:true`; `staff_actions_enabled:false`, `manual_booking_enabled:false`; file-only audit (no workflow_events write); `verify-staff-manual-booking-preview-api.js` **48/48 PASS**; proof fixture **31/31 PASS**. | No (read-only) | **DONE** ï¿½ SELECT only. No booking creation. No DB writes. No Stripe. No WhatsApp. Manual booking NOT enabled. |
+| **8.3i** | **Fixture write proof** ï¿½ `scripts/fixtures/stage8.3i-manual-booking-create-proof.js`; happy-path create + idempotency duplicate + overlap conflict + invalid-payment blocker + confirm=false blocker + role/date/client blockers + touching-edge non-conflict; all in BEGIN/ROLLBACK; final delta=0 on all protected tables; `node --check` PASS; graceful SKIP when local DB unavailable; 3 schema mismatches documented (P1 `language` col missing; P2 `inserted_payment` col names; P3 `event_type`?`workflow_name`+`message`); patched SQL proves CTE logic correct. `proof:stage8.3i-manual-booking-create` added to `package.json`. | Yes (test DB only, BEGIN/ROLLBACK) | **DONE** ï¿½ syntax PASS; runtime SKIP (local DB offline); schema mismatch report generated; zero delta guaranteed by ROLLBACK; no API route; no UI; no Azure; staff writes disabled. |
+| **8.3j** | **Schema-alignment fix** ï¿½ fixed 3 schema mismatches (+ 2 enum cast issues) in `scripts/lib/staff-manual-booking-create-sql.js` directly. P1: removed `language` from bookings INSERT ? stored in metadata JSONB. P2: `inserted_payment` now uses `status/payment_kind/amount_due_cents/currency` (no `provider`/`amount_cents`/`payment_status`). P3: `audit_written` uses `workflow_name`+`message` (no `event_type`). Also fixed `$16::booking_status` and `$17::payment_status` enum casts. Verifier updated to **47/47 PASS**. Proof updated (no patching): **65/65 PASS**, final delta=0. No API route. No UI wiring. No Azure. Staff writes disabled. | Yes (test DB only, BEGIN/ROLLBACK) | **DONE** ï¿½ 47/47 static checks PASS; 65/65 runtime proof PASS; delta=0; helper production-schema-compatible. |
+| **8.3k** | **Rollback / undo proof** â€” `scripts/lib/staff-manual-booking-rollback-sql.js`; 10 blockers; CASCADE deletion; pre_beds/pre_payments capture; audit written on every attempt; `MANUAL_BOOKING_ROLLBACK_BLOCK_CODES`; `verify-staff-manual-booking-rollback-sql.js` **52/52 PASS**; proof `stage8.3k-manual-booking-rollback-proof.js` **59/59 PASS**, delta=0. Blockers proven: confirm_not_set, role, code mismatch, payload id mismatch, unsafe_payment, booking_not_found. No API route. No UI. No Azure. | Yes (test DB only, BEGIN/ROLLBACK) | **DONE** â€” 52/52 static PASS; 59/59 runtime PASS; delta=0. |
 | **8.3l** | **UI preview modal** wired to the 8.3h preview endpoint only | No | UI shows proposal; confirm still disabled |
 | **8.3m** | **UI confirm button** behind staging-only feature flag (live only when flag+role+HTTPS; reason+source required) | Gated | confirm hidden unless gated |
 | **8.3n** | **Staging fixture proof through the UI** (end-to-end on staging demo data, behind flag) | Gated (staging) | E2E PASS on staging |
-| **8.3o** | **Sign-off gate** before real staff use (Ty + owner/operator; §11/§16) | — | recorded sign-off |
+| **8.3o** | **Sign-off gate** before real staff use (Ty + owner/operator; ï¿½11/ï¿½16) | ï¿½ | recorded sign-off |
 
 ### 10.2 Renumbered downstream operations (reuse the 8.3e pattern)
 
 | New slice | Was | Scope |
 |---|---|---|
-| **8.3p** | 8.3i | Move room/bed — **preview only** (backend 7.7k1–k8 already proven) |
-| **8.3q** | (new) | Move room/bed — gated confirm |
-| **8.3r** | 8.3j | Cancel booking / change dates / change beds — preview |
-| **8.3s** | (new) | Cancel / change — gated confirm (paid ? handoff) |
-| **8.3t** | 8.3k | Tour-operator booking / block — plan + SQL static |
-| **8.3u** | 8.3l | Tour-operator booking / block — gated implementation |
-| **8.3v** | 8.3m | Operator room release / split — plan + SQL static |
-| **8.3w** | 8.3n | Operator room release / split — gated implementation |
+| **8.3p** | 8.3i | Move room/bed ï¿½ **preview only** (backend 7.7k1ï¿½k8 already proven) |
+| **8.3q** | (new) | Move room/bed ï¿½ gated confirm |
+| **8.3r** | 8.3j | Cancel booking / change dates / change beds ï¿½ preview |
+| **8.3s** | (new) | Cancel / change ï¿½ gated confirm (paid ? handoff) |
+| **8.3t** | 8.3k | Tour-operator booking / block ï¿½ plan + SQL static |
+| **8.3u** | 8.3l | Tour-operator booking / block ï¿½ gated implementation |
+| **8.3v** | 8.3m | Operator room release / split ï¿½ plan + SQL static |
+| **8.3w** | 8.3n | Operator room release / split ï¿½ gated implementation |
 
-> The existing `STAGE-8.3` §4 ladder table and §5–§7 headers should be updated to point at this revised numbering (done in this task's doc edits).
+> The existing `STAGE-8.3` ï¿½4 ladder table and ï¿½5ï¿½ï¿½7 headers should be updated to point at this revised numbering (done in this task's doc edits).
 
 ---
 
@@ -267,14 +267,14 @@ The user's requested manual-booking ladder (8.3e plan ? 8.3o sign-off) collides 
 | `MANUAL_BOOKING_ENABLED` | `false` by default (dedicated flag) | new, this plan |
 | Staging DB backup configured | Yes | pilot **D1/D2** |
 | Restore drill complete **or** explicitly waived for demo-only | recorded | pilot **D4** |
-| Audit event visible | Yes (§7) | this plan |
-| Rollback proof passes | Yes (8.3k) | §8 |
-| Idempotency proof passes | Yes (8.3i) | §9 |
-| Preview endpoint passes | Yes (8.3h) | §6 |
-| Conflict test passes | Yes (8.3g) | §4 overlap |
+| Audit event visible | Yes (ï¿½7) | this plan |
+| Rollback proof passes | Yes (8.3k) | ï¿½8 |
+| Idempotency proof passes | Yes (8.3i) | ï¿½9 |
+| Preview endpoint passes | Yes (8.3h) | ï¿½6 |
+| Conflict test passes | Yes (8.3g) | ï¿½4 overlap |
 | Emergency toggle drill | done | pilot **D6** |
-| Ty sign-off | recorded | §16 |
-| Owner/operator sign-off (before real usage) | recorded | §16, pilot **F9** |
+| Ty sign-off | recorded | ï¿½16 |
+| Owner/operator sign-off (before real usage) | recorded | ï¿½16, pilot **F9** |
 | No live WhatsApp / Stripe | enforced (`WHATSAPP_DRY_RUN=true`, no Stripe call) | global |
 | No production gate | not approved | pilot NO_GO |
 
@@ -287,7 +287,7 @@ The user's requested manual-booking ladder (8.3e plan ? 8.3o sign-off) collides 
 | **Required before demo** | read-only manual booking **skeleton** (8.3d, DONE); clear "coming soon / not enabled" wording; **no writes** |
 | **Optional for demo** | preview-only conflict modal (8.3l) **if** 8.3g/8.3h land safely and stay read-only |
 | **NOT required before demo** | confirmed manual booking write (8.3j/8.3m) |
-| **Required before spreadsheet replacement** | confirmed create (8.3j) + rollback/undo (8.3k) + audit (§7) + backup/restore (D1/D2/D4) + training/sign-off (8.3o, F9) |
+| **Required before spreadsheet replacement** | confirmed create (8.3j) + rollback/undo (8.3k) + audit (ï¿½7) + backup/restore (D1/D2/D4) + training/sign-off (8.3o, F9) |
 
 The demo can show the polished skeleton and (optionally) a read-only conflict preview. It must **not** show a working create. The spreadsheet + `manual-entry-postgres.js` CLI remains the primary new-booking path until 8.3o sign-off.
 
@@ -297,16 +297,16 @@ The demo can show the polished skeleton and (optionally) a read-only conflict pr
 
 Manual booking is the **reference write-gate pattern**. Every other calendar write reuses the same five pillars:
 
-| Pillar | Manual booking | Move room/bed (8.3p–q) | Cancel/change (8.3r–s) | Tour operator (8.3t–u) | Operator release (8.3v–w) |
+| Pillar | Manual booking | Move room/bed (8.3pï¿½q) | Cancel/change (8.3rï¿½s) | Tour operator (8.3tï¿½u) | Operator release (8.3vï¿½w) |
 |---|---|---|---|---|---|
-| Preview-first | §6 | yes | yes | yes | yes |
-| Conflict checks | §4 overlap | 7.7k overlap | new-span availability | block overlap | payments==0 + split guard |
+| Preview-first | ï¿½6 | yes | yes | yes | yes |
+| Conflict checks | ï¿½4 overlap | 7.7k overlap | new-span availability | block overlap | payments==0 + split guard |
 | Role gates | operator+ | operator+ | operator+ (paid?handoff) | operator+ | operator+ |
-| Audit | §7 | 7.7k audit | required | required | before/after split |
-| Rollback | §8 | 7.7k7 undo | required | required | required |
+| Audit | ï¿½7 | 7.7k audit | required | required | before/after split |
+| Rollback | ï¿½8 | 7.7k7 undo | required | required | required |
 | Disabled by default | `MANUAL_BOOKING_ENABLED=false` | flag | flag | flag | flag |
 
-The user's goal of reaching **tour-operator booking/release** before demoing maps to slices **8.3t–8.3w** — each gated behind its own flag and the same proof ladder. None ships a live write before its fixture proof + sign-off.
+The user's goal of reaching **tour-operator booking/release** before demoing maps to slices **8.3tï¿½8.3w** ï¿½ each gated behind its own flag and the same proof ladder. None ships a live write before its fixture proof + sign-off.
 
 ---
 
@@ -322,19 +322,19 @@ The user's goal of reaching **tour-operator booking/release** before demoing map
 
 ## 15. Open questions (resolve before 8.3f)
 
-1. **Durable audit table** name/schema — design now or keep `workflow_events` interim through 8.3i and migrate before 8.3o? (Recommend: design the table at 8.3f, write to it from first fixture.)
-2. **Manual payment representation** — dedicated `payments` row vs. booking-level cents fields only? (Recommend: booking-level fields for v1; a manual `payments` row only if reporting needs it.)
-3. **Idempotency key** — server-derived vs. client-supplied? (Recommend: support both; require at least the server-derived selection hash.)
-4. **`MANUAL_BOOKING_ENABLED`** — separate flag vs. role-only gating under `STAFF_ACTIONS_ENABLED`? (Recommend: separate flag, so manual booking can be enabled independently of move/cancel.)
+1. **Durable audit table** name/schema ï¿½ design now or keep `workflow_events` interim through 8.3i and migrate before 8.3o? (Recommend: design the table at 8.3f, write to it from first fixture.)
+2. **Manual payment representation** ï¿½ dedicated `payments` row vs. booking-level cents fields only? (Recommend: booking-level fields for v1; a manual `payments` row only if reporting needs it.)
+3. **Idempotency key** ï¿½ server-derived vs. client-supplied? (Recommend: support both; require at least the server-derived selection hash.)
+4. **`MANUAL_BOOKING_ENABLED`** ï¿½ separate flag vs. role-only gating under `STAFF_ACTIONS_ENABLED`? (Recommend: separate flag, so manual booking can be enabled independently of move/cancel.)
 
 ---
 
-## 16. Sign-off (8.3o gate — to be recorded later)
+## 16. Sign-off (8.3o gate ï¿½ to be recorded later)
 
 | Approver | Role | Decision | Date | Evidence |
 |---|---|---|---|---|
-| Ty | Technical owner | — | — | gate table §11 all green |
-| Owner (Ale) | Account owner | — | — | training + walkthrough |
-| Operator (Cami) | Daily operator | — | — | training + first supervised use |
+| Ty | Technical owner | ï¿½ | ï¿½ | gate table ï¿½11 all green |
+| Owner (Ale) | Account owner | ï¿½ | ï¿½ | training + walkthrough |
+| Operator (Cami) | Daily operator | ï¿½ | ï¿½ | training + first supervised use |
 
 **Until every row above is signed: manual booking writes stay disabled. Pilot remains NO_GO.**

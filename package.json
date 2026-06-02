@@ -71,6 +71,7 @@
     "verify:staff-bed-calendar-api": "node scripts/verify-staff-bed-calendar-api.js",
     "verify:staff-bed-calendar-ui": "node scripts/verify-staff-bed-calendar-ui.js",
     "verify:staff-manual-booking-create-sql": "node scripts/verify-staff-manual-booking-create-sql.js",
+    "verify:staff-manual-booking-rollback-sql": "node scripts/verify-staff-manual-booking-rollback-sql.js",
     "verify:staff-manual-booking-availability": "node scripts/verify-staff-manual-booking-availability.js",
     "verify:staff-manual-booking-preview-api": "node scripts/verify-staff-manual-booking-preview-api.js",
     "verify:staff-booking-detail-queries": "node scripts/verify-staff-booking-detail-queries.js",
@@ -84,7 +85,8 @@
     "seed:stage8-demo": "node scripts/fixtures/stage8-demo-seed.js",
     "cleanup:stage8-demo": "node scripts/fixtures/stage8-demo-cleanup.js",
     "proof:stage8-demo": "node scripts/fixtures/stage8-demo-proof.js",
-    "proof:stage8.3i-manual-booking-create": "node scripts/fixtures/stage8.3i-manual-booking-create-proof.js"
+    "proof:stage8.3i-manual-booking-create": "node scripts/fixtures/stage8.3i-manual-booking-create-proof.js",
+    "proof:stage8.3k-manual-booking-rollback": "node scripts/fixtures/stage8.3k-manual-booking-rollback-proof.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
