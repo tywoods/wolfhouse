@@ -430,6 +430,37 @@ Changes shipped in `scripts/staff-query-api.js`:
 
 **Azure proof:** DONE — image `whstagingacr.azurecr.io/wh-staff-api:404ee9a-8x3b` built (ACR run cb6), deployed to revision `wh-staging-staff-api--0000007`. Login page at `https://staff-staging.lunafrontdesk.com/staff/login` returns 200 with Luna Front Desk branding. Full drawer UI requires authenticated login. STAFF_ACTIONS_ENABLED=false, WHATSAPP_DRY_RUN=true, n8n inactive.
 
-## 15. Next slice
+## 15. Stage 8.3c — IMPLEMENTATION PROOF (2026-06-02)
 
-**Stage 8.3c — calendar cell selection model:** click empty date cell to highlight a range; no writes; prerequisite for future manual booking modal.
+**Status: PASS**
+
+Changes shipped in `scripts/staff-query-api.js`:
+
+| Feature | Result |
+|---|---|
+| Empty bed/date cells carry `data-date`, `data-room`, `data-bed` attributes | ✓ |
+| Click empty cell starts selection (`bcSel` state); click same bed extends range | ✓ |
+| Selected cells highlighted: `.bc-sel` (soft sage/teal), `.bc-sel-anchor` (stronger border) | ✓ |
+| Hover style on selectable empty cells (`.bc-day-cell[data-date]:hover`) | ✓ |
+| Selection summary panel (`#bc-sel-panel`): Bed / Check-in / Check-out (+1 day) / Nights | ✓ |
+| Nights = count of highlighted (free) cells only; booked cells excluded from count | ✓ |
+| Warning shown if selection spans an occupied cell | ✓ |
+| "Selection only — no booking created" notice | ✓ |
+| "Create Manual Booking — coming soon" button: `disabled`, `cursor:not-allowed`, no onclick | ✓ |
+| "Clear selection" button clears state + removes highlight | ✓ |
+| Selection cleared on new calendar load | ✓ |
+| Booking block click still opens detail drawer (no conflict) | ✓ |
+| Single-bed date-range selection (multi-bed rectangular → Stage 8.3d) | ✓ |
+| No POST/PATCH/DELETE, no drag/drop, no write controls | ✓ |
+| Verifier: 86 checks (14 new Stage 8.3c additions) — all PASS | ✓ |
+| Embedded browser JS: node --check PASS | ✓ |
+
+**Night count convention:** Each selected cell = 1 night. Check-out is displayed as `last_selected_date + 1 day` (matches booking block convention where `end_date` = check-out, exclusive).
+
+**Safety flags:** `STAFF_ACTIONS_ENABLED=false` · `WHATSAPP_DRY_RUN=true` · n8n inactive.
+
+**Azure proof:** DONE — image `whstagingacr.azurecr.io/wh-staff-api:92cde98-8x3c` built (ACR run cb7), deployed to revision `wh-staging-staff-api--0000008`. Login page 200. Full selection UI requires authenticated login.
+
+## 16. Next slice
+
+**Stage 8.3d — multi-bed rectangular selection:** extend selection across adjacent beds (same date range); prerequisite for multi-bed manual bookings. Or skip to manual booking modal with single-bed only.
