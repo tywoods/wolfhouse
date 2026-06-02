@@ -1,6 +1,6 @@
 # Stage 8.3 — Staff Portal Bed Calendar Operations Plan (Luna Front Desk)
 
-**Status:** 8.3 PLANNING DONE (2026-06-02). **8.3a IMPLEMENTATION DONE (2026-06-02).** See §8.3a proof below.
+**Status:** 8.3 PLANNING DONE (2026-06-02). **8.3a–8.3d IMPLEMENTATION DONE (2026-06-02). 8.3e write-gate plan DONE** — see [`STAGE-8.3E-MANUAL-BOOKING-WRITE-GATE-PLAN.md`](STAGE-8.3E-MANUAL-BOOKING-WRITE-GATE-PLAN.md) (revised slice numbering authoritative there). See per-slice proofs below.
 **Parent:** [`STAGE-8-CLIENT-READY-STAGING-ROADMAP.md`](STAGE-8-CLIENT-READY-STAGING-ROADMAP.md) — slice 8.3 (expanded into 8.3a–8.3o).
 **Builds on:** [`STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md`](STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md) (IA + tokens), [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) (§5a reassignment gates 7.7k1–k8 proven; §5b manual booking creation design), Stage 8.6 demo data seeded.
 **Pilot decision:** Remains **NO_GO**. This plan describes the *operations workspace* the Staff Portal should become; it enables no live action.
@@ -159,16 +159,25 @@ Goal: staff create a booking **directly from calendar cells**. This replaces the
 - **Rollback/delete proof required** before live use.
 - **Modes A–D** carried from PHASE-7.7 §5b.3 (unassigned / assigned / hold / confirmed).
 
-**Staged build (each PASS before the next):**
+**Staged build (each PASS before the next).** **REVISED NUMBERING (Stage 8.3e):** manual booking now occupies a clean contiguous block `8.3e–8.3o`; move/cancel/operator features renumbered to `8.3p+`. The authoritative ladder lives in [`STAGE-8.3E-MANUAL-BOOKING-WRITE-GATE-PLAN.md`](STAGE-8.3E-MANUAL-BOOKING-WRITE-GATE-PLAN.md) §10.
 
-| Slice | Scope |
-|---|---|
-| **8.3c** | Calendar cell **selection model** (highlight bed×date ranges) — **no writes**. |
-| **8.3d** | Manual booking **modal UI — proposal-only** (form + selection summary; submit disabled / shows "would create"). |
-| **8.3e** | Manual booking **SQL helper static proof** (reuse/extend `manual-entry-pg-sql.js`; overlap guard; payments-untouched assertions). |
-| **8.3f** | Manual booking **fixture write proof** (create in test DB, verify rows + audit + delta=0 on payments; rollback/delete proven). |
-| **8.3g** | Manual booking **gated API** (`POST …/bookings/manual` behind `STAFF_ACTIONS_ENABLED` + role + auth; preview endpoint first). |
-| **8.3h** | Manual booking **UI confirm behind the gate** (button live only when flag+role+HTTPS; reason+source required). |
+| Slice | Scope | Status |
+|---|---|---|
+| **8.3c** | Calendar cell **selection model** (highlight bed×date ranges) — **no writes**. | DONE |
+| **8.3d** | Manual booking **preview skeleton** (form + selection summary; create disabled). | DONE |
+| **8.3e** | Manual booking **write gate plan** (gates, blockers, audit, rollback, idempotency, ladder). | DONE |
+| **8.3f** | Manual booking **SQL helper static proof** (extend `manual-entry-pg-sql.js`; overlap guard; payments-untouched asserts). | planned |
+| **8.3g** | **Conflict / availability preview helper** (static overlap logic). | planned |
+| **8.3h** | **Preview / proposal endpoint** (auth+role gated, read-only). | planned |
+| **8.3i** | **Fixture write proof** (test DB; rows + audit + payments delta=0; idempotency double-submit). | planned |
+| **8.3j** | **Confirmed API route** behind `STAFF_ACTIONS_ENABLED` + `MANUAL_BOOKING_ENABLED` + role + confirm. | planned |
+| **8.3k** | **Rollback / delete / void proof** (scoped cleanup; freed beds). | planned |
+| **8.3l** | **UI preview modal** wired to preview endpoint only. | planned |
+| **8.3m** | **UI confirm button** behind staging-only flag (reason+source required). | planned |
+| **8.3n** | **Staging fixture proof through UI** (E2E on demo data, behind flag). | planned |
+| **8.3o** | **Sign-off gate** before real staff use (Ty + owner/operator). | planned |
+
+> **Downstream (renumbered):** move room/bed `8.3p–q`, cancel/change `8.3r–s`, tour-operator `8.3t–u`, operator release `8.3v–w`. §5–§7 below describe these features; their slice IDs are superseded by the 8.3e §10.2 table.
 
 ---
 
