@@ -104,7 +104,7 @@ Decision:   [ hold / proceed ]
 | # | Gate | Status | Owner | Evidence | Date | Decision |
 |---|---|---|---|---|---|---|
 | C1 | Azure staging deployed (Container Apps, Postgres, Redis, Key Vault) | IMPLEMENTATION_PROVEN | Ty | 3× Container Apps running (wh-staging-staff-api, wh-staging-n8n-main, wh-staging-n8n-worker all Succeeded); 7.3d proof | 2026-06-01 | Proceed (staging) |
-| C2 | HTTPS reachable on `staff-staging.<domain>`; cert valid | PARTIAL (Azure FQDN only) | Ty | Staff API reachable over Azure HTTPS FQDN; custom domain / managed cert on lunafrontdesk.com not yet configured | 2026-06-01 | Hold — DNS/CNAME + managed cert bind needed |
+| C2 | HTTPS reachable on `staff-staging.<domain>`; cert valid | IMPLEMENTATION_PROVEN | Ty | `https://staff-staging.lunafrontdesk.com` live; Azure managed cert `mc-wh-staging-env-staff-staging-lu-5595` issued; `bindingType: SniEnabled`; all smoke tests PASS | 2026-06-02 | DONE — Stage 7.3f |
 | C3 | `GET /staff/ui` returns 200 over HTTPS | IMPLEMENTATION_PROVEN | Ty | `/staff/ui` accessible over Azure HTTPS FQDN after login; 7.3d proof | 2026-06-01 | Proceed (staging) |
 | C4 | `GET /staff/intents` returns registry JSON | IMPLEMENTATION_PROVEN | Ty | `/staff/intents` returns `total: 35`; 7.3d proof | 2026-06-01 | Proceed (staging) |
 | C5 | `GET /staff/query` returns data from staging DB | NOT_STARTED | Ty | Not yet verified against staging DB | — | Hold |

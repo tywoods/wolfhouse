@@ -1,6 +1,6 @@
 # Stage 7.3 — Staging Deployment + TLS Plan
 
-**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31) + 7.3c deployment preflight PASS (2026-06-01) + 7.3d Azure staging deployed + login proven (2026-06-01) + **7.3e Luna Front Desk login page implemented + Azure PROOF PASS (2026-06-02)**. `GET /staff/login` serves branded HTML form; browser redirect from `/staff/ui`; logout button wired; 30-check verifier PASS; image `wh-staff-api:dc8c86c` deployed to Azure, revision `0000002` active; unauthenticated smoke tests PASS over HTTPS. DNS/custom TLS on lunafrontdesk.com not yet configured.
+**Status:** DESIGN DONE + 7.3b IaC scaffold PASS (2026-05-31) + 7.3c deployment preflight PASS (2026-06-01) + 7.3d Azure staging deployed + login proven (2026-06-01) + 7.3e Luna Front Desk login page implemented + Azure PROOF PASS (2026-06-02) + **7.3f custom domain + TLS DONE (2026-06-02)**. `staff-staging.lunafrontdesk.com` bound with Azure managed cert (`SniEnabled`); all smoke tests PASS on clean URL. DNS/custom TLS on lunafrontdesk.com now configured for staging Staff API.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream C (TLS/deployment).
 **Depends on:** [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md) (env separation, secrets), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md) (auth before write surface).
 **Aligns with:** [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md) (existing Container Apps + Key Vault topology).
@@ -350,4 +350,20 @@ Each slice is a separate approved task with its own proof. None are started here
 **Azure proof (2026-06-02):** PASS — image `wh-staff-api:dc8c86c` built/pushed to ACR (`cb1`); Container App revision `0000002` active; smoke tests over HTTPS all pass (see `docs/PHASE-7.3D-AZURE-STAGING-DEPLOYMENT-LOGIN-PROOF.md §6`). Manual login test script at `scripts/test-azure-login-proof.ps1`.
 
 **What is still NOT done:** DNS/custom domain not configured. No custom TLS on lunafrontdesk.com. 3 workflows not yet imported. No backup/restore drill. No monitoring/alerting. No Cami/Ale accounts. No pilot approved.
+
+### 7.3f — Custom Domain + TLS Bound (2026-06-02)
+
+**DNS provider:** GoDaddy (`lunafrontdesk.com`)
+
+**DNS records added:**
+- `CNAME staff-staging` → `wh-staging-staff-api.braveplant-5c685569.northeurope.azurecontainerapps.io`
+- `TXT asuid.staff-staging` → `1DEB80678001394FE24D1DE93E59732E3892D2BBD58D753027C21276DB40CE92`
+
+**Azure binding:** `az containerapp hostname bind` with `--validation-method CNAME`; managed cert `mc-wh-staging-env-staff-staging-lu-5595`; `bindingType: SniEnabled`; cert provisioned in ~5 min.
+
+**Final staging URL:** `https://staff-staging.lunafrontdesk.com`
+
+**Smoke tests:** PASS — all checks on clean URL (see `docs/PHASE-7.3F-DNS-CUSTOM-DOMAIN-STAGING.md §4`).
+
+**What is still NOT done:** n8n custom domain not configured. Webhook URL update in workflows not done. 3 workflows not yet imported. No backup/restore drill. No monitoring/alerting. No Cami/Ale accounts. No pilot approved.
 
