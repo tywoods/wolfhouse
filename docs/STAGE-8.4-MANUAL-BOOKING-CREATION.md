@@ -1,6 +1,6 @@
 # Stage 8.4 — Manual Booking Creation (PLAN / GATE CHECKPOINT)
 
-**Status:** PLAN + GATED STUB ONLY (2026-06-02). **Manual booking creation is NOT enabled and NOT wired to the UI.** A pricing/payment engine is a hard prerequisite before a real create path can ship.
+**Status:** PLAN + GATED STUB ONLY (2026-06-02). **Manual booking creation is NOT enabled and NOT wired to the UI.** A pricing/payment engine is a hard prerequisite before a real create path can ship. **Slice 1 (pricing/payment config plan) DONE — [`STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md`](STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md) (2026-06-02): known Wolfhouse config captured (packages/seasons/double-room/deposits/hold/add-ons in cents), REQUIRED_FROM_STAFF gaps listed, quote input/output contracts, payment-record/invoice model, quote-snapshot storage, override + handoff rules, and the hard gate before `MANUAL_BOOKING_ENABLED`.**
 
 **Parent:** [`STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md`](STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md) · §4 (manual booking creation)
 **Builds on:** Stage 8.3e write-gate plan, 8.3i/8.3j SQL helper proofs, 8.3k rollback proof, 8.3l preview UI wiring.
@@ -25,7 +25,7 @@ The first attempt at Stage 8.4 wired a single "confirmed manual booking create" 
 
 Manual booking creation may only be enabled after these slices land **in order**:
 
-1. **Pricing/payment engine plan** — define the canonical price source (package/season/length-of-stay rules), currency handling, deposit policy, and where the price snapshot is stored.
+1. **Pricing/payment engine plan** — define the canonical price source (package/season/length-of-stay rules), currency handling, deposit policy, and where the price snapshot is stored. **DONE (8.4.1)** — [`STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md`](STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md).
 2. **Quote calculator** — pure, tested function that turns `{client, dates, beds, package, guests}` into a priced quote (no DB writes, no Stripe).
 3. **Quote preview endpoint** — read-only API that returns a quote snapshot for staff review (mirrors the existing availability preview pattern).
 4. **Manual booking create using a quote snapshot + payment records** — the real create path. It must consume a quote snapshot (not free-form staff price entry) and create `bookings` + `booking_beds` + payment records derived from that snapshot, in one transaction.
@@ -74,4 +74,4 @@ No runtime create was performed. No booking was created. No Stripe/WhatsApp/n8n 
 
 ## 6. Next recommended prompt
 
-> Stage 8.4.1 — Pricing/payment engine plan (docs only). Define the canonical price source, deposit policy, currency handling, and quote-snapshot storage shape that slices 8.4.2 (quote calculator) and 8.4.4 (create-from-snapshot) will depend on. No code, no flags, no writes.
+> Stage 8.4.2 — Pricing config schema/design (docs + optional config fixture, no live writes). Decide where the Wolfhouse pricing config lives (JSON config file vs `client_config`/DB-backed), reconcile with the seeded `package_price_rules`, resolve the 8.4.1 REQUIRED_FROM_STAFF items into confirmed values or explicit override-required markers, and define the `config_version` strategy the quote calculator (8.4.3) will load.
