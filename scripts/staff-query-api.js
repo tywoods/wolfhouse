@@ -1829,6 +1829,13 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bk-quote-subtotal{font-weight:500}
 .bk-quote-total{font-weight:700;font-size:13px;padding:6px 0!important}
 .bk-quote-formula{font-size:10px;color:var(--text-3);font-style:italic;margin-top:8px;line-height:1.5}
+/* Stage 8.4.7 — add-ons selector */
+.bk-ao-grid{display:flex;flex-direction:column;gap:5px;margin-top:4px}
+.bk-ao-row{display:flex;align-items:center;gap:8px;min-height:26px}
+.bk-ao-label{flex:1;font-size:12px;color:var(--text-1);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.bk-ao-qty-label{cursor:default}
+.bk-ao-qty{width:52px!important;text-align:center;padding:3px 5px!important;font-size:12px!important}
+.bk-ao-unit{font-size:11px;color:var(--text-3);white-space:nowrap}
 /* Stage 8.3q — tour operator block skeleton */
 .bc-op-divider{border:none;border-top:2px solid var(--border-1,#e0e8ef);margin:20px 0 16px}
 .bc-op-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
@@ -2183,6 +2190,49 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <label class="bk-label" for="bk-notes">Staff notes</label>
         <textarea id="bk-notes" class="bk-input" rows="3" placeholder="Internal booking notes..."></textarea>
       </div>
+    </div>
+
+    <!-- Section: Add-ons (Stage 8.4.7 — quote preview only, no writes) -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Add-ons</div>
+      <div class="bk-ao-grid">
+        <div class="bk-ao-row">
+          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-ws-combo"> Wetsuit + Soft top combo</label>
+          <input type="number" id="bk-ao-ws-combo-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-unit">days</span>
+        </div>
+        <div class="bk-ao-row">
+          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-wb-combo"> Wetsuit + Hard board combo</label>
+          <input type="number" id="bk-ao-wb-combo-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-unit">days</span>
+        </div>
+        <div class="bk-ao-row">
+          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-wetsuit"> Wetsuit rental</label>
+          <input type="number" id="bk-ao-wetsuit-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-unit">days</span>
+        </div>
+        <div class="bk-ao-row">
+          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-softtop"> Soft top rental</label>
+          <input type="number" id="bk-ao-softtop-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-unit">days</span>
+        </div>
+        <div class="bk-ao-row">
+          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-hardboard"> Hard board rental</label>
+          <input type="number" id="bk-ao-hardboard-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-unit">days</span>
+        </div>
+        <div class="bk-ao-row">
+          <span class="bk-ao-label bk-ao-qty-label">Surf lessons</span>
+          <input type="number" id="bk-ao-surf-lessons" class="bk-input bk-ao-qty" value="0" min="0" max="20">
+          <span class="bk-ao-unit">lessons</span>
+        </div>
+        <div class="bk-ao-row">
+          <span class="bk-ao-label bk-ao-qty-label">Yoga classes</span>
+          <input type="number" id="bk-ao-yoga" class="bk-input bk-ao-qty" value="0" min="0" max="30">
+          <span class="bk-ao-unit">classes</span>
+        </div>
+      </div>
+      <div class="bk-form-hint" style="padding-left:0">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate.</div>
     </div>
 
     <!-- Section: Quote Preview (Stage 8.4.5 — calls /staff/quote-preview, no writes) -->
@@ -3221,6 +3271,15 @@ function bcClearSelection(){
   var pc = el('bk-payment-choice'); if (pc) pc.value = 'deposit';
   var pk = el('bk-package'); if (pk) pk.value = '';
   var rt = el('bk-room-type'); if (rt) rt.value = 'shared';
+  /* Reset add-on checkboxes and qty inputs (Stage 8.4.7) */
+  ['bk-ao-ws-combo','bk-ao-wb-combo','bk-ao-wetsuit','bk-ao-softtop','bk-ao-hardboard'].forEach(function(id){
+    var cb = el(id); if (cb) cb.checked = false;
+  });
+  ['bk-ao-ws-combo-days','bk-ao-wb-combo-days','bk-ao-wetsuit-days','bk-ao-softtop-days','bk-ao-hardboard-days'].forEach(function(id){
+    var inp = el(id); if (inp){ inp.value = '1'; inp.disabled = true; }
+  });
+  var _slEl = el('bk-ao-surf-lessons'); if (_slEl) _slEl.value = '0';
+  var _ygEl = el('bk-ao-yoga'); if (_ygEl) _ygEl.value = '0';
   var warnEl = el('bc-sel-warn');
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
@@ -3453,6 +3512,63 @@ function bcHandleCellClick(td){
   bcApplySelectionHighlight();
 }
 
+/* ── Add-ons checkbox wiring + payload builder (Stage 8.4.7) ────────────── */
+function bcInitAddOns(){
+  /* Wire each checkbox to enable/disable its quantity input */
+  [
+    ['bk-ao-ws-combo',  'bk-ao-ws-combo-days'],
+    ['bk-ao-wb-combo',  'bk-ao-wb-combo-days'],
+    ['bk-ao-wetsuit',   'bk-ao-wetsuit-days'],
+    ['bk-ao-softtop',   'bk-ao-softtop-days'],
+    ['bk-ao-hardboard', 'bk-ao-hardboard-days'],
+  ].forEach(function(pair){
+    var cb = el(pair[0]); var qty = el(pair[1]);
+    if (cb && qty) cb.onchange = function(){ qty.disabled = !this.checked; };
+  });
+}
+
+function buildAddOns(){
+  var result = [];
+  var wsCombo = el('bk-ao-ws-combo');
+  var wbCombo = el('bk-ao-wb-combo');
+  /* Combos first — they replace individual rentals */
+  if (wsCombo && wsCombo.checked){
+    var d = parseInt((el('bk-ao-ws-combo-days')||{}).value||'1',10)||1;
+    result.push({ code: 'wetsuit_soft_top_combo', days: d });
+  }
+  if (wbCombo && wbCombo.checked){
+    var d2 = parseInt((el('bk-ao-wb-combo-days')||{}).value||'1',10)||1;
+    result.push({ code: 'wetsuit_hard_board_combo', days: d2 });
+  }
+  /* Individual rentals — skip if replaced by a combo */
+  var wsActive  = wsCombo && wsCombo.checked;
+  var wbActive  = wbCombo && wbCombo.checked;
+  var wetEl     = el('bk-ao-wetsuit');
+  var stEl      = el('bk-ao-softtop');
+  var hbEl      = el('bk-ao-hardboard');
+  if (wetEl && wetEl.checked && !wsActive && !wbActive){
+    var d3 = parseInt((el('bk-ao-wetsuit-days')||{}).value||'1',10)||1;
+    result.push({ code: 'wetsuit_rental', days: d3 });
+  }
+  if (stEl && stEl.checked && !wsActive){
+    var d4 = parseInt((el('bk-ao-softtop-days')||{}).value||'1',10)||1;
+    result.push({ code: 'soft_top_rental', days: d4 });
+  }
+  if (hbEl && hbEl.checked && !wbActive){
+    var d5 = parseInt((el('bk-ao-hardboard-days')||{}).value||'1',10)||1;
+    result.push({ code: 'hard_board_rental', days: d5 });
+  }
+  /* Surf lessons — send as surf_lesson_single; calculator auto-selects single vs multi */
+  var slEl = el('bk-ao-surf-lessons');
+  var slQty = parseInt(slEl ? slEl.value : '0', 10) || 0;
+  if (slQty > 0) result.push({ code: 'surf_lesson_single', quantity: slQty });
+  /* Yoga classes */
+  var ygEl = el('bk-ao-yoga');
+  var ygQty = parseInt(ygEl ? ygEl.value : '0', 10) || 0;
+  if (ygQty > 0) result.push({ code: 'yoga_class', quantity: ygQty });
+  return result;
+}
+
 /* ── Quote button state helper (Stage 8.4.5) ─────────────────────────────── */
 function bcUpdateQuoteButton(){
   var btn = el('bc-sel-quote');
@@ -3492,8 +3608,10 @@ function runQuotePreview(){
     payment_choice: paymentChoice,
     add_ons: []
   };
+  /* add_ons overwritten below by buildAddOns() */
   if (packageCode) payload.package_code = packageCode;
   payload.selected_bed_codes = bcSelectedBeds.map(function(b){ return b.bed_code; });
+  payload.add_ons = buildAddOns();
   qr.innerHTML = '<div class="bk-preview-loading">Calculating quote\u2026</div>';
   fetch('/staff/quote-preview', {
     method: 'POST',
@@ -4010,6 +4128,7 @@ function loadBedCalendar(){
 }
 
 el('bc-load').addEventListener('click', loadBedCalendar);
+bcInitAddOns();
 
 /* ── Bed calendar date shortcuts (Stage 8.3a) ────────────────────────────── */
 function bcIso(d){ return d.toISOString().slice(0,10); }

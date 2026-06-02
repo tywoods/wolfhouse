@@ -1114,6 +1114,75 @@ check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src
   'Create Manual Booking button still disabled after Stage 8.4.6 (regression check)');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Stage 8.4.7 — add-ons selector ───────────────────────────────────────────
+
+// 196. Add-ons section present in manual booking form
+check(/id="bk-ao-ws-combo"/.test(src) && /id="bk-ao-wetsuit"/.test(src),
+  'Add-ons section with combo and individual rental checkboxes present (Stage 8.4.7)');
+
+// 197. All expected add-on controls present
+(function checkAddOnControls(){
+  check(/id="bk-ao-ws-combo"/.test(src),   'Wetsuit+Soft top combo checkbox present (Stage 8.4.7)');
+  check(/id="bk-ao-wb-combo"/.test(src),   'Wetsuit+Hard board combo checkbox present (Stage 8.4.7)');
+  check(/id="bk-ao-wetsuit"/.test(src),    'Wetsuit rental checkbox present (Stage 8.4.7)');
+  check(/id="bk-ao-softtop"/.test(src),    'Soft top rental checkbox present (Stage 8.4.7)');
+  check(/id="bk-ao-hardboard"/.test(src),  'Hard board rental checkbox present (Stage 8.4.7)');
+  check(/id="bk-ao-surf-lessons"/.test(src),'Surf lessons quantity input present (Stage 8.4.7)');
+  check(/id="bk-ao-yoga"/.test(src),       'Yoga classes quantity input present (Stage 8.4.7)');
+})();
+
+// 198. Quantity day inputs present for rentals
+(function checkQtyInputs(){
+  check(/id="bk-ao-ws-combo-days"/.test(src),   'ws-combo-days qty input present (Stage 8.4.7)');
+  check(/id="bk-ao-wetsuit-days"/.test(src),    'wetsuit-days qty input present (Stage 8.4.7)');
+  check(/id="bk-ao-softtop-days"/.test(src),    'softtop-days qty input present (Stage 8.4.7)');
+  check(/id="bk-ao-hardboard-days"/.test(src),  'hardboard-days qty input present (Stage 8.4.7)');
+})();
+
+// 199. buildAddOns function present and uses correct codes
+(function checkBuildAddOns(){
+  const fnStart = src.indexOf('function buildAddOns');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/function buildAddOns/.test(src),
+    'buildAddOns function present (Stage 8.4.7)');
+  check(/wetsuit_soft_top_combo/.test(fnSrc) && /wetsuit_hard_board_combo/.test(fnSrc),
+    'buildAddOns uses combo codes (wetsuit_soft_top_combo, wetsuit_hard_board_combo) (Stage 8.4.7)');
+  check(/wetsuit_rental/.test(fnSrc) && /soft_top_rental/.test(fnSrc) && /hard_board_rental/.test(fnSrc),
+    'buildAddOns uses individual rental codes (Stage 8.4.7)');
+  check(/surf_lesson_single/.test(fnSrc),
+    'buildAddOns uses surf_lesson_single code (Stage 8.4.7)');
+  check(/yoga_class/.test(fnSrc),
+    'buildAddOns uses yoga_class code (Stage 8.4.7)');
+})();
+
+// 200. runQuotePreview calls buildAddOns() (not hardcoded [])
+(function checkPayloadUsesBuilder(){
+  const fnStart = src.indexOf('function runQuotePreview');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction renderQuoteResult', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/buildAddOns\s*\(\s*\)/.test(fnSrc),
+    'runQuotePreview calls buildAddOns() for add_ons payload (Stage 8.4.7)');
+})();
+
+// 201. bcClearSelection resets add-on checkboxes (Stage 8.4.7)
+(function checkClearResetsAddOns(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bk-ao-wetsuit/.test(fnSrc) && /bk-ao-yoga/.test(fnSrc),
+    'bcClearSelection resets add-on controls (Stage 8.4.7)');
+})();
+
+// 202. bcInitAddOns function wires checkbox → qty enabled/disabled
+check(/function bcInitAddOns/.test(src),
+  'bcInitAddOns function present (Stage 8.4.7)');
+
+// 203. No /staff/manual-bookings/create fetch from UI (regression)
+check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(src),
+  'No /staff/manual-bookings/create fetch from UI (Stage 8.4.7 regression)');
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
 if (failures > 0) process.exit(1);
