@@ -342,10 +342,19 @@ Each slice is independently gated, independently provable, and does not depend o
 
 > **Stage 8.5.2 RE-SCOPED AND DELIVERED (2026-06-02):** Instead of a passive JSON-reading verifier, 8.5.2 delivered the actual Luna bot booking preview API endpoint `POST /staff/bot/booking-preview` in `scripts/staff-query-api.js`. This is the first working bridge from Luna/n8n to the shared engine. Static verifier `scripts/verify-staff-bot-booking-preview-api.js` 53/53 PASS. Local proof: missing-fields → `ask_missing_fields` + reply_draft; complete Malibu 5-night → `ready_for_create_dry_run` + `quote.total_cents=45000` + `preview_only:true` + `no_write_performed:true`. No DB writes. No Stripe. No WhatsApp. No n8n activation.
 
-### 8.5.3 — Bot quote preview call from parsed booking details, dry-run only
-**Goal:** Prove that a set of bot parser outputs (dates, guests, package, room_type) can be passed to `calculateWolfhouseQuote()` and return a valid quote snapshot. No DB write. No Stripe. No WhatsApp.
-**Type:** Static verifier script or unit test. Calls `calculateWolfhouseQuote()` directly with bot-parser-shaped inputs.
-**Pass criteria:** Quote preview returns `success:true` for realistic bot inputs (malibu, 7n, 2 guests, shared). Quote snapshot matches Staff Portal quote for same inputs.
+### 8.5.3 — Internal bot token auth for Luna endpoints — **PASS (2026-06-02)**
+**Goal:** Allow n8n/Luna to call `POST /staff/bot/*` endpoints using a pre-shared `LUNA_BOT_INTERNAL_TOKEN` env secret, without requiring a browser staff session cookie. Unblocks dry-run n8n integration.
+**Delivered:**
+- `requireBotAuth()` function added to `scripts/staff-query-api.js`. Separate from `requireAuth` — normal staff auth unchanged.
+- Auth priority for `/staff/bot/*`: (1) no-auth open mode (`STAFF_AUTH_REQUIRED=false`), (2) `X-Luna-Bot-Token` header or `Authorization: Bearer` header matching `LUNA_BOT_INTERNAL_TOKEN`, (3) normal session cookie fallback.
+- Constant-time comparison (`crypto.timingSafeEqual`) to prevent timing attacks.
+- Token path disabled if `LUNA_BOT_INTERNAL_TOKEN` is empty — falls through to session auth (safe default).
+- Wrong token → 401. Token not echoed in any response.
+- Response includes `auth_mode: "bot_token"` when token auth used.
+- Token auth scoped exclusively to `/staff/bot/*` route blocks. All other endpoints (`/staff/ui`, `/staff/manual-bookings/create`, `/staff/stripe/webhook`, etc.) use `requireAuth` exclusively.
+- `LUNA_BOT_INTERNAL_TOKEN` read from `process.env` only. Not hardcoded anywhere.
+**Verifier:** `scripts/verify-staff-bot-booking-preview-api.js` 65/65 PASS (12 new P-series checks). `verify-wolfhouse-quote-calculator.js` 77/77 PASS. `verify-staff-quote-preview-api.js` 33/33 PASS.
+**Local proof:** no token → 401; wrong token → 401; correct `X-Luna-Bot-Token` → 200 + `auth_mode:bot_token` + `next_action:ready_for_create_dry_run`; `Authorization: Bearer` → 200 + `auth_mode:bot_token`; `/staff/ui` → 302 to login page (bot token irrelevant). No DB writes. No Stripe. No WhatsApp. No n8n activation.
 
 ### 8.5.4 — Bot create booking/payment link path, dry-run only
 **Goal:** Add a bot-accessible booking create endpoint (e.g. `POST /bot/bookings/create`) that internally calls `calculateWolfhouseQuote()`, writes `bookings` + `booking_beds` + `payments` (draft), then calls the Stripe link creation path. Gate: new `BOT_BOOKING_ENABLED=false` flag (default false → 403). No WhatsApp send.

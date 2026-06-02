@@ -326,14 +326,14 @@ check('J2', 'handler returns availability object with message', () => {
 
 // ─── K. Auth ──────────────────────────────────────────────────────────────────
 
-check('K1', 'route calls requireAuth', () => {
+check('K1', 'route calls requireBotAuth (bot-scoped auth, replaces bare requireAuth)', () => {
   const routeBlock = (() => {
     const idx = src.indexOf("pathname === '/staff/bot/booking-preview'");
     if (idx < 0) return '';
     return src.slice(idx, idx + 400);
   })();
-  if (!routeBlock.includes('requireAuth')) {
-    return 'requireAuth not called in bot/booking-preview route block';
+  if (!routeBlock.includes('requireBotAuth')) {
+    return 'requireBotAuth not called in bot/booking-preview route block';
   }
 });
 
@@ -364,6 +364,98 @@ check('L2', 'route does NOT gate on STAFF_ACTIONS_ENABLED', () => {
 check('L3', 'handler does NOT set MANUAL_BOOKING_ENABLED = true', () => {
   if (/MANUAL_BOOKING_ENABLED\s*=\s*true/.test(handler)) {
     return 'handler sets MANUAL_BOOKING_ENABLED=true \u2014 forbidden';
+  }
+});
+
+// ─── P. Bot token auth (Stage 8.5.3) ─────────────────────────────────────────
+
+check('P1', 'LUNA_BOT_INTERNAL_TOKEN constant defined in source', () => {
+  if (!src.includes('LUNA_BOT_INTERNAL_TOKEN')) {
+    return 'LUNA_BOT_INTERNAL_TOKEN not found in source';
+  }
+});
+
+check('P2', 'LUNA_BOT_INTERNAL_TOKEN read from process.env (not hardcoded)', () => {
+  if (!src.includes('process.env.LUNA_BOT_INTERNAL_TOKEN')) {
+    return 'LUNA_BOT_INTERNAL_TOKEN not read from process.env';
+  }
+  if (/LUNA_BOT_INTERNAL_TOKEN\s*=\s*['"][^'"]{4,}['"]/.test(src)) {
+    return 'LUNA_BOT_INTERNAL_TOKEN appears hardcoded \u2014 must come from process.env';
+  }
+});
+
+check('P3', 'requireBotAuth function defined', () => {
+  if (!src.includes('async function requireBotAuth')) {
+    return 'requireBotAuth not found in source';
+  }
+});
+
+check('P4', 'X-Luna-Bot-Token header supported in requireBotAuth', () => {
+  const fnIdx = src.indexOf('async function requireBotAuth');
+  const fnSlice = fnIdx > 0 ? src.slice(fnIdx, fnIdx + 3000) : '';
+  if (!fnSlice.includes('x-luna-bot-token')) {
+    return 'x-luna-bot-token header not handled in requireBotAuth';
+  }
+});
+
+check('P5', 'Authorization Bearer header supported in requireBotAuth', () => {
+  const fnIdx = src.indexOf('async function requireBotAuth');
+  const fnSlice = fnIdx > 0 ? src.slice(fnIdx, fnIdx + 3000) : '';
+  if (!fnSlice.includes('Bearer')) {
+    return 'Authorization Bearer not handled in requireBotAuth';
+  }
+});
+
+check('P6', 'requireBotAuth uses constant-time comparison (timingSafeEqual)', () => {
+  const fnIdx = src.indexOf('async function requireBotAuth');
+  const fnSlice = fnIdx > 0 ? src.slice(fnIdx, fnIdx + 3000) : '';
+  if (!fnSlice.includes('timingSafeEqual')) {
+    return 'timingSafeEqual not used \u2014 timing attack risk';
+  }
+});
+
+check('P7', 'bot/booking-preview route uses requireBotAuth (not bare requireAuth)', () => {
+  const routeIdx = src.indexOf("pathname === '/staff/bot/booking-preview'");
+  const routeSlice = routeIdx > 0 ? src.slice(routeIdx, routeIdx + 500) : '';
+  if (!routeSlice.includes('requireBotAuth')) {
+    return 'bot/booking-preview route does not call requireBotAuth';
+  }
+});
+
+check('P8', 'response includes auth_mode field', () => {
+  if (!handler.includes('auth_mode')) {
+    return 'auth_mode not found in handler response';
+  }
+});
+
+check('P9', 'requireAuth (normal staff auth) is NOT modified to include bot token', () => {
+  const fnIdx = src.indexOf('async function requireAuth');
+  const fnSlice = fnIdx > 0 ? src.slice(fnIdx, fnIdx + 500) : '';
+  if (fnSlice.includes('LUNA_BOT_INTERNAL_TOKEN') || fnSlice.includes('x-luna-bot-token')) {
+    return 'requireAuth references bot token \u2014 normal staff auth must not be weakened';
+  }
+});
+
+check('P10', 'token auth scoped to bot route (normal endpoints use requireAuth)', () => {
+  const createIdx  = src.indexOf("pathname === '/staff/manual-bookings/create'");
+  const createSlice = createIdx > 0 ? src.slice(createIdx, createIdx + 300) : '';
+  if (createSlice.includes('requireBotAuth')) {
+    return '/staff/manual-bookings/create uses requireBotAuth \u2014 must use requireAuth';
+  }
+});
+
+check('P11', 'missing token disables token path (LUNA_BOT_INTERNAL_TOKEN guard)', () => {
+  const fnIdx = src.indexOf('async function requireBotAuth');
+  const fnSlice = fnIdx > 0 ? src.slice(fnIdx, fnIdx + 3000) : '';
+  if (!fnSlice.includes('if (LUNA_BOT_INTERNAL_TOKEN)') &&
+      !fnSlice.includes('LUNA_BOT_INTERNAL_TOKEN &&')) {
+    return 'no guard on LUNA_BOT_INTERNAL_TOKEN \u2014 empty token could open route';
+  }
+});
+
+check('P12', 'token not echoed in response (handler does not return raw token)', () => {
+  if (/sendJSON.*LUNA_BOT_INTERNAL_TOKEN/s.test(handler)) {
+    return 'LUNA_BOT_INTERNAL_TOKEN in handler sendJSON \u2014 must not echo token';
   }
 });
 

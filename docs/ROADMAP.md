@@ -1,10 +1,10 @@
-﻿# Wolfhouse Booking Assistant � Product Roadmap
+# Wolfhouse Booking Assistant ? Product Roadmap
 
-**Product:** AI booking operations for WhatsApp-first experience businesses � **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
+**Product:** AI booking operations for WhatsApp-first experience businesses ? **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
-**Product-level roadmap (15 pillars):** [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md) � **Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) � **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) � **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+**Product-level roadmap (15 pillars):** [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md) ? **Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) ? **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) ? **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
 
-> **This file is the stage-level / engineering roadmap.** For the **product-level view** � the full 15-pillar product vision (Guest Assistant, SoT DB, Staff Brain, Dashboard, Rooming UI, Add-ons, Messaging Bridge, Multi-Client Config, Onboarding, PMS, AI Intent, Analytics, Production Hardening, Multi-Client Admin, Productization) mapped to these stages � see [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md).
+> **This file is the stage-level / engineering roadmap.** For the **product-level view** ? the full 15-pillar product vision (Guest Assistant, SoT DB, Staff Brain, Dashboard, Rooming UI, Add-ons, Messaging Bridge, Multi-Client Config, Onboarding, PMS, AI Intent, Analytics, Production Hardening, Multi-Client Admin, Productization) mapped to these stages ? see [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md).
 
 ---
 
@@ -23,7 +23,7 @@
 
 Stage 3 is **not** about making the bot beautiful or fully productized. It is about proving the bot does **not** make dangerous mistakes.
 
-**Stage 3.5 is not full Stage 4 observability.** It is the minimum seatbelts required before serious runtime or live/shadow operation � error capture, idempotency checks, overlap guards, basic execution logging.
+**Stage 3.5 is not full Stage 4 observability.** It is the minimum seatbelts required before serious runtime or live/shadow operation ? error capture, idempotency checks, overlap guards, basic execution logging.
 
 **Stage 3y (Shadow/Co-pilot)** bridges dry-run proof and autonomous live operation. The bot reads real messages and drafts responses; staff approve and send manually. No autonomous payment/confirmation/cancellation/rooming without explicit staff approval. This reduces the dry-run ? real-guest cliff and generates real golden-message data.
 
@@ -35,11 +35,11 @@ Stage 3 is **not** about making the bot beautiful or fully productized. It is ab
 
 | Layer | Role |
 |-------|------|
-| **n8n** | Orchestrates � webhooks, WhatsApp, Stripe callbacks, notifications, simple integration steps |
-| **Backend / code** | Decides � routing, required fields, package logic, safety guards, handoff rules |
-| **Postgres** | Remembers � bookings, payments, conversations, beds, audit trail |
-| **Client config** | Controls � packages, pricing, room rules, policies per property (Wolfhouse = client #1) |
-| **Staff UI + Staff Assistant** | Manages � holds, payments, assignments, takeover; answers operational queries; approves risky bot actions (Stage 6+) |
+| **n8n** | Orchestrates ? webhooks, WhatsApp, Stripe callbacks, notifications, simple integration steps |
+| **Backend / code** | Decides ? routing, required fields, package logic, safety guards, handoff rules |
+| **Postgres** | Remembers ? bookings, payments, conversations, beds, audit trail |
+| **Client config** | Controls ? packages, pricing, room rules, policies per property (Wolfhouse = client #1) |
+| **Staff UI + Staff Assistant** | Manages ? holds, payments, assignments, takeover; answers operational queries; approves risky bot actions (Stage 6+) |
 
 The current **n8n-heavy** implementation is acceptable for **proving behavior** in Stage 3. Future stages migrate decision logic into code/config modules; n8n calls the decision engine instead of owning the business brain.
 
@@ -62,10 +62,10 @@ src/booking-assistant/
     InventoryProvider.ts   # interface: findAvailability / hold / fulfill
     lodging.ts             # beds-in-rooms + rooming (Wolfhouse / hostels)
     slots.ts               # lesson/tour time-slot capacity (surf/kite schools, tours)
-    rentals.ts             # item � time-window � quantity � size (surf/bike/SUP shops)
+    rentals.ts             # item ? time-window ? quantity ? size (surf/bike/SUP shops)
   catalog/
     offerings.ts           # generic priced offering (packages | lessons | rental SKUs | departures)
-    packageDecision.ts     # explain / recommend / quote � driven by config, not hardcoded names
+    packageDecision.ts     # explain / recommend / quote ? driven by config, not hardcoded names
 ```
 
 **Example future config shape (not implemented yet):**
@@ -80,7 +80,7 @@ client_config.required_fields
 
 Build **Wolfhouse as client #1**, not as the only client the system can ever serve.
 
-**Spine vs plugin (portability principle):** everything above the `inventory/` and `catalog/` folders is the **shared spine** and must contain **no surf-house-specific nouns** (no `bed`, `room`, `malibu`, `surfweek`). Anything vertical-specific lives behind the `InventoryProvider` interface or in `client_config`. A new vertical = new config + (at most) one new inventory provider � see [� Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons).
+**Spine vs plugin (portability principle):** everything above the `inventory/` and `catalog/` folders is the **shared spine** and must contain **no surf-house-specific nouns** (no `bed`, `room`, `malibu`, `surfweek`). Anything vertical-specific lives behind the `InventoryProvider` interface or in `client_config`. A new vertical = new config + (at most) one new inventory provider ? see [? Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons).
 
 ---
 
@@ -96,7 +96,7 @@ This is **not** framed as a generic chatbot. It is an operations layer that hand
 
 ### Beachhead
 
-**Wolfhouse** � surf houses / surf camps (client #1, `wolfhouse-somo`).
+**Wolfhouse** ? surf houses / surf camps (client #1, `wolfhouse-somo`).
 
 Hard first use case: combines accommodation, packages, rooming, payments, confirmations, WhatsApp, and staff operations in one property.
 
@@ -108,17 +108,17 @@ Guests ask on WhatsApp ? business explains options ? checks availability ? colle
 |------------------|-----------------------------------------------|
 | Surf schools | Lessons, levels, schedules |
 | Surf shops | Rentals, retail-adjacent booking |
-| Kite schools � dive shops | Lessons, certifications, slots |
-| Yoga retreats � small retreat operators | Packages, dates, capacity |
+| Kite schools ? dive shops | Lessons, certifications, slots |
+| Yoga retreats ? small retreat operators | Packages, dates, capacity |
 | Hostels with activities | Beds + activity add-ons |
 | Tour operators | Departures, group size, deposits |
-| Rental businesses | Lessons, rentals, inventory, time slots, sizes � surf shop / bike / e-bike / kayak / SUP / campervan patterns |
+| Rental businesses | Lessons, rentals, inventory, time slots, sizes ? surf shop / bike / e-bike / kayak / SUP / campervan patterns |
 
 A **surf shop or lesson-rental** operator is likely a simpler config profile than Wolfhouse: fewer rooming rules, more slot/inventory semantics, still the same payment + confirmation + handoff spine.
 
 ### Competitive note
 
-AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The opportunity is a **focused, configurable, operations-heavy** assistant for **small experience businesses** that live in WhatsApp and run **messy** packages, rentals, lessons, and deposits � not clean hotel-only PMS flows.
+AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The opportunity is a **focused, configurable, operations-heavy** assistant for **small experience businesses** that live in WhatsApp and run **messy** packages, rentals, lessons, and deposits ? not clean hotel-only PMS flows.
 
 ### Roadmap implication
 
@@ -126,17 +126,17 @@ AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The
 |-----------|--------|
 | Wolfhouse as client #1 with full safety proofs | Multi-client SaaS platform |
 | `client_config` specs that generalize | Client onboarding UI, billing, settings editor |
-| Engine shaped for lessons/rentals/rooming via config | Hardcoding �surf house only� in shared workflows |
+| Engine shaped for lessons/rentals/rooming via config | Hardcoding ?surf house only? in shared workflows |
 
-**Config dimensions per client** (see �3x.11 in [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)): packages � lesson types � rental inventory � rooming rules (if applicable) � pricing � deposit rules � cancellation policy � handoff rules � staff notifications � customer memory policy.
+**Config dimensions per client** (see ?3x.11 in [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)): packages ? lesson types ? rental inventory ? rooming rules (if applicable) ? pricing ? deposit rules ? cancellation policy ? handoff rules ? staff notifications ? customer memory policy.
 
 ---
 
-## Engine portability � adding a new vertical (surf shop / lessons)
+## Engine portability ? adding a new vertical (surf shop / lessons)
 
-**Goal:** when Wolfhouse is done, standing up a second vertical (surf-shop **rentals**, surf/kite-school **lessons**, tour **departures**) is a **config + inventory-plugin** exercise � **not** a rewrite. This section defines the seam so that promise is real instead of aspirational.
+**Goal:** when Wolfhouse is done, standing up a second vertical (surf-shop **rentals**, surf/kite-school **lessons**, tour **departures**) is a **config + inventory-plugin** exercise ? **not** a rewrite. This section defines the seam so that promise is real instead of aspirational.
 
-### What is SHARED � built once, reused by every vertical
+### What is SHARED ? built once, reused by every vertical
 
 | Shared spine capability | Where |
 |-------------------------|-------|
@@ -152,7 +152,7 @@ AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The
 
 These **must not** be reimplemented per client. If a "new vertical" task touches these, the seam has leaked.
 
-### What is VERTICAL-SPECIFIC � plugged in, never forked
+### What is VERTICAL-SPECIFIC ? plugged in, never forked
 
 | Vertical concern | How it varies | Mechanism |
 |------------------|---------------|-----------|
@@ -164,27 +164,27 @@ These **must not** be reimplemented per client. If a "new vertical" task touches
 
 ### The one abstraction that unlocks all of it: `InventoryProvider`
 
-All verticals reduce to the same three-call contract � `findAvailability(request)` ? `hold(unit, window)` ? `fulfill(booking)`:
+All verticals reduce to the same three-call contract ? `findAvailability(request)` ? `hold(unit, window)` ? `fulfill(booking)`:
 
 | Vertical | Unit | Availability dimension | Special attribute | Rooming? |
 |----------|------|------------------------|-------------------|----------|
 | Surf house / hostel | bed | date-range overlap | gender / couple | **yes** (`lodging`) |
 | Surf / kite / dive school | lesson slot | time + slot capacity | skill level | no (`slots`) |
-| Surf / bike / SUP shop | rental item | time-window � quantity | size / fit | no (`rentals`) |
+| Surf / bike / SUP shop | rental item | time-window ? quantity | size / fit | no (`rentals`) |
 | Tour operator | departure seat | departure-date capacity | group size | no (`slots`) |
 
 The spine calls the interface and never knows which provider it is.
 
-### Portability gate � a vertical is "config-only ready" when:
+### Portability gate ? a vertical is "config-only ready" when:
 
-- [ ] No surf-house nouns (`bed`, `room`, `matrimonial`, `surfweek`, `malibu`/`uluwatu`/`waimea`) appear in the shared spine � only in `client_config` / providers.
+- [ ] No surf-house nouns (`bed`, `room`, `matrimonial`, `surfweek`, `malibu`/`uluwatu`/`waimea`) appear in the shared spine ? only in `client_config` / providers.
 - [ ] Rooming/assignment is behind a **capability flag**, not assumed.
 - [ ] Catalog is generic `offerings`, not a hardcoded package enum.
 - [ ] Inventory/availability is behind `InventoryProvider`; lodging is just one impl.
 - [ ] `client_config` is split into **engine config** (spine) + **vertical config** (catalog/inventory/capabilities).
 - [ ] Golden-message suite is parameterized by `client_id` (Wolfhouse fixtures don't hardcode the engine's behavior).
 
-### Cheapest validation � do this on paper during Stage 3x.3 (safe, docs-only)
+### Cheapest validation ? do this on paper during Stage 3x.3 (safe, docs-only)
 
 Before any Stage 5 extraction, draft **sample configs for a second and third vertical** and run them against the schema to surface every leak:
 
@@ -206,29 +206,29 @@ Each gap found ("this field has no home," "this rule assumes beds") becomes a li
 
 ### Deploy config (the onboarding contract)
 
-Every client-specific value (prices, seasons, gate code, phone numbers, packages, room map, policies) lives in **one per-client deploy config** + a gitignored secret file � never hardcoded in code/workflows. A new client = fill the template, not rewrite logic. Template: [`config/clients/_deploy-config.template.json`](../config/clients/_deploy-config.template.json) � Guide: [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md). Wolfhouse's `wolfhouse-somo.baseline.json` is the worked example (`vertical: lodging_surf_house`).
+Every client-specific value (prices, seasons, gate code, phone numbers, packages, room map, policies) lives in **one per-client deploy config** + a gitignored secret file ? never hardcoded in code/workflows. A new client = fill the template, not rewrite logic. Template: [`config/clients/_deploy-config.template.json`](../config/clients/_deploy-config.template.json) ? Guide: [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md). Wolfhouse's `wolfhouse-somo.baseline.json` is the worked example (`vertical: lodging_surf_house`).
 
 ---
 
 ## Legacy phase map (reference)
 
-Older docs use **Phase 0�3d** for engineering milestones. They map to stages as follows:
+Older docs use **Phase 0?3d** for engineering milestones. They map to stages as follows:
 
 | Legacy | Stage |
 |--------|--------|
-| Phase 0�2 local (frozen) | Foundation + Stripe/Main/Send Confirmation contracts |
-| Phase 3b (frozen) | Stage 3 � bed-ops / manual / operator paths |
-| Phase 3c�3g | Stage 3 � Main + Postgres + stub E2E |
-| Phase 3d.x | Stage 3 � isolated real Stripe payment / webhook / confirmation gates |
-| Phase 3e | Stage 3 � rooming/reassign E2E ? |
-| Stage 3.5 | Safety rails � idempotency, error capture, overlap guards |
+| Phase 0?2 local (frozen) | Foundation + Stripe/Main/Send Confirmation contracts |
+| Phase 3b (frozen) | Stage 3 ? bed-ops / manual / operator paths |
+| Phase 3c?3g | Stage 3 ? Main + Postgres + stub E2E |
+| Phase 3d.x | Stage 3 ? isolated real Stripe payment / webhook / confirmation gates |
+| Phase 3e | Stage 3 ? rooming/reassign E2E ? |
+| Stage 3.5 | Safety rails ? idempotency, error capture, overlap guards |
 | Stage 3x | Bot knowledge + safety guardrails (specs, not n8n sprawl) |
-| Stage 3y | Shadow / co-pilot � staff-approved mode before autonomous |
+| Stage 3y | Shadow / co-pilot ? staff-approved mode before autonomous |
 | Azure / multi-client | Stage 7 (Scalable), not before Reliability + Clean |
 
 ---
 
-## Stage 3 � Correct and safe
+## Stage 3 ? Correct and safe
 
 ### Purpose
 
@@ -248,7 +248,7 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 | Wrong booking selected | Conversation `current_hold_booking_id`, resolver, terminal-status blocks |
 | Wrong payment link | Real CPS on correct hold; stub vs real env separation |
 | Wrong confirmation | Send Confirmation gates; dry-run first; schedule disabled in tests |
-| Wrong room assignment | Bed-ops forks; **hosted reassign URL** in Main fork (`3e.2` remap) � see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) |
+| Wrong room assignment | Bed-ops forks; **hosted reassign URL** in Main fork (`3e.2` remap) ? see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) |
 | Duplicate payment / session / event | Idempotency checks; single webhook per event id |
 | Accidental live Stripe / WhatsApp | Test keys; `WHATSAPP_DRY_RUN`; activation boundaries |
 | Background workflow firing | Inactive workflows + schedule `disabled` in test windows |
@@ -259,19 +259,19 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 |------|--------|--------|
 | `booking_flow` hold creation | **Proven** | PG hold + Airtable backfill in Main fork (3c.e) |
 | `payment_details_provided` route | **Proven** | Resolver + Ensure (3c.g stub E2E) |
-| Real Stripe checkout link (Main-integrated) | **Proven** | 3d.7b � `WH-260528-5369`, stop at checkout URL |
+| Real Stripe checkout link (Main-integrated) | **Proven** | 3d.7b ? `WH-260528-5369`, stop at checkout URL |
 | Isolated Create Payment Session | **Proven** | 3d.4 |
 | Stripe Webhook Handler payment truth | **Proven** (isolated) | 3d.5b on `WH-260528-1493` |
 | Send Confirmation (dry-run) | **Proven** (isolated) | 3d.6e |
 | Pay + webhook on Main-created session | **Proven** | 3d.8b organic Stripe on `WH-260528-5369` |
 | Integrated Send Confirmation (dry-run) | **Proven** | 3d.9b exec **1077** on same booking |
-| Rooming / reassign E2E | **Proven** | **3e.4 PASS** � `WH-260528-5322`, beds R3-B1/R3-B2 |
+| Rooming / reassign E2E | **Proven** | **3e.4 PASS** ? `WH-260528-5322`, beds R3-B1/R3-B2 |
 
 **Not proven in Stage 3:** real WhatsApp send; Send Confirmation schedule-poll; single-window E2E; full package intelligence.
 
-**Freeze:** [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) � formal 3c+3d checkpoint before Phase 3e.3+.
+**Freeze:** [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) ? formal 3c+3d checkpoint before Phase 3e.3+.
 
-**Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) � [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+**Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) ? [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
 
 ### Stage 3 exit criteria
 
@@ -294,14 +294,14 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 - [ ] Terminal evidence bookings not reused without reset (policy established)
 
 **Guards verified or explicitly deferred:**
-- [x] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) � **3e.5 CLOSED** (L1+L2 PASS; L3 deferred � Airtable-coupled runtime deferred to Postgres source-of-truth cutover; see �15.6��15.7)
-- [x] Duplicate / idempotency protections verified at Stage 3 bar � **3e.6 CLOSED** (I1 schema PASS � I4 runtime PASS � I6 invariant PASS; I2/I3/I5 deferred: I2 ? manual-pay gate � I3 ? Stage 3.5 � I5 ? Postgres cutover)
-- [ ] All dangerous actions have handoff / fail-safe behavior when required business rule is missing � *3x.7�3x.8 spec done; implementation pending*
+- [x] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) ? **3e.5 CLOSED** (L1+L2 PASS; L3 deferred ? Airtable-coupled runtime deferred to Postgres source-of-truth cutover; see ?15.6??15.7)
+- [x] Duplicate / idempotency protections verified at Stage 3 bar ? **3e.6 CLOSED** (I1 schema PASS ? I4 runtime PASS ? I6 invariant PASS; I2/I3/I5 deferred: I2 ? manual-pay gate ? I3 ? Stage 3.5 ? I5 ? Postgres cutover)
+- [ ] All dangerous actions have handoff / fail-safe behavior when required business rule is missing ? *3x.7?3x.8 spec done; implementation pending*
 
 **Acceptable deferrals (do not block Stage 3 exit if documented):**
-- Real WhatsApp send � dry-run mode (`WHATSAPP_DRY_RUN=true`) is sufficient; shadow mode (Stage 3y) covers real send
-- Send Confirmation schedule-poll � schedule `disabled=true` gate is sufficient for Stage 3; verify in Stage 3y
-- Single-window integrated E2E � isolated gate chains are sufficient for Stage 3
+- Real WhatsApp send ? dry-run mode (`WHATSAPP_DRY_RUN=true`) is sufficient; shadow mode (Stage 3y) covers real send
+- Send Confirmation schedule-poll ? schedule `disabled=true` gate is sufficient for Stage 3; verify in Stage 3y
+- Single-window integrated E2E ? isolated gate chains are sufficient for Stage 3
 
 **Acceptance metric gates:**
 - 0 double bookings in all runtime test gates
@@ -313,9 +313,9 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 ---
 
-## Stage 3.5 � Safety Rails Before Reliability
+## Stage 3.5 ? Safety Rails Before Reliability
 
-**Purpose:** Pull forward the minimum safety plumbing required to safely run more runtime gates and prepare for live/shadow mode. This is not full Stage 4 observability � it is seatbelts.
+**Purpose:** Pull forward the minimum safety plumbing required to safely run more runtime gates and prepare for live/shadow mode. This is not full Stage 4 observability ? it is seatbelts.
 
 **When to do Stage 3.5:** After Stage 3 exit criteria are met, before Stage 3y (shadow/co-pilot) or live guest operation.
 
@@ -339,17 +339,17 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 **Stage 3.5 does not include:** full monitoring dashboards, Azure deploy, Staff UI, broad n8n ? backend refactor.
 
-**Full sub-phase spec:** [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md) � 3.5a�3.5g with entry/exit criteria, work-type classification, and first implementation step.
+**Full sub-phase spec:** [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md) ? 3.5a?3.5g with entry/exit criteria, work-type classification, and first implementation step.
 
 **Key schema finding:** `automation_errors` and `workflow_events` tables exist in migration 001 but are not yet wired into any n8n workflow. Stage 3.5b is a pure wire-in task.
 
 ---
 
-## Stage 3y � Shadow / Co-pilot Pilot
+## Stage 3y ? Shadow / Co-pilot Pilot
 
 **Purpose:** Bridge the gap between isolated dry-run proof and autonomous live guest operation. Reduces the dry-run ? real-guest cliff; generates real labeled data; builds Ale/Cami trust in the system.
 
-**Full plan:** [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md) � entry criteria, operating modes A�D, allowed/forbidden actions, staff approval workflow, infrastructure requirements, 15-test matrix (Y-T1�Y-T15), exit criteria.
+**Full plan:** [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md) ? entry criteria, operating modes A?D, allowed/forbidden actions, staff approval workflow, infrastructure requirements, 15-test matrix (Y-T1?Y-T15), exit criteria.
 
 ### How shadow/co-pilot mode works
 
@@ -362,14 +362,14 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 | Staff approves and sends | **Staff (manual)** |
 | Staff edit logged as labeled example | System records correction (interim: offline log) |
 
-### Operating modes (ascending risk � gate each separately)
+### Operating modes (ascending risk ? gate each separately)
 
 | Mode | Description | Gate |
 |------|-------------|------|
-| **A � Offline shadow** | Pasted/copied messages; local n8n; no live connection | ? Ready to start (no new infra) |
-| **B � Real inbound, no sends** | Real WhatsApp inbound; `DRY_RUN=true` enforced | Separate explicit approval required |
-| **C � Staff-approved draft queue** | Bot writes draft to review queue; staff approves and sends manually | Mode B stable + review UI |
-| **D � Staff-approved action proposals** | Bot proposes dangerous action; staff clicks approve | Stage 6 Staff UI + all 3x complete |
+| **A ? Offline shadow** | Pasted/copied messages; local n8n; no live connection | ? Ready to start (no new infra) |
+| **B ? Real inbound, no sends** | Real WhatsApp inbound; `DRY_RUN=true` enforced | Separate explicit approval required |
+| **C ? Staff-approved draft queue** | Bot writes draft to review queue; staff approves and sends manually | Mode B stable + review UI |
+| **D ? Staff-approved action proposals** | Bot proposes dangerous action; staff clicks approve | Stage 6 Staff UI + all 3x complete |
 
 ### What is and is not allowed in Stage 3y
 
@@ -392,7 +392,7 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 ---
 
-## Stage 3x � Bot knowledge + safety guardrails
+## Stage 3x ? Bot knowledge + safety guardrails
 
 **Mini-phase before fully entering Stage 4 (Reliable).**
 
@@ -403,12 +403,12 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 Define the business knowledge and decision rules the bot needs to act safely, ask smart follow-up questions, and avoid dangerous guesses.
 
-**Important:** Stage 3x delivers **specs, fixtures, and configurable rules** � not a huge expansion of n8n IF nodes. Implementation belongs in code modules (Stage 5) fed by client config.
+**Important:** Stage 3x delivers **specs, fixtures, and configurable rules** ? not a huge expansion of n8n IF nodes. Implementation belongs in code modules (Stage 5) fed by client config.
 
 | Sub-phase | Status |
 |-----------|--------|
-| **3x.1** Full roadmap �3x.1�3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
-| **3x.1b** Customer memory layered model (�3x.5) | **Done** (2026-05-28) |
+| **3x.1** Full roadmap ?3x.1?3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
+| **3x.1b** Customer memory layered model (?3x.5) | **Done** (2026-05-28) |
 | **3x.2b** Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) |
 | **3x.2c** Applied owner P1 answers ? baseline v0.2 + handoff/add-on plans | **Done** (2026-05-29) |
 | **3x.2d** Working prices + policies ? baseline v0.3 (provisional pricing) | **Done** (2026-05-29) |
@@ -416,11 +416,11 @@ Define the business knowledge and decision rules the bot needs to act safely, as
 | **3x.3** WhatsApp mining + golden fixtures + customer extract | Planned |
 | **3x.4** Golden runner + Stage 4 reliability hooks | Planned |
 
-**Stage 3x includes:** required-field map � package decision flow � Wolfhouse knowledge collection � **WhatsApp history mining** � **customer memory migration** � golden message tests � dangerous-action gates � human handoff ([`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md)) � during-stay add-ons ([`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md)) � wrong-booking protection � duplicate protection � client-config architecture � **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
+**Stage 3x includes:** required-field map ? package decision flow ? Wolfhouse knowledge collection ? **WhatsApp history mining** ? **customer memory migration** ? golden message tests ? dangerous-action gates ? human handoff ([`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md)) ? during-stay add-ons ([`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md)) ? wrong-booking protection ? duplicate protection ? client-config architecture ? **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
 
 ### Summary index (detail in master spec)
 
-### 3x.1 � Required field map
+### 3x.1 ? Required field map
 
 Define required fields **before** each action:
 
@@ -435,9 +435,9 @@ Define required fields **before** each action:
 | Package booking | Quote inputs + package-specific required fields |
 | Date change | Booking id, new dates, availability, policy |
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.1](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x1--required-field-map) + fixture tables keyed by `resolved_route`.
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.1](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x1--required-field-map) + fixture tables keyed by `resolved_route`.
 
-### 3x.2 � Package explanation + package decision flow
+### 3x.2 ? Package explanation + package decision flow
 
 The bot must explain package differences clearly.
 
@@ -454,29 +454,29 @@ The bot must explain package differences clearly.
 
 | Guest signal | Bot behavior |
 |--------------|--------------|
-| �What packages do you have?� | Briefly explain all packages |
+| ?What packages do you have?? | Briefly explain all packages |
 | Wants to book, package missing | Ask: accommodation only vs surf package |
 | Unsure | Recommend by goal: cheapest ? shared accommodation; beginner ? lesson package; full arrange ? full surf; already surfs ? accommodation + rentals |
 | Price question | Do **not** quote exact price unless dates, guest count, package, and price source are known |
 | Still uncertain | Follow-up question or staff handoff |
 
-### 3x.3 � Wolfhouse knowledge collection
+### 3x.3 ? Wolfhouse knowledge collection
 
 Operational gaps only (not public website facts). Questionnaire for Ale/Cami:
 
 **Deliverable:** [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md)
 
-### 3x.4 � WhatsApp history mining plan
+### 3x.4 ? WhatsApp history mining plan
 
-Redacted Cami/Ale guest threads ? **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see �3x.5).
+Redacted Cami/Ale guest threads ? **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see ?3x.5).
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.4](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x4--whatsapp-history-mining-plan); redacted samples under `docs/knowledge/whatsapp-samples/` (not in git until anonymized).
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.4](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x4--whatsapp-history-mining-plan); redacted samples under `docs/knowledge/whatsapp-samples/` (not in git until anonymized).
 
-### 3x.5 � Customer memory + WhatsApp history migration
+### 3x.5 ? Customer memory + WhatsApp history migration
 
 Layered model: temporary raw import ? structured customer facts (PG, `client_id`-scoped) ? anonymized fixtures. Proposed tables: `customers`, `customer_booking_history`, `conversation_summaries`, `customer_preferences`, `customer_notes`, `privacy_requests` (future).
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.5](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x5--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) � Customer memory.
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.5](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x5--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) ? Customer memory.
 
 ### LLM safety requirements (across Stage 3x + Stage 4)
 
@@ -490,15 +490,15 @@ The bot must never act on LLM output alone for dangerous actions. The following 
 | `resolved_route`, confidence, selected booking, and action logged per execution | 3.5 |
 | Golden-message suite used as prompt regression evaluation | 3x.6 ? 4 |
 | Multilingual behavior tested: English / Spanish / Italian | 3x.6 |
-| Bot never marks `paid` / `cancelled` / `confirmed` based only on LLM interpretation | 3x.7 gate � proven in 3d.5b (webhook owns truth) |
+| Bot never marks `paid` / `cancelled` / `confirmed` based only on LLM interpretation | 3x.7 gate ? proven in 3d.5b (webhook owns truth) |
 
 ### Stage 3x exit criteria
 
-Documented in master spec � planning complete when �3x.1�3x.11 + exit checklist exist; full golden fixture set may complete in 3x.3.
+Documented in master spec ? planning complete when ?3x.1?3x.11 + exit checklist exist; full golden fixture set may complete in 3x.3.
 
-### 3x.6 � Golden message tests
+### 3x.6 ? Golden message tests
 
-**30�50** realistic guest messages with expected:
+**30?50** realistic guest messages with expected:
 
 - `resolved_route`
 - Missing fields
@@ -508,13 +508,13 @@ Documented in master spec � planning complete when �3x.1�3x.11 + exit chec
 
 **Categories to include:**
 
-- Booking request � package questions � payment-link request � �I paid�
-- Cancellation � room preference � couple/friends/gender rooming � date changes
-- Surfboard/wetsuit rental � breakfast/transfer � unclear / low-confidence messages
+- Booking request ? package questions ? payment-link request ? ?I paid?
+- Cancellation ? room preference ? couple/friends/gender rooming ? date changes
+- Surfboard/wetsuit rental ? breakfast/transfer ? unclear / low-confidence messages
 
-**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec �3x.6.
+**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec ?3x.6.
 
-### 3x.7 � Dangerous action gates
+### 3x.7 ? Dangerous action gates
 
 Strict proof required before:
 
@@ -527,7 +527,7 @@ Strict proof required before:
 | Change dates | Availability + policy |
 | Mark payment-related states | Webhook or authorized staff only |
 
-### 3x.8 � Human handoff rules
+### 3x.8 ? Human handoff rules
 
 Bot must stop guessing and alert staff when:
 
@@ -542,7 +542,7 @@ Bot must stop guessing and alert staff when:
 
 **Deliverable:** `handoffRules` spec ? later `client_config.handoff_rules`.
 
-### 3x.9 � Wrong-booking protection
+### 3x.9 ? Wrong-booking protection
 
 Formalize (align with existing resolver + PG):
 
@@ -551,7 +551,7 @@ Formalize (align with existing resolver + PG):
 - Old holds must not be selected because phone matches alone
 - Active booking must match conversation context and latest intent
 
-### 3x.10 � Duplicate protection
+### 3x.10 ? Duplicate protection
 
 Verify and document:
 
@@ -562,7 +562,7 @@ Verify and document:
 | Same Stripe event id | No duplicate `payment_events` row |
 | Confirmation | Cannot send twice (`confirmation_sent_at`, flags) |
 
-### 3x.11 � Client-config architecture plan
+### 3x.11 ? Client-config architecture plan
 
 Same assistant engine, different **client config** per property.
 
@@ -585,7 +585,7 @@ Wolfhouse = `client_slug: wolfhouse-somo`. Future surf houses add new config row
 
 ---
 
-## Source-of-truth cutover � Airtable ? Postgres
+## Source-of-truth cutover ? Airtable ? Postgres
 
 This is a **first-class roadmap event**, not a scattered implementation detail. Airtable is the current operational source of truth for staff. Postgres is the engineering source of truth for the bot. Cutover must happen deliberately.
 
@@ -596,7 +596,7 @@ This is a **first-class roadmap event**, not a scattered implementation detail. 
 | **Current** | Airtable = staff SoT; Postgres = bot SoT; dual-write in progress | Active |
 | **Read-only compare** | Run both reads; log discrepancies; do not act on mismatch | Before any cutover |
 | **`DATA_SOURCE` flag** | Config-driven: `airtable` \| `postgres` per path; allows per-path rollout | Stage 4 |
-| **Soak period** | Postgres-primary writes; Airtable as backup read; monitor for divergence | Stage 4�5 |
+| **Soak period** | Postgres-primary writes; Airtable as backup read; monitor for divergence | Stage 4?5 |
 | **Airtable dependency removal** | Only after staff UI or equivalent replacement exists | Stage 6+ |
 | **Backup policy** | Full Airtable export + PG dump before each cutover step | Required |
 | **Rollback plan** | Revert `DATA_SOURCE` flag; restore from backup; documented runbook | Required |
@@ -626,25 +626,25 @@ This is a **first-class roadmap event**, not a scattered implementation detail. 
 
 ---
 
-## Stage 4 � Reliable
+## Stage 4 ? Reliable
 
-**Status (2026-05-30): CLOSE WITH DEFERRALS.** Autonomous Booking Dry-Run complete � all 14 scenarios PASS (commit `6cd9a21`). Evidence: `test-payloads/stage4/autonomous-dry-run/README.md`. Live WhatsApp, live holds, live Stripe, and live confirmation writes remain deferred. Structured add-on records and staff ops assistant deferred to Stages 5�6.
+**Status (2026-05-30): CLOSE WITH DEFERRALS.** Autonomous Booking Dry-Run complete ? all 14 scenarios PASS (commit `6cd9a21`). Evidence: `test-payloads/stage4/autonomous-dry-run/README.md`. Live WhatsApp, live holds, live Stripe, and live confirmation writes remain deferred. Structured add-on records and staff ops assistant deferred to Stages 5?6.
 
 ### Purpose
 
 Make the working system **dependable and observable** after Stage 3 behavior is proven and Stage 3x rules are specified.
 
-### Entry gate (defined in baseline config + �3x.2b)
+### Entry gate (defined in baseline config + ?3x.2b)
 
-Gate definition: [`config/clients/wolfhouse-somo.baseline.json`](../config/clients/wolfhouse-somo.baseline.json) (`stage4_entry_gate`) and [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.2b/�3x.2c](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x2c--applied-owner-answers-2026-05-29).
+Gate definition: [`config/clients/wolfhouse-somo.baseline.json`](../config/clients/wolfhouse-somo.baseline.json) (`stage4_entry_gate`) and [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.2b/?3x.2c](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x2c--applied-owner-answers-2026-05-29).
 
-**Reduced after 3x.2c** (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming auto-assign + operator-room logic all confirmed). **Remaining owner blockers:** deposit amount/scope � non-7-night pricing math � cancellation/refund windows & % � add-on service prices/scheduling (if in Stage 4 scope) � real WhatsApp send gate or Stage 3y shadow � final handoff channel. **Not blockers:** perfect tone � full customer memory � marketing opt-in � exact add-on automation.
+**Reduced after 3x.2c** (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming auto-assign + operator-room logic all confirmed). **Remaining owner blockers:** deposit amount/scope ? non-7-night pricing math ? cancellation/refund windows & % ? add-on service prices/scheduling (if in Stage 4 scope) ? real WhatsApp send gate or Stage 3y shadow ? final handoff channel. **Not blockers:** perfect tone ? full customer memory ? marketing opt-in ? exact add-on automation.
 
-**Additional entry requirement:** Autonomous booking dry-run pass � bot completes full booking flow (inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation) without errors in all-stubbed mode, proving readiness before real sends or live operation are enabled.
+**Additional entry requirement:** Autonomous booking dry-run pass ? bot completes full booking flow (inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation) without errors in all-stubbed mode, proving readiness before real sends or live operation are enabled.
 
 ### Includes
 
-- **Autonomous booking dry-run** (first Stage 4 milestone): full booking flow end-to-end � inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation � with all live side effects stubbed at the infrastructure boundary. Proves the bot completes the booking correctly before real sends or live operation are enabled. This is the regression anchor: once green, enabling real WhatsApp send or live operation is a config change, not a behavior change.
+- **Autonomous booking dry-run** (first Stage 4 milestone): full booking flow end-to-end ? inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation ? with all live side effects stubbed at the infrastructure boundary. Proves the bot completes the booking correctly before real sends or live operation are enabled. This is the regression anchor: once green, enabling real WhatsApp send or live operation is a config change, not a behavior change.
 - Better error handling and safe retries (where idempotent)
 - Stuck booking detection
 - Monitoring, alerts, execution dashboards
@@ -664,11 +664,11 @@ May begin here if needed before full Stage 6 UI:
 - Human handoff queue
 - Pending confirmations
 - Failed workflow executions
-- **Staff query assistant** (read-only ops Q&A: "who has a surfboard today?", "who arrives today?", "which rooms need cleaning and by when?") gated by an **approved-staff allowlist** (`staff_directory`; portal = Stage 6) � [`STAFF-QUERY-ASSISTANT-PLAN.md`](STAFF-QUERY-ASSISTANT-PLAN.md)
+- **Staff query assistant** (read-only ops Q&A: "who has a surfboard today?", "who arrives today?", "which rooms need cleaning and by when?") gated by an **approved-staff allowlist** (`staff_directory`; portal = Stage 6) ? [`STAFF-QUERY-ASSISTANT-PLAN.md`](STAFF-QUERY-ASSISTANT-PLAN.md)
 
 ### Add-on structured records (Stage 4 design requirement)
 
-Add-on dry-run tests (e.g. A9 � lessons, yoga, rentals) must do more than verify the guest-facing price quote is correct. They must also prove the system can **represent add-on requests as structured, staff-queryable records**. This is the data foundation that makes Stage 6 staff queries possible.
+Add-on dry-run tests (e.g. A9 ? lessons, yoga, rentals) must do more than verify the guest-facing price quote is correct. They must also prove the system can **represent add-on requests as structured, staff-queryable records**. This is the data foundation that makes Stage 6 staff queries possible.
 
 Each add-on request that passes through the bot should be representable as a record with at minimum:
 - Guest / booking reference
@@ -676,16 +676,16 @@ Each add-on request that passes through the bot should be representable as a rec
 - Quantity / number of days
 - Requested date(s)
 - Payment status (pending / paid)
-- Fulfillment status (not redeemed / redeemed � staff-managed)
+- Fulfillment status (not redeemed / redeemed ? staff-managed)
 - A flag indicating whether staff scheduling / manual tracking applies (e.g. lessons require a manual slot assignment)
 
-**Stage 4 does not require full add-on automation.** It requires that when the bot processes an add-on request, the output can be persisted in a shape that is queryable by staff. If no structured add-on record is written yet, the design must identify where it would be written and what the schema looks like � so Stage 5 does not have to invent it from scratch.
+**Stage 4 does not require full add-on automation.** It requires that when the bot processes an add-on request, the output can be persisted in a shape that is queryable by staff. If no structured add-on record is written yet, the design must identify where it would be written and what the schema looks like ? so Stage 5 does not have to invent it from scratch.
 
 ---
 
-## Stage 5 � Clean
+## Stage 5 ? Clean
 
-**Status (2026-05-31): CLOSE WITH DEFERRALS � source-of-truth cleanup complete (5.1�5.8b); engine extraction / portability scope deferred.** All staff-queryable data tables are schema-stubbed and query helpers are proven. Migrations 007 (add-ons) and 008 (staff handoffs) are ready to apply. Live operation, engine extraction, and staff UI remain deferred (Stage 6). Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md).
+**Status (2026-05-31): CLOSE WITH DEFERRALS ? source-of-truth cleanup complete (5.1?5.8b); engine extraction / portability scope deferred.** All staff-queryable data tables are schema-stubbed and query helpers are proven. Migrations 007 (add-ons) and 008 (staff handoffs) are ready to apply. Live operation, engine extraction, and staff UI remain deferred (Stage 6). Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md).
 
 ### Purpose
 
@@ -704,7 +704,7 @@ Do **not** do broad Stage 5 refactor before Stage 3 / 3.5 safety gates. However,
 ### Includes
 
 - Move decision logic out of n8n into `src/booking-assistant/` (n8n becomes I/O only).
-- **Extract along the portability seam** ([� Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons)): shared spine vs `inventory/` + `catalog/` plugins � do **not** produce a tidied-up surf-house monolith.
+- **Extract along the portability seam** ([? Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons)): shared spine vs `inventory/` + `catalog/` plugins ? do **not** produce a tidied-up surf-house monolith.
 - Implement `InventoryProvider` with **lodging** as the first concrete provider; keep the interface generic enough for `slots` / `rentals`.
 - Split `client_config` into **engine config** (spine) + **vertical config** (catalog / inventory / capabilities); rooming behind a capability flag.
 - Replace serialized-into-n8n Code nodes (e.g. the resolver) with calls to the extracted, version-checked modules.
@@ -729,7 +729,7 @@ The following tables/models must be designed (and at minimum stubbed in schema) 
 | `staff_handoffs` / `staff_tasks` | Which conversations need a human reply? Why was it handed off? Current state? |
 | `payment_balances` (view or table) | Who still owes money? Who paid deposit but not full balance? |
 
-These are **not new features** � they are the structured forms of data the bot already collects. The goal of Stage 5 is to ensure that data lands in Postgres in a queryable shape instead of only in Airtable or serialized chat session state.
+These are **not new features** ? they are the structured forms of data the bot already collects. The goal of Stage 5 is to ensure that data lands in Postgres in a queryable shape instead of only in Airtable or serialized chat session state.
 
 **Design gate for Stage 5:** before beginning Stage 6 staff UI work, verify that a staff member can ask each of the following questions and get a correct answer from Postgres without touching Airtable or reading raw WhatsApp messages:
 
@@ -744,9 +744,9 @@ These are **not new features** � they are the structured forms of data the bot
 
 ---
 
-## Stage 6 � Beautiful (Staff / Admin Layer)
+## Stage 6 ? Beautiful (Staff / Admin Layer)
 
-**Status: CLOSED WITH DEFERRALS** (2026-05-31) � All exit criteria MET. 6.0�6.9 DONE: 35-intent registry, CLI runner, batch reports, CLI write action, HTTP API, browser UI, smoke test, token-gated write endpoint. Production auth/TLS/live-ops deferred to Stage 7. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
+**Status: CLOSED WITH DEFERRALS** (2026-05-31) ? All exit criteria MET. 6.0?6.9 DONE: 35-intent registry, CLI runner, batch reports, CLI write action, HTTP API, browser UI, smoke test, token-gated write endpoint. Production auth/TLS/live-ops deferred to Stage 7. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
 
 **Implementation slices:** 6.1 registry DONE ? 6.2 CLI runner DONE ? 6.3 handoffs DONE ? 6.4a/b/c/d batch reports DONE ? 6.5a/b CLI write action DONE ? 6.6 HTTP API DONE ? 6.7 intent smoke DONE ? 6.8 read-only UI DONE ? 6.9 token-gated write endpoint DONE.
 
@@ -776,7 +776,7 @@ Staff can ask operational questions and get answers from **structured Postgres r
 - "Who paid deposit but not full balance?"
 - "Which guests requested rooming preferences?"
 
-**Design constraint:** these questions are answered from the structured records built in Stage 5 (`lesson_requests`, `add_on_orders`, `staff_handoffs`, `payment_balances`, etc.). The assistant maps natural-language questions to fixed safe parameterized intents � it never generates arbitrary SQL.
+**Design constraint:** these questions are answered from the structured records built in Stage 5 (`lesson_requests`, `add_on_orders`, `staff_handoffs`, `payment_balances`, etc.). The assistant maps natural-language questions to fixed safe parameterized intents ? it never generates arbitrary SQL.
 
 ### Staff Approval Controls
 
@@ -801,35 +801,37 @@ Staff can review, approve, and act on bot proposals without going directly into 
 
 Airtable may remain a **bridge** during transition; long-term goal is a proper staff UI, not Airtable as daily ops surface.
 
-**Airtable cutover prerequisite:** the staff UI (or equivalent) must cover all use cases Airtable currently serves before Airtable is removed as a dependency � see the Source-of-truth cutover table above.
+**Airtable cutover prerequisite:** the staff UI (or equivalent) must cover all use cases Airtable currently serves before Airtable is removed as a dependency ? see the Source-of-truth cutover table above.
 
 ---
 
-## Stage 7 � Scalable
+## Stage 7 ? Scalable
 
 
 **8.5.1 LUNA BOT SHARED ENGINE INTEGRATION MAP -- PASS (2026-06-02):** Planning/static mapping only. No code, no DB writes, no Azure deploy, no WhatsApp sends, no n8n activation. Static inspection of bot n8n workflow JSONs (Main, Create Payment Session, Stripe Webhook Handler). Key findings: bot creates Airtable Hold (not Postgres booking), calls Stripe directly from n8n using Airtable amounts + STRIPE_DEFAULT_DEPOSIT_CENTS=20000 fallback -- completely bypasses calculateWolfhouseQuote() and draft payments row; no payment_id in Stripe metadata. 6 large gaps, 1 medium, 2 small. No bot parser/session files in scripts/ -- all bot logic in n8n JSON. Integration map: [STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md](STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md). No bot wiring implemented. No WhatsApp sends. No n8n activation. Shared engine integration map complete. Next: 8.5.2 static verifier.
 
 
+**8.5.3 LUNA BOT INTERNAL TOKEN AUTH -- PASS (2026-06-02):** requireBotAuth() added to scripts/staff-query-api.js; separate from requireAuth -- normal staff auth unchanged; supports X-Luna-Bot-Token header + Authorization Bearer header + session cookie fallback; constant-time timingSafeEqual comparison; token path disabled when LUNA_BOT_INTERNAL_TOKEN empty (safe default); wrong token -> 401; auth_mode:bot_token in response; scoped exclusively to /staff/bot/* routes; LUNA_BOT_INTERNAL_TOKEN from process.env only; verify-staff-bot-booking-preview-api.js 65/65 PASS (12 new checks); all other verifiers PASS; no DB writes; no Stripe; no WhatsApp; no n8n activation. Next: 8.5.4 bot create booking/payment link dry-run.
+
 **8.5.2 LUNA BOT BOOKING PREVIEW ENDPOINT -- PASS (2026-06-02):** POST /staff/bot/booking-preview added to scripts/staff-query-api.js. No DB writes, no Stripe, no WhatsApp, no n8n. Calls calculateWolfhouseQuote() with Luna-parsed booking fields. Returns missing_fields, next_action (ask_missing_fields/ready_for_create_dry_run/staff_review_required), reply_draft text, quote snapshot, availability.status=not_checked. All safety fields: preview_only:true, no_write_performed:true, creates_booking:false, sends_whatsapp:false. Auth: requireAuth('viewer'), not gated on MANUAL_BOOKING_ENABLED/STAFF_ACTIONS_ENABLED. scripts/verify-staff-bot-booking-preview-api.js 53/53 PASS. Local proof: missing-fields->ask_missing_fields; complete Malibu 5-night->ready_for_create_dry_run+total_cents=45000. n8n auth gap documented (n8n will need staff session token in later slice). Next: 8.5.3 bot creates booking via shared engine, dry-run only.
 
-**8.4.13 AZURE STAGING BATCH DEPLOY + E2E PROOF — PASS (2026-06-02):** Manual booking/payment MVP chain proven on hosted Azure staging. Image `9e5502f-stage8412-manual-booking-mvp` deployed; revision `--0000014` at 100% traffic; flags `STAFF_ACTIONS_ENABLED=true`, `MANUAL_BOOKING_ENABLED=true`, `STRIPE_LINKS_ENABLED=true`, `WHATSAPP_DRY_RUN=true`; KV: `stripe-secret-key` updated, `stripe-webhook-secret` = `whsec_QF79KU...` (Stripe endpoint `we_1TdxY1G36q`); E2E proof: login ? booking `MB-WOLFHO-20260705-30e9d3` (?299/?200 deposit) ? Stripe link `cs_test_a1Mzhctx5` ? signed webhook `checkout.session.completed` (HMAC-valid, no SKIP_VERIFY) ? 200 deposit_paid ? DB paid/paid_at/pi_id set ? drawer shows ? Deposit paid banner + amounts + paid_at + Stripe IDs. 6/6 DB assertions PASS. No SKIP_VERIFY. WhatsApp NOT sent. n8n untouched. Stripe is payment truth. KV secrets redacted in docs. **Next phase: Luna bot uses the same booking/pricing/payment engine.**
+**8.4.13 AZURE STAGING BATCH DEPLOY + E2E PROOF � PASS (2026-06-02):** Manual booking/payment MVP chain proven on hosted Azure staging. Image `9e5502f-stage8412-manual-booking-mvp` deployed; revision `--0000014` at 100% traffic; flags `STAFF_ACTIONS_ENABLED=true`, `MANUAL_BOOKING_ENABLED=true`, `STRIPE_LINKS_ENABLED=true`, `WHATSAPP_DRY_RUN=true`; KV: `stripe-secret-key` updated, `stripe-webhook-secret` = `whsec_QF79KU...` (Stripe endpoint `we_1TdxY1G36q`); E2E proof: login ? booking `MB-WOLFHO-20260705-30e9d3` (?299/?200 deposit) ? Stripe link `cs_test_a1Mzhctx5` ? signed webhook `checkout.session.completed` (HMAC-valid, no SKIP_VERIFY) ? 200 deposit_paid ? DB paid/paid_at/pi_id set ? drawer shows ? Deposit paid banner + amounts + paid_at + Stripe IDs. 6/6 DB assertions PASS. No SKIP_VERIFY. WhatsApp NOT sent. n8n untouched. Stripe is payment truth. KV secrets redacted in docs. **Next phase: Luna bot uses the same booking/pricing/payment engine.**
 
 **8.4.12 SHOW PAYMENT TRUTH IN BOOKING DRAWER DONE (2026-06-02):** `getBookingPaymentsQuery` now returns `payment_kind`, `currency`, `checkout_url`, `stripe_checkout_session_id` (4 missing fields); `renderBookingContextDrawer` payment section fully rewritten: green banner for deposit_paid/paid; booking totals; per-payment card (green=paid, blue=checkout_created); `pmtStatusLabel()` + `bkPayLabel()` helpers; `paid_at` display; "? waiting for Stripe webhook" when checkout_created; truncated session/intent IDs; checkout_url copy button; "No payment record yet" fallback; read-only only, no writes, no Stripe/WhatsApp/n8n; `verify-staff-bed-calendar-ui.js` 283/283 PASS (23 new checks 219a?220e); DB+webhook proof PASS.
 
-**8.4.11 STRIPE WEBHOOK PAYMENT TRUTH DONE (2026-06-02):** `POST /staff/stripe/webhook` added; `handleStripeWebhook()` handler; `readBodyRaw()` for HMAC body; `STRIPE_WEBHOOK_SECRET`+`STRIPE_WEBHOOK_SKIP_VERIFY` constants; no session auth (identity via Stripe HMAC); `STRIPE_WEBHOOK_SKIP_VERIFY=true` for local fixture testing; `checkout.session.completed` ? payment truth; others ignored 200; payment matched by `metadata.payment_id` ? fallback `stripe_checkout_session_id`; idempotency: already-paid ? 200 idempotent:true, no double-count; `payments`: `status=paid`, `amount_paid_cents`, `paid_at=NOW()`, `stripe_payment_intent_id`, event metadata; `bookings`: `amount_paid_cents`, `balance_due_cents`, `payment_status` (deposit_paid/paid/waiting_payment); `BEGIN/COMMIT/ROLLBACK` atomic; booking.status NOT confirmed; no WhatsApp/email/n8n/confirmation; safety flags in response; `verify-staff-stripe-webhook-api.js` 60/60 PASS; all prior verifiers PASS; local fixture proof: checkout_created?paid, 20000�, deposit_paid, idempotent PASS, ignore PASS. Next: 8.4.12 show paid status in booking drawer.
+**8.4.11 STRIPE WEBHOOK PAYMENT TRUTH DONE (2026-06-02):** `POST /staff/stripe/webhook` added; `handleStripeWebhook()` handler; `readBodyRaw()` for HMAC body; `STRIPE_WEBHOOK_SECRET`+`STRIPE_WEBHOOK_SKIP_VERIFY` constants; no session auth (identity via Stripe HMAC); `STRIPE_WEBHOOK_SKIP_VERIFY=true` for local fixture testing; `checkout.session.completed` ? payment truth; others ignored 200; payment matched by `metadata.payment_id` ? fallback `stripe_checkout_session_id`; idempotency: already-paid ? 200 idempotent:true, no double-count; `payments`: `status=paid`, `amount_paid_cents`, `paid_at=NOW()`, `stripe_payment_intent_id`, event metadata; `bookings`: `amount_paid_cents`, `balance_due_cents`, `payment_status` (deposit_paid/paid/waiting_payment); `BEGIN/COMMIT/ROLLBACK` atomic; booking.status NOT confirmed; no WhatsApp/email/n8n/confirmation; safety flags in response; `verify-staff-stripe-webhook-api.js` 60/60 PASS; all prior verifiers PASS; local fixture proof: checkout_created?paid, 20000?, deposit_paid, idempotent PASS, ignore PASS. Next: 8.4.12 show paid status in booking drawer.
 
 **8.4.10 STAFF PORTAL CREATE/COPY STRIPE LINK DONE (2026-06-02):** `BC_STRIPE_LINKS` flag embedded server-side; `bcLastPaymentId` state; `payment_id` now returned in create response (RETURNING id); `renderCreateResult` shows payment_id+draft status+"Create Stripe Payment Link" button (gated by `BC_STRIPE_LINKS+BC_STAFF_ACTIONS+payment_id`, disabled when flags off); `runCreateStripeLink()` POSTs to `/staff/payments/:id/create-stripe-link` (never Stripe directly); `renderStripeLinkResult()` shows checkout_url+session_id+"Copy Payment Link" button+webhook-not-paid warning; `navigator.clipboard` copy with `prompt()` fallback; idempotent: re-click returns existing URL; booking drawer Payment section ready for checkout_url when query updated; `bcClearSelection` resets `bcLastPaymentId`; no WhatsApp/email/n8n; no amount_paid update; no booking confirmed; 260/260 bed-calendar-ui PASS (23 new); all verifiers 475/475 PASS; local proof: cs_test session, payment=checkout_created, amount_paid=0, booking unchanged; test data cleaned.
 
 **8.4.9 CREATE STRIPE LINK FROM DRAFT PAYMENT DONE (2026-06-02):** `POST /staff/payments/:payment_id/create-stripe-link`; gated `STAFF_ACTIONS_ENABLED+STRIPE_LINKS_ENABLED` (both default false); `stripe` npm installed; infra/.env loaded as fallback; Stripe Checkout Session (mode=payment, eur, amount from payment.amount_due_cents, metadata includes payment_id/booking_id/source=staff_portal_manual_booking); payment.status?`checkout_created`; stores session_id+checkout_url+expires_at; no amount_paid_cents update; no booking confirmed; no WhatsApp; no n8n; idempotency: already checkout_created ? return existing URL; local proof: cs_test session created, payment=checkout_created, booking=confirmed+payment_status=not_requested unchanged; `verify-staff-stripe-payment-link-api.js` 55/55 PASS; all verifiers 452/452 PASS. Next: 8.4.10 send link to guest.
 
-**Status: IN PROGRESS** (2026-06-02) � 7.0�7.7 DESIGN DONE � **7.2b+7.2c+7.3b+7.3c+7.3d+7.3e+7.3f+7.7a�d+7.7f�7.7j+7.7k1�k8 DONE**. **8.0+8.1+8.2+8.5+8.6+8.3 plan+8.3a-8.3k+8.3x+8.3y DONE**. **8.4.1 WOLFHOUSE PRICING/PAYMENT CONFIG PLAN DONE (2026-06-02, docs)**. **8.4.2 WOLFHOUSE PRICING CONFIG FIXTURE DONE (2026-06-02)**: `config/clients/wolfhouse-somo.pricing.json`; `verify-wolfhouse-pricing-config.js` 63/63 PASS; all package prices in cents; deposit scope=per_booking confirmed; August priority=10; REQUIRED_FROM_STAFF gaps documented. **8.4.3 WOLFHOUSE QUOTE CALCULATOR DONE (2026-06-02)**: `scripts/lib/wolfhouse-quote-calculator.js` pure JS; `verify-wolfhouse-quote-calculator.js` 77/77 PASS; Formula B per-night ceil5 (weekly�7 rounded up to ?5/night � nights � guests); all 3 packages � 3 seasons � 7-night flat + proration + supplement + add-ons + blockers; no DB/API/Stripe/UI; flags unchanged. **8.4.4 WOLFHOUSE QUOTE PREVIEW ENDPOINT DONE (2026-06-02)**: `POST /staff/quote-preview` in `staff-query-api.js`; auth-gated (viewer+); no DB; calls `calculateWolfhouseQuote()`; `verify-staff-quote-preview-api.js` 33/33 PASS; local proof PASS (Malibu 7n=24900�/dep=20000�, Malibu 4n=16000�/dep=10000�); `MANUAL_BOOKING_ENABLED=false`, `STAFF_ACTIONS_ENABLED=false` unchanged. **8.4.8 CREATE MANUAL BOOKING + QUOTE + DRAFT PAYMENT DONE (2026-06-02)**: booking-first flow; calculateWolfhouseQuote() server-side; quote_snapshot in metadata; draft payment record (payment_kind from payment_choice, amount_due=payment_link_amount_cents); UI gated by flags; flags=false?403; proof: 81300� booking created+cleaned; 397/397; no Stripe/migration. **8.4.7 ADD-ONS SELECTOR DONE (2026-06-02)**: compact add-ons section (wetsuit/soft-top/hard-board rentals, combos, surf lessons, yoga); buildAddOns() payload builder; bcInitAddOns() checkbox wiring; combos suppress individual rentals; bcClearSelection resets all add-ons; local proof: wetsuit 3d + 2 lessons=32400�, combo 4d=30900�; 222/222 PASS; no DB writes. **8.4.6 ROOM TYPE SELECTOR DONE (2026-06-02)**: `bk-room-type` select (shared/private/double) in manual booking form; `runQuotePreview` reads selected room type; private/double triggers +?10/person/night supplement; reset clears to shared; local proof shared=24900� no supplement, private=31900� room_supplement item; `verify-staff-bed-calendar-ui.js` 201/201 PASS; no DB writes; Create disabled. **8.4.5 QUOTE PREVIEW UI + FORM CLEANUP DONE (2026-06-02)**: manual booking form wired to `POST /staff/quote-preview`; package ? `<select>` dropdown (malibu/uluwatu/waimea/package_none/manual_override); language field removed; multi-bed selection (bcSelectedBeds array, shared date range, per-bed highlighting, auto guest count); detail panel closes on new selection; Calculate Quote button + itemized display (line items, totals, deposit, payment link, balance, formula summary, warnings); Create Manual Booking stays disabled; booking drawer deduplicates assignment rows; `verify-staff-bed-calendar-ui.js` 194/194 PASS; no DB writes, no Stripe; flags unchanged. (malibu/uluwatu/waimea seeded seasonal weekly prices, per-person scope, +?10 pppn double/private, ?200/?100 deposits, 1h hold, add-ons, refund/automation rules); REQUIRED_FROM_STAFF gaps (deposit scope, group/discount, retreat, operator, add-on charge timing, multi-week); quote input/output contracts; payment-record/invoice model mapped to bookings/payments/workflow_events/staff_handoffs; quote-snapshot storage (v1 metadata ? v2 quote_snapshots); override+confidence/handoff rules; 12-slice ladder; hard gate before MANUAL_BOOKING_ENABLED. No code/endpoint/automation; flags stay false. **8.4 RE-SCOPED ? PLAN/GATE CHECKPOINT (2026-06-02)**: manual booking creation split into gated slices with a **pricing/payment engine as a hard prerequisite** (1 engine plan ? 2 quote calculator ? 3 quote preview ? 4 create-from-quote-snapshot+payment records ? 5 Stripe payment-link/invoice ? 6 Stripe webhook truth ? 7 UI enablement). A provisional `POST /staff/manual-bookings/create` stub exists DISABLED-by-default (`MANUAL_BOOKING_ENABLED=false` ? 403) and UNWIRED from the UI; Create button stays disabled; no Stripe/invoice/payment-link/WhatsApp/n8n. Verifiers: `verify-staff-manual-booking-create-api` 41/41, `verify-staff-bed-calendar-ui` 167/167, `verify-staff-manual-booking-preview-api` PASS. Doc: [`STAGE-8.4-MANUAL-BOOKING-CREATION.md`](STAGE-8.4-MANUAL-BOOKING-CREATION.md). `STAFF_ACTIONS_ENABLED=false`; `MANUAL_BOOKING_ENABLED=false`. **8.3k ROLLBACK PROOF DONE (2026-06-02)**: staff-manual-booking-rollback-sql.js; 10 blockers; CASCADE delete; 52/52 static PASS; 59/59 runtime PASS; delta=0. All blockers proven (confirm, role, code/id mismatch, unsafe_payment, booking_not_found). No API. No UI. No Azure. STAFF_ACTIONS_ENABLED=false. **8.3l PREVIEW UI WIRED (2026-06-02)**: Preview Conflicts button enabled on cell selection; bc-preview-result panel; valid/blocked/warning/error states; POST only to /staff/manual-bookings/preview (preview_only=true, creates_booking=false, no_write_performed=true); Create Manual Booking stays disabled; 122/122 verify-staff-bed-calendar-ui PASS; bd.capacity schema bug fixed in preview query; Azure proof pending. **8.3q TOUR OPERATOR SKELETON (2026-06-02)**: bc-op-panel; operator/stay/defaults/notes; Source=Operator, Payment=Not requested, Booking=Operator Blocked; Stripe+n8n disabled; prefills from cell selection; Create+Preview buttons disabled; 142/142 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3r OPERATOR ROOM RELEASE SKELETON (2026-06-02)**: bc-rr-panel; release-dates/release-scope/defaults/notes; release type (selected_beds/whole_room/selected_dates); Guest messaging+Stripe+n8n disabled; prefills from cell selection; Release Dates+Preview Release disabled; 162/162 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3s BATCH AZURE DEPLOY (2026-06-02)**: image wh-staff-api:1894036-8x3s-batch; revision --0000012 (100% traffic, Healthy); /staff/login 200; auth-guard active; STAGING badge + STAFF ACTIONS DISABLED badge visible; Write actions DISABLED in logs; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; MANUAL_BOOKING_ENABLED=false; n8n untouched; no DB writes; no operator blocks; no room releases. **8.3j SCHEMA-ALIGNMENT FIX (2026-06-02)**: Fixed 3 schema mismatches + 2 enum casts in `buildManualBookingCreateSql()`. P1: `language` removed from bookings INSERT ? stored in `metadata` JSONB. P2: `inserted_payment` uses `status`/`payment_kind`/`amount_due_cents`/`currency` (no `provider`/`amount_cents`/`payment_status`). P3: `audit_written` uses `workflow_name`+`message` (no `event_type`). Also: `$16::booking_status`, `$17::payment_status` enum casts; `$5::text IS NOT NULL`. `verify-staff-manual-booking-create-sql.js` **47/47 PASS** (7 new schema checks). Fixture proof (`stage8.3i-manual-booking-create-proof.js`) updated � no patching: **65/65 PASS**, delta=0. Helper is now production-schema-compatible. No API route. No UI. No Azure. `STAFF_ACTIONS_ENABLED=false`. `MANUAL_BOOKING_ENABLED=false`. **8.3y NEEDS HUMAN + DETAIL CLEANUP + AZURE DEPLOY (2026-06-02)**: Needs Human tab converted to same two-column conv-card layout as Inbox (filtered to `needs_human`/open handoff); `loadConvDetail(convId, targetEl)` refactored to support both panels; `handoffLabel()` reused in `renderHandoffQueue()`; Booking sidebar above Bot state; `Pending`/`Last reply` removed from Bot state; check-in/check-out combined as `Stay` row with `fmtDateOnly()`; "Messages" h3 removed from thread section; `.hq-table`/`hq-tbody` removed. `verify-staff-conversation-ui.js` **77/77 PASS**. No API changes. No DB writes. `STAFF_ACTIONS_ENABLED=false`. Azure deploy pending. **8.3x INBOX WHATSAPP-STYLE LAYOUT (2026-06-02)**: Inbox two-column, `handoffLabel()`, "Message thread" count removed, raw stage removed, "Back to inbox" removed. 66/66 PASS. Azure image `4e02763-8x3x-inbox` deployed. `staff-query-api.js` � Inbox converted to persistent two-column layout (left = conv-card list; right = detail panel, always visible, empty-state default); `handoffLabel(code)` maps 11 raw codes to friendly labels (`date_change_requested`?"Date change request", etc.); `renderInbox()` uses `.conv-card` divs (guest name, phone, priority pill, handoff label); "Message thread � N messages" title removed; raw "Stage:" removed from detail header; "Back to inbox" removed; `inbox-table`/`inbox-tbody` removed. `verify-staff-conversation-ui.js` 66/66 PASS. No API changes. No DB writes. `STAFF_ACTIONS_ENABLED=false`. **Azure DONE (2026-06-02): image `4e02763-8x3x-inbox` (build cb9) deployed, revision `wh-staging-staff-api--0000010` Healthy. Container exec proof: `inbox-two-col`=3, `conv-card`=15, `handoffLabel`=3 FOUND; `inbox-tbody`=0, "Back to inbox"=0 ABSENT. Login 200. Safety flags: `STAFF_ACTIONS_ENABLED=false`, `WHATSAPP_DRY_RUN=true`, `STAFF_AUTH_REQUIRED=true`. n8n untouched. Manual login UI proof pending Ty creds.** **8.3i MANUAL BOOKING FIXTURE WRITE PROOF (2026-06-02)**: `scripts/fixtures/stage8.3i-manual-booking-create-proof.js` � proves `buildManualBookingCreateSql()` CTE logic; 9 cases (happy-path, idempotency, overlap conflict, touching boundary, invalid payment, confirm=false, role insufficient, invalid dates, client not found); all BEGIN/ROLLBACK; final delta=0; 3 schema mismatches documented+patched (P1 `language` col; P2 payment INSERT cols; P3 `event_type`?`workflow_name`+`message`); graceful SKIP when DB offline; `node --check` PASS; `proof:stage8.3i-manual-booking-create` in `package.json`. No API route. No UI. No Azure. `STAFF_ACTIONS_ENABLED=false`. `MANUAL_BOOKING_ENABLED=false`. **8.3h MANUAL BOOKING PREVIEW ENDPOINT (2026-06-02)**: `POST /staff/manual-bookings/preview` � auth-gated (operator+), SELECT-only queries, calls `previewManualBookingAvailability()`, returns preview_only/creates_booking/no_write_performed safety fields + full availability output, file-only audit, does NOT require STAFF_ACTIONS_ENABLED. `scripts/lib/staff-manual-booking-preview-queries.js`: SELECT-only SQL builders (beds, assignments, client). `verify-staff-manual-booking-preview-api.js` 48/48 PASS. Proof fixture 31/31 PASS. No DB writes. No booking creation. `STAFF_ACTIONS_ENABLED=false`. **8.3g MANUAL BOOKING AVAILABILITY PREVIEW HELPER (2026-06-02)**: `scripts/lib/staff-manual-booking-availability.js` � pure JS; `previewManualBookingAvailability()`; half-open overlap (existing_start < proposed_check_out AND existing_end > proposed_check_in); cancelled/expired exclusion; 7 blockers; 5 warnings (same_day, next_day, long_stay, protected_room, operator_room); structured output with is_valid/has_conflict/blockers/warnings/availability_by_bed/summary. `verify-staff-manual-booking-availability.js` 52/52 PASS. No DB. No API. No writes. `STAFF_ACTIONS_ENABLED=false`. **8.3f MANUAL BOOKING SQL STATIC PROOF (2026-06-02)**: `scripts/lib/staff-manual-booking-create-sql.js` � 15-CTE chain, 14 blockers (`MANUAL_BOOKING_BLOCK_CODES`), half-open overlap + defense-in-depth, idempotency via `metadata` JSONB, audit_payload + rollback_payload, `confirmation_sent_at=NULL`. `verify-staff-manual-booking-create-sql.js` 40/40 PASS. NOT wired. No API route. No DB execution. `STAFF_ACTIONS_ENABLED=false`. Manual booking writes NOT implemented. **8.3e MANUAL BOOKING WRITE GATE PLAN (2026-06-02, docs-only)**: `docs/STAGE-8.3E-MANUAL-BOOKING-WRITE-GATE-PLAN.md` � hard blockers, warning/second-confirm cases, audit/rollback/idempotency requirements, revised contiguous numbering (manual booking 8.3e�8.3o; move/cancel/operator 8.3p�8.3w), staging gates, sign-off table. Pilot NO_GO; writes NOT implemented. **8.3d MANUAL BOOKING PREVIEW (2026-06-02)**: full form skeleton (Selected Stay pre-filled, Guest, Payment w/ deposit, Notes, Avail placeholder, Safety notice, disabled Create+Conflicts), 105 verifier checks PASS. No writes. **8.3a BED CALENDAR READ-ONLY CLEANUP (2026-06-02)**: date `type="date"` inputs, 5 shortcut chips (Today/Week/30d/Jul�Aug/Demo), always-visible 7-status color legend, inline A/D markers moved to tooltip, operator+manual block colors, cleaner room/bed labels (code primary, label subtitle), taller 28px blocks, free-bed count in summary strip, `bcSetRange()` helper; 56 verifier checks PASS; all other verifiers PASS; local proof PASS; Azure proof pending. **8.3q TOUR OPERATOR SKELETON (2026-06-02)**: bc-op-panel; operator/stay/defaults/notes; Source=Operator, Payment=Not requested, Booking=Operator Blocked; Stripe+n8n disabled; prefills from cell selection; Create+Preview buttons disabled; 142/142 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3r OPERATOR ROOM RELEASE SKELETON (2026-06-02)**: bc-rr-panel; release-dates/release-scope/defaults/notes; release type (selected_beds/whole_room/selected_dates); Guest messaging+Stripe+n8n disabled; prefills from cell selection; Release Dates+Preview Release disabled; 162/162 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3u OPERATIONS UI CORRECTION (2026-06-02)**: Tour Operator tab added; bc-op-panel+bc-rr-panel moved from Bed Calendar to tour-operator tab; forms use date dropdowns; bcHandleCellClick td.dataset bug fixed; Demo Range chip removed; booking drawer: code-only title, Room/Beds merged into Stay; 164/164 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3s BATCH AZURE DEPLOY (2026-06-02)**: image wh-staff-api:1894036-8x3s-batch; revision --0000012 (100% traffic, Healthy); /staff/login 200; auth-guard active; STAGING badge + STAFF ACTIONS DISABLED badge visible; Write actions DISABLED in logs; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; MANUAL_BOOKING_ENABLED=false; n8n untouched; no DB writes; no operator blocks; no room releases. **8.3 STAFF PORTAL BED CALENDAR OPERATIONS PLAN (2026-06-02)**: [`STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md`](STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md) � bed calendar becomes the operations workspace; product language "Staff Portal" (not "Cami dashboard"); sub-slices 8.3a�8.3o (read-only cleanup, drawer cleanup, cell selection, manual booking ladder, move preview, cancel/date-change design, tour operator booking, operator room release, dashboard extras); read-only 8.3a/8.3b = only demo prerequisites; all writes future + gated; backend bases exist (manual-entry, reassignment 7.7k1�k8, operator-room-release split). Pilot NO_GO. **8.6 DEMO DATA SEEDED (2026-06-02)**: 18 rows across 3 convs/7 msgs/3 bookings/2 booking_beds/1 handoff/2 payments + 2 demo rooms + 4 demo beds; proof 28/28 PASS; `STAFF_ACTIONS_ENABLED=false`, `WHATSAPP_DRY_RUN=true` confirmed; demo data intentionally retained for Ale/Cami walkthrough. **7.3f CUSTOM DOMAIN + TLS DONE (2026-06-02)**: `staff-staging.lunafrontdesk.com` bound to Azure Container App with Azure managed cert (`SniEnabled`); all smoke tests PASS on clean HTTPS URL. **7.3e LOGIN PAGE + LOGOUT FIX + COMPANY WORDING (2026-06-02)**: `GET /staff/login` serves Luna Front Desk branded form; `browserLoginRedirect()` for `/staff/ui`; logout fixed (`window.doLogout`); "Client" ? "Company" UI labels; deployed to Azure (revision 0000003). **7.3d AZURE STAGING DEPLOYED + LOGIN PROVEN (2026-06-01)**: Staff API + n8n live over Azure HTTPS; Ty owner login confirmed; `/staff/intents` total=35; 11 workflows imported `active=false`; safety flags confirmed. Calendar editing NOT wired. **7.7m DONE (design only)**: manual booking creation plan. **Stage 8 PLANNING STARTED (2026-06-02)**: [`STAGE-8-CLIENT-READY-STAGING-ROADMAP.md`](STAGE-8-CLIENT-READY-STAGING-ROADMAP.md) � make Luna Front Desk show-ready for Ale/Cami as a polished shadow-mode staging demo while keeping all live gates closed; 8 pillars, slices 8.0�8.13, 14-item ready-to-show checklist; **8.0 roadmap + 8.1 UX cleanup plan DONE** (default landing "Today / Needs Attention"; sidebar nav; Query Tools ? admin/dev-only; Luna design tokens � [`STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md`](STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md)). Pilot decision remains NO_GO. Next: Stage 8.2 (dashboard visual polish implementation).?# Wolfhouse Booking Assistant � Product Roadmap
+**Status: IN PROGRESS** (2026-06-02) ? 7.0?7.7 DESIGN DONE ? **7.2b+7.2c+7.3b+7.3c+7.3d+7.3e+7.3f+7.7a?d+7.7f?7.7j+7.7k1?k8 DONE**. **8.0+8.1+8.2+8.5+8.6+8.3 plan+8.3a-8.3k+8.3x+8.3y DONE**. **8.4.1 WOLFHOUSE PRICING/PAYMENT CONFIG PLAN DONE (2026-06-02, docs)**. **8.4.2 WOLFHOUSE PRICING CONFIG FIXTURE DONE (2026-06-02)**: `config/clients/wolfhouse-somo.pricing.json`; `verify-wolfhouse-pricing-config.js` 63/63 PASS; all package prices in cents; deposit scope=per_booking confirmed; August priority=10; REQUIRED_FROM_STAFF gaps documented. **8.4.3 WOLFHOUSE QUOTE CALCULATOR DONE (2026-06-02)**: `scripts/lib/wolfhouse-quote-calculator.js` pure JS; `verify-wolfhouse-quote-calculator.js` 77/77 PASS; Formula B per-night ceil5 (weekly?7 rounded up to ?5/night ? nights ? guests); all 3 packages ? 3 seasons ? 7-night flat + proration + supplement + add-ons + blockers; no DB/API/Stripe/UI; flags unchanged. **8.4.4 WOLFHOUSE QUOTE PREVIEW ENDPOINT DONE (2026-06-02)**: `POST /staff/quote-preview` in `staff-query-api.js`; auth-gated (viewer+); no DB; calls `calculateWolfhouseQuote()`; `verify-staff-quote-preview-api.js` 33/33 PASS; local proof PASS (Malibu 7n=24900?/dep=20000?, Malibu 4n=16000?/dep=10000?); `MANUAL_BOOKING_ENABLED=false`, `STAFF_ACTIONS_ENABLED=false` unchanged. **8.4.8 CREATE MANUAL BOOKING + QUOTE + DRAFT PAYMENT DONE (2026-06-02)**: booking-first flow; calculateWolfhouseQuote() server-side; quote_snapshot in metadata; draft payment record (payment_kind from payment_choice, amount_due=payment_link_amount_cents); UI gated by flags; flags=false?403; proof: 81300? booking created+cleaned; 397/397; no Stripe/migration. **8.4.7 ADD-ONS SELECTOR DONE (2026-06-02)**: compact add-ons section (wetsuit/soft-top/hard-board rentals, combos, surf lessons, yoga); buildAddOns() payload builder; bcInitAddOns() checkbox wiring; combos suppress individual rentals; bcClearSelection resets all add-ons; local proof: wetsuit 3d + 2 lessons=32400?, combo 4d=30900?; 222/222 PASS; no DB writes. **8.4.6 ROOM TYPE SELECTOR DONE (2026-06-02)**: `bk-room-type` select (shared/private/double) in manual booking form; `runQuotePreview` reads selected room type; private/double triggers +?10/person/night supplement; reset clears to shared; local proof shared=24900? no supplement, private=31900? room_supplement item; `verify-staff-bed-calendar-ui.js` 201/201 PASS; no DB writes; Create disabled. **8.4.5 QUOTE PREVIEW UI + FORM CLEANUP DONE (2026-06-02)**: manual booking form wired to `POST /staff/quote-preview`; package ? `<select>` dropdown (malibu/uluwatu/waimea/package_none/manual_override); language field removed; multi-bed selection (bcSelectedBeds array, shared date range, per-bed highlighting, auto guest count); detail panel closes on new selection; Calculate Quote button + itemized display (line items, totals, deposit, payment link, balance, formula summary, warnings); Create Manual Booking stays disabled; booking drawer deduplicates assignment rows; `verify-staff-bed-calendar-ui.js` 194/194 PASS; no DB writes, no Stripe; flags unchanged. (malibu/uluwatu/waimea seeded seasonal weekly prices, per-person scope, +?10 pppn double/private, ?200/?100 deposits, 1h hold, add-ons, refund/automation rules); REQUIRED_FROM_STAFF gaps (deposit scope, group/discount, retreat, operator, add-on charge timing, multi-week); quote input/output contracts; payment-record/invoice model mapped to bookings/payments/workflow_events/staff_handoffs; quote-snapshot storage (v1 metadata ? v2 quote_snapshots); override+confidence/handoff rules; 12-slice ladder; hard gate before MANUAL_BOOKING_ENABLED. No code/endpoint/automation; flags stay false. **8.4 RE-SCOPED ? PLAN/GATE CHECKPOINT (2026-06-02)**: manual booking creation split into gated slices with a **pricing/payment engine as a hard prerequisite** (1 engine plan ? 2 quote calculator ? 3 quote preview ? 4 create-from-quote-snapshot+payment records ? 5 Stripe payment-link/invoice ? 6 Stripe webhook truth ? 7 UI enablement). A provisional `POST /staff/manual-bookings/create` stub exists DISABLED-by-default (`MANUAL_BOOKING_ENABLED=false` ? 403) and UNWIRED from the UI; Create button stays disabled; no Stripe/invoice/payment-link/WhatsApp/n8n. Verifiers: `verify-staff-manual-booking-create-api` 41/41, `verify-staff-bed-calendar-ui` 167/167, `verify-staff-manual-booking-preview-api` PASS. Doc: [`STAGE-8.4-MANUAL-BOOKING-CREATION.md`](STAGE-8.4-MANUAL-BOOKING-CREATION.md). `STAFF_ACTIONS_ENABLED=false`; `MANUAL_BOOKING_ENABLED=false`. **8.3k ROLLBACK PROOF DONE (2026-06-02)**: staff-manual-booking-rollback-sql.js; 10 blockers; CASCADE delete; 52/52 static PASS; 59/59 runtime PASS; delta=0. All blockers proven (confirm, role, code/id mismatch, unsafe_payment, booking_not_found). No API. No UI. No Azure. STAFF_ACTIONS_ENABLED=false. **8.3l PREVIEW UI WIRED (2026-06-02)**: Preview Conflicts button enabled on cell selection; bc-preview-result panel; valid/blocked/warning/error states; POST only to /staff/manual-bookings/preview (preview_only=true, creates_booking=false, no_write_performed=true); Create Manual Booking stays disabled; 122/122 verify-staff-bed-calendar-ui PASS; bd.capacity schema bug fixed in preview query; Azure proof pending. **8.3q TOUR OPERATOR SKELETON (2026-06-02)**: bc-op-panel; operator/stay/defaults/notes; Source=Operator, Payment=Not requested, Booking=Operator Blocked; Stripe+n8n disabled; prefills from cell selection; Create+Preview buttons disabled; 142/142 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3r OPERATOR ROOM RELEASE SKELETON (2026-06-02)**: bc-rr-panel; release-dates/release-scope/defaults/notes; release type (selected_beds/whole_room/selected_dates); Guest messaging+Stripe+n8n disabled; prefills from cell selection; Release Dates+Preview Release disabled; 162/162 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3s BATCH AZURE DEPLOY (2026-06-02)**: image wh-staff-api:1894036-8x3s-batch; revision --0000012 (100% traffic, Healthy); /staff/login 200; auth-guard active; STAGING badge + STAFF ACTIONS DISABLED badge visible; Write actions DISABLED in logs; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; MANUAL_BOOKING_ENABLED=false; n8n untouched; no DB writes; no operator blocks; no room releases. **8.3j SCHEMA-ALIGNMENT FIX (2026-06-02)**: Fixed 3 schema mismatches + 2 enum casts in `buildManualBookingCreateSql()`. P1: `language` removed from bookings INSERT ? stored in `metadata` JSONB. P2: `inserted_payment` uses `status`/`payment_kind`/`amount_due_cents`/`currency` (no `provider`/`amount_cents`/`payment_status`). P3: `audit_written` uses `workflow_name`+`message` (no `event_type`). Also: `$16::booking_status`, `$17::payment_status` enum casts; `$5::text IS NOT NULL`. `verify-staff-manual-booking-create-sql.js` **47/47 PASS** (7 new schema checks). Fixture proof (`stage8.3i-manual-booking-create-proof.js`) updated ? no patching: **65/65 PASS**, delta=0. Helper is now production-schema-compatible. No API route. No UI. No Azure. `STAFF_ACTIONS_ENABLED=false`. `MANUAL_BOOKING_ENABLED=false`. **8.3y NEEDS HUMAN + DETAIL CLEANUP + AZURE DEPLOY (2026-06-02)**: Needs Human tab converted to same two-column conv-card layout as Inbox (filtered to `needs_human`/open handoff); `loadConvDetail(convId, targetEl)` refactored to support both panels; `handoffLabel()` reused in `renderHandoffQueue()`; Booking sidebar above Bot state; `Pending`/`Last reply` removed from Bot state; check-in/check-out combined as `Stay` row with `fmtDateOnly()`; "Messages" h3 removed from thread section; `.hq-table`/`hq-tbody` removed. `verify-staff-conversation-ui.js` **77/77 PASS**. No API changes. No DB writes. `STAFF_ACTIONS_ENABLED=false`. Azure deploy pending. **8.3x INBOX WHATSAPP-STYLE LAYOUT (2026-06-02)**: Inbox two-column, `handoffLabel()`, "Message thread" count removed, raw stage removed, "Back to inbox" removed. 66/66 PASS. Azure image `4e02763-8x3x-inbox` deployed. `staff-query-api.js` ? Inbox converted to persistent two-column layout (left = conv-card list; right = detail panel, always visible, empty-state default); `handoffLabel(code)` maps 11 raw codes to friendly labels (`date_change_requested`?"Date change request", etc.); `renderInbox()` uses `.conv-card` divs (guest name, phone, priority pill, handoff label); "Message thread ? N messages" title removed; raw "Stage:" removed from detail header; "Back to inbox" removed; `inbox-table`/`inbox-tbody` removed. `verify-staff-conversation-ui.js` 66/66 PASS. No API changes. No DB writes. `STAFF_ACTIONS_ENABLED=false`. **Azure DONE (2026-06-02): image `4e02763-8x3x-inbox` (build cb9) deployed, revision `wh-staging-staff-api--0000010` Healthy. Container exec proof: `inbox-two-col`=3, `conv-card`=15, `handoffLabel`=3 FOUND; `inbox-tbody`=0, "Back to inbox"=0 ABSENT. Login 200. Safety flags: `STAFF_ACTIONS_ENABLED=false`, `WHATSAPP_DRY_RUN=true`, `STAFF_AUTH_REQUIRED=true`. n8n untouched. Manual login UI proof pending Ty creds.** **8.3i MANUAL BOOKING FIXTURE WRITE PROOF (2026-06-02)**: `scripts/fixtures/stage8.3i-manual-booking-create-proof.js` ? proves `buildManualBookingCreateSql()` CTE logic; 9 cases (happy-path, idempotency, overlap conflict, touching boundary, invalid payment, confirm=false, role insufficient, invalid dates, client not found); all BEGIN/ROLLBACK; final delta=0; 3 schema mismatches documented+patched (P1 `language` col; P2 payment INSERT cols; P3 `event_type`?`workflow_name`+`message`); graceful SKIP when DB offline; `node --check` PASS; `proof:stage8.3i-manual-booking-create` in `package.json`. No API route. No UI. No Azure. `STAFF_ACTIONS_ENABLED=false`. `MANUAL_BOOKING_ENABLED=false`. **8.3h MANUAL BOOKING PREVIEW ENDPOINT (2026-06-02)**: `POST /staff/manual-bookings/preview` ? auth-gated (operator+), SELECT-only queries, calls `previewManualBookingAvailability()`, returns preview_only/creates_booking/no_write_performed safety fields + full availability output, file-only audit, does NOT require STAFF_ACTIONS_ENABLED. `scripts/lib/staff-manual-booking-preview-queries.js`: SELECT-only SQL builders (beds, assignments, client). `verify-staff-manual-booking-preview-api.js` 48/48 PASS. Proof fixture 31/31 PASS. No DB writes. No booking creation. `STAFF_ACTIONS_ENABLED=false`. **8.3g MANUAL BOOKING AVAILABILITY PREVIEW HELPER (2026-06-02)**: `scripts/lib/staff-manual-booking-availability.js` ? pure JS; `previewManualBookingAvailability()`; half-open overlap (existing_start < proposed_check_out AND existing_end > proposed_check_in); cancelled/expired exclusion; 7 blockers; 5 warnings (same_day, next_day, long_stay, protected_room, operator_room); structured output with is_valid/has_conflict/blockers/warnings/availability_by_bed/summary. `verify-staff-manual-booking-availability.js` 52/52 PASS. No DB. No API. No writes. `STAFF_ACTIONS_ENABLED=false`. **8.3f MANUAL BOOKING SQL STATIC PROOF (2026-06-02)**: `scripts/lib/staff-manual-booking-create-sql.js` ? 15-CTE chain, 14 blockers (`MANUAL_BOOKING_BLOCK_CODES`), half-open overlap + defense-in-depth, idempotency via `metadata` JSONB, audit_payload + rollback_payload, `confirmation_sent_at=NULL`. `verify-staff-manual-booking-create-sql.js` 40/40 PASS. NOT wired. No API route. No DB execution. `STAFF_ACTIONS_ENABLED=false`. Manual booking writes NOT implemented. **8.3e MANUAL BOOKING WRITE GATE PLAN (2026-06-02, docs-only)**: `docs/STAGE-8.3E-MANUAL-BOOKING-WRITE-GATE-PLAN.md` ? hard blockers, warning/second-confirm cases, audit/rollback/idempotency requirements, revised contiguous numbering (manual booking 8.3e?8.3o; move/cancel/operator 8.3p?8.3w), staging gates, sign-off table. Pilot NO_GO; writes NOT implemented. **8.3d MANUAL BOOKING PREVIEW (2026-06-02)**: full form skeleton (Selected Stay pre-filled, Guest, Payment w/ deposit, Notes, Avail placeholder, Safety notice, disabled Create+Conflicts), 105 verifier checks PASS. No writes. **8.3a BED CALENDAR READ-ONLY CLEANUP (2026-06-02)**: date `type="date"` inputs, 5 shortcut chips (Today/Week/30d/Jul?Aug/Demo), always-visible 7-status color legend, inline A/D markers moved to tooltip, operator+manual block colors, cleaner room/bed labels (code primary, label subtitle), taller 28px blocks, free-bed count in summary strip, `bcSetRange()` helper; 56 verifier checks PASS; all other verifiers PASS; local proof PASS; Azure proof pending. **8.3q TOUR OPERATOR SKELETON (2026-06-02)**: bc-op-panel; operator/stay/defaults/notes; Source=Operator, Payment=Not requested, Booking=Operator Blocked; Stripe+n8n disabled; prefills from cell selection; Create+Preview buttons disabled; 142/142 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3r OPERATOR ROOM RELEASE SKELETON (2026-06-02)**: bc-rr-panel; release-dates/release-scope/defaults/notes; release type (selected_beds/whole_room/selected_dates); Guest messaging+Stripe+n8n disabled; prefills from cell selection; Release Dates+Preview Release disabled; 162/162 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3u OPERATIONS UI CORRECTION (2026-06-02)**: Tour Operator tab added; bc-op-panel+bc-rr-panel moved from Bed Calendar to tour-operator tab; forms use date dropdowns; bcHandleCellClick td.dataset bug fixed; Demo Range chip removed; booking drawer: code-only title, Room/Beds merged into Stay; 164/164 verifier PASS. No API. No DB writes. No Azure. **8.3v AZURE DEPLOY (8.3u) (2026-06-02)**: image wh-staff-api:ea2437d-8x3v-ui-corrections; revision --0000013 (100% traffic, Healthy); /staff/login 200; STAGING+SHADOW MODE+STAFF ACTIONS DISABLED badges; Write actions DISABLED; Tour Operator tab+panels confirmed in source; demo chip absent; td.dataset.date fix present; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; n8n untouched; no DB writes. **8.3s BATCH AZURE DEPLOY (2026-06-02)**: image wh-staff-api:1894036-8x3s-batch; revision --0000012 (100% traffic, Healthy); /staff/login 200; auth-guard active; STAGING badge + STAFF ACTIONS DISABLED badge visible; Write actions DISABLED in logs; STAFF_ACTIONS_ENABLED=false; WHATSAPP_DRY_RUN=true; MANUAL_BOOKING_ENABLED=false; n8n untouched; no DB writes; no operator blocks; no room releases. **8.3 STAFF PORTAL BED CALENDAR OPERATIONS PLAN (2026-06-02)**: [`STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md`](STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md) ? bed calendar becomes the operations workspace; product language "Staff Portal" (not "Cami dashboard"); sub-slices 8.3a?8.3o (read-only cleanup, drawer cleanup, cell selection, manual booking ladder, move preview, cancel/date-change design, tour operator booking, operator room release, dashboard extras); read-only 8.3a/8.3b = only demo prerequisites; all writes future + gated; backend bases exist (manual-entry, reassignment 7.7k1?k8, operator-room-release split). Pilot NO_GO. **8.6 DEMO DATA SEEDED (2026-06-02)**: 18 rows across 3 convs/7 msgs/3 bookings/2 booking_beds/1 handoff/2 payments + 2 demo rooms + 4 demo beds; proof 28/28 PASS; `STAFF_ACTIONS_ENABLED=false`, `WHATSAPP_DRY_RUN=true` confirmed; demo data intentionally retained for Ale/Cami walkthrough. **7.3f CUSTOM DOMAIN + TLS DONE (2026-06-02)**: `staff-staging.lunafrontdesk.com` bound to Azure Container App with Azure managed cert (`SniEnabled`); all smoke tests PASS on clean HTTPS URL. **7.3e LOGIN PAGE + LOGOUT FIX + COMPANY WORDING (2026-06-02)**: `GET /staff/login` serves Luna Front Desk branded form; `browserLoginRedirect()` for `/staff/ui`; logout fixed (`window.doLogout`); "Client" ? "Company" UI labels; deployed to Azure (revision 0000003). **7.3d AZURE STAGING DEPLOYED + LOGIN PROVEN (2026-06-01)**: Staff API + n8n live over Azure HTTPS; Ty owner login confirmed; `/staff/intents` total=35; 11 workflows imported `active=false`; safety flags confirmed. Calendar editing NOT wired. **7.7m DONE (design only)**: manual booking creation plan. **Stage 8 PLANNING STARTED (2026-06-02)**: [`STAGE-8-CLIENT-READY-STAGING-ROADMAP.md`](STAGE-8-CLIENT-READY-STAGING-ROADMAP.md) ? make Luna Front Desk show-ready for Ale/Cami as a polished shadow-mode staging demo while keeping all live gates closed; 8 pillars, slices 8.0?8.13, 14-item ready-to-show checklist; **8.0 roadmap + 8.1 UX cleanup plan DONE** (default landing "Today / Needs Attention"; sidebar nav; Query Tools ? admin/dev-only; Luna design tokens ? [`STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md`](STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md)). Pilot decision remains NO_GO. Next: Stage 8.2 (dashboard visual polish implementation).?# Wolfhouse Booking Assistant ? Product Roadmap
 
-**Product:** AI booking operations for WhatsApp-first experience businesses � **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
+**Product:** AI booking operations for WhatsApp-first experience businesses ? **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
-**Product-level roadmap (15 pillars):** [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md) � **Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) � **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) � **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+**Product-level roadmap (15 pillars):** [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md) ? **Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) ? **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) ? **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
 
-> **This file is the stage-level / engineering roadmap.** For the **product-level view** � the full 15-pillar product vision (Guest Assistant, SoT DB, Staff Brain, Dashboard, Rooming UI, Add-ons, Messaging Bridge, Multi-Client Config, Onboarding, PMS, AI Intent, Analytics, Production Hardening, Multi-Client Admin, Productization) mapped to these stages � see [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md).
+> **This file is the stage-level / engineering roadmap.** For the **product-level view** ? the full 15-pillar product vision (Guest Assistant, SoT DB, Staff Brain, Dashboard, Rooming UI, Add-ons, Messaging Bridge, Multi-Client Config, Onboarding, PMS, AI Intent, Analytics, Production Hardening, Multi-Client Admin, Productization) mapped to these stages ? see [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md).
 
 ---
 
@@ -848,7 +850,7 @@ Airtable may remain a **bridge** during transition; long-term goal is a proper s
 
 Stage 3 is **not** about making the bot beautiful or fully productized. It is about proving the bot does **not** make dangerous mistakes.
 
-**Stage 3.5 is not full Stage 4 observability.** It is the minimum seatbelts required before serious runtime or live/shadow operation � error capture, idempotency checks, overlap guards, basic execution logging.
+**Stage 3.5 is not full Stage 4 observability.** It is the minimum seatbelts required before serious runtime or live/shadow operation ? error capture, idempotency checks, overlap guards, basic execution logging.
 
 **Stage 3y (Shadow/Co-pilot)** bridges dry-run proof and autonomous live operation. The bot reads real messages and drafts responses; staff approve and send manually. No autonomous payment/confirmation/cancellation/rooming without explicit staff approval. This reduces the dry-run ? real-guest cliff and generates real golden-message data.
 
@@ -860,11 +862,11 @@ Stage 3 is **not** about making the bot beautiful or fully productized. It is ab
 
 | Layer | Role |
 |-------|------|
-| **n8n** | Orchestrates � webhooks, WhatsApp, Stripe callbacks, notifications, simple integration steps |
-| **Backend / code** | Decides � routing, required fields, package logic, safety guards, handoff rules |
-| **Postgres** | Remembers � bookings, payments, conversations, beds, audit trail |
-| **Client config** | Controls � packages, pricing, room rules, policies per property (Wolfhouse = client #1) |
-| **Staff UI + Staff Assistant** | Manages � holds, payments, assignments, takeover; answers operational queries; approves risky bot actions (Stage 6+) |
+| **n8n** | Orchestrates ? webhooks, WhatsApp, Stripe callbacks, notifications, simple integration steps |
+| **Backend / code** | Decides ? routing, required fields, package logic, safety guards, handoff rules |
+| **Postgres** | Remembers ? bookings, payments, conversations, beds, audit trail |
+| **Client config** | Controls ? packages, pricing, room rules, policies per property (Wolfhouse = client #1) |
+| **Staff UI + Staff Assistant** | Manages ? holds, payments, assignments, takeover; answers operational queries; approves risky bot actions (Stage 6+) |
 
 The current **n8n-heavy** implementation is acceptable for **proving behavior** in Stage 3. Future stages migrate decision logic into code/config modules; n8n calls the decision engine instead of owning the business brain.
 
@@ -887,10 +889,10 @@ src/booking-assistant/
     InventoryProvider.ts   # interface: findAvailability / hold / fulfill
     lodging.ts             # beds-in-rooms + rooming (Wolfhouse / hostels)
     slots.ts               # lesson/tour time-slot capacity (surf/kite schools, tours)
-    rentals.ts             # item � time-window � quantity � size (surf/bike/SUP shops)
+    rentals.ts             # item ? time-window ? quantity ? size (surf/bike/SUP shops)
   catalog/
     offerings.ts           # generic priced offering (packages | lessons | rental SKUs | departures)
-    packageDecision.ts     # explain / recommend / quote � driven by config, not hardcoded names
+    packageDecision.ts     # explain / recommend / quote ? driven by config, not hardcoded names
 ```
 
 **Example future config shape (not implemented yet):**
@@ -905,7 +907,7 @@ client_config.required_fields
 
 Build **Wolfhouse as client #1**, not as the only client the system can ever serve.
 
-**Spine vs plugin (portability principle):** everything above the `inventory/` and `catalog/` folders is the **shared spine** and must contain **no surf-house-specific nouns** (no `bed`, `room`, `malibu`, `surfweek`). Anything vertical-specific lives behind the `InventoryProvider` interface or in `client_config`. A new vertical = new config + (at most) one new inventory provider � see [� Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons).
+**Spine vs plugin (portability principle):** everything above the `inventory/` and `catalog/` folders is the **shared spine** and must contain **no surf-house-specific nouns** (no `bed`, `room`, `malibu`, `surfweek`). Anything vertical-specific lives behind the `InventoryProvider` interface or in `client_config`. A new vertical = new config + (at most) one new inventory provider ? see [? Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons).
 
 ---
 
@@ -921,7 +923,7 @@ This is **not** framed as a generic chatbot. It is an operations layer that hand
 
 ### Beachhead
 
-**Wolfhouse** � surf houses / surf camps (client #1, `wolfhouse-somo`).
+**Wolfhouse** ? surf houses / surf camps (client #1, `wolfhouse-somo`).
 
 Hard first use case: combines accommodation, packages, rooming, payments, confirmations, WhatsApp, and staff operations in one property.
 
@@ -933,17 +935,17 @@ Guests ask on WhatsApp ? business explains options ? checks availability ? colle
 |------------------|-----------------------------------------------|
 | Surf schools | Lessons, levels, schedules |
 | Surf shops | Rentals, retail-adjacent booking |
-| Kite schools � dive shops | Lessons, certifications, slots |
-| Yoga retreats � small retreat operators | Packages, dates, capacity |
+| Kite schools ? dive shops | Lessons, certifications, slots |
+| Yoga retreats ? small retreat operators | Packages, dates, capacity |
 | Hostels with activities | Beds + activity add-ons |
 | Tour operators | Departures, group size, deposits |
-| Rental businesses | Lessons, rentals, inventory, time slots, sizes � surf shop / bike / e-bike / kayak / SUP / campervan patterns |
+| Rental businesses | Lessons, rentals, inventory, time slots, sizes ? surf shop / bike / e-bike / kayak / SUP / campervan patterns |
 
 A **surf shop or lesson-rental** operator is likely a simpler config profile than Wolfhouse: fewer rooming rules, more slot/inventory semantics, still the same payment + confirmation + handoff spine.
 
 ### Competitive note
 
-AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The opportunity is a **focused, configurable, operations-heavy** assistant for **small experience businesses** that live in WhatsApp and run **messy** packages, rentals, lessons, and deposits � not clean hotel-only PMS flows.
+AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The opportunity is a **focused, configurable, operations-heavy** assistant for **small experience businesses** that live in WhatsApp and run **messy** packages, rentals, lessons, and deposits ? not clean hotel-only PMS flows.
 
 ### Roadmap implication
 
@@ -951,17 +953,17 @@ AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The
 |-----------|--------|
 | Wolfhouse as client #1 with full safety proofs | Multi-client SaaS platform |
 | `client_config` specs that generalize | Client onboarding UI, billing, settings editor |
-| Engine shaped for lessons/rentals/rooming via config | Hardcoding �surf house only� in shared workflows |
+| Engine shaped for lessons/rentals/rooming via config | Hardcoding ?surf house only? in shared workflows |
 
-**Config dimensions per client** (see �3x.11 in [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)): packages � lesson types � rental inventory � rooming rules (if applicable) � pricing � deposit rules � cancellation policy � handoff rules � staff notifications � customer memory policy.
+**Config dimensions per client** (see ?3x.11 in [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)): packages ? lesson types ? rental inventory ? rooming rules (if applicable) ? pricing ? deposit rules ? cancellation policy ? handoff rules ? staff notifications ? customer memory policy.
 
 ---
 
-## Engine portability � adding a new vertical (surf shop / lessons)
+## Engine portability ? adding a new vertical (surf shop / lessons)
 
-**Goal:** when Wolfhouse is done, standing up a second vertical (surf-shop **rentals**, surf/kite-school **lessons**, tour **departures**) is a **config + inventory-plugin** exercise � **not** a rewrite. This section defines the seam so that promise is real instead of aspirational.
+**Goal:** when Wolfhouse is done, standing up a second vertical (surf-shop **rentals**, surf/kite-school **lessons**, tour **departures**) is a **config + inventory-plugin** exercise ? **not** a rewrite. This section defines the seam so that promise is real instead of aspirational.
 
-### What is SHARED � built once, reused by every vertical
+### What is SHARED ? built once, reused by every vertical
 
 | Shared spine capability | Where |
 |-------------------------|-------|
@@ -977,7 +979,7 @@ AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The
 
 These **must not** be reimplemented per client. If a "new vertical" task touches these, the seam has leaked.
 
-### What is VERTICAL-SPECIFIC � plugged in, never forked
+### What is VERTICAL-SPECIFIC ? plugged in, never forked
 
 | Vertical concern | How it varies | Mechanism |
 |------------------|---------------|-----------|
@@ -989,27 +991,27 @@ These **must not** be reimplemented per client. If a "new vertical" task touches
 
 ### The one abstraction that unlocks all of it: `InventoryProvider`
 
-All verticals reduce to the same three-call contract � `findAvailability(request)` ? `hold(unit, window)` ? `fulfill(booking)`:
+All verticals reduce to the same three-call contract ? `findAvailability(request)` ? `hold(unit, window)` ? `fulfill(booking)`:
 
 | Vertical | Unit | Availability dimension | Special attribute | Rooming? |
 |----------|------|------------------------|-------------------|----------|
 | Surf house / hostel | bed | date-range overlap | gender / couple | **yes** (`lodging`) |
 | Surf / kite / dive school | lesson slot | time + slot capacity | skill level | no (`slots`) |
-| Surf / bike / SUP shop | rental item | time-window � quantity | size / fit | no (`rentals`) |
+| Surf / bike / SUP shop | rental item | time-window ? quantity | size / fit | no (`rentals`) |
 | Tour operator | departure seat | departure-date capacity | group size | no (`slots`) |
 
 The spine calls the interface and never knows which provider it is.
 
-### Portability gate � a vertical is "config-only ready" when:
+### Portability gate ? a vertical is "config-only ready" when:
 
-- [ ] No surf-house nouns (`bed`, `room`, `matrimonial`, `surfweek`, `malibu`/`uluwatu`/`waimea`) appear in the shared spine � only in `client_config` / providers.
+- [ ] No surf-house nouns (`bed`, `room`, `matrimonial`, `surfweek`, `malibu`/`uluwatu`/`waimea`) appear in the shared spine ? only in `client_config` / providers.
 - [ ] Rooming/assignment is behind a **capability flag**, not assumed.
 - [ ] Catalog is generic `offerings`, not a hardcoded package enum.
 - [ ] Inventory/availability is behind `InventoryProvider`; lodging is just one impl.
 - [ ] `client_config` is split into **engine config** (spine) + **vertical config** (catalog/inventory/capabilities).
 - [ ] Golden-message suite is parameterized by `client_id` (Wolfhouse fixtures don't hardcode the engine's behavior).
 
-### Cheapest validation � do this on paper during Stage 3x.3 (safe, docs-only)
+### Cheapest validation ? do this on paper during Stage 3x.3 (safe, docs-only)
 
 Before any Stage 5 extraction, draft **sample configs for a second and third vertical** and run them against the schema to surface every leak:
 
@@ -1031,29 +1033,29 @@ Each gap found ("this field has no home," "this rule assumes beds") becomes a li
 
 ### Deploy config (the onboarding contract)
 
-Every client-specific value (prices, seasons, gate code, phone numbers, packages, room map, policies) lives in **one per-client deploy config** + a gitignored secret file � never hardcoded in code/workflows. A new client = fill the template, not rewrite logic. Template: [`config/clients/_deploy-config.template.json`](../config/clients/_deploy-config.template.json) � Guide: [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md). Wolfhouse's `wolfhouse-somo.baseline.json` is the worked example (`vertical: lodging_surf_house`).
+Every client-specific value (prices, seasons, gate code, phone numbers, packages, room map, policies) lives in **one per-client deploy config** + a gitignored secret file ? never hardcoded in code/workflows. A new client = fill the template, not rewrite logic. Template: [`config/clients/_deploy-config.template.json`](../config/clients/_deploy-config.template.json) ? Guide: [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md). Wolfhouse's `wolfhouse-somo.baseline.json` is the worked example (`vertical: lodging_surf_house`).
 
 ---
 
 ## Legacy phase map (reference)
 
-Older docs use **Phase 0�3d** for engineering milestones. They map to stages as follows:
+Older docs use **Phase 0?3d** for engineering milestones. They map to stages as follows:
 
 | Legacy | Stage |
 |--------|--------|
-| Phase 0�2 local (frozen) | Foundation + Stripe/Main/Send Confirmation contracts |
-| Phase 3b (frozen) | Stage 3 � bed-ops / manual / operator paths |
-| Phase 3c�3g | Stage 3 � Main + Postgres + stub E2E |
-| Phase 3d.x | Stage 3 � isolated real Stripe payment / webhook / confirmation gates |
-| Phase 3e | Stage 3 � rooming/reassign E2E ? |
-| Stage 3.5 | Safety rails � idempotency, error capture, overlap guards |
+| Phase 0?2 local (frozen) | Foundation + Stripe/Main/Send Confirmation contracts |
+| Phase 3b (frozen) | Stage 3 ? bed-ops / manual / operator paths |
+| Phase 3c?3g | Stage 3 ? Main + Postgres + stub E2E |
+| Phase 3d.x | Stage 3 ? isolated real Stripe payment / webhook / confirmation gates |
+| Phase 3e | Stage 3 ? rooming/reassign E2E ? |
+| Stage 3.5 | Safety rails ? idempotency, error capture, overlap guards |
 | Stage 3x | Bot knowledge + safety guardrails (specs, not n8n sprawl) |
-| Stage 3y | Shadow / co-pilot � staff-approved mode before autonomous |
+| Stage 3y | Shadow / co-pilot ? staff-approved mode before autonomous |
 | Azure / multi-client | Stage 7 (Scalable), not before Reliability + Clean |
 
 ---
 
-## Stage 3 � Correct and safe
+## Stage 3 ? Correct and safe
 
 ### Purpose
 
@@ -1073,7 +1075,7 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 | Wrong booking selected | Conversation `current_hold_booking_id`, resolver, terminal-status blocks |
 | Wrong payment link | Real CPS on correct hold; stub vs real env separation |
 | Wrong confirmation | Send Confirmation gates; dry-run first; schedule disabled in tests |
-| Wrong room assignment | Bed-ops forks; **hosted reassign URL** in Main fork (`3e.2` remap) � see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) |
+| Wrong room assignment | Bed-ops forks; **hosted reassign URL** in Main fork (`3e.2` remap) ? see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) |
 | Duplicate payment / session / event | Idempotency checks; single webhook per event id |
 | Accidental live Stripe / WhatsApp | Test keys; `WHATSAPP_DRY_RUN`; activation boundaries |
 | Background workflow firing | Inactive workflows + schedule `disabled` in test windows |
@@ -1084,19 +1086,19 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 |------|--------|--------|
 | `booking_flow` hold creation | **Proven** | PG hold + Airtable backfill in Main fork (3c.e) |
 | `payment_details_provided` route | **Proven** | Resolver + Ensure (3c.g stub E2E) |
-| Real Stripe checkout link (Main-integrated) | **Proven** | 3d.7b � `WH-260528-5369`, stop at checkout URL |
+| Real Stripe checkout link (Main-integrated) | **Proven** | 3d.7b ? `WH-260528-5369`, stop at checkout URL |
 | Isolated Create Payment Session | **Proven** | 3d.4 |
 | Stripe Webhook Handler payment truth | **Proven** (isolated) | 3d.5b on `WH-260528-1493` |
 | Send Confirmation (dry-run) | **Proven** (isolated) | 3d.6e |
 | Pay + webhook on Main-created session | **Proven** | 3d.8b organic Stripe on `WH-260528-5369` |
 | Integrated Send Confirmation (dry-run) | **Proven** | 3d.9b exec **1077** on same booking |
-| Rooming / reassign E2E | **Proven** | **3e.4 PASS** � `WH-260528-5322`, beds R3-B1/R3-B2 |
+| Rooming / reassign E2E | **Proven** | **3e.4 PASS** ? `WH-260528-5322`, beds R3-B1/R3-B2 |
 
 **Not proven in Stage 3:** real WhatsApp send; Send Confirmation schedule-poll; single-window E2E; full package intelligence.
 
-**Freeze:** [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) � formal 3c+3d checkpoint before Phase 3e.3+.
+**Freeze:** [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) ? formal 3c+3d checkpoint before Phase 3e.3+.
 
-**Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) � [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+**Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) ? [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
 
 ### Stage 3 exit criteria
 
@@ -1119,14 +1121,14 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 - [ ] Terminal evidence bookings not reused without reset (policy established)
 
 **Guards verified or explicitly deferred:**
-- [x] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) � **3e.5 CLOSED** (L1+L2 PASS; L3 deferred � Airtable-coupled runtime deferred to Postgres source-of-truth cutover; see �15.6��15.7)
-- [x] Duplicate / idempotency protections verified at Stage 3 bar � **3e.6 CLOSED** (I1 schema PASS � I4 runtime PASS � I6 invariant PASS; I2/I3/I5 deferred: I2 ? manual-pay gate � I3 ? Stage 3.5 � I5 ? Postgres cutover)
-- [ ] All dangerous actions have handoff / fail-safe behavior when required business rule is missing � *3x.7�3x.8 spec done; implementation pending*
+- [x] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) ? **3e.5 CLOSED** (L1+L2 PASS; L3 deferred ? Airtable-coupled runtime deferred to Postgres source-of-truth cutover; see ?15.6??15.7)
+- [x] Duplicate / idempotency protections verified at Stage 3 bar ? **3e.6 CLOSED** (I1 schema PASS ? I4 runtime PASS ? I6 invariant PASS; I2/I3/I5 deferred: I2 ? manual-pay gate ? I3 ? Stage 3.5 ? I5 ? Postgres cutover)
+- [ ] All dangerous actions have handoff / fail-safe behavior when required business rule is missing ? *3x.7?3x.8 spec done; implementation pending*
 
 **Acceptable deferrals (do not block Stage 3 exit if documented):**
-- Real WhatsApp send � dry-run mode (`WHATSAPP_DRY_RUN=true`) is sufficient; shadow mode (Stage 3y) covers real send
-- Send Confirmation schedule-poll � schedule `disabled=true` gate is sufficient for Stage 3; verify in Stage 3y
-- Single-window integrated E2E � isolated gate chains are sufficient for Stage 3
+- Real WhatsApp send ? dry-run mode (`WHATSAPP_DRY_RUN=true`) is sufficient; shadow mode (Stage 3y) covers real send
+- Send Confirmation schedule-poll ? schedule `disabled=true` gate is sufficient for Stage 3; verify in Stage 3y
+- Single-window integrated E2E ? isolated gate chains are sufficient for Stage 3
 
 **Acceptance metric gates:**
 - 0 double bookings in all runtime test gates
@@ -1138,9 +1140,9 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 ---
 
-## Stage 3.5 � Safety Rails Before Reliability
+## Stage 3.5 ? Safety Rails Before Reliability
 
-**Purpose:** Pull forward the minimum safety plumbing required to safely run more runtime gates and prepare for live/shadow mode. This is not full Stage 4 observability � it is seatbelts.
+**Purpose:** Pull forward the minimum safety plumbing required to safely run more runtime gates and prepare for live/shadow mode. This is not full Stage 4 observability ? it is seatbelts.
 
 **When to do Stage 3.5:** After Stage 3 exit criteria are met, before Stage 3y (shadow/co-pilot) or live guest operation.
 
@@ -1164,17 +1166,17 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 **Stage 3.5 does not include:** full monitoring dashboards, Azure deploy, Staff UI, broad n8n ? backend refactor.
 
-**Full sub-phase spec:** [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md) � 3.5a�3.5g with entry/exit criteria, work-type classification, and first implementation step.
+**Full sub-phase spec:** [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md) ? 3.5a?3.5g with entry/exit criteria, work-type classification, and first implementation step.
 
 **Key schema finding:** `automation_errors` and `workflow_events` tables exist in migration 001 but are not yet wired into any n8n workflow. Stage 3.5b is a pure wire-in task.
 
 ---
 
-## Stage 3y � Shadow / Co-pilot Pilot
+## Stage 3y ? Shadow / Co-pilot Pilot
 
 **Purpose:** Bridge the gap between isolated dry-run proof and autonomous live guest operation. Reduces the dry-run ? real-guest cliff; generates real labeled data; builds Ale/Cami trust in the system.
 
-**Full plan:** [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md) � entry criteria, operating modes A�D, allowed/forbidden actions, staff approval workflow, infrastructure requirements, 15-test matrix (Y-T1�Y-T15), exit criteria.
+**Full plan:** [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md) ? entry criteria, operating modes A?D, allowed/forbidden actions, staff approval workflow, infrastructure requirements, 15-test matrix (Y-T1?Y-T15), exit criteria.
 
 ### How shadow/co-pilot mode works
 
@@ -1187,14 +1189,14 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 | Staff approves and sends | **Staff (manual)** |
 | Staff edit logged as labeled example | System records correction (interim: offline log) |
 
-### Operating modes (ascending risk � gate each separately)
+### Operating modes (ascending risk ? gate each separately)
 
 | Mode | Description | Gate |
 |------|-------------|------|
-| **A � Offline shadow** | Pasted/copied messages; local n8n; no live connection | ? Ready to start (no new infra) |
-| **B � Real inbound, no sends** | Real WhatsApp inbound; `DRY_RUN=true` enforced | Separate explicit approval required |
-| **C � Staff-approved draft queue** | Bot writes draft to review queue; staff approves and sends manually | Mode B stable + review UI |
-| **D � Staff-approved action proposals** | Bot proposes dangerous action; staff clicks approve | Stage 6 Staff UI + all 3x complete |
+| **A ? Offline shadow** | Pasted/copied messages; local n8n; no live connection | ? Ready to start (no new infra) |
+| **B ? Real inbound, no sends** | Real WhatsApp inbound; `DRY_RUN=true` enforced | Separate explicit approval required |
+| **C ? Staff-approved draft queue** | Bot writes draft to review queue; staff approves and sends manually | Mode B stable + review UI |
+| **D ? Staff-approved action proposals** | Bot proposes dangerous action; staff clicks approve | Stage 6 Staff UI + all 3x complete |
 
 ### What is and is not allowed in Stage 3y
 
@@ -1217,7 +1219,7 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 ---
 
-## Stage 3x � Bot knowledge + safety guardrails
+## Stage 3x ? Bot knowledge + safety guardrails
 
 **Mini-phase before fully entering Stage 4 (Reliable).**
 
@@ -1228,12 +1230,12 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 Define the business knowledge and decision rules the bot needs to act safely, ask smart follow-up questions, and avoid dangerous guesses.
 
-**Important:** Stage 3x delivers **specs, fixtures, and configurable rules** � not a huge expansion of n8n IF nodes. Implementation belongs in code modules (Stage 5) fed by client config.
+**Important:** Stage 3x delivers **specs, fixtures, and configurable rules** ? not a huge expansion of n8n IF nodes. Implementation belongs in code modules (Stage 5) fed by client config.
 
 | Sub-phase | Status |
 |-----------|--------|
-| **3x.1** Full roadmap �3x.1�3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
-| **3x.1b** Customer memory layered model (�3x.5) | **Done** (2026-05-28) |
+| **3x.1** Full roadmap ?3x.1?3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
+| **3x.1b** Customer memory layered model (?3x.5) | **Done** (2026-05-28) |
 | **3x.2b** Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) |
 | **3x.2c** Applied owner P1 answers ? baseline v0.2 + handoff/add-on plans | **Done** (2026-05-29) |
 | **3x.2d** Working prices + policies ? baseline v0.3 (provisional pricing) | **Done** (2026-05-29) |
@@ -1241,11 +1243,11 @@ Define the business knowledge and decision rules the bot needs to act safely, as
 | **3x.3** WhatsApp mining + golden fixtures + customer extract | Planned |
 | **3x.4** Golden runner + Stage 4 reliability hooks | Planned |
 
-**Stage 3x includes:** required-field map � package decision flow � Wolfhouse knowledge collection � **WhatsApp history mining** � **customer memory migration** � golden message tests � dangerous-action gates � human handoff ([`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md)) � during-stay add-ons ([`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md)) � wrong-booking protection � duplicate protection � client-config architecture � **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
+**Stage 3x includes:** required-field map ? package decision flow ? Wolfhouse knowledge collection ? **WhatsApp history mining** ? **customer memory migration** ? golden message tests ? dangerous-action gates ? human handoff ([`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md)) ? during-stay add-ons ([`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md)) ? wrong-booking protection ? duplicate protection ? client-config architecture ? **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
 
 ### Summary index (detail in master spec)
 
-### 3x.1 � Required field map
+### 3x.1 ? Required field map
 
 Define required fields **before** each action:
 
@@ -1260,9 +1262,9 @@ Define required fields **before** each action:
 | Package booking | Quote inputs + package-specific required fields |
 | Date change | Booking id, new dates, availability, policy |
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.1](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x1--required-field-map) + fixture tables keyed by `resolved_route`.
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.1](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x1--required-field-map) + fixture tables keyed by `resolved_route`.
 
-### 3x.2 � Package explanation + package decision flow
+### 3x.2 ? Package explanation + package decision flow
 
 The bot must explain package differences clearly.
 
@@ -1279,29 +1281,29 @@ The bot must explain package differences clearly.
 
 | Guest signal | Bot behavior |
 |--------------|--------------|
-| �What packages do you have?� | Briefly explain all packages |
+| ?What packages do you have?? | Briefly explain all packages |
 | Wants to book, package missing | Ask: accommodation only vs surf package |
 | Unsure | Recommend by goal: cheapest ? shared accommodation; beginner ? lesson package; full arrange ? full surf; already surfs ? accommodation + rentals |
 | Price question | Do **not** quote exact price unless dates, guest count, package, and price source are known |
 | Still uncertain | Follow-up question or staff handoff |
 
-### 3x.3 � Wolfhouse knowledge collection
+### 3x.3 ? Wolfhouse knowledge collection
 
 Operational gaps only (not public website facts). Questionnaire for Ale/Cami:
 
 **Deliverable:** [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md)
 
-### 3x.4 � WhatsApp history mining plan
+### 3x.4 ? WhatsApp history mining plan
 
-Redacted Cami/Ale guest threads ? **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see �3x.5).
+Redacted Cami/Ale guest threads ? **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see ?3x.5).
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.4](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x4--whatsapp-history-mining-plan); redacted samples under `docs/knowledge/whatsapp-samples/` (not in git until anonymized).
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.4](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x4--whatsapp-history-mining-plan); redacted samples under `docs/knowledge/whatsapp-samples/` (not in git until anonymized).
 
-### 3x.5 � Customer memory + WhatsApp history migration
+### 3x.5 ? Customer memory + WhatsApp history migration
 
 Layered model: temporary raw import ? structured customer facts (PG, `client_id`-scoped) ? anonymized fixtures. Proposed tables: `customers`, `customer_booking_history`, `conversation_summaries`, `customer_preferences`, `customer_notes`, `privacy_requests` (future).
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.5](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x5--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) � Customer memory.
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.5](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x5--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) ? Customer memory.
 
 ### LLM safety requirements (across Stage 3x + Stage 4)
 
@@ -1315,15 +1317,15 @@ The bot must never act on LLM output alone for dangerous actions. The following 
 | `resolved_route`, confidence, selected booking, and action logged per execution | 3.5 |
 | Golden-message suite used as prompt regression evaluation | 3x.6 ? 4 |
 | Multilingual behavior tested: English / Spanish / Italian | 3x.6 |
-| Bot never marks `paid` / `cancelled` / `confirmed` based only on LLM interpretation | 3x.7 gate � proven in 3d.5b (webhook owns truth) |
+| Bot never marks `paid` / `cancelled` / `confirmed` based only on LLM interpretation | 3x.7 gate ? proven in 3d.5b (webhook owns truth) |
 
 ### Stage 3x exit criteria
 
-Documented in master spec � planning complete when �3x.1�3x.11 + exit checklist exist; full golden fixture set may complete in 3x.3.
+Documented in master spec ? planning complete when ?3x.1?3x.11 + exit checklist exist; full golden fixture set may complete in 3x.3.
 
-### 3x.6 � Golden message tests
+### 3x.6 ? Golden message tests
 
-**30�50** realistic guest messages with expected:
+**30?50** realistic guest messages with expected:
 
 - `resolved_route`
 - Missing fields
@@ -1333,13 +1335,13 @@ Documented in master spec � planning complete when �3x.1�3x.11 + exit chec
 
 **Categories to include:**
 
-- Booking request � package questions � payment-link request � �I paid�
-- Cancellation � room preference � couple/friends/gender rooming � date changes
-- Surfboard/wetsuit rental � breakfast/transfer � unclear / low-confidence messages
+- Booking request ? package questions ? payment-link request ? ?I paid?
+- Cancellation ? room preference ? couple/friends/gender rooming ? date changes
+- Surfboard/wetsuit rental ? breakfast/transfer ? unclear / low-confidence messages
 
-**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec �3x.6.
+**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec ?3x.6.
 
-### 3x.7 � Dangerous action gates
+### 3x.7 ? Dangerous action gates
 
 Strict proof required before:
 
@@ -1352,7 +1354,7 @@ Strict proof required before:
 | Change dates | Availability + policy |
 | Mark payment-related states | Webhook or authorized staff only |
 
-### 3x.8 � Human handoff rules
+### 3x.8 ? Human handoff rules
 
 Bot must stop guessing and alert staff when:
 
@@ -1367,7 +1369,7 @@ Bot must stop guessing and alert staff when:
 
 **Deliverable:** `handoffRules` spec ? later `client_config.handoff_rules`.
 
-### 3x.9 � Wrong-booking protection
+### 3x.9 ? Wrong-booking protection
 
 Formalize (align with existing resolver + PG):
 
@@ -1376,7 +1378,7 @@ Formalize (align with existing resolver + PG):
 - Old holds must not be selected because phone matches alone
 - Active booking must match conversation context and latest intent
 
-### 3x.10 � Duplicate protection
+### 3x.10 ? Duplicate protection
 
 Verify and document:
 
@@ -1387,7 +1389,7 @@ Verify and document:
 | Same Stripe event id | No duplicate `payment_events` row |
 | Confirmation | Cannot send twice (`confirmation_sent_at`, flags) |
 
-### 3x.11 � Client-config architecture plan
+### 3x.11 ? Client-config architecture plan
 
 Same assistant engine, different **client config** per property.
 
@@ -1410,7 +1412,7 @@ Wolfhouse = `client_slug: wolfhouse-somo`. Future surf houses add new config row
 
 ---
 
-## Source-of-truth cutover � Airtable ? Postgres
+## Source-of-truth cutover ? Airtable ? Postgres
 
 This is a **first-class roadmap event**, not a scattered implementation detail. Airtable is the current operational source of truth for staff. Postgres is the engineering source of truth for the bot. Cutover must happen deliberately.
 
@@ -1421,7 +1423,7 @@ This is a **first-class roadmap event**, not a scattered implementation detail. 
 | **Current** | Airtable = staff SoT; Postgres = bot SoT; dual-write in progress | Active |
 | **Read-only compare** | Run both reads; log discrepancies; do not act on mismatch | Before any cutover |
 | **`DATA_SOURCE` flag** | Config-driven: `airtable` \| `postgres` per path; allows per-path rollout | Stage 4 |
-| **Soak period** | Postgres-primary writes; Airtable as backup read; monitor for divergence | Stage 4�5 |
+| **Soak period** | Postgres-primary writes; Airtable as backup read; monitor for divergence | Stage 4?5 |
 | **Airtable dependency removal** | Only after staff UI or equivalent replacement exists | Stage 6+ |
 | **Backup policy** | Full Airtable export + PG dump before each cutover step | Required |
 | **Rollback plan** | Revert `DATA_SOURCE` flag; restore from backup; documented runbook | Required |
@@ -1451,25 +1453,25 @@ This is a **first-class roadmap event**, not a scattered implementation detail. 
 
 ---
 
-## Stage 4 � Reliable
+## Stage 4 ? Reliable
 
-**Status (2026-05-30): CLOSE WITH DEFERRALS.** Autonomous Booking Dry-Run complete � all 14 scenarios PASS (commit `6cd9a21`). Evidence: `test-payloads/stage4/autonomous-dry-run/README.md`. Live WhatsApp, live holds, live Stripe, and live confirmation writes remain deferred. Structured add-on records and staff ops assistant deferred to Stages 5�6.
+**Status (2026-05-30): CLOSE WITH DEFERRALS.** Autonomous Booking Dry-Run complete ? all 14 scenarios PASS (commit `6cd9a21`). Evidence: `test-payloads/stage4/autonomous-dry-run/README.md`. Live WhatsApp, live holds, live Stripe, and live confirmation writes remain deferred. Structured add-on records and staff ops assistant deferred to Stages 5?6.
 
 ### Purpose
 
 Make the working system **dependable and observable** after Stage 3 behavior is proven and Stage 3x rules are specified.
 
-### Entry gate (defined in baseline config + �3x.2b)
+### Entry gate (defined in baseline config + ?3x.2b)
 
-Gate definition: [`config/clients/wolfhouse-somo.baseline.json`](../config/clients/wolfhouse-somo.baseline.json) (`stage4_entry_gate`) and [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.2b/�3x.2c](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x2c--applied-owner-answers-2026-05-29).
+Gate definition: [`config/clients/wolfhouse-somo.baseline.json`](../config/clients/wolfhouse-somo.baseline.json) (`stage4_entry_gate`) and [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.2b/?3x.2c](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x2c--applied-owner-answers-2026-05-29).
 
-**Reduced after 3x.2c** (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming auto-assign + operator-room logic all confirmed). **Remaining owner blockers:** deposit amount/scope � non-7-night pricing math � cancellation/refund windows & % � add-on service prices/scheduling (if in Stage 4 scope) � real WhatsApp send gate or Stage 3y shadow � final handoff channel. **Not blockers:** perfect tone � full customer memory � marketing opt-in � exact add-on automation.
+**Reduced after 3x.2c** (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming auto-assign + operator-room logic all confirmed). **Remaining owner blockers:** deposit amount/scope ? non-7-night pricing math ? cancellation/refund windows & % ? add-on service prices/scheduling (if in Stage 4 scope) ? real WhatsApp send gate or Stage 3y shadow ? final handoff channel. **Not blockers:** perfect tone ? full customer memory ? marketing opt-in ? exact add-on automation.
 
-**Additional entry requirement:** Autonomous booking dry-run pass � bot completes full booking flow (inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation) without errors in all-stubbed mode, proving readiness before real sends or live operation are enabled.
+**Additional entry requirement:** Autonomous booking dry-run pass ? bot completes full booking flow (inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation) without errors in all-stubbed mode, proving readiness before real sends or live operation are enabled.
 
 ### Includes
 
-- **Autonomous booking dry-run** (first Stage 4 milestone): full booking flow end-to-end � inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation � with all live side effects stubbed at the infrastructure boundary. Proves the bot completes the booking correctly before real sends or live operation are enabled. This is the regression anchor: once green, enabling real WhatsApp send or live operation is a config change, not a behavior change.
+- **Autonomous booking dry-run** (first Stage 4 milestone): full booking flow end-to-end ? inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation ? with all live side effects stubbed at the infrastructure boundary. Proves the bot completes the booking correctly before real sends or live operation are enabled. This is the regression anchor: once green, enabling real WhatsApp send or live operation is a config change, not a behavior change.
 - Better error handling and safe retries (where idempotent)
 - Stuck booking detection
 - Monitoring, alerts, execution dashboards
@@ -1489,11 +1491,11 @@ May begin here if needed before full Stage 6 UI:
 - Human handoff queue
 - Pending confirmations
 - Failed workflow executions
-- **Staff query assistant** (read-only ops Q&A: "who has a surfboard today?", "who arrives today?", "which rooms need cleaning and by when?") gated by an **approved-staff allowlist** (`staff_directory`; portal = Stage 6) � [`STAFF-QUERY-ASSISTANT-PLAN.md`](STAFF-QUERY-ASSISTANT-PLAN.md)
+- **Staff query assistant** (read-only ops Q&A: "who has a surfboard today?", "who arrives today?", "which rooms need cleaning and by when?") gated by an **approved-staff allowlist** (`staff_directory`; portal = Stage 6) ? [`STAFF-QUERY-ASSISTANT-PLAN.md`](STAFF-QUERY-ASSISTANT-PLAN.md)
 
 ### Add-on structured records (Stage 4 design requirement)
 
-Add-on dry-run tests (e.g. A9 � lessons, yoga, rentals) must do more than verify the guest-facing price quote is correct. They must also prove the system can **represent add-on requests as structured, staff-queryable records**. This is the data foundation that makes Stage 6 staff queries possible.
+Add-on dry-run tests (e.g. A9 ? lessons, yoga, rentals) must do more than verify the guest-facing price quote is correct. They must also prove the system can **represent add-on requests as structured, staff-queryable records**. This is the data foundation that makes Stage 6 staff queries possible.
 
 Each add-on request that passes through the bot should be representable as a record with at minimum:
 - Guest / booking reference
@@ -1501,16 +1503,16 @@ Each add-on request that passes through the bot should be representable as a rec
 - Quantity / number of days
 - Requested date(s)
 - Payment status (pending / paid)
-- Fulfillment status (not redeemed / redeemed � staff-managed)
+- Fulfillment status (not redeemed / redeemed ? staff-managed)
 - A flag indicating whether staff scheduling / manual tracking applies (e.g. lessons require a manual slot assignment)
 
-**Stage 4 does not require full add-on automation.** It requires that when the bot processes an add-on request, the output can be persisted in a shape that is queryable by staff. If no structured add-on record is written yet, the design must identify where it would be written and what the schema looks like � so Stage 5 does not have to invent it from scratch.
+**Stage 4 does not require full add-on automation.** It requires that when the bot processes an add-on request, the output can be persisted in a shape that is queryable by staff. If no structured add-on record is written yet, the design must identify where it would be written and what the schema looks like ? so Stage 5 does not have to invent it from scratch.
 
 ---
 
-## Stage 5 � Clean
+## Stage 5 ? Clean
 
-**Status (2026-05-31): CLOSE WITH DEFERRALS � source-of-truth cleanup complete (5.1�5.8b); engine extraction / portability scope deferred.** All staff-queryable data tables are schema-stubbed and query helpers are proven. Migrations 007 (add-ons) and 008 (staff handoffs) are ready to apply. Live operation, engine extraction, and staff UI remain deferred (Stage 6). Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md).
+**Status (2026-05-31): CLOSE WITH DEFERRALS ? source-of-truth cleanup complete (5.1?5.8b); engine extraction / portability scope deferred.** All staff-queryable data tables are schema-stubbed and query helpers are proven. Migrations 007 (add-ons) and 008 (staff handoffs) are ready to apply. Live operation, engine extraction, and staff UI remain deferred (Stage 6). Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md).
 
 ### Purpose
 
@@ -1529,7 +1531,7 @@ Do **not** do broad Stage 5 refactor before Stage 3 / 3.5 safety gates. However,
 ### Includes
 
 - Move decision logic out of n8n into `src/booking-assistant/` (n8n becomes I/O only).
-- **Extract along the portability seam** ([� Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons)): shared spine vs `inventory/` + `catalog/` plugins � do **not** produce a tidied-up surf-house monolith.
+- **Extract along the portability seam** ([? Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons)): shared spine vs `inventory/` + `catalog/` plugins ? do **not** produce a tidied-up surf-house monolith.
 - Implement `InventoryProvider` with **lodging** as the first concrete provider; keep the interface generic enough for `slots` / `rentals`.
 - Split `client_config` into **engine config** (spine) + **vertical config** (catalog / inventory / capabilities); rooming behind a capability flag.
 - Replace serialized-into-n8n Code nodes (e.g. the resolver) with calls to the extracted, version-checked modules.
@@ -1554,7 +1556,7 @@ The following tables/models must be designed (and at minimum stubbed in schema) 
 | `staff_handoffs` / `staff_tasks` | Which conversations need a human reply? Why was it handed off? Current state? |
 | `payment_balances` (view or table) | Who still owes money? Who paid deposit but not full balance? |
 
-These are **not new features** � they are the structured forms of data the bot already collects. The goal of Stage 5 is to ensure that data lands in Postgres in a queryable shape instead of only in Airtable or serialized chat session state.
+These are **not new features** ? they are the structured forms of data the bot already collects. The goal of Stage 5 is to ensure that data lands in Postgres in a queryable shape instead of only in Airtable or serialized chat session state.
 
 **Design gate for Stage 5:** before beginning Stage 6 staff UI work, verify that a staff member can ask each of the following questions and get a correct answer from Postgres without touching Airtable or reading raw WhatsApp messages:
 
@@ -1569,9 +1571,9 @@ These are **not new features** � they are the structured forms of data the bot
 
 ---
 
-## Stage 6 � Beautiful (Staff / Admin Layer)
+## Stage 6 ? Beautiful (Staff / Admin Layer)
 
-**Status: CLOSED WITH DEFERRALS** (2026-05-31) � All exit criteria MET. 6.0�6.9 DONE: 35-intent registry, CLI runner, batch reports, CLI write action, HTTP API, browser UI, smoke test, token-gated write endpoint. Production auth/TLS/live-ops deferred to Stage 7. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
+**Status: CLOSED WITH DEFERRALS** (2026-05-31) ? All exit criteria MET. 6.0?6.9 DONE: 35-intent registry, CLI runner, batch reports, CLI write action, HTTP API, browser UI, smoke test, token-gated write endpoint. Production auth/TLS/live-ops deferred to Stage 7. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
 
 **Implementation slices:** 6.1 registry DONE ? 6.2 CLI runner DONE ? 6.3 handoffs DONE ? 6.4a/b/c/d batch reports DONE ? 6.5a/b CLI write action DONE ? 6.6 HTTP API DONE ? 6.7 intent smoke DONE ? 6.8 read-only UI DONE ? 6.9 token-gated write endpoint DONE.
 
@@ -1601,7 +1603,7 @@ Staff can ask operational questions and get answers from **structured Postgres r
 - "Who paid deposit but not full balance?"
 - "Which guests requested rooming preferences?"
 
-**Design constraint:** these questions are answered from the structured records built in Stage 5 (`lesson_requests`, `add_on_orders`, `staff_handoffs`, `payment_balances`, etc.). The assistant maps natural-language questions to fixed safe parameterized intents � it never generates arbitrary SQL.
+**Design constraint:** these questions are answered from the structured records built in Stage 5 (`lesson_requests`, `add_on_orders`, `staff_handoffs`, `payment_balances`, etc.). The assistant maps natural-language questions to fixed safe parameterized intents ? it never generates arbitrary SQL.
 
 ### Staff Approval Controls
 
@@ -1626,19 +1628,19 @@ Staff can review, approve, and act on bot proposals without going directly into 
 
 Airtable may remain a **bridge** during transition; long-term goal is a proper staff UI, not Airtable as daily ops surface.
 
-**Airtable cutover prerequisite:** the staff UI (or equivalent) must cover all use cases Airtable currently serves before Airtable is removed as a dependency � see the Source-of-truth cutover table above.
+**Airtable cutover prerequisite:** the staff UI (or equivalent) must cover all use cases Airtable currently serves before Airtable is removed as a dependency ? see the Source-of-truth cutover table above.
 
 ---
 
-## Stage 7 � Scalable
+## Stage 7 ? Scalable
 
-**Status: PLANNING CLOSED / IMPLEMENTATION STARTED** (2026-05-31) � 7.0�7.6 DESIGN DONE. **7.2b+7.2c+7.3b DONE**: migration 009, auth middleware scaffold, Azure IaC scaffold (infra/azure/staging/ Bicep, 11 resource types, safety defaults, KV secret refs, runbook, 57-check verifier PASS). No Azure resources created. Next: 7.3c DNS/TLS or Cami dashboard.?# Wolfhouse Booking Assistant � Product Roadmap
+**Status: PLANNING CLOSED / IMPLEMENTATION STARTED** (2026-05-31) ? 7.0?7.6 DESIGN DONE. **7.2b+7.2c+7.3b DONE**: migration 009, auth middleware scaffold, Azure IaC scaffold (infra/azure/staging/ Bicep, 11 resource types, safety defaults, KV secret refs, runbook, 57-check verifier PASS). No Azure resources created. Next: 7.3c DNS/TLS or Cami dashboard.?# Wolfhouse Booking Assistant ? Product Roadmap
 
-**Product:** AI booking operations for WhatsApp-first experience businesses � **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
+**Product:** AI booking operations for WhatsApp-first experience businesses ? **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
-**Product-level roadmap (15 pillars):** [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md) � **Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) � **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) � **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+**Product-level roadmap (15 pillars):** [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md) ? **Engineering snapshot:** [`PROJECT-STATE.md`](PROJECT-STATE.md) ? **Architecture:** [`ARCHITECTURE-NORTH-STAR.md`](ARCHITECTURE-NORTH-STAR.md) ? **Stripe isolated gates:** [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
 
-> **This file is the stage-level / engineering roadmap.** For the **product-level view** � the full 15-pillar product vision (Guest Assistant, SoT DB, Staff Brain, Dashboard, Rooming UI, Add-ons, Messaging Bridge, Multi-Client Config, Onboarding, PMS, AI Intent, Analytics, Production Hardening, Multi-Client Admin, Productization) mapped to these stages � see [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md).
+> **This file is the stage-level / engineering roadmap.** For the **product-level view** ? the full 15-pillar product vision (Guest Assistant, SoT DB, Staff Brain, Dashboard, Rooming UI, Add-ons, Messaging Bridge, Multi-Client Config, Onboarding, PMS, AI Intent, Analytics, Production Hardening, Multi-Client Admin, Productization) mapped to these stages ? see [`PRODUCT-MASTER-ROADMAP.md`](PRODUCT-MASTER-ROADMAP.md).
 
 ---
 
@@ -1657,7 +1659,7 @@ Airtable may remain a **bridge** during transition; long-term goal is a proper s
 
 Stage 3 is **not** about making the bot beautiful or fully productized. It is about proving the bot does **not** make dangerous mistakes.
 
-**Stage 3.5 is not full Stage 4 observability.** It is the minimum seatbelts required before serious runtime or live/shadow operation � error capture, idempotency checks, overlap guards, basic execution logging.
+**Stage 3.5 is not full Stage 4 observability.** It is the minimum seatbelts required before serious runtime or live/shadow operation ? error capture, idempotency checks, overlap guards, basic execution logging.
 
 **Stage 3y (Shadow/Co-pilot)** bridges dry-run proof and autonomous live operation. The bot reads real messages and drafts responses; staff approve and send manually. No autonomous payment/confirmation/cancellation/rooming without explicit staff approval. This reduces the dry-run ? real-guest cliff and generates real golden-message data.
 
@@ -1669,11 +1671,11 @@ Stage 3 is **not** about making the bot beautiful or fully productized. It is ab
 
 | Layer | Role |
 |-------|------|
-| **n8n** | Orchestrates � webhooks, WhatsApp, Stripe callbacks, notifications, simple integration steps |
-| **Backend / code** | Decides � routing, required fields, package logic, safety guards, handoff rules |
-| **Postgres** | Remembers � bookings, payments, conversations, beds, audit trail |
-| **Client config** | Controls � packages, pricing, room rules, policies per property (Wolfhouse = client #1) |
-| **Staff UI + Staff Assistant** | Manages � holds, payments, assignments, takeover; answers operational queries; approves risky bot actions (Stage 6+) |
+| **n8n** | Orchestrates ? webhooks, WhatsApp, Stripe callbacks, notifications, simple integration steps |
+| **Backend / code** | Decides ? routing, required fields, package logic, safety guards, handoff rules |
+| **Postgres** | Remembers ? bookings, payments, conversations, beds, audit trail |
+| **Client config** | Controls ? packages, pricing, room rules, policies per property (Wolfhouse = client #1) |
+| **Staff UI + Staff Assistant** | Manages ? holds, payments, assignments, takeover; answers operational queries; approves risky bot actions (Stage 6+) |
 
 The current **n8n-heavy** implementation is acceptable for **proving behavior** in Stage 3. Future stages migrate decision logic into code/config modules; n8n calls the decision engine instead of owning the business brain.
 
@@ -1696,10 +1698,10 @@ src/booking-assistant/
     InventoryProvider.ts   # interface: findAvailability / hold / fulfill
     lodging.ts             # beds-in-rooms + rooming (Wolfhouse / hostels)
     slots.ts               # lesson/tour time-slot capacity (surf/kite schools, tours)
-    rentals.ts             # item � time-window � quantity � size (surf/bike/SUP shops)
+    rentals.ts             # item ? time-window ? quantity ? size (surf/bike/SUP shops)
   catalog/
     offerings.ts           # generic priced offering (packages | lessons | rental SKUs | departures)
-    packageDecision.ts     # explain / recommend / quote � driven by config, not hardcoded names
+    packageDecision.ts     # explain / recommend / quote ? driven by config, not hardcoded names
 ```
 
 **Example future config shape (not implemented yet):**
@@ -1714,7 +1716,7 @@ client_config.required_fields
 
 Build **Wolfhouse as client #1**, not as the only client the system can ever serve.
 
-**Spine vs plugin (portability principle):** everything above the `inventory/` and `catalog/` folders is the **shared spine** and must contain **no surf-house-specific nouns** (no `bed`, `room`, `malibu`, `surfweek`). Anything vertical-specific lives behind the `InventoryProvider` interface or in `client_config`. A new vertical = new config + (at most) one new inventory provider � see [� Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons).
+**Spine vs plugin (portability principle):** everything above the `inventory/` and `catalog/` folders is the **shared spine** and must contain **no surf-house-specific nouns** (no `bed`, `room`, `malibu`, `surfweek`). Anything vertical-specific lives behind the `InventoryProvider` interface or in `client_config`. A new vertical = new config + (at most) one new inventory provider ? see [? Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons).
 
 ---
 
@@ -1730,7 +1732,7 @@ This is **not** framed as a generic chatbot. It is an operations layer that hand
 
 ### Beachhead
 
-**Wolfhouse** � surf houses / surf camps (client #1, `wolfhouse-somo`).
+**Wolfhouse** ? surf houses / surf camps (client #1, `wolfhouse-somo`).
 
 Hard first use case: combines accommodation, packages, rooming, payments, confirmations, WhatsApp, and staff operations in one property.
 
@@ -1742,17 +1744,17 @@ Guests ask on WhatsApp ? business explains options ? checks availability ? colle
 |------------------|-----------------------------------------------|
 | Surf schools | Lessons, levels, schedules |
 | Surf shops | Rentals, retail-adjacent booking |
-| Kite schools � dive shops | Lessons, certifications, slots |
-| Yoga retreats � small retreat operators | Packages, dates, capacity |
+| Kite schools ? dive shops | Lessons, certifications, slots |
+| Yoga retreats ? small retreat operators | Packages, dates, capacity |
 | Hostels with activities | Beds + activity add-ons |
 | Tour operators | Departures, group size, deposits |
-| Rental businesses | Lessons, rentals, inventory, time slots, sizes � surf shop / bike / e-bike / kayak / SUP / campervan patterns |
+| Rental businesses | Lessons, rentals, inventory, time slots, sizes ? surf shop / bike / e-bike / kayak / SUP / campervan patterns |
 
 A **surf shop or lesson-rental** operator is likely a simpler config profile than Wolfhouse: fewer rooming rules, more slot/inventory semantics, still the same payment + confirmation + handoff spine.
 
 ### Competitive note
 
-AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The opportunity is a **focused, configurable, operations-heavy** assistant for **small experience businesses** that live in WhatsApp and run **messy** packages, rentals, lessons, and deposits � not clean hotel-only PMS flows.
+AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The opportunity is a **focused, configurable, operations-heavy** assistant for **small experience businesses** that live in WhatsApp and run **messy** packages, rentals, lessons, and deposits ? not clean hotel-only PMS flows.
 
 ### Roadmap implication
 
@@ -1760,17 +1762,17 @@ AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The
 |-----------|--------|
 | Wolfhouse as client #1 with full safety proofs | Multi-client SaaS platform |
 | `client_config` specs that generalize | Client onboarding UI, billing, settings editor |
-| Engine shaped for lessons/rentals/rooming via config | Hardcoding �surf house only� in shared workflows |
+| Engine shaped for lessons/rentals/rooming via config | Hardcoding ?surf house only? in shared workflows |
 
-**Config dimensions per client** (see �3x.11 in [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)): packages � lesson types � rental inventory � rooming rules (if applicable) � pricing � deposit rules � cancellation policy � handoff rules � staff notifications � customer memory policy.
+**Config dimensions per client** (see ?3x.11 in [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)): packages ? lesson types ? rental inventory ? rooming rules (if applicable) ? pricing ? deposit rules ? cancellation policy ? handoff rules ? staff notifications ? customer memory policy.
 
 ---
 
-## Engine portability � adding a new vertical (surf shop / lessons)
+## Engine portability ? adding a new vertical (surf shop / lessons)
 
-**Goal:** when Wolfhouse is done, standing up a second vertical (surf-shop **rentals**, surf/kite-school **lessons**, tour **departures**) is a **config + inventory-plugin** exercise � **not** a rewrite. This section defines the seam so that promise is real instead of aspirational.
+**Goal:** when Wolfhouse is done, standing up a second vertical (surf-shop **rentals**, surf/kite-school **lessons**, tour **departures**) is a **config + inventory-plugin** exercise ? **not** a rewrite. This section defines the seam so that promise is real instead of aspirational.
 
-### What is SHARED � built once, reused by every vertical
+### What is SHARED ? built once, reused by every vertical
 
 | Shared spine capability | Where |
 |-------------------------|-------|
@@ -1786,7 +1788,7 @@ AI/WhatsApp tools already exist for hotels, hospitality, and tour operators. The
 
 These **must not** be reimplemented per client. If a "new vertical" task touches these, the seam has leaked.
 
-### What is VERTICAL-SPECIFIC � plugged in, never forked
+### What is VERTICAL-SPECIFIC ? plugged in, never forked
 
 | Vertical concern | How it varies | Mechanism |
 |------------------|---------------|-----------|
@@ -1798,27 +1800,27 @@ These **must not** be reimplemented per client. If a "new vertical" task touches
 
 ### The one abstraction that unlocks all of it: `InventoryProvider`
 
-All verticals reduce to the same three-call contract � `findAvailability(request)` ? `hold(unit, window)` ? `fulfill(booking)`:
+All verticals reduce to the same three-call contract ? `findAvailability(request)` ? `hold(unit, window)` ? `fulfill(booking)`:
 
 | Vertical | Unit | Availability dimension | Special attribute | Rooming? |
 |----------|------|------------------------|-------------------|----------|
 | Surf house / hostel | bed | date-range overlap | gender / couple | **yes** (`lodging`) |
 | Surf / kite / dive school | lesson slot | time + slot capacity | skill level | no (`slots`) |
-| Surf / bike / SUP shop | rental item | time-window � quantity | size / fit | no (`rentals`) |
+| Surf / bike / SUP shop | rental item | time-window ? quantity | size / fit | no (`rentals`) |
 | Tour operator | departure seat | departure-date capacity | group size | no (`slots`) |
 
 The spine calls the interface and never knows which provider it is.
 
-### Portability gate � a vertical is "config-only ready" when:
+### Portability gate ? a vertical is "config-only ready" when:
 
-- [ ] No surf-house nouns (`bed`, `room`, `matrimonial`, `surfweek`, `malibu`/`uluwatu`/`waimea`) appear in the shared spine � only in `client_config` / providers.
+- [ ] No surf-house nouns (`bed`, `room`, `matrimonial`, `surfweek`, `malibu`/`uluwatu`/`waimea`) appear in the shared spine ? only in `client_config` / providers.
 - [ ] Rooming/assignment is behind a **capability flag**, not assumed.
 - [ ] Catalog is generic `offerings`, not a hardcoded package enum.
 - [ ] Inventory/availability is behind `InventoryProvider`; lodging is just one impl.
 - [ ] `client_config` is split into **engine config** (spine) + **vertical config** (catalog/inventory/capabilities).
 - [ ] Golden-message suite is parameterized by `client_id` (Wolfhouse fixtures don't hardcode the engine's behavior).
 
-### Cheapest validation � do this on paper during Stage 3x.3 (safe, docs-only)
+### Cheapest validation ? do this on paper during Stage 3x.3 (safe, docs-only)
 
 Before any Stage 5 extraction, draft **sample configs for a second and third vertical** and run them against the schema to surface every leak:
 
@@ -1840,29 +1842,29 @@ Each gap found ("this field has no home," "this rule assumes beds") becomes a li
 
 ### Deploy config (the onboarding contract)
 
-Every client-specific value (prices, seasons, gate code, phone numbers, packages, room map, policies) lives in **one per-client deploy config** + a gitignored secret file � never hardcoded in code/workflows. A new client = fill the template, not rewrite logic. Template: [`config/clients/_deploy-config.template.json`](../config/clients/_deploy-config.template.json) � Guide: [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md). Wolfhouse's `wolfhouse-somo.baseline.json` is the worked example (`vertical: lodging_surf_house`).
+Every client-specific value (prices, seasons, gate code, phone numbers, packages, room map, policies) lives in **one per-client deploy config** + a gitignored secret file ? never hardcoded in code/workflows. A new client = fill the template, not rewrite logic. Template: [`config/clients/_deploy-config.template.json`](../config/clients/_deploy-config.template.json) ? Guide: [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md). Wolfhouse's `wolfhouse-somo.baseline.json` is the worked example (`vertical: lodging_surf_house`).
 
 ---
 
 ## Legacy phase map (reference)
 
-Older docs use **Phase 0�3d** for engineering milestones. They map to stages as follows:
+Older docs use **Phase 0?3d** for engineering milestones. They map to stages as follows:
 
 | Legacy | Stage |
 |--------|--------|
-| Phase 0�2 local (frozen) | Foundation + Stripe/Main/Send Confirmation contracts |
-| Phase 3b (frozen) | Stage 3 � bed-ops / manual / operator paths |
-| Phase 3c�3g | Stage 3 � Main + Postgres + stub E2E |
-| Phase 3d.x | Stage 3 � isolated real Stripe payment / webhook / confirmation gates |
-| Phase 3e | Stage 3 � rooming/reassign E2E ? |
-| Stage 3.5 | Safety rails � idempotency, error capture, overlap guards |
+| Phase 0?2 local (frozen) | Foundation + Stripe/Main/Send Confirmation contracts |
+| Phase 3b (frozen) | Stage 3 ? bed-ops / manual / operator paths |
+| Phase 3c?3g | Stage 3 ? Main + Postgres + stub E2E |
+| Phase 3d.x | Stage 3 ? isolated real Stripe payment / webhook / confirmation gates |
+| Phase 3e | Stage 3 ? rooming/reassign E2E ? |
+| Stage 3.5 | Safety rails ? idempotency, error capture, overlap guards |
 | Stage 3x | Bot knowledge + safety guardrails (specs, not n8n sprawl) |
-| Stage 3y | Shadow / co-pilot � staff-approved mode before autonomous |
+| Stage 3y | Shadow / co-pilot ? staff-approved mode before autonomous |
 | Azure / multi-client | Stage 7 (Scalable), not before Reliability + Clean |
 
 ---
 
-## Stage 3 � Correct and safe
+## Stage 3 ? Correct and safe
 
 ### Purpose
 
@@ -1882,7 +1884,7 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 | Wrong booking selected | Conversation `current_hold_booking_id`, resolver, terminal-status blocks |
 | Wrong payment link | Real CPS on correct hold; stub vs real env separation |
 | Wrong confirmation | Send Confirmation gates; dry-run first; schedule disabled in tests |
-| Wrong room assignment | Bed-ops forks; **hosted reassign URL** in Main fork (`3e.2` remap) � see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) |
+| Wrong room assignment | Bed-ops forks; **hosted reassign URL** in Main fork (`3e.2` remap) ? see [`PHASE-3e-ROOMING-REASSIGN-PLAN.md`](PHASE-3e-ROOMING-REASSIGN-PLAN.md) |
 | Duplicate payment / session / event | Idempotency checks; single webhook per event id |
 | Accidental live Stripe / WhatsApp | Test keys; `WHATSAPP_DRY_RUN`; activation boundaries |
 | Background workflow firing | Inactive workflows + schedule `disabled` in test windows |
@@ -1893,19 +1895,19 @@ Prove dangerous core workflows safely before cleanup, staff UI, or multi-client 
 |------|--------|--------|
 | `booking_flow` hold creation | **Proven** | PG hold + Airtable backfill in Main fork (3c.e) |
 | `payment_details_provided` route | **Proven** | Resolver + Ensure (3c.g stub E2E) |
-| Real Stripe checkout link (Main-integrated) | **Proven** | 3d.7b � `WH-260528-5369`, stop at checkout URL |
+| Real Stripe checkout link (Main-integrated) | **Proven** | 3d.7b ? `WH-260528-5369`, stop at checkout URL |
 | Isolated Create Payment Session | **Proven** | 3d.4 |
 | Stripe Webhook Handler payment truth | **Proven** (isolated) | 3d.5b on `WH-260528-1493` |
 | Send Confirmation (dry-run) | **Proven** (isolated) | 3d.6e |
 | Pay + webhook on Main-created session | **Proven** | 3d.8b organic Stripe on `WH-260528-5369` |
 | Integrated Send Confirmation (dry-run) | **Proven** | 3d.9b exec **1077** on same booking |
-| Rooming / reassign E2E | **Proven** | **3e.4 PASS** � `WH-260528-5322`, beds R3-B1/R3-B2 |
+| Rooming / reassign E2E | **Proven** | **3e.4 PASS** ? `WH-260528-5322`, beds R3-B1/R3-B2 |
 
 **Not proven in Stage 3:** real WhatsApp send; Send Confirmation schedule-poll; single-window E2E; full package intelligence.
 
-**Freeze:** [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) � formal 3c+3d checkpoint before Phase 3e.3+.
+**Freeze:** [`PHASE-3c-3d-FREEZE.md`](PHASE-3c-3d-FREEZE.md) ? formal 3c+3d checkpoint before Phase 3e.3+.
 
-**Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) � [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
+**Detail:** [`PROJECT-STATE.md`](PROJECT-STATE.md) ? [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md)
 
 ### Stage 3 exit criteria
 
@@ -1928,14 +1930,14 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 - [ ] Terminal evidence bookings not reused without reset (policy established)
 
 **Guards verified or explicitly deferred:**
-- [x] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) � **3e.5 CLOSED** (L1+L2 PASS; L3 deferred � Airtable-coupled runtime deferred to Postgres source-of-truth cutover; see �15.6��15.7)
-- [x] Duplicate / idempotency protections verified at Stage 3 bar � **3e.6 CLOSED** (I1 schema PASS � I4 runtime PASS � I6 invariant PASS; I2/I3/I5 deferred: I2 ? manual-pay gate � I3 ? Stage 3.5 � I5 ? Postgres cutover)
-- [ ] All dangerous actions have handoff / fail-safe behavior when required business rule is missing � *3x.7�3x.8 spec done; implementation pending*
+- [x] Wrong-booking guard tested for dangerous actions (rooming, payment, cancel) ? **3e.5 CLOSED** (L1+L2 PASS; L3 deferred ? Airtable-coupled runtime deferred to Postgres source-of-truth cutover; see ?15.6??15.7)
+- [x] Duplicate / idempotency protections verified at Stage 3 bar ? **3e.6 CLOSED** (I1 schema PASS ? I4 runtime PASS ? I6 invariant PASS; I2/I3/I5 deferred: I2 ? manual-pay gate ? I3 ? Stage 3.5 ? I5 ? Postgres cutover)
+- [ ] All dangerous actions have handoff / fail-safe behavior when required business rule is missing ? *3x.7?3x.8 spec done; implementation pending*
 
 **Acceptable deferrals (do not block Stage 3 exit if documented):**
-- Real WhatsApp send � dry-run mode (`WHATSAPP_DRY_RUN=true`) is sufficient; shadow mode (Stage 3y) covers real send
-- Send Confirmation schedule-poll � schedule `disabled=true` gate is sufficient for Stage 3; verify in Stage 3y
-- Single-window integrated E2E � isolated gate chains are sufficient for Stage 3
+- Real WhatsApp send ? dry-run mode (`WHATSAPP_DRY_RUN=true`) is sufficient; shadow mode (Stage 3y) covers real send
+- Send Confirmation schedule-poll ? schedule `disabled=true` gate is sufficient for Stage 3; verify in Stage 3y
+- Single-window integrated E2E ? isolated gate chains are sufficient for Stage 3
 
 **Acceptance metric gates:**
 - 0 double bookings in all runtime test gates
@@ -1947,9 +1949,9 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 ---
 
-## Stage 3.5 � Safety Rails Before Reliability
+## Stage 3.5 ? Safety Rails Before Reliability
 
-**Purpose:** Pull forward the minimum safety plumbing required to safely run more runtime gates and prepare for live/shadow mode. This is not full Stage 4 observability � it is seatbelts.
+**Purpose:** Pull forward the minimum safety plumbing required to safely run more runtime gates and prepare for live/shadow mode. This is not full Stage 4 observability ? it is seatbelts.
 
 **When to do Stage 3.5:** After Stage 3 exit criteria are met, before Stage 3y (shadow/co-pilot) or live guest operation.
 
@@ -1973,17 +1975,17 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 **Stage 3.5 does not include:** full monitoring dashboards, Azure deploy, Staff UI, broad n8n ? backend refactor.
 
-**Full sub-phase spec:** [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md) � 3.5a�3.5g with entry/exit criteria, work-type classification, and first implementation step.
+**Full sub-phase spec:** [`PHASE-3.5-SAFETY-RAILS-PLAN.md`](PHASE-3.5-SAFETY-RAILS-PLAN.md) ? 3.5a?3.5g with entry/exit criteria, work-type classification, and first implementation step.
 
 **Key schema finding:** `automation_errors` and `workflow_events` tables exist in migration 001 but are not yet wired into any n8n workflow. Stage 3.5b is a pure wire-in task.
 
 ---
 
-## Stage 3y � Shadow / Co-pilot Pilot
+## Stage 3y ? Shadow / Co-pilot Pilot
 
 **Purpose:** Bridge the gap between isolated dry-run proof and autonomous live guest operation. Reduces the dry-run ? real-guest cliff; generates real labeled data; builds Ale/Cami trust in the system.
 
-**Full plan:** [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md) � entry criteria, operating modes A�D, allowed/forbidden actions, staff approval workflow, infrastructure requirements, 15-test matrix (Y-T1�Y-T15), exit criteria.
+**Full plan:** [`PHASE-3y-SHADOW-COPILOT-PLAN.md`](PHASE-3y-SHADOW-COPILOT-PLAN.md) ? entry criteria, operating modes A?D, allowed/forbidden actions, staff approval workflow, infrastructure requirements, 15-test matrix (Y-T1?Y-T15), exit criteria.
 
 ### How shadow/co-pilot mode works
 
@@ -1996,14 +1998,14 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 | Staff approves and sends | **Staff (manual)** |
 | Staff edit logged as labeled example | System records correction (interim: offline log) |
 
-### Operating modes (ascending risk � gate each separately)
+### Operating modes (ascending risk ? gate each separately)
 
 | Mode | Description | Gate |
 |------|-------------|------|
-| **A � Offline shadow** | Pasted/copied messages; local n8n; no live connection | ? Ready to start (no new infra) |
-| **B � Real inbound, no sends** | Real WhatsApp inbound; `DRY_RUN=true` enforced | Separate explicit approval required |
-| **C � Staff-approved draft queue** | Bot writes draft to review queue; staff approves and sends manually | Mode B stable + review UI |
-| **D � Staff-approved action proposals** | Bot proposes dangerous action; staff clicks approve | Stage 6 Staff UI + all 3x complete |
+| **A ? Offline shadow** | Pasted/copied messages; local n8n; no live connection | ? Ready to start (no new infra) |
+| **B ? Real inbound, no sends** | Real WhatsApp inbound; `DRY_RUN=true` enforced | Separate explicit approval required |
+| **C ? Staff-approved draft queue** | Bot writes draft to review queue; staff approves and sends manually | Mode B stable + review UI |
+| **D ? Staff-approved action proposals** | Bot proposes dangerous action; staff clicks approve | Stage 6 Staff UI + all 3x complete |
 
 ### What is and is not allowed in Stage 3y
 
@@ -2026,7 +2028,7 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 ---
 
-## Stage 3x � Bot knowledge + safety guardrails
+## Stage 3x ? Bot knowledge + safety guardrails
 
 **Mini-phase before fully entering Stage 4 (Reliable).**
 
@@ -2037,12 +2039,12 @@ Stage 3 is **complete only when all of the following are met** (or explicitly de
 
 Define the business knowledge and decision rules the bot needs to act safely, ask smart follow-up questions, and avoid dangerous guesses.
 
-**Important:** Stage 3x delivers **specs, fixtures, and configurable rules** � not a huge expansion of n8n IF nodes. Implementation belongs in code modules (Stage 5) fed by client config.
+**Important:** Stage 3x delivers **specs, fixtures, and configurable rules** ? not a huge expansion of n8n IF nodes. Implementation belongs in code modules (Stage 5) fed by client config.
 
 | Sub-phase | Status |
 |-----------|--------|
-| **3x.1** Full roadmap �3x.1�3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
-| **3x.1b** Customer memory layered model (�3x.5) | **Done** (2026-05-28) |
+| **3x.1** Full roadmap ?3x.1?3x.11 + exit criteria + 35 golden rows | **Done** (2026-05-28 retry) |
+| **3x.1b** Customer memory layered model (?3x.5) | **Done** (2026-05-28) |
 | **3x.2b** Minimum Business Logic Baseline + Stage 4 entry gate | **Done** (2026-05-29) |
 | **3x.2c** Applied owner P1 answers ? baseline v0.2 + handoff/add-on plans | **Done** (2026-05-29) |
 | **3x.2d** Working prices + policies ? baseline v0.3 (provisional pricing) | **Done** (2026-05-29) |
@@ -2050,11 +2052,11 @@ Define the business knowledge and decision rules the bot needs to act safely, as
 | **3x.3** WhatsApp mining + golden fixtures + customer extract | Planned |
 | **3x.4** Golden runner + Stage 4 reliability hooks | Planned |
 
-**Stage 3x includes:** required-field map � package decision flow � Wolfhouse knowledge collection � **WhatsApp history mining** � **customer memory migration** � golden message tests � dangerous-action gates � human handoff ([`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md)) � during-stay add-ons ([`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md)) � wrong-booking protection � duplicate protection � client-config architecture � **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
+**Stage 3x includes:** required-field map ? package decision flow ? Wolfhouse knowledge collection ? **WhatsApp history mining** ? **customer memory migration** ? golden message tests ? dangerous-action gates ? human handoff ([`STAFF-HANDOFF-PLAN.md`](STAFF-HANDOFF-PLAN.md)) ? during-stay add-ons ([`DURING-STAY-ADDONS-PLAN.md`](DURING-STAY-ADDONS-PLAN.md)) ? wrong-booking protection ? duplicate protection ? client-config architecture ? **exit criteria** ([`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md`](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md)).
 
 ### Summary index (detail in master spec)
 
-### 3x.1 � Required field map
+### 3x.1 ? Required field map
 
 Define required fields **before** each action:
 
@@ -2069,9 +2071,9 @@ Define required fields **before** each action:
 | Package booking | Quote inputs + package-specific required fields |
 | Date change | Booking id, new dates, availability, policy |
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.1](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x1--required-field-map) + fixture tables keyed by `resolved_route`.
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.1](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x1--required-field-map) + fixture tables keyed by `resolved_route`.
 
-### 3x.2 � Package explanation + package decision flow
+### 3x.2 ? Package explanation + package decision flow
 
 The bot must explain package differences clearly.
 
@@ -2088,29 +2090,29 @@ The bot must explain package differences clearly.
 
 | Guest signal | Bot behavior |
 |--------------|--------------|
-| �What packages do you have?� | Briefly explain all packages |
+| ?What packages do you have?? | Briefly explain all packages |
 | Wants to book, package missing | Ask: accommodation only vs surf package |
 | Unsure | Recommend by goal: cheapest ? shared accommodation; beginner ? lesson package; full arrange ? full surf; already surfs ? accommodation + rentals |
 | Price question | Do **not** quote exact price unless dates, guest count, package, and price source are known |
 | Still uncertain | Follow-up question or staff handoff |
 
-### 3x.3 � Wolfhouse knowledge collection
+### 3x.3 ? Wolfhouse knowledge collection
 
 Operational gaps only (not public website facts). Questionnaire for Ale/Cami:
 
 **Deliverable:** [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md)
 
-### 3x.4 � WhatsApp history mining plan
+### 3x.4 ? WhatsApp history mining plan
 
-Redacted Cami/Ale guest threads ? **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see �3x.5).
+Redacted Cami/Ale guest threads ? **dual outputs:** (A) anonymized bot knowledge + (B) structured customer memory (see ?3x.5).
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.4](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x4--whatsapp-history-mining-plan); redacted samples under `docs/knowledge/whatsapp-samples/` (not in git until anonymized).
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.4](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x4--whatsapp-history-mining-plan); redacted samples under `docs/knowledge/whatsapp-samples/` (not in git until anonymized).
 
-### 3x.5 � Customer memory + WhatsApp history migration
+### 3x.5 ? Customer memory + WhatsApp history migration
 
 Layered model: temporary raw import ? structured customer facts (PG, `client_id`-scoped) ? anonymized fixtures. Proposed tables: `customers`, `customer_booking_history`, `conversation_summaries`, `customer_preferences`, `customer_notes`, `privacy_requests` (future).
 
-**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.5](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x5--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) � Customer memory.
+**Deliverable:** [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.5](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x5--customer-memory--whatsapp-history-migration). Owner questions: [`knowledge/wolfhouse-somo-gaps.md`](knowledge/wolfhouse-somo-gaps.md) ? Customer memory.
 
 ### LLM safety requirements (across Stage 3x + Stage 4)
 
@@ -2124,15 +2126,15 @@ The bot must never act on LLM output alone for dangerous actions. The following 
 | `resolved_route`, confidence, selected booking, and action logged per execution | 3.5 |
 | Golden-message suite used as prompt regression evaluation | 3x.6 ? 4 |
 | Multilingual behavior tested: English / Spanish / Italian | 3x.6 |
-| Bot never marks `paid` / `cancelled` / `confirmed` based only on LLM interpretation | 3x.7 gate � proven in 3d.5b (webhook owns truth) |
+| Bot never marks `paid` / `cancelled` / `confirmed` based only on LLM interpretation | 3x.7 gate ? proven in 3d.5b (webhook owns truth) |
 
 ### Stage 3x exit criteria
 
-Documented in master spec � planning complete when �3x.1�3x.11 + exit checklist exist; full golden fixture set may complete in 3x.3.
+Documented in master spec ? planning complete when ?3x.1?3x.11 + exit checklist exist; full golden fixture set may complete in 3x.3.
 
-### 3x.6 � Golden message tests
+### 3x.6 ? Golden message tests
 
-**30�50** realistic guest messages with expected:
+**30?50** realistic guest messages with expected:
 
 - `resolved_route`
 - Missing fields
@@ -2142,13 +2144,13 @@ Documented in master spec � planning complete when �3x.1�3x.11 + exit chec
 
 **Categories to include:**
 
-- Booking request � package questions � payment-link request � �I paid�
-- Cancellation � room preference � couple/friends/gender rooming � date changes
-- Surfboard/wetsuit rental � breakfast/transfer � unclear / low-confidence messages
+- Booking request ? package questions ? payment-link request ? ?I paid?
+- Cancellation ? room preference ? couple/friends/gender rooming ? date changes
+- Surfboard/wetsuit rental ? breakfast/transfer ? unclear / low-confidence messages
 
-**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec �3x.6.
+**Deliverable:** `docs/fixtures/golden-messages/` + runner stub (Stage 4+). Schema + samples in master spec ?3x.6.
 
-### 3x.7 � Dangerous action gates
+### 3x.7 ? Dangerous action gates
 
 Strict proof required before:
 
@@ -2161,7 +2163,7 @@ Strict proof required before:
 | Change dates | Availability + policy |
 | Mark payment-related states | Webhook or authorized staff only |
 
-### 3x.8 � Human handoff rules
+### 3x.8 ? Human handoff rules
 
 Bot must stop guessing and alert staff when:
 
@@ -2176,7 +2178,7 @@ Bot must stop guessing and alert staff when:
 
 **Deliverable:** `handoffRules` spec ? later `client_config.handoff_rules`.
 
-### 3x.9 � Wrong-booking protection
+### 3x.9 ? Wrong-booking protection
 
 Formalize (align with existing resolver + PG):
 
@@ -2185,7 +2187,7 @@ Formalize (align with existing resolver + PG):
 - Old holds must not be selected because phone matches alone
 - Active booking must match conversation context and latest intent
 
-### 3x.10 � Duplicate protection
+### 3x.10 ? Duplicate protection
 
 Verify and document:
 
@@ -2196,7 +2198,7 @@ Verify and document:
 | Same Stripe event id | No duplicate `payment_events` row |
 | Confirmation | Cannot send twice (`confirmation_sent_at`, flags) |
 
-### 3x.11 � Client-config architecture plan
+### 3x.11 ? Client-config architecture plan
 
 Same assistant engine, different **client config** per property.
 
@@ -2219,7 +2221,7 @@ Wolfhouse = `client_slug: wolfhouse-somo`. Future surf houses add new config row
 
 ---
 
-## Source-of-truth cutover � Airtable ? Postgres
+## Source-of-truth cutover ? Airtable ? Postgres
 
 This is a **first-class roadmap event**, not a scattered implementation detail. Airtable is the current operational source of truth for staff. Postgres is the engineering source of truth for the bot. Cutover must happen deliberately.
 
@@ -2230,7 +2232,7 @@ This is a **first-class roadmap event**, not a scattered implementation detail. 
 | **Current** | Airtable = staff SoT; Postgres = bot SoT; dual-write in progress | Active |
 | **Read-only compare** | Run both reads; log discrepancies; do not act on mismatch | Before any cutover |
 | **`DATA_SOURCE` flag** | Config-driven: `airtable` \| `postgres` per path; allows per-path rollout | Stage 4 |
-| **Soak period** | Postgres-primary writes; Airtable as backup read; monitor for divergence | Stage 4�5 |
+| **Soak period** | Postgres-primary writes; Airtable as backup read; monitor for divergence | Stage 4?5 |
 | **Airtable dependency removal** | Only after staff UI or equivalent replacement exists | Stage 6+ |
 | **Backup policy** | Full Airtable export + PG dump before each cutover step | Required |
 | **Rollback plan** | Revert `DATA_SOURCE` flag; restore from backup; documented runbook | Required |
@@ -2260,25 +2262,25 @@ This is a **first-class roadmap event**, not a scattered implementation detail. 
 
 ---
 
-## Stage 4 � Reliable
+## Stage 4 ? Reliable
 
-**Status (2026-05-30): CLOSE WITH DEFERRALS.** Autonomous Booking Dry-Run complete � all 14 scenarios PASS (commit `6cd9a21`). Evidence: `test-payloads/stage4/autonomous-dry-run/README.md`. Live WhatsApp, live holds, live Stripe, and live confirmation writes remain deferred. Structured add-on records and staff ops assistant deferred to Stages 5�6.
+**Status (2026-05-30): CLOSE WITH DEFERRALS.** Autonomous Booking Dry-Run complete ? all 14 scenarios PASS (commit `6cd9a21`). Evidence: `test-payloads/stage4/autonomous-dry-run/README.md`. Live WhatsApp, live holds, live Stripe, and live confirmation writes remain deferred. Structured add-on records and staff ops assistant deferred to Stages 5?6.
 
 ### Purpose
 
 Make the working system **dependable and observable** after Stage 3 behavior is proven and Stage 3x rules are specified.
 
-### Entry gate (defined in baseline config + �3x.2b)
+### Entry gate (defined in baseline config + ?3x.2b)
 
-Gate definition: [`config/clients/wolfhouse-somo.baseline.json`](../config/clients/wolfhouse-somo.baseline.json) (`stage4_entry_gate`) and [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` �3x.2b/�3x.2c](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x2c--applied-owner-answers-2026-05-29).
+Gate definition: [`config/clients/wolfhouse-somo.baseline.json`](../config/clients/wolfhouse-somo.baseline.json) (`stage4_entry_gate`) and [`STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md` ?3x.2b/?3x.2c](STAGE-3x-BOT-KNOWLEDGE-GUARDRAILS.md#3x2c--applied-owner-answers-2026-05-29).
 
-**Reduced after 3x.2c** (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming auto-assign + operator-room logic all confirmed). **Remaining owner blockers:** deposit amount/scope � non-7-night pricing math � cancellation/refund windows & % � add-on service prices/scheduling (if in Stage 4 scope) � real WhatsApp send gate or Stage 3y shadow � final handoff channel. **Not blockers:** perfect tone � full customer memory � marketing opt-in � exact add-on automation.
+**Reduced after 3x.2c** (payment-link auto-send, hold expiry, confirmation content, conditional cancel/date-change, rooming auto-assign + operator-room logic all confirmed). **Remaining owner blockers:** deposit amount/scope ? non-7-night pricing math ? cancellation/refund windows & % ? add-on service prices/scheduling (if in Stage 4 scope) ? real WhatsApp send gate or Stage 3y shadow ? final handoff channel. **Not blockers:** perfect tone ? full customer memory ? marketing opt-in ? exact add-on automation.
 
-**Additional entry requirement:** Autonomous booking dry-run pass � bot completes full booking flow (inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation) without errors in all-stubbed mode, proving readiness before real sends or live operation are enabled.
+**Additional entry requirement:** Autonomous booking dry-run pass ? bot completes full booking flow (inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation) without errors in all-stubbed mode, proving readiness before real sends or live operation are enabled.
 
 ### Includes
 
-- **Autonomous booking dry-run** (first Stage 4 milestone): full booking flow end-to-end � inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation � with all live side effects stubbed at the infrastructure boundary. Proves the bot completes the booking correctly before real sends or live operation are enabled. This is the regression anchor: once green, enabling real WhatsApp send or live operation is a config change, not a behavior change.
+- **Autonomous booking dry-run** (first Stage 4 milestone): full booking flow end-to-end ? inbound message ? route ? availability ? hold ? payment-link ? Stripe webhook ? confirmation ? with all live side effects stubbed at the infrastructure boundary. Proves the bot completes the booking correctly before real sends or live operation are enabled. This is the regression anchor: once green, enabling real WhatsApp send or live operation is a config change, not a behavior change.
 - Better error handling and safe retries (where idempotent)
 - Stuck booking detection
 - Monitoring, alerts, execution dashboards
@@ -2298,11 +2300,11 @@ May begin here if needed before full Stage 6 UI:
 - Human handoff queue
 - Pending confirmations
 - Failed workflow executions
-- **Staff query assistant** (read-only ops Q&A: "who has a surfboard today?", "who arrives today?", "which rooms need cleaning and by when?") gated by an **approved-staff allowlist** (`staff_directory`; portal = Stage 6) � [`STAFF-QUERY-ASSISTANT-PLAN.md`](STAFF-QUERY-ASSISTANT-PLAN.md)
+- **Staff query assistant** (read-only ops Q&A: "who has a surfboard today?", "who arrives today?", "which rooms need cleaning and by when?") gated by an **approved-staff allowlist** (`staff_directory`; portal = Stage 6) ? [`STAFF-QUERY-ASSISTANT-PLAN.md`](STAFF-QUERY-ASSISTANT-PLAN.md)
 
 ### Add-on structured records (Stage 4 design requirement)
 
-Add-on dry-run tests (e.g. A9 � lessons, yoga, rentals) must do more than verify the guest-facing price quote is correct. They must also prove the system can **represent add-on requests as structured, staff-queryable records**. This is the data foundation that makes Stage 6 staff queries possible.
+Add-on dry-run tests (e.g. A9 ? lessons, yoga, rentals) must do more than verify the guest-facing price quote is correct. They must also prove the system can **represent add-on requests as structured, staff-queryable records**. This is the data foundation that makes Stage 6 staff queries possible.
 
 Each add-on request that passes through the bot should be representable as a record with at minimum:
 - Guest / booking reference
@@ -2310,16 +2312,16 @@ Each add-on request that passes through the bot should be representable as a rec
 - Quantity / number of days
 - Requested date(s)
 - Payment status (pending / paid)
-- Fulfillment status (not redeemed / redeemed � staff-managed)
+- Fulfillment status (not redeemed / redeemed ? staff-managed)
 - A flag indicating whether staff scheduling / manual tracking applies (e.g. lessons require a manual slot assignment)
 
-**Stage 4 does not require full add-on automation.** It requires that when the bot processes an add-on request, the output can be persisted in a shape that is queryable by staff. If no structured add-on record is written yet, the design must identify where it would be written and what the schema looks like � so Stage 5 does not have to invent it from scratch.
+**Stage 4 does not require full add-on automation.** It requires that when the bot processes an add-on request, the output can be persisted in a shape that is queryable by staff. If no structured add-on record is written yet, the design must identify where it would be written and what the schema looks like ? so Stage 5 does not have to invent it from scratch.
 
 ---
 
-## Stage 5 � Clean
+## Stage 5 ? Clean
 
-**Status (2026-05-31): CLOSE WITH DEFERRALS � source-of-truth cleanup complete (5.1�5.8b); engine extraction / portability scope deferred.** All staff-queryable data tables are schema-stubbed and query helpers are proven. Migrations 007 (add-ons) and 008 (staff handoffs) are ready to apply. Live operation, engine extraction, and staff UI remain deferred (Stage 6). Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md).
+**Status (2026-05-31): CLOSE WITH DEFERRALS ? source-of-truth cleanup complete (5.1?5.8b); engine extraction / portability scope deferred.** All staff-queryable data tables are schema-stubbed and query helpers are proven. Migrations 007 (add-ons) and 008 (staff handoffs) are ready to apply. Live operation, engine extraction, and staff UI remain deferred (Stage 6). Detail: [`PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md`](PHASE-5-SOURCE-OF-TRUTH-CLEANUP.md).
 
 ### Purpose
 
@@ -2338,7 +2340,7 @@ Do **not** do broad Stage 5 refactor before Stage 3 / 3.5 safety gates. However,
 ### Includes
 
 - Move decision logic out of n8n into `src/booking-assistant/` (n8n becomes I/O only).
-- **Extract along the portability seam** ([� Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons)): shared spine vs `inventory/` + `catalog/` plugins � do **not** produce a tidied-up surf-house monolith.
+- **Extract along the portability seam** ([? Engine portability](#engine-portability--adding-a-new-vertical-surf-shop--lessons)): shared spine vs `inventory/` + `catalog/` plugins ? do **not** produce a tidied-up surf-house monolith.
 - Implement `InventoryProvider` with **lodging** as the first concrete provider; keep the interface generic enough for `slots` / `rentals`.
 - Split `client_config` into **engine config** (spine) + **vertical config** (catalog / inventory / capabilities); rooming behind a capability flag.
 - Replace serialized-into-n8n Code nodes (e.g. the resolver) with calls to the extracted, version-checked modules.
@@ -2363,7 +2365,7 @@ The following tables/models must be designed (and at minimum stubbed in schema) 
 | `staff_handoffs` / `staff_tasks` | Which conversations need a human reply? Why was it handed off? Current state? |
 | `payment_balances` (view or table) | Who still owes money? Who paid deposit but not full balance? |
 
-These are **not new features** � they are the structured forms of data the bot already collects. The goal of Stage 5 is to ensure that data lands in Postgres in a queryable shape instead of only in Airtable or serialized chat session state.
+These are **not new features** ? they are the structured forms of data the bot already collects. The goal of Stage 5 is to ensure that data lands in Postgres in a queryable shape instead of only in Airtable or serialized chat session state.
 
 **Design gate for Stage 5:** before beginning Stage 6 staff UI work, verify that a staff member can ask each of the following questions and get a correct answer from Postgres without touching Airtable or reading raw WhatsApp messages:
 
@@ -2378,9 +2380,9 @@ These are **not new features** � they are the structured forms of data the bot
 
 ---
 
-## Stage 6 � Beautiful (Staff / Admin Layer)
+## Stage 6 ? Beautiful (Staff / Admin Layer)
 
-**Status: CLOSED WITH DEFERRALS** (2026-05-31) � All exit criteria MET. 6.0�6.9 DONE: 35-intent registry, CLI runner, batch reports, CLI write action, HTTP API, browser UI, smoke test, token-gated write endpoint. Production auth/TLS/live-ops deferred to Stage 7. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
+**Status: CLOSED WITH DEFERRALS** (2026-05-31) ? All exit criteria MET. 6.0?6.9 DONE: 35-intent registry, CLI runner, batch reports, CLI write action, HTTP API, browser UI, smoke test, token-gated write endpoint. Production auth/TLS/live-ops deferred to Stage 7. See [`PHASE-6-STAFF-ASSISTANT-PLAN.md`](PHASE-6-STAFF-ASSISTANT-PLAN.md).
 
 **Implementation slices:** 6.1 registry DONE ? 6.2 CLI runner DONE ? 6.3 handoffs DONE ? 6.4a/b/c/d batch reports DONE ? 6.5a/b CLI write action DONE ? 6.6 HTTP API DONE ? 6.7 intent smoke DONE ? 6.8 read-only UI DONE ? 6.9 token-gated write endpoint DONE.
 
@@ -2410,7 +2412,7 @@ Staff can ask operational questions and get answers from **structured Postgres r
 - "Who paid deposit but not full balance?"
 - "Which guests requested rooming preferences?"
 
-**Design constraint:** these questions are answered from the structured records built in Stage 5 (`lesson_requests`, `add_on_orders`, `staff_handoffs`, `payment_balances`, etc.). The assistant maps natural-language questions to fixed safe parameterized intents � it never generates arbitrary SQL.
+**Design constraint:** these questions are answered from the structured records built in Stage 5 (`lesson_requests`, `add_on_orders`, `staff_handoffs`, `payment_balances`, etc.). The assistant maps natural-language questions to fixed safe parameterized intents ? it never generates arbitrary SQL.
 
 ### Staff Approval Controls
 
@@ -2435,13 +2437,13 @@ Staff can review, approve, and act on bot proposals without going directly into 
 
 Airtable may remain a **bridge** during transition; long-term goal is a proper staff UI, not Airtable as daily ops surface.
 
-**Airtable cutover prerequisite:** the staff UI (or equivalent) must cover all use cases Airtable currently serves before Airtable is removed as a dependency � see the Source-of-truth cutover table above.
+**Airtable cutover prerequisite:** the staff UI (or equivalent) must cover all use cases Airtable currently serves before Airtable is removed as a dependency ? see the Source-of-truth cutover table above.
 
 ---
 
-## Stage 7 � Scalable
+## Stage 7 ? Scalable
 
-**Status: PLANNING CLOSED / IMPLEMENTATION STARTED** (2026-05-31) � 7.0�7.6 DESIGN DONE. **7.2b+7.2c DONE**: migration 009 + auth middleware scaffold (login/logout/session/role checks) applied to local/dev. Staging/prod NOT secure. Next: 7.3b Azure scaffold or Cami dashboard plan: [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md), [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md), [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md). Production hardening + pilot deployment defined (environments, auth, TLS, monitoring, backups, rollback, Airtable cutover gate, live WhatsApp/Stripe gates, pilot soak, go/no-go). 7.3 recommends Azure Container Apps (aligned with [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md)). No implementation; live operation NOT approved.
+**Status: PLANNING CLOSED / IMPLEMENTATION STARTED** (2026-05-31) ? 7.0?7.6 DESIGN DONE. **7.2b+7.2c DONE**: migration 009 + auth middleware scaffold (login/logout/session/role checks) applied to local/dev. Staging/prod NOT secure. Next: 7.3b Azure scaffold or Cami dashboard plan: [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md), [`PHASE-7.1-ENV-SECRETS-INVENTORY.md`](PHASE-7.1-ENV-SECRETS-INVENTORY.md), [`PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md`](PHASE-7.2-AUTH-STAFF-ACCOUNTS-PLAN.md), [`PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md`](PHASE-7.3-STAGING-DEPLOYMENT-TLS-PLAN.md). Production hardening + pilot deployment defined (environments, auth, TLS, monitoring, backups, rollback, Airtable cutover gate, live WhatsApp/Stripe gates, pilot soak, go/no-go). 7.3 recommends Azure Container Apps (aligned with [`azure-n8n-hosting-plan.md`](azure-n8n-hosting-plan.md)). No implementation; live operation NOT approved.
 
 ### Purpose
 
@@ -2460,16 +2462,16 @@ Repeatable platform for multiple clients, plus production hardening and a contro
 
 ### Adding the second vertical (surf shop / lessons)
 
-By Stage 7 this should be a **checklist, not a project** � provided the Stage 5 portability seam holds:
+By Stage 7 this should be a **checklist, not a project** ? provided the Stage 5 portability seam holds:
 
 1. Start from the paper-tested sample config (`config/clients/surf-shop-rental.sample.json` / `surf-school.sample.json` drafted in 3x.3) ? promote to a real client config.
-2. Fill the **vertical config** (catalog/offerings, inventory model, capabilities) and **engine config** (payment, handoff, llm, privacy) � reuse the Wolfhouse engine defaults.
+2. Fill the **vertical config** (catalog/offerings, inventory model, capabilities) and **engine config** (payment, handoff, llm, privacy) ? reuse the Wolfhouse engine defaults.
 3. Implement or reuse the matching `InventoryProvider` (`rentals` / `slots`); **no new workflows** if lodging was the only thing forked before.
 4. Add `client_id`-scoped data; seed inventory/offerings.
 5. Run the **`client_id`-parameterized golden suite** for the new vertical before any live/shadow operation.
-6. Onboard via Stage 3y **shadow/co-pilot mode** first (staff-approved), exactly as Wolfhouse did � never straight to autonomous.
+6. Onboard via Stage 3y **shadow/co-pilot mode** first (staff-approved), exactly as Wolfhouse did ? never straight to autonomous.
 
-**If step 3 requires touching the shared spine, that is a portability regression** � fix the seam, don't fork the workflow.
+**If step 3 requires touching the shared spine, that is a portability regression** ? fix the seam, don't fork the workflow.
 
 **Guiding principle:** Build Wolfhouse first; structure everything as **client #1**, not the only client.
 

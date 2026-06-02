@@ -128,6 +128,11 @@ const STRIPE_CANCEL_URL      = process.env.STRIPE_CHECKOUT_CANCEL_URL  || proces
 const STRIPE_WEBHOOK_SECRET      = process.env.STRIPE_WEBHOOK_SECRET      || null;
 const STRIPE_WEBHOOK_SKIP_VERIFY = process.env.STRIPE_WEBHOOK_SKIP_VERIFY === 'true';
 const STAFF_OPERATOR_TOKEN   = process.env.STAFF_OPERATOR_TOKEN  || '';
+// Stage 8.5.3 — Luna bot internal token for /staff/bot/* endpoints.
+// Set LUNA_BOT_INTERNAL_TOKEN to a strong random secret (32+ chars) in infra/.env or Key Vault.
+// When unset or empty: token auth path is disabled; /staff/bot/* falls through to normal session auth.
+// Token auth ONLY applies to /staff/bot/* routes — never to normal staff endpoints.
+const LUNA_BOT_INTERNAL_TOKEN = process.env.LUNA_BOT_INTERNAL_TOKEN || '';
 
 // Only handoff.resolve is allowed in v1
 const WRITE_ACTION_ALLOWLIST = ['handoff.resolve'];
@@ -330,6 +335,76 @@ async function requireAuth(req, res, minRole) {
   }
 
   return { ok: true, user };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireBotAuth — auth for /staff/bot/* endpoints only (Stage 8.5.3)
+//
+// Extends requireAuth with an additional bot-token path:
+//   1. STAFF_AUTH_REQUIRED=false → open (local/dev), auth_mode='open'
+//   2. Valid X-Luna-Bot-Token or Authorization: Bearer header matching
+//      LUNA_BOT_INTERNAL_TOKEN → auth_mode='bot_token'
+//   3. Otherwise → delegate to normal session cookie auth → auth_mode='session'
+//
+// Safe defaults:
+//   - If LUNA_BOT_INTERNAL_TOKEN is empty: token path is DISABLED.
+//     The endpoint requires a normal staff session instead.
+//   - Wrong token → 401, same as missing session.
+//   - Token NEVER echoed in any response.
+//   - Token auth ONLY called from /staff/bot/* router blocks.
+//     Normal staff endpoints use requireAuth exclusively.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function requireBotAuth(req, res) {
+  // 1. No-auth open mode (local/dev)
+  if (!STAFF_AUTH_REQUIRED) return { ok: true, user: null, auth_mode: 'open' };
+
+  // 2. Bot token path — only active when LUNA_BOT_INTERNAL_TOKEN is configured
+  if (LUNA_BOT_INTERNAL_TOKEN) {
+    const rawHeader = req.headers['x-luna-bot-token'] || '';
+    const bearerHeader = req.headers['authorization'] || '';
+    const bearerToken = bearerHeader.startsWith('Bearer ')
+      ? bearerHeader.slice(7).trim()
+      : '';
+    const provided = rawHeader || bearerToken;
+
+    if (provided) {
+      // Constant-time comparison to prevent timing attacks
+      const configBuf   = Buffer.from(LUNA_BOT_INTERNAL_TOKEN, 'utf8');
+      const providedBuf = Buffer.from(provided, 'utf8');
+      const match = configBuf.length === providedBuf.length &&
+        crypto.timingSafeEqual(configBuf, providedBuf);
+      if (match) {
+        return { ok: true, user: { role: 'viewer', staff_user_id: 'luna-bot-internal' }, auth_mode: 'bot_token' };
+      }
+      // Token provided but wrong → 401 immediately (do not fall through to session)
+      sendJSON(res, 401, {
+        success: false,
+        error:   'Invalid bot token.',
+      });
+      return { ok: false };
+    }
+  }
+
+  // 3. Fall through to normal session cookie auth
+  let user;
+  try {
+    user = await loadAuthSession(req);
+  } catch (_) {
+    sendJSON(res, 500, { success: false, error: 'auth session lookup failed' });
+    return { ok: false };
+  }
+
+  if (!user) {
+    sendJSON(res, 401, {
+      success:  false,
+      error:    'Authentication required. Provide X-Luna-Bot-Token header or POST /staff/auth/login first.',
+      auth_url: '/staff/auth/login',
+    });
+    return { ok: false };
+  }
+
+  return { ok: true, user, auth_mode: 'session' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1261,7 +1336,7 @@ const BOT_FIELD_LABELS = {
   payment_choice: 'whether you prefer to pay a deposit or the full amount',
 };
 
-async function handleBotBookingPreview(req, res, user) {
+async function handleBotBookingPreview(req, res, user, authMode) {
   const started = Date.now();
 
   let body = {};
@@ -1290,6 +1365,7 @@ async function handleBotBookingPreview(req, res, user) {
 
   const actorId   = user ? user.staff_user_id : 'dev-bot-preview-local';
   const actorRole = user ? user.role          : 'viewer';
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
 
   // ── Detect missing required fields ────────────────────────────────────────
   const fieldValues = {
@@ -1406,6 +1482,7 @@ async function handleBotBookingPreview(req, res, user) {
       message: 'Availability requires specific bed codes. Call /staff/manual-bookings/preview with selected_bed_codes for a full conflict check.',
     },
     email_recommended: !email,
+    auth_mode:         resolvedAuthMode,
     elapsed_ms:        elapsed,
   });
 }
@@ -6899,14 +6976,17 @@ async function router(req, res) {
   // ── Stage 8.5.2 — Luna bot booking preview (pure read-only, no DB writes) ──
   // POST to carry JSON payload. No DB writes, no Stripe, no WhatsApp, no n8n.
   // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  // Stage 8.5.3: requireBotAuth — accepts bot token OR normal staff session.
+  //   Token: X-Luna-Bot-Token header or Authorization: Bearer header.
+  //   Token auth ONLY applies to /staff/bot/* routes.
   if (pathname === '/staff/bot/booking-preview') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/booking-preview' }));
     }
-    const auth = await requireAuth(req, res, 'viewer');
+    const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingPreview(req, res, auth.user);
+    return handleBotBookingPreview(req, res, auth.user, auth.auth_mode);
   }
 
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
