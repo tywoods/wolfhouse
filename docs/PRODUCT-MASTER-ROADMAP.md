@@ -4,7 +4,7 @@
 
 **Product category:** AI booking operations for WhatsApp-first experience businesses (AI front desk for WhatsApp-heavy experience operators). **Beachhead:** Wolfhouse surf house (`wolfhouse-somo`) as client #1.
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-02 (Stage 7.3 staging deployment + custom domain DONE; **Stage 8 client-ready staging roadmap planning started** — [`STAGE-8-CLIENT-READY-STAGING-ROADMAP.md`](STAGE-8-CLIENT-READY-STAGING-ROADMAP.md), polished shadow-mode demo for Ale/Cami; live gates remain closed; pilot NO_GO.)
 
 ---
 
@@ -36,7 +36,7 @@
 | 1 | Guest Booking Assistant | 3, 3x, 3y, 4 | Proven (dry-run); live deferred |
 | 2 | Source-of-Truth Database | 3c, 5 | Proven (schema + cleanup); cutover deferred |
 | 3 | Staff Assistant Brain | 5 (data), 6 | CLOSED WITH DEFERRALS |
-| 4 | Staff Operations Dashboard | 6, 7.7 | CLI + read-only UI done (Stage 6); review dashboard + bed calendar DESIGNED (Stage 7.7), build pending |
+| 4 | Staff Operations Dashboard | 6, 7.7, 8 | CLI + read-only UI done (Stage 6); review dashboard + bed calendar built (Stage 7.7a–j); **Stage 8 = client-ready polish + demo data for Ale/Cami shadow demo** (planning, slices 8.1–8.13 pending) |
 | 5 | Rooming / Bed Grid UI | 3e (engine), 6 (UI) | Engine proven; UI not started |
 | 6 | Add-ons & Revenue Layer | 4 (pricing), 5 (records), 6 (queries) | In progress |
 | 7 | Staff Messaging Bridge | 3y (handoff), 6+ | Planned / deferred |
