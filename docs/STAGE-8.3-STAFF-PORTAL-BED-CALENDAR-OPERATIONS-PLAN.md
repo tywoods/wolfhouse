@@ -399,7 +399,7 @@ Changes shipped in `scripts/staff-query-api.js`:
 
 **Safety flags:** `STAFF_ACTIONS_ENABLED=false` · `WHATSAPP_DRY_RUN=true` · n8n inactive · no writes.
 
-**Azure proof:** pending (build + push to Azure staging required — see next prompt).
+**Azure proof:** DONE — image `whstagingacr.azurecr.io/wh-staff-api:bcb3ff5-8x3a` built via `az acr build` (run ID: cb4), deployed to revision `wh-staging-staff-api--0000005`. Login page at `https://staff-staging.lunafrontdesk.com/staff/login` → 200, safety badges confirmed (STAFF_ACTIONS_ENABLED=false, staging/shadow mode). Full UI with date inputs / chips / legend requires authenticated login at `https://staff-staging.lunafrontdesk.com`.
 
 **Files changed:** `scripts/staff-query-api.js`, `scripts/verify-staff-bed-calendar-ui.js`
 
