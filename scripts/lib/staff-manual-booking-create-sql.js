@@ -19,15 +19,15 @@
  *   $6   guest_name              TEXT
  *   $7   phone                   TEXT      — stored hashed in audit
  *   $8   email                   TEXT|NULL
- *   $9   language                TEXT|NULL — default 'en'
+ *   $9   language                TEXT|NULL — default 'en'; stored in booking metadata JSONB
  *   $10  check_in                DATE
  *   $11  check_out               DATE      — exclusive (half-open: check_in < check_out)
  *   $12  guest_count             INT
  *   $13  selected_bed_codes      TEXT[]
  *   $14  package_or_stay_type    TEXT|NULL
  *   $15  room_preference         TEXT|NULL
- *   $16  booking_status          TEXT      — e.g. 'confirmed' | 'pending'
- *   $17  payment_status          TEXT      — e.g. 'pending' | 'partial' | 'paid'
+ *   $16  booking_status          TEXT      — e.g. 'confirmed' | 'hold'; cast to booking_status enum
+ *   $17  payment_status          TEXT      — e.g. 'not_requested' | 'deposit_paid'; cast to payment_status enum
  *   $18  deposit_amount_cents    INT       — 0 if none; must be ≤ $19 unless $19=0
  *   $19  total_amount_cents      INT       — 0 if none
  *   $20  source                  TEXT      — e.g. 'walk_in' | 'phone' | 'email'
@@ -297,7 +297,7 @@ blockers AS (
          THEN 'invalid_payment_amounts'::text END          AS b_payment,
 
     -- B12. Booking code collision (if explicit code provided)
-    CASE WHEN $5 IS NOT NULL AND EXISTS (
+    CASE WHEN $5::text IS NOT NULL AND EXISTS (
            SELECT 1 FROM bookings bk
            CROSS JOIN ctx
            WHERE bk.booking_code = $5::text
@@ -358,7 +358,7 @@ inserted_booking AS (
     guest_name,
     phone,
     email,
-    language,
+    -- language: no column on bookings table; stored in metadata JSONB below
     status,
     payment_status,
     assignment_status,
@@ -378,9 +378,8 @@ inserted_booking AS (
     $6::text,
     $7::text,
     $8::text,
-    COALESCE($9::text, 'en'),
-    $16::text,
-    $17::text,
+    $16::booking_status,
+    $17::payment_status,
     'unassigned',
     $10::date,
     $11::date,
@@ -398,6 +397,7 @@ inserted_booking AS (
       'reason',                $21::text,
       'staff_source',          $20::text,
       'room_preference',       $15::text,
+      'language',              COALESCE($9::text, 'en'),
       'warnings_acknowledged', $24::boolean
     )
   FROM ctx
@@ -453,31 +453,38 @@ inserted_booking_beds AS (
 
 -- ── 12. Optional manual payment row ──────────────────────────────────────────
 -- Created only when: booking inserted AND deposit_amount_cents > 0.
--- provider = 'manual_staff' — NO Stripe session. NO payment link. NO charge.
--- If the payments table schema does not support this shape, this INSERT must be
--- omitted and the amount stored in bookings.metadata only.
+-- Uses actual payments schema (after migration 003 + 004):
+--   client_id, booking_id, status (payment_record_status), payment_kind,
+--   currency, amount_due_cents, metadata
+-- status = 'draft'         — no Stripe checkout created, no payment link sent.
+-- payment_kind = 'deposit_only' — deposit-only; full amount tracked on booking.
+-- NO provider column. NO stripe session. NO payment link. NO charge.
 inserted_payment AS (
   INSERT INTO payments (
     client_id,
     booking_id,
-    provider,
-    amount_cents,
-    payment_status,
+    status,
+    payment_kind,
+    currency,
+    amount_due_cents,
     metadata
   )
   SELECT
     ib.client_id,
     ib.booking_id,
-    'manual_staff',
+    'draft'::payment_record_status,
+    'deposit_only'::payment_kind,
+    'EUR',
     COALESCE($18::int, 0),
-    $17::text,
     jsonb_build_object(
-      'source',  'staff_manual',
-      'note',    'Manual deposit recorded by staff — no Stripe charge'
+      'source',                  'staff_manual',
+      'note',                    'Manual deposit recorded by staff — no Stripe charge',
+      'deposit_requested_cents', $18::int,
+      'total_amount_cents',      $19::int
     )
   FROM inserted_booking ib
   WHERE COALESCE($18::int, 0) > 0
-  RETURNING id AS payment_id, amount_cents
+  RETURNING id AS payment_id, amount_due_cents
 ),
 
 -- ── 13. Audit payload ────────────────────────────────────────────────────────
@@ -527,20 +534,32 @@ rollback_payload_cte AS (
 
 -- ── 15. Audit event write ────────────────────────────────────────────────────
 -- Written on EVERY attempt (blocked or not) so blocked attempts are visible.
--- Interim sink: workflow_events (same as bed reassignment — Stage 7.7k1).
--- Future: migrate to dedicated booking_rooming_events table (8.3e §7).
+-- Uses actual workflow_events schema (after migration 003):
+--   client_id, workflow_name TEXT NOT NULL, node_name, event_level,
+--   message TEXT NOT NULL, booking_id, payload
+-- created_at has DEFAULT NOW() so it can be omitted.
 audit_written AS (
   INSERT INTO workflow_events (
     client_id,
-    event_type,
-    payload,
-    created_at
+    workflow_name,
+    node_name,
+    event_level,
+    message,
+    booking_id,
+    payload
   )
   SELECT
     (SELECT client_id FROM ctx),
-    'staff_manual_booking_attempt',
-    apc.payload,
-    now()
+    'staff_manual_booking_create',
+    'stage8_3j_manual_create',
+    'info',
+    COALESCE(
+      'manual_booking_create attempt blocked=' ||
+        ((SELECT is_blocked FROM blocked_summary))::text,
+      'manual_booking_create attempt'
+    ),
+    (SELECT booking_id FROM inserted_booking),
+    apc.payload
   FROM audit_payload_cte apc
   WHERE (SELECT client_id FROM ctx) IS NOT NULL
   RETURNING id AS audit_event_id

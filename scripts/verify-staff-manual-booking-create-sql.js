@@ -1,7 +1,7 @@
 /**
- * Stage 8.3f — Static verifier for staff-manual-booking-create-sql.js
+ * Stage 8.3f / 8.3j — Static verifier for staff-manual-booking-create-sql.js
  *
- * Checks (40 total):
+ * Checks (47 total):
  *   1:   Helper file exists
  *   2:   Helper file readable and non-trivial
  *   3:   Helper file passes node --check (syntax clean)
@@ -42,6 +42,14 @@
  *  38:   No ALTER TABLE
  *  39:   confirmation_sent_at = NULL (no auto-send at creation)
  *  40:   package.json has verify:staff-manual-booking-create-sql script
+ *  --- Stage 8.3j schema-alignment checks ---
+ *  41:   No standalone language column in inserted_booking INSERT (P1 fix)
+ *  42:   language stored in metadata JSONB (P1 fix)
+ *  43:   amount_due_cents used in inserted_payment CTE (P2 fix — not amount_cents)
+ *  44:   payment_kind column used in inserted_payment CTE (P2 fix — not provider)
+ *  45:   No provider column in payments INSERT (P2 fix)
+ *  46:   workflow_name used in audit_written CTE (P3 fix — not event_type)
+ *  47:   message TEXT present in audit_written CTE (P3 fix — NOT NULL requirement)
  *
  * Usage:
  *   node scripts/verify-staff-manual-booking-create-sql.js
@@ -63,7 +71,7 @@ function ok(msg)   { console.log('  PASS  ' + msg); passes++; }
 function fail(msg) { console.error('  FAIL  ' + msg); failures++; }
 function check(cond, msg) { if (cond) ok(msg); else fail(msg); }
 
-console.log('\nverify-staff-manual-booking-create-sql.js  (Stage 8.3f)\n');
+console.log('\nverify-staff-manual-booking-create-sql.js  (Stage 8.3f / 8.3j)\n');
 
 // ── 1. File exists ────────────────────────────────────────────────────────────
 check(fs.existsSync(HELPER_FILE), 'staff-manual-booking-create-sql.js exists');
@@ -264,6 +272,65 @@ try {
 } catch (_) { /* skip */ }
 check(pkgHasScript, 'package.json has verify:staff-manual-booking-create-sql script');
 
+// ── 41–47. Stage 8.3j schema-alignment checks ────────────────────────────────
+// Extract the inserted_booking and inserted_payment CTE sections for targeted checks.
+const ibIdx      = sqlStr.indexOf('inserted_booking AS (');
+const ibSection  = ibIdx >= 0 ? sqlStr.slice(ibIdx, ibIdx + 3000) : '';
+const ipIdx      = sqlStr.indexOf('inserted_payment AS (');
+const ipSection  = ipIdx >= 0 ? sqlStr.slice(ipIdx, ipIdx + 1500) : '';
+const awIdx      = sqlStr.indexOf('audit_written AS (');
+const awSection  = awIdx >= 0 ? sqlStr.slice(awIdx, awIdx + 1200) : '';
+
+// ── 41. No standalone language column in inserted_booking INSERT ──────────────
+// After P1 fix, `language` should only appear in metadata JSONB, not as a
+// direct column name in the INSERT column list.
+check(
+  !/^\s+language,/m.test(ibSection),
+  'P1 fix: no standalone language column in inserted_booking INSERT'
+);
+
+// ── 42. language stored in metadata JSONB ─────────────────────────────────────
+check(
+  /'language'.*COALESCE\(\$9/s.test(ibSection) ||
+  /COALESCE\(\$9.*'language'/s.test(ibSection),
+  'P1 fix: language stored in metadata JSONB (COALESCE($9))'
+);
+
+// ── 43. amount_due_cents in inserted_payment ──────────────────────────────────
+check(
+  /amount_due_cents/.test(ipSection),
+  'P2 fix: amount_due_cents used in inserted_payment CTE (not amount_cents)'
+);
+
+// ── 44. payment_kind in inserted_payment ──────────────────────────────────────
+check(
+  /payment_kind/.test(ipSection),
+  'P2 fix: payment_kind column used in inserted_payment CTE'
+);
+
+// ── 45. No provider column in payments INSERT ─────────────────────────────────
+check(
+  !/^\s+provider,/m.test(ipSection),
+  'P2 fix: no provider column in payments INSERT'
+);
+
+// ── 46. workflow_name in audit_written ────────────────────────────────────────
+check(
+  /workflow_name/.test(awSection),
+  'P3 fix: workflow_name present in audit_written CTE'
+);
+
+// ── 47. message TEXT in audit_written ─────────────────────────────────────────
+// The message column is TEXT NOT NULL on workflow_events.
+// Check that a non-trivial message string is inserted.
+// Strip SQL comments before checking for event_type to avoid false positives.
+const awSectionNoComments = awSection.replace(/--[^\n]*/g, '');
+check(
+  /'manual_booking_create attempt/.test(awSection) &&
+  !awSectionNoComments.includes('event_type'),
+  'P3 fix: message TEXT present in audit_written CTE (no event_type in SQL)'
+);
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log('\n' + '─'.repeat(60));
 console.log('  Total checks: ' + (passes + failures));
@@ -272,7 +339,7 @@ console.log('  FAIL: '  + failures);
 console.log('─'.repeat(60));
 
 if (failures === 0) {
-  console.log('\n  ALL CHECKS PASSED — Stage 8.3f static SQL helper verified.\n');
+  console.log('\n  ALL CHECKS PASSED — Stage 8.3f / 8.3j static SQL helper verified.\n');
 } else {
   console.error('\n  ' + failures + ' CHECK(S) FAILED — review output above.\n');
   process.exit(1);
