@@ -372,10 +372,20 @@ Each slice is independently gated, independently provable, and does not depend o
 **Verifier:** `scripts/verify-staff-bot-booking-create-api.js` **54/54 PASS** (new). All other verifiers: `verify-staff-bot-booking-preview-api.js` 65/65 · `verify-wolfhouse-quote-calculator.js` 77/77 · `verify-staff-quote-preview-api.js` 33/33 · `verify-staff-manual-booking-create-api.js` 50/50 — all PASS.
 **Local proof:** wrong token → 401; `BOT_BOOKING_ENABLED=false` → 403; correct token + `BOT_BOOKING_ENABLED=true` + 2 bed codes → **201** + `booking_code: MB-WOLFHO-20260710-0417a3` + `payment_id: 312fea13...` + `next_action: create_stripe_link` + `creates_stripe_link: false` + `auth_mode: bot_token` + `quote.total_cents: 45000`. Test booking cleaned up after proof. No Stripe. No WhatsApp. No n8n.
 
-### 8.5.5 — Webhook-triggered confirmation draft, dry-run only
-**Goal:** After webhook marks `bookings.payment_status=deposit_paid`, a confirmation eligibility check drafts (but does not send) a WhatsApp confirmation. `WHATSAPP_DRY_RUN=true` gates the send.
-**Type:** Code — small addition to webhook handler response or a new confirmation-draft endpoint.
-**Pass criteria:** Fixture webhook → 200 → DB `deposit_paid` → confirmation draft logged → no WhatsApp send → `no_confirmation_sent:true` in response.
+### 8.5.5 — Bot Stripe link from draft payment — **PASS (2026-06-02)**
+**Goal:** Allow Luna/n8n to create a Stripe Checkout link from the draft `payment_id` returned by 8.5.4. Returns `checkout_url` for the bot to share. No WhatsApp send.
+**Delivered:**
+- `POST /staff/bot/payments/:payment_id/create-stripe-link` added to `scripts/staff-query-api.js`.
+- `BOT_PAYMENT_STRIPE_LINK_RE` regex for bot payment route (separate from existing `PAYMENT_STRIPE_LINK_RE`).
+- Auth: `requireBotAuth()` — bot token or session cookie. Original `/staff/payments/:id/create-stripe-link` uses `requireAuth(operator)` unchanged.
+- Gates: `BOT_BOOKING_ENABLED=true` + `STRIPE_LINKS_ENABLED=true` (no `STAFF_ACTIONS_ENABLED` required for bot path).
+- Reuses same Stripe SDK call (`stripe.checkout.sessions.create`), same payment validation, same `UPDATE payments SET status='checkout_created'` SQL as Stage 8.4.9. Source metadata set to `bot_stage855`.
+- Amount from `payments.amount_due_cents` — never from request body.
+- Returns: `checkout_url`, `stripe_checkout_session_id`, `payment_status: "checkout_created"`, `next_action: "draft_payment_link_reply"`, `sends_whatsapp: false`, `whatsapp_dry_run: true`, `no_payment_truth_recorded: true`, `auth_mode`, `source: "luna_whatsapp"`.
+- Does NOT mark paid. `amount_paid_cents` remains 0. `bookings.payment_status` unchanged. Payment truth remains via existing Stripe webhook.
+- Idempotent: returns existing URL if session already created.
+**Verifier:** `scripts/verify-staff-bot-stripe-link-api.js` **56/56 PASS** (new). `verify-staff-bot-booking-create-api.js` 54/54 · `verify-staff-bot-booking-preview-api.js` 65/65 · `verify-staff-stripe-payment-link-api.js` 55/55 · `verify-wolfhouse-quote-calculator.js` 77/77 — all PASS.
+**Local proof:** wrong token → 401; correct token + `BOT_BOOKING_ENABLED=true` + `STRIPE_LINKS_ENABLED=true` → booking created (MB-WOLFHO-20260720-e466f4) → Stripe link → **200** + `checkout_url: https://checkout.stripe.com/c/pay/cs_test_...` + `payment_status: checkout_created` + `auth_mode: bot_token` + `amount_due_cents: 10000` + `sends_whatsapp: false`; DB: `payments.status=checkout_created`, `amount_paid_cents=0`, `bookings.payment_status=not_requested`. Test booking cleaned up. No WhatsApp. No n8n.
 
 ### 8.5.6 — Hosted shadow-mode E2E with WhatsApp send disabled
 **Goal:** Full bot flow from parsed booking details → quote → booking create → Stripe link → webhook truth → confirmation draft, all on Azure staging, all with `WHATSAPP_DRY_RUN=true`. No live WhatsApp sends.

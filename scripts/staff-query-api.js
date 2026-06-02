@@ -145,6 +145,8 @@ const WRITE_ACTION_ALLOWLIST = ['handoff.resolve'];
 const WRITE_HANDOFF_RE       = /^\/staff\/handoff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/resolve$/i;
 // Stage 8.4.9 — POST /staff/payments/:payment_id/create-stripe-link
 const PAYMENT_STRIPE_LINK_RE = /^\/staff\/payments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/create-stripe-link$/i;
+// Stage 8.5.5 — POST /staff/bot/payments/:payment_id/create-stripe-link
+const BOT_PAYMENT_STRIPE_LINK_RE = /^\/staff\/bot\/payments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/create-stripe-link$/i;
 
 // Stage 7.7b — conversation route regexes (read-only GET)
 const UUID_RE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -2008,6 +2010,249 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     no_n8n:                    true,
     message:                   'Stripe Checkout Session created. Payment not marked paid until webhook confirms.',
     elapsed_ms:                elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/bot/payments/:payment_id/create-stripe-link  (Stage 8.5.5)
+//
+// Bot-authenticated Stripe Checkout Session creation for Luna/n8n.
+// Reuses the same Stripe + DB logic as Stage 8.4.9 (handlePaymentCreateStripeLink).
+//
+// Gates:
+//   1. BOT_BOOKING_ENABLED=true  (STAFF_ACTIONS_ENABLED NOT required for bot path)
+//   2. STRIPE_LINKS_ENABLED=true
+//   3. STRIPE_SECRET_KEY / STRIPE_SUCCESS_URL / STRIPE_CANCEL_URL in env
+//
+// Safety:
+//   - Does NOT mark payment paid. Does NOT update booking paid amounts.
+//   - Sets payment.status = 'checkout_created'. Sets checkout_url / session ID.
+//   - No WhatsApp. No n8n. No confirmation send.
+//   - Idempotent: if session already exists, returns existing URL.
+//   - Amount from payments.amount_due_cents — never from request body.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authMode) {
+  const started = Date.now();
+
+  // ── 1. Feature flag gates ─────────────────────────────────────────────────
+  if (!BOT_BOOKING_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error:   'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
+      bot_booking_enabled: false,
+    });
+  }
+  if (!STRIPE_LINKS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error:   'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.',
+      stripe_links_enabled: false,
+    });
+  }
+
+  // ── 2. Config guards ──────────────────────────────────────────────────────
+  if (!STRIPE_SECRET_KEY) {
+    return sendJSON(res, 503, {
+      success: false,
+      error:   'STRIPE_SECRET_KEY not configured.',
+      no_db_write: true,
+    });
+  }
+  if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+    return sendJSON(res, 503, {
+      success: false,
+      error:   'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
+      no_db_write: true,
+    });
+  }
+
+  // ── 3. Load Stripe SDK lazily ─────────────────────────────────────────────
+  let stripe;
+  try {
+    stripe = require('stripe')(STRIPE_SECRET_KEY);
+  } catch (e) {
+    return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
+  }
+
+  // ── 4. Fetch payment + booking from DB ────────────────────────────────────
+  let pm;
+  try {
+    pm = await withPgClient(async (pg) => {
+      const r = await pg.query(
+        `SELECT p.id              AS payment_id,
+                p.client_id,
+                p.booking_id,
+                p.status          AS payment_status,
+                p.payment_kind,
+                p.currency,
+                p.amount_due_cents,
+                p.stripe_checkout_session_id,
+                p.checkout_url,
+                b.booking_code,
+                b.guest_name,
+                b.check_in,
+                b.check_out,
+                b.status          AS booking_status,
+                cl.slug           AS client_slug
+           FROM payments p
+           JOIN bookings b  ON b.id  = p.booking_id
+           JOIN clients  cl ON cl.id = p.client_id
+          WHERE p.id = $1`, [paymentId]
+      );
+      return r.rows[0] || null;
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
+  }
+
+  // ── 5. Validate payment record ────────────────────────────────────────────
+  if (!pm) {
+    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+  }
+  if (pm.payment_status !== 'draft') {
+    if (pm.payment_status === 'checkout_created' && pm.checkout_url) {
+      return sendJSON(res, 200, {
+        success:                    true,
+        idempotent:                 true,
+        source:                     'luna_whatsapp',
+        payment_id:                 pm.payment_id,
+        booking_id:                 pm.booking_id,
+        booking_code:               pm.booking_code,
+        amount_due_cents:           pm.amount_due_cents,
+        currency:                   pm.currency,
+        stripe_checkout_session_id: pm.stripe_checkout_session_id,
+        checkout_url:               pm.checkout_url,
+        payment_status:             pm.payment_status,
+        next_action:                'draft_payment_link_reply',
+        sends_whatsapp:             false,
+        whatsapp_dry_run:           true,
+        no_payment_truth_recorded:  true,
+        message: 'Stripe session already created (idempotent response).',
+      });
+    }
+    return sendJSON(res, 409, {
+      success: false,
+      error:   `Payment status '${pm.payment_status}'; only 'draft' payments can create a Stripe link.`,
+    });
+  }
+  if (!pm.amount_due_cents || pm.amount_due_cents <= 0) {
+    return sendJSON(res, 422, { success: false, error: 'amount_due_cents must be > 0.' });
+  }
+  if ((pm.currency || '').toUpperCase() !== 'EUR') {
+    return sendJSON(res, 422, { success: false, error: `Currency '${pm.currency}' not supported (EUR only).` });
+  }
+
+  // ── 6. Create Stripe Checkout Session ─────────────────────────────────────
+  const productName = `Booking ${pm.booking_code || paymentId} \u2014 ${pm.guest_name || 'Guest'}`;
+  const productDesc = `${pm.payment_kind === 'full_amount' ? 'Full payment' : 'Deposit'} | ` +
+    `${pm.check_in || ''} \u2013 ${pm.check_out || ''} | ${pm.client_slug}`;
+  const actorId = user ? user.staff_user_id : 'luna-bot-internal';
+
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode:     'payment',
+      currency: 'eur',
+      line_items: [{
+        price_data: {
+          currency:     'eur',
+          product_data: { name: productName, description: productDesc },
+          unit_amount:  pm.amount_due_cents,
+        },
+        quantity: 1,
+      }],
+      metadata: {
+        client_slug:  pm.client_slug,
+        booking_id:   pm.booking_id,
+        booking_code: pm.booking_code  || '',
+        payment_id:   paymentId,
+        payment_kind: pm.payment_kind  || '',
+        source:       'bot_stage855',
+      },
+      success_url: STRIPE_SUCCESS_URL,
+      cancel_url:  STRIPE_CANCEL_URL,
+    });
+  } catch (stripeErr) {
+    return sendJSON(res, 500, {
+      success:     false,
+      error:       'Stripe session creation failed: ' + stripeErr.message,
+      no_db_write: true,
+    });
+  }
+
+  // ── 7. Update payment row ─────────────────────────────────────────────────
+  const expiresAt = session.expires_at
+    ? new Date(session.expires_at * 1000).toISOString()
+    : null;
+  try {
+    await withPgClient(async (pg) => {
+      await pg.query(
+        `UPDATE payments
+           SET status                      = 'checkout_created'::payment_record_status,
+               stripe_checkout_session_id  = $1,
+               checkout_url                = $2,
+               expires_at                  = $3,
+               metadata                    = metadata || $4::jsonb
+         WHERE id = $5`,
+        [
+          session.id, session.url, expiresAt,
+          JSON.stringify({
+            stripe_session_id:     session.id,
+            stripe_livemode:       session.livemode,
+            stripe_payment_status: session.payment_status,
+            created_by:            actorId,
+            source:                'bot_stage855',
+          }),
+          paymentId,
+        ]
+      );
+    });
+  } catch (dbErr) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:bot_payment_create_stripe_link',
+      category: 'bot_stripe_link_create', success: false,
+      error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
+      payment_id: paymentId, session_id: session.id, elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, {
+      success:     false,
+      error:       'Stripe session created but DB update failed: ' + dbErr.message,
+      session_id:  session.id,
+      checkout_url: session.url,
+    });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts: new Date().toISOString(), intent: 'api:bot_payment_create_stripe_link',
+    category: 'bot_stripe_link_create', success: true,
+    payment_id: paymentId, booking_id: pm.booking_id, booking_code: pm.booking_code,
+    stripe_session_id: session.id, amount_due_cents: pm.amount_due_cents,
+    auth_mode: authMode, elapsed_ms: elapsed,
+    stripe_called: true, whatsapp_called: false, n8n_called: false,
+  });
+
+  // ── 8. Success ─────────────────────────────────────────────────────────────
+  return sendJSON(res, 200, {
+    success:                    true,
+    source:                     'luna_whatsapp',
+    auth_mode:                  authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
+    payment_id:                 paymentId,
+    booking_id:                 pm.booking_id,
+    booking_code:               pm.booking_code,
+    amount_due_cents:           pm.amount_due_cents,
+    currency:                   pm.currency,
+    stripe_checkout_session_id: session.id,
+    checkout_url:               session.url,
+    payment_status:             'checkout_created',
+    next_action:                'draft_payment_link_reply',
+    sends_whatsapp:             false,
+    whatsapp_dry_run:           true,
+    no_payment_truth_recorded:  true,
+    no_n8n:                     true,
+    message:                    'Stripe Checkout Session created. Bot can share checkout_url. Payment truth via webhook.',
+    elapsed_ms:                 elapsed,
   });
 }
 
@@ -7321,6 +7566,21 @@ async function router(req, res) {
     return handleBotBookingCreate(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Stage 8.5.5 — Luna bot Stripe link from draft payment ─────────────────
+  // POST /staff/bot/payments/:payment_id/create-stripe-link
+  // Gated by BOT_BOOKING_ENABLED + STRIPE_LINKS_ENABLED.
+  // Creates Stripe Checkout Session; does NOT mark paid; no WhatsApp; no n8n.
+  const botStripeMatch = BOT_PAYMENT_STRIPE_LINK_RE.exec(pathname);
+  if (botStripeMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/payments/create-stripe-link' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotPaymentCreateStripeLink(botStripeMatch[1], req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
   // POST to carry JSON payload; never touches DB, Stripe, or any external service.
   // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
@@ -7472,6 +7732,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);
   if (STAFF_ACTIONS_ENABLED) {
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);
