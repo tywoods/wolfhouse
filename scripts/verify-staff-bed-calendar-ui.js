@@ -342,9 +342,9 @@ check(/h3.*Conversation.*Handoff|Conversation.*Handoff.*h3/i.test(src),
 check(/calcNights|night.*badge|ctx-nights/.test(src),
   'Nights calculation / badge present in drawer (Stage 8.3b)');
 
-// 65. Remaining balance label present (Stage 8.3b)
-check(/Remaining balance/i.test(src),
-  '"Remaining balance" payment label present in drawer (Stage 8.3b)');
+// 65. Balance label present (Stage 8.3b, updated 8.4.12: label renamed to "Balance due")
+check(/Remaining balance|Balance due/i.test(src),
+  'Balance label present in drawer (Stage 8.3b / 8.4.12)');
 
 // 66. Total paid / Paid label present (Stage 8.3b)
 check(/ctx-pay-label.*Total|Total.*ctx-pay|kvBC.*Total|kvBC.*Paid|ctx-pay-row/i.test(src),
@@ -1330,6 +1330,87 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '218: runManualBookingCreate sets bcLastPaymentId from response (Stage 8.4.10)');
   check(/bc-sel-stripe-link/.test(fnSrc),
     '218b: runManualBookingCreate wires bc-sel-stripe-link button after render (Stage 8.4.10)');
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 8.4.12 — payment truth panel in booking drawer
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 219. renderBookingContextDrawer payment truth section
+(function checkDrawerPaymentTruth(){
+  const fnStart = src.indexOf('function renderBookingContextDrawer');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 100) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+
+  check(fnSrc.length > 100,
+    '219: renderBookingContextDrawer function found and non-trivial');
+
+  // Payment truth field references
+  check(/paid_at/.test(fnSrc),
+    '219a: drawer shows paid_at (Stage 8.4.12)');
+  check(/amount_paid_cents/.test(fnSrc),
+    '219b: drawer shows amount_paid_cents (Stage 8.4.12)');
+  check(/balance_due/.test(fnSrc),
+    '219c: drawer shows balance_due (Stage 8.4.12)');
+  check(/checkout_url/.test(fnSrc),
+    '219d: drawer shows checkout_url (Stage 8.4.12)');
+  check(/payment_kind/.test(fnSrc),
+    '219e: drawer shows payment_kind (Stage 8.4.12)');
+  check(/stripe_checkout_session_id/.test(fnSrc),
+    '219f: drawer shows stripe_checkout_session_id (Stage 8.4.12)');
+  check(/stripe_payment_intent_id/.test(fnSrc),
+    '219g: drawer shows stripe_payment_intent_id (Stage 8.4.12)');
+
+  // Status labels
+  check(/Deposit paid|deposit_paid/.test(fnSrc),
+    '219h: drawer has deposit-paid label (Stage 8.4.12)');
+  check(/Paid in full|isFullyPaid/.test(fnSrc),
+    '219i: drawer has paid-in-full label (Stage 8.4.12)');
+  check(/waiting for Stripe webhook|waiting.*webhook/i.test(fnSrc),
+    '219j: drawer has waiting-for-webhook text (Stage 8.4.12)');
+  check(/No payment record yet|No payment/.test(fnSrc),
+    '219k: drawer shows "No payment record yet" when no rows (Stage 8.4.12)');
+
+  // Copy button
+  check(/bcCopyUrl/.test(fnSrc),
+    '219l: drawer uses bcCopyUrl for checkout_url copy button (Stage 8.4.12)');
+
+  // Safety: read-only — no writes, no Stripe calls, no WhatsApp/n8n
+  check(!/stripe\.(checkout|charges|paymentIntents|sessions)\.create/i.test(fnSrc),
+    '219m: drawer does not make Stripe API calls (Stage 8.4.12)');
+  check(!/sendWhatsApp|twilio|n8n.*webhook|triggerN8n/i.test(fnSrc),
+    '219n: drawer does not call WhatsApp/n8n (Stage 8.4.12)');
+  check(!/pg\.query.*UPDATE|pg\.query.*INSERT/i.test(fnSrc),
+    '219o: drawer does not perform DB writes (Stage 8.4.12)');
+
+  // Visual differentiation: green/teal banners
+  check(/isDepositPaid|isFullyPaid/.test(fnSrc),
+    '219p: drawer has paid state flags for banner rendering (Stage 8.4.12)');
+
+  // Payment card: pmtStatusLabel or Checkout link created string
+  check(/pmtStatusLabel|Checkout link created/.test(fnSrc),
+    '219q: drawer uses pmtStatusLabel helper for payment status (Stage 8.4.12)');
+})();
+
+// 220. getBookingPaymentsQuery (in staff-booking-detail-queries.js, loaded via require)
+// Verify the lib file exports the updated query (reading the lib source separately)
+(function checkPaymentsQueryFields(){
+  const libPath = require('path').join(__dirname, 'lib', 'staff-booking-detail-queries.js');
+  let libSrc = '';
+  try { libSrc = require('fs').readFileSync(libPath, 'utf8'); } catch(_){}
+  const queryMatch = libSrc.match(/function getBookingPaymentsQuery[\s\S]{0,2000}/);
+  const qSrc = queryMatch ? queryMatch[0] : '';
+
+  check(/checkout_url/.test(qSrc),
+    '220a: getBookingPaymentsQuery returns checkout_url (Stage 8.4.12)');
+  check(/payment_kind/.test(qSrc),
+    '220b: getBookingPaymentsQuery returns payment_kind (Stage 8.4.12)');
+  check(/stripe_checkout_session_id/.test(qSrc),
+    '220c: getBookingPaymentsQuery returns stripe_checkout_session_id (Stage 8.4.12)');
+  check(/p\.currency/.test(qSrc),
+    '220d: getBookingPaymentsQuery returns currency (Stage 8.4.12)');
+  check(/paid_at/.test(qSrc),
+    '220e: getBookingPaymentsQuery returns paid_at (Stage 8.4.12)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

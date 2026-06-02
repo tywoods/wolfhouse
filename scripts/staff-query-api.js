@@ -4913,50 +4913,151 @@ function renderBookingContextDrawer(data){
   html += '</div>';
 
   /* ── 4. Payment ────────────────────────────────────────────────────────── */
+  /* Stage 8.4.12: full payment truth panel — shows webhook result, paid_at,
+     checkout URL, session/intent IDs, deposit vs. full-paid labels.
+     Read-only. No writes, no Stripe calls, no WhatsApp/email/n8n. */
   var pmt = data.payments || {};
+
+  /* Helper: human-readable label for payment_record_status enum */
+  var pmtStatusLabel = function(s){
+    var m = {
+      draft:             'Draft payment',
+      checkout_created:  'Checkout link created',
+      pending:           'Pending',
+      paid:              'Paid \u2713',
+      expired:           'Expired',
+      cancelled:         'Cancelled',
+      failed:            'Failed',
+    };
+    return m[s] || (s ? s.replace(/_/g,' ') : '\u2014');
+  };
+  /* Helper: human-readable label for booking payment_status enum */
+  var bkPayLabel = function(s){
+    var m = {
+      not_requested:    'Not requested',
+      waiting_payment:  'Waiting for payment',
+      payment_link_sent:'Payment link sent',
+      deposit_paid:     'Deposit paid \u2713',
+      paid:             'Paid in full \u2713',
+      refunded:         'Refunded',
+      failed:           'Failed',
+      expired:          'Expired',
+    };
+    return m[s] || (s ? s.replace(/_/g,' ') : '\u2014');
+  };
+  /* Helper: short ID display (first 12 chars + …) */
+  var shortId = function(v){ return v ? (v.length > 14 ? v.slice(0, 14) + '\u2026' : v) : null; };
+  /* Helper: format ISO date-time to local readable */
+  var fmtDate = function(v){
+    if (!v) return null;
+    try {
+      var d = new Date(v);
+      return d.toLocaleString('en-GB', { dateStyle:'medium', timeStyle:'short' });
+    } catch(_){ return String(v).slice(0, 19); }
+  };
+
   html += '<div class="ctx-section"><h3>Payment</h3>';
-  var payStatus = bk.payment_status || pmt.latest_status || null;
-  if (payStatus){
-    html += '<div class="ctx-status-row"><span class="pill ' + statusPillCls(payStatus) + '">' + escHtml(payStatus.replace(/_/g,' ')) + '</span></div>';
+
+  /* ── 4a. Booking-level payment status banner ──────────────────────────── */
+  var bkPayStatus = bk.payment_status || pmt.latest_status || null;
+  var isDepositPaid = bkPayStatus === 'deposit_paid';
+  var isFullyPaid   = bkPayStatus === 'paid';
+  var isLinkSent    = bkPayStatus === 'payment_link_sent' || bkPayStatus === 'waiting_payment';
+
+  if (isDepositPaid || isFullyPaid){
+    var bannerBg = '#DCEAD2'; var bannerFg = '#3d6130';
+    html += '<div style="padding:8px 10px;background:' + bannerBg + ';border-radius:6px;margin-bottom:8px;display:flex;align-items:center;gap:6px">' +
+      '<span style="font-size:15px">\u2713</span>' +
+      '<span style="font-size:12px;font-weight:600;color:' + bannerFg + '">' + escHtml(bkPayLabel(bkPayStatus)) + '</span>' +
+      '</div>';
+  } else if (bkPayStatus) {
+    html += '<div class="ctx-status-row"><span class="pill ' + statusPillCls(bkPayStatus) + '">' + escHtml(bkPayLabel(bkPayStatus)) + '</span></div>';
   }
+
+  /* ── 4b. Booking totals ───────────────────────────────────────────────── */
   var hasBookingAmts = bk.total_amount_cents != null || bk.amount_paid_cents != null || bk.balance_due_cents != null;
   if (hasBookingAmts){
     html += '<div class="ctx-pay-block">';
-    if (bk.total_amount_cents != null)   html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Total</span><span class="ctx-pay-amount">' + escHtml(eur(bk.total_amount_cents)) + '</span></div>';
-    if (bk.amount_paid_cents  != null)   html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(bk.amount_paid_cents)) + '</span></div>';
-    if (bk.balance_due_cents  != null){
+    if (bk.total_amount_cents    != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Total</span><span class="ctx-pay-amount">' + escHtml(eur(bk.total_amount_cents)) + '</span></div>';
+    if (bk.deposit_required_cents != null && bk.deposit_required_cents > 0)
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Deposit required</span><span class="ctx-pay-amount">' + escHtml(eur(bk.deposit_required_cents)) + '</span></div>';
+    if (bk.amount_paid_cents     != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Booking paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(bk.amount_paid_cents)) + '</span></div>';
+    if (bk.balance_due_cents     != null){
       var balCls = Number(bk.balance_due_cents) > 0 ? ' owing' : ' paid';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Remaining balance</span><span class="ctx-pay-amount' + balCls + '">' + escHtml(eur(bk.balance_due_cents)) + '</span></div>';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Balance due</span><span class="ctx-pay-amount' + balCls + '">' + escHtml(eur(bk.balance_due_cents)) + '</span></div>';
     }
     html += '</div>';
-  } else if (pmt.rows && pmt.rows.length > 0){
-    html += '<div class="ctx-pay-block">';
-    if (pmt.amount_paid_cents != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Total paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(pmt.amount_paid_cents)) + '</span></div>';
-    if (pmt.balance_due_cents != null){
-      var pmtBalCls = Number(pmt.balance_due_cents) > 0 ? ' owing' : ' paid';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Remaining balance</span><span class="ctx-pay-amount' + pmtBalCls + '">' + escHtml(eur(pmt.balance_due_cents)) + '</span></div>';
-    }
-    html += '</div>';
-  } else {
-    html += '<div class="ctx-none">No payment records found.</div>';
   }
-  /* Stage 8.4.10: minimal checkout URL display if present in payment rows */
-  if (pmt.rows && pmt.rows.length > 0){
+
+  /* ── 4c. Payment record row(s) ───────────────────────────────────────── */
+  if (!pmt.rows || pmt.rows.length === 0){
+    html += '<div class="ctx-none" style="margin-top:6px">No payment record yet.</div>';
+  } else {
     pmt.rows.forEach(function(pr){
+      var isPaid    = pr.payment_status === 'paid';
+      var isCreated = pr.payment_status === 'checkout_created';
+      var cardBorder = isPaid ? '#B5D3AD' : isCreated ? '#B5C7D3' : 'var(--border-soft)';
+      var cardBg     = isPaid ? '#F3FAF1' : 'var(--bg-1,#f8f9fa)';
+
+      html += '<div style="margin-top:8px;padding:8px 10px;background:' + cardBg + ';border:1px solid ' + cardBorder + ';border-radius:6px;font-size:12px">';
+
+      /* Status badge row */
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+      var badgeBg  = isPaid ? '#DCEAD2' : isCreated ? '#D0E4EE' : '#E8E8E8';
+      var badgeFg  = isPaid ? '#3d6130' : isCreated ? '#1d5570' : 'var(--text-2)';
+      html += '<span style="background:' + badgeBg + ';color:' + badgeFg + ';font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px">' +
+        escHtml(pmtStatusLabel(pr.payment_status)) + '</span>';
+      if (pr.payment_kind){
+        var kindLabel = pr.payment_kind === 'deposit_only' ? 'Deposit only' :
+                        pr.payment_kind === 'full_payment'  ? 'Full payment'  :
+                        pr.payment_kind.replace(/_/g,' ');
+        html += '<span style="font-size:10px;color:var(--text-3)">' + escHtml(kindLabel) + '</span>';
+      }
+      html += '</div>';
+
+      /* Amount rows */
+      html += '<div class="ctx-pay-block" style="margin:0 0 4px">';
+      if (pr.amount_due_cents  != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount due</span><span class="ctx-pay-amount">' + escHtml(eur(pr.amount_due_cents)) + '</span></div>';
+      if (pr.amount_paid_cents != null && Number(pr.amount_paid_cents) > 0)
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(pr.amount_paid_cents)) + '</span></div>';
+      if (pr.paid_at)
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid at</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.paid_at)) + '</span></div>';
+      html += '</div>';
+
+      /* Stripe webhook waiting banner */
+      if (isCreated && !isPaid){
+        html += '<div style="font-size:11px;color:#1d5570;padding:4px 0;border-top:1px solid ' + cardBorder + ';margin-top:4px">' +
+          '\u23F3 Payment link created \u2014 waiting for Stripe webhook.' +
+          '</div>';
+      }
+
+      /* Stripe ID details (collapsed, small) */
+      var hasIds = pr.stripe_checkout_session_id || pr.stripe_payment_intent_id;
+      if (hasIds){
+        html += '<div style="margin-top:6px;font-size:10px;color:var(--text-3);border-top:1px solid ' + cardBorder + ';padding-top:4px">';
+        if (pr.stripe_checkout_session_id)
+          html += '<div>Session: <code>' + escHtml(shortId(pr.stripe_checkout_session_id)) + '</code></div>';
+        if (pr.stripe_payment_intent_id)
+          html += '<div>Intent: <code>' + escHtml(shortId(pr.stripe_payment_intent_id)) + '</code></div>';
+        html += '</div>';
+      }
+
+      /* Checkout URL + copy button */
       if (pr.checkout_url){
-        html += '<div style="margin-top:8px;padding:8px;background:var(--bg-1,#f8f9fa);border-radius:4px;font-size:12px">';
-        html += '<div style="margin-bottom:4px;color:var(--text-2)">Stripe test link (' + escHtml(pr.payment_status || '') + '):</div>';
+        html += '<div style="margin-top:8px;border-top:1px solid ' + cardBorder + ';padding-top:6px">';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
         html += '<a href="' + escHtml(pr.checkout_url) + '" target="_blank" rel="noopener" ' +
-          'style="word-break:break-all;font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">' +
+          'style="word-break:break-all;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--accent)">' +
           escHtml(pr.checkout_url.slice(0, 50)) + '\u2026</a>';
         html += '<button class="btn" data-url="' + escHtml(pr.checkout_url) + '" ' +
           'style="font-size:11px;padding:2px 8px" onclick="bcCopyUrl(this)">\uD83D\uDCCB Copy</button>';
         html += '</div></div>';
       }
+
+      html += '</div>'; /* end card */
     });
   }
-  html += '</div>';
+  html += '</div>'; /* end Payment section */
 
   /* ── 5. Add-ons / Activities ───────────────────────────────────────────── */
   var ao = data.addons || {};

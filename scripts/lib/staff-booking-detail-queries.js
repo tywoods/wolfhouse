@@ -73,13 +73,19 @@ LIMIT 1
  * @returns {string} SQL ($1 = client slug, $2 = booking_code)
  */
 function getBookingPaymentsQuery() {
+  // Stage 8.4.12: added payment_kind, currency, checkout_url, stripe_checkout_session_id
+  // so the booking drawer can show full Stripe payment truth after webhook fires.
   return `
 SELECT
-  p.id::text                AS payment_id,
-  p.status::text            AS payment_status,
+  p.id::text                    AS payment_id,
+  p.status::text                AS payment_status,
+  p.payment_kind::text          AS payment_kind,
+  p.currency,
   p.amount_due_cents,
   p.amount_paid_cents,
   p.paid_at,
+  p.checkout_url,
+  p.stripe_checkout_session_id,
   p.stripe_payment_intent_id,
   p.created_at
 FROM payments p

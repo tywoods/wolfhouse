@@ -296,7 +296,75 @@ Resets `bcLastPaymentId = null` and clears `bc-stripe-link-result`.
 | Cleanup confirmed | ✓ |
 
 ### Next step
-Stage 8.4.12 — Show webhook payment truth in Staff Portal booking detail drawer (update `getBookingPaymentsQuery` to return `checkout_url`, `paid_at`, `amount_paid_cents`; update drawer to show paid status).
+Stage 8.4.12 — Show webhook payment truth in Staff Portal booking detail drawer. ✅ Done — see section below.
+
+---
+
+## Stage 8.4.12 — Show Stripe payment truth in booking drawer  ✅ PASS  (commit pending)
+
+**Goal:** Update the booking detail drawer to surface all Stripe payment truth fields after a webhook fires. Read-only display only.
+
+### Implementation
+
+**`scripts/lib/staff-booking-detail-queries.js` — `getBookingPaymentsQuery()`:**
+
+Added 4 new columns (previously missing, query unchanged since initial build):
+- `p.payment_kind::text`
+- `p.currency`
+- `p.checkout_url`
+- `p.stripe_checkout_session_id`
+
+**`scripts/staff-query-api.js` — `renderBookingContextDrawer()` payment section:**
+
+Full rewrite of the `/* 4. Payment */` section:
+
+| Element | Behavior |
+|---|---|
+| Booking status banner | Green ✓ banner for `deposit_paid` / `paid`; pill for other statuses |
+| `bkPayLabel()` helper | Human-readable booking payment_status labels |
+| Booking totals | Total / Deposit required / Booking paid / Balance due |
+| Payment record card | Per-row card for each `payments` row |
+| Card color | Green tint if paid, blue tint if checkout_created, neutral otherwise |
+| `pmtStatusLabel()` helper | "Draft payment" / "Checkout link created" / "Paid ✓" / etc. |
+| payment_kind | "Deposit only" / "Full payment" label in card |
+| Amount due / Amount paid | Shown in card |
+| paid_at | Formatted date/time — only shown when set |
+| Waiting banner | "⏳ Payment link created — waiting for Stripe webhook." when checkout_created |
+| Stripe IDs | Session ID (truncated) / payment intent ID (truncated) |
+| Checkout URL copy | Link + Copy button using `bcCopyUrl()` |
+| No-payment fallback | "No payment record yet." |
+
+### Verifier
+`scripts/verify-staff-bed-calendar-ui.js` — 283/283 checks:
+- 23 new checks (219a–219q + 220a–220e):
+  - paid_at, amount_paid_cents, balance_due, checkout_url, payment_kind, session/intent IDs
+  - deposit-paid / paid-in-full labels, waiting-for-webhook text, no-payment fallback
+  - bcCopyUrl used, no Stripe API calls, no WhatsApp/n8n, no DB writes
+  - getBookingPaymentsQuery query fields verified in lib file
+- Updated check 65 to accept "Balance due" (renamed from "Remaining balance")
+
+### Local proof (DB + webhook fixture)
+
+| Check | Result |
+|---|---|
+| BEFORE: payment_status=checkout_created | ✓ |
+| BEFORE: payment_kind=deposit_only | ✓ |
+| BEFORE: currency=EUR | ✓ |
+| BEFORE: checkout_url present (real Stripe test URL) | ✓ |
+| BEFORE: stripe_checkout_session_id present | ✓ |
+| BEFORE: paid_at=null | ✓ |
+| POST fixture webhook → 200 success | ✓ |
+| AFTER: payment_status=paid | ✓ |
+| AFTER: amount_paid_cents=20000 | ✓ |
+| AFTER: paid_at set (2026-06-02T18:18:39.745Z) | ✓ |
+| AFTER: bk_payment_status=deposit_paid | ✓ |
+| AFTER: bk_amount_paid=20000 | ✓ |
+| Cleanup confirmed | ✓ |
+
+No Stripe API calls. No WhatsApp. No n8n. No email. No Azure deploy.
+
+### Next step
+Stage 8.4.13 — Enable `STAFF_ACTIONS_ENABLED` and `MANUAL_BOOKING_ENABLED` on staging for a real end-to-end flow (create manual booking → Stripe link → pay → webhook → drawer shows paid). Or: send payment link to guest (WhatsApp stage, separate slice).
 
 ---
 
