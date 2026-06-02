@@ -363,8 +363,45 @@ Full rewrite of the `/* 4. Payment */` section:
 
 No Stripe API calls. No WhatsApp. No n8n. No email. No Azure deploy.
 
+### Stage 8.4.13 — Azure staging batch deploy + E2E proof (DONE 2026-06-02)
+
+**Goal:** Deploy local HEAD to Azure staging, enable feature flags, prove the full manual booking MVP flow end-to-end on hosted staging.
+
+**Azure deploy:**
+- Built new image `wh-staff-api:9e5502f-stage8412-manual-booking-mvp` from local HEAD via `az acr build`
+- Updated `wh-staging-staff-api` Container App revision `--0000014` (100% traffic, RunningAtMaxScale)
+- Set flags: `STAFF_ACTIONS_ENABLED=true`, `MANUAL_BOOKING_ENABLED=true`, `STRIPE_LINKS_ENABLED=true`, `WHATSAPP_DRY_RUN=true`
+- Applied `scripts/fixtures/stage7.2c-auth-seed.sql` to staging DB (added test staff users)
+- Updated Key Vault: `stripe-secret-key` (valid `sk_test_51TayI4G36q...`), `stripe-webhook-secret` (real endpoint secret `whsec_QF79KU...`)
+- Created Stripe test webhook endpoint `we_1TdxY1G36qRefvdPmdvzA0Tm` pointing to `https://staff-staging.lunafrontdesk.com/staff/stripe/webhook`
+
+**E2E proof (browser + API + DB):**
+
+| Step | Result |
+|---|---|
+| Login as `operator.stage72c@example.test` on staging | ✓ |
+| Navigate to Bed Calendar | ✓ |
+| Select 7 cells (DEMO-R1-B1, July 5–11 2026) | ✓ |
+| Fill manual booking form (Stage8413Test, malibu, shared, 1 guest) | ✓ |
+| Calculate Quote → Total €299.00, Deposit €200.00 | ✓ |
+| Create Manual Booking → `MB-WOLFHO-20260705-30e9d3` visible on calendar | ✓ |
+| DB: booking_code+total_amount_cents=29900+draft payment created | ✓ |
+| Create Stripe link (via API) → `cs_test_a1Mzhctx5...`, `checkout_url` present | ✓ |
+| DB: pm_status=checkout_created, checkout_url set | ✓ |
+| POST signed `checkout.session.completed` webhook (HMAC signed with `whsec_QF79KU...`) | ✓ |
+| Webhook 200: `{"success":true,"payment_status":"deposit_paid","amount_paid_cents":20000}` | ✓ |
+| DB AFTER: pm_status=paid, pm_paid=20000, paid_at set, stripe_pi_id set | ✓ |
+| DB AFTER: bk_payment_status=deposit_paid, amount_paid_cents=20000, balance_due=9900 | ✓ |
+| Drawer: green "✓ Deposit paid ✓" banner | ✓ |
+| Drawer: Total €299, Deposit €200, Paid €200, Balance €99 | ✓ |
+| Drawer: paid_at "2 Jun 2026, 21:08", session/intent IDs, checkout URL+copy | ✓ |
+
+**Notes:**
+- Stripe Checkout iframe blocked by browser automation → Stripe link creation done via authenticated API call; webhook fired as properly signed HMAC event using the registered endpoint secret (no SKIP_VERIFY used on staging).
+- "Staff actions disabled" badge on login page is static HTML (not dynamic); actual write flags are confirmed via `az containerapp show`.
+
 ### Next step
-Stage 8.4.13 — Enable `STAFF_ACTIONS_ENABLED` and `MANUAL_BOOKING_ENABLED` on staging for a real end-to-end flow (create manual booking → Stripe link → pay → webhook → drawer shows paid). Or: send payment link to guest (WhatsApp stage, separate slice).
+Send payment link to guest (WhatsApp stage, separate slice). Or: Stage 8.5 — staff-send confirmation flow.
 
 ---
 
