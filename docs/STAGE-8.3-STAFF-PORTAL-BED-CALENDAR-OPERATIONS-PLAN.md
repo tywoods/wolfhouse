@@ -405,6 +405,31 @@ Changes shipped in `scripts/staff-query-api.js`:
 
 **Commit:** see `ui(stage8.3a)` commit hash.
 
-## 14. Next slice
+## 14. Stage 8.3b — IMPLEMENTATION PROOF (2026-06-02)
 
-**Stage 8.3b — booking detail drawer cleanup:** grouped card sections, cleaner room/bed labels, remove redundant raw fields, read-only actions cleanup. No writes.
+**Status: PASS**
+
+Changes shipped in `scripts/staff-query-api.js`:
+
+| Feature | Result |
+|---|---|
+| Drawer refactored into 6 named sections: Guest / Stay / Room-Beds / Payment / Add-ons / Conversation-Handoff | ✓ |
+| Stay: status pill + nights badge + check-in/out/guests/package | ✓ |
+| Payment: Total / Paid / Remaining balance rows in €; .owing/.paid color classes | ✓ |
+| Room/Beds: clean codes (no UUIDs), per-bed rows with date range | ✓ |
+| Planned operations area (disabled): Move / Change dates / Cancel — cursor:not-allowed | ✓ |
+| `showBlockDetail` skeleton: status pill in header, cleaner quick-info grid | ✓ |
+| No raw `color_type` field in drawer | ✓ |
+| CSS: ctx-nights-badge, ctx-pay-row/label/amount, ctx-addon-row, ctx-bed-row, ctx-planned, ctx-planned-action | ✓ |
+| Verifier: 72 checks (14 new Stage 8.3b additions) — all PASS | ✓ |
+| All other verifiers: all PASS | ✓ |
+| Embedded browser JS: node --check PASS | ✓ |
+| No POST/PATCH/DELETE, no drag/drop, no write controls | ✓ |
+
+**Safety flags:** `STAFF_ACTIONS_ENABLED=false` · `WHATSAPP_DRY_RUN=true` · n8n inactive.
+
+**Azure proof:** pending (see commit `ui(stage8.3b)`).
+
+## 15. Next slice
+
+**Stage 8.3c — calendar cell selection model:** click empty date cell to highlight a range; no writes; prerequisite for future manual booking modal.

@@ -146,9 +146,9 @@ check(/function loadBedCalendar/.test(src),
 check(/id="bc-detail"/.test(src) || /id='bc-detail'/.test(src),
   'Block detail panel (id="bc-detail") present');
 
-// 23. "Booking edits are disabled" notice
-check(/Booking edits are disabled/i.test(src),
-  '"Booking edits are disabled" notice present in detail panel');
+// 23. "Booking edits" read-only notice (wording updated in Stage 8.3b)
+check(/Booking edits.*disabled|booking edits disabled/i.test(src),
+  '"Booking edits" read-only notice present in detail panel');
 
 // 24. No POST/PATCH/DELETE fetch in embedded UI JS (within script tags)
 const jsSection = src.slice(src.indexOf('<script>') || 0);
@@ -202,13 +202,13 @@ check(/\/staff\/bookings\/.*\/context/.test(src),
 check(/Booking Details/i.test(src),
   'Booking Details section present in drawer (Stage 7.7i)');
 
-// 34. Payments section in drawer
-check(/ctx-section.*Payments|Payments.*ctx-section/i.test(src) || /h3.*Payments/i.test(src),
-  'Payments section present in drawer (Stage 7.7i)');
+// 34. Payment section in drawer (renamed from Payments in Stage 8.3b)
+check(/h3.*Payments|h3.*Payment/i.test(src),
+  'Payment(s) section heading present in drawer (Stage 7.7i / 8.3b)');
 
-// 35. Rooming section in drawer
-check(/h3.*Rooming/i.test(src),
-  'Rooming / Beds section present in drawer (Stage 7.7i)');
+// 35. Rooming/Beds section in drawer (renamed to Room/Beds in Stage 8.3b)
+check(/h3.*Rooming|h3.*Room.*Beds/i.test(src),
+  'Rooming / Beds section heading present in drawer (Stage 7.7i / 8.3b)');
 
 // 36. Conversation section in drawer
 check(/h3.*Conversation/i.test(src),
@@ -226,9 +226,9 @@ check(/h3.*Add-on/i.test(src),
 check(/Open conversation|btn-open-conv/i.test(src),
   '"Open conversation" button present in drawer (Stage 7.7i)');
 
-// 40. Booking edits disabled note still present
-check(/Booking edits are disabled/i.test(src),
-  '"Booking edits are disabled" note still present (Stage 7.7i)');
+// 40. Booking edits disabled note still present (wording updated Stage 8.3b)
+check(/Booking edits.*disabled|booking edits disabled/i.test(src),
+  '"Booking edits disabled" note still present (Stage 7.7i / 8.3b)');
 
 // ── Stage 8.2 — Bed calendar polish checks ────────────────────────────────
 
@@ -300,6 +300,64 @@ check(/bed\.bed_code/.test(src),
 // 56. No POST/PATCH/DELETE fetch anywhere in the file
 check(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(src),
   'No POST/PATCH/DELETE fetch calls in entire file (Stage 8.3a)');
+
+// ── Stage 8.3b — booking detail drawer cleanup ────────────────────────────
+
+// 59. Guest section heading present (Stage 8.3b)
+check(/h3.*Guest|Guest.*h3/i.test(src),
+  'Guest section heading present in drawer (Stage 8.3b)');
+
+// 60. Stay section heading present (Stage 8.3b)
+check(/h3.*Stay|Stay.*h3/i.test(src),
+  'Stay section heading present in drawer (Stage 8.3b)');
+
+// 61. Room / Beds section heading present (Stage 8.3b)
+check(/h3.*Room.*Beds|Room.*Beds.*h3/i.test(src),
+  'Room / Beds section heading present in drawer (Stage 8.3b)');
+
+// 62. Payment section heading present (Stage 8.3b)
+check(/h3.*Payment|Payment.*h3/i.test(src),
+  'Payment section heading present in drawer (Stage 8.3b)');
+
+// 63. Conversation / Handoff section heading present (Stage 8.3b)
+check(/h3.*Conversation.*Handoff|Conversation.*Handoff.*h3/i.test(src),
+  'Conversation / Handoff section heading present in drawer (Stage 8.3b)');
+
+// 64. Nights calculation present (Stage 8.3b)
+check(/calcNights|night.*badge|ctx-nights/.test(src),
+  'Nights calculation / badge present in drawer (Stage 8.3b)');
+
+// 65. Remaining balance label present (Stage 8.3b)
+check(/Remaining balance/i.test(src),
+  '"Remaining balance" payment label present in drawer (Stage 8.3b)');
+
+// 66. Total paid / Paid label present (Stage 8.3b)
+check(/ctx-pay-label.*Total|Total.*ctx-pay|kvBC.*Total|kvBC.*Paid|ctx-pay-row/i.test(src),
+  'Total / Paid payment row labels present in drawer (Stage 8.3b)');
+
+// 67. Planned actions disabled area present (Stage 8.3b)
+check(/ctx-planned/.test(src),
+  'Planned actions area (ctx-planned) present in drawer (Stage 8.3b)');
+
+// 68. Planned actions use disabled span (not live button with onclick) (Stage 8.3b)
+check(/ctx-planned-action/.test(src),
+  'Planned action items use disabled span class (ctx-planned-action) (Stage 8.3b)');
+
+// 69. No live move/cancel/date-change button handlers in drawer (Stage 8.3b)
+check(!/onclick.*move|onclick.*cancel|onclick.*date.change|btn-move-booking|btn-cancel-booking/i.test(src),
+  'No live move/cancel/date-change onclick handlers in drawer (Stage 8.3b)');
+
+// 70. Add-ons / Activities heading present (Stage 8.3b)
+check(/h3.*Add-ons|Add-ons.*h3/i.test(src),
+  'Add-ons / Activities section heading present in drawer (Stage 8.3b)');
+
+// 71. Check-in and Check-out labels in drawer (Stage 8.3b)
+check(/kvBC\('Check-in'/.test(src) && /kvBC\('Check-out'/.test(src),
+  'Check-in and Check-out labels present in drawer (Stage 8.3b)');
+
+// 72. No raw color_type field exposed in drawer (Stage 8.3b)
+check(!/kvBC\('Color type'|kvBC\('color_type'/.test(src),
+  'Raw color_type field not shown in drawer (Stage 8.3b)');
 
 // ── Stage 8.3a regression fix — embedded JS syntax safety ─────────────────
 
