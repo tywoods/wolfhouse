@@ -404,7 +404,31 @@ Each slice is independently gated, independently provable, and does not depend o
 **Test booking:** `MB-WOLFHO-20260801-4f10c3` left on staging (disposable staging data, clearly labelled as Luna test).
 **Verifiers:** All 6 verifiers PASS (65+54+56+60+77 checks) at commit `dec785c`.
 
-### 8.5.7 — Explicit approval before live WhatsApp sends
+### 8.5.7 — Wire Luna n8n dry-run to hosted shared booking/payment engine — **PASS (2026-06-02)**
+**Goal:** Wire the Luna bot n8n workflow (dry-run only) to call the three hosted Staff API bot endpoints proven in Stage 8.5.6. No live WhatsApp sends. No n8n activation.
+**Delivered:**
+- New inactive workflow JSON: `n8n/Wolfhouse Booking Assistant - Main - Shared Engine Dry Run.json` (`active: false`, NOT imported into live n8n).
+- 12 nodes: `WHATSAPP_DRY_RUN` guard (blocks if not `true`) → `Code - Parse Booking Fields` → `HTTP - Bot Booking Preview` → `IF - Missing Fields or Ready` → (missing: log draft reply, no send) OR (ready: `HTTP - Bot Booking Create` → `HTTP - Bot Stripe Link` → `Code - Draft Payment Link Reply` → respond).
+- `X-Luna-Bot-Token: {{ $env.LUNA_BOT_INTERNAL_TOKEN }}` header on all Staff API calls — never hardcoded.
+- No `graph.facebook.com` nodes — all WhatsApp sends bypassed in dry-run fork.
+- No direct Stripe API calls (`api.stripe.com`). Stripe handled exclusively via Staff API bot endpoint.
+- `STRIPE_DEFAULT_DEPOSIT_CENTS` NOT used as env var expression.
+- `deposit_required_cents` (Airtable field) NOT used for Stripe amount.
+- **GAP documented:** `selected_bed_codes` does not exist in the current live bot session state. The live flow assigns beds via Airtable "Search Active Beds - WA". Dry-run uses staging placeholder `DEMO-R1-B1`. Auto-assignment from availability is the next slice (Stage 8.5.8).
+- Draft payment-link reply crafted with `checkout_url` from Staff API (not from n8n Stripe call). Message says "secure Stripe payment link" with deposit/full label from `payment_choice`.
+- `_proof_no_direct_stripe: true`, `_proof_no_stripe_default_deposit_cents: true`, `_proof_sends_whatsapp_false: true` proof fields in draft reply node.
+- Original main workflow (`Wolfhouse Booking Assistant  - Main.json`) and `Wolfhouse - Create Payment Session.json` untouched — still contains direct Stripe call.
+- `no_payment_truth_recorded: true` in Stripe link response — payment truth via webhook only.
+**Verifier:** `scripts/verify-luna-n8n-bot-shared-engine-dry-run.js` **31/31 PASS** (new). Checks: workflow inactive, three bot URLs present, `X-Luna-Bot-Token` from env, `WHATSAPP_DRY_RUN` guard, no `graph.facebook.com`, no `api.stripe.com`, no `STRIPE_DEFAULT_DEPOSIT_CENTS` env ref, no `deposit_required_cents`, `payment_id` dynamic in Stripe link URL, `no_payment_truth_recorded`, original workflow untouched, docs reference Stage 8.5.7 and Staff Ask Luna allowlist.
+**Gap:** `selected_bed_codes` not in current live bot session state — requires Stage 8.5.8 bed availability lookup slice before dry-run can be imported and executed end-to-end.
+**Activation status:** NOT imported into n8n. NOT activated. Dry-run wiring is static/local only pending bed availability gap resolution.
+
+### 8.5.8 — Bed availability lookup in bot flow (next slice)
+**Goal:** Add a bed availability query to the Luna bot flow so `selected_bed_codes` can be populated automatically from available beds before calling `/staff/bot/bookings/create`. This closes the only remaining gap in the shared-engine dry-run path.
+**Type:** Staff API endpoint + n8n wiring. Small slice.
+**Pass criteria:** Luna bot can call `/staff/availability-check` or equivalent, receive available `bed_codes` for the requested dates, and pass them to the booking create endpoint without manual selection.
+
+### 8.5.9 — Explicit approval before live WhatsApp sends
 **Goal:** A documented go/no-go checklist for enabling live WhatsApp sends from Luna bot. Must include: `WHATSAPP_DRY_RUN` set to `false`, all 8.5.2–8.5.6 slices proven, staff approval.
 **Type:** Docs only. A go/no-go decision gate.
 **Pass criteria:** Checklist written. No activation until explicitly approved.
