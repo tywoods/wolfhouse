@@ -98,9 +98,10 @@ console.log('\n── 4. Luna Front Desk branding in login page ──');
 check(/Luna Front Desk/.test(loginSection), 'login page contains "Luna Front Desk"');
 
 // ── 5. client field ──────────────────────────────────────────────────────────
-console.log('\n── 5. Client field ──');
-check(/id\s*=\s*['"]client['"]/.test(loginSection), 'client field present');
+console.log('\n── 5. Client/Company field ──');
+check(/id\s*=\s*['"]client['"]/.test(loginSection), 'client field id present');
 check(/wolfhouse-somo/.test(loginSection), 'client field defaults to wolfhouse-somo');
+check(/[Cc]ompany/.test(loginSection), 'login page label says Company (not Client)');
 
 // ── 6. email field ───────────────────────────────────────────────────────────
 console.log('\n── 6. Email field ──');
@@ -190,8 +191,9 @@ check(
 
 // ── 22. Logout button (doLogout) in UI ───────────────────────────────────────
 console.log('\n── 22. Logout button in UI ──');
-check(/btn-logout/.test(src),  'btn-logout class present in UI');
-check(/doLogout/.test(src),    'doLogout function referenced in UI');
+check(/btn-logout/.test(src),              'btn-logout class present in UI');
+check(/doLogout/.test(src),                'doLogout function referenced in UI');
+check(/window\.doLogout\s*=/.test(src),    'doLogout exposed on window (global scope for onclick)');
 
 // ── 23. Logout JS calls POST /staff/auth/logout ──────────────────────────────
 console.log('\n── 23. Logout JS posts to /staff/auth/logout ──');

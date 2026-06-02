@@ -1113,7 +1113,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
       <span id="inbox-count" style="font-size:12px;color:#9aabb8"></span>
       <button class="btn btn-primary" id="btn-refresh">&#8635; Refresh</button>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85">
-        Client
+        Company
         <input id="c-client" value="wolfhouse-somo" style="min-width:160px;font-size:12px;padding:5px 8px">
       </label>
     </div>
@@ -1189,7 +1189,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
   </div>
   <div class="card">
     <div class="row">
-      <label>Client<input id="f-client" value="wolfhouse-somo" style="min-width:200px"></label>
+      <label>Company<input id="f-client" value="wolfhouse-somo" style="min-width:200px"></label>
       <label>Category<select id="f-cat"><option value="">-- loading --</option></select></label>
       <label>Intent<select id="f-intent" disabled><option value="">-- pick category --</option></select></label>
     </div>
@@ -1232,7 +1232,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
         End&nbsp;<input id="bc-end" type="text" value="2026-07-23" placeholder="YYYY-MM-DD" style="min-width:110px;font-size:12px;padding:5px 8px">
       </label>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        Client&nbsp;<input id="bc-client" value="wolfhouse-somo" style="min-width:140px;font-size:12px;padding:5px 8px">
+        Company&nbsp;<input id="bc-client" value="wolfhouse-somo" style="min-width:140px;font-size:12px;padding:5px 8px">
       </label>
       <button class="btn btn-primary" id="bc-load">&#128197; Load Calendar</button>
     </div>
@@ -2268,14 +2268,15 @@ function loadBedCalendar(){
 
 el('bc-load').addEventListener('click', loadBedCalendar);
 
-function doLogout(){
+// doLogout must be global so onclick="doLogout()" in the banner HTML resolves it
+window.doLogout = function doLogout(){
   var x = new XMLHttpRequest();
   x.open('POST', '/staff/auth/logout', true);
   x.withCredentials = true;
   x.onload = function(){ window.location.href='/staff/login'; };
   x.onerror = function(){ window.location.href='/staff/login'; };
   x.send();
-}
+};
 
 })();
 </script>
@@ -2412,7 +2413,7 @@ body{
 
   <form id="login-form" autocomplete="on">
     <div class="field">
-      <label for="client">Client</label>
+      <label for="client">Company</label>
       <input id="client" name="client" type="text" value="wolfhouse-somo" autocomplete="organization" spellcheck="false">
     </div>
     <div class="field">
