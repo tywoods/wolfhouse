@@ -461,6 +461,33 @@ Changes shipped in `scripts/staff-query-api.js`:
 
 **Azure proof:** DONE — image `whstagingacr.azurecr.io/wh-staff-api:92cde98-8x3c` built (ACR run cb7), deployed to revision `wh-staging-staff-api--0000008`. Login page 200. Full selection UI requires authenticated login.
 
-## 16. Next slice
+## 16. Stage 8.3d — IMPLEMENTATION PROOF (2026-06-02)
 
-**Stage 8.3d — multi-bed rectangular selection:** extend selection across adjacent beds (same date range); prerequisite for multi-bed manual bookings. Or skip to manual booking modal with single-bed only.
+**Status: PASS**
+
+Changes shipped in `scripts/staff-query-api.js`:
+
+| Feature | Result |
+|---|---|
+| `#bc-sel-panel` replaced with full form skeleton (grouped sections) | ✓ |
+| **Selected Stay** section: Check-in / Check-out / Nights / Room / Bed (all `readonly` inputs, pre-filled from `bcSel`) | ✓ |
+| **Guest** section: name, phone, email, guest count, language, package/stay-type, source (editable-looking, no submit) | ✓ |
+| **Payment** section: status select (Unpaid/Deposit paid/Paid in full), deposit amount €, total amount €, "no Stripe charge" hint | ✓ |
+| **Notes** section: staff notes textarea | ✓ |
+| **Availability/Conflicts** placeholder section | ✓ |
+| **Safety notice**: "Preview only — no booking will be created. Staff writes disabled in staging. No WhatsApp or Stripe payment link sent." | ✓ |
+| **Disabled actions**: "Create Manual Booking" (disabled), "Preview Conflicts" (disabled), "Clear selection" (active) | ✓ |
+| Form pre-fill updates when selection changes (`bcApplySelectionHighlight`) | ✓ |
+| Form resets fully on clear selection and calendar reload | ✓ |
+| No `<form>` submit element, no POST action, no API call | ✓ |
+| `bc-sel-room` field added (was missing in 8.3c) | ✓ |
+| Verifier: 105 checks (19 new Stage 8.3d additions) — all PASS | ✓ |
+| Embedded browser JS: node --check PASS | ✓ |
+
+**Safety flags:** `STAFF_ACTIONS_ENABLED=false` · `WHATSAPP_DRY_RUN=true` · n8n inactive.
+
+**Azure proof:** DONE — image `whstagingacr.azurecr.io/wh-staff-api:c652175-8x3d` built (ACR run cb8), deployed to revision `wh-staging-staff-api--0000009`. Login 200. Full skeleton requires auth login.
+
+## 17. Next slice
+
+**Stage 8.3e — write gate planning:** define the exact write gate checklist (Ty sign-off, ops sign-off, STAFF_ACTIONS_ENABLED toggle plan, rollback plan) required before manual booking creation is enabled. Docs-only planning slice.
