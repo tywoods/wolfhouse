@@ -75,6 +75,7 @@
     "verify:staff-manual-booking-availability": "node scripts/verify-staff-manual-booking-availability.js",
     "verify:staff-manual-booking-preview-api": "node scripts/verify-staff-manual-booking-preview-api.js",
     "verify:staff-manual-booking-create-api": "node scripts/verify-staff-manual-booking-create-api.js",
+    "verify:staff-stripe-payment-link-api": "node scripts/verify-staff-stripe-payment-link-api.js",
     "verify:wolfhouse-pricing-config": "node scripts/verify-wolfhouse-pricing-config.js",
     "verify:wolfhouse-quote-calculator": "node scripts/verify-wolfhouse-quote-calculator.js",
     "verify:staff-quote-preview-api": "node scripts/verify-staff-quote-preview-api.js",
@@ -94,6 +95,7 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "stripe": "^22.2.0"
   }
 }

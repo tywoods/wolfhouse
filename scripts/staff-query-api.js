@@ -49,6 +49,8 @@ const path   = require('path');
 const crypto = require('crypto');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+// Also load infra/.env as fallback (same pattern as pg-connect.js; root .env takes precedence)
+require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 
 const { withPgClient }       = require('./lib/pg-connect');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
@@ -110,13 +112,23 @@ const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 // Write endpoint config — disabled unless explicitly enabled
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
 const MANUAL_BOOKING_ENABLED = process.env.MANUAL_BOOKING_ENABLED === 'true';
+// Stage 8.4.9 — Stripe checkout link creation from draft payment records.
+// STRIPE_LINKS_ENABLED must be explicitly set to 'true'; default false.
+// STRIPE_SECRET_KEY must be a valid Stripe secret (sk_test_... or sk_live_...).
+// Never hardcoded. Stripe test mode is the only supported mode in this slice.
+const STRIPE_LINKS_ENABLED   = process.env.STRIPE_LINKS_ENABLED   === 'true';
+const STRIPE_SECRET_KEY      = process.env.STRIPE_SECRET_KEY      || null;
+const STRIPE_SUCCESS_URL     = process.env.STRIPE_CHECKOUT_SUCCESS_URL || process.env.STRIPE_SUCCESS_URL || null;
+const STRIPE_CANCEL_URL      = process.env.STRIPE_CHECKOUT_CANCEL_URL  || process.env.STRIPE_CANCEL_URL  || null;
 const STAFF_OPERATOR_TOKEN   = process.env.STAFF_OPERATOR_TOKEN  || '';
 
 // Only handoff.resolve is allowed in v1
 const WRITE_ACTION_ALLOWLIST = ['handoff.resolve'];
 
 // Matches: /staff/handoff/<uuid>/resolve
-const WRITE_HANDOFF_RE = /^\/staff\/handoff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/resolve$/i;
+const WRITE_HANDOFF_RE       = /^\/staff\/handoff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/resolve$/i;
+// Stage 8.4.9 — POST /staff/payments/:payment_id/create-stripe-link
+const PAYMENT_STRIPE_LINK_RE = /^\/staff\/payments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/create-stripe-link$/i;
 
 // Stage 7.7b — conversation route regexes (read-only GET)
 const UUID_RE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -1171,6 +1183,262 @@ async function handleQuotePreview(req, res, user) {
     creates_stripe_link: false,
     quote,
     elapsed_ms:          elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/payments/:payment_id/create-stripe-link  (Stage 8.4.9)
+//
+// Creates a Stripe Checkout Session from an existing draft payment record.
+// Booking-first flow: booking exists + draft payment exist before this runs.
+// This is the first Stripe integration point; payment truth via webhook is next.
+//
+// Gates (all must pass):
+//   1. STAFF_ACTIONS_ENABLED=true
+//   2. STRIPE_LINKS_ENABLED=true   (dedicated flag, default false)
+//   3. STRIPE_SECRET_KEY present in env  (sk_test_... test mode only in this slice)
+//   4. STRIPE_SUCCESS_URL / STRIPE_CANCEL_URL present in env
+//   5. payment exists, status=draft, amount_due_cents>0, currency=EUR
+//   6. payment has a booking (booking_id not null, booking belongs to client)
+//   7. auth role operator+
+//
+// Safety:
+//   - No payment truth: does NOT set status=paid, does NOT update booking paid amounts.
+//   - Sets payment.status = 'checkout_created' (schema enum value).
+//   - Sets payment.stripe_checkout_session_id and payment.checkout_url.
+//   - Sets payment.expires_at from Stripe session (if available).
+//   - Stripe test mode only (key from env; sk_live_ keys produce a config error
+//     if STRIPE_LINKS_ENABLED is true — document for prod hardening).
+//   - Idempotent check: if session already created, return existing URL (no new session).
+//   - No WhatsApp. No n8n. No confirmation send.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
+  const started = Date.now();
+
+  // ── 1. Feature flag gates ─────────────────────────────────────────────────
+  if (!STAFF_ACTIONS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error:   'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+      staff_actions_enabled: false,
+    });
+  }
+  if (!STRIPE_LINKS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error:   'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.',
+      stripe_links_enabled: false,
+    });
+  }
+
+  // ── 2. Config guards (friendly, never crashes server) ─────────────────────
+  if (!STRIPE_SECRET_KEY) {
+    return sendJSON(res, 503, {
+      success: false,
+      error:   'STRIPE_SECRET_KEY not configured. Set it in env before enabling Stripe links.',
+      no_db_write: true,
+    });
+  }
+  if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+    return sendJSON(res, 503, {
+      success: false,
+      error:   'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
+      no_db_write: true,
+    });
+  }
+
+  // ── 3. Load Stripe SDK lazily (never crashes if require fails) ─────────────
+  let stripe;
+  try {
+    stripe = require('stripe')(STRIPE_SECRET_KEY);
+  } catch (e) {
+    return sendJSON(res, 500, {
+      success: false,
+      error:   'Failed to load Stripe SDK: ' + e.message,
+      no_db_write: true,
+    });
+  }
+
+  // ── 4. Fetch payment + booking from DB ────────────────────────────────────
+  let pm, clientSlug;
+  try {
+    pm = await withPgClient(async (pg) => {
+      const r = await pg.query(
+        `SELECT p.id              AS payment_id,
+                p.client_id,
+                p.booking_id,
+                p.status          AS payment_status,
+                p.payment_kind,
+                p.currency,
+                p.amount_due_cents,
+                p.stripe_checkout_session_id,
+                p.checkout_url,
+                b.booking_code,
+                b.guest_name,
+                b.check_in,
+                b.check_out,
+                b.status          AS booking_status,
+                cl.slug           AS client_slug
+           FROM payments p
+           JOIN bookings b  ON b.id  = p.booking_id
+           JOIN clients  cl ON cl.id = p.client_id
+          WHERE p.id = $1`, [paymentId]
+      );
+      return r.rows[0] || null;
+    });
+    clientSlug = pm ? pm.client_slug : null;
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
+  }
+
+  // ── 5. Validate payment record ────────────────────────────────────────────
+  if (!pm) {
+    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+  }
+  if (pm.payment_status !== 'draft') {
+    // Idempotency: already has a session — return existing URL rather than creating a new one
+    if (pm.payment_status === 'checkout_created' && pm.checkout_url) {
+      return sendJSON(res, 200, {
+        success:               true,
+        idempotent:            true,
+        payment_id:            pm.payment_id,
+        booking_id:            pm.booking_id,
+        booking_code:          pm.booking_code,
+        amount_due_cents:      pm.amount_due_cents,
+        currency:              pm.currency,
+        stripe_checkout_session_id: pm.stripe_checkout_session_id,
+        checkout_url:          pm.checkout_url,
+        status:                pm.payment_status,
+        no_payment_truth_recorded: true,
+        message:               'Stripe session already created (idempotent response).',
+      });
+    }
+    return sendJSON(res, 409, {
+      success: false,
+      error:   `Payment is in status '${pm.payment_status}'; only 'draft' payments can create a Stripe link.`,
+    });
+  }
+  if (!pm.amount_due_cents || pm.amount_due_cents <= 0) {
+    return sendJSON(res, 422, { success: false, error: 'amount_due_cents must be > 0.' });
+  }
+  if ((pm.currency || '').toUpperCase() !== 'EUR') {
+    return sendJSON(res, 422, { success: false, error: `Currency '${pm.currency}' not supported (EUR only).` });
+  }
+
+  // ── 6. Create Stripe Checkout Session ─────────────────────────────────────
+  const productName = `Booking ${pm.booking_code || paymentId} \u2014 ${pm.guest_name || 'Guest'}`;
+  const productDesc = `${pm.payment_kind === 'full_amount' ? 'Full payment' : 'Deposit'} | ` +
+    `${pm.check_in || ''} \u2013 ${pm.check_out || ''} | ${clientSlug}`;
+
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode:     'payment',
+      currency: 'eur',
+      line_items: [{
+        price_data: {
+          currency:     'eur',
+          product_data: {
+            name:        productName,
+            description: productDesc,
+          },
+          unit_amount:  pm.amount_due_cents,
+        },
+        quantity: 1,
+      }],
+      metadata: {
+        client_slug:   clientSlug,
+        booking_id:    pm.booking_id,
+        booking_code:  pm.booking_code  || '',
+        payment_id:    paymentId,
+        payment_kind:  pm.payment_kind  || '',
+        source:        'staff_portal_manual_booking',
+      },
+      success_url: STRIPE_SUCCESS_URL,
+      cancel_url:  STRIPE_CANCEL_URL,
+    });
+  } catch (stripeErr) {
+    return sendJSON(res, 500, {
+      success:     false,
+      error:       'Stripe session creation failed: ' + stripeErr.message,
+      no_db_write: true,
+    });
+  }
+
+  // ── 7. Update payment row — checkout_created, session ID, URL, expires_at ─
+  const expiresAt = session.expires_at
+    ? new Date(session.expires_at * 1000).toISOString()
+    : null;
+
+  try {
+    await withPgClient(async (pg) => {
+      await pg.query(
+        `UPDATE payments
+           SET status                      = 'checkout_created'::payment_record_status,
+               stripe_checkout_session_id  = $1,
+               checkout_url                = $2,
+               expires_at                  = $3,
+               metadata                    = metadata || $4::jsonb
+         WHERE id = $5`,
+        [
+          session.id,
+          session.url,
+          expiresAt,
+          JSON.stringify({
+            stripe_session_id:     session.id,
+            stripe_livemode:       session.livemode,
+            stripe_payment_status: session.payment_status,
+            created_by:            user ? user.staff_user_id : 'manual-local',
+            source:                'staff_portal_stage849',
+          }),
+          paymentId,
+        ]
+      );
+    });
+  } catch (dbErr) {
+    // Session was created in Stripe but DB update failed — log it, return partial error
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:payment_create_stripe_link',
+      category: 'stripe_link_create', success: false,
+      error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
+      payment_id: paymentId, session_id: session.id, elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, {
+      success:     false,
+      error:       'Stripe session created but DB update failed: ' + dbErr.message,
+      session_id:  session.id,
+      checkout_url: session.url,
+    });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts: new Date().toISOString(), intent: 'api:payment_create_stripe_link',
+    category: 'stripe_link_create', success: true,
+    payment_id: paymentId, booking_id: pm.booking_id, booking_code: pm.booking_code,
+    stripe_session_id: session.id, amount_due_cents: pm.amount_due_cents,
+    elapsed_ms: elapsed,
+    stripe_called: true, whatsapp_called: false, n8n_called: false,
+  });
+
+  // ── 8. Success ─────────────────────────────────────────────────────────────
+  return sendJSON(res, 200, {
+    success:                   true,
+    payment_id:                paymentId,
+    booking_id:                pm.booking_id,
+    booking_code:              pm.booking_code,
+    amount_due_cents:          pm.amount_due_cents,
+    currency:                  pm.currency,
+    stripe_checkout_session_id: session.id,
+    checkout_url:              session.url,
+    status:                    'checkout_created',
+    no_payment_truth_recorded: true,
+    no_whatsapp:               true,
+    no_n8n:                    true,
+    message:                   'Stripe Checkout Session created. Payment not marked paid until webhook confirms.',
+    elapsed_ms:                elapsed,
   });
 }
 
@@ -5851,6 +6119,20 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleManualBookingCreate(req, res, auth.user);
+  }
+
+  // ── Stage 8.4.9 — Stripe checkout link from draft payment ────────────────
+  // POST /staff/payments/:payment_id/create-stripe-link
+  // Gated by STAFF_ACTIONS_ENABLED + STRIPE_LINKS_ENABLED + STRIPE_SECRET_KEY.
+  const stripeMatch = PAYMENT_STRIPE_LINK_RE.exec(pathname);
+  if (stripeMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for create-stripe-link' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handlePaymentCreateStripeLink(stripeMatch[1], req, res, auth.user);
   }
 
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────

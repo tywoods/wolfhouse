@@ -72,6 +72,87 @@ No runtime create was performed. No booking was created. No Stripe/WhatsApp/n8n 
 
 ---
 
+---
+
+## Stage 8.4.9 — Create Stripe payment link from draft payment record (DONE)
+
+**Commit:** `feat(stage8.4.9): create Stripe link from draft payment`
+
+### Goal
+After a manual booking is created (Stage 8.4.8), staff can generate a Stripe Checkout payment link from the draft payment record. Payment truth (marking the payment paid) is deferred to a later webhook slice.
+
+### Endpoint
+```
+POST /staff/payments/:payment_id/create-stripe-link
+```
+Path param routing matches the existing `WRITE_HANDOFF_RE` regex pattern.
+
+### Gates (all must pass)
+1. `STAFF_ACTIONS_ENABLED=true`
+2. `STRIPE_LINKS_ENABLED=true` — new dedicated flag, **default false**
+3. `STRIPE_SECRET_KEY` present in env (test mode: `sk_test_...`)
+4. `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` present in env
+5. Auth: `requireAuth(req, res, 'operator')`
+6. Payment exists, `status='draft'`, `amount_due_cents > 0`, `currency='EUR'`
+7. Payment has a `booking_id`
+
+Flag gating decision: `MANUAL_BOOKING_ENABLED` is **not** required for payment link creation — it gates booking creation, not link generation from an existing record. `STRIPE_LINKS_ENABLED` is the dedicated gate.
+
+### Stripe session
+- `mode: 'payment'`, `currency: 'eur'`
+- `unit_amount` = `payments.amount_due_cents` (from DB, never from client request)
+- `metadata`: `client_slug`, `booking_id`, `booking_code`, `payment_id`, `payment_kind`, `source: 'staff_portal_manual_booking'`
+- `success_url` / `cancel_url` from env
+
+### DB update (after session created)
+| Column | Value |
+|--------|-------|
+| `payments.status` | `checkout_created` (schema enum) |
+| `payments.stripe_checkout_session_id` | `session.id` |
+| `payments.checkout_url` | `session.url` |
+| `payments.expires_at` | `session.expires_at` (UTC) |
+| `payments.metadata` | stripe session info merged via `||` |
+
+**No change to:** `amount_paid_cents`, `bookings.payment_status`, `bookings.status`, `bookings.confirmed`.
+
+### Idempotency
+If `payment.status` is already `checkout_created` and `checkout_url` is present, returns the existing URL with `idempotent: true` — no new Stripe session created.
+
+### Safety guarantees
+- Does **not** set `status='paid'`
+- Does **not** update `booking.payment_status` to any paid state
+- Does **not** confirm booking
+- No WhatsApp, no n8n, no Azure
+- Stripe test mode enforced (key from env only)
+- `no_payment_truth_recorded: true` in every response
+
+### New files
+- `scripts/verify-staff-stripe-payment-link-api.js` — 55/55 PASS
+- `stripe` added to `package.json` dependencies
+- `infra/.env` loaded as dotenv fallback in `staff-query-api.js`
+
+### Verification
+- `node scripts/verify-staff-stripe-payment-link-api.js` — 55/55 PASS
+- All prior verifiers: 397 total, 0 failures
+- **Grand total: 452/452 checks**
+
+### Local proof (2026-06-02)
+| Test | Result |
+|------|--------|
+| `STRIPE_LINKS_ENABLED` not set → `403` `stripe_links_enabled: false` | ✓ |
+| `STAFF_ACTIONS_ENABLED=true`, `STRIPE_LINKS_ENABLED=true`, infra/.env loaded → Stripe session created | ✓ |
+| `stripe_checkout_session_id`: `cs_test_a1XIPhaV3nTD3hILkB4wXKDEv6aIQc9AtCzHfyQb5S66Rv7iwrBCoL8OgU` | ✓ |
+| `payment.status`: `checkout_created` | ✓ |
+| `payment.amount_paid_cents`: `0` (not paid) | ✓ |
+| `booking.status`: `confirmed` (unchanged) | ✓ |
+| `booking.payment_status`: `not_requested` (not paid) | ✓ |
+| Test data cleaned up | ✓ |
+
+### Next step
+Stage 8.4.10 — Send Stripe checkout URL to guest (WhatsApp or email). **Not in this slice.**
+
+---
+
 ## 6. Next recommended prompt
 
 > **Stage 8.4.3 DONE.** `scripts/lib/wolfhouse-quote-calculator.js` (pure JS, no DB/API/Stripe) + `scripts/verify-wolfhouse-quote-calculator.js` 77/77 PASS. Formula B selected (per-night ceil5). All 3 packages × 3 seasons × 7-night and proration paths covered. REQUIRED_FROM_STAFF markers retained (add-on charge timing, deposit variance, edge months).
