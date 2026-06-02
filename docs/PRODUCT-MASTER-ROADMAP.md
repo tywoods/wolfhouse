@@ -4,7 +4,7 @@
 
 **Product category:** AI booking operations for WhatsApp-first experience businesses (AI front desk for WhatsApp-heavy experience operators). **Beachhead:** Wolfhouse surf house (`wolfhouse-somo`) as client #1.
 
-**Last updated:** 2026-06-02 (Stage 7.3 staging deployment + custom domain DONE; **Stage 8 client-ready staging roadmap planning started** — [`STAGE-8-CLIENT-READY-STAGING-ROADMAP.md`](STAGE-8-CLIENT-READY-STAGING-ROADMAP.md), polished shadow-mode demo for Ale/Cami; live gates remain closed; pilot NO_GO.)
+**Last updated:** 2026-06-02 (Stage 7.3 staging deployment + custom domain DONE; **Stage 8 client-ready staging in progress** — [`STAGE-8-CLIENT-READY-STAGING-ROADMAP.md`](STAGE-8-CLIENT-READY-STAGING-ROADMAP.md); 8.1/8.2 dashboard polish DONE, 8.6 demo data seeded, **8.3 Staff Portal bed calendar operations plan DONE** ([`STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md`](STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md) — bed calendar as operations workspace; "Staff Portal" language; manual booking / operator block / operator release ladders, all future + gated); live gates remain closed; pilot NO_GO.)
 
 ---
 
@@ -36,7 +36,7 @@
 | 1 | Guest Booking Assistant | 3, 3x, 3y, 4 | Proven (dry-run); live deferred |
 | 2 | Source-of-Truth Database | 3c, 5 | Proven (schema + cleanup); cutover deferred |
 | 3 | Staff Assistant Brain | 5 (data), 6 | CLOSED WITH DEFERRALS |
-| 4 | Staff Operations Dashboard | 6, 7.7, 8 | CLI + read-only UI done (Stage 6); review dashboard + bed calendar built (Stage 7.7a–j); **Stage 8 = client-ready polish + demo data for Ale/Cami shadow demo** (planning, slices 8.1–8.13 pending) |
+| 4 | Staff Operations Dashboard | 6, 7.7, 8 | CLI + read-only UI done (Stage 6); review dashboard + bed calendar built (Stage 7.7a–j); **Stage 8 = client-ready polish + demo data + bed calendar as operations workspace** — 8.1/8.2 polish DONE, 8.6 demo data seeded, 8.3 operations plan DONE (manual booking / operator block / operator release ladders future + gated); slices 8.3a–8.3o + 8.4/8.7–8.13 pending |
 | 5 | Rooming / Bed Grid UI | 3e (engine), 6 (UI) | Engine proven; UI not started |
 | 6 | Add-ons & Revenue Layer | 4 (pricing), 5 (records), 6 (queries) | In progress |
 | 7 | Staff Messaging Bridge | 3y (handoff), 6+ | Planned / deferred |
