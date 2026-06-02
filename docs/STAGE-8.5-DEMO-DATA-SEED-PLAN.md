@@ -1,6 +1,6 @@
 # Stage 8.5 — Demo Data Seed Plan (Luna Front Desk)
 
-**Status:** PLAN DONE (2026-06-02). No data seeded yet. Implementation deferred to Stage 8.6.
+**Status:** PLAN DONE (2026-06-02). **IMPLEMENTATION DONE (2026-06-02, Stage 8.6)** — 18 demo rows seeded to Azure staging. Proof PASS 28/28. Data visible and intentionally retained for Ale/Cami walkthrough.
 **Parent:** [`STAGE-8-CLIENT-READY-STAGING-ROADMAP.md`](STAGE-8-CLIENT-READY-STAGING-ROADMAP.md)
 **Depends on:** Stage 8.2 dashboard polish deployed (`2e415e3`, revision `0000004`).
 **Pilot decision:** Remains **NO_GO**. Demo data makes staging presentable; it does not unlock any live gate.
@@ -342,18 +342,55 @@ After seeding Azure staging, all of the following must pass:
 
 ---
 
-## 11. Next Step: Stage 8.6
+## 11. Stage 8.6 — DONE
 
-> **Stage 8.6** — implement `scripts/fixtures/stage8-demo-seed.js`,
-> `scripts/fixtures/stage8-demo-cleanup.js`, and `scripts/fixtures/stage8-demo-proof.js`
-> per this plan; run seed against Azure staging DB; run proof; capture outputs; update docs.
+**Completed 2026-06-02.**
 
-Seed is executed via:
+Scripts implemented:
+- `scripts/fixtures/stage8-demo-seed.js` — idempotent seed (creates demo rooms/beds if none exist)
+- `scripts/fixtures/stage8-demo-cleanup.js` — FK-safe removal of all demo rows
+- `scripts/fixtures/stage8-demo-proof.js` — asserts 28 checks PASS
+
+**Seed output (Azure staging, 2026-06-02):**
+```
+conversations      3 inserted
+messages           7 inserted
+bookings           3 inserted
+booking_beds       2 inserted
+staff_handoffs     1 inserted
+payments           2 inserted
+TOTAL              18 rows
+```
+Demo rooms/beds: 2 rooms (DEMO-R1, DEMO-R2), 4 beds (DEMO-R1-B1, DEMO-R1-B2, DEMO-R2-B1, DEMO-R2-B2) created because staging DB had no real room data yet.
+
+**Proof result:** 28/28 PASS
+
+**Safety confirmed (Azure Container App env):**
+- `STAFF_ACTIONS_ENABLED = false`
+- `WHATSAPP_DRY_RUN = true`
+- `STAFF_AUTH_REQUIRED = true`
+- n8n workflows all inactive (11 imported, 0 activated)
+
+**Demo data remains intentionally present** for Ale/Cami walkthrough.
+
+To remove demo data:
+```
+WOLFHOUSE_DATABASE_URL=... node scripts/fixtures/stage8-demo-cleanup.js
+```
+
+To re-seed after cleanup:
 ```
 WOLFHOUSE_DATABASE_URL=... node scripts/fixtures/stage8-demo-seed.js
 ```
 
-Cleanup (if needed before re-seeding or before a live pilot):
+To verify current state:
 ```
-WOLFHOUSE_DATABASE_URL=... node scripts/fixtures/stage8-demo-cleanup.js
+WOLFHOUSE_DATABASE_URL=... node scripts/fixtures/stage8-demo-proof.js
+```
+
+Or via npm:
+```
+npm run cleanup:stage8-demo
+npm run seed:stage8-demo
+npm run proof:stage8-demo
 ```
