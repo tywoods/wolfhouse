@@ -1,6 +1,6 @@
 # Stage 8 — Client-Ready Staging Roadmap (Luna Front Desk)
 
-**Status:** IN PROGRESS — 8.0 roadmap DONE (2026-06-02), 8.1 UX plan DONE (2026-06-02), **8.2 visual polish DONE (2026-06-02)**. Slices 8.3–8.13 not started.
+**Status:** IN PROGRESS — 8.0 roadmap DONE, 8.1 UX plan DONE, 8.2 visual polish DONE, **8.5 demo data seed plan DONE (2026-06-02)**. Slices 8.3–8.4, 8.6–8.13 not started.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — production hardening + pilot workstreams.
 **Builds on:** [`PHASE-7.3F-DNS-CUSTOM-DOMAIN-STAGING.md`](PHASE-7.3F-DNS-CUSTOM-DOMAIN-STAGING.md) (custom domain + TLS DONE), [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) (Cami review dashboard), [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) (pilot gates).
 **Pilot decision:** Remains **NO_GO**. Stage 8 makes the staging prototype *presentable*; it does not unlock any live gate.
@@ -115,8 +115,8 @@ Cami can, with zero autonomous action and zero protected-table mutation:
 | **8.2** | Dashboard visual polish implementation | code | **DONE (2026-06-02)** — Today/Needs Attention default view; Inbox tab; Developer Tools admin-only; natural room sort; switchToTab utility; 59 conversation checks, 43 bed-calendar checks. Azure rev `0000004` (`wh-staff-api:74eed37-8x2`). |
 | **8.3** | Bed calendar readability cleanup | code | Improve calendar legibility (rows, headers, legend, labels) — read-only. |
 | **8.4** | Booking drawer cleanup | code | Reorganize the booking context drawer into clear sections. |
-| **8.5** | Demo/staging data seed plan | docs | Define safe synthetic dataset shape, scope, idempotency/reset strategy. |
-| **8.6** | Demo/staging data seed implementation | code/data | Seed reversible demo data into staging (demo-scoped only; no real guest data). |
+| **8.5** | Demo/staging data seed plan | docs | **DONE (2026-06-02)** — [`STAGE-8.5-DEMO-DATA-SEED-PLAN.md`](STAGE-8.5-DEMO-DATA-SEED-PLAN.md). 3 scenarios (A: Sofia/needs-human/urgent handoff, B: Marco/payment-pending, C: Lena/confirmed/bed-calendar Jul 16–22); 18 demo rows across 6 tables; JS seed + cleanup + proof scripts planned; `source='stage8_demo'` tag; staging-only safety check. |
+| **8.6** | Demo/staging data seed implementation | code/data | Implement `stage8-demo-seed.js`, `stage8-demo-cleanup.js`, `stage8-demo-proof.js` per plan; seed Azure staging DB; run proof; update docs. |
 | **8.7** | Hide/move developer Query Tools | code | Remove Query Tools from default staff view; relocate to admin/dev-only area. |
 | **8.8** | Cami/Ale account creation plan | docs | Define accounts, roles, password delivery; creation runs as its own gated task. |
 | **8.9** | Backup/restore drill | ops | Execute the 7.4 restore drill against staging; record proof. |
