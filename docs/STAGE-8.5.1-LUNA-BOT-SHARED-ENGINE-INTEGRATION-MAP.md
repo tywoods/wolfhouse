@@ -1,0 +1,423 @@
+# Stage 8.5.1 — Luna Bot Shared Engine Integration Map
+
+**Status:** PASS — planning/static mapping only (2026-06-02).
+**Commit basis:** Stage 8.4.13 PASS at `902fa1b` — manual booking/payment MVP proven on Azure staging.
+**Parent doc:** [`STAGE-8.4-MANUAL-BOOKING-CREATION.md`](STAGE-8.4-MANUAL-BOOKING-CREATION.md)
+**Non-negotiables:** No code changes. No DB writes. No Azure deploy. No WhatsApp sends. No n8n activation. No Stripe changes. No new production flags. Docs and static mapping only.
+
+---
+
+## 1. Current proven shared engine (Stage 8.4)
+
+The following chain is fully proven on Azure staging (commit `902fa1b`, Stage 8.4.13):
+
+```
+Staff Portal
+  ↓ form input: dates / guests / package / room_type / add_ons / payment_choice
+  ↓
+  [1] calculateWolfhouseQuote(input)          ← scripts/lib/wolfhouse-quote-calculator.js
+      Pure JS, no DB, no network
+      Input:  client_slug, check_in, check_out, guest_count,
+              package_code, room_type, payment_choice, add_ons
+      Output: total_cents, deposit_required_cents,
+              payment_link_amount_cents, balance_due_cents,
+              line_items[], quote_snapshot, formula_summary
+  ↓
+  [2] POST /staff/quote-preview               ← staff-query-api.js
+      Auth-gated (viewer+). No DB write.
+      Returns full quote snapshot (preview_only:true).
+  ↓
+  [3] POST /staff/manual-bookings/create      ← staff-query-api.js
+      Gate: MANUAL_BOOKING_ENABLED=true + STAFF_ACTIONS_ENABLED=true
+      Calls calculateWolfhouseQuote() server-side from request body.
+      Amounts never trusted from client.
+      Writes:
+        - bookings row (booking_code, total_amount_cents, deposit_required_cents,
+                        balance_due_cents, requested_room_type, quote_snapshot in metadata)
+        - payments row (status=draft, payment_kind, amount_due_cents = payment_link_amount_cents)
+      Returns: booking_id, booking_code, payment_id
+  ↓
+  [4] POST /staff/payments/:id/create-stripe-link ← staff-query-api.js
+      Gate: STRIPE_LINKS_ENABLED=true + STAFF_ACTIONS_ENABLED=true
+      Reads amount_due_cents from payments row (never from client).
+      Creates Stripe Checkout Session (mode=payment, eur).
+      Writes:
+        - payments.status = checkout_created
+        - payments.stripe_checkout_session_id, checkout_url, expires_at
+      Returns: checkout_url
+  ↓
+  [5] POST /staff/stripe/webhook              ← staff-query-api.js
+      HMAC-verified (stripe.webhooks.constructEvent).
+      Event: checkout.session.completed
+      Looks up payment by metadata.payment_id → fallback stripe_checkout_session_id.
+      Writes (atomic BEGIN/COMMIT):
+        - payments.status = paid, amount_paid_cents, paid_at, stripe_payment_intent_id
+        - bookings.amount_paid_cents, balance_due_cents,
+          payment_status (deposit_paid / paid / waiting_payment)
+      Safety: no_whatsapp, no_email, no_n8n, no_confirmation_sent in every response.
+  ↓
+  [6] Booking detail drawer (Staff Portal)
+      Reads from DB: payment truth fields (paid_at, checkout_url, payment_kind,
+      stripe_checkout_session_id, stripe_payment_intent_id).
+      Shows green "✓ Deposit paid ✓" banner when payment_status = deposit_paid.
+```
+
+**Proven local and on Azure staging:** booking `MB-WOLFHO-20260705-30e9d3` (€299/€200 deposit), Stripe link `cs_test_a1Mzhctx5`, signed `checkout.session.completed` webhook (HMAC-valid, no SKIP_VERIFY), DB: `pm_status=paid, bk_payment_status=deposit_paid`. No WhatsApp sent. n8n untouched.
+
+---
+
+## 2. Luna bot — current flow (as-found, static inspection)
+
+**Source:** `n8n/Wolfhouse Booking Assistant  - Main.json` (not activated; dry-run only).
+
+```
+WhatsApp inbound message
+  ↓
+  Normalize Incoming Message (phone / guest_message)
+  ↓
+  Search Conversation (Airtable — conversation state, session state, pending action)
+  ↓
+  Parser Node (Claude Haiku — extracts intent, dates, guests, room_type, package,
+               name, email, arrival_time, departure_time, needs_human, confidence)
+  ↓
+  Router Node (Claude Sonnet — classifies route:
+               booking_flow / payment_or_confirm_intent / payment_details_provided /
+               package_question / cancellation / rooming_update / human_request / unknown)
+  ↓
+  [booking_flow branch]
+  Code - Check Bed Availability (Postgres query)
+  ↓
+  Create Hold in Airtable (booking record: dates, guest_count, room_type, status=Hold)
+  ↓
+  Bot reply: asks for guest name + email (WhatsApp)
+  ↓
+  [payment_or_confirm_intent / payment_details_provided branch]
+  Code - Extract Guest Details
+  Update Hold in Airtable (guest_name, email, phone)
+  ↓
+  HTTP call → Wolfhouse - Create Payment Session (n8n webhook)
+    Reads: deposit_required_cents / total_amount_cents from Airtable booking record
+    Uses STRIPE_DEFAULT_DEPOSIT_CENTS=20000 if deposit not set
+    Creates Stripe Checkout Session DIRECTLY (n8n → Stripe API)
+    Returns: checkout_url, stripe_checkout_session_id
+  ↓
+  Bot sends Stripe checkout_url via WhatsApp
+  ↓
+  [Stripe webhook — separate n8n workflow]
+  Wolfhouse - Stripe Webhook Handler (n8n phase2)
+    Verifies HMAC. Parses checkout.session.completed.
+    Updates Airtable booking: status=Deposit_Paid / status=Paid
+    (n8n Postgres node: updates bookings table payment_status if PG-coupled)
+  ↓
+  Send Confirmation (n8n Wolfhouse - Send Confirmation workflow)
+    Gated by confirmation_eligibility check.
+    Sends WhatsApp confirmation if WHATSAPP_DRY_RUN=false.
+```
+
+**Conversation/session state:** Stored in Airtable (`Conversations` table). Fields: `Session State` (JSON blob), `Current Hold ID`, `Pending Action`, `Language`, `Conversation Summary`, `Chat Transcript`.
+
+**Bot parser output schema (key fields for booking creation):**
+```json
+{
+  "intent": "booking_request",
+  "check_in": "YYYY-MM-DD",
+  "check_out": "YYYY-MM-DD",
+  "guest_count": 2,
+  "room_type": "shared",
+  "room_preference": "shared",
+  "package": "malibu",
+  "name": "Ana",
+  "email": "ana@example.com",
+  "phone": "+34...",
+  "custom_extras": [],
+  "needs_human": false,
+  "confidence": 0.95
+}
+```
+
+**No bot parser/session files exist in `scripts/`** — all bot logic lives in n8n workflow JSON nodes. There is no standalone bot session manager, bot parser module, or guest conversation state handler outside n8n.
+
+---
+
+## 3. Luna target flow — using the shared engine
+
+This is the target architecture for Luna guest bookings. No implementation here — map only.
+
+```
+WhatsApp inbound message
+  ↓
+  [UNCHANGED] Normalize / Search Conversation / Parser / Router
+  ↓
+  [booking_flow branch]
+  Code - Check Bed Availability (Postgres — UNCHANGED)
+  ↓
+  [NEW] Before creating hold: call POST /staff/quote-preview (or internal equivalent)
+        Input: dates, guests, package, room_type, add_ons
+        Output: quote_snapshot, line_items, total_cents, deposit_required_cents
+        Purpose: establish pricing truth BEFORE creating booking record
+  ↓
+  POST /staff/manual-bookings/create (or bot-equivalent /bot/bookings/create)
+    Gate: new bot-specific flag (e.g. BOT_BOOKING_ENABLED) OR reuse MANUAL_BOOKING_ENABLED
+    Calls calculateWolfhouseQuote() server-side (NOT from Airtable amounts)
+    Writes: bookings + booking_beds + payments (draft) — same as Staff Portal
+    Returns: booking_id, payment_id, booking_code, quote_snapshot
+  ↓
+  Ask guest: deposit or full payment? (WhatsApp)
+  ↓
+  POST /staff/payments/:id/create-stripe-link (or bot-equivalent)
+    Reads amount from payments.amount_due_cents (never from guest message)
+    Creates Stripe Checkout Session
+    Returns: checkout_url
+  ↓
+  WHATSAPP_DRY_RUN=true  → log/draft checkout_url, do NOT send via WhatsApp
+  WHATSAPP_DRY_RUN=false → send checkout_url via WhatsApp (requires separate approval)
+  ↓
+  [Stripe webhook — SHARED]
+  POST /staff/stripe/webhook (SAME endpoint as Staff Portal)
+    HMAC-verified. Updates payments + bookings.
+    payment_status → deposit_paid or paid
+    Emits: no_whatsapp, no_confirmation_sent (webhook only marks payment truth)
+  ↓
+  [Confirmation eligibility check — SEPARATE, GATED]
+  Only AFTER webhook marks payment_status = deposit_paid / paid:
+    Check confirmation_eligibility (beds assigned, rooming complete, etc.)
+    WHATSAPP_DRY_RUN=true  → draft confirmation, do NOT send
+    WHATSAPP_DRY_RUN=false → send confirmation via WhatsApp (requires separate approval)
+```
+
+**Key principle:** Luna must never calculate package pricing in prompt text, never derive Stripe amount from raw Airtable fields, and never create a Stripe session outside the shared engine path.
+
+---
+
+## 4. Required data Luna must collect before creating a booking
+
+Luna must have ALL of the following before calling the shared booking create path:
+
+| Field | Source | Notes |
+|-------|--------|-------|
+| `check_in` | Parser Node | YYYY-MM-DD; required |
+| `check_out` | Parser Node | YYYY-MM-DD; required |
+| `guest_count` | Parser Node | ≥ 1; required |
+| `package_code` | Parser Node / prompt | `malibu` / `uluwatu` / `waimea`; if unknown, bot must ask |
+| `room_type` | Parser Node | `shared` / `private` / `double`; default `shared` |
+| `guest_name` | Parser Node / follow-up turn | Required before booking create |
+| `phone` | Normalize Incoming Message | Already known from WhatsApp inbound |
+| `email` | Parser Node / follow-up turn | Required for Stripe receipt |
+| `payment_choice` | Follow-up turn | `deposit` / `full`; bot must ask |
+| `add_ons` | Parser Node / follow-up turn | Optional array; default `[]` |
+
+**Fields NOT required to be collected by Luna (handled server-side):**
+- `total_amount_cents` — calculated by `calculateWolfhouseQuote()`, never from guest input
+- `deposit_required_cents` — same; never from Airtable field or LLM output
+- Stripe amount — derived from `payments.amount_due_cents`, never from conversation
+
+**Current gap:** The bot parser currently extracts `package` as `malibu / uluwatu / waimea / custom / unknown / null`. If `package` is `unknown` or `null`, the shared engine will return a blocked quote (`confidence: blocked`). Luna must handle this case by asking the guest to choose a package before proceeding.
+
+---
+
+## 5. Integration points — mapping bot/n8n nodes to shared engine calls
+
+### 5.1 Availability preview / check
+
+| Attribute | Detail |
+|-----------|--------|
+| **Existing implementation** | `Code - Check Bed Availability - WA` node in Main workflow. Queries Postgres directly for available beds/rooms. |
+| **Target shared engine call** | No change needed for availability check itself. Availability logic (Postgres query) is already shared infrastructure. |
+| **Gap** | None for availability. Bot calls Postgres availability query correctly. No pricing is involved in this step. |
+| **Smallest next change** | None required. |
+
+### 5.2 Create booking
+
+| Attribute | Detail |
+|-----------|--------|
+| **Existing implementation** | Bot creates a "Hold" record in **Airtable** (not Postgres `bookings` table). Node: `Create Hold - Airtable`. Pricing amounts (`deposit_required_cents`, `total_amount_cents`) come from Airtable booking fields set by staff or synced from CSV — **not** from `calculateWolfhouseQuote()`. |
+| **Target shared engine call** | `POST /staff/manual-bookings/create` (or a new bot-accessible variant). Must call `calculateWolfhouseQuote()` server-side. Must write to Postgres `bookings` + `booking_beds` + `payments` (draft). |
+| **Gap** | **LARGE GAP.** Bot currently writes to Airtable, not Postgres. Bot does not call the quote calculator. The shared engine endpoint requires `MANUAL_BOOKING_ENABLED=true` + `STAFF_ACTIONS_ENABLED=true` and uses staff auth. Luna needs either: (a) these flags enabled for bot path, or (b) a new bot-specific booking create endpoint that calls the same internal functions but behind a bot auth gate. |
+| **Smallest next change** | 8.5.4: Add a bot-accessible booking create endpoint (e.g. `POST /bot/bookings/create`) that internally calls `calculateWolfhouseQuote()` + the same SQL helper. No flag sharing with staff path. No auth session required (bot uses signed webhook or n8n internal token). |
+
+### 5.3 Calculate quote
+
+| Attribute | Detail |
+|-----------|--------|
+| **Existing implementation** | **Not called by bot.** The "Wolfhouse - Create Payment Session" n8n workflow reads `deposit_required_cents` from the Airtable booking record and uses `STRIPE_DEFAULT_DEPOSIT_CENTS=20000` as fallback. No formula, no package/season logic. |
+| **Target shared engine call** | `calculateWolfhouseQuote(input)` in `scripts/lib/wolfhouse-quote-calculator.js`. Must be called server-side by the booking create endpoint, **not** by n8n Code node directly (to avoid duplicating pricing logic in n8n). |
+| **Gap** | **LARGE GAP.** Bot completely bypasses the quote calculator. Pricing is ad hoc from Airtable fields. No quote snapshot stored. |
+| **Smallest next change** | 8.5.3: Bot quote preview call from parsed booking details — dry-run only. N8n node calls `POST /bot/quote-preview` (or existing `/staff/quote-preview` with bot auth token) and logs the result. No DB write. Proves the parser-to-calculator handoff works. |
+
+### 5.4 Create draft payment record
+
+| Attribute | Detail |
+|-----------|--------|
+| **Existing implementation** | **Does not exist in bot path.** The bot goes directly from Airtable Hold → Stripe Checkout Session without creating a `payments` row first. |
+| **Target shared engine call** | `POST /staff/manual-bookings/create` (step 3 in shared engine) creates a `payments` row (status=draft) atomically with the booking. The payment record's `amount_due_cents` is set from the quote output — never from the client/guest. |
+| **Gap** | **LARGE GAP.** No draft payment record exists in the bot path today. The n8n "Wolfhouse - Create Payment Session" creates a Stripe session directly and optionally writes `checkout_url` back to the Airtable booking — but no `payments` row is created first. |
+| **Smallest next change** | Resolved as part of 8.5.4 (bot booking create endpoint writes `payments` draft row). |
+
+### 5.5 Create Stripe link
+
+| Attribute | Detail |
+|-----------|--------|
+| **Existing implementation** | `n8n/phase2/Wolfhouse - Create Payment Session.json` — n8n workflow called from Main workflow. Code node `Code - Stripe Create Session` calls Stripe API directly using `STRIPE_SECRET_KEY` env var. Amount comes from `deposit_required_cents` / `total_amount_cents` Airtable fields. Idempotency: checks for existing `checkout_url` on the payment row (but no payment row is guaranteed to exist). |
+| **Target shared engine call** | `POST /staff/payments/:id/create-stripe-link`. Reads `amount_due_cents` from `payments` row (created in step 5.4). Same Stripe Checkout Session creation logic, same metadata shape, same idempotency. |
+| **Gap** | **LARGE GAP.** Bot calls Stripe directly from n8n using Airtable amounts. Shared engine reads from DB payment record. `payment_id` is required in Stripe metadata for webhook truth to work correctly with the shared webhook handler. Without `payment_id` in Stripe metadata, `POST /staff/stripe/webhook` cannot match the payment row. |
+| **Smallest next change** | 8.5.4: After bot creates booking + draft payment via shared engine, bot calls `POST /staff/payments/:id/create-stripe-link` (or bot-accessible variant) to create Stripe link. `payment_id` must be in Stripe session metadata. |
+
+### 5.6 Webhook truth
+
+| Attribute | Detail |
+|-----------|--------|
+| **Existing implementation** | `n8n/phase2/Wolfhouse - Stripe Webhook Handler.json` — separate n8n workflow. Verifies HMAC. Parses `checkout.session.completed`. Updates Airtable booking status. Optionally updates Postgres `bookings.payment_status` if PG-coupled. Does NOT look up `payments` row by `payment_id` (relies on `booking_id` in metadata). |
+| **Target shared engine call** | `POST /staff/stripe/webhook` in `scripts/staff-query-api.js`. Looks up `payments` row by `metadata.payment_id` → fallback `stripe_checkout_session_id`. Updates `payments` + `bookings` atomically. Returns `no_whatsapp, no_n8n, no_confirmation_sent:true`. |
+| **Gap** | **MEDIUM GAP.** The existing n8n webhook handler works for the bot's Airtable path but does not update the `payments` table correctly (no `payment_id` in metadata because no `payments` row was created). For the shared engine path, the Staff Portal's `POST /staff/stripe/webhook` must be the webhook truth endpoint for both Staff Portal and Luna bot bookings. The n8n webhook handler becomes redundant once Luna uses the shared path. The Stripe webhook endpoint registered in the Stripe dashboard must point to `POST /staff/stripe/webhook`. |
+| **Smallest next change** | 8.5.4 / 8.5.5: Ensure Stripe webhook endpoint (`we_1TdxY1G36qRefvdPmdvzA0Tm` on staging) is the shared endpoint. Luna bot bookings created via shared engine will automatically be handled by the same webhook. |
+
+### 5.7 Confirmation eligibility
+
+| Attribute | Detail |
+|-----------|--------|
+| **Existing implementation** | `n8n/Wolfhouse - Send Confirmation.json` workflow. Called from Main workflow after payment truth detected. Checks: booking status, payment status, beds assigned, rooming complete. Sends WhatsApp confirmation if `WHATSAPP_DRY_RUN=false`. |
+| **Target shared engine call** | No change to confirmation logic yet. Confirmation send remains gated and must only fire AFTER `payments.status=paid` / `bookings.payment_status=deposit_paid` (from webhook truth). `WHATSAPP_DRY_RUN=true` gates the actual send. |
+| **Gap** | **SMALL GAP.** The existing confirmation workflow already correctly gates on payment status. The gap is: confirmation currently reads payment truth from Airtable booking status, not from Postgres `payments` table. Once Luna uses the shared engine, confirmation eligibility should read from `bookings.payment_status` (Postgres) not Airtable. |
+| **Smallest next change** | 8.5.5: Webhook-triggered confirmation draft. After `POST /staff/stripe/webhook` marks `bk_payment_status=deposit_paid`, a confirmation eligibility check queries Postgres and drafts (but does not send) a confirmation message. `WHATSAPP_DRY_RUN=true` must gate the send. |
+
+---
+
+## 6. Do not duplicate logic — hard rules
+
+The following rules are binding for all future Luna bot implementation slices:
+
+1. **Luna must not calculate package pricing in prompt text.** The LLM parser extracts `package_code` and booking fields — it must not generate, invent, or confirm price amounts in its output.
+2. **Luna must not create Stripe amount directly.** No n8n Code node may call `Number(deposit_required_cents)` or `STRIPE_DEFAULT_DEPOSIT_CENTS` and pass it to Stripe. All amounts come from `calculateWolfhouseQuote()` output, stored in `payments.amount_due_cents`.
+3. **Luna must call the same quote/payment path used by Staff Portal.** Either the exact same endpoints (with bot auth) or bot-specific variants that internally call the same functions (`calculateWolfhouseQuote`, `staff-manual-booking-create-sql.js`, etc.).
+4. **Stripe webhook remains payment truth.** No bot node, no n8n Code node, no LLM output may mark a booking as paid. Only `POST /staff/stripe/webhook` (or the shared equivalent) may update `payments.status=paid` and `bookings.payment_status`.
+5. **Quote snapshot must be stored.** The booking `metadata.quote_snapshot` must contain the full output of `calculateWolfhouseQuote()` at the time of booking creation. This provides an audit trail and prevents pricing drift.
+
+---
+
+## 7. Dry-run behavior — definition
+
+| Flag | Effect on Luna bot |
+|------|--------------------|
+| `WHATSAPP_DRY_RUN=true` | Luna logs / drafts the Stripe payment link response but does **not** send it via WhatsApp. The `checkout_url` is available in logs/DB but the guest never receives it. |
+| `WHATSAPP_DRY_RUN=true` | Luna drafts a confirmation message but does **not** send it via WhatsApp. Confirmation is only drafted after webhook truth marks payment_status correctly. |
+| `WHATSAPP_DRY_RUN=false` | Live WhatsApp send is enabled. **This requires explicit separate approval and must not be enabled during integration mapping or dry-run slices.** |
+
+**Gate hierarchy:**
+1. `WHATSAPP_DRY_RUN=true` must be confirmed before any Luna bot payment link or confirmation work.
+2. Live WhatsApp send requires a separate explicit approval step (8.5.7).
+3. Confirmation send must ALWAYS be conditional on webhook truth (`payments.status=paid` or `bookings.payment_status=deposit_paid`). The bot must never send a confirmation based on a guest message claiming payment.
+
+**n8n activation:** No n8n workflow may be activated as part of 8.5.1–8.5.6. Activation is a separate approval step.
+
+---
+
+## 8. Gap summary
+
+| Integration Point | Bot Has Today | Shared Engine Requires | Gap Size |
+|-------------------|--------------|----------------------|----------|
+| Quote calculation | None — uses Airtable amounts + fallback constant | `calculateWolfhouseQuote()` server-side | **Large** |
+| Booking create | Airtable Hold record | Postgres bookings + booking_beds + draft payments row | **Large** |
+| Draft payment record | None | `payments` row (status=draft, amount from quote) | **Large** |
+| Stripe link creation | n8n direct Stripe API call with Airtable amounts | `POST /staff/payments/:id/create-stripe-link` (amount from DB) | **Large** |
+| `payment_id` in Stripe metadata | Not present (no payments row) | Required for webhook truth lookup | **Large** |
+| Webhook truth | n8n Stripe Webhook Handler (Airtable + optional PG) | `POST /staff/stripe/webhook` (Postgres-only, HMAC) | **Medium** |
+| Confirmation eligibility | Reads Airtable booking status | Must read Postgres `bookings.payment_status` | **Small** |
+| Availability check | Postgres query (correct) | Same | **None** |
+| Parser output | Extracts `package`, dates, guests, room_type, name, email | Must also capture `payment_choice` before Stripe step | **Small** |
+| Conversation state | Airtable `Conversations` table | Airtable OK for now; Postgres migration is future | **Deferred** |
+
+**Total gaps requiring implementation:** 6 large, 1 medium, 2 small.
+**Total gaps deferred:** 1 (conversation state Airtable→Postgres migration; future stage).
+
+---
+
+## 9. Small implementation ladder (recommended slices)
+
+Each slice is independently gated, independently provable, and does not depend on activating the next.
+
+### 8.5.2 — Static verifier: identify bot workflow payment/booking nodes and gaps
+**Goal:** Write a static verifier script that reads the Main workflow JSON, the Create Payment Session JSON, and the Stripe Webhook Handler JSON, and asserts that none of them contain direct pricing logic (`STRIPE_DEFAULT_DEPOSIT_CENTS`, hardcoded amounts) that would conflict with the shared engine.
+**Type:** Docs/static inspection only. No DB. No n8n activation.
+**Pass criteria:** Report of all payment-related Code nodes in bot workflows, with exact line references showing where amounts originate.
+
+### 8.5.3 — Bot quote preview call from parsed booking details, dry-run only
+**Goal:** Prove that a set of bot parser outputs (dates, guests, package, room_type) can be passed to `calculateWolfhouseQuote()` and return a valid quote snapshot. No DB write. No Stripe. No WhatsApp.
+**Type:** Static verifier script or unit test. Calls `calculateWolfhouseQuote()` directly with bot-parser-shaped inputs.
+**Pass criteria:** Quote preview returns `success:true` for realistic bot inputs (malibu, 7n, 2 guests, shared). Quote snapshot matches Staff Portal quote for same inputs.
+
+### 8.5.4 — Bot create booking/payment link path, dry-run only
+**Goal:** Add a bot-accessible booking create endpoint (e.g. `POST /bot/bookings/create`) that internally calls `calculateWolfhouseQuote()`, writes `bookings` + `booking_beds` + `payments` (draft), then calls the Stripe link creation path. Gate: new `BOT_BOOKING_ENABLED=false` flag (default false → 403). No WhatsApp send.
+**Type:** Code — small new endpoint. No UI. No activation.
+**Pass criteria:** `WHATSAPP_DRY_RUN=true`, `BOT_BOOKING_ENABLED=true` → booking created in Postgres, draft payment created, Stripe link returned as `checkout_url` in response. Webhook truth path (existing `/staff/stripe/webhook`) correctly matches payment via `payment_id` in Stripe metadata.
+
+### 8.5.5 — Webhook-triggered confirmation draft, dry-run only
+**Goal:** After webhook marks `bookings.payment_status=deposit_paid`, a confirmation eligibility check drafts (but does not send) a WhatsApp confirmation. `WHATSAPP_DRY_RUN=true` gates the send.
+**Type:** Code — small addition to webhook handler response or a new confirmation-draft endpoint.
+**Pass criteria:** Fixture webhook → 200 → DB `deposit_paid` → confirmation draft logged → no WhatsApp send → `no_confirmation_sent:true` in response.
+
+### 8.5.6 — Hosted shadow-mode E2E with WhatsApp send disabled
+**Goal:** Full bot flow from parsed booking details → quote → booking create → Stripe link → webhook truth → confirmation draft, all on Azure staging, all with `WHATSAPP_DRY_RUN=true`. No live WhatsApp sends.
+**Type:** E2E proof on staging. No new code beyond 8.5.4/8.5.5.
+**Pass criteria:** Booking created by bot path appears in Postgres with `payment_status=deposit_paid` after fixture webhook. Drawer shows same payment truth as Staff Portal path. No WhatsApp message sent.
+
+### 8.5.7 — Explicit approval before live WhatsApp sends
+**Goal:** A documented go/no-go checklist for enabling live WhatsApp sends from Luna bot. Must include: `WHATSAPP_DRY_RUN` set to `false`, all 8.5.2–8.5.6 slices proven, staff approval.
+**Type:** Docs only. A go/no-go decision gate.
+**Pass criteria:** Checklist written. No activation until explicitly approved.
+
+---
+
+## 10. Files identified (static inspection, no changes made)
+
+### Shared engine files (proven, read-only inspection)
+| File | Role |
+|------|------|
+| `scripts/lib/wolfhouse-quote-calculator.js` | Pure quote calculator (Formula B) |
+| `config/clients/wolfhouse-somo.pricing.json` | Pricing config fixture |
+| `scripts/staff-query-api.js` | `POST /staff/quote-preview`, `/staff/manual-bookings/create`, `/staff/payments/:id/create-stripe-link`, `POST /staff/stripe/webhook` |
+| `scripts/lib/staff-manual-booking-create-sql.js` | SQL helper for booking + payment create |
+| `scripts/lib/staff-booking-detail-queries.js` | `getBookingPaymentsQuery()` — returns `payment_kind`, `currency`, `checkout_url`, `stripe_checkout_session_id` |
+
+### Bot files (read-only inspection, no activation)
+| File | Role | Integration status |
+|------|------|-------------------|
+| `n8n/Wolfhouse Booking Assistant  - Main.json` | Main bot workflow — parser, router, availability, hold, payment send | **NOT integrated with shared engine** |
+| `n8n/phase2/Wolfhouse - Create Payment Session.json` | Creates Stripe session from Airtable amounts | **Replace with shared engine call** |
+| `n8n/phase2/Wolfhouse - Create Payment Session (stub local).json` | Stub for local testing (returns dummy checkout_url) | **Replace with shared engine call** |
+| `n8n/phase2/Wolfhouse - Stripe Webhook Handler.json` | Stripe webhook truth for bot path | **Replace/redirect to `/staff/stripe/webhook`** |
+| `n8n/phase2/Wolfhouse - Stripe Checkout Success.json` | HTML success page (no DB writes) | **Keep as-is** |
+| `n8n/Wolfhouse - Send Confirmation.json` | Confirmation send, gated on payment status | **Update eligibility check to use Postgres `bookings.payment_status`** |
+| `n8n/phase2/Wolfhouse - Send Confirmation (local).json` | Local fork of confirmation workflow | **Same as above** |
+
+### No bot parser/session files in `scripts/`
+**Finding:** There are no standalone bot parser or session manager files in `scripts/`. All bot logic (parser, router, availability check, session state management, payment send, confirmation) lives entirely within n8n workflow JSON nodes. The session state for each guest conversation is stored in Airtable (`Conversations` table, `Session State` JSON blob field). This is important because:
+- Any shared engine integration must work as n8n HTTP call nodes (calling the Staff API endpoints).
+- There is no `scripts/lib/bot-session.js` or equivalent to refactor.
+- Future migration of session state from Airtable to Postgres is a separate deferred work item.
+
+---
+
+## 11. Stage 8.5.1 outcome
+
+**Status: PASS**
+
+- Shared engine integration map complete.
+- Luna bot current flow documented (static inspection of n8n workflow JSON).
+- All required data fields identified.
+- All integration points mapped with gap analysis.
+- No-duplicate-logic rules stated explicitly.
+- Dry-run behavior defined.
+- 6-slice implementation ladder (8.5.2–8.5.7) recommended.
+- No bot wiring implemented.
+- No WhatsApp sends.
+- No n8n workflow activation.
+- No DB writes.
+- No Azure deploy.
+- No Stripe changes.
+- No new production flags.
+
+**Smallest next implementation slice:** Stage 8.5.2 — static verifier of bot workflow payment nodes.
+
+---
+
+*Stage 8.5.1 — static mapping only. No implementation performed. 2026-06-02.*
