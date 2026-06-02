@@ -93,6 +93,9 @@ const {
   buildManualBookingCreateSql,
   MANUAL_BOOKING_ALLOWED_ROLES,
 } = require('./lib/staff-manual-booking-create-sql');
+const {
+  calculateWolfhouseQuote,
+} = require('./lib/wolfhouse-quote-calculator');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -1069,6 +1072,105 @@ async function handleManualBookingPreview(req, res, user) {
       ? 'Manual booking creation is enabled. POST /staff/manual-bookings/create to create.'
       : 'Manual booking creation is disabled. Set MANUAL_BOOKING_ENABLED to true to enable.',
     elapsed_ms: elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
+//
+// Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
+// No Stripe. No WhatsApp. No n8n.
+// Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+// Requires auth (viewer+ when STAFF_AUTH_REQUIRED=true).
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleQuotePreview(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug    = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const checkIn       = String(body.check_in    || '').trim();
+  const checkOut      = String(body.check_out   || '').trim();
+  const guestCount    = body.guest_count;
+  const packageCode   = body.package_code   != null ? String(body.package_code).trim()  : undefined;
+  const roomType      = String(body.room_type      || 'shared').trim();
+  const paymentChoice = String(body.payment_choice || 'deposit').trim();
+  const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
+
+  if (!checkIn || !checkOut) {
+    return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) {
+    return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  }
+
+  const actorId   = user ? user.staff_user_id : 'dev-quote-preview-local';
+  const actorRole = user ? user.role          : 'viewer';
+
+  let quote;
+  try {
+    quote = calculateWolfhouseQuote({
+      client_slug:    clientSlug,
+      check_in:       checkIn,
+      check_out:      checkOut,
+      guest_count:    guestCount,
+      package_code:   packageCode,
+      room_type:      roomType,
+      payment_choice: paymentChoice,
+      add_ons:        addOns,
+    });
+  } catch (err) {
+    appendAuditLog({
+      ts:            new Date().toISOString(),
+      intent:        'api:quote_preview',
+      preview_only:  true,
+      no_write_performed: true,
+      success:       false,
+      error:         err.message,
+      elapsed_ms:    Date.now() - started,
+      staff_user_id: actorId,
+      staff_role:    actorRole,
+    });
+    return sendJSON(res, 500, { success: false, error: 'quote calculation failed' });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts:                 new Date().toISOString(),
+    intent:             'api:quote_preview',
+    preview_only:       true,
+    no_write_performed: true,
+    creates_booking:    false,
+    creates_payment:    false,
+    creates_stripe_link: false,
+    success:            true,
+    client_slug:        clientSlug,
+    check_in:           checkIn,
+    check_out:          checkOut,
+    package_code:       packageCode || null,
+    quote_success:      quote.success,
+    total_cents:        quote.total_cents,
+    elapsed_ms:         elapsed,
+    staff_user_id:      actorId,
+    staff_role:         actorRole,
+  });
+
+  return sendJSON(res, 200, {
+    success:             true,
+    preview_only:        true,
+    no_write_performed:  true,
+    creates_booking:     false,
+    creates_payment:     false,
+    creates_stripe_link: false,
+    quote,
+    elapsed_ms:          elapsed,
   });
 }
 
@@ -5201,6 +5303,19 @@ async function router(req, res) {
     return handleManualBookingCreate(req, res, auth.user);
   }
 
+  // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
+  // POST to carry JSON payload; never touches DB, Stripe, or any external service.
+  // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  if (pathname === '/staff/quote-preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for quote-preview' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleQuotePreview(req, res, auth.user);
+  }
+
   // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
     return send405(res);
@@ -5336,6 +5451,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/staff-state`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
   if (STAFF_ACTIONS_ENABLED) {
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);
