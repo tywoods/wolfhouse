@@ -1,0 +1,448 @@
+'use strict';
+/**
+ * wolfhouse-quote-calculator.js
+ * Stage 8.4.3 — Pure Wolfhouse quote calculator.
+ *
+ * Proration rule (MVP): Formula B — per-night ceil5.
+ *   1. weekly_per_person_cents / 7  → fractional per-night rate
+ *   2. Round UP to nearest 500 cents (EUR 5) per person per night
+ *   3. Multiply by nights × guest_count
+ *
+ * Formula B is the selected MVP rule because it matches the Wolfhouse business rule
+ * described in wolfhouse-somo.baseline.json (3x.2g): weekly package price ÷ 7,
+ * rounded up to the nearest €5 per night, multiplied by nights.
+ *
+ * For exactly 7 nights: use flat weekly_per_person_cents × guest_count directly.
+ * No proration needed for a full-week stay.
+ *
+ * Forbidden: no pg, no DB calls, no fetch, no Stripe, no n8n, no WhatsApp.
+ */
+
+const fs   = require('fs');
+const path = require('path');
+
+const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
+
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Round up to the nearest 500 cents (EUR 5).
+ * @param {number} cents - fractional or whole cents value
+ * @returns {number} integer cents rounded up to nearest 500
+ */
+function ceil5(cents) {
+  return Math.ceil(cents / 500) * 500;
+}
+
+/**
+ * Parse a YYYY-MM-DD date string to a UTC Date object.
+ * Throws on invalid input.
+ */
+function parseDateUTC(str) {
+  if (!str || typeof str !== 'string') throw new Error(`Expected YYYY-MM-DD string, got: ${JSON.stringify(str)}`);
+  const d = new Date(str + 'T00:00:00Z');
+  if (isNaN(d.getTime())) throw new Error(`Invalid date string: "${str}"`);
+  return d;
+}
+
+/**
+ * Count whole nights between two UTC Date objects.
+ */
+function nightsBetween(checkIn, checkOut) {
+  return Math.round((checkOut - checkIn) / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * Find the season that applies to a given 1-based month number.
+ * Returns the season with the highest priority value containing the month,
+ * or null if no season covers the month.
+ */
+function findSeason(config, month) {
+  let best = null;
+  for (const s of config.seasons) {
+    if (Array.isArray(s.month_numbers) && s.month_numbers.includes(month)) {
+      if (!best || (s.priority || 0) > (best.priority || 0)) {
+        best = s;
+      }
+    }
+  }
+  return best;
+}
+
+/** Load and parse the pricing config from disk. */
+function loadConfig() {
+  const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+  return JSON.parse(raw);
+}
+
+// ─── Shared blocked-result builder ───────────────────────────────────────────
+
+function buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config) {
+  const { client_slug, package_code, room_type = 'shared' } = input || {};
+  return {
+    success: false,
+    client_slug: client_slug || null,
+    currency: config.currency,
+    nights: (typeof nights === 'number' && nights > 0) ? nights : null,
+    guest_count: guests || null,
+    package_code: package_code || null,
+    room_type,
+    season_code,
+    line_items: [],
+    subtotal_cents: 0,
+    discount_cents: 0,
+    total_cents: 0,
+    deposit_required_cents: 0,
+    payment_link_amount_cents: 0,
+    amount_paid_cents: 0,
+    balance_due_cents: 0,
+    payment_options: config.payment_options,
+    confidence: 'blocked',
+    blockers: blockers || [],
+    warnings: warnings || [],
+    formula_summary: 'Formula B (per-night ceil5): weekly_price ÷ 7, rounded up to nearest €5/night, × nights × guests',
+    staff_review_required: !!(staff_review_required || (blockers && blockers.length > 0)),
+    source: 'wolfhouse-quote-calculator',
+    missing_config: !!missing_config,
+  };
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
+
+/**
+ * calculateWolfhouseQuote(input, config)
+ *
+ * Pure function — no side effects, no DB, no network.
+ *
+ * @param {object} input
+ *   client_slug      {string}   Must match config.client_slug
+ *   check_in         {string}   YYYY-MM-DD
+ *   check_out        {string}   YYYY-MM-DD
+ *   guest_count      {number}   >= 1
+ *   package_code     {string}   'malibu' | 'uluwatu' | 'waimea'
+ *   room_type        {string}   'shared' | 'double' | 'private'  (default 'shared')
+ *   payment_choice   {string}   'deposit' | 'full' | 'pay_on_arrival'  (default 'deposit')
+ *   add_ons          {Array}    [{code, days?, quantity?}]
+ *
+ * @param {object} [config]  Optional; loaded from disk if omitted.
+ * @returns {object}  Quote output (see below for field list).
+ */
+function calculateWolfhouseQuote(input, config) {
+  if (!config) config = loadConfig();
+
+  const {
+    client_slug,
+    check_in,
+    check_out,
+    guest_count,
+    package_code,
+    room_type     = 'shared',
+    payment_choice = 'deposit',
+    add_ons       = [],
+  } = input || {};
+
+  const blockers = [];
+  const warnings = [];
+  let staff_review_required = false;
+  let missing_config        = false;
+
+  // ── 1. client_slug ────────────────────────────────────────────────────────
+  if (client_slug !== config.client_slug) {
+    blockers.push(`client_slug mismatch: got "${client_slug}", config is "${config.client_slug}"`);
+  }
+
+  // ── 2. Date validation ────────────────────────────────────────────────────
+  let checkInDate  = null;
+  let checkOutDate = null;
+  let nights       = null;
+
+  try {
+    checkInDate  = parseDateUTC(check_in);
+    checkOutDate = parseDateUTC(check_out);
+    nights       = nightsBetween(checkInDate, checkOutDate);
+    if (nights <= 0) {
+      blockers.push(`check_out must be after check_in (nights = ${nights})`);
+    }
+  } catch (e) {
+    blockers.push(`invalid dates: ${e.message}`);
+  }
+
+  // ── 3. guest_count ────────────────────────────────────────────────────────
+  const guests = parseInt(guest_count, 10);
+  if (!Number.isInteger(guests) || guests < 1) {
+    blockers.push(`guest_count must be a positive integer (got "${guest_count}")`);
+  }
+
+  // ── 4. Season lookup ──────────────────────────────────────────────────────
+  let season_code = null;
+
+  if (checkInDate && nights > 0) {
+    const month  = checkInDate.getUTCMonth() + 1; // 1–12
+    const season = findSeason(config, month);
+
+    if (!season) {
+      // Edge months (Mar=3, Nov=11) have no configured season
+      missing_config        = true;
+      staff_review_required = true;
+      blockers.push(`month ${month} has no configured season — edge month, staff review required`);
+    } else if (season.bookable === false) {
+      blockers.push(`month ${month} is in the "${season.code}" season which is closed (not bookable)`);
+    } else {
+      season_code = season.code;
+    }
+  }
+
+  // Return early if any fundamental blocker exists before we can price
+  if (blockers.length > 0) {
+    return buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config);
+  }
+
+  // ── 5. Package lookup ─────────────────────────────────────────────────────
+  const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
+
+  if (!package_code) {
+    staff_review_required = true;
+    blockers.push('package_code is required');
+  } else if (!KNOWN_PACKAGES.includes(package_code)) {
+    staff_review_required = true;
+    blockers.push(`unknown package_code "${package_code}" — staff review required`);
+  }
+
+  const pkg = package_code ? config.packages.find(p => p.code === package_code) : null;
+  if (package_code && KNOWN_PACKAGES.includes(package_code) && !pkg) {
+    blockers.push(`package "${package_code}" not found in pricing config`);
+  }
+
+  if (blockers.length > 0) {
+    return buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config);
+  }
+
+  // ── 6. Seasonal price ─────────────────────────────────────────────────────
+  const seasonPrices = pkg.seasonal_prices && pkg.seasonal_prices[season_code];
+  if (!seasonPrices || !seasonPrices.weekly_per_person_cents) {
+    blockers.push(`no price configured for package "${package_code}" in season "${season_code}"`);
+    return buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config);
+  }
+
+  const weekly_cents = seasonPrices.weekly_per_person_cents;
+
+  // ── 7. Base package price (Formula B per-night ceil5) ────────────────────
+  let package_cents;
+  let formula_detail;
+
+  const per_night_ceil5 = ceil5(weekly_cents / 7);
+
+  if (nights === 7) {
+    // Exactly 7 nights: use the flat weekly rate — no proration
+    package_cents  = weekly_cents * guests;
+    formula_detail = `7-night flat: ${weekly_cents}¢/person/week × ${guests}g = ${package_cents}¢`;
+  } else {
+    // Formula B: ceil5 per night, then × nights × guests
+    package_cents  = per_night_ceil5 * nights * guests;
+    formula_detail = `Formula B: ceil5(${weekly_cents}¢/7)=${per_night_ceil5}¢/night × ${nights}n × ${guests}g = ${package_cents}¢`;
+  }
+
+  const line_items = [];
+  line_items.push({
+    code: nights === 7 ? 'package' : 'package_proration',
+    label: nights === 7
+      ? `${pkg.name} (${season_code}, 7 nights, ${guests} guest${guests !== 1 ? 's' : ''})`
+      : `${pkg.name} proration (${season_code}, ${nights} nights, ${guests} guest${guests !== 1 ? 's' : ''}, Formula B)`,
+    nights,
+    guest_count: guests,
+    unit_cents: nights === 7 ? weekly_cents : per_night_ceil5,
+    total_cents: package_cents,
+    note: formula_detail,
+  });
+
+  // ── 8. Room supplement ────────────────────────────────────────────────────
+  let supplement_cents = 0;
+  const roomSupp = config.room_supplements && config.room_supplements[room_type];
+
+  if (!roomSupp) {
+    warnings.push(`unknown room_type "${room_type}" — no supplement applied`);
+  } else {
+    const supp_ppn = roomSupp.per_person_per_night_cents || 0;
+    if (supp_ppn > 0) {
+      supplement_cents = supp_ppn * nights * guests;
+      line_items.push({
+        code: 'room_supplement',
+        label: `${room_type} room supplement (${supp_ppn / 100}€/person/night × ${nights}n × ${guests}g)`,
+        nights,
+        guest_count: guests,
+        unit_cents: supp_ppn,
+        total_cents: supplement_cents,
+      });
+    }
+  }
+
+  // ── 9. Add-ons ────────────────────────────────────────────────────────────
+  let addons_cents = 0;
+  const addOnList = Array.isArray(add_ons) ? add_ons : [];
+
+  // Determine which individual codes are superseded by a combo
+  const replaced = new Set();
+  for (const addon of addOnList) {
+    const cfgA = config.add_ons[addon.code];
+    if (cfgA && Array.isArray(cfgA.replaces)) {
+      for (const r of cfgA.replaces) replaced.add(r);
+    }
+  }
+
+  // Tally surf-lesson quantity across all lesson add-on codes
+  let totalLessons = 0;
+  for (const addon of addOnList) {
+    if (addon.code === 'surf_lesson_single' || addon.code === 'surf_lesson_multi') {
+      totalLessons += Math.max(1, parseInt(addon.quantity, 10) || 1);
+    }
+  }
+
+  for (const addon of addOnList) {
+    // Skip if superseded by a combo
+    if (replaced.has(addon.code)) {
+      warnings.push(`${addon.code} is replaced by a combo add-on — skipped as standalone`);
+      continue;
+    }
+
+    // Surf lessons are pooled and handled after the loop
+    if (addon.code === 'surf_lesson_single' || addon.code === 'surf_lesson_multi') continue;
+
+    const cfgA = config.add_ons[addon.code];
+    if (!cfgA) {
+      warnings.push(`unknown add-on code "${addon.code}" — skipped`);
+      continue;
+    }
+
+    if (cfgA.pricing_unit === 'per_day') {
+      const days  = Math.max(1, parseInt(addon.days, 10) || 1);
+      const unit  = cfgA.price_cents;
+      const total = unit * days;
+      addons_cents += total;
+      line_items.push({
+        code: addon.code,
+        label: `${cfgA.name} (${days} day${days !== 1 ? 's' : ''} × ${unit / 100}€)`,
+        days,
+        unit_cents: unit,
+        total_cents: total,
+      });
+      if (cfgA.on_site) {
+        warnings.push(`${cfgA.name}: normally booked and paid on site — confirm charge timing with staff`);
+      }
+      if (cfgA.charge_timing === 'REQUIRED_FROM_STAFF') {
+        warnings.push(`${cfgA.name}: charge timing not confirmed (with booking or on site?) — staff confirmation needed`);
+      }
+      continue;
+    }
+
+    if (cfgA.pricing_unit === 'per_class') {
+      const qty   = Math.max(1, parseInt(addon.quantity, 10) || 1);
+      const unit  = cfgA.price_cents;
+      const total = unit * qty;
+      addons_cents += total;
+      line_items.push({
+        code: addon.code,
+        label: `${cfgA.name} (${qty} class${qty !== 1 ? 'es' : ''} × ${unit / 100}€)`,
+        quantity: qty,
+        unit_cents: unit,
+        total_cents: total,
+      });
+      if (cfgA.on_site) {
+        warnings.push(`${cfgA.name}: normally booked and paid on site — confirm with staff`);
+      }
+      continue;
+    }
+
+    warnings.push(`add-on "${addon.code}" has unhandled pricing_unit "${cfgA.pricing_unit}" — skipped`);
+  }
+
+  // Surf lessons: total quantity determines single vs. bundle pricing
+  if (totalLessons > 0) {
+    let lesson_unit, lesson_total, lesson_code, lesson_label;
+    if (totalLessons === 1) {
+      lesson_unit  = config.add_ons.surf_lesson_single.price_cents;
+      lesson_total = lesson_unit;
+      lesson_code  = 'surf_lesson_single';
+      lesson_label = `Surf lesson (single, 1 × ${lesson_unit / 100}€)`;
+    } else {
+      lesson_unit  = config.add_ons.surf_lesson_multi.price_cents_each;
+      lesson_total = lesson_unit * totalLessons;
+      lesson_code  = 'surf_lesson_multi';
+      lesson_label = `Surf lessons (bundle rate, ${totalLessons} × ${lesson_unit / 100}€)`;
+    }
+    addons_cents += lesson_total;
+    line_items.push({
+      code: lesson_code,
+      label: lesson_label,
+      quantity: totalLessons,
+      unit_cents: lesson_unit,
+      total_cents: lesson_total,
+    });
+  }
+
+  // ── 10. Totals ────────────────────────────────────────────────────────────
+  const subtotal_cents = package_cents + supplement_cents + addons_cents;
+  const discount_cents = 0;
+  const total_cents    = subtotal_cents - discount_cents;
+
+  // ── 11. Deposit tier ──────────────────────────────────────────────────────
+  const deposit_required_cents = nights === 7
+    ? config.deposits.tiers.standard_package.amount_cents
+    : config.deposits.tiers.custom_or_short_stay.amount_cents;
+
+  // ── 12. Payment link amount ───────────────────────────────────────────────
+  let payment_link_amount_cents = 0;
+
+  if (payment_choice === 'deposit') {
+    payment_link_amount_cents = deposit_required_cents;
+  } else if (payment_choice === 'full') {
+    payment_link_amount_cents = total_cents;
+  } else if (payment_choice === 'pay_on_arrival') {
+    payment_link_amount_cents = 0;
+    staff_review_required     = true;
+    warnings.push('pay_on_arrival: no payment link generated — confirm arrangement with staff');
+  } else {
+    warnings.push(`unrecognised payment_choice "${payment_choice}" — defaulting to deposit`);
+    payment_link_amount_cents = deposit_required_cents;
+  }
+
+  // ── 13. Balance ───────────────────────────────────────────────────────────
+  const amount_paid_cents  = 0;
+  const balance_due_cents  = total_cents - amount_paid_cents;
+
+  // ── 14. Confidence ────────────────────────────────────────────────────────
+  const confidence = (staff_review_required || warnings.length > 0) ? 'review' : 'auto';
+
+  // ── 15. Formula summary ───────────────────────────────────────────────────
+  const formula_summary = nights === 7
+    ? `7-night flat: ${weekly_cents / 100}€/person/week × ${guests} guest${guests !== 1 ? 's' : ''} = ${package_cents / 100}€ package base`
+    : `Formula B (per-night ceil5): ceil5(${weekly_cents / 100}€/7) = ${per_night_ceil5 / 100}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ package base`;
+
+  return {
+    success: true,
+    client_slug,
+    currency: config.currency,
+    nights,
+    guest_count: guests,
+    package_code,
+    room_type,
+    season_code,
+    line_items,
+    subtotal_cents,
+    discount_cents,
+    total_cents,
+    deposit_required_cents,
+    payment_link_amount_cents,
+    amount_paid_cents,
+    balance_due_cents,
+    payment_options: config.payment_options,
+    confidence,
+    blockers,
+    warnings,
+    formula_summary,
+    staff_review_required,
+    source: 'wolfhouse-quote-calculator',
+    missing_config,
+  };
+}
+
+module.exports = { calculateWolfhouseQuote };
