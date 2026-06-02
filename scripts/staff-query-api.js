@@ -2136,6 +2136,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <label class="bk-label" for="bk-source">Source / channel</label>
         <input type="text" id="bk-source" class="bk-input bk-input-sm" value="manual_staff" readonly>
       </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-room-type">Room type</label>
+        <select id="bk-room-type" class="bk-input bk-input-sm">
+          <option value="shared" selected>Shared</option>
+          <option value="private">Private (+&euro;10/person/night)</option>
+          <option value="double">Double (+&euro;10/person/night)</option>
+        </select>
+      </div>
     </div>
 
     <!-- Section: Payment -->
@@ -3212,6 +3220,7 @@ function bcClearSelection(){
   var ps = el('bk-payment-status'); if (ps) ps.value = 'unpaid';
   var pc = el('bk-payment-choice'); if (pc) pc.value = 'deposit';
   var pk = el('bk-package'); if (pk) pk.value = '';
+  var rt = el('bk-room-type'); if (rt) rt.value = 'shared';
   var warnEl = el('bc-sel-warn');
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
@@ -3479,7 +3488,7 @@ function runQuotePreview(){
     check_in: checkIn,
     check_out: checkOut,
     guest_count: guestCount,
-    room_type: 'shared',
+    room_type: (el('bk-room-type') ? el('bk-room-type').value : 'shared') || 'shared',
     payment_choice: paymentChoice,
     add_ons: []
   };

@@ -1073,6 +1073,47 @@ check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(src),
   'No fetch to /staff/manual-bookings/create from UI JS (Stage 8.4.5 regression check)');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Stage 8.4.6 — room type selector ─────────────────────────────────────────
+
+// 191. Room type select (bk-room-type) present in manual booking form
+check(/id="bk-room-type"/.test(src),
+  'Room type select (bk-room-type) present in manual booking form (Stage 8.4.6)');
+
+// 192. shared / private / double options present with default shared
+(function checkRoomTypeOptions(){
+  const rtIdx = src.indexOf('id="bk-room-type"');
+  const rtSrc = rtIdx >= 0 ? src.slice(rtIdx, rtIdx + 400) : '';
+  check(/value="shared"/.test(rtSrc) && /value="private"/.test(rtSrc) && /value="double"/.test(rtSrc),
+    'Room type select has shared / private / double options (Stage 8.4.6)');
+  check(/value="shared"[^>]*selected|selected[^>]*value="shared"/.test(rtSrc),
+    'Room type select defaults to shared (Stage 8.4.6)');
+})();
+
+// 193. runQuotePreview reads room_type from bk-room-type (not hardcoded shared)
+(function checkRoomTypeInPayload(){
+  const fnStart = src.indexOf('function runQuotePreview');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction renderQuoteResult', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bk-room-type/.test(fnSrc),
+    'runQuotePreview reads room_type from bk-room-type element (Stage 8.4.6)');
+  check(!/room_type\s*:\s*['"]shared['"]/.test(fnSrc),
+    'runQuotePreview does not hardcode room_type as shared (Stage 8.4.6)');
+})();
+
+// 194. bcClearSelection resets bk-room-type to shared
+(function checkClearResetsRoomType(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bk-room-type/.test(fnSrc) && /value\s*=\s*['"]shared['"]/.test(fnSrc),
+    'bcClearSelection resets bk-room-type to shared (Stage 8.4.6)');
+})();
+
+// 195. Create Manual Booking still disabled (regression)
+check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src),
+  'Create Manual Booking button still disabled after Stage 8.4.6 (regression check)');
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
 if (failures > 0) process.exit(1);
