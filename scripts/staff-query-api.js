@@ -2161,8 +2161,8 @@ function renderBookingBlock(blk, idx){
   var statusHint = blk.color_type ? ' [' + blk.color_type.replace(/_/g,' ') + ']' : '';
   var tip = escHtml(
     (blk.booking_code||'\u2014') + ' \u2013 ' + (blk.guest_name||'') +
-    '\n' + (blk.start_date||'') + ' \u2192 ' + (blk.end_date||'') + statusHint +
-    (arrDep.length ? '\n' + arrDep.join(' \u00b7 ') : '')
+    ' | ' + (blk.start_date||'') + ' \u2192 ' + (blk.end_date||'') + statusHint +
+    (arrDep.length ? ' | ' + arrDep.join(' \u00b7 ') : '')
   );
   /* Show booking_code prefix + guest name if span wide enough; code-only for narrow blocks */
   var codeShort = (blk.booking_code||'').replace(/^(DEMO-|WH-|OP-)/, '');

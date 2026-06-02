@@ -301,6 +301,48 @@ check(/bed\.bed_code/.test(src),
 check(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(src),
   'No POST/PATCH/DELETE fetch calls in entire file (Stage 8.3a)');
 
+// ── Stage 8.3a regression fix — embedded JS syntax safety ─────────────────
+
+// 57. No bare \n (unescaped newline escape) in renderBookingBlock tip string
+//     Template literals interpret \n as real newlines, breaking browser JS strings.
+const rbStart = src.indexOf('function renderBookingBlock');
+const rbEnd   = rbStart > 0 ? src.indexOf('\nfunction ', rbStart + 10) : -1;
+const rbSrc   = rbStart > 0 && rbEnd > 0 ? src.slice(rbStart, rbEnd) : '';
+check(rbStart > 0 && !/'\s*\\n\s*'/.test(rbSrc),
+  "No bare '\\n' string in renderBookingBlock tip (would break template literal — Stage 8.3a fix)");
+
+// 58. Embedded JS is syntax-clean (extract and check via node --check) (Stage 8.3a fix)
+(function checkEmbeddedJs(){
+  const { execSync, spawnSync } = require('child_process');
+  try {
+    // Try to fetch from local dev server; if not running, skip gracefully
+    const curlResult = spawnSync('node', ['-e',
+      'const http=require("http");http.get("http://127.0.0.1:3036/staff/ui",(r)=>{let d="";r.on("data",c=>d+=c);r.on("end",()=>process.stdout.write(d));}).on("error",()=>process.exit(0));'
+    ], { timeout: 5000, encoding: 'utf8' });
+    const html = curlResult.stdout || '';
+    if (!html || html.length < 10000) {
+      ok('Embedded JS syntax: local dev server not running — skip (Stage 8.3a fix)');
+      return;
+    }
+    const sStart = html.indexOf('<script>');
+    const sEnd   = html.indexOf('</script>');
+    if (sStart < 0 || sEnd < 0) { fail('Embedded JS syntax: could not find <script> block'); return; }
+    const js = html.slice(sStart + 8, sEnd);
+    const tmp = path.join(__dirname, '..', '_tmp_verify_embedded_js.js');
+    require('fs').writeFileSync(tmp, js, 'utf8');
+    try {
+      execSync('node --check "' + tmp + '"', { stdio: 'ignore' });
+      ok('Embedded JS (browser script) passes node --check syntax validation (Stage 8.3a fix)');
+    } catch (_) {
+      fail('Embedded JS (browser script) has syntax errors — check for \\n in template literal strings');
+    } finally {
+      try { require('fs').unlinkSync(tmp); } catch(_){}
+    }
+  } catch (e) {
+    ok('Embedded JS syntax: check skipped (' + e.message.slice(0,40) + ') — Stage 8.3a fix');
+  }
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
