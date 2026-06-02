@@ -83,7 +83,8 @@
     "verify:staff-login-ui": "node scripts/verify-staff-login-ui.js",
     "seed:stage8-demo": "node scripts/fixtures/stage8-demo-seed.js",
     "cleanup:stage8-demo": "node scripts/fixtures/stage8-demo-cleanup.js",
-    "proof:stage8-demo": "node scripts/fixtures/stage8-demo-proof.js"
+    "proof:stage8-demo": "node scripts/fixtures/stage8-demo-proof.js",
+    "proof:stage8.3i-manual-booking-create": "node scripts/fixtures/stage8.3i-manual-booking-create-proof.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
