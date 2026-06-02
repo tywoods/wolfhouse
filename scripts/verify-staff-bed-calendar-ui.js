@@ -1241,6 +1241,98 @@ check(!/fetch[^)]*manual-bookings\/confirm/i.test(src),
   'No /staff/manual-bookings/confirm fetch from UI (out of scope Stage 8.4.8)');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stage 8.4.10 — Stripe payment link UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 210. BC_STRIPE_LINKS flag embedded
+check(/BC_STRIPE_LINKS\s*=\s*\$\{STRIPE_LINKS_ENABLED\}/.test(src),
+  '210: BC_STRIPE_LINKS flag embedded from server (Stage 8.4.10)');
+
+// 211. bcLastPaymentId state variable
+check(/var bcLastPaymentId\s*=\s*null/.test(src),
+  '211: bcLastPaymentId state variable declared (Stage 8.4.10)');
+
+// 212. bcClearSelection resets bcLastPaymentId
+(function checkClearResetsPaymentId(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bcLastPaymentId\s*=\s*null/.test(fnSrc),
+    '212: bcClearSelection resets bcLastPaymentId to null (Stage 8.4.10)');
+})();
+
+// 213. runCreateStripeLink function present
+check(/function runCreateStripeLink/.test(src),
+  '213: runCreateStripeLink function present (Stage 8.4.10)');
+
+// 214. runCreateStripeLink calls the correct endpoint
+(function checkStripeLink(){
+  const fnStart = src.indexOf('function runCreateStripeLink');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction render', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : src.slice(fnStart > 0 ? fnStart : 0, fnStart + 3000);
+  check(/\/staff\/payments\//.test(fnSrc) && /create-stripe-link/.test(fnSrc),
+    '214: runCreateStripeLink calls /staff/payments/:id/create-stripe-link (Stage 8.4.10)');
+  check(/fetch\(/.test(fnSrc),
+    '214b: runCreateStripeLink uses fetch (browser-to-API, not direct Stripe) (Stage 8.4.10)');
+  check(/BC_STRIPE_LINKS.*BC_STAFF_ACTIONS|BC_STAFF_ACTIONS.*BC_STRIPE_LINKS/.test(fnSrc),
+    '214c: runCreateStripeLink checks BC_STRIPE_LINKS and BC_STAFF_ACTIONS flags (Stage 8.4.10)');
+  check(/bcLastPaymentId/.test(fnSrc),
+    '214d: runCreateStripeLink uses bcLastPaymentId (Stage 8.4.10)');
+  check(/navigator\.clipboard|prompt\(/.test(fnSrc),
+    '214e: runCreateStripeLink wires copy-to-clipboard (Stage 8.4.10)');
+  check(!/whatsapp|twilio|sendWhats/i.test(fnSrc),
+    '214f: runCreateStripeLink makes no WhatsApp calls (Stage 8.4.10)');
+  check(!/n8n|webhook.*post|axios/i.test(fnSrc),
+    '214g: runCreateStripeLink makes no n8n/webhook calls (Stage 8.4.10)');
+})();
+
+// 215. renderStripeLinkResult function present and has safety text
+check(/function renderStripeLinkResult/.test(src),
+  '215: renderStripeLinkResult function present (Stage 8.4.10)');
+(function checkRenderStripeResult(){
+  const fnStart = src.indexOf('function renderStripeLinkResult');
+  const fnSrc   = fnStart > 0 ? src.slice(fnStart, fnStart + 3000) : '';
+  check(/checkout_url/.test(fnSrc),
+    '215b: renderStripeLinkResult displays checkout_url (Stage 8.4.10)');
+  check(/Copy Payment Link|Copy/.test(fnSrc),
+    '215c: renderStripeLinkResult has Copy Payment Link button (Stage 8.4.10)');
+  check(/not.*paid.*until webhook|webhook.*confirms|payment.*NOT marked paid/i.test(fnSrc),
+    '215d: renderStripeLinkResult shows payment-not-paid-until-webhook warning (Stage 8.4.10)');
+  check(!/amount_paid_cents.*=|paid.*=.*true|booking.*confirmed/i.test(fnSrc),
+    '215e: renderStripeLinkResult does NOT update paid/confirmed state (Stage 8.4.10)');
+})();
+
+// 216. Create Stripe Payment Link button in renderCreateResult
+(function checkCreateResultHasStripeBtn(){
+  const fnStart = src.indexOf('function renderCreateResult');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction run', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-sel-stripe-link/.test(fnSrc),
+    '216: renderCreateResult contains bc-sel-stripe-link button (Stage 8.4.10)');
+  check(/BC_STRIPE_LINKS/.test(fnSrc),
+    '216b: renderCreateResult gates Stripe button by BC_STRIPE_LINKS (Stage 8.4.10)');
+  check(/bc-stripe-link-result/.test(fnSrc),
+    '216c: renderCreateResult includes bc-stripe-link-result container (Stage 8.4.10)');
+  check(/payment_id/.test(fnSrc),
+    '216d: renderCreateResult shows payment_id from response (Stage 8.4.10)');
+})();
+
+// 217. No direct Stripe API calls from UI code
+check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test(src.slice(src.indexOf('function renderBedCalendar') || 0)),
+  '217: No direct Stripe API calls from browser UI code (Stage 8.4.10)');
+
+// 218. runManualBookingCreate sets bcLastPaymentId
+(function checkRunCreateSetsPaymentId(){
+  const fnStart = src.indexOf('function runManualBookingCreate');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bcLastPaymentId\s*=/.test(fnSrc),
+    '218: runManualBookingCreate sets bcLastPaymentId from response (Stage 8.4.10)');
+  check(/bc-sel-stripe-link/.test(fnSrc),
+    '218b: runManualBookingCreate wires bc-sel-stripe-link button after render (Stage 8.4.10)');
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
 if (failures > 0) process.exit(1);

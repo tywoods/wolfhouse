@@ -149,7 +149,103 @@ If `payment.status` is already `checkout_created` and `checkout_url` is present,
 | Test data cleaned up | ✓ |
 
 ### Next step
-Stage 8.4.10 — Send Stripe checkout URL to guest (WhatsApp or email). **Not in this slice.**
+Stage 8.4.10 — Staff Portal create/copy Stripe payment link. **Done — see below.**
+
+---
+
+## Stage 8.4.10 — Staff Portal create/copy Stripe payment link (DONE)
+
+**Commit:** `ui(stage8.4.10): show and copy Stripe payment link`
+
+### Goal
+After a manual booking is created (8.4.8) and a Stripe session can be generated (8.4.9), staff can trigger link creation from the UI result panel and copy it. No send via WhatsApp/email yet.
+
+### UI changes in `scripts/staff-query-api.js`
+
+#### Server-side flag embedding
+`var BC_STRIPE_LINKS = ${STRIPE_LINKS_ENABLED};` — interpolated at render time, alongside `BC_STAFF_ACTIONS` and `BC_MANUAL_BOOKING`.
+
+#### State variable
+`var bcLastPaymentId = null;` — stores payment_id from the last successful manual booking create response.
+
+#### Backend: `payment_id` added to create response
+`UPDATE payments ... RETURNING id AS payment_id` was added so `result._payment_id` is captured and returned in the 201 response as `payment_id`.
+
+#### `renderCreateResult(res)` updated
+- Shows `payment_id` (monospace, small)
+- Shows payment status pill: `draft`
+- Shows "Create Stripe Payment Link" button (`id="bc-sel-stripe-link"`)
+  - **Enabled** when `BC_STRIPE_LINKS && BC_STAFF_ACTIONS && payment_id` are all truthy
+  - **Disabled** (greyed, with tooltip) when any flag is off or payment_id missing
+- Shows `<div id="bc-stripe-link-result">` for Stripe session result
+
+#### `runManualBookingCreate()` updated
+- After success: sets `bcLastPaymentId = res.data.payment_id`
+- After `cr.innerHTML = renderCreateResult(res)`: wires `bc-sel-stripe-link` click → `runCreateStripeLink()`
+
+#### New `runCreateStripeLink()`
+- Gate checks: `BC_STRIPE_LINKS && BC_STAFF_ACTIONS && bcLastPaymentId`
+- POSTs to `/staff/payments/{bcLastPaymentId}/create-stripe-link` (Staff API — **never calls Stripe directly from browser**)
+- Renders result in `bc-stripe-link-result`
+- Wires `bc-copy-payment-link` click → `navigator.clipboard.writeText(url)` (falls back to `prompt()`)
+- Re-enables button after completion (idempotent re-use supported)
+- No WhatsApp. No email. No n8n.
+
+#### New `renderStripeLinkResult(res)`
+- Success: shows checkout_url, session ID (truncated), `Copy Payment Link` button, payment status pill
+- Warning: "Stripe test link created — payment is NOT marked paid until webhook confirms."
+- Error: shows friendly error message
+
+#### `renderBookingContextDrawer()` payment section
+- After existing payment amount rows, checks `pmt.rows` for any row with `checkout_url`
+- If present: shows link (truncated) + inline `Copy` button (wired via inline onclick using `navigator.clipboard`)
+- Note: `getBookingPaymentsQuery` doesn't yet return `checkout_url` — this code path is ready for when that query is updated. A future sub-task: add `checkout_url` to `staff-booking-detail-queries.js`.
+
+#### `bcClearSelection()` reset
+Resets `bcLastPaymentId = null` and clears `bc-stripe-link-result`.
+
+### Safety
+- All Stripe API calls made server-side only (`/staff/payments/:id/create-stripe-link`)
+- `STRIPE_SECRET_KEY` never exposed to browser
+- `no_payment_truth_recorded: true` in every success response
+- No amount_paid_cents updated
+- No booking confirmed/paid
+- No WhatsApp, email, n8n
+
+### Verifier changes (`verify-staff-bed-calendar-ui.js`)
+23 new checks (210–218) covering: `BC_STRIPE_LINKS` embedding, `bcLastPaymentId`, `bcClearSelection` reset, `runCreateStripeLink` endpoint + flags + clipboard + no-WhatsApp/n8n, `renderStripeLinkResult` content + webhook warning + no-paid-state-update, `renderCreateResult` Stripe button + `bc-stripe-link-result`, no direct Stripe calls from browser, `runManualBookingCreate` sets `bcLastPaymentId`.
+
+**Total: 260/260 PASS** (was 237)
+
+### Full verifier suite: 475/475 PASS
+- `verify-staff-bed-calendar-ui.js`: 260/260
+- `verify-staff-manual-booking-create-api.js`: 50/50
+- `verify-staff-stripe-payment-link-api.js`: 55/55
+- `verify-staff-quote-preview-api.js`: 33/33
+- `verify-wolfhouse-quote-calculator.js`: 77/77
+
+### Local proof (2026-06-02)
+| Test | Result |
+|------|--------|
+| `BC_STRIPE_LINKS` embedded in UI source | ✓ |
+| `bc-sel-stripe-link` button in UI source | ✓ |
+| `Copy Payment Link` in UI source | ✓ |
+| Create booking → `payment_id` returned | `ecd0c780-ac3a-4aba-9faa-7ba1dc3236f7` ✓ |
+| POST to `/staff/payments/:id/create-stripe-link` → 200 | ✓ |
+| `stripe_checkout_session_id` | `cs_test_a1ShoGwTulIU…` ✓ |
+| `status = checkout_created` | ✓ |
+| `no_payment_truth_recorded = true` | ✓ |
+| Idempotent 2nd call → `idempotent: true`, same URL | ✓ |
+| `payment.amount_paid_cents = 0` | ✓ |
+| `booking.status = confirmed` (unchanged) | ✓ |
+| `booking.payment_status = not_requested` | ✓ |
+| Test data cleaned up | ✓ |
+
+### Drawer note
+`renderBookingContextDrawer` is ready for `checkout_url` display once `getBookingPaymentsQuery` is updated to return that column. Not a blocker for this stage.
+
+### Next step
+Stage 8.4.11 — Send Stripe checkout URL to guest via WhatsApp message (or email). **Not in this slice.**
 
 ---
 

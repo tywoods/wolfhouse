@@ -1707,12 +1707,14 @@ async function handleManualBookingCreate(req, res, user) {
         );
 
         // Stage 8.4.8: Update payment record — payment_kind from payment_choice + correct amount
-        await pg.query(
+        // Stage 8.4.10: RETURNING id so payment_id can be included in the API response
+        const pmUpdate = await pg.query(
           `UPDATE payments
              SET payment_kind     = $1::payment_kind,
                  amount_due_cents = $2,
                  metadata         = metadata || $3::jsonb
-           WHERE booking_id = $4`,
+           WHERE booking_id = $4
+           RETURNING id AS payment_id`,
           [
             paymentKind,
             paymentLinkAmountCents,
@@ -1725,6 +1727,7 @@ async function handleManualBookingCreate(req, res, user) {
             result.booking_id,
           ]
         );
+        result._payment_id = pmUpdate.rows.length > 0 ? pmUpdate.rows[0].payment_id : null;
 
         await pg.query('COMMIT');
         return result;
@@ -1800,6 +1803,7 @@ async function handleManualBookingCreate(req, res, user) {
     success:           true,
     booking_id:        row.booking_id,
     booking_code:      row.booking_code,
+    payment_id:        row._payment_id || null,   // Stage 8.4.10: for Stripe link creation
     beds_inserted:     Number(row.beds_inserted || 0),
     payments_inserted: Number(row.payments_inserted || 0),
     audit_event_id:    row.audit_event_id,
@@ -2912,6 +2916,19 @@ function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+/* Stage 8.4.10 — shared clipboard helper for dynamically-rendered copy buttons */
+function bcCopyUrl(btn){
+  var u = btn && btn.dataset && btn.dataset.url;
+  if (!u) return;
+  var orig = btn.textContent;
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(u)
+      .then(function(){ btn.textContent = '\u2713 Copied!'; setTimeout(function(){ btn.textContent = orig; }, 2000); })
+      .catch(function(){ prompt('Payment link:', u); });
+  } else {
+    prompt('Payment link:', u);
+  }
+}
 function fmtTs(ts){
   if (!ts) return '';
   try {
@@ -3585,8 +3602,12 @@ var bcSelectedBeds = []; /* [{ room_code, bed_code }] — beds in current select
 /* Stage 8.4.8 — server-reported feature flags (interpolated at render time) */
 var BC_STAFF_ACTIONS  = ${STAFF_ACTIONS_ENABLED};
 var BC_MANUAL_BOOKING = ${MANUAL_BOOKING_ENABLED};
+/* Stage 8.4.9/10 — Stripe link flag */
+var BC_STRIPE_LINKS   = ${STRIPE_LINKS_ENABLED};
 /* Last successful quote (required for create) */
 var bcLastQuote = null;
+/* Stage 8.4.10 — payment_id from last successful manual booking create */
+var bcLastPaymentId = null;
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
 
@@ -3613,9 +3634,11 @@ function bcClearSelection(){
   var pc = el('bk-payment-choice'); if (pc) pc.value = 'deposit';
   var pk = el('bk-package'); if (pk) pk.value = '';
   var rt = el('bk-room-type'); if (rt) rt.value = 'shared';
-  /* Reset quote state and create panel (Stage 8.4.8) */
+  /* Reset quote state and create panel (Stage 8.4.8/10) */
   bcLastQuote = null;
+  bcLastPaymentId = null;
   var _crEl = el('bc-create-result'); if (_crEl) _crEl.innerHTML = '';
+  var _slEl = el('bc-stripe-link-result'); if (_slEl) _slEl.innerHTML = '';
   bcUpdateCreateButton();
   /* Reset add-on checkboxes and qty inputs (Stage 8.4.7) */
   ['bk-ao-ws-combo','bk-ao-wb-combo','bk-ao-wetsuit','bk-ao-softtop','bk-ao-hardboard'].forEach(function(id){
@@ -4016,7 +4039,18 @@ function runManualBookingCreate(){
     return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; });
   })
   .then(function(res){
+    /* Stage 8.4.10: capture payment_id before rendering */
+    if (res.ok && res.data && res.data.success && res.data.payment_id) {
+      bcLastPaymentId = res.data.payment_id;
+    } else {
+      bcLastPaymentId = null;
+    }
     cr.innerHTML = renderCreateResult(res);
+    /* Wire the Stripe link button if rendered */
+    var slBtn = document.getElementById('bc-sel-stripe-link');
+    if (slBtn && !slBtn.disabled) {
+      slBtn.addEventListener('click', runCreateStripeLink);
+    }
     if (res.ok && res.data && res.data.success) {
       /* Reload calendar to show new booking */
       loadBedCalendar();
@@ -4047,14 +4081,125 @@ function renderCreateResult(res){
   html += '<div class="bk-quote-items">';
   html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Booking code</span><span class="bk-quote-item-amount">' + escHtml(d.booking_code||'\u2014') + '</span></div>';
   html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Beds assigned</span><span class="bk-quote-item-amount">' + escHtml(String(d.beds_inserted||0)) + '</span></div>';
+  if (d.payment_id)
+    html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Payment ID</span><span class="bk-quote-item-amount" style="font-size:10px;font-family:monospace">' + escHtml(d.payment_id) + '</span></div>';
+  html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Payment status</span><span class="bk-quote-item-amount"><span class="pill pill-blue" style="font-size:10px">draft</span></span></div>';
   if (qs.total_cents != null)
     html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Total</span><span class="bk-quote-item-amount">' + fmtEur(qs.total_cents) + '</span></div>';
   if (qs.payment_link_amount_cents != null)
-    html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Draft payment (' + escHtml(qs.payment_kind||'') + ')</span><span class="bk-quote-item-amount">' + fmtEur(qs.payment_link_amount_cents) + '</span></div>';
+    html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Payment amount (' + escHtml(qs.payment_kind||'') + ')</span><span class="bk-quote-item-amount">' + fmtEur(qs.payment_link_amount_cents) + '</span></div>';
   html += '</div>';
   if (qs.formula_summary)
     html += '<div class="bk-quote-formula">' + escHtml(qs.formula_summary) + '</div>';
-  html += '<div class="bk-preview-warn" style="margin-top:8px">&#128274; No Stripe link created. Draft payment record created. Status: draft.</div>';
+  /* Stage 8.4.10: Stripe link button area */
+  var canCreateLink = BC_STRIPE_LINKS && BC_STAFF_ACTIONS && !!d.payment_id;
+  html += '<div style="margin-top:12px">';
+  if (canCreateLink){
+    html += '<button class="btn btn-primary" id="bc-sel-stripe-link" style="margin-right:8px">' +
+      '&#128279; Create Stripe Payment Link</button>';
+  } else {
+    html += '<button class="btn btn-primary" id="bc-sel-stripe-link" disabled title="' +
+      (!BC_STRIPE_LINKS ? 'Set STRIPE_LINKS_ENABLED=true to enable' : (!BC_STAFF_ACTIONS ? 'Set STAFF_ACTIONS_ENABLED=true to enable' : 'No payment ID available')) +
+      '" style="opacity:.45;cursor:not-allowed">&#128279; Create Stripe Payment Link</button>';
+    html += '<div style="font-size:11px;color:var(--text-3);margin-top:4px">' +
+      (BC_STRIPE_LINKS ? '' : 'Set STRIPE_LINKS_ENABLED=true to enable.') + '</div>';
+  }
+  html += '<div id="bc-stripe-link-result" style="margin-top:8px"></div>';
+  html += '</div>';
+  return html;
+}
+
+/* ── Stripe payment link creation (Stage 8.4.10) ─────────────────────────── */
+/* Calls POST /staff/payments/:payment_id/create-stripe-link (Stage 8.4.9 backend). */
+/* Does NOT call Stripe directly. Browser calls Staff API only.                     */
+/* Does NOT send via WhatsApp, email, or n8n.                                       */
+function runCreateStripeLink(){
+  var slEl = el('bc-stripe-link-result');
+  if (!slEl) return;
+  if (!BC_STRIPE_LINKS || !BC_STAFF_ACTIONS){
+    slEl.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Disabled</div>Set STRIPE_LINKS_ENABLED=true and STAFF_ACTIONS_ENABLED=true to enable Stripe link creation.</div>';
+    return;
+  }
+  var pmId = bcLastPaymentId;
+  if (!pmId){
+    slEl.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">No payment</div>Create a booking first to generate a payment record.</div>';
+    return;
+  }
+  var btn = el('bc-sel-stripe-link');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating link\u2026'; }
+  slEl.innerHTML = '<div class="bk-preview-loading">Creating Stripe Checkout Session\u2026</div>';
+  fetch('/staff/payments/' + encodeURIComponent(pmId) + '/create-stripe-link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({}),
+  })
+  .then(function(r){
+    return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; });
+  })
+  .then(function(res){
+    slEl.innerHTML = renderStripeLinkResult(res);
+    /* Wire copy button after rendering */
+    var cpBtn = document.getElementById('bc-copy-payment-link');
+    if (cpBtn){
+      cpBtn.addEventListener('click', function(){
+        var url = this.dataset.url;
+        if (!url) return;
+        if (navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(url).then(function(){
+            cpBtn.textContent = '\u2713 Copied!';
+            setTimeout(function(){ cpBtn.textContent = '\uD83D\uDCCB Copy Payment Link'; }, 2000);
+          }).catch(function(){
+            prompt('Copy this Stripe payment link:', url);
+          });
+        } else {
+          prompt('Copy this Stripe payment link:', url);
+        }
+      });
+    }
+    /* Re-enable create-link button (stays visible for idempotent re-use) */
+    if (btn){
+      btn.disabled = false;
+      btn.textContent = '\uD83D\uDD17 Create Stripe Payment Link';
+    }
+  })
+  .catch(function(e){
+    slEl.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Network error</div>' + escHtml(String(e)) + '</div>';
+    if (btn){ btn.disabled = false; btn.textContent = '\uD83D\uDD17 Create Stripe Payment Link'; }
+  });
+}
+
+function renderStripeLinkResult(res){
+  var d = res.data || {};
+  if (!res.ok || !d.success){
+    var msg = (d.error || 'HTTP ' + res.status);
+    return '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 Stripe link failed</div>' +
+      '<div class="bk-preview-meta">' + escHtml(msg) + '</div>' +
+      '</div>';
+  }
+  var url = d.checkout_url || '';
+  var sessionId = d.stripe_checkout_session_id || '';
+  var html = '<div class="bk-quote-banner" style="background:var(--green-bg,#d4edda);border-color:var(--green-border,#c3e6cb);color:var(--green-text,#155724)">' +
+    '\u2705 Stripe test link created' + (d.idempotent ? ' (existing session)' : '') + '</div>';
+  html += '<div class="bk-quote-items">';
+  html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Status</span>' +
+    '<span class="bk-quote-item-amount"><span class="pill pill-blue" style="font-size:10px">' + escHtml(d.status || 'checkout_created') + '</span></span></div>';
+  if (sessionId)
+    html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Session ID</span>' +
+      '<span class="bk-quote-item-amount" style="font-size:10px;font-family:monospace">' + escHtml(sessionId.slice(0,24)) + '\u2026</span></div>';
+  html += '</div>';
+  if (url){
+    html += '<div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+    html += '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" ' +
+      'style="font-size:12px;word-break:break-all;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">' +
+      escHtml(url.slice(0,60)) + '\u2026</a>';
+    html += '<button class="btn" id="bc-copy-payment-link" data-url="' + escHtml(url) + '" ' +
+      'style="font-size:12px;padding:4px 10px">\uD83D\uDCCB Copy Payment Link</button>';
+    html += '</div>';
+  }
+  html += '<div class="bk-preview-warn" style="margin-top:8px">' +
+    '&#128274; Stripe test link created \u2014 payment is NOT marked paid until webhook confirms.' +
+    (d.no_whatsapp ? ' No WhatsApp.' : '') + ' No email sent.</div>';
   return html;
 }
 
@@ -4507,6 +4652,22 @@ function renderBookingContextDrawer(data){
     html += '</div>';
   } else {
     html += '<div class="ctx-none">No payment records found.</div>';
+  }
+  /* Stage 8.4.10: minimal checkout URL display if present in payment rows */
+  if (pmt.rows && pmt.rows.length > 0){
+    pmt.rows.forEach(function(pr){
+      if (pr.checkout_url){
+        html += '<div style="margin-top:8px;padding:8px;background:var(--bg-1,#f8f9fa);border-radius:4px;font-size:12px">';
+        html += '<div style="margin-bottom:4px;color:var(--text-2)">Stripe test link (' + escHtml(pr.payment_status || '') + '):</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+        html += '<a href="' + escHtml(pr.checkout_url) + '" target="_blank" rel="noopener" ' +
+          'style="word-break:break-all;font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">' +
+          escHtml(pr.checkout_url.slice(0, 50)) + '\u2026</a>';
+        html += '<button class="btn" data-url="' + escHtml(pr.checkout_url) + '" ' +
+          'style="font-size:11px;padding:2px 8px" onclick="bcCopyUrl(this)">\uD83D\uDCCB Copy</button>';
+        html += '</div></div>';
+      }
+    });
   }
   html += '</div>';
 
