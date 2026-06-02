@@ -1144,6 +1144,19 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-sel-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .bc-sel-create-btn{opacity:.42;cursor:not-allowed !important}
 .bc-sel-create-btn:hover{opacity:.42}
+/* ── Manual booking form skeleton (Stage 8.3d) ───────────────────────────── */
+.bk-form-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft)}
+.bk-form-section-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin-bottom:10px}
+.bk-form-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.bk-label{font-size:11.5px;color:var(--text-2);min-width:148px;flex-shrink:0;text-align:right}
+.bk-input{border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:5px 9px;font-size:12px;color:var(--text);background:#fff;width:100%;box-sizing:border-box;font-family:inherit;line-height:1.4}
+.bk-input.bk-input-sm{max-width:200px;width:auto}
+.bk-input[readonly]{background:var(--surface-soft);color:var(--text-2);border-style:dashed;cursor:default}
+select.bk-input{cursor:pointer}
+textarea.bk-input{resize:vertical;min-height:60px}
+.bk-form-hint{font-size:11px;color:var(--text-3);font-style:italic;padding-left:158px;margin-top:-3px;margin-bottom:5px}
+.bk-safety-notice{margin-top:16px;padding:10px 14px;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);font-size:11px;color:#A2743D;line-height:1.7}
+.bk-avail-placeholder{font-size:11px;color:var(--text-3);font-style:italic;padding:8px 0}
 </style>
 </head>
 <body>
@@ -1385,24 +1398,127 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
     <div id="bc-grid-wrap" style="display:none;overflow-x:auto;overflow-y:auto;max-height:620px;border:1px solid #EFE8DC;border-radius:12px"></div>
   </div>
 
-  <!-- Selection summary panel (Stage 8.3c, read-only) -->
+  <!-- Manual booking preview skeleton (Stage 8.3d, read-only) -->
   <div class="card" id="bc-sel-panel" style="display:none;margin-top:16px">
-    <div class="bc-sel-title">&#9635; Date Selection
-      <span class="hq-ro-label">READ-ONLY &mdash; no booking created</span>
+    <div class="bc-sel-title">
+      &#128203; New Booking Preview
+      <span class="hq-ro-label">PREVIEW ONLY &mdash; NO BOOKING CREATED</span>
     </div>
-    <div class="kv-grid" style="margin-bottom:12px">
-      <div class="kv"><span class="k">Bed</span><span class="v" id="bc-sel-bed">&mdash;</span></div>
-      <div class="kv"><span class="k">Check-in</span><span class="v" id="bc-sel-cin">&mdash;</span></div>
-      <div class="kv"><span class="k">Check-out</span><span class="v" id="bc-sel-cout">&mdash;</span></div>
-      <div class="kv"><span class="k">Nights</span><span class="v" id="bc-sel-nights">&mdash;</span></div>
-    </div>
+
     <div id="bc-sel-warn" class="bc-sel-warn" style="display:none"></div>
-    <div class="bc-sel-notice">Selection only &mdash; no booking created. This does not write to the database.</div>
-    <div class="bc-sel-actions">
+
+    <!-- Section: Selected Stay (pre-filled from selection, read-only) -->
+    <div class="bk-form-section" style="margin-top:12px;padding-top:12px">
+      <div class="bk-form-section-title">Selected Stay</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bc-sel-cin">Check-in</label>
+        <input type="date" id="bc-sel-cin" class="bk-input bk-input-sm" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bc-sel-cout">Check-out</label>
+        <input type="date" id="bc-sel-cout" class="bk-input bk-input-sm" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bc-sel-nights">Nights</label>
+        <input type="text" id="bc-sel-nights" class="bk-input bk-input-sm" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bc-sel-room">Room</label>
+        <input type="text" id="bc-sel-room" class="bk-input bk-input-sm" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bc-sel-bed">Bed</label>
+        <input type="text" id="bc-sel-bed" class="bk-input bk-input-sm" readonly>
+      </div>
+    </div>
+
+    <!-- Section: Guest -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Guest</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-guest-name">Guest name</label>
+        <input type="text" id="bk-guest-name" class="bk-input" placeholder="Full name">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-phone">Phone</label>
+        <input type="tel" id="bk-phone" class="bk-input" placeholder="+34 600 000 000">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-email">Email</label>
+        <input type="email" id="bk-email" class="bk-input" placeholder="guest@example.com">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-guest-count">Guest count</label>
+        <input type="number" id="bk-guest-count" class="bk-input bk-input-sm" value="1" min="1" max="20">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-language">Language</label>
+        <input type="text" id="bk-language" class="bk-input bk-input-sm" placeholder="en">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-package">Package / stay type</label>
+        <input type="text" id="bk-package" class="bk-input bk-input-sm" placeholder="standard">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-source">Source / channel</label>
+        <input type="text" id="bk-source" class="bk-input bk-input-sm" value="manual_staff" readonly>
+      </div>
+    </div>
+
+    <!-- Section: Payment -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Payment</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-payment-status">Payment status</label>
+        <select id="bk-payment-status" class="bk-input bk-input-sm">
+          <option value="unpaid">Unpaid</option>
+          <option value="deposit_paid">Deposit paid</option>
+          <option value="paid">Paid in full</option>
+        </select>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-deposit">Deposit amount paid (&euro;)</label>
+        <input type="number" id="bk-deposit" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div class="bk-form-hint">For manual records only &mdash; no Stripe charge is created.</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-total">Total amount (&euro;)</label>
+        <input type="number" id="bk-total" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0">
+      </div>
+    </div>
+
+    <!-- Section: Notes -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Notes</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-notes">Staff notes</label>
+        <textarea id="bk-notes" class="bk-input" rows="3" placeholder="Internal booking notes..."></textarea>
+      </div>
+    </div>
+
+    <!-- Section: Availability / Conflicts (placeholder) -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Availability / Conflicts</div>
+      <div class="bk-avail-placeholder">Availability and conflict preview will appear here before booking creation is enabled.</div>
+    </div>
+
+    <!-- Safety notice -->
+    <div class="bk-safety-notice">
+      &#128274; Preview only &mdash; no booking will be created.<br>
+      Staff writes are disabled in staging.<br>
+      No WhatsApp message or Stripe payment link will be sent.
+    </div>
+
+    <!-- Actions -->
+    <div class="bc-sel-actions" style="margin-top:16px">
       <button class="btn btn-ghost" id="bc-sel-clear">Clear selection</button>
       <button class="btn bc-sel-create-btn" disabled id="bc-sel-create"
-        title="Manual booking creation is planned but not enabled in staging. This selection does not create a booking.">
-        Create Manual Booking &mdash; coming soon
+        title="Manual booking creation is planned but not enabled in staging.">
+        Create Manual Booking
+      </button>
+      <button class="btn bc-sel-create-btn" disabled id="bc-sel-conflicts"
+        title="Conflict preview is planned but not enabled in staging.">
+        Preview Conflicts
       </button>
     </div>
   </div>
@@ -2085,6 +2201,18 @@ function bcClearSelection(){
   document.querySelectorAll('.bc-day-cell.bc-sel, .bc-day-cell.bc-sel-anchor').forEach(function(td){
     td.classList.remove('bc-sel', 'bc-sel-anchor');
   });
+  /* Reset pre-filled stay fields (Stage 8.3d) */
+  ['bc-sel-cin','bc-sel-cout','bc-sel-nights','bc-sel-room','bc-sel-bed'].forEach(function(id){
+    var inp = el(id); if (inp) inp.value = '';
+  });
+  /* Reset guest/payment/notes fields */
+  ['bk-guest-name','bk-phone','bk-email','bk-language','bk-package','bk-notes','bk-deposit','bk-total'].forEach(function(id){
+    var inp = el(id); if (inp) inp.value = '';
+  });
+  var gc = el('bk-guest-count'); if (gc) gc.value = '1';
+  var ps = el('bk-payment-status'); if (ps) ps.value = 'unpaid';
+  var warnEl = el('bc-sel-warn');
+  if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'none';
 }
@@ -2127,14 +2255,15 @@ function bcApplySelectionHighlight(){
   }
   var hasGap = (selCount < allDates.length);
 
-  /* Update panel */
-  el('bc-sel-bed').textContent    = bcSel.room_code + ' / ' + bcSel.bed_code;
-  el('bc-sel-cin').textContent    = selStart;
-  el('bc-sel-cout').textContent   = checkOut;
-  el('bc-sel-nights').textContent = selCount + (selCount === 1 ? ' night' : ' nights');
+  /* Update form skeleton pre-filled fields (Stage 8.3d) */
+  var cinInp = el('bc-sel-cin');     if (cinInp)    cinInp.value    = selStart;
+  var coutInp = el('bc-sel-cout');   if (coutInp)   coutInp.value   = checkOut;
+  var nightsInp = el('bc-sel-nights'); if (nightsInp) nightsInp.value = String(selCount);
+  var roomInp = el('bc-sel-room');   if (roomInp)   roomInp.value   = bcSel.room_code;
+  var bedInp  = el('bc-sel-bed');    if (bedInp)    bedInp.value    = bcSel.bed_code;
   var warnEl = el('bc-sel-warn');
   if (hasGap && warnEl){
-    warnEl.textContent = 'Selection spans an occupied cell. Only free cells are highlighted (' + selCount + ' of ' + allDates.length + ' nights available).';
+    warnEl.textContent = 'Selection spans an occupied cell. Only free cells highlighted (' + selCount + ' of ' + allDates.length + ' nights selectable).';
     warnEl.style.display = 'block';
   } else if (warnEl) {
     warnEl.style.display = 'none';

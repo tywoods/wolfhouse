@@ -385,13 +385,13 @@ check(/function bcHandleCellClick/.test(src),
 check(/id="bc-sel-panel"/.test(src),
   'Selection summary panel (bc-sel-panel) present in HTML (Stage 8.3c)');
 
-// 79. "Selection only — no booking created" notice present (Stage 8.3c)
-check(/Selection only.*no booking created/i.test(src),
-  '"Selection only — no booking created" notice present (Stage 8.3c)');
+// 79. "No booking created" notice present (wording updated Stage 8.3d)
+check(/no booking.*created|no booking will be created/i.test(src),
+  '"No booking created" or "no booking will be created" notice present (Stage 8.3c / 8.3d)');
 
-// 80. "Create Manual Booking" disabled button present (Stage 8.3c)
-check(/Create Manual Booking.*coming soon/i.test(src),
-  '"Create Manual Booking — coming soon" disabled button present (Stage 8.3c)');
+// 80. "Create Manual Booking" disabled button present (wording trimmed Stage 8.3d)
+check(/Create Manual Booking/i.test(src),
+  '"Create Manual Booking" disabled button present (Stage 8.3c / 8.3d)');
 
 // 81. Create button has disabled attribute (Stage 8.3c)
 check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src) ||
@@ -422,6 +422,94 @@ check(/\.bc-sel\b/.test(src),
 // 86. Selection panel hidden on new calendar load (Stage 8.3c)
 check(/bc-sel-panel.*style.*display.*none|_sp.*style\.display\s*=\s*'none'|bc-sel-panel.*display.*none/.test(src),
   'Selection panel hidden on new calendar load (Stage 8.3c)');
+
+// ── Stage 8.3d — manual booking form skeleton ─────────────────────────────
+
+// 87. Manual booking form skeleton panel present (Stage 8.3d)
+check(/id="bc-sel-panel"/.test(src) && /bk-form-section/.test(src),
+  'Manual booking form skeleton (bk-form-section) inside bc-sel-panel (Stage 8.3d)');
+
+// 88. Guest name field present (Stage 8.3d)
+check(/id="bk-guest-name"/.test(src),
+  'Guest name field (bk-guest-name) present in form skeleton (Stage 8.3d)');
+
+// 89. Phone field present (Stage 8.3d)
+check(/id="bk-phone"/.test(src),
+  'Phone field (bk-phone) present in form skeleton (Stage 8.3d)');
+
+// 90. Email field present (Stage 8.3d)
+check(/id="bk-email"/.test(src),
+  'Email field (bk-email) present in form skeleton (Stage 8.3d)');
+
+// 91. Check-in input field present (Stage 8.3d — was span in 8.3c)
+check(/id="bc-sel-cin"[^>]*type="date"/.test(src) || /type="date"[^>]*id="bc-sel-cin"/.test(src),
+  'Check-in date input field (bc-sel-cin) present in form (Stage 8.3d)');
+
+// 92. Check-out input field present (Stage 8.3d)
+check(/id="bc-sel-cout"[^>]*type="date"/.test(src) || /type="date"[^>]*id="bc-sel-cout"/.test(src),
+  'Check-out date input field (bc-sel-cout) present in form (Stage 8.3d)');
+
+// 93. Room and Bed readonly inputs present (Stage 8.3d)
+check(/id="bc-sel-room"/.test(src) && /id="bc-sel-bed"/.test(src),
+  'Room (bc-sel-room) and Bed (bc-sel-bed) readonly inputs present (Stage 8.3d)');
+
+// 94. Payment status select present (Stage 8.3d)
+check(/id="bk-payment-status"/.test(src),
+  'Payment status select field (bk-payment-status) present (Stage 8.3d)');
+
+// 95. Deposit amount field present (Stage 8.3d)
+check(/id="bk-deposit"/.test(src),
+  'Deposit amount field (bk-deposit) present (Stage 8.3d)');
+
+// 96. Deposit hint: no Stripe charge (Stage 8.3d)
+check(/no Stripe charge is created/i.test(src),
+  '"no Stripe charge is created" deposit hint present (Stage 8.3d)');
+
+// 97. Preview-only safety notice present (Stage 8.3d)
+check(/Preview only.*no booking will be created/i.test(src),
+  '"Preview only — no booking will be created" safety notice present (Stage 8.3d)');
+
+// 98. Staff writes disabled in staging notice (Stage 8.3d)
+check(/Staff writes are disabled in staging/i.test(src),
+  '"Staff writes are disabled in staging" notice present (Stage 8.3d)');
+
+// 99. No WhatsApp / no Stripe notice (Stage 8.3d)
+check(/No WhatsApp message or Stripe payment link will be sent/i.test(src),
+  '"No WhatsApp message or Stripe payment link will be sent" notice present (Stage 8.3d)');
+
+// 100. Create Manual Booking button disabled in HTML (Stage 8.3d)
+check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled|bc-sel-create-btn/.test(src),
+  'Create Manual Booking button is disabled/safe (Stage 8.3d)');
+
+// 101. Availability/conflicts placeholder present (Stage 8.3d)
+check(/Availability.*conflict.*preview.*appear|conflict.*preview.*appear/i.test(src),
+  'Availability/conflicts placeholder text present (Stage 8.3d)');
+
+// 102. Preview Conflicts disabled button present (Stage 8.3d)
+check(/id="bc-sel-conflicts"/.test(src),
+  'Preview Conflicts disabled button (bc-sel-conflicts) present (Stage 8.3d)');
+
+// 103. No form submit that could POST data (Stage 8.3d)
+check(!/form[^>]*action\s*=\s*['"](?!#)[^'"]*['"]/.test(src) && !/form[^>]*method\s*=\s*['"]post['"]/i.test(src),
+  'No form element with POST action or method=post (Stage 8.3d)');
+
+// 104. bcClearSelection resets form fields (Stage 8.3d)
+(function checkClearResetsForm(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bk-guest-name/.test(fnSrc) || /bk-deposit/.test(fnSrc),
+    'bcClearSelection resets booking form fields (Stage 8.3d)');
+})();
+
+// 105. bcApplySelectionHighlight sets bc-sel-room (Stage 8.3d)
+(function checkRoomPrefill(){
+  const fnStart = src.indexOf('function bcApplySelectionHighlight');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-sel-room/.test(fnSrc),
+    'bcApplySelectionHighlight prefills bc-sel-room (Stage 8.3d)');
+})();
 
 // ── Stage 8.3a regression fix — embedded JS syntax safety ─────────────────
 
