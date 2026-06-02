@@ -387,10 +387,22 @@ Each slice is independently gated, independently provable, and does not depend o
 **Verifier:** `scripts/verify-staff-bot-stripe-link-api.js` **56/56 PASS** (new). `verify-staff-bot-booking-create-api.js` 54/54 · `verify-staff-bot-booking-preview-api.js` 65/65 · `verify-staff-stripe-payment-link-api.js` 55/55 · `verify-wolfhouse-quote-calculator.js` 77/77 — all PASS.
 **Local proof:** wrong token → 401; correct token + `BOT_BOOKING_ENABLED=true` + `STRIPE_LINKS_ENABLED=true` → booking created (MB-WOLFHO-20260720-e466f4) → Stripe link → **200** + `checkout_url: https://checkout.stripe.com/c/pay/cs_test_...` + `payment_status: checkout_created` + `auth_mode: bot_token` + `amount_due_cents: 10000` + `sends_whatsapp: false`; DB: `payments.status=checkout_created`, `amount_paid_cents=0`, `bookings.payment_status=not_requested`. Test booking cleaned up. No WhatsApp. No n8n.
 
-### 8.5.6 — Hosted shadow-mode E2E with WhatsApp send disabled
-**Goal:** Full bot flow from parsed booking details → quote → booking create → Stripe link → webhook truth → confirmation draft, all on Azure staging, all with `WHATSAPP_DRY_RUN=true`. No live WhatsApp sends.
-**Type:** E2E proof on staging. No new code beyond 8.5.4/8.5.5.
-**Pass criteria:** Booking created by bot path appears in Postgres with `payment_status=deposit_paid` after fixture webhook. Drawer shows same payment truth as Staff Portal path. No WhatsApp message sent.
+### 8.5.6 — Deploy Luna bot shared-engine endpoints to Azure staging — **PASS (2026-06-02)**
+**Goal:** Deploy Staff API through Stage 8.5.5 to Azure staging and prove the three bot endpoints work over HTTPS with `LUNA_BOT_INTERNAL_TOKEN`. No n8n edits. No WhatsApp sends.
+**Delivered:**
+- Image `wh-staff-api:dec785c-stage855-bot-engine` built and pushed to ACR `whstagingacr`.
+- `wh-staging-staff-api` updated to revision `wh-staging-staff-api--0000017`.
+- `LUNA_BOT_INTERNAL_TOKEN` generated (40-char hex), stored in Key Vault `wh-staging-kv`, wired as env secret.
+- `BOT_BOOKING_ENABLED=true`, `STRIPE_LINKS_ENABLED=true`, `WHATSAPP_DRY_RUN=true` confirmed on staging.
+- `STAFF_AUTH_REQUIRED=true`, `STRIPE_WEBHOOK_SKIP_VERIFY=false` unchanged.
+- Stripe test-mode key confirmed (`sk_test_...`).
+**Hosted proof:**
+- **A. Preview:** `POST /staff/bot/booking-preview` → 200 + `preview_only:true` + `no_write_performed:true` + `auth_mode:bot_token` + `quote.total_cents:25000`.
+- **B. Create:** `POST /staff/bot/bookings/create` (bed `DEMO-R1-B1`) → 201 + `booking_code:MB-WOLFHO-20260801-4f10c3` + `payment_id:ec4938e8-c21f-434f-ae7c-c3db71b26e6a` + `creates_stripe_link:false` + `sends_whatsapp:false` + `whatsapp_dry_run:true`.
+- **C. Stripe link:** `POST /staff/bot/payments/ec4938e8.../create-stripe-link` → 200 + `checkout_url:https://checkout.stripe.com/c/pay/cs_test_...` + `payment_status:checkout_created` + `no_payment_truth_recorded:true` + `sends_whatsapp:false`.
+**Safety proof:** wrong token → 401; bot token on `/staff/ui` → 302 redirect (not opened); bot token on `/staff/manual-bookings/create` → 401; `payments.amount_paid_cents=0` (not marked paid before webhook); `payments.status=checkout_created`; Stripe test mode only. No WhatsApp. No email. No n8n. No workflow activated.
+**Test booking:** `MB-WOLFHO-20260801-4f10c3` left on staging (disposable staging data, clearly labelled as Luna test).
+**Verifiers:** All 6 verifiers PASS (65+54+56+60+77 checks) at commit `dec785c`.
 
 ### 8.5.7 — Explicit approval before live WhatsApp sends
 **Goal:** A documented go/no-go checklist for enabling live WhatsApp sends from Luna bot. Must include: `WHATSAPP_DRY_RUN` set to `false`, all 8.5.2–8.5.6 slices proven, staff approval.
