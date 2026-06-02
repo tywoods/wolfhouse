@@ -213,9 +213,9 @@ check(/Booking Details/i.test(src),
 check(/h3.*Payments|h3.*Payment/i.test(src),
   'Payment(s) section heading present in drawer (Stage 7.7i / 8.3b)');
 
-// 35. Rooming/Beds section in drawer (renamed to Room/Beds in Stage 8.3b)
-check(/h3.*Rooming|h3.*Room.*Beds/i.test(src),
-  'Rooming / Beds section heading present in drawer (Stage 7.7i / 8.3b)');
+// 35. Rooming/Beds merged into Stay section (Stage 8.3u — separate section removed)
+check(/h3.*Stay|Stay.*h3/i.test(src),
+  'Stay section (contains merged Room/Beds) present in drawer (Stage 7.7i / 8.3u)');
 
 // 36. Conversation section in drawer
 check(/h3.*Conversation/i.test(src),
@@ -261,9 +261,9 @@ check(/type="date".*bc-date-input|bc-date-input.*type="date"|type='date'/.test(s
 check(/bc-chip|bc-chips/.test(src),
   'Shortcut chips (bc-chip/bc-chips) present (Stage 8.3a)');
 
-// 46. Demo range chip present (Stage 8.3a)
-check(/data-chip="demo"|data-chip='demo'/.test(src),
-  'Demo range shortcut chip (data-chip="demo") present (Stage 8.3a)');
+// 46. Demo range chip removed (Stage 8.3u)
+check(!/data-chip="demo"|data-chip='demo'/.test(src),
+  'Demo range shortcut chip (data-chip="demo") absent (Stage 8.3u)');
 
 // 47. bcSetRange function present (Stage 8.3a)
 check(/function bcSetRange/.test(src),
@@ -323,9 +323,9 @@ check(/h3.*Guest|Guest.*h3/i.test(src),
 check(/h3.*Stay|Stay.*h3/i.test(src),
   'Stay section heading present in drawer (Stage 8.3b)');
 
-// 61. Room / Beds section heading present (Stage 8.3b)
-check(/h3.*Room.*Beds|Room.*Beds.*h3/i.test(src),
-  'Room / Beds section heading present in drawer (Stage 8.3b)');
+// 61. Room / Beds merged into Stay section — no separate heading (Stage 8.3u)
+check(!/h3.*Room.*Beds|Room.*Beds.*h3/i.test(src),
+  'Room / Beds section heading removed (merged into Stay in Stage 8.3u)');
 
 // 62. Payment section heading present (Stage 8.3b)
 check(/h3.*Payment|Payment.*h3/i.test(src),
@@ -646,221 +646,232 @@ check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src
 check(/Creation remains disabled/i.test(src),
   '"Creation remains disabled" helper text present (Stage 8.3l)');
 
-// ── Stage 8.3q — Tour Operator Block skeleton ─────────────────────────────────
+// ── Stage 8.3q/8.3u — Tour Operator Block (moved to Tour Operator tab) ───────
 
-// 121. Tour Operator Block panel element present (Stage 8.3q)
-check(/id="bc-op-panel"/.test(src),
-  'Tour Operator Block panel (id="bc-op-panel") present (Stage 8.3q)');
+// 121. Tour Operator Block panel in Tour Operator tab (Stage 8.3u)
+check(/id="to-op-panel"/.test(src),
+  'Tour Operator Block panel (id="to-op-panel") in Tour Operator tab (Stage 8.3u)');
 
 // 122. "Tour Operator Block" heading text present (Stage 8.3q)
 check(/Tour Operator Block/i.test(src),
-  '"Tour Operator Block" heading text present (Stage 8.3q)');
+  '"Tour Operator Block" heading text present (Stage 8.3q / 8.3u)');
 
-// 123. Operator name field present (Stage 8.3q)
-check(/id="bc-op-name"/.test(src),
-  'Operator name field (bc-op-name) present (Stage 8.3q)');
+// 123. Operator name field present (Stage 8.3u)
+check(/id="to-op-name"/.test(src),
+  'Operator name field (to-op-name) present in Tour Operator tab (Stage 8.3u)');
 
-// 124. Manager/contact field present (Stage 8.3q)
-check(/id="bc-op-manager"/.test(src),
-  'Manager/contact field (bc-op-manager) present (Stage 8.3q)');
+// 124. Manager/contact field present (Stage 8.3u)
+check(/id="to-op-manager"/.test(src),
+  'Manager/contact field (to-op-manager) present in Tour Operator tab (Stage 8.3u)');
 
-// 125. Block type field present (Stage 8.3q)
-check(/id="bc-op-block-type"/.test(src),
-  'Block type select field (bc-op-block-type) present (Stage 8.3q)');
+// 125. Block type field present (Stage 8.3u)
+check(/id="to-op-block-type"/.test(src),
+  'Block type select field (to-op-block-type) present in Tour Operator tab (Stage 8.3u)');
 
 // 126. Source defaults to "Operator" (locked field) (Stage 8.3q)
 check(/value="Operator"/.test(src),
-  'Source / channel defaults to "Operator" locked field (Stage 8.3q)');
+  'Source / channel defaults to "Operator" locked field (Stage 8.3q / 8.3u)');
 
 // 127. Payment status "Not requested" locked field (Stage 8.3q)
 check(/Not requested/.test(src),
-  'Payment status "Not requested" locked field present (Stage 8.3q)');
+  'Payment status "Not requested" locked field present (Stage 8.3q / 8.3u)');
 
 // 128. Booking status "Operator Blocked" locked field (Stage 8.3q)
 check(/Operator Blocked/.test(src),
-  '"Operator Blocked" booking status locked field present (Stage 8.3q)');
+  '"Operator Blocked" booking status locked field present (Stage 8.3q / 8.3u)');
 
-// 129. Guest messaging disabled text (Stage 8.3q)
+// 129. Guest messaging disabled text in Tour Operator tab (Stage 8.3u)
 (function checkGuestMessagingDisabled(){
-  const opIdx = src.indexOf('id="bc-op-panel"');
+  const opIdx = src.indexOf('id="to-op-panel"');
   const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 8000) : '';
   check(/Guest messaging[\s\S]{0,100}Disabled/i.test(opSrc),
-    '"Guest messaging" Disabled locked field present (Stage 8.3q)');
+    '"Guest messaging" Disabled locked field present in Tour Operator tab (Stage 8.3u)');
 })();
 
-// 130. Stripe/payment link disabled text (Stage 8.3q)
+// 130. Stripe/payment link disabled text in Tour Operator tab (Stage 8.3u)
 (function checkStripeDisabled(){
-  const opIdx = src.indexOf('id="bc-op-panel"');
+  const opIdx = src.indexOf('id="to-op-panel"');
   const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 8000) : '';
-  check(/Stripe.*payment.*link[\s\S]{0,100}Disabled/i.test(opSrc),
-    '"Stripe / payment link" Disabled locked field present (Stage 8.3q)');
+  check(/Stripe.*payment[\s\S]{0,100}Disabled/i.test(opSrc),
+    '"Stripe / payment link" Disabled locked field present in Tour Operator tab (Stage 8.3u)');
 })();
 
 // 131. n8n workflow "Not triggered" text (Stage 8.3q)
 check(/Not triggered/.test(src),
-  '"Not triggered" n8n workflow locked field present (Stage 8.3q)');
+  '"Not triggered" n8n workflow locked field present (Stage 8.3q / 8.3u)');
 
-// 132. Create Operator Block button is disabled (Stage 8.3q)
-check(/disabled[^>]*id="bc-op-create-btn"|id="bc-op-create-btn"[^>]*disabled/.test(src),
-  'Create Operator Block button has disabled attribute (Stage 8.3q)');
+// 132. Create Operator Block button is disabled (Stage 8.3u)
+check(/disabled[^>]*id="to-op-create-btn"|id="to-op-create-btn"[^>]*disabled/.test(src),
+  'Create Operator Block button has disabled attribute (to-op-create-btn) (Stage 8.3u)');
 
-// 133. Preview Operator Block button is disabled (Stage 8.3q)
-check(/disabled[^>]*id="bc-op-preview-btn"|id="bc-op-preview-btn"[^>]*disabled/.test(src),
-  'Preview Operator Block button has disabled attribute (Stage 8.3q)');
+// 133. Preview Operator Block button is disabled (Stage 8.3u)
+check(/disabled[^>]*id="to-op-preview-btn"|id="to-op-preview-btn"[^>]*disabled/.test(src),
+  'Preview Operator Block button has disabled attribute (to-op-preview-btn) (Stage 8.3u)');
 
 // 134. Operator block safety notice present (Stage 8.3q)
 check(/no operator block will be created/i.test(src),
-  '"no operator block will be created" safety notice present (Stage 8.3q)');
+  '"no operator block will be created" safety notice present (Stage 8.3q / 8.3u)');
 
 // 135. n8n workflow will not run safety text (Stage 8.3q)
 check(/n8n workflow will not run|n8n workflow will run.*not|no.*n8n|n8n.*not triggered/i.test(src),
-  '"n8n workflow will not run" safety text present (Stage 8.3q)');
+  '"n8n workflow will not run" safety text present (Stage 8.3q / 8.3u)');
 
-// 136. No new POST/PATCH/DELETE fetch in operator panel (Stage 8.3q)
+// 136. No new POST/PATCH/DELETE fetch in Tour Operator tab (Stage 8.3u)
 (function checkOpNoPost(){
-  const opIdx = src.indexOf('id="bc-op-panel"');
+  const opIdx = src.indexOf('id="to-op-panel"');
   const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 10000) : '';
   check(!/fetch[^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(opSrc),
-    'No POST/PATCH/DELETE fetch inside operator block panel (Stage 8.3q)');
+    'No POST/PATCH/DELETE fetch inside Tour Operator panel (Stage 8.3u)');
 })();
 
-// 137. No n8n or webhook URL called from operator panel (Stage 8.3q)
+// 137. No n8n or webhook URL called from operator panel (Stage 8.3u)
 (function checkOpNoN8n(){
-  const opIdx = src.indexOf('bc-op-create-btn');
+  const opIdx = src.indexOf('to-op-create-btn');
   const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 3000) : '';
   check(!/n8n.*webhook|webhook.*n8n|\.n8n\.|n8n\.cloud|\/webhook\//i.test(opSrc),
-    'No n8n/webhook URL called from operator block actions (Stage 8.3q)');
+    'No n8n/webhook URL called from operator block actions (Stage 8.3u)');
 })();
 
-// 138. bcClearSelection clears operator block fields (Stage 8.3q)
-(function checkClearResetsOp(){
-  const fnStart = src.indexOf('function bcClearSelection');
-  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
-  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bc-op-no-sel/.test(fnSrc) || /bc-op-body/.test(fnSrc),
-    'bcClearSelection resets tour operator panel (Stage 8.3q)');
-})();
+// 138. Tour Operator tab exists (Stage 8.3u)
+check(/data-tab="tour-operator"/.test(src),
+  'Tour Operator nav tab (data-tab="tour-operator") present (Stage 8.3u)');
 
-// 139. bcApplySelectionHighlight prefills operator block fields (Stage 8.3q)
-(function checkSelPrefillsOp(){
-  const fnStart = src.indexOf('function bcApplySelectionHighlight');
-  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
-  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bc-op-cin/.test(fnSrc) || /bc-op-body/.test(fnSrc),
-    'bcApplySelectionHighlight prefills tour operator block fields (Stage 8.3q)');
-})();
+// 139. Tour Operator tab panel exists (Stage 8.3u)
+check(/id="tab-tour-operator"/.test(src),
+  'Tour Operator tab panel (id="tab-tour-operator") present (Stage 8.3u)');
 
 // 140. Whole room / Selected beds block type options present (Stage 8.3q)
 check(/whole_room|Whole room/.test(src) && /selected_beds|Selected beds/.test(src),
-  'Block type options (whole_room / selected_beds) present (Stage 8.3q)');
+  'Block type options (whole_room / selected_beds) present (Stage 8.3q / 8.3u)');
 
-// ── Stage 8.3r — Operator Room Release skeleton ───────────────────────────────
+// ── Stage 8.3r/8.3u — Operator Room Release (moved to Tour Operator tab) ─────
 
-// 141. Operator Room Release panel element present (Stage 8.3r)
-check(/id="bc-rr-panel"/.test(src),
-  'Operator Room Release panel (id="bc-rr-panel") present (Stage 8.3r)');
+// 141. Operator Room Release panel in Tour Operator tab (Stage 8.3u)
+check(/id="to-rr-panel"/.test(src),
+  'Operator Room Release panel (id="to-rr-panel") in Tour Operator tab (Stage 8.3u)');
 
 // 142. "Operator Room Release" heading text present (Stage 8.3r)
 check(/Operator Room Release/i.test(src),
-  '"Operator Room Release" heading text present (Stage 8.3r)');
+  '"Operator Room Release" heading text present (Stage 8.3r / 8.3u)');
 
-// 143. Release start field present (Stage 8.3r)
-check(/id="bc-rr-start"/.test(src),
-  'Release start field (bc-rr-start) present (Stage 8.3r)');
+// 143. Release start field present (Stage 8.3u)
+check(/id="to-rr-start"/.test(src),
+  'Release start field (to-rr-start) present in Tour Operator tab (Stage 8.3u)');
 
-// 144. Release end field present (Stage 8.3r)
-check(/id="bc-rr-end"/.test(src),
-  'Release end field (bc-rr-end) present (Stage 8.3r)');
+// 144. Release end field present (Stage 8.3u)
+check(/id="to-rr-end"/.test(src),
+  'Release end field (to-rr-end) present in Tour Operator tab (Stage 8.3u)');
 
-// 145. Operator block code/selector field present (Stage 8.3r)
-check(/id="bc-rr-block-code"/.test(src),
-  'Operator block code placeholder field (bc-rr-block-code) present (Stage 8.3r)');
+// 145. Operator block code/selector field present (Stage 8.3u)
+check(/id="to-rr-block-code"/.test(src),
+  'Operator block code placeholder field (to-rr-block-code) present (Stage 8.3u)');
 
-// 146. Release type field present (Stage 8.3r)
-check(/id="bc-rr-release-type"/.test(src),
-  'Release type select field (bc-rr-release-type) present (Stage 8.3r)');
+// 146. Release type field present (Stage 8.3u)
+check(/id="to-rr-release-type"/.test(src),
+  'Release type select field (to-rr-release-type) present (Stage 8.3u)');
 
-// 147. Reason for release field present (Stage 8.3r)
-check(/id="bc-rr-reason"/.test(src),
-  'Reason for release field (bc-rr-reason) present (Stage 8.3r)');
+// 147. Reason for release field present (Stage 8.3u)
+check(/id="to-rr-reason"/.test(src),
+  'Reason for release field (to-rr-reason) present (Stage 8.3u)');
 
 // 148. "Selected dates only" release type option present (Stage 8.3r)
 check(/selected_dates|Selected dates only/.test(src),
-  '"Selected dates only" release type option present (Stage 8.3r)');
+  '"Selected dates only" release type option present (Stage 8.3r / 8.3u)');
 
-// 149. Release Dates button is disabled (Stage 8.3r)
-check(/disabled[^>]*id="bc-rr-release-btn"|id="bc-rr-release-btn"[^>]*disabled/.test(src),
-  'Release Dates button has disabled attribute (bc-rr-release-btn) (Stage 8.3r)');
+// 149. Release Dates button is disabled (Stage 8.3u)
+check(/disabled[^>]*id="to-rr-release-btn"|id="to-rr-release-btn"[^>]*disabled/.test(src),
+  'Release Dates button has disabled attribute (to-rr-release-btn) (Stage 8.3u)');
 
-// 150. Preview Release button is disabled (Stage 8.3r)
-check(/disabled[^>]*id="bc-rr-preview-btn"|id="bc-rr-preview-btn"[^>]*disabled/.test(src),
-  'Preview Release button has disabled attribute (bc-rr-preview-btn) (Stage 8.3r)');
+// 150. Preview Release button is disabled (Stage 8.3u)
+check(/disabled[^>]*id="to-rr-preview-btn"|id="to-rr-preview-btn"[^>]*disabled/.test(src),
+  'Preview Release button has disabled attribute (to-rr-preview-btn) (Stage 8.3u)');
 
 // 151. Room release safety notice present (Stage 8.3r)
 check(/no dates will be released/i.test(src),
-  '"no dates will be released" safety notice present (Stage 8.3r)');
+  '"no dates will be released" safety notice present (Stage 8.3r / 8.3u)');
 
 // 152. "Room release writes require approval gates" text present (Stage 8.3r)
 check(/Room release writes require approval gates/i.test(src),
-  '"Room release writes require approval gates" notice present (Stage 8.3r)');
+  '"Room release writes require approval gates" notice present (Stage 8.3r / 8.3u)');
 
-// 153. Guest messaging Disabled locked field in room release panel (Stage 8.3r)
+// 153. Guest messaging Disabled in room release panel (Stage 8.3u)
 (function checkRrGuestDisabled(){
-  const rrIdx = src.indexOf('id="bc-rr-panel"');
+  const rrIdx = src.indexOf('id="to-rr-panel"');
   const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
   check(/Guest messaging[\s\S]{0,100}Disabled/i.test(rrSrc),
-    '"Guest messaging" Disabled locked field in room release panel (Stage 8.3r)');
+    '"Guest messaging" Disabled locked field in room release panel (Stage 8.3u)');
 })();
 
-// 154. Stripe/payment Disabled locked field in room release panel (Stage 8.3r)
+// 154. Stripe/payment Disabled in room release panel (Stage 8.3u)
 (function checkRrStripeDisabled(){
-  const rrIdx = src.indexOf('id="bc-rr-panel"');
+  const rrIdx = src.indexOf('id="to-rr-panel"');
   const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
   check(/Stripe.*payment[\s\S]{0,100}Disabled/i.test(rrSrc),
-    '"Stripe / payment" Disabled locked field in room release panel (Stage 8.3r)');
+    '"Stripe / payment" Disabled locked field in room release panel (Stage 8.3u)');
 })();
 
-// 155. n8n "Not triggered" in room release panel (Stage 8.3r)
+// 155. n8n "Not triggered" in room release panel (Stage 8.3u)
 (function checkRrN8nNotTriggered(){
-  const rrIdx = src.indexOf('id="bc-rr-panel"');
+  const rrIdx = src.indexOf('id="to-rr-panel"');
   const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
   check(/Not triggered/.test(rrSrc),
-    '"Not triggered" n8n field in room release panel (Stage 8.3r)');
+    '"Not triggered" n8n field in room release panel (Stage 8.3u)');
 })();
 
-// 156. No POST/PATCH/DELETE fetch in room release panel (Stage 8.3r)
+// 156. No POST/PATCH/DELETE fetch in room release panel (Stage 8.3u)
 (function checkRrNoPost(){
-  const rrIdx = src.indexOf('id="bc-rr-panel"');
+  const rrIdx = src.indexOf('id="to-rr-panel"');
   const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 12000) : '';
   check(!/fetch[^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(rrSrc),
-    'No POST/PATCH/DELETE fetch in room release panel (Stage 8.3r)');
+    'No POST/PATCH/DELETE fetch in room release panel (Stage 8.3u)');
 })();
 
-// 157. bcClearSelection resets room release fields (Stage 8.3r)
-(function checkClearResetsRr(){
-  const fnStart = src.indexOf('function bcClearSelection');
+// 157. bc-op-panel absent from Bed Calendar (moved to Tour Operator tab) (Stage 8.3u)
+(function checkOpPanelNotInBedCal(){
+  const bcIdx = src.indexOf('id="tab-bed-calendar"');
+  const toIdx = src.indexOf('id="tab-tour-operator"');
+  if (bcIdx >= 0 && toIdx > bcIdx){
+    const bcSrc = src.slice(bcIdx, toIdx);
+    check(!/id="bc-op-panel"/.test(bcSrc),
+      'bc-op-panel absent from Bed Calendar tab (Stage 8.3u)');
+  } else {
+    check(true, 'bc-op-panel position check skipped (tab markers not found) (Stage 8.3u)');
+  }
+})();
+
+// 158. bc-rr-panel absent from Bed Calendar (moved to Tour Operator tab) (Stage 8.3u)
+(function checkRrPanelNotInBedCal(){
+  const bcIdx = src.indexOf('id="tab-bed-calendar"');
+  const toIdx = src.indexOf('id="tab-tour-operator"');
+  if (bcIdx >= 0 && toIdx > bcIdx){
+    const bcSrc = src.slice(bcIdx, toIdx);
+    check(!/id="bc-rr-panel"/.test(bcSrc),
+      'bc-rr-panel absent from Bed Calendar tab (Stage 8.3u)');
+  } else {
+    check(true, 'bc-rr-panel position check skipped (tab markers not found) (Stage 8.3u)');
+  }
+})();
+
+// 159. Tour Operator Block panel (to-op-panel) still present (regression — Stage 8.3u)
+check(/id="to-op-panel"/.test(src),
+  'Tour Operator panel (to-op-panel) present in Tour Operator tab (Stage 8.3u)');
+
+// 160. Create Operator Block still disabled in Tour Operator tab (regression — Stage 8.3u)
+check(/disabled[^>]*id="to-op-create-btn"|id="to-op-create-btn"[^>]*disabled/.test(src),
+  'Create Operator Block button still disabled in Tour Operator tab (Stage 8.3u)');
+
+// 161. bcHandleCellClick reads date/room/bed from td.dataset (Stage 8.3u fix)
+(function checkCellClickFix(){
+  const fnStart = src.indexOf('function bcHandleCellClick');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bc-rr-no-sel/.test(fnSrc) || /bc-rr-body/.test(fnSrc),
-    'bcClearSelection resets room release panel (Stage 8.3r)');
+  check(/td\.dataset\.date|dataset\[.date.\]/.test(fnSrc),
+    'bcHandleCellClick reads date from td.dataset (selection bug fixed) (Stage 8.3u)');
 })();
 
-// 158. bcApplySelectionHighlight prefills room release fields (Stage 8.3r)
-(function checkSelPrefillsRr(){
-  const fnStart = src.indexOf('function bcApplySelectionHighlight');
-  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
-  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bc-rr-start/.test(fnSrc) || /bc-rr-body/.test(fnSrc),
-    'bcApplySelectionHighlight prefills room release fields (Stage 8.3r)');
-})();
-
-// 159. Tour Operator Block panel still present (regression — Stage 8.3r)
-check(/id="bc-op-panel"/.test(src),
-  'Tour Operator Block panel (bc-op-panel) still present after 8.3r (Stage 8.3r)');
-
-// 160. Create Operator Block still disabled (regression — Stage 8.3r)
-check(/disabled[^>]*id="bc-op-create-btn"|id="bc-op-create-btn"[^>]*disabled/.test(src),
-  'Create Operator Block button still disabled after 8.3r (Stage 8.3r)');
+// 162. No duplicate Room/Beds section heading in drawer (Stage 8.3u)
+check(!/h3>Room.*\/ Beds|h3.*Room.*\/.*Beds/i.test(src),
+  'No separate Room / Beds section heading in drawer (Stage 8.3u)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 

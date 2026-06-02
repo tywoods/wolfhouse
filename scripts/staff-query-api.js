@@ -1415,6 +1415,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
   <button class="tab-btn active" data-tab="today">Today</button>
   <button class="tab-btn" data-tab="conversations">Inbox</button>
   <button class="tab-btn" data-tab="bed-calendar">Bed Calendar</button>
+  <button class="tab-btn" data-tab="tour-operator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
 </div>
 
@@ -1590,7 +1591,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span class="bc-chip" data-chip="week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days">Next 30 days</span>
       <span class="bc-chip" data-chip="jul-aug">Jul &ndash; Aug</span>
-      <span class="bc-chip" data-chip="demo">Demo range (Jul 16&ndash;22)</span>
     </div>
 
     <!-- Color legend (Stage 8.3a) -->
@@ -1751,286 +1751,293 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div class="bk-preview-create-note">Creation remains disabled until manual booking write gates are approved.</div>
   </div>
 
-  <!-- Tour Operator Block skeleton (Stage 8.3q — preview only, no writes) -->
-  <div class="card" id="bc-op-panel" style="margin-top:16px">
-    <div class="bc-op-header">
-      <span class="bc-op-title">&#128274; Tour Operator Block</span>
-      <span class="bc-op-badge">Preview only &mdash; coming soon</span>
-    </div>
-    <div id="bc-op-no-sel" class="bc-op-no-sel">
-      Select empty calendar cells to preview an operator block.
-    </div>
+  <!-- Tour Operator Block skeleton (Stage 8.3q — moved to Tour Operator tab in Stage 8.3u) -->
 
-    <!-- Operator block body (shown when cells are selected) -->
-    <div id="bc-op-body" style="display:none">
-
-      <!-- Section: Operator -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Operator</div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-name">Operator name</label>
-          <input type="text" id="bc-op-name" class="bk-input bk-input-sm" placeholder="Tour operator or company name">
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-manager">Manager / contact</label>
-          <input type="text" id="bc-op-manager" class="bk-input bk-input-sm" placeholder="Contact person">
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-phone">Phone</label>
-          <input type="text" id="bc-op-phone" class="bk-input bk-input-sm" placeholder="+34...">
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-email">Email</label>
-          <input type="email" id="bc-op-email" class="bk-input bk-input-sm" placeholder="operator@...">
-        </div>
-      </div>
-
-      <!-- Section: Selected Stay -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Selected Stay</div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-cin">Check-in</label>
-          <input type="date" id="bc-op-cin" class="bk-input bk-input-sm bc-date-input" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-cout">Check-out</label>
-          <input type="date" id="bc-op-cout" class="bk-input bk-input-sm bc-date-input" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-nights">Nights</label>
-          <input type="number" id="bc-op-nights" class="bk-input bk-input-sm" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-room">Room</label>
-          <input type="text" id="bc-op-room" class="bk-input bk-input-sm" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-bed">Bed(s)</label>
-          <input type="text" id="bc-op-bed" class="bk-input bk-input-sm" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-block-type">Block type</label>
-          <select id="bc-op-block-type" class="bk-input bk-input-sm">
-            <option value="selected_beds">Selected beds</option>
-            <option value="whole_room">Whole room</option>
-          </select>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-guest-count">Est. guest count</label>
-          <input type="number" id="bc-op-guest-count" class="bk-input bk-input-sm" placeholder="0" min="0">
-        </div>
-      </div>
-
-      <!-- Section: Block Defaults (locked / informational) -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Block Defaults</div>
-        <div class="bk-form-row">
-          <label class="bk-label">Source / channel</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Operator" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">Payment status</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not requested" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">Booking status</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Operator Blocked" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">Availability</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Blocked by operator" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">Guest messaging</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">Stripe / payment link</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">n8n workflow</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not triggered" readonly>
-        </div>
-      </div>
-
-      <!-- Section: Notes -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Notes</div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-notes">Operator notes</label>
-          <textarea id="bc-op-notes" class="bk-input" rows="2" placeholder="Notes from operator..."></textarea>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-op-staff-note">Internal staff note</label>
-          <textarea id="bc-op-staff-note" class="bk-input" rows="2" placeholder="Internal staff note..."></textarea>
-        </div>
-      </div>
-
-      <!-- Safety notice -->
-      <div class="bk-safety-notice">
-        &#128274; Preview only &mdash; no operator block will be created.<br>
-        No guest message, Stripe payment link, or n8n workflow will run.<br>
-        Operator booking writes require approval gates before they can be enabled.
-      </div>
-
-      <!-- Disabled actions -->
-      <div class="bc-sel-actions" style="margin-top:16px">
-        <button class="btn bc-sel-create-btn" disabled id="bc-op-preview-btn"
-          title="Operator block preview coming soon.">
-          Preview Operator Block
-        </button>
-        <button class="btn bc-sel-create-btn" disabled id="bc-op-create-btn"
-          title="Operator block creation requires write-gate approval.">
-          Create Operator Block
-        </button>
-      </div>
-      <div class="bk-preview-create-note">Operator booking writes require approval gates before they can be enabled.</div>
-    </div>
-  </div>
-
-  <!-- Operator Room Release skeleton (Stage 8.3r — preview only, no writes) -->
-  <div class="card" id="bc-rr-panel" style="margin-top:16px">
-    <div class="bc-op-header">
-      <span class="bc-op-title">&#128477; Operator Room Release</span>
-      <span class="bc-op-badge">Preview only &mdash; coming soon</span>
-    </div>
-    <div class="bc-rr-purpose">
-      Use this when an operator has blocked a room for a long period but releases specific dates back to normal availability.
-      <strong>Preview only &mdash; no room will be released.</strong>
-    </div>
-    <div id="bc-rr-no-sel" class="bc-rr-no-sel">
-      Select the calendar dates/beds you want to release from an operator block.
-    </div>
-
-    <!-- Room release body (shown when cells are selected) -->
-    <div id="bc-rr-body" style="display:none">
-
-      <!-- Section: Operator block -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Operator Block</div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-block-code">Operator block code</label>
-          <input type="text" id="bc-rr-block-code" class="bk-input bk-input-sm"
-            placeholder="Select an operator block from the calendar &mdash; coming soon" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-op-name">Operator name</label>
-          <input type="text" id="bc-rr-op-name" class="bk-input bk-input-sm" placeholder="Tour operator or company name">
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-orig-cin">Original block check-in</label>
-          <input type="date" id="bc-rr-orig-cin" class="bk-input bk-input-sm bc-date-input" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-orig-cout">Original block check-out</label>
-          <input type="date" id="bc-rr-orig-cout" class="bk-input bk-input-sm bc-date-input" readonly>
-        </div>
-      </div>
-
-      <!-- Section: Release dates -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Release Dates</div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-start">Release start</label>
-          <input type="date" id="bc-rr-start" class="bk-input bk-input-sm bc-date-input" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-end">Release end</label>
-          <input type="date" id="bc-rr-end" class="bk-input bk-input-sm bc-date-input" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-nights">Release nights</label>
-          <input type="number" id="bc-rr-nights" class="bk-input bk-input-sm" readonly>
-        </div>
-      </div>
-
-      <!-- Section: Release scope -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Release Scope</div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-room">Room(s) to release</label>
-          <input type="text" id="bc-rr-room" class="bk-input bk-input-sm" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-bed">Bed(s) to release</label>
-          <input type="text" id="bc-rr-bed" class="bk-input bk-input-sm" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-release-type">Release type</label>
-          <select id="bc-rr-release-type" class="bk-input bk-input-sm">
-            <option value="selected_beds">Selected beds</option>
-            <option value="whole_room">Whole room</option>
-            <option value="selected_dates">Selected dates only</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Section: Defaults (locked) -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Defaults</div>
-        <div class="bk-form-row">
-          <label class="bk-label">Action</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Release operator block dates" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">Guest messaging</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">Stripe / payment</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">n8n workflow</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not triggered" readonly>
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label">Staff write status</label>
-          <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled in staging" readonly>
-        </div>
-      </div>
-
-      <!-- Section: Notes -->
-      <div class="bk-form-section">
-        <div class="bk-form-section-title">Notes</div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-reason">Reason for release</label>
-          <input type="text" id="bc-rr-reason" class="bk-input bk-input-sm" placeholder="e.g. operator cancelled these nights">
-        </div>
-        <div class="bk-form-row">
-          <label class="bk-label" for="bc-rr-staff-note">Internal staff note</label>
-          <textarea id="bc-rr-staff-note" class="bk-input" rows="2" placeholder="Internal note..."></textarea>
-        </div>
-      </div>
-
-      <!-- Safety notice -->
-      <div class="bk-safety-notice">
-        &#128274; Preview only &mdash; no dates will be released.<br>
-        No guest message, Stripe action, or n8n workflow will run.<br>
-        Room release writes require approval gates, conflict checks, audit, and rollback proof before they can be enabled.
-      </div>
-
-      <!-- Disabled actions -->
-      <div class="bc-sel-actions" style="margin-top:16px">
-        <button class="btn bc-sel-create-btn" disabled id="bc-rr-preview-btn"
-          title="Release preview coming soon.">
-          Preview Release
-        </button>
-        <button class="btn bc-sel-create-btn" disabled id="bc-rr-release-btn"
-          title="Room release requires write-gate approval.">
-          Release Dates
-        </button>
-      </div>
-      <div class="bk-preview-create-note">Room release writes require approval gates before they can be enabled.</div>
-    </div>
-  </div>
+  <!-- Operator Room Release skeleton (Stage 8.3r — moved to Tour Operator tab in Stage 8.3u) -->
 
   <!-- Block detail panel (read-only) -->
   <div class="card" id="bc-detail" style="display:none"></div>
 
 </div>
 </div><!-- /tab-bed-calendar -->
+
+<!-- ── Tour Operator tab (Stage 8.3u — preview only, no writes) ───────────── -->
+<div id="tab-tour-operator" class="tab-panel">
+<div id="wrap-to" style="max-width:900px;margin:0 auto;padding:16px 20px">
+
+  <!-- Intro card -->
+  <div class="card" style="margin-bottom:0">
+    <div class="toolbar">
+      <h2>&#128274; Tour Operator</h2>
+      <span class="hq-ro-label">READ-ONLY &mdash; writes disabled in staging</span>
+    </div>
+    <p style="font-size:13px;color:var(--text-2);margin:6px 0 0">Use these forms to preview upcoming operator operations before they are enabled. No records will be created or modified.</p>
+  </div>
+
+  <!-- ── Tour Operator Block (Stage 8.3u) ─────────────────────────────────── -->
+  <div class="card" id="to-op-panel" style="margin-top:16px">
+    <div class="bc-op-header">
+      <span class="bc-op-title">&#128274; Tour Operator Block</span>
+      <span class="bc-op-badge">Preview only &mdash; coming soon</span>
+    </div>
+
+    <!-- Section: Operator contact -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Operator</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-name">Operator name</label>
+        <input type="text" id="to-op-name" class="bk-input bk-input-sm" placeholder="Tour operator or company name">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-manager">Manager / contact</label>
+        <input type="text" id="to-op-manager" class="bk-input bk-input-sm" placeholder="Contact person">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-phone">Phone</label>
+        <input type="text" id="to-op-phone" class="bk-input bk-input-sm" placeholder="+34...">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-email">Email</label>
+        <input type="email" id="to-op-email" class="bk-input bk-input-sm" placeholder="operator@...">
+      </div>
+    </div>
+
+    <!-- Section: Block Dates & Rooms -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Block Dates &amp; Rooms</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-cin">Check-in</label>
+        <input type="date" id="to-op-cin" class="bk-input bk-input-sm bc-date-input">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-cout">Check-out</label>
+        <input type="date" id="to-op-cout" class="bk-input bk-input-sm bc-date-input">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-nights">Nights</label>
+        <input type="number" id="to-op-nights" class="bk-input bk-input-sm" min="1">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-room">Room</label>
+        <input type="text" id="to-op-room" class="bk-input bk-input-sm" placeholder="e.g. DEMO-R1">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-bed">Bed(s)</label>
+        <input type="text" id="to-op-bed" class="bk-input bk-input-sm" placeholder="e.g. DEMO-R1-B1 or whole room">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-block-type">Block type</label>
+        <select id="to-op-block-type" class="bk-input bk-input-sm">
+          <option value="selected_beds">Selected beds</option>
+          <option value="whole_room">Whole room</option>
+        </select>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-guest-count">Est. guest count</label>
+        <input type="number" id="to-op-guest-count" class="bk-input bk-input-sm" placeholder="0" min="0">
+      </div>
+    </div>
+
+    <!-- Section: Block Defaults (locked) -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Block Defaults</div>
+      <div class="bk-form-row">
+        <label class="bk-label">Source / channel</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Operator" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">Payment status</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not requested" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">Booking status</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Operator Blocked" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">Availability</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Blocked by operator" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">Guest messaging</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">Stripe / payment link</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">n8n workflow</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not triggered" readonly>
+      </div>
+    </div>
+
+    <!-- Section: Notes -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Notes</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-notes">Operator notes</label>
+        <textarea id="to-op-notes" class="bk-input" rows="2" placeholder="Notes from operator..."></textarea>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-op-staff-note">Internal staff note</label>
+        <textarea id="to-op-staff-note" class="bk-input" rows="2" placeholder="Internal staff note..."></textarea>
+      </div>
+    </div>
+
+    <!-- Safety notice -->
+    <div class="bk-safety-notice">
+      &#128274; Preview only &mdash; no operator block will be created.<br>
+      No guest message, Stripe payment link, or n8n workflow will run.<br>
+      Operator booking writes require approval gates before they can be enabled.
+    </div>
+
+    <!-- Disabled actions -->
+    <div class="bc-sel-actions" style="margin-top:16px">
+      <button class="btn bc-sel-create-btn" disabled id="to-op-preview-btn"
+        title="Operator block preview coming soon.">
+        Preview Operator Block
+      </button>
+      <button class="btn bc-sel-create-btn" disabled id="to-op-create-btn"
+        title="Operator block creation requires write-gate approval.">
+        Create Operator Block
+      </button>
+    </div>
+    <div class="bk-preview-create-note">Operator booking writes require approval gates before they can be enabled.</div>
+  </div>
+
+  <!-- ── Operator Room Release (Stage 8.3u) ───────────────────────────────── -->
+  <div class="card" id="to-rr-panel" style="margin-top:16px">
+    <div class="bc-op-header">
+      <span class="bc-op-title">&#128477; Operator Room Release</span>
+      <span class="bc-op-badge">Preview only &mdash; coming soon</span>
+    </div>
+    <div class="bc-rr-purpose">
+      Use this when an operator has blocked a room for a long period but releases specific dates back to normal availability.
+      This will eventually split the operator booking and release selected dates back to regular availability.
+      <strong>Preview only &mdash; no room will be released.</strong>
+    </div>
+
+    <!-- Section: Operator Block -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Operator Block</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-block-code">Operator block code</label>
+        <input type="text" id="to-rr-block-code" class="bk-input bk-input-sm"
+          placeholder="Operator block booking code &mdash; coming soon">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-op-name">Operator name</label>
+        <input type="text" id="to-rr-op-name" class="bk-input bk-input-sm" placeholder="Tour operator or company name">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-orig-cin">Original block check-in</label>
+        <input type="date" id="to-rr-orig-cin" class="bk-input bk-input-sm bc-date-input">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-orig-cout">Original block check-out</label>
+        <input type="date" id="to-rr-orig-cout" class="bk-input bk-input-sm bc-date-input">
+      </div>
+    </div>
+
+    <!-- Section: Release Dates -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Release Dates</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-start">Release start</label>
+        <input type="date" id="to-rr-start" class="bk-input bk-input-sm bc-date-input">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-end">Release end</label>
+        <input type="date" id="to-rr-end" class="bk-input bk-input-sm bc-date-input">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-nights">Release nights</label>
+        <input type="number" id="to-rr-nights" class="bk-input bk-input-sm" min="1">
+      </div>
+    </div>
+
+    <!-- Section: Release Scope -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Release Scope</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-room">Room(s) to release</label>
+        <input type="text" id="to-rr-room" class="bk-input bk-input-sm" placeholder="e.g. DEMO-R1">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-bed">Bed(s) to release</label>
+        <input type="text" id="to-rr-bed" class="bk-input bk-input-sm" placeholder="e.g. DEMO-R1-B1">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-release-type">Release type</label>
+        <select id="to-rr-release-type" class="bk-input bk-input-sm">
+          <option value="selected_beds">Selected beds</option>
+          <option value="whole_room">Whole room</option>
+          <option value="selected_dates">Selected dates only</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Section: Defaults (locked) -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Defaults</div>
+      <div class="bk-form-row">
+        <label class="bk-label">Action</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Release operator block dates" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">Guest messaging</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">Stripe / payment</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">n8n workflow</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not triggered" readonly>
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label">Staff write status</label>
+        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled in staging" readonly>
+      </div>
+    </div>
+
+    <!-- Section: Notes -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Notes</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-reason">Reason for release</label>
+        <input type="text" id="to-rr-reason" class="bk-input bk-input-sm" placeholder="e.g. operator cancelled these nights">
+      </div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="to-rr-staff-note">Internal staff note</label>
+        <textarea id="to-rr-staff-note" class="bk-input" rows="2" placeholder="Internal note..."></textarea>
+      </div>
+    </div>
+
+    <!-- Safety notice -->
+    <div class="bk-safety-notice">
+      &#128274; Preview only &mdash; no dates will be released.<br>
+      No guest message, Stripe action, or n8n workflow will run.<br>
+      Room release writes require approval gates, conflict checks, audit, and rollback proof before they can be enabled.
+    </div>
+
+    <!-- Disabled actions -->
+    <div class="bc-sel-actions" style="margin-top:16px">
+      <button class="btn bc-sel-create-btn" disabled id="to-rr-preview-btn"
+        title="Release preview coming soon.">
+        Preview Release
+      </button>
+      <button class="btn bc-sel-create-btn" disabled id="to-rr-release-btn"
+        title="Room release requires write-gate approval.">
+        Release Dates
+      </button>
+    </div>
+    <div class="bk-preview-create-note">Room release writes require approval gates before they can be enabled.</div>
+  </div>
+
+</div>
+</div><!-- /tab-tour-operator -->
 
 <script>
 (function(){
@@ -2739,23 +2746,6 @@ function bcClearSelection(){
   if (_prClear) _prClear.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
   var _cBtnClear = el('bc-sel-conflicts');
   if (_cBtnClear){ _cBtnClear.disabled = true; _cBtnClear.title = 'Select empty cells to enable conflict preview'; }
-  /* Tour Operator Block: reset to no-selection state (Stage 8.3q) */
-  var _opNoSel = el('bc-op-no-sel'); if (_opNoSel) _opNoSel.style.display = 'block';
-  var _opBody  = el('bc-op-body');   if (_opBody)  _opBody.style.display  = 'none';
-  ['bc-op-cin','bc-op-cout','bc-op-nights','bc-op-room','bc-op-bed',
-   'bc-op-name','bc-op-manager','bc-op-phone','bc-op-email',
-   'bc-op-notes','bc-op-staff-note'].forEach(function(id){
-    var inp = el(id); if (inp) inp.value = '';
-  });
-  var _opGc = el('bc-op-guest-count'); if (_opGc) _opGc.value = '';
-  /* Operator Room Release: reset to no-selection state (Stage 8.3r) */
-  var _rrNoSel = el('bc-rr-no-sel'); if (_rrNoSel) _rrNoSel.style.display = 'block';
-  var _rrBody  = el('bc-rr-body');   if (_rrBody)  _rrBody.style.display  = 'none';
-  ['bc-rr-start','bc-rr-end','bc-rr-nights','bc-rr-room','bc-rr-bed',
-   'bc-rr-op-name','bc-rr-block-code','bc-rr-orig-cin','bc-rr-orig-cout',
-   'bc-rr-reason','bc-rr-staff-note'].forEach(function(id){
-    var inp = el(id); if (inp) inp.value = '';
-  });
 }
 
 function bcApplySelectionHighlight(){
@@ -2821,26 +2811,6 @@ function bcApplySelectionHighlight(){
   if (selCount >= 1) {
     var _prSel = el('bc-preview-result');
     if (_prSel) _prSel.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
-  }
-  /* Tour Operator Block: prefill from selection (Stage 8.3q) */
-  var _opNoSel2 = el('bc-op-no-sel'); if (_opNoSel2) _opNoSel2.style.display = selCount >= 1 ? 'none' : 'block';
-  var _opBody2  = el('bc-op-body');   if (_opBody2)  _opBody2.style.display  = selCount >= 1 ? 'block' : 'none';
-  if (selCount >= 1) {
-    var _opCin   = el('bc-op-cin');    if (_opCin)    _opCin.value    = selStart;
-    var _opCout  = el('bc-op-cout');   if (_opCout)   _opCout.value   = checkOut;
-    var _opNights = el('bc-op-nights');if (_opNights)  _opNights.value = String(selCount);
-    var _opRoom  = el('bc-op-room');   if (_opRoom)   _opRoom.value   = bcSel.room_code;
-    var _opBed   = el('bc-op-bed');    if (_opBed)    _opBed.value    = bcSel.bed_code;
-  }
-  /* Operator Room Release: prefill from selection (Stage 8.3r) */
-  var _rrNoSel2 = el('bc-rr-no-sel'); if (_rrNoSel2) _rrNoSel2.style.display = selCount >= 1 ? 'none' : 'block';
-  var _rrBody2  = el('bc-rr-body');   if (_rrBody2)  _rrBody2.style.display  = selCount >= 1 ? 'block' : 'none';
-  if (selCount >= 1) {
-    var _rrStart  = el('bc-rr-start');  if (_rrStart)  _rrStart.value  = selStart;
-    var _rrEnd    = el('bc-rr-end');    if (_rrEnd)    _rrEnd.value    = checkOut;
-    var _rrNights = el('bc-rr-nights'); if (_rrNights) _rrNights.value = String(selCount);
-    var _rrRoom   = el('bc-rr-room');   if (_rrRoom)   _rrRoom.value   = bcSel.room_code;
-    var _rrBed    = el('bc-rr-bed');    if (_rrBed)    _rrBed.value    = bcSel.bed_code;
   }
 }
 
@@ -2956,6 +2926,9 @@ function runPreviewConflicts() {
 }
 
 function bcHandleCellClick(td){
+  var date = td && td.dataset && td.dataset.date;
+  var room = td && td.dataset && td.dataset.room;
+  var bed  = td && td.dataset && td.dataset.bed;
   if (!date || !room || !bed) return;
   if (!bcSel || bcSel.room_code !== room || bcSel.bed_code !== bed){
     /* Start new selection on this bed */
@@ -3143,7 +3116,6 @@ function kvBC(k, v){
 
 function showBlockDetail(blk){
   if (!blk) return;
-  var bedRoomLabel = (blk.room_code||'\u2014') + ' / ' + (blk.bed_code||'\u2014');
   /* Status pill for block color type */
   var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',operator:'pill-blue',manual:'pill-blue'};
   var pillCls = pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue';
@@ -3152,15 +3124,8 @@ function showBlockDetail(blk){
     : '';
   el('bc-detail').innerHTML =
     '<div class="toolbar"><h2>' + escHtml(blk.booking_code||'\u2014') +
-    (blk.guest_name ? ' \u2013 ' + escHtml(blk.guest_name) : '') +
     statusPill + '</h2>' +
     '<button class="btn btn-ghost" id="bc-close-detail">&times; Close</button></div>' +
-    '<div class="kv-grid" style="margin-bottom:12px">' +
-    kvBC('Check-in',   blk.start_date) +
-    kvBC('Check-out',  blk.end_date)   +
-    kvBC('Room / Bed', bedRoomLabel)   +
-    (blk.needs_review ? '<div class="kv" style="grid-column:1/-1"><span class="pill pill-orange">NEEDS REVIEW</span></div>' : '') +
-    '</div>' +
     '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>' +
     '<div class="bc-detail-note">&#128274; Bed calendar is read-only \u2014 booking edits disabled until write gates approved.</div>';
   el('bc-detail').style.display = 'block';
@@ -3246,37 +3211,30 @@ function renderBookingContextDrawer(data){
   if (bk.needs_rooming_review) html += '<span class="pill pill-orange">Rooming review</span>';
   html += '</div>';
   html += '<div class="kv-grid">';
-  html += kvBC('Booking',   bk.booking_code);
   html += kvBC('Check-in',  bk.check_in);
   html += kvBC('Check-out', bk.check_out);
-  if (bk.guest_count) html += kvBC('Guests', bk.guest_count);
+  /* Room/Beds merged here — no separate duplicate section */
+  var rm = data.rooming || {};
+  if ((rm.assigned_room_codes||[]).length) html += kvBC('Room', (rm.assigned_room_codes||[]).join(', '));
+  else if (bk.room_code)                  html += kvBC('Room', bk.room_code);
+  if ((rm.assigned_bed_codes||[]).length) html += kvBC('Beds', (rm.assigned_bed_codes||[]).join(', '));
+  else if (bk.bed_code)                   html += kvBC('Bed',  bk.bed_code);
+  if (bk.assignment_status)              html += kvBC('Assignment', bk.assignment_status);
+  if (bk.guest_count)  html += kvBC('Guests', bk.guest_count);
   if (bk.package_code) html += kvBC('Package', bk.package_code);
   var roomPref = bk.requested_room_type || bk.room_preference;
   if (roomPref) html += kvBC('Room pref', roomPref);
-  html += '</div></div>';
-
-  /* ── 3. Room / Beds ────────────────────────────────────────────────────── */
-  var rm = data.rooming || {};
-  html += '<div class="ctx-section"><h3>Room / Beds</h3>';
-  if (!rm.assignments || rm.assignments.length === 0){
-    html += '<div class="ctx-none">No bed assignments recorded.</div>';
-  } else {
-    html += '<div class="kv-grid">';
-    if ((rm.assigned_room_codes||[]).length) html += kvBC('Room', (rm.assigned_room_codes||[]).join(', '));
-    if ((rm.assigned_bed_codes||[]).length)  html += kvBC('Beds', (rm.assigned_bed_codes||[]).join(', '));
-    if (bk.assignment_status) html += kvBC('Assignment', bk.assignment_status);
+  html += '</div>';
+  if (rm.assignments && rm.assignments.length > 0){
+    html += '<div style="margin-top:8px">';
+    rm.assignments.forEach(function(a){
+      html += '<div class="ctx-bed-row"><b>' +
+        escHtml(a.room_code||'\u2014') + ' / ' + escHtml(a.bed_code||'\u2014') +
+        '</b><span>' + escHtml(a.assignment_start_date||'') + ' \u2192 ' + escHtml(a.assignment_end_date||'') + '</span>' +
+        (a.assignment_label ? '<em style="font-size:10px">' + escHtml(a.assignment_label) + '</em>' : '') +
+        '</div>';
+    });
     html += '</div>';
-    if (rm.assignments.length > 0){
-      html += '<div style="margin-top:8px">';
-      rm.assignments.forEach(function(a){
-        html += '<div class="ctx-bed-row"><b>' +
-          escHtml(a.room_code||'\u2014') + ' / ' + escHtml(a.bed_code||'\u2014') +
-          '</b><span>' + escHtml(a.assignment_start_date||'') + ' \u2192 ' + escHtml(a.assignment_end_date||'') + '</span>' +
-          (a.assignment_label ? '<em style="font-size:10px">' + escHtml(a.assignment_label) + '</em>' : '') +
-          '</div>';
-      });
-      html += '</div>';
-    }
   }
   html += '</div>';
 
