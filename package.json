@@ -76,6 +76,7 @@
     "verify:staff-manual-booking-preview-api": "node scripts/verify-staff-manual-booking-preview-api.js",
     "verify:staff-manual-booking-create-api": "node scripts/verify-staff-manual-booking-create-api.js",
     "verify:staff-stripe-payment-link-api": "node scripts/verify-staff-stripe-payment-link-api.js",
+    "verify:staff-stripe-webhook-api": "node scripts/verify-staff-stripe-webhook-api.js",
     "verify:wolfhouse-pricing-config": "node scripts/verify-wolfhouse-pricing-config.js",
     "verify:wolfhouse-quote-calculator": "node scripts/verify-wolfhouse-quote-calculator.js",
     "verify:staff-quote-preview-api": "node scripts/verify-staff-quote-preview-api.js",

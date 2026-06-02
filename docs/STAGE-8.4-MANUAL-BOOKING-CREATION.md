@@ -244,8 +244,59 @@ Resets `bcLastPaymentId = null` and clears `bc-stripe-link-result`.
 ### Drawer note
 `renderBookingContextDrawer` is ready for `checkout_url` display once `getBookingPaymentsQuery` is updated to return that column. Not a blocker for this stage.
 
+---
+
+## Stage 8.4.11 — Stripe webhook payment truth  ✅ PASS  (commit pending)
+
+**Goal:** When a guest pays a Stripe Checkout link, the webhook marks the payment as paid and updates booking payment fields. No messages, no n8n, no confirmation.
+
+### Implementation
+
+| Component | Detail |
+|---|---|
+| Route | `POST /staff/stripe/webhook` |
+| Handler | `handleStripeWebhook(req, res)` |
+| Auth model | No session auth — Stripe HMAC signature (or `STRIPE_WEBHOOK_SKIP_VERIFY=true` for local dev) |
+| Signature verification | `stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET)` |
+| Skip flag | `STRIPE_WEBHOOK_SKIP_VERIFY=true` in env — local/dev only, never production |
+| Body reading | `readBodyRaw()` — returns Buffer for exact signature matching |
+| Supported event | `checkout.session.completed` |
+| Unsupported events | `200 ignored:true` |
+| Payment lookup | `metadata.payment_id` → fallback to `stripe_checkout_session_id` |
+| Idempotency | Already-paid → `200 idempotent:true`, no double-count |
+| Payment update | `status=paid`, `amount_paid_cents`, `paid_at=NOW()`, `stripe_payment_intent_id`, event metadata |
+| Booking update | `amount_paid_cents`, `balance_due_cents`, `payment_status` (`deposit_paid` / `paid` / `waiting_payment`) |
+| Transaction | `BEGIN/COMMIT/ROLLBACK` — payment + booking update atomic |
+| Booking status | NOT changed to `confirmed` here — payment truth only slice |
+| Response | `success, event_type, payment_id, booking_id, amount_paid_cents, booking_amount_paid_cents, booking_balance_due_cents, payment_status, idempotent` |
+| Safety flags | `no_whatsapp:true, no_email:true, no_n8n:true, no_confirmation_sent:true` |
+
+### Verifier
+`scripts/verify-staff-stripe-webhook-api.js` — 60/60 checks:
+- A: Constants (3), B: readBodyRaw (3), C: Route (4), D: Handler (8), E: Payment match (5)
+- F: Idempotency (3), G: Payment update (6), H: Booking update (8), I: Response (8)
+- J: Safety (9), K: No Azure (1), L: Audit log (2)
+
+### Local proof (STRIPE_WEBHOOK_SKIP_VERIFY=true — fixture, no Stripe CLI needed)
+
+| Check | Result |
+|---|---|
+| BEFORE: pm_status=checkout_created | ✓ |
+| POST fixture checkout.session.completed → 200 success | ✓ |
+| amount_paid_cents=20000 in response | ✓ |
+| payment_status=deposit_paid in response | ✓ |
+| no_whatsapp / no_n8n in response | ✓ |
+| AFTER DB: pm_status=paid | ✓ |
+| AFTER DB: pm_paid_cents=20000 | ✓ |
+| AFTER DB: bk_amount_paid_cents=20000 | ✓ |
+| AFTER DB: bk_payment_status=deposit_paid | ✓ |
+| POST same event again → idempotent:true | ✓ |
+| No double-count (amounts unchanged) | ✓ |
+| Unsupported event → 200 ignored:true | ✓ |
+| Cleanup confirmed | ✓ |
+
 ### Next step
-Stage 8.4.11 — Send Stripe checkout URL to guest via WhatsApp message (or email). **Not in this slice.**
+Stage 8.4.12 — Show webhook payment truth in Staff Portal booking detail drawer (update `getBookingPaymentsQuery` to return `checkout_url`, `paid_at`, `amount_paid_cents`; update drawer to show paid status).
 
 ---
 

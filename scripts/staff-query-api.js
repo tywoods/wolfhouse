@@ -120,6 +120,13 @@ const STRIPE_LINKS_ENABLED   = process.env.STRIPE_LINKS_ENABLED   === 'true';
 const STRIPE_SECRET_KEY      = process.env.STRIPE_SECRET_KEY      || null;
 const STRIPE_SUCCESS_URL     = process.env.STRIPE_CHECKOUT_SUCCESS_URL || process.env.STRIPE_SUCCESS_URL || null;
 const STRIPE_CANCEL_URL      = process.env.STRIPE_CHECKOUT_CANCEL_URL  || process.env.STRIPE_CANCEL_URL  || null;
+// Stage 8.4.11 — Stripe webhook payment truth.
+// STRIPE_WEBHOOK_SECRET: whsec_... from Stripe dashboard (or Stripe CLI for local testing).
+//   Required unless STRIPE_WEBHOOK_SKIP_VERIFY=true.
+// STRIPE_WEBHOOK_SKIP_VERIFY: ONLY for local/dev fixture testing. Never true in production.
+//   Default false — production always verifies signatures.
+const STRIPE_WEBHOOK_SECRET      = process.env.STRIPE_WEBHOOK_SECRET      || null;
+const STRIPE_WEBHOOK_SKIP_VERIFY = process.env.STRIPE_WEBHOOK_SKIP_VERIFY === 'true';
 const STAFF_OPERATOR_TOKEN   = process.env.STAFF_OPERATOR_TOKEN  || '';
 
 // Only handoff.resolve is allowed in v1
@@ -707,6 +714,22 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
+// Stage 8.4.11 — Raw Buffer variant required for Stripe webhook signature verification.
+// Stripe's constructEvent() needs the exact raw bytes, not a parsed/re-serialised string.
+function readBodyRaw(req, maxBytes) {
+  const limit = maxBytes || 102400; // 100KB default
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on('data', (chunk) => {
+      total += chunk.length;
+      if (total > limit) { req.destroy(new Error('body too large')); return; }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
 
 async function handleResolveHandoff(handoffId, req, res) {
   const started = Date.now();
@@ -1188,6 +1211,270 @@ async function handleQuotePreview(req, res, user) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/stripe/webhook  (Stage 8.4.11 — Stripe payment truth)
+//
+// Receives Stripe webhook events and applies payment truth to matching records.
+// This is the ONLY path that marks a payment paid.
+//
+// Auth model:
+//   No session auth — Stripe sends the webhook, not a staff user.
+//   Identity verified by HMAC signature (stripe-signature header).
+//
+// Verification:
+//   STRIPE_WEBHOOK_SKIP_VERIFY=true  → skip sig check (local fixture testing ONLY)
+//   STRIPE_WEBHOOK_SKIP_VERIFY=false → always verify (production default)
+//   Missing STRIPE_WEBHOOK_SECRET + verify required → 503, no DB write
+//
+// Supported events:
+//   checkout.session.completed → marks payment paid, updates booking amounts
+//   All others → 200 ignored:true (no error)
+//
+// Idempotency:
+//   Already-paid payment → returns 200 idempotent:true, no double-count
+//
+// Safety:
+//   No WhatsApp. No email. No n8n. No confirmation send.
+//   No new Stripe checkout session created here.
+//   Booking status NOT changed to confirmed here (payment truth only slice).
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleStripeWebhook(req, res) {
+  const started = Date.now();
+
+  // ── 1. Read raw body (must be Buffer for Stripe signature verification) ────
+  let rawBody;
+  try {
+    rawBody = await readBodyRaw(req, 102400);
+  } catch (e) {
+    return sendJSON(res, 400, { success: false, error: 'Failed to read request body: ' + e.message });
+  }
+
+  // ── 2. Signature verification ─────────────────────────────────────────────
+  let event;
+  if (STRIPE_WEBHOOK_SKIP_VERIFY) {
+    // Local/dev fixture testing only — NEVER enable in production.
+    try {
+      event = JSON.parse(rawBody.toString('utf8'));
+    } catch (e) {
+      return sendJSON(res, 400, { success: false, error: 'Invalid JSON payload' });
+    }
+  } else {
+    if (!STRIPE_WEBHOOK_SECRET) {
+      return sendJSON(res, 503, {
+        success: false,
+        error:   'STRIPE_WEBHOOK_SECRET not configured. Set it in env before enabling webhook verification.',
+        no_db_write: true,
+      });
+    }
+    const sig = req.headers['stripe-signature'];
+    if (!sig) {
+      return sendJSON(res, 400, { success: false, error: 'Missing stripe-signature header' });
+    }
+    let stripe;
+    try { stripe = require('stripe')(STRIPE_SECRET_KEY || 'sk_test_placeholder'); }
+    catch (e) { return sendJSON(res, 500, { success: false, error: 'Stripe SDK load failed: ' + e.message }); }
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
+    } catch (e) {
+      return sendJSON(res, 400, { success: false, error: 'Webhook signature verification failed: ' + e.message });
+    }
+  }
+
+  // ── 3. Route event type ───────────────────────────────────────────────────
+  const eventType = event && event.type;
+  if (eventType !== 'checkout.session.completed') {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:ignored',
+      category: 'stripe_webhook', event_type: eventType || 'unknown',
+    });
+    return sendJSON(res, 200, { success: true, ignored: true, event_type: eventType || 'unknown' });
+  }
+
+  const session = event.data && event.data.object;
+  if (!session) {
+    return sendJSON(res, 400, { success: false, error: 'missing event data.object' });
+  }
+
+  const sessionId      = session.id;
+  const metaPaymentId  = session.metadata && session.metadata.payment_id;
+  const metaBookingId  = session.metadata && session.metadata.booking_id;
+
+  // ── 4. Look up payment + booking from DB ──────────────────────────────────
+  let pm;
+  try {
+    pm = await withPgClient(async (pg) => {
+      const q = `
+        SELECT p.id                     AS payment_id,
+               p.booking_id,
+               p.client_id,
+               p.status                 AS payment_status,
+               p.payment_kind,
+               p.currency,
+               p.amount_due_cents,
+               p.amount_paid_cents      AS pm_amount_paid,
+               p.stripe_checkout_session_id,
+               b.booking_code,
+               b.total_amount_cents     AS bk_total,
+               b.amount_paid_cents      AS bk_amount_paid,
+               b.balance_due_cents      AS bk_balance,
+               b.deposit_required_cents AS bk_deposit,
+               cl.slug                  AS client_slug
+          FROM payments p
+          JOIN bookings b  ON b.id  = p.booking_id
+          JOIN clients  cl ON cl.id = p.client_id
+         WHERE ${metaPaymentId ? 'p.id = $1' : 'p.stripe_checkout_session_id = $1'}`;
+      const r = await pg.query(q, [metaPaymentId || sessionId]);
+      return r.rows[0] || null;
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
+  }
+
+  // No matching payment — log and return 200 (don't error; Stripe retries on non-2xx)
+  if (!pm) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:no_match',
+      category: 'stripe_webhook', event_type: eventType,
+      session_id: sessionId, meta_payment_id: metaPaymentId || null,
+    });
+    return sendJSON(res, 200, {
+      success: true, ignored: true,
+      reason:  'no matching payment found for this session',
+      session_id: sessionId,
+    });
+  }
+
+  // ── 5. Idempotency — already paid ─────────────────────────────────────────
+  if (pm.payment_status === 'paid') {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
+      category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
+    });
+    return sendJSON(res, 200, {
+      success:                   true,
+      idempotent:                true,
+      event_type:                eventType,
+      payment_id:                pm.payment_id,
+      booking_id:                pm.booking_id,
+      booking_code:              pm.booking_code,
+      amount_paid_cents:         Number(pm.pm_amount_paid || 0),
+      booking_amount_paid_cents: Number(pm.bk_amount_paid || 0),
+      booking_balance_due_cents: Number(pm.bk_balance    || 0),
+      payment_status:            'paid',
+      message:                   'Payment already marked paid (idempotent — no double-count)',
+    });
+  }
+
+  // ── 6. Validate currency ──────────────────────────────────────────────────
+  if ((pm.currency || '').toUpperCase() !== 'EUR') {
+    return sendJSON(res, 422, {
+      success: false,
+      error:   `Currency mismatch: payment currency is '${pm.currency}', expected EUR`,
+    });
+  }
+
+  // ── 7. Derive amounts ─────────────────────────────────────────────────────
+  // Stripe session.amount_total is in smallest currency unit (cents for EUR)
+  const stripePaidCents    = Number(session.amount_total || pm.amount_due_cents || 0);
+  const newPmPaidCents     = stripePaidCents;   // This payment record
+  const prevBkPaid         = Number(pm.bk_amount_paid || 0);
+  const bkTotal            = Number(pm.bk_total        || 0);
+  const newBkPaid          = Math.min(prevBkPaid + stripePaidCents, bkTotal > 0 ? bkTotal : prevBkPaid + stripePaidCents);
+  const newBkBalance       = bkTotal > 0 ? Math.max(bkTotal - newBkPaid, 0) : 0;
+
+  // ── 8. Determine new booking payment_status ───────────────────────────────
+  // Use existing payment_status enum values from schema inspection:
+  //   not_requested, waiting_payment, payment_link_sent, deposit_paid, paid,
+  //   refunded, failed, expired
+  let newBkPayStatus;
+  if (newBkBalance === 0 && bkTotal > 0) {
+    newBkPayStatus = 'paid';
+  } else if (pm.payment_kind === 'deposit_only') {
+    newBkPayStatus = 'deposit_paid';
+  } else {
+    newBkPayStatus = 'waiting_payment';
+  }
+
+  // ── 9. Atomic DB update: payment + booking ────────────────────────────────
+  try {
+    await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        await pg.query(
+          `UPDATE payments
+             SET status                   = 'paid'::payment_record_status,
+                 amount_paid_cents        = $1,
+                 paid_at                  = NOW(),
+                 stripe_payment_intent_id = $2,
+                 metadata                 = metadata || $3::jsonb
+           WHERE id = $4`,
+          [
+            newPmPaidCents,
+            session.payment_intent || null,
+            JSON.stringify({
+              stripe_event_id:   event.id,
+              stripe_event_type: event.type,
+              stripe_session_id: sessionId,
+              stripe_livemode:   event.livemode || false,
+              skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
+              source:            'staff_portal_webhook_stage8411',
+            }),
+            pm.payment_id,
+          ]
+        );
+        await pg.query(
+          `UPDATE bookings
+             SET amount_paid_cents = $1,
+                 balance_due_cents = $2,
+                 payment_status    = $3::payment_status
+           WHERE id = $4`,
+          [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id]
+        );
+        await pg.query('COMMIT');
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+  } catch (dbErr) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:db_error',
+      category: 'stripe_webhook', payment_id: pm.payment_id, error: dbErr.message,
+    });
+    return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts: new Date().toISOString(), intent: 'webhook:stripe:payment_truth',
+    category: 'stripe_webhook', event_type: eventType,
+    payment_id: pm.payment_id, booking_id: pm.booking_id,
+    booking_code: pm.booking_code, amount_paid_cents: newPmPaidCents,
+    new_bk_payment_status: newBkPayStatus, elapsed_ms: elapsed,
+    whatsapp_called: false, n8n_called: false, email_sent: false,
+  });
+
+  // ── 10. Success response ──────────────────────────────────────────────────
+  return sendJSON(res, 200, {
+    success:                   true,
+    idempotent:                false,
+    event_type:                eventType,
+    payment_id:                pm.payment_id,
+    booking_id:                pm.booking_id,
+    booking_code:              pm.booking_code,
+    amount_paid_cents:         newPmPaidCents,
+    booking_amount_paid_cents: newBkPaid,
+    booking_balance_due_cents: newBkBalance,
+    payment_status:            newBkPayStatus,
+    no_whatsapp:               true,
+    no_email:                  true,
+    no_n8n:                    true,
+    no_confirmation_sent:      true,
+    elapsed_ms:                elapsed,
+  });
+}
+
 // Route: POST /staff/payments/:payment_id/create-stripe-link  (Stage 8.4.9)
 //
 // Creates a Stripe Checkout Session from an existing draft payment record.
@@ -6280,6 +6567,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleManualBookingCreate(req, res, auth.user);
+  }
+
+  // ── Stage 8.4.11 — Stripe webhook payment truth ───────────────────────────
+  // POST /staff/stripe/webhook
+  // No session auth — identity via Stripe HMAC signature (or SKIP_VERIFY for local dev).
+  if (pathname === '/staff/stripe/webhook') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for stripe/webhook' }));
+    }
+    return handleStripeWebhook(req, res);
   }
 
   // ── Stage 8.4.9 — Stripe checkout link from draft payment ────────────────
