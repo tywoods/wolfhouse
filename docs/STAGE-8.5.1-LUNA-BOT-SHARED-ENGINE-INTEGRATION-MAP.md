@@ -356,10 +356,21 @@ Each slice is independently gated, independently provable, and does not depend o
 **Verifier:** `scripts/verify-staff-bot-booking-preview-api.js` 65/65 PASS (12 new P-series checks). `verify-wolfhouse-quote-calculator.js` 77/77 PASS. `verify-staff-quote-preview-api.js` 33/33 PASS.
 **Local proof:** no token → 401; wrong token → 401; correct `X-Luna-Bot-Token` → 200 + `auth_mode:bot_token` + `next_action:ready_for_create_dry_run`; `Authorization: Bearer` → 200 + `auth_mode:bot_token`; `/staff/ui` → 302 to login page (bot token irrelevant). No DB writes. No Stripe. No WhatsApp. No n8n activation.
 
-### 8.5.4 — Bot create booking/payment link path, dry-run only
-**Goal:** Add a bot-accessible booking create endpoint (e.g. `POST /bot/bookings/create`) that internally calls `calculateWolfhouseQuote()`, writes `bookings` + `booking_beds` + `payments` (draft), then calls the Stripe link creation path. Gate: new `BOT_BOOKING_ENABLED=false` flag (default false → 403). No WhatsApp send.
-**Type:** Code — small new endpoint. No UI. No activation.
-**Pass criteria:** `WHATSAPP_DRY_RUN=true`, `BOT_BOOKING_ENABLED=true` → booking created in Postgres, draft payment created, Stripe link returned as `checkout_url` in response. Webhook truth path (existing `/staff/stripe/webhook`) correctly matches payment via `payment_id` in Stripe metadata.
+### 8.5.4 — Bot create booking + draft payment endpoint — **PASS (2026-06-02)**
+**Goal:** Allow Luna/n8n to create a booking using the shared Stage 8.4 engine: booking → quote_snapshot → draft payment → return `payment_id` for next slice. No Stripe link. No WhatsApp.
+**Delivered:**
+- `POST /staff/bot/bookings/create` added to `scripts/staff-query-api.js`.
+- Gated by `BOT_BOOKING_ENABLED=false` (default) → 403. Separate from `MANUAL_BOOKING_ENABLED`.
+- Auth: `requireBotAuth()` — bot token (`X-Luna-Bot-Token` / `Authorization: Bearer`) or session cookie.
+- Bot token actor assigned `operator` role so `buildManualBookingCreateSql()` role check passes.
+- Reuses shared SQL helper (`buildManualBookingCreateSql`), `calculateWolfhouseQuote()`, and the same `BEGIN/COMMIT/ROLLBACK` transaction path proven in Stage 8.4.
+- Writes: `bookings` row + `booking_beds` + `quote_snapshot` in `bookings.metadata` + draft `payments` row.
+- `selected_bed_codes` required for this slice (auto-assign is next slice).
+- Idempotency key with `bot-` prefix.
+- Returns: `booking_id`, `booking_code`, `payment_id`, `payment_status: "draft"`, `next_action: "create_stripe_link"`, `creates_stripe_link: false`, `sends_whatsapp: false`, `whatsapp_dry_run: true`, `auth_mode`.
+- No Stripe API calls. No WhatsApp. No n8n. `no_stripe: true`, `no_n8n: true`.
+**Verifier:** `scripts/verify-staff-bot-booking-create-api.js` **54/54 PASS** (new). All other verifiers: `verify-staff-bot-booking-preview-api.js` 65/65 · `verify-wolfhouse-quote-calculator.js` 77/77 · `verify-staff-quote-preview-api.js` 33/33 · `verify-staff-manual-booking-create-api.js` 50/50 — all PASS.
+**Local proof:** wrong token → 401; `BOT_BOOKING_ENABLED=false` → 403; correct token + `BOT_BOOKING_ENABLED=true` + 2 bed codes → **201** + `booking_code: MB-WOLFHO-20260710-0417a3` + `payment_id: 312fea13...` + `next_action: create_stripe_link` + `creates_stripe_link: false` + `auth_mode: bot_token` + `quote.total_cents: 45000`. Test booking cleaned up after proof. No Stripe. No WhatsApp. No n8n.
 
 ### 8.5.5 — Webhook-triggered confirmation draft, dry-run only
 **Goal:** After webhook marks `bookings.payment_status=deposit_paid`, a confirmation eligibility check drafts (but does not send) a WhatsApp confirmation. `WHATSAPP_DRY_RUN=true` gates the send.

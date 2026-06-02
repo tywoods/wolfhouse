@@ -112,6 +112,10 @@ const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 // Write endpoint config — disabled unless explicitly enabled
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
 const MANUAL_BOOKING_ENABLED = process.env.MANUAL_BOOKING_ENABLED === 'true';
+// Stage 8.5.4 — Luna bot booking create via shared engine.
+// BOT_BOOKING_ENABLED=false by default — must be explicitly set to true.
+// Separate from MANUAL_BOOKING_ENABLED and WHATSAPP_DRY_RUN.
+const BOT_BOOKING_ENABLED = process.env.BOT_BOOKING_ENABLED === 'true';
 // Stage 8.4.9 — Stripe checkout link creation from draft payment records.
 // STRIPE_LINKS_ENABLED must be explicitly set to 'true'; default false.
 // STRIPE_SECRET_KEY must be a valid Stripe secret (sk_test_... or sk_live_...).
@@ -375,7 +379,7 @@ async function requireBotAuth(req, res) {
       const match = configBuf.length === providedBuf.length &&
         crypto.timingSafeEqual(configBuf, providedBuf);
       if (match) {
-        return { ok: true, user: { role: 'viewer', staff_user_id: 'luna-bot-internal' }, auth_mode: 'bot_token' };
+        return { ok: true, user: { role: 'operator', staff_user_id: 'luna-bot-internal' }, auth_mode: 'bot_token' };
       }
       // Token provided but wrong → 401 immediately (do not fall through to session)
       sendJSON(res, 401, {
@@ -2004,6 +2008,320 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     no_n8n:                    true,
     message:                   'Stripe Checkout Session created. Payment not marked paid until webhook confirms.',
     elapsed_ms:                elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/bot/bookings/create  (Stage 8.5.4 — Luna bot booking create)
+//
+// Creates a booking via the shared engine (same SQL/quote path as Stage 8.4).
+// Uses requireBotAuth — accepts X-Luna-Bot-Token or Authorization: Bearer.
+// Gated by BOT_BOOKING_ENABLED=true (default false → 403).
+//
+// Writes: booking + booking_beds + quote_snapshot in metadata + draft payments row.
+// Does NOT create a Stripe link. Does NOT send WhatsApp. Does NOT call n8n.
+// No Stripe API calls. WHATSAPP_DRY_RUN remains honored throughout.
+//
+// Returns payment_id for next slice (create_stripe_link).
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBotBookingCreate(req, res, user, authMode) {
+  const started = Date.now();
+
+  // ── 1. Feature flag gate ──────────────────────────────────────────────────
+  if (!BOT_BOOKING_ENABLED) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:bot_booking_create',
+      category: 'bot_booking_create', success: false,
+      error: 'feature_flag_disabled', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, {
+      success: false,
+      error:   'Bot booking creation is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
+      bot_booking_enabled: false,
+    });
+  }
+
+  // ── 2. Parse body ────────────────────────────────────────────────────────
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  // ── 3. Extract + sanitise input ──────────────────────────────────────────
+  const clientSlug    = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const checkIn       = String(body.check_in   || '').trim();
+  const checkOut      = String(body.check_out  || '').trim();
+  const guestName     = String(body.guest_name || '').trim().slice(0, 200);
+  const phone         = String(body.phone      || '').trim().slice(0, 50);
+  const email         = String(body.email      || '').trim().slice(0, 200) || null;
+  const language      = String(body.language   || 'en').trim().slice(0, 10);
+  const guestCount    = parseInt(body.guest_count, 10) || 0;
+  const packageCode   = String(body.package_code || '').trim().slice(0, 50) || null;
+  const roomType      = String(body.room_type  || 'shared').trim().slice(0, 20);
+  const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
+  const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();
+  const paymentKind   = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
+  const confirmFlag   = body.confirm === true;
+  const source        = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
+  const notes         = String(body.notes  || '').trim().slice(0, 2000) || null;
+  const reason        = String(body.reason || 'Luna bot booking via /staff/bot/bookings/create').trim().slice(0, 500);
+  const bookingStatus = 'confirmed';
+  const paymentStatus = 'not_requested';
+
+  // selected_bed_codes: required for this slice (auto-assign is next slice)
+  let rawBedCodes = body.selected_bed_codes;
+  if (typeof rawBedCodes === 'string') {
+    rawBedCodes = rawBedCodes.split(',').map((s) => s.trim()).filter(Boolean);
+  } else if (!Array.isArray(rawBedCodes)) {
+    rawBedCodes = [];
+  }
+  const selectedBedCodes = rawBedCodes.map(String).slice(0, 20);
+
+  // ── 4. Actor ──────────────────────────────────────────────────────────────
+  // For bot token auth, actorId is 'luna-bot-internal'. Role must be 'operator'
+  // because buildManualBookingCreateSql enforces MANUAL_BOOKING_ALLOWED_ROLES.
+  const actorId   = user ? user.staff_user_id : 'luna-bot-internal';
+  const actorRole = (user && user.staff_user_id !== 'luna-bot-internal' && user.role)
+    ? user.role
+    : 'operator'; // bot token or open-mode actor treated as operator for booking SQL
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+
+  // ── 5. Validate ───────────────────────────────────────────────────────────
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!phone)         return send400(res, 'phone is required');
+  if (!guestName)     return send400(res, 'guest_name is required');
+  if (!checkIn || !checkOut) return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut))
+    return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  if (checkOut <= checkIn)  return send400(res, 'check_out must be after check_in');
+  if (guestCount < 1)       return send400(res, 'guest_count must be at least 1');
+  if (!packageCode || packageCode === 'manual_override')
+    return send400(res, 'package_code is required (manual_override not supported)');
+  if (!paymentChoice)       return send400(res, 'payment_choice is required (deposit or full)');
+  if (!confirmFlag)         return send400(res, 'confirm: true is required in request body');
+  if (selectedBedCodes.length === 0)
+    return send400(res, 'selected_bed_codes is required for this slice (auto-assign is next slice)');
+  if (selectedBedCodes.some((c) => SQL_INJECT_RE.test(c)))
+    return send400(res, 'invalid character in selected_bed_codes');
+
+  // ── 5b. Server-side quote (amounts never trusted from client) ─────────────
+  const quote = calculateWolfhouseQuote({
+    client_slug:    clientSlug,
+    check_in:       checkIn,
+    check_out:      checkOut,
+    guest_count:    guestCount,
+    package_code:   packageCode,
+    room_type:      roomType,
+    payment_choice: paymentChoice,
+    add_ons:        addOns,
+  });
+  if (!quote.success || quote.blockers.length > 0) {
+    return send400(res, 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
+  }
+  const depositCents           = quote.deposit_required_cents;
+  const totalCents             = quote.total_cents;
+  const paymentLinkAmountCents = quote.payment_link_amount_cents;
+
+  // ── 6. Idempotency key ────────────────────────────────────────────────────
+  const idempotencyKey = body.idempotency_key
+    ? String(body.idempotency_key).slice(0, 120)
+    : 'bot-' + crypto.createHash('md5').update([
+        clientSlug, checkIn, checkOut, selectedBedCodes.slice().sort().join('_'),
+        guestName.toLowerCase(), phone,
+      ].join('|')).digest('hex');
+
+  const auditBase = {
+    ts: new Date().toISOString(), intent: 'api:bot_booking_create',
+    category: 'bot_booking_create',
+    client_slug: clientSlug, check_in: checkIn, check_out: checkOut,
+    selected_bed_codes: selectedBedCodes, guest_count: guestCount,
+    staff_user_id: actorId, staff_role: actorRole,
+    idempotency_key: idempotencyKey, source,
+    stripe_called: false, whatsapp_called: false, n8n_called: false,
+  };
+
+  // ── 7. Execute create inside transaction ──────────────────────────────────
+  let row;
+  try {
+    row = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const r = await pg.query(buildManualBookingCreateSql(), [
+          clientSlug,        // $1
+          actorId,           // $2
+          actorRole,         // $3
+          idempotencyKey,    // $4
+          null,              // $5 booking_code (auto-generate)
+          guestName,         // $6
+          phone,             // $7
+          email,             // $8
+          language,          // $9
+          checkIn,           // $10
+          checkOut,          // $11
+          guestCount,        // $12
+          selectedBedCodes,  // $13 text[]
+          packageCode,       // $14
+          null,              // $15 room_preference
+          bookingStatus,     // $16
+          paymentStatus,     // $17
+          depositCents,      // $18
+          totalCents,        // $19
+          source,            // $20
+          reason,            // $21
+          notes,             // $22
+          true,              // $23 confirm
+          false,             // $24 warnings_acknowledged
+        ]);
+        const result = r.rows[0] || null;
+        if (!result) { await pg.query('ROLLBACK'); return null; }
+        if (result.is_duplicate === true) { await pg.query('ROLLBACK'); result._duplicate = true; return result; }
+        if (result.is_blocked   === true) { await pg.query('ROLLBACK'); result._blocked   = true; return result; }
+        const bedsInserted = Number(result.beds_inserted || 0);
+        if (!result.booking_id || bedsInserted < 1 || bedsInserted !== selectedBedCodes.length) {
+          await pg.query('ROLLBACK');
+          result._safety_violation = true;
+          return result;
+        }
+
+        // Update booking with quote-derived amounts + quote_snapshot
+        await pg.query(
+          `UPDATE bookings
+             SET total_amount_cents     = $1,
+                 deposit_required_cents = $2,
+                 balance_due_cents      = $3,
+                 requested_room_type    = $4,
+                 metadata               = metadata || $5::jsonb
+           WHERE id = $6`,
+          [
+            totalCents, depositCents, quote.balance_due_cents, roomType,
+            JSON.stringify({
+              quote_snapshot:    quote,
+              payment_choice:    paymentChoice,
+              add_ons_at_create: addOns,
+              bot_source:        source,
+            }),
+            result.booking_id,
+          ]
+        );
+
+        // Update draft payment row with quote-driven amounts
+        const pmUpdate = await pg.query(
+          `UPDATE payments
+             SET payment_kind     = $1::payment_kind,
+                 amount_due_cents = $2,
+                 metadata         = metadata || $3::jsonb
+           WHERE booking_id = $4
+           RETURNING id AS payment_id`,
+          [
+            paymentKind, paymentLinkAmountCents,
+            JSON.stringify({
+              payment_choice:            paymentChoice,
+              quote_total_cents:         totalCents,
+              payment_link_amount_cents: paymentLinkAmountCents,
+              source:                    'bot_booking_stage854',
+            }),
+            result.booking_id,
+          ]
+        );
+        result._payment_id = pmUpdate.rows.length > 0 ? pmUpdate.rows[0].payment_id : null;
+
+        await pg.query('COMMIT');
+        return result;
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'bot booking create failed', detail: err.message });
+  }
+
+  if (!row) {
+    appendAuditLog({ ...auditBase, success: false, error: 'no_result_row', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'no result row returned from helper' });
+  }
+
+  const elapsed = Date.now() - started;
+
+  // ── 8. Idempotency duplicate ──────────────────────────────────────────────
+  if (row._duplicate) {
+    appendAuditLog({ ...auditBase, success: true, idempotent_duplicate: true,
+      booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true, duplicate: true, idempotent: true,
+      booking_id:   row.duplicate_booking_id,
+      booking_code: row.duplicate_booking_code,
+      message:      'Booking already exists for this request (idempotent).',
+      creates_stripe_link: false, sends_whatsapp: false, whatsapp_dry_run: true,
+    });
+  }
+
+  // ── 9. Blocked ────────────────────────────────────────────────────────────
+  if (row._blocked) {
+    appendAuditLog({ ...auditBase, success: false, blocked: true,
+      block_reason: row.block_reason, elapsed_ms: elapsed });
+    const isConflict = row.block_reason === 'overlap_conflict';
+    return sendJSON(res, isConflict ? 409 : 422, {
+      success: false, blocked: true, block_reason: row.block_reason,
+      error: isConflict
+        ? 'These dates/beds conflict with an existing booking. Nothing was created.'
+        : 'Booking blocked: ' + row.block_reason,
+      no_write_performed: true,
+      creates_stripe_link: false, sends_whatsapp: false,
+    });
+  }
+
+  // ── 10. Safety violation ──────────────────────────────────────────────────
+  if (row._safety_violation) {
+    appendAuditLog({ ...auditBase, success: false,
+      error: 'SAFETY_VIOLATION_bed_count_mismatch', beds_inserted: row.beds_inserted, elapsed_ms: elapsed });
+    return sendJSON(res, 409, {
+      success: false,
+      error:   'Booking could not be safely created (bed availability changed). Transaction rolled back.',
+      beds_inserted: Number(row.beds_inserted || 0), no_write_performed: true,
+    });
+  }
+
+  // ── 11. Success ───────────────────────────────────────────────────────────
+  appendAuditLog({ ...auditBase, success: true,
+    booking_id: row.booking_id, booking_code: row.booking_code,
+    payment_id: row._payment_id, beds_inserted: row.beds_inserted,
+    audit_event_id: row.audit_event_id, elapsed_ms: elapsed });
+
+  return sendJSON(res, 201, {
+    success:             true,
+    created:             true,
+    source,
+    auth_mode:           resolvedAuthMode,
+    booking_id:          row.booking_id,
+    booking_code:        row.booking_code,
+    payment_id:          row._payment_id || null,
+    payment_status:      'draft',
+    beds_inserted:       Number(row.beds_inserted || 0),
+    client_slug:         clientSlug,
+    check_in:            checkIn,
+    check_out:           checkOut,
+    selected_bed_codes:  selectedBedCodes,
+    quote: {
+      total_cents:               quote.total_cents,
+      deposit_required_cents:    quote.deposit_required_cents,
+      payment_link_amount_cents: paymentLinkAmountCents,
+      payment_kind:              paymentKind,
+      formula_summary:           quote.formula_summary,
+    },
+    next_action:         'create_stripe_link',
+    creates_stripe_link: false,
+    sends_whatsapp:      false,
+    whatsapp_dry_run:    true,
+    no_stripe:           true,
+    no_n8n:              true,
+    message:             'Bot booking created. Draft payment record created. No Stripe link. No WhatsApp.',
+    elapsed_ms:          elapsed,
   });
 }
 
@@ -6989,6 +7307,20 @@ async function router(req, res) {
     return handleBotBookingPreview(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Stage 8.5.4 — Luna bot booking create (shared engine, BOT_BOOKING_ENABLED gate) ──
+  // POST — creates booking + booking_beds + draft payment via shared SQL/quote path.
+  // No Stripe. No WhatsApp. No n8n. Bot token auth (requireBotAuth).
+  // BOT_BOOKING_ENABLED=false by default → 403.
+  if (pathname === '/staff/bot/bookings/create') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/create' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotBookingCreate(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
   // POST to carry JSON payload; never touches DB, Stripe, or any external service.
   // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
@@ -7139,6 +7471,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   if (STAFF_ACTIONS_ENABLED) {
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);
