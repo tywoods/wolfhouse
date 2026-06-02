@@ -1157,20 +1157,31 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .pill-blue{background:#DCE7EE;color:#4E6A7B;border-color:#CBDBE5}      /* neutral — dusty blue */
 .pill-green{background:#DCEAD2;color:#5C7350;border-color:#CADCBE}     /* confirmed — sage */
 .pill-grey{background:#E8E5DE;color:#83897F;border-color:#DDD8CE}      /* cancelled — pale warm gray */
-/* ── Inbox table ─────────────────────────────────────────────────────────── */
-.inbox-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
-.inbox-table th{background:var(--surface-soft);text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);font-weight:700;white-space:nowrap;font-size:10.5px;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
-.inbox-table td{padding:11px 12px;border-bottom:1px solid var(--border-soft);vertical-align:middle;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.inbox-table tr{transition:background .14s}
-.inbox-table tr:hover td{background:var(--surface-soft);cursor:pointer}
-.inbox-table tr.selected td{background:var(--teal)}
+/* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
+.inbox-two-col{display:flex;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;min-height:600px;max-height:calc(100vh - 160px)}
+.inbox-left{width:300px;flex-shrink:0;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
+.inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-soft)}
+.inbox-left-toolbar h2{font-size:14px;font-weight:700;color:var(--text);flex:1;letter-spacing:.01em}
+.conv-list{flex:1;overflow-y:auto}
+/* ── Conversation cards (left list) ──────────────────────────────────────── */
+.conv-card{padding:13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s;position:relative}
+.conv-card:hover{background:var(--surface-soft)}
+.conv-card.selected{background:var(--teal);border-left:3px solid var(--sage)}
+.conv-card-name{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:3px}
+.conv-card-phone{font-size:11.5px;color:var(--text-2);margin-bottom:6px}
+.conv-card-pills{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.conv-card-handoff{font-size:11px;color:var(--text-2);margin-top:5px;font-style:italic}
+.conv-list-empty{padding:24px 16px;color:var(--text-3);font-size:13px;text-align:center;font-style:italic}
+/* ── Inbox right panel ───────────────────────────────────────────────────── */
+.inbox-right{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
+.inbox-empty-right{display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:80px;color:var(--text-3);text-align:center;gap:10px}
+.inbox-empty-right .main-msg{font-size:14px;font-weight:600;color:var(--text-2)}
+.inbox-empty-right .sub-msg{font-size:12.5px}
+/* Preserve helper classes used in detail JS */
 .guest-name{font-weight:600;color:var(--text)}
-.phone-cell{color:var(--text-2);font-size:11.5px}
-.preview-cell{color:var(--text-3);font-size:11.5px;max-width:280px}
-.ts-cell{color:var(--text-3);font-size:11px;white-space:nowrap}
-/* ── Detail pane ─────────────────────────────────────────────────────────── */
-#conv-detail{display:none}
-#conv-detail.visible{display:block}
+/* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
+#conv-detail{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
+/* .visible no longer toggles display — kept for JS compat, no visual effect */
 .detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
 .detail-meta{font-size:12px;color:var(--text-2);margin-top:4px}
@@ -1180,8 +1191,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .kv{display:flex;flex-direction:column;gap:3px}
 .kv .k{font-size:10.5px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
 .kv .v{font-size:13px;color:var(--text);font-weight:500}
-.back-btn{background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px;font-weight:600;padding:0;margin-bottom:14px;transition:color .15s}
-.back-btn:hover{color:var(--primary-hover);text-decoration:underline}
+/* .back-btn removed — inbox is persistent two-column (no back navigation needed) */
 /* ── Detail two-column layout ────────────────────────────────────────────── */
 .detail-layout{display:flex;gap:16px;align-items:flex-start;margin-top:14px}
 .detail-main{flex:1;min-width:0}
@@ -1438,48 +1448,33 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <button class="sub-tab" data-subtab="handoffs">Needs Human <span class="hq-count" id="hq-badge">0</span></button>
   </div>
 
-  <!-- Sub-panel: Inbox -->
+  <!-- Sub-panel: Inbox (WhatsApp Web two-column layout) -->
   <div class="sub-panel active" id="subtab-inbox">
+  <div class="inbox-two-col">
 
-  <!-- Inbox card -->
-  <div class="card" id="inbox-card">
-    <div class="toolbar">
-      <h2>Conversation Inbox</h2>
-      <span id="inbox-count" style="font-size:12px;color:#9aabb8"></span>
-      <button class="btn btn-primary" id="btn-refresh">&#8635; Refresh</button>
-      <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85">
-        Company
-        <input id="c-client" value="wolfhouse-somo" style="min-width:160px;font-size:12px;padding:5px 8px">
-      </label>
+    <!-- LEFT: conversation list -->
+    <div class="inbox-left" id="inbox-card">
+      <div class="inbox-left-toolbar">
+        <h2>Inbox</h2>
+        <span id="inbox-count" style="font-size:11px;color:var(--text-3)"></span>
+        <button class="btn btn-primary" id="btn-refresh" style="padding:6px 12px;font-size:11px">&#8635;</button>
+        <input id="c-client" value="wolfhouse-somo" title="Company slug" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">
+      </div>
+      <div id="inbox-state" class="state-msg" style="padding:16px;display:none">Loading conversations&hellip;</div>
+      <div id="conv-list"></div>
     </div>
-    <div id="inbox-state" class="state-msg">Loading conversations&hellip;</div>
-    <div id="inbox-table-wrap" style="display:none;overflow-x:auto">
-      <table class="inbox-table">
-        <thead>
-          <tr>
-            <th>Guest</th>
-            <th>Phone</th>
-            <th>Lang</th>
-            <th>Status / Mode</th>
-            <th>Handoff</th>
-            <th>Booking</th>
-            <th>Latest message</th>
-            <th>Last activity</th>
-          </tr>
-        </thead>
-        <tbody id="inbox-tbody"></tbody>
-      </table>
-    </div>
-  </div>
 
-  <!-- Conversation detail pane (shown when row is clicked) -->
-  <div class="card" id="conv-detail">
-    <button class="back-btn" id="btn-back">&#8592; Back to inbox</button>
-    <div id="detail-content">
-      <div class="state-msg">Loading&hellip;</div>
+    <!-- RIGHT: conversation detail (always visible) -->
+    <div id="conv-detail">
+      <div id="detail-content">
+        <div class="inbox-empty-right">
+          <p class="main-msg">Select a conversation to review.</p>
+          <p class="sub-msg">Luna drafts and booking context will appear here.</p>
+        </div>
+      </div>
     </div>
-  </div>
 
+  </div><!-- /inbox-two-col -->
   </div><!-- /subtab-inbox -->
 
   <!-- Sub-panel: Handoff queue -->
@@ -1826,44 +1821,59 @@ function modePill(mode){
   return '<span class="pill pill-green">BOT</span>';
 }
 
-/* Render inbox rows */
+/* Friendly handoff reason labels (hides raw codes from normal staff UI) */
+function handoffLabel(code){
+  if (!code) return '';
+  var labels = {
+    'date_change_requested':  'Date change request',
+    'date_change_request':    'Date change request',
+    'payment_inquiry':        'Payment question',
+    'cancel_refund':          'Cancellation / refund',
+    'needs_human':            'Needs staff reply',
+    'rooming_issue':          'Rooming issue',
+    'payment_claimed':        'Payment claimed',
+    'booking_question':       'Booking question',
+    'refund_request':         'Refund request',
+    'guest_angry':            'Upset guest',
+    'date_change':            'Date change request',
+  };
+  return labels[code] || 'Needs review';
+}
+
+/* Render inbox conversation cards (left column) */
 function renderInbox(convs){
-  var tbody = el('inbox-tbody');
+  var list = el('conv-list');
   if (!convs || convs.length === 0){
-    el('inbox-state').textContent = 'No active conversations.';
+    el('inbox-state').textContent = 'No conversations need review right now.';
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
-    el('inbox-table-wrap').style.display = 'none';
+    if (list) list.innerHTML = '<div class="conv-list-empty">No conversations need review right now.</div>';
     el('inbox-count').textContent = '';
     return;
   }
   el('inbox-state').style.display = 'none';
-  el('inbox-table-wrap').style.display = 'block';
   el('inbox-count').textContent = convs.length + ' conversation' + (convs.length===1?'':'s');
 
-  var rows = convs.map(function(c){
-    return '<tr data-id="' + escHtml(c.conversation_id) + '">' +
-      '<td><span class="guest-name">' + escHtml(c.guest_name || '—') + '</span>' +
-        '<br>' + priorityPill(c) + '</td>' +
-      '<td class="phone-cell">' + escHtml(c.phone) + '</td>' +
-      '<td>' + escHtml(c.language || '—') + '</td>' +
-      '<td>' + modePill(c.bot_mode) + '</td>' +
-      '<td>' + escHtml(c.handoff_reason || (c.handoff_status ? c.handoff_status : '—')) + '</td>' +
-      '<td>' + escHtml(c.booking_code || '—') + '</td>' +
-      '<td class="preview-cell">' + escHtml((c.last_message_preview || '').slice(0,80)) + '</td>' +
-      '<td class="ts-cell">' + fmtTs(c.last_activity) + '</td>' +
-    '</tr>';
+  var cards = convs.map(function(c){
+    var handoff = c.handoff_reason ? handoffLabel(c.handoff_reason) : '';
+    return '<div class="conv-card" data-id="' + escHtml(c.conversation_id) + '">' +
+      '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
+      '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' +
+      '<div class="conv-card-pills">' + priorityPill(c) + '</div>' +
+      (handoff ? '<div class="conv-card-handoff">' + escHtml(handoff) + '</div>' : '') +
+    '</div>';
   }).join('');
-  tbody.innerHTML = rows;
 
-  /* Row click → detail */
-  tbody.querySelectorAll('tr').forEach(function(row){
-    row.addEventListener('click', function(){
-      tbody.querySelectorAll('tr').forEach(function(r){ r.classList.remove('selected'); });
-      this.classList.add('selected');
-      loadConvDetail(this.dataset.id);
+  if (list) {
+    list.innerHTML = cards;
+    list.querySelectorAll('.conv-card').forEach(function(card){
+      card.addEventListener('click', function(){
+        list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
+        this.classList.add('selected');
+        loadConvDetail(this.dataset.id);
+      });
     });
-  });
+  }
 }
 
 /* Load inbox */
@@ -1871,17 +1881,21 @@ function loadInbox(){
   el('inbox-state').textContent = 'Loading conversations\u2026';
   el('inbox-state').classList.remove('error');
   el('inbox-state').style.display = 'block';
-  el('inbox-table-wrap').style.display = 'none';
+  if (el('conv-list')) el('conv-list').innerHTML = '';
   el('inbox-count').textContent = '';
-  el('conv-detail').classList.remove('visible');
   selectedConvId = null;
+  /* Reset right panel to empty state */
+  el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
+    '<p class="main-msg">Select a conversation to review.</p>' +
+    '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
+    '</div>';
 
   fetch('/staff/conversations?client=' + encodeURIComponent(getClient()))
     .then(function(r){
       if (r.status === 401){
         el('inbox-state').innerHTML = '\u26a0 Authentication required &mdash; <strong>POST /staff/auth/login</strong> first.';
         el('inbox-state').classList.add('error');
-        el('inbox-table-wrap').style.display = 'none';
+        el('inbox-state').style.display = 'block';
         return null;
       }
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -1896,7 +1910,6 @@ function loadInbox(){
       el('inbox-state').textContent = 'Error loading inbox: ' + err.message;
       el('inbox-state').classList.add('error');
       el('inbox-state').style.display = 'block';
-      el('inbox-table-wrap').style.display = 'none';
     });
 }
 
@@ -1936,9 +1949,9 @@ function loadConvDetail(convId){
     var html = '<div class="detail-header">';
     html +=   '<div>';
     html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
-    html +=     '<div class="detail-meta">' + escHtml(c.phone) +
-                (c.language ? ' &bull; ' + escHtml(c.language) : '') +
-                ' &bull; Stage: ' + escHtml(c.conversation_stage || '—') + '</div>';
+    html +=     '<div class="detail-meta">' + escHtml(c.phone);
+    if (c.handoff_reason) html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
+    html +=     '</div>';
     html +=   '</div>';
     html +=   '<div style="margin-left:auto;display:flex;gap:6px;align-items:flex-start">';
     html +=     modePill(c.bot_mode);
@@ -1954,8 +1967,7 @@ function loadConvDetail(convId){
 
     /* Message thread */
     html += '<div class="thread-section">';
-    html +=   '<h3>Message thread <span style="font-weight:400;font-size:10px;color:#9aabb8">' +
-              msgs.length + ' message' + (msgs.length===1?'':'s') + '</span></h3>';
+    html +=   '<h3>Messages</h3>';
     html +=   '<div class="thread" id="thread-container">';
     if (msgs.length === 0){
       html += '<div class="thread-empty">No message history yet &mdash; messages appear here once the guest contacts via WhatsApp.</div>';
@@ -1966,7 +1978,6 @@ function loadConvDetail(convId){
         html += '<div class="msg ' + dir + '">';
         html +=   '<div class="msg-bubble">' + escHtml(m.message_text || '') + '</div>';
         html +=   '<div class="msg-meta">' + escHtml(sender) + ' &bull; ' + escHtml(fmtTs(m.created_at));
-        if (m.route) html += ' &bull; ' + escHtml(m.route);
         html +=   '</div>';
         html += '</div>';
       });
@@ -2123,12 +2134,19 @@ function kv(label, val){
   return '<div class="kv"><span class="k">' + escHtml(label) + '</span><span class="v">' + escHtml(val==null?'—':String(val)) + '</span></div>';
 }
 
-/* Back button */
-el('btn-back').addEventListener('click', function(){
-  el('conv-detail').classList.remove('visible');
-  el('inbox-tbody').querySelectorAll('tr').forEach(function(r){ r.classList.remove('selected'); });
-  selectedConvId = null;
-});
+/* Back button (preserved as no-op guard — inbox is now persistent two-column) */
+var btnBack = el('btn-back');
+if (btnBack) {
+  btnBack.addEventListener('click', function(){
+    var convList = el('conv-list');
+    if (convList) convList.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
+    el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
+      '<p class="main-msg">Select a conversation to review.</p>' +
+      '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
+      '</div>';
+    selectedConvId = null;
+  });
+}
 
 /* Refresh button */
 el('btn-refresh').addEventListener('click', loadInbox);

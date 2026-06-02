@@ -2,13 +2,14 @@
  * Stage 7.7f — Static verifier for the Cami dashboard conversation UI
  * embedded in scripts/staff-query-api.js (buildUiHtml).
  *
- * Checks (59 total, updated Stage 8.2):
+ * Checks (66 total, updated Stage 8.3x — WhatsApp-style inbox layout):
  *   1–3:   File exists, readable, passes node --check
  *   4–6:   Dashboard branding / banner
  *   7–9:   Two-tab structure (Conversations + Query Tools)
  *  10–12:  Inbox section elements
  *   13:    fetch('/staff/conversations') call present
- *  14–15:  Detail pane present + back button
+ *   14:    Detail pane present
+ *   15:    Back-to-inbox button removed (new two-column layout)
  *  16–17:  Auth-error (401) surface in inbox fetch
  *   18:    Refresh button present
  *   19:    Client input present in conversations tab
@@ -45,6 +46,21 @@
  *   50:    READ-ONLY HANDOFF QUEUE label present
  *   51:    Resolve disabled notice present in handoff queue UI
  *   52:    timeSince / time-since-open rendering logic present
+ *   53:    Today / Needs Attention panel present
+ *   54:    Inbox label present as tab button
+ *   55:    Developer Tools tab present (Query Tools moved to admin/dev-only)
+ *   56:    Shadow Mode badge present in Today panel
+ *   57:    loadTodaySummary function present
+ *   58:    No POST/PATCH/DELETE fetch added for new Today/nav UI
+ *   59:    switchToTab utility function present
+ *  --- Stage 8.3x: WhatsApp-style inbox layout ---
+ *   60:    Inbox two-column layout CSS present (.inbox-two-col)
+ *   61:    Conversation card list present (conv-card / conv-list)
+ *   62:    handoffLabel() function present
+ *   63:    date_change_requested raw code NOT in normal UI template (hidden by handoffLabel)
+ *   64:    "Message thread" count title removed
+ *   65:    Raw stage display removed from detail header
+ *   66:    Friendly handoff label used in renderInbox (handoffLabel call)
  *
  * Usage:
  *   node scripts/verify-staff-conversation-ui.js
@@ -68,7 +84,7 @@ function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFai
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-console.log('\nverify-staff-conversation-ui.js  (Stage 7.7f)\n');
+console.log('\nverify-staff-conversation-ui.js  (Stage 7.7f / 8.3x)\n');
 
 // 1. File exists
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
@@ -111,9 +127,9 @@ check(/Query Tools/i.test(htmlSrc), 'Query Tools tab button present');
 check(/tab-panel/i.test(htmlSrc) && /tab-conversations/i.test(htmlSrc),
   'Tab panel structure with conversations panel');
 
-// 10. Inbox table or card element
-check(/inbox-table|inbox-tbody|inbox-card/i.test(htmlSrc),
-  'Inbox table/card element present');
+// 10. Inbox card or conv-list element (two-column left panel)
+check(/inbox-card|conv-list/i.test(htmlSrc),
+  'Inbox left panel element present (inbox-card / conv-list)');
 
 // 11. Guest name column or label
 check(/Guest|guest_name|guest-name/i.test(htmlSrc),
@@ -132,9 +148,9 @@ check(/fetch\s*\([^)]*\/staff\/conversations/.test(htmlSrc) ||
 check(/conv-detail|detail-content/i.test(htmlSrc),
   'Conversation detail pane element present');
 
-// 15. Back button
-check(/btn-back|back-btn|Back to inbox/i.test(htmlSrc),
-  'Back-to-inbox navigation button present');
+// 15. Back-to-inbox button REMOVED (new two-column persistent layout)
+check(!/Back to inbox/i.test(htmlSrc) && !/id="btn-back"/.test(htmlSrc),
+  'Back-to-inbox button removed (two-column layout has no back navigation)');
 
 // 16. 401 auth error surfaced
 check(/401/.test(htmlSrc) && /login|auth/i.test(htmlSrc),
@@ -318,6 +334,37 @@ check(!/fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE)['"]/i.
 // 59. switchToTab utility function present
 check(/switchToTab/i.test(htmlSrc),
   'switchToTab navigation utility present (Stage 8.2)');
+
+// ── Stage 8.3x — WhatsApp-style inbox layout ──────────────────────────────
+
+// 60. Inbox two-column layout CSS present
+check(/inbox-two-col/i.test(htmlSrc),
+  'Inbox two-column layout CSS present (.inbox-two-col) (Stage 8.3x)');
+
+// 61. Conversation card list elements present
+check(/conv-card|conv-list/i.test(htmlSrc),
+  'Conversation card list elements present (conv-card / conv-list) (Stage 8.3x)');
+
+// 62. handoffLabel function present
+check(/function handoffLabel/.test(htmlSrc),
+  'handoffLabel() friendly text formatter function present (Stage 8.3x)');
+
+// 63. date_change_requested raw code NOT shown directly in normal UI template
+// (it should only appear inside handoffLabel's lookup table, not in escHtml template output)
+check(!/escHtml.*date_change_requested|date_change_requested.*escHtml/i.test(htmlSrc),
+  'date_change_requested raw code not exposed via escHtml in UI template (Stage 8.3x)');
+
+// 64. "Message thread" count title removed from thread section
+check(!/Message thread.*messages|message.*span.*font-weight.*400.*color.*#9aabb8/i.test(htmlSrc),
+  '"Message thread — N messages" count title removed from detail view (Stage 8.3x)');
+
+// 65. Raw stage display removed from detail header meta line
+check(!/Stage:.*escHtml.*conversation_stage|conversation_stage.*Stage:/i.test(htmlSrc),
+  'Raw stage display removed from detail header meta (Stage 8.3x)');
+
+// 66. handoffLabel() called in renderInbox for friendly handoff display
+check(/handoffLabel\s*\(/.test(htmlSrc),
+  'handoffLabel() called in renderInbox for friendly handoff text (Stage 8.3x)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 
