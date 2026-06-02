@@ -895,6 +895,184 @@ check(/Creation remains disabled/i.test(src),
   'UI still states manual booking creation is disabled (Stage 8.4)');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Stage 8.4.5 — quote preview UI + multi-bed selection ─────────────────────
+
+// 166. Package field is a <select> dropdown (not free-text input)
+(function checkPackageIsSelect(){
+  const bcIdx = src.indexOf('id="bc-sel-panel"');
+  const panelSrc = bcIdx >= 0 ? src.slice(bcIdx, bcIdx + 8000) : src;
+  check(/id="bk-package"/.test(panelSrc) && /select[^>]*id="bk-package"|id="bk-package"[^>]*>[\s\S]{0,20}<option/.test(panelSrc),
+    'Package field (bk-package) is a <select> dropdown (Stage 8.4.5)');
+})();
+
+// 167. Malibu / Uluwatu / Waimea options present in package select
+(function checkPackageOptions(){
+  const bcIdx = src.indexOf('id="bk-package"');
+  const pkgSrc = bcIdx >= 0 ? src.slice(bcIdx, bcIdx + 600) : '';
+  check(/value="malibu"/i.test(pkgSrc) && /value="uluwatu"/i.test(pkgSrc) && /value="waimea"/i.test(pkgSrc),
+    'Package select has malibu / uluwatu / waimea options (Stage 8.4.5)');
+})();
+
+// 168. package_none and manual_override options present
+(function checkPackageExtras(){
+  const bcIdx = src.indexOf('id="bk-package"');
+  const pkgSrc = bcIdx >= 0 ? src.slice(bcIdx, bcIdx + 600) : '';
+  check(/value="package_none"/.test(pkgSrc) && /value="manual_override"/.test(pkgSrc),
+    'Package select has package_none and manual_override options (Stage 8.4.5)');
+})();
+
+// 169. Language field (bk-language) removed from the form
+check(!/id="bk-language"/.test(src),
+  'Language field (bk-language) removed from manual booking form (Stage 8.4.5)');
+
+// 170. bcSelectedBeds array declared (multi-bed tracking)
+check(/var bcSelectedBeds\s*=\s*\[\]/.test(src),
+  'bcSelectedBeds array declared for multi-bed selection (Stage 8.4.5)');
+
+// 171. bcHandleCellClick pushes to bcSelectedBeds (multi-bed add)
+(function checkMultiBedPush(){
+  const fnStart = src.indexOf('function bcHandleCellClick');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bcSelectedBeds\.push/.test(fnSrc),
+    'bcHandleCellClick pushes new beds to bcSelectedBeds (Stage 8.4.5)');
+})();
+
+// 172. bcHandleCellClick closes bc-detail when selection starts
+(function checkDetailClose(){
+  const fnStart = src.indexOf('function bcHandleCellClick');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-detail/.test(fnSrc) && /display.*none|style\.display/.test(fnSrc),
+    'bcHandleCellClick hides bc-detail when selection starts (Stage 8.4.5)');
+})();
+
+// 173. Selected beds list / count display present (bc-sel-beds-list, bc-sel-bed-count)
+check(/id="bc-sel-beds-list"/.test(src) && /id="bc-sel-bed-count"/.test(src),
+  'Selected beds list (bc-sel-beds-list) and count (bc-sel-bed-count) elements present (Stage 8.4.5)');
+
+// 174. bcApplySelectionHighlight updates bc-sel-beds-list (multi-bed display)
+(function checkBedsListUpdate(){
+  const fnStart = src.indexOf('function bcApplySelectionHighlight');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-sel-beds-list/.test(fnSrc),
+    'bcApplySelectionHighlight updates bc-sel-beds-list (Stage 8.4.5)');
+})();
+
+// 175. Calculate Quote button present and disabled by default
+check(/id="bc-sel-quote"/.test(src),
+  'Calculate Quote button (bc-sel-quote) present (Stage 8.4.5)');
+
+(function checkQuoteBtnDisabled(){
+  const btnIdx = src.indexOf('id="bc-sel-quote"');
+  const ctx    = btnIdx >= 0 ? src.slice(Math.max(0, btnIdx - 100), btnIdx + 100) : '';
+  check(/disabled/.test(ctx),
+    'Calculate Quote button has disabled attribute by default (Stage 8.4.5)');
+})();
+
+// 176. runQuotePreview function present
+check(/function runQuotePreview/.test(src),
+  'runQuotePreview function present (Stage 8.4.5)');
+
+// 177. runQuotePreview calls /staff/quote-preview (not create)
+(function checkQuotePreviewFetch(){
+  const fnStart = src.indexOf('function runQuotePreview');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/fetch\s*\(\s*['"]\/staff\/quote-preview['"]/.test(fnSrc),
+    "runQuotePreview fetches '/staff/quote-preview' (Stage 8.4.5)");
+  check(!/\/staff\/manual-bookings\/create/.test(fnSrc),
+    'runQuotePreview does NOT call /staff/manual-bookings/create (Stage 8.4.5)');
+})();
+
+// 178. selected_bed_codes sent in quote preview payload
+(function checkBedCodesInPayload(){
+  const fnStart = src.indexOf('function runQuotePreview');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/selected_bed_codes/.test(fnSrc),
+    'runQuotePreview includes selected_bed_codes in payload (Stage 8.4.5)');
+})();
+
+// 179. Quote result area (bc-quote-result) present in HTML
+check(/id="bc-quote-result"/.test(src),
+  'Quote result area (bc-quote-result) present in HTML (Stage 8.4.5)');
+
+// 180. renderQuoteResult function present
+check(/function renderQuoteResult/.test(src),
+  'renderQuoteResult function present (Stage 8.4.5)');
+
+// 181. "Quote preview only" text present (itemized line items label)
+check(/Quote preview only/i.test(src),
+  '"Quote preview only" text present in UI (Stage 8.4.5)');
+
+// 182. "No Stripe link created" text present
+check(/No Stripe link created/i.test(src),
+  '"No Stripe link created" text present in quote preview area (Stage 8.4.5)');
+
+// 183. line_items rendered in renderQuoteResult (itemized display)
+(function checkLineItemsRendered(){
+  const fnStart = src.indexOf('function renderQuoteResult');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/line_items/.test(fnSrc) && /deposit_required_cents|total_cents/.test(fnSrc),
+    'renderQuoteResult renders line_items and deposit/total amounts (Stage 8.4.5)');
+})();
+
+// 184. No Stripe API calls in quote preview functions (text label "Stripe" is allowed)
+(function checkNoStripeInQuote(){
+  const fnStart = src.indexOf('function runQuotePreview');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction bcColorClass', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(!/require\s*\(\s*['"]stripe['"]\s*\)|stripe\.charges|stripe\.paymentIntents|Stripe\s*\(/i.test(fnSrc),
+    'runQuotePreview / renderQuoteResult contain no Stripe SDK calls (Stage 8.4.5)');
+})();
+
+// 185. No n8n or WhatsApp calls in quote preview
+(function checkNoN8nWhatsappInQuote(){
+  const fnStart = src.indexOf('function runQuotePreview');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction bcColorClass', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(!/n8n|whatsapp/i.test(fnSrc),
+    'runQuotePreview / renderQuoteResult contain no n8n/WhatsApp references (Stage 8.4.5)');
+})();
+
+// 186. bcClearSelection resets bcSelectedBeds (multi-bed clear)
+(function checkClearResetsMultiBed(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bcSelectedBeds\s*=\s*\[\]/.test(fnSrc),
+    'bcClearSelection resets bcSelectedBeds to [] (Stage 8.4.5)');
+})();
+
+// 187. Payment choice select (bk-payment-choice) present with deposit/full/pay_on_arrival options
+(function checkPaymentChoiceSelect(){
+  const pcIdx = src.indexOf('id="bk-payment-choice"');
+  const pcSrc = pcIdx >= 0 ? src.slice(pcIdx, pcIdx + 400) : '';
+  check(/value="deposit"/.test(pcSrc) && /value="full"/.test(pcSrc) && /value="pay_on_arrival"/.test(pcSrc),
+    'Payment choice select (bk-payment-choice) has deposit/full/pay_on_arrival options (Stage 8.4.5)');
+})();
+
+// 188. Duplicate assignment rows fix: assigned_bed_codes row suppressed when detailed assignments exist
+(function checkNoDuplicateBedRows(){
+  const fnStart = src.indexOf('function renderBookingContextDrawer');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/rm\.assignments && rm\.assignments\.length > 0[\s\S]{0,80}assigned_bed_codes|assigned_bed_codes[\s\S]{0,300}rm\.assignments/.test(fnSrc),
+    'renderBookingContextDrawer suppresses simple bed_codes row when detailed assignments exist (Stage 8.4.5)');
+})();
+
+// 189. Create Manual Booking button still disabled (regression from Stage 8.4)
+check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src),
+  'Create Manual Booking button still disabled after Stage 8.4.5 changes (regression check)');
+
+// 190. No fetch to /staff/manual-bookings/create in UI (regression from Stage 8.4)
+check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(src),
+  'No fetch to /staff/manual-bookings/create from UI JS (Stage 8.4.5 regression check)');
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
 if (failures > 0) process.exit(1);

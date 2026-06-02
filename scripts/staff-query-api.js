@@ -1814,6 +1814,21 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bk-preview-meta{margin-top:4px;font-size:11px;opacity:.8}
 .bk-preview-warn{background:#fffbe6;border-left:3px solid #e6c200;padding:8px 12px;border-radius:4px;margin-top:8px;font-size:11px}
 .bk-preview-create-note{font-size:11px;color:var(--text-3);font-style:italic;margin-top:4px;padding:0 4px}
+/* Stage 8.4.5 — quote preview + multi-bed selection */
+.bc-sel-beds-section{margin-top:8px;min-height:24px}
+.bc-sel-bed-count{font-size:11px;color:var(--text-2);margin-bottom:4px}
+.bc-sel-bed-tag{display:inline-block;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:2px 10px;font-size:11px;margin:2px 3px 2px 0;white-space:nowrap}
+.bk-quote-banner{background:#fffbe6;border-left:3px solid #e6c200;padding:8px 12px;border-radius:4px;font-size:11px;color:#7a6a00;margin-bottom:10px;font-style:italic}
+.bk-quote-items{font-size:12px;margin-top:6px}
+.bk-quote-item{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #e8eef4}
+.bk-quote-item:last-child{border-bottom:none}
+.bk-quote-item-label{color:var(--text-2);flex:1}
+.bk-quote-item-amount{font-variant-numeric:tabular-nums;padding-left:12px;white-space:nowrap}
+.bk-quote-item-note{font-size:10px;color:var(--text-3);font-style:italic;padding:0 0 4px 0}
+.bk-quote-divider{border:none;border-top:1px solid #d0dbe4;margin:6px 0}
+.bk-quote-subtotal{font-weight:500}
+.bk-quote-total{font-weight:700;font-size:13px;padding:6px 0!important}
+.bk-quote-formula{font-size:10px;color:var(--text-3);font-style:italic;margin-top:8px;line-height:1.5}
 /* Stage 8.3q — tour operator block skeleton */
 .bc-op-divider{border:none;border-top:2px solid var(--border-1,#e0e8ef);margin:20px 0 16px}
 .bc-op-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
@@ -2048,7 +2063,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div id="bc-grid-wrap" style="display:none;overflow-x:auto;overflow-y:auto;max-height:620px;border:1px solid #EFE8DC;border-radius:12px"></div>
   </div>
 
-  <!-- Manual booking preview skeleton (Stage 8.3d, read-only) -->
+  <!-- Manual booking preview skeleton (Stage 8.3d / 8.4.5, read-only) -->
   <div class="card" id="bc-sel-panel" style="display:none;margin-top:16px">
     <div class="bc-sel-title">
       &#128203; New Booking Preview
@@ -2080,6 +2095,11 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <label class="bk-label" for="bc-sel-bed">Bed</label>
         <input type="text" id="bc-sel-bed" class="bk-input bk-input-sm" readonly>
       </div>
+      <!-- Multi-bed selection list (Stage 8.4.5) -->
+      <div class="bc-sel-beds-section">
+        <div id="bc-sel-bed-count" class="bc-sel-bed-count"></div>
+        <div id="bc-sel-beds-list"></div>
+      </div>
     </div>
 
     <!-- Section: Guest -->
@@ -2102,12 +2122,15 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <input type="number" id="bk-guest-count" class="bk-input bk-input-sm" value="1" min="1" max="20">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="bk-language">Language</label>
-        <input type="text" id="bk-language" class="bk-input bk-input-sm" placeholder="en">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-package">Package / stay type</label>
-        <input type="text" id="bk-package" class="bk-input bk-input-sm" placeholder="standard">
+        <label class="bk-label" for="bk-package">Package</label>
+        <select id="bk-package" class="bk-input bk-input-sm">
+          <option value="">&mdash; select package &mdash;</option>
+          <option value="malibu">Malibu</option>
+          <option value="uluwatu">Uluwatu</option>
+          <option value="waimea">Waimea</option>
+          <option value="package_none">No package / accommodation only</option>
+          <option value="manual_override">Manual price override</option>
+        </select>
       </div>
       <div class="bk-form-row">
         <label class="bk-label" for="bk-source">Source / channel</label>
@@ -2118,6 +2141,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <!-- Section: Payment -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Payment</div>
+      <div class="bk-form-row">
+        <label class="bk-label" for="bk-payment-choice">Payment choice</label>
+        <select id="bk-payment-choice" class="bk-input bk-input-sm">
+          <option value="deposit">Deposit only</option>
+          <option value="full">Full payment</option>
+          <option value="pay_on_arrival">Pay on arrival</option>
+        </select>
+      </div>
       <div class="bk-form-row">
         <label class="bk-label" for="bk-payment-status">Payment status</label>
         <select id="bk-payment-status" class="bk-input bk-input-sm">
@@ -2146,6 +2177,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
+    <!-- Section: Quote Preview (Stage 8.4.5 — calls /staff/quote-preview, no writes) -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Quote Preview</div>
+      <div id="bc-quote-result">
+        <div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>
+      </div>
+    </div>
+
     <!-- Section: Availability / Conflicts (Stage 8.3l — wired to read-only preview) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Availability / Conflicts</div>
@@ -2171,6 +2210,10 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <button class="btn" disabled id="bc-sel-conflicts"
         title="Select empty cells to enable conflict preview">
         Preview Conflicts
+      </button>
+      <button class="btn" disabled id="bc-sel-quote"
+        title="Select beds, dates, and package to calculate quote">
+        Calculate Quote
       </button>
     </div>
     <div class="bk-preview-create-note">Creation remains disabled until manual booking write gates are approved.</div>
@@ -3142,13 +3185,15 @@ el('btn-run').addEventListener('click', function(){
 
 var bcData = null;
 /* Selection model state (Stage 8.3c) — read-only, no writes */
-var bcSel = null;  /* { room_code, bed_code, anchor_date, cursor_date } or null */
+var bcSel = null;        /* { anchor_date, cursor_date } — shared date range */
+var bcSelectedBeds = []; /* [{ room_code, bed_code }] — beds in current selection (Stage 8.4.5) */
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
 
 /* ── Cell selection model (Stage 8.3c, read-only) ─────────────────────────── */
 function bcClearSelection(){
   bcSel = null;
+  bcSelectedBeds = [];
   document.querySelectorAll('.bc-day-cell.bc-sel, .bc-day-cell.bc-sel-anchor').forEach(function(td){
     td.classList.remove('bc-sel', 'bc-sel-anchor');
   });
@@ -3156,12 +3201,17 @@ function bcClearSelection(){
   ['bc-sel-cin','bc-sel-cout','bc-sel-nights','bc-sel-room','bc-sel-bed'].forEach(function(id){
     var inp = el(id); if (inp) inp.value = '';
   });
+  /* Reset beds list (Stage 8.4.5) */
+  var _blEl = el('bc-sel-beds-list'); if (_blEl) _blEl.innerHTML = '';
+  var _bcEl = el('bc-sel-bed-count'); if (_bcEl) _bcEl.textContent = '';
   /* Reset guest/payment/notes fields */
-  ['bk-guest-name','bk-phone','bk-email','bk-language','bk-package','bk-notes','bk-deposit','bk-total'].forEach(function(id){
+  ['bk-guest-name','bk-phone','bk-email','bk-notes','bk-deposit','bk-total'].forEach(function(id){
     var inp = el(id); if (inp) inp.value = '';
   });
   var gc = el('bk-guest-count'); if (gc) gc.value = '1';
   var ps = el('bk-payment-status'); if (ps) ps.value = 'unpaid';
+  var pc = el('bk-payment-choice'); if (pc) pc.value = 'deposit';
+  var pk = el('bk-package'); if (pk) pk.value = '';
   var warnEl = el('bc-sel-warn');
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
@@ -3171,6 +3221,11 @@ function bcClearSelection(){
   if (_prClear) _prClear.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
   var _cBtnClear = el('bc-sel-conflicts');
   if (_cBtnClear){ _cBtnClear.disabled = true; _cBtnClear.title = 'Select empty cells to enable conflict preview'; }
+  /* Reset quote result and disable Calculate Quote button (Stage 8.4.5) */
+  var _qrClear = el('bc-quote-result');
+  if (_qrClear) _qrClear.innerHTML = '<div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>';
+  var _qBtnClear = el('bc-sel-quote');
+  if (_qBtnClear){ _qBtnClear.disabled = true; _qBtnClear.title = 'Select beds, dates, and package to calculate quote'; }
 }
 
 function bcApplySelectionHighlight(){
@@ -3178,65 +3233,72 @@ function bcApplySelectionHighlight(){
   document.querySelectorAll('.bc-day-cell.bc-sel, .bc-day-cell.bc-sel-anchor').forEach(function(td){
     td.classList.remove('bc-sel', 'bc-sel-anchor');
   });
-  if (!bcSel) return;
+  if (!bcSel || bcSelectedBeds.length === 0) return;
   var a = bcSel.anchor_date;
   var b = bcSel.cursor_date;
   var selStart = a <= b ? a : b;
   var selEnd   = a <= b ? b : a;
-
-  /* Highlight all selectable cells in range on this bed */
-  var selCount = 0;
-  document.querySelectorAll('.bc-day-cell[data-date]').forEach(function(td){
-    if (td.dataset.room !== bcSel.room_code || td.dataset.bed !== bcSel.bed_code) return;
-    var d = td.dataset.date;
-    if (d >= selStart && d <= selEnd){
-      td.classList.add('bc-sel');
-      if (d === bcSel.anchor_date) td.classList.add('bc-sel-anchor');
-      selCount++;
-    }
-  });
 
   /* Compute check-out = day after last selected cell */
   var coDate = new Date(selEnd + 'T00:00:00Z');
   coDate.setUTCDate(coDate.getUTCDate() + 1);
   var checkOut = coDate.toISOString().slice(0, 10);
 
-  /* Check for booked-cell gaps in range */
-  var allDates = [];
-  var d = new Date(selStart + 'T00:00:00Z');
-  var endDate = new Date(selEnd + 'T00:00:00Z');
-  while (d <= endDate){
-    allDates.push(d.toISOString().slice(0, 10));
-    d.setUTCDate(d.getUTCDate() + 1);
-  }
-  var hasGap = (selCount < allDates.length);
+  /* Compute nights */
+  var nights = Math.round((new Date(checkOut + 'T00:00:00Z') - new Date(selStart + 'T00:00:00Z')) / 86400000);
+
+  /* Highlight cells for ALL selected beds (Stage 8.4.5 multi-bed) */
+  bcSelectedBeds.forEach(function(bedEntry, bidx){
+    document.querySelectorAll('.bc-day-cell[data-date]').forEach(function(td){
+      if (td.dataset.room !== bedEntry.room_code || td.dataset.bed !== bedEntry.bed_code) return;
+      var d = td.dataset.date;
+      if (d >= selStart && d <= selEnd){
+        td.classList.add('bc-sel');
+        if (bidx === 0 && d === bcSel.anchor_date) td.classList.add('bc-sel-anchor');
+      }
+    });
+  });
 
   /* Update form skeleton pre-filled fields (Stage 8.3d) */
-  var cinInp = el('bc-sel-cin');     if (cinInp)    cinInp.value    = selStart;
-  var coutInp = el('bc-sel-cout');   if (coutInp)   coutInp.value   = checkOut;
-  var nightsInp = el('bc-sel-nights'); if (nightsInp) nightsInp.value = String(selCount);
-  var roomInp = el('bc-sel-room');   if (roomInp)   roomInp.value   = bcSel.room_code;
-  var bedInp  = el('bc-sel-bed');    if (bedInp)    bedInp.value    = bcSel.bed_code;
-  var warnEl = el('bc-sel-warn');
-  if (hasGap && warnEl){
-    warnEl.textContent = 'Selection spans an occupied cell. Only free cells highlighted (' + selCount + ' of ' + allDates.length + ' nights selectable).';
-    warnEl.style.display = 'block';
-  } else if (warnEl) {
-    warnEl.style.display = 'none';
+  var firstBed = bcSelectedBeds[0] || { room_code: '', bed_code: '' };
+  var cinInp    = el('bc-sel-cin');    if (cinInp)    cinInp.value    = selStart;
+  var coutInp   = el('bc-sel-cout');   if (coutInp)   coutInp.value   = checkOut;
+  var nightsInp = el('bc-sel-nights'); if (nightsInp) nightsInp.value = String(nights);
+  var roomInp   = el('bc-sel-room');   if (roomInp)   roomInp.value   = firstBed.room_code;
+  var bedInp    = el('bc-sel-bed');    if (bedInp)    bedInp.value    = firstBed.bed_code;
+
+  /* Update selected beds list (Stage 8.4.5) */
+  var _blEl = el('bc-sel-beds-list');
+  if (_blEl){
+    _blEl.innerHTML = bcSelectedBeds.map(function(b){
+      return '<span class="bc-sel-bed-tag">' + escHtml(b.room_code) + '&thinsp;/&thinsp;' + escHtml(b.bed_code) + '</span>';
+    }).join('');
   }
+  var _bcEl = el('bc-sel-bed-count');
+  if (_bcEl) _bcEl.textContent = bcSelectedBeds.length + ' bed' + (bcSelectedBeds.length === 1 ? '' : 's') + ' selected';
+
+  /* Auto-update guest count to match bed count if still at default (Stage 8.4.5) */
+  var gcEl = el('bk-guest-count');
+  if (gcEl && bcSelectedBeds.length > 1) gcEl.value = String(bcSelectedBeds.length);
+
+  var warnEl = el('bc-sel-warn');
+  if (warnEl) warnEl.style.display = 'none';
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'block';
+
   /* Enable/disable Preview Conflicts based on selection (Stage 8.3l) */
   var _cBtnSel = el('bc-sel-conflicts');
   if (_cBtnSel) {
-    _cBtnSel.disabled = (selCount < 1);
-    _cBtnSel.title = selCount >= 1 ? 'Check availability for selected dates and bed' : 'Select empty cells to enable conflict preview';
+    _cBtnSel.disabled = (nights < 1);
+    _cBtnSel.title = nights >= 1 ? 'Check availability for selected dates and beds' : 'Select empty cells to enable conflict preview';
   }
-  /* Clear stale preview when selection changes (Stage 8.3l) */
-  if (selCount >= 1) {
-    var _prSel = el('bc-preview-result');
-    if (_prSel) _prSel.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
-  }
+  /* Clear stale previews when selection changes (Stage 8.3l + 8.4.5) */
+  var _prSel = el('bc-preview-result');
+  if (_prSel) _prSel.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
+  var _qrSel = el('bc-quote-result');
+  if (_qrSel) _qrSel.innerHTML = '<div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>';
+  /* Update Calculate Quote button enabled state (Stage 8.4.5) */
+  bcUpdateQuoteButton();
 }
 
 /* ── Preview Conflicts (Stage 8.3l — read-only, no writes) ─────────────────── */
@@ -3355,14 +3417,135 @@ function bcHandleCellClick(td){
   var room = td && td.dataset && td.dataset.room;
   var bed  = td && td.dataset && td.dataset.bed;
   if (!date || !room || !bed) return;
-  if (!bcSel || bcSel.room_code !== room || bcSel.bed_code !== bed){
-    /* Start new selection on this bed */
-    bcSel = { room_code: room, bed_code: bed, anchor_date: date, cursor_date: date };
+  /* Close booking detail panel if open (Stage 8.4.5) */
+  var _detail = el('bc-detail');
+  if (_detail && _detail.style.display !== 'none') _detail.style.display = 'none';
+  /* Multi-bed selection (Stage 8.4.5) */
+  if (!bcSel){
+    /* Start new selection */
+    bcSel = { anchor_date: date, cursor_date: date };
+    bcSelectedBeds = [{ room_code: room, bed_code: bed }];
   } else {
-    /* Extend range on same bed */
-    bcSel.cursor_date = date;
+    /* Check if this bed is already in the selection */
+    var _exists = false;
+    for (var _i = 0; _i < bcSelectedBeds.length; _i++){
+      if (bcSelectedBeds[_i].room_code === room && bcSelectedBeds[_i].bed_code === bed){
+        _exists = true; break;
+      }
+    }
+    if (_exists){
+      /* Same bed clicked again — extend/adjust the date range */
+      bcSel.cursor_date = date;
+    } else {
+      /* New bed — add to selection sharing the existing date range */
+      bcSelectedBeds.push({ room_code: room, bed_code: bed });
+    }
   }
   bcApplySelectionHighlight();
+}
+
+/* ── Quote button state helper (Stage 8.4.5) ─────────────────────────────── */
+function bcUpdateQuoteButton(){
+  var btn = el('bc-sel-quote');
+  if (!btn) return;
+  var hasSelection = bcSel && bcSelectedBeds.length > 0;
+  var cin  = el('bc-sel-cin')       ? el('bc-sel-cin').value       : '';
+  var cout = el('bc-sel-cout')      ? el('bc-sel-cout').value      : '';
+  var gc   = parseInt(el('bk-guest-count') ? el('bk-guest-count').value : '0', 10) || 0;
+  var pkg  = el('bk-package')        ? el('bk-package').value        : '';
+  var pc   = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
+  btn.disabled = !(hasSelection && cin && cout && gc >= 1 && pkg && pc);
+}
+
+/* ── Quote preview (Stage 8.4.5 — posts to /staff/quote-preview, no writes) ─ */
+function runQuotePreview(){
+  var qr = el('bc-quote-result');
+  if (!qr) return;
+  var checkIn  = el('bc-sel-cin')  ? el('bc-sel-cin').value  : '';
+  var checkOut = el('bc-sel-cout') ? el('bc-sel-cout').value : '';
+  if (!checkIn || !checkOut || bcSelectedBeds.length === 0){
+    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing input</div>Select beds and a date range first.</div>';
+    return;
+  }
+  var client = getBcClient();
+  var gcEl = el('bk-guest-count');
+  var guestCount = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
+  var pkgEl = el('bk-package');
+  var packageCode = pkgEl ? pkgEl.value : '';
+  var pcEl = el('bk-payment-choice');
+  var paymentChoice = (pcEl && pcEl.value) ? pcEl.value : 'deposit';
+  var payload = {
+    client_slug: client,
+    check_in: checkIn,
+    check_out: checkOut,
+    guest_count: guestCount,
+    room_type: 'shared',
+    payment_choice: paymentChoice,
+    add_ons: []
+  };
+  if (packageCode) payload.package_code = packageCode;
+  payload.selected_bed_codes = bcSelectedBeds.map(function(b){ return b.bed_code; });
+  qr.innerHTML = '<div class="bk-preview-loading">Calculating quote\u2026</div>';
+  fetch('/staff/quote-preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload)
+  })
+  .then(function(r){
+    if (r.status === 401 || r.status === 403){
+      qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Auth error</div>Please refresh or log in again.</div>';
+      return null;
+    }
+    return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; });
+  })
+  .then(function(res){
+    if (!res) return;
+    qr.innerHTML = renderQuoteResult(res.data);
+  })
+  .catch(function(){
+    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Network error</div>Please try again.</div>';
+  });
+}
+
+function renderQuoteResult(resp){
+  if (!resp){ return '<div class="bk-preview-error"><div class="bk-preview-badge">No response</div>Quote request failed.</div>'; }
+  var q = resp.quote || {};
+  var fmtEur = function(cents){
+    if (cents == null || isNaN(Number(cents))) return '\u2014';
+    return '\u20ac' + (Number(cents)/100).toFixed(2);
+  };
+  var html = '<div class="bk-quote-banner">Quote preview only \u2014 no booking created. No Stripe link created.</div>';
+  if (!q.success){
+    html += '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 Quote not available</div>';
+    (q.blockers||[]).forEach(function(b){ html += '<div class="bk-preview-meta">' + escHtml(String(b)) + '</div>'; });
+    html += '</div>';
+    if (q.missing_config) html += '<div class="bk-preview-warn">Missing config \u2014 staff review required.</div>';
+    else if (q.staff_review_required) html += '<div class="bk-preview-warn">Staff review required before booking.</div>';
+    return html;
+  }
+  html += '<div class="bk-quote-items">';
+  (q.line_items||[]).forEach(function(li){
+    html += '<div class="bk-quote-item"><span class="bk-quote-item-label">' + escHtml(li.label||li.code||'') + '</span>' +
+      '<span class="bk-quote-item-amount">' + escHtml(fmtEur(li.total_cents)) + '</span></div>';
+    if (li.note) html += '<div class="bk-quote-item-note">' + escHtml(li.note) + '</div>';
+  });
+  html += '<hr class="bk-quote-divider">';
+  html += '<div class="bk-quote-item bk-quote-subtotal"><span>Subtotal</span><span>' + escHtml(fmtEur(q.subtotal_cents)) + '</span></div>';
+  if (q.discount_cents > 0) html += '<div class="bk-quote-item"><span>Discount</span><span>\u2212' + escHtml(fmtEur(q.discount_cents)) + '</span></div>';
+  html += '<div class="bk-quote-item bk-quote-total"><span><b>Total</b></span><span><b>' + escHtml(fmtEur(q.total_cents)) + '</b></span></div>';
+  html += '<div class="bk-quote-item"><span>Deposit required</span><span>' + escHtml(fmtEur(q.deposit_required_cents)) + '</span></div>';
+  html += '<div class="bk-quote-item"><span>Payment link amount</span><span>' + escHtml(fmtEur(q.payment_link_amount_cents)) + '</span></div>';
+  html += '<div class="bk-quote-item"><span>Balance due</span><span>' + escHtml(fmtEur(q.balance_due_cents)) + '</span></div>';
+  html += '</div>';
+  if (q.formula_summary) html += '<div class="bk-quote-formula">' + escHtml(q.formula_summary) + '</div>';
+  if (q.warnings && q.warnings.length > 0){
+    html += '<div class="bk-preview-warn">';
+    q.warnings.forEach(function(w){ html += '<div>' + escHtml(String(w)) + '</div>'; });
+    html += '</div>';
+  }
+  if (q.staff_review_required) html += '<div class="bk-preview-warn">\u26a0 Staff review required before creating this booking.</div>';
+  return html;
 }
 
 function bcColorClass(ct){
@@ -3510,6 +3693,13 @@ function renderBedCalendar(data){
   /* Wire Preview Conflicts button (Stage 8.3l — re-wired each render) */
   var _conflBtn = el('bc-sel-conflicts');
   if (_conflBtn) _conflBtn.onclick = runPreviewConflicts;
+  /* Wire Calculate Quote button (Stage 8.4.5 — re-wired each render) */
+  var _quoteBtn = el('bc-sel-quote');
+  if (_quoteBtn) _quoteBtn.onclick = runQuotePreview;
+  /* Wire form field listeners for quote button enable/disable (Stage 8.4.5) */
+  ['bk-package','bk-payment-choice','bk-guest-count'].forEach(function(fId){
+    var fEl = el(fId); if (fEl) fEl.onchange = bcUpdateQuoteButton;
+  });
 }
 
 function renderBookingBlock(blk, idx){
@@ -3642,8 +3832,11 @@ function renderBookingContextDrawer(data){
   var rm = data.rooming || {};
   if ((rm.assigned_room_codes||[]).length) html += kvBC('Room', (rm.assigned_room_codes||[]).join(', '));
   else if (bk.room_code)                  html += kvBC('Room', bk.room_code);
-  if ((rm.assigned_bed_codes||[]).length) html += kvBC('Beds', (rm.assigned_bed_codes||[]).join(', '));
-  else if (bk.bed_code)                   html += kvBC('Bed',  bk.bed_code);
+  /* Show simple bed list only when no detailed assignments available (avoids duplicates) */
+  if (!(rm.assignments && rm.assignments.length > 0)){
+    if ((rm.assigned_bed_codes||[]).length) html += kvBC('Beds', (rm.assigned_bed_codes||[]).join(', '));
+    else if (bk.bed_code)                   html += kvBC('Bed',  bk.bed_code);
+  }
   if (bk.assignment_status)              html += kvBC('Assignment', bk.assignment_status);
   if (bk.guest_count)  html += kvBC('Guests', bk.guest_count);
   if (bk.package_code) html += kvBC('Package', bk.package_code);
@@ -3655,8 +3848,9 @@ function renderBookingContextDrawer(data){
     rm.assignments.forEach(function(a){
       html += '<div class="ctx-bed-row"><b>' +
         escHtml(a.room_code||'\u2014') + ' / ' + escHtml(a.bed_code||'\u2014') +
-        '</b><span>' + escHtml(a.assignment_start_date||'') + ' \u2192 ' + escHtml(a.assignment_end_date||'') + '</span>' +
-        (a.assignment_label ? '<em style="font-size:10px">' + escHtml(a.assignment_label) + '</em>' : '') +
+        '</b><span style="margin-left:8px;font-size:11px;color:var(--text-2)">' +
+        escHtml(a.assignment_start_date||'') + ' \u2192 ' + escHtml(a.assignment_end_date||'') + '</span>' +
+        (a.assignment_label ? '<em style="font-size:10px;margin-left:6px">' + escHtml(a.assignment_label) + '</em>' : '') +
         '</div>';
     });
     html += '</div>';
