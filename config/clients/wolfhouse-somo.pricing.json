@@ -1,0 +1,354 @@
+{
+  "_meta": {
+    "purpose": "Stage 8.4.2 — Wolfhouse Somo pricing/payment fixture for the quote calculator (8.4.3+). This file is the canonical pricing source for manual booking creation. All monetary values are in CENTS. Load this file; do not hardcode prices in application code.",
+    "client_slug": "wolfhouse-somo",
+    "config_version": "2026-06-02.1",
+    "status": "confirmed_prices_some_fields_require_staff_input",
+    "pricing_status": "confirmed_2026",
+    "source_docs": [
+      "docs/package-pricing.md",
+      "database/migrations/002_package_pricing.sql",
+      "config/clients/wolfhouse-somo.baseline.json (Stage 3x.2g Ale answers)"
+    ],
+    "notes": [
+      "Package prices are CONFIRMED by owner (Ale, Stage 3x.2f/2g).",
+      "Deposit scope (per_booking) is CONFIRMED (Stage 3x.2g).",
+      "Add-on prices are CONFIRMED by Ale (Stage 3x.2g).",
+      "Fields marked REQUIRED_FROM_STAFF must not be used for autonomous pricing.",
+      "Fields marked CONFIRMED may be used for automatic quotes and payment links.",
+      "PRORATION_FORMULA_AMBIGUITY: two interpretations exist (see rounding section)."
+    ]
+  },
+
+  "client_slug": "wolfhouse-somo",
+  "config_version": "2026-06-02.1",
+  "currency": "EUR",
+
+  "_seasons_note": "Season is determined by the check-in month number. August (month 8) has priority 10 and overrides the summer rule. Months 3 (March) and 11 (November) exist in the baseline as shoulder but have no seeded package_price_rules row — see missing_required_values.",
+
+  "seasons": [
+    {
+      "code": "spring_autumn",
+      "month_numbers": [4, 5, 6, 10],
+      "priority": 0
+    },
+    {
+      "code": "summer",
+      "month_numbers": [7, 9],
+      "priority": 0
+    },
+    {
+      "code": "august",
+      "month_numbers": [8],
+      "priority": 10,
+      "_note": "August overrides summer when check-in month is 8 (matches package_price_rules.priority=10)"
+    },
+    {
+      "code": "closed",
+      "month_numbers": [1, 2, 12],
+      "bookable": false,
+      "_note": "December, January, February closed. Do not quote or book."
+    }
+  ],
+
+  "_packages_note": "Prices are PER PERSON PER WEEK in a SHARED room, in CENTS. Select the seasonal price by matching the check-in month to the season with the highest priority. Lookup order: find all seasons containing the check-in month, take the one with the highest priority value.",
+
+  "packages": [
+    {
+      "code": "malibu",
+      "name": "Malibu",
+      "price_scope": "per_person_per_week",
+      "base_room_type": "shared",
+      "inclusions": ["shared_room", "shirt"],
+      "seasonal_prices": {
+        "spring_autumn": { "weekly_per_person_cents": 24900, "_eur": 249 },
+        "summer":        { "weekly_per_person_cents": 29900, "_eur": 299 },
+        "august":        { "weekly_per_person_cents": 34900, "_eur": 349 }
+      },
+      "pricing_status": "confirmed_2026"
+    },
+    {
+      "code": "uluwatu",
+      "name": "Uluwatu",
+      "price_scope": "per_person_per_week",
+      "base_room_type": "shared",
+      "inclusions": ["shared_room", "shirt", "surfboard_6_days", "wetsuit_6_days"],
+      "seasonal_prices": {
+        "spring_autumn": { "weekly_per_person_cents": 34900, "_eur": 349 },
+        "summer":        { "weekly_per_person_cents": 39900, "_eur": 399 },
+        "august":        { "weekly_per_person_cents": 44900, "_eur": 449 }
+      },
+      "pricing_status": "confirmed_2026"
+    },
+    {
+      "code": "waimea",
+      "name": "Waimea",
+      "price_scope": "per_person_per_week",
+      "base_room_type": "shared",
+      "inclusions": ["shared_room", "shirt", "surfboard_6_days", "wetsuit_6_days", "surf_lesson_each_day_6_days"],
+      "seasonal_prices": {
+        "spring_autumn": { "weekly_per_person_cents": 49900, "_eur": 499 },
+        "summer":        { "weekly_per_person_cents": 54900, "_eur": 549 },
+        "august":        { "weekly_per_person_cents": 59900, "_eur": 599 }
+      },
+      "pricing_status": "confirmed_2026"
+    }
+  ],
+
+  "room_supplements": {
+    "_note": "Applied on top of the package base price. shared = no supplement (modifier = 0).",
+    "shared": {
+      "per_person_per_night_cents": 0
+    },
+    "double": {
+      "per_person_per_night_cents": 1000,
+      "_eur": 10,
+      "pricing_status": "confirmed_2026",
+      "_note": "+EUR10 per person per night on top of the shared base (Stage 3x.2f, confirmed by owner)"
+    },
+    "private": {
+      "per_person_per_night_cents": 1000,
+      "_eur": 10,
+      "pricing_status": "confirmed_2026",
+      "_note": "Same supplement as double. Confirm if private-room pricing differs from double."
+    }
+  },
+
+  "rounding": {
+    "_note": "PRORATION_FORMULA_AMBIGUITY: two interpretations exist in the source docs. Both give the same result for 4-night Uluwatu but differ for 3-night Malibu (see _examples). The quote calculator (8.4.3) must resolve this before going live.",
+    "method": "ceil_to_nearest_5_eur",
+    "nearest_cents": 500,
+    "_formula_A_whole_stay": "per_person_cents = CEIL5(weekly_per_person_eur * nights / 7) * 100; then * guest_count. Source: package-pricing.md (shows 110 for 3n Malibu spring).",
+    "_formula_B_per_night": "per_night_eur = CEIL5(weekly_per_person_eur / 7); per_person_cents = per_night_eur * nights * 100; then * guest_count. Source: wolfhouse-somo.baseline.json 3x.2g example.",
+    "_examples": {
+      "3n_malibu_spring_1_guest": {
+        "formula_A": "CEIL5(249*3/7)=CEIL5(106.71)=110 EUR per person -> 11000 cents",
+        "formula_B": "CEIL5(249/7)=CEIL5(35.57)=40 EUR/night; 40*3=120 EUR per person -> 12000 cents",
+        "_diverge": true
+      },
+      "4n_uluwatu_spring_1_guest": {
+        "formula_A": "CEIL5(349*4/7)=CEIL5(199.43)=200 EUR per person -> 20000 cents",
+        "formula_B": "CEIL5(349/7)=CEIL5(49.86)=50 EUR/night; 50*4=200 EUR per person -> 20000 cents",
+        "_diverge": false
+      },
+      "7n_malibu_spring_1_guest": {
+        "formula_A": "CEIL5(249*7/7)=CEIL5(249)=250 EUR per person -> 25000 cents",
+        "formula_B": "CEIL5(249/7)=40 EUR/night; 40*7=280 EUR per person -> 28000 cents",
+        "_diverge": true,
+        "_note": "Formula A returns 250 (near 249); formula B returns 280. For the standard 7-night stay, use the flat weekly price directly (249 EUR = 24900 cents) -- no proration needed."
+      }
+    },
+    "seven_night_rule": "For stays of exactly 7 nights, use the flat weekly_per_person_cents directly — no proration needed.",
+    "formula_to_use": "REQUIRED_FROM_STAFF_CONFIRM_FORMULA_A_OR_B",
+    "_formula_resolve_note": "Confirm with Ale which formula applies. Package-pricing.md example shows Formula A. Baseline 3x.2g description implies Formula B but its example (4n Uluwatu) is ambiguous."
+  },
+
+  "deposits": {
+    "_note": "Deposit tier is confirmed by Ale (Stage 3x.2g). scope=per_booking is confirmed.",
+    "rule_type": "tiered_by_booking_type",
+    "scope": "per_booking",
+    "scope_status": "confirmed",
+    "tiers": {
+      "standard_package": {
+        "amount_cents": 20000,
+        "_eur": 200,
+        "pricing_status": "confirmed",
+        "_match": "Named package (malibu, uluwatu, or waimea) at standard terms"
+      },
+      "custom_or_short_stay": {
+        "amount_cents": 10000,
+        "_eur": 100,
+        "pricing_status": "confirmed",
+        "_match": "Custom-built package OR non-7-night / shorter stay"
+      }
+    },
+    "default_cents": 20000,
+    "_default_note": "Fallback when booking type is ambiguous; resolve type before quoting deposit, else handoff.",
+    "deposit_varies_by_package": "REQUIRED_FROM_STAFF",
+    "deposit_varies_by_room_type": "REQUIRED_FROM_STAFF",
+    "_required_note": "Confirm: does the Waimea or Uluwatu deposit differ from Malibu? Does double/private room change the deposit?"
+  },
+
+  "hold": {
+    "expiry_minutes": 60,
+    "expiry_hours": 1,
+    "status": "confirmed"
+  },
+
+  "payment_options": ["deposit", "full", "pay_on_arrival"],
+  "balance_payment_methods": ["cash", "bank_transfer", "stripe_on_arrival"],
+
+  "add_ons": {
+    "_note": "All prices confirmed by Ale (Stage 3x.2g). charge_timing is REQUIRED_FROM_STAFF for rentals.",
+    "wetsuit_rental": {
+      "code": "wetsuit_rental",
+      "name": "Wetsuit rental",
+      "pricing_unit": "per_day",
+      "price_cents": 500,
+      "_eur": 5,
+      "pricing_status": "confirmed",
+      "charge_timing": "REQUIRED_FROM_STAFF",
+      "_charge_timing_note": "Confirm: charged with booking deposit/payment link, or tracked and paid on site?"
+    },
+    "soft_top_rental": {
+      "code": "soft_top_rental",
+      "name": "Soft-top surfboard rental",
+      "pricing_unit": "per_day",
+      "price_cents": 1500,
+      "_eur": 15,
+      "pricing_status": "confirmed",
+      "charge_timing": "REQUIRED_FROM_STAFF"
+    },
+    "hard_board_rental": {
+      "code": "hard_board_rental",
+      "name": "Hard board rental",
+      "pricing_unit": "per_day",
+      "price_cents": 2000,
+      "_eur": 20,
+      "pricing_status": "confirmed",
+      "charge_timing": "REQUIRED_FROM_STAFF"
+    },
+    "wetsuit_soft_top_combo": {
+      "code": "wetsuit_soft_top_combo",
+      "name": "Wetsuit + soft-top combo",
+      "pricing_unit": "per_day",
+      "price_cents": 1500,
+      "_eur": 15,
+      "pricing_status": "confirmed",
+      "replaces": ["wetsuit_rental", "soft_top_rental"],
+      "charge_timing": "REQUIRED_FROM_STAFF",
+      "_note": "Promo: same price as soft-top alone — wetsuit free. Replaces separate wetsuit + soft-top line items."
+    },
+    "wetsuit_hard_board_combo": {
+      "code": "wetsuit_hard_board_combo",
+      "name": "Wetsuit + hard board combo",
+      "pricing_unit": "per_day",
+      "price_cents": 2000,
+      "_eur": 20,
+      "pricing_status": "confirmed",
+      "replaces": ["wetsuit_rental", "hard_board_rental"],
+      "charge_timing": "REQUIRED_FROM_STAFF",
+      "_note": "Promo: same price as hard board alone — wetsuit free. Replaces separate wetsuit + hard-board line items."
+    },
+    "surf_lesson_single": {
+      "code": "surf_lesson_single",
+      "name": "Surf lesson (single)",
+      "pricing_unit": "per_lesson",
+      "applies_when": "lesson_count == 1",
+      "price_cents": 3500,
+      "_eur": 35,
+      "pricing_status": "confirmed"
+    },
+    "surf_lesson_multi": {
+      "code": "surf_lesson_multi",
+      "name": "Surf lesson (2+ bundle rate)",
+      "pricing_unit": "per_lesson",
+      "applies_when": "lesson_count >= 2",
+      "price_cents_each": 3000,
+      "_eur_each": 30,
+      "pricing_status": "confirmed",
+      "_note": "When booking 2 or more lessons, ALL lessons (including the first) are priced at EUR30 each."
+    },
+    "yoga_class": {
+      "code": "yoga_class",
+      "name": "Yoga class",
+      "pricing_unit": "per_class",
+      "price_cents": 1500,
+      "_eur": 15,
+      "pricing_status": "confirmed",
+      "on_site": true,
+      "_note": "Normally booked and paid on site. May be included in special camps — handoff for special-camp requests."
+    }
+  },
+
+  "handoff_rules": {
+    "_note": "Automatic quote allowed only when all required fields are known and confirmed. Handoff when any of the following apply.",
+    "always_handoff_if": [
+      "package_code_unknown",
+      "package_price_missing",
+      "price_scope_ambiguous",
+      "formula_not_confirmed",
+      "closed_month_checkin",
+      "group_discount_requested",
+      "retreat_or_camp_or_special_event",
+      "operator_booking",
+      "paid_cancellation",
+      "paid_refund",
+      "paid_date_change",
+      "bad_weather_or_no_wave_lesson_refund",
+      "manual_price_override_unclear",
+      "guest_disputes_price",
+      "booking_changed_after_payment",
+      "deposit_scope_unresolved",
+      "edge_season_month_no_price_rule",
+      "multi_week_proration_unconfirmed"
+    ],
+    "refund_rules": {
+      "paid_cancellation": "staff_handoff",
+      "paid_refund": "staff_handoff",
+      "paid_date_change": "staff_handoff",
+      "unpaid_cancellation": "may_automate_if_safe",
+      "unpaid_date_change": "may_automate_if_safe",
+      "bad_weather_or_no_wave_lesson_refund": "staff_handoff_manual_day_by_day",
+      "default_remedy": "voucher_12_months",
+      "money_refund": "exception_only_always_staff"
+    }
+  },
+
+  "missing_required_values": [
+    {
+      "key": "proration_formula",
+      "status": "REQUIRED_FROM_STAFF_CONFIRM",
+      "description": "Confirm whether Formula A (ceil5 on whole stay) or Formula B (ceil5 per night then multiply) is the correct proration. They give different results for most stay lengths. Formula A from package-pricing.md shows EUR110 for 3 nights Malibu spring; Formula B gives EUR120.",
+      "blocker_for": ["quote_calculator", "MANUAL_BOOKING_ENABLED"]
+    },
+    {
+      "key": "deposit_varies_by_package",
+      "status": "REQUIRED_FROM_STAFF",
+      "description": "Confirm: does the deposit amount differ between Malibu (EUR200), Uluwatu, and Waimea packages? Current assumption: EUR200 for all named packages.",
+      "blocker_for": ["auto_deposit_quote"]
+    },
+    {
+      "key": "deposit_varies_by_room_type",
+      "status": "REQUIRED_FROM_STAFF",
+      "description": "Confirm: does booking a double/private room change the deposit amount?",
+      "blocker_for": ["auto_deposit_quote"]
+    },
+    {
+      "key": "add_on_charge_timing",
+      "status": "REQUIRED_FROM_STAFF",
+      "description": "Confirm for each rental (wetsuit, soft-top, hard board): is the add-on charged with the booking deposit/payment link, or tracked and paid on site? Current assumption: on site.",
+      "blocker_for": ["auto_payment_link_with_addons"]
+    },
+    {
+      "key": "group_discount_rules",
+      "status": "REQUIRED_FROM_STAFF",
+      "description": "Any group discount tiers, promo codes, or discount mechanics? Current assumption: none — all handoff.",
+      "blocker_for": ["auto_discount_pricing"]
+    },
+    {
+      "key": "retreat_camp_special_pricing",
+      "status": "REQUIRED_FROM_STAFF",
+      "description": "Retreats, special camps, and events have custom pricing. Current assumption: all handoff to staff.",
+      "blocker_for": ["auto_retreat_pricing"]
+    },
+    {
+      "key": "operator_pricing_rules",
+      "status": "REQUIRED_FROM_STAFF",
+      "description": "Operator/tour-operator block pricing (often EUR0 / negotiated). Current assumption: always handoff.",
+      "blocker_for": ["operator_booking_auto_price"]
+    },
+    {
+      "key": "multi_week_proration",
+      "status": "REQUIRED_FROM_STAFF",
+      "description": "For stays longer than 7 nights (e.g. 10, 14 nights): confirm the formula. Is it simply weekly_price * (nights/7) rounded? Is there a discount for multi-week stays?",
+      "blocker_for": ["quote_calculator_multi_week"]
+    },
+    {
+      "key": "edge_season_months_march_november",
+      "status": "REQUIRED_FROM_STAFF",
+      "description": "Months 3 (March) and 11 (November) appear as 'shoulder' in wolfhouse-somo.baseline.json but have NO seeded row in package_price_rules. Are they bookable? If so, do they use the spring_autumn prices?",
+      "blocker_for": ["quote_calculator_march_november"]
+    }
+  ]
+}

@@ -480,8 +480,8 @@ Until then: `MANUAL_BOOKING_ENABLED=false`, `STAFF_ACTIONS_ENABLED=false`, creat
 
 | Slice | Title | Type | Writes? |
 |---|---|---|---|
-| **8.4.1** | Wolfhouse pricing/payment config plan (**this**) | docs | no |
-| 8.4.2 | Pricing config schema / design | docs/design | no |
+| **8.4.1** | Wolfhouse pricing/payment config plan (**this**) | docs | no | ✅ PASS 2026-06-02 |
+| **8.4.2** | Pricing config fixture (`config/clients/wolfhouse-somo.pricing.json`) | config + verifier | no | ✅ PASS 2026-06-02 |
 | 8.4.3 | Pure Wolfhouse quote calculator helper | code (pure) | no |
 | 8.4.4 | Quote calculator fixture/verifier for Wolfhouse rules | code (test) | no |
 | 8.4.5 | Quote preview endpoint (read-only) | code (API) | no |
@@ -495,8 +495,10 @@ Until then: `MANUAL_BOOKING_ENABLED=false`, `STAFF_ACTIONS_ENABLED=false`, creat
 
 ---
 
-## 17. Status flags (unchanged)
+## 17. Status flags
 
+- `config/clients/wolfhouse-somo.pricing.json` created and verified (Stage 8.4.2 PASS).
+- `scripts/verify-wolfhouse-pricing-config.js` created: 63/63 PASS.
 - No pricing code implemented.
 - No quote endpoint implemented.
 - No payment automation enabled.
@@ -508,4 +510,4 @@ Until then: `MANUAL_BOOKING_ENABLED=false`, `STAFF_ACTIONS_ENABLED=false`, creat
 
 ## 18. Next recommended prompt
 
-> Stage 8.4.2 — Pricing config schema/design (docs + optional config fixture, no live writes). Decide where the Wolfhouse pricing config lives (JSON config file vs `client_config`/DB-backed), reconcile it with the seeded `package_price_rules`, resolve the §3 REQUIRED_FROM_STAFF items into either confirmed values or explicit "override-required" markers, and define the `config_version` strategy the quote calculator (8.4.3) will load.
+> Stage 8.4.3 — Pure Wolfhouse quote calculator helper. Load `config/clients/wolfhouse-somo.pricing.json`, implement `calculateQuote({ client_slug, check_in, check_out, nights, guest_count, package_code, room_type, add_ons, payment_choice })` as a pure function (no DB, no Stripe), output the quote contract defined in §6 of STAGE-8.4.1, write fixture tests covering all 3 packages × 3 seasons, a 7-night and a non-7-night case, double-room supplement, wetsuit/lesson add-ons, and the multi-lesson tier. Verifier required. No API route. No UI. No DB writes.

@@ -1,6 +1,6 @@
 # Stage 8.4 — Manual Booking Creation (PLAN / GATE CHECKPOINT)
 
-**Status:** PLAN + GATED STUB ONLY (2026-06-02). **Manual booking creation is NOT enabled and NOT wired to the UI.** A pricing/payment engine is a hard prerequisite before a real create path can ship. **Slice 1 (pricing/payment config plan) DONE — [`STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md`](STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md) (2026-06-02): known Wolfhouse config captured (packages/seasons/double-room/deposits/hold/add-ons in cents), REQUIRED_FROM_STAFF gaps listed, quote input/output contracts, payment-record/invoice model, quote-snapshot storage, override + handoff rules, and the hard gate before `MANUAL_BOOKING_ENABLED`.**
+**Status:** PLAN + GATED STUB ONLY (2026-06-02). **Manual booking creation is NOT enabled and NOT wired to the UI.** A pricing/payment engine is a hard prerequisite before a real create path can ship. **Slice 1 (pricing/payment config plan) DONE — [`STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md`](STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md) (2026-06-02): known Wolfhouse config captured (packages/seasons/double-room/deposits/hold/add-ons in cents), REQUIRED_FROM_STAFF gaps listed, quote input/output contracts, payment-record/invoice model, quote-snapshot storage, override + handoff rules, and the hard gate before `MANUAL_BOOKING_ENABLED`.** **Slice 2 (pricing config fixture) DONE — `config/clients/wolfhouse-somo.pricing.json` created; `scripts/verify-wolfhouse-pricing-config.js` 63/63 PASS (2026-06-02).**
 
 **Parent:** [`STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md`](STAGE-8.3-STAFF-PORTAL-BED-CALENDAR-OPERATIONS-PLAN.md) · §4 (manual booking creation)
 **Builds on:** Stage 8.3e write-gate plan, 8.3i/8.3j SQL helper proofs, 8.3k rollback proof, 8.3l preview UI wiring.
@@ -74,4 +74,6 @@ No runtime create was performed. No booking was created. No Stripe/WhatsApp/n8n 
 
 ## 6. Next recommended prompt
 
-> Stage 8.4.2 — Pricing config schema/design (docs + optional config fixture, no live writes). Decide where the Wolfhouse pricing config lives (JSON config file vs `client_config`/DB-backed), reconcile with the seeded `package_price_rules`, resolve the 8.4.1 REQUIRED_FROM_STAFF items into confirmed values or explicit override-required markers, and define the `config_version` strategy the quote calculator (8.4.3) will load.
+> **Stage 8.4.2 DONE.** `config/clients/wolfhouse-somo.pricing.json` created, verified 63/63 PASS. Location follows repo pattern (`config/clients/`). Deposit scope confirmed as `per_booking`. REQUIRED_FROM_STAFF gaps documented (proration formula ambiguity, march/november edge months, add-on charge timing, group/operator/retreat pricing).
+>
+> **Next: Stage 8.4.3** — Pure Wolfhouse quote calculator helper. Load the pricing fixture, implement `calculateQuote()` as a pure function (no DB, no Stripe), output the quote contract from §6 of STAGE-8.4.1, write fixture tests covering all 3 packages × 3 seasons, 7-night and non-7-night, double-room supplement, add-ons, multi-lesson tier. Verifier required. No API. No UI. No DB writes.
