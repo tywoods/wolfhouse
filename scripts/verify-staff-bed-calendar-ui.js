@@ -359,6 +359,70 @@ check(/kvBC\('Check-in'/.test(src) && /kvBC\('Check-out'/.test(src),
 check(!/kvBC\('Color type'|kvBC\('color_type'/.test(src),
   'Raw color_type field not shown in drawer (Stage 8.3b)');
 
+// ── Stage 8.3c — read-only cell selection model ───────────────────────────
+
+// 73. Empty cell carries data-date attribute (Stage 8.3c)
+check(/data-date/.test(src),
+  'Empty calendar cells carry data-date attribute (Stage 8.3c)');
+
+// 74. bcSel state variable declared (Stage 8.3c)
+check(/var bcSel\s*=/.test(src),
+  'bcSel selection state variable declared (Stage 8.3c)');
+
+// 75. bcClearSelection function present (Stage 8.3c)
+check(/function bcClearSelection/.test(src),
+  'bcClearSelection function present (Stage 8.3c)');
+
+// 76. bcApplySelectionHighlight function present (Stage 8.3c)
+check(/function bcApplySelectionHighlight/.test(src),
+  'bcApplySelectionHighlight function present (Stage 8.3c)');
+
+// 77. bcHandleCellClick function present (Stage 8.3c)
+check(/function bcHandleCellClick/.test(src),
+  'bcHandleCellClick function present (Stage 8.3c)');
+
+// 78. Selection panel HTML present (bc-sel-panel) (Stage 8.3c)
+check(/id="bc-sel-panel"/.test(src),
+  'Selection summary panel (bc-sel-panel) present in HTML (Stage 8.3c)');
+
+// 79. "Selection only — no booking created" notice present (Stage 8.3c)
+check(/Selection only.*no booking created/i.test(src),
+  '"Selection only — no booking created" notice present (Stage 8.3c)');
+
+// 80. "Create Manual Booking" disabled button present (Stage 8.3c)
+check(/Create Manual Booking.*coming soon/i.test(src),
+  '"Create Manual Booking — coming soon" disabled button present (Stage 8.3c)');
+
+// 81. Create button has disabled attribute (Stage 8.3c)
+check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src) ||
+      /bc-sel-create-btn/.test(src),
+  'Create Manual Booking button is visually/functionally disabled (Stage 8.3c)');
+
+// 82. Clear selection button present (Stage 8.3c)
+check(/id="bc-sel-clear"/.test(src),
+  'Clear selection button (bc-sel-clear) present (Stage 8.3c)');
+
+// 83. bcSel selection is read-only — no booking POST in selection handler (Stage 8.3c)
+(function checkNoSelPost(){
+  const handlerStart = src.indexOf('function bcHandleCellClick');
+  const handlerEnd   = handlerStart > 0 ? src.indexOf('\nfunction ', handlerStart + 10) : -1;
+  const handlerSrc   = handlerStart > 0 && handlerEnd > 0 ? src.slice(handlerStart, handlerEnd) : src;
+  check(!/fetch.*POST|POST.*fetch|method.*POST/i.test(handlerSrc),
+    'bcHandleCellClick has no POST fetch — selection is read-only (Stage 8.3c)');
+})();
+
+// 84. No drag/drop booking movement (Stage 8.3c guard)
+check(!/dragstart.*booking|drop.*booking|ondrop|draggable=.true/i.test(src),
+  'No drag/drop booking movement added (Stage 8.3c)');
+
+// 85. bc-sel CSS class present (Stage 8.3c)
+check(/\.bc-sel\b/.test(src),
+  '.bc-sel selected-cell CSS class present (Stage 8.3c)');
+
+// 86. Selection panel hidden on new calendar load (Stage 8.3c)
+check(/bc-sel-panel.*style.*display.*none|_sp.*style\.display\s*=\s*'none'|bc-sel-panel.*display.*none/.test(src),
+  'Selection panel hidden on new calendar load (Stage 8.3c)');
+
 // ── Stage 8.3a regression fix — embedded JS syntax safety ─────────────────
 
 // 57. No bare \n (unescaped newline escape) in renderBookingBlock tip string

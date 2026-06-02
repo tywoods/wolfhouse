@@ -1133,6 +1133,17 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-planned{margin-top:16px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm)}
 .ctx-planned-title{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;color:var(--text-3)}
 .ctx-planned-action{display:inline-block;padding:4px 10px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);font-size:11px;color:var(--text-3);margin:0 5px 4px 0;cursor:not-allowed;user-select:none}
+/* ── Cell selection model (Stage 8.3c) ───────────────────────────────────── */
+.bc-day-cell[data-date]{cursor:cell}
+.bc-day-cell[data-date]:hover{background:rgba(108,165,140,.10)}
+.bc-day-cell.bc-sel{background:rgba(108,165,140,.22);outline:1px solid rgba(108,165,140,.6);outline-offset:-1px;position:relative;z-index:1}
+.bc-day-cell.bc-sel-anchor{outline:2px solid #6CA58C;outline-offset:-1px}
+.bc-sel-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.bc-sel-notice{font-size:11px;color:var(--text-3);font-style:italic;margin:10px 0 12px}
+.bc-sel-warn{font-size:11px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:7px 10px;margin:8px 0}
+.bc-sel-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bc-sel-create-btn{opacity:.42;cursor:not-allowed !important}
+.bc-sel-create-btn:hover{opacity:.42}
 </style>
 </head>
 <body>
@@ -1372,6 +1383,28 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 
     <!-- Grid -->
     <div id="bc-grid-wrap" style="display:none;overflow-x:auto;overflow-y:auto;max-height:620px;border:1px solid #EFE8DC;border-radius:12px"></div>
+  </div>
+
+  <!-- Selection summary panel (Stage 8.3c, read-only) -->
+  <div class="card" id="bc-sel-panel" style="display:none;margin-top:16px">
+    <div class="bc-sel-title">&#9635; Date Selection
+      <span class="hq-ro-label">READ-ONLY &mdash; no booking created</span>
+    </div>
+    <div class="kv-grid" style="margin-bottom:12px">
+      <div class="kv"><span class="k">Bed</span><span class="v" id="bc-sel-bed">&mdash;</span></div>
+      <div class="kv"><span class="k">Check-in</span><span class="v" id="bc-sel-cin">&mdash;</span></div>
+      <div class="kv"><span class="k">Check-out</span><span class="v" id="bc-sel-cout">&mdash;</span></div>
+      <div class="kv"><span class="k">Nights</span><span class="v" id="bc-sel-nights">&mdash;</span></div>
+    </div>
+    <div id="bc-sel-warn" class="bc-sel-warn" style="display:none"></div>
+    <div class="bc-sel-notice">Selection only &mdash; no booking created. This does not write to the database.</div>
+    <div class="bc-sel-actions">
+      <button class="btn btn-ghost" id="bc-sel-clear">Clear selection</button>
+      <button class="btn bc-sel-create-btn" disabled id="bc-sel-create"
+        title="Manual booking creation is planned but not enabled in staging. This selection does not create a booking.">
+        Create Manual Booking &mdash; coming soon
+      </button>
+    </div>
   </div>
 
   <!-- Block detail panel (read-only) -->
@@ -2041,8 +2074,89 @@ el('btn-run').addEventListener('click', function(){
    ═══════════════════════════════════════════════════════════════════════════ */
 
 var bcData = null;
+/* Selection model state (Stage 8.3c) — read-only, no writes */
+var bcSel = null;  /* { room_code, bed_code, anchor_date, cursor_date } or null */
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
+
+/* ── Cell selection model (Stage 8.3c, read-only) ─────────────────────────── */
+function bcClearSelection(){
+  bcSel = null;
+  document.querySelectorAll('.bc-day-cell.bc-sel, .bc-day-cell.bc-sel-anchor').forEach(function(td){
+    td.classList.remove('bc-sel', 'bc-sel-anchor');
+  });
+  var panel = el('bc-sel-panel');
+  if (panel) panel.style.display = 'none';
+}
+
+function bcApplySelectionHighlight(){
+  /* Remove previous highlight */
+  document.querySelectorAll('.bc-day-cell.bc-sel, .bc-day-cell.bc-sel-anchor').forEach(function(td){
+    td.classList.remove('bc-sel', 'bc-sel-anchor');
+  });
+  if (!bcSel) return;
+  var a = bcSel.anchor_date;
+  var b = bcSel.cursor_date;
+  var selStart = a <= b ? a : b;
+  var selEnd   = a <= b ? b : a;
+
+  /* Highlight all selectable cells in range on this bed */
+  var selCount = 0;
+  document.querySelectorAll('.bc-day-cell[data-date]').forEach(function(td){
+    if (td.dataset.room !== bcSel.room_code || td.dataset.bed !== bcSel.bed_code) return;
+    var d = td.dataset.date;
+    if (d >= selStart && d <= selEnd){
+      td.classList.add('bc-sel');
+      if (d === bcSel.anchor_date) td.classList.add('bc-sel-anchor');
+      selCount++;
+    }
+  });
+
+  /* Compute check-out = day after last selected cell */
+  var coDate = new Date(selEnd + 'T00:00:00Z');
+  coDate.setUTCDate(coDate.getUTCDate() + 1);
+  var checkOut = coDate.toISOString().slice(0, 10);
+
+  /* Check for booked-cell gaps in range */
+  var allDates = [];
+  var d = new Date(selStart + 'T00:00:00Z');
+  var endDate = new Date(selEnd + 'T00:00:00Z');
+  while (d <= endDate){
+    allDates.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  var hasGap = (selCount < allDates.length);
+
+  /* Update panel */
+  el('bc-sel-bed').textContent    = bcSel.room_code + ' / ' + bcSel.bed_code;
+  el('bc-sel-cin').textContent    = selStart;
+  el('bc-sel-cout').textContent   = checkOut;
+  el('bc-sel-nights').textContent = selCount + (selCount === 1 ? ' night' : ' nights');
+  var warnEl = el('bc-sel-warn');
+  if (hasGap && warnEl){
+    warnEl.textContent = 'Selection spans an occupied cell. Only free cells are highlighted (' + selCount + ' of ' + allDates.length + ' nights available).';
+    warnEl.style.display = 'block';
+  } else if (warnEl) {
+    warnEl.style.display = 'none';
+  }
+  var panel = el('bc-sel-panel');
+  if (panel) panel.style.display = 'block';
+}
+
+function bcHandleCellClick(td){
+  var date = td.dataset.date;
+  var room = td.dataset.room;
+  var bed  = td.dataset.bed;
+  if (!date || !room || !bed) return;
+  if (!bcSel || bcSel.room_code !== room || bcSel.bed_code !== bed){
+    /* Start new selection on this bed */
+    bcSel = { room_code: room, bed_code: bed, anchor_date: date, cursor_date: date };
+  } else {
+    /* Extend range on same bed */
+    bcSel.cursor_date = date;
+  }
+  bcApplySelectionHighlight();
+}
 
 function bcColorClass(ct){
   var c = (ct||'hold').toLowerCase();
@@ -2141,15 +2255,24 @@ function renderBedCalendar(data){
       }
       html += '<td class="bc-bed-cell">' + bedLabelHtml + '</td>';
 
+      /* Selectable empty cells carry data-date/room/bed for Stage 8.3c selection model */
+      var _rc = room.room_code;
+      var _bc = bed.bed_code;
       var pos = 0;
       bedBlocks.forEach(function(entry){
         var blk = entry.blk;
         var gap = blk.start_offset - pos;
-        for (var g = 0; g < gap; g++) html += '<td class="bc-day-cell"></td>';
+        for (var g = 0; g < gap; g++){
+          var _di = (days[pos + g] || {}).date || '';
+          html += '<td class="bc-day-cell" data-date="' + _di + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+        }
         html += renderBookingBlock(blk, entry.idx);
         pos = blk.start_offset + blk.span_days;
       });
-      for (var r = pos; r < N; r++) html += '<td class="bc-day-cell"></td>';
+      for (var r = pos; r < N; r++){
+        var _di2 = (days[r] || {}).date || '';
+        html += '<td class="bc-day-cell" data-date="' + _di2 + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+      }
       html += '</tr>';
     });
   });
@@ -2168,6 +2291,15 @@ function renderBedCalendar(data){
       showBlockDetail(blocks[idx]);
     });
   });
+
+  /* Wire empty-cell clicks for selection model (Stage 8.3c, read-only) */
+  wrap.querySelectorAll('.bc-day-cell[data-date]').forEach(function(td){
+    td.addEventListener('click', function(){ bcHandleCellClick(this); });
+  });
+
+  /* Wire selection panel clear button (re-wired each render) */
+  var _clearBtn = el('bc-sel-clear');
+  if (_clearBtn) _clearBtn.onclick = bcClearSelection;
 }
 
 function renderBookingBlock(blk, idx){
@@ -2445,6 +2577,9 @@ function loadBedCalendar(){
   el('bc-state').textContent       = 'Loading bed calendar\u2026';
   el('bc-state').style.display     = 'block';
   el('bc-load').disabled           = true;
+  /* Clear selection on new load (Stage 8.3c) */
+  bcSel = null;
+  var _sp = el('bc-sel-panel'); if (_sp) _sp.style.display = 'none';
 
   var url = '/staff/bed-calendar?client=' + encodeURIComponent(client) +
             '&start=' + encodeURIComponent(start) +
