@@ -175,6 +175,7 @@ Goal: staff create a booking **directly from calendar cells**. This replaces the
 | **8.3l** | **UI preview modal** wired to preview endpoint only. Preview Conflicts button enabled on selection; result panel; auth error handling; Create disabled. 122/122 verifier PASS. | **DONE** |
 | **8.3q** | **Tour Operator Block skeleton** — read-only form panel; operator/stay/defaults/notes sections; Source=Operator, Payment=Not requested, Booking=Operator Blocked, Guest messaging=Disabled, Stripe=Disabled, n8n=Not triggered; prefills from cell selection; both Create/Preview buttons disabled; safety notice; 142/142 verifier PASS. | **DONE** |
 | **8.3m** | **UI confirm button** behind staging-only flag (reason+source required). | planned |
+| **8.3r** | **Operator Room Release skeleton** — read-only form panel; operator-block/release-dates/release-scope/notes sections; release type (selected_beds/whole_room/selected_dates); Source=Release operator block dates, Guest messaging=Disabled, Stripe=Disabled, n8n=Not triggered, Staff write=Disabled in staging; prefills from cell selection; Release Dates and Preview Release buttons disabled; safety notice; 162/162 verifier PASS. | **DONE** |
 | **8.3n** | **Staging fixture proof through UI** (E2E on demo data, behind flag). | planned |
 | **8.3o** | **Sign-off gate** before real staff use (Ty + owner/operator). | planned |
 

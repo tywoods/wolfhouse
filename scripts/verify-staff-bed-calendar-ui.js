@@ -754,6 +754,114 @@ check(/n8n workflow will not run|n8n workflow will run.*not|no.*n8n|n8n.*not tri
 check(/whole_room|Whole room/.test(src) && /selected_beds|Selected beds/.test(src),
   'Block type options (whole_room / selected_beds) present (Stage 8.3q)');
 
+// ── Stage 8.3r — Operator Room Release skeleton ───────────────────────────────
+
+// 141. Operator Room Release panel element present (Stage 8.3r)
+check(/id="bc-rr-panel"/.test(src),
+  'Operator Room Release panel (id="bc-rr-panel") present (Stage 8.3r)');
+
+// 142. "Operator Room Release" heading text present (Stage 8.3r)
+check(/Operator Room Release/i.test(src),
+  '"Operator Room Release" heading text present (Stage 8.3r)');
+
+// 143. Release start field present (Stage 8.3r)
+check(/id="bc-rr-start"/.test(src),
+  'Release start field (bc-rr-start) present (Stage 8.3r)');
+
+// 144. Release end field present (Stage 8.3r)
+check(/id="bc-rr-end"/.test(src),
+  'Release end field (bc-rr-end) present (Stage 8.3r)');
+
+// 145. Operator block code/selector field present (Stage 8.3r)
+check(/id="bc-rr-block-code"/.test(src),
+  'Operator block code placeholder field (bc-rr-block-code) present (Stage 8.3r)');
+
+// 146. Release type field present (Stage 8.3r)
+check(/id="bc-rr-release-type"/.test(src),
+  'Release type select field (bc-rr-release-type) present (Stage 8.3r)');
+
+// 147. Reason for release field present (Stage 8.3r)
+check(/id="bc-rr-reason"/.test(src),
+  'Reason for release field (bc-rr-reason) present (Stage 8.3r)');
+
+// 148. "Selected dates only" release type option present (Stage 8.3r)
+check(/selected_dates|Selected dates only/.test(src),
+  '"Selected dates only" release type option present (Stage 8.3r)');
+
+// 149. Release Dates button is disabled (Stage 8.3r)
+check(/disabled[^>]*id="bc-rr-release-btn"|id="bc-rr-release-btn"[^>]*disabled/.test(src),
+  'Release Dates button has disabled attribute (bc-rr-release-btn) (Stage 8.3r)');
+
+// 150. Preview Release button is disabled (Stage 8.3r)
+check(/disabled[^>]*id="bc-rr-preview-btn"|id="bc-rr-preview-btn"[^>]*disabled/.test(src),
+  'Preview Release button has disabled attribute (bc-rr-preview-btn) (Stage 8.3r)');
+
+// 151. Room release safety notice present (Stage 8.3r)
+check(/no dates will be released/i.test(src),
+  '"no dates will be released" safety notice present (Stage 8.3r)');
+
+// 152. "Room release writes require approval gates" text present (Stage 8.3r)
+check(/Room release writes require approval gates/i.test(src),
+  '"Room release writes require approval gates" notice present (Stage 8.3r)');
+
+// 153. Guest messaging Disabled locked field in room release panel (Stage 8.3r)
+(function checkRrGuestDisabled(){
+  const rrIdx = src.indexOf('id="bc-rr-panel"');
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
+  check(/Guest messaging[\s\S]{0,100}Disabled/i.test(rrSrc),
+    '"Guest messaging" Disabled locked field in room release panel (Stage 8.3r)');
+})();
+
+// 154. Stripe/payment Disabled locked field in room release panel (Stage 8.3r)
+(function checkRrStripeDisabled(){
+  const rrIdx = src.indexOf('id="bc-rr-panel"');
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
+  check(/Stripe.*payment[\s\S]{0,100}Disabled/i.test(rrSrc),
+    '"Stripe / payment" Disabled locked field in room release panel (Stage 8.3r)');
+})();
+
+// 155. n8n "Not triggered" in room release panel (Stage 8.3r)
+(function checkRrN8nNotTriggered(){
+  const rrIdx = src.indexOf('id="bc-rr-panel"');
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
+  check(/Not triggered/.test(rrSrc),
+    '"Not triggered" n8n field in room release panel (Stage 8.3r)');
+})();
+
+// 156. No POST/PATCH/DELETE fetch in room release panel (Stage 8.3r)
+(function checkRrNoPost(){
+  const rrIdx = src.indexOf('id="bc-rr-panel"');
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 12000) : '';
+  check(!/fetch[^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(rrSrc),
+    'No POST/PATCH/DELETE fetch in room release panel (Stage 8.3r)');
+})();
+
+// 157. bcClearSelection resets room release fields (Stage 8.3r)
+(function checkClearResetsRr(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-rr-no-sel/.test(fnSrc) || /bc-rr-body/.test(fnSrc),
+    'bcClearSelection resets room release panel (Stage 8.3r)');
+})();
+
+// 158. bcApplySelectionHighlight prefills room release fields (Stage 8.3r)
+(function checkSelPrefillsRr(){
+  const fnStart = src.indexOf('function bcApplySelectionHighlight');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-rr-start/.test(fnSrc) || /bc-rr-body/.test(fnSrc),
+    'bcApplySelectionHighlight prefills room release fields (Stage 8.3r)');
+})();
+
+// 159. Tour Operator Block panel still present (regression — Stage 8.3r)
+check(/id="bc-op-panel"/.test(src),
+  'Tour Operator Block panel (bc-op-panel) still present after 8.3r (Stage 8.3r)');
+
+// 160. Create Operator Block still disabled (regression — Stage 8.3r)
+check(/disabled[^>]*id="bc-op-create-btn"|id="bc-op-create-btn"[^>]*disabled/.test(src),
+  'Create Operator Block button still disabled after 8.3r (Stage 8.3r)');
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
