@@ -1067,6 +1067,26 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
 .bc-detail-note{font-size:11px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:9px 14px;margin-top:14px}
+/* ── Today / Needs Attention panel (Stage 8.2) ───────────────────────────── */
+.today-section-hdr{font-size:13px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border-soft)}
+.today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:28px}
+.today-tile{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 20px 18px;box-shadow:var(--shadow);transition:box-shadow .18s,transform .12s;display:flex;flex-direction:column;gap:6px}
+.today-tile:hover{box-shadow:0 4px 16px rgba(68,80,74,.11);transform:translateY(-1px)}
+.today-tile-urgent{border-color:#E6C7BC;background:linear-gradient(135deg,#FBF7F0 0%,#F6E7E1 100%)}
+.today-tile-number{font-size:38px;font-weight:800;color:var(--text);line-height:1;letter-spacing:-.02em}
+.today-tile-urgent .today-tile-number{color:#9C5742}
+.today-tile-label{font-size:13px;font-weight:700;color:var(--text);margin-top:2px}
+.today-tile-sub{font-size:11.5px;color:var(--text-3);line-height:1.4}
+.today-tile-icon{font-size:28px;line-height:1}
+.today-hero-card{background:linear-gradient(135deg,#EBF1E5 0%,#DCE7EE 100%);border:1px solid #C9D9BE;border-radius:var(--radius);padding:18px 22px;margin-bottom:26px;display:flex;align-items:flex-start;gap:14px}
+.today-hero-icon{font-size:22px;flex-shrink:0;margin-top:1px}
+.today-hero-title{font-size:13px;font-weight:700;color:#4C6048;letter-spacing:.01em;margin-bottom:4px}
+.today-hero-body{font-size:12.5px;color:#5C7350;line-height:1.55}
+/* ── Developer Tools tab (deprioritized) ─────────────────────────────────── */
+.tab-btn.dev-tab{color:var(--text-3);font-size:12px;font-weight:500;letter-spacing:.01em;border-left:1px solid var(--border-soft);margin-left:8px;padding-left:20px}
+.tab-btn.dev-tab:hover{color:var(--text-2)}
+.tab-btn.dev-tab.active{color:var(--text-2);border-bottom-color:var(--tan)}
+.dev-panel-note{font-size:11.5px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:11px 16px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
 /* ── Booking context drawer (Stage 7.7i) ─────────────────────────────────── */
 .ctx-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft)}
 .ctx-section h3{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
@@ -1081,20 +1101,57 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
   <a href="/staff/ui" class="brand" style="text-decoration:none;color:inherit;">Luna Front Desk</a>
-  <span class="badge-sm">Stage 7.7j</span>
   <span class="badge">READ-ONLY &bull; SHADOW MODE</span>
   <button class="btn-logout" id="btn-logout" onclick="doLogout()">Sign out</button>
 </div>
 
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
-  <button class="tab-btn active" data-tab="conversations">Conversations</button>
+  <button class="tab-btn active" data-tab="today">Today</button>
+  <button class="tab-btn" data-tab="conversations">Inbox</button>
   <button class="tab-btn" data-tab="bed-calendar">Bed Calendar</button>
-  <button class="tab-btn" data-tab="query-tools">Query Tools</button>
+  <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
 </div>
 
-<!-- ── Conversations tab ──────────────────────────────────────────────────── -->
-<div id="tab-conversations" class="tab-panel active">
+<!-- ── Today / Needs Attention tab (Stage 8.2) ────────────────────────────── -->
+<div id="tab-today" class="tab-panel active">
+<div id="wrap-today" style="max-width:1100px;margin:0 auto;padding:26px 20px">
+
+  <!-- Shadow-mode hero card -->
+  <div class="today-hero-card">
+    <div class="today-hero-icon">&#128274;</div>
+    <div>
+      <div class="today-hero-title">Read-only &mdash; Shadow Mode active</div>
+      <div class="today-hero-body">Luna Front Desk is running in staging. No messages are sent. No operations affect live guest data. Staff actions are disabled.</div>
+    </div>
+  </div>
+
+  <!-- Needs Attention tiles -->
+  <div class="today-section-hdr">Needs Attention</div>
+  <div class="today-grid">
+    <div class="today-tile today-tile-urgent" id="tile-needs-human" style="cursor:pointer" onclick="switchToTab('conversations','handoffs')">
+      <div class="today-tile-number" id="tile-nh-count">—</div>
+      <div class="today-tile-label">Needs Human</div>
+      <div class="today-tile-sub">Open handoffs waiting for staff review</div>
+    </div>
+    <div class="today-tile" id="tile-inbox-tile" style="cursor:pointer" onclick="switchToTab('conversations','inbox')">
+      <div class="today-tile-number" id="tile-inbox-count">—</div>
+      <div class="today-tile-label">Open Conversations</div>
+      <div class="today-tile-sub">Active guest conversations in inbox</div>
+    </div>
+    <div class="today-tile" style="cursor:pointer" onclick="switchToTabOnly('bed-calendar')">
+      <div class="today-tile-icon">&#128197;</div>
+      <div class="today-tile-label">Bed Calendar</div>
+      <div class="today-tile-sub">View room availability and bookings</div>
+    </div>
+  </div>
+  <div id="today-load-state" style="display:none;font-size:12px;color:var(--text-3);padding:6px 0"></div>
+
+</div>
+</div><!-- /tab-today -->
+
+<!-- ── Conversations / Inbox tab ──────────────────────────────────────────── -->
+<div id="tab-conversations" class="tab-panel">
 <div id="wrap">
 
   <!-- Conversations sub-tab nav -->
@@ -1184,6 +1241,10 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 <!-- ── Query Tools tab ────────────────────────────────────────────────────── -->
 <div id="tab-query-tools" class="tab-panel">
 <div id="wrap-q" style="max-width:1100px;margin:0 auto;padding:20px 16px">
+  <div class="dev-panel-note">
+    <span>&#128736;</span>
+    <span><b>Developer / Admin tools</b> &mdash; not for normal staff use. Query Tools are read-only. No write actions.</span>
+  </div>
   <div style="font-size:11px;color:#6B756F;margin-bottom:14px;padding:7px 14px;background:#FBF7F0;border:1px solid #EFE8DC;border-radius:999px;display:inline-block;letter-spacing:.03em">
     READ-ONLY &mdash; no write actions &mdash; Query Tools (Stage 6.8)
   </div>
@@ -1283,6 +1344,25 @@ function fmtTs(ts){
   } catch(_){ return String(ts); }
 }
 
+/* ── Tab utilities ────────────────────────────────────────────────────────── */
+function switchToTab(tab, subtab){
+  document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+  var btn = document.querySelector('.tab-btn[data-tab="' + tab + '"]');
+  if (btn) btn.classList.add('active');
+  var panel = el('tab-' + tab);
+  if (panel) panel.classList.add('active');
+  if (subtab){
+    document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
+    document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
+    var stab = document.querySelector('.sub-tab[data-subtab="' + subtab + '"]');
+    if (stab) stab.classList.add('active');
+    var spanel = el('subtab-' + subtab);
+    if (spanel) spanel.classList.add('active');
+  }
+}
+function switchToTabOnly(tab){ switchToTab(tab, null); }
+
 /* ── Tabs ─────────────────────────────────────────────────────────────────── */
 document.querySelectorAll('.tab-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -1291,6 +1371,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
     this.classList.add('active');
     el('tab-' + target).classList.add('active');
+    if (target === 'today') loadTodaySummary();
   });
 });
 
@@ -1916,6 +1997,14 @@ function renderBedCalendar(data){
   var rooms  = data.rooms  || [];
   var blocks = data.blocks || [];
 
+  /* Natural numeric room sort: R1, R2, R3 … R10 (not R1, R10, R2) */
+  rooms = rooms.slice().sort(function(a, b){
+    var ao = a.sort_order != null ? a.sort_order : 999;
+    var bo = b.sort_order != null ? b.sort_order : 999;
+    if (ao !== bo) return ao - bo;
+    return (a.room_name || a.room_code || '').localeCompare(b.room_name || b.room_code || '', undefined, { numeric: true, sensitivity: 'base' });
+  });
+
   /* Summary strip */
   var totalBeds = 0;
   rooms.forEach(function(r){ totalBeds += (r.beds ? r.beds.length : 0); });
@@ -2075,20 +2164,8 @@ function loadBlockDetail(bookingCode){
         btnConv.addEventListener('click', function(){
           var convId = this.dataset.convid;
           if (!convId) return;
-          /* Switch to Conversations tab and open that conversation */
-          document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
-          document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
-          var convTab = document.querySelector('.tab-btn[data-tab="conversations"]');
-          if (convTab){ convTab.classList.add('active'); }
-          var convPanel = el('tab-conversations');
-          if (convPanel){ convPanel.classList.add('active'); }
-          /* Switch to inbox sub-tab and load the conversation */
-          document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
-          document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
-          var inboxTab = document.querySelector('.sub-tab[data-subtab="inbox"]');
-          if (inboxTab) inboxTab.classList.add('active');
-          var inboxPanel = el('subtab-inbox');
-          if (inboxPanel) inboxPanel.classList.add('active');
+          /* Switch to Inbox tab and open that conversation */
+          switchToTab('conversations', 'inbox');
           /* Load conversation detail */
           loadConvDetail(convId);
         });
@@ -2175,7 +2252,7 @@ function renderBookingContextDrawer(data){
       '<div style="margin-top:8px">' +
       '<button class="btn-open-conv" id="bc-open-conv-btn" data-convid="' + escHtml(conv.conversation_id||'') + '">' +
       '&#128172; Open conversation</button>' +
-      '<span style="font-size:11px;color:#7f8c8d;margin-left:8px">Switches to Conversations tab</span>' +
+      '<span style="font-size:11px;color:#7f8c8d;margin-left:8px">Switches to Inbox tab</span>' +
       '</div>';
   }
   html += '</div>';
@@ -2267,6 +2344,42 @@ function loadBedCalendar(){
 }
 
 el('bc-load').addEventListener('click', loadBedCalendar);
+
+/* ── Today / Needs Attention (Stage 8.2) ─────────────────────────────────── */
+function loadTodaySummary(){
+  var stEl = el('today-load-state');
+  var nhEl = el('tile-nh-count');
+  var inEl = el('tile-inbox-count');
+  if (nhEl) nhEl.textContent = '…';
+  if (inEl) inEl.textContent = '…';
+  var client = (el('c-client') && el('c-client').value) || 'wolfhouse-somo';
+
+  fetch('/staff/conversations?client=' + encodeURIComponent(client))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.success || !Array.isArray(d.conversations)){
+        if (inEl) inEl.textContent = '?';
+        if (nhEl) nhEl.textContent = '?';
+        return;
+      }
+      var convs = d.conversations;
+      var nh = convs.filter(function(c){ return c.needs_human; }).length;
+      if (inEl) inEl.textContent = convs.length;
+      if (nhEl) nhEl.textContent = nh;
+      /* keep handoff badge in sync */
+      var badge = el('hq-badge');
+      if (badge){ badge.textContent = nh; if (nh > 0) badge.classList.add('visible'); }
+      if (stEl){ stEl.style.display = 'none'; }
+    })
+    .catch(function(){
+      if (inEl) inEl.textContent = '?';
+      if (nhEl) nhEl.textContent = '?';
+      if (stEl){ stEl.style.display = 'block'; stEl.textContent = 'Could not load conversation data.'; }
+    });
+}
+
+/* Load Today summary on initial page load (Today is default tab) */
+loadTodaySummary();
 
 // doLogout must be global so onclick="doLogout()" in the banner HTML resolves it
 window.doLogout = function doLogout(){

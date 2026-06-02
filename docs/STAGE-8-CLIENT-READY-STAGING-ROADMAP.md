@@ -1,6 +1,6 @@
 # Stage 8 — Client-Ready Staging Roadmap (Luna Front Desk)
 
-**Status:** PLANNING — 8.0 roadmap DONE (2026-06-02). Slices 8.1–8.13 NOT started. This is a planning/docs artifact only; it builds nothing, deploys nothing, sends nothing, and approves no live operation.
+**Status:** IN PROGRESS — 8.0 roadmap DONE (2026-06-02), 8.1 UX plan DONE (2026-06-02), **8.2 visual polish DONE (2026-06-02)**. Slices 8.3–8.13 not started.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — production hardening + pilot workstreams.
 **Builds on:** [`PHASE-7.3F-DNS-CUSTOM-DOMAIN-STAGING.md`](PHASE-7.3F-DNS-CUSTOM-DOMAIN-STAGING.md) (custom domain + TLS DONE), [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) (Cami review dashboard), [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md) (pilot gates).
 **Pilot decision:** Remains **NO_GO**. Stage 8 makes the staging prototype *presentable*; it does not unlock any live gate.
@@ -112,7 +112,7 @@ Cami can, with zero autonomous action and zero protected-table mutation:
 |---|---|---|---|
 | **8.0** | Roadmap | docs | This document. |
 | **8.1** | Dashboard UX cleanup plan | docs | **DONE (2026-06-02)** — [`STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md`](STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md). Default landing = "Today / Needs Attention"; sidebar nav (Today · Inbox · Bed Calendar · Bookings · Add-ons · Handoffs · Settings/Admin · Developer Tools admin-only); Query Tools moved to admin/dev-only; canonical Luna design tokens; bed calendar + booking drawer + conversation cleanup specs; 8.2 boundaries. |
-| **8.2** | Dashboard visual polish implementation | code | Apply Luna design language to the dashboard shell, banner, cards, tabs. |
+| **8.2** | Dashboard visual polish implementation | code | **DONE (2026-06-02)** — Today/Needs Attention default view; Inbox tab; Developer Tools admin-only; natural room sort; switchToTab utility; 59 conversation checks, 43 bed-calendar checks. Azure rev `0000004` (`wh-staff-api:74eed37-8x2`). |
 | **8.3** | Bed calendar readability cleanup | code | Improve calendar legibility (rows, headers, legend, labels) — read-only. |
 | **8.4** | Booking drawer cleanup | code | Reorganize the booking context drawer into clear sections. |
 | **8.5** | Demo/staging data seed plan | docs | Define safe synthetic dataset shape, scope, idempotency/reset strategy. |

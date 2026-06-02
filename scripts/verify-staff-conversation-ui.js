@@ -2,7 +2,7 @@
  * Stage 7.7f — Static verifier for the Cami dashboard conversation UI
  * embedded in scripts/staff-query-api.js (buildUiHtml).
  *
- * Checks (52 total):
+ * Checks (59 total, updated Stage 8.2):
  *   1–3:   File exists, readable, passes node --check
  *   4–6:   Dashboard branding / banner
  *   7–9:   Two-tab structure (Conversations + Query Tools)
@@ -287,6 +287,37 @@ check(/Resolve actions are disabled|resolve.*disabled.*UI|disabled.*resolve/i.te
 // 52. timeSince / time-since rendering logic
 check(/timeSince|time.*since.*open|since.*opened/i.test(htmlSrc),
   'Time-since-opened rendering logic present (timeSince function)');
+
+// ── Stage 8.2 — Dashboard polish checks ───────────────────────────────────
+
+// 53. Today / Needs Attention panel present
+check(/tab-today|Today.*Needs Attention|Needs Attention/i.test(htmlSrc),
+  'Today / Needs Attention panel present (Stage 8.2)');
+
+// 54. Inbox label present as tab button
+check(/data-tab="conversations".*Inbox|Inbox.*data-tab="conversations"/s.test(htmlSrc) ||
+      /tab-btn.*Inbox|Inbox.*tab-btn/i.test(htmlSrc),
+  'Inbox tab button label present (Stage 8.2)');
+
+// 55. Developer Tools tab present (Query Tools moved to admin/dev-only)
+check(/Developer Tools|dev-tab/i.test(htmlSrc),
+  'Developer Tools admin-only tab present (Stage 8.2)');
+
+// 56. Shadow Mode badge present in Today panel
+check(/Shadow Mode.*active|Read-only.*Shadow Mode/i.test(htmlSrc),
+  'Shadow Mode notice in Today panel (Stage 8.2)');
+
+// 57. loadTodaySummary function present
+check(/loadTodaySummary/i.test(htmlSrc),
+  'loadTodaySummary function present (Stage 8.2)');
+
+// 58. No POST/PATCH/DELETE fetch added for new Today/nav UI
+check(!/fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE)['"]/i.test(htmlSrc),
+  'No new POST/PATCH/DELETE fetch in Today/nav UI (Stage 8.2)');
+
+// 59. switchToTab utility function present
+check(/switchToTab/i.test(htmlSrc),
+  'switchToTab navigation utility present (Stage 8.2)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 

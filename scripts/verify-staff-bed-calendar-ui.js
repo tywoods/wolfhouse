@@ -230,6 +230,20 @@ check(/Open conversation|btn-open-conv/i.test(src),
 check(/Booking edits are disabled/i.test(src),
   '"Booking edits are disabled" note still present (Stage 7.7i)');
 
+// ── Stage 8.2 — Bed calendar polish checks ────────────────────────────────
+
+// 41. Natural room sort logic present
+check(/localeCompare.*numeric|numeric.*localeCompare|sort_order.*rooms|rooms.*sort_order/i.test(src),
+  'Natural numeric room sort logic present (Stage 8.2)');
+
+// 42. No drag/drop event references
+check(!/draggable|dragstart|dragend|drop\s*:/i.test(src),
+  'No drag/drop event references in calendar (Stage 8.2)');
+
+// 43. No calendar edit/move/save button
+check(!/btn-calendar-edit|btn-move-block|btn-save-block|btn-reassign-cal/i.test(src),
+  'No calendar edit/move/save button elements (Stage 8.2)');
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
