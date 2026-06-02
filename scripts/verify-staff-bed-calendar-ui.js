@@ -646,6 +646,114 @@ check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src
 check(/Creation remains disabled/i.test(src),
   '"Creation remains disabled" helper text present (Stage 8.3l)');
 
+// ── Stage 8.3q — Tour Operator Block skeleton ─────────────────────────────────
+
+// 121. Tour Operator Block panel element present (Stage 8.3q)
+check(/id="bc-op-panel"/.test(src),
+  'Tour Operator Block panel (id="bc-op-panel") present (Stage 8.3q)');
+
+// 122. "Tour Operator Block" heading text present (Stage 8.3q)
+check(/Tour Operator Block/i.test(src),
+  '"Tour Operator Block" heading text present (Stage 8.3q)');
+
+// 123. Operator name field present (Stage 8.3q)
+check(/id="bc-op-name"/.test(src),
+  'Operator name field (bc-op-name) present (Stage 8.3q)');
+
+// 124. Manager/contact field present (Stage 8.3q)
+check(/id="bc-op-manager"/.test(src),
+  'Manager/contact field (bc-op-manager) present (Stage 8.3q)');
+
+// 125. Block type field present (Stage 8.3q)
+check(/id="bc-op-block-type"/.test(src),
+  'Block type select field (bc-op-block-type) present (Stage 8.3q)');
+
+// 126. Source defaults to "Operator" (locked field) (Stage 8.3q)
+check(/value="Operator"/.test(src),
+  'Source / channel defaults to "Operator" locked field (Stage 8.3q)');
+
+// 127. Payment status "Not requested" locked field (Stage 8.3q)
+check(/Not requested/.test(src),
+  'Payment status "Not requested" locked field present (Stage 8.3q)');
+
+// 128. Booking status "Operator Blocked" locked field (Stage 8.3q)
+check(/Operator Blocked/.test(src),
+  '"Operator Blocked" booking status locked field present (Stage 8.3q)');
+
+// 129. Guest messaging disabled text (Stage 8.3q)
+(function checkGuestMessagingDisabled(){
+  const opIdx = src.indexOf('id="bc-op-panel"');
+  const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 8000) : '';
+  check(/Guest messaging[\s\S]{0,100}Disabled/i.test(opSrc),
+    '"Guest messaging" Disabled locked field present (Stage 8.3q)');
+})();
+
+// 130. Stripe/payment link disabled text (Stage 8.3q)
+(function checkStripeDisabled(){
+  const opIdx = src.indexOf('id="bc-op-panel"');
+  const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 8000) : '';
+  check(/Stripe.*payment.*link[\s\S]{0,100}Disabled/i.test(opSrc),
+    '"Stripe / payment link" Disabled locked field present (Stage 8.3q)');
+})();
+
+// 131. n8n workflow "Not triggered" text (Stage 8.3q)
+check(/Not triggered/.test(src),
+  '"Not triggered" n8n workflow locked field present (Stage 8.3q)');
+
+// 132. Create Operator Block button is disabled (Stage 8.3q)
+check(/disabled[^>]*id="bc-op-create-btn"|id="bc-op-create-btn"[^>]*disabled/.test(src),
+  'Create Operator Block button has disabled attribute (Stage 8.3q)');
+
+// 133. Preview Operator Block button is disabled (Stage 8.3q)
+check(/disabled[^>]*id="bc-op-preview-btn"|id="bc-op-preview-btn"[^>]*disabled/.test(src),
+  'Preview Operator Block button has disabled attribute (Stage 8.3q)');
+
+// 134. Operator block safety notice present (Stage 8.3q)
+check(/no operator block will be created/i.test(src),
+  '"no operator block will be created" safety notice present (Stage 8.3q)');
+
+// 135. n8n workflow will not run safety text (Stage 8.3q)
+check(/n8n workflow will not run|n8n workflow will run.*not|no.*n8n|n8n.*not triggered/i.test(src),
+  '"n8n workflow will not run" safety text present (Stage 8.3q)');
+
+// 136. No new POST/PATCH/DELETE fetch in operator panel (Stage 8.3q)
+(function checkOpNoPost(){
+  const opIdx = src.indexOf('id="bc-op-panel"');
+  const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 10000) : '';
+  check(!/fetch[^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(opSrc),
+    'No POST/PATCH/DELETE fetch inside operator block panel (Stage 8.3q)');
+})();
+
+// 137. No n8n or webhook URL called from operator panel (Stage 8.3q)
+(function checkOpNoN8n(){
+  const opIdx = src.indexOf('bc-op-create-btn');
+  const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 3000) : '';
+  check(!/n8n.*webhook|webhook.*n8n|\.n8n\.|n8n\.cloud|\/webhook\//i.test(opSrc),
+    'No n8n/webhook URL called from operator block actions (Stage 8.3q)');
+})();
+
+// 138. bcClearSelection clears operator block fields (Stage 8.3q)
+(function checkClearResetsOp(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-op-no-sel/.test(fnSrc) || /bc-op-body/.test(fnSrc),
+    'bcClearSelection resets tour operator panel (Stage 8.3q)');
+})();
+
+// 139. bcApplySelectionHighlight prefills operator block fields (Stage 8.3q)
+(function checkSelPrefillsOp(){
+  const fnStart = src.indexOf('function bcApplySelectionHighlight');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bc-op-cin/.test(fnSrc) || /bc-op-body/.test(fnSrc),
+    'bcApplySelectionHighlight prefills tour operator block fields (Stage 8.3q)');
+})();
+
+// 140. Whole room / Selected beds block type options present (Stage 8.3q)
+check(/whole_room|Whole room/.test(src) && /selected_beds|Selected beds/.test(src),
+  'Block type options (whole_room / selected_beds) present (Stage 8.3q)');
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');

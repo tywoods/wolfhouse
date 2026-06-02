@@ -173,6 +173,7 @@ Goal: staff create a booking **directly from calendar cells**. This replaces the
 | **8.3j** | **Schema-alignment fix** � fixed 3 schema mismatches + 2 enum casts in `buildManualBookingCreateSql()`. P1: language ? metadata. P2: payments schema aligned. P3: workflow_events uses workflow_name+message. Verifier 47/47 PASS. Proof 65/65 PASS. Delta=0. No API route. No UI. No Azure. | **DONE** |
 | **8.3k** | **Rollback / undo proof** — `staff-manual-booking-rollback-sql.js`; 10 blockers; CASCADE deletion; 59/59 runtime PASS; 52/52 static PASS; delta=0. No API. No UI. No Azure. | **DONE** |
 | **8.3l** | **UI preview modal** wired to preview endpoint only. Preview Conflicts button enabled on selection; result panel; auth error handling; Create disabled. 122/122 verifier PASS. | **DONE** |
+| **8.3q** | **Tour Operator Block skeleton** — read-only form panel; operator/stay/defaults/notes sections; Source=Operator, Payment=Not requested, Booking=Operator Blocked, Guest messaging=Disabled, Stripe=Disabled, n8n=Not triggered; prefills from cell selection; both Create/Preview buttons disabled; safety notice; 142/142 verifier PASS. | **DONE** |
 | **8.3m** | **UI confirm button** behind staging-only flag (reason+source required). | planned |
 | **8.3n** | **Staging fixture proof through UI** (E2E on demo data, behind flag). | planned |
 | **8.3o** | **Sign-off gate** before real staff use (Ty + owner/operator). | planned |
