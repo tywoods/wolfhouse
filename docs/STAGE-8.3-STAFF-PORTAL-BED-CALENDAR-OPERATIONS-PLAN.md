@@ -166,7 +166,7 @@ Goal: staff create a booking **directly from calendar cells**. This replaces the
 | **8.3c** | Calendar cell **selection model** (highlight bed×date ranges) — **no writes**. | DONE |
 | **8.3d** | Manual booking **preview skeleton** (form + selection summary; create disabled). | DONE |
 | **8.3e** | Manual booking **write gate plan** (gates, blockers, audit, rollback, idempotency, ladder). | DONE |
-| **8.3f** | Manual booking **SQL helper static proof** (extend `manual-entry-pg-sql.js`; overlap guard; payments-untouched asserts). | planned |
+| **8.3f** | Manual booking **SQL helper static proof** � `scripts/lib/staff-manual-booking-create-sql.js`; 15-CTE chain; 14 blockers; half-open overlap + defense-in-depth; idempotency via `metadata` JSONB; audit/rollback payloads; `verify-staff-manual-booking-create-sql.js` 40/40 PASS. | **DONE** |
 | **8.3g** | **Conflict / availability preview helper** (static overlap logic). | planned |
 | **8.3h** | **Preview / proposal endpoint** (auth+role gated, read-only). | planned |
 | **8.3i** | **Fixture write proof** (test DB; rows + audit + payments delta=0; idempotency double-submit). | planned |

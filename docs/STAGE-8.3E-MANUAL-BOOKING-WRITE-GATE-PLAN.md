@@ -228,7 +228,7 @@ The user's requested manual-booking ladder (8.3e plan â†’ 8.3o sign-off) collide
 | Slice | Scope | Writes? | Gate to advance |
 |---|---|---|---|
 | **8.3e** | **Manual booking write gate plan** (this doc) | No | Plan reviewed |
-| **8.3f** | Manual booking **SQL helper static proof** (extend `manual-entry-pg-sql.js`; overlap guard, payments-untouched asserts, named block codes) | No (static) | `node --check` + static verifier |
+| **8.3f** | Manual booking **SQL helper static proof** — `scripts/lib/staff-manual-booking-create-sql.js`; 15-CTE chain; 14 blockers; `MANUAL_BOOKING_BLOCK_CODES`; half-open overlap guard + defense-in-depth; idempotency via `metadata` JSONB (column migration documented); `no_selected_beds`, `overlap_conflict`, `booking_code_collision`, `invalid_payment_amounts`, etc.; audit_payload + rollback_payload; `verify-staff-manual-booking-create-sql.js` **40/40 PASS** | No (static) | **DONE** — `node --check` + static verifier 40/40 PASS |
 | **8.3g** | **Conflict / availability preview helper** (pure function over bedsÃ—dates; half-open overlap; FOR UPDATE design) | No (static) | unit/fixture of overlap logic |
 | **8.3h** | **Preview / proposal endpoint** (auth-gated, role-gated, **read-only**; returns Â§6 payload) | No | endpoint returns proposal, asserts zero writes |
 | **8.3i** | **Fixture write proof** (create in test DB, verify rows + audit + payments delta=0; **idempotency** double-submit proof) | Yes (test DB only) | fixture PASS + idempotency PASS |
