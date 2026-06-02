@@ -1,6 +1,6 @@
 # Stage 7.3d — Azure Staging Deployment + Login Proof
 
-**Status:** DEPLOYMENT PROVEN (2026-06-01) + **7.3e LOGIN PAGE DEPLOYED + AZURE PROOF PASS (2026-06-02)** — Luna Front Desk staging is live on Azure. Staff API, staff UI, and n8n are reachable over HTTPS. Owner login confirmed. Real login page (`/staff/login`) deployed, verified over HTTPS. 11 Wolfhouse workflows imported inactive. All safety flags confirmed. No live WhatsApp. No live Stripe. No production deployment. Not a pilot approval.
+**Status:** DEPLOYMENT PROVEN (2026-06-01) + **7.3e LOGIN PAGE DEPLOYED + AZURE PROOF PASS (2026-06-02)** + **7.3e-fix LOGOUT REPAIRED + COMPANY WORDING (2026-06-02)** — Luna Front Desk staging is live on Azure. Staff API, staff UI, and n8n are reachable over HTTPS. Owner login confirmed. Real login page (`/staff/login`) deployed, verified over HTTPS. Logout button fixed (root cause: `doLogout` was inside IIFE, not globally accessible; fixed via `window.doLogout`). UI labels say "Company" instead of "Client". 11 Wolfhouse workflows imported inactive. All safety flags confirmed. No live WhatsApp. No live Stripe. No production deployment. Not a pilot approval.
 **Parent plan:** [`PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md`](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md) — Workstream C (TLS/deployment).
 **Builds on:** [`PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md`](PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md) — preflight PASS (2026-06-01).
 **IaC:** `infra/azure/staging/main.bicep`
@@ -319,3 +319,64 @@ Run `scripts/test-azure-login-proof.ps1` with Ty credentials to verify:
 - No Cami/Ale accounts.
 - No pilot approved.
 - No live operation.
+
+---
+
+## 7. Stage 7.3e-fix — Logout Repair + Company Wording (2026-06-02)
+
+### 7.1 Root cause
+
+`doLogout()` was defined inside the main UI IIFE (`(function(){...})()`) in `buildUiHtml()`. The button uses `onclick="doLogout()"` which runs in the global scope — the function was never accessible there, so clicking Sign out silently failed.
+
+**Fix:** Assigned via `window.doLogout = function doLogout(){...};` inside the IIFE so it becomes a property of the global object.
+
+### 7.2 Wording changes
+
+| Location | Before | After |
+|---|---|---|
+| Login page field label | `Client` | `Company` |
+| Query tool panel label | `Client` | `Company` |
+| Conversations panel label | `Client` | `Company` |
+| Bed calendar panel label | `Client` | `Company` |
+| Field IDs / values / query params | `client`, `wolfhouse-somo` | unchanged |
+| DB schema / API contracts | unchanged | unchanged |
+
+### 7.3 Deployment
+
+| Item | Value |
+|---|---|
+| Commit | `6fcf6ab` |
+| Image tag | `whstagingacr.azurecr.io/wh-staff-api:6fcf6ab` |
+| ACR build | `cb2` — PASS |
+| Container App revision | `wh-staging-staff-api--0000003` — Succeeded |
+
+### 7.4 Smoke tests (automated, over HTTPS)
+
+| Check | Result |
+|---|---|
+| `GET /staff/login` → 200 HTML | PASS |
+| Login page contains "Company" | PASS |
+| Login page contains "wolfhouse-somo" | PASS |
+| `GET /staff/ui` (unauth) → redirects to login | PASS |
+| `GET /staff/intents` (unauth) → 401 | PASS |
+| `STAFF_ACTIONS_ENABLED=false` | PASS |
+| `WHATSAPP_DRY_RUN=true` | PASS |
+| `STAFF_AUTH_REQUIRED=true` | PASS |
+| `STRIPE_WEBHOOK_SKIP_VERIFY=false` | PASS |
+
+### 7.5 Verifier results
+
+| Verifier | Result |
+|---|---|
+| `verify-staff-login-ui.js` | PASS — 31/31 (added `window.doLogout` check + Company label check) |
+| `verify-staff-auth-api.js` | PASS |
+| `verify-staff-query-api.js` | PASS — 39/39 |
+| `verify-staff-query-ui.js` | PASS — 29/29 |
+| `verify-staff-conversation-ui.js` | PASS — 52/52 |
+| `verify-staff-bed-calendar-ui.js` | PASS — 40/40 |
+| `build-main-local-stripe.js --verify-targets` | PASS |
+| `node --check run-stage4-autonomous-dry-run.js` | PASS |
+
+### 7.6 Manual logout proof
+
+Run `scripts/test-azure-login-proof.ps1` with Ty credentials to fully verify the logout flow (session revoke → cookie clear → redirect to `/staff/login`).
