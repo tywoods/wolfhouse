@@ -363,7 +363,9 @@ Full rewrite of the `/* 4. Payment */` section:
 
 No Stripe API calls. No WhatsApp. No n8n. No email. No Azure deploy.
 
-### Stage 8.4.13 — Azure staging batch deploy + E2E proof (DONE 2026-06-02)
+### Stage 8.4.13 — Azure staging batch deploy + E2E proof — **PASS** (2026-06-02)
+
+**Status:** PASS. Manual booking/payment MVP chain proven on hosted Azure staging. Stripe webhook is payment truth. WhatsApp send NOT enabled. n8n untouched. No messages sent. No confirmation triggered. Safety flags confirmed in every response.
 
 **Goal:** Deploy local HEAD to Azure staging, enable feature flags, prove the full manual booking MVP flow end-to-end on hosted staging.
 
@@ -396,12 +398,20 @@ No Stripe API calls. No WhatsApp. No n8n. No email. No Azure deploy.
 | Drawer: Total €299, Deposit €200, Paid €200, Balance €99 | ✓ |
 | Drawer: paid_at "2 Jun 2026, 21:08", session/intent IDs, checkout URL+copy | ✓ |
 
+**Safety confirmation:**
+- `no_whatsapp: true` · `no_email: true` · `no_n8n: true` · `no_confirmation_sent: true` in every webhook response.
+- `WHATSAPP_DRY_RUN=true` on staging — no WhatsApp messages sent at any point.
+- n8n workflows untouched — no workflow triggered.
+- Stripe is test mode only (`sk_test_...`). No real charges.
+
+**Redaction note:** Stripe signing secrets (`whsec_...`) and API keys (`sk_test_...`) are truncated in this document. Full values live only in Azure Key Vault (`wh-staging-kv`). Do not commit full secret values to this repo.
+
 **Notes:**
-- Stripe Checkout iframe blocked by browser automation → Stripe link creation done via authenticated API call; webhook fired as properly signed HMAC event using the registered endpoint secret (no SKIP_VERIFY used on staging).
-- "Staff actions disabled" badge on login page is static HTML (not dynamic); actual write flags are confirmed via `az containerapp show`.
+- Stripe Checkout iframe blocked by browser automation → Stripe link creation done via authenticated staff API call (`POST /staff/payments/:id/create-stripe-link`); webhook fired as properly HMAC-signed event using the registered endpoint secret (`whsec_[redacted]` stored in KV) — no `STRIPE_WEBHOOK_SKIP_VERIFY` bypass used on staging.
+- "Staff actions disabled" badge on login page is static HTML (not dynamic); actual write flags confirmed via `az containerapp show`.
 
 ### Next step
-Send payment link to guest (WhatsApp stage, separate slice). Or: Stage 8.5 — staff-send confirmation flow.
+**Next phase: Luna bot uses the same booking/pricing/payment engine.** The quote calculator (`wolfhouse-quote-calculator.js`), booking create path (`/staff/manual-bookings/create`), Stripe link endpoint (`/staff/payments/:id/create-stripe-link`), and webhook handler (`/staff/stripe/webhook`) are now proven on staging. The next slice wires the WhatsApp-inbound bot flow to the same engine so guest payments go through the same Stripe truth path. WhatsApp send remains disabled until that slice ships.
 
 ---
 
