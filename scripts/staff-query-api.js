@@ -81,6 +81,14 @@ const {
 const {
   reassignBookingBedSql,
 } = require('./lib/staff-bed-reassignment-sql');
+const {
+  getManualBookingPreviewBedsQuery,
+  getManualBookingPreviewAssignmentsQuery,
+  getClientIdBySlugQuery,
+} = require('./lib/staff-manual-booking-preview-queries');
+const {
+  previewManualBookingAvailability,
+} = require('./lib/staff-manual-booking-availability');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -93,8 +101,9 @@ const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 
 // Write endpoint config — disabled unless explicitly enabled
-const STAFF_ACTIONS_ENABLED = process.env.STAFF_ACTIONS_ENABLED === 'true';
-const STAFF_OPERATOR_TOKEN  = process.env.STAFF_OPERATOR_TOKEN || '';
+const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
+const MANUAL_BOOKING_ENABLED = process.env.MANUAL_BOOKING_ENABLED === 'true';
+const STAFF_OPERATOR_TOKEN   = process.env.STAFF_OPERATOR_TOKEN  || '';
 
 // Only handoff.resolve is allowed in v1
 const WRITE_ACTION_ALLOWLIST = ['handoff.resolve'];
@@ -848,6 +857,212 @@ async function handleResolveHandoff(handoffId, req, res) {
     staff:            staffName,
     resolved_at:      updated ? updated.resolved_at : null,
     elapsed_ms:       elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/manual-bookings/preview  (Stage 8.3h — read-only preview)
+//
+// Preview-only: no booking creation, no DB writes, no Stripe, no WhatsApp.
+// Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+// Requires auth (operator/admin/owner when STAFF_AUTH_REQUIRED=true).
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleManualBookingPreview(req, res, user) {
+  const started = Date.now();
+
+  // ── Parse body ─────────────────────────────────────────────────────────────
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  // ── Extract and sanitise input ─────────────────────────────────────────────
+  const clientSlug   = String(body.client || body.client_slug || DEFAULT_CLIENT).trim();
+  const checkIn      = String(body.check_in  || '').trim();
+  const checkOut     = String(body.check_out || '').trim();
+  const guestCount   = parseInt(body.guest_count, 10) || 0;
+
+  // selected_bed_codes: accept array or comma-separated string
+  let rawBedCodes = body.selected_bed_codes;
+  if (typeof rawBedCodes === 'string') {
+    rawBedCodes = rawBedCodes.split(',').map((s) => s.trim()).filter(Boolean);
+  } else if (!Array.isArray(rawBedCodes)) {
+    rawBedCodes = [];
+  }
+  const selectedBedCodes = rawBedCodes.map(String).slice(0, 20); // max 20 beds
+
+  // Optional fields (informational only — stored in audit, not used for query)
+  const packageOrStayType   = String(body.package_or_stay_type   || '').trim().slice(0, 200);
+  const roomPreference      = String(body.room_preference        || '').trim().slice(0, 200);
+  const paymentStatus       = String(body.payment_status         || '').trim().slice(0, 50);
+  const depositAmountCents  = parseInt(body.deposit_amount_cents,  10) || 0;
+  const totalAmountCents    = parseInt(body.total_amount_cents,    10) || 0;
+
+  // ── Input guards ───────────────────────────────────────────────────────────
+  if (SQL_INJECT_RE.test(clientSlug))
+    return send400(res, 'invalid client slug');
+  if (!checkIn || !checkOut)
+    return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut))
+    return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  if (selectedBedCodes.some((c) => SQL_INJECT_RE.test(c)))
+    return send400(res, 'invalid character in selected_bed_codes');
+
+  // ── Actor info ─────────────────────────────────────────────────────────────
+  const actorId   = user ? user.staff_user_id : 'dev-preview-local';
+  const actorRole = user ? user.role          : 'operator';
+
+  const auditBase = {
+    ts:                  new Date().toISOString(),
+    intent:              'api:manual_booking_preview',
+    category:            'manual_booking_preview',
+    preview_only:        true,
+    creates_booking:     false,
+    no_write_performed:  true,
+    client_slug:         clientSlug,
+    check_in:            checkIn,
+    check_out:           checkOut,
+    selected_bed_codes:  selectedBedCodes,
+    guest_count:         guestCount,
+    staff_user_id:       actorId,
+    staff_role:          actorRole,
+  };
+
+  // ── Load data from DB (SELECT only) ────────────────────────────────────────
+  let clientRow, bedRows, assignmentRows;
+  try {
+    const result = await withPgClient(async (pg) => {
+      // C. Verify client exists
+      const clientResult = await pg.query(
+        getClientIdBySlugQuery(),
+        [clientSlug]
+      );
+
+      // A. Load bed metadata for selected beds
+      const bedsResult = await pg.query(
+        getManualBookingPreviewBedsQuery(),
+        [clientSlug, selectedBedCodes.length > 0 ? selectedBedCodes : ['']]
+      );
+
+      // B. Load existing assignments overlapping the proposed range
+      // If selected_bed_codes is empty the query will return zero rows safely.
+      const assignmentsResult = await pg.query(
+        getManualBookingPreviewAssignmentsQuery(),
+        [
+          clientSlug,
+          checkIn,
+          checkOut,
+          selectedBedCodes.length > 0 ? selectedBedCodes : [''],
+        ]
+      );
+
+      return {
+        clientRow:       clientResult.rows[0]    || null,
+        bedRows:         bedsResult.rows,
+        assignmentRows:  assignmentsResult.rows,
+      };
+    });
+    clientRow       = result.clientRow;
+    bedRows         = result.bedRows;
+    assignmentRows  = result.assignmentRows;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'preview data load failed', detail: err.message });
+  }
+
+  // ── Client not found ───────────────────────────────────────────────────────
+  if (!clientRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'client_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, {
+      success:            false,
+      error:              'client not found',
+      client_slug:        clientSlug,
+      preview_only:       true,
+      creates_booking:    false,
+      no_write_performed: true,
+    });
+  }
+
+  // ── Map DB rows to availability helper shapes ──────────────────────────────
+  const beds = bedRows.map((row) => ({
+    bed_code:  row.bed_code,
+    room_code: row.room_code,
+    active:    row.active,
+    sellable:  row.sellable   != null ? row.sellable   : true,
+    capacity:  row.capacity,
+  }));
+
+  const existingAssignments = assignmentRows.map((row) => ({
+    booking_code:          row.booking_code,
+    booking_status:        row.booking_status,
+    assignment_status:     row.assignment_status,
+    bed_code:              row.bed_code,
+    room_code:             row.room_code,
+    assignment_start_date: row.assignment_start_date,
+    assignment_end_date:   row.assignment_end_date,
+    guest_name:            row.guest_name || row.bed_guest_name,
+  }));
+
+  // ── Call pure availability helper ──────────────────────────────────────────
+  let availability;
+  try {
+    availability = previewManualBookingAvailability({
+      client_id:            clientRow.client_id,
+      check_in:             checkIn,
+      check_out:            checkOut,
+      selected_bed_codes:   selectedBedCodes,
+      guest_count:          guestCount,
+      existing_assignments: existingAssignments,
+      beds:                 beds,
+      options: {
+        today: new Date().toISOString().slice(0, 10),
+      },
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: 'availability_helper_error: ' + err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'availability calculation failed' });
+  }
+
+  // ── Build audit entry ──────────────────────────────────────────────────────
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success:         true,
+    is_valid:        availability.is_valid,
+    has_conflict:    availability.has_conflict,
+    blocker_count:   availability.blockers.length,
+    warning_count:   availability.warnings.length,
+    proposed_nights: availability.proposed_nights,
+    elapsed_ms:      elapsed,
+  });
+
+  // ── Build response ─────────────────────────────────────────────────────────
+  return sendJSON(res, 200, {
+    success:                 true,
+    preview_only:            true,
+    creates_booking:         false,
+    no_write_performed:      true,
+    staff_actions_enabled:   STAFF_ACTIONS_ENABLED,
+    manual_booking_enabled:  MANUAL_BOOKING_ENABLED,
+    client_slug:             clientSlug,
+    input_summary: {
+      check_in:             checkIn,
+      check_out:            checkOut,
+      selected_bed_codes:   selectedBedCodes,
+      guest_count:          guestCount,
+      package_or_stay_type: packageOrStayType || null,
+      room_preference:      roomPreference    || null,
+      payment_status:       paymentStatus     || null,
+      deposit_amount_cents: depositAmountCents || null,
+      total_amount_cents:   totalAmountCents  || null,
+    },
+    availability,
+    next_step: 'Manual booking creation is disabled. STAFF_ACTIONS_ENABLED=false and MANUAL_BOOKING_ENABLED=false.',
+    elapsed_ms: elapsed,
   });
 }
 
@@ -4213,6 +4428,19 @@ async function router(req, res) {
     return handleBedReassignConfirm(req, res);
   }
 
+  // ── Stage 8.3h — Manual booking preview (read-only, no writes) ───────────
+  // POST accepted to carry the JSON payload; this route NEVER writes.
+  // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  if (pathname === '/staff/manual-bookings/preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for manual-bookings/preview' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleManualBookingPreview(req, res, auth.user);
+  }
+
   // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
     return send405(res);
@@ -4346,6 +4574,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/context`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/draft`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/staff-state`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only preview (no writes)`);
   if (STAFF_ACTIONS_ENABLED) {
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);
