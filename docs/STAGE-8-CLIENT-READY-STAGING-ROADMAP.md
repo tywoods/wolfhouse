@@ -111,7 +111,7 @@ Cami can, with zero autonomous action and zero protected-table mutation:
 | Slice | Name | Type | Summary |
 |---|---|---|---|
 | **8.0** | Roadmap | docs | This document. |
-| **8.1** | Dashboard UX cleanup plan | docs | Define target IA, navigation, default landing view, what moves to admin/dev, brand tokens. |
+| **8.1** | Dashboard UX cleanup plan | docs | **DONE (2026-06-02)** — [`STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md`](STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md). Default landing = "Today / Needs Attention"; sidebar nav (Today · Inbox · Bed Calendar · Bookings · Add-ons · Handoffs · Settings/Admin · Developer Tools admin-only); Query Tools moved to admin/dev-only; canonical Luna design tokens; bed calendar + booking drawer + conversation cleanup specs; 8.2 boundaries. |
 | **8.2** | Dashboard visual polish implementation | code | Apply Luna design language to the dashboard shell, banner, cards, tabs. |
 | **8.3** | Bed calendar readability cleanup | code | Improve calendar legibility (rows, headers, legend, labels) — read-only. |
 | **8.4** | Booking drawer cleanup | code | Reorganize the booking context drawer into clear sections. |
@@ -183,4 +183,4 @@ Even when Stage 8 is complete and Luna Front Desk has been shown to Ale/Cami in 
 
 ## 8. Next recommended slice
 
-**Stage 8.1 — Dashboard UX cleanup plan** (docs only): define the target information architecture, default landing view, what moves into an admin/dev-only area (Query Tools), and the Luna design tokens to apply in 8.2. No code.
+**Stage 8.2 — Dashboard visual polish implementation** (code): apply the Luna design tokens, build the "Today / Needs Attention" landing view from existing read-only data, re-group navigation, move Query Tools to admin/dev-only, and add UI verifier checks — per [`STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md`](STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md). Visual/HTML/CSS only; no writes, no live paths.
