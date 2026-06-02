@@ -150,16 +150,18 @@ check(/id="bc-detail"/.test(src) || /id='bc-detail'/.test(src),
 check(/Booking edits.*disabled|booking edits disabled/i.test(src),
   '"Booking edits" read-only notice present in detail panel');
 
-// 24. No POST/PATCH/DELETE fetch in embedded UI JS except /staff/manual-bookings/preview
-// Stage 8.3l: POST to preview is now allowed. All other write methods remain forbidden.
+// 24. No POST/PATCH/DELETE write fetch in embedded UI JS except the read-only preview
+// Stage 8.3l: POST to preview is allowed. The manual-bookings/create route exists
+// server-side as a gated, disabled stub (Stage 8.4) but is NOT wired to the UI, so
+// the UI JS must NOT fetch create/confirm. All write methods remain forbidden.
 const jsSection = src.slice(src.indexOf('<script>') || 0);
 (function checkUiPostRestriction(){
-  // Verify no create/confirm/write routes are called
+  // Verify no create/confirm/write routes are called from the UI
   check(!/fetch[^)]*manual-bookings\/create|fetch[^)]*manual-bookings\/confirm/i.test(jsSection),
-    'No /manual-bookings/create or /confirm fetch call in UI JS (Stage 8.3l)');
+    'No /manual-bookings/create or /confirm fetch call in UI JS (Stage 8.4 — create stub not UI-wired)');
   // Verify no PATCH/DELETE/PUT fetches
   check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(jsSection),
-    'No PATCH/DELETE/PUT fetch method in embedded UI JS (Stage 8.3l)');
+    'No PATCH/DELETE/PUT fetch method in embedded UI JS (Stage 8.4)');
 })();
 
 // 25. No drag/drop event listeners or attributes
@@ -304,13 +306,14 @@ check(/bc-free-count|free.*beds|freeBeds/.test(src),
 check(/bed\.bed_code/.test(src),
   'Bed code used as primary label in grid (Stage 8.3a)');
 
-// 56. No POST/PATCH/DELETE fetch in entire file except /staff/manual-bookings/preview
-// Stage 8.3l: preview POST is now allowed; all other write methods remain forbidden.
+// 56. No write fetch in the UI JS except the read-only preview (Stage 8.4)
+// preview POST allowed. The create stub is server-side only and NOT UI-wired, so
+// there must be no fetch() to create/confirm in the file. PATCH/DELETE/PUT forbidden.
 (function checkFilePostRestriction(){
   check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(src),
-    'No PATCH/DELETE/PUT fetch calls in entire file (Stage 8.3a / 8.3l)');
+    'No PATCH/DELETE/PUT fetch calls in entire file (Stage 8.3a / 8.4)');
   check(!/fetch[^)]*manual-bookings\/create|fetch[^)]*manual-bookings\/confirm/i.test(src),
-    'No create/confirm manual-bookings fetch in entire file (Stage 8.3l safety)');
+    'No create/confirm manual-bookings fetch in entire file (Stage 8.4 — create stub not UI-wired)');
 })();
 
 // ── Stage 8.3b — booking detail drawer cleanup ────────────────────────────
@@ -581,9 +584,11 @@ check(/id="bc-sel-conflicts"/.test(src),
 check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/preview['"]/.test(src),
   "fetch('/staff/manual-bookings/preview') call present (Stage 8.3l)");
 
-// 109. No fetch to /staff/manual-bookings/create or /confirm
+// 109. No fetch to /staff/manual-bookings/create or /confirm from the UI (Stage 8.4)
+// The create route is a gated, disabled server-side stub and is intentionally
+// NOT wired to the UI until the pricing/payment engine slices are built.
 check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(src),
-  'No fetch to /manual-bookings/create or /confirm routes (Stage 8.3l)');
+  'No fetch to /manual-bookings/create or /confirm routes from UI (Stage 8.4 — stub not wired)');
 
 // 110. bc-preview-result element present (Stage 8.3l)
 check(/id="bc-preview-result"/.test(src),
@@ -872,6 +877,22 @@ check(/disabled[^>]*id="to-op-create-btn"|id="to-op-create-btn"[^>]*disabled/.te
 // 162. No duplicate Room/Beds section heading in drawer (Stage 8.3u)
 check(!/h3>Room.*\/ Beds|h3.*Room.*\/.*Beds/i.test(src),
   'No separate Room / Beds section heading in drawer (Stage 8.3u)');
+
+// ── Stage 8.4 — manual booking create is a DISABLED, UNWIRED server stub ───────
+
+// 163. Create Manual Booking button remains disabled in the Bed Calendar panel
+(function checkCreateBtnStillDisabled(){
+  check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src),
+    'Create Manual Booking button still disabled in UI (Stage 8.4 — not wired)');
+})();
+
+// 164. UI JS does not reference a create handler / flag (kept unwired)
+check(!/runCreateManualBooking|bcUpdateCreateBtn|bcCreateInFlight/.test(src),
+  'No client-side create handler/flag wired into UI (Stage 8.4 — stub stays server-only)');
+
+// 165. Preview-only / creation-disabled messaging still present
+check(/Creation remains disabled/i.test(src),
+  'UI still states manual booking creation is disabled (Stage 8.4)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -89,6 +89,10 @@ const {
 const {
   previewManualBookingAvailability,
 } = require('./lib/staff-manual-booking-availability');
+const {
+  buildManualBookingCreateSql,
+  MANUAL_BOOKING_ALLOWED_ROLES,
+} = require('./lib/staff-manual-booking-create-sql');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -1061,8 +1065,327 @@ async function handleManualBookingPreview(req, res, user) {
       total_amount_cents:   totalAmountCents  || null,
     },
     availability,
-    next_step: 'Manual booking creation is disabled. STAFF_ACTIONS_ENABLED=false and MANUAL_BOOKING_ENABLED=false.',
+    next_step: MANUAL_BOOKING_ENABLED
+      ? 'Manual booking creation is enabled. POST /staff/manual-bookings/create to create.'
+      : 'Manual booking creation is disabled. Set MANUAL_BOOKING_ENABLED to true to enable.',
     elapsed_ms: elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/manual-bookings/create  (Stage 8.4 — PROVISIONAL / DISABLED)
+//
+// ⚠️ NOT ENABLED — NOT WIRED TO UI — DO NOT FLIP MANUAL_BOOKING_ENABLED YET.
+//
+// Status: this is a gated, disabled-by-default stub kept behind the
+// MANUAL_BOOKING_ENABLED flag (default false → returns 403). It is intentionally
+// NOT connected to any UI control. It must NOT be enabled until the
+// pricing/payment engine is built, because this provisional path bakes in
+// pricing/payment assumptions (it inserts a payments row from raw staff-entered
+// deposit/total) that the final design must replace with a quote snapshot.
+//
+// Required prerequisite slices BEFORE this route may be enabled
+// (see docs/STAGE-8.4-MANUAL-BOOKING-CREATION.md):
+//   1. Pricing/payment engine plan
+//   2. Quote calculator
+//   3. Quote preview endpoint
+//   4. Manual booking create using a quote snapshot + payment records
+//   5. Stripe payment-link / invoice creation from a payment record
+//   6. Stripe webhook payment truth
+//   7. UI enablement behind gates
+//
+// When (eventually) enabled, gates (all must pass):
+//   1. MANUAL_BOOKING_ENABLED is true         (dedicated feature flag)
+//   2. Authenticated session, role operator+  (when STAFF_AUTH_REQUIRED=true)
+//   3. confirm: true in request body
+//   4. Required fields present and valid
+//
+// Safety (already enforced in this stub):
+//   - Calls buildManualBookingCreateSql() with confirm=true inside BEGIN/COMMIT.
+//   - Server re-checks overlap at save time (overlap_check + defense-in-depth
+//     NOT EXISTS guard inside the SQL, after row locks are held).
+//   - If blocked OR no beds inserted → ROLLBACK, never commits.
+//   - Idempotency duplicate → ROLLBACK, returns existing booking (200, idempotent).
+//   - Writes one workflow_events audit row on success (inside the txn).
+//   - NO Stripe. NO WhatsApp. NO n8n. NO confirmation send. NO bot events.
+//   - NO Stripe session, invoice, or payment link is ever created here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Map UI payment-status values to payment_status enum values.
+const MANUAL_BOOKING_PAYMENT_STATUS_MAP = Object.freeze({
+  unpaid:          'not_requested',
+  not_requested:   'not_requested',
+  waiting_payment: 'waiting_payment',
+  deposit_paid:    'deposit_paid',
+  paid:            'paid',
+});
+
+async function handleManualBookingCreate(req, res, user) {
+  const started = Date.now();
+
+  // ── 1. Feature flag gate ────────────────────────────────────────────────────
+  if (!MANUAL_BOOKING_ENABLED) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:manual_booking_create',
+      category: 'manual_booking_create', success: false,
+      error: 'feature_flag_disabled', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, {
+      success: false,
+      error:   'Manual booking creation is disabled. Set MANUAL_BOOKING_ENABLED to true to enable.',
+      manual_booking_enabled: false,
+    });
+  }
+
+  // ── 2. Parse body ────────────────────────────────────────────────────────────
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  // ── 3. Extract + sanitise input ──────────────────────────────────────────────
+  const clientSlug  = String(body.client || body.client_slug || DEFAULT_CLIENT).trim();
+  const checkIn     = String(body.check_in  || '').trim();
+  const checkOut    = String(body.check_out || '').trim();
+  const guestName   = String(body.guest_name || '').trim().slice(0, 200);
+  const phone       = String(body.phone || '').trim().slice(0, 50);
+  const email       = String(body.email || '').trim().slice(0, 200) || null;
+  const language    = String(body.language || 'en').trim().slice(0, 10) || 'en';
+  const guestCount  = parseInt(body.guest_count, 10) || 0;
+  const packageType = String(body.package_or_stay_type || '').trim().slice(0, 200) || null;
+  const roomPref    = String(body.room_preference || '').trim().slice(0, 200) || null;
+  const notes       = String(body.notes || '').trim().slice(0, 2000) || null;
+  const reason      = String(body.reason || 'Manual booking via Staff Portal Bed Calendar').trim().slice(0, 500);
+  const source      = String(body.source || 'staff_manual').trim().slice(0, 50) || 'staff_manual';
+  const depositCents = parseInt(body.deposit_amount_cents, 10) || 0;
+  const totalCents   = parseInt(body.total_amount_cents, 10) || 0;
+  const confirmFlag  = body.confirm === true;
+  const warningsAck  = body.warnings_acknowledged === true;
+  const bookingCode  = body.booking_code ? String(body.booking_code).trim().slice(0, 60) : null;
+
+  // payment_status: map UI value → enum; default not_requested
+  const rawPayStatus = String(body.payment_status || 'unpaid').trim().toLowerCase();
+  const paymentStatus = MANUAL_BOOKING_PAYMENT_STATUS_MAP[rawPayStatus] || 'not_requested';
+  // booking_status: manual staff bookings are confirmed by default
+  const bookingStatus = 'confirmed';
+
+  // selected_bed_codes: accept array or comma-separated string
+  let rawBedCodes = body.selected_bed_codes;
+  if (typeof rawBedCodes === 'string') {
+    rawBedCodes = rawBedCodes.split(',').map((s) => s.trim()).filter(Boolean);
+  } else if (!Array.isArray(rawBedCodes)) {
+    rawBedCodes = [];
+  }
+  const selectedBedCodes = rawBedCodes.map(String).slice(0, 20);
+
+  // ── 4. Actor (auth) ───────────────────────────────────────────────────────────
+  // requireAuth ran in the router. In local open mode (STAFF_AUTH_REQUIRED=false)
+  // user is null — use a deterministic local actor; the SQL stores it in audit only.
+  const actorId   = user ? user.staff_user_id : 'manual-booking-local';
+  const actorRole = user ? user.role          : 'operator';
+
+  // ── 5. Validate ────────────────────────────────────────────────────────────────
+  if (SQL_INJECT_RE.test(clientSlug))
+    return send400(res, 'invalid client slug');
+  if (!checkIn || !checkOut)
+    return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut))
+    return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  if (checkOut <= checkIn)
+    return send400(res, 'check_out must be after check_in');
+  if (selectedBedCodes.length === 0)
+    return send400(res, 'selected_bed_codes is required (select empty calendar cells)');
+  if (selectedBedCodes.some((c) => SQL_INJECT_RE.test(c)))
+    return send400(res, 'invalid character in selected_bed_codes');
+  if (!guestName)
+    return send400(res, 'guest_name is required');
+  if (guestCount < 1)
+    return send400(res, 'guest_count must be at least 1');
+  if (!confirmFlag)
+    return send400(res, 'confirm: true is required in request body');
+  if (!MANUAL_BOOKING_ALLOWED_ROLES.includes(actorRole))
+    return sendJSON(res, 403, { success: false, error: `Role '${actorRole}' may not create manual bookings.` });
+
+  // ── 6. Idempotency key ───────────────────────────────────────────────────────
+  // Accept caller-provided key; otherwise build a deterministic key from the
+  // booking-defining fields so a double-click (identical payload) de-duplicates.
+  const idempotencyKey = body.idempotency_key
+    ? String(body.idempotency_key).slice(0, 120)
+    : 'mb-' + crypto.createHash('md5').update([
+        clientSlug, checkIn, checkOut, selectedBedCodes.slice().sort().join('_'),
+        guestName.toLowerCase(), phone,
+      ].join('|')).digest('hex');
+
+  const auditBase = {
+    ts:                 new Date().toISOString(),
+    intent:             'api:manual_booking_create',
+    category:           'manual_booking_create',
+    client_slug:        clientSlug,
+    check_in:           checkIn,
+    check_out:          checkOut,
+    selected_bed_codes: selectedBedCodes,
+    guest_count:        guestCount,
+    staff_user_id:      actorId,
+    staff_role:         actorRole,
+    idempotency_key:    idempotencyKey,
+    // Side-effect transparency: this path never triggers external systems.
+    stripe_called:      false,
+    whatsapp_called:    false,
+    n8n_called:         false,
+  };
+
+  // ── 7. Execute create inside a transaction ────────────────────────────────────
+  let row;
+  try {
+    row = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const r = await pg.query(buildManualBookingCreateSql(), [
+          clientSlug,        // $1
+          actorId,           // $2
+          actorRole,         // $3
+          idempotencyKey,    // $4
+          bookingCode,       // $5 (nullable → auto-generate)
+          guestName,         // $6
+          phone,             // $7
+          email,             // $8
+          language,          // $9
+          checkIn,           // $10
+          checkOut,          // $11
+          guestCount,        // $12
+          selectedBedCodes,  // $13 text[]
+          packageType,       // $14
+          roomPref,          // $15
+          bookingStatus,     // $16
+          paymentStatus,     // $17
+          depositCents,      // $18
+          totalCents,        // $19
+          source,            // $20
+          reason,            // $21
+          notes,             // $22
+          true,              // $23 confirm
+          warningsAck,       // $24
+        ]);
+        const result = r.rows[0] || null;
+
+        if (!result) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+
+        // Idempotency duplicate → no new row was inserted; roll back and signal.
+        if (result.is_duplicate === true) {
+          await pg.query('ROLLBACK');
+          result._duplicate = true;
+          return result;
+        }
+
+        // Any other blocker (validation / overlap conflict) → roll back.
+        if (result.is_blocked === true) {
+          await pg.query('ROLLBACK');
+          result._blocked = true;
+          return result;
+        }
+
+        // Safety: booking row must exist and bed assignments must match selection.
+        const bedsInserted = Number(result.beds_inserted || 0);
+        if (!result.booking_id || bedsInserted < 1 || bedsInserted !== selectedBedCodes.length) {
+          await pg.query('ROLLBACK');
+          result._safety_violation = true;
+          return result;
+        }
+
+        await pg.query('COMMIT');
+        return result;
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'manual booking create failed', detail: err.message });
+  }
+
+  if (!row) {
+    appendAuditLog({ ...auditBase, success: false, error: 'no_result_row', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'no result row returned from helper' });
+  }
+
+  const elapsed = Date.now() - started;
+
+  // ── 8. Idempotency duplicate (idempotent success) ─────────────────────────────
+  if (row._duplicate) {
+    appendAuditLog({ ...auditBase, success: true, idempotent_duplicate: true,
+      booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success:        true,
+      duplicate:      true,
+      idempotent:     true,
+      booking_id:     row.duplicate_booking_id,
+      booking_code:   row.duplicate_booking_code,
+      message:        'Booking already exists for this request (idempotent).',
+      no_stripe:      true, no_whatsapp: true, no_n8n: true,
+    });
+  }
+
+  // ── 9. Blocked (validation / overlap conflict) ────────────────────────────────
+  if (row._blocked) {
+    appendAuditLog({ ...auditBase, success: false, blocked: true,
+      block_reason: row.block_reason, elapsed_ms: elapsed });
+    const isConflict = row.block_reason === 'overlap_conflict';
+    return sendJSON(res, isConflict ? 409 : 422, {
+      success:      false,
+      blocked:      true,
+      block_reason: row.block_reason,
+      error:        isConflict
+        ? 'These dates/beds conflict with an existing booking. Nothing was created.'
+        : 'Manual booking blocked: ' + row.block_reason,
+      no_write_performed: true,
+      no_stripe: true, no_whatsapp: true, no_n8n: true,
+    });
+  }
+
+  // ── 10. Safety violation ───────────────────────────────────────────────────────
+  if (row._safety_violation) {
+    appendAuditLog({ ...auditBase, success: false,
+      error: 'SAFETY_VIOLATION_bed_count_mismatch',
+      beds_inserted: row.beds_inserted, elapsed_ms: elapsed });
+    return sendJSON(res, 409, {
+      success: false,
+      error:   'Booking could not be safely created (bed availability changed). Transaction rolled back.',
+      beds_inserted: Number(row.beds_inserted || 0),
+      no_write_performed: true,
+    });
+  }
+
+  // ── 11. Success ────────────────────────────────────────────────────────────────
+  appendAuditLog({ ...auditBase, success: true,
+    booking_id: row.booking_id, booking_code: row.booking_code,
+    beds_inserted: row.beds_inserted, payments_inserted: row.payments_inserted,
+    audit_event_id: row.audit_event_id, elapsed_ms: elapsed });
+
+  return sendJSON(res, 201, {
+    success:           true,
+    booking_id:        row.booking_id,
+    booking_code:      row.booking_code,
+    beds_inserted:     Number(row.beds_inserted || 0),
+    payments_inserted: Number(row.payments_inserted || 0),
+    audit_event_id:    row.audit_event_id,
+    client_slug:       clientSlug,
+    check_in:          checkIn,
+    check_out:         checkOut,
+    selected_bed_codes: selectedBedCodes,
+    payment_status:    paymentStatus,
+    booking_status:    bookingStatus,
+    no_stripe:         true,
+    no_whatsapp:       true,
+    no_n8n:            true,
+    message:           'Manual booking created.',
+    elapsed_ms:        elapsed,
   });
 }
 
@@ -4867,6 +5190,17 @@ async function router(req, res) {
     return handleManualBookingPreview(req, res, auth.user);
   }
 
+  // ── Stage 8.4 — Manual booking creation (write; gated by MANUAL_BOOKING_ENABLED) ──
+  if (pathname === '/staff/manual-bookings/create') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for manual-bookings/create' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleManualBookingCreate(req, res, auth.user);
+  }
+
   // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
     return send405(res);
@@ -5001,6 +5335,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/draft`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/staff-state`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only preview (no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   if (STAFF_ACTIONS_ENABLED) {
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);
     console.log(`         <- ${STAFF_AUTH_REQUIRED ? 'requires session with role operator/admin' : 'requires x-staff-operator-token header (local/dev)'}`);

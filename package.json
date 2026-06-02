@@ -74,6 +74,7 @@
     "verify:staff-manual-booking-rollback-sql": "node scripts/verify-staff-manual-booking-rollback-sql.js",
     "verify:staff-manual-booking-availability": "node scripts/verify-staff-manual-booking-availability.js",
     "verify:staff-manual-booking-preview-api": "node scripts/verify-staff-manual-booking-preview-api.js",
+    "verify:staff-manual-booking-create-api": "node scripts/verify-staff-manual-booking-create-api.js",
     "verify:staff-booking-detail-queries": "node scripts/verify-staff-booking-detail-queries.js",
     "verify:staff-booking-detail-api": "node scripts/verify-staff-booking-detail-api.js",
     "verify:stage77j-copy-review-workflow": "node scripts/verify-stage77j-copy-review-workflow.js",

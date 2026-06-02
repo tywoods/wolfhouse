@@ -83,6 +83,7 @@ Cami can, with zero autonomous action and zero protected-table mutation:
 - **Not required** before the first shadow demo to Ale/Cami.
 - **Required** before Luna Front Desk can replace the spreadsheet/manual booking workflow.
 - Stage 8 only documents where it sits; implementation is a separate gated track.
+- **Stage 8.4 RE-SCOPED (2026-06-02):** a **pricing/payment engine is now a hard prerequisite** before manual booking creation can be enabled. The work is split into gated slices: (1) pricing/payment engine plan → (2) quote calculator → (3) quote preview endpoint → (4) create-from-quote-snapshot + payment records → (5) Stripe payment-link/invoice from payment record → (6) Stripe webhook payment truth → (7) UI enablement behind gates. A provisional `POST /staff/manual-bookings/create` stub exists **DISABLED-by-default** (`MANUAL_BOOKING_ENABLED=false` → 403) and **UNWIRED from the UI**; the Create button stays disabled. **Do not flip the flag, do not wire the UI, do not create Stripe sessions/invoices/payment links until slices 1–6 ship.** See [`STAGE-8.4-MANUAL-BOOKING-CREATION.md`](STAGE-8.4-MANUAL-BOOKING-CREATION.md).
 
 ### Pillar 6 — Safety / ops gates
 - Backup/restore drill documented and executed (slice 8.9; design from 7.4).
