@@ -1,6 +1,6 @@
 # Stage 8.3 — Staff Portal Bed Calendar Operations Plan (Luna Front Desk)
 
-**Status:** PLANNING DONE (2026-06-02). Planning/docs only — builds nothing, deploys nothing, changes no UI, runs no DB/Azure/workflow commands.
+**Status:** 8.3 PLANNING DONE (2026-06-02). **8.3a IMPLEMENTATION DONE (2026-06-02).** See §8.3a proof below.
 **Parent:** [`STAGE-8-CLIENT-READY-STAGING-ROADMAP.md`](STAGE-8-CLIENT-READY-STAGING-ROADMAP.md) — slice 8.3 (expanded into 8.3a–8.3o).
 **Builds on:** [`STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md`](STAGE-8.1-DASHBOARD-UX-CLEANUP-PLAN.md) (IA + tokens), [`PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md`](PHASE-7.7-CAMI-REVIEW-DASHBOARD-PLAN.md) (§5a reassignment gates 7.7k1–k8 proven; §5b manual booking creation design), Stage 8.6 demo data seeded.
 **Pilot decision:** Remains **NO_GO**. This plan describes the *operations workspace* the Staff Portal should become; it enables no live action.
@@ -369,6 +369,42 @@ Beyond the user's list — surfaces that fit a hospitality front desk, all **rea
 
 ---
 
-## 13. Next slice
+## 13. Stage 8.3a — IMPLEMENTATION PROOF (2026-06-02)
 
-**Stage 8.3a — bed calendar read-only cleanup implementation:** date-picker dropdowns + shortcut chips, always-show all rooms/beds, clean room/bed labels, prominent blocks, receding empties, remove inline A/D markers (move to hover), always-visible color legend. Visual/HTML/CSS + read-only render only; no selection writes, no live buttons, no API writes.
+**Status: PASS**
+
+Changes shipped in `scripts/staff-query-api.js`:
+
+| Feature | Result |
+|---|---|
+| Date inputs → `type="date"` with `.bc-date-input` styling | ✓ |
+| Shortcut chips: Today, This week, Next 30 days, Jul–Aug, Demo range (Jul 16–22) | ✓ |
+| `bcSetRange(start,end,chipKey)` helper + active chip highlight | ✓ |
+| Default range: next 30 days (computed dynamically in JS) | ✓ |
+| Always-visible color legend (confirmed/hold/payment/review/operator/manual/cancelled) | ✓ |
+| Operator block CSS class (`bc-block-operator`, dusty-blue) | ✓ |
+| Manual/staff block CSS class (`bc-block-manual`, pale teal) | ✓ |
+| Inline A/D markers removed from blocks; arrival/departure in tooltip | ✓ |
+| Room header: cleaner labels (code — name · type · capacity) | ✓ |
+| Bed cell: `bed_code` primary label; `bed_label` as subtitle if different | ✓ |
+| Free beds count in summary strip | ✓ |
+| Booking blocks 28px tall (was 24px), stronger colors, bigger click target | ✓ |
+| Detail panel: cleaner header, no raw `color_type` field, lock icon note | ✓ |
+| `bedCalendarColorType()`: operator + manual_staff source detection | ✓ |
+| `buildCalendarBlocks()`: `booking_source` included in block payload | ✓ |
+| Verifier: 56 checks (13 new Stage 8.3a checks added) — all PASS | ✓ |
+| All other verifiers (conversation/login/auth/query/write): all PASS | ✓ |
+| No POST/PATCH/DELETE, no drag/drop, no write controls | ✓ |
+| Local proof: `http://127.0.0.1:3036/staff/ui` → 200, all elements confirmed | ✓ |
+
+**Safety flags:** `STAFF_ACTIONS_ENABLED=false` · `WHATSAPP_DRY_RUN=true` · n8n inactive · no writes.
+
+**Azure proof:** pending (build + push to Azure staging required — see next prompt).
+
+**Files changed:** `scripts/staff-query-api.js`, `scripts/verify-staff-bed-calendar-ui.js`
+
+**Commit:** see `ui(stage8.3a)` commit hash.
+
+## 14. Next slice
+
+**Stage 8.3b — booking detail drawer cleanup:** grouped card sections, cleaner room/bed labels, remove redundant raw fields, read-only actions cleanup. No writes.

@@ -1055,18 +1055,39 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-room-hdr{background:var(--olive);color:#fff;font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.02em}
 .bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:11px;padding:6px 10px;min-width:120px;position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
 .bc-day-cell{height:30px;min-width:46px;vertical-align:middle;padding:2px 3px}
-.bc-block{height:24px;border-radius:7px;padding:3px 8px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:3px;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
-.bc-block:hover{filter:brightness(.97);box-shadow:0 2px 8px rgba(68,80,74,.12)}
-.bc-block-confirmed{background:#DCEAD2;color:#5C7350;border-left:3px solid #AFC3A3}
+.bc-block{height:28px;border-radius:7px;padding:3px 9px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
+.bc-block:hover{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
+.bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C}
 .bc-block-hold{background:#F2E7D3;color:#8A6F4F;border-left:3px solid #DCC8B7}
-.bc-block-payment_pending{background:#DDE7EC;color:#566F7C;border-left:3px solid #95B4C7}
-.bc-block-needs_review{background:#F5E6D2;color:#A2743D;border-left:3px solid #E3B981}
-.bc-block-cancelled{background:#E8E5DE;color:#83897F;border-left:3px solid #C9C5BB;text-decoration:line-through}
+.bc-block-payment_pending{background:#D5E5EF;color:#3F6070;border-left:3px solid #7AAABB}
+.bc-block-needs_review{background:#F3DCC1;color:#9B6320;border-left:3px solid #D9A057}
+.bc-block-cancelled{background:#E4E0D9;color:#7A8078;border-left:3px solid #BDB9B0;text-decoration:line-through;opacity:.7}
 .bc-block-conflict{background:#EFD9D0;color:#9C5742;border-left:3px solid #C98B76}
-.bc-marker{font-size:9px;font-weight:700;opacity:.85;margin-right:2px}
+.bc-block-operator{background:#D5E3EE;color:#3A5A72;border-left:3px solid #85A8C0;font-style:italic}
+.bc-block-manual{background:#D5EAE3;color:#3A6657;border-left:3px solid #7ABFAD}
+.bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
 .bc-detail-note{font-size:11px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:9px 14px;margin-top:14px}
+/* ── Bed calendar shortcut chips (Stage 8.3a) ────────────────────────────── */
+.bc-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+.bc-chip{font-size:11px;font-weight:600;padding:4px 12px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text-2);cursor:pointer;transition:background .12s,color .12s,border-color .12s;white-space:nowrap}
+.bc-chip:hover{background:var(--sage);color:#fff;border-color:var(--sage)}
+.bc-chip.bc-chip-active{background:var(--primary);color:#fff;border-color:var(--primary)}
+/* ── Bed calendar legend (Stage 8.3a) ─────────────────────────────────────── */
+.bc-legend{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;font-size:11px;color:var(--text-2);padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:14px}
+.bc-legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.bc-legend-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;border-left:2px solid transparent;flex-shrink:0}
+.bc-legend-sw-confirmed{background:#CEDFBF;border-left-color:#87A87C}
+.bc-legend-sw-hold{background:#F2E7D3;border-left-color:#DCC8B7}
+.bc-legend-sw-payment{background:#D5E5EF;border-left-color:#7AAABB}
+.bc-legend-sw-review{background:#F3DCC1;border-left-color:#D9A057}
+.bc-legend-sw-operator{background:#D5E3EE;border-left-color:#85A8C0}
+.bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
+.bc-legend-sw-manual{background:#D5EAE3;border-left-color:#7ABFAD}
+/* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
+input[type="date"].bc-date-input{font-size:12px;padding:5px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:130px}
+input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
 /* ── Today / Needs Attention panel (Stage 8.2) ───────────────────────────── */
 .today-section-hdr{font-size:13px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border-soft)}
 .today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:28px}
@@ -1287,15 +1308,34 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
       <h2>Bed Calendar</h2>
       <span class="hq-ro-label">READ-ONLY BED CALENDAR &mdash; edits disabled</span>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        Start&nbsp;<input id="bc-start" type="text" value="2026-07-16" placeholder="YYYY-MM-DD" style="min-width:110px;font-size:12px;padding:5px 8px">
+        From&nbsp;<input id="bc-start" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
       </label>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        End&nbsp;<input id="bc-end" type="text" value="2026-07-23" placeholder="YYYY-MM-DD" style="min-width:110px;font-size:12px;padding:5px 8px">
+        To&nbsp;<input id="bc-end" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
       </label>
-      <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        Company&nbsp;<input id="bc-client" value="wolfhouse-somo" style="min-width:140px;font-size:12px;padding:5px 8px">
-      </label>
-      <button class="btn btn-primary" id="bc-load">&#128197; Load Calendar</button>
+      <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
+      <button class="btn btn-primary" id="bc-load">&#128197; Load</button>
+    </div>
+
+    <!-- Date shortcut chips (Stage 8.3a) -->
+    <div class="bc-chips" id="bc-chips">
+      <span class="bc-chip" data-chip="today">Today</span>
+      <span class="bc-chip" data-chip="week">This week</span>
+      <span class="bc-chip bc-chip-active" data-chip="30days">Next 30 days</span>
+      <span class="bc-chip" data-chip="jul-aug">Jul &ndash; Aug</span>
+      <span class="bc-chip" data-chip="demo">Demo range (Jul 16&ndash;22)</span>
+    </div>
+
+    <!-- Color legend (Stage 8.3a) -->
+    <div class="bc-legend" id="bc-legend">
+      <span style="font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Legend:</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-confirmed"></span>Confirmed</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-hold"></span>Hold</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span>Payment pending</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-review"></span>Needs review</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-operator"></span>Operator block</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Manual / staff</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-cancelled"></span>Cancelled</span>
     </div>
 
     <!-- Summary strip -->
@@ -1303,16 +1343,17 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
       <span><b id="bc-rooms-count">0 rooms</b></span>
       <span><b id="bc-beds-count">0 beds</b></span>
       <span><b id="bc-blocks-count">0 blocks</b></span>
+      <span id="bc-free-count" style="color:var(--text-3)"></span>
     </div>
 
     <!-- Warnings -->
     <div id="bc-warnings" style="display:none;font-size:12px;color:#9C5742;background:#F6E7E1;border:1px solid #E6C7BC;border-radius:10px;padding:10px 14px;margin-bottom:12px"></div>
 
     <!-- State message -->
-    <div id="bc-state" class="state-msg">Select a date range and click Load Calendar.</div>
+    <div id="bc-state" class="state-msg">Select a date range and click Load.</div>
 
     <!-- Grid -->
-    <div id="bc-grid-wrap" style="display:none;overflow-x:auto;overflow-y:auto;max-height:600px;border:1px solid #EFE8DC;border-radius:12px"></div>
+    <div id="bc-grid-wrap" style="display:none;overflow-x:auto;overflow-y:auto;max-height:620px;border:1px solid #EFE8DC;border-radius:12px"></div>
   </div>
 
   <!-- Block detail panel (read-only) -->
@@ -1987,7 +2028,7 @@ function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(
 
 function bcColorClass(ct){
   var c = (ct||'hold').toLowerCase();
-  var valid = ['confirmed','hold','payment_pending','needs_review','cancelled','conflict'];
+  var valid = ['confirmed','hold','payment_pending','needs_review','cancelled','conflict','operator','manual'];
   return 'bc-block-' + (valid.indexOf(c) >= 0 ? c : 'hold');
 }
 
@@ -2008,9 +2049,16 @@ function renderBedCalendar(data){
   /* Summary strip */
   var totalBeds = 0;
   rooms.forEach(function(r){ totalBeds += (r.beds ? r.beds.length : 0); });
+  /* Count beds that have at least one block in this range */
+  var bedsWithBlocks = {};
+  blocks.forEach(function(blk){ bedsWithBlocks[blk.room_code + '|' + blk.bed_code] = true; });
+  var occupiedBeds = Object.keys(bedsWithBlocks).length;
+  var freeBeds = totalBeds - occupiedBeds;
   el('bc-rooms-count').textContent  = rooms.length  + ' room'  + (rooms.length  === 1 ? '' : 's');
   el('bc-beds-count').textContent   = totalBeds      + ' bed'   + (totalBeds      === 1 ? '' : 's');
   el('bc-blocks-count').textContent = blocks.length  + ' booking block' + (blocks.length === 1 ? '' : 's');
+  var freeEl = el('bc-free-count');
+  if (freeEl) freeEl.textContent = freeBeds > 0 ? freeBeds + ' free' : (totalBeds > 0 ? 'fully booked' : '');
   el('bc-summary').style.display = 'flex';
 
   /* Warnings */
@@ -2045,11 +2093,13 @@ function renderBedCalendar(data){
 
   rooms.forEach(function(room){
     /* Room header spanning all columns */
-    html += '<tr><td colspan="' + totalCols + '" class="bc-room-hdr">' +
-      escHtml(room.room_code) +
-      (room.room_name && room.room_name !== room.room_code ? ' \u2014 ' + escHtml(room.room_name) : '') +
-      (room.room_type ? ' <span style="font-weight:400;opacity:.65;font-size:10px">(' + escHtml(room.room_type) + ')</span>' : '') +
-      ' <span style="font-weight:400;opacity:.55;font-size:10px">cap:' + (room.capacity||0) + '</span>' +
+    var roomLabel = escHtml(room.room_code);
+    if (room.room_name && room.room_name !== room.room_code) roomLabel += ' &mdash; ' + escHtml(room.room_name);
+    var roomMeta = [];
+    if (room.room_type) roomMeta.push(escHtml(room.room_type));
+    if (room.capacity)  roomMeta.push(room.capacity + ' beds');
+    html += '<tr><td colspan="' + totalCols + '" class="bc-room-hdr">' + roomLabel +
+      (roomMeta.length ? ' <span style="font-weight:400;opacity:.65;font-size:10px;margin-left:6px">' + roomMeta.join(' &middot; ') + '</span>' : '') +
       '</td></tr>';
 
     var beds = room.beds || [];
@@ -2066,7 +2116,12 @@ function renderBedCalendar(data){
       });
 
       html += '<tr>';
-      html += '<td class="bc-bed-cell">' + escHtml(bed.bed_label || bed.bed_code) + '</td>';
+      /* Prefer bed_code as the primary label; show bed_label as subtitle only if different */
+      var bedLabelHtml = escHtml(bed.bed_code);
+      if (bed.bed_label && bed.bed_label !== bed.bed_code) {
+        bedLabelHtml += '<span style="font-weight:400;font-size:10px;color:var(--text-3);display:block;line-height:1.2">' + escHtml(bed.bed_label) + '</span>';
+      }
+      html += '<td class="bc-bed-cell">' + bedLabelHtml + '</td>';
 
       var pos = 0;
       bedBlocks.forEach(function(entry){
@@ -2099,15 +2154,24 @@ function renderBedCalendar(data){
 
 function renderBookingBlock(blk, idx){
   var colorCls = bcColorClass(blk.color_type);
-  var markers = '';
-  if (blk.is_arrival)   markers += '<span class="bc-marker" title="Arrival">A</span>';
-  if (blk.is_departure) markers += '<span class="bc-marker" title="Departure">D</span>';
-  var label = escHtml(blk.guest_name || blk.booking_code || '\u2014');
-  var tip   = escHtml((blk.booking_code||'') + ' \u2014 ' + (blk.guest_name||'') +
-              ' | ' + (blk.start_date||'') + '\u2192' + (blk.end_date||''));
-  return '<td colspan="' + blk.span_days + '" class="bc-day-cell" style="padding:1px 2px">' +
+  /* No inline A/D markers — arrival/departure shown in tooltip (Stage 8.3a) */
+  var arrDep = [];
+  if (blk.is_arrival)   arrDep.push('Arrives ' + (blk.start_date||''));
+  if (blk.is_departure) arrDep.push('Departs ' + (blk.end_date||''));
+  var statusHint = blk.color_type ? ' [' + blk.color_type.replace(/_/g,' ') + ']' : '';
+  var tip = escHtml(
+    (blk.booking_code||'\u2014') + ' \u2013 ' + (blk.guest_name||'') +
+    '\n' + (blk.start_date||'') + ' \u2192 ' + (blk.end_date||'') + statusHint +
+    (arrDep.length ? '\n' + arrDep.join(' \u00b7 ') : '')
+  );
+  /* Show booking_code prefix + guest name if span wide enough; code-only for narrow blocks */
+  var codeShort = (blk.booking_code||'').replace(/^(DEMO-|WH-|OP-)/, '');
+  var label = blk.span_days >= 3
+    ? escHtml((blk.guest_name || blk.booking_code || '\u2014'))
+    : escHtml(codeShort || blk.guest_name || '\u2014');
+  return '<td colspan="' + blk.span_days + '" class="bc-day-cell" style="padding:2px 3px">' +
     '<div class="bc-block ' + colorCls + '" data-bidx="' + idx + '" title="' + tip + '">' +
-    markers + label + '</div></td>';
+    label + '</div></td>';
 }
 
 function kvBC(k, v){
@@ -2117,28 +2181,24 @@ function kvBC(k, v){
 
 function showBlockDetail(blk){
   if (!blk) return;
+  var bedRoomLabel = (blk.room_code||'\u2014') + ' / ' + (blk.bed_code||'\u2014');
   el('bc-detail').innerHTML =
-    '<div class="toolbar"><h2>Block &mdash; ' + escHtml(blk.booking_code||'\u2014') + '</h2>' +
+    '<div class="toolbar"><h2>' + escHtml(blk.booking_code||'\u2014') +
+    (blk.guest_name ? ' &mdash; ' + escHtml(blk.guest_name) : '') + '</h2>' +
     '<button class="btn btn-ghost" id="bc-close-detail">&times; Close</button></div>' +
     '<div class="kv-grid">' +
-    kvBC('Booking code',      blk.booking_code)      +
-    kvBC('Guest name',        blk.guest_name)         +
-    kvBC('Phone',             blk.phone)              +
-    kvBC('Room',              blk.room_code)          +
-    kvBC('Bed',               blk.bed_code)           +
+    kvBC('Guest',             blk.guest_name)         +
+    kvBC('Booking code',      blk.booking_code)       +
+    kvBC('Room / Bed',        bedRoomLabel)            +
     kvBC('Status',            blk.status)             +
-    kvBC('Payment status',    blk.payment_status)     +
-    kvBC('Assignment status', blk.assignment_status)  +
-    kvBC('Start date',        blk.start_date)         +
-    kvBC('End date',          blk.end_date)           +
-    kvBC('Span days',         blk.span_days)          +
-    kvBC('Color type',        blk.color_type)         +
-    kvBC('Needs review',      blk.needs_review ? 'YES' : 'No') +
-    kvBC('Arrival',           blk.is_arrival  ? 'Yes' : 'No') +
-    kvBC('Departure',         blk.is_departure? 'Yes' : 'No') +
+    kvBC('Payment',           blk.payment_status)     +
+    kvBC('Assignment',        blk.assignment_status)  +
+    kvBC('Check-in',          blk.start_date)         +
+    kvBC('Check-out',         blk.end_date)           +
+    (blk.needs_review ? '<div class="kv" style="grid-column:1/-1"><span class="pill pill-orange">NEEDS REVIEW</span></div>' : '') +
     '</div>' +
     '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking context\u2026</div></div>' +
-    '<div class="bc-detail-note">Booking edits are disabled until the calendar write gates are approved.</div>';
+    '<div class="bc-detail-note">&#128274; Bed calendar is read-only &mdash; booking edits are disabled until write gates are approved.</div>';
   el('bc-detail').style.display = 'block';
   el('bc-close-detail').addEventListener('click', function(){ el('bc-detail').style.display = 'none'; });
   if (blk.booking_code) loadBlockDetail(blk.booking_code);
@@ -2344,6 +2404,52 @@ function loadBedCalendar(){
 }
 
 el('bc-load').addEventListener('click', loadBedCalendar);
+
+/* ── Bed calendar date shortcuts (Stage 8.3a) ────────────────────────────── */
+function bcIso(d){ return d.toISOString().slice(0,10); }
+
+function bcSetRange(start, end, chipKey){
+  var s = el('bc-start'); var e = el('bc-end');
+  if (s) s.value = start;
+  if (e) e.value = end;
+  /* Update active chip */
+  document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
+  if (chipKey){
+    var activeChip = document.querySelector('.bc-chip[data-chip="' + chipKey + '"]');
+    if (activeChip) activeChip.classList.add('bc-chip-active');
+  }
+  loadBedCalendar();
+}
+
+/* Initialise date inputs dynamically (next 30 days default) */
+(function initBcDates(){
+  var today = new Date();
+  var plus30 = new Date(today.getTime() + 30 * 86400000);
+  var s = el('bc-start'); var e = el('bc-end');
+  if (s && !s.value) s.value = bcIso(today);
+  if (e && !e.value) e.value = bcIso(plus30);
+})();
+
+document.querySelectorAll('.bc-chip').forEach(function(chip){
+  chip.addEventListener('click', function(){
+    var key = this.dataset.chip;
+    var today = new Date();
+    var t = bcIso(today);
+    if (key === 'today'){
+      bcSetRange(t, t, 'today');
+    } else if (key === 'week'){
+      var end = new Date(today.getTime() + 6 * 86400000);
+      bcSetRange(t, bcIso(end), 'week');
+    } else if (key === '30days'){
+      var end30 = new Date(today.getTime() + 30 * 86400000);
+      bcSetRange(t, bcIso(end30), '30days');
+    } else if (key === 'jul-aug'){
+      bcSetRange('2026-07-01', '2026-08-31', 'jul-aug');
+    } else if (key === 'demo'){
+      bcSetRange('2026-07-16', '2026-07-22', 'demo');
+    }
+  });
+});
 
 /* ── Today / Needs Attention (Stage 8.2) ─────────────────────────────────── */
 function loadTodaySummary(){
@@ -2924,7 +3030,10 @@ function bedCalendarColorType(row) {
   const s  = (row.booking_status   || '').toLowerCase();
   const p  = (row.payment_status   || '').toLowerCase();
   const a  = (row.assignment_status || '').toLowerCase();
+  const src = (row.booking_source   || '').toLowerCase();
   if (s === 'cancelled')   return 'cancelled';
+  if (src === 'operator')  return 'operator';
+  if (src === 'manual_staff') return 'manual';
   if (a === 'needs_review' || row.needs_rooming_review) return 'needs_review';
   if (s === 'confirmed' && p === 'paid') return 'confirmed';
   if (s === 'confirmed')   return 'confirmed';
@@ -2985,6 +3094,7 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       status:            row.booking_status,
       payment_status:    row.payment_status,
       assignment_status: row.assignment_status,
+      booking_source:    row.booking_source || null,
       room_code:         row.room_code,
       bed_code:          row.bed_code,
       start_date:        row.assignment_start_date,

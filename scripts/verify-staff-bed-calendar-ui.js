@@ -244,6 +244,63 @@ check(!/draggable|dragstart|dragend|drop\s*:/i.test(src),
 check(!/btn-calendar-edit|btn-move-block|btn-save-block|btn-reassign-cal/i.test(src),
   'No calendar edit/move/save button elements (Stage 8.2)');
 
+// ── Stage 8.3a — Read-only calendar UX cleanup ────────────────────────────
+
+// 44. Date inputs use type="date" (Stage 8.3a)
+check(/type="date".*bc-date-input|bc-date-input.*type="date"|type='date'/.test(src),
+  'Date inputs use type="date" (Stage 8.3a)');
+
+// 45. Shortcut chips present (Stage 8.3a)
+check(/bc-chip|bc-chips/.test(src),
+  'Shortcut chips (bc-chip/bc-chips) present (Stage 8.3a)');
+
+// 46. Demo range chip present (Stage 8.3a)
+check(/data-chip="demo"|data-chip='demo'/.test(src),
+  'Demo range shortcut chip (data-chip="demo") present (Stage 8.3a)');
+
+// 47. bcSetRange function present (Stage 8.3a)
+check(/function bcSetRange/.test(src),
+  'bcSetRange shortcut function present (Stage 8.3a)');
+
+// 48. Color legend HTML present (Stage 8.3a)
+check(/bc-legend/.test(src),
+  'Color legend (bc-legend) present (Stage 8.3a)');
+
+// 49. Legend has all required status swatches (Stage 8.3a)
+check(/bc-legend-sw-confirmed/.test(src) && /bc-legend-sw-hold/.test(src) &&
+      /bc-legend-sw-payment/.test(src)   && /bc-legend-sw-review/.test(src) &&
+      /bc-legend-sw-cancelled/.test(src),
+  'Legend has confirmed/hold/payment/review/cancelled swatches (Stage 8.3a)');
+
+// 50. Operator block color class present (Stage 8.3a)
+check(/bc-block-operator/.test(src),
+  'Operator block CSS class (bc-block-operator) present (Stage 8.3a)');
+
+// 51. No inline A/D bc-marker spans in renderBookingBlock (Stage 8.3a)
+// The bc-marker class and A/D text should no longer be rendered inline in blocks
+check(!/bc-marker.*>A<|>A<\/span>.*bc-marker|markers.*A.*is_arrival|is_arrival.*markers.*A/.test(src),
+  'No inline A/D marker spans rendered in booking blocks (Stage 8.3a)');
+
+// 52. Arrival/departure shown in tooltip (title attr) (Stage 8.3a)
+check(/Arrives|Departs|arrDep/.test(src),
+  'Arrival/departure info moved to tooltip (Stage 8.3a)');
+
+// 53. bcSetRange handles demo chip (Jul 16-22 range) (Stage 8.3a)
+check(/2026-07-16.*demo|demo.*2026-07-16/.test(src),
+  'Demo shortcut chip maps to Jul 16-22 range (Stage 8.3a)');
+
+// 54. Free beds count shown in summary (Stage 8.3a)
+check(/bc-free-count|free.*beds|freeBeds/.test(src),
+  'Free beds count shown in summary strip (Stage 8.3a)');
+
+// 55. Bed code is the primary label (not bed_label only) (Stage 8.3a)
+check(/bed\.bed_code/.test(src),
+  'Bed code used as primary label in grid (Stage 8.3a)');
+
+// 56. No POST/PATCH/DELETE fetch anywhere in the file
+check(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(src),
+  'No POST/PATCH/DELETE fetch calls in entire file (Stage 8.3a)');
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
