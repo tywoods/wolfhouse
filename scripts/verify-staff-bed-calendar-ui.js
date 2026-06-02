@@ -156,9 +156,9 @@ check(/Booking edits.*disabled|booking edits disabled/i.test(src),
 // the UI JS must NOT fetch create/confirm. All write methods remain forbidden.
 const jsSection = src.slice(src.indexOf('<script>') || 0);
 (function checkUiPostRestriction(){
-  // Verify no create/confirm/write routes are called from the UI
-  check(!/fetch[^)]*manual-bookings\/create|fetch[^)]*manual-bookings\/confirm/i.test(jsSection),
-    'No /manual-bookings/create or /confirm fetch call in UI JS (Stage 8.4 — create stub not UI-wired)');
+  // Stage 8.4.8: create IS now wired; confirm is still not wired
+  check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(jsSection),
+    '/staff/manual-bookings/create fetch present in UI JS (Stage 8.4.8 — wired with flag gate)');
   // Verify no PATCH/DELETE/PUT fetches
   check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(jsSection),
     'No PATCH/DELETE/PUT fetch method in embedded UI JS (Stage 8.4)');
@@ -312,8 +312,8 @@ check(/bed\.bed_code/.test(src),
 (function checkFilePostRestriction(){
   check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(src),
     'No PATCH/DELETE/PUT fetch calls in entire file (Stage 8.3a / 8.4)');
-  check(!/fetch[^)]*manual-bookings\/create|fetch[^)]*manual-bookings\/confirm/i.test(src),
-    'No create/confirm manual-bookings fetch in entire file (Stage 8.4 — create stub not UI-wired)');
+  check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(src),
+    '/staff/manual-bookings/create fetch present in file (Stage 8.4.8)');
 })();
 
 // ── Stage 8.3b — booking detail drawer cleanup ────────────────────────────
@@ -584,11 +584,9 @@ check(/id="bc-sel-conflicts"/.test(src),
 check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/preview['"]/.test(src),
   "fetch('/staff/manual-bookings/preview') call present (Stage 8.3l)");
 
-// 109. No fetch to /staff/manual-bookings/create or /confirm from the UI (Stage 8.4)
-// The create route is a gated, disabled server-side stub and is intentionally
-// NOT wired to the UI until the pricing/payment engine slices are built.
-check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(src),
-  'No fetch to /manual-bookings/create or /confirm routes from UI (Stage 8.4 — stub not wired)');
+// 109. /staff/manual-bookings/create fetch IS wired in UI (Stage 8.4.8, gated by flags)
+check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(src),
+  'fetch to /staff/manual-bookings/create present in UI (Stage 8.4.8 — wired with flag gate)');
 
 // 110. bc-preview-result element present (Stage 8.3l)
 check(/id="bc-preview-result"/.test(src),
@@ -647,9 +645,9 @@ check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src
     'bcApplySelectionHighlight manages bc-sel-conflicts disabled state (Stage 8.3l)');
 })();
 
-// 120. "Creation remains disabled" helper text present (Stage 8.3l)
-check(/Creation remains disabled/i.test(src),
-  '"Creation remains disabled" helper text present (Stage 8.3l)');
+// 120. Flag-aware creation note present in UI (Stage 8.4.8: note references MANUAL_BOOKING_ENABLED)
+check(/MANUAL_BOOKING_ENABLED/.test(src),
+  'MANUAL_BOOKING_ENABLED referenced in UI (flag-aware messaging — Stage 8.4.8)');
 
 // ── Stage 8.3q/8.3u — Tour Operator Block (moved to Tour Operator tab) ───────
 
@@ -886,13 +884,13 @@ check(!/h3>Room.*\/ Beds|h3.*Room.*\/.*Beds/i.test(src),
     'Create Manual Booking button still disabled in UI (Stage 8.4 — not wired)');
 })();
 
-// 164. UI JS does not reference a create handler / flag (kept unwired)
-check(!/runCreateManualBooking|bcUpdateCreateBtn|bcCreateInFlight/.test(src),
-  'No client-side create handler/flag wired into UI (Stage 8.4 — stub stays server-only)');
+// 164. UI has runManualBookingCreate + bcUpdateCreateButton (wired in Stage 8.4.8)
+check(/runManualBookingCreate/.test(src) && /bcUpdateCreateButton/.test(src),
+  'UI has runManualBookingCreate and bcUpdateCreateButton functions (Stage 8.4.8)');
 
-// 165. Preview-only / creation-disabled messaging still present
-check(/Creation remains disabled/i.test(src),
-  'UI still states manual booking creation is disabled (Stage 8.4)');
+// 165. Flag-aware note: creation disabled message references the env flag
+check(/MANUAL_BOOKING_ENABLED|Manual booking creation disabled/.test(src),
+  'UI references MANUAL_BOOKING_ENABLED or disabled-in-this-environment message (Stage 8.4.8)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ── Stage 8.4.5 — quote preview UI + multi-bed selection ─────────────────────
@@ -1064,13 +1062,13 @@ check(/No Stripe link created/i.test(src),
     'renderBookingContextDrawer suppresses simple bed_codes row when detailed assignments exist (Stage 8.4.5)');
 })();
 
-// 189. Create Manual Booking button still disabled (regression from Stage 8.4)
-check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src),
-  'Create Manual Booking button still disabled after Stage 8.4.5 changes (regression check)');
+// 189. Create Manual Booking button element present in HTML (Stage 8.4.8 gates by flags)
+check(/id="bc-sel-create"/.test(src),
+  'Create Manual Booking button element present in HTML (Stage 8.4.8)');
 
-// 190. No fetch to /staff/manual-bookings/create in UI (regression from Stage 8.4)
-check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(src),
-  'No fetch to /staff/manual-bookings/create from UI JS (Stage 8.4.5 regression check)');
+// 190. UI fetches /staff/manual-bookings/create (wired in Stage 8.4.8, gated by flags)
+check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(src),
+  'UI fetches /staff/manual-bookings/create (Stage 8.4.8)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ── Stage 8.4.6 — room type selector ─────────────────────────────────────────
@@ -1109,9 +1107,9 @@ check(/id="bk-room-type"/.test(src),
     'bcClearSelection resets bk-room-type to shared (Stage 8.4.6)');
 })();
 
-// 195. Create Manual Booking still disabled (regression)
-check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src),
-  'Create Manual Booking button still disabled after Stage 8.4.6 (regression check)');
+// 195. Create Manual Booking button element present (Stage 8.4.8: gated by flags, no longer disabled-only)
+check(/id="bc-sel-create"/.test(src),
+  'Create Manual Booking button element present in HTML (Stage 8.4.6 regression / Stage 8.4.8 gates by flags)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ── Stage 8.4.7 — add-ons selector ───────────────────────────────────────────
@@ -1178,9 +1176,69 @@ check(/id="bk-ao-ws-combo"/.test(src) && /id="bk-ao-wetsuit"/.test(src),
 check(/function bcInitAddOns/.test(src),
   'bcInitAddOns function present (Stage 8.4.7)');
 
-// 203. No /staff/manual-bookings/create fetch from UI (regression)
-check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(src),
-  'No /staff/manual-bookings/create fetch from UI (Stage 8.4.7 regression)');
+// 203. /staff/manual-bookings/create fetch IS present in UI (Stage 8.4.8 wires it)
+check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(src),
+  '/staff/manual-bookings/create fetch present in UI (Stage 8.4.8)');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── Stage 8.4.8 — create with quote + draft payment ──────────────────────────
+
+// 204. Server flags embedded as JS vars in UI
+check(/BC_STAFF_ACTIONS\s*=\s*\$\{STAFF_ACTIONS_ENABLED\}/.test(src),
+  'BC_STAFF_ACTIONS flag embedded in UI template from STAFF_ACTIONS_ENABLED (Stage 8.4.8)');
+check(/BC_MANUAL_BOOKING\s*=\s*\$\{MANUAL_BOOKING_ENABLED\}/.test(src),
+  'BC_MANUAL_BOOKING flag embedded in UI template from MANUAL_BOOKING_ENABLED (Stage 8.4.8)');
+
+// 205. bcUpdateCreateButton function present and checks both flags
+(function checkUpdateCreateBtn(){
+  const fnStart = src.indexOf('function bcUpdateCreateButton');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/function bcUpdateCreateButton/.test(src),
+    'bcUpdateCreateButton function present (Stage 8.4.8)');
+  check(/BC_STAFF_ACTIONS/.test(fnSrc) && /BC_MANUAL_BOOKING/.test(fnSrc),
+    'bcUpdateCreateButton checks both BC_STAFF_ACTIONS and BC_MANUAL_BOOKING flags (Stage 8.4.8)');
+  check(/bcLastQuote/.test(fnSrc),
+    'bcUpdateCreateButton requires bcLastQuote (quote must be run first) (Stage 8.4.8)');
+})();
+
+// 206. runManualBookingCreate present, posts to create route, no trusted totals
+(function checkRunCreate(){
+  const fnStart = src.indexOf('function runManualBookingCreate');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction render', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/function runManualBookingCreate/.test(src),
+    'runManualBookingCreate function present (Stage 8.4.8)');
+  check(/\/staff\/manual-bookings\/create/.test(fnSrc),
+    'runManualBookingCreate posts to /staff/manual-bookings/create (Stage 8.4.8)');
+  check(/package_code/.test(fnSrc) && /room_type/.test(fnSrc) && /payment_choice/.test(fnSrc),
+    'runManualBookingCreate payload includes package_code, room_type, payment_choice (Stage 8.4.8)');
+  check(/add_ons/.test(fnSrc),
+    'runManualBookingCreate payload includes add_ons (Stage 8.4.8)');
+  check(!/deposit_amount_cents|total_amount_cents/.test(fnSrc),
+    'runManualBookingCreate does NOT send deposit_amount_cents/total_amount_cents (Stage 8.4.8)');
+  check(/BC_STAFF_ACTIONS.*BC_MANUAL_BOOKING|BC_MANUAL_BOOKING.*BC_STAFF_ACTIONS/.test(fnSrc),
+    'runManualBookingCreate checks flags before posting (Stage 8.4.8)');
+})();
+
+// 207. bcClearSelection resets bcLastQuote (Stage 8.4.8)
+(function checkClearResetsQuote(){
+  const fnStart = src.indexOf('function bcClearSelection');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/bcLastQuote\s*=\s*null/.test(fnSrc),
+    'bcClearSelection resets bcLastQuote to null (Stage 8.4.8)');
+})();
+
+// 208. renderCreateResult present and shows booking_code + no Stripe notice
+check(/function renderCreateResult/.test(src),
+  'renderCreateResult function present (Stage 8.4.8)');
+check(/booking_code/.test(src.slice(src.indexOf('function renderCreateResult')||0, src.indexOf('function renderCreateResult')+2000||2000)),
+  'renderCreateResult shows booking_code (Stage 8.4.8)');
+
+// 209. No /staff/manual-bookings/confirm wired in UI
+check(!/fetch[^)]*manual-bookings\/confirm/i.test(src),
+  'No /staff/manual-bookings/confirm fetch from UI (out of scope Stage 8.4.8)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 

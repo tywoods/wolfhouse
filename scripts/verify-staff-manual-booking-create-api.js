@@ -125,8 +125,9 @@ check('H30', /workflow_events/.test(fs.readFileSync(path.join(__dirname, 'lib', 
 // ── I. No external side effects ─────────────────────────────────────────────────
 // Negative checks target actual call/usage patterns, not the safety-assertion
 // keys (no_stripe / stripe_called:false) or the "NO Stripe…" comments.
-check('I31', !/stripe[.(]|checkout\.session|payment_link|createCheckout/i.test(handler),
-  'handler invokes no Stripe / checkout / payment link');
+// I31: no actual Stripe API calls — payment_link_amount_cents is a field name, not a Stripe call
+check('I31', !/stripe\s*[\.(]|checkout\.sessions?\.create|payment_links?\.create|createCheckout\s*\(/i.test(handler),
+  'handler invokes no Stripe / checkout / payment link API calls');
 check('I32', !/whatsapp[.(]|twilio|sendWhatsApp|sendMessage\(/i.test(handler),
   'handler invokes no WhatsApp / messaging');
 check('I33', !/n8n[.(]|webhook[.(]|fetch\(|axios|http\.request/i.test(handler),
@@ -145,24 +146,74 @@ const pkg = fs.existsSync(PKG) ? fs.readFileSync(PKG, 'utf8') : '';
 check('K37', /verify:staff-manual-booking-create-api/.test(pkg),
   'package.json has verify:staff-manual-booking-create-api script');
 
-// ── L. Provisional / disabled / unwired guarantees (Stage 8.4 correction) ───────
-// The provisional banner lives in the comment block immediately before the handler.
+// ── L. Stage 8.4.8 implementation guarantees ────────────────────────────────
 const docStart = src.indexOf('// Route: POST /staff/manual-bookings/create');
 const routeDoc = docStart >= 0 ? src.slice(docStart, hStart > docStart ? hStart : docStart + 4000) : '';
-check('L38', /PROVISIONAL|DISABLED-BY-DEFAULT|NOT ENABLED|do not enable/i.test(routeDoc),
-  'route header documents it as a provisional / disabled stub');
-check('L39', /pricing\/payment engine|pricing engine/i.test(routeDoc),
-  'route header states pricing/payment engine is a prerequisite');
-// Not wired to the UI: the buildUiHtml template must not fetch the create route.
-(function checkNotUiWired(){
+
+// L38: Route header documents Stage 8.4.8 implementation
+check('L38', /Stage 8\.4\.8|booking-first|quote-driven/i.test(routeDoc),
+  'route header documents Stage 8.4.8 booking-first / quote-driven implementation');
+
+// L39: Handler calls calculateWolfhouseQuote() server-side
+check('L39', /calculateWolfhouseQuote\s*\(/.test(handler),
+  'handler calls calculateWolfhouseQuote() server-side (not from client body)');
+
+// L40: UI now wires to /staff/manual-bookings/create (gated by flags)
+(function checkUiWired(){
   const uiIdx = src.indexOf('function buildUiHtml');
   const uiSrc = uiIdx >= 0 ? src.slice(uiIdx, src.indexOf('function handleUI', uiIdx) > 0 ? src.indexOf('function handleUI', uiIdx) : uiIdx + 200000) : src;
-  check('L40', !/fetch[^)]*manual-bookings\/create/i.test(uiSrc),
-    'create route is NOT wired to the UI (no fetch in buildUiHtml)');
+  check('L40', /fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(uiSrc),
+    'create route IS wired to the UI (fetch in buildUiHtml)');
 })();
-// No Stripe session / invoice / payment-link creation anywhere in the handler.
+
+// L41: No Stripe session / invoice / payment-link creation
 check('L41', !/checkout\.sessions?\.create|invoices?\.create|paymentLinks?\.create/i.test(handler),
   'handler creates no Stripe session / invoice / payment link');
+
+// ── M. Stage 8.4.8: Quote-driven amount checks ──────────────────────────────
+// M42: Handler does NOT read deposit/total from body (amounts come from quote)
+check('M42', !/parseInt\(body\.deposit_amount_cents|parseInt\(body\.total_amount_cents/.test(handler),
+  'handler does NOT read deposit/total from request body (amounts from quote only)');
+
+// M43: Quote snapshot stored in booking metadata UPDATE
+check('M43', /quote_snapshot/.test(handler) && /UPDATE bookings/.test(handler),
+  'handler stores quote_snapshot in booking metadata (UPDATE bookings)');
+
+// M44: payment_kind determined from payment_choice
+check('M44', /payment_kind.*payment_choice|paymentKind.*paymentChoice/i.test(handler),
+  'handler derives payment_kind from payment_choice (not hardcoded)');
+
+// M45: UPDATE payments with payment_kind + amount_due_cents from quote
+check('M45', /UPDATE payments/.test(handler) && /amount_due_cents/.test(handler),
+  'handler UPDATEs payment record with quote-derived amount_due_cents');
+
+// M46: Handler returns quote_summary in success response
+check('M46', /quote_summary/.test(handler),
+  'handler returns quote_summary in 201 success response');
+
+// M47: Server-side flag embedding in UI (BC_STAFF_ACTIONS, BC_MANUAL_BOOKING)
+check('M47',
+  /BC_STAFF_ACTIONS\s*=\s*\$\{STAFF_ACTIONS_ENABLED\}/.test(src) &&
+  /BC_MANUAL_BOOKING\s*=\s*\$\{MANUAL_BOOKING_ENABLED\}/.test(src),
+  'UI template embeds server flags as JS vars (BC_STAFF_ACTIONS, BC_MANUAL_BOOKING)');
+
+// M48: UI has bcUpdateCreateButton checking flags
+check('M48', /function bcUpdateCreateButton/.test(src) &&
+  /BC_STAFF_ACTIONS.*BC_MANUAL_BOOKING|BC_MANUAL_BOOKING.*BC_STAFF_ACTIONS/.test(src),
+  'UI has bcUpdateCreateButton() checking both server flags');
+
+// M49: UI has runManualBookingCreate posting to create route
+check('M49', /function runManualBookingCreate/.test(src),
+  'UI has runManualBookingCreate() function');
+
+// M50: UI payload does NOT send trusted deposit/total from form
+(function checkUiPayload(){
+  const fnStart = src.indexOf('function runManualBookingCreate');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction render', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check('M50', !/deposit_amount_cents|total_amount_cents/.test(fnSrc),
+    'UI runManualBookingCreate does NOT send deposit_amount_cents/total_amount_cents (trust quote only)');
+})();
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log(`\nResult: ${passed} passed, ${failed} failed\n`);

@@ -1177,26 +1177,16 @@ async function handleQuotePreview(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/manual-bookings/create  (Stage 8.4 — PROVISIONAL / DISABLED)
 //
-// ⚠️ NOT ENABLED — NOT WIRED TO UI — DO NOT FLIP MANUAL_BOOKING_ENABLED YET.
+// Stage 8.4.8: Booking-first flow, quote-driven amounts.
+// calculateWolfhouseQuote() runs server-side; amounts are NEVER trusted from
+// the client. quote_snapshot stored in booking.metadata. Draft payment record
+// created from quote.payment_link_amount_cents. No Stripe. No WhatsApp. No n8n.
 //
-// Status: this is a gated, disabled-by-default stub kept behind the
-// MANUAL_BOOKING_ENABLED flag (default false → returns 403). It is intentionally
-// NOT connected to any UI control. It must NOT be enabled until the
-// pricing/payment engine is built, because this provisional path bakes in
-// pricing/payment assumptions (it inserts a payments row from raw staff-entered
-// deposit/total) that the final design must replace with a quote snapshot.
+// Required flags (both env vars must be true to use from UI):
+//   MANUAL_BOOKING_ENABLED=true  — gates this route (returns 403 if false)
+//   STAFF_ACTIONS_ENABLED=true   — UI enablement signal (not checked server-side here)
 //
-// Required prerequisite slices BEFORE this route may be enabled
-// (see docs/STAGE-8.4-MANUAL-BOOKING-CREATION.md):
-//   1. Pricing/payment engine plan
-//   2. Quote calculator
-//   3. Quote preview endpoint
-//   4. Manual booking create using a quote snapshot + payment records
-//   5. Stripe payment-link / invoice creation from a payment record
-//   6. Stripe webhook payment truth
-//   7. UI enablement behind gates
-//
-// When (eventually) enabled, gates (all must pass):
+// When enabled, gates (all must pass):
 //   1. MANUAL_BOOKING_ENABLED is true         (dedicated feature flag)
 //   2. Authenticated session, role operator+  (when STAFF_AUTH_REQUIRED=true)
 //   3. confirm: true in request body
@@ -1257,14 +1247,17 @@ async function handleManualBookingCreate(req, res, user) {
   const email       = String(body.email || '').trim().slice(0, 200) || null;
   const language    = String(body.language || 'en').trim().slice(0, 10) || 'en';
   const guestCount  = parseInt(body.guest_count, 10) || 0;
-  const packageType = String(body.package_or_stay_type || '').trim().slice(0, 200) || null;
   const roomPref    = String(body.room_preference || '').trim().slice(0, 200) || null;
   const notes       = String(body.notes || '').trim().slice(0, 2000) || null;
   const reason      = String(body.reason || 'Manual booking via Staff Portal Bed Calendar').trim().slice(0, 500);
   const source      = String(body.source || 'staff_manual').trim().slice(0, 50) || 'staff_manual';
-  const depositCents = parseInt(body.deposit_amount_cents, 10) || 0;
-  const totalCents   = parseInt(body.total_amount_cents, 10) || 0;
-  const confirmFlag  = body.confirm === true;
+  // Stage 8.4.8: quote-driven fields — amounts derived from calculateWolfhouseQuote(), NOT from body
+  const packageCode   = String(body.package_code || body.package_or_stay_type || '').trim().slice(0, 50) || null;
+  const roomType      = String(body.room_type || 'shared').trim().slice(0, 20) || 'shared';
+  const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
+  const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();
+  const paymentKind   = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
+  const confirmFlag   = body.confirm === true;
   const warningsAck  = body.warnings_acknowledged === true;
   const bookingCode  = body.booking_code ? String(body.booking_code).trim().slice(0, 60) : null;
 
@@ -1310,6 +1303,28 @@ async function handleManualBookingCreate(req, res, user) {
     return send400(res, 'confirm: true is required in request body');
   if (!MANUAL_BOOKING_ALLOWED_ROLES.includes(actorRole))
     return sendJSON(res, 403, { success: false, error: `Role '${actorRole}' may not create manual bookings.` });
+
+  // ── 5b. Server-side quote calculation (Stage 8.4.8) ──────────────────────────
+  // Amounts are never trusted from the client. calculateWolfhouseQuote() is the
+  // single source of truth for total, deposit, and payment_link amounts.
+  if (!packageCode || packageCode === 'manual_override')
+    return send400(res, 'package_code is required for quote-driven booking (manual_override not supported here)');
+  const quote = calculateWolfhouseQuote({
+    client_slug:    clientSlug,
+    check_in:       checkIn,
+    check_out:      checkOut,
+    guest_count:    guestCount,
+    package_code:   packageCode,
+    room_type:      roomType,
+    payment_choice: paymentChoice,
+    add_ons:        addOns,
+  });
+  if (!quote.success || quote.blockers.length > 0) {
+    return send400(res, 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
+  }
+  const depositCents           = quote.deposit_required_cents;
+  const totalCents             = quote.total_cents;
+  const paymentLinkAmountCents = quote.payment_link_amount_cents;
 
   // ── 6. Idempotency key ───────────────────────────────────────────────────────
   // Accept caller-provided key; otherwise build a deterministic key from the
@@ -1359,7 +1374,7 @@ async function handleManualBookingCreate(req, res, user) {
           checkOut,          // $11
           guestCount,        // $12
           selectedBedCodes,  // $13 text[]
-          packageType,       // $14
+          packageCode,       // $14  (Stage 8.4.8: from quote, not package_or_stay_type)
           roomPref,          // $15
           bookingStatus,     // $16
           paymentStatus,     // $17
@@ -1399,6 +1414,49 @@ async function handleManualBookingCreate(req, res, user) {
           result._safety_violation = true;
           return result;
         }
+
+        // Stage 8.4.8: Update booking with quote-derived amounts + quote_snapshot in metadata
+        await pg.query(
+          `UPDATE bookings
+             SET total_amount_cents      = $1,
+                 deposit_required_cents  = $2,
+                 balance_due_cents       = $3,
+                 requested_room_type     = $4,
+                 metadata                = metadata || $5::jsonb
+           WHERE id = $6`,
+          [
+            totalCents,
+            depositCents,
+            quote.balance_due_cents,
+            roomType,
+            JSON.stringify({
+              quote_snapshot:   quote,
+              payment_choice:   paymentChoice,
+              add_ons_at_create: addOns,
+            }),
+            result.booking_id,
+          ]
+        );
+
+        // Stage 8.4.8: Update payment record — payment_kind from payment_choice + correct amount
+        await pg.query(
+          `UPDATE payments
+             SET payment_kind     = $1::payment_kind,
+                 amount_due_cents = $2,
+                 metadata         = metadata || $3::jsonb
+           WHERE booking_id = $4`,
+          [
+            paymentKind,
+            paymentLinkAmountCents,
+            JSON.stringify({
+              payment_choice:            paymentChoice,
+              quote_total_cents:         totalCents,
+              payment_link_amount_cents: paymentLinkAmountCents,
+              source:                    'quote_driven_stage848',
+            }),
+            result.booking_id,
+          ]
+        );
 
         await pg.query('COMMIT');
         return result;
@@ -1483,10 +1541,19 @@ async function handleManualBookingCreate(req, res, user) {
     selected_bed_codes: selectedBedCodes,
     payment_status:    paymentStatus,
     booking_status:    bookingStatus,
+    // Stage 8.4.8: quote summary from server-side calculation
+    quote_summary: {
+      total_cents:               quote.total_cents,
+      deposit_required_cents:    quote.deposit_required_cents,
+      payment_link_amount_cents: paymentLinkAmountCents,
+      payment_kind:              paymentKind,
+      formula_summary:           quote.formula_summary,
+      no_stripe_link:            true,
+    },
     no_stripe:         true,
     no_whatsapp:       true,
     no_n8n:            true,
-    message:           'Manual booking created.',
+    message:           'Manual booking created. Draft payment record created. No Stripe link yet.',
     elapsed_ms:        elapsed,
   });
 }
@@ -2252,7 +2319,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
     </div>
 
     <!-- Safety notice -->
-    <div class="bk-safety-notice">
+    <div class="bk-safety-notice" id="bc-safety-notice">
       &#128274; Preview only &mdash; no booking will be created.<br>
       Staff writes are disabled in staging.<br>
       No WhatsApp message or Stripe payment link will be sent.
@@ -2262,7 +2329,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div class="bc-sel-actions" style="margin-top:16px">
       <button class="btn btn-ghost" id="bc-sel-clear">Clear selection</button>
       <button class="btn bc-sel-create-btn" disabled id="bc-sel-create"
-        title="Manual booking creation is planned but not enabled in staging.">
+        title="Calculate Quote first, then Create Manual Booking becomes available when both flags are enabled.">
         Create Manual Booking
       </button>
       <button class="btn" disabled id="bc-sel-conflicts"
@@ -2274,7 +2341,9 @@ textarea.bk-input{resize:vertical;min-height:60px}
         Calculate Quote
       </button>
     </div>
-    <div class="bk-preview-create-note">Creation remains disabled until manual booking write gates are approved.</div>
+    <!-- Stage 8.4.8: Create result panel -->
+    <div id="bc-create-result" style="margin-top:12px"></div>
+    <div class="bk-preview-create-note" id="bc-create-note">Set MANUAL_BOOKING_ENABLED=true and STAFF_ACTIONS_ENABLED=true to enable booking creation.</div>
   </div>
 
   <!-- Tour Operator Block skeleton (Stage 8.3q — moved to Tour Operator tab in Stage 8.3u) -->
@@ -3245,6 +3314,11 @@ var bcData = null;
 /* Selection model state (Stage 8.3c) — read-only, no writes */
 var bcSel = null;        /* { anchor_date, cursor_date } — shared date range */
 var bcSelectedBeds = []; /* [{ room_code, bed_code }] — beds in current selection (Stage 8.4.5) */
+/* Stage 8.4.8 — server-reported feature flags (interpolated at render time) */
+var BC_STAFF_ACTIONS  = ${STAFF_ACTIONS_ENABLED};
+var BC_MANUAL_BOOKING = ${MANUAL_BOOKING_ENABLED};
+/* Last successful quote (required for create) */
+var bcLastQuote = null;
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
 
@@ -3271,6 +3345,10 @@ function bcClearSelection(){
   var pc = el('bk-payment-choice'); if (pc) pc.value = 'deposit';
   var pk = el('bk-package'); if (pk) pk.value = '';
   var rt = el('bk-room-type'); if (rt) rt.value = 'shared';
+  /* Reset quote state and create panel (Stage 8.4.8) */
+  bcLastQuote = null;
+  var _crEl = el('bc-create-result'); if (_crEl) _crEl.innerHTML = '';
+  bcUpdateCreateButton();
   /* Reset add-on checkboxes and qty inputs (Stage 8.4.7) */
   ['bk-ao-ws-combo','bk-ao-wb-combo','bk-ao-wetsuit','bk-ao-softtop','bk-ao-hardboard'].forEach(function(id){
     var cb = el(id); if (cb) cb.checked = false;
@@ -3582,6 +3660,136 @@ function bcUpdateQuoteButton(){
   btn.disabled = !(hasSelection && cin && cout && gc >= 1 && pkg && pc);
 }
 
+/* ── Create button state helper (Stage 8.4.8) ────────────────────────────── */
+function bcUpdateCreateButton(){
+  var btn = el('bc-sel-create');
+  if (!btn) return;
+  var note = el('bc-create-note');
+  /* Flags must both be true (server-interpolated at page render) */
+  if (!BC_STAFF_ACTIONS || !BC_MANUAL_BOOKING){
+    btn.disabled = true;
+    btn.title    = 'Manual booking creation disabled. Set MANUAL_BOOKING_ENABLED=true and STAFF_ACTIONS_ENABLED=true.';
+    if (note) note.textContent = 'Manual booking creation disabled in this environment.';
+    return;
+  }
+  var hasSelection = bcSel && bcSelectedBeds.length > 0;
+  var cin          = el('bc-sel-cin')        ? el('bc-sel-cin').value        : '';
+  var cout         = el('bc-sel-cout')       ? el('bc-sel-cout').value       : '';
+  var gc           = parseInt(el('bk-guest-count')   ? el('bk-guest-count').value   : '0', 10) || 0;
+  var pkg          = el('bk-package')        ? el('bk-package').value        : '';
+  var pc           = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
+  var gname        = el('bk-guest-name')     ? (el('bk-guest-name').value||'').trim() : '';
+  var phone        = el('bk-phone')          ? (el('bk-phone').value||'').trim()      : '';
+  var quoteOk      = !!bcLastQuote;
+  var ready        = hasSelection && cin && cout && gc >= 1 && pkg && pc && gname && phone && quoteOk;
+  btn.disabled = !ready;
+  btn.title    = ready
+    ? 'Create manual booking with calculated quote'
+    : (!quoteOk ? 'Calculate Quote first' : 'Fill all required fields first');
+  if (note){
+    note.textContent = ready
+      ? 'Booking creation enabled \u2014 flags active. No Stripe link will be created.'
+      : (!quoteOk ? 'Click Calculate Quote first to enable booking creation.' : 'Complete all required fields.');
+  }
+}
+
+/* ── Manual booking create (Stage 8.4.8 — posts to /staff/manual-bookings/create) */
+function runManualBookingCreate(){
+  var cr = el('bc-create-result');
+  if (!cr) return;
+  if (!BC_STAFF_ACTIONS || !BC_MANUAL_BOOKING){
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Disabled</div>Manual booking creation is disabled in this environment.</div>';
+    return;
+  }
+  if (!bcLastQuote){
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">No quote</div>Calculate Quote first.</div>';
+    return;
+  }
+  var checkIn      = el('bc-sel-cin')        ? el('bc-sel-cin').value        : '';
+  var checkOut     = el('bc-sel-cout')       ? el('bc-sel-cout').value       : '';
+  var client       = getBcClient();
+  var gcEl         = el('bk-guest-count');
+  var guestCount   = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
+  var packageCode  = el('bk-package')        ? el('bk-package').value        : '';
+  var payChoice    = el('bk-payment-choice') ? el('bk-payment-choice').value : 'deposit';
+  var roomType     = el('bk-room-type')      ? el('bk-room-type').value      : 'shared';
+  var guestName    = el('bk-guest-name')     ? (el('bk-guest-name').value||'').trim()     : '';
+  var phone        = el('bk-phone')          ? (el('bk-phone').value||'').trim()          : '';
+  var email        = el('bk-email')          ? (el('bk-email').value||'').trim()||null    : null;
+  var source       = el('bk-source')         ? (el('bk-source').value||'staff_manual')    : 'staff_manual';
+  var notes        = el('bk-notes')          ? (el('bk-notes').value||'').trim()||null    : null;
+  var payload = {
+    client_slug:        client,
+    check_in:           checkIn,
+    check_out:          checkOut,
+    selected_bed_codes: bcSelectedBeds.map(function(b){ return b.bed_code; }),
+    guest_count:        guestCount,
+    guest_name:         guestName,
+    phone:              phone,
+    email:              email,
+    package_code:       packageCode,
+    room_type:          roomType,
+    payment_choice:     payChoice,
+    add_ons:            buildAddOns(),
+    booking_source:     source,
+    notes:              notes,
+    confirm:            true,
+  };
+  cr.innerHTML = '<div class="bk-preview-loading">Creating booking\u2026</div>';
+  var createBtn = el('bc-sel-create');
+  if (createBtn) createBtn.disabled = true;
+  fetch('/staff/manual-bookings/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload)
+  })
+  .then(function(r){
+    return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; });
+  })
+  .then(function(res){
+    cr.innerHTML = renderCreateResult(res);
+    if (res.ok && res.data && res.data.success) {
+      /* Reload calendar to show new booking */
+      loadBedCalendar();
+    } else {
+      /* Re-enable create button on failure */
+      bcUpdateCreateButton();
+    }
+  })
+  .catch(function(e){
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Network error</div>' + escHtml(String(e)) + '</div>';
+    bcUpdateCreateButton();
+  });
+}
+
+function renderCreateResult(res){
+  var d = res.data || {};
+  var fmtEur = function(c){ return c == null ? '\u2014' : '\u20ac'+(Number(c)/100).toFixed(2); };
+  if (!res.ok || !d.success){
+    var msg = d.error || ('HTTP ' + res.status);
+    return '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 Create failed</div>' +
+      '<div class="bk-preview-meta">' + escHtml(msg) + '</div>' +
+      (d.block_reason ? '<div class="bk-preview-meta">Reason: ' + escHtml(d.block_reason) + '</div>' : '') +
+      '</div>';
+  }
+  var qs = d.quote_summary || {};
+  var html = '<div class="bk-quote-banner" style="background:var(--green-bg,#d4edda);border-color:var(--green-border,#c3e6cb);color:var(--green-text,#155724)">' +
+    '\u2705 Booking created: <strong>' + escHtml(d.booking_code || '\u2014') + '</strong></div>';
+  html += '<div class="bk-quote-items">';
+  html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Booking code</span><span class="bk-quote-item-amount">' + escHtml(d.booking_code||'\u2014') + '</span></div>';
+  html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Beds assigned</span><span class="bk-quote-item-amount">' + escHtml(String(d.beds_inserted||0)) + '</span></div>';
+  if (qs.total_cents != null)
+    html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Total</span><span class="bk-quote-item-amount">' + fmtEur(qs.total_cents) + '</span></div>';
+  if (qs.payment_link_amount_cents != null)
+    html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Draft payment (' + escHtml(qs.payment_kind||'') + ')</span><span class="bk-quote-item-amount">' + fmtEur(qs.payment_link_amount_cents) + '</span></div>';
+  html += '</div>';
+  if (qs.formula_summary)
+    html += '<div class="bk-quote-formula">' + escHtml(qs.formula_summary) + '</div>';
+  html += '<div class="bk-preview-warn" style="margin-top:8px">&#128274; No Stripe link created. Draft payment record created. Status: draft.</div>';
+  return html;
+}
+
 /* ── Quote preview (Stage 8.4.5 — posts to /staff/quote-preview, no writes) ─ */
 function runQuotePreview(){
   var qr = el('bc-quote-result');
@@ -3629,9 +3837,15 @@ function runQuotePreview(){
   .then(function(res){
     if (!res) return;
     qr.innerHTML = renderQuoteResult(res.data);
+    /* Stage 8.4.8: track successful quote and update create button */
+    var q = res.data && res.data.quote;
+    bcLastQuote = (q && q.success) ? q : null;
+    bcUpdateCreateButton();
   })
   .catch(function(){
     qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Network error</div>Please try again.</div>';
+    bcLastQuote = null;
+    bcUpdateCreateButton();
   });
 }
 
@@ -3823,10 +4037,24 @@ function renderBedCalendar(data){
   /* Wire Calculate Quote button (Stage 8.4.5 — re-wired each render) */
   var _quoteBtn = el('bc-sel-quote');
   if (_quoteBtn) _quoteBtn.onclick = runQuotePreview;
-  /* Wire form field listeners for quote button enable/disable (Stage 8.4.5) */
-  ['bk-package','bk-payment-choice','bk-guest-count'].forEach(function(fId){
-    var fEl = el(fId); if (fEl) fEl.onchange = bcUpdateQuoteButton;
+  /* Wire Create Manual Booking button (Stage 8.4.8 — gated by flags + quote) */
+  var _createBtn = el('bc-sel-create');
+  if (_createBtn) _createBtn.onclick = runManualBookingCreate;
+  /* Wire form field listeners for quote + create button enable/disable */
+  ['bk-package','bk-payment-choice','bk-guest-count','bk-guest-name','bk-phone'].forEach(function(fId){
+    var fEl = el(fId); if (fEl) fEl.onchange = function(){ bcUpdateQuoteButton(); bcUpdateCreateButton(); };
   });
+  /* Update create button state and safety notice on each calendar load */
+  bcUpdateCreateButton();
+  var _notice = el('bc-safety-notice');
+  if (_notice){
+    if (BC_STAFF_ACTIONS && BC_MANUAL_BOOKING){
+      _notice.innerHTML = '&#128994; Booking creation enabled \u2014 MANUAL_BOOKING_ENABLED=true, STAFF_ACTIONS_ENABLED=true.<br>Calculate Quote, then Create Manual Booking. No Stripe link will be sent.';
+      _notice.style.background = 'var(--green-bg, #d4edda)';
+      _notice.style.borderColor = 'var(--green-border, #c3e6cb)';
+      _notice.style.color = 'var(--green-text, #155724)';
+    }
+  }
 }
 
 function renderBookingBlock(blk, idx){
