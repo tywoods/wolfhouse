@@ -6018,6 +6018,11 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* ── Sidebar cards ───────────────────────────────────────────────────────── */
 .sidebar-card{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:14px}
 .sidebar-card h3{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px}
+.luna-auto-status{margin-bottom:12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface)}
+.luna-auto-status-paused{border-color:#E8C9A8;background:#FBF3EA}
+.luna-auto-status-label{font-size:12.5px;font-weight:700;color:var(--text)}
+.luna-auto-status-paused .luna-auto-status-label{color:#9C5742}
+.luna-auto-status-help{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.45}
 .kv2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .kv2 .kv{font-size:12px}
 /* ── Empty / loading / error ─────────────────────────────────────────────── */
@@ -7039,6 +7044,20 @@ function handoffLabel(code){
   return labels[code] || 'Needs review';
 }
 
+/* Phase 9.3 — read-only Luna guest automation pause signal from API payloads */
+function isLunaGuestAutomationPaused(sources){
+  var list = sources || [];
+  for (var i = 0; i < list.length; i++){
+    var o = list[i];
+    if (!o || typeof o !== 'object') continue;
+    if (o.bot_paused === true) return true;
+    if (o.paused === true) return true;
+    if (o.pause_state && o.pause_state.paused === true) return true;
+    if (o.pauseState && o.pauseState.paused === true) return true;
+  }
+  return false;
+}
+
 /* Render inbox conversation cards (left column) */
 function renderInbox(convs){
   var list = el('conv-list');
@@ -7172,6 +7191,7 @@ function loadConvDetail(convId, targetEl){
     var ctx   = (ctxData.success   && ctxData.context)    ? ctxData.context    : null;
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
     var state = (stateData.success && stateData.state)     ? stateData.state    : null;
+    var lunaGuestPaused = isLunaGuestAutomationPaused([detailData, c, stateData, state]);
 
     /* ── Header ── */
     var html = '<div class="detail-header">';
@@ -7294,6 +7314,12 @@ function loadConvDetail(convId, targetEl){
     var ss = state || {};
     html += '<div class="sidebar-card">';
     html +=   '<h3>Bot state</h3>';
+    html +=   '<div class="luna-auto-status' + (lunaGuestPaused ? ' luna-auto-status-paused' : '') + '">';
+    html +=     '<div class="luna-auto-status-label">' + (lunaGuestPaused ? 'Luna paused' : 'Luna active') + '</div>';
+    html +=     '<div class="luna-auto-status-help">' + (lunaGuestPaused
+      ? 'Automated guest replies should stay blocked while paused.'
+      : 'Automation status: active.') + '</div>';
+    html +=   '</div>';
     html +=   '<div class="kv2">';
     html +=     kv('Mode',        ss.bot_mode   || c.bot_mode) +
                 kv('Needs human', ss.needs_human != null ? String(ss.needs_human) : String(c.needs_human));

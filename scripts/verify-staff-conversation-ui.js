@@ -447,9 +447,21 @@ check(/switchToTab\s*\(\s*['"]conversations['"]\s*,\s*['"]handoffs['"]\s*\)/.tes
 check(/Auto-select top conversation|pickId|convs\[0\]\.conversation_id/.test(htmlSrc),
   'Top conversation auto-select logic in renderInbox (Stage 8.7.13)');
 
-// 80. No bot pause/resume controls added
-check(!/pause.*bot|resume.*bot|bot.*pause|bot.*resume/i.test(htmlSrc.replace(/bot_mode|modePill|PAUSED/g, '')),
-  'No bot pause/resume controls added (Stage 8.7.13)');
+// 80. No bot pause/resume write controls (Phase 9.3 allows read-only status display)
+check(!/Pause Luna|Resume Luna|btn.*pause|btn.*resume|\/staff\/bot\/pause|\/staff\/bot\/resume/i.test(htmlSrc),
+  'No bot pause/resume write controls (Phase 9.3 read-only status OK) (Stage 8.7.13+)');
+
+// ── Phase 9.3 — Inbox Luna pause status (read-only) ───────────────────────
+
+// 82. Read-only Luna automation status display
+check(/Luna active/.test(htmlSrc) && /Luna paused/.test(htmlSrc),
+  'Luna active/paused read-only status strings present (Phase 9.3)');
+check(/function isLunaGuestAutomationPaused/.test(htmlSrc),
+  'isLunaGuestAutomationPaused() helper present (Phase 9.3)');
+check(/Automation status: active/.test(htmlSrc),
+  'Active automation helper copy present (Phase 9.3)');
+check(!/fetch\([^)]*\/staff\/bot\/pause|fetch\([^)]*\/staff\/bot\/resume/i.test(htmlSrc),
+  'No fetch to pause/resume endpoints (Phase 9.3)');
 
 // 81. Safety — no WhatsApp / n8n / Stripe in conversation UI
 check(!/graph\.facebook\.com/.test(htmlSrc),
