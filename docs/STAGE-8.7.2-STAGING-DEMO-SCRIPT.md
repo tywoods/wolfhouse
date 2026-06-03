@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** PASS — docs only (2026-06-03).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000032` (2026-06-03, Stage 8.7.27 final pass).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -300,6 +300,28 @@
 | Auto-select | **PASS** | Top conversation selected when filtered list has rows |
 | Empty state | **PASS** | “No conversations need staff review right now.” |
 | Safety | **PASS** | Client-side filter on `/staff/conversations`; no `/staff/handoffs` UI fetch; no WhatsApp/n8n/Stripe |
+
+---
+
+## Final demo-ready confirmation — Stage 8.7.27 (2026-06-03)
+
+**Result:** **PASS — DEMO-READY** on revision `--0000032` (`b2a3b9f`). Full core demo path verified after 8.7.23–8.7.26 Bed Calendar polish batch.
+
+| Area | Result | Notes |
+|------|--------|-------|
+| Hard refresh | **PASS** | `/staff/ui` reload clean |
+| Nav | **PASS** | Today · Inbox · Bed Calendar · Luna · Tour Operator · Developer Tools |
+| Today tiles | **PASS** | Needs Human · Open Conversations · Bed Calendar |
+| Inbox filters | **PASS** | All conversations · Needs human **1**; top conversation auto-selected |
+| Bed Calendar | **PASS** | Next 30 auto-load; no Today chip; manual form clean (check-in/out/nights + chips only) |
+| Golden booking | **PASS** | Jul–Aug range → `MB-WOLFHO-20260801-4f10c3`; Deposit paid ✓; €100 paid / €150 balance; Luna draft + 2684# |
+| Luna · who owes | **PASS** | `payments.balance_due` · **4 rows** |
+| Luna · departures | **PASS** | `departures_today` · 0 rows |
+| Luna · cleaning | **PASS** | `rooms_or_beds_need_cleaning` · 0 rows |
+| Tour Operator | **PASS** | Simplified forms; Preview/Create/Release disabled |
+| Safety | **PASS** | No graph.facebook.com / n8n URL fetch / api.stripe.com; Approve & Send disabled; no write routes |
+
+**Demo-ready:** Ale/Cami shadow demo on staging is cleared to run from [core demo path](#core-demo-path-15-min) without UI blockers.
 
 ---
 
