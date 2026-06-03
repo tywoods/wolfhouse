@@ -3892,6 +3892,13 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bk-notes-block{display:flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:420px}
 .bk-notes-block .bk-label{min-width:0;text-align:left}
 .bk-notes-block textarea.bk-input{width:100%;max-width:420px;box-sizing:border-box;margin:0}
+/* Stage 8.7.18 — compact left-aligned guest/payment fields (matches add-ons) */
+.bk-compact-grid{display:flex;flex-direction:column;gap:6px;margin-top:4px;max-width:440px}
+.bk-compact-row{display:grid;grid-template-columns:minmax(0,128px) minmax(0,280px);align-items:center;gap:4px 10px;min-height:28px}
+.bk-compact-row .bk-label{min-width:0;text-align:left;flex-shrink:1}
+.bk-compact-row .bk-input{width:100%;max-width:280px;box-sizing:border-box}
+.bk-compact-row .bk-input.bk-input-sm{max-width:220px}
+.bk-compact-hint{font-size:11px;color:var(--text-3);font-style:italic;margin:2px 0 4px;max-width:440px;line-height:1.45}
 .bk-input{border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:5px 9px;font-size:12px;color:var(--text);background:#fff;width:100%;box-sizing:border-box;font-family:inherit;line-height:1.4}
 .bk-input.bk-input-sm{max-width:200px;width:auto}
 .bk-input[readonly]{background:var(--surface-soft);color:var(--text-2);border-style:dashed;cursor:default}
@@ -4201,77 +4208,80 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
-    <!-- Section: Guest -->
+    <!-- Section: Guest (Stage 8.7.18 — compact left-aligned) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Guest</div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-guest-name">Guest name</label>
-        <input type="text" id="bk-guest-name" class="bk-input" placeholder="Full name">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-phone">Phone</label>
-        <input type="tel" id="bk-phone" class="bk-input" placeholder="+34 600 000 000">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-email">Email</label>
-        <input type="email" id="bk-email" class="bk-input" placeholder="guest@example.com">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-guest-count">Guest count</label>
-        <input type="number" id="bk-guest-count" class="bk-input bk-input-sm" value="1" min="1" max="20">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-package">Package</label>
-        <select id="bk-package" class="bk-input bk-input-sm">
-          <option value="">&mdash; select package &mdash;</option>
-          <option value="malibu">Malibu</option>
-          <option value="uluwatu">Uluwatu</option>
-          <option value="waimea">Waimea</option>
-          <option value="package_none">No package / accommodation only</option>
-          <option value="manual_override">Manual price override</option>
-        </select>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-source">Source / channel</label>
-        <input type="text" id="bk-source" class="bk-input bk-input-sm" value="manual_staff" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-room-type">Room type</label>
-        <select id="bk-room-type" class="bk-input bk-input-sm">
-          <option value="shared" selected>Shared</option>
-          <option value="private">Private (+&euro;10/person/night)</option>
-          <option value="double">Double (+&euro;10/person/night)</option>
-        </select>
+      <div class="bk-compact-grid">
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-guest-name">Guest name</label>
+          <input type="text" id="bk-guest-name" class="bk-input bk-input-sm" placeholder="Full name">
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-phone">Phone</label>
+          <input type="tel" id="bk-phone" class="bk-input bk-input-sm" placeholder="+34 600 000 000">
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-email">Email</label>
+          <input type="email" id="bk-email" class="bk-input bk-input-sm" placeholder="guest@example.com">
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-guest-count">Guest count</label>
+          <input type="number" id="bk-guest-count" class="bk-input bk-input-sm" value="1" min="1" max="20">
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-package">Package</label>
+          <select id="bk-package" class="bk-input bk-input-sm">
+            <option value="">&mdash; select package &mdash;</option>
+            <option value="malibu">Malibu</option>
+            <option value="uluwatu">Uluwatu</option>
+            <option value="waimea">Waimea</option>
+            <option value="package_none">No package / accommodation only</option>
+            <option value="manual_override">Manual price override</option>
+          </select>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-source">Source / channel</label>
+          <input type="text" id="bk-source" class="bk-input bk-input-sm" value="manual_staff" readonly>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-room-type">Room type</label>
+          <select id="bk-room-type" class="bk-input bk-input-sm">
+            <option value="shared" selected>Shared</option>
+            <option value="private">Private (+&euro;10/person/night)</option>
+          </select>
+        </div>
       </div>
     </div>
 
-    <!-- Section: Payment -->
+    <!-- Section: Payment (Stage 8.7.18 — compact left-aligned) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Payment</div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-payment-choice">Payment choice</label>
-        <select id="bk-payment-choice" class="bk-input bk-input-sm">
-          <option value="deposit">Deposit only</option>
-          <option value="full">Full payment</option>
-          <option value="pay_on_arrival">Pay on arrival</option>
-        </select>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-payment-status">Payment status</label>
-        <select id="bk-payment-status" class="bk-input bk-input-sm">
-          <option value="unpaid">Unpaid</option>
-          <option value="deposit_paid">Deposit paid</option>
-          <option value="paid">Paid in full</option>
-        </select>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-deposit">Deposit amount paid (&euro;)</label>
-        <input type="number" id="bk-deposit" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0">
-      </div>
-      <div class="bk-form-hint">For manual records only &mdash; no Stripe charge is created.</div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bk-total">Total amount (&euro;)</label>
-        <input type="number" id="bk-total" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0">
+      <div class="bk-compact-grid">
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-payment-choice">Payment choice</label>
+          <select id="bk-payment-choice" class="bk-input bk-input-sm">
+            <option value="deposit">Deposit only</option>
+            <option value="full">Full payment</option>
+            <option value="pay_on_arrival">Pay on arrival</option>
+          </select>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-payment-status">Payment status</label>
+          <select id="bk-payment-status" class="bk-input bk-input-sm">
+            <option value="unpaid">Unpaid</option>
+            <option value="deposit_paid">Deposit paid</option>
+            <option value="paid">Paid in full</option>
+          </select>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-deposit">Deposit amount paid (&euro;)</label>
+          <input type="number" id="bk-deposit" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0">
+        </div>
+        <div class="bk-compact-hint">For manual records only &mdash; no Stripe charge is created.</div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-total">Total amount (&euro;)</label>
+          <input type="number" id="bk-total" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0">
+        </div>
       </div>
     </div>
 

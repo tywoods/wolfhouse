@@ -299,6 +299,22 @@
 
 ---
 
+## Manual booking guest + payment alignment — Stage 8.7.18 (2026-06-03)
+
+**Result:** **PASS** — local UI-only; not deployed.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Guest layout | **PASS** | `.bk-compact-grid` — labels + fields left-aligned (max-width 440px) |
+| Payment layout | **PASS** | Same compact grid; no 148px label gutter |
+| Guest fields | **PASS** | name/phone/email use `bk-input-sm`, not full-width |
+| Room type | **PASS** | Shared + Private only; Double removed |
+| Quote payload | **PASS** | `runQuotePreview` still uses `bk-room-type` |
+| Verifier | **PASS** | 364/364 |
+| Safety | **PASS** | UI-only; no WhatsApp/n8n/Stripe |
+
+---
+
 ## Tour Operator form simplification — Stage 8.7.17 (2026-06-03)
 
 **Result:** **PASS** — local UI-only; not deployed.

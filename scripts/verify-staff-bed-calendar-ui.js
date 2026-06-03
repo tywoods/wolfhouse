@@ -1120,8 +1120,10 @@ check(/id="bk-room-type"/.test(src),
 (function checkRoomTypeOptions(){
   const rtIdx = src.indexOf('id="bk-room-type"');
   const rtSrc = rtIdx >= 0 ? src.slice(rtIdx, rtIdx + 400) : '';
-  check(/value="shared"/.test(rtSrc) && /value="private"/.test(rtSrc) && /value="double"/.test(rtSrc),
-    'Room type select has shared / private / double options (Stage 8.4.6)');
+  check(/value="shared"/.test(rtSrc) && /value="private"/.test(rtSrc),
+    'Room type select has shared / private options (Stage 8.4.6 / 8.7.18)');
+  check(!/value="double"/.test(rtSrc),
+    'Room type select has no double option (Stage 8.7.18)');
   check(/value="shared"[^>]*selected|selected[^>]*value="shared"/.test(rtSrc),
     'Room type select defaults to shared (Stage 8.4.6)');
 })();
@@ -1662,6 +1664,50 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 
   check(/Load Bed Calendar for room list|dedicated room API later/i.test(opSrc + rrSrc),
     '227e: room dropdowns document calendar/API loading path (Stage 8.7.17)');
+})();
+
+// ── Stage 8.7.18 — align manual booking guest + payment sections ─────────────
+(function check8718GuestPaymentLayout(){
+  const panelStart = src.indexOf('id="bc-sel-panel"');
+  const panelEnd   = panelStart > 0 ? src.indexOf('<!-- Section: Notes', panelStart) : -1;
+  const panelSrc   = panelStart > 0 && panelEnd > panelStart ? src.slice(panelStart, panelEnd) : '';
+
+  const guestStart = panelSrc.indexOf('<!-- Section: Guest');
+  const payStart   = panelSrc.indexOf('<!-- Section: Payment');
+  const guestSrc   = guestStart >= 0 && payStart > guestStart ? panelSrc.slice(guestStart, payStart) : '';
+  const payEnd     = panelSrc.indexOf('<!-- Section: Notes');
+  const paySrc     = payStart >= 0 ? panelSrc.slice(payStart, payEnd > payStart ? payEnd : panelSrc.length) : '';
+
+  check(/\.bk-compact-grid/.test(src) && /\.bk-compact-row/.test(src),
+    '228: bk-compact-grid CSS present (Stage 8.7.18)');
+
+  check(/class="bk-compact-grid"/.test(guestSrc) && /class="bk-compact-grid"/.test(paySrc),
+    '228b: Guest and Payment sections use bk-compact-grid (Stage 8.7.18)');
+
+  check(!/Guest[\s\S]{0,1200}bk-form-row[\s\S]{0,80}bk-guest-name/.test(panelSrc),
+    '228c: Guest name not in wide bk-form-row layout (Stage 8.7.18)');
+
+  check(/id="bk-guest-name"[^>]*bk-input-sm/.test(guestSrc) &&
+        /id="bk-phone"[^>]*bk-input-sm/.test(guestSrc) &&
+        /id="bk-email"[^>]*bk-input-sm/.test(guestSrc),
+    '228d: guest name / phone / email use compact bk-input-sm (not full-width) (Stage 8.7.18)');
+
+  check(!/Payment[\s\S]{0,900}bk-form-row[\s\S]{0,80}bk-payment-choice/.test(panelSrc),
+    '228e: Payment fields not in wide bk-form-row layout (Stage 8.7.18)');
+
+  check(/bk-compact-hint/.test(paySrc) && !/padding-left:158px/.test(src.match(/\.bk-compact-hint[\s\S]{0,120}/)?.[0] || ''),
+    '228f: payment hint uses compact left-aligned style (Stage 8.7.18)');
+
+  const quoteStart = src.indexOf('function runQuotePreview');
+  const quoteEnd   = quoteStart > 0 ? src.indexOf('\nfunction ', quoteStart + 10) : -1;
+  const quoteSrc   = quoteStart > 0 && quoteEnd > quoteStart ? src.slice(quoteStart, quoteEnd) : '';
+  check(/bk-room-type/.test(quoteSrc) && /room_type/.test(quoteSrc),
+    '228g: runQuotePreview still reads bk-room-type for payload (Stage 8.7.18)');
+
+  check(!/graph\.facebook\.com/.test(src) && !/api\.stripe\.com/.test(src),
+    '228h: bed calendar UI has no graph.facebook.com or api.stripe.com (Stage 8.7.18)');
+  check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
+    '228i: bed calendar UI has no n8n URL fetch (Stage 8.7.18)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
