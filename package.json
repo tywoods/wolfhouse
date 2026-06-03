@@ -97,7 +97,8 @@
     "cleanup:stage8-demo": "node scripts/fixtures/stage8-demo-cleanup.js",
     "proof:stage8-demo": "node scripts/fixtures/stage8-demo-proof.js",
     "proof:stage8.3i-manual-booking-create": "node scripts/fixtures/stage8.3i-manual-booking-create-proof.js",
-    "proof:stage8.3k-manual-booking-rollback": "node scripts/fixtures/stage8.3k-manual-booking-rollback-proof.js"
+    "proof:stage8.3k-manual-booking-rollback": "node scripts/fixtures/stage8.3k-manual-booking-rollback-proof.js",
+    "verify:staff-ask-luna-api": "node scripts/verify-staff-ask-luna-api.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

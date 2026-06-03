@@ -505,3 +505,31 @@ Each slice is independently gated, independently provable, and does not depend o
 ---
 
 *Stage 8.5.1 — static mapping only. No implementation performed. 2026-06-02.*
+
+---
+
+## 11. Stage 8.6 — Staff Ask Luna via WhatsApp
+
+### 8.6.1 — Staff Ask Luna read-only endpoint — **PASS (2026-06-03)**
+**Goal:** Backend foundation for staff asking Luna operational questions via text. Staff Portal (session) or allowlisted WhatsApp numbers can query Postgres via the shared registry.
+**Delivered:**
+- POST /staff/ask-luna endpoint in scripts/staff-query-api.js.
+- Session auth for source=staff_portal; allowlist phone auth for source=staff_whatsapp.
+- config/clients/wolfhouse-somo.staff-whatsapp-allowlist.json created (3 staging test numbers, staff_whatsapp_enabled:true for testing).
+- esolveNaturalLanguageIntent(): 14 keyword patterns + direct registry key passthrough. Maps to all 35 registry intents.
+- Unsupported intents (departures_today, ooms_or_beds_need_cleaning) return unsupported_intent + suggestion list.
+- ormatAnswer(): WhatsApp-friendly per-intent answer strings.
+- Response: ead_only:true, 
+o_write_performed:true, sends_whatsapp:false, intent, nswer, ows, ow_count, staff_access.
+- No DB writes. No Stripe. No WhatsApp send. No n8n.
+**Verifier:** scripts/verify-staff-ask-luna-api.js **48/48 PASS** (new).
+**Local proof:** unknown phone->403/phone_not_allowlisted; allowlisted +34999000999->200/payments.balance_due/answer with real data; staff_portal dev->200/handoffs.open; unsupported->safe suggestion; departures_today->unsupported_intent+hint.
+
+### 8.6.2 — Staff Portal Ask Luna text box — *pending*
+**Goal:** Add a text input box in the Staff Portal UI so staff can type a question and see the answer inline.
+
+### 8.6.3 — n8n staff WhatsApp dry-run route — *pending*
+**Goal:** Create an inactive dry-run n8n workflow that routes staff WhatsApp messages to POST /staff/ask-luna and logs (does not send) the answer.
+
+### 8.6.4 — Staff WhatsApp live gated send — *pending*
+**Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit go/no-go approval. Real staff phone numbers added to allowlist config only after approval.

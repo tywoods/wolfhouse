@@ -1,0 +1,31 @@
+{
+  "_note": "Stage 8.6.1 — staff WhatsApp allowlist for /staff/ask-luna endpoint. staff_whatsapp_enabled=true enables WhatsApp phone-based auth for the endpoint. In production, flip this to true only after n8n staff-WhatsApp route is wired (Stage 8.6.3+). Numbers in staff_numbers are STAGING TEST NUMBERS ONLY — do not put real staff phone numbers here until Stage 8.6.4 live-gated-send is approved.",
+  "client_slug": "wolfhouse-somo",
+  "staff_whatsapp_enabled": true,
+  "staff_numbers": [
+    {
+      "name": "Stage Test Manager",
+      "phone": "+34999000999",
+      "role": "manager",
+      "allowed_categories": ["bookings", "payments", "rooming", "handoffs", "addons"],
+      "active": true,
+      "_note": "STAGING TEST NUMBER ONLY — not a real phone"
+    },
+    {
+      "name": "Stage Test Operator",
+      "phone": "+34999000998",
+      "role": "operator",
+      "allowed_categories": ["bookings", "payments", "handoffs"],
+      "active": true,
+      "_note": "STAGING TEST NUMBER ONLY — not a real phone"
+    },
+    {
+      "name": "Stage Test Inactive",
+      "phone": "+34999000997",
+      "role": "viewer",
+      "allowed_categories": [],
+      "active": false,
+      "_note": "INACTIVE — for testing rejection of inactive numbers"
+    }
+  ]
+}

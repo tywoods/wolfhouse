@@ -138,6 +138,11 @@ const STAFF_OPERATOR_TOKEN   = process.env.STAFF_OPERATOR_TOKEN  || '';
 // Token auth ONLY applies to /staff/bot/* routes — never to normal staff endpoints.
 const LUNA_BOT_INTERNAL_TOKEN = process.env.LUNA_BOT_INTERNAL_TOKEN || '';
 
+// Stage 8.6.1 — Staff Ask Luna allowlist config path.
+// File: config/clients/wolfhouse-somo.staff-whatsapp-allowlist.json
+// Loaded lazily per-request so hot-edits take effect without restart.
+const STAFF_ALLOWLIST_FILE = path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.staff-whatsapp-allowlist.json');
+
 // Only handoff.resolve is allowed in v1
 const WRITE_ACTION_ALLOWLIST = ['handoff.resolve'];
 
@@ -781,7 +786,307 @@ async function handleQuery(query, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Route: POST /staff/handoff/:id/resolve  (Stage 6.9 — token-gated write)
+// Route: POST /staff/ask-luna  (Stage 8.6.1 — staff operational query via text)
+//
+// Accepts a natural-language staff question, resolves it to a registry intent,
+// executes the query read-only, and returns a concise WhatsApp-friendly answer.
+//
+// Auth:
+//   source=staff_portal  → requireAuth session (viewer+)
+//   source=staff_whatsapp → staff_phone must be in STAFF_ALLOWLIST_FILE
+//                           AND staff_whatsapp_enabled:true in config
+//                           AND entry.active:true
+//
+// Safety:
+//   read_only: true
+//   no_write_performed: true
+//   sends_whatsapp: false
+//   no INSERT / UPDATE / DELETE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Keyword-based natural-language → registry intent resolver.
+ * Returns { intentKey, extraParams } or null for unsupported questions.
+ */
+function resolveNaturalLanguageIntent(question) {
+  const q = String(question || '').toLowerCase().trim();
+
+  // Direct registry key passthrough (e.g. "payments.balance_due")
+  const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
+  if (REGISTRY_BY_KEY.has(q)) return { intentKey: q, extraParams: {} };
+
+  // Natural language → intent mapping
+  if (/ow(es?|ed)|balance.?due|still ow/.test(q))                               return { intentKey: 'payments.balance_due',        extraParams: {} };
+  if (/payment.?link|checkout.?link|pending.?link|waiting.?for.?pay/.test(q))   return { intentKey: 'payments.waiting',            extraParams: {} };
+  if (/arriv|check.?in.?today|arriving.?today/.test(q))                         return { intentKey: 'rooming.arrivals',            extraParams: { date: new Date().toISOString().slice(0, 10) } };
+  if (/needs?.human|needs?.staff|handoff|who.?needs.?help/.test(q))             return { intentKey: 'handoffs.open',               extraParams: {} };
+  if (/urgent.?handoff|high.?priority.?handoff/.test(q))                        return { intentKey: 'handoffs.urgent',             extraParams: {} };
+  if (/deposit.paid|paid.?deposit/.test(q))                                     return { intentKey: 'payments.deposit',            extraParams: {} };
+  if (/confirm|confirmation.?need/.test(q))                                     return { intentKey: 'payments.confirmation_needed', extraParams: {} };
+  if (/fully.?paid|paid.?in.?full/.test(q))                                     return { intentKey: 'payments.fully_paid',         extraParams: {} };
+  if (/no.?payment.?record|missing.?payment/.test(q))                           return { intentKey: 'payments.no_record',          extraParams: {} };
+  if (/active.?hold|holds?.active/.test(q))                                     return { intentKey: 'holds.active',                extraParams: {} };
+  if (/unassign|no.?bed.?assign/.test(q))                                       return { intentKey: 'rooming.unassigned',          extraParams: {} };
+  if (/addon.?action|add.?on.?action|staff.?action/.test(q))                    return { intentKey: 'addons.action_required',      extraParams: {} };
+  if (/lesson/.test(q))                                                          return { intentKey: 'addons.lessons',              extraParams: {} };
+  if (/yoga/.test(q))                                                            return { intentKey: 'addons.yoga',                 extraParams: {} };
+  if (/rental|board|wetsuit/.test(q))                                           return { intentKey: 'addons.rentals',              extraParams: {} };
+
+  // Explicitly unsupported intents (not in registry yet)
+  // departures_today and rooms_need_cleaning have no registry entry.
+  if (/depart|check.?out.?today|leaving.?today/.test(q))   return { intentKey: 'unsupported_intent', intentHint: 'departures_today', extraParams: {} };
+  if (/clean|housekeep|room.?ready|bed.?ready/.test(q))    return { intentKey: 'unsupported_intent', intentHint: 'rooms_or_beds_need_cleaning', extraParams: {} };
+
+  return null;
+}
+
+/**
+ * Formats query rows into a concise WhatsApp-friendly answer string.
+ */
+function formatAnswer(intentKey, rows) {
+  const n = rows.length;
+
+  if (n === 0) {
+    const empty = {
+      'payments.balance_due':         'No guests currently owe a remaining balance. ✅',
+      'payments.waiting':             'No payment links are pending right now. ✅',
+      'payments.deposit':             'No guests are in deposit-paid state.',
+      'payments.fully_paid':          'No guests have paid in full yet.',
+      'payments.confirmation_needed': 'No paid bookings awaiting confirmation.',
+      'payments.no_record':           'No bookings missing a payment record.',
+      'rooming.arrivals':             'No arriving guests need a bed assignment today. ✅',
+      'rooming.unassigned':           'All bookings have a bed assigned. ✅',
+      'handoffs.open':                'No open handoffs — all conversations handled. ✅',
+      'handoffs.urgent':              'No urgent handoffs right now. ✅',
+      'holds.active':                 'No active holds at the moment.',
+      'addons.action_required':       'No add-ons require staff action.',
+      'addons.lessons':               'No surf lessons found for that date.',
+      'addons.yoga':                  'No yoga sessions found for that date.',
+      'addons.rentals':               'No active rentals found for that date.',
+    };
+    return empty[intentKey] || `No results for ${intentKey}.`;
+  }
+
+  const MAX_SUMMARY = 5;
+  const extra = n > MAX_SUMMARY ? ` (+${n - MAX_SUMMARY} more)` : '';
+
+  const nameLine = (r) => r.guest_name ? `${r.guest_name} (${r.booking_code || ''})` : (r.booking_code || r.id || '?');
+  const centsStr = (c) => c != null ? `€${(Math.round(c) / 100).toFixed(0)}` : '';
+
+  switch (intentKey) {
+    case 'payments.balance_due':
+    case 'payments.deposit': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r =>
+        `${nameLine(r)} — balance ${centsStr(r.balance_due_cents)}`
+      ).join('; ');
+      return `${n} guest${n !== 1 ? 's' : ''} still owe${n !== 1 ? '' : 's'} a balance: ${list}${extra}`;
+    }
+    case 'payments.waiting': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
+      return `${n} guest${n !== 1 ? 's' : ''} ha${n !== 1 ? 've' : 's'} a payment link pending: ${list}${extra}`;
+    }
+    case 'payments.fully_paid': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
+      return `${n} guest${n !== 1 ? 's' : ''} paid in full: ${list}${extra}`;
+    }
+    case 'payments.confirmation_needed': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
+      return `${n} guest${n !== 1 ? 's' : ''} still need${n !== 1 ? '' : 's'} a confirmation sent: ${list}${extra}`;
+    }
+    case 'payments.no_record': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
+      return `${n} booking${n !== 1 ? 's' : ''} ha${n !== 1 ? 've' : 's'} no payment record: ${list}${extra}`;
+    }
+    case 'rooming.arrivals': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
+      return `${n} arrival${n !== 1 ? 's' : ''} still need${n !== 1 ? '' : 's'} a bed assignment today: ${list}${extra}`;
+    }
+    case 'rooming.unassigned': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
+      return `${n} booking${n !== 1 ? 's' : ''} ha${n !== 1 ? 've' : 's'} no bed assigned yet: ${list}${extra}`;
+    }
+    case 'handoffs.open':
+    case 'handoffs.urgent': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r =>
+        r.guest_phone || r.booking_code || r.id || '?'
+      ).join('; ');
+      const label = intentKey === 'handoffs.urgent' ? 'urgent handoff' : 'open handoff';
+      return `${n} ${label}${n !== 1 ? 's' : ''} need${n !== 1 ? '' : 's'} a human reply: ${list}${extra}`;
+    }
+    case 'holds.active': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
+      return `${n} active hold${n !== 1 ? 's' : ''}: ${list}${extra}`;
+    }
+    default: {
+      return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
+    }
+  }
+}
+
+async function handleAskLuna(req, res) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const source     = String(body.source      || 'staff_portal').trim();
+  const staffPhone = body.staff_phone ? String(body.staff_phone).trim() : null;
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const question   = String(body.question    || '').trim();
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  let staffAccess;
+
+  if (source === 'staff_whatsapp') {
+    // Phone-based auth: check allowlist config
+    if (!staffPhone) {
+      return sendJSON(res, 403, {
+        success: false, error: 'staff_phone_required',
+        detail:  'staff_phone is required for source=staff_whatsapp',
+        sends_whatsapp: false,
+      });
+    }
+
+    let allowlist;
+    try {
+      allowlist = JSON.parse(fs.readFileSync(STAFF_ALLOWLIST_FILE, 'utf8'));
+    } catch (_) {
+      return sendJSON(res, 403, {
+        success: false, error: 'allowlist_not_configured',
+        detail:  'staff_whatsapp allowlist config not found',
+        sends_whatsapp: false,
+      });
+    }
+
+    if (!allowlist.staff_whatsapp_enabled) {
+      return sendJSON(res, 403, {
+        success: false, error: 'staff_whatsapp_disabled',
+        detail:  'staff_whatsapp_enabled is false in allowlist config',
+        sends_whatsapp: false,
+      });
+    }
+
+    const entry = (allowlist.staff_numbers || []).find(
+      (n) => n.phone === staffPhone && n.active === true
+    );
+    if (!entry) {
+      return sendJSON(res, 403, {
+        success: false, error: 'phone_not_allowlisted',
+        detail:  'staff_phone is not in the active staff allowlist',
+        sends_whatsapp: false,
+      });
+    }
+
+    staffAccess = 'allowlisted_phone';
+
+  } else {
+    // Session auth for staff_portal (or any non-whatsapp source)
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    staffAccess = 'session';
+  }
+
+  // ── Input validation ──────────────────────────────────────────────────────
+  if (!question) return send400(res, 'question is required');
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+
+  // ── Resolve intent ────────────────────────────────────────────────────────
+  const resolution = resolveNaturalLanguageIntent(question);
+
+  if (!resolution || resolution.intentKey === 'unsupported_intent') {
+    const hint = resolution ? resolution.intentHint : null;
+    const supportedList = [
+      'who owes money (payments.balance_due)',
+      'payment links pending (payments.waiting)',
+      'arrivals today (rooming.arrivals)',
+      'who needs human reply (handoffs.open)',
+      'deposit paid (payments.deposit)',
+      'confirmation needed (payments.confirmation_needed)',
+      'active holds (holds.active)',
+      'unassigned beds (rooming.unassigned)',
+    ].join(', ');
+    const answer = hint
+      ? `"${hint}" is not yet in the query registry. You can ask: ${supportedList}`
+      : `I don't know how to answer that yet. You can ask about: ${supportedList}`;
+    return sendJSON(res, 200, {
+      success:           true,
+      client_slug:       clientSlug,
+      source,
+      staff_access:      staffAccess,
+      intent:            'unsupported_intent',
+      intent_hint:       hint || null,
+      answer,
+      rows:              [],
+      row_count:         0,
+      read_only:         true,
+      no_write_performed: true,
+      sends_whatsapp:    false,
+      elapsed_ms:        Date.now() - started,
+    });
+  }
+
+  const { intentKey, extraParams } = resolution;
+  const registryEntry = getEntry(intentKey);
+
+  if (!registryEntry || registryEntry.missingHelper === true || typeof registryEntry.helperRef !== 'function') {
+    return sendJSON(res, 200, {
+      success:           true,
+      client_slug:       clientSlug,
+      source,
+      staff_access:      staffAccess,
+      intent:            intentKey,
+      answer:            `The "${intentKey}" query helper is not yet available (migration or implementation pending).`,
+      rows:              [],
+      row_count:         0,
+      read_only:         true,
+      no_write_performed: true,
+      sends_whatsapp:    false,
+      elapsed_ms:        Date.now() - started,
+    });
+  }
+
+  // ── Execute (SELECT only, no writes) ──────────────────────────────────────
+  const queryObj   = { client: clientSlug, ...extraParams };
+  const { params } = resolveParams(registryEntry, clientSlug, queryObj);
+
+  let rows = [];
+  try {
+    const sql = registryEntry.helperRef();
+    rows = await withPgClient(async (pgClient) => {
+      const result = await pgClient.query(sql, params);
+      return result.rows;
+    });
+  } catch (err) {
+    console.error('[ask-luna] DB error:', err.message);
+    return sendJSON(res, 500, {
+      success: false, error: 'query_error', detail: err.message,
+    });
+  }
+
+  const answer = formatAnswer(intentKey, rows);
+  const elapsed = Date.now() - started;
+
+  sendJSON(res, 200, {
+    success:            true,
+    client_slug:        clientSlug,
+    source,
+    staff_access:       staffAccess,
+    intent:             intentKey,
+    category:           registryEntry.category,
+    answer,
+    rows:               rows.slice(0, MAX_ROWS),
+    row_count:          rows.length,
+    read_only:          true,
+    no_write_performed: true,
+    sends_whatsapp:     false,
+    elapsed_ms:         elapsed,
+  });
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 function readBody(req) {
@@ -7769,6 +8074,18 @@ async function router(req, res) {
     return handleQuotePreview(req, res, auth.user);
   }
 
+  // ── Stage 8.6.1 — Staff Ask Luna (read-only operational query via text) ───
+  // POST with JSON body — must be before the GET-only guard below.
+  if (pathname === '/staff/ask-luna') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for ask-luna' }));
+    }
+    return handleAskLuna(req, res);
+  }
+
+  // ── All other routes: GET only ────────────────────────────────────────────
+
   // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
     return send405(res);
@@ -7832,7 +8149,6 @@ async function router(req, res) {
     return handleQuery(parsed.query, res);
   }
 
-  // ── Stage 7.7b — Conversation API (read-only) ─────────────────────────────
   if (pathname === '/staff/conversations') {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
@@ -7906,6 +8222,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/availability-check      <- 8.5.8 Luna bot availability check (read-only, no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);

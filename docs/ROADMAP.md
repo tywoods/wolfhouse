@@ -1,4 +1,6 @@
-﻿# Wolfhouse Booking Assistant ? Product Roadmap
+﻿**8.6.1 STAFF ASK LUNA ENDPOINT -- PASS (2026-06-03):** POST /staff/ask-luna added to staff-query-api.js. Session auth (staff_portal) or allowlisted staff phone (staff_whatsapp). Loads wolfhouse-somo.staff-whatsapp-allowlist.json lazily; checks staff_whatsapp_enabled + phone in active staff_numbers. Natural-language -> intent resolver: who owes (payments.balance_due), payment links (payments.waiting), arrivals (rooming.arrivals), needs human (handoffs.open), urgent handoffs, deposit, confirmation, holds, unassigned, add-ons. Direct registry key passthrough. Unsupported intents (departures_today, rooms_need_cleaning) return unsupported_intent + suggestion. WhatsApp-friendly formatAnswer. Response: success/intent/answer/rows/row_count/read_only:true/no_write_performed:true/sends_whatsapp:false. No INSERT/UPDATE/DELETE. No Stripe. No WhatsApp send. No n8n. verify-staff-ask-luna-api.js 48/48 PASS. Local proof: unknown phone->403/phone_not_allowlisted; allowlisted +34999000999->200/payments.balance_due/1 guest owes; staff_portal dev->200/handoffs.open; unsupported->unsupported_intent+suggestions; departures_today->unsupported_intent+hint. 0 DB writes. Next slices: 8.6.2 Staff Portal Ask Luna text box, 8.6.3 n8n staff WhatsApp dry-run route, 8.6.4 staff WhatsApp live gated send.
+
+# Wolfhouse Booking Assistant ? Product Roadmap
 
 **Product:** AI booking operations for WhatsApp-first experience businesses ? **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
@@ -2501,4 +2503,5 @@ By Stage 7 this should be a **checklist, not a project** ? provided the Stage 5 
 | Owner / non-engineer | [`PROJECT-ROADMAP.md`](PROJECT-ROADMAP.md) |
 | Agent rules | [`../CURSOR.md`](../CURSOR.md) |
 | Stripe test gates | [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) |
+
 
