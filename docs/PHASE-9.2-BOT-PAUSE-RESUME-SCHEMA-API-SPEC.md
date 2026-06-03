@@ -3,11 +3,13 @@
 **Status:** PASS — docs-only schema/API contract (2026-06-03).  
 **Parent:** Phase 9 — Control & Safety  
 **Prior:** [PHASE-9.1-BOT-PAUSE-RESUME-DESIGN.md](PHASE-9.1-BOT-PAUSE-RESUME-DESIGN.md) (PASS, commit `4be36d3`)  
-**Next:** Phase 9.3 — Inbox paused status display (read-only UI)
+**Next:** Phase 9.5 — Inbox live pause-state wiring / hosted proof
 
 **Non-negotiables (this slice):** No code. No migration file. No DB apply. No API routes. No UI. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
 
 **Context:** Stage 8 **CLOSED** (Staff Portal + Ask Luna + add-on dry-run foundation). Live WhatsApp **NO_GO**. n8n workflows **inactive** unless explicitly approved. Pause/resume blocks **automated guest replies only**; Staff Ask Luna continues.
+
+**Migration 012 apply status (2026-06-03):** Applied on **staging/test DB only** — `wh-staging-pg-app` / `wolfhouse_staging` (Phase 9.4c). Repo file `database/migrations/012_bot_pause_states.sql` retains **NOT YET APPLIED** header for local/production; **do not assume production/local apply.**
 
 ---
 
@@ -16,17 +18,20 @@
 | Phase | Scope | Status |
 |-------|-------|--------|
 | **9.1** | Bot pause/resume design | **PASS** |
-| **9.2** | Pause/resume schema/API spec | **PASS — this doc** |
-| **9.3** | Inbox paused status display | **Next** |
-| **9.4** | Gated pause/resume API implementation | Planned |
-| **9.5** | Hosted pause/resume proof | Planned |
+| **9.2** | Pause/resume schema/API spec | **PASS** |
+| **9.3** | Inbox paused status display (read-only) | **PASS** |
+| **9.4a** | Migration spec + static verifier | **PASS** |
+| **9.4b** | Gated pause/resume API handlers | **PASS** |
+| **9.4b.1** | Schema verifier aligned with API routes | **PASS** |
+| **9.4c** | Staging migration apply + runtime API proof | **PASS** |
+| **9.5** | Inbox live pause-state from API | **Next** |
 | **9.6** | n8n dry-run respects pause | Planned |
 
 ---
 
 ## 2. Schema spec — `bot_pause_states`
 
-**Migration intent:** future file `012_bot_pause_states.sql` (spec only — **not created in 9.2**).
+**Migration file:** `database/migrations/012_bot_pause_states.sql` (created Phase 9.4a). **Staging apply:** Phase 9.4c — `wh-staging-pg-app` / `wolfhouse_staging` only. **Not applied** to production or assumed for local unless explicitly run.
 
 ### 2.1 Columns
 
