@@ -121,8 +121,8 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | Phase | Stage | Scope | Deliverable |
 |-------|-------|-------|-------------|
 | **Spec** | **8.8.7** ✓ | Migration SQL spec only (no apply) | [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) + `verify-booking-service-records-schema.js` |
-| **Fixture** | **8.8.8** | Read-only seed for staging/local | SQL fixture or script inserting demo rows on golden booking; no production apply without approval |
-| **Ask Luna** | **8.8.9** | Read-only intents + router | Unblock yoga/meal/lesson/rental questions; `verify-staff-ask-luna-api.js` + hosted proof |
+| **Fixture** | **8.8.8** ✓ | Read-only demo seed (no apply) | [`booking-service-records-demo-up.sql`](../scripts/fixtures/booking-service-records-demo-up.sql) + down + verifier |
+| **Ask Luna** | **8.8.9** | Read-only intents + router | 8.8.8 fixture applied locally/staging |
 | **Portal display** | **8.8.10** | Read-only UI | Booking drawer section “Services & add-ons” from structured rows |
 | **Staff writes** | later | Manual create/update/cancel | Gated behind `STAFF_ACTIONS_ENABLED`; persist from manual booking create |
 | **Guest Luna** | later | In-stay add-on requests | Bot creates `booking_service_records` with `source=luna_guest`; payment link + webhook |
@@ -148,10 +148,13 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | Item | State |
 |------|-------|
 | `booking_service_records` table | **Spec only** — [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) (8.8.7, **not applied**) |
+| Demo fixture | **Ready** — [`booking-service-records-demo-up.sql`](../scripts/fixtures/booking-service-records-demo-up.sql) (8.8.8, **not applied**) |
 | Manual booking create | Writes `quote_snapshot` add-ons in metadata only |
 | Ask Luna add-on questions | `unsupported_intent` + gap message (proven 8.8.3–8.8.5) |
-| Next slice | **8.8.8** — read-only demo fixture / seed |
+| Next slice | **8.8.9** — Ask Luna service intents (apply 010 + fixture first when approved) |
 
 ---
 
-**Next doc slice:** Stage 8.8.8 — read-only seed/demo fixture for `booking_service_records` (still no production apply without approval).
+**Apply note (8.8.8):** Before first fixture apply, extend migration 010 `source` CHECK to include `demo_fixture_stage888`.
+
+**Next doc slice:** Stage 8.8.9 — Ask Luna read-only service query intents.

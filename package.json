@@ -100,7 +100,8 @@
     "proof:stage8.3k-manual-booking-rollback": "node scripts/fixtures/stage8.3k-manual-booking-rollback-proof.js",
     "verify:staff-ask-luna-api": "node scripts/verify-staff-ask-luna-api.js",
     "verify:staff-ask-luna-whatsapp-dry-run": "node scripts/verify-staff-ask-luna-whatsapp-dry-run.js",
-    "verify:booking-service-records-schema": "node scripts/verify-booking-service-records-schema.js"
+    "verify:booking-service-records-schema": "node scripts/verify-booking-service-records-schema.js",
+    "verify:booking-service-records-demo-fixture": "node scripts/verify-booking-service-records-demo-fixture.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
