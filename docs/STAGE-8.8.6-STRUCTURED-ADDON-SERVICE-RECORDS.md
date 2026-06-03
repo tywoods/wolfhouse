@@ -128,7 +128,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Hosted proof** | **8.8.12** ✓ | Deploy + Luna API proof | `--0000035`; 14/14 PASS |
 | **Flows design** | **8.8.13** ✓ | Booking-time + guest Luna + drawer (docs) | §8–§11 below |
 | **Portal display** | **8.8.14–8.8.15** ✓ | Read-only drawer UI + hosted proof | `--0000036`; golden empty state PASS; demo rows need real bookings (8.8.16) |
-| **Booking create writes** | **8.8.16** ✓ | Manual create → `booking_service_records` | §8 Flow A step A3; staging deploy pending |
+| **Booking create writes** | **8.8.16–8.8.17** ✓ | Manual create → `booking_service_records` + hosted proof | `--0000037`; `MB-WOLFHO-20260901-cb4799` disposable test booking |
 | **Guest Luna add-on API** | **8.8.16+** | Bot endpoint + payment draft | §8 Flow B; live send still NO_GO |
 
 **Out of scope until explicit GO:** live WhatsApp send, n8n activation, applying migration to production.
@@ -154,9 +154,9 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | `booking_service_records` table | **Applied on staging** — demo fixture 11 rows (`demo_fixture_stage888`) |
 | Ask Luna service intents | **Live on staging** — revision `--0000035` (`ef122ac-stage8812-service-queries`); hosted proof **PASS** |
 | Today demo totals | Wetsuit qty **3**, surfboard qty **4**; yoga + lesson paid today; meal paid tomorrow; Jun 15 meal paid + lesson pending |
-| Manual booking create | **Writes `booking_service_records`** when add-ons present (8.8.16 code; deploy pending) |
-| Booking drawer services | **Live on staging** — revision `--0000036`; populated rows after manual create with add-ons |
-| Next slice | **8.8.17** — deploy 8.8.16 + populated drawer proof |
+| Manual booking create | **Live on staging** — writes 3 service rows for wetsuit/lesson/yoga add-ons (8.8.17 proof) |
+| Booking drawer services | **Populated proof** — `MB-WOLFHO-20260901-cb4799` shows wetsuit + surf lesson + yoga |
+| Next slice | **8.8.18** — `payment_kind=addon_service` migration + webhook service-row paid truth |
 
 ---
 
@@ -277,10 +277,9 @@ When staff click a booking on Bed Calendar, the context drawer shows operational
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.17** | Deploy 8.8.16 + populated drawer proof | Manual create with add-ons → drawer rows |
-| **2** | **8.8.18** | `payment_kind=addon_service` migration + webhook hook | Flow A/B payment truth for service rows |
-| **3** | **8.8.19** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
-| **4** | **8.8.20+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
+| **1** | **8.8.18** | `payment_kind=addon_service` migration + webhook hook | Service row `paid` truth |
+| **2** | **8.8.19** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
+| **3** | **8.8.20+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
 
 ---
 

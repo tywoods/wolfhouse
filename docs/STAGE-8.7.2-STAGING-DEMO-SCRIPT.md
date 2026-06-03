@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000036` (2026-06-03, Stage 8.8.15 service-record drawer deployed).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000037` (2026-06-03, Stage 8.8.17 manual add-ons service records live).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -26,7 +26,7 @@
 |------|-------|
 | Staff Portal | `https://staff-staging.lunafrontdesk.com` |
 | Login | Company: `wolfhouse-somo` · Email: `admin.stage72c@example.test` · Password: see comment in [`scripts/fixtures/stage7.2c-auth-seed.sql`](../scripts/fixtures/stage7.2c-auth-seed.sql) |
-| Staff API revision | `wh-staging-staff-api--0000036` |
+| Staff API revision | `wh-staging-staff-api--0000037` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
 | Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** (or **Jul – Aug** chip) |
@@ -350,7 +350,26 @@
 | Ask Luna regression | **PASS** | `Who paid for yoga today?` → `services.yoga.paid_on_date` · 1 row |
 | Safety | **PASS** | Read-only drawer; no Add/Edit/Send/payment-link in service panel; no DB writes / WhatsApp / n8n / Stripe from session |
 
-**Optional demo add-on (Bed Calendar):** After 8.8.16, re-open golden booking with add-ons selected at create time to show populated service rows in the same panel.
+**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) for populated Services & Add-ons from manual create.
+
+---
+
+## Hosted manual add-ons → service records proof — Stage 8.8.17 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.16 write path live on staging revision `--0000037` (`7fd3ea0`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:7fd3ea0-stage8817-manual-addons-service-records` · ACR `cby` · revision `--0000037` · Healthy · 100% traffic |
+| Preflight | **PASS** | `7fd3ea0`; `verify-staff-manual-booking-create-api.js` 65/65 |
+| Manual create | **PASS** | Guest **Stage8817 Addon Test** · Malibu 7n · deposit · wetsuit 3d + 2 lessons + 1 yoga |
+| Create response | **PASS** | `MB-WOLFHO-20260901-cb4799` · `payment_id` returned · `service_records_created:3` · `service_records_available:true` · `no_stripe/no_whatsapp/no_n8n:true` |
+| DB proof | **PASS** | 3 rows: `wetsuit`/`surf_lesson`/`yoga` · `booking_id` linked · `source=staff_manual` · `status=confirmed` · `payment_status=pending` · `needs_scheduling` on lesson/yoga · `rental_days:3` on wetsuit · no meal rows |
+| Drawer proof | **PASS** | Services & Add-ons shows Surf lesson + Wetsuit + Yoga with amounts; Payment panel intact; no Add/Edit/Send/payment-link in service panel |
+| Ask Luna wetsuit | **PASS** | “Who needs a wetsuit on September 1 2026?” → `services.wetsuit.on_date` · **Stage8817 Addon Test** |
+| Ask Luna lesson | **PASS** | “Who has a lesson on September 1 2026?” → `services.surf_lesson.on_date` · **Stage8817 Addon Test** |
+| Cleanup | **LEFT** | Disposable test booking **`MB-WOLFHO-20260901-cb4799`** kept on staging (evidence chain) |
+| Safety | **PASS** | Staging only; no production; no WhatsApp/n8n; payment draft only; no service row `paid` |
 
 ---
 
