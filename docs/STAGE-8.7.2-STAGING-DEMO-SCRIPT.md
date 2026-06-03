@@ -250,9 +250,25 @@
 
 ---
 
-## UI cleanup — Stage 8.7.11 (2026-06-03, not yet deployed)
+## Hosted UI cleanup proof — Stage 8.7.12 (2026-06-03)
 
-**Result:** **PASS** — payment box + add-ons layout committed locally; batch deploy with 8.7.10 pending.
+**Result:** **PASS** — 8.7.10 nav labels + 8.7.11 payment/add-ons live on staging.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:039afdf-stage8712-ui-cleanup` · ACR `cbm` · revision `--0000026` · 100% traffic |
+| Preflight | **PASS** | `039afdf`; query-ui 60/60; bed-calendar-ui 328/328 |
+| Nav labels | **PASS** | Today · Inbox · Bed Calendar · **Luna** · Tour Operator · Developer Tools; Luna tab no bot emoji |
+| Luna tab | **PASS** | Hero **Luna**; Ask button; `POST /staff/ask-luna` → `payments.balance_due` / 4 rows / `sends_whatsapp:false` |
+| Golden booking drawer | **PASS** | Range `2026-07-28`→`2026-08-10`; `MB-WOLFHO-20260801-4f10c3`; `.ctx-pay-box` 340px contained; Total / Deposit required / Booking paid / Balance due; confirmation draft; no send button |
+| Manual add-ons | **PASS** | `#bk-ao-meals` present; “on-site / not priced in quote yet”; compact grid CSS in served UI; meals visual-only (not in `buildAddOns()`) |
+| Safety | **PASS** | `/staff/bed-calendar` + `/staff/bookings/.../context` + `/staff/ask-luna` only; no stripe.com / graph.facebook.com / n8n |
+
+---
+
+## UI cleanup — Stage 8.7.11 (2026-06-03)
+
+**Result:** **PASS** — implemented in `039afdf`; proven on staging in 8.7.12 (see above).
 
 | Check | Result | Notes |
 |-------|--------|-------|
