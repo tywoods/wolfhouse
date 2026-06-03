@@ -33,7 +33,9 @@ const handlerText  = handlerStart > -1 && handlerEnd > -1
   ? API_SRC.slice(handlerStart, handlerEnd)
   : (handlerStart > -1 ? API_SRC.slice(handlerStart, handlerStart + 12000) : '');
 
-const routeIdx   = API_SRC.indexOf("'/staff/ask-luna'");
+// Route block: find the router's pathname check (not the UI-side fetch call)
+const routeRouterPattern = "pathname === '/staff/ask-luna'";
+const routeIdx   = API_SRC.indexOf(routeRouterPattern);
 const routeBlock = routeIdx > -1 ? API_SRC.slice(routeIdx, routeIdx + 400) : '';
 
 // Strip comments for write/external-call checks

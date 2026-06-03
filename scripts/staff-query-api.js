@@ -3779,6 +3779,30 @@ textarea.bk-input{resize:vertical;min-height:60px}
 /* Stage 8.3r — operator room release skeleton */
 .bc-rr-no-sel{font-size:11px;color:var(--text-3);font-style:italic;padding:4px 0 8px}
 .bc-rr-purpose{font-size:11px;color:var(--text-2);background:#f7f9fb;border-left:3px solid #b8ccd8;padding:8px 10px;border-radius:4px;margin-bottom:10px;line-height:1.5}
+/* Stage 8.6.2 — Ask Luna panel */
+#al-wrap{max-width:720px;margin:0 auto;padding:26px 20px}
+.al-hero{background:linear-gradient(135deg,#EBF1E5 0%,#E3EEF4 100%);border:1px solid #C9D9BE;border-radius:var(--radius);padding:18px 22px;margin-bottom:24px;display:flex;align-items:flex-start;gap:14px}
+.al-hero-icon{font-size:28px;line-height:1;flex-shrink:0}
+.al-hero-title{font-size:15px;font-weight:700;color:var(--text)}
+.al-hero-sub{font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.4}
+.al-form-row{display:flex;gap:8px;align-items:flex-end;margin-bottom:4px}
+#al-input{flex:1;font-size:13.5px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);min-width:0}
+#al-input:focus{outline:2px solid #7AAB6E;outline-offset:1px}
+#al-btn{flex-shrink:0;padding:10px 22px;font-size:13px;font-weight:700}
+#al-btn:disabled{opacity:.5;cursor:default}
+.al-hint{font-size:11px;color:var(--text-3);margin-bottom:18px}
+#al-status{font-size:12px;color:var(--text-2);padding:6px 0;min-height:22px}
+#al-error{font-size:12.5px;color:#A0392A;background:#FDF4F2;border:1px solid #F0C9C1;border-radius:var(--radius-sm);padding:10px 14px;margin:8px 0;display:none}
+.al-answer-box{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:18px 20px;margin:12px 0 0}
+.al-answer-intent{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+.al-answer-text{font-size:14px;font-weight:600;color:var(--text);line-height:1.5;margin-bottom:10px}
+.al-answer-unsupported{font-size:13px;color:var(--text-2);line-height:1.5}
+.al-answer-rowcount{font-size:11.5px;color:var(--text-3);margin-bottom:8px}
+.al-rows-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:8px}
+.al-rows-table th{text-align:left;padding:5px 8px;background:#F5F0E8;border-bottom:1px solid var(--border-soft);color:var(--text-2);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+.al-rows-table td{padding:5px 8px;border-bottom:1px solid #F2EDE4;vertical-align:top;color:var(--text)}
+.al-rows-table tr:last-child td{border-bottom:none}
+.al-suggestions{font-size:12px;color:var(--text-2);margin-top:8px;line-height:1.6;background:var(--surface-soft);border-radius:var(--radius-sm);padding:10px 14px}
 </style>
 </head>
 <body>
@@ -3796,6 +3820,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
   <button class="tab-btn" data-tab="conversations">Inbox</button>
   <button class="tab-btn" data-tab="bed-calendar">Bed Calendar</button>
   <button class="tab-btn" data-tab="tour-operator">Tour Operator</button>
+  <button class="tab-btn" data-tab="ask-luna">&#129302; Ask Luna</button>
   <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
 </div>
 
@@ -4500,6 +4525,36 @@ textarea.bk-input{resize:vertical;min-height:60px}
 </div>
 </div><!-- /tab-tour-operator -->
 
+<!-- ── Ask Luna tab (Stage 8.6.2) ─────────────────────────────────────────── -->
+<div id="tab-ask-luna" class="tab-panel">
+<div id="al-wrap">
+
+  <div class="al-hero">
+    <div class="al-hero-icon">&#129302;</div>
+    <div>
+      <div class="al-hero-title">Ask Luna</div>
+      <div class="al-hero-sub">Ask operational questions answered from structured booking and payment data. Read-only &mdash; no writes, no WhatsApp sends.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="al-form-row">
+      <input id="al-input" type="text" placeholder="Who still owes money?"
+             autocomplete="off" spellcheck="false"
+             onkeydown="if(event.key==='Enter')alAsk()">
+      <button class="btn btn-primary" id="al-btn" onclick="alAsk()">Ask</button>
+    </div>
+    <div class="al-hint">
+      Try: &ldquo;Who still owes money?&rdquo; &bull; &ldquo;Any payment links pending?&rdquo; &bull; &ldquo;Who needs human help?&rdquo; &bull; &ldquo;Any urgent handoffs?&rdquo; &bull; &ldquo;Who&rsquo;s arriving today?&rdquo;
+    </div>
+    <div id="al-error"></div>
+    <div id="al-status"></div>
+    <div id="al-result"></div>
+  </div>
+
+</div>
+</div><!-- /tab-ask-luna -->
+
 <script>
 (function(){
 'use strict';
@@ -5060,6 +5115,106 @@ function loadHandoffQueue(){
 el('btn-refresh-hq').addEventListener('click', function(){
   hqLoaded = false; loadHandoffQueue();
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ASK LUNA TAB — Stage 8.6.2
+   Calls POST /staff/ask-luna (session auth, source=staff_portal).
+   Read-only: no writes, no WhatsApp, no n8n, no Stripe.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function alClearState(){
+  el('al-error').style.display = 'none';
+  el('al-error').textContent   = '';
+  el('al-status').textContent  = '';
+  el('al-result').innerHTML    = '';
+}
+
+function alShowError(msg){
+  el('al-error').textContent  = msg;
+  el('al-error').style.display = 'block';
+}
+
+function alSetLoading(on){
+  el('al-btn').disabled       = on;
+  el('al-status').textContent = on ? 'Asking Luna\u2026' : '';
+}
+
+function alRenderResult(data){
+  var html = '';
+  if (data.intent === 'unsupported_intent'){
+    html += '<div class="al-answer-box">';
+    html += '<div class="al-answer-intent">unsupported intent</div>';
+    html += '<div class="al-answer-text">&#129300; ' + escHtml(data.answer || 'Unsupported question.') + '</div>';
+    if (data.intent_hint){
+      html += '<div class="al-answer-unsupported">Intent hint: <strong>' + escHtml(data.intent_hint) + '</strong></div>';
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="al-answer-box">';
+    html += '<div class="al-answer-intent">' + escHtml(data.intent || '') + (data.category ? ' &bull; ' + escHtml(data.category) : '') + '</div>';
+    html += '<div class="al-answer-text">&#10004;&#65038; ' + escHtml(data.answer || '') + '</div>';
+    var n = data.row_count != null ? data.row_count : (data.rows ? data.rows.length : 0);
+    if (n > 0){
+      html += '<div class="al-answer-rowcount">' + n + ' row' + (n !== 1 ? 's' : '') + ' returned</div>';
+      var rows = data.rows || [];
+      if (rows.length > 0){
+        var cols = Object.keys(rows[0]).filter(function(c){
+          return ['booking_id','payment_id'].indexOf(c) === -1;
+        });
+        html += '<div style="overflow-x:auto"><table class="al-rows-table"><thead><tr>';
+        cols.forEach(function(c){ html += '<th>' + escHtml(c) + '</th>'; });
+        html += '</tr></thead><tbody>';
+        rows.slice(0, 20).forEach(function(row){
+          html += '<tr>';
+          cols.forEach(function(c){
+            var v = row[c] == null ? '' : String(row[c]);
+            html += '<td>' + escHtml(v) + '</td>';
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        if (rows.length > 20){
+          html += '<div style="font-size:11px;color:var(--text-3);text-align:right;margin-top:4px">Showing first 20 of ' + rows.length + '</div>';
+        }
+      }
+    } else {
+      html += '<div class="al-answer-rowcount" style="color:#6B9B5A">No rows &mdash; all clear.</div>';
+    }
+    html += '</div>';
+  }
+  el('al-result').innerHTML = html;
+}
+
+function alAsk(){
+  alClearState();
+  var question = (el('al-input').value || '').trim();
+  if (!question){ alShowError('Please type a question first.'); return; }
+
+  alSetLoading(true);
+
+  fetch('/staff/ask-luna', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      client_slug: 'wolfhouse-somo',
+      question:    question,
+      source:      'staff_portal'
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    alSetLoading(false);
+    if (!data.success && data.error){
+      alShowError((data.error || 'Query failed') + (data.detail ? ' \u2014 ' + data.detail : ''));
+      return;
+    }
+    alRenderResult(data);
+  })
+  .catch(function(e){
+    alSetLoading(false);
+    alShowError('Network error: ' + e.message);
+  });
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    QUERY TOOLS TAB — existing staff query interface (unchanged)

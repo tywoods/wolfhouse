@@ -525,8 +525,18 @@ o_write_performed:true, sends_whatsapp:false, intent, nswer, ows, ow_count, s
 **Verifier:** scripts/verify-staff-ask-luna-api.js **48/48 PASS** (new).
 **Local proof:** unknown phone->403/phone_not_allowlisted; allowlisted +34999000999->200/payments.balance_due/answer with real data; staff_portal dev->200/handoffs.open; unsupported->safe suggestion; departures_today->unsupported_intent+hint.
 
-### 8.6.2 — Staff Portal Ask Luna text box — *pending*
+### 8.6.2 — Staff Portal Ask Luna text box — **PASS (2026-06-03)**
 **Goal:** Add a text input box in the Staff Portal UI so staff can type a question and see the answer inline.
+**Delivered:**
+- New "Ask Luna" tab in Staff Portal nav (between Tour Operator and Developer Tools).
+- Compact hero card with title, subtitle, and example prompts.
+- Text input (`al-input`) + Ask button (`al-btn`); Enter key submits.
+- `alAsk()` POSTs to `/staff/ask-luna` with `source:"staff_portal"` using session auth.
+- `alRenderResult()` displays: intent badge, answer text, row_count, compact table of rows (first 20), unsupported_intent message + suggestion list.
+- `alShowError()` / `alSetLoading()` for loading and error states.
+- No WhatsApp, no n8n, no Stripe, no DB writes.
+**Verifier:** scripts/verify-staff-query-ui.js **43/43 PASS** (updated with new 7b block — 14 Ask Luna checks). scripts/verify-staff-ask-luna-api.js **48/48 PASS** (unchanged).
+**Local proof:** `who still owes money` → 200 / payments.balance_due / 1 row with real guest data. `what is the weather today` → unsupported_intent + full suggestion list. No DB writes / no WhatsApp / no n8n / no Stripe / no Azure.
 
 ### 8.6.3 — n8n staff WhatsApp dry-run route — *pending*
 **Goal:** Create an inactive dry-run n8n workflow that routes staff WhatsApp messages to POST /staff/ask-luna and logs (does not send) the answer.

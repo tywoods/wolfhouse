@@ -82,17 +82,56 @@ section('6. UI fetches /staff/query');
 
 if (has(src, /fetch.*\/staff\/query/)) { pass("UI fetch('/staff/query') present"); } else { fail("UI missing fetch('/staff/query')"); }
 
-// ─────────────────────────────────────────────────────────────────────────────
-section('7. No POST/PATCH/DELETE fetch in UI');
-
-// Look for method: 'POST' / 'PATCH' / 'DELETE' inside the HTML string (after buildUiHtml)
-// The HTML section starts after 'function buildUiHtml'
+// HTML section (from buildUiHtml onwards) used for checks below
 const htmlStart = src.indexOf('function buildUiHtml');
 const htmlSection = htmlStart >= 0 ? src.slice(htmlStart) : src;
 
-if (lacks(htmlSection, /method\s*:\s*['"]POST['"]/i))   { pass('no fetch POST in UI'); }   else { fail('UI contains fetch POST'); }
+// ─────────────────────────────────────────────────────────────────────────────
+section('7. No unauthorised POST/PATCH/DELETE fetch in UI');
+
+// Known-safe POST endpoints added across stages (all have their own verifiers):
+//   /staff/ask-luna              — Stage 8.6.2, read-only
+//   /staff/manual-bookings/preview — Stage 8.4, preview only
+//   /staff/quote-preview         — Stage 8.4, read-only quote
+//   /staff/manual-bookings/create  — Stage 8.4, gated write (manual booking)
+const ALLOWED_POST = [
+  '/staff/ask-luna',
+  '/staff/manual-bookings/preview',
+  '/staff/manual-bookings/create',
+  '/staff/quote-preview',
+  '/staff/payments/',           // Stage 8.2x: create-stripe-link for existing payment
+];
+const postMatches = [...htmlSection.matchAll(/fetch\s*\(\s*['"]([^'"]+)['"]/gi)];
+const illegalPosts = postMatches.filter(m => {
+  const url = m[1];
+  // Only flag if it is accompanied by a POST method and not in the allowed list
+  const surroundings = htmlSection.slice(Math.max(0, m.index - 10), m.index + url.length + 120);
+  const hasPost = /method\s*:\s*['"]POST['"]/i.test(surroundings);
+  return hasPost && !ALLOWED_POST.some(a => url.includes(a));
+});
+if (illegalPosts.length === 0) { pass('no unauthorised fetch POST in UI (allowed: ask-luna, manual-bookings/preview, /create, quote-preview)'); }
+else                           { fail('UI contains unauthorised fetch POST to: ' + illegalPosts.map(m=>m[1]).join(', ')); }
+
 if (lacks(htmlSection, /method\s*:\s*['"]PATCH['"]/i))  { pass('no fetch PATCH in UI'); }  else { fail('UI contains fetch PATCH'); }
 if (lacks(htmlSection, /method\s*:\s*['"]DELETE['"]/i)) { pass('no fetch DELETE in UI'); } else { fail('UI contains fetch DELETE'); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('7b. Ask Luna panel present (Stage 8.6.2)');
+
+if (has(src, /id="tab-ask-luna"/))                                        { pass('Ask Luna tab panel exists (id=tab-ask-luna)'); }          else { fail('Ask Luna tab panel missing'); }
+if (has(src, /data-tab="ask-luna"/))                                      { pass('Ask Luna tab button exists (data-tab=ask-luna)'); }       else { fail('Ask Luna tab button missing'); }
+if (has(src, /id="al-input"/))                                            { pass('Ask Luna input exists (id=al-input)'); }                  else { fail('Ask Luna input missing'); }
+if (has(src, /id="al-btn"/))                                              { pass('Ask Luna Ask button exists (id=al-btn)'); }               else { fail('Ask Luna Ask button missing'); }
+if (has(src, /fetch\s*\(\s*['"]\/staff\/ask-luna['"]/))                   { pass('UI calls /staff/ask-luna'); }                            else { fail('UI does not call /staff/ask-luna'); }
+if (has(src, /source\s*:\s*['"]staff_portal['"]/))                        { pass('payload includes source:"staff_portal"'); }              else { fail('payload missing source:"staff_portal"'); }
+if (has(src, /alRenderResult\s*\(/))                                      { pass('alRenderResult function present (displays answer)'); }    else { fail('alRenderResult function missing'); }
+if (has(src, /data\.intent/))                                             { pass('intent displayed in result'); }                          else { fail('intent not referenced in result'); }
+if (has(src, /row_count|data\.rows/))                                     { pass('row_count/rows referenced in result'); }                 else { fail('row_count/rows missing from result'); }
+if (has(src, /unsupported_intent/))                                       { pass('unsupported_intent handled in UI'); }                    else { fail('unsupported_intent not handled'); }
+if (has(src, /alShowError\s*\(/))                                         { pass('alShowError error-state function present'); }            else { fail('alShowError missing'); }
+if (has(src, /alSetLoading\s*\(/))                                        { pass('alSetLoading loading-state function present'); }         else { fail('alSetLoading missing'); }
+if (lacks(src, /graph\.facebook\.com|twilio\.com|sendWhatsApp/))          { pass('no WhatsApp calls in Ask Luna JS'); }                   else { fail('WhatsApp call found in Ask Luna section'); }
+if (lacks(src, /stripe\.com|createPaymentIntent|Stripe\s*\(/))           { pass('no Stripe calls in Ask Luna JS'); }                     else { fail('Stripe call found near Ask Luna'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('8. No handoff.resolve or staff-action-runner in UI');
