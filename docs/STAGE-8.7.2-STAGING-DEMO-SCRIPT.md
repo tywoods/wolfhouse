@@ -26,7 +26,7 @@
 |------|-------|
 | Staff Portal | `https://staff-staging.lunafrontdesk.com` |
 | Login | Company: `wolfhouse-somo` · Email: `admin.stage72c@example.test` · Password: see comment in [`scripts/fixtures/stage7.2c-auth-seed.sql`](../scripts/fixtures/stage7.2c-auth-seed.sql) |
-| Staff API revision | `wh-staging-staff-api--0000030` |
+| Staff API revision | `wh-staging-staff-api--0000032` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
 | Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** (or **Jul – Aug** chip) |
@@ -303,9 +303,30 @@
 
 ---
 
+## Hosted Bed Calendar final polish proof — Stage 8.7.26 (2026-06-03)
+
+**Result:** **PASS** — 8.7.23–8.7.25 Bed Calendar range + Selected Stay polish live on staging.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:b2a3b9f-stage8726-bed-calendar-final-polish` · ACR `cbt` · revision `--0000032` |
+| Preflight | **PASS** | `b2a3b9f`; `verify-staff-bed-calendar-ui.js` 391/391 |
+| Bed Calendar tab | **PASS** | Tab opens; grid rendered |
+| Auto-load Next 30 | **PASS** | `2026-06-03`–`2026-07-03`; Next 30 days chip active |
+| Today chip removed | **PASS** | No `data-chip="today"` |
+| Range chips | **PASS** | This week · Next 30 days · Jul – Aug |
+| Load button | **PASS** | 📅 Load present |
+| Empty-cell select | **PASS** | Manual booking panel opens (`bc-sel-panel`) |
+| Selected Stay layout | **PASS** | `.bk-compact-grid` left-aligned; max-width 440px |
+| Stay fields | **PASS** | check-in / check-out / nights populate; **no Room or Bed rows** |
+| Bed chips | **PASS** | `.bc-sel-bed-tag` e.g. `DEMO-R1 / DEMO-R1-B1` |
+| Safety | **PASS** | No graph.facebook.com / n8n URL fetch / api.stripe.com; no write routes from UI session |
+
+---
+
 ## Selected Stay — remove redundant Room field — Stage 8.7.25 (2026-06-03)
 
-**Result:** **PASS** — local UI-only; **not deployed** (batch with next redeploy).
+**Result:** **PASS** — local UI-only; **deployed in 8.7.26** (`--0000032`).
 
 | Check | Result | Notes |
 |-------|--------|-------|
