@@ -1413,6 +1413,39 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '220e: getBookingPaymentsQuery returns paid_at (Stage 8.4.12)');
 })();
 
+// ── Stage 8.5.18 — Luna confirmation draft panel in booking drawer ───────────
+(function(){
+  const fnStart = src.indexOf('function renderBookingContextDrawer');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 100) : -1;
+  const drawerFn = (fnStart > 0 && fnEnd > fnStart) ? src.slice(fnStart, fnEnd) : '';
+
+  check(/ctx-luna-confirmation-draft|bc-luna-confirmation-draft/.test(drawerFn),
+    '221: Luna confirmation draft panel exists in drawer (Stage 8.5.18)');
+  check(/confirmation_draft/.test(drawerFn) &&
+        (/data\.booking\.confirmation_draft|data\.booking\.metadata/.test(drawerFn)),
+    '221b: drawer reads booking confirmation_draft from metadata (Stage 8.5.18)');
+  check(/Luna confirmation draft ready/.test(drawerFn),
+    '221c: drawer shows Luna confirmation draft ready heading (Stage 8.5.18)');
+  check(/gate_code/.test(drawerFn) && /room_number|Room/.test(drawerFn) && /balance_due/.test(drawerFn),
+    '221d: drawer displays gate_code, room, and balance (Stage 8.5.18)');
+  check(/sends_whatsapp.*false|sends_whatsapp:\s*<code>false<\/code>/.test(drawerFn),
+    '221e: drawer shows sends_whatsapp:false (Stage 8.5.18)');
+  check(/whatsapp_dry_run.*true|whatsapp_dry_run:\s*<code>true<\/code>/.test(drawerFn),
+    '221f: drawer shows whatsapp_dry_run:true (Stage 8.5.18)');
+  check(!/graph\.facebook\.com/.test(drawerFn),
+    '221g: drawer has no graph.facebook.com (Stage 8.5.18)');
+  check(!(/fetch[\s\S]{0,120}n8n|n8n[\s\S]{0,120}fetch/.test(drawerFn)),
+    '221h: drawer makes no n8n calls (Stage 8.5.18)');
+  check(!/Send confirmation|send-confirmation|confirmation-send|bc-send-confirmation/i.test(drawerFn),
+    '221i: drawer has no confirmation send button (Stage 8.5.18)');
+
+  check(/confirmation_draft/.test(src) &&
+        (/metadata\.confirmation_draft|bkMetadata\.confirmation_draft/.test(src)),
+    '222: booking context API exposes metadata confirmation_draft (Stage 8.5.18)');
+  check(/SELECT b\.metadata/.test(src),
+    '222b: booking context loads bookings.metadata (Stage 8.5.18)');
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');

@@ -614,6 +614,16 @@ Each slice is independently gated, independently provable, and does not depend o
 | n8n `stage8510SharedDryRun01` inactive | ✓ |
 | No WhatsApp / no live send | ✓ |
 
+### 8.5.18 - Show Luna confirmation draft in booking drawer - **PASS (2026-06-03)**
+**Goal:** Display persisted `bookings.metadata.confirmation_draft` in Staff Portal booking drawer. Read-only — no send button, no WhatsApp.
+
+**Delivered:**
+- Booking context API loads `bookings.metadata` and exposes `booking.confirmation_draft`.
+- Drawer panel **Luna confirmation draft ready** when draft exists.
+- Fields: booking_code, guest_name, payment_status, amount paid, balance due, room_number, gate_code, sends_whatsapp:false, whatsapp_dry_run:true.
+- No send button. No WhatsApp/n8n/Stripe from drawer. No `confirmation_sent_at` write.
+- `verify-staff-bed-calendar-ui.js` **294/294 PASS**.
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)

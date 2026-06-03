@@ -6673,6 +6673,33 @@ function renderBookingContextDrawer(data){
   }
   html += '</div>'; /* end Payment section */
 
+  /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
+  var confDraft = (data.booking && data.booking.confirmation_draft) ||
+                  (data.booking && data.booking.metadata && data.booking.metadata.confirmation_draft) ||
+                  null;
+  if (confDraft && typeof confDraft === 'object'){
+    html += '<div class="ctx-section ctx-luna-confirmation-draft" id="bc-luna-confirmation-draft">';
+    html += '<h3>Luna confirmation draft</h3>';
+    html += '<div style="padding:8px 10px;background:#E8F0FA;border:1px solid #B5C7D3;border-radius:6px;font-size:12px">';
+    html += '<div style="font-weight:600;margin-bottom:6px;color:#1d5570">Luna confirmation draft ready</div>';
+    html += '<div class="ctx-pay-block" style="margin:0">';
+    if (confDraft.booking_code)      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Booking</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.booking_code) + '</span></div>';
+    if (confDraft.guest_name)        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Guest</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.guest_name) + '</span></div>';
+    if (confDraft.payment_status)    html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Payment status</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(bkPayLabel(confDraft.payment_status)) + '</span></div>';
+    if (confDraft.amount_paid_cents != null)
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(confDraft.amount_paid_cents)) + '</span></div>';
+    if (confDraft.balance_due_cents != null)
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Balance due</span><span class="ctx-pay-amount' + (Number(confDraft.balance_due_cents) > 0 ? ' owing' : ' paid') + '">' + escHtml(eur(confDraft.balance_due_cents)) + '</span></div>';
+    if (confDraft.room_number)       html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Room</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.room_number) + '</span></div>';
+    if (confDraft.gate_code)         html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Gate code</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.gate_code) + '</span></div>';
+    if (confDraft.address)           html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Address</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.address) + '</span></div>';
+    html += '</div>';
+    html += '<div style="margin-top:6px;font-size:11px;color:var(--text-3);border-top:1px solid #B5C7D3;padding-top:4px">';
+    html += 'sends_whatsapp: <code>false</code> &middot; whatsapp_dry_run: <code>true</code>';
+    html += '<br><span style="font-style:italic">Draft only — not sent. No WhatsApp in this slice.</span>';
+    html += '</div></div></div>';
+  }
+
   /* ── 5. Add-ons / Activities ───────────────────────────────────────────── */
   var ao = data.addons || {};
   html += '<div class="ctx-section"><h3>Add-ons / Activities</h3>';
@@ -8081,19 +8108,27 @@ async function handleBookingContext(bookingCode, query, res, user) {
     staff_user_id: user ? user.staff_user_id : null,
   };
 
-  let bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows;
+  let bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows;
   try {
-    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows] =
+    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows] =
       await withPgClient(async (pg) => {
-        const [b, p, r, c, h, a] = await Promise.all([
+        const [b, p, r, c, h, a, m] = await Promise.all([
           pg.query(getBookingDetailQuery(),             [clientSlug, bookingCode]),
           pg.query(getBookingPaymentsQuery(),           [clientSlug, bookingCode]),
           pg.query(getBookingRoomingAssignmentsQuery(), [clientSlug, bookingCode]),
           pg.query(getBookingConversationQuery(),       [clientSlug, bookingCode]),
           pg.query(getBookingHandoffQuery(),            [clientSlug, bookingCode]),
           pg.query(getBookingAddOnSummaryQuery(),       [clientSlug, bookingCode]).catch(() => ({ rows: [] })),
+          pg.query(
+            `SELECT b.metadata
+               FROM bookings b
+               INNER JOIN clients c ON c.id = b.client_id
+              WHERE c.slug = $1 AND b.booking_code = $2
+              LIMIT 1`,
+            [clientSlug, bookingCode]
+          ),
         ]);
-        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows];
+        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows, m.rows];
       });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8106,6 +8141,8 @@ async function handleBookingContext(bookingCode, query, res, user) {
   }
 
   const bk = bookingRows[0];
+  const bkMetadata = (metaRows[0] && metaRows[0].metadata) || {};
+  const confirmationDraft = bkMetadata.confirmation_draft || null;
 
   // Payments aggregate
   const totalPaid = paymentRows.reduce((s, r) => s + Number(r.amount_paid_cents || 0), 0);
@@ -8153,6 +8190,8 @@ async function handleBookingContext(bookingCode, query, res, user) {
       deposit_required_cents: bk.deposit_required_cents,
       amount_paid_cents:   bk.amount_paid_cents,
       balance_due_cents:   bk.balance_due_cents,
+      metadata:            bkMetadata,
+      confirmation_draft:  confirmationDraft,
     },
     payments: {
       rows:                  paymentRows,
