@@ -550,6 +550,32 @@ Each slice is independently gated, independently provable, and does not depend o
 
 **Not in this slice:** hosted re-fire on staging booking; live WhatsApp send (separate gate).
 
+### 8.5.15 - Hosted confirmation_draft webhook proof - **PASS (2026-06-03)**
+**Goal:** Deploy Stage 8.5.14 to Azure staging and prove `/staff/stripe/webhook` returns `confirmation_draft` after payment truth on a Luna-created booking.
+
+**Azure deploy:**
+- Image: `whstagingacr.azurecr.io/wh-staff-api:d3929b2-stage8515-confirmation-draft` (ACR build run `cbe`, commit `d3929b2`).
+- Container App: `wh-staging-staff-api` revision `--0000020` (100% traffic, Healthy).
+
+**Hosted webhook proof (booking `MB-WOLFHO-20260815-4d37a0`, Luna dry-run 8.5.10):**
+
+| Check | Result |
+|---|---|
+| Webhook 200 | ✓ |
+| `confirmation_draft` present | ✓ |
+| `booking_code` | ✓ `MB-WOLFHO-20260815-4d37a0` |
+| `payment_status:deposit_paid` | ✓ |
+| `amount_paid_cents:10000` | ✓ |
+| `balance_due_cents:40000` | ✓ |
+| `room_number:DEMO-R1` | ✓ |
+| `gate_code:2684#` | ✓ |
+| `sends_whatsapp:false` | ✓ |
+| `whatsapp_dry_run:true` | ✓ |
+| `no_whatsapp/no_n8n/no_confirmation_sent:true` | ✓ |
+| `confirmation_sent_at` unchanged | ✓ (null) |
+| n8n `stage8510SharedDryRun01` inactive | ✓ |
+| No WhatsApp sent | ✓ |
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)
