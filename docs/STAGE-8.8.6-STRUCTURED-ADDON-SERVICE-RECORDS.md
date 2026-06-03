@@ -1,9 +1,9 @@
 # Stage 8.8.6 — Structured add-on/service records for Staff Ask Luna
 
-**Status:** PASS — design extended through **Stage 8.8.13** (2026-06-03).  
-**Non-negotiables (8.8.13):** No code. No DB migration. No API/UI. No Azure. No n8n. No WhatsApp. No Stripe.
+**Status:** PASS — design extended through **Stage 8.8.18** (2026-06-03).  
+**Non-negotiables (8.8.18):** No code. No DB migration. No API/UI. No Azure. No n8n. No WhatsApp. No Stripe.
 
-**Context:** Stages 8.8.11–8.8.12 prove Staff Ask Luna reads **`booking_service_records`** on staging `--0000035`. Manual booking still writes quote line items only; service rows are not created on booking create yet. This doc now defines **booking-time add-ons**, **later guest Luna add-on requests**, and **Staff Portal drawer display** (8.8.13).
+**Context:** Stages 8.8.11–8.8.12 prove Staff Ask Luna reads **`booking_service_records`**. **8.8.16–8.8.17** prove manual booking create writes service rows tied to real bookings (`MB-WOLFHO-20260901-cb4799`). **8.8.18** defines when `payment_status` on service rows may change — Stripe webhook or audited staff action only.
 
 **Related:** [STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md](STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md) · [ROADMAP.md](ROADMAP.md) · migration stub [`database/migrations/007_add_addon_orders.sql`](../database/migrations/007_add_addon_orders.sql) (not yet applied)
 
@@ -128,8 +128,9 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Hosted proof** | **8.8.12** ✓ | Deploy + Luna API proof | `--0000035`; 14/14 PASS |
 | **Flows design** | **8.8.13** ✓ | Booking-time + guest Luna + drawer (docs) | §8–§11 below |
 | **Portal display** | **8.8.14–8.8.15** ✓ | Read-only drawer UI + hosted proof | `--0000036`; golden empty state PASS; demo rows need real bookings (8.8.16) |
-| **Booking create writes** | **8.8.16–8.8.17** ✓ | Manual create → `booking_service_records` + hosted proof | `--0000037`; `MB-WOLFHO-20260901-cb4799` disposable test booking |
-| **Guest Luna add-on API** | **8.8.16+** | Bot endpoint + payment draft | §8 Flow B; live send still NO_GO |
+| **Booking create writes** | **8.8.16–8.8.17** ✓ | Manual create → `booking_service_records` + hosted proof | `--0000037`; `MB-WOLFHO-20260901-cb4799` |
+| **Payment truth rules** | **8.8.18** ✓ | When service rows become paid (docs) | §12 below |
+| **Guest Luna add-on API** | **8.8.19+** | Bot endpoint + payment draft | §8 Flow B; live send still NO_GO |
 
 **Out of scope until explicit GO:** live WhatsApp send, n8n activation, applying migration to production.
 
@@ -147,16 +148,16 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 
 ---
 
-## 7. Staging state (after 8.8.12 deploy, Staff API `--0000035`)
+## 7. Staging state (after 8.8.17 deploy, Staff API `--0000037`)
 
 | Item | State |
 |------|-------|
-| `booking_service_records` table | **Applied on staging** — demo fixture 11 rows (`demo_fixture_stage888`) |
-| Ask Luna service intents | **Live on staging** — revision `--0000035` (`ef122ac-stage8812-service-queries`); hosted proof **PASS** |
-| Today demo totals | Wetsuit qty **3**, surfboard qty **4**; yoga + lesson paid today; meal paid tomorrow; Jun 15 meal paid + lesson pending |
-| Manual booking create | **Live on staging** — writes 3 service rows for wetsuit/lesson/yoga add-ons (8.8.17 proof) |
+| `booking_service_records` table | **Applied on staging** — demo fixture 11 rows + live rows from manual create |
+| Ask Luna service intents | **Live** — revision `--0000037` |
+| Manual booking create | **Live** — writes service rows when add-ons present (8.8.17 proof) |
 | Booking drawer services | **Populated proof** — `MB-WOLFHO-20260901-cb4799` shows wetsuit + surf lesson + yoga |
-| Next slice | **8.8.18** — `payment_kind=addon_service` migration + webhook service-row paid truth |
+| Service row payment truth | **Not implemented** — all live create rows `pending`; never `paid` until 8.8.19+ |
+| Next slice | **8.8.19** — migration 011 + `payment_kind=addon_service` + webhook allocation (§12) |
 
 ---
 
@@ -270,6 +271,109 @@ When staff click a booking on Bed Calendar, the context drawer shows operational
 | **Q4. Partial pay / deposit on add-ons** | Can add-ons use deposit-only or always full amount due? | **Full amount due** for add-on checkouts unless Ty defines deposit rules per service type. |
 | **Q5. Cancelled booking** | Cascade service records when booking cancelled? | Set service `status='cancelled'`; do not delete; exclude from Ask Luna counts. |
 | **Q6. Meal pricing future** | When meals become priced, which SKU? | New `meal` add-on in pricing JSON + `on_site: false`; until then Flow B records only. |
+| **Q7. Full-payment add-on allocation** | When guest pays **full** at booking, how to split Stripe `amount_paid` across package vs add-on line items? | Store `service_record_ids[]` + per-row `amount_due_cents` on payment metadata at checkout create; webhook marks linked rows `paid` only when allocation explicit (§12.1). |
+| **Q8. Deposit + add-ons in same checkout** | If deposit checkout total includes add-on cents, mark add-ons paid on deposit webhook? | **No** — deposit webhook marks **package deposit only**; add-on rows stay `pending` unless separate `addon_service` payment or full-payment allocation slice (§12.1). |
+
+---
+
+## 12. Service-record payment truth rules (Stage 8.8.18)
+
+**Scope:** Docs only. Defines when `booking_service_records.payment_status`, `amount_paid_cents`, and `status` may change. **No code in this slice.**
+
+**Invariant:** `payment_status='paid'` only via **Stripe webhook** (`POST /staff/stripe/webhook`) or **audited staff manual action**. Never from chat, n8n, or UI inference.
+
+### 12.1 Booking-time add-ons (Flow A)
+
+Applies to service rows created at manual/bot booking create (`source=staff_manual` or `luna_guest` at create time).
+
+| Booking payment choice | Service row initial state (today: 8.8.16) | After Stripe webhook (future) |
+|------------------------|-------------------------------------------|-------------------------------|
+| **Full payment** (`payment_choice=full`) | `pending` if `amount_due_cents > 0`; `not_requested` if 0 | When checkout session total covers **package + allocated add-on cents**, webhook may mark **linked** service rows `paid` if metadata lists `service_record_ids[]` and per-row allocation. Set `amount_paid_cents` = allocated amount (≤ `amount_due_cents`). Set `status='paid'` when fully settled. |
+| **Deposit only** (`payment_choice=deposit`) | `pending` if `amount_due_cents > 0` | **Do not** auto-mark service rows `paid` on deposit webhook. Deposit truth applies to **package payment row only**. Add-on rows stay `pending` until separate add-on checkout or staff manual truth. |
+| **Pay on arrival** (`payment_choice=pay_on_arrival`) | `pending` or `not_requested` per row | Stay `pending`/`not_requested` until staff manual mark-paid/waived or guest pays separate add-on link later. |
+| **Zero amount** (`amount_due_cents = 0`) | `not_requested` (e.g. combo unsplit rows, on-site yoga policy) | **Never** mark `paid`. Keep `not_requested` or operational `confirmed`; do not flip to `paid` without explicit payment truth. |
+
+**Allocation rule (full payment):** At checkout session create, Staff API must persist on the `payments` row metadata:
+
+```json
+{
+  "service_record_ids": ["uuid", "..."],
+  "service_record_allocation_cents": { "uuid": 1500, "...": 6000 }
+}
+```
+
+Webhook handler reads allocation; updates **only** listed rows. Rows not in metadata are unchanged.
+
+**Deposit + add-ons in one checkout total:** If product rolls add-on cents into first checkout for UX, still treat deposit webhook as **non-allocating** to service rows unless Ty explicitly approves a combined allocation table (default: **no**).
+
+### 12.2 Later guest add-ons via Luna (Flow B)
+
+Mid-stay requests create **separate** payment + service rows.
+
+| Rule | Detail |
+|------|--------|
+| **Separate payment row** | Each payable add-on batch gets its own `payments` row. Never mutate original booking deposit/full payment row. |
+| **payment_kind** | Extend enum with **`addon_service`** (migration 011). Values today: `deposit_only` \| `full_amount` ([`004_payment_schema_phase2.sql`](../database/migrations/004_payment_schema_phase2.sql)). |
+| **payments.metadata** | `source`: `luna_guest_addon` \| `staff_manual_addon`; `service_record_ids[]`; optional `service_record_allocation_cents`. |
+| **Stripe Checkout metadata** | Required keys: `client_slug`, `booking_id`, `booking_code`, `payment_id`, `payment_kind=addon_service`, `service_record_ids` (JSON array string). Staff API creates session; n8n never calls Stripe. |
+| **Amount** | `amount_due_cents` = **full add-on amount** (no deposit option for add-on checkouts). |
+| **Webhook** | On `checkout.session.completed` for `payment_kind=addon_service`: mark `payments.status=paid`; update **only** linked service records → `payment_status='paid'`, `amount_paid_cents`, `status='paid'`; set `booking_service_records.payment_id` FK. |
+| **Meals** | Record-only (`not_requested`); no Stripe link until priced SKU + explicit GO. |
+
+### 12.3 Staff / manual payment truth
+
+| Action | Allowed | Audit |
+|--------|---------|-------|
+| Mark service row **paid** | Future staff endpoint (operator+) | `workflow_events` + `updated_at`; optional `metadata.manual_paid_by`, `metadata.manual_paid_at` |
+| Mark **waived** | Yes — on-site settlement, comp, ops exception | Same audit; `payment_status='waived'`, `amount_paid_cents` may stay 0 |
+| Mark **refunded** | Future — tied to Stripe refund webhook or staff reversal | `payment_status='refunded'`; do not delete row |
+| **Chat / Luna text** | **Never** sets payment truth | n8n pipe only |
+
+### 12.4 Drawer behavior (Flow C — future slices)
+
+| Rule | Detail |
+|------|--------|
+| **Display** | Per-row `payment_status` shown clearly: pending · paid · waived · refunded · not_requested |
+| **Amounts** | Show `amount_due_cents` and `amount_paid_cents`; paid rows may show paid-at from linked payment if available |
+| **Actions** | **No** send / charge / payment-link buttons in read-only slices. Future slice may add read-only link to `payments.checkout_url` when `payment_id` set. |
+| **Booking banner** | Package deposit/paid banner **unchanged** — service rows are additive |
+
+### 12.5 Ask Luna behavior
+
+| Question type | SQL filter | Notes |
+|---------------|------------|-------|
+| **Paid** (yoga/meal on date) | `payment_status = 'paid'` | e.g. `services.yoga.paid_on_date` — **only** paid rows |
+| **Needs / has / ready** (wetsuit, board, lesson) | `status != 'cancelled'` | Includes `requested`, `confirmed`, `paid`; **includes `pending` and `not_requested`** unless question asks for paid |
+| **Count readiness** | `SUM(quantity) WHERE status != 'cancelled'` | Exclude cancelled; pending/not_requested count toward prep totals |
+
+**Examples (8.8.17 proof booking):**
+
+- “Who needs a wetsuit on September 1 2026?” → **includes** Stage8817 Addon Test (`pending`) ✓
+- “Who paid for yoga on September 1 2026?” → **excludes** Stage8817 Addon Test until webhook/staff marks paid
+
+### 12.6 Required future migrations and code (8.8.19+)
+
+| # | Deliverable | Purpose |
+|---|-------------|---------|
+| **M1** | Migration **011**: `booking_service_records.payment_id UUID REFERENCES payments(id)` nullable | Link row to add-on checkout |
+| **M2** | Migration **011**: extend `payment_kind` enum → **`addon_service`** | Route webhook by payment type |
+| **M3** | Webhook: `addon_service` branch | Mark linked service rows paid (§12.2) |
+| **M4** | Webhook: **full-payment allocation** branch | Mark booking-time service rows paid when metadata allocation present (§12.1) |
+| **M5** | Checkout create: embed `service_record_ids` in Stripe metadata | Required for webhook linkage |
+| **M6** | Flow B: `POST /staff/bot/add-on-request` (dry-run) | Guest Luna mid-stay → record + separate payment draft |
+| **M7** | Staff manual mark-paid/waived endpoint (future) | On-site / ops override with audit |
+
+**Recommended order:** M1+M2 → M3 → M5+M4 → M6 → M7.
+
+### 12.7 Safety (unchanged)
+
+| Rule | Enforcement |
+|------|-------------|
+| Stripe webhook = payment truth | HMAC-verified `POST /staff/stripe/webhook` only |
+| No chat → paid | Luna/n8n never UPDATE service payment fields |
+| No n8n → Stripe | Staff API creates Checkout Sessions |
+| No live WhatsApp | **NO_GO** per 8.6.8 / 8.8.1 until explicit approval |
+| Staging only until GO | No production migration without approval |
 
 ---
 
@@ -277,12 +381,13 @@ When staff click a booking on Bed Calendar, the context drawer shows operational
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.18** | `payment_kind=addon_service` migration + webhook hook | Service row `paid` truth |
-| **2** | **8.8.19** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
-| **3** | **8.8.20+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
+| **1** | **8.8.19** | Migration 011 + webhook `addon_service` + full-payment allocation | Service row `paid` truth (§12) |
+| **2** | **8.8.20** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
+| **3** | **8.8.21+** | Staff mark-paid/waived + drawer payment-link display | Manual truth + ops UX |
+| **4** | **8.8.22+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
 
 ---
 
-**Doc slice (8.8.13):** Flows A/B/C + decisions documented. **No code.**
+**Doc slice (8.8.18):** Service-record payment truth rules (§12). **No code.**
 
-**Hosted proof (8.8.12):** 14/14 Luna API checks PASS on `staff-staging.lunafrontdesk.com`. No WhatsApp/n8n/Stripe/live send.
+**Hosted proof (8.8.17):** Manual create → 3 service rows on `MB-WOLFHO-20260901-cb4799`; drawer + Ask Luna PASS. Rows `pending`; no Stripe paid truth yet.

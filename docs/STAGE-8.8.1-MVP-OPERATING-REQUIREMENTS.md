@@ -4,8 +4,8 @@
 **Captured after:** Stage 8.7.27 staging demo-ready confirmation (`wh-staging-staff-api--0000032`).  
 **Design (8.8.6):** `booking_service_records` model + Ask Luna intent mapping — see [STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md).  
 **Flows (8.8.13):** Booking-time add-ons, later guest Luna requests, booking drawer — [STAGE-8.8.6 §8](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#8-three-connected-flows-stage-88813).  
-**Hosted (8.8.12):** Service-record Ask Luna queries on `--0000035` — [STAGE-8.7.2 §8.8.12](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md).  
-**Hosted (8.8.5):** Multilingual Ask Luna router — same doc §8.8.5.  
+**Hosted (8.8.17):** Manual create → service records + drawer + Luna — [STAGE-8.7.2 §8.8.17](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md).  
+**Payment truth (8.8.18):** When service rows become paid — [STAGE-8.8.6 §12](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#12-service-record-payment-truth-rules-stage-88818).  
 **Owner input:** Ty (post-demo with Ale/Cami).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
 
@@ -17,7 +17,7 @@
 
 | Area | Decision |
 |------|----------|
-| **Booking drawer** | **Good enough** for payment + confirmation draft — **add-on/services section** planned 8.8.14 (read-only from `booking_service_records`). No cosmetic rework before write paths. |
+| **Booking drawer** | **Good enough** — payment + confirmation draft + **Services & Add-ons** panel (8.8.14–8.8.15). Populated rows from manual create (8.8.17). No cosmetic rework before payment-truth code. |
 | **Bed Calendar view** | **Good enough** — range chips (8.7.23), Selected Stay layout (8.7.23–8.7.25), auto-load Next 30 days, manual booking form. No further polish required before MVP build-out. |
 
 Future work on drawer/calendar should be **bug-fix or write-path only**, not cosmetic rework.
@@ -85,7 +85,7 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 | How many checking out Saturday? | “How many people check out on Saturday?” | ✓ `check_outs.count` + weekday resolver (8.8.2) | Named weekday → next occurrence (today if same weekday) |
 | How many check in tomorrow? | “How many people arrive tomorrow?” | ✗ Not implemented | Count with `check_in = tomorrow` |
 
-**Rule:** Add-on operational questions use **`booking_service_records`** (Ask Luna live 8.8.12). Persisted rows on booking create and guest Luna requests are **designed 8.8.13**, not implemented yet.
+**Rule:** Add-on operational questions use **`booking_service_records`** (Ask Luna live 8.8.12). Manual booking create writes service rows (8.8.16–8.8.17). Payment truth rules documented 8.8.18; webhook implementation pending 8.8.19+.
 
 ---
 
@@ -95,11 +95,28 @@ Three flows — full detail in [STAGE-8.8.6 §8](STAGE-8.8.6-STRUCTURED-ADDON-SE
 
 | Flow | Summary | Status |
 |------|---------|--------|
-| **A — Booking-time** | Quote chargeable add-ons → payment draft → create `booking_service_records` → Stripe webhook truth | Quote UI ✓; service row insert ✗ |
-| **B — Guest Luna later** | Guest asks mid-stay → structured record + **separate** add-on payment + Stripe link → webhook; meals record-only (no link) | Design only; live send **NO_GO** |
-| **C — Drawer** | Bed Calendar booking drawer lists services from `booking_service_records` (date/type grouped); no send button | Design only |
+| **A — Booking-time** | Quote chargeable add-ons → payment draft → create `booking_service_records` → Stripe webhook truth | Service row insert ✓ (8.8.16–8.8.17); webhook paid truth ✗ (8.8.19+) |
+| **B — Guest Luna later** | Guest asks mid-stay → structured record + **separate** add-on payment + Stripe link → webhook; meals record-only (no link) | Design + payment rules (8.8.18); endpoint ✗ |
+| **C — Drawer** | Bed Calendar booking drawer lists services from `booking_service_records` (date/type grouped); no send button | Live ✓ (8.8.14–8.8.15); populated proof ✓ (8.8.17) |
 
-**Decisions:** `service_date` required before payable add-on; original booking payment separate; extend `payment_kind` with `addon_service`; meals on-site only (no payment link until priced).
+**Decisions:** `service_date` required; separate payments for later add-ons; `payment_kind=addon_service`; deposit webhook does **not** auto-mark add-ons paid; full payment may allocate to service rows when metadata explicit; meals on-site only.
+
+---
+
+## 4b. Service-record payment truth (8.8.18)
+
+When `booking_service_records.payment_status` may change — full rules in [STAGE-8.8.6 §12](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#12-service-record-payment-truth-rules-stage-88818):
+
+| Scenario | Rule |
+|----------|------|
+| Full booking payment | May mark booking-time service rows `paid` **only** when checkout metadata lists explicit `service_record_ids` + allocation |
+| Deposit only | **Never** auto-mark service rows paid on deposit webhook |
+| Pay on arrival | Service rows stay pending until staff manual or separate add-on payment |
+| Zero amount rows | Never mark `paid`; keep `not_requested` |
+| Later Luna add-ons | Separate `payments` row with `payment_kind=addon_service`; webhook marks **only** linked rows |
+| Staff manual | Future audited mark-paid/waived/refunded — not from chat |
+| Ask Luna “paid” questions | `payment_status='paid'` only |
+| Ask Luna “needs/ready” questions | Includes pending/not_requested; excludes cancelled |
 
 ---
 
@@ -132,16 +149,15 @@ Stay **dry-run / demo-ready** on staging until a documented GO for a single pilo
 
 | Phase | Focus | Depends on |
 |-------|-------|------------|
-| **8.8.7–8.8.12** | Schema, fixture, Ask Luna, hosted proof | ✓ Done |
-| **8.8.13** | Flows A/B/C design ✓ | [STAGE-8.8.6 §8](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#8-three-connected-flows-stage-88813) |
-| **8.8.14** | Staff Portal read-only services drawer | Staging `booking_service_records` data |
-| **8.8.15** | `payment_kind=addon_service` + webhook → service rows | Migration + Stripe metadata |
-| **8.8.16** | Manual/bot booking create → service records | Flow A |
-| **8.8.17** | Guest Luna add-on request endpoint (dry-run) | Flow B |
+| **8.8.7–8.8.17** | Schema, fixture, Ask Luna, drawer, manual create + hosted proof | ✓ Done |
+| **8.8.18** | Service-record payment truth rules ✓ | [STAGE-8.8.6 §12](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#12-service-record-payment-truth-rules-stage-88818) |
+| **8.8.19** | Migration 011 + `addon_service` webhook + allocation | §12.6 |
+| **8.8.20** | Guest Luna add-on request endpoint (dry-run) | Flow B |
+| **8.8.21+** | Staff mark-paid/waived; live guest send after GO | Ops + 8.6.8 |
 | **8.3p+** | Manual move / cancel / operator writes (§5) | Staff action flags + SQL helpers |
 | **8.5.x / 8.6.x** | Guest Luna live path + optional staff WhatsApp GO (§2, §6) | Workflow migration, 8.6.8 sign-off |
 | **8.5.20+** | Confirmation send policy (§2 last step) | Owner policy; still gated |
 
 ---
 
-**Next doc slice:** Stage 8.8.14 — booking drawer read-only services section (implementation).
+**Next doc slice:** Stage 8.8.19 — migration 011 + webhook implementation plan (code).
