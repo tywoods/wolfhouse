@@ -1,7 +1,7 @@
 # Stage 8.8.6 — Structured add-on/service records for Staff Ask Luna
 
-**Status:** PASS — design extended through **Stage 8.8.22** (2026-06-03).  
-**Non-negotiables (8.8.22):** Hosted staging proof only. No production. No full-payment allocation.
+**Status:** PASS — design extended through **Stage 8.8.23** (2026-06-03).  
+**Non-negotiables (8.8.23):** API code only. No Azure deploy.
 
 **Context:** Stages 8.8.11–8.8.12 prove Staff Ask Luna reads **`booking_service_records`**. **8.8.16–8.8.17** prove manual booking create writes service rows tied to real bookings (`MB-WOLFHO-20260901-cb4799`). **8.8.18** defines when `payment_status` on service rows may change — Stripe webhook or audited staff action only.
 
@@ -134,7 +134,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Staging apply 011** | **8.8.20** ✓ | Applied to `wolfhouse_staging` only (Ty-approved) | §7 below |
 | **Webhook addon_service** | **8.8.21–8.8.22** ✓ | Code + hosted proof on `--0000038` | §12.2; yoga+wetsuit paid on `MB-WOLFHO-20260901-cb4799` |
 | **Full-payment allocation** | **8.8.22+** | Booking-time add-ons on full checkout | §12.1 M4 |
-| **Add-on checkout create** | **8.8.23+** | Flow B payment draft + Stripe link + bot endpoint | §8 Flow B; live send still NO_GO |
+| **Add-on checkout create** | **8.8.23** ✓ | `POST .../service-records/create-payment-link` | Staff API; no deploy yet |
 
 **Out of scope until explicit GO:** live WhatsApp send, n8n activation, applying migration to production.
 
@@ -165,7 +165,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | Ask Luna service intents | **Live** — `--0000038` |
 | Service row payment truth | **Live for `addon_service`** — webhook marks linked rows by `payment_id` |
 | Booking package payment truth | **Unchanged by add-on webhook** — 8.8.22 proof confirmed |
-| Next slice | **8.8.23** — add-on checkout create + Flow B bot endpoint; or full-payment allocation |
+| Next slice | **8.8.24** — deploy + hosted add-on checkout proof; or Flow B bot endpoint |
 
 ---
 
@@ -368,7 +368,7 @@ Mid-stay requests create **separate** payment + service rows.
 | **M3** | Webhook: `addon_service` branch ✓ code + hosted proof (8.8.21–8.8.22) | `--0000038`; payment `3318b16c-…` |
 | **M4** | Webhook: **full-payment allocation** branch | Mark booking-time service rows paid when metadata allocation present (§12.1) |
 | **M5** | Checkout create: embed `service_record_ids` in Stripe metadata | Required for webhook linkage |
-| **M6** | Flow B: `POST /staff/bot/add-on-request` (dry-run) | Guest Luna mid-stay → record + separate payment draft |
+| **M6** | Flow B: `POST /staff/bookings/:id/service-records/create-payment-link` ✓ code (8.8.23) | Staff addon Stripe link; replaces manual DB setup from 8.8.22 |
 | **M7** | Staff manual mark-paid/waived endpoint (future) | On-site / ops override with audit |
 
 **Recommended order:** M1+M2 → M3 → M5+M4 → M6 → M7.

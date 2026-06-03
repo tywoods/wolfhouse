@@ -156,6 +156,10 @@ const BOT_PAYMENT_STRIPE_LINK_RE = /^\/staff\/bot\/payments\/([0-9a-f]{8}-[0-9a-
 
 // Stage 7.7b — conversation route regexes (read-only GET)
 const UUID_RE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+// Stage 8.8.23 — POST /staff/bookings/:booking_id/service-records/create-payment-link
+const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
+  `^/staff/bookings/(${UUID_RE})/service-records/create-payment-link$`, 'i',
+);
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 
@@ -3316,6 +3320,400 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     no_n8n:                    true,
     message:                   'Stripe Checkout Session created. Payment not marked paid until webhook confirms.',
     elapsed_ms:                elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/bookings/:booking_id/service-records/create-payment-link
+// (Stage 8.8.23)
+//
+// Creates addon_service payment + Stripe Checkout for selected service rows.
+// Links booking_service_records.payment_id; webhook marks rows paid (8.8.21).
+//
+// Gates: STAFF_ACTIONS_ENABLED + STRIPE_LINKS_ENABLED + operator auth.
+// Safety: no payment truth, no booking payment mutation, no WhatsApp/n8n.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res, user) {
+  const started = Date.now();
+
+  if (!STAFF_ACTIONS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+      staff_actions_enabled: false,
+    });
+  }
+  if (!STRIPE_LINKS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.',
+      stripe_links_enabled: false,
+    });
+  }
+  if (!STRIPE_SECRET_KEY) {
+    return sendJSON(res, 503, {
+      success: false,
+      error: 'STRIPE_SECRET_KEY not configured.',
+      no_db_write: true,
+    });
+  }
+  if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+    return sendJSON(res, 503, {
+      success: false,
+      error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
+      no_db_write: true,
+    });
+  }
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const rawIds = body.service_record_ids;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    return send400(res, 'service_record_ids must be a non-empty array of UUIDs');
+  }
+  const serviceRecordIds = [...new Set(rawIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  if (serviceRecordIds.length === 0) {
+    return send400(res, 'service_record_ids must contain at least one UUID');
+  }
+  for (const id of serviceRecordIds) {
+    if (!UUID_VALIDATE_RE.test(id)) {
+      return send400(res, `invalid service_record_id: ${id}`);
+    }
+  }
+
+  let stripe;
+  try {
+    stripe = require('stripe')(STRIPE_SECRET_KEY);
+  } catch (e) {
+    return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
+  }
+
+  let booking;
+  let rows;
+  try {
+    const result = await withPgClient(async (pg) => {
+      const bk = await pg.query(
+        `SELECT b.id AS booking_id, b.booking_code, b.guest_name, b.client_id,
+                cl.slug AS client_slug
+           FROM bookings b
+           JOIN clients cl ON cl.id = b.client_id
+          WHERE b.id = $1`,
+        [bookingId],
+      );
+      if (!bk.rows[0]) return { booking: null, rows: [] };
+
+      if (user && user.client_id && bk.rows[0].client_id !== user.client_id) {
+        return { booking: bk.rows[0], rows: [], forbidden: true };
+      }
+
+      const svc = await pg.query(
+        `SELECT id, booking_id, service_type, service_date, status, payment_status,
+                amount_due_cents, amount_paid_cents, payment_id
+           FROM booking_service_records
+          WHERE id = ANY($1::uuid[])`,
+        [serviceRecordIds],
+      );
+      return { booking: bk.rows[0], rows: svc.rows, forbidden: false };
+    });
+    booking = result.booking;
+    rows = result.rows;
+    if (result.forbidden) {
+      return sendJSON(res, 403, { success: false, error: 'Booking not accessible for this staff client.' });
+    }
+  } catch (err) {
+    if (isMissingBookingServiceRecordsTable(err)) {
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'booking_service_records table not available',
+        service_records_available: false,
+      });
+    }
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
+  }
+
+  if (!booking) {
+    return sendJSON(res, 404, { success: false, error: 'Booking not found.' });
+  }
+  if (rows.length !== serviceRecordIds.length) {
+    return sendJSON(res, 404, {
+      success: false,
+      error: 'One or more service_record_ids were not found.',
+    });
+  }
+
+  for (const row of rows) {
+    if (row.booking_id !== bookingId) {
+      return sendJSON(res, 422, {
+        success: false,
+        error: `Service record ${row.id} does not belong to booking ${bookingId}.`,
+      });
+    }
+    if (row.status === 'cancelled') {
+      return sendJSON(res, 422, {
+        success: false,
+        error: `Service record ${row.id} is cancelled.`,
+      });
+    }
+    if (row.payment_status === 'paid') {
+      return sendJSON(res, 422, {
+        success: false,
+        error: `Service record ${row.id} is already paid.`,
+      });
+    }
+    if (Number(row.amount_due_cents || 0) <= 0) {
+      return sendJSON(res, 422, {
+        success: false,
+        error: `Service record ${row.id} has no payable amount (amount_due_cents must be > 0).`,
+      });
+    }
+  }
+
+  const linkedPaymentIds = [...new Set(rows.map((r) => r.payment_id).filter(Boolean))];
+  if (linkedPaymentIds.length > 1) {
+    return sendJSON(res, 409, {
+      success: false,
+      error: 'Selected service records are linked to different payments.',
+    });
+  }
+
+  let paymentId;
+  let amountDueCents = rows.reduce((sum, r) => sum + Number(r.amount_due_cents || 0), 0);
+  const allocation = {};
+  for (const row of rows) {
+    allocation[row.id] = Number(row.amount_due_cents || 0);
+  }
+
+  if (linkedPaymentIds.length === 1) {
+    let existingPm;
+    try {
+      existingPm = await withPgClient(async (pg) => {
+        const r = await pg.query(
+          `SELECT id, status, payment_kind, amount_due_cents, stripe_checkout_session_id,
+                  checkout_url, metadata
+             FROM payments WHERE id = $1`,
+          [linkedPaymentIds[0]],
+        );
+        return r.rows[0] || null;
+      });
+    } catch (err) {
+      return sendJSON(res, 500, { success: false, error: 'Payment lookup failed: ' + err.message });
+    }
+
+    if (!existingPm) {
+      return sendJSON(res, 409, { success: false, error: 'Linked payment record not found.' });
+    }
+    if (existingPm.payment_kind !== 'addon_service') {
+      return sendJSON(res, 409, {
+        success: false,
+        error: 'Service records are linked to a non-addon payment.',
+      });
+    }
+    if (existingPm.status === 'paid') {
+      return sendJSON(res, 409, {
+        success: false,
+        error: 'Linked add-on payment is already paid.',
+      });
+    }
+    if (existingPm.status === 'checkout_created' && existingPm.checkout_url) {
+      return sendJSON(res, 200, {
+        success: true,
+        idempotent: true,
+        payment_id: existingPm.id,
+        booking_id: bookingId,
+        booking_code: booking.booking_code,
+        payment_kind: 'addon_service',
+        amount_due_cents: existingPm.amount_due_cents,
+        stripe_checkout_session_id: existingPm.stripe_checkout_session_id,
+        checkout_url: existingPm.checkout_url,
+        service_record_ids: serviceRecordIds,
+        no_payment_truth_recorded: true,
+        no_whatsapp: true,
+        no_n8n: true,
+        message: 'Stripe session already created for these service records (idempotent).',
+      });
+    }
+    if (existingPm.status === 'draft') {
+      paymentId = existingPm.id;
+      amountDueCents = Number(existingPm.amount_due_cents || amountDueCents);
+    } else {
+      return sendJSON(res, 409, {
+        success: false,
+        error: `Linked payment is in status '${existingPm.status}'; cannot create checkout link.`,
+      });
+    }
+  }
+
+  if (!paymentId) {
+    const paymentMetadata = {
+      source: 'staff_portal_addon_service',
+      service_record_ids: serviceRecordIds,
+      service_record_allocation_cents: allocation,
+      booking_code: booking.booking_code,
+    };
+    try {
+      paymentId = await withPgClient(async (pg) => {
+        await pg.query('BEGIN');
+        try {
+          const ins = await pg.query(
+            `INSERT INTO payments (
+               client_id, booking_id, status, payment_kind, currency,
+               amount_due_cents, amount_paid_cents, metadata
+             ) VALUES (
+               $1, $2, 'draft'::payment_record_status, 'addon_service'::payment_kind, 'EUR',
+               $3, 0, $4::jsonb
+             ) RETURNING id`,
+            [booking.client_id, bookingId, amountDueCents, JSON.stringify(paymentMetadata)],
+          );
+          const newPaymentId = ins.rows[0].id;
+          await pg.query(
+            `UPDATE booking_service_records
+                SET payment_id = $1,
+                    payment_status = 'pending',
+                    updated_at = NOW()
+              WHERE id = ANY($2::uuid[])`,
+            [newPaymentId, serviceRecordIds],
+          );
+          await pg.query('COMMIT');
+          return newPaymentId;
+        } catch (e) {
+          try { await pg.query('ROLLBACK'); } catch (_) {}
+          throw e;
+        }
+      });
+    } catch (err) {
+      if (isMissingBookingServiceRecordsTable(err)) {
+        return sendJSON(res, 503, {
+          success: false,
+          error: 'booking_service_records table not available',
+          service_records_available: false,
+        });
+      }
+      return sendJSON(res, 500, { success: false, error: 'Failed to create add-on payment: ' + err.message });
+    }
+  }
+
+  const productName = `Add-ons — ${booking.booking_code || bookingId}`;
+  const productDesc = `Service add-ons | ${booking.guest_name || 'Guest'} | ${booking.client_slug}`;
+
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      currency: 'eur',
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          product_data: { name: productName, description: productDesc },
+          unit_amount: amountDueCents,
+        },
+        quantity: 1,
+      }],
+      metadata: {
+        client_slug: booking.client_slug,
+        booking_id: bookingId,
+        booking_code: booking.booking_code || '',
+        payment_id: paymentId,
+        payment_kind: 'addon_service',
+        service_record_ids: JSON.stringify(serviceRecordIds),
+      },
+      success_url: STRIPE_SUCCESS_URL,
+      cancel_url: STRIPE_CANCEL_URL,
+    });
+  } catch (stripeErr) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Stripe session creation failed: ' + stripeErr.message,
+      payment_id: paymentId,
+      no_payment_truth_recorded: true,
+    });
+  }
+
+  const expiresAt = session.expires_at
+    ? new Date(session.expires_at * 1000).toISOString()
+    : null;
+
+  try {
+    await withPgClient(async (pg) => {
+      await pg.query(
+        `UPDATE payments
+            SET status                     = 'checkout_created'::payment_record_status,
+                stripe_checkout_session_id = $1,
+                checkout_url               = $2,
+                expires_at                 = $3,
+                metadata                   = metadata || $4::jsonb
+          WHERE id = $5`,
+        [
+          session.id,
+          session.url,
+          expiresAt,
+          JSON.stringify({
+            stripe_session_id: session.id,
+            stripe_livemode: session.livemode,
+            source: 'staff_portal_addon_service',
+            service_record_ids: serviceRecordIds,
+            service_record_allocation_cents: allocation,
+          }),
+          paymentId,
+        ],
+      );
+    });
+  } catch (dbErr) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:addon_service_create_payment_link',
+      category: 'stripe_link_create',
+      success: false,
+      error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
+      payment_id: paymentId,
+      session_id: session.id,
+    });
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Stripe session created but DB update failed: ' + dbErr.message,
+      payment_id: paymentId,
+      checkout_url: session.url,
+    });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts: new Date().toISOString(),
+    intent: 'api:addon_service_create_payment_link',
+    category: 'stripe_link_create',
+    success: true,
+    payment_id: paymentId,
+    booking_id: bookingId,
+    booking_code: booking.booking_code,
+    service_record_ids: serviceRecordIds,
+    amount_due_cents: amountDueCents,
+    elapsed_ms: elapsed,
+    stripe_called: true,
+    whatsapp_called: false,
+    n8n_called: false,
+  });
+
+  return sendJSON(res, 200, {
+    success: true,
+    payment_id: paymentId,
+    booking_id: bookingId,
+    booking_code: booking.booking_code,
+    payment_kind: 'addon_service',
+    amount_due_cents: amountDueCents,
+    stripe_checkout_session_id: session.id,
+    checkout_url: session.url,
+    service_record_ids: serviceRecordIds,
+    status: 'checkout_created',
+    no_payment_truth_recorded: true,
+    no_whatsapp: true,
+    no_n8n: true,
+    message: 'Add-on Stripe Checkout Session created. Service rows marked pending until webhook confirms.',
+    elapsed_ms: elapsed,
   });
 }
 
@@ -9291,6 +9689,21 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for stripe/webhook' }));
     }
     return handleStripeWebhook(req, res);
+  }
+
+  // ── Stage 8.8.23 — addon_service payment link for service records ───────────
+  const svcPayMatch = BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE.exec(pathname);
+  if (svcPayMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({
+        success: false,
+        error: 'Method not allowed — use POST for service-records/create-payment-link',
+      }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingServiceRecordsCreatePaymentLink(svcPayMatch[1], req, res, auth.user);
   }
 
   // ── Stage 8.4.9 — Stripe checkout link from draft payment ────────────────
