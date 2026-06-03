@@ -1,8 +1,9 @@
 # Stage 8.8.1 — Luna MVP Operating Requirements (post-demo)
 
-**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.3 hosted proof on `--0000033`.  
+**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.4 multilingual intent router (local; not deployed).  
 **Captured after:** Stage 8.7.27 staging demo-ready confirmation (`wh-staging-staff-api--0000032`).  
 **Hosted (8.8.3):** Date-aware check-in/check-out intents live on `--0000033` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.3.  
+**Local (8.8.4):** Multilingual Ask Luna keyword router (EN/ES/IT/DE/FR) for checkout, cleaning, balance-due + basic date words — deterministic only, no LLM.  
 **Owner input:** Ty (post-demo with Ale/Cami).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
 
@@ -52,7 +53,7 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 
 | Priority question | Example phrasing | Current coverage (8.7.27) | Data dependency |
 |-------------------|------------------|---------------------------|-----------------|
-| Who still needs to pay? | “Who still owes money?” | ✓ `payments.balance_due` (4 rows on staging) | `bookings` + `payments` |
+| Who still needs to pay? | “Who still owes money?” / “Quien debe pagar?” | ✓ `payments.balance_due` (8.8.4 i18n router) | `bookings` + `payments` |
 | Who paid for yoga on a date? | “Who paid for yoga tonight / tomorrow / June 15?” | ✗ Not implemented | **Structured add-on/service records** (`add_on_orders` / yoga line items) |
 | Who paid for a meal on a date? | “Who paid for meals on June 15?” | ✗ Not implemented | **Structured meal/add-on records** — not chat logs |
 
@@ -70,8 +71,8 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 
 | Priority question | Example phrasing | Current coverage | Data dependency |
 |-------------------|------------------|------------------|-----------------|
-| Which rooms need cleaning today? | “Which rooms need cleaning?” | ✓ `rooms_or_beds_need_cleaning` (0 rows demo date) | `bookings` + `booking_beds` check-out = today |
-| Who is checking out today? | “Who leaves today?” | ✓ `departures_today` | `bookings.check_out = today` |
+| Which rooms need cleaning today? | “Which rooms need cleaning?” / “Cual cuartos tengo que limpiar hoy?” / “Welche Zimmer müssen heute gereinigt werden?” | ✓ `rooms_or_beds_need_cleaning` (8.8.4 i18n) | `bookings` + `booking_beds` check-out = today |
+| Who is checking out today? | “Who leaves today?” / “Quien sale hoy?” / “Chi parte oggi?” / “Qui part aujourd'hui?” | ✓ `departures_today` or `check_outs.on_date` (8.8.4 i18n) | `bookings.check_out = today` |
 | Who is checking in today? | “Who checks in today?” | ✓ `check_ins.on_date` (8.8.2–8.8.3 hosted) | `bookings.check_in = resolved date` |
 | Who is checking in tomorrow? | “Who checks in tomorrow?” | ✓ `check_ins.on_date` (8.8.2) | Same |
 | How many check in tomorrow? | “How many people arrive tomorrow?” | ✓ `check_ins.count` (8.8.2) | Sum `guest_count` on matching bookings |

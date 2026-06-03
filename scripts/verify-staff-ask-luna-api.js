@@ -286,16 +286,29 @@ check('K18', 'new arrival/departure queries do not use conversation/chat logs',
     API_SRC.indexOf('function resolveNaturalLanguageIntent')
   ).match(/conversation|message_log|chat_log/i));
 
+// Extract Ask Luna router chunk (Stage 8.8.4 — includes normalize + i18n helpers)
+function extractAskLunaRouterChunk() {
+  const start = API_SRC.indexOf('function normalizeAskLunaQuestion');
+  const localQueryStart = API_SRC.indexOf('const ASK_LUNA_LOCAL_QUERY', start);
+  const resolverStart = API_SRC.indexOf('function resolveNaturalLanguageIntent(', start);
+  const end = API_SRC.indexOf('\nfunction formatAnswer', start);
+  if (start < 0 || localQueryStart < 0 || resolverStart < 0 || end < 0) return null;
+  const constants = [
+    API_SRC.match(/const ASK_LUNA_WEEKDAYS = [^;]+;/)?.[0],
+    API_SRC.match(/const ASK_LUNA_MONTHS = \{[\s\S]*?\};/)?.[0],
+    API_SRC.match(/function askLunaIsoDateUTC[\s\S]*?\n\}/)?.[0],
+    API_SRC.match(/function askLunaTodayUTC[\s\S]*?\n\}/)?.[0],
+  ].filter(Boolean).join('\n');
+  const helpers = API_SRC.slice(start, localQueryStart);
+  const resolver = API_SRC.slice(resolverStart, end);
+  return `${constants}\n${helpers}${resolver}`;
+}
+
 // Runtime smoke: date resolver (pure functions extracted from API source)
 (function runAskLunaDateResolverSmoke() {
   try {
-    const chunk = [
-      API_SRC.match(/const ASK_LUNA_WEEKDAYS = [^;]+;/)[0],
-      API_SRC.match(/const ASK_LUNA_MONTHS = \{[\s\S]*?\};/)[0],
-      API_SRC.match(/function askLunaIsoDateUTC[\s\S]*?\n\}/)[0],
-      API_SRC.match(/function askLunaTodayUTC[\s\S]*?\n\}/)[0],
-      API_SRC.match(/function resolveAskLunaDatePhrase[\s\S]*?\n\}/)[0],
-    ].join('\n');
+    const chunk = extractAskLunaRouterChunk();
+    if (!chunk) throw new Error('could not extract Ask Luna router chunk');
     const resolveFn = new Function(`${chunk}; return resolveAskLunaDatePhrase;`)();
     const ref = new Date('2026-06-03T12:00:00.000Z'); // Tuesday
     const tonight = resolveFn('who checks in tonight', ref);
@@ -311,24 +324,22 @@ check('K18', 'new arrival/departure queries do not use conversation/chat logs',
     const satToday = new Date('2026-06-06T12:00:00.000Z');
     const satSame = resolveFn('check out on Saturday', satToday);
     check('K-R6', 'runtime: Saturday when today is Saturday → today', satSame && satSame.date === '2026-06-06' && satSame.label === 'saturday');
+    const hoy = resolveFn('Quien sale hoy?', ref);
+    const manana = resolveFn('check out manana', ref);
+    check('K-R7', 'runtime: hoy → today label (es)', hoy && hoy.label === 'today' && hoy.date === '2026-06-03');
+    check('K-R8', 'runtime: manana → tomorrow (es)', manana && manana.label === 'tomorrow' && manana.date === '2026-06-04');
   } catch (e) {
     check('K-R1', 'runtime date resolver smoke', false, e.message);
-    ['K-R2', 'K-R3', 'K-R4', 'K-R5', 'K-R6'].forEach(id => check(id, 'runtime date resolver smoke (skipped)', false, e.message));
+    ['K-R2', 'K-R3', 'K-R4', 'K-R5', 'K-R6', 'K-R7', 'K-R8'].forEach(id =>
+      check(id, 'runtime date resolver smoke (skipped)', false, e.message));
   }
 })();
 
 // Runtime smoke: intent routing samples
 (function runAskLunaIntentRoutingSmoke() {
   try {
-    const chunk = [
-      API_SRC.match(/const ASK_LUNA_WEEKDAYS = [^;]+;/)[0],
-      API_SRC.match(/const ASK_LUNA_MONTHS = \{[\s\S]*?\};/)[0],
-      API_SRC.match(/function askLunaIsoDateUTC[\s\S]*?\n\}/)[0],
-      API_SRC.match(/function askLunaTodayUTC[\s\S]*?\n\}/)[0],
-      API_SRC.match(/function resolveAskLunaDatePhrase[\s\S]*?\n\}/)[0],
-      API_SRC.match(/function isBlockedAddOnServiceQuestion[\s\S]*?\n\}/)[0],
-      API_SRC.match(/function resolveNaturalLanguageIntent[\s\S]*?\n\}/)[0],
-    ].join('\n');
+    const chunk = extractAskLunaRouterChunk();
+    if (!chunk) throw new Error('could not extract Ask Luna router chunk');
     const wrapped = `
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) return { REGISTRY_BY_KEY: new Map() };
@@ -352,11 +363,79 @@ check('K18', 'new arrival/departure queries do not use conversation/chat logs',
       yoga && yoga.intentKey === 'unsupported_intent');
     check('K-I5', 'runtime: who leaves today → departures_today',
       resolveIntent('Who leaves today').intentKey === 'departures_today');
+    check('K-I6', 'runtime: cleaning contraction → rooms_or_beds_need_cleaning',
+      resolveIntent("who's room needs to be cleaned?").intentKey === 'rooms_or_beds_need_cleaning');
+    check('K-I7', 'runtime: Quien sale hoy → departures_today or check_outs.on_date',
+      ['departures_today', 'check_outs.on_date'].includes(resolveIntent('Quien sale hoy?').intentKey));
+    check('K-I8', 'runtime: ES cleaning → rooms_or_beds_need_cleaning',
+      resolveIntent('Cual cuartos tengo que limpiar hoy?').intentKey === 'rooms_or_beds_need_cleaning');
+    check('K-I9', 'runtime: IT checkout today → departures_today or check_outs.on_date',
+      ['departures_today', 'check_outs.on_date'].includes(resolveIntent('Chi parte oggi?').intentKey));
+    check('K-I10', 'runtime: DE cleaning → rooms_or_beds_need_cleaning',
+      resolveIntent('Welche Zimmer müssen heute gereinigt werden?').intentKey === 'rooms_or_beds_need_cleaning');
+    check('K-I11', 'runtime: FR checkout today → departures_today or check_outs.on_date',
+      ['departures_today', 'check_outs.on_date'].includes(resolveIntent("Qui part aujourd'hui?").intentKey));
+    check('K-I12', 'runtime: EN balance due → payments.balance_due',
+      resolveIntent('Who still needs to pay?').intentKey === 'payments.balance_due');
+    check('K-I13', 'runtime: ES balance due → payments.balance_due',
+      resolveIntent('Quien debe pagar?').intentKey === 'payments.balance_due');
   } catch (e) {
     check('K-I1', 'runtime intent routing smoke', false, e.message);
-    ['K-I2', 'K-I3', 'K-I4', 'K-I5'].forEach(id => check(id, 'runtime intent routing smoke (skipped)', false, e.message));
+    ['K-I2', 'K-I3', 'K-I4', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13']
+      .forEach(id => check(id, 'runtime intent routing smoke (skipped)', false, e.message));
   }
 })();
+
+// ── L. Stage 8.8.4 — multilingual intent router ─────────────────────────────
+const routerChunkStart = API_SRC.indexOf('function normalizeAskLunaQuestion');
+const routerChunkEnd   = API_SRC.indexOf('\nfunction formatAnswer', routerChunkStart);
+const routerChunk      = routerChunkStart > -1 && routerChunkEnd > routerChunkStart
+  ? API_SRC.slice(routerChunkStart, routerChunkEnd)
+  : '';
+const askLunaScope     = handlerText + routerChunk;
+
+check('L1', 'normalizeAskLunaQuestion defined',
+  API_SRC.includes('function normalizeAskLunaQuestion('));
+
+check('L2', 'normalizer strips accents (NFD)',
+  routerChunk.includes(".normalize('NFD')"));
+
+check('L3', 'multilingual checkout helper (askLunaMatchesCheckout)',
+  routerChunk.includes('function askLunaMatchesCheckout(') &&
+  routerChunk.includes('sale') && routerChunk.includes('parte') &&
+  routerChunk.includes('abreise') && routerChunk.includes('part'));
+
+check('L4', 'multilingual cleaning helper (askLunaMatchesCleaning)',
+  routerChunk.includes('function askLunaMatchesCleaning(') &&
+  routerChunk.includes('limpiar') && routerChunk.includes('gereinigt') &&
+  routerChunk.includes('nettoyer'));
+
+check('L5', 'multilingual balance-due helper (askLunaMatchesBalanceDue)',
+  routerChunk.includes('function askLunaMatchesBalanceDue(') &&
+  routerChunk.includes('debe') && routerChunk.includes('schuldet') &&
+  routerChunk.includes('doit'));
+
+check('L6', 'multilingual today/tomorrow words in date resolver',
+  routerChunk.includes('hoy') && routerChunk.includes('oggi') &&
+  routerChunk.includes('heute') && routerChunk.includes('manana') &&
+  routerChunk.includes('demain'));
+
+check('L7', 'no OpenAI/Anthropic/Claude/LLM API calls in Ask Luna scope',
+  !askLunaScope.match(/\bopenai\b/i) &&
+  !askLunaScope.match(/\banthropic\b/i) &&
+  !askLunaScope.match(/\bclaude\b/i) &&
+  !askLunaScope.match(/\bllm\b/i) &&
+  !askLunaScope.match(/api\.openai\.com/i));
+
+check('L8', 'no INSERT/UPDATE/DELETE in Ask Luna handler',
+  !handlerNoComments.match(/\bINSERT\b/i) &&
+  !handlerNoComments.match(/\bUPDATE\b/i) &&
+  !handlerNoComments.match(/\bDELETE\b/i));
+
+check('L9', 'no graph.facebook.com / n8n / Stripe in Ask Luna handler',
+  !handlerNoComments.includes('graph.facebook.com') &&
+  !handlerNoComments.match(/\bn8n\b/) &&
+  !handlerNoComments.includes('api.stripe.com'));
 
 // ── I. Uses existing registry infrastructure ─────────────────────────────────
 check('I1', 'handler uses getEntry() from registry',

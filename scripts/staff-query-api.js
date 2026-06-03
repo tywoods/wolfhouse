@@ -933,12 +933,76 @@ function askLunaTodayUTC(refDate = new Date()) {
 }
 
 /**
- * Resolve a date phrase from a staff Ask Luna question (Stage 8.8.2).
- * tonight = today; tomorrow; ISO; named month/day; weekday (today if same weekday).
+ * Normalize staff Ask Luna question text (Stage 8.8.4).
+ * Lowercase, strip accents, collapse punctuation/contractions — deterministic only.
+ */
+function normalizeAskLunaQuestion(question) {
+  let q = String(question || '').toLowerCase().trim();
+  q = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  q = q.replace(/[''`´]/g, ' ');
+  q = q.replace(/\bwho\s+s\b/g, 'who');
+  q = q.replace(/\bwhat\s+s\b/g, 'what');
+  q = q.replace(/\bit\s+s\b/g, 'it');
+  q = q.replace(/[?!.,;:()[\]{}""]/g, ' ');
+  q = q.replace(/\s+/g, ' ').trim();
+  return q;
+}
+
+function askLunaHasTodayWord(q) {
+  return /\b(today|tonight|hoy|oggi|heute|aujourdhui|aujourd hui)\b/.test(q);
+}
+
+function askLunaHasTomorrowWord(q) {
+  return /\b(tomorrow|manana|domani|morgen|demain)\b/.test(q);
+}
+
+function askLunaIsCountQuestion(q) {
+  return /\b(how many|cuantos|cuantas|quanti|wie viele|combien)\b/.test(q);
+}
+
+function askLunaMatchesCheckout(q) {
+  return /\b(check(ing)?\s*out|checkout|leav(e|es|ing)|depart(ure|ures|ing)?|departs)\b/.test(q)
+    || /\b(sale|salen|salida)\b/.test(q)
+    || /\b(parte|partono|part|parts|uscita)\b/.test(q)
+    || /\b(abreise|abreisen)\b/.test(q);
+}
+
+function askLunaMatchesCleaning(q) {
+  if (/\b(clean(ed|ing)?|housekeep(ing)?|limpiar|limpieza|pulire|pulizia|reinigen|gereinigt|sauber|nettoyer|menage)\b/.test(q)) {
+    return true;
+  }
+  return /\b(room|rooms|bed|beds|cuarto|cuartos|habitacion|habitaciones|camera|camere|zimmer|chambre|chambres)\b/.test(q)
+    && /\b(clean|limpiar|pulire|reinigen|nettoyer|gereinigt|sauber|menage|needs?\s+to\s+be\s+cleaned)\b/.test(q);
+}
+
+function askLunaMatchesBalanceDue(q) {
+  return /\b(owes?|owed|still\s+(needs?\s+to\s+)?pay|balance\s+due|still\s+ow)\b/.test(q)
+    || /\b(debe|deben|saldo)\b/.test(q)
+    || /\b(deve(\s+pagare)?)\b/.test(q)
+    || /\b(schuldet|offen)\b/.test(q)
+    || /\b(doit(\s+payer)?|solde)\b/.test(q)
+    || (/\b(quien|who)\b/.test(q) && /\b(debe|owes?)\b/.test(q))
+    || (/\b(quien|who)\b/.test(q) && /\bpagar\b/.test(q) && /\bdebe\b/.test(q));
+}
+
+function askLunaIsDeparturesTodayPhrase(q, dateInfo, today) {
+  const di = dateInfo || (askLunaHasTodayWord(q) ? { date: today, label: 'today' } : null);
+  if (!di || di.date !== today) return false;
+  if (/\b(who leaves|leave.?today|leaving.?today|check.?out.?today|depart.*today)\b/.test(q)) {
+    return true;
+  }
+  if (!askLunaMatchesCheckout(q)) return false;
+  if (!askLunaHasTodayWord(q) && !(dateInfo && dateInfo.label === 'today')) return false;
+  return /\b(quien|chi|qui|wer|who)\b/.test(q) || /\bwho\b/.test(q);
+}
+
+/**
+ * Resolve a date phrase from a staff Ask Luna question (Stage 8.8.2 + 8.8.4 i18n).
+ * tonight = today; tomorrow; ISO; named month/day; weekday; hoy/oggi/heute/aujourd'hui…
  * @returns {{ date: string, label: string } | null}
  */
 function resolveAskLunaDatePhrase(question, refDate = new Date()) {
-  const q = String(question || '').toLowerCase();
+  const q = normalizeAskLunaQuestion(question);
 
   const isoMatch = q.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
   if (isoMatch) return { date: isoMatch[1], label: isoMatch[1] };
@@ -962,15 +1026,18 @@ function resolveAskLunaDatePhrase(question, refDate = new Date()) {
     return { date: askLunaIsoDateUTC(d), label: askLunaIsoDateUTC(d) };
   }
 
-  if (/\btonight\b/.test(q)) {
+  if (/\btonight\b/.test(q) || /\bhoy\b/.test(q) || /\boggi\b/.test(q) || /\bheute\b/.test(q)
+      || /\baujourdhui\b/.test(q) || /\baujourd hui\b/.test(q)) {
     return { date: askLunaTodayUTC(refDate), label: 'today' };
   }
-  if (/\btomorrow\b/.test(q)) {
+  if (/\btomorrow\b/.test(q) || /\bmanana\b/.test(q) || /\bdomani\b/.test(q)
+      || /\bmorgen\b/.test(q) || /\bdemain\b/.test(q)) {
     const d = new Date(refDate);
     d.setUTCDate(d.getUTCDate() + 1);
     return { date: askLunaIsoDateUTC(d), label: 'tomorrow' };
   }
-  if (/\btoday\b/.test(q)) {
+  if (/\btoday\b/.test(q) || /\bhoy\b/.test(q) || /\boggi\b/.test(q) || /\bheute\b/.test(q)
+      || /\baujourdhui\b/.test(q) || /\baujourd hui\b/.test(q)) {
     return { date: askLunaTodayUTC(refDate), label: 'today' };
   }
 
@@ -1025,7 +1092,7 @@ const ASK_LUNA_LOCAL_QUERY = {
  * Returns { intentKey, extraParams } or null for unsupported questions.
  */
 function resolveNaturalLanguageIntent(question) {
-  const q = String(question || '').toLowerCase().trim();
+  const q = normalizeAskLunaQuestion(question);
   const today = askLunaTodayUTC();
 
   // Direct registry key passthrough (e.g. "payments.balance_due")
@@ -1041,35 +1108,45 @@ function resolveNaturalLanguageIntent(question) {
   }
 
   const dateInfo = resolveAskLunaDatePhrase(question);
-  const isCountQ = /\bhow many\b/.test(q);
+  const isCountQ = askLunaIsCountQuestion(q);
 
-  // ── Check-in / check-out date queries (8.8.2) — before generic payment/rooming ──
+  // ── Cleaning (8.8.4 i18n) — before checkout/payment to avoid false routes ──
+  if (askLunaMatchesCleaning(q)) {
+    const di = dateInfo || (askLunaHasTodayWord(q) ? { date: today, label: 'today' } : { date: today, label: 'today' });
+    return { intentKey: 'rooms_or_beds_need_cleaning', extraParams: { date: di.date, dateLabel: di.label } };
+  }
+
+  // ── Balance due (8.8.4 i18n) ──
+  if (askLunaMatchesBalanceDue(q) && !/\bpayment.?link|checkout.?link|pending.?link|waiting.?for.?pay\b/.test(q)) {
+    return { intentKey: 'payments.balance_due', extraParams: {} };
+  }
+
+  // ── Check-in / check-out date queries (8.8.2 + 8.8.4) ──
   if (isCountQ && /\b(check.?in|checking in|arriv|arrival)\b/.test(q)) {
     const di = dateInfo || { date: today, label: 'today' };
     return { intentKey: 'check_ins.count', extraParams: { date: di.date, dateLabel: di.label } };
   }
-  if (isCountQ && /\b(check.?out|checking out|leav|depart)\b/.test(q)) {
+  if (isCountQ && askLunaMatchesCheckout(q)) {
     const di = dateInfo || { date: today, label: 'today' };
     return { intentKey: 'check_outs.count', extraParams: { date: di.date, dateLabel: di.label } };
   }
   if (/\b(check.?in|checking in)\b/.test(q)) {
-    const di = dateInfo || (/\btoday\b|\btonight\b/.test(q) ? { date: today, label: 'today' } : null);
+    const di = dateInfo || (askLunaHasTodayWord(q) ? { date: today, label: 'today' } : null);
     if (di) {
       return { intentKey: 'check_ins.on_date', extraParams: { date: di.date, dateLabel: di.label } };
     }
   }
-  if (/\b(check.?out|checking out|leav|depart|who leaves)\b/.test(q)) {
-    const di = dateInfo || (/\btoday\b|\btonight\b/.test(q) ? { date: today, label: 'today' } : null);
+  if (askLunaMatchesCheckout(q)) {
+    const di = dateInfo || (askLunaHasTodayWord(q) ? { date: today, label: 'today' } : null);
     if (di) {
-      if (di.date === today && /who leaves|leave.?today|leaving.?today|check.?out.?today|depart.*today/.test(q)) {
+      if (askLunaIsDeparturesTodayPhrase(q, dateInfo, today)) {
         return { intentKey: 'departures_today', extraParams: { date: today, dateLabel: 'today' } };
       }
       return { intentKey: 'check_outs.on_date', extraParams: { date: di.date, dateLabel: di.label } };
     }
   }
 
-  // Natural language → intent mapping
-  if (/ow(es?|ed)|balance.?due|still ow/.test(q))                               return { intentKey: 'payments.balance_due',        extraParams: {} };
+  // Natural language → intent mapping (English fallbacks)
   if (/payment.?link|checkout.?link|pending.?link|waiting.?for.?pay/.test(q))   return { intentKey: 'payments.waiting',            extraParams: {} };
   if (/arriv|check.?in.?today|arriving.?today/.test(q))                         return { intentKey: 'rooming.arrivals',            extraParams: { date: today } };
   if (/needs?.human|needs?.staff|handoff|who.?needs.?help/.test(q))             return { intentKey: 'handoffs.open',               extraParams: {} };
@@ -1083,7 +1160,6 @@ function resolveNaturalLanguageIntent(question) {
   if (/addon.?action|add.?on.?action|staff.?action/.test(q))                    return { intentKey: 'addons.action_required',      extraParams: {} };
 
   if (/depart|check.?out.?today|leaving.?today|leave.?today|who leaves/.test(q)) return { intentKey: 'departures_today',            extraParams: { date: today, dateLabel: 'today' } };
-  if (/clean|housekeep|room.?ready|bed.?ready|need.?clean/.test(q))             return { intentKey: 'rooms_or_beds_need_cleaning', extraParams: { date: today } };
 
   return null;
 }
