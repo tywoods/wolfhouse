@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000041` (2026-06-03, Stage 8.8.28 bot add-on create proof live).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000042` (2026-06-03, Stage 8.8.30 bot add-on idempotency proof live).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -350,7 +350,26 @@
 | Ask Luna regression | **PASS** | `Who paid for yoga today?` → `services.yoga.paid_on_date` · 1 row |
 | Safety | **PASS** | Read-only drawer; no Add/Edit/Send/payment-link in service panel; no DB writes / WhatsApp / n8n / Stripe from session |
 
-**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows **wetsuit + yoga + surf lesson paid (Sep 1)** plus **Luna guest wetsuit paid (Sep 2)** and **meal record-only (Sep 2)** from Stage 8.8.28.
+**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows Sep 1 paid rows plus Luna guest add-ons from Stages 8.8.28–8.8.30 (Sep 2–3 wetsuit/meal).
+
+---
+
+## Hosted bot addon idempotency proof — Stage 8.8.30 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.29 idempotency live on staging revision `--0000042` (`039e355`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:039e355-stage8830-bot-addon-idempotency` · ACR `cb14` · revision `--0000042` · Healthy · 100% traffic |
+| Preflight | **PASS** | `039e355`; `verify-staff-bot-addon-request-api.js` 61/61 |
+| First create | **PASS** | Wetsuit Sep 3 · key `stage8830-wetsuit-20260903-001` · **201** · service `c7b47e54-a20a-40d5-9150-5ee6a772272a` · payment `fa664b4c-d99b-4873-b27a-7512e76ed89e` · checkout `cs_test_a12KQG2crGWxdSrbzNmRfyuKhETR8DISDrXWb80nju8RbiQDLD1mhoY16e` · no `idempotency_key_missing` |
+| DB after first | **PASS** | 1 service row + 1 payment for key · `pending` · booking payment unchanged |
+| Pending retry | **PASS** | **200** · `idempotent:true` · `write_performed:false` · same ids/checkout · DB counts still 1/1 · session unchanged |
+| Webhook | **PASS** | Signed webhook → **200** · `addon_service_payment:true` · `service_records_paid_count:1` |
+| Paid retry | **PASS** | **200** · `idempotent:true` · `payment_status:paid` · no `checkout_url` · no new rows |
+| Meal idempotency | **PASS** | Key `stage8830-meal-20260903-001` · first **201** service `ab1bea0a-ae52-4464-87c0-5353a8fda0fd` · retry **200** idempotent · no payment · 1 meal row |
+| Cleanup | **LEFT** | Proof rows on staging (disposable evidence on test booking) |
+| Safety | **PASS** | Staging only; no duplicate Stripe on retry; no WhatsApp/n8n/confirmation; no booking payment mutation |
 
 ---
 
