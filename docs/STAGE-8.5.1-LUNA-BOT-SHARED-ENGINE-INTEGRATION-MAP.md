@@ -449,6 +449,23 @@ Each slice is independently gated, independently provable, and does not depend o
 - `active: false` — workflow not imported or activated. No Azure deploy. No DB writes. No Stripe. No WhatsApp.
 **Verifier:** `scripts/verify-luna-n8n-bot-shared-engine-dry-run.js` **41/41 PASS** (updated). New checks: B4/B5 (availability-check URL + node), G2 (selected_bed_codes from avail node), G3 (DEMO-R1-B1 absent), G4/G5/G6 (wiring order via connections), H1–H4 (not-enough-beds branch), K2/K3 (docs 8.5.9 refs).
 
+### 8.5.10 - Hosted Luna shared-engine dry-run execution - **PASS (2026-06-03)**
+**Goal:** Import the Stage 8.5.9 dry-run workflow into staging n8n (inactive), run one manual execution with a fake guest booking payload, and prove the full shared-engine chain end-to-end without live WhatsApp.
+
+**Delivered:**
+- Workflow imported/updated in staging n8n as `stage8510SharedDryRun01` (`active:false`, 17 nodes including staging guard patch).
+- Manual execution #4 (`mode:manual`, status:success, ~15s) with pinned webhook payload: phone `+34999000123`, guest Test Guest, email `test@example.test`, check_in 2026-08-15, check_out 2026-08-20 (5 nights), guest_count 2, malibu, shared, deposit, source luna_whatsapp.
+- Happy path executed: `Set - DryRun Mode Flags` → `HTTP - Bot Booking Preview` → `HTTP - Bot Availability Check` → `HTTP - Bot Booking Create` → `HTTP - Bot Stripe Link` → `Code - Draft Payment Link Reply` → `Respond - DryRun Payment Link Success`.
+- Staff API responses: preview quote (`ready_for_create_dry_run`); availability (`has_enough_beds:true`, real `selected_bed_codes`); create (`booking_code:MB-WOLFHO-20260815-4d37a0`, `payment_id`); Stripe link (`checkout_url`, `payment_status:checkout_created`).
+- Dry-run output: `reply_draft` present, `whatsapp_sent:false`, `no_payment_truth_recorded:true`.
+- Safety: no `graph.facebook.com`; no direct `api.stripe.com` in n8n; `STRIPE_DEFAULT_DEPOSIT_CENTS` not used as env/config fallback.
+- Workflow left **inactive**. No activation. No live WhatsApp send.
+- Test booking **left on staging** (disposable): `MB-WOLFHO-20260815-4d37a0`, phone `+34999000123`, payment checkout_created, not paid.
+
+**Staging import note:** Staging n8n has `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` and no `LUNA_BOT_INTERNAL_TOKEN` on the n8n container. Import applied staging-only patches: `Set - DryRun Mode Flags` + `$json.dry_run` guard (same pattern as Stage 8.6.6) and bot token injection from Key Vault into HTTP header fields. Repo JSON unchanged in this slice.
+
+**Proof:** Hosted manual execution only. No Staff API edits. No Stripe webhook fired. No WhatsApp sent.
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)
