@@ -85,7 +85,7 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 | How many checking out Saturday? | “How many people check out on Saturday?” | ✓ `check_outs.count` + weekday resolver (8.8.2) | Named weekday → next occurrence (today if same weekday) |
 | How many check in tomorrow? | “How many people arrive tomorrow?” | ✗ Not implemented | Count with `check_in = tomorrow` |
 
-**Rule:** Add-on operational questions use **`booking_service_records`** (Ask Luna live 8.8.12). Manual booking create writes service rows (8.8.16–8.8.17). Payment truth rules documented 8.8.18; webhook implementation pending 8.8.19+.
+**Rule:** Add-on operational questions use **`booking_service_records`** (Ask Luna live 8.8.12). Manual booking create writes service rows (8.8.16–8.8.17). Payment truth rules documented 8.8.18; migration 011 spec ready 8.8.19 (**NOT APPLIED**); webhook implementation pending 8.8.20+.
 
 ---
 
@@ -151,8 +151,9 @@ Stay **dry-run / demo-ready** on staging until a documented GO for a single pilo
 |-------|-------|------------|
 | **8.8.7–8.8.17** | Schema, fixture, Ask Luna, drawer, manual create + hosted proof | ✓ Done |
 | **8.8.18** | Service-record payment truth rules ✓ | [STAGE-8.8.6 §12](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#12-service-record-payment-truth-rules-stage-88818) |
-| **8.8.19** | Migration 011 + `addon_service` webhook + allocation | §12.6 |
-| **8.8.20** | Guest Luna add-on request endpoint (dry-run) | Flow B |
+| **8.8.19** | Migration 011 spec (`payment_id` FK + `addon_service`) ✓ | [`011_service_payment_linkage.sql`](../database/migrations/011_service_payment_linkage.sql); **NOT APPLIED** |
+| **8.8.20** | Apply 011 + webhook `addon_service` + allocation | §12.6 M3–M5 |
+| **8.8.21** | Guest Luna add-on request endpoint (dry-run) | Flow B |
 | **8.8.21+** | Staff mark-paid/waived; live guest send after GO | Ops + 8.6.8 |
 | **8.3p+** | Manual move / cancel / operator writes (§5) | Staff action flags + SQL helpers |
 | **8.5.x / 8.6.x** | Guest Luna live path + optional staff WhatsApp GO (§2, §6) | Workflow migration, 8.6.8 sign-off |
@@ -160,4 +161,4 @@ Stay **dry-run / demo-ready** on staging until a documented GO for a single pilo
 
 ---
 
-**Next doc slice:** Stage 8.8.19 — migration 011 + webhook implementation plan (code).
+**Next doc slice:** Stage 8.8.20 — apply migration 011 (with approval) + webhook `addon_service` + full-payment allocation.
