@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000038` (2026-06-03, Stage 8.8.22 addon_service webhook proof live).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000041` (2026-06-03, Stage 8.8.28 bot add-on create proof live).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -350,7 +350,29 @@
 | Ask Luna regression | **PASS** | `Who paid for yoga today?` → `services.yoga.paid_on_date` · 1 row |
 | Safety | **PASS** | Read-only drawer; no Add/Edit/Send/payment-link in service panel; no DB writes / WhatsApp / n8n / Stripe from session |
 
-**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows **wetsuit + yoga + surf lesson all paid** (Stages 8.8.22 + 8.8.24).
+**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows **wetsuit + yoga + surf lesson paid (Sep 1)** plus **Luna guest wetsuit paid (Sep 2)** and **meal record-only (Sep 2)** from Stage 8.8.28.
+
+---
+
+## Hosted bot addon create proof — Stage 8.8.28 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.27 create endpoint live on staging revision `--0000041` (`eeefd32`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:eeefd32-stage8828-bot-addon-create` · ACR `cb13` · revision `--0000041` · Healthy · 100% traffic |
+| Env | **PASS** | `BOT_ADDON_REQUESTS_ENABLED=true` · `STRIPE_LINKS_ENABLED=true` · `WHATSAPP_DRY_RUN=true` · `LUNA_BOT_INTERNAL_TOKEN` via KV |
+| Preflight | **PASS** | `eeefd32`; `verify-staff-bot-addon-request-api.js` 49/49 |
+| Wetsuit create | **PASS** | `POST /staff/bot/addon-requests/create` · `auth_mode:bot_token` · service `3fa55ff3-d5c9-4735-9f20-7704fb17f904` · payment `e4d9f1ba-989c-43d2-81bb-a4785aa9cada` · `payment_kind=addon_service` · €5 from pricing · `no_payment_truth_recorded/sends_whatsapp:false/no_n8n:true` |
+| DB before webhook | **PASS** | `source=luna_guest` · `payment_status=pending` · `amount_paid_cents=0` · payment `checkout_created` · booking payment unchanged (`not_requested`, balance €389) |
+| Idempotency | **GAP** | No idempotency key on create — **do not repeat** same request; duplicates possible until next slice |
+| Webhook | **PASS** | Signed `checkout.session.completed` → **200** · `addon_service_payment:true` · `service_records_paid_count:1` · `no_booking_payment_status_change/no_confirmation_sent/no_whatsapp/no_n8n:true` |
+| DB after webhook | **PASS** | Service `paid` · payment `paid` · booking payment unchanged |
+| Drawer | **PASS** | Context API: Sep 2 wetsuit row **paid**; booking payment panel unchanged |
+| Ask Luna | **PASS** | “Who needs a wetsuit on September 2 2026?” → **Stage8817 Addon Test** · `services.wetsuit.on_date` · 1 row |
+| Meal record-only | **PASS** | Service `6711badb-6f1e-4850-b922-e196cf2be4f9` · `reason:meal_on_site_only` · no payment/checkout · `payment_status=not_requested` |
+| Cleanup | **LEFT** | Proof rows on staging (disposable evidence chain on test booking) |
+| Safety | **PASS** | Staging only; no production; no WhatsApp/n8n/confirmation send; no booking payment mutation |
 
 ---
 

@@ -1,7 +1,7 @@
 # Stage 8.8.6 — Structured add-on/service records for Staff Ask Luna
 
-**Status:** PASS — design extended through **Stage 8.8.27** (2026-06-03).  
-**Non-negotiables (8.8.27):** API code only. No Azure deploy.
+**Status:** PASS — design extended through **Stage 8.8.28** (2026-06-03).  
+**Non-negotiables (8.8.28):** Hosted staging proof only. No production.
 
 **Context:** Stages 8.8.11–8.8.12 prove Staff Ask Luna reads **`booking_service_records`**. **8.8.16–8.8.17** prove manual booking create writes service rows tied to real bookings (`MB-WOLFHO-20260901-cb4799`). **8.8.18** defines when `payment_status` on service rows may change — Stripe webhook or audited staff action only.
 
@@ -135,7 +135,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Webhook addon_service** | **8.8.21–8.8.22** ✓ | Code + hosted proof on `--0000038` | §12.2; yoga+wetsuit paid on `MB-WOLFHO-20260901-cb4799` |
 | **Add-on checkout create** | **8.8.23–8.8.24** ✓ | API + hosted proof on `--0000039` | Staff API link + webhook; surf lesson paid via API path |
 | **Bot add-on dry-run** | **8.8.25–8.8.26** ✓ | API + hosted proof on `--0000040` | Flow B preview; no writes |
-| **Bot add-on create** | **8.8.27** ✓ | `POST /staff/bot/addon-requests/create` | Write path; no deploy yet |
+| **Bot add-on create** | **8.8.27–8.8.28** ✓ | API + hosted proof on `--0000041` | Luna guest write + webhook paid |
 
 **Out of scope until explicit GO:** live WhatsApp send, n8n activation, applying migration to production.
 
@@ -166,7 +166,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | Ask Luna service intents | **Live** — `--0000039` |
 | Service row payment truth | **Live** — API link create + webhook marks linked rows by `payment_id` |
 | Booking package payment truth | **Unchanged by add-on webhook** — 8.8.22/8.8.24 proof confirmed |
-| Next slice | **8.8.28** — hosted bot add-on create proof |
+| Next slice | **8.8.29+** — create idempotency key or Flow B7 live send (after 8.6.8 GO) |
 
 ---
 
@@ -390,13 +390,15 @@ Mid-stay requests create **separate** payment + service rows.
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.28** | Hosted bot add-on create proof | End-to-end Luna guest write on staging |
-| **2** | **8.8.28+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
-| **3** | **8.8.29+** | Full-payment allocation | Booking-time add-ons on full checkout (§12.1 M4) |
+| **1** | **8.8.29+** | Create idempotency key | Prevent duplicate Luna guest add-on rows |
+| **2** | **8.8.29+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
+| **3** | **8.8.30+** | Full-payment allocation | Booking-time add-ons on full checkout (§12.1 M4) |
 
 ---
 
-**Code slice (8.8.27):** `POST /staff/bot/addon-requests/create` — service row + optional `addon_service` payment + Stripe link. **No deploy.**
+**Hosted proof (8.8.28):** Bot create on `MB-WOLFHO-20260901-cb4799` — wetsuit Sep 2 paid via webhook; meal record-only. Revision `--0000041`.
+
+**Code slice (8.8.27):** `POST /staff/bot/addon-requests/create` — service row + optional `addon_service` payment + Stripe link. **Deployed in 8.8.28.**
 
 **Code slice (8.8.25):** `POST /staff/bot/addon-request-preview` — Luna guest add-on dry-run. **Deployed in 8.8.26 (`--0000040`).**
 
