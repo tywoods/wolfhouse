@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000034` (2026-06-03, Stage 8.8.5 multilingual Ask Luna router deployed).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000035` (2026-06-03, Stage 8.8.12 service queries deployed).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -300,6 +300,34 @@
 | Auto-select | **PASS** | Top conversation selected when filtered list has rows |
 | Empty state | **PASS** | “No conversations need staff review right now.” |
 | Safety | **PASS** | Client-side filter on `/staff/conversations`; no `/staff/handoffs` UI fetch; no WhatsApp/n8n/Stripe |
+
+---
+
+## Hosted Ask Luna service-record query proof — Stage 8.8.12 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.11 service intents live on staging revision `--0000035` (`ef122ac`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:ef122ac-stage8812-service-queries` · ACR `cbw` · revision `--0000035` · Healthy · 100% traffic |
+| Preflight | **PASS** | `ef122ac`; `verify-staff-ask-luna-api.js` 118/118 |
+| Who paid for yoga today? | **PASS** | `services.yoga.paid_on_date` · 1 row · Demo Yoga Guest 888 |
+| Who paid for yoga tomorrow? | **PASS** | `services.yoga.paid_on_date` · 1 row |
+| Who paid for meals tomorrow? | **PASS** | `services.meal.paid_on_date` · 1 row |
+| Who paid for meals on June 15? | **PASS** | `services.meal.paid_on_date` · 1 row (qty 2) |
+| Who has a lesson today? | **PASS** | `services.surf_lesson.on_date` · 1 row · paid lesson |
+| Who has a lesson on June 15? | **PASS** | `services.surf_lesson.on_date` · 1 row · pending lesson |
+| Who needs a wetsuit today? | **PASS** | `services.wetsuit.on_date` · 2 rows |
+| How many wetsuits ready today? | **PASS** | `services.wetsuit.count_on_date` · **3** · “3 wetsuits needed today.” |
+| Who needs a surfboard today? | **PASS** | `services.surfboard.on_date` · 2 rows |
+| How many surfboards ready today? | **PASS** | `services.surfboard.count_on_date` · **4** · “4 surfboards needed today.” |
+| Who still needs to pay? | **PASS** | `payments.balance_due` · **4 rows** (regression) |
+| Who leaves today? | **PASS** | `departures_today` · 0 rows (regression) |
+| Quien sale hoy? | **PASS** | `departures_today` · 0 rows (regression) |
+| Which rooms need cleaning? | **PASS** | `rooms_or_beds_need_cleaning` · 0 rows (regression) |
+| Safety | **PASS** | All responses `read_only:true` · `no_write_performed:true` · `sends_whatsapp:false`; structured `booking_service_records` only for service answers; no graph.facebook.com / n8n / api.stripe.com |
+
+**Optional demo add-on (Luna tab):** Try *“How many wetsuits do we need ready today?”* (count **3**) and *“Who paid for yoga tonight?”* (same as today) to show structured service data vs legacy booking queries.
 
 ---
 

@@ -145,20 +145,16 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 
 ---
 
-## 7. Staging state (after 8.8.11 code, Staff API `--0000034` until redeploy)
+## 7. Staging state (after 8.8.12 deploy, Staff API `--0000035`)
 
 | Item | State |
 |------|-------|
-| `booking_service_records` table | **Applied on staging** — [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) on `wh-staging-pg-app` / `wolfhouse_staging` (2026-06-03). **Not applied to production.** |
-| Demo fixture | **Applied on staging** — 11 rows from [`booking-service-records-demo-up.sql`](../scripts/fixtures/booking-service-records-demo-up.sql); `client_slug=wolfhouse-somo`, `source=demo_fixture_stage888` |
-| Today rental totals (demo) | Wetsuit qty **3**, surfboard qty **4** (CURRENT_DATE at apply time) |
-| Ask Luna service intents | **Implemented (8.8.11)** — `services.yoga.paid_on_date`, `services.meal.paid_on_date`, `services.surf_lesson.on_date`, `services.wetsuit.on_date`, `services.surfboard.on_date`, `services.wetsuit.count_on_date`, `services.surfboard.count_on_date`; SELECT-only from `booking_service_records` |
-| Hosted Staff API | Still `--0000034` — **redeploy required** before Luna tab can answer service questions on staging |
-| Manual booking create | Writes `quote_snapshot` add-ons in metadata only — does not yet write this table |
+| `booking_service_records` table | **Applied on staging** — demo fixture 11 rows (`demo_fixture_stage888`) |
+| Ask Luna service intents | **Live on staging** — revision `--0000035` (`ef122ac-stage8812-service-queries`); hosted proof **PASS** |
+| Today demo totals | Wetsuit qty **3**, surfboard qty **4**; yoga + lesson paid today; meal paid tomorrow; Jun 15 meal paid + lesson pending |
+| Manual booking create | Still does not write `booking_service_records` |
 | Next slice | Portal read-only service display; staff write path; multilingual service phrases |
 
 ---
 
-**Code proof (8.8.11):** `verify-staff-ask-luna-api.js` 118/118 PASS. No Azure deploy / n8n / WhatsApp / Stripe / live send in this slice.
-
-**Next doc slice:** Azure redeploy + hosted service-query proof (optional).
+**Hosted proof (8.8.12):** 14/14 Luna API checks PASS on `staff-staging.lunafrontdesk.com`. No WhatsApp/n8n/Stripe/live send.

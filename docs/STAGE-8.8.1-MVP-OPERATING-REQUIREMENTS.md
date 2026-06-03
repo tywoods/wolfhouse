@@ -3,7 +3,8 @@
 **Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.8 demo fixture (not applied).  
 **Captured after:** Stage 8.7.27 staging demo-ready confirmation (`wh-staging-staff-api--0000032`).  
 **Design (8.8.6):** `booking_service_records` model + Ask Luna intent mapping — see [STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md).  
-**Hosted (8.8.5):** Multilingual Ask Luna router live on `--0000034` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.5.  
+**Hosted (8.8.12):** Service-record Ask Luna queries live on `--0000035` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.12.  
+**Hosted (8.8.5):** Multilingual Ask Luna router — see same doc §8.8.5.  
 **Owner input:** Ty (post-demo with Ale/Cami).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
 
@@ -54,18 +55,18 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 | Priority question | Example phrasing | Current coverage (8.7.27) | Data dependency |
 |-------------------|------------------|---------------------------|-----------------|
 | Who still needs to pay? | “Who still owes money?” / “Quien debe pagar?” | ✓ `payments.balance_due` (8.8.4 i18n router) | `bookings` + `payments` |
-| Who paid for yoga on a date? | “Who paid for yoga tonight / tomorrow / June 15?” | ✓ **8.8.11** — `services.yoga.paid_on_date` from `booking_service_records` | **`booking_service_records`** — design: [STAGE-8.8.6](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md) |
-| Who paid for a meal on a date? | “Who paid for meals on June 15?” | ✓ **8.8.11** — `services.meal.paid_on_date` | `booking_service_records` |
+| Who paid for yoga on a date? | “Who paid for yoga tonight / tomorrow / June 15?” | ✓ **8.8.12 hosted** — `services.yoga.paid_on_date` | **`booking_service_records`** |
+| Who paid for a meal on a date? | “Who paid for meals on June 15?” | ✓ **8.8.12 hosted** — `services.meal.paid_on_date` | `booking_service_records` |
 
 ### 3.2 Lessons & rental prep (date-aware)
 
 | Priority question | Example phrasing | Current coverage | Data dependency |
 |-------------------|------------------|------------------|-----------------|
-| Who has a lesson today? | “Who has a surf lesson today?” | ✓ **8.8.11** — `services.surf_lesson.on_date` | `booking_service_records` |
-| Who needs a wetsuit today? | “Who needs a wetsuit today?” | ✓ **8.8.11** — `services.wetsuit.on_date` | `booking_service_records` |
-| Who needs a surfboard today? | “Who needs a board today?” | ✓ **8.8.11** — `services.surfboard.on_date` | `booking_service_records` |
-| How many surfboards ready today? | “How many boards do we need ready today?” | ✓ **8.8.11** — `services.surfboard.count_on_date` | `booking_service_records` |
-| How many wetsuits ready today? | “How many wetsuits do we need ready today?” | ✓ **8.8.11** — `services.wetsuit.count_on_date` | `booking_service_records` |
+| Who has a lesson today? | “Who has a surf lesson today?” | ✓ **8.8.12 hosted** — `services.surf_lesson.on_date` | `booking_service_records` |
+| Who needs a wetsuit today? | “Who needs a wetsuit today?” | ✓ **8.8.12 hosted** — `services.wetsuit.on_date` | `booking_service_records` |
+| Who needs a surfboard today? | “Who needs a board today?” | ✓ **8.8.12 hosted** — `services.surfboard.on_date` | `booking_service_records` |
+| How many surfboards ready today? | “How many boards do we need ready today?” | ✓ **8.8.12 hosted** — `services.surfboard.count_on_date` | `booking_service_records` |
+| How many wetsuits ready today? | “How many wetsuits do we need ready today?” | ✓ **8.8.12 hosted** — `services.wetsuit.count_on_date` | `booking_service_records` |
 
 ### 3.3 Housekeeping & arrivals/departures
 
