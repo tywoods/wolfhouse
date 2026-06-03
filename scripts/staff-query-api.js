@@ -3387,6 +3387,157 @@ function resolveStaffActorId(user, body, fallback) {
   return fallback || 'unknown-staff';
 }
 
+// Phase 9.6 — reusable guest automation pause gate (bot_pause_states SoT; read-only)
+async function checkGuestAutomationPauseState(pg, input) {
+  const clientSlug = String(input.client_slug || DEFAULT_CLIENT).trim();
+  const conversationId = input.conversation_id != null
+    ? String(input.conversation_id).trim() || null
+    : null;
+  const guestPhone = input.guest_phone != null
+    ? String(input.guest_phone).trim() || null
+    : null;
+  const bookingCode = input.booking_code != null
+    ? String(input.booking_code).trim() || null
+    : null;
+
+  const result = await getPauseState(pg, {
+    client_slug:     clientSlug,
+    conversation_id: conversationId,
+    guest_phone:     guestPhone,
+    booking_code:    bookingCode,
+  });
+
+  if (result.row) {
+    return {
+      bot_paused:        true,
+      live_send_blocked: true,
+      source:            'bot_pause_states',
+      pause_state:       formatPauseStateRow(result.row),
+      table_missing:     !!result.table_missing,
+    };
+  }
+
+  return {
+    bot_paused:        false,
+    live_send_blocked: false,
+    source:            'default_active',
+    pause_state:       null,
+    table_missing:     !!result.table_missing,
+  };
+}
+
+function buildGuestAutomationGateResponse(gate, body, extra) {
+  const draftReply = body && body.draft_reply != null
+    ? String(body.draft_reply)
+    : null;
+  const hasDraft = draftReply != null && draftReply.length > 0;
+  const requestSource = body && body.source != null
+    ? String(body.source).trim().slice(0, 100) || null
+    : null;
+
+  const base = Object.assign({
+    success:                       true,
+    bot_paused:                    gate.bot_paused,
+    live_send_blocked:             gate.live_send_blocked,
+    can_continue_guest_automation: !gate.bot_paused,
+    source:                        gate.source,
+    no_write_performed:            true,
+    sends_whatsapp:                false,
+    whatsapp_dry_run:              true,
+  }, extra || {});
+
+  if (gate.pause_state) base.pause_state = gate.pause_state;
+  if (gate.table_missing) base.table_missing = true;
+  if (hasDraft) {
+    base.draft_reply = draftReply;
+    base.draft_reply_preserved = true;
+  }
+  if (requestSource) base.request_source = requestSource;
+
+  return base;
+}
+
+async function handleBotCheckGuestAutomationGate(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const conversationId = body.conversation_id != null
+    ? String(body.conversation_id).trim() || null
+    : null;
+  const guestPhone = body.guest_phone != null
+    ? String(body.guest_phone).trim() || null
+    : null;
+
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'client_slug is required');
+  }
+  if (!conversationId && !guestPhone) {
+    return send400(res, 'conversation_id or guest_phone is required');
+  }
+
+  try {
+    const gate = await withPgClient((pg) => checkGuestAutomationPauseState(pg, {
+      client_slug:     clientSlug,
+      conversation_id: conversationId,
+      guest_phone:     guestPhone,
+      booking_code:    body.booking_code,
+    }));
+
+    appendAuditLog(Object.assign({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.check-guest-automation-gate',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      conversation_id: conversationId,
+      guest_phone: guestPhone,
+      success: true,
+      bot_paused: gate.bot_paused,
+      can_continue_guest_automation: !gate.bot_paused,
+      source: gate.source,
+      auth_mode: authMode || null,
+      no_write_performed: true,
+      sends_whatsapp: false,
+      whatsapp_dry_run: true,
+      elapsed_ms: Date.now() - started,
+    }, user ? { staff_user_id: user.staff_user_id } : {}));
+
+    return sendJSON(res, 200, buildGuestAutomationGateResponse(gate, body, {
+      client_slug: clientSlug,
+      conversation_id: conversationId,
+      guest_phone: guestPhone,
+    }));
+  } catch (err) {
+    appendAuditLog(Object.assign({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.check-guest-automation-gate',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    }, user ? { staff_user_id: user.staff_user_id } : {}));
+
+    return sendJSON(res, 200, buildGuestAutomationGateResponse({
+      bot_paused: false,
+      live_send_blocked: false,
+      source: 'default_active',
+      pause_state: null,
+    }, body, {
+      client_slug: clientSlug,
+      conversation_id: conversationId,
+      guest_phone: guestPhone,
+      lookup_error: true,
+    }));
+  }
+}
+
 async function handleBotPauseStateGet(query, res, user) {
   const started = Date.now();
   const clientSlug = String(query.client_slug || query.client || DEFAULT_CLIENT).trim();
@@ -11124,6 +11275,19 @@ async function router(req, res) {
     return handleBotResumePost(req, res, auth.user);
   }
 
+  // ── Phase 9.6 — Guest automation dry-run pause gate (read-only) ─────────────
+  // POST check-guest-automation-gate: n8n/bot dry-run gate before guest send.
+  // NOT gated by BOT_PAUSE_CONTROLS_ENABLED (reads only). Does NOT send WhatsApp.
+  if (pathname === '/staff/bot/check-guest-automation-gate') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/check-guest-automation-gate' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotCheckGuestAutomationGate(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.5.4 — Luna bot booking create (shared engine, BOT_BOOKING_ENABLED gate) ──
   // POST — creates booking + booking_beds + draft payment via shared SQL/quote path.
   // No Stripe. No WhatsApp. No n8n. Bot token auth (requireBotAuth).
@@ -11319,6 +11483,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/bot/pause-state            <- 9.4b Luna guest pause lookup (read-only; table may be missing)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/pause                  <- 9.4b Luna guest pause write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/resume                 <- 9.4b Luna guest resume write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/check-guest-automation-gate <- 9.6 Luna guest automation dry-run pause gate (read-only; no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
