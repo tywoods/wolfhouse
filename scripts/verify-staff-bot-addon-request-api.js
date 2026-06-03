@@ -1,6 +1,6 @@
 'use strict';
 /**
- * verify-staff-bot-addon-request-api.js — Stage 8.8.25 / 8.8.27
+ * verify-staff-bot-addon-request-api.js — Stage 8.8.25 / 8.8.27 / 8.8.29
  *
  * Static verifier for:
  *   POST /staff/bot/addon-request-preview  (dry-run)
@@ -111,6 +111,20 @@ check('H7', 'no confirmation_sent_at write', !createText.includes('confirmation_
 check('H8', 'no UPDATE bookings in create', !/\bUPDATE\s+bookings\b/i.test(createText.replace(/\/\/[^\n]*/g, '')));
 check('H9', 'service row not marked paid', !createText.includes("payment_status = 'paid'") && !createText.includes("status = 'paid'"));
 check('H10', 'amount_paid_cents 0 on insert', createText.includes('amount_paid_cents') && createText.includes(', 0,'));
+
+console.log('\nK. Create idempotency (8.8.29)');
+check('K1', 'idempotency_key from body', createText.includes('body.idempotency_key'));
+check('K2', 'idempotency_key on service metadata', API_SRC.includes('meta.idempotency_key = idempotencyKey'));
+check('K3', 'idempotency_key on payment metadata', createText.includes('pmMeta.idempotency_key = idempotencyKey'));
+check('K4', 'findBotAddonIdempotentMatch lookup', API_SRC.includes('async function findBotAddonIdempotentMatch('));
+check('K5', 'lookup before INSERT', createText.indexOf('findBotAddonIdempotentMatch') < createText.indexOf('INSERT INTO booking_service_records'));
+check('K6', 'metadata idempotency_key SQL filter', API_SRC.includes("metadata->>'idempotency_key'"));
+check('K7', 'idempotent response path', createText.includes('idempotent: true') && createText.includes('write_performed: false'));
+check('K8', 'idempotent skips Stripe (early return)', createText.indexOf('idempotentResponse') < createText.indexOf('checkout.sessions.create'));
+check('K9', 'idempotent checkout_url from existing payment', createText.includes("payment.status === 'checkout_created'") && createText.includes('payment.checkout_url'));
+check('K10', 'paid idempotent no new Stripe link', createText.includes("svcPaymentStatus === 'paid'") || createText.includes("svcPaymentStatus !== 'paid'"));
+check('K11', 'meal idempotent reason meal_on_site_only', createText.includes('idempotentResponse') && createText.includes('meal_on_site_only'));
+check('K12', 'missing key warning', createText.includes('idempotency_key_missing'));
 
 console.log('\nI. package.json script');
 check('I1', 'verify:staff-bot-addon-request-api script', !!PKG.scripts['verify:staff-bot-addon-request-api']);

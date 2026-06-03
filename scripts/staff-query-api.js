@@ -2700,7 +2700,7 @@ async function resolveBotAddonRequestContext(body) {
   };
 }
 
-function buildBotAddonServiceMetadata(ctx) {
+function buildBotAddonServiceMetadata(ctx, idempotencyKey) {
   const meta = {
     source: ctx.source,
     pricing_addon_code: ctx.pricing.pricing_addon_code,
@@ -2708,10 +2708,55 @@ function buildBotAddonServiceMetadata(ctx) {
     needs_scheduling: ctx.serviceType === 'yoga' || ctx.serviceType === 'surf_lesson',
   };
   if (ctx.guestPhone) meta.guest_phone = ctx.guestPhone;
+  if (idempotencyKey) meta.idempotency_key = idempotencyKey;
   if (ctx.serviceType === 'wetsuit' || ctx.serviceType === 'surfboard') {
     meta.rental_days = ctx.quantity;
   }
   return meta;
+}
+
+async function findBotAddonIdempotentMatch(clientSlug, bookingId, idempotencyKey) {
+  return withPgClient(async (pg) => {
+    const svc = await pg.query(
+      `SELECT id, booking_id, booking_code, service_type, service_date, quantity,
+              status, amount_due_cents, amount_paid_cents, payment_status, payment_id
+         FROM booking_service_records
+        WHERE client_slug = $1
+          AND booking_id = $2::uuid
+          AND source = 'luna_guest'
+          AND metadata->>'idempotency_key' = $3
+        LIMIT 1`,
+      [clientSlug, bookingId, idempotencyKey],
+    );
+    if (!svc.rows[0]) return null;
+    const serviceRow = svc.rows[0];
+    let payment = null;
+    if (serviceRow.payment_id) {
+      const pm = await pg.query(
+        `SELECT id, status, payment_kind, checkout_url, stripe_checkout_session_id, amount_due_cents
+           FROM payments
+          WHERE id = $1`,
+        [serviceRow.payment_id],
+      );
+      payment = pm.rows[0] || null;
+    }
+    return { serviceRow, payment };
+  });
+}
+
+function buildBotAddonCreateReplyDraft(ctx, { checkoutUrl, dbAmountDueCents, servicePaymentStatus }) {
+  if (ctx.isMeal) {
+    return `Got it — I've noted ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`;
+  }
+  if (servicePaymentStatus === 'paid') {
+    const eur = (dbAmountDueCents / 100).toFixed(2);
+    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${ctx.serviceDate} is already paid (€${eur}).`;
+  }
+  if (checkoutUrl) {
+    const eur = (dbAmountDueCents / 100).toFixed(2);
+    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${ctx.serviceDate} is €${eur}. Here's your payment link: ${checkoutUrl}`;
+  }
+  return `I've noted your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`;
 }
 
 async function handleBotAddonRequestPreview(req, res, user, authMode) {
@@ -2896,6 +2941,115 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     });
   }
 
+  const idempotencyKey = body.idempotency_key
+    ? String(body.idempotency_key).trim().slice(0, 120)
+    : null;
+  const idempotencyKeyMissing = !idempotencyKey;
+
+  if (idempotencyKey) {
+    let existingMatch;
+    try {
+      existingMatch = await findBotAddonIdempotentMatch(
+        ctx.clientSlug,
+        ctx.booking.booking_id,
+        idempotencyKey,
+      );
+    } catch (err) {
+      if (isMissingBookingServiceRecordsTable(err)) {
+        return sendJSON(res, 503, {
+          success: false,
+          error: 'booking_service_records table not available',
+          service_records_available: false,
+          write_performed: false,
+        });
+      }
+      return sendJSON(res, 500, {
+        success: false,
+        error: 'Idempotency lookup failed: ' + err.message,
+        write_performed: false,
+      });
+    }
+
+    if (existingMatch) {
+      const { serviceRow, payment } = existingMatch;
+      const svcPaymentStatus = serviceRow.payment_status;
+      const dbAmountDueCents = Number(serviceRow.amount_due_cents || 0);
+      let checkoutUrl = null;
+      let stripeSessionId = null;
+
+      if (
+        payment
+        && payment.status === 'checkout_created'
+        && payment.checkout_url
+        && svcPaymentStatus !== 'paid'
+      ) {
+        checkoutUrl = payment.checkout_url;
+        stripeSessionId = payment.stripe_checkout_session_id;
+      }
+
+      const replyDraft = buildBotAddonCreateReplyDraft(ctx, {
+        checkoutUrl,
+        dbAmountDueCents,
+        servicePaymentStatus: svcPaymentStatus,
+      });
+      const elapsed = Date.now() - started;
+
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:bot_addon_request_create',
+        category: 'bot_addon_request_create',
+        success: true,
+        idempotent_duplicate: true,
+        client_slug: ctx.clientSlug,
+        booking_code: ctx.bookingCode,
+        service_record_id: serviceRow.id,
+        payment_id: payment?.id || null,
+        service_type: ctx.serviceType,
+        elapsed_ms: elapsed,
+        auth_mode: resolvedAuthMode,
+      });
+
+      const idempotentResponse = {
+        success: true,
+        idempotent: true,
+        write_performed: false,
+        service_record_id: serviceRow.id,
+        booking_id: ctx.booking.booking_id,
+        booking_code: ctx.booking.booking_code,
+        service_type: serviceRow.service_type,
+        service_date: ctx.serviceDate,
+        quantity: serviceRow.quantity,
+        amount_due_cents: dbAmountDueCents,
+        payment_status: svcPaymentStatus,
+        no_payment_truth_recorded: true,
+        sends_whatsapp: false,
+        whatsapp_dry_run: whatsappDryRun,
+        no_n8n: true,
+        reply_draft: replyDraft,
+        auth_mode: resolvedAuthMode,
+        elapsed_ms: elapsed,
+        message: svcPaymentStatus === 'paid'
+          ? 'Add-on request already fulfilled (idempotent — already paid).'
+          : 'Add-on request already exists for this idempotency key (idempotent).',
+      };
+
+      if (payment?.id) {
+        idempotentResponse.payment_id = payment.id;
+        idempotentResponse.payment_kind = payment.payment_kind || 'addon_service';
+      }
+      if (checkoutUrl) {
+        idempotentResponse.checkout_url = checkoutUrl;
+        idempotentResponse.stripe_checkout_session_id = stripeSessionId;
+      }
+      if (ctx.isMeal) {
+        idempotentResponse.payment_required = false;
+        idempotentResponse.reason = 'meal_on_site_only';
+      }
+
+      return sendJSON(res, 200, idempotentResponse);
+    }
+  }
+
   if (ctx.canPay) {
     if (!STRIPE_LINKS_ENABLED) {
       return sendJSON(res, 403, {
@@ -2919,7 +3073,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
 
   const amountDueCents = ctx.isMeal ? 0 : (ctx.pricing.amount_due_cents ?? 0);
   const paymentStatus = ctx.canPay ? 'pending' : 'not_requested';
-  const serviceMeta = buildBotAddonServiceMetadata(ctx);
+  const serviceMeta = buildBotAddonServiceMetadata(ctx, idempotencyKey);
 
   let writeResult;
   try {
@@ -2964,6 +3118,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
             quantity: ctx.quantity,
             service_record_allocation_cents: { [svcId]: amountDueCents },
           };
+          if (idempotencyKey) pmMeta.idempotency_key = idempotencyKey;
           const pmIns = await pg.query(
             `INSERT INTO payments (
                client_id, booking_id, status, payment_kind, currency,
@@ -3103,15 +3258,11 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     }
   }
 
-  let replyDraft;
-  if (ctx.isMeal) {
-    replyDraft = `Got it — I've noted ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`;
-  } else if (checkoutUrl) {
-    const eur = (dbAmountDueCents / 100).toFixed(2);
-    replyDraft = `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${ctx.serviceDate} is €${eur}. Here's your payment link: ${checkoutUrl}`;
-  } else {
-    replyDraft = `I've noted your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`;
-  }
+  let replyDraft = buildBotAddonCreateReplyDraft(ctx, {
+    checkoutUrl,
+    dbAmountDueCents,
+    servicePaymentStatus: paymentStatus,
+  });
 
   const elapsed = Date.now() - started;
   appendAuditLog({
@@ -3128,12 +3279,14 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     stripe_called: !!checkoutUrl,
     whatsapp_called: false,
     n8n_called: false,
+    idempotency_key_missing: idempotencyKeyMissing,
     elapsed_ms: elapsed,
     auth_mode: resolvedAuthMode,
   });
 
   const response = {
     success: true,
+    write_performed: true,
     service_record_id: serviceRecordId,
     booking_id: ctx.booking.booking_id,
     booking_code: ctx.booking.booking_code,
@@ -3150,6 +3303,10 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     auth_mode: resolvedAuthMode,
     elapsed_ms: elapsed,
   };
+
+  if (idempotencyKeyMissing) {
+    response.idempotency_key_missing = true;
+  }
 
   if (paymentId) {
     response.payment_id = paymentId;

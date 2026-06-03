@@ -135,6 +135,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Webhook addon_service** | **8.8.21–8.8.22** ✓ | Code + hosted proof on `--0000038` | §12.2; yoga+wetsuit paid on `MB-WOLFHO-20260901-cb4799` |
 | **Add-on checkout create** | **8.8.23–8.8.24** ✓ | API + hosted proof on `--0000039` | Staff API link + webhook; surf lesson paid via API path |
 | **Bot add-on dry-run** | **8.8.25–8.8.26** ✓ | API + hosted proof on `--0000040` | Flow B preview; no writes |
+| **Bot add-on idempotency** | **8.8.29** ✓ | `idempotency_key` on create | Prevents Luna retry duplicates |
 | **Bot add-on create** | **8.8.27–8.8.28** ✓ | API + hosted proof on `--0000041` | Luna guest write + webhook paid |
 
 **Out of scope until explicit GO:** live WhatsApp send, n8n activation, applying migration to production.
