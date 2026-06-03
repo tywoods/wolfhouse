@@ -54,18 +54,18 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 | Priority question | Example phrasing | Current coverage (8.7.27) | Data dependency |
 |-------------------|------------------|---------------------------|-----------------|
 | Who still needs to pay? | “Who still owes money?” / “Quien debe pagar?” | ✓ `payments.balance_due` (8.8.4 i18n router) | `bookings` + `payments` |
-| Who paid for yoga on a date? | “Who paid for yoga tonight / tomorrow / June 15?” | ✗ Not implemented (blocked `unsupported_intent`) | **`booking_service_records`** — design: [STAGE-8.8.6](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md) · intent `services.yoga.paid_on_date` in 8.8.9 |
-| Who paid for a meal on a date? | “Who paid for meals on June 15?” | ✗ Not implemented | Same · `services.meal.paid_on_date` |
+| Who paid for yoga on a date? | “Who paid for yoga tonight / tomorrow / June 15?” | ✓ **8.8.11** — `services.yoga.paid_on_date` from `booking_service_records` | **`booking_service_records`** — design: [STAGE-8.8.6](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md) |
+| Who paid for a meal on a date? | “Who paid for meals on June 15?” | ✓ **8.8.11** — `services.meal.paid_on_date` | `booking_service_records` |
 
 ### 3.2 Lessons & rental prep (date-aware)
 
 | Priority question | Example phrasing | Current coverage | Data dependency |
 |-------------------|------------------|------------------|-----------------|
-| Who has a lesson today? | “Who has a surf lesson today?” | ✗ Not implemented | `services.surf_lesson.on_date` (8.8.9) |
-| Who needs a wetsuit today? | “Who needs a wetsuit today?” | ✗ Not implemented | `services.wetsuit.on_date` + count intent |
-| Who needs a surfboard today? | “Who needs a board today?” | ✗ Not implemented | `services.surfboard.on_date` + count intent |
-| How many surfboards ready today? | “How many boards do we need ready today?” | ✗ Not implemented | `services.surfboard.count_on_date` |
-| How many wetsuits ready today? | “How many wetsuits do we need ready today?” | ✗ Not implemented | `services.wetsuit.count_on_date` |
+| Who has a lesson today? | “Who has a surf lesson today?” | ✓ **8.8.11** — `services.surf_lesson.on_date` | `booking_service_records` |
+| Who needs a wetsuit today? | “Who needs a wetsuit today?” | ✓ **8.8.11** — `services.wetsuit.on_date` | `booking_service_records` |
+| Who needs a surfboard today? | “Who needs a board today?” | ✓ **8.8.11** — `services.surfboard.on_date` | `booking_service_records` |
+| How many surfboards ready today? | “How many boards do we need ready today?” | ✓ **8.8.11** — `services.surfboard.count_on_date` | `booking_service_records` |
+| How many wetsuits ready today? | “How many wetsuits do we need ready today?” | ✓ **8.8.11** — `services.wetsuit.count_on_date` | `booking_service_records` |
 
 ### 3.3 Housekeeping & arrivals/departures
 

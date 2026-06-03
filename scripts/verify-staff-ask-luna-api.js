@@ -261,10 +261,14 @@ check('K11', 'date resolver handles named month/day (June/Jun)',
 check('K12', 'isBlockedAddOnServiceQuestion defined',
   API_SRC.includes('function isBlockedAddOnServiceQuestion('));
 
-check('K13', 'yoga/meal/lesson/rental questions return unsupported_intent',
+check('K13', 'service record router resolves yoga/meals/lessons/rentals (8.8.11)',
+  API_SRC.includes('resolveAskLunaServiceIntent') &&
+  API_SRC.includes("'services.yoga.paid_on_date'") &&
+  API_SRC.includes("'services.wetsuit.count_on_date'"));
+
+check('K13b', 'unmatched service keywords still return unsupported_intent',
   resolver.includes('isBlockedAddOnServiceQuestion') &&
-  resolver.includes("'unsupported_intent'") &&
-  resolver.includes('Add-on or service queries'));
+  resolver.includes("'unsupported_intent'"));
 
 check('K14', 'formatAnswer empty state for check-ins (No guests are checking in)',
   API_SRC.includes("'check_ins.on_date'") &&
@@ -359,8 +363,26 @@ function extractAskLunaRouterChunk() {
       coCount && coCount.intentKey === 'check_outs.count');
     check('K-I3', 'runtime: checkout count Saturday → check_outs.count',
       coSat && coSat.intentKey === 'check_outs.count' && coSat.extraParams.dateLabel === 'saturday');
-    check('K-I4', 'runtime: yoga paid question → unsupported_intent',
-      yoga && yoga.intentKey === 'unsupported_intent');
+    check('K-I4', 'runtime: yoga paid question → services.yoga.paid_on_date',
+      yoga && yoga.intentKey === 'services.yoga.paid_on_date' && yoga.extraParams.dateLabel === 'today');
+    const mealPaid = resolveIntent('Who paid for meals tomorrow');
+    const lesson = resolveIntent('Who has a lesson today');
+    const wetsuit = resolveIntent('Who needs a wetsuit today');
+    const wetsuitCount = resolveIntent('How many wetsuits do we need ready today');
+    const board = resolveIntent('Who needs a surfboard tomorrow');
+    const boardCount = resolveIntent('How many surfboards do we need on June 15');
+    check('K-I4b', 'runtime: meal paid tomorrow → services.meal.paid_on_date',
+      mealPaid && mealPaid.intentKey === 'services.meal.paid_on_date' && mealPaid.extraParams.dateLabel === 'tomorrow');
+    check('K-I4c', 'runtime: lesson today → services.surf_lesson.on_date',
+      lesson && lesson.intentKey === 'services.surf_lesson.on_date');
+    check('K-I4d', 'runtime: wetsuit who → services.wetsuit.on_date',
+      wetsuit && wetsuit.intentKey === 'services.wetsuit.on_date');
+    check('K-I4e', 'runtime: wetsuit count → services.wetsuit.count_on_date',
+      wetsuitCount && wetsuitCount.intentKey === 'services.wetsuit.count_on_date');
+    check('K-I4f', 'runtime: surfboard who → services.surfboard.on_date',
+      board && board.intentKey === 'services.surfboard.on_date');
+    check('K-I4g', 'runtime: surfboard count June 15 → services.surfboard.count_on_date',
+      boardCount && boardCount.intentKey === 'services.surfboard.count_on_date' && boardCount.extraParams.date === '2026-06-15');
     check('K-I5', 'runtime: who leaves today → departures_today',
       resolveIntent('Who leaves today').intentKey === 'departures_today');
     check('K-I6', 'runtime: cleaning contraction → rooms_or_beds_need_cleaning',
@@ -381,7 +403,7 @@ function extractAskLunaRouterChunk() {
       resolveIntent('Quien debe pagar?').intentKey === 'payments.balance_due');
   } catch (e) {
     check('K-I1', 'runtime intent routing smoke', false, e.message);
-    ['K-I2', 'K-I3', 'K-I4', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13']
+    ['K-I2', 'K-I3', 'K-I4', 'K-I4b', 'K-I4c', 'K-I4d', 'K-I4e', 'K-I4f', 'K-I4g', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13']
       .forEach(id => check(id, 'runtime intent routing smoke (skipped)', false, e.message));
   }
 })();
@@ -436,6 +458,76 @@ check('L9', 'no graph.facebook.com / n8n / Stripe in Ask Luna handler',
   !handlerNoComments.includes('graph.facebook.com') &&
   !handlerNoComments.match(/\bn8n\b/) &&
   !handlerNoComments.includes('api.stripe.com'));
+
+// ── M. Stage 8.8.11 — service record queries ────────────────────────────────
+const serviceQueryStart = API_SRC.indexOf('function getAskLunaServiceYogaPaidQuery');
+const serviceQueryEnd   = API_SRC.indexOf('const ASK_LUNA_WEEKDAYS', serviceQueryStart);
+const serviceQueryBlock = serviceQueryStart > -1 && serviceQueryEnd > serviceQueryStart
+  ? API_SRC.slice(serviceQueryStart, serviceQueryEnd)
+  : '';
+
+check('M1', 'getAskLunaServiceYogaPaidQuery uses booking_service_records',
+  serviceQueryBlock.includes('FROM booking_service_records') &&
+  serviceQueryBlock.includes("service_type = 'yoga'") &&
+  serviceQueryBlock.includes("payment_status = 'paid'"));
+
+check('M2', 'getAskLunaServiceMealPaidQuery uses booking_service_records',
+  API_SRC.includes('function getAskLunaServiceMealPaidQuery') &&
+  serviceQueryBlock.includes("service_type = 'meal'"));
+
+check('M3', 'getAskLunaServiceSurfLessonQuery filters non-cancelled statuses',
+  API_SRC.includes('function getAskLunaServiceSurfLessonQuery') &&
+  serviceQueryBlock.includes("service_type = 'surf_lesson'") &&
+  serviceQueryBlock.includes("'requested', 'confirmed', 'paid'"));
+
+check('M4', 'wetsuit/surfboard who queries exclude cancelled',
+  serviceQueryBlock.includes("status <> 'cancelled'"));
+
+check('M5', 'wetsuit/surfboard count queries SUM(quantity)',
+  serviceQueryBlock.includes('SUM(quantity)') &&
+  API_SRC.includes('getAskLunaServiceWetsuitCountQuery') &&
+  API_SRC.includes('getAskLunaServiceSurfboardCountQuery'));
+
+check('M6', 'service intents registered in ASK_LUNA_LOCAL_QUERY',
+  API_SRC.includes("'services.yoga.paid_on_date'") &&
+  API_SRC.includes("'services.meal.paid_on_date'") &&
+  API_SRC.includes("'services.surf_lesson.on_date'") &&
+  API_SRC.includes("'services.wetsuit.on_date'") &&
+  API_SRC.includes("'services.surfboard.on_date'") &&
+  API_SRC.includes("'services.wetsuit.count_on_date'") &&
+  API_SRC.includes("'services.surfboard.count_on_date'"));
+
+check('M7', 'service router English patterns (paid for yoga, how many wetsuits)',
+  routerChunk.includes('askLunaMatchesServiceYogaPaid') &&
+  routerChunk.includes('paid for') &&
+  routerChunk.includes('askLunaMatchesServiceWetsuit'));
+
+check('M8', 'service SQL returns required row fields',
+  serviceQueryBlock.includes('guest_name') &&
+  serviceQueryBlock.includes('booking_code') &&
+  serviceQueryBlock.includes('service_type') &&
+  serviceQueryBlock.includes('service_date') &&
+  serviceQueryBlock.includes('quantity') &&
+  serviceQueryBlock.includes('payment_status') &&
+  serviceQueryBlock.includes('amount_due_cents') &&
+  serviceQueryBlock.includes('amount_paid_cents'));
+
+check('M9', 'formatAnswer count-first for wetsuit/surfboard counts',
+  API_SRC.includes("case 'services.wetsuit.count_on_date'") &&
+  API_SRC.includes("case 'services.surfboard.count_on_date'") &&
+  API_SRC.includes('needed ${when}'));
+
+check('M10', 'service queries do not use conversation/chat logs',
+  !serviceQueryBlock.match(/conversation|message_log|chat_log/i));
+
+check('M11', 'no OpenAI/Anthropic/Claude/LLM in service query scope',
+  !serviceQueryBlock.match(/\bopenai\b/i) &&
+  !serviceQueryBlock.match(/\bllm\b/i));
+
+check('M12', 'no INSERT/UPDATE/DELETE in service query SQL block',
+  !serviceQueryBlock.match(/\bINSERT\b/i) &&
+  !serviceQueryBlock.match(/\bUPDATE\b/i) &&
+  !serviceQueryBlock.match(/\bDELETE\b/i));
 
 // ── I. Uses existing registry infrastructure ─────────────────────────────────
 check('I1', 'handler uses getEntry() from registry',

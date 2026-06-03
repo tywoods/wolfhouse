@@ -915,6 +915,118 @@ ORDER BY b.booking_code ASC
 `;
 }
 
+/** Stage 8.8.11 — booking_service_records SELECT columns for Ask Luna service intents. */
+const ASK_LUNA_SERVICE_RECORD_COLUMNS = `
+  guest_name,
+  booking_code,
+  service_type,
+  service_date,
+  quantity,
+  status,
+  payment_status,
+  amount_due_cents,
+  amount_paid_cents`;
+
+function getAskLunaServiceYogaPaidQuery() {
+  return `
+SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
+FROM booking_service_records
+WHERE client_slug = $1
+  AND service_type = 'yoga'
+  AND service_date = $2::date
+  AND payment_status = 'paid'
+ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
+`;
+}
+
+function getAskLunaServiceMealPaidQuery() {
+  return `
+SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
+FROM booking_service_records
+WHERE client_slug = $1
+  AND service_type = 'meal'
+  AND service_date = $2::date
+  AND payment_status = 'paid'
+ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
+`;
+}
+
+function getAskLunaServiceSurfLessonQuery() {
+  return `
+SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
+FROM booking_service_records
+WHERE client_slug = $1
+  AND service_type = 'surf_lesson'
+  AND service_date = $2::date
+  AND status IN ('requested', 'confirmed', 'paid')
+ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
+`;
+}
+
+function getAskLunaServiceWetsuitQuery() {
+  return `
+SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
+FROM booking_service_records
+WHERE client_slug = $1
+  AND service_type = 'wetsuit'
+  AND service_date = $2::date
+  AND status <> 'cancelled'
+ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
+`;
+}
+
+function getAskLunaServiceSurfboardQuery() {
+  return `
+SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
+FROM booking_service_records
+WHERE client_slug = $1
+  AND service_type = 'surfboard'
+  AND service_date = $2::date
+  AND status <> 'cancelled'
+ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
+`;
+}
+
+function getAskLunaServiceWetsuitCountQuery() {
+  return `
+SELECT
+  NULL::text AS guest_name,
+  NULL::text AS booking_code,
+  'wetsuit'::text AS service_type,
+  $2::date AS service_date,
+  COALESCE(SUM(quantity), 0)::int AS quantity,
+  NULL::text AS status,
+  NULL::text AS payment_status,
+  0 AS amount_due_cents,
+  0 AS amount_paid_cents
+FROM booking_service_records
+WHERE client_slug = $1
+  AND service_type = 'wetsuit'
+  AND service_date = $2::date
+  AND status <> 'cancelled'
+`;
+}
+
+function getAskLunaServiceSurfboardCountQuery() {
+  return `
+SELECT
+  NULL::text AS guest_name,
+  NULL::text AS booking_code,
+  'surfboard'::text AS service_type,
+  $2::date AS service_date,
+  COALESCE(SUM(quantity), 0)::int AS quantity,
+  NULL::text AS status,
+  NULL::text AS payment_status,
+  0 AS amount_due_cents,
+  0 AS amount_paid_cents
+FROM booking_service_records
+WHERE client_slug = $1
+  AND service_type = 'surfboard'
+  AND service_date = $2::date
+  AND status <> 'cancelled'
+`;
+}
+
 const ASK_LUNA_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 const ASK_LUNA_MONTHS = {
@@ -1078,6 +1190,61 @@ function isBlockedAddOnServiceQuestion(q) {
   return /\b(yoga|meal|meals|surf\s*lesson|lessons?|wetsuit|surfboard|surf\s*board|board\s*rental)\b/.test(q);
 }
 
+function askLunaMatchesServiceYogaPaid(q) {
+  return /\byoga\b/.test(q) && /\b(paid|paid for|pay for|who paid)\b/.test(q);
+}
+
+function askLunaMatchesServiceMealPaid(q) {
+  return /\b(meal|meals)\b/.test(q) && /\b(paid|paid for|pay for|who paid)\b/.test(q);
+}
+
+function askLunaMatchesServiceLesson(q) {
+  return /\b(surf\s*lesson|surf\s*lessons)\b/.test(q)
+    || (/\blesson/.test(q) && /\b(surf|has|who|need)\b/.test(q));
+}
+
+function askLunaMatchesServiceWetsuit(q) {
+  return /\bwetsuit/.test(q);
+}
+
+function askLunaMatchesServiceSurfboard(q) {
+  return /\b(surfboard|surf\s*board|surf\s*boards)\b/.test(q)
+    || (/\bboards?\b/.test(q) && /\b(surf|need|many|ready)\b/.test(q));
+}
+
+function askLunaServiceDateParams(question, today) {
+  const dateInfo = resolveAskLunaDatePhrase(question);
+  return dateInfo || { date: today, label: 'today' };
+}
+
+function resolveAskLunaServiceIntent(question, q, today, isCountQ) {
+  const di = askLunaServiceDateParams(question, today);
+  const extraParams = { date: di.date, dateLabel: di.label };
+
+  if (isCountQ && askLunaMatchesServiceWetsuit(q)) {
+    return { intentKey: 'services.wetsuit.count_on_date', extraParams };
+  }
+  if (isCountQ && askLunaMatchesServiceSurfboard(q)) {
+    return { intentKey: 'services.surfboard.count_on_date', extraParams };
+  }
+  if (askLunaMatchesServiceYogaPaid(q)) {
+    return { intentKey: 'services.yoga.paid_on_date', extraParams };
+  }
+  if (askLunaMatchesServiceMealPaid(q)) {
+    return { intentKey: 'services.meal.paid_on_date', extraParams };
+  }
+  if (askLunaMatchesServiceLesson(q)) {
+    return { intentKey: 'services.surf_lesson.on_date', extraParams };
+  }
+  if (askLunaMatchesServiceWetsuit(q)) {
+    return { intentKey: 'services.wetsuit.on_date', extraParams };
+  }
+  if (askLunaMatchesServiceSurfboard(q)) {
+    return { intentKey: 'services.surfboard.on_date', extraParams };
+  }
+  return null;
+}
+
 const ASK_LUNA_LOCAL_QUERY = {
   departures_today:              getAskLunaDeparturesTodayQuery,
   rooms_or_beds_need_cleaning:   getAskLunaRoomsNeedCleaningQuery,
@@ -1085,6 +1252,13 @@ const ASK_LUNA_LOCAL_QUERY = {
   'check_ins.count':             getAskLunaCheckInsOnDateQuery,
   'check_outs.on_date':          getAskLunaCheckOutsOnDateQuery,
   'check_outs.count':            getAskLunaCheckOutsOnDateQuery,
+  'services.yoga.paid_on_date':  getAskLunaServiceYogaPaidQuery,
+  'services.meal.paid_on_date':  getAskLunaServiceMealPaidQuery,
+  'services.surf_lesson.on_date': getAskLunaServiceSurfLessonQuery,
+  'services.wetsuit.on_date':    getAskLunaServiceWetsuitQuery,
+  'services.surfboard.on_date':  getAskLunaServiceSurfboardQuery,
+  'services.wetsuit.count_on_date': getAskLunaServiceWetsuitCountQuery,
+  'services.surfboard.count_on_date': getAskLunaServiceSurfboardCountQuery,
 };
 
 /**
@@ -1098,14 +1272,6 @@ function resolveNaturalLanguageIntent(question) {
   // Direct registry key passthrough (e.g. "payments.balance_due")
   const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
   if (REGISTRY_BY_KEY.has(q)) return { intentKey: q, extraParams: {} };
-
-  // Stage 8.8.2 — add-on/service questions need structured records (not chat logs)
-  if (isBlockedAddOnServiceQuestion(q)) {
-    return {
-      intentKey: 'unsupported_intent',
-      intentHint: 'Add-on or service queries (yoga, meals, lessons, wetsuit/board rentals)',
-    };
-  }
 
   const dateInfo = resolveAskLunaDatePhrase(question);
   const isCountQ = askLunaIsCountQuestion(q);
@@ -1146,6 +1312,10 @@ function resolveNaturalLanguageIntent(question) {
     }
   }
 
+  // ── Service / add-on records (8.8.11) — booking_service_records only ──
+  const serviceIntent = resolveAskLunaServiceIntent(question, q, today, isCountQ);
+  if (serviceIntent) return serviceIntent;
+
   // Natural language → intent mapping (English fallbacks)
   if (/payment.?link|checkout.?link|pending.?link|waiting.?for.?pay/.test(q))   return { intentKey: 'payments.waiting',            extraParams: {} };
   if (/arriv|check.?in.?today|arriving.?today/.test(q))                         return { intentKey: 'rooming.arrivals',            extraParams: { date: today } };
@@ -1160,6 +1330,13 @@ function resolveNaturalLanguageIntent(question) {
   if (/addon.?action|add.?on.?action|staff.?action/.test(q))                    return { intentKey: 'addons.action_required',      extraParams: {} };
 
   if (/depart|check.?out.?today|leaving.?today|leave.?today|who leaves/.test(q)) return { intentKey: 'departures_today',            extraParams: { date: today, dateLabel: 'today' } };
+
+  if (isBlockedAddOnServiceQuestion(q)) {
+    return {
+      intentKey: 'unsupported_intent',
+      intentHint: 'Add-on or service queries (yoga, meals, lessons, wetsuit/board rentals)',
+    };
+  }
 
   return null;
 }
@@ -1194,6 +1371,11 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'addons.lessons':               'No surf lessons found for that date.',
       'addons.yoga':                  'No yoga sessions found for that date.',
       'addons.rentals':               'No active rentals found for that date.',
+      'services.yoga.paid_on_date':   `No yoga payments recorded ${when}.`,
+      'services.meal.paid_on_date':   `No meal payments recorded ${when}.`,
+      'services.surf_lesson.on_date': `No surf lessons scheduled ${when}.`,
+      'services.wetsuit.on_date':     `No wetsuits needed ${when}.`,
+      'services.surfboard.on_date':   `No surfboards needed ${when}.`,
     };
     return empty[intentKey] || `No results for ${intentKey}.`;
   }
@@ -1202,6 +1384,10 @@ function formatAnswer(intentKey, rows, ctx = {}) {
   const extra = n > MAX_SUMMARY ? ` (+${n - MAX_SUMMARY} more)` : '';
 
   const nameLine = (r) => r.guest_name ? `${r.guest_name} (${r.booking_code || ''})` : (r.booking_code || r.id || '?');
+  const serviceNameLine = (r) => {
+    const qty = Number(r.quantity) > 1 ? ` ×${r.quantity}` : '';
+    return `${nameLine(r)}${qty}`;
+  };
   const centsStr = (c) => c != null ? `€${(Math.round(c) / 100).toFixed(0)}` : '';
   const stayLine = (r) => {
     const beds = r.bed_summary ? ` — ${r.bed_summary}` : (
@@ -1283,6 +1469,30 @@ function formatAnswer(intentKey, rows, ctx = {}) {
     case 'holds.active': {
       const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
       return `${n} active hold${n !== 1 ? 's' : ''}: ${list}${extra}`;
+    }
+    case 'services.yoga.paid_on_date':
+    case 'services.meal.paid_on_date': {
+      const svc = intentKey.includes('meal') ? 'meal' : 'yoga';
+      const list = rows.slice(0, MAX_SUMMARY).map(serviceNameLine).join('; ');
+      return `${n} paid ${svc}${n !== 1 ? 's' : ''} ${when}: ${list}${extra}`;
+    }
+    case 'services.surf_lesson.on_date': {
+      const list = rows.slice(0, MAX_SUMMARY).map(serviceNameLine).join('; ');
+      return `${n} surf lesson${n !== 1 ? 's' : ''} ${when}: ${list}${extra}`;
+    }
+    case 'services.wetsuit.on_date':
+    case 'services.surfboard.on_date': {
+      const gear = intentKey.includes('wetsuit') ? 'wetsuit' : 'surfboard';
+      const list = rows.slice(0, MAX_SUMMARY).map(serviceNameLine).join('; ');
+      return `${n} guest${n !== 1 ? 's' : ''} need${n !== 1 ? '' : 's'} a ${gear} ${when}: ${list}${extra}`;
+    }
+    case 'services.wetsuit.count_on_date': {
+      const total = Number(rows[0]?.quantity ?? 0);
+      return `${total} wetsuit${total !== 1 ? 's' : ''} needed ${when}.`;
+    }
+    case 'services.surfboard.count_on_date': {
+      const total = Number(rows[0]?.quantity ?? 0);
+      return `${total} surfboard${total !== 1 ? 's' : ''} needed ${when}.`;
     }
     default: {
       return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
@@ -1377,6 +1587,8 @@ async function handleAskLuna(req, res) {
       'who is checking out tomorrow/Saturday (check_outs.on_date)',
       'how many check out tomorrow (check_outs.count)',
       'rooms/beds needing cleaning (rooms_or_beds_need_cleaning)',
+      'who paid for yoga/meals (services.yoga/meal.paid_on_date)',
+      'surf lessons / wetsuits / surfboards (services.*)',
       'who needs human reply (handoffs.open)',
       'deposit paid (payments.deposit)',
       'confirmation needed (payments.confirmation_needed)',
@@ -1422,7 +1634,8 @@ async function handleAskLuna(req, res) {
       });
     }
     const answer = formatAnswer(intentKey, localRows, fmtCtx);
-    const category = intentKey.startsWith('check_ins') ? 'arrivals'
+    const category = intentKey.startsWith('services.') ? 'services'
+      : intentKey.startsWith('check_ins') ? 'arrivals'
       : (intentKey.startsWith('check_outs') || intentKey === 'departures_today') ? 'departures'
       : 'rooming';
     return sendJSON(res, 200, {
