@@ -3,8 +3,9 @@
 **Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.8 demo fixture (not applied).  
 **Captured after:** Stage 8.7.27 staging demo-ready confirmation (`wh-staging-staff-api--0000032`).  
 **Design (8.8.6):** `booking_service_records` model + Ask Luna intent mapping — see [STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md).  
-**Hosted (8.8.12):** Service-record Ask Luna queries live on `--0000035` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.12.  
-**Hosted (8.8.5):** Multilingual Ask Luna router — see same doc §8.8.5.  
+**Flows (8.8.13):** Booking-time add-ons, later guest Luna requests, booking drawer — [STAGE-8.8.6 §8](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#8-three-connected-flows-stage-88813).  
+**Hosted (8.8.12):** Service-record Ask Luna queries on `--0000035` — [STAGE-8.7.2 §8.8.12](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md).  
+**Hosted (8.8.5):** Multilingual Ask Luna router — same doc §8.8.5.  
 **Owner input:** Ty (post-demo with Ale/Cami).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
 
@@ -16,7 +17,7 @@
 
 | Area | Decision |
 |------|----------|
-| **Booking drawer** | **Good enough** — payment truth, compact layout, Luna confirmation draft panel. No further polish required before MVP build-out. |
+| **Booking drawer** | **Good enough** for payment + confirmation draft — **add-on/services section** planned 8.8.14 (read-only from `booking_service_records`). No cosmetic rework before write paths. |
 | **Bed Calendar view** | **Good enough** — range chips (8.7.23), Selected Stay layout (8.7.23–8.7.25), auto-load Next 30 days, manual booking form. No further polish required before MVP build-out. |
 
 Future work on drawer/calendar should be **bug-fix or write-path only**, not cosmetic rework.
@@ -41,6 +42,7 @@ inquiry → collect details → check availability → quote → create booking
 | Payment link | `POST /staff/bot/payments/:id/create-stripe-link` | Same; test/live Stripe per env |
 | Stripe truth | Webhook → `deposit_paid` / drawer (8.5.13–8.5.17) | Same path |
 | Confirmation | Draft only; `sends_whatsapp:false`; no live send | **Approved send policy** + guest message (gated) |
+| **In-stay add-ons** | Not implemented | Guest asks for yoga/rentals/lessons/meals → structured record + **separate** add-on payment link (Flow B in 8.8.6 §8); live send **NO_GO** |
 
 **Not in scope for 8.8.1:** activating live WhatsApp or migrating production Main workflow — see §6.
 
@@ -83,11 +85,25 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 | How many checking out Saturday? | “How many people check out on Saturday?” | ✓ `check_outs.count` + weekday resolver (8.8.2) | Named weekday → next occurrence (today if same weekday) |
 | How many check in tomorrow? | “How many people arrive tomorrow?” | ✗ Not implemented | Count with `check_in = tomorrow` |
 
-**Rule:** Add-on, yoga, meal, lesson, and rental questions **require `booking_service_records`** in Postgres (designed 8.8.6; migration spec 8.8.7). Manual booking UI captures add-on qty in quote payload only; **persisted service rows** unlock Ask Luna in 8.8.8–8.8.9.
+**Rule:** Add-on operational questions use **`booking_service_records`** (Ask Luna live 8.8.12). Persisted rows on booking create and guest Luna requests are **designed 8.8.13**, not implemented yet.
 
 ---
 
-## 4. Manual staff operations — priority order
+## 4. Add-on payments & booking drawer (8.8.13)
+
+Three flows — full detail in [STAGE-8.8.6 §8](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#8-three-connected-flows-stage-88813):
+
+| Flow | Summary | Status |
+|------|---------|--------|
+| **A — Booking-time** | Quote chargeable add-ons → payment draft → create `booking_service_records` → Stripe webhook truth | Quote UI ✓; service row insert ✗ |
+| **B — Guest Luna later** | Guest asks mid-stay → structured record + **separate** add-on payment + Stripe link → webhook; meals record-only (no link) | Design only; live send **NO_GO** |
+| **C — Drawer** | Bed Calendar booking drawer lists services from `booking_service_records` (date/type grouped); no send button | Design only |
+
+**Decisions:** `service_date` required before payable add-on; original booking payment separate; extend `payment_kind` with `addon_service`; meals on-site only (no payment link until priced).
+
+---
+
+## 5. Manual staff operations — priority order
 
 Replace spreadsheet workflows in this order:
 
@@ -100,7 +116,7 @@ Replace spreadsheet workflows in this order:
 
 ---
 
-## 5. Live WhatsApp — remains NO_GO
+## 6. Live WhatsApp — remains NO_GO
 
 | Gate | Status |
 |------|--------|
@@ -112,18 +128,20 @@ Stay **dry-run / demo-ready** on staging until a documented GO for a single pilo
 
 ---
 
-## 6. Suggested implementation roadmap (docs-only sequencing)
+## 7. Suggested implementation roadmap (docs-only sequencing)
 
 | Phase | Focus | Depends on |
 |-------|-------|------------|
-| **8.8.7** | `booking_service_records` migration **spec** ✓ | [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) (not applied) |
-| **8.8.8** | Demo fixture ✓ | [`booking-service-records-demo-up.sql`](../scripts/fixtures/booking-service-records-demo-up.sql) (not applied) |
-| **8.8.9** | Ask Luna service intents (§3) | Apply 010 + fixture when approved |
-| **8.8.10** | Staff Portal read-only service display | 8.8.8 data |
-| **8.3p+** | Manual move / cancel / operator writes (§4) | Staff action flags + SQL helpers |
-| **8.5.x / 8.6.x** | Guest Luna live path + optional staff WhatsApp GO (§2, §5) | Workflow migration, 8.6.8 sign-off |
+| **8.8.7–8.8.12** | Schema, fixture, Ask Luna, hosted proof | ✓ Done |
+| **8.8.13** | Flows A/B/C design ✓ | [STAGE-8.8.6 §8](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md#8-three-connected-flows-stage-88813) |
+| **8.8.14** | Staff Portal read-only services drawer | Staging `booking_service_records` data |
+| **8.8.15** | `payment_kind=addon_service` + webhook → service rows | Migration + Stripe metadata |
+| **8.8.16** | Manual/bot booking create → service records | Flow A |
+| **8.8.17** | Guest Luna add-on request endpoint (dry-run) | Flow B |
+| **8.3p+** | Manual move / cancel / operator writes (§5) | Staff action flags + SQL helpers |
+| **8.5.x / 8.6.x** | Guest Luna live path + optional staff WhatsApp GO (§2, §6) | Workflow migration, 8.6.8 sign-off |
 | **8.5.20+** | Confirmation send policy (§2 last step) | Owner policy; still gated |
 
 ---
 
-**Next doc slice:** Stage 8.8.9 — Ask Luna service query intents.
+**Next doc slice:** Stage 8.8.14 — booking drawer read-only services section (implementation).
