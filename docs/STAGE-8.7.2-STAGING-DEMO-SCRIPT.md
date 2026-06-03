@@ -301,6 +301,27 @@
 
 ---
 
+## Hosted Bed Calendar polish proof — Stage 8.7.24 (2026-06-03)
+
+**Result:** **PASS** — 8.7.23 Bed Calendar range chips + Selected Stay layout polish live on staging.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:1b3f822-stage8724-bed-calendar-polish` · ACR `cbs` · revision `--0000031` |
+| Preflight | **PASS** | `1b3f822`; `verify-staff-bed-calendar-ui.js` 376/376 |
+| Bed Calendar tab | **PASS** | Tab opens; grid rendered |
+| Auto-load Next 30 | **PASS** | `2026-06-03`–`2026-07-03`; Next 30 days chip active |
+| Today chip removed | **PASS** | No `data-chip="today"` |
+| Range chips | **PASS** | This week · Next 30 days · Jul – Aug |
+| Load button | **PASS** | 📅 Load present |
+| Empty-cell select | **PASS** | Manual booking panel opens (`bc-sel-panel`) |
+| Selected Stay layout | **PASS** | `.bk-compact-grid` left-aligned like Guest/Payment |
+| Stay fields populate | **PASS** | check-in / check-out / nights / room / bed filled from selection |
+| Bed chips | **PASS** | `.bc-sel-bed-tag` chips in `#bc-sel-beds-list` |
+| Safety | **PASS** | No graph.facebook.com / n8n URL fetch / api.stripe.com; no write routes from UI session |
+
+---
+
 ## Final full staging demo rehearsal — Stage 8.7.22 (2026-06-03)
 
 **Result:** **PASS** — full demo script on `--0000030` after parse fix (8.7.20/8.7.21) and UI cleanup batch.
