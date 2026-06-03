@@ -2,6 +2,7 @@
 // ============================================================================
 // verify-bot-pause-states-schema.js
 // Static verifier for Phase 9.4a — bot_pause_states migration spec
+// Phase 9.4b.1 — aligned with gated pause/resume API routes (schema checks unchanged)
 // NO DB connection. NO migration apply.
 // ============================================================================
 
@@ -165,8 +166,17 @@ try {
 check('G2', 'staff-query-api.js not modified in this slice',
   !apiModified, apiModified ? 'file has uncommitted changes' : undefined);
 
-check('G3', 'no /staff/bot/pause route in staff-query-api yet (future 9.4b)',
-  !/\/staff\/bot\/pause/i.test(apiSrc));
+check('G3', 'Phase 9.4b pause/resume API routes present (expected after 9.4b)',
+  /pathname === '\/staff\/bot\/pause-state'/.test(apiSrc)
+  && /pathname === '\/staff\/bot\/pause'/.test(apiSrc)
+  && /pathname === '\/staff\/bot\/resume'/.test(apiSrc));
+
+check('G4', 'API uses staff-bot-pause-sql / bot_pause_states (not conversations.bot_mode SoT)',
+  /require\('\.\/lib\/staff-bot-pause-sql'\)/.test(apiSrc)
+  && /getPauseState|pauseConversation|resumeConversation/.test(apiSrc));
+
+check('G5', 'migration file unchanged by API route checks (still NOT YET APPLIED)',
+  /NOT YET APPLIED/i.test(sql));
 
 // ── H. package.json script ───────────────────────────────────────────────────
 check('H1', 'package.json verify:bot-pause-states-schema script',
