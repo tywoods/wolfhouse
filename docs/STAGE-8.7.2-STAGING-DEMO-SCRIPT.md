@@ -29,7 +29,9 @@
 | Staff API revision | `wh-staging-staff-api--0000030` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
-| Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** |
+| Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** (or **Jul – Aug** chip) |
+
+**Range chips (8.7.23):** This week · Next 30 days (default auto-load) · Jul – Aug — **Today chip removed**.
 
 **Opening line for audience:** *“This is Azure staging in shadow mode — Stripe test mode, no WhatsApp sends, workflows inactive. We’re showing the shared booking/payment engine and read-only staff tools.”*
 

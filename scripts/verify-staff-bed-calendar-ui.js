@@ -1716,6 +1716,47 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '228i: bed calendar UI has no n8n URL fetch (Stage 8.7.18)');
 })();
 
+// ── Stage 8.7.23 — Bed Calendar range chips + Selected Stay layout ───────────
+(function check8723RangeAndStayLayout(){
+  const chipsStart = src.indexOf('id="bc-chips"');
+  const chipsEnd   = chipsStart > 0 ? src.indexOf('</div>', src.indexOf('jul-aug', chipsStart)) : -1;
+  const chipsSrc   = chipsStart > 0 && chipsEnd > chipsStart ? src.slice(chipsStart, chipsEnd + 6) : '';
+
+  check(!/data-chip="today"|data-chip='today'/.test(chipsSrc),
+    '229: Today range chip absent from Bed Calendar (Stage 8.7.23)');
+  check(/data-chip="week"/.test(chipsSrc),
+    '229b: This week chip still present (Stage 8.7.23)');
+  check(/data-chip="30days"/.test(chipsSrc),
+    '229c: Next 30 days chip still present (Stage 8.7.23)');
+  check(/data-chip="jul-aug"/.test(chipsSrc),
+    '229d: Jul–Aug chip still present (Stage 8.7.23)');
+
+  (function checkBcTabAutoLoad(){
+    const fnStart = src.indexOf('function bcOnBedCalendarTabOpen');
+    const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction bcSetRange', fnStart) : -1;
+    const fnSrc   = fnStart > 0 && fnEnd > fnStart ? src.slice(fnStart, fnEnd) : '';
+    check(/30 \* 86400000|'30days'/.test(fnSrc) && (/loadBedCalendar\(\)/.test(fnSrc) || /bcSetRange/.test(fnSrc)),
+      '229e: default auto-load Next 30 days unchanged (Stage 8.7.23)');
+  })();
+
+  const panelStart = src.indexOf('id="bc-sel-panel"');
+  const guestStart = panelStart > 0 ? src.indexOf('<!-- Section: Guest', panelStart) : -1;
+  const stayStart  = panelStart > 0 ? src.indexOf('<!-- Section: Selected Stay', panelStart) : -1;
+  const staySrc    = stayStart >= 0 && guestStart > stayStart ? src.slice(stayStart, guestStart) : '';
+
+  check(/Selected Stay[\s\S]{0,400}class="bk-compact-grid"/.test(staySrc),
+    '229f: Selected Stay uses bk-compact-grid (Stage 8.7.23)');
+  check(!/Selected Stay[\s\S]{0,1200}bk-form-row/.test(staySrc),
+    '229g: Selected Stay not in wide bk-form-row layout (Stage 8.7.23)');
+  check(/id="bc-sel-beds-list"/.test(staySrc) && /bc-sel-bed-tag/.test(src),
+    '229h: selected bed chips still render (Stage 8.7.23)');
+
+  check(!/graph\.facebook\.com/.test(src) && !/api\.stripe\.com/.test(src),
+    '229i: bed calendar UI has no graph.facebook.com or api.stripe.com (Stage 8.7.23)');
+  check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
+    '229j: bed calendar UI has no n8n URL fetch (Stage 8.7.23)');
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');

@@ -3899,6 +3899,7 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bk-compact-row .bk-input{width:100%;max-width:280px;box-sizing:border-box}
 .bk-compact-row .bk-input.bk-input-sm{max-width:220px}
 .bk-compact-hint{font-size:11px;color:var(--text-3);font-style:italic;margin:2px 0 4px;max-width:440px;line-height:1.45}
+.bk-form-section .bc-sel-beds-section{max-width:440px;margin-top:4px}
 .bk-input{border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:5px 9px;font-size:12px;color:var(--text);background:#fff;width:100%;box-sizing:border-box;font-family:inherit;line-height:1.4}
 .bk-input.bk-input-sm{max-width:200px;width:auto}
 .bk-input[readonly]{background:var(--surface-soft);color:var(--text-2);border-style:dashed;cursor:default}
@@ -4133,7 +4134,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
     <!-- Date shortcut chips (Stage 8.3a) -->
     <div class="bc-chips" id="bc-chips">
-      <span class="bc-chip" data-chip="today">Today</span>
       <span class="bc-chip" data-chip="week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days">Next 30 days</span>
       <span class="bc-chip" data-chip="jul-aug">Jul &ndash; Aug</span>
@@ -4179,27 +4179,29 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div id="bc-sel-warn" class="bc-sel-warn" style="display:none"></div>
 
     <!-- Section: Selected Stay (pre-filled from selection, read-only) -->
-    <div class="bk-form-section" style="margin-top:12px;padding-top:12px">
+    <div class="bk-form-section">
       <div class="bk-form-section-title">Selected Stay</div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bc-sel-cin">Check-in</label>
-        <input type="date" id="bc-sel-cin" class="bk-input bk-input-sm" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bc-sel-cout">Check-out</label>
-        <input type="date" id="bc-sel-cout" class="bk-input bk-input-sm" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bc-sel-nights">Nights</label>
-        <input type="text" id="bc-sel-nights" class="bk-input bk-input-sm" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bc-sel-room">Room</label>
-        <input type="text" id="bc-sel-room" class="bk-input bk-input-sm" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="bc-sel-bed">Bed</label>
-        <input type="text" id="bc-sel-bed" class="bk-input bk-input-sm" readonly>
+      <div class="bk-compact-grid">
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bc-sel-cin">Check-in</label>
+          <input type="date" id="bc-sel-cin" class="bk-input bk-input-sm" readonly>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bc-sel-cout">Check-out</label>
+          <input type="date" id="bc-sel-cout" class="bk-input bk-input-sm" readonly>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bc-sel-nights">Nights</label>
+          <input type="text" id="bc-sel-nights" class="bk-input bk-input-sm" readonly>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bc-sel-room">Room</label>
+          <input type="text" id="bc-sel-room" class="bk-input bk-input-sm" readonly>
+        </div>
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bc-sel-bed">Bed</label>
+          <input type="text" id="bc-sel-bed" class="bk-input bk-input-sm" readonly>
+        </div>
       </div>
       <!-- Multi-bed selection list (Stage 8.4.5) -->
       <div class="bc-sel-beds-section">
@@ -6821,9 +6823,7 @@ document.querySelectorAll('.bc-chip').forEach(function(chip){
     var key = this.dataset.chip;
     var today = new Date();
     var t = bcIso(today);
-    if (key === 'today'){
-      bcSetRange(t, t, 'today');
-    } else if (key === 'week'){
+    if (key === 'week'){
       var end = new Date(today.getTime() + 6 * 86400000);
       bcSetRange(t, bcIso(end), 'week');
     } else if (key === '30days'){
