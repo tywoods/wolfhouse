@@ -299,6 +299,23 @@
 
 ---
 
+## Staff Portal script parse fix — Stage 8.7.20 (2026-06-03)
+
+**Result:** **PASS** — local UI-only; **not deployed** (staging `--0000029` still has the bug until redeploy).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Root cause | **PASS** | Missing `}` closing `if (_notice)` in `renderBedCalendar()` (8.7.17 Tour Operator edit) |
+| Symptom | **PASS** | Hosted console: `Uncaught SyntaxError: Unexpected token ')'` ~ui:3291; script fails to parse |
+| Impact | **PASS** | `switchToTab` / `switchToTabOnly` / `alAsk` never registered; Today tiles + nav + Ask Luna broken |
+| Fix | **PASS** | Added closing `}` before `toRefreshRoomSelects()` call |
+| Embedded parse | **PASS** | Verifiers extract UI `<script>` IIFE and `vm.Script` parse-check (stub `${STAFF_ACTIONS_ENABLED}` etc.) |
+| Globals | **PASS** | `window.switchToTab`, `window.switchToTabOnly`, `window.alAsk` present in embedded script |
+| Verifier | **PASS** | `verify-staff-query-ui.js` 64/64; `verify-staff-bed-calendar-ui.js` 366/366 |
+| Safety | **PASS** | UI-only; no backend routes; no WhatsApp/n8n/Stripe/Azure |
+
+---
+
 ## Hosted Tour Operator + manual form cleanup proof — Stage 8.7.19 (2026-06-03)
 
 **Result:** **PASS** — 8.7.17 + 8.7.18 live on staging.

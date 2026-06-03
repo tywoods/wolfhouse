@@ -6230,6 +6230,7 @@ function renderBedCalendar(data){
       _notice.style.borderColor = 'var(--green-border, #c3e6cb)';
       _notice.style.color = 'var(--green-text, #155724)';
     }
+  }
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
 }
 

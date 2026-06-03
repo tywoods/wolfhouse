@@ -543,36 +543,42 @@ const rbSrc   = rbStart > 0 && rbEnd > 0 ? src.slice(rbStart, rbEnd) : '';
 check(rbStart > 0 && !/'\s*\\n\s*'/.test(rbSrc),
   "No bare '\\n' string in renderBookingBlock tip (would break template literal — Stage 8.3a fix)");
 
-// 58. Embedded JS is syntax-clean (extract and check via node --check) (Stage 8.3a fix)
+// 58. Embedded JS is syntax-clean (extract from source — Stage 8.7.20)
 (function checkEmbeddedJs(){
-  const { execSync, spawnSync } = require('child_process');
-  try {
-    // Try to fetch from local dev server; if not running, skip gracefully
-    const curlResult = spawnSync('node', ['-e',
-      'const http=require("http");http.get("http://127.0.0.1:3036/staff/ui",(r)=>{let d="";r.on("data",c=>d+=c);r.on("end",()=>process.stdout.write(d));}).on("error",()=>process.exit(0));'
-    ], { timeout: 5000, encoding: 'utf8' });
-    const html = curlResult.stdout || '';
-    if (!html || html.length < 10000) {
-      ok('Embedded JS syntax: local dev server not running — skip (Stage 8.3a fix)');
-      return;
-    }
-    const sStart = html.indexOf('<script>');
-    const sEnd   = html.indexOf('</script>');
-    if (sStart < 0 || sEnd < 0) { fail('Embedded JS syntax: could not find <script> block'); return; }
-    const js = html.slice(sStart + 8, sEnd);
-    const tmp = path.join(__dirname, '..', '_tmp_verify_embedded_js.js');
-    require('fs').writeFileSync(tmp, js, 'utf8');
-    try {
-      execSync('node --check "' + tmp + '"', { stdio: 'ignore' });
-      ok('Embedded JS (browser script) passes node --check syntax validation (Stage 8.3a fix)');
-    } catch (_) {
-      fail('Embedded JS (browser script) has syntax errors — check for \\n in template literal strings');
-    } finally {
-      try { require('fs').unlinkSync(tmp); } catch(_){}
-    }
-  } catch (e) {
-    ok('Embedded JS syntax: check skipped (' + e.message.slice(0,40) + ') — Stage 8.3a fix');
+  const vm = require('vm');
+  function extractEmbeddedUiScript(source) {
+    const buildStart = source.indexOf('function buildUiHtml');
+    const searchFrom = buildStart >= 0 ? buildStart : 0;
+    const scriptTag = source.indexOf('<script>', searchFrom);
+    if (scriptTag < 0) return null;
+    const fnStart = source.indexOf('(function(){', scriptTag);
+    if (fnStart < 0) return null;
+    const endTag = source.indexOf('</script>', fnStart);
+    if (endTag < 0) return null;
+    const beforeClose = source.slice(fnStart, endTag);
+    const relEnd = beforeClose.lastIndexOf('})();');
+    if (relEnd < 0) return null;
+    return beforeClose.slice(0, relEnd + '})();'.length);
   }
+  const raw = extractEmbeddedUiScript(src);
+  if (!raw) {
+    check(false, 'Embedded JS syntax: could not find UI <script> block (Stage 8.7.20)');
+    return;
+  }
+  const js = raw
+    .replace(/\$\{STAFF_ACTIONS_ENABLED\}/g, 'false')
+    .replace(/\$\{MANUAL_BOOKING_ENABLED\}/g, 'false')
+    .replace(/\$\{STRIPE_LINKS_ENABLED\}/g, 'false');
+  try {
+    new vm.Script(js);
+    check(true, 'Embedded UI script passes parse check (Stage 8.7.20)');
+  } catch (e) {
+    check(false, 'Embedded UI script SyntaxError: ' + (e.message || e) + ' (Stage 8.7.20)');
+  }
+  check(/window\.switchToTab\s*=\s*switchToTab/.test(js),
+    'Embedded script exposes window.switchToTab (Stage 8.7.20)');
+  check(/window\.switchToTabOnly\s*=\s*switchToTabOnly/.test(js),
+    'Embedded script exposes window.switchToTabOnly (Stage 8.7.20)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

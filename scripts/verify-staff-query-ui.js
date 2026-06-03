@@ -150,6 +150,42 @@ if (lacks(htmlSection, /api\.stripe\.com/))                                { pas
 if (lacks(htmlSection, /['"]https?:\/\/[^'"]*n8n[^'"]*['"]/))             { pass('no n8n URL in UI HTML'); }                               else { fail('n8n URL found in UI HTML'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('7e. Embedded UI script parse check (Stage 8.7.20)');
+
+(function(){
+  const vm = require('vm');
+  function extractEmbeddedUiScript(source) {
+    const buildStart = source.indexOf('function buildUiHtml');
+    const searchFrom = buildStart >= 0 ? buildStart : 0;
+    const scriptTag = source.indexOf('<script>', searchFrom);
+    if (scriptTag < 0) return null;
+    const fnStart = source.indexOf('(function(){', scriptTag);
+    if (fnStart < 0) return null;
+    const endTag = source.indexOf('</script>', fnStart);
+    if (endTag < 0) return null;
+    const beforeClose = source.slice(fnStart, endTag);
+    const relEnd = beforeClose.lastIndexOf('})();');
+    if (relEnd < 0) return null;
+    return beforeClose.slice(0, relEnd + '})();'.length);
+  }
+  const raw = extractEmbeddedUiScript(src);
+  if (!raw) { fail('embedded UI <script> block not found in buildUiHtml'); return; }
+  const js = raw
+    .replace(/\$\{STAFF_ACTIONS_ENABLED\}/g, 'false')
+    .replace(/\$\{MANUAL_BOOKING_ENABLED\}/g, 'false')
+    .replace(/\$\{STRIPE_LINKS_ENABLED\}/g, 'false');
+  try {
+    new vm.Script(js);
+    pass('embedded UI script parses without SyntaxError (Stage 8.7.20)');
+  } catch (e) {
+    fail('embedded UI script SyntaxError: ' + (e.message || e));
+  }
+  if (has(js, /window\.switchToTab\s*=\s*switchToTab/))         { pass('embedded script exposes window.switchToTab (Stage 8.7.20)'); }         else { fail('embedded script missing window.switchToTab'); }
+  if (has(js, /window\.switchToTabOnly\s*=\s*switchToTabOnly/)) { pass('embedded script exposes window.switchToTabOnly (Stage 8.7.20)'); } else { fail('embedded script missing window.switchToTabOnly'); }
+  if (has(js, /window\.alAsk\s*=\s*alAsk/))                     { pass('embedded script exposes window.alAsk (Stage 8.7.20)'); }                 else { fail('embedded script missing window.alAsk'); }
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('7d. Nav labels (Stage 8.7.10)');
 
 (function(){
