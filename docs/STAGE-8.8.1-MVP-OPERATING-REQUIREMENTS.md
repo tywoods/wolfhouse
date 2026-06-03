@@ -1,10 +1,9 @@
 # Stage 8.8.1 — Luna MVP Operating Requirements (post-demo)
 
-**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.5 hosted multilingual router proof on `--0000034`.  
+**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.6 structured add-on/service records design.  
 **Captured after:** Stage 8.7.27 staging demo-ready confirmation (`wh-staging-staff-api--0000032`).  
+**Design (8.8.6):** `booking_service_records` model + Ask Luna intent mapping — see [STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md).  
 **Hosted (8.8.5):** Multilingual Ask Luna router live on `--0000034` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.5.  
-**Hosted (8.8.3):** Date-aware check-in/check-out intents on `--0000033` (superseded by `--0000034` for router).  
-**Local (8.8.4):** Multilingual Ask Luna keyword router (EN/ES/IT/DE/FR) for checkout, cleaning, balance-due + basic date words — deterministic only, no LLM.  
 **Owner input:** Ty (post-demo with Ale/Cami).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
 
@@ -55,18 +54,18 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 | Priority question | Example phrasing | Current coverage (8.7.27) | Data dependency |
 |-------------------|------------------|---------------------------|-----------------|
 | Who still needs to pay? | “Who still owes money?” / “Quien debe pagar?” | ✓ `payments.balance_due` (8.8.4 i18n router) | `bookings` + `payments` |
-| Who paid for yoga on a date? | “Who paid for yoga tonight / tomorrow / June 15?” | ✗ Not implemented | **Structured add-on/service records** (`add_on_orders` / yoga line items) |
-| Who paid for a meal on a date? | “Who paid for meals on June 15?” | ✗ Not implemented | **Structured meal/add-on records** — not chat logs |
+| Who paid for yoga on a date? | “Who paid for yoga tonight / tomorrow / June 15?” | ✗ Not implemented (blocked `unsupported_intent`) | **`booking_service_records`** — design: [STAGE-8.8.6](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md) · intent `services.yoga.paid_on_date` in 8.8.9 |
+| Who paid for a meal on a date? | “Who paid for meals on June 15?” | ✗ Not implemented | Same · `services.meal.paid_on_date` |
 
 ### 3.2 Lessons & rental prep (date-aware)
 
 | Priority question | Example phrasing | Current coverage | Data dependency |
 |-------------------|------------------|------------------|-----------------|
-| Who has a lesson today? | “Who has a surf lesson today?” | ✗ Not implemented | Lesson/add-on records + service date |
-| Who needs a wetsuit today? | “Who needs a wetsuit today?” | ✗ Not implemented | Rental add-on records + stay/service dates |
-| Who needs a surfboard today? | “Who needs a board today?” | ✗ Not implemented | Rental add-on records |
-| How many surfboards ready today? | “How many boards do we need ready today?” | ✗ Not implemented | Aggregated rental demand from structured records |
-| How many wetsuits ready today? | “How many wetsuits do we need ready today?” | ✗ Not implemented | Aggregated rental demand |
+| Who has a lesson today? | “Who has a surf lesson today?” | ✗ Not implemented | `services.surf_lesson.on_date` (8.8.9) |
+| Who needs a wetsuit today? | “Who needs a wetsuit today?” | ✗ Not implemented | `services.wetsuit.on_date` + count intent |
+| Who needs a surfboard today? | “Who needs a board today?” | ✗ Not implemented | `services.surfboard.on_date` + count intent |
+| How many surfboards ready today? | “How many boards do we need ready today?” | ✗ Not implemented | `services.surfboard.count_on_date` |
+| How many wetsuits ready today? | “How many wetsuits do we need ready today?” | ✗ Not implemented | `services.wetsuit.count_on_date` |
 
 ### 3.3 Housekeeping & arrivals/departures
 
@@ -83,7 +82,7 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 | How many checking out Saturday? | “How many people check out on Saturday?” | ✓ `check_outs.count` + weekday resolver (8.8.2) | Named weekday → next occurrence (today if same weekday) |
 | How many check in tomorrow? | “How many people arrive tomorrow?” | ✗ Not implemented | Count with `check_in = tomorrow` |
 
-**Rule:** Add-on, yoga, meal, lesson, and rental questions **require structured add-on/service records** in Postgres (Stage 5 schema stubs → implementation). Manual booking UI already captures add-on qty in quote payload; **persisted operational rows** are the prerequisite for trustworthy Ask Luna answers.
+**Rule:** Add-on, yoga, meal, lesson, and rental questions **require `booking_service_records`** in Postgres (designed 8.8.6; migration spec 8.8.7). Manual booking UI captures add-on qty in quote payload only; **persisted service rows** unlock Ask Luna in 8.8.8–8.8.9.
 
 ---
 
@@ -116,11 +115,14 @@ Stay **dry-run / demo-ready** on staging until a documented GO for a single pilo
 
 | Phase | Focus | Depends on |
 |-------|-------|------------|
-| **8.8.x** | Structured add-on/service persistence + Ask Luna intents (§3) | Stage 5 add-on tables or equivalent |
+| **8.8.7** | `booking_service_records` migration **spec** only | [STAGE-8.8.6](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md) |
+| **8.8.8** | Read-only demo fixture / seed | 8.8.7 spec |
+| **8.8.9** | Ask Luna service intents (§3) | 8.8.8 data |
+| **8.8.10** | Staff Portal read-only service display | 8.8.8 data |
 | **8.3p+** | Manual move / cancel / operator writes (§4) | Staff action flags + SQL helpers |
 | **8.5.x / 8.6.x** | Guest Luna live path + optional staff WhatsApp GO (§2, §5) | Workflow migration, 8.6.8 sign-off |
 | **8.5.20+** | Confirmation send policy (§2 last step) | Owner policy; still gated |
 
 ---
 
-**Next doc slice:** Pick one Staff Ask Luna intent family (e.g. check-in/check-out counts) or add-on persistence — smallest vertical with verifier + staging proof.
+**Next doc slice:** Stage 8.8.7 — `booking_service_records` migration spec (DDL + static verifier; no apply).
