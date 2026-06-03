@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000042` (2026-06-03, Stage 8.8.30 bot add-on idempotency proof live).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000042` (2026-06-03, Stage 8.8.32 guest add-on n8n dry-run proof live).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -350,7 +350,31 @@
 | Ask Luna regression | **PASS** | `Who paid for yoga today?` → `services.yoga.paid_on_date` · 1 row |
 | Safety | **PASS** | Read-only drawer; no Add/Edit/Send/payment-link in service panel; no DB writes / WhatsApp / n8n / Stripe from session |
 
-**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows Sep 1 paid rows plus Luna guest add-ons from Stages 8.8.28–8.8.30 (Sep 2–3 wetsuit/meal).
+**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows Sep 1 paid rows plus Luna guest add-ons from Stages 8.8.28–8.8.32 (Sep 2–4 wetsuit/meal).
+
+---
+
+## Hosted guest addon n8n dry-run proof — Stage 8.8.32 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.31 workflow imported inactive; manual exec on staging n8n (`--0000042` Staff API unchanged).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Preflight | **PASS** | `a0fdeb6`; `verify-luna-n8n-addon-request-dry-run.js` **31/31** |
+| Import | **PASS** | `stage8832GuestAddon01` · `Wolfhouse Guest Add-on Request - Dry Run` · **11 nodes** · `active:false` |
+| Credential | **PASS** | `Luna Bot Internal Token (staging)` (`stage8512LunaBotTok01`) on preview + create HTTP nodes |
+| Safety graph | **PASS** | No `graph.facebook.com` · no Twilio · no WhatsApp send node · no `api.stripe.com` in node URLs |
+| Exec #1 | **PASS** | Manual · ~16s · mode:manual · execution **6** |
+| Payload | **PASS** | `MB-WOLFHO-20260901-cb4799` · wetsuit **2026-09-04** · `+34999000123` · `pay_now` · `luna_whatsapp` |
+| Preview | **PASS** | `next_action:ready_for_addon_create_dry_run` |
+| Create | **PASS** | Service `0c9592fe-be59-4bc8-a344-53c1ef7cae65` · payment `a90239c0-f8ff-47ac-aa5e-bb9f4afcce55` · checkout `cs_test_a1EXAZcDW0MOKS4DngQCZ8LQGTUft5wU0F8YOO3hnqsYGUGzZsOC0739sx` via Staff API |
+| Draft reply | **PASS** | `reply_draft` includes checkout URL · `whatsapp_sent:false` · `live_send_blocked:true` · `no_n8n_side_effect:true` |
+| Exec #2 idempotency | **PASS** | Manual · ~1s · execution **7** · `idempotent:true` · `write_performed:false` · same service/payment/checkout |
+| DB | **PASS** | 1 `luna_guest` wetsuit row Sep 4 · 1 `addon_service` payment `checkout_created` · service `pending` · `amount_paid_cents=0` · booking payment unchanged |
+| Cleanup | **LEFT** | Proof rows on staging (disposable evidence on test booking) |
+| Safety | **PASS** | Workflow **inactive** after proof; no activation; no live WhatsApp; no booking payment mutation; no confirmation send |
+
+**n8n editor (read-only):** `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/workflow/stage8832GuestAddon01`
 
 ---
 

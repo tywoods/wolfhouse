@@ -1,7 +1,7 @@
 # Stage 8.8.6 — Structured add-on/service records for Staff Ask Luna
 
-**Status:** PASS — design extended through **Stage 8.8.31** (2026-06-03).  
-**Non-negotiables (8.8.31):** Repo workflow only. No import/activation. No Azure deploy.
+**Status:** PASS — design extended through **Stage 8.8.32** (2026-06-03).  
+**Non-negotiables (8.8.32):** Hosted n8n dry-run exec only. No workflow activation. No live WhatsApp.
 
 **Context:** Stages 8.8.11–8.8.12 prove Staff Ask Luna reads **`booking_service_records`**. **8.8.16–8.8.17** prove manual booking create writes service rows tied to real bookings (`MB-WOLFHO-20260901-cb4799`). **8.8.18** defines when `payment_status` on service rows may change — Stripe webhook or audited staff action only.
 
@@ -135,7 +135,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Webhook addon_service** | **8.8.21–8.8.22** ✓ | Code + hosted proof on `--0000038` | §12.2; yoga+wetsuit paid on `MB-WOLFHO-20260901-cb4799` |
 | **Add-on checkout create** | **8.8.23–8.8.24** ✓ | API + hosted proof on `--0000039` | Staff API link + webhook; surf lesson paid via API path |
 | **Bot add-on dry-run** | **8.8.25–8.8.26** ✓ | API + hosted proof on `--0000040` | Flow B preview; no writes |
-| **Bot add-on n8n dry-run** | **8.8.31** ✓ | Workflow JSON (not imported) | Preview → create → draft reply |
+| **Bot add-on n8n dry-run** | **8.8.31–8.8.32** ✓ | Workflow JSON + hosted exec | Preview → create → draft reply |
 | **Bot add-on idempotency** | **8.8.29–8.8.30** ✓ | Code + hosted proof on `--0000042` | Retry same key → no duplicates |
 | **Bot add-on create** | **8.8.27–8.8.28** ✓ | API + hosted proof on `--0000041` | Luna guest write + webhook paid |
 
@@ -392,13 +392,14 @@ Mid-stay requests create **separate** payment + service rows.
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.32** | Hosted n8n dry-run exec proof | Manual import inactive + exec on staging |
-| **2** | **8.8.33+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
-| **3** | **8.8.34+** | Full-payment allocation | Booking-time add-ons on full checkout (§12.1 M4) |
+| **1** | **8.8.33+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
+| **2** | **8.8.34+** | Full-payment allocation | Booking-time add-ons on full checkout (§12.1 M4) |
 
 ---
 
-**Code slice (8.8.31):** `Wolfhouse Guest Add-on Request - Dry Run.json` — preview → create → draft. **Not imported.**
+**Hosted proof (8.8.32):** n8n dry-run exec on `MB-WOLFHO-20260901-cb4799` — wetsuit Sep 4 via `stage8832GuestAddon01` (inactive); idempotent retry PASS.
+
+**Code slice (8.8.31):** `Wolfhouse Guest Add-on Request - Dry Run.json` — preview → create → draft.
 
 **Hosted proof (8.8.30):** Idempotency on `MB-WOLFHO-20260901-cb4799` — revision `--0000042`.
 
