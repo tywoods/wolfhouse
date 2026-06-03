@@ -6560,10 +6560,14 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-conflict{background:#EFD9D0;color:#9C5742;border-left:3px solid #C98B76}
 .bc-block-operator{background:#D5E3EE;color:#3A5A72;border-left:3px solid #85A8C0;font-style:italic}
 .bc-block-manual{background:#D5EAE3;color:#3A6657;border-left:3px solid #7ABFAD}
-.bc-day-cell-turnover{position:relative}
-.bc-day-cell-turnover .bc-block{position:absolute;left:3px;right:3px;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bc-block-checkout-layer{z-index:1;bottom:2px;height:22px;opacity:.78;font-size:10px;font-weight:600}
-.bc-block-checkin-layer{z-index:2;top:2px;height:26px}
+.bc-day-cell-turnover{position:relative;height:30px;vertical-align:middle;padding:2px 3px}
+.bc-day-cell-turnover .bc-block-checkin-layer{position:relative;z-index:2;height:28px;width:100%;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.bc-block-checkout-marker{position:absolute;left:3px;right:3px;top:2px;bottom:2px;z-index:1;border-radius:7px;opacity:.42;cursor:pointer;border-left:3px solid rgba(68,80,74,.45);background:linear-gradient(90deg,rgba(68,80,74,.12) 0%,rgba(68,80,74,.04) 38%,transparent 72%)}
+.bc-block-checkout-marker.bc-block-confirmed{background:linear-gradient(90deg,rgba(134,168,124,.28) 0%,rgba(134,168,124,.08) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-hold{background:linear-gradient(90deg,rgba(217,200,183,.35) 0%,rgba(217,200,183,.10) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-payment_pending{background:linear-gradient(90deg,rgba(122,170,187,.28) 0%,rgba(122,170,187,.08) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-needs_review{background:linear-gradient(90deg,rgba(217,160,87,.28) 0%,rgba(217,160,87,.08) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-manual{background:linear-gradient(90deg,rgba(122,191,173,.28) 0%,rgba(122,191,173,.08) 40%,transparent 75%)}
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
@@ -9105,8 +9109,8 @@ function renderBedCalendar(data){
   wrap.style.display = 'block';
   el('bc-state').style.display = 'none';
 
-  /* Wire block clicks */
-  wrap.querySelectorAll('.bc-block').forEach(function(bEl){
+  /* Wire block clicks (primary bars + turnover checkout markers) */
+  wrap.querySelectorAll('.bc-block, .bc-block-checkout-marker').forEach(function(bEl){
     bEl.addEventListener('click', function(){
       var idx = parseInt(this.dataset.bidx, 10);
       showBlockDetail(blocks[idx]);
@@ -9160,6 +9164,34 @@ function bcBlockDayLayer(blk, dayDate){
   return 'checkin';
 }
 
+function bcTurnoverPrimarySeg(segs){
+  for (var i = 0; i < segs.length; i++){
+    if (segs[i].layer === 'checkin') return segs[i];
+  }
+  return segs[0] || null;
+}
+
+function bcTurnoverCheckoutSeg(segs){
+  for (var i = 0; i < segs.length; i++){
+    if (segs[i].layer === 'checkout') return segs[i];
+  }
+  return null;
+}
+
+function bcTurnoverVisibleLabel(blk){
+  return escHtml(blk.guest_name || blk.booking_code || '\u2014');
+}
+
+function bcTurnoverCellTooltip(segs){
+  var primary = bcTurnoverPrimarySeg(segs);
+  var checkout = bcTurnoverCheckoutSeg(segs);
+  if (!primary) return '';
+  if (checkout && checkout.idx !== primary.idx){
+    return bcBlockTooltip(primary.blk) + ' | Out: ' + escHtml(checkout.blk.guest_name || checkout.blk.booking_code || '\u2014');
+  }
+  return bcBlockTooltip(primary.blk);
+}
+
 function bcBlockTooltip(blk){
   var arrDep = [];
   if (blk.is_arrival)   arrDep.push('Arrives ' + (blk.start_date||''));
@@ -9184,12 +9216,20 @@ function bcBlockLabel(blk, spanDays, layer){
 }
 
 function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
-  var inner = segs.map(function(s){
-    var colorCls = bcColorClass(s.blk.color_type);
-    var layerCls = s.layer === 'checkout' ? 'bc-block-checkout-layer' : 'bc-block-checkin-layer';
-    return '<div class="bc-block ' + colorCls + ' ' + layerCls + '" data-bidx="' + s.idx + '" title="' + bcBlockTooltip(s.blk) + '">' +
-      bcBlockLabel(s.blk, 1, s.layer) + '</div>';
-  }).join('');
+  var primary = bcTurnoverPrimarySeg(segs);
+  var checkout = bcTurnoverCheckoutSeg(segs);
+  if (!primary) return '<td class="bc-day-cell" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '"></td>';
+
+  var inner = '';
+  if (checkout && checkout.idx !== primary.idx){
+    var outColor = bcColorClass(checkout.blk.color_type);
+    inner += '<div class="bc-block-checkout-marker ' + outColor + '" data-bidx="' + checkout.idx + '" title="' + bcBlockTooltip(checkout.blk) + '" aria-label="Check out ' + escHtml(checkout.blk.guest_name || '') + '"></div>';
+  }
+
+  var priColor = bcColorClass(primary.blk.color_type);
+  inner += '<div class="bc-block ' + priColor + ' bc-block-checkin-layer" data-bidx="' + primary.idx + '" title="' + bcTurnoverCellTooltip(segs) + '">' +
+    bcTurnoverVisibleLabel(primary.blk) + '</div>';
+
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
 }
 

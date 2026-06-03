@@ -63,12 +63,12 @@ check(/function bcBlockVisibleOnDay/.test(src) && /function bcBlockDayLayer/.tes
   'bcBlockVisibleOnDay + bcBlockDayLayer helpers present');
 check(/function renderBcTurnoverDayCell/.test(src),
   'renderBcTurnoverDayCell helper present');
-check(/bc-block-checkout-layer/.test(src) && /bc-block-checkin-layer/.test(src),
-  'checkout/checkin layer CSS classes present');
-check(/bc-block-checkout-layer\{[^}]*z-index:\s*1/.test(src),
-  'checkout layer z-index is 1 (behind)');
+check(/bc-block-checkout-marker/.test(src) && /bc-block-checkin-layer/.test(src),
+  'checkout marker + checkin layer CSS classes present');
+check(/bc-block-checkout-marker\{[^}]*z-index:\s*1/.test(src),
+  'checkout marker z-index is 1 (behind)');
 check(/bc-block-checkin-layer\{[^}]*z-index:\s*2/.test(src),
-  'checkin layer z-index is 2 (above checkout)');
+  'checkin layer z-index is 2 (foreground)');
 check(/bc-day-cell-turnover/.test(src),
   'turnover day cell class present');
 check(/blk\.is_departure && dayDate === blk\.end_date/.test(src),
