@@ -354,6 +354,25 @@
 
 ---
 
+## Hosted bot addon preview proof — Stage 8.8.26 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.25 endpoint live on staging revision `--0000040` (`c22c787`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:c22c787-stage8826-bot-addon-preview` · ACR `cb12` · revision `--0000040` · Healthy · 100% traffic |
+| Preflight | **PASS** | `c22c787`; `verify-staff-bot-addon-request-api.js` 37/37 |
+| Auth | **PASS** | `X-Luna-Bot-Token` → **200** · `auth_mode:bot_token` |
+| Case A | **PASS** | Missing `service_date` → `next_action:ask_service_date` · `preview_only/no_write_performed:true` |
+| Case B | **PASS** | `quantity=0` → `next_action:ask_quantity` |
+| Case C | **PASS** | Meal · `payment_required:false` · `reason:meal_on_site_only` · `ready_for_record_only` · no payment/stripe create flags |
+| Case D | **PASS** | Wetsuit 1d · `ready_for_addon_create_dry_run` · €5 · `service_record_preview` + `payment_preview` · all write flags false |
+| Case E | **PASS** | Surf lesson ×2 · `surf_lesson_multi` · €60 · bundle pricing · write flags false |
+| DB no-write | **PASS** | Before/after: **3** service rows · **3** payments · **2** checkout sessions — unchanged |
+| Safety | **PASS** | Staging only; no production; no DB writes; no Stripe/WhatsApp/n8n/live send |
+
+---
+
 ## Hosted addon service payment-link proof — Stage 8.8.24 (2026-06-03)
 
 **Result:** **PASS** — Stage 8.8.23 endpoint live on staging revision `--0000039` (`62835c1`).
