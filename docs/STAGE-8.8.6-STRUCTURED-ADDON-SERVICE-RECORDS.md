@@ -127,7 +127,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Ask Luna** | **8.8.11** ✓ | Read-only intents + router | 7 `services.*` intents on `booking_service_records` |
 | **Hosted proof** | **8.8.12** ✓ | Deploy + Luna API proof | `--0000035`; 14/14 PASS |
 | **Flows design** | **8.8.13** ✓ | Booking-time + guest Luna + drawer (docs) | §8–§11 below |
-| **Portal display** | **8.8.14** ✓ | Read-only drawer UI | `GET` context `service_records[]`; §8 Flow C |
+| **Portal display** | **8.8.14–8.8.15** ✓ | Read-only drawer UI + hosted proof | `--0000036`; golden empty state PASS; demo rows need real bookings (8.8.16) |
 | **Booking create writes** | **8.8.15+** | Persist service rows on manual/bot create | §8 Flow A step 3 |
 | **Guest Luna add-on API** | **8.8.16+** | Bot endpoint + payment draft | §8 Flow B; live send still NO_GO |
 
@@ -155,8 +155,8 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | Ask Luna service intents | **Live on staging** — revision `--0000035` (`ef122ac-stage8812-service-queries`); hosted proof **PASS** |
 | Today demo totals | Wetsuit qty **3**, surfboard qty **4**; yoga + lesson paid today; meal paid tomorrow; Jun 15 meal paid + lesson pending |
 | Manual booking create | Still does not write `booking_service_records` |
-| Booking drawer services | **Live in code** — read-only panel from context API; **not deployed** until next Azure slice |
-| Next slice | **8.8.15** — persist service rows on booking create (§8 Flow A step 3) |
+| Booking drawer services | **Live on staging** — revision `--0000036` (`ab67ea8-stage8815-service-records-drawer`); golden booking shows empty panel; demo fixture codes 404 on context API |
+| Next slice | **8.8.16** — persist service rows on booking create (§8 Flow A step 3) |
 
 ---
 

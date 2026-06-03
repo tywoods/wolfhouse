@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000035` (2026-06-03, Stage 8.8.12 service queries deployed).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000036` (2026-06-03, Stage 8.8.15 service-record drawer deployed).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -26,7 +26,7 @@
 |------|-------|
 | Staff Portal | `https://staff-staging.lunafrontdesk.com` |
 | Login | Company: `wolfhouse-somo` · Email: `admin.stage72c@example.test` · Password: see comment in [`scripts/fixtures/stage7.2c-auth-seed.sql`](../scripts/fixtures/stage7.2c-auth-seed.sql) |
-| Staff API revision | `wh-staging-staff-api--0000034` |
+| Staff API revision | `wh-staging-staff-api--0000036` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
 | Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** (or **Jul – Aug** chip) |
@@ -328,6 +328,29 @@
 | Safety | **PASS** | All responses `read_only:true` · `no_write_performed:true` · `sends_whatsapp:false`; structured `booking_service_records` only for service answers; no graph.facebook.com / n8n / api.stripe.com |
 
 **Optional demo add-on (Luna tab):** Try *“How many wetsuits do we need ready today?”* (count **3**) and *“Who paid for yoga tonight?”* (same as today) to show structured service data vs legacy booking queries.
+
+---
+
+## Hosted booking drawer service-record proof — Stage 8.8.15 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.14 drawer panel live on staging revision `--0000036` (`ab67ea8`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:ab67ea8-stage8815-service-records-drawer` · ACR `cbx` · revision `--0000036` · Healthy · 100% traffic |
+| Preflight | **PASS** | `ab67ea8`; `verify-staff-bed-calendar-ui.js` 406/406 |
+| Golden booking drawer | **PASS** | `MB-WOLFHO-20260801-4f10c3` · Bed Calendar 2026-07-28 → 2026-08-10 |
+| Services & Add-ons panel | **PASS** | Section renders below Payment |
+| Empty state | **PASS** | *“No services/add-ons recorded for this booking.”* |
+| Payment truth | **PASS** | Deposit paid · €250 total · €100 paid · €150 balance · paid_at + session/intent |
+| Luna confirmation draft | **PASS** | Gate 2684# · `sends_whatsapp:false` · no send button |
+| Context API | **PASS** | `service_records:[]` · `service_records_available:true` |
+| Demo fixture context | **GAP** | `DEMO-SVC-888-YOGA-TODAY` → **404** (no `bookings` row for fixture codes) |
+| Populated drawer rows | **DEFERRED** | Needs **8.8.16** booking-create writes to tie service records to real bookings |
+| Ask Luna regression | **PASS** | `Who paid for yoga today?` → `services.yoga.paid_on_date` · 1 row |
+| Safety | **PASS** | Read-only drawer; no Add/Edit/Send/payment-link in service panel; no DB writes / WhatsApp / n8n / Stripe from session |
+
+**Optional demo add-on (Bed Calendar):** After 8.8.16, re-open golden booking with add-ons selected at create time to show populated service rows in the same panel.
 
 ---
 
