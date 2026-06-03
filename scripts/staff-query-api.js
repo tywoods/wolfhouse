@@ -99,6 +99,12 @@ const {
 const {
   calculateWolfhouseQuote,
 } = require('./lib/wolfhouse-quote-calculator');
+const {
+  getPauseState,
+  pauseConversation,
+  resumeConversation,
+  formatPauseStateRow,
+} = require('./lib/staff-bot-pause-sql');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -119,6 +125,8 @@ const MANUAL_BOOKING_ENABLED = process.env.MANUAL_BOOKING_ENABLED === 'true';
 const BOT_BOOKING_ENABLED = process.env.BOT_BOOKING_ENABLED === 'true';
 // Stage 8.8.27 — Luna bot guest add-on create (service row + optional payment + Stripe link).
 const BOT_ADDON_REQUESTS_ENABLED = process.env.BOT_ADDON_REQUESTS_ENABLED === 'true';
+// Phase 9.4b — Luna guest pause/resume writes (bot_pause_states SoT). Default OFF.
+const BOT_PAUSE_CONTROLS_ENABLED = process.env.BOT_PAUSE_CONTROLS_ENABLED === 'true';
 // Stage 8.4.9 — Stripe checkout link creation from draft payment records.
 // STRIPE_LINKS_ENABLED must be explicitly set to 'true'; default false.
 // STRIPE_SECRET_KEY must be a valid Stripe secret (sk_test_... or sk_live_...).
@@ -3322,6 +3330,339 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   }
 
   return sendJSON(res, 201, response);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 9.4b — Luna guest bot pause/resume (bot_pause_states source of truth)
+// Does NOT mutate conversations.bot_mode, bookings, payments, or service records.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function botPauseControlsDisabledResponse() {
+  return {
+    success:           false,
+    enabled:           false,
+    error:             'bot_pause_controls_disabled',
+    paused:            false,
+    bot_paused:        false,
+    live_send_blocked: false,
+  };
+}
+
+function buildDefaultActivePauseResponse(extra) {
+  return Object.assign({
+    success:           true,
+    paused:            false,
+    bot_paused:        false,
+    live_send_blocked: false,
+    source:            'default_active',
+  }, extra || {});
+}
+
+function buildPausedStateResponse(pauseStateRow, extra) {
+  const pauseState = formatPauseStateRow(pauseStateRow);
+  return Object.assign({
+    success:           true,
+    paused:            true,
+    bot_paused:        true,
+    live_send_blocked: true,
+    source:            'bot_pause_states',
+    pause_state:       pauseState,
+    client_slug:       pauseState ? pauseState.client_slug : undefined,
+    guest_phone:       pauseState ? pauseState.guest_phone : undefined,
+    conversation_id:   pauseState ? pauseState.conversation_id : undefined,
+    booking_id:        pauseState ? pauseState.booking_id : undefined,
+    booking_code:      pauseState ? pauseState.booking_code : undefined,
+    pause_reason:      pauseState ? pauseState.pause_reason : undefined,
+    paused_by:         pauseState ? pauseState.paused_by : undefined,
+    paused_at:         pauseState ? pauseState.paused_at : undefined,
+    resumed_by:        pauseState ? pauseState.resumed_by : undefined,
+    resumed_at:        pauseState ? pauseState.resumed_at : undefined,
+    updated_at:        pauseState ? pauseState.updated_at : undefined,
+  }, extra || {});
+}
+
+function resolveStaffActorId(user, body, fallback) {
+  if (user && user.staff_user_id) return user.staff_user_id;
+  if (body && body.staff_user) return String(body.staff_user).trim().slice(0, 200);
+  return fallback || 'unknown-staff';
+}
+
+async function handleBotPauseStateGet(query, res, user) {
+  const started = Date.now();
+  const clientSlug = String(query.client_slug || query.client || DEFAULT_CLIENT).trim();
+  const conversationId = query.conversation_id != null
+    ? String(query.conversation_id).trim() || null
+    : null;
+  const guestPhone = query.guest_phone != null
+    ? String(query.guest_phone).trim() || null
+    : null;
+  const bookingCode = query.booking_code != null
+    ? String(query.booking_code).trim() || null
+    : null;
+
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'client_slug is required');
+  }
+  if (!conversationId && !guestPhone && !bookingCode) {
+    return send400(res, 'conversation_id, guest_phone, or booking_code is required');
+  }
+
+  try {
+    const result = await withPgClient((pg) => getPauseState(pg, {
+      client_slug:     clientSlug,
+      conversation_id: conversationId,
+      guest_phone:     guestPhone,
+      booking_code:    bookingCode,
+    }));
+
+    appendAuditLog(Object.assign({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.pause-state',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: true,
+      paused: !!result.row,
+      source: result.row ? 'bot_pause_states' : 'default_active',
+      table_missing: !!result.table_missing,
+      elapsed_ms: Date.now() - started,
+    }, user ? { staff_user_id: user.staff_user_id } : {}));
+
+    if (result.row) {
+      return sendJSON(res, 200, buildPausedStateResponse(result.row));
+    }
+
+    return sendJSON(res, 200, buildDefaultActivePauseResponse({
+      client_slug: clientSlug,
+      guest_phone: guestPhone,
+      conversation_id: conversationId,
+      booking_code: bookingCode,
+      table_missing: result.table_missing || false,
+    }));
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.pause-state',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 200, buildDefaultActivePauseResponse({
+      client_slug: clientSlug,
+      guest_phone: guestPhone,
+      conversation_id: conversationId,
+      booking_code: bookingCode,
+      lookup_error: true,
+    }));
+  }
+}
+
+async function handleBotPausePost(req, res, user) {
+  const started = Date.now();
+
+  if (!BOT_PAUSE_CONTROLS_ENABLED) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.pause',
+      category: 'bot_pause_api',
+      success: false,
+      error: 'bot_pause_controls_disabled',
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, botPauseControlsDisabledResponse());
+  }
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const conversationId = body.conversation_id != null
+    ? String(body.conversation_id).trim() || null
+    : null;
+  const guestPhone = body.guest_phone != null
+    ? String(body.guest_phone).trim() || null
+    : null;
+
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'client_slug is required');
+  }
+  if (!conversationId && !guestPhone) {
+    return send400(res, 'conversation_id or guest_phone is required');
+  }
+
+  const pausedBy = resolveStaffActorId(user, body, 'pause-local-dev');
+
+  try {
+    const result = await withPgClient((pg) => pauseConversation(pg, {
+      client_slug:     clientSlug,
+      conversation_id: conversationId,
+      guest_phone:     guestPhone,
+      booking_id:      body.booking_id,
+      booking_code:    body.booking_code,
+      pause_reason:    body.pause_reason,
+      paused_by:       pausedBy,
+    }));
+
+    if (result.table_missing) {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:bot.pause',
+        category: 'bot_pause_api',
+        client_slug: clientSlug,
+        success: false,
+        error: 'bot_pause_states_table_missing',
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'bot_pause_states_table_missing',
+        paused: false,
+        bot_paused: false,
+        live_send_blocked: false,
+      });
+    }
+
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.pause',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      staff_user_id: pausedBy,
+      success: true,
+      idempotent: !!result.idempotent,
+      elapsed_ms: Date.now() - started,
+    });
+
+    return sendJSON(res, 200, buildPausedStateResponse(result.row, {
+      idempotent: !!result.idempotent,
+    }));
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.pause',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'pause write failed' });
+  }
+}
+
+async function handleBotResumePost(req, res, user) {
+  const started = Date.now();
+
+  if (!BOT_PAUSE_CONTROLS_ENABLED) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.resume',
+      category: 'bot_pause_api',
+      success: false,
+      error: 'bot_pause_controls_disabled',
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, botPauseControlsDisabledResponse());
+  }
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const conversationId = body.conversation_id != null
+    ? String(body.conversation_id).trim() || null
+    : null;
+  const guestPhone = body.guest_phone != null
+    ? String(body.guest_phone).trim() || null
+    : null;
+
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'client_slug is required');
+  }
+  if (!conversationId && !guestPhone) {
+    return send400(res, 'conversation_id or guest_phone is required');
+  }
+
+  const resumedBy = resolveStaffActorId(user, body, 'resume-local-dev');
+
+  try {
+    const result = await withPgClient((pg) => resumeConversation(pg, {
+      client_slug:     clientSlug,
+      conversation_id: conversationId,
+      guest_phone:     guestPhone,
+      resumed_by:      resumedBy,
+    }));
+
+    if (result.table_missing) {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:bot.resume',
+        category: 'bot_pause_api',
+        client_slug: clientSlug,
+        success: false,
+        error: 'bot_pause_states_table_missing',
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'bot_pause_states_table_missing',
+        paused: false,
+        bot_paused: false,
+        live_send_blocked: false,
+      });
+    }
+
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.resume',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      staff_user_id: resumedBy,
+      success: true,
+      idempotent: !!result.idempotent,
+      elapsed_ms: Date.now() - started,
+    });
+
+    if (!result.row) {
+      return sendJSON(res, 200, Object.assign(buildDefaultActivePauseResponse({
+        client_slug: clientSlug,
+        guest_phone: guestPhone,
+        conversation_id: conversationId,
+        idempotent: true,
+      }), { pause_state: null }));
+    }
+
+    const pauseState = formatPauseStateRow(result.row);
+    return sendJSON(res, 200, {
+      success:           true,
+      paused:            false,
+      bot_paused:        false,
+      live_send_blocked: false,
+      source:            'bot_pause_states',
+      pause_state:       pauseState,
+      idempotent:        !!result.idempotent,
+    });
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.resume',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'resume write failed' });
+  }
 }
 
 // Route: POST /staff/bot/booking-preview  (Stage 8.5.2 — Luna bot bridge)
@@ -10738,6 +11079,40 @@ async function router(req, res) {
     return handleBotAddonRequestCreate(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Phase 9.4b — Luna guest bot pause/resume (bot_pause_states SoT) ─────────
+  // GET pause-state: read-only; defaults active when table missing.
+  // POST pause/resume: gated by BOT_PAUSE_CONTROLS_ENABLED (default OFF).
+  // Staff session auth (operator+ for writes). Does NOT touch conversations.bot_mode.
+  if (pathname === '/staff/bot/pause-state') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for bot/pause-state' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleBotPauseStateGet(parsed.query, res, auth.user);
+  }
+
+  if (pathname === '/staff/bot/pause') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/pause' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBotPausePost(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/bot/resume') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/resume' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBotResumePost(req, res, auth.user);
+  }
+
   // ── Stage 8.5.4 — Luna bot booking create (shared engine, BOT_BOOKING_ENABLED gate) ──
   // POST — creates booking + booking_beds + draft payment via shared SQL/quote path.
   // No Stripe. No WhatsApp. No n8n. Bot token auth (requireBotAuth).
@@ -10930,6 +11305,9 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/availability-check      <- 8.5.8 Luna bot availability check (read-only, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/addon-request-preview  <- 8.8.25 Luna bot guest add-on preview (dry-run, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/addon-requests/create   <- 8.8.27 Luna bot guest add-on create (${BOT_ADDON_REQUESTS_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_ADDON_REQUESTS_ENABLED+STRIPE_LINKS_ENABLED'})`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/bot/pause-state            <- 9.4b Luna guest pause lookup (read-only; table may be missing)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/pause                  <- 9.4b Luna guest pause write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/resume                 <- 9.4b Luna guest resume write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
