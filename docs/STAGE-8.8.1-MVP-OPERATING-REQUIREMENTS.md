@@ -1,6 +1,6 @@
 # Stage 8.8.1 — Luna MVP Operating Requirements (post-demo)
 
-**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.6 structured add-on/service records design.  
+**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.7 DDL spec (`010_booking_service_records.sql`, not applied).  
 **Captured after:** Stage 8.7.27 staging demo-ready confirmation (`wh-staging-staff-api--0000032`).  
 **Design (8.8.6):** `booking_service_records` model + Ask Luna intent mapping — see [STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md).  
 **Hosted (8.8.5):** Multilingual Ask Luna router live on `--0000034` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.5.  
@@ -115,8 +115,8 @@ Stay **dry-run / demo-ready** on staging until a documented GO for a single pilo
 
 | Phase | Focus | Depends on |
 |-------|-------|------------|
-| **8.8.7** | `booking_service_records` migration **spec** only | [STAGE-8.8.6](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md) |
-| **8.8.8** | Read-only demo fixture / seed | 8.8.7 spec |
+| **8.8.7** | `booking_service_records` migration **spec** ✓ | [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) (not applied) |
+| **8.8.8** | Read-only seed for staging/local | 8.8.7 spec |
 | **8.8.9** | Ask Luna service intents (§3) | 8.8.8 data |
 | **8.8.10** | Staff Portal read-only service display | 8.8.8 data |
 | **8.3p+** | Manual move / cancel / operator writes (§4) | Staff action flags + SQL helpers |
@@ -125,4 +125,4 @@ Stay **dry-run / demo-ready** on staging until a documented GO for a single pilo
 
 ---
 
-**Next doc slice:** Stage 8.8.7 — `booking_service_records` migration spec (DDL + static verifier; no apply).
+**Next doc slice:** Stage 8.8.8 — read-only demo fixture for `booking_service_records`.

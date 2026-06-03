@@ -120,7 +120,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 
 | Phase | Stage | Scope | Deliverable |
 |-------|-------|-------|-------------|
-| **Spec** | **8.8.7** | Migration SQL spec only (no apply) | `booking_service_records` DDL + indexes + CHECK constraints; verifier static |
+| **Spec** | **8.8.7** ✓ | Migration SQL spec only (no apply) | [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) + `verify-booking-service-records-schema.js` |
 | **Fixture** | **8.8.8** | Read-only seed for staging/local | SQL fixture or script inserting demo rows on golden booking; no production apply without approval |
 | **Ask Luna** | **8.8.9** | Read-only intents + router | Unblock yoga/meal/lesson/rental questions; `verify-staff-ask-luna-api.js` + hosted proof |
 | **Portal display** | **8.8.10** | Read-only UI | Booking drawer section “Services & add-ons” from structured rows |
@@ -147,11 +147,11 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 
 | Item | State |
 |------|-------|
-| `booking_service_records` table | **Not created** (007 stub exists, not applied) |
+| `booking_service_records` table | **Spec only** — [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) (8.8.7, **not applied**) |
 | Manual booking create | Writes `quote_snapshot` add-ons in metadata only |
 | Ask Luna add-on questions | `unsupported_intent` + gap message (proven 8.8.3–8.8.5) |
-| Next slice | **8.8.7** — migration/spec doc + static verifier |
+| Next slice | **8.8.8** — read-only demo fixture / seed |
 
 ---
 
-**Next doc slice:** Stage 8.8.7 — `booking_service_records` migration spec (DDL file + verifier; still no apply on staging without approval).
+**Next doc slice:** Stage 8.8.8 — read-only seed/demo fixture for `booking_service_records` (still no production apply without approval).
