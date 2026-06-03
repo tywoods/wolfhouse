@@ -1,4 +1,6 @@
-﻿**8.6.7 RE-IMPORT FIXED STAFF ASK LUNA DRY-RUN + MANUAL EXECUTION -- PASS (2026-06-03):** Stage 8.6.6 guard-fixed workflow re-imported into staging n8n inactive (`stage863AskLuna01`, `active:false`, 11 nodes). Manual execution #3 success (~13s) with pinned payload: allowlisted `+34999000999`, `who still owes money`, `wolfhouse-somo`, `whatsapp`. **No temp IF bypass.** `Set - DryRun Mode Flags` sets `dry_run:true` / `live_send_enabled:false`; `IF - DryRun Guard` passes on workflow JSON; `POST /staff/ask-luna` -> `payments.balance_due`; `reply_draft` generated; `whatsapp_sent:false`; no `graph.facebook.com`; workflow remains inactive. No activation. No live WhatsApp. No Staff API/Stripe/Azure changes. Next: 8.6.8 real staff WhatsApp live gated send (requires explicit go/no-go + real phone in config).
+﻿**8.6.8 STAFF ASK LUNA LIVE WHATSAPP READINESS CHECKLIST -- DONE (2026-06-03):** Short go/no-go checklist added before enabling live staff WhatsApp replies. Docs only — no code, no n8n edits, no activation, no sends. **Live send decision: NO_GO** until owner sign-off on every gate below. Baseline from Stages 8.6.1–8.6.7: dry-run workflow imported inactive (`stage863AskLuna01`); manual exec #3 proved `payments.balance_due` / `reply_draft` / `whatsapp_sent:false`. Next: 8.6.9 live gated send implementation (only after explicit GO).
+
+**8.6.7 RE-IMPORT FIXED STAFF ASK LUNA DRY-RUN + MANUAL EXECUTION -- PASS (2026-06-03):** Stage 8.6.6 guard-fixed workflow re-imported into staging n8n inactive (`stage863AskLuna01`, `active:false`, 11 nodes). Manual execution #3 success (~13s) with pinned payload: allowlisted `+34999000999`, `who still owes money`, `wolfhouse-somo`, `whatsapp`. **No temp IF bypass.** `Set - DryRun Mode Flags` sets `dry_run:true` / `live_send_enabled:false`; `IF - DryRun Guard` passes on workflow JSON; `POST /staff/ask-luna` -> `payments.balance_due`; `reply_draft` generated; `whatsapp_sent:false`; no `graph.facebook.com`; workflow remains inactive. No activation. No live WhatsApp. No Staff API/Stripe/Azure changes. Next: 8.6.8 readiness checklist (done).
 
 **8.6.5 HOSTED INACTIVE STAFF ASK LUNA DRY-RUN PROOF -- PASS (2026-06-03):** `n8n/Wolfhouse Staff Ask Luna - WhatsApp Dry Run.json` imported into staging n8n inactive (`stage863AskLuna01`, `active:false`). Manual execution #2 success with pinned payload: allowlisted `+34999000999`, `who still owes money`, `wolfhouse-somo`, `staff_whatsapp`. `POST /staff/ask-luna` -> `payments.balance_due`; `reply_draft` generated; `whatsapp_sent:false`; no `graph.facebook.com`. Workflow left inactive; nodes restored to repo JSON after proof. Staging gap: `N8N_BLOCK_ENV_ACCESS_IN_NODE` blocks `$env.WHATSAPP_DRY_RUN` IF guard (exec #1 `dry_run_guard_blocked`; proof used temporary staging IF bypass). No activation. No live WhatsApp. No Staff API/Stripe changes. Next: 8.6.6 guard fix (done) + 8.6.7 re-import proof (done).
 
@@ -9,6 +11,42 @@
 **8.6.2 STAFF PORTAL ASK LUNA TEXT BOX -- PASS (2026-06-03):** New "Ask Luna" tab in Staff Portal nav (between Tour Operator and Developer Tools). Compact hero panel (title, subtitle, examples). Text input (`al-input`) + Ask button (`al-btn`, Enter key supported). `alAsk()` POSTs to `/staff/ask-luna` with `{client_slug, question, source:"staff_portal"}` using existing session auth. `alRenderResult()` renders: intent badge, answer text, row_count, compact rows table (up to 20 rows), unsupported_intent message + full suggestion list. `alShowError()`/`alSetLoading()` loading/error states. CSS: al-* styles consistent with existing UI tokens. No WhatsApp, no n8n, no Stripe, no DB writes. `verify-staff-query-ui.js` 43/43 PASS (section 7b ? 14 new Ask Luna checks). `verify-staff-ask-luna-api.js` 48/48 PASS unchanged. Local proof: `who still owes money`?200/payments.balance_due/1 row/real guest data from DB; `what is the weather today`?unsupported_intent+full suggestion list; 0 DB writes, 0 WhatsApp, 0 n8n, 0 Stripe, 0 Azure. Next: 8.6.3 n8n staff WhatsApp dry-run route, 8.6.4 staff WhatsApp live gated send.
 
 **8.6.1 STAFF ASK LUNA ENDPOINT -- PASS (2026-06-03):** POST /staff/ask-luna added to staff-query-api.js. Session auth (staff_portal) or allowlisted staff phone (staff_whatsapp). Loads wolfhouse-somo.staff-whatsapp-allowlist.json lazily; checks staff_whatsapp_enabled + phone in active staff_numbers. Natural-language -> intent resolver: who owes (payments.balance_due), payment links (payments.waiting), arrivals (rooming.arrivals), needs human (handoffs.open), urgent handoffs, deposit, confirmation, holds, unassigned, add-ons. Direct registry key passthrough. Unsupported intents (departures_today, rooms_need_cleaning) return unsupported_intent + suggestion. WhatsApp-friendly formatAnswer. Response: success/intent/answer/rows/row_count/read_only:true/no_write_performed:true/sends_whatsapp:false. No INSERT/UPDATE/DELETE. No Stripe. No WhatsApp send. No n8n. verify-staff-ask-luna-api.js 48/48 PASS. Local proof: unknown phone->403/phone_not_allowlisted; allowlisted +34999000999->200/payments.balance_due/1 guest owes; staff_portal dev->200/handoffs.open; unsupported->unsupported_intent+suggestions; departures_today->unsupported_intent+hint. 0 DB writes. Next slices: 8.6.2 Staff Portal Ask Luna text box, 8.6.3 n8n staff WhatsApp dry-run route, 8.6.4 staff WhatsApp live gated send.
+
+## Stage 8.6.8 — Staff Ask Luna live WhatsApp go/no-go checklist
+
+**Purpose:** Gate before enabling live WhatsApp replies to allowlisted staff numbers. **Current decision: NO_GO** (checklist defined; live send not approved).
+
+**Workflow:** `n8n/Wolfhouse Staff Ask Luna - WhatsApp Dry Run.json` · staging id `stage863AskLuna01` · allowlist `config/clients/wolfhouse-somo.staff-whatsapp-allowlist.json`
+
+| # | Gate | Requirement | Baseline (2026-06-03) | Before GO |
+|---|------|-------------|----------------------|-----------|
+| 1 | Workflow imported inactive | Staging n8n has dry-run workflow; `active:false` | **PASS** — imported; exec #3 proved inactive after run | Reconfirm `active:false` until GO |
+| 2 | Live send disabled | No outbound WhatsApp; `whatsapp_sent:false` on all paths | **PASS** — dry-run only; no send node | Confirm still disabled |
+| 3 | One test number first | Only **one** approved staff phone for first live pilot | **PARTIAL** — `+34999000999` is sole pilot candidate; `+34999000998` must stay off until #999 proven | Owner approves **only** `+34999000999`; no real staff mobiles yet |
+| 4 | `staff_whatsapp_enabled` staging-only | `true` only for staging test; production stays `false` until separate GO | **PASS** — config note + staging proofs use fake `+34999…` numbers | Reconfirm prod config `false` |
+| 5 | Dry-run vs live-send decision | Document flag semantics before any send | **PASS** — see decision box below | Owner reads + signs |
+| 6 | No Meta send until GO | No `graph.facebook.com` send node enabled/wired | **PASS** — absent from workflow JSON + exec proofs | Send node stays out until GO |
+| 7 | Smoke question | Staff sends: **"who still owes money"** | **PASS** — used in manual exec #2/#3 | Same question for first live reply |
+| 8 | Expected API answer | `POST /staff/ask-luna` → `intent:payments.balance_due`, `read_only:true`, `no_write_performed:true`, `sends_whatsapp:false`, `answer` lists guest(s) with balance (e.g. `N guest(s) still owe a balance: Name (CODE) — balance €X`), `row_count≥0` | **PASS** — exec #3 + hosted 8.6.4 proof | Re-run against staging before GO |
+| 9 | Rollback plan | If live misbehaves: deactivate workflow + restore dry-run | **PASS** — documented below | Team knows steps |
+
+**Dry-run vs live-send decision (Gate 5):**
+
+| Mode | `Set - DryRun Mode Flags` | `IF - DryRun Guard` | WhatsApp send |
+|------|---------------------------|---------------------|---------------|
+| **Current (dry-run)** | `dry_run:true`, `live_send_enabled:false` | Passes on `$json.dry_run` | None — logs `reply_draft`, `whatsapp_sent:false` |
+| **Live (future, 8.6.9+)** | Requires explicit flip to `live_send_enabled:true` + owner GO | Must still guard against accidental send | Add `graph.facebook.com` send node **only after GO** |
+
+Staging n8n may still set container env `WHATSAPP_DRY_RUN=true`; this staff workflow **does not** read `$env` (Stage 8.6.6). Live-send safety is workflow JSON flags + activation gate, not env alone.
+
+**Rollback (Gate 9):**
+
+1. **Deactivate workflow** — set `active:false` in n8n (or unpublish); stop inbound staff WhatsApp webhook route.
+2. **Restore dry-run flags** — `Set - DryRun Mode Flags`: `dry_run:true`, `live_send_enabled:false`.
+3. **Disable send path** — remove or disconnect any `graph.facebook.com` send node; verify executions show `whatsapp_sent:false`.
+4. **Optional config rollback** — set `staff_whatsapp_enabled:false` in allowlist JSON if staff phone auth must be cut immediately.
+
+**Sign-off:** Ty / Ale / Cami — record GO or NO_GO with date before Stage 8.6.9 live send work.
 
 # Wolfhouse Booking Assistant ? Product Roadmap
 
