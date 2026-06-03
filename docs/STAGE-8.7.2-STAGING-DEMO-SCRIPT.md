@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000037` (2026-06-03, Stage 8.8.17 manual add-ons service records live).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000038` (2026-06-03, Stage 8.8.22 addon_service webhook proof live).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -350,7 +350,27 @@
 | Ask Luna regression | **PASS** | `Who paid for yoga today?` → `services.yoga.paid_on_date` · 1 row |
 | Safety | **PASS** | Read-only drawer; no Add/Edit/Send/payment-link in service panel; no DB writes / WhatsApp / n8n / Stripe from session |
 
-**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) for populated Services & Add-ons from manual create.
+**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows **wetsuit + yoga paid**, **surf lesson pending** (Stage 8.8.22 webhook proof).
+
+---
+
+## Hosted addon_service webhook proof — Stage 8.8.22 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.21 webhook branch live on staging revision `--0000038` (`fb9a9d9`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:fb9a9d9-stage8822-addon-service-webhook` · ACR `cb10` · revision `--0000038` · Healthy · 100% traffic |
+| Preflight | **PASS** | `fb9a9d9`; `verify-staff-stripe-webhook-api.js` 92/92 |
+| Proof payment | **PASS** | `payment_id:3318b16c-506a-4277-9c75-4ec588f797e1` · `payment_kind=addon_service` · €30.00 (yoga €15 + wetsuit €15) · `checkout_created` → webhook |
+| Service linkage | **PASS** | Linked yoga + wetsuit rows on `MB-WOLFHO-20260901-cb4799`; surf lesson left unlinked (`pending`) |
+| Webhook | **PASS** | Signed `checkout.session.completed` → **200** · `addon_service_payment:true` · `service_records_paid_count:2` · `no_booking_payment_status_change:true` · `no_confirmation_sent/no_whatsapp/no_n8n:true` |
+| DB proof | **PASS** | Payment `paid` · `amount_paid_cents=3000` · `paid_at` set · linked rows `payment_status=paid` · surf lesson still `pending` · booking `payment_status=not_requested` unchanged · `confirmation_sent_at` null |
+| Idempotency | **PASS** | Replay → **200** · `idempotent:true` · `service_records_paid_count:2` stable |
+| Drawer proof | **PASS** | Context API: wetsuit + yoga **paid**; surf lesson **pending**; booking payment panel unchanged (`not_requested`) |
+| Ask Luna | **PASS** | “Who paid for yoga on September 1 2026?” → `services.yoga.paid_on_date` · 1 row · **Stage8817 Addon Test** |
+| Cleanup | **LEFT** | Proof payment + linkage on staging (disposable evidence on existing test booking) |
+| Safety | **PASS** | Staging only; HMAC-valid webhook (no SKIP_VERIFY); no WhatsApp/n8n/confirmation send; no booking payment mutation |
 
 ---
 
