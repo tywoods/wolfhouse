@@ -1291,6 +1291,167 @@ async function handleQuotePreview(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/bot/availability-check  (Stage 8.5.8 — Luna bot bed availability)
+//
+// Read-only endpoint for Luna/n8n to discover available bed_codes before calling
+// /staff/bot/bookings/create.  Closes the Stage 8.5.7 selected_bed_codes gap.
+//
+// Behavior:
+//   1. Validates check_in / check_out / guest_count.
+//   2. Loads all active/sellable beds for the client from Postgres.
+//   3. Loads overlapping booking_beds rows using the standard half-open interval:
+//        assignment_start_date < check_out  AND  assignment_end_date > check_in
+//      Rows with booking status cancelled/expired are excluded by query.
+//   4. Optionally filters by room_type if rooms metadata provides it.
+//   5. Returns first-fit selected_bed_codes[] for guest_count, has_enough_beds,
+//      available_beds[], blockers[], warnings[].
+//
+// Safety:
+//   preview_only: true
+//   no_write_performed: true
+//   creates_booking: false
+//   creates_payment: false
+//   creates_stripe_link: false
+//   sends_whatsapp: false
+//
+// Auth: requireBotAuth() — bot token or staff session.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBotAvailabilityCheck(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug    = String(body.client_slug  || DEFAULT_CLIENT).trim();
+  const checkIn       = String(body.check_in     || '').trim();
+  const checkOut      = String(body.check_out    || '').trim();
+  const guestCount    = parseInt(body.guest_count || '1', 10);
+  const roomType      = String(body.room_type    || 'shared').trim().toLowerCase();
+  const genderPref    = body.gender_preference ? String(body.gender_preference).trim() : null;
+
+  // ── Input validation ────────────────────────────────────────────────────────
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!checkIn)    return send400(res, 'check_in is required');
+  if (!checkOut)   return send400(res, 'check_out is required');
+  if (!guestCount || guestCount < 1) return send400(res, 'guest_count must be >= 1');
+
+  const ciDate = new Date(checkIn + 'T00:00:00Z');
+  const coDate = new Date(checkOut + 'T00:00:00Z');
+  if (isNaN(ciDate.getTime()) || isNaN(coDate.getTime())) return send400(res, 'invalid date format — use YYYY-MM-DD');
+  if (coDate <= ciDate) return send400(res, 'check_out must be after check_in');
+
+  // ── DB queries (SELECT only — no writes) ────────────────────────────────────
+  const warnings  = [];
+  const blockers  = [];
+
+  let bedRows, blockRows;
+  try {
+    await withPgClient(async (pg) => {
+      // Query A: all active/sellable beds for client
+      const bedsRes = await pg.query(getBedCalendarRoomsQuery(), [clientSlug]);
+      bedRows = bedsRes.rows;
+
+      // Query B: overlapping booking_beds blocks (half-open, excludes cancelled/expired)
+      const blocksRes = await pg.query(getBedCalendarBlocksQuery(), [clientSlug, checkIn, checkOut]);
+      blockRows = blocksRes.rows;
+    });
+  } catch (err) {
+    console.error('[bot/availability-check] DB error:', err.message);
+    sendJSON(res, 500, { success: false, error: 'db_error', detail: err.message });
+    return;
+  }
+
+  // ── Build bed metadata list (active + sellable only) ───────────────────────
+  const allBeds = bedRows
+    .filter(r => r.bed_code && r.bed_active !== false && r.bed_sellable !== false)
+    .map(r => ({
+      bed_code:  r.bed_code,
+      room_code: r.room_code,
+      room_type: r.room_type || null,
+      bed_label: r.bed_label || r.bed_code,
+      active:    r.bed_active !== false,
+      sellable:  r.bed_sellable !== false,
+    }));
+
+  // ── Room-type filter ────────────────────────────────────────────────────────
+  // "shared" → prefer beds in shared/non-private rooms.
+  // "private" / "double" → prefer private/double rooms.
+  // If room_type metadata is absent or ambiguous, return all and add warning.
+  const hasRoomTypeMeta = allBeds.some(b => b.room_type !== null);
+  let filteredBeds = allBeds;
+  if (hasRoomTypeMeta && roomType && roomType !== 'any') {
+    const privateTypes = ['private', 'double', 'matrimonial'];
+    const sharedTypes  = ['shared', 'dorm'];
+    if (roomType === 'shared') {
+      const sharedBeds = allBeds.filter(b => b.room_type && sharedTypes.includes(String(b.room_type).toLowerCase()));
+      filteredBeds = sharedBeds.length > 0 ? sharedBeds : allBeds;
+      if (sharedBeds.length === 0) warnings.push('room_type_filter_not_strict');
+    } else if (privateTypes.includes(roomType)) {
+      const privateBeds = allBeds.filter(b => b.room_type && privateTypes.includes(String(b.room_type).toLowerCase()));
+      filteredBeds = privateBeds.length > 0 ? privateBeds : allBeds;
+      if (privateBeds.length === 0) warnings.push('room_type_filter_not_strict');
+    } else {
+      warnings.push('room_type_filter_not_strict');
+    }
+  } else if (!hasRoomTypeMeta && roomType && roomType !== 'any') {
+    warnings.push('room_type_filter_not_strict');
+  }
+
+  // ── Find occupied bed codes for the date range ─────────────────────────────
+  // getBedCalendarBlocksQuery already excludes cancelled/expired booking statuses.
+  const occupiedBedCodes = new Set(blockRows.map(r => r.bed_code).filter(Boolean));
+
+  // ── Available beds ─────────────────────────────────────────────────────────
+  const availableBeds = filteredBeds.filter(b => !occupiedBedCodes.has(b.bed_code));
+
+  const availableCount = availableBeds.length;
+  const hasEnoughBeds  = availableCount >= guestCount;
+
+  // ── First-fit selection ────────────────────────────────────────────────────
+  const selectedBedCodes = hasEnoughBeds
+    ? availableBeds.slice(0, guestCount).map(b => b.bed_code)
+    : [];
+
+  if (!hasEnoughBeds) {
+    blockers.push('not_enough_available_beds');
+  }
+
+  const nextAction = hasEnoughBeds ? 'ready_for_bot_create' : 'ask_staff_or_alternate_dates';
+
+  const elapsed = Date.now() - started;
+
+  sendJSON(res, 200, {
+    success:             true,
+    preview_only:        true,
+    no_write_performed:  true,
+    creates_booking:     false,
+    creates_payment:     false,
+    creates_stripe_link: false,
+    sends_whatsapp:      false,
+    auth_mode:           authMode,
+    client_slug:         clientSlug,
+    check_in:            checkIn,
+    check_out:           checkOut,
+    guest_count:         guestCount,
+    room_type:           roomType,
+    selected_bed_codes:  selectedBedCodes,
+    has_enough_beds:     hasEnoughBeds,
+    available_count:     availableCount,
+    available_beds:      availableBeds.map(b => ({ bed_code: b.bed_code, room_code: b.room_code, room_type: b.room_type })),
+    occupied_count:      occupiedBedCodes.size,
+    warnings,
+    blockers,
+    next_action:         nextAction,
+    elapsed_ms:          elapsed,
+  });
+}
+
 // Route: POST /staff/bot/booking-preview  (Stage 8.5.2 — Luna bot bridge)
 //
 // Receives parsed Luna/n8n booking details and returns a safe read-only preview:
@@ -7552,6 +7713,20 @@ async function router(req, res) {
     return handleBotBookingPreview(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Stage 8.5.8 — Luna bot availability check (read-only, no writes) ────────
+  // POST /staff/bot/availability-check
+  // Returns available bed_codes for guest_count from Postgres — no writes.
+  // Closes Stage 8.5.7 selected_bed_codes gap.
+  if (pathname === '/staff/bot/availability-check') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/availability-check' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotAvailabilityCheck(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.5.4 — Luna bot booking create (shared engine, BOT_BOOKING_ENABLED gate) ──
   // POST — creates booking + booking_beds + draft payment via shared SQL/quote path.
   // No Stripe. No WhatsApp. No n8n. Bot token auth (requireBotAuth).
@@ -7730,6 +7905,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/availability-check      <- 8.5.8 Luna bot availability check (read-only, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);

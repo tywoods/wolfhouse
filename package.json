@@ -84,6 +84,7 @@
     "verify:staff-bot-booking-create-api": "node scripts/verify-staff-bot-booking-create-api.js",
     "verify:staff-bot-stripe-link-api": "node scripts/verify-staff-bot-stripe-link-api.js",
     "verify:luna-n8n-bot-shared-engine-dry-run": "node scripts/verify-luna-n8n-bot-shared-engine-dry-run.js",
+    "verify:staff-bot-availability-api": "node scripts/verify-staff-bot-availability-api.js",
     "verify:staff-booking-detail-queries": "node scripts/verify-staff-booking-detail-queries.js",
     "verify:staff-booking-detail-api": "node scripts/verify-staff-booking-detail-api.js",
     "verify:stage77j-copy-review-workflow": "node scripts/verify-stage77j-copy-review-workflow.js",

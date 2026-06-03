@@ -423,10 +423,20 @@ Each slice is independently gated, independently provable, and does not depend o
 **Gap:** `selected_bed_codes` not in current live bot session state — requires Stage 8.5.8 bed availability lookup slice before dry-run can be imported and executed end-to-end.
 **Activation status:** NOT imported into n8n. NOT activated. Dry-run wiring is static/local only pending bed availability gap resolution.
 
-### 8.5.8 — Bed availability lookup in bot flow (next slice)
-**Goal:** Add a bed availability query to the Luna bot flow so `selected_bed_codes` can be populated automatically from available beds before calling `/staff/bot/bookings/create`. This closes the only remaining gap in the shared-engine dry-run path.
-**Type:** Staff API endpoint + n8n wiring. Small slice.
-**Pass criteria:** Luna bot can call `/staff/availability-check` or equivalent, receive available `bed_codes` for the requested dates, and pass them to the booking create endpoint without manual selection.
+### 8.5.8 — Bed availability query endpoint for real `selected_bed_codes` — **PASS (2026-06-03)**
+**Goal:** Add a read-only `/staff/bot/availability-check` endpoint so Luna/n8n can discover real available bed codes before calling `/staff/bot/bookings/create`, closing the Stage 8.5.7 staging placeholder gap.
+**Delivered:**
+- `POST /staff/bot/availability-check` added to `scripts/staff-query-api.js`.
+- Auth: `requireBotAuth()` — bot token (`X-Luna-Bot-Token` / `Authorization: Bearer`) or session cookie.
+- Input: `client_slug`, `check_in`, `check_out`, `guest_count`, `room_type` (optional), `gender_preference` (optional).
+- DB queries (SELECT only): `getBedCalendarRoomsQuery()` (beds + rooms) and `getBedCalendarBlocksQuery()` (half-open overlap, excludes `cancelled`/`expired` booking statuses).
+- Room-type filter: shared beds preferred for `room_type=shared`; private/double preferred for private; `room_type_filter_not_strict` warning if filter cannot be applied strictly.
+- First-fit selection: `selected_bed_codes` = first N available beds for `guest_count`.
+- Returns: `selected_bed_codes`, `has_enough_beds`, `available_count`, `available_beds[]`, `blockers[]`, `warnings[]`, `next_action` (`ready_for_bot_create` or `ask_staff_or_alternate_dates`).
+- All safety fields: `preview_only:true`, `no_write_performed:true`, `creates_booking:false`, `creates_payment:false`, `creates_stripe_link:false`, `sends_whatsapp:false`.
+- No INSERT / UPDATE / DELETE — read-only.
+**Verifier:** `scripts/verify-staff-bot-availability-api.js` **39/39 PASS** (new). All prior bot verifiers PASS (39+54+65+77 checks).
+**Local proof:** guest_count=2 → `selected_bed_codes:["DEMO-R1-B1","DEMO-R1-B2"]`, `has_enough_beds:true`, `next_action:ready_for_bot_create`; guest_count=999 → `has_enough_beds:false`, `blockers:["not_enough_available_beds"]`, `next_action:ask_staff_or_alternate_dates`; DB bookings count unchanged (0 writes). No Stripe. No WhatsApp. No n8n.
 
 ### 8.5.9 — Explicit approval before live WhatsApp sends
 **Goal:** A documented go/no-go checklist for enabling live WhatsApp sends from Luna bot. Must include: `WHATSAPP_DRY_RUN` set to `false`, all 8.5.2–8.5.6 slices proven, staff approval.
