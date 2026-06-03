@@ -179,7 +179,7 @@ check('H2', 'formatAnswer function defined',
 // Supported intents from task spec
 const resolver = API_SRC.slice(
   API_SRC.indexOf('function resolveNaturalLanguageIntent('),
-  API_SRC.indexOf('function resolveNaturalLanguageIntent(') + 3000
+  API_SRC.indexOf('function resolveNaturalLanguageIntent(') + 4000
 );
 check('H3', 'arrivals_today intent supported (rooming.arrivals)',
   resolver.includes('rooming.arrivals'));
@@ -193,11 +193,26 @@ check('H5', 'payment_links_pending intent supported (payments.waiting)',
 check('H6', 'needs_human intent supported (handoffs.open)',
   resolver.includes('handoffs.open'));
 
-check('H7', 'departures_today returns unsupported_intent (not in registry)',
-  resolver.includes('departures') && resolver.includes('unsupported_intent'));
+check('H7', 'departures_today intent supported (not unsupported_intent)',
+  resolver.includes("'departures_today'") &&
+  !resolver.match(/departures_today[\s\S]{0,80}unsupported_intent/));
 
-check('H8', 'rooms_or_beds_need_cleaning returns unsupported_intent (not in registry)',
-  resolver.includes('clean') && resolver.includes('unsupported_intent'));
+check('H8', 'rooms_or_beds_need_cleaning intent supported (not unsupported_intent)',
+  resolver.includes("'rooms_or_beds_need_cleaning'") &&
+  !resolver.match(/rooms_or_beds_need_cleaning[\s\S]{0,80}unsupported_intent/));
+
+check('H11', 'departures_today query uses bookings + booking_beds (structured data)',
+  API_SRC.includes('getAskLunaDeparturesTodayQuery') &&
+  API_SRC.includes('FROM bookings b') &&
+  API_SRC.includes('booking_beds bb'));
+
+check('H12', 'cleaning query derived from today departures/turnover (booking_beds + check_out)',
+  API_SRC.includes('getAskLunaRoomsNeedCleaningQuery') &&
+  API_SRC.includes('b.check_out = $2::date') &&
+  API_SRC.includes('FROM booking_beds bb'));
+
+check('H13', 'local intents do not query conversation/chat logs',
+  !API_SRC.slice(API_SRC.indexOf('getAskLunaDeparturesTodayQuery'), API_SRC.indexOf('const ASK_LUNA_LOCAL_QUERY')).match(/conversation|message_log|chat_log/i));
 
 check('H9', 'direct registry key passthrough supported',
   resolver.includes('REGISTRY_BY_KEY'));

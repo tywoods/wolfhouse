@@ -804,6 +804,60 @@ async function handleQuery(query, res) {
 //   no INSERT / UPDATE / DELETE
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Ask Luna local intents (Stage 8.6.9) — read-only SQL, not in registry yet.
+// Uses structured bookings + booking_beds only (no chat/conversation logs).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getAskLunaDeparturesTodayQuery() {
+  return `
+SELECT
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.guest_count,
+  b.check_in,
+  b.check_out,
+  b.status::text            AS booking_status,
+  bb.room_code,
+  bb.bed_code,
+  bb.planning_row_label
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+LEFT JOIN booking_beds bb ON bb.booking_id = b.id
+WHERE c.slug = $1
+  AND b.check_out = $2::date
+  AND b.status NOT IN ('cancelled', 'expired', 'hold')
+ORDER BY bb.room_code ASC NULLS LAST, bb.bed_code ASC NULLS LAST, b.booking_code ASC
+`;
+}
+
+function getAskLunaRoomsNeedCleaningQuery() {
+  return `
+SELECT DISTINCT ON (bb.room_code, bb.bed_code)
+  bb.room_code,
+  bb.bed_code,
+  bb.planning_row_label,
+  b.booking_code,
+  b.guest_name,
+  b.check_out
+FROM booking_beds bb
+INNER JOIN bookings b ON b.id = bb.booking_id
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.check_out = $2::date
+  AND b.status NOT IN ('cancelled', 'expired', 'hold')
+  AND bb.room_code IS NOT NULL
+  AND bb.bed_code IS NOT NULL
+ORDER BY bb.room_code, bb.bed_code, b.booking_code
+`;
+}
+
+const ASK_LUNA_LOCAL_QUERY = {
+  departures_today:              getAskLunaDeparturesTodayQuery,
+  rooms_or_beds_need_cleaning:   getAskLunaRoomsNeedCleaningQuery,
+};
+
 /**
  * Keyword-based natural-language → registry intent resolver.
  * Returns { intentKey, extraParams } or null for unsupported questions.
@@ -832,10 +886,9 @@ function resolveNaturalLanguageIntent(question) {
   if (/yoga/.test(q))                                                            return { intentKey: 'addons.yoga',                 extraParams: {} };
   if (/rental|board|wetsuit/.test(q))                                           return { intentKey: 'addons.rentals',              extraParams: {} };
 
-  // Explicitly unsupported intents (not in registry yet)
-  // departures_today and rooms_need_cleaning have no registry entry.
-  if (/depart|check.?out.?today|leaving.?today/.test(q))   return { intentKey: 'unsupported_intent', intentHint: 'departures_today', extraParams: {} };
-  if (/clean|housekeep|room.?ready|bed.?ready/.test(q))    return { intentKey: 'unsupported_intent', intentHint: 'rooms_or_beds_need_cleaning', extraParams: {} };
+  const today = new Date().toISOString().slice(0, 10);
+  if (/depart|check.?out.?today|leaving.?today|leave.?today|who leaves/.test(q)) return { intentKey: 'departures_today',            extraParams: { date: today } };
+  if (/clean|housekeep|room.?ready|bed.?ready|need.?clean/.test(q))             return { intentKey: 'rooms_or_beds_need_cleaning', extraParams: { date: today } };
 
   return null;
 }
@@ -856,6 +909,8 @@ function formatAnswer(intentKey, rows) {
       'payments.no_record':           'No bookings missing a payment record.',
       'rooming.arrivals':             'No arriving guests need a bed assignment today. ✅',
       'rooming.unassigned':           'All bookings have a bed assigned. ✅',
+      'departures_today':             'No guests are checking out today. ✅',
+      'rooms_or_beds_need_cleaning':  'No beds need cleaning after today\'s departures. ✅',
       'handoffs.open':                'No open handoffs — all conversations handled. ✅',
       'handoffs.urgent':              'No urgent handoffs right now. ✅',
       'holds.active':                 'No active holds at the moment.',
@@ -904,6 +959,19 @@ function formatAnswer(intentKey, rows) {
     case 'rooming.unassigned': {
       const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
       return `${n} booking${n !== 1 ? 's' : ''} ha${n !== 1 ? 've' : 's'} no bed assigned yet: ${list}${extra}`;
+    }
+    case 'departures_today': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r => {
+        const bed = r.room_code && r.bed_code ? ` — ${r.room_code}/${r.bed_code}` : '';
+        return `${nameLine(r)}${bed}`;
+      }).join('; ');
+      return `${n} guest${n !== 1 ? 's' : ''} leaving today: ${list}${extra}`;
+    }
+    case 'rooms_or_beds_need_cleaning': {
+      const list = rows.slice(0, MAX_SUMMARY).map(r =>
+        `${r.room_code}/${r.bed_code}${r.guest_name ? ` (${r.guest_name} checked out)` : ''}`
+      ).join('; ');
+      return `${n} bed${n !== 1 ? 's' : ''} need cleaning after today's departures: ${list}${extra}`;
     }
     case 'handoffs.open':
     case 'handoffs.urgent': {
@@ -1004,6 +1072,8 @@ async function handleAskLuna(req, res) {
       'who owes money (payments.balance_due)',
       'payment links pending (payments.waiting)',
       'arrivals today (rooming.arrivals)',
+      'departures today (departures_today)',
+      'rooms/beds needing cleaning (rooms_or_beds_need_cleaning)',
       'who needs human reply (handoffs.open)',
       'deposit paid (payments.deposit)',
       'confirmation needed (payments.confirmation_needed)',
@@ -1031,6 +1101,40 @@ async function handleAskLuna(req, res) {
   }
 
   const { intentKey, extraParams } = resolution;
+
+  if (ASK_LUNA_LOCAL_QUERY[intentKey]) {
+    const today = extraParams.date || new Date().toISOString().slice(0, 10);
+    let localRows = [];
+    try {
+      const sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
+      localRows = await withPgClient(async (pgClient) => {
+        const result = await pgClient.query(sql, [clientSlug, today]);
+        return result.rows;
+      });
+    } catch (err) {
+      console.error('[ask-luna] DB error:', err.message);
+      return sendJSON(res, 500, {
+        success: false, error: 'query_error', detail: err.message,
+      });
+    }
+    const answer = formatAnswer(intentKey, localRows);
+    return sendJSON(res, 200, {
+      success:            true,
+      client_slug:        clientSlug,
+      source,
+      staff_access:       staffAccess,
+      intent:             intentKey,
+      category:           'rooming',
+      answer,
+      rows:               localRows.slice(0, MAX_ROWS),
+      row_count:          localRows.length,
+      read_only:          true,
+      no_write_performed: true,
+      sends_whatsapp:     false,
+      elapsed_ms:         Date.now() - started,
+    });
+  }
+
   const registryEntry = getEntry(intentKey);
 
   if (!registryEntry || registryEntry.missingHelper === true || typeof registryEntry.helperRef !== 'function') {
