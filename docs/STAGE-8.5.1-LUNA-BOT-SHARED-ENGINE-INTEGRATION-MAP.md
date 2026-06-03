@@ -538,8 +538,21 @@ o_write_performed:true, sends_whatsapp:false, intent, nswer, ows, ow_count, s
 **Verifier:** scripts/verify-staff-query-ui.js **43/43 PASS** (updated with new 7b block — 14 Ask Luna checks). scripts/verify-staff-ask-luna-api.js **48/48 PASS** (unchanged).
 **Local proof:** `who still owes money` → 200 / payments.balance_due / 1 row with real guest data. `what is the weather today` → unsupported_intent + full suggestion list. No DB writes / no WhatsApp / no n8n / no Stripe / no Azure.
 
-### 8.6.3 — n8n staff WhatsApp dry-run route — *pending*
-**Goal:** Create an inactive dry-run n8n workflow that routes staff WhatsApp messages to POST /staff/ask-luna and logs (does not send) the answer.
+### 8.6.3 — Staff Ask Luna WhatsApp dry-run workflow — **PASS (2026-06-03)**
+**Goal:** Create an inactive n8n dry-run workflow that routes inbound staff WhatsApp messages to `POST /staff/ask-luna` and logs the answer without sending anything live.
+**Delivered:**
+- New file: `n8n/Wolfhouse Staff Ask Luna - WhatsApp Dry Run.json` (`active:false`, 10 nodes).
+- `WHATSAPP_DRY_RUN` env guard — IF node exits immediately if guard is not `"true"`.
+- `Code - Parse Staff Message` node: extracts `from` (staff phone), `text` (question), `client_slug`, `channel` from inbound webhook body.
+- `HTTP - Staff Ask Luna` node: `POST https://staff-staging.lunafrontdesk.com/staff/ask-luna` with `{client_slug, question, staff_phone, source:"staff_whatsapp"}`. No `X-Luna-Bot-Token` (phone allowlist is the auth path). `neverError:true` + `fullResponse:true` so 403 flows to branch instead of throwing.
+- `IF - API Authorized` node: branches on `json.success === true`.
+  - TRUE → `Code - Format DryRun Answer` → `Respond - DryRun Answer` (logs intent, answer, rows, reply_draft — no send).
+  - FALSE → `Set - Log Unauthorized` → `Respond - DryRun Unauthorized` (logs "This number is not enabled for Staff Ask Luna." — no send).
+- All paths output `whatsapp_sent:false`, `dry_run:true`, `live_send_blocked:true`.
+- `unsupported_intent` handled in `Code - Format DryRun Answer` — appends suggestion text to reply_draft, no send.
+- No `graph.facebook.com` in any node parameters. No Stripe. No DB writes.
+**Verifier:** `scripts/verify-staff-ask-luna-whatsapp-dry-run.js` **40/40 PASS** (new). `scripts/verify-staff-ask-luna-api.js` **48/48 PASS** (unchanged).
+**Proof:** Static verification only (workflow not imported/activated). Allowlisted phone `+34999000999` would return 200/answer; unlisted phone would return 403/phone_not_allowlisted and log "not enabled" draft. All dry-run outputs have `whatsapp_sent:false`.
 
 ### 8.6.4 — Staff WhatsApp live gated send — *pending*
 **Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit go/no-go approval. Real staff phone numbers added to allowlist config only after approval.

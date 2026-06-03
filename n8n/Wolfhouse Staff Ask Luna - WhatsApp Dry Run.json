@@ -1,0 +1,216 @@
+{
+  "name": "Wolfhouse Staff Ask Luna - WhatsApp Dry Run",
+  "active": false,
+  "meta": {
+    "description": "Stage 8.6.3 dry-run workflow. INACTIVE / NOT IMPORTED into production n8n. Staff WhatsApp -> POST /staff/ask-luna (source:staff_whatsapp, phone allowlist auth) -> draft/log answer. No live WhatsApp send. No graph.facebook.com send node. No Stripe. No DB writes. Phone allowlist: config/clients/wolfhouse-somo.staff-whatsapp-allowlist.json. Unauthorized (403) -> logs 'not enabled' draft, no send. unsupported_intent -> logs suggestions, no send. WHATSAPP_DRY_RUN guard: must be true or workflow exits immediately.",
+    "instanceId": "dry-run-stage863"
+  },
+  "nodes": [
+    {
+      "id": "s1",
+      "name": "Webhook - Staff DryRun Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [80, 300],
+      "parameters": {
+        "path": "staff-ask-luna-dry-run-863",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "s2",
+      "name": "IF - DryRun Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [320, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "dryrun-check",
+              "leftValue": "={{ $env.WHATSAPP_DRY_RUN }}",
+              "rightValue": "true",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s2b",
+      "name": "Respond - DryRun Disabled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [560, 480],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"error\": \"dry_run_guard_blocked\", \"detail\": \"WHATSAPP_DRY_RUN is not true; refusing to run staff ask-luna dry-run\", \"whatsapp_sent\": false }"
+      }
+    },
+    {
+      "id": "s3",
+      "name": "Code - Parse Staff Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 300],
+      "parameters": {
+        "jsCode": "// Stage 8.6.3 — Staff Ask Luna WhatsApp Dry Run\n// Extracts inbound staff WhatsApp message fields.\n// Expected shape: { from, text, client_slug, channel }\n// 'from' is the staff phone number (checked against allowlist by Staff API).\n// 'text' is the natural-language question.\n// No secrets extracted here. No DB writes.\n\nconst body = $input.first().json.body || $input.first().json;\n\nconst staffPhone  = String(body.from        || body.staff_phone || '').trim();\nconst question    = String(body.text        || body.question    || '').trim();\nconst clientSlug  = String(body.client_slug || 'wolfhouse-somo').trim();\nconst channel     = String(body.channel     || 'whatsapp').trim();\n\nif (!staffPhone) {\n  throw new Error('Missing required field: from (staff phone number)');\n}\nif (!question) {\n  throw new Error('Missing required field: text (question)');\n}\n\nreturn [{\n  json: {\n    staff_phone:  staffPhone,\n    question:     question,\n    client_slug:  clientSlug,\n    channel:      channel,\n    _dry_run:     true\n  }\n}];"
+      }
+    },
+    {
+      "id": "s4",
+      "name": "HTTP - Staff Ask Luna",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [800, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://staff-staging.lunafrontdesk.com/staff/ask-luna",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  client_slug:  $('Code - Parse Staff Message').first().json.client_slug,\n  question:     $('Code - Parse Staff Message').first().json.question,\n  staff_phone:  $('Code - Parse Staff Message').first().json.staff_phone,\n  source:       'staff_whatsapp'\n}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "name": "IF - API Authorized",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1040, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "authorized-check",
+              "leftValue": "={{ $json.body ? $json.body.success : $json.success }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "name": "Code - Format DryRun Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1280, 200],
+      "parameters": {
+        "jsCode": "// Stage 8.6.3 — format the Staff API answer into a dry-run reply log.\n// No live WhatsApp send. whatsapp_sent is always false here.\n// intent=unsupported_intent is handled: logs answer+suggestions, no send.\n\nconst apiResp    = $input.first().json;\nconst body       = apiResp.body || apiResp;  // fullResponse wraps in .body\nconst parsed     = $('Code - Parse Staff Message').first().json;\n\nconst intent     = String(body.intent     || 'unknown');\nconst answer     = String(body.answer     || '');\nconst rowCount   = typeof body.row_count === 'number' ? body.row_count : 0;\nconst hint       = body.intent_hint  ? String(body.intent_hint) : null;\n\n// Build a WhatsApp-readable reply draft (never sent in dry-run)\nlet replyDraft;\nif (intent === 'unsupported_intent') {\n  replyDraft = answer + (hint ? '\\nHint: ' + hint : '');\n} else {\n  replyDraft = answer;\n  if (rowCount > 0 && Array.isArray(body.rows) && body.rows.length > 0) {\n    // Append compact row summary (first 5)\n    const rows = body.rows.slice(0, 5);\n    const cols = Object.keys(rows[0]).filter(c => !['booking_id','payment_id'].includes(c));\n    rows.forEach(function(r) {\n      replyDraft += '\\n' + cols.map(c => c + ': ' + (r[c] == null ? '' : String(r[c]))).join(' | ');\n    });\n    if (body.rows.length > 5) {\n      replyDraft += '\\n(+' + (body.rows.length - 5) + ' more)';\n    }\n  }\n}\n\nreturn [{\n  json: {\n    // Safety flags — always false in dry-run\n    whatsapp_sent:        false,\n    dry_run:              true,\n    live_send_blocked:    true,\n    // Source context\n    staff_phone:          parsed.staff_phone,\n    question:             parsed.question,\n    client_slug:          parsed.client_slug,\n    source:               'staff_whatsapp',\n    // API result\n    intent:               intent,\n    answer:               answer,\n    row_count:            rowCount,\n    // Draft (never sent)\n    reply_draft:          replyDraft,\n    // Pass-through for audit\n    read_only:            body.read_only   !== false,\n    no_write_performed:   body.no_write_performed !== false,\n    _stage:               '8.6.3'\n  }\n}];"
+      }
+    },
+    {
+      "id": "s6b",
+      "name": "Set - Log Unauthorized",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1280, 420],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "whatsapp_sent",      "type": "booleanValue", "booleanValue": false },
+            { "name": "dry_run",            "type": "booleanValue", "booleanValue": true },
+            { "name": "live_send_blocked",  "type": "booleanValue", "booleanValue": true },
+            { "name": "staff_phone",        "type": "stringValue",  "stringValue": "={{ $('Code - Parse Staff Message').first().json.staff_phone }}" },
+            { "name": "question",           "type": "stringValue",  "stringValue": "={{ $('Code - Parse Staff Message').first().json.question }}" },
+            { "name": "intent",             "type": "stringValue",  "stringValue": "unauthorized" },
+            { "name": "answer",             "type": "stringValue",  "stringValue": "This number is not enabled for Staff Ask Luna." },
+            { "name": "reply_draft",        "type": "stringValue",  "stringValue": "This number is not enabled for Staff Ask Luna." },
+            { "name": "error",              "type": "stringValue",  "stringValue": "={{ ($input.first().json.body || $input.first().json).error || 'phone_not_allowlisted' }}" },
+            { "name": "_stage",             "type": "stringValue",  "stringValue": "8.6.3" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "name": "Respond - DryRun Answer",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1520, 200],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      }
+    },
+    {
+      "id": "s7b",
+      "name": "Respond - DryRun Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1520, 420],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Staff DryRun Trigger": {
+      "main": [
+        [{ "node": "IF - DryRun Guard", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF - DryRun Guard": {
+      "main": [
+        [{ "node": "Code - Parse Staff Message",   "type": "main", "index": 0 }],
+        [{ "node": "Respond - DryRun Disabled",     "type": "main", "index": 0 }]
+      ]
+    },
+    "Code - Parse Staff Message": {
+      "main": [
+        [{ "node": "HTTP - Staff Ask Luna", "type": "main", "index": 0 }]
+      ]
+    },
+    "HTTP - Staff Ask Luna": {
+      "main": [
+        [{ "node": "IF - API Authorized", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF - API Authorized": {
+      "main": [
+        [{ "node": "Code - Format DryRun Answer", "type": "main", "index": 0 }],
+        [{ "node": "Set - Log Unauthorized",       "type": "main", "index": 0 }]
+      ]
+    },
+    "Code - Format DryRun Answer": {
+      "main": [
+        [{ "node": "Respond - DryRun Answer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set - Log Unauthorized": {
+      "main": [
+        [{ "node": "Respond - DryRun Unauthorized", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
