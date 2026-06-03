@@ -26,7 +26,7 @@
 |------|-------|
 | Staff Portal | `https://staff-staging.lunafrontdesk.com` |
 | Login | Company: `wolfhouse-somo` · Email: `admin.stage72c@example.test` · Password: see comment in [`scripts/fixtures/stage7.2c-auth-seed.sql`](../scripts/fixtures/stage7.2c-auth-seed.sql) |
-| Staff API revision (8.7.5) | `wh-staging-staff-api--0000023` |
+| Staff API revision (8.7.7) | `wh-staging-staff-api--0000024` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
 | Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** |
@@ -58,7 +58,7 @@
 
 | Check | Expected |
 |-------|----------|
-| Header | Booking code + **Deposit paid ✓** pill + **6 nights** (Stage 8.7.6 — no separate Guest/Stay headings) |
+| Header | Booking code + **Deposit paid ✓** pill + **5 nights** (Stage 8.7.6/8.7.7 — no separate Guest/Stay headings) |
 | Totals | Paid **€100.00** · Balance **€150.00** (compact payment rows, left-aligned amounts) |
 | Payment row | **Paid ✓** · `paid_at` set · Stripe session/intent IDs · checkout URL copy |
 | Beds | Summary line only (e.g. **DEMO-R1-B1, DEMO-R1-B2**) — no duplicate per-bed rows |
@@ -212,7 +212,25 @@
 | Ask Luna button | **PASS** | `POST /staff/ask-luna` · `source:staff_portal` · `payments.balance_due` · **4 rows** |
 | Safety | **PASS** | No `graph.facebook.com`, no `api.stripe.com`, no n8n URLs; n8n workflows inactive; no live send |
 
-**Drawer layout (8.7.6 — deploy pending):** Header shows status + nights; Guest/Stay labels removed; bed assignments summarized; payment amounts compact. Redeploy Staff API before demo if still on `--0000023` without 8.7.6.
+**Drawer layout (8.7.6 — deploy pending):** Header shows status + nights; Guest/Stay labels removed; bed assignments summarized; payment amounts compact. **Proven on staging in 8.7.7** (`--0000024`).
+
+---
+
+## Hosted drawer cleanup proof — Stage 8.7.7 (2026-06-03)
+
+**Result:** **PASS** — cleaned drawer live on staging.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:b223cea-stage877-drawer-cleanup` · ACR `cbj` · revision `--0000024` |
+| No Guest heading | **PASS** | No `<h3>Guest</h3>` in drawer |
+| No Stay heading | **PASS** | No `<h3>Stay</h3>` in drawer |
+| No duplicate bed rows | **PASS** | `ctx-bed-row` count 0; Beds summary only (`DEMO-R1-B1`) |
+| Header meta | **PASS** | `#bc-detail-meta`: **Deposit paid ✓** + **5 nights** |
+| Payment layout | **PASS** | `.ctx-pay-row` uses compact grid (`108px` label column) |
+| Luna confirmation draft | **PASS** | `#bc-luna-confirmation-draft` visible; draft fields present |
+| No send button | **PASS** | No confirmation send control |
+| Safety | **PASS** | `GET /staff/bookings/MB-WOLFHO-20260801-4f10c3/context` only; no stripe.com / graph.facebook.com / n8n |
 
 ---
 
