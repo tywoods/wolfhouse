@@ -8268,6 +8268,14 @@ function bcSelectedDatesCount(selStart, selEnd){
 function bcSelectedNightsFromRange(selStart, selEnd){
   return Math.max(0, bcSelectedDatesCount(selStart, selEnd) - 1);
 }
+/* Phase 10.0d — check-in/check-out date fields (half-open); no minus 1 */
+function bcStayNightsFromCheckInOut(checkIn, checkOut){
+  if (!checkIn || !checkOut) return 0;
+  try {
+    var n = Math.round((new Date(checkOut + 'T00:00:00Z') - new Date(checkIn + 'T00:00:00Z')) / 86400000);
+    return Math.max(0, n);
+  } catch(_){ return 0; }
+}
 
 /* ── Cell selection model (Stage 8.3c, read-only) ─────────────────────────── */
 function bcClearSelection(){
@@ -8335,8 +8343,10 @@ function bcApplySelectionHighlight(){
   coDate.setUTCDate(coDate.getUTCDate() + 1);
   var checkOut = coDate.toISOString().slice(0, 10);
 
-  /* Compute nights = selected date boxes minus 1 (Phase 10.0a) */
-  var nights = bcSelectedNightsFromRange(selStart, selEnd);
+  /* Selected calendar boxes minus 1 — selection UX only (Phase 10.0a) */
+  var selectionNights = bcSelectedNightsFromRange(selStart, selEnd);
+  /* Form nights from half-open check-in/check-out fields (Phase 10.0d) */
+  var formNights = bcStayNightsFromCheckInOut(selStart, checkOut);
 
   /* Highlight cells for ALL selected beds (Stage 8.4.5 multi-bed) */
   bcSelectedBeds.forEach(function(bedEntry, bidx){
@@ -8353,7 +8363,7 @@ function bcApplySelectionHighlight(){
   /* Update form skeleton pre-filled fields (Stage 8.3d) */
   var cinInp    = el('bc-sel-cin');    if (cinInp)    cinInp.value    = selStart;
   var coutInp   = el('bc-sel-cout');   if (coutInp)   coutInp.value   = checkOut;
-  var nightsInp = el('bc-sel-nights'); if (nightsInp) nightsInp.value = String(nights);
+  var nightsInp = el('bc-sel-nights'); if (nightsInp) nightsInp.value = String(formNights);
 
   /* Update selected beds list (Stage 8.4.5) */
   var _blEl = el('bc-sel-beds-list');
@@ -8377,8 +8387,8 @@ function bcApplySelectionHighlight(){
   /* Enable/disable Preview Conflicts based on selection (Stage 8.3l) */
   var _cBtnSel = el('bc-sel-conflicts');
   if (_cBtnSel) {
-    _cBtnSel.disabled = (nights < 1);
-    _cBtnSel.title = nights >= 1 ? 'Check availability for selected dates and beds' : 'Select empty cells to enable conflict preview';
+    _cBtnSel.disabled = (selectionNights < 1);
+    _cBtnSel.title = selectionNights >= 1 ? 'Check availability for selected dates and beds' : 'Select empty cells to enable conflict preview';
   }
   /* Clear stale previews when selection changes (Stage 8.3l + 8.4.5) */
   var _prSel = el('bc-preview-result');
@@ -9285,11 +9295,8 @@ function kvBC(k, v){
 }
 
 function bcHeaderNights(start, end){
-  if (!start || !end) return null;
-  try {
-    var n = Math.round((new Date(end + 'T00:00:00Z') - new Date(start + 'T00:00:00Z')) / 86400000);
-    return n > 0 ? n : null;
-  } catch(_){ return null; }
+  var n = bcStayNightsFromCheckInOut(start, end);
+  return n > 0 ? n : null;
 }
 function bcDrawerStatusPillCls(s){
   var v = (s||'').toLowerCase().replace(/ /g,'_');

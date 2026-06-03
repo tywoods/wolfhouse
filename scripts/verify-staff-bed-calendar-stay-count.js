@@ -1,6 +1,6 @@
 /**
- * Phase 10.0a — Static verifier for Bed Calendar selected-stay nights
- * and same-day checkout/checkin layering in scripts/staff-query-api.js.
+ * Phase 10.0a/10.0d — Static verifier for Bed Calendar selected-stay nights,
+ * manual booking form nights, and same-day checkout/checkin layering.
  *
  * Usage:
  *   npm run verify:staff-bed-calendar-stay-count
@@ -23,7 +23,7 @@ function ok(msg)  { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg){ console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-bed-calendar-stay-count.js  (Phase 10.0a)\n');
+console.log('\nverify-staff-bed-calendar-stay-count.js  (Phase 10.0a/10.0d)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -43,7 +43,9 @@ console.log('\nA. Selected stay nights = selected dates minus 1');
 check(/function bcSelectedDatesCount/.test(src) && /function bcSelectedNightsFromRange/.test(src),
   'bcSelectedDatesCount + bcSelectedNightsFromRange helpers present');
 check(/bcSelectedNightsFromRange\(selStart,\s*selEnd\)/.test(src),
-  'bcApplySelectionHighlight uses bcSelectedNightsFromRange(selStart, selEnd)');
+  'bcApplySelectionHighlight still uses bcSelectedNightsFromRange for selection UX');
+check(/bcStayNightsFromCheckInOut\(selStart,\s*checkOut\)/.test(src),
+  'bcApplySelectionHighlight uses bcStayNightsFromCheckInOut for form nights field');
 check(/Math\.max\(0,\s*bcSelectedDatesCount\(selStart,\s*selEnd\)\s*-\s*1\)/.test(src),
   'selected nights uses max(0, selected_dates_count - 1)');
 
@@ -56,6 +58,24 @@ check(nightsFromRange('2026-07-01', '2026-07-01') === 0, 'fixture: 1 selected da
 check(nightsFromRange('2026-07-01', '2026-07-02') === 1, 'fixture: 2 selected dates => 1 night');
 check(nightsFromRange('2026-07-01', '2026-07-04') === 3, 'fixture: 4 selected dates => 3 nights');
 check(nightsFromRange('2026-07-01', '2026-07-07') === 6, 'fixture: 7 selected dates => 6 nights');
+
+console.log('\nA2. Manual booking form nights = check-out minus check-in');
+
+function stayNightsFromCheckInOut(checkIn, checkOut) {
+  const n = Math.round((new Date(checkOut + 'T00:00:00Z') - new Date(checkIn + 'T00:00:00Z')) / 86400000);
+  return Math.max(0, n);
+}
+
+check(/function bcStayNightsFromCheckInOut/.test(src),
+  'bcStayNightsFromCheckInOut helper present');
+check(/formNights/.test(src.match(/function bcApplySelectionHighlight[\s\S]*?\n\}/)?.[0] || ''),
+  'form nights variable distinct from selection nights');
+check(stayNightsFromCheckInOut('2026-06-10', '2026-06-13') === 3,
+  'fixture: Jun 10 → Jun 13 = 3 nights');
+check(stayNightsFromCheckInOut('2026-06-13', '2026-06-16') === 3,
+  'fixture: Jun 13 → Jun 16 = 3 nights');
+check(stayNightsFromCheckInOut('2026-06-10', '2026-06-11') === 1,
+  'fixture: Jun 10 → Jun 11 = 1 night');
 
 console.log('\nB. Same-day checkout/checkin layering');
 
