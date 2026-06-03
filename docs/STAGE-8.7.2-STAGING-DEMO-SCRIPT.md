@@ -181,7 +181,7 @@
 |------|--------|-------|
 | Login | **PASS** | `admin.stage72c@example.test` / `wolfhouse-somo` |
 | Golden booking drawer | **PASS** | Deposit paid ✓ · €100 paid / €150 balance · Luna confirmation draft ready · gate **2684#** · no Send button |
-| Ask Luna (portal UI) | **FIXED (8.7.4)** | Was **BLOCKED** in 8.7.3 — `window.alAsk = alAsk` added; re-run rehearsal before client demo |
+| Ask Luna (portal UI) | **FIXED (8.7.4)** | Was **BLOCKED** in 8.7.3 — `window.alAsk`, `window.switchToTab`, `window.switchToTabOnly` exposed; re-run rehearsal after deploy |
 | Ask Luna (API, session) | **PASS** | Same session cookie: `Who still owes money?` → `payments.balance_due` / **4 rows**; `Who leaves today?` → `departures_today` / **0 rows**; `Which rooms need cleaning?` → `rooms_or_beds_need_cleaning` / **0 rows**; all `read_only:true`, `sends_whatsapp:false` |
 | n8n inactive | **PASS** | `stage8510SharedDryRun01` + `stage863AskLuna01` both `active:false` |
 | No live WhatsApp / Stripe / n8n from portal | **PASS** | No `graph.facebook.com`, `stripe.com`, or n8n URLs in session network log |
@@ -193,7 +193,7 @@
 - Switching to **Ask Luna** tab leaves the **booking drawer open** on the right — can distract; close drawer first or call out as known UX.
 - Departures/cleaning **empty on demo day** (2026-06-03) is expected — explain date-driven SQL.
 
-**Demo-day workaround until Ask button fixed:** ~~do not rely on the Ask button~~ **Resolved in Stage 8.7.4** (`window.alAsk = alAsk`). Re-run Step 3 once on staging after deploy.
+**Demo-day workaround until click handlers fixed:** ~~do not rely on the Ask button~~ **Resolved in Stage 8.7.4** (`window.alAsk`, `window.switchToTab`, `window.switchToTabOnly`). Re-run full demo script on staging after deploy.
 
 ---
 
@@ -214,7 +214,8 @@
 |---------|-----|
 | Booking block not visible | Widen date range; confirm `wolfhouse-somo` client |
 | No confirmation draft panel | Wrong booking — use **4f10c3** only for draft story |
-| Ask Luna button silent | Fixed 8.7.4 — was `alAsk` not global; redeploy Staff API then re-test |
+| Ask Luna button silent | Fixed 8.7.4 — expose `window.alAsk`; redeploy Staff API then re-test |
+| Today tile clicks fail | Fixed 8.7.4 — expose `window.switchToTab` / `window.switchToTabOnly` |
 | Ask Luna empty on departures/cleaning | Normal if no check-outs **today**; explain date-driven SQL |
 | Manual booking buttons greyed | Flags off — quote-only demo |
 | n8n execution list empty | Use Stage 8.5.12 / 8.6.7 doc screenshots as backup |

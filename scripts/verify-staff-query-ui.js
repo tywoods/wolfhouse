@@ -137,6 +137,19 @@ if (lacks(src, /graph\.facebook\.com|twilio\.com|sendWhatsApp/))          { pass
 if (lacks(src, /stripe\.com|createPaymentIntent|Stripe\s*\(/))           { pass('no Stripe calls in Ask Luna JS'); }                     else { fail('Stripe call found near Ask Luna'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('7c. Portal click handlers (Stage 8.7.4)');
+
+if (has(src, /window\.switchToTab\s*=\s*switchToTab/))                    { pass('switchToTab exposed on window'); }                        else { fail('switchToTab not on window — Today tile onclick will fail'); }
+if (has(src, /window\.switchToTabOnly\s*=\s*switchToTabOnly/))            { pass('switchToTabOnly exposed on window'); }                    else { fail('switchToTabOnly not on window — Bed Calendar tile onclick will fail'); }
+if (has(htmlSection, /onclick="switchToTab\('conversations','handoffs'\)"/)) { pass('Today Needs Human tile has switchToTab handler'); }   else { fail('Today Needs Human tile missing switchToTab onclick'); }
+if (has(htmlSection, /onclick="switchToTab\('conversations','inbox'\)"/))   { pass('Today Open Conversations tile has switchToTab handler'); } else { fail('Today Open Conversations tile missing switchToTab onclick'); }
+if (has(htmlSection, /onclick="switchToTabOnly\('bed-calendar'\)"/))       { pass('Today Bed Calendar tile has switchToTabOnly handler'); } else { fail('Today Bed Calendar tile missing switchToTabOnly onclick'); }
+if (has(src, /document\.querySelectorAll\('\.tab-btn'\)\.forEach/))        { pass('nav tab buttons wired via addEventListener'); }           else { fail('nav tab addEventListener wiring missing'); }
+if (lacks(htmlSection, /graph\.facebook\.com/))                            { pass('no graph.facebook.com in UI HTML'); }                    else { fail('graph.facebook.com found in UI HTML'); }
+if (lacks(htmlSection, /api\.stripe\.com/))                                { pass('no api.stripe.com in UI HTML'); }                        else { fail('api.stripe.com found in UI HTML'); }
+if (lacks(htmlSection, /['"]https?:\/\/[^'"]*n8n[^'"]*['"]/))             { pass('no n8n URL in UI HTML'); }                               else { fail('n8n URL found in UI HTML'); }
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('8. No handoff.resolve or staff-action-runner in UI');
 
 if (lacks(htmlSection, /handoff\.resolve/i))                               { pass('no handoff.resolve in UI'); }        else { fail('handoff.resolve found in UI'); }

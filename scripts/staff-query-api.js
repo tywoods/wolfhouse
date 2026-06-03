@@ -4768,6 +4768,10 @@ function switchToTab(tab, subtab){
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
 
+// Tab helpers must be global for Today tile onclick handlers (Stage 8.7.4)
+window.switchToTab = switchToTab;
+window.switchToTabOnly = switchToTabOnly;
+
 /* ── Tabs ─────────────────────────────────────────────────────────────────── */
 document.querySelectorAll('.tab-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
