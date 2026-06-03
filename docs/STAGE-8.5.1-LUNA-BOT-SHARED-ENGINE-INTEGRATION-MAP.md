@@ -568,7 +568,24 @@ o_write_performed:true, sends_whatsapp:false, intent, nswer, ows, ow_count, s
 - No n8n import/activation. No Stripe calls. No WhatsApp sent.
 - `staff_whatsapp_enabled:true` in staging config for hosted smoke test.
 
-### 8.6.5 — Staff WhatsApp live gated send — *pending (requires explicit go/no-go)*
-**Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit approval + real staff phone numbers in config.
+### 8.6.5 — Hosted inactive Staff Ask Luna dry-run proof — **PASS (2026-06-03)**
+**Goal:** Import the Stage 8.6.3 dry-run workflow into staging n8n (inactive), run one manual execution with a fake allowlisted staff phone, and confirm it calls `/staff/ask-luna` and returns a draft answer without sending WhatsApp.
 
-**Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit go/no-go approval. Real staff phone numbers added to allowlist config only after approval.
+**Delivered:**
+- Workflow imported into staging n8n DB as `stage863AskLuna01` (`active:false`, name matches repo JSON).
+- Manual execution #2 (`mode:manual`, status:success) with pinned webhook payload:
+  - `from: +34999000999` (allowlisted staging test number)
+  - `text: who still owes money`
+  - `client_slug: wolfhouse-somo`, `channel: whatsapp`
+- Happy path executed: `Code - Parse Staff Message` → `HTTP - Staff Ask Luna` → `IF - API Authorized` (true) → `Code - Format DryRun Answer` → `Respond - DryRun Answer`.
+- Staff API response: `intent: payments.balance_due`, real row data, `read_only:true`, `no_write_performed:true`, `sends_whatsapp:false`.
+- Dry-run output: `reply_draft` present, `whatsapp_sent:false`, `dry_run:true`, `live_send_blocked:true`.
+- No `graph.facebook.com` in workflow node params or execution data.
+- Workflow left **inactive** after proof; node graph restored to match `n8n/Wolfhouse Staff Ask Luna - WhatsApp Dry Run.json`.
+
+**Staging gap (documented, not fixed in this slice):** staging n8n has `N8N_BLOCK_ENV_ACCESS_IN_NODE=true`, which prevents `$env.WHATSAPP_DRY_RUN` from evaluating in the IF guard. Execution #1 returned `dry_run_guard_blocked`. Proof execution used a temporary staging-only IF guard bypass, then nodes were restored to repo JSON.
+
+**Proof:** Hosted manual execution only. No workflow activation. No live WhatsApp send. No Staff API edits. No Stripe.
+
+### 8.6.6 — Staff WhatsApp live gated send — *pending (requires explicit go/no-go)*
+**Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit approval + real staff phone numbers in config. Fix staging IF guard for `$env.WHATSAPP_DRY_RUN` (or equivalent) before activation.
