@@ -173,6 +173,30 @@
 
 ---
 
+## Rehearsal record — Stage 8.7.3 (2026-06-03)
+
+**Result:** PASS with **one UI blocker** (Ask Luna button). Backend + drawer path demo-ready.
+
+| Step | Result | Notes |
+|------|--------|-------|
+| Login | **PASS** | `admin.stage72c@example.test` / `wolfhouse-somo` |
+| Golden booking drawer | **PASS** | Deposit paid ✓ · €100 paid / €150 balance · Luna confirmation draft ready · gate **2684#** · no Send button |
+| Ask Luna (portal UI) | **BLOCKED** | **Ask button does nothing** — `onclick="alAsk()"` but `alAsk` is scoped inside page IIFE, not `window.alAsk` (console: `alAsk is not defined`). **Fix required before live demo** (expose `window.alAsk` or wire `addEventListener`). |
+| Ask Luna (API, session) | **PASS** | Same session cookie: `Who still owes money?` → `payments.balance_due` / **4 rows**; `Who leaves today?` → `departures_today` / **0 rows**; `Which rooms need cleaning?` → `rooms_or_beds_need_cleaning` / **0 rows**; all `read_only:true`, `sends_whatsapp:false` |
+| n8n inactive | **PASS** | `stage8510SharedDryRun01` + `stage863AskLuna01` both `active:false` |
+| No live WhatsApp / Stripe / n8n from portal | **PASS** | No `graph.facebook.com`, `stripe.com`, or n8n URLs in session network log |
+
+**UI notes (non-blocking):**
+
+- Bed Calendar **defaults** to ~today + 30 days — golden booking (Aug 2026) is **hidden until you change the range** (script step still required).
+- Only **one** booking block in the demo date range — sparse but sufficient.
+- Switching to **Ask Luna** tab leaves the **booking drawer open** on the right — can distract; close drawer first or call out as known UX.
+- Departures/cleaning **empty on demo day** (2026-06-03) is expected — explain date-driven SQL.
+
+**Demo-day workaround until Ask button fixed:** do not rely on the Ask button; either skip Ask Luna in the live walkthrough or show API proof from a prior curl/session test. Prefer fixing `window.alAsk` in the next code slice.
+
+---
+
 ## Pre-demo checklist (5 min before call)
 
 - [ ] Staff Portal login works
@@ -190,6 +214,7 @@
 |---------|-----|
 | Booking block not visible | Widen date range; confirm `wolfhouse-somo` client |
 | No confirmation draft panel | Wrong booking — use **4f10c3** only for draft story |
+| Ask Luna button silent | **`alAsk` not global** (8.7.3 rehearsal) — fix `window.alAsk` before demo; API works via session |
 | Ask Luna empty on departures/cleaning | Normal if no check-outs **today**; explain date-driven SQL |
 | Manual booking buttons greyed | Flags off — quote-only demo |
 | n8n execution list empty | Use Stage 8.5.12 / 8.6.7 doc screenshots as backup |
