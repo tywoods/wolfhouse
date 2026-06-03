@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000033` (2026-06-03, Stage 8.8.3 Ask Luna date queries deployed).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000034` (2026-06-03, Stage 8.8.5 multilingual Ask Luna router deployed).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -26,7 +26,7 @@
 |------|-------|
 | Staff Portal | `https://staff-staging.lunafrontdesk.com` |
 | Login | Company: `wolfhouse-somo` · Email: `admin.stage72c@example.test` · Password: see comment in [`scripts/fixtures/stage7.2c-auth-seed.sql`](../scripts/fixtures/stage7.2c-auth-seed.sql) |
-| Staff API revision | `wh-staging-staff-api--0000033` |
+| Staff API revision | `wh-staging-staff-api--0000034` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
 | Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** (or **Jul – Aug** chip) |
@@ -300,6 +300,34 @@
 | Auto-select | **PASS** | Top conversation selected when filtered list has rows |
 | Empty state | **PASS** | “No conversations need staff review right now.” |
 | Safety | **PASS** | Client-side filter on `/staff/conversations`; no `/staff/handoffs` UI fetch; no WhatsApp/n8n/Stripe |
+
+---
+
+## Hosted multilingual Ask Luna router proof — Stage 8.8.5 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.4 multilingual intent router live on staging revision `--0000034` (`3193636`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:3193636-stage885-multilingual-ask-luna` · ACR `cbv` · revision `--0000034` · Healthy · 100% traffic |
+| Preflight | **PASS** | `3193636`; `verify-staff-ask-luna-api.js` 99/99 |
+| Who leaves today? | **PASS** | `departures_today` · 0 rows |
+| who's room needs to be cleaned? | **PASS** | `rooms_or_beds_need_cleaning` · 0 rows |
+| Quien sale hoy? | **PASS** | `departures_today` · 0 rows |
+| Cual cuartos tengo que limpiar hoy? | **PASS** | `rooms_or_beds_need_cleaning` · 0 rows |
+| Chi parte oggi? | **PASS** | `departures_today` · 0 rows |
+| Welche Zimmer müssen heute gereinigt werden? | **PASS** | `rooms_or_beds_need_cleaning` · 0 rows |
+| Qui part aujourd'hui? | **PASS** | `departures_today` · 0 rows |
+| Who still needs to pay? | **PASS** | `payments.balance_due` · **4 rows** |
+| Quien debe pagar? | **PASS** | `payments.balance_due` · **4 rows** |
+| Who is checking in tomorrow? | **PASS** | `check_ins.on_date` · regression |
+| How many people are checking out on Saturday? | **PASS** | `check_outs.count` · regression |
+| Which rooms need cleaning? | **PASS** | `rooms_or_beds_need_cleaning` · regression |
+| Who paid for yoga tonight? | **PASS** | `unsupported_intent` · add-on gap message |
+| Who needs a wetsuit today? | **PASS** | `unsupported_intent` · add-on gap message |
+| Safety | **PASS** | All responses `read_only:true` · `no_write_performed:true` · `sends_whatsapp:false`; Luna tab UI loads (`alAsk`); no graph.facebook.com / n8n URL / api.stripe.com from Luna session |
+
+**Optional demo add-on (Luna tab):** Try one multilingual question (e.g. *“Quien sale hoy?”*) and one blocked add-on (*“Who paid for yoga tonight?”*) to show i18n routing vs structured-records gap.
 
 ---
 

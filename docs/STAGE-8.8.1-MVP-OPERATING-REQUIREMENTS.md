@@ -1,8 +1,9 @@
 # Stage 8.8.1 — Luna MVP Operating Requirements (post-demo)
 
-**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.4 multilingual intent router (local; not deployed).  
+**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.5 hosted multilingual router proof on `--0000034`.  
 **Captured after:** Stage 8.7.27 staging demo-ready confirmation (`wh-staging-staff-api--0000032`).  
-**Hosted (8.8.3):** Date-aware check-in/check-out intents live on `--0000033` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.3.  
+**Hosted (8.8.5):** Multilingual Ask Luna router live on `--0000034` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.5.  
+**Hosted (8.8.3):** Date-aware check-in/check-out intents on `--0000033` (superseded by `--0000034` for router).  
 **Local (8.8.4):** Multilingual Ask Luna keyword router (EN/ES/IT/DE/FR) for checkout, cleaning, balance-due + basic date words — deterministic only, no LLM.  
 **Owner input:** Ty (post-demo with Ale/Cami).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
