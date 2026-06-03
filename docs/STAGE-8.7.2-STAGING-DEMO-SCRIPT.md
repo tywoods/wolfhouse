@@ -80,9 +80,9 @@
 
 ---
 
-### Step 3 — Ask Luna tab (~5 min)
+### Step 3 — Luna tab (~5 min)
 
-1. Click **Ask Luna**
+1. Click **Luna**
 2. Run these three questions (Enter or **Ask** after each):
 
 | # | Question | Expected intent | Notes |
@@ -191,7 +191,7 @@
 
 - Bed Calendar **defaults** to Next 30 days and **auto-loads** on first tab open (8.7.8) — golden booking (Aug 2026) still needs **Jul–Aug range** or manual dates + Load.
 - Only **one** booking block in the demo date range — sparse but sufficient.
-- Switching to **Ask Luna** tab leaves the **booking drawer open** on the right — can distract; close drawer first or call out as known UX.
+- Switching to **Luna** tab leaves the **booking drawer open** on the right — can distract; close drawer first or call out as known UX.
 - Departures/cleaning **empty on demo day** (2026-06-03) is expected — explain date-driven SQL.
 
 **Demo-day workaround until click handlers fixed:** ~~do not rely on the Ask button~~ **Resolved in Stage 8.7.4; proven on staging in 8.7.5** (`--0000023`).

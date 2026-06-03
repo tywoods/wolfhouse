@@ -3973,8 +3973,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
   <button class="tab-btn active" data-tab="today">Today</button>
   <button class="tab-btn" data-tab="conversations">Inbox</button>
   <button class="tab-btn" data-tab="bed-calendar">Bed Calendar</button>
+  <button class="tab-btn" data-tab="ask-luna">Luna</button>
   <button class="tab-btn" data-tab="tour-operator">Tour Operator</button>
-  <button class="tab-btn" data-tab="ask-luna">&#129302; Ask Luna</button>
   <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
 </div>
 
@@ -4684,9 +4684,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
 <div id="al-wrap">
 
   <div class="al-hero">
-    <div class="al-hero-icon">&#129302;</div>
     <div>
-      <div class="al-hero-title">Ask Luna</div>
+      <div class="al-hero-title">Luna</div>
       <div class="al-hero-sub">Ask operational questions answered from structured booking and payment data. Read-only &mdash; no writes, no WhatsApp sends.</div>
     </div>
   </div>

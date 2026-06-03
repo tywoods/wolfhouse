@@ -150,6 +150,26 @@ if (lacks(htmlSection, /api\.stripe\.com/))                                { pas
 if (lacks(htmlSection, /['"]https?:\/\/[^'"]*n8n[^'"]*['"]/))             { pass('no n8n URL in UI HTML'); }                               else { fail('n8n URL found in UI HTML'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('7d. Nav labels (Stage 8.7.10)');
+
+(function(){
+  const tabsMatch = htmlSection.match(/<div id="tabs">([\s\S]*?)<\/div>\s*\n<!-- ── Today/);
+  const tabsHtml  = tabsMatch ? tabsMatch[1] : '';
+  const tabOrder  = [...tabsHtml.matchAll(/data-tab="([^"]+)"/g)].map(function(m){ return m[1]; });
+  const expected  = ['today', 'conversations', 'bed-calendar', 'ask-luna', 'tour-operator', 'query-tools'];
+  if (JSON.stringify(tabOrder) === JSON.stringify(expected)) { pass('nav tab order: Today, Inbox, Bed Calendar, Luna, Tour Operator, Developer Tools (Stage 8.7.10)'); }
+  else { fail('nav tab order wrong — got: ' + tabOrder.join(', ')); }
+  if (has(htmlSection, /data-tab="ask-luna"[^>]*>\s*Luna\s*<\/button>/)) { pass('Luna nav tab label present (Stage 8.7.10)'); }
+  else { fail('Luna nav tab label missing or not "Luna"'); }
+  if (lacks(tabsHtml, /129302|🤖|Ask Luna/)) { pass('bot emoji / Ask Luna absent from nav (Stage 8.7.10)'); }
+  else { fail('nav still contains bot emoji or "Ask Luna" label'); }
+  if (has(src, /fetch\s*\(\s*['"]\/staff\/ask-luna['"]/)) { pass('/staff/ask-luna fetch unchanged (Stage 8.7.10)'); }
+  else { fail('/staff/ask-luna fetch missing after nav label change'); }
+  if (lacks(tabsHtml, /graph\.facebook\.com|api\.stripe\.com/)) { pass('nav has no graph.facebook.com / Stripe (Stage 8.7.10)'); }
+  else { fail('nav contains forbidden URL'); }
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('8. No handoff.resolve or staff-action-runner in UI');
 
 if (lacks(htmlSection, /handoff\.resolve/i))                               { pass('no handoff.resolve in UI'); }        else { fail('handoff.resolve found in UI'); }
