@@ -1,7 +1,7 @@
 # Stage 8.8.6 — Structured add-on/service records for Staff Ask Luna
 
-**Status:** PASS — design extended through **Stage 8.8.20** (2026-06-03).  
-**Non-negotiables (8.8.20):** Staging DB apply only. No production. No Staff API deploy. No webhook/API changes.
+**Status:** PASS — design extended through **Stage 8.8.21** (2026-06-03).  
+**Non-negotiables (8.8.21):** Webhook code only. No Azure deploy. No add-on checkout create. No full-payment allocation.
 
 **Context:** Stages 8.8.11–8.8.12 prove Staff Ask Luna reads **`booking_service_records`**. **8.8.16–8.8.17** prove manual booking create writes service rows tied to real bookings (`MB-WOLFHO-20260901-cb4799`). **8.8.18** defines when `payment_status` on service rows may change — Stripe webhook or audited staff action only.
 
@@ -132,8 +132,9 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Payment truth rules** | **8.8.18** ✓ | When service rows become paid (docs) | §12 below |
 | **Payment linkage schema** | **8.8.19** ✓ spec | Migration 011 spec (`payment_id` FK + `addon_service`) | [`011_service_payment_linkage.sql`](../database/migrations/011_service_payment_linkage.sql) |
 | **Staging apply 011** | **8.8.20** ✓ | Applied to `wolfhouse_staging` only (Ty-approved) | §7 below |
-| **Webhook + allocation** | **8.8.21+** | `addon_service` webhook + full-payment allocation | §12.6 M3–M5 |
-| **Guest Luna add-on API** | **8.8.21+** | Bot endpoint + payment draft | §8 Flow B; live send still NO_GO |
+| **Webhook addon_service** | **8.8.21** ✓ | Marks linked `booking_service_records` paid; no booking mutation | §12.2; **not deployed** |
+| **Full-payment allocation** | **8.8.22+** | Booking-time add-ons on full checkout | §12.1 M4 |
+| **Add-on checkout create** | **8.8.23+** | Flow B payment draft + Stripe link + bot endpoint | §8 Flow B; live send still NO_GO |
 
 **Out of scope until explicit GO:** live WhatsApp send, n8n activation, applying migration to production.
 
@@ -165,8 +166,8 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | Service row `payment_status` | Unchanged by migration — 6 demo `paid`, 6 `pending`, 2 `not_requested`; none newly marked paid |
 | Ask Luna service intents | **Live** — revision `--0000037` (unchanged) |
 | Manual booking create | **Live** — writes service rows when add-ons present |
-| Service row payment truth (webhook) | **Not implemented** — next **8.8.21** |
-| Next slice | **8.8.21** — webhook `addon_service` + full-payment allocation (§12.6 M3–M5) |
+| Service row payment truth (webhook) | **Code ready (8.8.21)** — `addon_service` branch in `handleStripeWebhook`; marks rows by `payment_id`; **not deployed** |
+| Next slice | **8.8.22** — deploy + hosted addon_service webhook proof; or full-payment allocation |
 
 ---
 
@@ -366,7 +367,7 @@ Mid-stay requests create **separate** payment + service rows.
 |---|-------------|---------|
 | **M1** | Migration **011** ✓ applied staging: `booking_service_records.payment_id UUID REFERENCES payments(id)` nullable | 8.8.20 — `wolfhouse_staging` only |
 | **M2** | Migration **011** ✓ applied staging: `payment_kind` enum → **`addon_service`** | `ALTER TYPE payment_kind ADD VALUE IF NOT EXISTS 'addon_service'` |
-| **M3** | Webhook: `addon_service` branch | Mark linked service rows paid (§12.2) |
+| **M3** | Webhook: `addon_service` branch ✓ code (8.8.21) | Mark linked service rows paid by `payment_id`; no booking update |
 | **M4** | Webhook: **full-payment allocation** branch | Mark booking-time service rows paid when metadata allocation present (§12.1) |
 | **M5** | Checkout create: embed `service_record_ids` in Stripe metadata | Required for webhook linkage |
 | **M6** | Flow B: `POST /staff/bot/add-on-request` (dry-run) | Guest Luna mid-stay → record + separate payment draft |
@@ -390,12 +391,14 @@ Mid-stay requests create **separate** payment + service rows.
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.21** | Webhook `addon_service` + full-payment allocation | Service row `paid` truth (§12) |
-| **2** | **8.8.22** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
+| **1** | **8.8.22** | Deploy 8.8.21 + hosted addon_service webhook proof OR full-payment allocation | Service row paid truth live |
+| **2** | **8.8.23** | Bot `POST /staff/bot/add-on-request` + add-on Stripe link create | Flow B without live WhatsApp |
 | **3** | **8.8.22+** | Staff mark-paid/waived + drawer payment-link display | Manual truth + ops UX |
 | **4** | **8.8.23+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
 
 ---
+
+**Code slice (8.8.21):** Webhook `addon_service` branch. **No deploy.**
 
 **Doc slice (8.8.20):** Migration 011 applied to staging Postgres only. **No webhook. No deploy.**
 

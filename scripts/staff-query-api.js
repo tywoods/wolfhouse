@@ -2616,6 +2616,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
 //   Stage 8.5.14: returns confirmation_draft (dry-run) when payment_status
 //   becomes deposit_paid or paid — no send, no confirmation_sent write.
 //   Stage 8.5.16: persists confirmation_draft to bookings.metadata.
+//   Stage 8.8.21: payment_kind=addon_service → marks linked booking_service_records
+//   paid only; does NOT update booking payment amounts or confirmation_draft.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function loadClientConfirmationArrival(clientSlug) {
@@ -2723,6 +2725,7 @@ async function handleStripeWebhook(req, res) {
                p.amount_due_cents,
                p.amount_paid_cents      AS pm_amount_paid,
                p.stripe_checkout_session_id,
+               p.metadata                 AS payment_metadata,
                b.booking_code,
                b.total_amount_cents     AS bk_total,
                b.amount_paid_cents      AS bk_amount_paid,
@@ -2758,6 +2761,41 @@ async function handleStripeWebhook(req, res) {
 
   // ── 5. Idempotency — already paid ─────────────────────────────────────────
   if (pm.payment_status === 'paid') {
+    if (pm.payment_kind === 'addon_service') {
+      let svcPaidCount = 0;
+      try {
+        svcPaidCount = await withPgClient(async (pg) => {
+          const r = await pg.query(
+            `SELECT COUNT(*)::int AS n FROM booking_service_records
+              WHERE payment_id = $1 AND payment_status = 'paid'`,
+            [pm.payment_id],
+          );
+          return r.rows[0].n;
+        });
+      } catch (_) { /* count optional on idempotent replay */ }
+      appendAuditLog({
+        ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
+        category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
+        addon_service: true,
+      });
+      return sendJSON(res, 200, {
+        success:                        true,
+        idempotent:                     true,
+        addon_service_payment:          true,
+        service_records_paid_count:     svcPaidCount,
+        no_booking_payment_status_change: true,
+        no_confirmation_sent:           true,
+        no_whatsapp:                    true,
+        no_n8n:                         true,
+        event_type:                     eventType,
+        payment_id:                     pm.payment_id,
+        booking_id:                     pm.booking_id,
+        booking_code:                   pm.booking_code,
+        amount_paid_cents:              Number(pm.pm_amount_paid || 0),
+        payment_status:                 'paid',
+        message:                        'Add-on payment already marked paid (idempotent — no double-count)',
+      });
+    }
     appendAuditLog({
       ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
       category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
@@ -2785,7 +2823,135 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 7. Derive amounts ─────────────────────────────────────────────────────
+  // ── 6b. Add-on service payment (Stage 8.8.21) ─────────────────────────────
+  // Separate Checkout for mid-stay / Luna add-ons. Marks payment + linked service
+  // rows only — never mutates booking deposit/full payment truth.
+  if (pm.payment_kind === 'addon_service') {
+    const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
+    const newPmPaidCents  = stripePaidCents;
+    let serviceRecordsPaidCount = 0;
+    let addonWarning = null;
+
+    const pmMeta = (() => {
+      const raw = pm.payment_metadata;
+      if (raw && typeof raw === 'object') return raw;
+      try { return JSON.parse(raw || '{}'); } catch (_) { return {}; }
+    })();
+    const allocationMap = pmMeta.service_record_allocation_cents || {};
+
+    try {
+      await withPgClient(async (pg) => {
+        await pg.query('BEGIN');
+        try {
+          await pg.query(
+            `UPDATE payments
+               SET status                   = 'paid'::payment_record_status,
+                   amount_paid_cents        = $1,
+                   paid_at                  = NOW(),
+                   stripe_payment_intent_id = $2,
+                   metadata                 = metadata || $3::jsonb
+             WHERE id = $4`,
+            [
+              newPmPaidCents,
+              session.payment_intent || null,
+              JSON.stringify({
+                stripe_event_id:   event.id,
+                stripe_event_type: event.type,
+                stripe_session_id: sessionId,
+                stripe_livemode:   event.livemode || false,
+                skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
+                source:            'staff_portal_webhook_addon_service_stage8821',
+              }),
+              pm.payment_id,
+            ],
+          );
+
+          const linked = await pg.query(
+            `SELECT id, amount_due_cents, payment_status
+               FROM booking_service_records
+              WHERE payment_id = $1`,
+            [pm.payment_id],
+          );
+
+          for (const row of linked.rows) {
+            const dueCents = Number(row.amount_due_cents || 0);
+            if (dueCents <= 0) continue;
+            if (row.payment_status === 'paid') {
+              serviceRecordsPaidCount++;
+              continue;
+            }
+            const allocRaw = allocationMap[row.id];
+            const paidCents = allocRaw != null
+              ? Math.min(Number(allocRaw), dueCents)
+              : dueCents;
+            if (paidCents <= 0) continue;
+
+            const upd = await pg.query(
+              `UPDATE booking_service_records
+                  SET payment_status    = 'paid',
+                      amount_paid_cents = $1,
+                      status            = 'paid',
+                      updated_at        = NOW()
+                WHERE id = $2
+                  AND payment_id = $3
+                  AND payment_status IS DISTINCT FROM 'paid'`,
+              [paidCents, row.id, pm.payment_id],
+            );
+            if (upd.rowCount > 0) serviceRecordsPaidCount++;
+          }
+
+          await pg.query('COMMIT');
+        } catch (e) {
+          try { await pg.query('ROLLBACK'); } catch (_) {}
+          throw e;
+        }
+      });
+    } catch (dbErr) {
+      appendAuditLog({
+        ts: new Date().toISOString(), intent: 'webhook:stripe:db_error',
+        category: 'stripe_webhook', payment_id: pm.payment_id, error: dbErr.message,
+        addon_service: true,
+      });
+      return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
+    }
+
+    if (serviceRecordsPaidCount === 0) {
+      addonWarning = 'payment marked paid but no linked payable service records found for payment_id';
+    }
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:addon_service_payment_truth',
+      category: 'stripe_webhook', event_type: eventType,
+      payment_id: pm.payment_id, booking_id: pm.booking_id,
+      booking_code: pm.booking_code, amount_paid_cents: newPmPaidCents,
+      service_records_paid_count: serviceRecordsPaidCount,
+      elapsed_ms: elapsed,
+      whatsapp_called: false, n8n_called: false, email_sent: false,
+    });
+
+    const addonBody = {
+      success:                        true,
+      idempotent:                     false,
+      addon_service_payment:          true,
+      service_records_paid_count:     serviceRecordsPaidCount,
+      no_booking_payment_status_change: true,
+      no_confirmation_sent:           true,
+      no_whatsapp:                    true,
+      no_n8n:                         true,
+      event_type:                     eventType,
+      payment_id:                     pm.payment_id,
+      booking_id:                     pm.booking_id,
+      booking_code:                   pm.booking_code,
+      amount_paid_cents:              newPmPaidCents,
+      payment_status:                 'paid',
+      elapsed_ms:                     elapsed,
+    };
+    if (addonWarning) addonBody.warning = addonWarning;
+    return sendJSON(res, 200, addonBody);
+  }
+
+  // ── 7. Derive amounts (deposit_only / full_amount package payments) ───────
   // Stripe session.amount_total is in smallest currency unit (cents for EUR)
   const stripePaidCents    = Number(session.amount_total || pm.amount_due_cents || 0);
   const newPmPaidCents     = stripePaidCents;   // This payment record

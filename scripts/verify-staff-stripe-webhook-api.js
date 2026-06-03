@@ -195,12 +195,13 @@ check('H5', 'Uses deposit_paid enum value for deposit-only payments',
 check('H6', 'Uses paid enum value when balance is zero',
   /newBkPayStatus\s*=\s*['"]paid['"]|= 'paid'/.test(handlerSrc));
 
-check('H7', 'Booking update is in the same transaction as payment update',
+check('H7', 'Booking update is in the same transaction as payment update (package path)',
   (() => {
-    const idxBegin = handlerSrc.indexOf("'BEGIN'");
-    const idxBkUpdate = handlerSrc.indexOf('UPDATE bookings');
-    const idxCommit = handlerSrc.indexOf("'COMMIT'");
-    return idxBegin > 0 && idxBkUpdate > idxBegin && idxCommit > idxBkUpdate;
+    const bkIdx = handlerSrc.indexOf('UPDATE bookings');
+    if (bkIdx < 0) return false;
+    const after = handlerSrc.slice(bkIdx, bkIdx + 2500);
+    const before = handlerSrc.slice(Math.max(0, bkIdx - 1500), bkIdx);
+    return /BEGIN/.test(before) && /COMMIT/.test(after) && /UPDATE payments/.test(before);
   })());
 
 check('H8', 'Does NOT set booking.status to confirmed (payment truth only)',
@@ -338,6 +339,76 @@ check('N6', 'No n8n HTTP call in webhook handler (reconfirm)',
 
 check('N7', 'No confirmation_sent_at write in webhook handler (reconfirm)',
   !(/UPDATE[\s\S]{0,2500}confirmation_sent_at/.test(handlerSrc)));
+
+// ─── O. Stage 8.8.21 — addon_service payment branch ─────────────────────────
+console.log('\nO. Stage 8.8.21 — addon_service service-record payment truth');
+
+check('O1', 'addon_service branch detected by payment_kind',
+  /payment_kind\s*===\s*['"]addon_service['"]/.test(handlerSrc));
+
+check('O2', 'booking_service_records updated in addon_service path',
+  /UPDATE booking_service_records/.test(handlerSrc));
+
+check('O3', 'service rows scoped by payment_id',
+  /booking_service_records[\s\S]{0,400}payment_id\s*=\s*\$/.test(handlerSrc) ||
+  /WHERE payment_id = \$1/.test(handlerSrc));
+
+check('O4', 'zero amount_due_cents rows not forced paid (skip when <= 0)',
+  /amount_due_cents[\s\S]{0,120}<=\s*0/.test(handlerSrc) ||
+  /dueCents\s*<=\s*0/.test(handlerSrc));
+
+check('O5', 'addon_service path does not UPDATE bookings',
+  (() => {
+    const addonBlock = handlerSrc.match(
+      /payment_kind\s*===\s*['"]addon_service['"][\s\S]{0,4500}/,
+    );
+    if (!addonBlock) return false;
+    return !/UPDATE bookings/.test(addonBlock[0]);
+  })());
+
+check('O6', 'addon_service path does not build confirmation_draft',
+  (() => {
+    const addonBlock = handlerSrc.match(
+      /payment_kind\s*===\s*['"]addon_service['"][\s\S]{0,4500}/,
+    );
+    if (!addonBlock) return false;
+    return !/buildPaymentConfirmationDraft/.test(addonBlock[0]) &&
+      !/confirmation_draft/.test(addonBlock[0]);
+  })());
+
+check('O7', 'addon_service idempotency when payment already paid',
+  /payment_kind\s*===\s*['"]addon_service['"][\s\S]{0,1200}idempotent/.test(handlerSrc) ||
+  (/payment_status\s*===\s*['"]paid['"]/.test(handlerSrc) &&
+   /addon_service_payment\s*:\s*true/.test(handlerSrc) &&
+   /idempotent\s*:\s*true/.test(handlerSrc)));
+
+check('O8', 'service row idempotency — skip rows already paid',
+  /payment_status\s*===\s*['"]paid['"]/.test(handlerSrc) &&
+  /payment_status IS DISTINCT FROM 'paid'/.test(handlerSrc));
+
+check('O9', 'response includes addon_service_payment:true',
+  /addon_service_payment\s*:\s*true/.test(handlerSrc));
+
+check('O10', 'response includes service_records_paid_count',
+  /service_records_paid_count/.test(handlerSrc));
+
+check('O11', 'response includes no_booking_payment_status_change:true',
+  /no_booking_payment_status_change\s*:\s*true/.test(handlerSrc));
+
+check('O12', 'warning when no linked payable service records',
+  /service_records_paid_count\s*===\s*0|serviceRecordsPaidCount\s*===\s*0/.test(handlerSrc));
+
+check('O13', 'metadata allocation map supported (service_record_allocation_cents)',
+  /service_record_allocation_cents/.test(handlerSrc));
+
+check('O14', 'addon_service audit intent logged',
+  /webhook:stripe:addon_service_payment_truth/.test(handlerSrc));
+
+check('O15', 'No graph.facebook.com in addon branch (reconfirm)',
+  !/graph\.facebook\.com/.test(handlerSrc));
+
+check('O16', 'No confirmation_sent_at write in addon branch (reconfirm)',
+  !(/UPDATE[\s\S]{0,3500}confirmation_sent_at/.test(handlerSrc)));
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n──────────────────────────────────────────`);
