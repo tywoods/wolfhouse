@@ -8257,6 +8257,7 @@ var BC_STRIPE_LINKS   = ${STRIPE_LINKS_ENABLED};
 var bcLastQuote = null;
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
 var bcLastPaymentId = null;
+var bcManualCreateInFlight = false;
 var bcLastOpenedBlock = null;
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
@@ -8303,6 +8304,7 @@ function bcClearSelection(){
   /* Reset quote state and create panel (Stage 8.4.8/10) */
   bcLastQuote = null;
   bcLastPaymentId = null;
+  bcManualCreateInFlight = false;
   var _crEl = el('bc-create-result'); if (_crEl) _crEl.innerHTML = '';
   var _slEl = el('bc-stripe-link-result'); if (_slEl) _slEl.innerHTML = '';
   bcUpdateCreateButton();
@@ -8650,9 +8652,51 @@ function bcUpdateCreateButton(){
 }
 
 /* ── Manual booking create (Stage 8.4.8 — posts to /staff/manual-bookings/create) */
+function bcManualCreateErrorMessage(d, status){
+  d = d || {};
+  var reason = String(d.block_reason || '').toLowerCase();
+  var err = String(d.error || d.detail || '').trim();
+  var combined = (reason + ' ' + err).toLowerCase();
+  if (/guest_name|check_in|check_out|required|missing|invalid_dates|no_selected_beds|package_code|confirm/.test(combined))
+    return { headline: 'Missing or invalid field', detail: err || 'Check required fields and try again.' };
+  if (reason === 'overlap_conflict' || /conflict|unavailable|overlap|could not be safely/.test(combined))
+    return { headline: 'Dates or beds unavailable', detail: err || 'These dates/beds conflict with an existing booking.' };
+  if (reason === 'invalid_payment_amounts' || /invalid_payment_amounts|invalid payment/.test(combined))
+    return { headline: 'Invalid payment amount', detail: err || 'Deposit or payment amount is invalid for this stay length.' };
+  if (d.service_records_warning || /service_record|add.?on/.test(combined))
+    return { headline: 'Add-on issue', detail: d.service_records_warning || err || 'Add-on/service rows could not be recorded.' };
+  return { headline: 'Could not create booking', detail: err || ('HTTP ' + (status || '?')) };
+}
+
+function bcOpenDrawerAfterManualCreate(d, calData, ctx){
+  ctx = ctx || {};
+  if (!d || !d.booking_code){
+    var cr = el('bc-create-result');
+    if (cr) cr.innerHTML += '<div class="bk-preview-meta" style="margin-top:8px">Created \u2014 open from calendar.</div>';
+    return;
+  }
+  var blocks = (calData && calData.blocks) || [];
+  var found = null;
+  for (var i = 0; i < blocks.length; i++){
+    if (blocks[i].booking_code === d.booking_code){ found = blocks[i]; break; }
+  }
+  var bedHint = (ctx.beds && ctx.beds[0]) || {};
+  var blk = found || {
+    booking_code: d.booking_code,
+    guest_name:   ctx.guestName || d.guest_name || '',
+    start_date:   d.check_in || ctx.checkIn || '',
+    end_date:     d.check_out || ctx.checkOut || '',
+    room_code:    bedHint.room_code || '',
+    bed_code:     bedHint.bed_code || (d.selected_bed_codes && d.selected_bed_codes[0]) || '',
+    color_type:   'manual',
+  };
+  showBlockDetail(blk);
+}
+
 function runManualBookingCreate(){
   var cr = el('bc-create-result');
   if (!cr) return;
+  if (bcManualCreateInFlight) return;
   if (!BC_STAFF_ACTIONS || !BC_MANUAL_BOOKING){
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Disabled</div>Manual booking creation is disabled in this environment.</div>';
     return;
@@ -8693,7 +8737,13 @@ function runManualBookingCreate(){
   };
   cr.innerHTML = '<div class="bk-preview-loading">Creating booking\u2026</div>';
   var createBtn = el('bc-sel-create');
-  if (createBtn) createBtn.disabled = true;
+  bcManualCreateInFlight = true;
+  if (createBtn){
+    if (!createBtn.dataset.origLabel) createBtn.dataset.origLabel = createBtn.textContent;
+    createBtn.disabled = true;
+    createBtn.textContent = 'Creating booking\u2026';
+  }
+  var createCtx = { guestName: guestName, checkIn: checkIn, checkOut: checkOut, beds: bcSelectedBeds.slice() };
   fetch('/staff/manual-bookings/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -8710,45 +8760,83 @@ function runManualBookingCreate(){
     } else {
       bcLastPaymentId = null;
     }
-    cr.innerHTML = renderCreateResult(res);
+    cr.innerHTML = renderCreateResult(res, createCtx);
     /* Wire the Stripe link button if rendered */
     var slBtn = document.getElementById('bc-sel-stripe-link');
     if (slBtn && !slBtn.disabled) {
       slBtn.addEventListener('click', runCreateStripeLink);
     }
-    if (res.ok && res.data && res.data.success) {
-      /* Reload calendar to show new booking */
-      loadBedCalendar();
-    } else {
-      /* Re-enable create button on failure */
-      bcUpdateCreateButton();
+    bcManualCreateInFlight = false;
+    if (createBtn){
+      createBtn.textContent = createBtn.dataset.origLabel || 'Create Manual Booking';
     }
+    if (res.ok && res.data && res.data.success) {
+      loadBedCalendar(function(calData){
+        bcOpenDrawerAfterManualCreate(res.data, calData, createCtx);
+      });
+    }
+    bcUpdateCreateButton();
   })
   .catch(function(e){
+    bcManualCreateInFlight = false;
+    if (createBtn){
+      createBtn.textContent = createBtn.dataset.origLabel || 'Create Manual Booking';
+    }
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Network error</div>' + escHtml(String(e)) + '</div>';
     bcUpdateCreateButton();
   });
 }
 
-function renderCreateResult(res){
+function renderCreateResult(res, ctx){
+  ctx = ctx || {};
   var d = res.data || {};
   var fmtEur = function(c){ return c == null ? '\u2014' : '\u20ac'+(Number(c)/100).toFixed(2); };
   if (!res.ok || !d.success){
-    var msg = d.error || ('HTTP ' + res.status);
-    return '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 Create failed</div>' +
-      '<div class="bk-preview-meta">' + escHtml(msg) + '</div>' +
-      (d.block_reason ? '<div class="bk-preview-meta">Reason: ' + escHtml(d.block_reason) + '</div>' : '') +
-      '</div>';
+    var mapped = bcManualCreateErrorMessage(d, res.status);
+    var html = '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 ' + escHtml(mapped.headline) + '</div>' +
+      '<div class="bk-preview-meta">' + escHtml(mapped.detail) + '</div>';
+    if (d.block_reason && d.block_reason !== mapped.detail)
+      html += '<div class="bk-preview-meta" style="font-size:10px;opacity:.75">Debug: ' + escHtml(d.block_reason) + '</div>';
+    if (d.error && mapped.detail !== d.error)
+      html += '<div class="bk-preview-meta" style="font-size:10px;opacity:.75">' + escHtml(d.error) + '</div>';
+    html += '</div>';
+    return html;
   }
   var qs = d.quote_summary || {};
+  var guestLabel = escHtml(ctx.guestName || d.guest_name || '\u2014');
+  var codeLabel = escHtml(d.booking_code || '\u2014');
+  var nights = bcStayNightsFromCheckInOut(d.check_in || ctx.checkIn, d.check_out || ctx.checkOut);
+  var stayLabel = escHtml((d.check_in || ctx.checkIn || '\u2014') + ' \u2192 ' + (d.check_out || ctx.checkOut || '\u2014'));
+  var bedLabel = '';
+  if (d.selected_bed_codes && d.selected_bed_codes.length){
+    bedLabel = escHtml(d.selected_bed_codes.join(', '));
+  } else if (ctx.beds && ctx.beds.length){
+    bedLabel = escHtml(ctx.beds.map(function(b){ return b.room_code + '/' + b.bed_code; }).join(', '));
+  }
+  var bannerText = d.duplicate
+    ? '\u2705 Booking already exists (same request)'
+    : '\u2705 Booking created';
   var html = '<div class="bk-quote-banner" style="background:var(--green-bg,#d4edda);border-color:var(--green-border,#c3e6cb);color:var(--green-text,#155724)">' +
-    '\u2705 Booking created: <strong>' + escHtml(d.booking_code || '\u2014') + '</strong></div>';
+    bannerText + ': <strong>' + codeLabel + '</strong></div>';
+  html += '<div class="bk-preview-meta" style="margin:8px 0 4px">' + guestLabel +
+    ' \u00b7 ' + stayLabel + (nights > 0 ? ' (' + nights + ' night' + (nights === 1 ? '' : 's') + ')' : '') + '</div>';
+  if (bedLabel)
+    html += '<div class="bk-preview-meta">Beds: ' + bedLabel + '</div>';
+  if (d.service_records_created > 0)
+    html += '<div class="bk-preview-meta">Add-ons recorded: ' + escHtml(String(d.service_records_created)) +
+      ' service record' + (d.service_records_created === 1 ? '' : 's') + '.</div>';
+  else if (d.service_records_warning)
+    html += '<div class="bk-preview-meta" style="color:#9B6320">' + escHtml(d.service_records_warning) + '</div>';
+  var payStatus = d.payment_status || 'draft';
+  var payReady = d.payment_id ? 'Draft payment ready' : 'No payment record';
+  html += '<div class="bk-preview-meta">Payment: ' + escHtml(payReady) +
+    (payStatus ? ' \u00b7 ' + escHtml(String(payStatus).replace(/_/g, ' ')) : '') +
+    (qs.payment_link_amount_cents != null ? ' \u00b7 ' + fmtEur(qs.payment_link_amount_cents) + ' due' : '') + '</div>';
   html += '<div class="bk-quote-items">';
-  html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Booking code</span><span class="bk-quote-item-amount">' + escHtml(d.booking_code||'\u2014') + '</span></div>';
+  html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Booking code</span><span class="bk-quote-item-amount">' + codeLabel + '</span></div>';
   html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Beds assigned</span><span class="bk-quote-item-amount">' + escHtml(String(d.beds_inserted||0)) + '</span></div>';
   if (d.payment_id)
     html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Payment ID</span><span class="bk-quote-item-amount" style="font-size:10px;font-family:monospace">' + escHtml(d.payment_id) + '</span></div>';
-  html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Payment status</span><span class="bk-quote-item-amount"><span class="pill pill-blue" style="font-size:10px">draft</span></span></div>';
   if (qs.total_cents != null)
     html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Total</span><span class="bk-quote-item-amount">' + fmtEur(qs.total_cents) + '</span></div>';
   if (qs.payment_link_amount_cents != null)
@@ -8756,6 +8844,8 @@ function renderCreateResult(res){
   html += '</div>';
   if (qs.formula_summary)
     html += '<div class="bk-quote-formula">' + escHtml(qs.formula_summary) + '</div>';
+  if (d.message)
+    html += '<div class="bk-preview-meta" style="margin-top:6px;font-size:11px">' + escHtml(d.message) + '</div>';
   /* Stage 8.4.10: Stripe link button area */
   var canCreateLink = BC_STRIPE_LINKS && BC_STAFF_ACTIONS && !!d.payment_id;
   html += '<div style="margin-top:12px">';
@@ -9782,7 +9872,7 @@ function toInitForms(){
   }
 })();
 
-function loadBedCalendar(){
+function loadBedCalendar(afterRender){
   var start  = (el('bc-start').value||'').trim();
   var end    = (el('bc-end').value||'').trim();
   var client = getBcClient();
@@ -9820,6 +9910,7 @@ function loadBedCalendar(){
         return;
       }
       renderBedCalendar(res.data);
+      if (typeof afterRender === 'function') afterRender(res.data);
     })
     .catch(function(e){
       el('bc-load').disabled     = false;

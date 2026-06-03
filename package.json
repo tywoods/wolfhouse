@@ -79,6 +79,7 @@
     "verify:staff-manual-booking-availability": "node scripts/verify-staff-manual-booking-availability.js",
     "verify:staff-manual-booking-preview-api": "node scripts/verify-staff-manual-booking-preview-api.js",
     "verify:staff-manual-booking-create-api": "node scripts/verify-staff-manual-booking-create-api.js",
+    "verify:staff-manual-booking-polish": "node scripts/verify-staff-manual-booking-polish.js",
     "verify:staff-stripe-payment-link-api": "node scripts/verify-staff-stripe-payment-link-api.js",
     "verify:staff-addon-service-payment-api": "node scripts/verify-staff-addon-service-payment-api.js",
     "verify:staff-stripe-webhook-api": "node scripts/verify-staff-stripe-webhook-api.js",
