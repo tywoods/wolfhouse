@@ -54,14 +54,14 @@ check(/fetchBotPauseState\s*\(\s*client\s*,\s*convId\s*\)/.test(htmlSrc),
 check(/isLunaGuestAutomationPaused\s*\(\s*\[\s*pauseData/.test(htmlSrc),
   'pause API response passed first to isLunaGuestAutomationPaused');
 
-console.log('\nB. No pause/resume write controls');
+console.log('\nB. Read path unchanged (Phase 9.5b write buttons — see verify-staff-inbox-pause-buttons-ui)');
 
-check(!/POST[\s\S]{0,40}\/staff\/bot\/pause[^\-]/.test(htmlSrc),
-  'No POST /staff/bot/pause from UI');
-check(!/POST[\s\S]{0,40}\/staff\/bot\/resume/.test(htmlSrc),
-  'No POST /staff/bot/resume from UI');
-check(!/Pause Luna|Resume Luna|btn-pause|btn-resume|id=["']btn-pause|id=["']btn-resume/i.test(htmlSrc),
-  'No Pause/Resume buttons in Inbox UI');
+check(/function fetchBotPauseState/.test(htmlSrc),
+  'fetchBotPauseState() still present for live read (Phase 9.5)');
+check(/\/staff\/bot\/pause-state/.test(htmlSrc),
+  'Inbox still references GET /staff/bot/pause-state');
+check(/fetchBotPauseState\s*\(\s*client\s*,\s*convId\s*\)/.test(htmlSrc),
+  'loadConvDetail still calls fetchBotPauseState(client, convId)');
 
 console.log('\nC. Display strings and fallback');
 

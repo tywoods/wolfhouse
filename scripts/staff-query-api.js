@@ -6515,6 +6515,12 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .luna-auto-status-label{font-size:12.5px;font-weight:700;color:var(--text)}
 .luna-auto-status-paused .luna-auto-status-label{color:#9C5742}
 .luna-auto-status-help{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.45}
+.luna-pause-actions{margin-top:10px}
+.btn-luna-pause,.btn-luna-resume{font-size:12px;padding:7px 12px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-weight:600;color:var(--text)}
+.btn-luna-pause:hover,.btn-luna-resume:hover{border-color:var(--ocean);background:var(--surface-soft)}
+.btn-luna-pause:disabled,.btn-luna-resume:disabled{opacity:.6;cursor:not-allowed}
+.luna-pause-action-status{font-size:11px;margin-top:6px;line-height:1.45}
+.luna-pause-action-status.error{color:#9C5742}
 .kv2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .kv2 .kv{font-size:12px}
 /* ── Empty / loading / error ─────────────────────────────────────────────── */
@@ -7558,6 +7564,59 @@ function fetchBotPauseState(client, convId){
     .catch(function(){ return { success: false }; });
 }
 
+/* Phase 9.5b — Inbox Luna pause/resume controls (bot_pause_states via Staff API) */
+function setLunaPauseActionStatus(targetEl, msg, isError){
+  var statusEl = targetEl.querySelector('#luna-pause-action-status');
+  if (!statusEl) return;
+  if (!msg){
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
+    statusEl.classList.remove('error');
+    return;
+  }
+  statusEl.style.display = 'block';
+  statusEl.textContent = msg;
+  statusEl.classList.toggle('error', !!isError);
+}
+
+function wireLunaPauseControlButton(btn, path, body, convId, targetEl){
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    if (btn.disabled) return;
+    var actionBtns = targetEl.querySelectorAll('#btn-luna-pause, #btn-luna-resume');
+    actionBtns.forEach(function(b){ b.disabled = true; });
+    setLunaPauseActionStatus(targetEl, 'Updating Luna status\u2026', false);
+
+    fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function(r){
+        return r.json().then(function(data){ return { ok: r.ok, status: r.status, data: data || {} }; });
+      })
+      .then(function(res){
+        var data = res.data || {};
+        if (res.status === 403 && (data.error === 'bot_pause_controls_disabled' || data.enabled === false)){
+          setLunaPauseActionStatus(targetEl, 'Pause controls are disabled.', true);
+          actionBtns.forEach(function(b){ b.disabled = false; });
+          return;
+        }
+        if (!res.ok || !data.success){
+          setLunaPauseActionStatus(targetEl, data.error || 'Could not update Luna status.', true);
+          actionBtns.forEach(function(b){ b.disabled = false; });
+          return;
+        }
+        setLunaPauseActionStatus(targetEl, '', false);
+        loadConvDetail(convId, targetEl);
+      })
+      .catch(function(err){
+        setLunaPauseActionStatus(targetEl, err.message || 'Could not update Luna status.', true);
+        actionBtns.forEach(function(b){ b.disabled = false; });
+      });
+  });
+}
+
 /* Render inbox conversation cards (left column) */
 function renderInbox(convs){
   var list = el('conv-list');
@@ -7823,9 +7882,13 @@ function loadConvDetail(convId, targetEl){
       ? 'Automated guest replies should stay blocked while paused.'
       : 'Automation status: active.') + '</div>';
     html +=   '</div>';
-    html +=   '<div class="kv2">';
-    html +=     kv('Mode',        ss.bot_mode   || c.bot_mode) +
-                kv('Needs human', ss.needs_human != null ? String(ss.needs_human) : String(c.needs_human));
+    html +=   '<div class="luna-pause-actions">';
+    if (lunaGuestPaused){
+      html += '<button type="button" class="btn-luna-resume" id="btn-luna-resume">Resume Luna</button>';
+    } else {
+      html += '<button type="button" class="btn-luna-pause" id="btn-luna-pause">Pause Luna</button>';
+    }
+    html +=     '<div class="luna-pause-action-status" id="luna-pause-action-status" style="display:none"></div>';
     html +=   '</div>';
     if (ss.handoff_id){
       html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
@@ -7873,6 +7936,28 @@ function loadConvDetail(convId, targetEl){
         }
       });
     }
+
+    wireLunaPauseControlButton(
+      targetEl.querySelector('#btn-luna-pause'),
+      '/staff/bot/pause',
+      {
+        client_slug: getClient(),
+        conversation_id: convId,
+        pause_reason: 'Paused from Staff Portal Inbox',
+      },
+      convId,
+      targetEl,
+    );
+    wireLunaPauseControlButton(
+      targetEl.querySelector('#btn-luna-resume'),
+      '/staff/bot/resume',
+      {
+        client_slug: getClient(),
+        conversation_id: convId,
+      },
+      convId,
+      targetEl,
+    );
 
     /* Scroll thread to bottom */
     var threadEl = targetEl.querySelector('#thread-container');

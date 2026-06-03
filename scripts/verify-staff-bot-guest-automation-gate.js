@@ -90,9 +90,16 @@ check('F5', 'no stripe in handler', !/\bstripe\b/i.test(handlerStrip));
 check('F6', 'no n8n fetch', !/fetch\([^)]*n8n/i.test(handlerStrip));
 check('F7', 'no n8n activation', !/activate.*n8n|n8n.*activ/i.test(handlerStrip));
 
-console.log('\nG. UI unchanged');
-check('G1', 'no Pause Luna button', !/Pause Luna/.test(API_SRC));
-check('G2', 'no Resume Luna button', !/Resume Luna/.test(API_SRC));
+console.log('\nG. Inbox UI (gate handler unchanged — buttons allowed Phase 9.5b)');
+
+const gateHandlerStart = API_SRC.indexOf('async function handleBotCheckGuestAutomationGate(');
+const gateHandlerEnd = API_SRC.indexOf('async function handleBotPauseStateGet(', gateHandlerStart + 100);
+const gateHandlerText = gateHandlerStart > -1 && gateHandlerEnd > -1
+  ? API_SRC.slice(gateHandlerStart, gateHandlerEnd)
+  : '';
+
+check('G1', 'gate handler has no Pause Luna button text', !/Pause Luna/.test(gateHandlerText));
+check('G2', 'gate handler has no Resume Luna button text', !/Resume Luna/.test(gateHandlerText));
 
 console.log('\nH. package.json + syntax');
 check('H1', 'verify:staff-bot-guest-automation-gate script present',

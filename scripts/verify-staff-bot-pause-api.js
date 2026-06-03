@@ -120,9 +120,10 @@ check('G4', 'pause handlers no n8n fetch', !/fetch\([^)]*n8n/i.test(handlerStrip
 check('G5', 'verifier does not invoke run-sql', !/run-sql\.js/i.test(fs.readFileSync(__filename, 'utf8') + API_SRC.slice(0, 500)));
 check('G6', 'migration not modified in this verifier slice', MIGRATION.includes('NOT YET APPLIED'));
 
-console.log('\nH. UI unchanged (no write buttons)');
-check('H1', 'no Pause Luna button text', !/Pause Luna/.test(API_SRC));
-check('H2', 'no Resume Luna button text', !/Resume Luna/.test(API_SRC));
+console.log('\nH. API handlers unchanged (Inbox buttons allowed in UI — Phase 9.5b)');
+
+check('H1', 'pause/resume API handlers no Pause Luna button text', !/Pause Luna/.test(handlerStrip));
+check('H2', 'pause/resume API handlers no Resume Luna button text', !/Resume Luna/.test(handlerStrip));
 
 console.log('\nI. package.json + syntax');
 check('I1', 'verify:staff-bot-pause-api script present',
