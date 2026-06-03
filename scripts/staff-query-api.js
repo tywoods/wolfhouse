@@ -2387,6 +2387,426 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Route: POST /staff/bot/addon-request-preview  (Stage 8.8.25 — Luna guest add-on dry-run)
+//
+// Parses structured mid-stay add-on request fields, validates booking/service/date/qty,
+// and returns what would be created. Read-only booking lookup; no service rows,
+// payments, Stripe links, WhatsApp, or n8n.
+//
+// Auth: requireBotAuth() — same as other /staff/bot/* endpoints.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BOT_ADDON_SERVICE_TYPES = new Set(['yoga', 'meal', 'surf_lesson', 'wetsuit', 'surfboard']);
+const BOT_ADDON_PRICING_PATH = path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
+
+function loadWolfhousePricingConfigForBotAddon() {
+  return JSON.parse(fs.readFileSync(BOT_ADDON_PRICING_PATH, 'utf8'));
+}
+
+function previewGuestAddonPricing(serviceType, quantity, clientSlug) {
+  const warnings = [];
+  if (clientSlug !== 'wolfhouse-somo') {
+    return {
+      amount_due_cents: null,
+      pricing_addon_code: null,
+      unit_cents: null,
+      payment_required: false,
+      warnings: [`pricing config not loaded for client "${clientSlug}" — staff review required`],
+    };
+  }
+
+  if (serviceType === 'meal') {
+    return {
+      amount_due_cents: 0,
+      pricing_addon_code: null,
+      unit_cents: null,
+      payment_required: false,
+      reason: 'meal_on_site_only',
+      warnings: ['Meals are recorded on-site only for MVP — no payment link.'],
+    };
+  }
+
+  let config;
+  try {
+    config = loadWolfhousePricingConfigForBotAddon();
+  } catch (err) {
+    return {
+      amount_due_cents: null,
+      pricing_addon_code: null,
+      unit_cents: null,
+      payment_required: false,
+      warnings: [`pricing config unavailable: ${err.message}`],
+    };
+  }
+
+  const addOns = config.add_ons || {};
+
+  if (serviceType === 'wetsuit') {
+    const cfg = addOns.wetsuit_rental;
+    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
+      return { amount_due_cents: null, pricing_addon_code: 'wetsuit_rental', unit_cents: null, payment_required: false, warnings: ['Wetsuit rental price not safely available — staff review required.'] };
+    }
+    const days = quantity;
+    const total = cfg.price_cents * days;
+    if (cfg.charge_timing === 'REQUIRED_FROM_STAFF') {
+      warnings.push('Wetsuit charge timing not confirmed (with booking or on site?) — staff may need to confirm.');
+    }
+    return { amount_due_cents: total, pricing_addon_code: 'wetsuit_rental', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_day', warnings };
+  }
+
+  if (serviceType === 'surfboard') {
+    const cfg = addOns.soft_top_rental;
+    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
+      return { amount_due_cents: null, pricing_addon_code: 'soft_top_rental', unit_cents: null, payment_required: false, warnings: ['Surfboard rental price not safely available — staff review required.'] };
+    }
+    const days = quantity;
+    warnings.push('Surfboard preview defaults to soft-top rental pricing — confirm board type with guest.');
+    if (cfg.charge_timing === 'REQUIRED_FROM_STAFF') {
+      warnings.push('Surfboard charge timing not confirmed — staff may need to confirm.');
+    }
+    return { amount_due_cents: cfg.price_cents * days, pricing_addon_code: 'soft_top_rental', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_day', warnings };
+  }
+
+  if (serviceType === 'surf_lesson') {
+    if (quantity === 1) {
+      const cfg = addOns.surf_lesson_single;
+      if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
+        return { amount_due_cents: null, pricing_addon_code: 'surf_lesson_single', unit_cents: null, payment_required: false, warnings: ['Surf lesson price not safely available — staff review required.'] };
+      }
+      return { amount_due_cents: cfg.price_cents, pricing_addon_code: 'surf_lesson_single', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_lesson', warnings };
+    }
+    const cfg = addOns.surf_lesson_multi;
+    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents_each) {
+      return { amount_due_cents: null, pricing_addon_code: 'surf_lesson_multi', unit_cents: null, payment_required: false, warnings: ['Multi-lesson price not safely available — staff review required.'] };
+    }
+    return { amount_due_cents: cfg.price_cents_each * quantity, pricing_addon_code: 'surf_lesson_multi', unit_cents: cfg.price_cents_each, payment_required: true, pricing_unit: 'per_lesson', warnings };
+  }
+
+  if (serviceType === 'yoga') {
+    const cfg = addOns.yoga_class;
+    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
+      return { amount_due_cents: null, pricing_addon_code: 'yoga_class', unit_cents: null, payment_required: false, warnings: ['Yoga class price not safely available — staff review required.'] };
+    }
+    if (cfg.on_site) {
+      warnings.push('Yoga is normally booked and paid on site — prepayment only when staff/policy enables it.');
+    }
+    return { amount_due_cents: cfg.price_cents * quantity, pricing_addon_code: 'yoga_class', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_class', warnings };
+  }
+
+  return {
+    amount_due_cents: null,
+    pricing_addon_code: null,
+    unit_cents: null,
+    payment_required: false,
+    warnings: [`unsupported service_type "${serviceType}" for pricing preview`],
+  };
+}
+
+async function handleBotAddonRequestPreview(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug    = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const bookingCode   = String(body.booking_code || '').trim();
+  const guestPhone    = body.guest_phone != null ? String(body.guest_phone).trim() : null;
+  const serviceType   = String(body.service_type || '').trim().toLowerCase();
+  const serviceDate   = body.service_date != null ? String(body.service_date).trim() : '';
+  const paymentChoice = String(body.payment_choice || 'pay_now').trim().toLowerCase();
+  const source        = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
+  const rawQuantity   = body.quantity;
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+
+  if (!serviceType || !BOT_ADDON_SERVICE_TYPES.has(serviceType)) {
+    return sendJSON(res, 422, {
+      success: false,
+      preview_only: true,
+      no_write_performed: true,
+      creates_service_record: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      next_action: 'handoff_to_staff',
+      reply_draft: "I'll have the team help with that add-on request.",
+      error: `service_type must be one of: ${[...BOT_ADDON_SERVICE_TYPES].join(', ')}`,
+    });
+  }
+
+  if (!bookingCode) {
+    return sendJSON(res, 200, {
+      success: true,
+      preview_only: true,
+      no_write_performed: true,
+      creates_service_record: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      next_action: 'booking_not_found',
+      reply_draft: "I couldn't find that booking — could you share your booking code?",
+      booking_code: null,
+      source,
+      auth_mode: resolvedAuthMode,
+    });
+  }
+
+  if (!serviceDate) {
+    return sendJSON(res, 200, {
+      success: true,
+      preview_only: true,
+      no_write_performed: true,
+      creates_service_record: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      next_action: 'ask_service_date',
+      reply_draft: 'Which date would you like that for? (YYYY-MM-DD)',
+      booking_code: bookingCode,
+      service_type: serviceType,
+      source,
+      auth_mode: resolvedAuthMode,
+    });
+  }
+
+  const svcDate = new Date(serviceDate + 'T00:00:00Z');
+  if (isNaN(svcDate.getTime()) || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
+    return sendJSON(res, 200, {
+      success: true,
+      preview_only: true,
+      no_write_performed: true,
+      creates_service_record: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      next_action: 'ask_service_date',
+      reply_draft: 'Please send the date in YYYY-MM-DD format (for example 2026-09-01).',
+      booking_code: bookingCode,
+      service_type: serviceType,
+      source,
+      auth_mode: resolvedAuthMode,
+    });
+  }
+
+  if (rawQuantity == null || rawQuantity === '' || Number(rawQuantity) <= 0 || !Number.isFinite(Number(rawQuantity))) {
+    return sendJSON(res, 200, {
+      success: true,
+      preview_only: true,
+      no_write_performed: true,
+      creates_service_record: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      next_action: 'ask_quantity',
+      reply_draft: serviceType === 'wetsuit' || serviceType === 'surfboard'
+        ? 'How many days do you need that for?'
+        : 'How many would you like?',
+      booking_code: bookingCode,
+      service_type: serviceType,
+      service_date: serviceDate,
+      source,
+      auth_mode: resolvedAuthMode,
+    });
+  }
+
+  const quantity = Math.max(1, parseInt(rawQuantity, 10) || 1);
+
+  let booking;
+  try {
+    booking = await withPgClient(async (pg) => {
+      const r = await pg.query(
+        `SELECT b.id AS booking_id, b.booking_code, b.guest_name, b.check_in, b.check_out,
+                b.status AS booking_status, b.client_id, cl.slug AS client_slug
+           FROM bookings b
+           JOIN clients cl ON cl.id = b.client_id
+          WHERE b.booking_code = $1 AND cl.slug = $2`,
+        [bookingCode, clientSlug],
+      );
+      return r.rows[0] || null;
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'DB lookup failed: ' + err.message });
+  }
+
+  if (!booking) {
+    return sendJSON(res, 200, {
+      success: true,
+      preview_only: true,
+      no_write_performed: true,
+      creates_service_record: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      next_action: 'booking_not_found',
+      reply_draft: "I couldn't find a booking with that code — I'll ask the team to help.",
+      booking_code: bookingCode,
+      client_slug: clientSlug,
+      source,
+      auth_mode: resolvedAuthMode,
+    });
+  }
+
+  if (booking.booking_status === 'cancelled' || booking.booking_status === 'expired') {
+    return sendJSON(res, 200, {
+      success: true,
+      preview_only: true,
+      no_write_performed: true,
+      creates_service_record: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      next_action: 'handoff_to_staff',
+      reply_draft: "That booking isn't active anymore — I'll have the team take a look.",
+      booking_code: bookingCode,
+      booking_id: booking.booking_id,
+      source,
+      auth_mode: resolvedAuthMode,
+    });
+  }
+
+  const pricing = previewGuestAddonPricing(serviceType, quantity, clientSlug);
+  const warnings = [...(pricing.warnings || [])];
+
+  const ci = booking.check_in ? new Date(booking.check_in) : null;
+  const co = booking.check_out ? new Date(booking.check_out) : null;
+  if (ci && co && (svcDate < ci || svcDate >= co)) {
+    warnings.push('service_date is outside the booking stay window — staff may need to confirm.');
+  }
+
+  const isMeal = serviceType === 'meal';
+  const isRecordOnly = isMeal || paymentChoice === 'record_only' || pricing.reason === 'meal_on_site_only';
+  const canPay = !isRecordOnly && pricing.payment_required && pricing.amount_due_cents != null && pricing.amount_due_cents > 0;
+
+  let nextAction;
+  if (isMeal) {
+    nextAction = 'ready_for_record_only';
+  } else if (!canPay && pricing.amount_due_cents == null) {
+    nextAction = 'handoff_to_staff';
+  } else if (canPay) {
+    nextAction = 'ready_for_addon_create_dry_run';
+  } else {
+    nextAction = 'ready_for_record_only';
+  }
+
+  let replyDraft;
+  if (nextAction === 'ready_for_record_only' && isMeal) {
+    replyDraft = `Got it — I'll note ${quantity} meal${quantity !== 1 ? 's' : ''} for ${serviceDate}. Meals are handled on site.`;
+  } else if (nextAction === 'ask_service_date') {
+    replyDraft = 'Which date would you like that for?';
+  } else if (nextAction === 'handoff_to_staff') {
+    replyDraft = "I'll have the team confirm that add-on and get back to you.";
+  } else if (canPay) {
+    const eur = (pricing.amount_due_cents / 100).toFixed(2);
+    replyDraft = `For ${serviceType.replace('_', ' ')} on ${serviceDate}, the total would be €${eur}. I can send a payment link when you're ready.`;
+  } else {
+    replyDraft = `I'll note your ${serviceType.replace('_', ' ')} request for ${serviceDate}.`;
+  }
+
+  const serviceRecordPreview = {
+    booking_id: booking.booking_id,
+    booking_code: booking.booking_code,
+    guest_name: booking.guest_name,
+    guest_phone: guestPhone,
+    service_type: serviceType,
+    service_date: serviceDate,
+    quantity,
+    status: isMeal ? 'confirmed' : 'confirmed',
+    payment_status: isMeal ? 'not_requested' : (canPay ? 'pending' : 'not_requested'),
+    amount_due_cents: isMeal ? 0 : (pricing.amount_due_cents ?? 0),
+    source,
+    metadata: {
+      pricing_addon_code: pricing.pricing_addon_code,
+      payment_choice: paymentChoice,
+      needs_scheduling: serviceType === 'yoga' || serviceType === 'surf_lesson',
+      ...(serviceType === 'wetsuit' || serviceType === 'surfboard' ? { rental_days: quantity } : {}),
+    },
+  };
+
+  let paymentPreview = null;
+  if (canPay) {
+    paymentPreview = {
+      payment_kind: 'addon_service',
+      currency: 'EUR',
+      amount_due_cents: pricing.amount_due_cents,
+      payment_required: true,
+      would_create_payment: true,
+      would_create_stripe_link: true,
+      metadata_source: 'luna_guest_addon',
+    };
+  } else if (isMeal) {
+    paymentPreview = {
+      payment_required: false,
+      reason: 'meal_on_site_only',
+      would_create_payment: false,
+      would_create_stripe_link: false,
+    };
+  } else {
+    paymentPreview = {
+      payment_required: false,
+      would_create_payment: false,
+      would_create_stripe_link: false,
+      ...(pricing.reason ? { reason: pricing.reason } : {}),
+    };
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts: new Date().toISOString(),
+    intent: 'api:bot_addon_request_preview',
+    category: 'bot_addon_request_preview',
+    preview_only: true,
+    no_write_performed: true,
+    creates_service_record: false,
+    creates_payment: false,
+    creates_stripe_link: false,
+    sends_whatsapp: false,
+    success: true,
+    client_slug: clientSlug,
+    booking_code: bookingCode,
+    service_type: serviceType,
+    service_date: serviceDate,
+    quantity,
+    next_action: nextAction,
+    elapsed_ms: elapsed,
+    auth_mode: resolvedAuthMode,
+  });
+
+  return sendJSON(res, 200, {
+    success: true,
+    preview_only: true,
+    no_write_performed: true,
+    creates_service_record: false,
+    creates_payment: false,
+    creates_stripe_link: false,
+    sends_whatsapp: false,
+    client_slug: clientSlug,
+    booking_id: booking.booking_id,
+    booking_code: booking.booking_code,
+    guest_name: booking.guest_name,
+    guest_phone: guestPhone,
+    service_type: serviceType,
+    service_date: serviceDate,
+    quantity,
+    payment_choice: paymentChoice,
+    source,
+    auth_mode: resolvedAuthMode,
+    next_action: nextAction,
+    reply_draft: replyDraft,
+    service_record_preview: serviceRecordPreview,
+    payment_preview: paymentPreview,
+    pricing_addon_code: pricing.pricing_addon_code || null,
+    unit_cents: pricing.unit_cents ?? null,
+    amount_due_cents: pricing.amount_due_cents ?? null,
+    warnings,
+    elapsed_ms: elapsed,
+  });
+}
+
 // Route: POST /staff/bot/booking-preview  (Stage 8.5.2 — Luna bot bridge)
 //
 // Receives parsed Luna/n8n booking details and returns a safe read-only preview:
@@ -9750,6 +10170,19 @@ async function router(req, res) {
     return handleBotAvailabilityCheck(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Stage 8.8.25 — Luna bot guest add-on request preview (dry-run) ─────────
+  // POST /staff/bot/addon-request-preview
+  // Validates booking/service/date/qty; returns previews only — no writes.
+  if (pathname === '/staff/bot/addon-request-preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/addon-request-preview' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotAddonRequestPreview(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.5.4 — Luna bot booking create (shared engine, BOT_BOOKING_ENABLED gate) ──
   // POST — creates booking + booking_beds + draft payment via shared SQL/quote path.
   // No Stripe. No WhatsApp. No n8n. Bot token auth (requireBotAuth).
@@ -9940,6 +10373,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/availability-check      <- 8.5.8 Luna bot availability check (read-only, no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/addon-request-preview  <- 8.8.25 Luna bot guest add-on preview (dry-run, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
