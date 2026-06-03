@@ -26,7 +26,7 @@
 |------|-------|
 | Staff Portal | `https://staff-staging.lunafrontdesk.com` |
 | Login | Company: `wolfhouse-somo` · Email: `admin.stage72c@example.test` · Password: see comment in [`scripts/fixtures/stage7.2c-auth-seed.sql`](../scripts/fixtures/stage7.2c-auth-seed.sql) |
-| Staff API revision (8.7.9) | `wh-staging-staff-api--0000025` |
+| Staff API revision | `wh-staging-staff-api--0000030` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
 | Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** |
@@ -296,6 +296,34 @@
 | Auto-select | **PASS** | Top conversation selected when filtered list has rows |
 | Empty state | **PASS** | “No conversations need staff review right now.” |
 | Safety | **PASS** | Client-side filter on `/staff/conversations`; no `/staff/handoffs` UI fetch; no WhatsApp/n8n/Stripe |
+
+---
+
+## Final full staging demo rehearsal — Stage 8.7.22 (2026-06-03)
+
+**Result:** **PASS** — full demo script on `--0000030` after parse fix (8.7.20/8.7.21) and UI cleanup batch.
+
+| Area | Result | Notes |
+|------|--------|-------|
+| Console | **PASS** | No SyntaxError / Unexpected token; no `switchToTab`/`alAsk` ReferenceErrors |
+| Today → Needs Human | **PASS** | Inbox tab + **Needs human** filter active |
+| Today → Open Conversations | **PASS** | Inbox tab + **All conversations** filter |
+| Today → Bed Calendar | **PASS** | Bed Calendar tab active |
+| Inbox auto-select | **PASS** | Top conversation selected on load |
+| Inbox filters | **PASS** | Needs human **1** / All **3** |
+| Bed Calendar auto-load | **PASS** | Next 30 days; grid rendered |
+| Cell select/deselect | **PASS** | Empty cell toggles selection + panel |
+| Manual booking layout | **PASS** | `.bk-compact-grid`, `.bk-notes-block`, qty-only add-ons |
+| Golden booking drawer | **PASS** | `MB-WOLFHO-20260801-4f10c3` · Deposit paid ✓ · 5 nights · €100 paid / €150 balance |
+| Drawer cleanup | **PASS** | No Guest/Stay headings; no duplicate ctx-bed-row; `.ctx-pay-box` |
+| Luna confirmation draft | **PASS** | Panel visible · DEMO-R1 · 2684# · sends_whatsapp:false |
+| Luna · who owes | **PASS** | `payments.balance_due` · 4 rows |
+| Luna · departures | **PASS** | `departures_today` · 0 rows (expected for demo date) |
+| Luna · cleaning | **PASS** | `rooms_or_beds_need_cleaning` · 0 rows |
+| Tour Operator | **PASS** | Start/end + room select; Create/Preview/Release disabled |
+| Safety | **PASS** | No graph.facebook.com / n8n / Stripe from UI session; no live send |
+
+**Demo-ready:** Core path (Today → Inbox → Bed Calendar golden drawer → Luna ×3 → Tour Operator skeleton) is reliable on staging for Ale/Cami shadow demo.
 
 ---
 
