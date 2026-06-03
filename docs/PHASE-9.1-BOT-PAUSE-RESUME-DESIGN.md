@@ -131,9 +131,9 @@ Before any **automated guest reply** (preview, booking, add-on, confirmation —
 | Phase | Scope | Delivers |
 |-------|-------|----------|
 | **9.1** | Bot pause/resume design | **This doc** — PASS |
-| **9.2** | Pause/resume schema/API spec | Migration spec + static verifier; endpoint contract |
-| **9.3** | Inbox paused status display | UI reads pause state; badge + detail (read-only or mock) |
-| **9.4** | Gated pause/resume API | `POST /staff/conversations/:id/pause-luna` / `resume-luna`; flags gated |
+| **9.2** | Pause/resume schema/API spec | Migration + endpoint contract — [PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md](PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md) — **PASS** |
+| **9.3** | Inbox paused status display | UI reads pause state; badge + detail (read-only or mock) — **next** |
+| **9.4** | Gated pause/resume API | `GET/POST /staff/bot/pause-state|pause|resume`; flags gated |
 | **9.5** | Hosted pause/resume proof | Staging proof; no live WhatsApp |
 | **9.6** | n8n dry-run respects pause | Inactive workflow checks pause; returns `bot_paused:true` |
 
@@ -156,4 +156,4 @@ Before any **automated guest reply** (preview, booking, add-on, confirmation —
 
 Stage 8 delivered the platform this design builds on. See [PROJECT-STATE.md](PROJECT-STATE.md) Stage 8 closeout and [STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md) §13.
 
-**Live WhatsApp:** **NO_GO**. **Guest booking WhatsApp:** not fully live. **Next control slice:** Phase 9.2.
+**Live WhatsApp:** **NO_GO**. **Guest booking WhatsApp:** not fully live. **Next:** Phase 9.2 schema/API spec — [PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md](PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md) (PASS). Phase 9.3 Inbox display next.
