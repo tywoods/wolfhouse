@@ -283,6 +283,22 @@
 
 ---
 
+## Inbox filter — Stage 8.7.13 (2026-06-03, not yet deployed)
+
+**Result:** **PASS** — Needs Human is an Inbox filter, not a separate page.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Nav labels | **PASS** | Unchanged: Today · Inbox · Bed Calendar · Luna · Tour Operator · Developer Tools |
+| Today → Needs Human | **PASS** | Switches to Inbox tab + **Needs human** filter (no separate sub-page) |
+| Filter controls | **PASS** | **All conversations** · **Needs human** chips in Inbox toolbar |
+| Layout | **PASS** | Single `inbox-two-col` — no `hq-list` / `hq-right` duplicate |
+| Auto-select | **PASS** | Top conversation selected when filtered list has rows |
+| Empty state | **PASS** | “No conversations need staff review right now.” |
+| Safety | **PASS** | Client-side filter on `/staff/conversations`; no `/staff/handoffs` UI fetch; no WhatsApp/n8n/Stripe |
+
+---
+
 ## Pre-demo checklist (5 min before call)
 
 - [ ] Staff Portal login works

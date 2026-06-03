@@ -286,38 +286,39 @@ check(/7\.7f|Stage 7\.7f/i.test(htmlSrc), 'Stage 7.7f label in HTML');
 
 // ── Stage 7.7f — Handoff queue checks ─────────────────────────────────────
 
-// 45. Conversations sub-tabs present
-check(/sub-tab|subtab-inbox|subtab-handoffs/i.test(htmlSrc),
-  'Conversations sub-tab structure present (sub-tab, subtab-inbox, subtab-handoffs)');
+// 45. Inbox filter controls (Stage 8.7.13 — no separate Needs Human sub-page)
+check(/inbox-filter-btn|data-inbox-filter/i.test(htmlSrc) &&
+      /All conversations/i.test(htmlSrc) &&
+      /Needs human/i.test(htmlSrc),
+  'Inbox filter controls present (All conversations / Needs human) (Stage 8.7.13)');
 
-// 46. Needs Human / Handoffs sub-tab button
-check(/Needs Human|Handoffs/i.test(htmlSrc) && /sub-tab/i.test(htmlSrc),
-  '"Needs Human" handoff sub-tab button present');
+// 46. No separate Needs Human sub-tab / sub-panel page
+check(!/subtab-handoffs|id="hq-list"|id="hq-right"|id="hq-detail-content"/i.test(htmlSrc),
+  'Separate Needs Human sub-page removed (no subtab-handoffs / hq-list / hq-right) (Stage 8.7.13)');
 
-// 47. Handoff queue list element (now uses hq-list / handoff-card — no longer hq-table/hq-tbody)
-check(/handoff-card|hq-list/i.test(htmlSrc),
-  'Handoff queue card/list element present (handoff-card / hq-list) (updated 8.3y)');
+// 47. Single conversation list (conv-list) for filtered inbox
+check(/id="conv-list"/.test(htmlSrc) && /inbox-two-col/.test(htmlSrc),
+  'Needs-human filter uses same inbox-two-col + conv-list layout (Stage 8.7.13)');
 
-// 48. fetch('/staff/handoffs') call present
-check(/fetch\s*\([^)]*\/staff\/handoffs/.test(htmlSrc) ||
-      /\/staff\/handoffs/.test(htmlSrc),
-  "fetch('/staff/handoffs') call present in handoff queue loader");
+// 48. Inbox filters conversations client-side — no separate /staff/handoffs fetch in UI
+check(!/fetch\s*\([^)]*\/staff\/handoffs/.test(htmlSrc),
+  'No fetch("/staff/handoffs") in inbox UI — filter uses /staff/conversations data (Stage 8.7.13)');
 
-// 49. Needs Human empty state message (updated 8.3y: friendlier wording)
-check(/No conversations need staff review|No open handoffs/i.test(htmlSrc),
-  'Needs Human empty state message present (updated 8.3y)');
+// 49. Needs Human empty state message
+check(/No conversations need staff review right now/i.test(htmlSrc),
+  'Needs Human empty state message present (Stage 8.7.13)');
 
-// 50. READ-ONLY HANDOFF QUEUE label
+// 50. READ-ONLY HANDOFF QUEUE label (shown on needs-human filter)
 check(/READ-ONLY HANDOFF QUEUE/i.test(htmlSrc),
-  'READ-ONLY HANDOFF QUEUE label present');
+  'READ-ONLY HANDOFF QUEUE label present (Stage 8.7.13)');
 
 // 51. Resolve disabled notice
 check(/Resolve actions are disabled|resolve.*disabled.*UI|disabled.*resolve/i.test(htmlSrc),
-  'Resolve-disabled notice present in handoff queue UI');
+  'Resolve-disabled notice present in inbox filter UI (Stage 8.7.13)');
 
-// 52. timeSince / time-since rendering logic
-check(/timeSince|time.*since.*open|since.*opened/i.test(htmlSrc),
-  'Time-since-opened rendering logic present (timeSince function)');
+// 52. timeSince removed with handoff sub-page (Stage 8.7.13) — optional legacy helper not required
+check(!/hq-table|hq-tbody/i.test(htmlSrc),
+  'Legacy hq-table/hq-tbody handoff table absent (Stage 8.7.13)');
 
 // ── Stage 8.2 — Dashboard polish checks ───────────────────────────────────
 
@@ -386,19 +387,19 @@ check(/handoffLabel\s*\(/.test(htmlSrc),
 
 // ── Stage 8.3y — Needs Human two-column + detail cleanup ─────────────────
 
-// 67. Needs Human two-column layout elements present
-check(/hq-right|hq-list|hq-detail-content/i.test(htmlSrc),
-  'Needs Human two-column layout elements present (hq-right / hq-list) (Stage 8.3y)');
+// 67. Single Inbox two-column layout (no duplicate hq-right panel)
+check(/inbox-two-col/.test(htmlSrc) && /id="conv-detail"/.test(htmlSrc) &&
+      !/id="hq-right"|id="hq-detail-content"/i.test(htmlSrc),
+  'Single inbox-two-col layout — no duplicate Needs Human right panel (Stage 8.7.13)');
 
-// 68. Needs Human uses conv-card layout via renderHandoffQueue
-check(/renderHandoffQueue/.test(htmlSrc) && /conv-card/.test(htmlSrc),
-  'Needs Human uses conv-card layout via renderHandoffQueue (Stage 8.3y)');
+// 68. setInboxFilter + conversationNeedsHuman filter helpers present
+check(/function setInboxFilter/.test(htmlSrc) && /function conversationNeedsHuman/.test(htmlSrc),
+  'setInboxFilter() and conversationNeedsHuman() present (Stage 8.7.13)');
 
-// 69. handoffLabel() reused in renderHandoffQueue for friendly Needs Human labels
-const nhFnMatch = htmlSrc.match(/function renderHandoffQueue\(handoffs\)([\s\S]*?)^\}/m);
-const nhFnSrc = nhFnMatch ? nhFnMatch[0] : '';
-check(nhFnSrc.includes('handoffLabel'),
-  'handoffLabel() called inside renderHandoffQueue (Stage 8.3y)');
+// 69. Needs Human filter reuses renderInbox + handoffLabel (not separate renderHandoffQueue page)
+check(!/function renderHandoffQueue/.test(htmlSrc) &&
+      /function renderInbox/.test(htmlSrc) && /handoffLabel\s*\(/.test(htmlSrc),
+  'Needs Human filter uses renderInbox + handoffLabel (no renderHandoffQueue page) (Stage 8.7.13)');
 
 // 70. reason_code not directly passed to escHtml in list templates (goes via handoffLabel)
 check(!/escHtml\s*\(\s*[a-z]+\.reason_code/i.test(htmlSrc),
@@ -434,6 +435,29 @@ check(/function fmtDateOnly/.test(htmlSrc),
 // 77. Signout functionality present
 check(/signout|logout|sign-out|log-out/i.test(htmlSrc),
   'Signout functionality present (Stage 8.3y)');
+
+// ── Stage 8.7.13 — Needs Human as Inbox filter ────────────────────────────
+
+// 78. Today Needs Human tile applies inbox filter (not separate page reload)
+check(/switchToTab\s*\(\s*['"]conversations['"]\s*,\s*['"]handoffs['"]\s*\)/.test(htmlSrc) &&
+      /setInboxFilter\s*\(\s*['"]needs-human['"]\s*\)/.test(htmlSrc),
+  'Today Needs Human → switchToTab + setInboxFilter(needs-human) (Stage 8.7.13)');
+
+// 79. Auto-select top conversation after inbox render
+check(/Auto-select top conversation|pickId|convs\[0\]\.conversation_id/.test(htmlSrc),
+  'Top conversation auto-select logic in renderInbox (Stage 8.7.13)');
+
+// 80. No bot pause/resume controls added
+check(!/pause.*bot|resume.*bot|bot.*pause|bot.*resume/i.test(htmlSrc.replace(/bot_mode|modePill|PAUSED/g, '')),
+  'No bot pause/resume controls added (Stage 8.7.13)');
+
+// 81. Safety — no WhatsApp / n8n / Stripe in conversation UI
+check(!/graph\.facebook\.com/.test(htmlSrc),
+  'Conversation UI has no graph.facebook.com (Stage 8.7.13)');
+check(!/api\.stripe\.com/.test(htmlSrc),
+  'Conversation UI has no api.stripe.com (Stage 8.7.13)');
+check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(htmlSrc)),
+  'Conversation UI has no n8n URL fetch (Stage 8.7.13)');
 
 // ─────────────────────────────────────────────────────────────────────────────
 

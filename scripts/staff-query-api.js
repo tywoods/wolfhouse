@@ -3690,7 +3690,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* Preserve helper classes used in detail JS */
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
-#conv-detail,#hq-right{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
+#conv-detail{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
 .detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
@@ -3738,19 +3738,16 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .shadow-checklist-steps{margin:0;padding-left:18px;font-size:12px;color:var(--text);line-height:1.75}
 .shadow-checklist-gate{color:#9C5742;font-size:11px;margin-top:5px}
 .draft-instructions{font-size:12px;color:var(--text-2);margin-bottom:10px;font-style:italic}
-/* ── Conversations sub-tabs ──────────────────────────────────────────────── */
-#conv-subtabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;background:transparent;padding:0 4px}
-.sub-tab{padding:11px 18px;font-size:12.5px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .15s,border-color .15s}
-.sub-tab:hover{color:var(--text)}
-.sub-tab.active{color:var(--primary);border-bottom-color:var(--sage)}
-.sub-tab .hq-count{background:#9C5742;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:var(--radius-pill);margin-left:6px;display:none}
-.sub-tab .hq-count.visible{display:inline}
-.sub-panel{display:none}
-.sub-panel.active{display:block}
-/* ── Handoff queue ───────────────────────────────────────────────────────── */
-.hq-note{font-size:11.5px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;line-height:1.5}
-/* .hq-table removed — Needs Human now uses same conv-card layout as Inbox */
-.hq-ro-label{font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--text-2);background:var(--sand);padding:3px 9px;border-radius:var(--radius-pill);margin-left:8px}
+/* ── Inbox filter chips (Stage 8.7.13 — Needs Human as Inbox filter) ─────── */
+.inbox-filters{display:flex;gap:4px;width:100%;flex-wrap:wrap}
+.inbox-filter-btn{padding:5px 11px;font-size:11.5px;font-weight:600;color:var(--text-2);border:1px solid var(--border-soft);border-radius:var(--radius-pill);background:var(--surface);cursor:pointer;transition:background .14s,color .14s,border-color .14s}
+.inbox-filter-btn:hover{color:var(--text);border-color:var(--border)}
+.inbox-filter-btn.active{color:var(--primary);background:var(--teal);border-color:var(--sage)}
+.inbox-filter-btn .hq-count{background:#9C5742;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:var(--radius-pill);margin-left:6px;display:none}
+.inbox-filter-btn .hq-count.visible{display:inline}
+.inbox-ro-note{font-size:11px;color:var(--text-3);padding:6px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface-soft);display:none;line-height:1.45}
+.inbox-ro-note.visible{display:block}
+.inbox-ro-note .hq-ro-label{font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--text-2);background:var(--sand);padding:3px 9px;border-radius:var(--radius-pill);margin-left:6px}
 .since{font-size:11px;color:#A2743D;font-weight:600}
 .since.stale{color:#9C5742}
 /* ── Sidebar cards ───────────────────────────────────────────────────────── */
@@ -4032,24 +4029,21 @@ textarea.bk-input{resize:vertical;min-height:60px}
 <div id="tab-conversations" class="tab-panel">
 <div id="wrap">
 
-  <!-- Conversations sub-tab nav -->
-  <div id="conv-subtabs">
-    <button class="sub-tab active" data-subtab="inbox">Inbox</button>
-    <button class="sub-tab" data-subtab="handoffs">Needs Human <span class="hq-count" id="hq-badge">0</span></button>
-  </div>
-
-  <!-- Sub-panel: Inbox (WhatsApp Web two-column layout) -->
-  <div class="sub-panel active" id="subtab-inbox">
   <div class="inbox-two-col">
 
-    <!-- LEFT: conversation list -->
+    <!-- LEFT: conversation list + filters -->
     <div class="inbox-left" id="inbox-card">
       <div class="inbox-left-toolbar">
         <h2>Inbox</h2>
+        <div class="inbox-filters">
+          <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all">All conversations</button>
+          <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human">Needs human <span class="hq-count" id="hq-badge">0</span></button>
+        </div>
         <span id="inbox-count" style="font-size:11px;color:var(--text-3)"></span>
         <button class="btn btn-primary" id="btn-refresh" style="padding:6px 12px;font-size:11px">&#8635;</button>
         <input id="c-client" value="wolfhouse-somo" title="Company slug" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">
       </div>
+      <div id="inbox-ro-note" class="inbox-ro-note">Resolve actions are disabled &mdash; read-only view. <span class="hq-ro-label">READ-ONLY HANDOFF QUEUE</span></div>
       <div id="inbox-state" class="state-msg" style="padding:16px;display:none">Loading conversations&hellip;</div>
       <div id="conv-list"></div>
     </div>
@@ -4065,36 +4059,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
     </div>
 
   </div><!-- /inbox-two-col -->
-  </div><!-- /subtab-inbox -->
-
-  <!-- Sub-panel: Needs Human (same two-column layout as Inbox, filtered to needs-human) -->
-  <div class="sub-panel" id="subtab-handoffs">
-  <div class="inbox-two-col">
-
-    <!-- LEFT: needs-human conversation cards -->
-    <div class="inbox-left" id="handoff-card">
-      <div class="inbox-left-toolbar">
-        <h2>Needs Human</h2>
-        <span id="hq-count-txt" style="font-size:11px;color:var(--text-3)"></span>
-        <button class="btn btn-primary" id="btn-refresh-hq" style="padding:6px 12px;font-size:11px">&#8635;</button>
-      </div>
-      <div class="hq-note" style="padding:8px 14px;font-size:11px;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)">Resolve actions are disabled &mdash; read-only view. <span class="hq-ro-label">READ-ONLY HANDOFF QUEUE</span></div>
-      <div id="hq-state" class="state-msg" style="padding:16px;display:none">Loading&hellip;</div>
-      <div id="hq-list"></div>
-    </div>
-
-    <!-- RIGHT: conversation detail for selected needs-human conversation -->
-    <div id="hq-right">
-      <div id="hq-detail-content">
-        <div class="inbox-empty-right">
-          <p class="main-msg">Select a conversation to review.</p>
-          <p class="sub-msg">Luna drafts and booking context will appear here.</p>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- /inbox-two-col -->
-  </div><!-- /subtab-handoffs -->
 
 </div><!-- /wrap -->
 </div><!-- /tab-conversations -->
@@ -4777,13 +4741,9 @@ function switchToTab(tab, subtab){
   if (btn) btn.classList.add('active');
   var panel = el('tab-' + tab);
   if (panel) panel.classList.add('active');
-  if (subtab){
-    document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
-    document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
-    var stab = document.querySelector('.sub-tab[data-subtab="' + subtab + '"]');
-    if (stab) stab.classList.add('active');
-    var spanel = el('subtab-' + subtab);
-    if (spanel) spanel.classList.add('active');
+  if (tab === 'conversations' && subtab){
+    if (subtab === 'handoffs') setInboxFilter('needs-human');
+    else if (subtab === 'inbox') setInboxFilter('all');
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
 }
@@ -4811,6 +4771,38 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
    ═══════════════════════════════════════════════════════════════════════════ */
 
 var selectedConvId = null;
+var inboxFilter = 'all'; /* 'all' | 'needs-human' — Stage 8.7.13 */
+var inboxConversationsCache = null;
+
+function conversationNeedsHuman(c){
+  return !!(c && c.needs_human);
+}
+
+function filterInboxConversations(convs){
+  if (inboxFilter === 'needs-human'){
+    return (convs || []).filter(conversationNeedsHuman);
+  }
+  return convs || [];
+}
+
+function updateInboxFilterUI(){
+  document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.inboxFilter === inboxFilter);
+  });
+  var roNote = el('inbox-ro-note');
+  if (roNote) roNote.classList.toggle('visible', inboxFilter === 'needs-human');
+}
+
+function setInboxFilter(mode){
+  inboxFilter = (mode === 'needs-human') ? 'needs-human' : 'all';
+  updateInboxFilterUI();
+  if (inboxConversationsCache) applyInboxFilter();
+  else loadInbox();
+}
+
+function applyInboxFilter(){
+  renderInbox(filterInboxConversations(inboxConversationsCache || []));
+}
 
 function getClient(){
   return (el('c-client').value || 'wolfhouse-somo').trim();
@@ -4857,11 +4849,19 @@ function handoffLabel(code){
 function renderInbox(convs){
   var list = el('conv-list');
   if (!convs || convs.length === 0){
-    el('inbox-state').textContent = 'No conversations need review right now.';
+    var emptyMsg = inboxFilter === 'needs-human'
+      ? 'No conversations need staff review right now.'
+      : 'No conversations need review right now.';
+    el('inbox-state').textContent = emptyMsg;
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
-    if (list) list.innerHTML = '<div class="conv-list-empty">No conversations need review right now.</div>';
+    if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
     el('inbox-count').textContent = '';
+    selectedConvId = null;
+    el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
+      '<p class="main-msg">Select a conversation to review.</p>' +
+      '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
+      '</div>';
     return;
   }
   el('inbox-state').style.display = 'none';
@@ -4886,6 +4886,21 @@ function renderInbox(convs){
         loadConvDetail(this.dataset.id);
       });
     });
+    /* Auto-select top conversation (or keep current if still in filtered list) */
+    var pickId = null;
+    if (selectedConvId && convs.some(function(c){ return c.conversation_id === selectedConvId; })){
+      pickId = selectedConvId;
+    } else {
+      pickId = convs[0].conversation_id;
+    }
+    if (pickId){
+      var pickCard = list.querySelector('.conv-card[data-id="' + pickId + '"]');
+      if (pickCard){
+        list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
+        pickCard.classList.add('selected');
+        loadConvDetail(pickId);
+      }
+    }
   }
 }
 
@@ -4917,7 +4932,11 @@ function loadInbox(){
     .then(function(data){
       if (!data) return;
       if (!data.success) throw new Error(data.error || 'API error');
-      renderInbox(data.conversations);
+      inboxConversationsCache = data.conversations || [];
+      var nhCount = inboxConversationsCache.filter(conversationNeedsHuman).length;
+      var badge = el('hq-badge');
+      if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
+      applyInboxFilter();
     })
     .catch(function(err){
       el('inbox-state').textContent = 'Error loading inbox: ' + err.message;
@@ -5160,139 +5179,21 @@ if (btnBack) {
 }
 
 /* Refresh button */
-el('btn-refresh').addEventListener('click', loadInbox);
+el('btn-refresh').addEventListener('click', function(){
+  inboxConversationsCache = null;
+  loadInbox();
+});
+
+/* Inbox filter chips (Stage 8.7.13) */
+document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    setInboxFilter(this.dataset.inboxFilter || 'all');
+  });
+});
+updateInboxFilterUI();
 
 /* Auto-load inbox on page load */
 loadInbox();
-
-/* ── Conversations sub-tabs ───────────────────────────────────────────────── */
-document.querySelectorAll('.sub-tab').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    document.querySelectorAll('.sub-tab').forEach(function(b){ b.classList.remove('active'); });
-    document.querySelectorAll('.sub-panel').forEach(function(p){ p.classList.remove('active'); });
-    this.classList.add('active');
-    el('subtab-' + this.dataset.subtab).classList.add('active');
-    if (this.dataset.subtab === 'handoffs' && !hqLoaded) loadHandoffQueue();
-  });
-});
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   HANDOFF QUEUE — Stage 7.7f
-   Fetches GET /staff/handoffs (open + needs_human_without_handoff rows).
-   Row click → opens linked conversation detail in Inbox sub-tab.
-   NO resolve button. NO write actions.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-var hqLoaded = false;
-
-/* Relative time with "stale" threshold */
-function timeSince(ts){
-  if (!ts) return '—';
-  try {
-    var ms = Date.now() - new Date(ts).getTime();
-    var h = Math.floor(ms/3600000);
-    var m = Math.floor((ms%3600000)/60000);
-    if (h >= 24) return Math.floor(h/24) + 'd ' + (h%24) + 'h';
-    if (h >= 1)  return h + 'h ' + m + 'm';
-    return m + 'm';
-  } catch(_){ return '?'; }
-}
-function isStale(ts){ return ts && (Date.now() - new Date(ts).getTime()) > 4*3600000; }
-
-/* Priority pill */
-function hqPriorityPill(p){
-  if (p === 'urgent') return '<span class="pill pill-red">URGENT</span>';
-  if (p === 'high')   return '<span class="pill pill-orange">HIGH</span>';
-  if (p === 'normal') return '<span class="pill pill-blue">NORMAL</span>';
-  return '<span class="pill pill-grey">' + escHtml(p||'—') + '</span>';
-}
-
-/* Render needs-human conversations as conv-cards (same style as Inbox) */
-function renderHandoffQueue(handoffs){
-  var list = el('hq-list');
-
-  if (!handoffs || handoffs.length === 0){
-    el('hq-state').textContent = 'No conversations need staff review right now.';
-    el('hq-state').classList.remove('error');
-    el('hq-state').style.display = 'block';
-    if (list) list.innerHTML = '';
-    el('hq-count-txt').textContent = '';
-    return;
-  }
-
-  el('hq-state').style.display = 'none';
-  el('hq-count-txt').textContent = handoffs.length + ' open' + (handoffs.length === 1 ? '' : 's');
-
-  /* Update badge */
-  var badge = el('hq-badge');
-  if (badge){ badge.textContent = handoffs.length; badge.classList.add('visible'); }
-
-  if (!list) return;
-  list.innerHTML = handoffs.map(function(h){
-    var label = h.reason_code ? handoffLabel(h.reason_code) : '';
-    return '<div class="conv-card" data-conv-id="' + escHtml(h.conversation_id||'') + '" data-hid="' + escHtml(h.handoff_id||'') + '">' +
-      '<div class="conv-card-name">' + escHtml(h.guest_name || '—') + '</div>' +
-      '<div class="conv-card-phone">' + escHtml(h.phone || '—') + '</div>' +
-      '<div class="conv-card-pills">' + hqPriorityPill(h.priority) + '</div>' +
-      (label ? '<div class="conv-card-handoff">' + escHtml(label) + '</div>' : '') +
-    '</div>';
-  }).join('');
-
-  list.querySelectorAll('.conv-card').forEach(function(card){
-    card.addEventListener('click', function(){
-      list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
-      this.classList.add('selected');
-      var convId = this.dataset.convId;
-      var detailEl = el('hq-detail-content');
-      if (convId && convId !== 'null' && convId !== ''){
-        loadConvDetail(convId, detailEl);
-      } else {
-        detailEl.innerHTML = '<div class="state-msg" style="color:#9aabb8">No conversation linked to this handoff yet.</div>';
-      }
-    });
-  });
-}
-
-/* Load needs-human handoff queue */
-function loadHandoffQueue(){
-  hqLoaded = true;
-  el('hq-state').textContent = 'Loading\u2026';
-  el('hq-state').classList.remove('error');
-  el('hq-state').style.display = 'block';
-  if (el('hq-list')) el('hq-list').innerHTML = '';
-  el('hq-count-txt').textContent = '';
-  /* Reset NH right panel to empty state */
-  el('hq-detail-content').innerHTML =
-    '<div class="inbox-empty-right">' +
-    '<p class="main-msg">Select a conversation to review.</p>' +
-    '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
-    '</div>';
-
-  fetch('/staff/handoffs?client=' + encodeURIComponent(getClient()))
-    .then(function(r){
-      if (r.status === 401){
-        el('hq-state').innerHTML = '\u26a0 Authentication required &mdash; please log in first.';
-        el('hq-state').classList.add('error');
-        return null;
-      }
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    })
-    .then(function(data){
-      if (!data) return;
-      if (!data.success) throw new Error(data.error || 'API error');
-      renderHandoffQueue(data.handoffs);
-    })
-    .catch(function(err){
-      el('hq-state').textContent = 'Error loading handoff queue: ' + err.message;
-      el('hq-state').classList.add('error');
-      el('hq-state').style.display = 'block';
-    });
-}
-
-el('btn-refresh-hq').addEventListener('click', function(){
-  hqLoaded = false; loadHandoffQueue();
-});
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ASK LUNA TAB — Stage 8.6.2
