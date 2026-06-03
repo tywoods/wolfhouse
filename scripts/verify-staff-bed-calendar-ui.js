@@ -215,9 +215,9 @@ check(/Booking Details/i.test(src),
 check(/h3.*Payments|h3.*Payment/i.test(src),
   'Payment(s) section heading present in drawer (Stage 7.7i / 8.3b)');
 
-// 35. Rooming/Beds merged into Stay section (Stage 8.3u — separate section removed)
-check(/h3.*Stay|Stay.*h3/i.test(src),
-  'Stay section (contains merged Room/Beds) present in drawer (Stage 7.7i / 8.3u)');
+// 35. Stay fields present without uppercase section label (Stage 8.7.6)
+check(/kvBC\('Check-in'/.test(src) && /kvBC\('Check-out'/.test(src),
+  'Stay check-in/out fields present in drawer (Stage 8.7.6)');
 
 // 36. Conversation section in drawer
 check(/h3.*Conversation/i.test(src),
@@ -318,15 +318,22 @@ check(/bed\.bed_code/.test(src),
 
 // ── Stage 8.3b — booking detail drawer cleanup ────────────────────────────
 
-// 59. Guest section heading present (Stage 8.3b)
-check(/h3.*Guest|Guest.*h3/i.test(src),
-  'Guest section heading present in drawer (Stage 8.3b)');
+// 59. Guest section label removed from drawer (Stage 8.7.6)
+(function checkNoGuestStayHeadings(){
+  const fnStart = src.indexOf('function renderBookingContextDrawer');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(!/<h3>Guest<\/h3>/.test(fnSrc),
+    'Guest section heading removed from drawer (Stage 8.7.6)');
+  check(!/<h3>Stay<\/h3>/.test(fnSrc),
+    'Stay section heading removed from drawer (Stage 8.7.6)');
+})();
 
-// 60. Stay section heading present (Stage 8.3b)
-check(/h3.*Stay|Stay.*h3/i.test(src),
-  'Stay section heading present in drawer (Stage 8.3b)');
+// 60. Guest fields still present in drawer (Stage 8.7.6)
+check(/kvBC\('Name'/.test(src) && /kvBC\('Phone'/.test(src),
+  'Guest name/phone fields still present in drawer (Stage 8.7.6)');
 
-// 61. Room / Beds merged into Stay section — no separate heading (Stage 8.3u)
+// 61. Room / Beds merged into stay block — no separate heading (Stage 8.3u)
 check(!/h3.*Room.*Beds|Room.*Beds.*h3/i.test(src),
   'Room / Beds section heading removed (merged into Stay in Stage 8.3u)');
 
@@ -338,9 +345,9 @@ check(/h3.*Payment|Payment.*h3/i.test(src),
 check(/h3.*Conversation.*Handoff|Conversation.*Handoff.*h3/i.test(src),
   'Conversation / Handoff section heading present in drawer (Stage 8.3b)');
 
-// 64. Nights calculation present (Stage 8.3b)
-check(/calcNights|night.*badge|ctx-nights/.test(src),
-  'Nights calculation / badge present in drawer (Stage 8.3b)');
+// 64. Nights badge in drawer header (Stage 8.7.6)
+check(/bc-detail-meta|bcDetailHeaderMetaHtml|ctx-nights-badge/.test(src),
+  'Nights badge wired to drawer header (Stage 8.7.6)');
 
 // 65. Balance label present (Stage 8.3b, updated 8.4.12: label renamed to "Balance due")
 check(/Remaining balance|Balance due/i.test(src),
@@ -1053,13 +1060,15 @@ check(/No Stripe link created/i.test(src),
     'Payment choice select (bk-payment-choice) has deposit/full/pay_on_arrival options (Stage 8.4.5)');
 })();
 
-// 188. Duplicate assignment rows fix: assigned_bed_codes row suppressed when detailed assignments exist
+// 188. Duplicate assignment detail rows removed (Stage 8.7.6)
 (function checkNoDuplicateBedRows(){
   const fnStart = src.indexOf('function renderBookingContextDrawer');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/rm\.assignments && rm\.assignments\.length > 0[\s\S]{0,80}assigned_bed_codes|assigned_bed_codes[\s\S]{0,300}rm\.assignments/.test(fnSrc),
-    'renderBookingContextDrawer suppresses simple bed_codes row when detailed assignments exist (Stage 8.4.5)');
+  check(/rm\.assignments\.map\(function\(a\)\{ return a\.bed_code/.test(fnSrc),
+    'renderBookingContextDrawer summarizes beds from assignments (Stage 8.7.6)');
+  check(!/ctx-bed-row/.test(fnSrc),
+    'renderBookingContextDrawer has no per-bed ctx-bed-row duplicates (Stage 8.7.6)');
 })();
 
 // 189. Create Manual Booking button element present in HTML (Stage 8.4.8 gates by flags)
@@ -1444,6 +1453,28 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '222: booking context API exposes metadata confirmation_draft (Stage 8.5.18)');
   check(/SELECT b\.metadata/.test(src),
     '222b: booking context loads bookings.metadata (Stage 8.5.18)');
+})();
+
+// ── Stage 8.7.6 — booking drawer layout cleanup ───────────────────────────
+(function(){
+  const fnStart = src.indexOf('function renderBookingContextDrawer');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const drawerFn = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+
+  check(/bc-detail-meta|updateBcDetailHeader|bcDetailHeaderMetaHtml/.test(src),
+    '223: drawer header meta holds status + nights (Stage 8.7.6)');
+  check(/grid-template-columns:\s*108px/.test(src),
+    '223b: payment rows use compact grid (not far-right flex) (Stage 8.7.6)');
+  check(!/justify-content:space-between/.test(src.slice(src.indexOf('.ctx-pay-row'), src.indexOf('.ctx-pay-row') + 200)),
+    '223c: ctx-pay-row no longer uses space-between (Stage 8.7.6)');
+  check(/ctx-luna-confirmation-draft|bc-luna-confirmation-draft/.test(drawerFn),
+    '223d: Luna confirmation draft panel still present (Stage 8.7.6)');
+  check(!/Send confirmation|send-confirmation|confirmation-send|bc-send-confirmation/i.test(drawerFn),
+    '223e: drawer still has no send button (Stage 8.7.6)');
+  check(!/graph\.facebook\.com/.test(drawerFn),
+    '223f: drawer has no graph.facebook.com (Stage 8.7.6)');
+  check(!(/fetch[\s\S]{0,120}n8n|n8n[\s\S]{0,120}fetch/.test(drawerFn)),
+    '223g: drawer makes no n8n calls (Stage 8.7.6)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

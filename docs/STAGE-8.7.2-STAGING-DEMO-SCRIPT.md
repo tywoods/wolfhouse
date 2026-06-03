@@ -58,9 +58,10 @@
 
 | Check | Expected |
 |-------|----------|
-| Banner | **Deposit paid ✓** (green) |
-| Totals | Paid **€100.00** · Balance **€150.00** (deposit path) |
+| Header | Booking code + **Deposit paid ✓** pill + **6 nights** (Stage 8.7.6 — no separate Guest/Stay headings) |
+| Totals | Paid **€100.00** · Balance **€150.00** (compact payment rows, left-aligned amounts) |
 | Payment row | **Paid ✓** · `paid_at` set · Stripe session/intent IDs · checkout URL copy |
+| Beds | Summary line only (e.g. **DEMO-R1-B1, DEMO-R1-B2**) — no duplicate per-bed rows |
 | Stripe | Test mode only; truth came from signed webhook (8.5.17) |
 
 **Luna confirmation draft — scroll to panel `#bc-luna-confirmation-draft`:**
@@ -210,6 +211,8 @@
 | Today → Bed Calendar | **PASS** | `bed-calendar` tab active |
 | Ask Luna button | **PASS** | `POST /staff/ask-luna` · `source:staff_portal` · `payments.balance_due` · **4 rows** |
 | Safety | **PASS** | No `graph.facebook.com`, no `api.stripe.com`, no n8n URLs; n8n workflows inactive; no live send |
+
+**Drawer layout (8.7.6 — deploy pending):** Header shows status + nights; Guest/Stay labels removed; bed assignments summarized; payment amounts compact. Redeploy Staff API before demo if still on `--0000023` without 8.7.6.
 
 ---
 

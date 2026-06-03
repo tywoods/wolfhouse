@@ -3798,6 +3798,8 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
+.bc-detail-title{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;font-size:16px;font-weight:700}
+.bc-detail-meta{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;font-weight:400}
 .bc-detail-note{font-size:11px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:9px 14px;margin-top:14px}
 /* ── Bed calendar shortcut chips (Stage 8.3a) ────────────────────────────── */
 .bc-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
@@ -3850,10 +3852,10 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-status-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center}
 .ctx-nights-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:var(--text-2);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-pill);padding:3px 10px}
 .ctx-pay-block{margin:8px 0}
-.ctx-pay-row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border-soft)}
+.ctx-pay-row{display:grid;grid-template-columns:108px minmax(0,1fr);gap:4px 10px;align-items:baseline;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border-soft)}
 .ctx-pay-row:last-child{border-bottom:none}
-.ctx-pay-label{color:var(--text-2);font-size:11px}
-.ctx-pay-amount{font-weight:600;color:var(--text)}
+.ctx-pay-label{color:var(--text-2);font-size:11px;text-align:left}
+.ctx-pay-amount{font-weight:600;color:var(--text);text-align:left;justify-self:start;max-width:100%}
 .ctx-pay-amount.owing{color:#9C5742}
 .ctx-pay-amount.paid{color:#5C7350}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
@@ -5516,6 +5518,7 @@ var BC_STRIPE_LINKS   = ${STRIPE_LINKS_ENABLED};
 var bcLastQuote = null;
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
 var bcLastPaymentId = null;
+var bcLastOpenedBlock = null;
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
 
@@ -6405,17 +6408,50 @@ function kvBC(k, v){
          '<span class="v">' + escHtml(String(v == null ? '\u2014' : v)) + '</span></div>';
 }
 
+function bcHeaderNights(start, end){
+  if (!start || !end) return null;
+  try {
+    var n = Math.round((new Date(end + 'T00:00:00Z') - new Date(start + 'T00:00:00Z')) / 86400000);
+    return n > 0 ? n : null;
+  } catch(_){ return null; }
+}
+function bcDrawerStatusPillCls(s){
+  var v = (s||'').toLowerCase().replace(/ /g,'_');
+  if (v === 'confirmed' || v === 'paid' || v === 'deposit_paid') return 'pill-green';
+  if (v === 'cancelled') return 'pill-grey';
+  if (v === 'needs_review' || v === 'needs_human') return 'pill-orange';
+  return 'pill-blue';
+}
+function bcDetailHeaderMetaHtml(blk, bk){
+  bk = bk || {};
+  blk = blk || {};
+  var html = '';
+  var bkPay = bk.payment_status || null;
+  if (bkPay === 'deposit_paid' || bkPay === 'paid'){
+    html += '<span class="pill pill-green">' + escHtml(bkPay === 'deposit_paid' ? 'Deposit paid \u2713' : 'Paid in full \u2713') + '</span>';
+  } else if (bk.status){
+    html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(String(bk.status).replace(/_/g,' ')) + '</span>';
+  } else if (blk.color_type){
+    var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',operator:'pill-blue',manual:'pill-blue'};
+    html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(String(blk.color_type).replace(/_/g,' ')) + '</span>';
+  }
+  var nights = bcHeaderNights(bk.check_in, bk.check_out) || bcHeaderNights(blk.start_date, blk.end_date);
+  if (nights) html += '<span class="ctx-nights-badge">' + nights + (nights === 1 ? ' night' : ' nights') + '</span>';
+  if (bk.needs_rooming_review) html += '<span class="pill pill-orange">Rooming review</span>';
+  return html;
+}
+function updateBcDetailHeader(data){
+  var meta = el('bc-detail-meta');
+  if (!meta) return;
+  meta.innerHTML = bcDetailHeaderMetaHtml(bcLastOpenedBlock, (data && data.booking) || {});
+}
+
 function showBlockDetail(blk){
   if (!blk) return;
-  /* Status pill for block color type */
-  var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',operator:'pill-blue',manual:'pill-blue'};
-  var pillCls = pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue';
-  var statusPill = blk.color_type
-    ? ' <span class="pill ' + pillCls + '" style="font-size:10px;vertical-align:middle">' + escHtml(blk.color_type.replace(/_/g,' ')) + '</span>'
-    : '';
+  bcLastOpenedBlock = blk;
   el('bc-detail').innerHTML =
-    '<div class="toolbar"><h2>' + escHtml(blk.booking_code||'\u2014') +
-    statusPill + '</h2>' +
+    '<div class="toolbar"><h2 class="bc-detail-title">' + escHtml(blk.booking_code||'\u2014') +
+    '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
     '<button class="btn btn-ghost" id="bc-close-detail">&times; Close</button></div>' +
     '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>' +
     '<div class="bc-detail-note">&#128274; Bed calendar is read-only \u2014 booking edits disabled until write gates approved.</div>';
@@ -6438,6 +6474,7 @@ function loadBlockDetail(bookingCode){
         return;
       }
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
+      updateBcDetailHeader(res.data);
       /* Wire "Open conversation" button */
       var btnConv = document.getElementById('bc-open-conv-btn');
       if (btnConv){
@@ -6467,13 +6504,6 @@ function renderBookingContextDrawer(data){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
     return '\u20ac' + (Number(cents) / 100).toFixed(2);
   };
-  var calcNights = function(ci, co){
-    if (!ci || !co) return null;
-    try {
-      var n = Math.round((new Date(co + 'T00:00:00Z') - new Date(ci + 'T00:00:00Z')) / 86400000);
-      return n > 0 ? n : null;
-    } catch(_){ return null; }
-  };
   var statusPillCls = function(s){
     var v = (s||'').toLowerCase().replace(/ /g,'_');
     if (v === 'confirmed' || v === 'paid') return 'pill-green';
@@ -6482,10 +6512,8 @@ function renderBookingContextDrawer(data){
     return 'pill-blue';
   };
 
-  var nights = calcNights(bk.check_in, bk.check_out);
-
-  /* ── 1. Guest ──────────────────────────────────────────────────────────── */
-  html += '<div class="ctx-section"><h3>Guest</h3>';
+  /* ── Guest (no section label — Stage 8.7.6) ─────────────────────────────── */
+  html += '<div class="ctx-section">';
   html += '<div class="kv-grid">';
   html += kvBC('Name',  bk.guest_name);
   html += kvBC('Phone', bk.phone);
@@ -6494,22 +6522,19 @@ function renderBookingContextDrawer(data){
   if (bk.booking_source && bk.booking_source !== 'manual_staff') html += kvBC('Source', bk.booking_source);
   html += '</div></div>';
 
-  /* ── 2. Stay ───────────────────────────────────────────────────────────── */
-  html += '<div class="ctx-section"><h3>Stay</h3>';
-  html += '<div class="ctx-status-row">';
-  if (bk.status)  html += '<span class="pill ' + statusPillCls(bk.status) + '">' + escHtml(bk.status.replace(/_/g,' ')) + '</span>';
-  if (nights)     html += '<span class="ctx-nights-badge">' + nights + (nights === 1 ? ' night' : ' nights') + '</span>';
-  if (bk.needs_rooming_review) html += '<span class="pill pill-orange">Rooming review</span>';
-  html += '</div>';
+  /* ── Stay details (no section label; status/nights in drawer header — 8.7.6) */
+  html += '<div class="ctx-section">';
   html += '<div class="kv-grid">';
   html += kvBC('Check-in',  bk.check_in);
   html += kvBC('Check-out', bk.check_out);
-  /* Room/Beds merged here — no separate duplicate section */
+  /* Room/Beds — summary only; no per-bed duplicate rows */
   var rm = data.rooming || {};
   if ((rm.assigned_room_codes||[]).length) html += kvBC('Room', (rm.assigned_room_codes||[]).join(', '));
   else if (bk.room_code)                  html += kvBC('Room', bk.room_code);
-  /* Show simple bed list only when no detailed assignments available (avoids duplicates) */
-  if (!(rm.assignments && rm.assignments.length > 0)){
+  if (rm.assignments && rm.assignments.length > 0){
+    var bedList = rm.assignments.map(function(a){ return a.bed_code; }).filter(Boolean);
+    if (bedList.length) html += kvBC('Beds', bedList.join(', '));
+  } else {
     if ((rm.assigned_bed_codes||[]).length) html += kvBC('Beds', (rm.assigned_bed_codes||[]).join(', '));
     else if (bk.bed_code)                   html += kvBC('Bed',  bk.bed_code);
   }
@@ -6518,20 +6543,7 @@ function renderBookingContextDrawer(data){
   if (bk.package_code) html += kvBC('Package', bk.package_code);
   var roomPref = bk.requested_room_type || bk.room_preference;
   if (roomPref) html += kvBC('Room pref', roomPref);
-  html += '</div>';
-  if (rm.assignments && rm.assignments.length > 0){
-    html += '<div style="margin-top:8px">';
-    rm.assignments.forEach(function(a){
-      html += '<div class="ctx-bed-row"><b>' +
-        escHtml(a.room_code||'\u2014') + ' / ' + escHtml(a.bed_code||'\u2014') +
-        '</b><span style="margin-left:8px;font-size:11px;color:var(--text-2)">' +
-        escHtml(a.assignment_start_date||'') + ' \u2192 ' + escHtml(a.assignment_end_date||'') + '</span>' +
-        (a.assignment_label ? '<em style="font-size:10px;margin-left:6px">' + escHtml(a.assignment_label) + '</em>' : '') +
-        '</div>';
-    });
-    html += '</div>';
-  }
-  html += '</div>';
+  html += '</div></div>';
 
   /* ── 4. Payment ────────────────────────────────────────────────────────── */
   /* Stage 8.4.12: full payment truth panel — shows webhook result, paid_at,
@@ -6579,19 +6591,12 @@ function renderBookingContextDrawer(data){
 
   html += '<div class="ctx-section"><h3>Payment</h3>';
 
-  /* ── 4a. Booking-level payment status banner ──────────────────────────── */
+  /* ── 4a. Booking-level payment status — header shows primary pill (8.7.6) ─ */
   var bkPayStatus = bk.payment_status || pmt.latest_status || null;
   var isDepositPaid = bkPayStatus === 'deposit_paid';
   var isFullyPaid   = bkPayStatus === 'paid';
-  var isLinkSent    = bkPayStatus === 'payment_link_sent' || bkPayStatus === 'waiting_payment';
 
-  if (isDepositPaid || isFullyPaid){
-    var bannerBg = '#DCEAD2'; var bannerFg = '#3d6130';
-    html += '<div style="padding:8px 10px;background:' + bannerBg + ';border-radius:6px;margin-bottom:8px;display:flex;align-items:center;gap:6px">' +
-      '<span style="font-size:15px">\u2713</span>' +
-      '<span style="font-size:12px;font-weight:600;color:' + bannerFg + '">' + escHtml(bkPayLabel(bkPayStatus)) + '</span>' +
-      '</div>';
-  } else if (bkPayStatus) {
+  if (!isDepositPaid && !isFullyPaid && bkPayStatus) {
     html += '<div class="ctx-status-row"><span class="pill ' + statusPillCls(bkPayStatus) + '">' + escHtml(bkPayLabel(bkPayStatus)) + '</span></div>';
   }
 
