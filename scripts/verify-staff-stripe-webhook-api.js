@@ -281,6 +281,38 @@ check('L1', 'appendAuditLog called in webhook handler',
 check('L2', 'Audit log records payment truth event',
   /webhook:stripe:payment_truth/.test(handlerSrc));
 
+// ─── M. Stage 8.5.14 — confirmation draft (dry-run, no send) ─────────────────
+console.log('\nM. Stage 8.5.14 — payment confirmation draft');
+
+check('M1', 'buildPaymentConfirmationDraft helper exists',
+  /function buildPaymentConfirmationDraft/.test(code));
+
+check('M2', 'confirmation_draft included in webhook success response',
+  /confirmation_draft\s*:/.test(handlerSrc));
+
+check('M3', 'confirmation_draft built for deposit_paid or paid status',
+  /buildPaymentConfirmationDraft/.test(handlerSrc) &&
+  /deposit_paid/.test(handlerSrc) &&
+  /['"]paid['"]/.test(handlerSrc));
+
+check('M4', 'confirmation_draft includes booking_code',
+  /booking_code\s*:/.test(code.slice(code.indexOf('function buildPaymentConfirmationDraft'), code.indexOf('function buildPaymentConfirmationDraft') + 1200)));
+
+check('M5', 'confirmation_draft sends_whatsapp:false',
+  /sends_whatsapp\s*:\s*false/.test(code.slice(code.indexOf('function buildPaymentConfirmationDraft'), code.indexOf('function buildPaymentConfirmationDraft') + 1200)));
+
+check('M6', 'confirmation_draft whatsapp_dry_run:true',
+  /whatsapp_dry_run\s*:\s*true/.test(code.slice(code.indexOf('function buildPaymentConfirmationDraft'), code.indexOf('function buildPaymentConfirmationDraft') + 1200)));
+
+check('M7', 'No graph.facebook.com in webhook handler',
+  !/graph\.facebook\.com/.test(handlerSrc));
+
+check('M8', 'No confirmation_sent_at write in webhook handler',
+  !(/UPDATE[\s\S]{0,2000}confirmation_sent_at/.test(handlerSrc)));
+
+check('M9', 'No n8n HTTP call in webhook handler',
+  !(/fetch\s*\([\s\S]{0,80}n8n|n8n[\s\S]{0,80}fetch\s*\(/.test(handlerSrc)));
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n──────────────────────────────────────────`);
 console.log(`verify-staff-stripe-webhook-api: ${pass} pass, ${fail} fail`);

@@ -537,6 +537,19 @@ Each slice is independently gated, independently provable, and does not depend o
 
 **Outcome:** Luna bot path booking → Staff API draft payment + Stripe checkout link → Stripe webhook → Postgres payment truth → Staff Portal drawer visibility. Same chain as manual booking (8.4.13), now proven for bot-created bookings. Test booking left on staging (disposable).
 
+### 8.5.14 - Luna payment confirmation draft after webhook truth - **PASS (2026-06-03)**
+**Goal:** After Stripe webhook records payment truth for Luna-created bookings, return a dry-run `confirmation_draft` in the webhook response — no WhatsApp send, no n8n, no `confirmation_sent` write.
+
+**Delivered:**
+- `buildPaymentConfirmationDraft()` added to `scripts/staff-query-api.js`.
+- Webhook success response includes `confirmation_draft` when `bookings.payment_status` becomes `deposit_paid` or `paid`.
+- Draft fields: `booking_code`, `guest_name`, `payment_status`, `amount_paid_cents`, `balance_due_cents`, `room_number` (`primary_room_code`), `address`/`gate_code` (from `config/clients/<slug>.baseline.json` when available; Wolfhouse gate `2684#`).
+- Safety: `sends_whatsapp:false`, `whatsapp_dry_run:true`; existing `no_whatsapp`/`no_n8n`/`no_confirmation_sent` flags unchanged.
+- Payment truth SQL/transaction logic unchanged. No `confirmation_sent_at` write. No `graph.facebook.com`. No n8n HTTP call.
+- `verify-staff-stripe-webhook-api.js` extended with M-series checks; **69/69 PASS**.
+
+**Not in this slice:** hosted re-fire on staging booking; live WhatsApp send (separate gate).
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)

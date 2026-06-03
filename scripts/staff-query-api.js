@@ -2091,7 +2091,39 @@ async function handleBotBookingPreview(req, res, user, authMode) {
 //   No WhatsApp. No email. No n8n. No confirmation send.
 //   No new Stripe checkout session created here.
 //   Booking status NOT changed to confirmed here (payment truth only slice).
+//   Stage 8.5.14: returns confirmation_draft (dry-run) when payment_status
+//   becomes deposit_paid or paid — no send, no confirmation_sent write.
 // ─────────────────────────────────────────────────────────────────────────────
+
+function loadClientConfirmationArrival(clientSlug) {
+  try {
+    const cfgPath = path.join(__dirname, '..', 'config', 'clients', `${clientSlug}.baseline.json`);
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    return {
+      gate_code:  cfg.confirmation?.gate_code || cfg.property?.gate_code || null,
+      address:    cfg.confirmation?.address   || cfg.property?.address   || null,
+    };
+  } catch (_) {
+    return { gate_code: null, address: null };
+  }
+}
+
+function buildPaymentConfirmationDraft(pm, bkPayStatus, bkPaidCents, bkBalanceCents) {
+  if (bkPayStatus !== 'deposit_paid' && bkPayStatus !== 'paid') return null;
+  const arrival = loadClientConfirmationArrival(pm.client_slug || DEFAULT_CLIENT);
+  return {
+    booking_code:      pm.booking_code,
+    guest_name:        pm.guest_name || null,
+    payment_status:    bkPayStatus,
+    amount_paid_cents: bkPaidCents,
+    balance_due_cents: bkBalanceCents,
+    room_number:       pm.primary_room_code || null,
+    address:           arrival.address || null,
+    gate_code:         arrival.gate_code || null,
+    sends_whatsapp:    false,
+    whatsapp_dry_run:  true,
+  };
+}
 
 async function handleStripeWebhook(req, res) {
   const started = Date.now();
@@ -2173,6 +2205,8 @@ async function handleStripeWebhook(req, res) {
                b.amount_paid_cents      AS bk_amount_paid,
                b.balance_due_cents      AS bk_balance,
                b.deposit_required_cents AS bk_deposit,
+               b.guest_name,
+               b.primary_room_code,
                cl.slug                  AS client_slug
           FROM payments p
           JOIN bookings b  ON b.id  = p.booking_id
@@ -2325,6 +2359,7 @@ async function handleStripeWebhook(req, res) {
     no_email:                  true,
     no_n8n:                    true,
     no_confirmation_sent:      true,
+    confirmation_draft:        buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance),
     elapsed_ms:                elapsed,
   });
 }
