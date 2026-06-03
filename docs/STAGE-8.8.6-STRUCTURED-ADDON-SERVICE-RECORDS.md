@@ -123,8 +123,9 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Spec** | **8.8.7** ✓ | Migration SQL spec only (no apply) | [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) + `verify-booking-service-records-schema.js` |
 | **Source CHECK** | **8.8.9** ✓ | `demo_fixture_stage888` allowed in 010 | Matches 8.8.8 demo fixture |
 | **Fixture** | **8.8.8** ✓ | Read-only demo seed (no apply) | [`booking-service-records-demo-up.sql`](../scripts/fixtures/booking-service-records-demo-up.sql) + down + verifier |
-| **Ask Luna** | **8.8.10** | Read-only intents + router | Apply 010 + fixture when approved |
-| **Portal display** | **8.8.10** | Read-only UI | Booking drawer section “Services & add-ons” from structured rows |
+| **Staging apply** | **8.8.10** ✓ | Migration 010 + demo fixture on staging DB | Applied 2026-06-03 to `wolfhouse_staging` only; 11 demo rows |
+| **Ask Luna** | **8.8.11+** | Read-only intents + router | Wire service queries against `booking_service_records` |
+| **Portal display** | later | Read-only UI | Booking drawer section “Services & add-ons” from structured rows |
 | **Staff writes** | later | Manual create/update/cancel | Gated behind `STAFF_ACTIONS_ENABLED`; persist from manual booking create |
 | **Guest Luna** | later | In-stay add-on requests | Bot creates `booking_service_records` with `source=luna_guest`; payment link + webhook |
 
@@ -144,18 +145,20 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 
 ---
 
-## 7. Current gap (staging `--0000034`)
+## 7. Staging state (after 8.8.10 apply, Staff API `--0000034`)
 
 | Item | State |
 |------|-------|
-| `booking_service_records` table | **Spec only** — [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) (8.8.7, **not applied**) |
-| Demo fixture | **Ready** — [`booking-service-records-demo-up.sql`](../scripts/fixtures/booking-service-records-demo-up.sql) (8.8.8, **not applied**) |
-| Manual booking create | Writes `quote_snapshot` add-ons in metadata only |
-| Ask Luna add-on questions | `unsupported_intent` + gap message (proven 8.8.3–8.8.5) |
-| Next slice | **8.8.10** — Ask Luna service intents (apply 010 + fixture first when approved) |
+| `booking_service_records` table | **Applied on staging** — [`010_booking_service_records.sql`](../database/migrations/010_booking_service_records.sql) on `wh-staging-pg-app` / `wolfhouse_staging` (2026-06-03). **Not applied to production.** |
+| Demo fixture | **Applied on staging** — 11 rows from [`booking-service-records-demo-up.sql`](../scripts/fixtures/booking-service-records-demo-up.sql); `client_slug=wolfhouse-somo`, `source=demo_fixture_stage888` |
+| Today rental totals (demo) | Wetsuit qty **3**, surfboard qty **4** (CURRENT_DATE at apply time) |
+| Payment mix (demo) | paid **6**, pending **3**, not_requested **2** |
+| Manual booking create | Writes `quote_snapshot` add-ons in metadata only — does not yet write this table |
+| Ask Luna add-on questions | Still `unsupported_intent` until service query intents wired (next slice) |
+| Next slice | **8.8.11+** — Ask Luna read-only service query intents |
 
 ---
 
-**Apply note (8.8.9):** Migration 010 `source` CHECK includes `demo_fixture_stage888` — no manual ALTER needed before fixture apply.
+**Apply proof (8.8.10):** Ty-approved staging-only apply via `node scripts/run-sql.js` + Key Vault `wolfhouse-database-url`. Static verifiers PASS pre-apply. No Staff API deploy / n8n / WhatsApp / Stripe / live send.
 
-**Next doc slice:** Stage 8.8.10 — Ask Luna read-only service query intents.
+**Next doc slice:** Ask Luna read-only service query intents against staging demo data.
