@@ -13,7 +13,7 @@
  *   F. Phone / secret hygiene
  *   G. Unauthorized branch handling
  *   H. Unsupported intent / dry-run reply handling
- *   I. WHATSAPP_DRY_RUN guard present
+ *   I. Dry-run guard (workflow JSON, no $env in IF)
  *   J. package.json script
  *
  * Exit code: 0 on PASS, 1 on FAIL.
@@ -273,25 +273,62 @@ if (!hasWhatsAppSendNodeByName) { pass('H5', 'no "Send WhatsApp" or "WhatsApp Me
 else { fail('H5', '"Send WhatsApp" or "WhatsApp Message" node found — live send risk'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('I. WHATSAPP_DRY_RUN guard');
+section('I. Dry-run guard (workflow JSON, no $env in IF)');
 
-if (wfStr.includes('WHATSAPP_DRY_RUN')) { pass('I1', 'WHATSAPP_DRY_RUN env guard present'); }
-else { fail('I1', 'WHATSAPP_DRY_RUN guard missing'); }
+const modeFlagsNode = (wf.nodes || []).find(n =>
+  (n.name || '').includes('DryRun Mode Flags')
+);
+if (modeFlagsNode) { pass('I1', 'dry-run mode flags node present: "' + modeFlagsNode.name + '"'); }
+else { fail('I1', 'Set/Code dry-run mode flags node missing before IF guard'); }
 
-// Guard is an IF node checking the env var
+if (modeFlagsNode) {
+  const modeStr = JSON.stringify(modeFlagsNode.parameters || {});
+  if (modeStr.includes('dry_run') && (modeStr.includes('true') || modeStr.includes('booleanValue": true'))) {
+    pass('I2', 'mode flags node sets dry_run:true');
+  } else {
+    fail('I2', 'mode flags node missing dry_run:true');
+  }
+  if (modeStr.includes('live_send_enabled') && (modeStr.includes('false') || modeStr.includes('booleanValue": false'))) {
+    pass('I3', 'mode flags node sets live_send_enabled:false');
+  } else {
+    fail('I3', 'mode flags node missing live_send_enabled:false');
+  }
+}
+
 const dryRunGuardNode = (wf.nodes || []).find(n =>
   n.type === 'n8n-nodes-base.if' &&
-  JSON.stringify(n.parameters || {}).includes('WHATSAPP_DRY_RUN')
+  (n.name || '').includes('DryRun Guard')
 );
-if (dryRunGuardNode) { pass('I2', 'WHATSAPP_DRY_RUN guard is an IF node: "' + dryRunGuardNode.name + '"'); }
-else { fail('I2', 'WHATSAPP_DRY_RUN not used in an IF node'); }
+if (dryRunGuardNode) { pass('I4', 'dry-run guard is an IF node: "' + dryRunGuardNode.name + '"'); }
+else { fail('I4', 'IF DryRun Guard node missing'); }
 
-// The guard false-branch leads to a "Disabled" response (not to the ask-luna call)
-const guardConnections = (wf.connections && wf.connections[dryRunGuardNode && dryRunGuardNode.name]) || {};
+if (dryRunGuardNode) {
+  const guardStr = JSON.stringify(dryRunGuardNode.parameters || {});
+  if (guardStr.includes('$json.dry_run') || guardStr.includes('dry_run')) {
+    pass('I5', 'IF guard checks workflow JSON dry_run flag');
+  } else {
+    fail('I5', 'IF guard does not check $json.dry_run');
+  }
+  if (guardStr.includes('$env.WHATSAPP_DRY_RUN') || guardStr.includes('$env')) {
+    fail('I6', '$env reference found in IF DryRun Guard — staging blocks env access');
+  } else {
+    pass('I6', 'no $env.WHATSAPP_DRY_RUN in IF DryRun Guard');
+  }
+}
+
+const ifNodes = (wf.nodes || []).filter(n => n.type === 'n8n-nodes-base.if');
+const ifWithEnv = ifNodes.filter(n => JSON.stringify(n.parameters || {}).includes('$env'));
+if (ifWithEnv.length === 0) { pass('I7', 'no $env references in any IF node expressions'); }
+else { fail('I7', '$env found in IF node(s): ' + ifWithEnv.map(n => n.name).join(', ')); }
+
+const guardConnections = (wf.connections && dryRunGuardNode && wf.connections[dryRunGuardNode.name]) || {};
 const falseBranchTargets = ((guardConnections.main || [])[1] || []).map(c => c.node);
 const falseBranchIsDisabled = falseBranchTargets.some(n => /disabled|blocked|guard/i.test(n));
-if (falseBranchIsDisabled) { pass('I3', 'WHATSAPP_DRY_RUN false-branch leads to disabled/blocked response'); }
-else { fail('I3', 'WHATSAPP_DRY_RUN false-branch target unclear: ' + falseBranchTargets.join(', ')); }
+if (falseBranchIsDisabled) { pass('I8', 'dry-run false-branch leads to disabled/blocked response'); }
+else { fail('I8', 'dry-run false-branch target unclear: ' + falseBranchTargets.join(', ')); }
+
+if (wf.active === false) { pass('I9', 'workflow active:false (guard slice)'); }
+else { fail('I9', 'workflow active is not false (got: ' + wf.active + ')'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('J. package.json script');

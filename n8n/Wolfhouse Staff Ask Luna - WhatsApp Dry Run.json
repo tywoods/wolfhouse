@@ -2,7 +2,7 @@
   "name": "Wolfhouse Staff Ask Luna - WhatsApp Dry Run",
   "active": false,
   "meta": {
-    "description": "Stage 8.6.3 dry-run workflow. INACTIVE / NOT IMPORTED into production n8n. Staff WhatsApp -> POST /staff/ask-luna (source:staff_whatsapp, phone allowlist auth) -> draft/log answer. No live WhatsApp send. No graph.facebook.com send node. No Stripe. No DB writes. Phone allowlist: config/clients/wolfhouse-somo.staff-whatsapp-allowlist.json. Unauthorized (403) -> logs 'not enabled' draft, no send. unsupported_intent -> logs suggestions, no send. WHATSAPP_DRY_RUN guard: must be true or workflow exits immediately.",
+    "description": "Stage 8.6.3 dry-run workflow. INACTIVE / NOT IMPORTED into production n8n. Staff WhatsApp -> POST /staff/ask-luna (source:staff_whatsapp, phone allowlist auth) -> draft/log answer. No live WhatsApp send. No graph.facebook.com send node. No Stripe. No DB writes. Phone allowlist: config/clients/wolfhouse-somo.staff-whatsapp-allowlist.json. Unauthorized (403) -> logs 'not enabled' draft, no send. unsupported_intent -> logs suggestions, no send. Dry-run guard: workflow JSON dry_run:true / live_send_enabled:false (no $env; staging blocks env access in node expressions).",
     "instanceId": "dry-run-stage863"
   },
   "nodes": [
@@ -20,6 +20,16 @@
       }
     },
     {
+      "id": "s1a",
+      "name": "Set - DryRun Mode Flags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "parameters": {
+        "jsCode": "// Stage 8.6.6 — workflow JSON dry-run flags (no $env; staging n8n blocks env in expressions)\nconst inbound = $input.first().json;\nreturn [{\n  json: {\n    ...inbound,\n    dry_run: true,\n    live_send_enabled: false\n  }\n}];"
+      }
+    },
+    {
       "id": "s2",
       "name": "IF - DryRun Guard",
       "type": "n8n-nodes-base.if",
@@ -31,9 +41,9 @@
           "conditions": [
             {
               "id": "dryrun-check",
-              "leftValue": "={{ $env.WHATSAPP_DRY_RUN }}",
-              "rightValue": "true",
-              "operator": { "type": "string", "operation": "equals" }
+              "leftValue": "={{ $json.dry_run }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
             }
           ],
           "combinator": "and"
@@ -48,7 +58,7 @@
       "position": [560, 480],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={ \"error\": \"dry_run_guard_blocked\", \"detail\": \"WHATSAPP_DRY_RUN is not true; refusing to run staff ask-luna dry-run\", \"whatsapp_sent\": false }"
+        "responseBody": "={ \"error\": \"dry_run_guard_blocked\", \"detail\": \"dry_run is not true; refusing to run staff ask-luna dry-run\", \"whatsapp_sent\": false }"
       }
     },
     {
@@ -173,6 +183,11 @@
   ],
   "connections": {
     "Webhook - Staff DryRun Trigger": {
+      "main": [
+        [{ "node": "Set - DryRun Mode Flags", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set - DryRun Mode Flags": {
       "main": [
         [{ "node": "IF - DryRun Guard", "type": "main", "index": 0 }]
       ]
