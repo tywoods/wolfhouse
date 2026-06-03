@@ -3945,6 +3945,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 /* Stage 8.3r — operator room release skeleton */
 .bc-rr-no-sel{font-size:11px;color:var(--text-3);font-style:italic;padding:4px 0 8px}
 .bc-rr-purpose{font-size:11px;color:var(--text-2);background:#f7f9fb;border-left:3px solid #b8ccd8;padding:8px 10px;border-radius:4px;margin-bottom:10px;line-height:1.5}
+.to-form-hint{font-size:11px;color:var(--text-3);font-style:italic;margin:2px 0 6px;max-width:480px;line-height:1.45}
 /* Stage 8.6.2 — Ask Luna panel */
 #al-wrap{max-width:720px;margin:0 auto;padding:26px 20px}
 .al-hero{background:linear-gradient(135deg,#EBF1E5 0%,#E3EEF4 100%);border:1px solid #C9D9BE;border-radius:var(--radius);padding:18px 22px;margin-bottom:24px;display:flex;align-items:flex-start;gap:14px}
@@ -4427,73 +4428,25 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
-    <!-- Section: Block Dates & Rooms -->
+    <!-- Section: Block Dates &amp; Rooms (Stage 8.7.17 — simplified) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Block Dates &amp; Rooms</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-cin">Check-in</label>
+        <label class="bk-label" for="to-op-cin">Start date</label>
         <input type="date" id="to-op-cin" class="bk-input bk-input-sm bc-date-input">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-cout">Check-out</label>
+        <label class="bk-label" for="to-op-cout">End date</label>
         <input type="date" id="to-op-cout" class="bk-input bk-input-sm bc-date-input">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-nights">Nights</label>
-        <input type="number" id="to-op-nights" class="bk-input bk-input-sm" min="1">
-      </div>
-      <div class="bk-form-row">
         <label class="bk-label" for="to-op-room">Room</label>
-        <input type="text" id="to-op-room" class="bk-input bk-input-sm" placeholder="e.g. DEMO-R1">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="to-op-bed">Bed(s)</label>
-        <input type="text" id="to-op-bed" class="bk-input bk-input-sm" placeholder="e.g. DEMO-R1-B1 or whole room">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="to-op-block-type">Block type</label>
-        <select id="to-op-block-type" class="bk-input bk-input-sm">
-          <option value="selected_beds">Selected beds</option>
-          <option value="whole_room">Whole room</option>
+        <select id="to-op-room" class="bk-input bk-input-sm">
+          <option value="">— select room —</option>
+          <option value="" disabled>Load Bed Calendar for room list</option>
         </select>
       </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="to-op-guest-count">Est. guest count</label>
-        <input type="number" id="to-op-guest-count" class="bk-input bk-input-sm" placeholder="0" min="0">
-      </div>
-    </div>
-
-    <!-- Section: Block Defaults (locked) -->
-    <div class="bk-form-section">
-      <div class="bk-form-section-title">Block Defaults</div>
-      <div class="bk-form-row">
-        <label class="bk-label">Source / channel</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Operator" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">Payment status</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not requested" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">Booking status</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Operator Blocked" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">Availability</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Blocked by operator" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">Guest messaging</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">Stripe / payment link</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">n8n workflow</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not triggered" readonly>
-      </div>
+      <div class="to-form-hint">Rooms populate from loaded Bed Calendar data; dedicated room API later if needed.</div>
     </div>
 
     <!-- Section: Notes -->
@@ -4542,26 +4495,25 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <strong>Preview only &mdash; no room will be released.</strong>
     </div>
 
-    <!-- Section: Operator Block -->
+    <!-- Section: Operator Block (Stage 8.7.17 — simplified) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Operator Block</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-block-code">Operator block code</label>
-        <input type="text" id="to-rr-block-code" class="bk-input bk-input-sm"
-          placeholder="Operator block booking code &mdash; coming soon">
+        <label class="bk-label" for="to-rr-block-select">Operator block</label>
+        <select id="to-rr-block-select" class="bk-input bk-input-sm">
+          <option value="">— select operator block —</option>
+          <option value="" disabled>Dynamic operator block list — coming soon</option>
+        </select>
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-op-name">Operator name</label>
-        <input type="text" id="to-rr-op-name" class="bk-input bk-input-sm" placeholder="Tour operator or company name">
+        <label class="bk-label" for="to-rr-orig-cin">Block start date</label>
+        <input type="date" id="to-rr-orig-cin" class="bk-input bk-input-sm bc-date-input bc-op-locked" readonly aria-readonly="true">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-orig-cin">Original block check-in</label>
-        <input type="date" id="to-rr-orig-cin" class="bk-input bk-input-sm bc-date-input">
+        <label class="bk-label" for="to-rr-orig-cout">Block end date</label>
+        <input type="date" id="to-rr-orig-cout" class="bk-input bk-input-sm bc-date-input bc-op-locked" readonly aria-readonly="true">
       </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-orig-cout">Original block check-out</label>
-        <input type="date" id="to-rr-orig-cout" class="bk-input bk-input-sm bc-date-input">
-      </div>
+      <div class="to-form-hint">Block dates fill when an operator block is selected (dynamic list later).</div>
     </div>
 
     <!-- Section: Release Dates -->
@@ -4577,54 +4529,21 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
       <div class="bk-form-row">
         <label class="bk-label" for="to-rr-nights">Release nights</label>
-        <input type="number" id="to-rr-nights" class="bk-input bk-input-sm" min="1">
+        <input type="text" id="to-rr-nights" class="bk-input bk-input-sm bc-op-locked" readonly placeholder="Calculated from release dates">
       </div>
     </div>
 
-    <!-- Section: Release Scope -->
+    <!-- Section: Release Scope (Stage 8.7.17) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Release Scope</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-room">Room(s) to release</label>
-        <input type="text" id="to-rr-room" class="bk-input bk-input-sm" placeholder="e.g. DEMO-R1">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-bed">Bed(s) to release</label>
-        <input type="text" id="to-rr-bed" class="bk-input bk-input-sm" placeholder="e.g. DEMO-R1-B1">
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-release-type">Release type</label>
-        <select id="to-rr-release-type" class="bk-input bk-input-sm">
-          <option value="selected_beds">Selected beds</option>
-          <option value="whole_room">Whole room</option>
-          <option value="selected_dates">Selected dates only</option>
+        <label class="bk-label" for="to-rr-room">Room to release</label>
+        <select id="to-rr-room" class="bk-input bk-input-sm">
+          <option value="">— select room —</option>
+          <option value="" disabled>Load Bed Calendar for room list</option>
         </select>
       </div>
-    </div>
-
-    <!-- Section: Defaults (locked) -->
-    <div class="bk-form-section">
-      <div class="bk-form-section-title">Defaults</div>
-      <div class="bk-form-row">
-        <label class="bk-label">Action</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Release operator block dates" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">Guest messaging</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">Stripe / payment</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">n8n workflow</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Not triggered" readonly>
-      </div>
-      <div class="bk-form-row">
-        <label class="bk-label">Staff write status</label>
-        <input type="text" class="bk-input bk-input-sm bc-op-locked" value="Disabled in staging" readonly>
-      </div>
+      <div class="to-form-hint">Rooms populate from loaded Bed Calendar data; dedicated room API later if needed.</div>
     </div>
 
     <!-- Section: Notes -->
@@ -6301,7 +6220,7 @@ function renderBedCalendar(data){
       _notice.style.borderColor = 'var(--green-border, #c3e6cb)';
       _notice.style.color = 'var(--green-text, #155724)';
     }
-  }
+  if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
 }
 
 function renderBookingBlock(blk, idx){
@@ -6705,6 +6624,88 @@ function renderBookingContextDrawer(data){
 
   return html;
 }
+
+/* ── Tour Operator forms (Stage 8.7.17 — simplified skeleton, no writes) ─── */
+/* Internal defaults — not shown to staff; for future write path only */
+var TO_OP_BLOCK_DEFAULTS = {
+  source: 'operator',
+  payment_status: 'not_requested',
+  guest_messaging: false,
+  stripe_enabled: false,
+  n8n_trigger: false,
+  block_type: 'whole_room'
+};
+
+function toRefreshRoomSelects(){
+  var rooms = (bcData && bcData.rooms) ? bcData.rooms : [];
+  var sorted = rooms.slice().sort(function(a, b){
+    var ao = a.sort_order != null ? a.sort_order : 999;
+    var bo = b.sort_order != null ? b.sort_order : 999;
+    if (ao !== bo) return ao - bo;
+    return (a.room_name || a.room_code || '').localeCompare(b.room_name || b.room_code || '', undefined, { numeric: true, sensitivity: 'base' });
+  });
+  ['to-op-room', 'to-rr-room'].forEach(function(selId){
+    var sel = el(selId);
+    if (!sel || sel.tagName !== 'SELECT') return;
+    var html = '<option value="">— select room —</option>';
+    if (sorted.length){
+      sorted.forEach(function(r){
+        var label = escHtml(r.room_code);
+        if (r.room_name && r.room_name !== r.room_code) label += ' — ' + escHtml(r.room_name);
+        html += '<option value="' + escHtml(r.room_code) + '">' + label + '</option>';
+      });
+    } else {
+      html += '<option value="" disabled>Load Bed Calendar for room list</option>';
+    }
+    sel.innerHTML = html;
+  });
+}
+
+function toCalcReleaseNights(){
+  var rs = el('to-rr-start');
+  var re = el('to-rr-end');
+  var rn = el('to-rr-nights');
+  if (!rs || !re || !rn) return;
+  var a = rs.value;
+  var b = re.value;
+  if (a && b && b > a){
+    var ms = new Date(a + 'T00:00:00').getTime();
+    var me = new Date(b + 'T00:00:00').getTime();
+    rn.value = String(Math.max(0, Math.round((me - ms) / 86400000)));
+  } else {
+    rn.value = '';
+  }
+}
+
+function toOnBlockSelectChange(){
+  var sel = el('to-rr-block-select');
+  var cin = el('to-rr-orig-cin');
+  var cout = el('to-rr-orig-cout');
+  if (!sel) return;
+  var opt = sel.options[sel.selectedIndex];
+  var cIn = opt && opt.dataset ? opt.dataset.cin : '';
+  var cOut = opt && opt.dataset ? opt.dataset.cout : '';
+  if (cin) cin.value = cIn || '';
+  if (cout) cout.value = cOut || '';
+}
+
+function toInitForms(){
+  toRefreshRoomSelects();
+  var blockSel = el('to-rr-block-select');
+  if (blockSel) blockSel.onchange = toOnBlockSelectChange;
+  var rs = el('to-rr-start');
+  var re = el('to-rr-end');
+  if (rs) rs.addEventListener('change', toCalcReleaseNights);
+  if (re) re.addEventListener('change', toCalcReleaseNights);
+}
+
+(function initTourOperatorForms(){
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', toInitForms);
+  } else {
+    toInitForms();
+  }
+})();
 
 function loadBedCalendar(){
   var start  = (el('bc-start').value||'').trim();

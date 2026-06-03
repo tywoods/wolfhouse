@@ -674,67 +674,81 @@ check(/id="to-op-name"/.test(src),
 check(/id="to-op-manager"/.test(src),
   'Manager/contact field (to-op-manager) present in Tour Operator tab (Stage 8.3u)');
 
-// 125. Block type field present (Stage 8.3u)
-check(/id="to-op-block-type"/.test(src),
-  'Block type select field (to-op-block-type) present in Tour Operator tab (Stage 8.3u)');
-
-// 126. Source defaults to "Operator" (locked field) (Stage 8.3q)
-check(/value="Operator"/.test(src),
-  'Source / channel defaults to "Operator" locked field (Stage 8.3q / 8.3u)');
-
-// 127. Payment status "Not requested" locked field (Stage 8.3q)
-check(/Not requested/.test(src),
-  'Payment status "Not requested" locked field present (Stage 8.3q / 8.3u)');
-
-// 128. Booking status "Operator Blocked" locked field (Stage 8.3q)
-check(/Operator Blocked/.test(src),
-  '"Operator Blocked" booking status locked field present (Stage 8.3q / 8.3u)');
-
-// 129. Guest messaging disabled text in Tour Operator tab (Stage 8.3u)
-(function checkGuestMessagingDisabled(){
+// 125. Block type removed from block form (Stage 8.7.17)
+(function checkOpBlockTypeRemoved(){
   const opIdx = src.indexOf('id="to-op-panel"');
-  const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 8000) : '';
-  check(/Guest messaging[\s\S]{0,100}Disabled/i.test(opSrc),
-    '"Guest messaging" Disabled locked field present in Tour Operator tab (Stage 8.3u)');
+  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
+  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
+  check(!/id="to-op-block-type"/.test(opSrc),
+    'Block type field removed from Tour Operator Block form (Stage 8.7.17)');
 })();
 
-// 130. Stripe/payment link disabled text in Tour Operator tab (Stage 8.3u)
-(function checkStripeDisabled(){
+// 126. Block form start/end dates present (Stage 8.7.17)
+(function checkOpDates(){
   const opIdx = src.indexOf('id="to-op-panel"');
-  const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 8000) : '';
-  check(/Stripe.*payment[\s\S]{0,100}Disabled/i.test(opSrc),
-    '"Stripe / payment link" Disabled locked field present in Tour Operator tab (Stage 8.3u)');
+  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
+  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
+  check(/id="to-op-cin"/.test(opSrc) && /id="to-op-cout"/.test(opSrc),
+    'Block form has start/end date fields (Stage 8.7.17)');
 })();
 
-// 131. n8n workflow "Not triggered" text (Stage 8.3q)
-check(/Not triggered/.test(src),
-  '"Not triggered" n8n workflow locked field present (Stage 8.3q / 8.3u)');
+// 127. Block form room dropdown (Stage 8.7.17)
+(function checkOpRoomSelect(){
+  const opIdx = src.indexOf('id="to-op-panel"');
+  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
+  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
+  check(/<select[^>]*id="to-op-room"/.test(opSrc),
+    'Block form room field is a select dropdown (Stage 8.7.17)');
+})();
 
-// 132. Create Operator Block button is disabled (Stage 8.3u)
+// 128. Nights/Beds/Est guest count removed from block form (Stage 8.7.17)
+(function checkOpRemovedFields(){
+  const opIdx = src.indexOf('id="to-op-panel"');
+  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
+  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
+  check(!/id="to-op-nights"/.test(opSrc) && !/id="to-op-bed"/.test(opSrc) && !/id="to-op-guest-count"/.test(opSrc),
+    'Nights, Beds, Est guest count removed from block form (Stage 8.7.17)');
+})();
+
+// 129. Block defaults not displayed to staff (Stage 8.7.17)
+(function checkOpDefaultsHidden(){
+  const opIdx = src.indexOf('id="to-op-panel"');
+  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
+  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
+  check(!/Block Defaults/.test(opSrc) && !/value="Operator"/.test(opSrc) &&
+        !/Guest messaging[\s\S]{0,80}Disabled/i.test(opSrc) &&
+        !/Not triggered/.test(opSrc),
+    'Block form defaults section not displayed (Stage 8.7.17)');
+  check(/TO_OP_BLOCK_DEFAULTS/.test(src),
+    'Block defaults kept internally in TO_OP_BLOCK_DEFAULTS (Stage 8.7.17)');
+})();
+
+// 130. Create Operator Block button is disabled (Stage 8.3u / 8.7.17)
 check(/disabled[^>]*id="to-op-create-btn"|id="to-op-create-btn"[^>]*disabled/.test(src),
   'Create Operator Block button has disabled attribute (to-op-create-btn) (Stage 8.3u)');
 
-// 133. Preview Operator Block button is disabled (Stage 8.3u)
+// 131. Preview Operator Block button is disabled (Stage 8.3u / 8.7.17)
 check(/disabled[^>]*id="to-op-preview-btn"|id="to-op-preview-btn"[^>]*disabled/.test(src),
   'Preview Operator Block button has disabled attribute (to-op-preview-btn) (Stage 8.3u)');
 
-// 134. Operator block safety notice present (Stage 8.3q)
+// 132. Operator block safety notice present (Stage 8.3q)
 check(/no operator block will be created/i.test(src),
   '"no operator block will be created" safety notice present (Stage 8.3q / 8.3u)');
 
-// 135. n8n workflow will not run safety text (Stage 8.3q)
+// 133. n8n workflow will not run safety text (Stage 8.3q)
 check(/n8n workflow will not run|n8n workflow will run.*not|no.*n8n|n8n.*not triggered/i.test(src),
   '"n8n workflow will not run" safety text present (Stage 8.3q / 8.3u)');
 
-// 136. No new POST/PATCH/DELETE fetch in Tour Operator tab (Stage 8.3u)
+// 134. No new POST/PATCH/DELETE fetch in Tour Operator block panel (Stage 8.3u / 8.7.17)
 (function checkOpNoPost(){
   const opIdx = src.indexOf('id="to-op-panel"');
-  const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 10000) : '';
+  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
+  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
   check(!/fetch[^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(opSrc),
-    'No POST/PATCH/DELETE fetch inside Tour Operator panel (Stage 8.3u)');
+    'No POST/PATCH/DELETE fetch inside Tour Operator block panel (Stage 8.3u)');
 })();
 
-// 137. No n8n or webhook URL called from operator panel (Stage 8.3u)
+// 135. No n8n or webhook URL called from operator block actions (Stage 8.3u)
 (function checkOpNoN8n(){
   const opIdx = src.indexOf('to-op-create-btn');
   const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 3000) : '';
@@ -742,17 +756,17 @@ check(/n8n workflow will not run|n8n workflow will run.*not|no.*n8n|n8n.*not tri
     'No n8n/webhook URL called from operator block actions (Stage 8.3u)');
 })();
 
-// 138. Tour Operator tab exists (Stage 8.3u)
+// 136. Tour Operator tab exists (Stage 8.3u)
 check(/data-tab="tour-operator"/.test(src),
   'Tour Operator nav tab (data-tab="tour-operator") present (Stage 8.3u)');
 
-// 139. Tour Operator tab panel exists (Stage 8.3u)
+// 137. Tour Operator tab panel exists (Stage 8.3u)
 check(/id="tab-tour-operator"/.test(src),
   'Tour Operator tab panel (id="tab-tour-operator") present (Stage 8.3u)');
 
-// 140. Whole room / Selected beds block type options present (Stage 8.3q)
-check(/whole_room|Whole room/.test(src) && /selected_beds|Selected beds/.test(src),
-  'Block type options (whole_room / selected_beds) present (Stage 8.3q / 8.3u)');
+// 138. toRefreshRoomSelects populates room dropdowns from calendar (Stage 8.7.17)
+check(/function toRefreshRoomSelects/.test(src) && /to-op-room/.test(src) && /bcData\.rooms/.test(src),
+  'toRefreshRoomSelects uses Bed Calendar room data for dropdowns (Stage 8.7.17)');
 
 // ── Stage 8.3r/8.3u — Operator Room Release (moved to Tour Operator tab) ─────
 
@@ -772,63 +786,79 @@ check(/id="to-rr-start"/.test(src),
 check(/id="to-rr-end"/.test(src),
   'Release end field (to-rr-end) present in Tour Operator tab (Stage 8.3u)');
 
-// 145. Operator block code/selector field present (Stage 8.3u)
-check(/id="to-rr-block-code"/.test(src),
-  'Operator block code placeholder field (to-rr-block-code) present (Stage 8.3u)');
+// 145. Operator block dropdown present (Stage 8.7.17)
+check(/id="to-rr-block-select"/.test(src),
+  'Operator block select dropdown (to-rr-block-select) present (Stage 8.7.17)');
 
-// 146. Release type field present (Stage 8.3u)
-check(/id="to-rr-release-type"/.test(src),
-  'Release type select field (to-rr-release-type) present (Stage 8.3u)');
+// 146. Release type and beds removed (Stage 8.7.17)
+(function checkRrRemovedFields(){
+  const rrIdx = src.indexOf('id="to-rr-panel"');
+  const rrEnd = rrIdx >= 0 ? src.indexOf('</div><!-- /tab-tour-operator -->', rrIdx) : -1;
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrEnd > rrIdx ? rrEnd : rrIdx + 12000) : '';
+  check(!/id="to-rr-release-type"/.test(rrSrc) && !/id="to-rr-bed"/.test(rrSrc) &&
+        !/id="to-rr-block-code"/.test(rrSrc),
+    'Release type, beds, and block-code text field removed (Stage 8.7.17)');
+})();
 
 // 147. Reason for release field present (Stage 8.3u)
 check(/id="to-rr-reason"/.test(src),
   'Reason for release field (to-rr-reason) present (Stage 8.3u)');
 
-// 148. "Selected dates only" release type option present (Stage 8.3r)
-check(/selected_dates|Selected dates only/.test(src),
-  '"Selected dates only" release type option present (Stage 8.3r / 8.3u)');
+// 148. Room release room dropdown (Stage 8.7.17)
+(function checkRrRoomSelect(){
+  const rrIdx = src.indexOf('id="to-rr-panel"');
+  const rrEnd = rrIdx >= 0 ? src.indexOf('</div><!-- /tab-tour-operator -->', rrIdx) : -1;
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrEnd > rrIdx ? rrEnd : rrIdx + 12000) : '';
+  check(/<select[^>]*id="to-rr-room"/.test(rrSrc),
+    'Room release form has room select dropdown (Stage 8.7.17)');
+})();
 
-// 149. Release Dates button is disabled (Stage 8.3u)
+// 149. Release nights display-only (Stage 8.7.17)
+(function checkRrNightsReadonly(){
+  const rrIdx = src.indexOf('id="to-rr-panel"');
+  const rrEnd = rrIdx >= 0 ? src.indexOf('</div><!-- /tab-tour-operator -->', rrIdx) : -1;
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrEnd > rrIdx ? rrEnd : rrIdx + 12000) : '';
+  check(/id="to-rr-nights"[^>]*readonly/.test(rrSrc) && /toCalcReleaseNights/.test(src),
+    'Release nights calculated display-only (Stage 8.7.17)');
+})();
+
+// 150. Release Dates button is disabled (Stage 8.3u)
 check(/disabled[^>]*id="to-rr-release-btn"|id="to-rr-release-btn"[^>]*disabled/.test(src),
   'Release Dates button has disabled attribute (to-rr-release-btn) (Stage 8.3u)');
 
-// 150. Preview Release button is disabled (Stage 8.3u)
+// 151. Preview Release button is disabled (Stage 8.3u)
 check(/disabled[^>]*id="to-rr-preview-btn"|id="to-rr-preview-btn"[^>]*disabled/.test(src),
   'Preview Release button has disabled attribute (to-rr-preview-btn) (Stage 8.3u)');
 
-// 151. Room release safety notice present (Stage 8.3r)
+// 152. Room release safety notice present (Stage 8.3r)
 check(/no dates will be released/i.test(src),
   '"no dates will be released" safety notice present (Stage 8.3r / 8.3u)');
 
-// 152. "Room release writes require approval gates" text present (Stage 8.3r)
+// 153. "Room release writes require approval gates" text present (Stage 8.3r)
 check(/Room release writes require approval gates/i.test(src),
   '"Room release writes require approval gates" notice present (Stage 8.3r / 8.3u)');
 
-// 153. Guest messaging Disabled in room release panel (Stage 8.3u)
-(function checkRrGuestDisabled(){
+// 154. Room release defaults not displayed (Stage 8.7.17)
+(function checkRrDefaultsHidden(){
   const rrIdx = src.indexOf('id="to-rr-panel"');
-  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
-  check(/Guest messaging[\s\S]{0,100}Disabled/i.test(rrSrc),
-    '"Guest messaging" Disabled locked field in room release panel (Stage 8.3u)');
+  const rrEnd = rrIdx >= 0 ? src.indexOf('</div><!-- /tab-tour-operator -->', rrIdx) : -1;
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrEnd > rrIdx ? rrEnd : rrIdx + 12000) : '';
+  check(!/bk-form-section-title">Defaults/.test(rrSrc) &&
+        !/Guest messaging[\s\S]{0,80}Disabled/i.test(rrSrc) &&
+        !/Staff write status/.test(rrSrc),
+    'Room release defaults section not displayed (Stage 8.7.17)');
 })();
 
-// 154. Stripe/payment Disabled in room release panel (Stage 8.3u)
-(function checkRrStripeDisabled(){
+// 155. Block dates read-only placeholders in release form (Stage 8.7.17)
+(function checkRrBlockDatesReadonly(){
   const rrIdx = src.indexOf('id="to-rr-panel"');
-  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
-  check(/Stripe.*payment[\s\S]{0,100}Disabled/i.test(rrSrc),
-    '"Stripe / payment" Disabled locked field in room release panel (Stage 8.3u)');
+  const rrEnd = rrIdx >= 0 ? src.indexOf('</div><!-- /tab-tour-operator -->', rrIdx) : -1;
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrEnd > rrIdx ? rrEnd : rrIdx + 12000) : '';
+  check(/id="to-rr-orig-cin"[^>]*readonly/.test(rrSrc) && /id="to-rr-orig-cout"[^>]*readonly/.test(rrSrc),
+    'Block start/end dates read-only in room release form (Stage 8.7.17)');
 })();
 
-// 155. n8n "Not triggered" in room release panel (Stage 8.3u)
-(function checkRrN8nNotTriggered(){
-  const rrIdx = src.indexOf('id="to-rr-panel"');
-  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 10000) : '';
-  check(/Not triggered/.test(rrSrc),
-    '"Not triggered" n8n field in room release panel (Stage 8.3u)');
-})();
-
-// 156. No POST/PATCH/DELETE fetch in room release panel (Stage 8.3u)
+// 156. No POST/PATCH/DELETE fetch in room release panel (Stage 8.3u / 8.7.17)
 (function checkRrNoPost(){
   const rrIdx = src.indexOf('id="to-rr-panel"');
   const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrIdx + 12000) : '';
@@ -1606,6 +1636,32 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '226k: bed calendar UI has no api.stripe.com (Stage 8.7.15)');
   check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
     '226l: bed calendar UI has no n8n URL fetch (Stage 8.7.15)');
+})();
+
+// ── Stage 8.7.17 — simplified Tour Operator forms ───────────────────────────
+(function check8717TourOperator(){
+  const opIdx = src.indexOf('id="to-op-panel"');
+  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
+  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
+  const rrIdx = src.indexOf('id="to-rr-panel"');
+  const rrEnd = rrIdx >= 0 ? src.indexOf('</div><!-- /tab-tour-operator -->', rrIdx) : -1;
+  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrEnd > rrIdx ? rrEnd : rrIdx + 12000) : '';
+
+  check(/data-tab="tour-operator"/.test(src) && /id="to-op-panel"/.test(src) && /id="to-rr-panel"/.test(src),
+    '227: Tour Operator tab and both panels present (Stage 8.7.17)');
+
+  check(!/operator.*block.*create|operator.*room.*release|to-op-create|to-rr-release/i.test(src.replace(/\/\/[^\n]*/g,'')) ||
+        !/fetch\s*\(\s*['"][^'"]*(?:operator|room-release)/i.test(src),
+    '227b: no create/release fetch calls for Tour Operator (Stage 8.7.17)');
+
+  check(!/graph\.facebook\.com/.test(src) && !/api\.stripe\.com/.test(src),
+    '227c: Tour Operator UI slice has no graph.facebook.com or api.stripe.com (Stage 8.7.17)');
+
+  check(/Dynamic operator block list|dynamic list later/i.test(rrSrc),
+    '227d: operator block dropdown documents dynamic loading later (Stage 8.7.17)');
+
+  check(/Load Bed Calendar for room list|dedicated room API later/i.test(opSrc + rrSrc),
+    '227e: room dropdowns document calendar/API loading path (Stage 8.7.17)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

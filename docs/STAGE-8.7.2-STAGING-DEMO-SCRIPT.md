@@ -299,6 +299,24 @@
 
 ---
 
+## Tour Operator form simplification — Stage 8.7.17 (2026-06-03)
+
+**Result:** **PASS** — local UI-only; not deployed.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Block form | **PASS** | Start/end dates + room `<select>`; operator contact + notes kept |
+| Removed (block) | **PASS** | Nights, Beds, Block type, Est guest count, visible defaults |
+| Room release | **PASS** | Operator block dropdown; read-only block dates; release start/end editable |
+| Removed (release) | **PASS** | Beds to release, Release type, visible defaults |
+| Buttons | **PASS** | Create/Preview/Release all disabled |
+| Verifier | **PASS** | `verify-staff-bed-calendar-ui.js` 354/354 |
+| Safety | **PASS** | No create/release fetch; no WhatsApp/n8n/Stripe |
+
+**Gaps (documented):** Operator block list and room options use placeholders until dedicated API endpoints; rooms populate from Bed Calendar when loaded.
+
+---
+
 ## Hosted manual booking add-ons layout proof — Stage 8.7.16 (2026-06-03)
 
 **Result:** **PASS** — Create Manual Booking notes/add-ons layout clean on staging.
