@@ -1,7 +1,7 @@
 # Stage 8.8.6 — Structured add-on/service records for Staff Ask Luna
 
-**Status:** PASS — design extended through **Stage 8.8.23** (2026-06-03).  
-**Non-negotiables (8.8.23):** API code only. No Azure deploy.
+**Status:** PASS — design extended through **Stage 8.8.24** (2026-06-03).  
+**Non-negotiables (8.8.24):** Hosted staging proof only. No production.
 
 **Context:** Stages 8.8.11–8.8.12 prove Staff Ask Luna reads **`booking_service_records`**. **8.8.16–8.8.17** prove manual booking create writes service rows tied to real bookings (`MB-WOLFHO-20260901-cb4799`). **8.8.18** defines when `payment_status` on service rows may change — Stripe webhook or audited staff action only.
 
@@ -133,8 +133,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Payment linkage schema** | **8.8.19** ✓ spec | Migration 011 spec (`payment_id` FK + `addon_service`) | [`011_service_payment_linkage.sql`](../database/migrations/011_service_payment_linkage.sql) |
 | **Staging apply 011** | **8.8.20** ✓ | Applied to `wolfhouse_staging` only (Ty-approved) | §7 below |
 | **Webhook addon_service** | **8.8.21–8.8.22** ✓ | Code + hosted proof on `--0000038` | §12.2; yoga+wetsuit paid on `MB-WOLFHO-20260901-cb4799` |
-| **Full-payment allocation** | **8.8.22+** | Booking-time add-ons on full checkout | §12.1 M4 |
-| **Add-on checkout create** | **8.8.23** ✓ | `POST .../service-records/create-payment-link` | Staff API; no deploy yet |
+| **Add-on checkout create** | **8.8.23–8.8.24** ✓ | API + hosted proof on `--0000039` | Staff API link + webhook; surf lesson paid via API path |
 
 **Out of scope until explicit GO:** live WhatsApp send, n8n activation, applying migration to production.
 
@@ -152,7 +151,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 
 ---
 
-## 7. Staging state (after 8.8.22 deploy, Staff API `--0000038`)
+## 7. Staging state (after 8.8.24 deploy, Staff API `--0000039`)
 
 | Item | State |
 |------|-------|
@@ -160,12 +159,12 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | `booking_service_records.payment_id` | **Live** — nullable UUID FK → `payments(id)` |
 | `payments.payment_kind` enum | **Live** — includes **`addon_service`** |
 | Demo fixture rows | **11** preserved |
-| Stage8817 booking | **`MB-WOLFHO-20260901-cb4799`** — wetsuit + yoga **paid** (8.8.22); surf lesson **pending** |
-| Proof addon payment | **`3318b16c-506a-4277-9c75-4ec588f797e1`** — `addon_service` · `paid` · €30.00 · disposable |
-| Ask Luna service intents | **Live** — `--0000038` |
-| Service row payment truth | **Live for `addon_service`** — webhook marks linked rows by `payment_id` |
-| Booking package payment truth | **Unchanged by add-on webhook** — 8.8.22 proof confirmed |
-| Next slice | **8.8.24** — deploy + hosted add-on checkout proof; or Flow B bot endpoint |
+| Stage8817 booking | **`MB-WOLFHO-20260901-cb4799`** — **all 3 services paid** (yoga/wetsuit 8.8.22; surf lesson 8.8.24) |
+| Proof addon payments | **`3318b16c-…`** (yoga+wetsuit €30) · **`a01c735e-…`** (surf lesson €60) · disposable |
+| Ask Luna service intents | **Live** — `--0000039` |
+| Service row payment truth | **Live** — API link create + webhook marks linked rows by `payment_id` |
+| Booking package payment truth | **Unchanged by add-on webhook** — 8.8.22/8.8.24 proof confirmed |
+| Next slice | **8.8.25** — bot add-on request endpoint (dry-run) |
 
 ---
 
@@ -389,13 +388,15 @@ Mid-stay requests create **separate** payment + service rows.
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.23** | Add-on checkout create + Flow B bot endpoint OR full-payment allocation | End-to-end add-on pay path |
-| **2** | **8.8.24** | Staff mark-paid/waived + drawer payment-link display | Manual truth + ops UX |
-| **3** | **8.8.25+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
+| **1** | **8.8.25** | Bot add-on request endpoint (dry-run) | Flow B without live WhatsApp |
+| **2** | **8.8.25+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
+| **3** | **8.8.26+** | Full-payment allocation | Booking-time add-ons on full checkout (§12.1 M4) |
 
 ---
 
-**Hosted proof (8.8.22):** `addon_service` webhook on `--0000038` — yoga + wetsuit paid on `MB-WOLFHO-20260901-cb4799`; booking payment unchanged.
+**Hosted proof (8.8.24):** `POST .../service-records/create-payment-link` on `--0000039` — surf lesson paid on `MB-WOLFHO-20260901-cb4799` via API + webhook; no manual DB setup.
+
+**Code slice (8.8.23):** Staff API add-on checkout link endpoint. **Deployed in 8.8.24.**
 
 **Code slice (8.8.21):** Webhook `addon_service` branch. **No deploy.**
 

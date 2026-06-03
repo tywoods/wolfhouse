@@ -350,7 +350,29 @@
 | Ask Luna regression | **PASS** | `Who paid for yoga today?` → `services.yoga.paid_on_date` · 1 row |
 | Safety | **PASS** | Read-only drawer; no Add/Edit/Send/payment-link in service panel; no DB writes / WhatsApp / n8n / Stripe from session |
 
-**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows **wetsuit + yoga paid**, **surf lesson pending** (Stage 8.8.22 webhook proof).
+**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows **wetsuit + yoga + surf lesson all paid** (Stages 8.8.22 + 8.8.24).
+
+---
+
+## Hosted addon service payment-link proof — Stage 8.8.24 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.23 endpoint live on staging revision `--0000039` (`62835c1`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:62835c1-stage8824-addon-service-payment-link` · ACR `cb11` · revision `--0000039` · Healthy · 100% traffic |
+| Preflight | **PASS** | `62835c1`; `verify-staff-addon-service-payment-api.js` 42/42 |
+| Service row | **PASS** | Surf lesson `90d701db-f431-4264-9bec-33403fbf2772` · `pending` · `payment_id` null · €60 |
+| Create link | **PASS** | `POST .../service-records/create-payment-link` → **200** · `payment_kind=addon_service` · `amount_due_cents=6000` from DB · `no_payment_truth_recorded/no_whatsapp/no_n8n:true` |
+| Payment | **PASS** | `a01c735e-ccbe-4a54-b70a-162b31df605b` · `checkout_created` · session `cs_test_a1qjgJK7CcVwm9ER2JvHgA1sH0OjEz7yYGj8d5rFWzXNC0VGK4UvCEfkXP` |
+| DB after link | **PASS** | Row linked · `payment_status=pending` · booking payment unchanged (`not_requested`, balance €389) |
+| Idempotency | **PASS** | Same call → existing `checkout_url` / `payment_id` · no duplicate payment row |
+| Webhook | **PASS** | Signed `checkout.session.completed` → **200** · `addon_service_payment:true` · `service_records_paid_count:1` · `no_booking_payment_status_change/no_confirmation_sent/no_whatsapp/no_n8n:true` |
+| DB after webhook | **PASS** | Surf lesson `paid` · yoga/wetsuit still paid · booking payment unchanged · 2 `addon_service` payments total |
+| Drawer proof | **PASS** | Context API: all 3 services **paid**; booking payment panel unchanged |
+| Ask Luna | **PASS** | “Who has a lesson on September 1 2026?” → **Stage8817 Addon Test** · **GAP:** “paid surf lesson” uses same intent (no paid-only filter) |
+| Cleanup | **LEFT** | Proof payments + paid service rows on staging (disposable evidence chain) |
+| Safety | **PASS** | Staging only; HMAC-valid webhook; no WhatsApp/n8n/confirmation send; no booking payment mutation |
 
 ---
 
