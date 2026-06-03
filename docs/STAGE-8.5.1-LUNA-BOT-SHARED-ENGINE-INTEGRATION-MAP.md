@@ -587,5 +587,30 @@ o_write_performed:true, sends_whatsapp:false, intent, nswer, ows, ow_count, s
 
 **Proof:** Hosted manual execution only. No workflow activation. No live WhatsApp send. No Staff API edits. No Stripe.
 
-### 8.6.6 — Staff WhatsApp live gated send — *pending (requires explicit go/no-go)*
-**Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit approval + real staff phone numbers in config. Fix staging IF guard for `$env.WHATSAPP_DRY_RUN` (or equivalent) before activation.
+### 8.6.6 — Fix Staff Ask Luna dry-run guard for staging n8n — **PASS (2026-06-03)**
+**Goal:** Replace `$env.WHATSAPP_DRY_RUN` IF guard (blocked by `N8N_BLOCK_ENV_ACCESS_IN_NODE` on staging) with workflow JSON flags.
+
+**Delivered:**
+- Added `Set - DryRun Mode Flags` node: sets `dry_run:true`, `live_send_enabled:false` on inbound payload.
+- `IF - DryRun Guard` now checks `$json.dry_run === true` (no `$env`).
+- Workflow remains `active:false`; all replies still `whatsapp_sent:false`; no `graph.facebook.com`.
+- `scripts/verify-staff-ask-luna-whatsapp-dry-run.js` **46/46 PASS**.
+
+**Proof:** Static verifier only. Not re-imported to staging in this slice (see 8.6.7).
+
+### 8.6.7 — Re-import fixed dry-run workflow + manual execution — **PASS (2026-06-03)**
+**Goal:** Re-import the Stage 8.6.6 guard-fixed workflow into staging n8n (inactive) and run one manual execution without any temporary IF bypass.
+
+**Delivered:**
+- Workflow updated in staging n8n DB as `stage863AskLuna01` (`active:false`, 11 nodes, includes `Set - DryRun Mode Flags`, no `$env.WHATSAPP_DRY_RUN`).
+- Manual execution #3 (`mode:manual`, status:success, ~13s) with pinned webhook payload:
+  - `from: +34999000999`, `text: who still owes money`, `client_slug: wolfhouse-somo`, `channel: whatsapp`
+- Happy path without bypass: `Set - DryRun Mode Flags` → `IF - DryRun Guard` (pass) → `Code - Parse Staff Message` → `HTTP - Staff Ask Luna` → `IF - API Authorized` (true) → `Code - Format DryRun Answer` → `Respond - DryRun Answer`.
+- Staff API: `intent: payments.balance_due`; dry-run output: `reply_draft` present, `whatsapp_sent:false`, `dry_run:true`, `live_send_enabled:false` in execution data.
+- No `graph.facebook.com`; no `dry_run_guard_blocked`.
+- Workflow left **inactive**.
+
+**Proof:** Hosted manual execution only. No workflow activation. No live WhatsApp send. No Staff API/Stripe/Azure changes.
+
+### 8.6.8 — Staff WhatsApp live gated send — *pending (requires explicit go/no-go)*
+**Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit approval + real staff phone numbers in config.
