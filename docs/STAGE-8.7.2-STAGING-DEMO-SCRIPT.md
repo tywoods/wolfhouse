@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000042` (2026-06-03, Stage 8.8.32 guest add-on n8n dry-run proof live).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000042` (2026-06-03, Stage 8.8.33 Flow B guest add-on dry-run **COMPLETE**).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -350,7 +350,32 @@
 | Ask Luna regression | **PASS** | `Who paid for yoga today?` → `services.yoga.paid_on_date` · 1 row |
 | Safety | **PASS** | Read-only drawer; no Add/Edit/Send/payment-link in service panel; no DB writes / WhatsApp / n8n / Stripe from session |
 
-**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows Sep 1 paid rows plus Luna guest add-ons from Stages 8.8.28–8.8.32 (Sep 2–4 wetsuit/meal).
+**Optional demo add-on (Bed Calendar):** Open **`MB-WOLFHO-20260901-cb4799`** (Sep 1–8 2026 range) — Services panel shows Sep 1 paid rows plus Luna guest add-ons from Stages 8.8.28–8.8.32 (Sep 2–4 wetsuit/meal). Flow B dry-run is **complete**; do **not** activate n8n or send live WhatsApp.
+
+---
+
+## Flow B guest add-on dry-run complete — Stage 8.8.33 (2026-06-03)
+
+**Result:** **PASS** — docs milestone. Guest Luna mid-stay add-on path proven through dry-run; live send **NO_GO**.
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Staff manual booking creates `booking_service_records` | **PASS** — 8.8.16–8.8.17 |
+| 2 | Booking drawer **Services & Add-ons** panel | **PASS** — 8.8.14–8.8.15 |
+| 3 | Ask Luna service/add-on questions from structured records | **PASS** — 8.8.11–8.8.12 |
+| 4 | `addon_service` payment links creatable | **PASS** — 8.8.23–8.8.24 |
+| 5 | Stripe webhook marks linked service rows paid | **PASS** — 8.8.21–8.8.22; booking payment unchanged |
+| 6 | Bot add-on preview | **PASS** — 8.8.25–8.8.26 |
+| 7 | Bot add-on create | **PASS** — 8.8.27–8.8.28 |
+| 8 | Bot add-on create idempotency | **PASS** — 8.8.29–8.8.30 |
+| 9 | n8n guest add-on dry-run exec (**inactive**) | **PASS** — 8.8.32 · `stage8832GuestAddon01` |
+| 10 | Live WhatsApp send | **NO_GO** — 8.6.8 / 8.8.1 |
+| 11 | n8n workflow activation | **NO** — remains `active:false` |
+| 12 | Next gated step | Live guest add-on send **to Ty only** — explicit owner approval required |
+
+**Do not show in demo:** n8n workflow activation; live WhatsApp guest replies; production Main Luna workflow.
+
+**Next slice (gated):** 8.8.34+ — enable live guest add-on checkout reply to Ty's phone only, after written GO.
 
 ---
 

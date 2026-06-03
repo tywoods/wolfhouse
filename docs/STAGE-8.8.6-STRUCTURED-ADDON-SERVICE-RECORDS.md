@@ -1,7 +1,7 @@
 # Stage 8.8.6 — Structured add-on/service records for Staff Ask Luna
 
-**Status:** PASS — design extended through **Stage 8.8.32** (2026-06-03).  
-**Non-negotiables (8.8.32):** Hosted n8n dry-run exec only. No workflow activation. No live WhatsApp.
+**Status:** PASS — design extended through **Stage 8.8.33** (2026-06-03).  
+**Non-negotiables (8.8.33):** Docs milestone only. Flow B dry-run complete. Live WhatsApp **NO_GO**. No workflow activation.
 
 **Context:** Stages 8.8.11–8.8.12 prove Staff Ask Luna reads **`booking_service_records`**. **8.8.16–8.8.17** prove manual booking create writes service rows tied to real bookings (`MB-WOLFHO-20260901-cb4799`). **8.8.18** defines when `payment_status` on service rows may change — Stripe webhook or audited staff action only.
 
@@ -135,6 +135,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Webhook addon_service** | **8.8.21–8.8.22** ✓ | Code + hosted proof on `--0000038` | §12.2; yoga+wetsuit paid on `MB-WOLFHO-20260901-cb4799` |
 | **Add-on checkout create** | **8.8.23–8.8.24** ✓ | API + hosted proof on `--0000039` | Staff API link + webhook; surf lesson paid via API path |
 | **Bot add-on dry-run** | **8.8.25–8.8.26** ✓ | API + hosted proof on `--0000040` | Flow B preview; no writes |
+| **Flow B dry-run complete** | **8.8.33** ✓ | Docs milestone | Full stack proven; live send **NO_GO** |
 | **Bot add-on n8n dry-run** | **8.8.31–8.8.32** ✓ | Workflow JSON + hosted exec | Preview → create → draft reply |
 | **Bot add-on idempotency** | **8.8.29–8.8.30** ✓ | Code + hosted proof on `--0000042` | Retry same key → no duplicates |
 | **Bot add-on create** | **8.8.27–8.8.28** ✓ | API + hosted proof on `--0000041` | Luna guest write + webhook paid |
@@ -392,10 +393,37 @@ Mid-stay requests create **separate** payment + service rows.
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.33+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
-| **2** | **8.8.34+** | Full-payment allocation | Booking-time add-ons on full checkout (§12.1 M4) |
+| **1** | **8.8.34+** | Live guest add-on send (gated) | Flow B7 — **Ty only** first; explicit owner GO required |
+| **2** | **8.8.35+** | Full-payment allocation | Booking-time add-ons on full checkout (§12.1 M4) |
 
 ---
+
+## 13. Flow B dry-run complete (Stage 8.8.33)
+
+**Result:** **PASS** — guest Luna mid-stay add-on request flow is **complete through dry-run n8n execution**. Live WhatsApp send remains **NO_GO**.
+
+| # | Capability | Stage(s) | Status |
+|---|------------|----------|--------|
+| 1 | Staff-created booking add-ons create `booking_service_records` | 8.8.16–8.8.17 | ✓ Hosted on `MB-WOLFHO-20260901-cb4799` |
+| 2 | Booking drawer displays **Services & Add-ons** | 8.8.14–8.8.15 | ✓ Read-only panel |
+| 3 | Ask Luna answers service/add-on questions from structured records | 8.8.11–8.8.12 | ✓ `services.*` intents |
+| 4 | `addon_service` payment links can be created | 8.8.23–8.8.24 | ✓ Staff API + hosted proof |
+| 5 | Stripe webhook marks linked service records paid | 8.8.21–8.8.22 | ✓ No booking payment mutation |
+| 6 | Bot add-on preview works | 8.8.25–8.8.26 | ✓ `--0000040` |
+| 7 | Bot add-on create works | 8.8.27–8.8.28 | ✓ `--0000041` |
+| 8 | Bot add-on create is idempotent | 8.8.29–8.8.30 | ✓ `--0000042` |
+| 9 | n8n guest add-on dry-run workflow executes successfully **inactive** | 8.8.31–8.8.32 | ✓ `stage8832GuestAddon01` |
+| 10 | Live WhatsApp send | — | **NO_GO** (8.6.8 / 8.8.1) |
+| 11 | n8n workflow activation | — | **Inactive** — not activated |
+| 12 | Next gated step | 8.8.34+ | Live guest add-on send **to Ty only** — requires explicit owner approval |
+
+**Staging reference booking:** `MB-WOLFHO-20260901-cb4799` (disposable proof rows **LEFT** from 8.8.28–8.8.32).
+
+**n8n workflow:** `Wolfhouse Guest Add-on Request - Dry Run` · id `stage8832GuestAddon01` · `active:false`.
+
+---
+
+**Milestone (8.8.33):** Flow B dry-run **COMPLETE**. See §13.
 
 **Hosted proof (8.8.32):** n8n dry-run exec on `MB-WOLFHO-20260901-cb4799` — wetsuit Sep 4 via `stage8832GuestAddon01` (inactive); idempotent retry PASS.
 
