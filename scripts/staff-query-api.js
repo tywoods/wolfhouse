@@ -6560,6 +6560,10 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-conflict{background:#EFD9D0;color:#9C5742;border-left:3px solid #C98B76}
 .bc-block-operator{background:#D5E3EE;color:#3A5A72;border-left:3px solid #85A8C0;font-style:italic}
 .bc-block-manual{background:#D5EAE3;color:#3A6657;border-left:3px solid #7ABFAD}
+.bc-day-cell-turnover{position:relative}
+.bc-day-cell-turnover .bc-block{position:absolute;left:3px;right:3px;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bc-block-checkout-layer{z-index:1;bottom:2px;height:22px;opacity:.78;font-size:10px;font-weight:600}
+.bc-block-checkin-layer{z-index:2;top:2px;height:26px}
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
@@ -8251,6 +8255,14 @@ var bcLastOpenedBlock = null;
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
 
+/* Phase 10.0a — selected date boxes vs overnight nights (display only) */
+function bcSelectedDatesCount(selStart, selEnd){
+  return Math.round((new Date(selEnd + 'T00:00:00Z') - new Date(selStart + 'T00:00:00Z')) / 86400000) + 1;
+}
+function bcSelectedNightsFromRange(selStart, selEnd){
+  return Math.max(0, bcSelectedDatesCount(selStart, selEnd) - 1);
+}
+
 /* ── Cell selection model (Stage 8.3c, read-only) ─────────────────────────── */
 function bcClearSelection(){
   bcSel = null;
@@ -8317,8 +8329,8 @@ function bcApplySelectionHighlight(){
   coDate.setUTCDate(coDate.getUTCDate() + 1);
   var checkOut = coDate.toISOString().slice(0, 10);
 
-  /* Compute nights */
-  var nights = Math.round((new Date(checkOut + 'T00:00:00Z') - new Date(selStart + 'T00:00:00Z')) / 86400000);
+  /* Compute nights = selected date boxes minus 1 (Phase 10.0a) */
+  var nights = bcSelectedNightsFromRange(selStart, selEnd);
 
   /* Highlight cells for ALL selected beds (Stage 8.4.5 multi-bed) */
   bcSelectedBeds.forEach(function(bedEntry, bidx){
@@ -9039,20 +9051,48 @@ function renderBedCalendar(data){
       /* Selectable empty cells carry data-date/room/bed for Stage 8.3c selection model */
       var _rc = room.room_code;
       var _bc = bed.bed_code;
+      var daySegments = [];
+      for (var di = 0; di < N; di++){
+        var dayDate = (days[di] || {}).date || '';
+        var segs = [];
+        bedBlocks.forEach(function(entry){
+          if (bcBlockVisibleOnDay(entry.blk, dayDate)){
+            segs.push({
+              blk: entry.blk,
+              idx: entry.idx,
+              layer: bcBlockDayLayer(entry.blk, dayDate),
+            });
+          }
+        });
+        segs.sort(function(sa, sb){
+          if (sa.layer === sb.layer) return 0;
+          return sa.layer === 'checkout' ? -1 : 1;
+        });
+        daySegments.push(segs);
+      }
       var pos = 0;
-      bedBlocks.forEach(function(entry){
-        var blk = entry.blk;
-        var gap = blk.start_offset - pos;
-        for (var g = 0; g < gap; g++){
-          var _di = (days[pos + g] || {}).date || '';
-          html += '<td class="bc-day-cell" data-date="' + _di + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+      while (pos < N){
+        var segsAt = daySegments[pos] || [];
+        if (segsAt.length === 0){
+          var _diEmpty = (days[pos] || {}).date || '';
+          html += '<td class="bc-day-cell" data-date="' + _diEmpty + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+          pos++;
+          continue;
         }
-        html += renderBookingBlock(blk, entry.idx);
-        pos = blk.start_offset + blk.span_days;
-      });
-      for (var r = pos; r < N; r++){
-        var _di2 = (days[r] || {}).date || '';
-        html += '<td class="bc-day-cell" data-date="' + _di2 + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+        if (segsAt.length > 1){
+          html += renderBcTurnoverDayCell((days[pos] || {}).date || '', _rc, _bc, segsAt);
+          pos++;
+          continue;
+        }
+        var spanBlkIdx = segsAt[0].idx;
+        var spanLen = 1;
+        while (pos + spanLen < N){
+          var nextSegs = daySegments[pos + spanLen] || [];
+          if (nextSegs.length !== 1 || nextSegs[0].idx !== spanBlkIdx) break;
+          spanLen++;
+        }
+        html += renderBookingBlock(segsAt[0].blk, segsAt[0].idx, spanLen);
+        pos += spanLen;
       }
       html += '</tr>';
     });
@@ -9108,24 +9148,57 @@ function renderBedCalendar(data){
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
 }
 
-function renderBookingBlock(blk, idx){
-  var colorCls = bcColorClass(blk.color_type);
-  /* No inline A/D markers — arrival/departure shown in tooltip (Stage 8.3a) */
+function bcBlockVisibleOnDay(blk, dayDate){
+  if (!blk || !dayDate) return false;
+  if (dayDate >= blk.start_date && dayDate < blk.end_date) return true;
+  if (blk.is_departure && dayDate === blk.end_date) return true;
+  return false;
+}
+
+function bcBlockDayLayer(blk, dayDate){
+  if (blk.is_departure && dayDate === blk.end_date) return 'checkout';
+  return 'checkin';
+}
+
+function bcBlockTooltip(blk){
   var arrDep = [];
   if (blk.is_arrival)   arrDep.push('Arrives ' + (blk.start_date||''));
   if (blk.is_departure) arrDep.push('Departs ' + (blk.end_date||''));
   var statusHint = blk.color_type ? ' [' + blk.color_type.replace(/_/g,' ') + ']' : '';
-  var tip = escHtml(
+  return escHtml(
     (blk.booking_code||'\u2014') + ' \u2013 ' + (blk.guest_name||'') +
     ' | ' + (blk.start_date||'') + ' \u2192 ' + (blk.end_date||'') + statusHint +
     (arrDep.length ? ' | ' + arrDep.join(' \u00b7 ') : '')
   );
-  /* Show booking_code prefix + guest name if span wide enough; code-only for narrow blocks */
+}
+
+function bcBlockLabel(blk, spanDays, layer){
+  if (layer === 'checkout'){
+    return escHtml(blk.guest_name || blk.booking_code || '\u2014');
+  }
   var codeShort = (blk.booking_code||'').replace(/^(DEMO-|WH-|OP-)/, '');
-  var label = blk.span_days >= 3
+  var span = spanDays != null ? spanDays : blk.span_days;
+  return span >= 3
     ? escHtml((blk.guest_name || blk.booking_code || '\u2014'))
     : escHtml(codeShort || blk.guest_name || '\u2014');
-  return '<td colspan="' + blk.span_days + '" class="bc-day-cell" style="padding:2px 3px">' +
+}
+
+function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
+  var inner = segs.map(function(s){
+    var colorCls = bcColorClass(s.blk.color_type);
+    var layerCls = s.layer === 'checkout' ? 'bc-block-checkout-layer' : 'bc-block-checkin-layer';
+    return '<div class="bc-block ' + colorCls + ' ' + layerCls + '" data-bidx="' + s.idx + '" title="' + bcBlockTooltip(s.blk) + '">' +
+      bcBlockLabel(s.blk, 1, s.layer) + '</div>';
+  }).join('');
+  return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
+}
+
+function renderBookingBlock(blk, idx, spanDays){
+  spanDays = spanDays != null ? spanDays : blk.span_days;
+  var colorCls = bcColorClass(blk.color_type);
+  var tip = bcBlockTooltip(blk);
+  var label = bcBlockLabel(blk, spanDays, 'checkin');
+  return '<td colspan="' + spanDays + '" class="bc-day-cell" style="padding:2px 3px">' +
     '<div class="bc-block ' + colorCls + '" data-bidx="' + idx + '" title="' + tip + '">' +
     label + '</div></td>';
 }

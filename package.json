@@ -72,6 +72,7 @@
     "verify:staff-bed-calendar-queries": "node scripts/verify-staff-bed-calendar-queries.js",
     "verify:staff-bed-calendar-api": "node scripts/verify-staff-bed-calendar-api.js",
     "verify:staff-bed-calendar-ui": "node scripts/verify-staff-bed-calendar-ui.js",
+    "verify:staff-bed-calendar-stay-count": "node scripts/verify-staff-bed-calendar-stay-count.js",
     "verify:staff-manual-booking-create-sql": "node scripts/verify-staff-manual-booking-create-sql.js",
     "verify:staff-manual-booking-rollback-sql": "node scripts/verify-staff-manual-booking-rollback-sql.js",
     "verify:staff-manual-booking-availability": "node scripts/verify-staff-manual-booking-availability.js",
