@@ -299,6 +299,25 @@
 
 ---
 
+## Hosted manual booking add-ons layout proof — Stage 8.7.16 (2026-06-03)
+
+**Result:** **PASS** — Create Manual Booking notes/add-ons layout clean on staging.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:acb2bd0-stage8716-manual-addons-layout` · ACR `cbp` · revision `--0000028` |
+| Preflight | **PASS** | `acb2bd0`; `verify-staff-bed-calendar-ui.js` 350/350 |
+| Notes layout | **PASS** | `.bk-notes-block` — label + textarea stacked left (same x-offset ~45px) |
+| Add-ons checkboxes | **PASS** | None — qty spinbuttons only |
+| Qty defaults | **PASS** | All add-on inputs default to `0` |
+| Unit labels | **PASS** | days / lessons / classes / meals visible beside inputs |
+| Compact alignment | **PASS** | Add-on names + qty fields left-aligned, close together |
+| Meals visual-only | **PASS** | Meals row present; note “on-site / not priced in quote yet”; quote unchanged when meals qty = 10 |
+| Quote add-ons | **PASS** | Wetsuit 3d + surf 2 + yoga 1: total €80.00 → €170.00 (line items present) |
+| Safety | **PASS** | Session fetches: `/staff/bed-calendar`, `/staff/quote-preview` only; no graph.facebook.com / n8n / Stripe |
+
+---
+
 ## Manual booking notes + add-ons layout — Stage 8.7.15 (2026-06-03)
 
 **Result:** **PASS** — local UI patch only; not deployed.
