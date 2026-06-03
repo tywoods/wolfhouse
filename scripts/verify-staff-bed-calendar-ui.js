@@ -1504,6 +1504,58 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '224i: bed calendar UI has no n8n URL fetch (Stage 8.7.8)');
 })();
 
+// ── Stage 8.7.11 — payment box + compact add-ons layout ───────────────────
+(function check8711PaymentAndAddOns(){
+  const drawerStart = src.indexOf('function renderBookingContextDrawer');
+  const drawerEnd   = drawerStart > 0 ? src.indexOf('\nfunction ', drawerStart + 10) : -1;
+  const drawerSrc   = drawerStart > 0 && drawerEnd > 0 ? src.slice(drawerStart, drawerEnd) : '';
+
+  check(/\.ctx-pay-box/.test(src),
+    '225: ctx-pay-box CSS present (Stage 8.7.11)');
+  check(/ctx-pay-box/.test(drawerSrc),
+    '225b: payment section wrapped in ctx-pay-box (Stage 8.7.11)');
+  check(/ctx-pay-record-paid/.test(src) && /ctx-pay-record/.test(drawerSrc),
+    '225c: payment records use contained card classes (Stage 8.7.11)');
+  check(!/margin-top:8px;padding:8px 10px;background:#F3FAF1/.test(drawerSrc),
+    '225d: no full-width inline green payment card stretch (Stage 8.7.11)');
+  check(/Deposit required/.test(drawerSrc) && /Amount due/.test(drawerSrc) &&
+        /Amount paid/.test(drawerSrc) && /Paid at/.test(drawerSrc) &&
+        /stripe_checkout_session_id/.test(drawerSrc),
+    '225e: payment truth fields still render in drawer (Stage 8.7.11)');
+  check(/bc-luna-confirmation-draft/.test(src),
+    '225f: Luna confirmation draft panel unchanged (Stage 8.7.11)');
+  check(!/sendConfirmation|Send confirmation/i.test(drawerSrc),
+    '225g: drawer still has no send button (Stage 8.7.11)');
+
+  check(/\.bk-ao-row\{display:grid/.test(src),
+    '225h: add-ons use compact grid rows (Stage 8.7.11)');
+  check(!/\.bk-ao-label\{flex:1/.test(src),
+    '225i: add-ons label no longer flex:1 stretch (Stage 8.7.11)');
+  check(/id="bk-ao-meals"/.test(src),
+    '225j: meals add-on input present (Stage 8.7.11)');
+  check(/bk-ao-meals-note|not priced in quote yet/i.test(src),
+    '225k: meals marked on-site / not priced in quote (Stage 8.7.11)');
+
+  const fnStart = src.indexOf('function buildAddOns');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(!/bk-ao-meals/.test(fnSrc) && !/code:\s*['"][^'"]*meal/i.test(fnSrc) && !/dinner_meal/.test(fnSrc),
+    '225l: buildAddOns does not send meals as priced add-on (Stage 8.7.11)');
+
+  const clearStart = src.indexOf('function bcClearSelection');
+  const clearEnd   = clearStart > 0 ? src.indexOf('\nfunction ', clearStart + 10) : -1;
+  const clearSrc   = clearStart > 0 && clearEnd > 0 ? src.slice(clearStart, clearEnd) : '';
+  check(/bk-ao-meals/.test(clearSrc),
+    '225m: bcClearSelection resets meals input (Stage 8.7.11)');
+
+  check(!/graph\.facebook\.com/.test(src),
+    '225n: bed calendar UI has no graph.facebook.com (Stage 8.7.11)');
+  check(!/api\.stripe\.com/.test(src),
+    '225o: bed calendar UI has no api.stripe.com (Stage 8.7.11)');
+  check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
+    '225p: bed calendar UI has no n8n URL fetch (Stage 8.7.11)');
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');

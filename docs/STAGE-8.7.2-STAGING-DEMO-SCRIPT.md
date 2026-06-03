@@ -250,6 +250,23 @@
 
 ---
 
+## UI cleanup — Stage 8.7.11 (2026-06-03, not yet deployed)
+
+**Result:** **PASS** — payment box + add-ons layout committed locally; batch deploy with 8.7.10 pending.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Payment contained box | **PASS** | `.ctx-pay-box` wraps Payment section; max-width ~340px left-aligned |
+| No full-width green stretch | **PASS** | Payment records use `.ctx-pay-record` classes, not drawer-width inline cards |
+| Payment truth fields | **PASS** | Total, deposit, booking paid, balance, amount due/paid, paid_at, session/intent, checkout URL |
+| Luna confirmation draft | **PASS** | `#bc-luna-confirmation-draft` unchanged |
+| Add-ons compact layout | **PASS** | Grid rows; labels left-aligned (no `flex:1` gap) |
+| Meals add-on | **PASS** | `#bk-ao-meals` qty input + “on-site / not priced in quote yet” note |
+| Meals pricing | **VISUAL-ONLY** | Not in `buildAddOns()` — not sent to quote API |
+| Safety | **PASS** | UI-only; no graph.facebook.com / n8n / Stripe API calls |
+
+---
+
 ## Pre-demo checklist (5 min before call)
 
 - [ ] Staff Portal login works

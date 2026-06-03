@@ -3852,6 +3852,17 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-status-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center}
 .ctx-nights-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:var(--text-2);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-pill);padding:3px 10px}
 .ctx-pay-block{margin:8px 0}
+.ctx-pay-box{max-width:340px;width:100%;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-top:2px;box-sizing:border-box}
+.ctx-pay-record{margin-top:8px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:6px;font-size:12px;background:var(--bg-1,#f8f9fa)}
+.ctx-pay-record-paid{background:#F3FAF1;border-color:#B5D3AD}
+.ctx-pay-record-checkout{border-color:#B5C7D3}
+.ctx-pay-record-badge{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px}
+.ctx-pay-record-badge-paid{background:#DCEAD2;color:#3d6130}
+.ctx-pay-record-badge-checkout{background:#D0E4EE;color:#1d5570}
+.ctx-pay-record-badge-default{background:#E8E8E8;color:var(--text-2)}
+.ctx-pay-record-wait{font-size:11px;color:#1d5570;padding:4px 0;border-top:1px solid var(--border-soft);margin-top:4px}
+.ctx-pay-record-meta{margin-top:6px;font-size:10px;color:var(--text-3);border-top:1px solid var(--border-soft);padding-top:4px}
+.ctx-pay-record-url{margin-top:8px;border-top:1px solid var(--border-soft);padding-top:6px}
 .ctx-pay-row{display:grid;grid-template-columns:108px minmax(0,1fr);gap:4px 10px;align-items:baseline;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border-soft)}
 .ctx-pay-row:last-child{border-bottom:none}
 .ctx-pay-label{color:var(--text-2);font-size:11px;text-align:left}
@@ -3917,12 +3928,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bk-quote-total{font-weight:700;font-size:13px;padding:6px 0!important}
 .bk-quote-formula{font-size:10px;color:var(--text-3);font-style:italic;margin-top:8px;line-height:1.5}
 /* Stage 8.4.7 — add-ons selector */
-.bk-ao-grid{display:flex;flex-direction:column;gap:5px;margin-top:4px}
-.bk-ao-row{display:flex;align-items:center;gap:8px;min-height:26px}
-.bk-ao-label{flex:1;font-size:12px;color:var(--text-1);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.bk-ao-grid{display:flex;flex-direction:column;gap:6px;margin-top:4px;max-width:420px}
+.bk-ao-row{display:grid;grid-template-columns:minmax(0,1fr) 52px auto;align-items:center;gap:8px;min-height:26px}
+.bk-ao-label{font-size:12px;color:var(--text-1);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;justify-self:start;text-align:left}
 .bk-ao-qty-label{cursor:default}
-.bk-ao-qty{width:52px!important;text-align:center;padding:3px 5px!important;font-size:12px!important}
-.bk-ao-unit{font-size:11px;color:var(--text-3);white-space:nowrap}
+.bk-ao-qty{width:52px!important;text-align:center;padding:3px 5px!important;font-size:12px!important;justify-self:start}
+.bk-ao-unit{font-size:11px;color:var(--text-3);white-space:nowrap;justify-self:start}
+.bk-ao-note{font-size:11px;color:var(--text-3);font-style:italic;margin-top:6px;line-height:1.45}
+.bk-ao-meals-note{font-size:11px;color:#A2743D;margin-top:2px}
 /* Stage 8.3q — tour operator block skeleton */
 .bc-op-divider{border:none;border-top:2px solid var(--border-1,#e0e8ef);margin:20px 0 16px}
 .bc-op-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
@@ -4343,8 +4356,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
           <input type="number" id="bk-ao-yoga" class="bk-input bk-ao-qty" value="0" min="0" max="30">
           <span class="bk-ao-unit">classes</span>
         </div>
+        <div class="bk-ao-row">
+          <span class="bk-ao-label bk-ao-qty-label">Meals</span>
+          <input type="number" id="bk-ao-meals" class="bk-input bk-ao-qty" value="0" min="0" max="60" title="On-site only — not priced in quote yet">
+          <span class="bk-ao-unit">meals</span>
+        </div>
       </div>
-      <div class="bk-form-hint" style="padding-left:0">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate.</div>
+      <div class="bk-ao-note">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate.</div>
+      <div class="bk-ao-meals-note">Meals: on-site / not priced in quote yet.</div>
     </div>
 
     <!-- Section: Quote Preview (Stage 8.4.5 — calls /staff/quote-preview, no writes) -->
@@ -5561,6 +5580,7 @@ function bcClearSelection(){
   });
   var _slEl = el('bk-ao-surf-lessons'); if (_slEl) _slEl.value = '0';
   var _ygEl = el('bk-ao-yoga'); if (_ygEl) _ygEl.value = '0';
+  var _mlEl = el('bk-ao-meals'); if (_mlEl) _mlEl.value = '0';
   var warnEl = el('bc-sel-warn');
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
@@ -5878,6 +5898,7 @@ function buildAddOns(){
   var ygEl = el('bk-ao-yoga');
   var ygQty = parseInt(ygEl ? ygEl.value : '0', 10) || 0;
   if (ygQty > 0) result.push({ code: 'yoga_class', quantity: ygQty });
+  /* Meals: visual-only in UI (Stage 8.7.11) — not in pricing.json add_ons yet; do not send to quote */
   return result;
 }
 
@@ -6623,6 +6644,7 @@ function renderBookingContextDrawer(data){
   };
 
   html += '<div class="ctx-section"><h3>Payment</h3>';
+  html += '<div class="ctx-pay-box">';
 
   /* ── 4a. Booking-level payment status — header shows primary pill (8.7.6) ─ */
   var bkPayStatus = bk.payment_status || pmt.latest_status || null;
@@ -6655,17 +6677,18 @@ function renderBookingContextDrawer(data){
     pmt.rows.forEach(function(pr){
       var isPaid    = pr.payment_status === 'paid';
       var isCreated = pr.payment_status === 'checkout_created';
-      var cardBorder = isPaid ? '#B5D3AD' : isCreated ? '#B5C7D3' : 'var(--border-soft)';
-      var cardBg     = isPaid ? '#F3FAF1' : 'var(--bg-1,#f8f9fa)';
+      var recCls = 'ctx-pay-record';
+      if (isPaid) recCls += ' ctx-pay-record-paid';
+      else if (isCreated) recCls += ' ctx-pay-record-checkout';
 
-      html += '<div style="margin-top:8px;padding:8px 10px;background:' + cardBg + ';border:1px solid ' + cardBorder + ';border-radius:6px;font-size:12px">';
+      html += '<div class="' + recCls + '">';
 
       /* Status badge row */
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-      var badgeBg  = isPaid ? '#DCEAD2' : isCreated ? '#D0E4EE' : '#E8E8E8';
-      var badgeFg  = isPaid ? '#3d6130' : isCreated ? '#1d5570' : 'var(--text-2)';
-      html += '<span style="background:' + badgeBg + ';color:' + badgeFg + ';font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px">' +
-        escHtml(pmtStatusLabel(pr.payment_status)) + '</span>';
+      var badgeCls = isPaid ? 'ctx-pay-record-badge ctx-pay-record-badge-paid' :
+                     isCreated ? 'ctx-pay-record-badge ctx-pay-record-badge-checkout' :
+                     'ctx-pay-record-badge ctx-pay-record-badge-default';
+      html += '<span class="' + badgeCls + '">' + escHtml(pmtStatusLabel(pr.payment_status)) + '</span>';
       if (pr.payment_kind){
         var kindLabel = pr.payment_kind === 'deposit_only' ? 'Deposit only' :
                         pr.payment_kind === 'full_payment'  ? 'Full payment'  :
@@ -6685,7 +6708,7 @@ function renderBookingContextDrawer(data){
 
       /* Stripe webhook waiting banner */
       if (isCreated && !isPaid){
-        html += '<div style="font-size:11px;color:#1d5570;padding:4px 0;border-top:1px solid ' + cardBorder + ';margin-top:4px">' +
+        html += '<div class="ctx-pay-record-wait">' +
           '\u23F3 Payment link created \u2014 waiting for Stripe webhook.' +
           '</div>';
       }
@@ -6693,7 +6716,7 @@ function renderBookingContextDrawer(data){
       /* Stripe ID details (collapsed, small) */
       var hasIds = pr.stripe_checkout_session_id || pr.stripe_payment_intent_id;
       if (hasIds){
-        html += '<div style="margin-top:6px;font-size:10px;color:var(--text-3);border-top:1px solid ' + cardBorder + ';padding-top:4px">';
+        html += '<div class="ctx-pay-record-meta">';
         if (pr.stripe_checkout_session_id)
           html += '<div>Session: <code>' + escHtml(shortId(pr.stripe_checkout_session_id)) + '</code></div>';
         if (pr.stripe_payment_intent_id)
@@ -6703,7 +6726,7 @@ function renderBookingContextDrawer(data){
 
       /* Checkout URL + copy button */
       if (pr.checkout_url){
-        html += '<div style="margin-top:8px;border-top:1px solid ' + cardBorder + ';padding-top:6px">';
+        html += '<div class="ctx-pay-record-url">';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
         html += '<a href="' + escHtml(pr.checkout_url) + '" target="_blank" rel="noopener" ' +
           'style="word-break:break-all;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--accent)">' +
@@ -6713,9 +6736,10 @@ function renderBookingContextDrawer(data){
         html += '</div></div>';
       }
 
-      html += '</div>'; /* end card */
+      html += '</div>'; /* end ctx-pay-record */
     });
   }
+  html += '</div>'; /* end ctx-pay-box */
   html += '</div>'; /* end Payment section */
 
   /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
