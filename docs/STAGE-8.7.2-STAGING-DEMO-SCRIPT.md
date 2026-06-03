@@ -1,6 +1,6 @@
 # Stage 8.7.2 — Staging Demo Script (Wolfhouse / Luna)
 
-**Status:** **DEMO-READY** on `wh-staging-staff-api--0000032` (2026-06-03, Stage 8.7.27 final pass).  
+**Status:** **DEMO-READY** on `wh-staging-staff-api--0000033` (2026-06-03, Stage 8.8.3 Ask Luna date queries deployed).  
 **Audience:** Ty presenting to Ale/Cami (shadow mode; no live sends).  
 **Duration:** ~20–30 minutes (core path ~15 min).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
@@ -26,7 +26,7 @@
 |------|-------|
 | Staff Portal | `https://staff-staging.lunafrontdesk.com` |
 | Login | Company: `wolfhouse-somo` · Email: `admin.stage72c@example.test` · Password: see comment in [`scripts/fixtures/stage7.2c-auth-seed.sql`](../scripts/fixtures/stage7.2c-auth-seed.sql) |
-| Staff API revision | `wh-staging-staff-api--0000032` |
+| Staff API revision | `wh-staging-staff-api--0000033` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
 | Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** (or **Jul – Aug** chip) |
@@ -300,6 +300,32 @@
 | Auto-select | **PASS** | Top conversation selected when filtered list has rows |
 | Empty state | **PASS** | “No conversations need staff review right now.” |
 | Safety | **PASS** | Client-side filter on `/staff/conversations`; no `/staff/handoffs` UI fetch; no WhatsApp/n8n/Stripe |
+
+---
+
+## Hosted Ask Luna date-query proof — Stage 8.8.3 (2026-06-03)
+
+**Result:** **PASS** — Stage 8.8.2 date-aware intents live on staging revision `--0000033` (`b7c74c8`).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:b7c74c8-stage883-ask-luna-date-queries` · ACR `cbu` · revision `--0000033` · Healthy · 100% traffic |
+| Preflight | **PASS** | `b7c74c8`; `verify-staff-ask-luna-api.js` 80/80 |
+| Who checking in today? | **PASS** | `check_ins.on_date` · `query_date:2026-06-03` · 0 rows · “No guests are checking in today.” |
+| Who checking in tomorrow? | **PASS** | `check_ins.on_date` · `query_date:2026-06-04` · 0 rows |
+| How many check in tomorrow? | **PASS** | `check_ins.count` · “0 guests checking in tomorrow.” · UI: `CHECK_INS.COUNT • ARRIVALS` |
+| Who checking out today? | **PASS** | `check_outs.on_date` · `query_date:2026-06-03` · 0 rows *(“Who leaves today?” still → `departures_today`)* |
+| Who checking out tomorrow? | **PASS** | `check_outs.on_date` · `query_date:2026-06-04` |
+| How many check out tomorrow? | **PASS** | `check_outs.count` · “0 guests checking out tomorrow.” |
+| How many check out Saturday? | **PASS** | `check_outs.count` · `query_date:2026-06-06` |
+| Who checking in June 15? | **PASS** | `check_ins.on_date` · `query_date:2026-06-15` |
+| Who still owes money? | **PASS** | `payments.balance_due` · **4 rows** (regression) |
+| Which rooms need cleaning? | **PASS** | `rooms_or_beds_need_cleaning` · 0 rows (regression) |
+| Who paid for yoga tonight? | **PASS** | `unsupported_intent` · add-on gap message (not chat-log guess) |
+| Who needs a wetsuit today? | **PASS** | `unsupported_intent` · add-on gap message |
+| Safety | **PASS** | All responses `read_only:true` · `no_write_performed:true` · `sends_whatsapp:false`; no graph.facebook.com / n8n URL / api.stripe.com from Luna tab session |
+
+**Optional demo add-on (Luna tab):** After core Step 4, try one date question (e.g. *“How many people check in tomorrow?”*) and one blocked add-on (*“Who paid for yoga tonight?”*) to show structured-data vs not-yet-implemented paths.
 
 ---
 

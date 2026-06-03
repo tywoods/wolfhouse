@@ -1,7 +1,8 @@
 # Stage 8.8.1 — Luna MVP Operating Requirements (post-demo)
 
-**Status:** PASS — docs only (2026-06-03).  
+**Status:** PASS — docs only (2026-06-03). **Updated by:** Stage 8.8.3 hosted proof on `--0000033`.  
 **Captured after:** Stage 8.7.27 staging demo-ready confirmation (`wh-staging-staff-api--0000032`).  
+**Hosted (8.8.3):** Date-aware check-in/check-out intents live on `--0000033` — see [STAGE-8.7.2-STAGING-DEMO-SCRIPT.md](STAGE-8.7.2-STAGING-DEMO-SCRIPT.md) §8.8.3.  
 **Owner input:** Ty (post-demo with Ale/Cami).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
 
@@ -71,7 +72,7 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 |-------------------|------------------|------------------|-----------------|
 | Which rooms need cleaning today? | “Which rooms need cleaning?” | ✓ `rooms_or_beds_need_cleaning` (0 rows demo date) | `bookings` + `booking_beds` check-out = today |
 | Who is checking out today? | “Who leaves today?” | ✓ `departures_today` | `bookings.check_out = today` |
-| Who is checking in today? | “Who checks in today?” | ✓ `check_ins.on_date` (8.8.2) | `bookings.check_in = resolved date` |
+| Who is checking in today? | “Who checks in today?” | ✓ `check_ins.on_date` (8.8.2–8.8.3 hosted) | `bookings.check_in = resolved date` |
 | Who is checking in tomorrow? | “Who checks in tomorrow?” | ✓ `check_ins.on_date` (8.8.2) | Same |
 | How many check in tomorrow? | “How many people arrive tomorrow?” | ✓ `check_ins.count` (8.8.2) | Sum `guest_count` on matching bookings |
 | Who is checking out today? | “Who leaves today?” | ✓ `departures_today` | `bookings.check_out = today` |
