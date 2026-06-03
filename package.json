@@ -105,7 +105,8 @@
     "verify:staff-ask-luna-whatsapp-dry-run": "node scripts/verify-staff-ask-luna-whatsapp-dry-run.js",
     "verify:booking-service-records-schema": "node scripts/verify-booking-service-records-schema.js",
     "verify:service-payment-linkage-schema": "node scripts/verify-service-payment-linkage-schema.js",
-    "verify:booking-service-records-demo-fixture": "node scripts/verify-booking-service-records-demo-fixture.js"
+    "verify:booking-service-records-demo-fixture": "node scripts/verify-booking-service-records-demo-fixture.js",
+    "verify:bot-pause-states-schema": "node scripts/verify-bot-pause-states-schema.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
