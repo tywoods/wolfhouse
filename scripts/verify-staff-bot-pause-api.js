@@ -1,11 +1,14 @@
 'use strict';
 /**
- * verify-staff-bot-pause-api.js — Phase 9.4b
+ * verify-staff-bot-pause-api.js — Phase 9.4b / 9.6.1
  *
  * Static verifier for:
  *   GET  /staff/bot/pause-state
  *   POST /staff/bot/pause
  *   POST /staff/bot/resume
+ *
+ * Route blocks use pathname === anchors so Inbox client fetch('/staff/bot/pause-state')
+ * does not false-match server route registration (Phase 9.5).
  */
 
 const fs = require('fs');
@@ -34,13 +37,19 @@ function check(id, desc, ok, detail) {
   }
 }
 
-const pauseStateRouteIdx = API_SRC.indexOf("'/staff/bot/pause-state'");
-const pauseRouteIdx = API_SRC.indexOf("'/staff/bot/pause'");
-const resumeRouteIdx = API_SRC.indexOf("'/staff/bot/resume'");
+function findRouteBlock(pathnameLiteral) {
+  const anchor = `if (pathname === '${pathnameLiteral}')`;
+  const idx = API_SRC.indexOf(anchor);
+  return idx > -1 ? API_SRC.slice(idx, idx + 600) : '';
+}
 
-const pauseStateBlock = pauseStateRouteIdx > -1 ? API_SRC.slice(pauseStateRouteIdx, pauseStateRouteIdx + 500) : '';
-const pauseRouteBlock = pauseRouteIdx > -1 ? API_SRC.slice(pauseRouteIdx, pauseRouteIdx + 500) : '';
-const resumeRouteBlock = resumeRouteIdx > -1 ? API_SRC.slice(resumeRouteIdx, resumeRouteIdx + 500) : '';
+const pauseStateBlock = findRouteBlock('/staff/bot/pause-state');
+const pauseRouteBlock = findRouteBlock('/staff/bot/pause');
+const resumeRouteBlock = findRouteBlock('/staff/bot/resume');
+
+const pauseStateRouteIdx = pauseStateBlock.length > 0 ? API_SRC.indexOf("if (pathname === '/staff/bot/pause-state')") : -1;
+const pauseRouteIdx = pauseRouteBlock.length > 0 ? API_SRC.indexOf("if (pathname === '/staff/bot/pause')") : -1;
+const resumeRouteIdx = resumeRouteBlock.length > 0 ? API_SRC.indexOf("if (pathname === '/staff/bot/resume')") : -1;
 
 const getStart = API_SRC.indexOf('async function handleBotPauseStateGet(');
 const getEnd = API_SRC.indexOf('async function handleBotPausePost(', getStart + 100);
@@ -59,12 +68,16 @@ const handlerStrip = (getText + pauseText + resumeText)
   .replace(/\/\*[\s\S]*?\*\//g, '');
 
 console.log('\nA. Routes');
-check('A1', "GET route '/staff/bot/pause-state' registered", pauseStateRouteIdx > -1);
-check('A2', "POST route '/staff/bot/pause' registered", pauseRouteIdx > -1);
-check('A3', "POST route '/staff/bot/resume' registered", resumeRouteIdx > -1);
+check('A1', "GET route '/staff/bot/pause-state' registered (pathname anchor)", pauseStateRouteIdx > -1);
+check('A2', "POST route '/staff/bot/pause' registered (pathname anchor)", pauseRouteIdx > -1);
+check('A3', "POST route '/staff/bot/resume' registered (pathname anchor)", resumeRouteIdx > -1);
 check('A4', 'pause-state dispatches handleBotPauseStateGet', pauseStateBlock.includes('handleBotPauseStateGet'));
 check('A5', 'pause dispatches handleBotPausePost', pauseRouteBlock.includes('handleBotPausePost'));
 check('A6', 'resume dispatches handleBotResumePost', resumeRouteBlock.includes('handleBotResumePost'));
+check('A7', 'Inbox fetchBotPauseState does not substitute for route block',
+  API_SRC.includes("fetch('/staff/bot/pause-state'")
+  && pauseStateBlock.includes("requireAuth(req, res, 'viewer')")
+  && !pauseStateBlock.includes('fetchBotPauseState'));
 
 console.log('\nB. Auth');
 check('B1', 'pause-state uses requireAuth viewer', pauseStateBlock.includes("requireAuth(req, res, 'viewer')"));
