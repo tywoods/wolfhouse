@@ -438,10 +438,16 @@ Each slice is independently gated, independently provable, and does not depend o
 **Verifier:** `scripts/verify-staff-bot-availability-api.js` **39/39 PASS** (new). All prior bot verifiers PASS (39+54+65+77 checks).
 **Local proof:** guest_count=2 → `selected_bed_codes:["DEMO-R1-B1","DEMO-R1-B2"]`, `has_enough_beds:true`, `next_action:ready_for_bot_create`; guest_count=999 → `has_enough_beds:false`, `blockers:["not_enough_available_beds"]`, `next_action:ask_staff_or_alternate_dates`; DB bookings count unchanged (0 writes). No Stripe. No WhatsApp. No n8n.
 
-### 8.5.9 — Explicit approval before live WhatsApp sends
-**Goal:** A documented go/no-go checklist for enabling live WhatsApp sends from Luna bot. Must include: `WHATSAPP_DRY_RUN` set to `false`, all 8.5.2–8.5.6 slices proven, staff approval.
-**Type:** Docs only. A go/no-go decision gate.
-**Pass criteria:** Checklist written. No activation until explicitly approved.
+### 8.5.9 - Wire n8n dry-run workflow to availability-check - **PASS (2026-06-03)**
+**Goal:** Update the inactive dry-run workflow (Stage 8.5.7) to call `/staff/bot/availability-check` (Stage 8.5.8) before `/staff/bot/bookings/create`, using the returned `selected_bed_codes` instead of the `DEMO-R1-B1` staging placeholder. Add not-enough-beds branch.
+**Delivered:**
+- `HTTP - Bot Availability Check` node added (POST `/staff/bot/availability-check`). Sends `client_slug`, `check_in`, `check_out`, `guest_count`, `room_type`, `package_code`, `gender_preference`. `X-Luna-Bot-Token` from `$env.LUNA_BOT_INTERNAL_TOKEN`.
+- `IF - Has Enough Beds` branch: true → `HTTP - Bot Booking Create` with `selected_bed_codes` from availability response; false → `Set - Log No Beds Reply DryRun` (drafts "I'm checking with the team") → `Respond - DryRun No Beds`. No booking, no Stripe link, no WhatsApp send on false path.
+- `selected_bed_codes` in booking-create body now references `$('HTTP - Bot Availability Check').first().json.selected_bed_codes` — `DEMO-R1-B1` placeholder REMOVED.
+- `Code - Parse Booking Fields` cleaned up: no placeholder bed codes, `gender_preference` forwarded.
+- Happy path: booking-preview → availability-check → (has beds?) → booking-create (real beds) → Stripe-link → draft payment reply.
+- `active: false` — workflow not imported or activated. No Azure deploy. No DB writes. No Stripe. No WhatsApp.
+**Verifier:** `scripts/verify-luna-n8n-bot-shared-engine-dry-run.js` **41/41 PASS** (updated). New checks: B4/B5 (availability-check URL + node), G2 (selected_bed_codes from avail node), G3 (DEMO-R1-B1 absent), G4/G5/G6 (wiring order via connections), H1–H4 (not-enough-beds branch), K2/K3 (docs 8.5.9 refs).
 
 ---
 

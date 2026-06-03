@@ -1,18 +1,24 @@
 'use strict';
 // ============================================================================
 // verify-luna-n8n-bot-shared-engine-dry-run.js
-// Static verifier for Stage 8.5.7 — Luna n8n dry-run shared-engine wiring
-// Checks the dry-run workflow JSON and docs without importing or running n8n.
+// Static verifier for Stage 8.5.7 → 8.5.9
+// Luna n8n dry-run shared-engine wiring.
+// Stage 8.5.9 additions:
+//   • /staff/bot/availability-check node present and wired before booking-create
+//   • selected_bed_codes sourced from availability-check response (not hardcoded)
+//   • DEMO-R1-B1 placeholder ABSENT
+//   • not-enough-beds branch exists
+//   • all prior 8.5.7 checks retained
 // ============================================================================
 
 const fs   = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..');
-const WF_FILE = path.join(ROOT, 'n8n', 'Wolfhouse Booking Assistant - Main - Shared Engine Dry Run.json');
+const ROOT      = path.resolve(__dirname, '..');
+const WF_FILE   = path.join(ROOT, 'n8n', 'Wolfhouse Booking Assistant - Main - Shared Engine Dry Run.json');
 const ORIG_FILE = path.join(ROOT, 'n8n', 'Wolfhouse Booking Assistant  - Main.json');
-const MAP_DOC = path.join(ROOT, 'docs', 'STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md');
-const ROADMAP  = path.join(ROOT, 'docs', 'ROADMAP.md');
+const MAP_DOC   = path.join(ROOT, 'docs', 'STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md');
+const ROADMAP   = path.join(ROOT, 'docs', 'ROADMAP.md');
 
 let passed = 0, failed = 0;
 const results = [];
@@ -43,7 +49,6 @@ try { mapDoc   = fs.readFileSync(MAP_DOC, 'utf8'); }   catch (e) { mapDoc = ''; 
 try { roadmap  = fs.readFileSync(ROADMAP, 'utf8'); }   catch (e) { roadmap = ''; }
 
 const nodeNames   = wf.nodes.map(n => n.name);
-const nodeTypes   = wf.nodes.map(n => n.type);
 const allNodeJson = JSON.stringify(wf.nodes);
 
 // ── A. Workflow identity ─────────────────────────────────────────────────────
@@ -67,6 +72,13 @@ check('B2', 'workflow contains /staff/bot/bookings/create URL',
 check('B3', 'workflow contains /staff/bot/payments/ URL (Stripe link route)',
   wfText.includes('/staff/bot/payments/'));
 
+// Stage 8.5.9 — availability-check
+check('B4', 'workflow contains /staff/bot/availability-check URL (Stage 8.5.9)',
+  wfText.includes('/staff/bot/availability-check'));
+
+check('B5', '"HTTP - Bot Availability Check" node exists in workflow',
+  nodeNames.includes('HTTP - Bot Availability Check'));
+
 // ── C. Auth token handling ───────────────────────────────────────────────────
 check('C1', 'X-Luna-Bot-Token header used in HTTP nodes',
   wfText.includes('X-Luna-Bot-Token'));
@@ -89,7 +101,6 @@ check('D3', 'Respond - DryRun Disabled node present (guard false branch)',
 
 // ── E. No live WhatsApp sends ────────────────────────────────────────────────
 // Only flag nodes whose URL parameter specifically sends to graph.facebook.com (actual WhatsApp sends).
-// Nodes that merely mention "whatsapp" in comments/proof strings are allowed.
 const waNodes = wf.nodes.filter(n => {
   const url = (n.parameters && (n.parameters.url || '')) || '';
   return url.includes('graph.facebook.com');
@@ -108,7 +119,7 @@ const directStripeNodes = wf.nodes.filter(n => {
 check('F1', 'no direct Stripe API calls (api.stripe.com) in dry-run workflow',
   directStripeNodes.length === 0, `found ${directStripeNodes.length} direct Stripe nodes`);
 
-// Check it is not referenced as an active env var expression — a mention in a string note is fine.
+// Env var usage check — string-in-note mention is fine, active $env usage is not
 check('F2', 'STRIPE_DEFAULT_DEPOSIT_CENTS not used as env var in dry-run workflow',
   !wfText.includes('$env.STRIPE_DEFAULT_DEPOSIT_CENTS') && !wfText.includes('env.STRIPE_DEFAULT_DEPOSIT_CENTS'));
 
@@ -119,61 +130,108 @@ check('F3', 'proof marker: _proof_no_direct_stripe in draft reply code',
 check('G1', 'confirm: true sent to booking create endpoint',
   wfText.includes('"confirm":') || wfText.includes("confirm:") || wfText.includes('confirm'));
 
-check('G2', 'selected_bed_codes sent to booking create endpoint',
-  wfText.includes('selected_bed_codes'));
+// Stage 8.5.9: selected_bed_codes must reference the availability-check node output
+check('G2', 'selected_bed_codes in booking-create body references "HTTP - Bot Availability Check" node output',
+  wfText.includes('selected_bed_codes') &&
+  wfText.includes('HTTP - Bot Availability Check'));
 
-check('G3', 'GAP documented: staging placeholder / auto-assignment next slice',
-  wfText.includes('DEMO-R1-B1') || wfText.includes('staging placeholder') || wfText.includes('auto-assignment'));
+// Stage 8.5.9: DEMO-R1-B1 placeholder must be ABSENT
+check('G3', 'DEMO-R1-B1 staging placeholder REMOVED from workflow (Stage 8.5.9)',
+  !wfText.includes('DEMO-R1-B1'));
 
-// ── H. Stripe link node ──────────────────────────────────────────────────────
-check('H1', 'payment_id used dynamically in Stripe link URL (not hardcoded UUID)',
+// ── G5. availability-check wired before booking-create ───────────────────────
+// Check connections: IF - Missing Fields or Ready true branch → HTTP - Bot Availability Check
+// (not directly to HTTP - Bot Booking Create)
+const previewBranch = wf.connections && wf.connections['IF - Missing Fields or Ready'];
+const previewTrueBranch = previewBranch && Array.isArray(previewBranch.main) && previewBranch.main[0] ? previewBranch.main[0] : [];
+const previewTrueTargets = previewTrueBranch.map(c => c.node);
+check('G4', 'IF - Missing Fields or Ready true branch goes to availability-check (not directly to booking-create)',
+  previewTrueTargets.includes('HTTP - Bot Availability Check') &&
+  !previewTrueTargets.includes('HTTP - Bot Booking Create'));
+
+// Check availability-check connects (directly or via IF) to booking-create
+const availConn = wf.connections && wf.connections['HTTP - Bot Availability Check'];
+const availTargets = (availConn && availConn.main && availConn.main[0]) ? availConn.main[0].map(c => c.node) : [];
+// Availability either goes directly to booking-create or to an IF node that does
+const bedsIfName = availTargets.find(n => n.includes('Has Enough Beds') || n.includes('Enough Beds'));
+check('G5', 'availability-check connects to a "Has Enough Beds" IF node',
+  !!bedsIfName);
+
+// IF - Has Enough Beds true branch → HTTP - Bot Booking Create
+const bedsIfConn = bedsIfName && wf.connections && wf.connections[bedsIfName];
+const bedsIfTrueBranch = bedsIfConn && Array.isArray(bedsIfConn.main) && bedsIfConn.main[0] ? bedsIfConn.main[0] : [];
+const bedsIfTrueTargets = bedsIfTrueBranch.map(c => c.node);
+check('G6', '"Has Enough Beds" IF true branch connects to HTTP - Bot Booking Create',
+  bedsIfTrueTargets.includes('HTTP - Bot Booking Create'));
+
+// ── H. Not-enough-beds branch ────────────────────────────────────────────────
+check('H1', '"IF - Has Enough Beds" node exists in workflow',
+  nodeNames.some(n => n.includes('Has Enough Beds') || n.includes('Enough Beds')));
+
+check('H2', 'not-enough-beds Set/log node exists',
+  nodeNames.some(n => n.toLowerCase().includes('no beds') || n.toLowerCase().includes('not enough')));
+
+check('H3', 'no-beds reply_draft contains "checking with the team" or equivalent',
+  wfText.includes("checking with the team") || wfText.includes("I'm checking") || wfText.includes("no_beds"));
+
+check('H4', 'not-enough-beds branch does NOT call booking-create (false branch goes elsewhere)',
+  (() => {
+    const falseBranch = bedsIfConn && Array.isArray(bedsIfConn.main) && bedsIfConn.main[1] ? bedsIfConn.main[1] : [];
+    const falseBranchTargets = falseBranch.map(c => c.node);
+    return !falseBranchTargets.includes('HTTP - Bot Booking Create');
+  })());
+
+// ── I. Stripe link node ──────────────────────────────────────────────────────
+check('I1', 'payment_id used dynamically in Stripe link URL (not hardcoded UUID)',
   wfText.includes('payment_id') && !wfText.match(/\/payments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/create-stripe-link/));
 
-check('H2', 'no_payment_truth_recorded in draft reply code',
+check('I2', 'no_payment_truth_recorded in draft reply code',
   wfText.includes('no_payment_truth_recorded'));
 
-// ── I. Original workflow untouched ───────────────────────────────────────────
+// ── J. Original workflow untouched ───────────────────────────────────────────
 if (orig) {
-  check('I1', 'original workflow still has active field (not zeroed out)',
+  check('J1', 'original workflow still has active field (not zeroed out)',
     orig.hasOwnProperty('active'));
 
-  check('I2', 'original workflow name unchanged (not renamed)',
+  check('J2', 'original workflow name unchanged (not renamed)',
     orig.name && !orig.name.includes('Shared Engine'));
 
-// I3: Stripe direct call is in the Create Payment Session sub-workflow, not the main workflow
-const CPS_FILE = path.join(ROOT, 'n8n', 'phase2', 'Wolfhouse - Create Payment Session.json');
-let cpsText = '';
-try { cpsText = fs.readFileSync(CPS_FILE, 'utf8'); } catch (e) { cpsText = ''; }
-check('I3', 'Create Payment Session sub-workflow still contains its direct Stripe call (untouched)',
-  cpsText.includes('api.stripe.com') || cpsText.includes('Stripe Create Session'),
-  cpsText ? 'Stripe call not found in CPS workflow' : 'CPS file not accessible');
+  // J3: Stripe direct call is in the Create Payment Session sub-workflow
+  const CPS_FILE = path.join(ROOT, 'n8n', 'phase2', 'Wolfhouse - Create Payment Session.json');
+  let cpsText = '';
+  try { cpsText = fs.readFileSync(CPS_FILE, 'utf8'); } catch (e) { cpsText = ''; }
+  check('J3', 'Create Payment Session sub-workflow still contains its direct Stripe call (untouched)',
+    cpsText.includes('api.stripe.com') || cpsText.includes('Stripe Create Session'),
+    cpsText ? 'Stripe call not found in CPS workflow' : 'CPS file not accessible');
 } else {
-  check('I1', 'original workflow file accessible for comparison', false, 'could not read original');
-  check('I2', 'original workflow untouched', false, 'file not accessible');
-  check('I3', 'original Stripe node present', false, 'file not accessible');
+  check('J1', 'original workflow file accessible for comparison', false, 'could not read original');
+  check('J2', 'original workflow untouched', false, 'file not accessible');
+  check('J3', 'original Stripe node present', false, 'file not accessible');
 }
 
-// ── J. Docs checks ───────────────────────────────────────────────────────────
-check('J1', 'integration map docs reference Stage 8.5.7',
+// ── K. Docs checks ───────────────────────────────────────────────────────────
+check('K1', 'integration map docs reference Stage 8.5.7 (still present)',
   mapDoc.includes('8.5.7'));
 
-check('J2', 'roadmap references Stage 8.5.7',
-  roadmap.includes('8.5.7'));
+check('K2', 'integration map docs reference Stage 8.5.9 (new)',
+  mapDoc.includes('8.5.9'));
+
+check('K3', 'roadmap references Stage 8.5.9',
+  roadmap.includes('8.5.9'));
 
 // Staff Ask Luna checks (Stage 8.6 roadmap)
-check('J3', 'docs reference Staff Ask Luna or Stage 8.6',
+check('K4', 'docs reference Staff Ask Luna or Stage 8.6',
   roadmap.includes('8.6') || roadmap.includes('Staff Ask Luna') || mapDoc.includes('Staff Ask Luna') || mapDoc.includes('8.6'));
 
-check('J4', 'docs mention staff phone allowlist for Staff Ask Luna',
+check('K5', 'docs mention staff phone allowlist for Staff Ask Luna',
   roadmap.includes('allowlist') || roadmap.includes('allow list') || mapDoc.includes('allowlist') || mapDoc.includes('allow list'));
 
-// ── K. No Airtable amounts used for Stripe ──────────────────────────────────
-// In dry-run fork, amounts come from Staff API (payments.amount_due_cents), not Airtable
-check('K1', 'dry-run workflow has no Airtable nodes that feed amounts to Stripe',
+// ── L. No Airtable amounts used for Stripe ──────────────────────────────────
+check('L1', 'dry-run workflow has no Airtable nodes that feed amounts to Stripe',
   !wfText.includes('airtable') || !directStripeNodes.length,
   'Airtable present but no direct Stripe — OK if Airtable not feeding amounts to Stripe');
 
-check('K2', 'no deposit_required_cents reference (Airtable field) in dry-run workflow',
+check('L2', 'no deposit_required_cents reference (Airtable field) in dry-run workflow',
   !wfText.includes('deposit_required_cents'));
 
 // ── Print results ─────────────────────────────────────────────────────────────

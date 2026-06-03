@@ -2,8 +2,8 @@
   "name": "Wolfhouse Booking Assistant - Main - Shared Engine Dry Run",
   "active": false,
   "meta": {
-    "description": "Stage 8.5.7 dry-run fork. NOT a replacement for the live workflow. INACTIVE / NOT IMPORTED into production n8n. Proves the shared Staff API booking/pricing/payment engine can be called by the Luna bot. All WhatsApp send nodes are bypassed. Selected bed codes use staging placeholder DEMO-R1-B1 (gap: auto-assignment not yet built — see GAP note in Code - Parse Booking Fields node). Token from LUNA_BOT_INTERNAL_TOKEN env var, never hardcoded. WHATSAPP_DRY_RUN guard is the first branch.",
-    "instanceId": "dry-run-stage857"
+    "description": "Stage 8.5.9 dry-run fork (updated from 8.5.7). NOT a replacement for the live workflow. INACTIVE / NOT IMPORTED into production n8n. Full shared-engine path: WHATSAPP_DRY_RUN guard -> booking-preview -> availability-check -> (not-enough-beds branch: log draft, no send) OR (has beds: booking-create with real selected_bed_codes -> Stripe link -> draft payment reply). Staging placeholder bed code REMOVED — selected_bed_codes now come from /staff/bot/availability-check response. Token from LUNA_BOT_INTERNAL_TOKEN env var, never hardcoded. No graph.facebook.com nodes. No api.stripe.com calls. No STRIPE_DEFAULT_DEPOSIT_CENTS.",
+    "instanceId": "dry-run-stage859"
   },
   "nodes": [
     {
@@ -13,7 +13,7 @@
       "typeVersion": 2,
       "position": [80, 300],
       "parameters": {
-        "path": "luna-bot-dry-run-857",
+        "path": "luna-bot-dry-run-859",
         "httpMethod": "POST",
         "responseMode": "responseNode",
         "options": {}
@@ -58,7 +58,7 @@
       "typeVersion": 2,
       "position": [560, 300],
       "parameters": {
-        "jsCode": "// Stage 8.5.7 — Shared Engine Dry Run\n// Extracts booking fields from the incoming webhook body.\n// In the live flow these come from the WhatsApp parser + Airtable session state.\n// In this dry-run fork we extract them from the POST body directly.\n//\n// GAP: selected_bed_codes is NOT in the current live bot session state.\n// The live flow assigns beds via a separate Airtable lookup (Search Active Beds - WA).\n// For this dry-run we use staging placeholder DEMO-R1-B1.\n// Auto-assignment from availability is the NEXT slice (Stage 8.5.8).\n// Do NOT treat this placeholder as production-safe.\n\nconst body = $input.first().json.body || $input.first().json;\n\nconst phone        = String(body.phone        || '+34999000000').trim();\nconst guestName    = String(body.guest_name   || body.name || '').trim() || null;\nconst email        = String(body.email        || '').trim() || null;\nconst checkIn      = String(body.check_in     || '').trim() || null;\nconst checkOut     = String(body.check_out    || '').trim() || null;\nconst guestCount   = parseInt(body.guest_count || '1', 10) || 1;\nconst packageCode  = String(body.package_code || 'malibu').trim();\nconst roomType     = String(body.room_type    || 'shared').trim();\nconst paymentChoice = String(body.payment_choice || 'deposit').trim();\nconst addOns       = Array.isArray(body.add_ons) ? body.add_ons : [];\nconst language     = String(body.language     || 'en').trim();\nconst clientSlug   = String(body.client_slug  || 'wolfhouse-somo').trim();\n\n// GAP: selected_bed_codes must come from a bed availability query.\n// Staging dry-run uses DEMO-R1-B1 as a placeholder.\n// Production slice (8.5.8) must call /staff/availability-report or equivalent\n// to pick real available beds before calling /staff/bot/bookings/create.\nconst selectedBedCodes = Array.isArray(body.selected_bed_codes) && body.selected_bed_codes.length > 0\n  ? body.selected_bed_codes\n  : ['DEMO-R1-B1']; // dry-run staging placeholder only\n\nreturn [{\n  json: {\n    phone,\n    guest_name: guestName,\n    email,\n    check_in: checkIn,\n    check_out: checkOut,\n    guest_count: guestCount,\n    package_code: packageCode,\n    room_type: roomType,\n    payment_choice: paymentChoice,\n    add_ons: addOns,\n    language,\n    client_slug: clientSlug,\n    source: 'luna_whatsapp',\n    selected_bed_codes: selectedBedCodes,\n    _dry_run: true,\n    _gap_selected_bed_codes: 'staging placeholder DEMO-R1-B1 — auto-assignment is Stage 8.5.8'\n  }\n}];"
+        "jsCode": "// Stage 8.5.9 — Shared Engine Dry Run (updated from 8.5.7)\n// Extracts booking fields from the incoming webhook body.\n// In the live flow these come from the WhatsApp parser + Airtable session state.\n//\n// CHANGE from 8.5.7: selected_bed_codes placeholder REMOVED.\n// selected_bed_codes now come from HTTP - Bot Availability Check response (Stage 8.5.8).\n// This node no longer sets selected_bed_codes — they are fetched from Staff API.\n\nconst body = $input.first().json.body || $input.first().json;\n\nconst phone         = String(body.phone         || '+34999000000').trim();\nconst guestName     = String(body.guest_name    || body.name || '').trim() || null;\nconst email         = String(body.email         || '').trim() || null;\nconst checkIn       = String(body.check_in      || '').trim() || null;\nconst checkOut      = String(body.check_out     || '').trim() || null;\nconst guestCount    = parseInt(body.guest_count  || '1', 10) || 1;\nconst packageCode   = String(body.package_code  || 'malibu').trim();\nconst roomType      = String(body.room_type     || 'shared').trim();\nconst paymentChoice = String(body.payment_choice || 'deposit').trim();\nconst addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];\nconst language      = String(body.language      || 'en').trim();\nconst clientSlug    = String(body.client_slug   || 'wolfhouse-somo').trim();\nconst genderPref    = body.gender_preference ? String(body.gender_preference).trim() : null;\n\nreturn [{\n  json: {\n    phone,\n    guest_name:      guestName,\n    email,\n    check_in:        checkIn,\n    check_out:       checkOut,\n    guest_count:     guestCount,\n    package_code:    packageCode,\n    room_type:       roomType,\n    payment_choice:  paymentChoice,\n    add_ons:         addOns,\n    language,\n    client_slug:     clientSlug,\n    gender_preference: genderPref,\n    source:          'luna_whatsapp',\n    _dry_run:        true\n    // Note: selected_bed_codes NOT set here — fetched from /staff/bot/availability-check\n  }\n}];"
       }
     },
     {
@@ -121,7 +121,7 @@
       "name": "Set - Log Missing Fields Reply DryRun",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1280, 480],
+      "position": [1280, 520],
       "parameters": {
         "mode": "manual",
         "assignments": {
@@ -142,10 +142,98 @@
       "name": "Respond - DryRun Missing Fields",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1520, 480],
+      "position": [1520, 520],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify({ dry_run: true, result: 'missing_fields', next_action: $json.next_action, missing_fields: JSON.parse($json.missing_fields || '[]'), reply_draft: $json.reply_draft, whatsapp_sent: false }) }}"
+      }
+    },
+    {
+      "id": "n4b",
+      "name": "HTTP - Bot Availability Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1280, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://staff-staging.lunafrontdesk.com/staff/bot/availability-check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Luna-Bot-Token",
+              "value": "={{ $env.LUNA_BOT_INTERNAL_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  client_slug:        $('Code - Parse Booking Fields').first().json.client_slug,\n  check_in:           $('Code - Parse Booking Fields').first().json.check_in,\n  check_out:          $('Code - Parse Booking Fields').first().json.check_out,\n  guest_count:        $('Code - Parse Booking Fields').first().json.guest_count,\n  room_type:          $('Code - Parse Booking Fields').first().json.room_type,\n  package_code:       $('Code - Parse Booking Fields').first().json.package_code,\n  gender_preference:  $('Code - Parse Booking Fields').first().json.gender_preference\n}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "n4c",
+      "name": "IF - Has Enough Beds",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1520, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "beds-check",
+              "leftValue": "={{ $json.has_enough_beds }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "n4d",
+      "name": "Set - Log No Beds Reply DryRun",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1760, 520],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "b1", "name": "dry_run", "value": true, "type": "boolean" },
+            { "id": "b2", "name": "action", "value": "no_beds_reply_drafted", "type": "string" },
+            { "id": "b3", "name": "whatsapp_sent", "value": false, "type": "boolean" },
+            { "id": "b4", "name": "has_enough_beds", "value": false, "type": "boolean" },
+            { "id": "b5", "name": "available_count", "value": "={{ $json.available_count }}", "type": "number" },
+            { "id": "b6", "name": "blockers", "value": "={{ JSON.stringify($json.blockers) }}", "type": "string" },
+            { "id": "b7", "name": "reply_draft", "value": "I'm checking with the team for those dates. We'll get back to you shortly! 🏄", "type": "string" },
+            { "id": "b8", "name": "note", "value": "DryRun: not enough beds for requested dates/guest_count. WhatsApp send bypassed. In live flow Luna would send reply_draft to guest.", "type": "string" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n4e",
+      "name": "Respond - DryRun No Beds",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 520],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ dry_run: true, result: 'no_beds_available', has_enough_beds: false, available_count: $json.available_count, blockers: JSON.parse($json.blockers || '[]'), reply_draft: $json.reply_draft, whatsapp_sent: false, note: $json.note }) }}"
       }
     },
     {
@@ -153,7 +241,7 @@
       "name": "HTTP - Bot Booking Create",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1280, 300],
+      "position": [1760, 300],
       "parameters": {
         "method": "POST",
         "url": "https://staff-staging.lunafrontdesk.com/staff/bot/bookings/create",
@@ -172,7 +260,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  client_slug:        $('Code - Parse Booking Fields').first().json.client_slug,\n  phone:              $('Code - Parse Booking Fields').first().json.phone,\n  guest_name:         $('Code - Parse Booking Fields').first().json.guest_name,\n  email:              $('Code - Parse Booking Fields').first().json.email,\n  check_in:           $('Code - Parse Booking Fields').first().json.check_in,\n  check_out:          $('Code - Parse Booking Fields').first().json.check_out,\n  guest_count:        $('Code - Parse Booking Fields').first().json.guest_count,\n  package_code:       $('Code - Parse Booking Fields').first().json.package_code,\n  room_type:          $('Code - Parse Booking Fields').first().json.room_type,\n  payment_choice:     $('Code - Parse Booking Fields').first().json.payment_choice,\n  add_ons:            $('Code - Parse Booking Fields').first().json.add_ons,\n  source:             'luna_whatsapp',\n  selected_bed_codes: $('Code - Parse Booking Fields').first().json.selected_bed_codes,\n  confirm:            true\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  client_slug:        $('Code - Parse Booking Fields').first().json.client_slug,\n  phone:              $('Code - Parse Booking Fields').first().json.phone,\n  guest_name:         $('Code - Parse Booking Fields').first().json.guest_name,\n  email:              $('Code - Parse Booking Fields').first().json.email,\n  check_in:           $('Code - Parse Booking Fields').first().json.check_in,\n  check_out:          $('Code - Parse Booking Fields').first().json.check_out,\n  guest_count:        $('Code - Parse Booking Fields').first().json.guest_count,\n  package_code:       $('Code - Parse Booking Fields').first().json.package_code,\n  room_type:          $('Code - Parse Booking Fields').first().json.room_type,\n  payment_choice:     $('Code - Parse Booking Fields').first().json.payment_choice,\n  add_ons:            $('Code - Parse Booking Fields').first().json.add_ons,\n  source:             'luna_whatsapp',\n  selected_bed_codes: $('HTTP - Bot Availability Check').first().json.selected_bed_codes,\n  confirm:            true\n}) }}",
         "options": {
           "response": {
             "response": {
@@ -187,7 +275,7 @@
       "name": "HTTP - Bot Stripe Link",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1520, 300],
+      "position": [2000, 300],
       "parameters": {
         "method": "POST",
         "url": "={{ 'https://staff-staging.lunafrontdesk.com/staff/bot/payments/' + $json.payment_id + '/create-stripe-link' }}",
@@ -219,9 +307,9 @@
       "name": "Code - Draft Payment Link Reply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1760, 300],
+      "position": [2240, 300],
       "parameters": {
-        "jsCode": "// Stage 8.5.7 — Draft payment link reply (WhatsApp NOT sent in dry-run)\n// In live flow this message would be sent to the guest via WhatsApp.\n// The checkout_url comes from the shared Staff API Stripe endpoint;\n// Stripe is NOT called directly from n8n.\n\nconst stripeResult = $input.first().json;\nconst bookingCreate = $('HTTP - Bot Booking Create').first().json;\nconst bookingPreview = $('HTTP - Bot Booking Preview').first().json;\n\nconst checkoutUrl    = stripeResult.checkout_url || '';\nconst bookingCode    = stripeResult.booking_code  || bookingCreate.booking_code || '';\nconst amountCents    = stripeResult.amount_due_cents || 0;\nconst currency       = (stripeResult.currency || 'eur').toUpperCase();\nconst paymentStatus  = stripeResult.payment_status || '';\nconst paymentChoice  = bookingCreate.quote?.payment_choice || 'deposit';\n\nconst amountStr = (amountCents / 100).toFixed(2) + ' ' + currency;\n\nconst isDeposit = paymentChoice === 'deposit';\nconst paymentLabel = isDeposit ? 'deposit' : 'full amount';\n\nconst replyDraft = [\n  '✅ Great! Your Wolfhouse booking is confirmed: ' + bookingCode + '.',\n  '',\n  'To secure your spot, please pay the ' + paymentLabel + ' of ' + amountStr + ' via this secure Stripe payment link:',\n  '',\n  checkoutUrl,\n  '',\n  'The link expires in 24 hours. Once paid, you will receive a confirmation. 🏄'\n].join('\\n');\n\nreturn [{\n  json: {\n    dry_run: true,\n    whatsapp_sent: false,\n    no_payment_truth_recorded: true,\n    booking_code: bookingCode,\n    payment_id: stripeResult.payment_id,\n    booking_id: stripeResult.booking_id,\n    checkout_url: checkoutUrl,\n    amount_due_cents: amountCents,\n    currency,\n    payment_status: paymentStatus,\n    reply_draft: replyDraft,\n    note: 'DryRun Stage 8.5.7: WhatsApp send bypassed. Stripe called via Staff API, not directly from n8n. STRIPE_DEFAULT_DEPOSIT_CENTS NOT used.',\n    _proof_no_direct_stripe: true,\n    _proof_no_stripe_default_deposit_cents: true,\n    _proof_sends_whatsapp_false: true\n  }\n}];"
+        "jsCode": "// Stage 8.5.9 — Draft payment link reply (WhatsApp NOT sent in dry-run)\n// In live flow this message would be sent to the guest via WhatsApp.\n// The checkout_url comes from the shared Staff API Stripe endpoint;\n// Stripe is NOT called directly from n8n.\n// selected_bed_codes came from /staff/bot/availability-check — no placeholder.\n\nconst stripeResult     = $input.first().json;\nconst bookingCreate    = $('HTTP - Bot Booking Create').first().json;\nconst availResult      = $('HTTP - Bot Availability Check').first().json;\n\nconst checkoutUrl    = stripeResult.checkout_url || '';\nconst bookingCode    = stripeResult.booking_code  || bookingCreate.booking_code || '';\nconst amountCents    = stripeResult.amount_due_cents || 0;\nconst currency       = (stripeResult.currency || 'eur').toUpperCase();\nconst paymentStatus  = stripeResult.payment_status || '';\nconst paymentChoice  = bookingCreate.quote?.payment_choice || 'deposit';\nconst selectedBeds   = availResult.selected_bed_codes || [];\n\nconst amountStr = (amountCents / 100).toFixed(2) + ' ' + currency;\n\nconst isDeposit    = paymentChoice === 'deposit';\nconst paymentLabel = isDeposit ? 'deposit' : 'full amount';\n\nconst replyDraft = [\n  '\\u2705 Great! Your Wolfhouse booking is confirmed: ' + bookingCode + '.',\n  '',\n  'To secure your spot, please pay the ' + paymentLabel + ' of ' + amountStr + ' via this secure Stripe payment link:',\n  '',\n  checkoutUrl,\n  '',\n  'The link expires in 24 hours. Once paid, you will receive a confirmation. \\uD83C\\uDFC4'\n].join('\\n');\n\nreturn [{\n  json: {\n    dry_run:                  true,\n    whatsapp_sent:            false,\n    no_payment_truth_recorded: true,\n    booking_code:             bookingCode,\n    payment_id:               stripeResult.payment_id,\n    booking_id:               stripeResult.booking_id,\n    checkout_url:             checkoutUrl,\n    amount_due_cents:         amountCents,\n    currency,\n    payment_status:           paymentStatus,\n    selected_bed_codes:       selectedBeds,\n    reply_draft:              replyDraft,\n    note: 'DryRun Stage 8.5.9: WhatsApp send bypassed. Stripe called via Staff API, not directly from n8n. STRIPE_DEFAULT_DEPOSIT_CENTS NOT used. selected_bed_codes from availability-check, not placeholder.',\n    _proof_no_direct_stripe:                  true,\n    _proof_no_stripe_default_deposit_cents:   true,\n    _proof_sends_whatsapp_false:              true,\n    _proof_selected_bed_codes_from_avail_api: true\n  }\n}];"
       }
     },
     {
@@ -229,10 +317,10 @@
       "name": "Respond - DryRun Payment Link Success",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2000, 300],
+      "position": [2480, 300],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ dry_run: true, result: 'stripe_link_created', booking_code: $json.booking_code, payment_id: $json.payment_id, checkout_url: $json.checkout_url, amount_due_cents: $json.amount_due_cents, currency: $json.currency, payment_status: $json.payment_status, whatsapp_sent: false, no_payment_truth_recorded: true, reply_draft: $json.reply_draft, note: $json.note }) }}"
+        "responseBody": "={{ JSON.stringify({ dry_run: true, result: 'stripe_link_created', booking_code: $json.booking_code, payment_id: $json.payment_id, checkout_url: $json.checkout_url, amount_due_cents: $json.amount_due_cents, currency: $json.currency, payment_status: $json.payment_status, selected_bed_codes: $json.selected_bed_codes, whatsapp_sent: false, no_payment_truth_recorded: true, reply_draft: $json.reply_draft, note: $json.note }) }}"
       }
     }
   ],
@@ -254,12 +342,24 @@
     },
     "IF - Missing Fields or Ready": {
       "main": [
-        [{ "node": "HTTP - Bot Booking Create", "type": "main", "index": 0 }],
+        [{ "node": "HTTP - Bot Availability Check", "type": "main", "index": 0 }],
         [{ "node": "Set - Log Missing Fields Reply DryRun", "type": "main", "index": 0 }]
       ]
     },
     "Set - Log Missing Fields Reply DryRun": {
       "main": [[{ "node": "Respond - DryRun Missing Fields", "type": "main", "index": 0 }]]
+    },
+    "HTTP - Bot Availability Check": {
+      "main": [[{ "node": "IF - Has Enough Beds", "type": "main", "index": 0 }]]
+    },
+    "IF - Has Enough Beds": {
+      "main": [
+        [{ "node": "HTTP - Bot Booking Create", "type": "main", "index": 0 }],
+        [{ "node": "Set - Log No Beds Reply DryRun", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set - Log No Beds Reply DryRun": {
+      "main": [[{ "node": "Respond - DryRun No Beds", "type": "main", "index": 0 }]]
     },
     "HTTP - Bot Booking Create": {
       "main": [[{ "node": "HTTP - Bot Stripe Link", "type": "main", "index": 0 }]]

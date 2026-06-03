@@ -1,4 +1,4 @@
-# Wolfhouse Booking Assistant ? Product Roadmap
+﻿# Wolfhouse Booking Assistant ? Product Roadmap
 
 **Product:** AI booking operations for WhatsApp-first experience businesses ? **beachhead:** Wolfhouse (surf house / surf camp). Simpler label: *AI front desk for WhatsApp-heavy experience operators.*
 
@@ -810,6 +810,8 @@ Airtable may remain a **bridge** during transition; long-term goal is a proper s
 
 **8.5.1 LUNA BOT SHARED ENGINE INTEGRATION MAP -- PASS (2026-06-02):** Planning/static mapping only. No code, no DB writes, no Azure deploy, no WhatsApp sends, no n8n activation. Static inspection of bot n8n workflow JSONs (Main, Create Payment Session, Stripe Webhook Handler). Key findings: bot creates Airtable Hold (not Postgres booking), calls Stripe directly from n8n using Airtable amounts + STRIPE_DEFAULT_DEPOSIT_CENTS=20000 fallback -- completely bypasses calculateWolfhouseQuote() and draft payments row; no payment_id in Stripe metadata. 6 large gaps, 1 medium, 2 small. No bot parser/session files in scripts/ -- all bot logic in n8n JSON. Integration map: [STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md](STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md). No bot wiring implemented. No WhatsApp sends. No n8n activation. Shared engine integration map complete. Next: 8.5.2 static verifier.
 
+
+**8.5.9 LUNA N8N DRY-RUN AVAILABILITY WIRING -- PASS (2026-06-03):** Updated inactive dry-run workflow Wolfhouse Booking Assistant - Main - Shared Engine Dry Run.json (Stage 8.5.9). 16 nodes: added HTTP - Bot Availability Check node calling POST /staff/bot/availability-check (Stage 8.5.8) before HTTP - Bot Booking Create. Added IF - Has Enough Beds branch: true path proceeds to booking-create with real selected_bed_codes from availability response; false path drafts "I'm checking with the team" reply (no booking, no Stripe, no WhatsApp). selected_bed_codes now sourced from availability-check JSON output — DEMO-R1-B1 placeholder REMOVED. Happy path: booking-preview -> availability-check -> booking-create (real beds) -> Stripe-link -> draft payment reply. WHATSAPP_DRY_RUN guard retained. No api.stripe.com. No STRIPE_DEFAULT_DEPOSIT_CENTS. No graph.facebook.com. verify-luna-n8n-bot-shared-engine-dry-run.js 41/41 PASS. Next: Stage 8.6 Staff Ask Luna via WhatsApp allowlisted staff phones.
 
 **8.5.8 BOT AVAILABILITY CHECK ENDPOINT -- PASS (2026-06-03):** POST /staff/bot/availability-check added. requireBotAuth. SELECT-only: getBedCalendarRoomsQuery (beds+rooms) + getBedCalendarBlocksQuery (half-open overlap, excludes cancelled/expired). Room-type filter with room_type_filter_not_strict warning. First-fit selection: selected_bed_codes = first N available for guest_count. Returns has_enough_beds, available_count, available_beds, blockers (not_enough_available_beds), next_action (ready_for_bot_create / ask_staff_or_alternate_dates). All safety fields: preview_only:true, no_write_performed:true, creates_booking/payment/stripe_link/sends_whatsapp:false. No INSERT/UPDATE/DELETE. verify-staff-bot-availability-api.js 39/39 PASS. Local proof: guest_count=2->selected_bed_codes[2]+ready_for_bot_create; guest_count=999->not_enough+ask_staff; 0 DB writes. Next: update n8n dry-run workflow to call this endpoint before bot create.
 
@@ -2499,3 +2501,4 @@ By Stage 7 this should be a **checklist, not a project** ? provided the Stage 5 
 | Owner / non-engineer | [`PROJECT-ROADMAP.md`](PROJECT-ROADMAP.md) |
 | Agent rules | [`../CURSOR.md`](../CURSOR.md) |
 | Stripe test gates | [`PHASE-3d-STRIPE-ISOLATED-PLAN.md`](PHASE-3d-STRIPE-ISOLATED-PLAN.md) |
+
