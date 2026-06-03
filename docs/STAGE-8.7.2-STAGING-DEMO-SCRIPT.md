@@ -299,6 +299,23 @@
 
 ---
 
+## Hosted Inbox filter proof — Stage 8.7.14 (2026-06-03)
+
+**Result:** **PASS** — Needs Human is an Inbox filter on staging.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:3a431c0-stage8714-inbox-filter` · ACR `cbn` · revision `--0000027` |
+| Preflight | **PASS** | `3a431c0`; verifier 82 PASS (+3 known pre-existing monolith failures) |
+| Inbox layout | **PASS** | `inbox-two-col`; filter chips **All conversations** / **Needs human** |
+| Auto-select | **PASS** | Top conversation detail loads on open |
+| Today → Needs Human | **PASS** | Stays in Inbox tab; needs-human filter active; **1** conversation shown (of 3 total) |
+| All conversations | **PASS** | Filter returns full list (**3** conversations) |
+| Old separate page | **PASS** | No `subtab-handoffs`, `hq-list`, `hq-right`, `hq-table` |
+| Safety | **PASS** | `/staff/conversations` only; no graph.facebook.com / n8n / Stripe; no pause/resume controls |
+
+---
+
 ## Pre-demo checklist (5 min before call)
 
 - [ ] Staff Portal login works
