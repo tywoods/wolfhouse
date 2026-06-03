@@ -6561,6 +6561,8 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-operator{background:#D5E3EE;color:#3A5A72;border-left:3px solid #85A8C0;font-style:italic}
 .bc-block-manual{background:#D5EAE3;color:#3A6657;border-left:3px solid #7ABFAD}
 .bc-day-cell-turnover{position:relative;height:30px;vertical-align:middle;padding:2px 3px}
+.bc-day-cell-turnover .bc-block{position:relative;z-index:2}
+.bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(52px,34%)}
 .bc-day-cell-turnover .bc-block-checkin-layer{position:relative;z-index:2;height:28px;width:100%;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .bc-block-checkout-marker{position:absolute;left:3px;right:3px;top:2px;bottom:2px;z-index:1;border-radius:7px;opacity:.42;cursor:pointer;border-left:3px solid rgba(68,80,74,.45);background:linear-gradient(90deg,rgba(68,80,74,.12) 0%,rgba(68,80,74,.04) 38%,transparent 72%)}
 .bc-block-checkout-marker.bc-block-confirmed{background:linear-gradient(90deg,rgba(134,168,124,.28) 0%,rgba(134,168,124,.08) 40%,transparent 75%)}
@@ -9095,7 +9097,9 @@ function renderBedCalendar(data){
           if (nextSegs.length !== 1 || nextSegs[0].idx !== spanBlkIdx) break;
           spanLen++;
         }
-        html += renderBookingBlock(segsAt[0].blk, segsAt[0].idx, spanLen);
+        var spanStartDate = (days[pos] || {}).date || '';
+        var turnoverOut = bcTurnoverCheckoutOnDay(bedBlocks, spanStartDate, spanBlkIdx);
+        html += renderBookingBlock(segsAt[0].blk, segsAt[0].idx, spanLen, turnoverOut);
         pos += spanLen;
       }
       html += '</tr>';
@@ -9154,9 +9158,26 @@ function renderBedCalendar(data){
 
 function bcBlockVisibleOnDay(blk, dayDate){
   if (!blk || !dayDate) return false;
-  if (dayDate >= blk.start_date && dayDate < blk.end_date) return true;
-  if (blk.is_departure && dayDate === blk.end_date) return true;
-  return false;
+  /* Half-open stay nights only — checkout date is not an occupied night */
+  return dayDate >= blk.start_date && dayDate < blk.end_date;
+}
+
+function bcTurnoverCheckoutOnDay(bedBlocks, dayDate, incomingIdx){
+  if (!dayDate || incomingIdx == null) return null;
+  var incoming = null;
+  var departing = null;
+  bedBlocks.forEach(function(entry){
+    var b = entry.blk;
+    if (entry.idx === incomingIdx && b.is_arrival && dayDate === b.start_date &&
+        dayDate >= b.start_date && dayDate < b.end_date){
+      incoming = entry;
+    }
+    if (b.is_departure && dayDate === b.end_date){
+      departing = entry;
+    }
+  });
+  if (incoming && departing && departing.idx !== incoming.idx) return departing;
+  return null;
 }
 
 function bcBlockDayLayer(blk, dayDate){
@@ -9233,12 +9254,27 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
 }
 
-function renderBookingBlock(blk, idx, spanDays){
+function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   spanDays = spanDays != null ? spanDays : blk.span_days;
   var colorCls = bcColorClass(blk.color_type);
-  var tip = bcBlockTooltip(blk);
-  var label = bcBlockLabel(blk, spanDays, 'checkin');
-  return '<td colspan="' + spanDays + '" class="bc-day-cell" style="padding:2px 3px">' +
+  var turnoverCls = turnoverCheckout ? ' bc-day-cell-turnover' : '';
+  var markerHtml = '';
+  var tip;
+  var label;
+  if (turnoverCheckout){
+    var outColor = bcColorClass(turnoverCheckout.blk.color_type);
+    markerHtml = '<div class="bc-block-checkout-marker ' + outColor + '" data-bidx="' + turnoverCheckout.idx + '" title="' + bcBlockTooltip(turnoverCheckout.blk) + '" aria-label="Check out ' + escHtml(turnoverCheckout.blk.guest_name || '') + '"></div>';
+    tip = bcTurnoverCellTooltip([
+      { blk: turnoverCheckout.blk, idx: turnoverCheckout.idx, layer: 'checkout' },
+      { blk: blk, idx: idx, layer: 'checkin' },
+    ]);
+    label = bcTurnoverVisibleLabel(blk);
+  } else {
+    tip = bcBlockTooltip(blk);
+    label = bcBlockLabel(blk, spanDays, 'checkin');
+  }
+  return '<td colspan="' + spanDays + '" class="bc-day-cell' + turnoverCls + '" style="position:relative;padding:2px 3px">' +
+    markerHtml +
     '<div class="bc-block ' + colorCls + '" data-bidx="' + idx + '" title="' + tip + '">' +
     label + '</div></td>';
 }

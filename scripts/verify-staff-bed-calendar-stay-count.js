@@ -63,18 +63,14 @@ check(/function bcBlockVisibleOnDay/.test(src) && /function bcBlockDayLayer/.tes
   'bcBlockVisibleOnDay + bcBlockDayLayer helpers present');
 check(/function renderBcTurnoverDayCell/.test(src),
   'renderBcTurnoverDayCell helper present');
-check(/bc-block-checkout-marker/.test(src) && /bc-block-checkin-layer/.test(src),
-  'checkout marker + checkin layer CSS classes present');
-check(/bc-block-checkout-marker\{[^}]*z-index:\s*1/.test(src),
-  'checkout marker z-index is 1 (behind)');
-check(/bc-block-checkin-layer\{[^}]*z-index:\s*2/.test(src),
-  'checkin layer z-index is 2 (foreground)');
+check(/bc-block-checkout-marker/.test(src) && /bc-day-cell-turnover \.bc-block\{/.test(src),
+  'checkout marker + foreground block layering CSS present');
 check(/bc-day-cell-turnover/.test(src),
   'turnover day cell class present');
-check(/blk\.is_departure && dayDate === blk\.end_date/.test(src),
-  'departure checkout day included in visible-on-day logic');
-check(/segsAt\.length > 1/.test(src.match(/function renderBedCalendar[\s\S]*?\n\}/)?.[0] || src),
-  'turnover cells render when multiple segments share a day');
+check(!/is_departure && dayDate === blk\.end_date/.test(src.match(/function bcBlockVisibleOnDay[\s\S]*?\n\}/)?.[0] || ''),
+  'checkout date excluded from occupied-night block visibility');
+check(/function bcTurnoverCheckoutOnDay/.test(src),
+  'same-day turnover checkout detected for merged bar marker');
 
 console.log('\nC. Safety — no forbidden side effects');
 
