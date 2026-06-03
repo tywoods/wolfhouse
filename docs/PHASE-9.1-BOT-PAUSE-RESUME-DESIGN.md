@@ -131,13 +131,16 @@ Before any **automated guest reply** (preview, booking, add-on, confirmation —
 | Phase | Scope | Delivers |
 |-------|-------|----------|
 | **9.1** | Bot pause/resume design | **This doc** — PASS |
-| **9.2** | Pause/resume schema/API spec | Migration + endpoint contract — [PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md](PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md) — **PASS** |
-| **9.3** | Inbox paused status display | UI reads pause state; badge + detail (read-only or mock) — **next** |
-| **9.4** | Gated pause/resume API | `GET/POST /staff/bot/pause-state|pause|resume`; flags gated |
-| **9.5** | Hosted pause/resume proof | Staging proof; no live WhatsApp |
-| **9.6** | n8n dry-run respects pause | Inactive workflow checks pause; returns `bot_paused:true` |
+| **9.2** | Pause/resume schema/API spec | [PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md](PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md) — **PASS** |
+| **9.3** | Inbox paused status display | Read-only badge + detail — **PASS** (PARTIAL verifier acceptable) |
+| **9.4** | Gated pause/resume API + staging migration | **9.4a–9.4c PASS** |
+| **9.5** | Inbox live pause-state + hosted proof | **PASS** |
+| **9.5b** | Inbox Pause/Resume buttons + hosted button proof | **PASS** |
+| **9.6** | Guest automation gate (`check-guest-automation-gate`) + hosted proof | **PASS** (API gate; n8n wiring deferred) |
 
-**After Phase 9:** Phase 10 (Staff Operations Polish), Phase 11 (Guest Luna Booking Dry-Run), Phase 12 (Wolfhouse Pilot Readiness), etc. — see [ROADMAP.md](ROADMAP.md).
+**Phase 9 status:** **COMPLETE ENOUGH / PASS (2026-06-03).** Latest hosted: **`7360c24`** / `7360c24-stage95b-inbox-pause-buttons` / revision **`--0000046`**. **Live WhatsApp: NO_GO.** **n8n: inactive unless explicitly approved.** **Production DB / guest automation: NO_GO.**
+
+**After Phase 9:** **Phase 10.1** — Manual booking operational polish — then Phase 10 (Staff Operations Polish), Phase 11 (Guest Luna Booking Dry-Run), etc. — see [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -156,4 +159,4 @@ Before any **automated guest reply** (preview, booking, add-on, confirmation —
 
 Stage 8 delivered the platform this design builds on. See [PROJECT-STATE.md](PROJECT-STATE.md) Stage 8 closeout and [STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md) §13.
 
-**Live WhatsApp:** **NO_GO**. **Guest booking WhatsApp:** not fully live. **Next:** Phase 9.2 schema/API spec — [PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md](PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md) (PASS). Phase 9.3 Inbox display next.
+**Live WhatsApp:** **NO_GO**. **Guest booking WhatsApp:** not fully live. **Production guest automation:** **NO_GO**. **Phase 9:** **COMPLETE ENOUGH / PASS** — see [PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md](PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md) §1 and [PROJECT-STATE.md](PROJECT-STATE.md). **Next:** **Phase 10.1** — Manual booking operational polish.

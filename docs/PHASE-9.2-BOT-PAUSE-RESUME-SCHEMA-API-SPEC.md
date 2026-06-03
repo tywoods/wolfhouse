@@ -1,9 +1,9 @@
 # Phase 9.2 — Bot Pause/Resume Schema & API Spec
 
-**Status:** PASS — docs-only schema/API contract (2026-06-03).  
+**Status:** PASS — Phase 9 **COMPLETE ENOUGH** (2026-06-03). Docs-only schema/API contract; implementation proven through **9.6.1** on staging.  
 **Parent:** Phase 9 — Control & Safety  
 **Prior:** [PHASE-9.1-BOT-PAUSE-RESUME-DESIGN.md](PHASE-9.1-BOT-PAUSE-RESUME-DESIGN.md) (PASS, commit `4be36d3`)  
-**Next:** Phase 9.5 — Inbox live pause-state wiring / hosted proof
+**Next:** Phase 10.1 — Manual booking operational polish (Phase 9 complete enough)
 
 **Non-negotiables (this slice):** No code. No migration file. No DB apply. No API routes. No UI. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
 
@@ -19,13 +19,16 @@
 |-------|-------|--------|
 | **9.1** | Bot pause/resume design | **PASS** |
 | **9.2** | Pause/resume schema/API spec | **PASS** |
-| **9.3** | Inbox paused status display (read-only) | **PASS** |
+| **9.3** | Inbox paused status display (read-only) | **PASS** (PARTIAL verifier acceptable) |
 | **9.4a** | Migration spec + static verifier | **PASS** |
 | **9.4b** | Gated pause/resume API handlers | **PASS** |
 | **9.4b.1** | Schema verifier aligned with API routes | **PASS** |
 | **9.4c** | Staging migration apply + runtime API proof | **PASS** |
-| **9.5** | Inbox live pause-state from API | **Next** |
-| **9.6** | n8n dry-run respects pause | Planned |
+| **9.5** | Inbox live pause-state from API | **PASS** |
+| **9.5b** | Inbox Pause/Resume buttons + Bot state cleanup | **PASS** |
+| **9.6** | Guest automation dry-run gate (`check-guest-automation-gate`) | **PASS** |
+| **9.6.1** | Pause API verifier route anchors | **PASS** |
+| **10.1** | Manual booking operational polish | **Next** |
 
 ---
 
