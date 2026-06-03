@@ -177,10 +177,11 @@ check('H2', 'formatAnswer function defined',
   API_SRC.includes('function formatAnswer('));
 
 // Supported intents from task spec
-const resolver = API_SRC.slice(
-  API_SRC.indexOf('function resolveNaturalLanguageIntent('),
-  API_SRC.indexOf('function resolveNaturalLanguageIntent(') + 4000
-);
+const resolverStart = API_SRC.indexOf('function resolveNaturalLanguageIntent(');
+const resolverEnd   = API_SRC.indexOf('\nfunction formatAnswer', resolverStart);
+const resolver      = resolverStart > -1
+  ? API_SRC.slice(resolverStart, resolverEnd > -1 ? resolverEnd : resolverStart + 12000)
+  : '';
 check('H3', 'arrivals_today intent supported (rooming.arrivals)',
   resolver.includes('rooming.arrivals'));
 
@@ -220,6 +221,142 @@ check('H9', 'direct registry key passthrough supported',
 check('H10', 'unsupported intent returns safe suggestion message',
   handlerText.includes('unsupported_intent') &&
   (handlerText.includes('You can ask') || handlerText.includes('you can ask')));
+
+// ── K. Stage 8.8.2 — date-aware arrivals/departures ─────────────────────────
+check('K1', 'resolveAskLunaDatePhrase function defined',
+  API_SRC.includes('function resolveAskLunaDatePhrase('));
+
+check('K2', 'getAskLunaCheckInsOnDateQuery defined (bookings.check_in)',
+  API_SRC.includes('function getAskLunaCheckInsOnDateQuery(') &&
+  API_SRC.includes('b.check_in = $2::date'));
+
+check('K3', 'getAskLunaCheckOutsOnDateQuery defined (bookings.check_out)',
+  API_SRC.includes('function getAskLunaCheckOutsOnDateQuery(') &&
+  API_SRC.includes('b.check_out = $2::date'));
+
+check('K4', 'check_ins.on_date local intent registered',
+  API_SRC.includes("'check_ins.on_date'"));
+
+check('K5', 'check_ins.count local intent registered',
+  API_SRC.includes("'check_ins.count'"));
+
+check('K6', 'check_outs.on_date local intent registered',
+  API_SRC.includes("'check_outs.on_date'"));
+
+check('K7', 'check_outs.count local intent registered',
+  API_SRC.includes("'check_outs.count'"));
+
+check('K8', 'date resolver treats tonight as today',
+  API_SRC.includes('tonight') && API_SRC.includes("label: 'today'"));
+
+check('K9', 'date resolver handles tomorrow',
+  API_SRC.includes('tomorrow') && API_SRC.includes("label: 'tomorrow'"));
+
+check('K10', 'date resolver handles weekday names (Saturday)',
+  API_SRC.includes('ASK_LUNA_WEEKDAYS') && API_SRC.includes('saturday'));
+
+check('K11', 'date resolver handles named month/day (June/Jun)',
+  API_SRC.includes('ASK_LUNA_MONTHS') && API_SRC.includes('june:'));
+
+check('K12', 'isBlockedAddOnServiceQuestion defined',
+  API_SRC.includes('function isBlockedAddOnServiceQuestion('));
+
+check('K13', 'yoga/meal/lesson/rental questions return unsupported_intent',
+  resolver.includes('isBlockedAddOnServiceQuestion') &&
+  resolver.includes("'unsupported_intent'") &&
+  resolver.includes('Add-on or service queries'));
+
+check('K14', 'formatAnswer empty state for check-ins (No guests are checking in)',
+  API_SRC.includes("'check_ins.on_date'") &&
+  API_SRC.includes('No guests are checking in'));
+
+check('K15', 'formatAnswer count-first for check_ins.count',
+  API_SRC.includes("case 'check_ins.count'") &&
+  API_SRC.includes('askLunaTotalGuestCount'));
+
+check('K16', 'formatAnswer count-first for check_outs.count',
+  API_SRC.includes("case 'check_outs.count'"));
+
+check('K17', 'local handler returns query_date on date intents',
+  handlerText.includes('query_date'));
+
+check('K18', 'new arrival/departure queries do not use conversation/chat logs',
+  !API_SRC.slice(
+    API_SRC.indexOf('function getAskLunaCheckInsOnDateQuery'),
+    API_SRC.indexOf('function resolveNaturalLanguageIntent')
+  ).match(/conversation|message_log|chat_log/i));
+
+// Runtime smoke: date resolver (pure functions extracted from API source)
+(function runAskLunaDateResolverSmoke() {
+  try {
+    const chunk = [
+      API_SRC.match(/const ASK_LUNA_WEEKDAYS = [^;]+;/)[0],
+      API_SRC.match(/const ASK_LUNA_MONTHS = \{[\s\S]*?\};/)[0],
+      API_SRC.match(/function askLunaIsoDateUTC[\s\S]*?\n\}/)[0],
+      API_SRC.match(/function askLunaTodayUTC[\s\S]*?\n\}/)[0],
+      API_SRC.match(/function resolveAskLunaDatePhrase[\s\S]*?\n\}/)[0],
+    ].join('\n');
+    const resolveFn = new Function(`${chunk}; return resolveAskLunaDatePhrase;`)();
+    const ref = new Date('2026-06-03T12:00:00.000Z'); // Tuesday
+    const tonight = resolveFn('who checks in tonight', ref);
+    const tomorrow = resolveFn('check in tomorrow', ref);
+    const saturday = resolveFn('checking in on Saturday', ref);
+    const june15 = resolveFn('check in June 15', ref);
+    const iso = resolveFn('arrivals on 2026-07-04', ref);
+    check('K-R1', 'runtime: tonight → today label', tonight && tonight.label === 'today');
+    check('K-R2', 'runtime: tomorrow → 2026-06-04', tomorrow && tomorrow.date === '2026-06-04');
+    check('K-R3', 'runtime: Saturday from Tue → 2026-06-06', saturday && saturday.date === '2026-06-06');
+    check('K-R4', 'runtime: June 15 → 2026-06-15', june15 && june15.date === '2026-06-15');
+    check('K-R5', 'runtime: ISO date passthrough', iso && iso.date === '2026-07-04');
+    const satToday = new Date('2026-06-06T12:00:00.000Z');
+    const satSame = resolveFn('check out on Saturday', satToday);
+    check('K-R6', 'runtime: Saturday when today is Saturday → today', satSame && satSame.date === '2026-06-06' && satSame.label === 'saturday');
+  } catch (e) {
+    check('K-R1', 'runtime date resolver smoke', false, e.message);
+    ['K-R2', 'K-R3', 'K-R4', 'K-R5', 'K-R6'].forEach(id => check(id, 'runtime date resolver smoke (skipped)', false, e.message));
+  }
+})();
+
+// Runtime smoke: intent routing samples
+(function runAskLunaIntentRoutingSmoke() {
+  try {
+    const chunk = [
+      API_SRC.match(/const ASK_LUNA_WEEKDAYS = [^;]+;/)[0],
+      API_SRC.match(/const ASK_LUNA_MONTHS = \{[\s\S]*?\};/)[0],
+      API_SRC.match(/function askLunaIsoDateUTC[\s\S]*?\n\}/)[0],
+      API_SRC.match(/function askLunaTodayUTC[\s\S]*?\n\}/)[0],
+      API_SRC.match(/function resolveAskLunaDatePhrase[\s\S]*?\n\}/)[0],
+      API_SRC.match(/function isBlockedAddOnServiceQuestion[\s\S]*?\n\}/)[0],
+      API_SRC.match(/function resolveNaturalLanguageIntent[\s\S]*?\n\}/)[0],
+    ].join('\n');
+    const wrapped = `
+      const require = (id) => {
+        if (String(id).includes('staff-query-registry')) return { REGISTRY_BY_KEY: new Map() };
+        throw new Error('unexpected require: ' + id);
+      };
+      ${chunk}
+      return resolveNaturalLanguageIntent;
+    `;
+    const resolveIntent = new Function(wrapped)();
+    const ciTomorrow = resolveIntent('Who is checking in tomorrow');
+    const coCount = resolveIntent('How many people are checking out tomorrow');
+    const coSat = resolveIntent('How many people are checking out on Saturday');
+    const yoga = resolveIntent('Who paid for yoga tonight');
+    check('K-I1', 'runtime: who checking in tomorrow → check_ins.on_date',
+      ciTomorrow && ciTomorrow.intentKey === 'check_ins.on_date' && ciTomorrow.extraParams.dateLabel === 'tomorrow');
+    check('K-I2', 'runtime: checkout count tomorrow → check_outs.count',
+      coCount && coCount.intentKey === 'check_outs.count');
+    check('K-I3', 'runtime: checkout count Saturday → check_outs.count',
+      coSat && coSat.intentKey === 'check_outs.count' && coSat.extraParams.dateLabel === 'saturday');
+    check('K-I4', 'runtime: yoga paid question → unsupported_intent',
+      yoga && yoga.intentKey === 'unsupported_intent');
+    check('K-I5', 'runtime: who leaves today → departures_today',
+      resolveIntent('Who leaves today').intentKey === 'departures_today');
+  } catch (e) {
+    check('K-I1', 'runtime intent routing smoke', false, e.message);
+    ['K-I2', 'K-I3', 'K-I4', 'K-I5'].forEach(id => check(id, 'runtime intent routing smoke (skipped)', false, e.message));
+  }
+})();
 
 // ── I. Uses existing registry infrastructure ─────────────────────────────────
 check('I1', 'handler uses getEntry() from registry',

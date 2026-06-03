@@ -71,10 +71,13 @@ All answers must come from **structured Postgres records** (bookings, payments, 
 |-------------------|------------------|------------------|-----------------|
 | Which rooms need cleaning today? | “Which rooms need cleaning?” | ✓ `rooms_or_beds_need_cleaning` (0 rows demo date) | `bookings` + `booking_beds` check-out = today |
 | Who is checking out today? | “Who leaves today?” | ✓ `departures_today` | `bookings.check_out = today` |
-| Who is checking in today? | “Who checks in today?” | Partial — registry may exist; verify intent | `bookings.check_in = today` |
-| Who is checking in tomorrow? | “Who checks in tomorrow?” | ✗ Not implemented | `bookings.check_in = tomorrow` |
-| How many checking out tomorrow? | “How many people leave tomorrow?” | ✗ Not implemented | Count guests/beds with `check_out = tomorrow` |
-| How many checking out Saturday? | “How many people check out on Saturday?” | ✗ Not implemented | Named weekday / date resolver + `check_out` |
+| Who is checking in today? | “Who checks in today?” | ✓ `check_ins.on_date` (8.8.2) | `bookings.check_in = resolved date` |
+| Who is checking in tomorrow? | “Who checks in tomorrow?” | ✓ `check_ins.on_date` (8.8.2) | Same |
+| How many check in tomorrow? | “How many people arrive tomorrow?” | ✓ `check_ins.count` (8.8.2) | Sum `guest_count` on matching bookings |
+| Who is checking out today? | “Who leaves today?” | ✓ `departures_today` | `bookings.check_out = today` |
+| Who is checking out tomorrow? | “Who leaves tomorrow?” | ✓ `check_outs.on_date` (8.8.2) | `bookings.check_out = resolved date` |
+| How many checking out tomorrow? | “How many people leave tomorrow?” | ✓ `check_outs.count` (8.8.2) | Sum `guest_count` |
+| How many checking out Saturday? | “How many people check out on Saturday?” | ✓ `check_outs.count` + weekday resolver (8.8.2) | Named weekday → next occurrence (today if same weekday) |
 | How many check in tomorrow? | “How many people arrive tomorrow?” | ✗ Not implemented | Count with `check_in = tomorrow` |
 
 **Rule:** Add-on, yoga, meal, lesson, and rental questions **require structured add-on/service records** in Postgres (Stage 5 schema stubs → implementation). Manual booking UI already captures add-on qty in quote payload; **persisted operational rows** are the prerequisite for trustworthy Ask Luna answers.

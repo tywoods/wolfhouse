@@ -853,9 +853,171 @@ ORDER BY bb.room_code, bb.bed_code, b.booking_code
 `;
 }
 
+/** Stage 8.8.2 — bookings.check_in on a resolved date (one row per booking). */
+function getAskLunaCheckInsOnDateQuery() {
+  return `
+SELECT
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.guest_count,
+  b.check_in,
+  b.check_out,
+  b.status::text            AS booking_status,
+  COALESCE(
+    (SELECT STRING_AGG(rm_bed, ', ' ORDER BY rm_bed)
+     FROM (
+       SELECT DISTINCT bb2.room_code || '/' || bb2.bed_code AS rm_bed
+       FROM booking_beds bb2
+       WHERE bb2.booking_id = b.id
+         AND bb2.room_code IS NOT NULL
+         AND bb2.bed_code IS NOT NULL
+     ) beds),
+    ''
+  ) AS bed_summary
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.check_in = $2::date
+  AND b.status NOT IN ('cancelled', 'expired', 'hold')
+ORDER BY b.booking_code ASC
+`;
+}
+
+/** Stage 8.8.2 — bookings.check_out on a resolved date (one row per booking). */
+function getAskLunaCheckOutsOnDateQuery() {
+  return `
+SELECT
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.guest_count,
+  b.check_in,
+  b.check_out,
+  b.status::text            AS booking_status,
+  COALESCE(
+    (SELECT STRING_AGG(rm_bed, ', ' ORDER BY rm_bed)
+     FROM (
+       SELECT DISTINCT bb2.room_code || '/' || bb2.bed_code AS rm_bed
+       FROM booking_beds bb2
+       WHERE bb2.booking_id = b.id
+         AND bb2.room_code IS NOT NULL
+         AND bb2.bed_code IS NOT NULL
+     ) beds),
+    ''
+  ) AS bed_summary
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.check_out = $2::date
+  AND b.status NOT IN ('cancelled', 'expired', 'hold')
+ORDER BY b.booking_code ASC
+`;
+}
+
+const ASK_LUNA_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+const ASK_LUNA_MONTHS = {
+  january: 0, jan: 0, february: 1, feb: 1, march: 2, mar: 2, april: 3, apr: 3,
+  may: 4, june: 5, jun: 5, july: 6, jul: 6, august: 7, aug: 7,
+  september: 8, sep: 8, sept: 8, october: 9, oct: 9, november: 10, nov: 10,
+  december: 11, dec: 11,
+};
+
+function askLunaIsoDateUTC(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+function askLunaTodayUTC(refDate = new Date()) {
+  return askLunaIsoDateUTC(refDate);
+}
+
+/**
+ * Resolve a date phrase from a staff Ask Luna question (Stage 8.8.2).
+ * tonight = today; tomorrow; ISO; named month/day; weekday (today if same weekday).
+ * @returns {{ date: string, label: string } | null}
+ */
+function resolveAskLunaDatePhrase(question, refDate = new Date()) {
+  const q = String(question || '').toLowerCase();
+
+  const isoMatch = q.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+  if (isoMatch) return { date: isoMatch[1], label: isoMatch[1] };
+
+  let monthIdx = null;
+  let dayNum = null;
+  let m = q.match(/\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if (m) {
+    monthIdx = ASK_LUNA_MONTHS[m[1]];
+    dayNum = parseInt(m[2], 10);
+  } else {
+    m = q.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\b/);
+    if (m) {
+      dayNum = parseInt(m[1], 10);
+      monthIdx = ASK_LUNA_MONTHS[m[2]];
+    }
+  }
+  if (monthIdx != null && dayNum >= 1 && dayNum <= 31) {
+    const y = refDate.getUTCFullYear();
+    const d = new Date(Date.UTC(y, monthIdx, dayNum));
+    return { date: askLunaIsoDateUTC(d), label: askLunaIsoDateUTC(d) };
+  }
+
+  if (/\btonight\b/.test(q)) {
+    return { date: askLunaTodayUTC(refDate), label: 'today' };
+  }
+  if (/\btomorrow\b/.test(q)) {
+    const d = new Date(refDate);
+    d.setUTCDate(d.getUTCDate() + 1);
+    return { date: askLunaIsoDateUTC(d), label: 'tomorrow' };
+  }
+  if (/\btoday\b/.test(q)) {
+    return { date: askLunaTodayUTC(refDate), label: 'today' };
+  }
+
+  for (let i = 0; i < ASK_LUNA_WEEKDAYS.length; i++) {
+    const name = ASK_LUNA_WEEKDAYS[i];
+    if (new RegExp(`\\b${name}\\b`).test(q)) {
+      const refDay = refDate.getUTCDay();
+      let delta = i - refDay;
+      if (delta < 0) delta += 7;
+      const d = new Date(refDate);
+      d.setUTCDate(d.getUTCDate() + delta);
+      return { date: askLunaIsoDateUTC(d), label: name };
+    }
+  }
+
+  return null;
+}
+
+function askLunaDatePhraseLabel(ctx) {
+  const label = ctx.dateLabel || 'today';
+  if (label === 'today') return 'today';
+  if (label === 'tomorrow') return 'tomorrow';
+  if (ASK_LUNA_WEEKDAYS.includes(label)) {
+    return `on ${label.charAt(0).toUpperCase() + label.slice(1)}`;
+  }
+  if (/^20\d{2}-\d{2}-\d{2}$/.test(label)) return `on ${label}`;
+  return ctx.date ? `on ${ctx.date}` : 'today';
+}
+
+function askLunaTotalGuestCount(rows) {
+  return rows.reduce((sum, r) => {
+    const gc = Number(r.guest_count);
+    return sum + (gc > 0 ? gc : 1);
+  }, 0);
+}
+
+function isBlockedAddOnServiceQuestion(q) {
+  return /\b(yoga|meal|meals|surf\s*lesson|lessons?|wetsuit|surfboard|surf\s*board|board\s*rental)\b/.test(q);
+}
+
 const ASK_LUNA_LOCAL_QUERY = {
   departures_today:              getAskLunaDeparturesTodayQuery,
   rooms_or_beds_need_cleaning:   getAskLunaRoomsNeedCleaningQuery,
+  'check_ins.on_date':           getAskLunaCheckInsOnDateQuery,
+  'check_ins.count':             getAskLunaCheckInsOnDateQuery,
+  'check_outs.on_date':          getAskLunaCheckOutsOnDateQuery,
+  'check_outs.count':            getAskLunaCheckOutsOnDateQuery,
 };
 
 /**
@@ -864,15 +1026,52 @@ const ASK_LUNA_LOCAL_QUERY = {
  */
 function resolveNaturalLanguageIntent(question) {
   const q = String(question || '').toLowerCase().trim();
+  const today = askLunaTodayUTC();
 
   // Direct registry key passthrough (e.g. "payments.balance_due")
   const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
   if (REGISTRY_BY_KEY.has(q)) return { intentKey: q, extraParams: {} };
 
+  // Stage 8.8.2 — add-on/service questions need structured records (not chat logs)
+  if (isBlockedAddOnServiceQuestion(q)) {
+    return {
+      intentKey: 'unsupported_intent',
+      intentHint: 'Add-on or service queries (yoga, meals, lessons, wetsuit/board rentals)',
+    };
+  }
+
+  const dateInfo = resolveAskLunaDatePhrase(question);
+  const isCountQ = /\bhow many\b/.test(q);
+
+  // ── Check-in / check-out date queries (8.8.2) — before generic payment/rooming ──
+  if (isCountQ && /\b(check.?in|checking in|arriv|arrival)\b/.test(q)) {
+    const di = dateInfo || { date: today, label: 'today' };
+    return { intentKey: 'check_ins.count', extraParams: { date: di.date, dateLabel: di.label } };
+  }
+  if (isCountQ && /\b(check.?out|checking out|leav|depart)\b/.test(q)) {
+    const di = dateInfo || { date: today, label: 'today' };
+    return { intentKey: 'check_outs.count', extraParams: { date: di.date, dateLabel: di.label } };
+  }
+  if (/\b(check.?in|checking in)\b/.test(q)) {
+    const di = dateInfo || (/\btoday\b|\btonight\b/.test(q) ? { date: today, label: 'today' } : null);
+    if (di) {
+      return { intentKey: 'check_ins.on_date', extraParams: { date: di.date, dateLabel: di.label } };
+    }
+  }
+  if (/\b(check.?out|checking out|leav|depart|who leaves)\b/.test(q)) {
+    const di = dateInfo || (/\btoday\b|\btonight\b/.test(q) ? { date: today, label: 'today' } : null);
+    if (di) {
+      if (di.date === today && /who leaves|leave.?today|leaving.?today|check.?out.?today|depart.*today/.test(q)) {
+        return { intentKey: 'departures_today', extraParams: { date: today, dateLabel: 'today' } };
+      }
+      return { intentKey: 'check_outs.on_date', extraParams: { date: di.date, dateLabel: di.label } };
+    }
+  }
+
   // Natural language → intent mapping
   if (/ow(es?|ed)|balance.?due|still ow/.test(q))                               return { intentKey: 'payments.balance_due',        extraParams: {} };
   if (/payment.?link|checkout.?link|pending.?link|waiting.?for.?pay/.test(q))   return { intentKey: 'payments.waiting',            extraParams: {} };
-  if (/arriv|check.?in.?today|arriving.?today/.test(q))                         return { intentKey: 'rooming.arrivals',            extraParams: { date: new Date().toISOString().slice(0, 10) } };
+  if (/arriv|check.?in.?today|arriving.?today/.test(q))                         return { intentKey: 'rooming.arrivals',            extraParams: { date: today } };
   if (/needs?.human|needs?.staff|handoff|who.?needs.?help/.test(q))             return { intentKey: 'handoffs.open',               extraParams: {} };
   if (/urgent.?handoff|high.?priority.?handoff/.test(q))                        return { intentKey: 'handoffs.urgent',             extraParams: {} };
   if (/deposit.paid|paid.?deposit/.test(q))                                     return { intentKey: 'payments.deposit',            extraParams: {} };
@@ -882,12 +1081,8 @@ function resolveNaturalLanguageIntent(question) {
   if (/active.?hold|holds?.active/.test(q))                                     return { intentKey: 'holds.active',                extraParams: {} };
   if (/unassign|no.?bed.?assign/.test(q))                                       return { intentKey: 'rooming.unassigned',          extraParams: {} };
   if (/addon.?action|add.?on.?action|staff.?action/.test(q))                    return { intentKey: 'addons.action_required',      extraParams: {} };
-  if (/lesson/.test(q))                                                          return { intentKey: 'addons.lessons',              extraParams: {} };
-  if (/yoga/.test(q))                                                            return { intentKey: 'addons.yoga',                 extraParams: {} };
-  if (/rental|board|wetsuit/.test(q))                                           return { intentKey: 'addons.rentals',              extraParams: {} };
 
-  const today = new Date().toISOString().slice(0, 10);
-  if (/depart|check.?out.?today|leaving.?today|leave.?today|who leaves/.test(q)) return { intentKey: 'departures_today',            extraParams: { date: today } };
+  if (/depart|check.?out.?today|leaving.?today|leave.?today|who leaves/.test(q)) return { intentKey: 'departures_today',            extraParams: { date: today, dateLabel: 'today' } };
   if (/clean|housekeep|room.?ready|bed.?ready|need.?clean/.test(q))             return { intentKey: 'rooms_or_beds_need_cleaning', extraParams: { date: today } };
 
   return null;
@@ -896,8 +1091,9 @@ function resolveNaturalLanguageIntent(question) {
 /**
  * Formats query rows into a concise WhatsApp-friendly answer string.
  */
-function formatAnswer(intentKey, rows) {
+function formatAnswer(intentKey, rows, ctx = {}) {
   const n = rows.length;
+  const when = askLunaDatePhraseLabel(ctx);
 
   if (n === 0) {
     const empty = {
@@ -911,6 +1107,10 @@ function formatAnswer(intentKey, rows) {
       'rooming.unassigned':           'All bookings have a bed assigned. ✅',
       'departures_today':             'No guests are checking out today. ✅',
       'rooms_or_beds_need_cleaning':  'No beds need cleaning after today\'s departures. ✅',
+      'check_ins.on_date':            `No guests are checking in ${when}.`,
+      'check_ins.count':              `0 guests checking in ${when}.`,
+      'check_outs.on_date':           `No guests are checking out ${when}.`,
+      'check_outs.count':             `0 guests checking out ${when}.`,
       'handoffs.open':                'No open handoffs — all conversations handled. ✅',
       'handoffs.urgent':              'No urgent handoffs right now. ✅',
       'holds.active':                 'No active holds at the moment.',
@@ -927,6 +1127,13 @@ function formatAnswer(intentKey, rows) {
 
   const nameLine = (r) => r.guest_name ? `${r.guest_name} (${r.booking_code || ''})` : (r.booking_code || r.id || '?');
   const centsStr = (c) => c != null ? `€${(Math.round(c) / 100).toFixed(0)}` : '';
+  const stayLine = (r) => {
+    const beds = r.bed_summary ? ` — ${r.bed_summary}` : (
+      r.room_code && r.bed_code ? ` — ${r.room_code}/${r.bed_code}` : ''
+    );
+    const gc = r.guest_count > 0 ? `, ${r.guest_count} guest${r.guest_count !== 1 ? 's' : ''}` : '';
+    return `${nameLine(r)}${gc}${beds}`;
+  };
 
   switch (intentKey) {
     case 'payments.balance_due':
@@ -966,6 +1173,22 @@ function formatAnswer(intentKey, rows) {
         return `${nameLine(r)}${bed}`;
       }).join('; ');
       return `${n} guest${n !== 1 ? 's' : ''} leaving today: ${list}${extra}`;
+    }
+    case 'check_ins.on_date': {
+      const list = rows.slice(0, MAX_SUMMARY).map(stayLine).join('; ');
+      return `${n} guest${n !== 1 ? 's' : ''} checking in ${when}: ${list}${extra}`;
+    }
+    case 'check_ins.count': {
+      const people = askLunaTotalGuestCount(rows);
+      return `${people} guest${people !== 1 ? 's' : ''} checking in ${when}.`;
+    }
+    case 'check_outs.on_date': {
+      const list = rows.slice(0, MAX_SUMMARY).map(stayLine).join('; ');
+      return `${n} guest${n !== 1 ? 's' : ''} checking out ${when}: ${list}${extra}`;
+    }
+    case 'check_outs.count': {
+      const people = askLunaTotalGuestCount(rows);
+      return `${people} guest${people !== 1 ? 's' : ''} checking out ${when}.`;
     }
     case 'rooms_or_beds_need_cleaning': {
       const list = rows.slice(0, MAX_SUMMARY).map(r =>
@@ -1072,7 +1295,11 @@ async function handleAskLuna(req, res) {
       'who owes money (payments.balance_due)',
       'payment links pending (payments.waiting)',
       'arrivals today (rooming.arrivals)',
+      'who is checking in today/tomorrow/Saturday (check_ins.on_date)',
+      'how many check in tomorrow (check_ins.count)',
       'departures today (departures_today)',
+      'who is checking out tomorrow/Saturday (check_outs.on_date)',
+      'how many check out tomorrow (check_outs.count)',
       'rooms/beds needing cleaning (rooms_or_beds_need_cleaning)',
       'who needs human reply (handoffs.open)',
       'deposit paid (payments.deposit)',
@@ -1103,7 +1330,8 @@ async function handleAskLuna(req, res) {
   const { intentKey, extraParams } = resolution;
 
   if (ASK_LUNA_LOCAL_QUERY[intentKey]) {
-    const today = extraParams.date || new Date().toISOString().slice(0, 10);
+    const today = extraParams.date || askLunaTodayUTC();
+    const fmtCtx = { date: today, dateLabel: extraParams.dateLabel || 'today' };
     let localRows = [];
     try {
       const sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
@@ -1117,14 +1345,18 @@ async function handleAskLuna(req, res) {
         success: false, error: 'query_error', detail: err.message,
       });
     }
-    const answer = formatAnswer(intentKey, localRows);
+    const answer = formatAnswer(intentKey, localRows, fmtCtx);
+    const category = intentKey.startsWith('check_ins') ? 'arrivals'
+      : (intentKey.startsWith('check_outs') || intentKey === 'departures_today') ? 'departures'
+      : 'rooming';
     return sendJSON(res, 200, {
       success:            true,
       client_slug:        clientSlug,
       source,
       staff_access:       staffAccess,
       intent:             intentKey,
-      category:           'rooming',
+      category,
+      query_date:         today,
       answer,
       rows:               localRows.slice(0, MAX_ROWS),
       row_count:          localRows.length,
