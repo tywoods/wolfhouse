@@ -7399,6 +7399,14 @@ function isLunaGuestAutomationPaused(sources){
   return false;
 }
 
+/* Phase 9.5 — live pause lookup via GET /staff/bot/pause-state; failure → default active */
+function fetchBotPauseState(client, convId){
+  var qs = '?client_slug=' + encodeURIComponent(client) + '&conversation_id=' + encodeURIComponent(convId);
+  return fetch('/staff/bot/pause-state' + qs)
+    .then(function(r){ return r.ok ? r.json() : { success: false }; })
+    .catch(function(){ return { success: false }; });
+}
+
 /* Render inbox conversation cards (left column) */
 function renderInbox(convs){
   var list = el('conv-list');
@@ -7509,6 +7517,7 @@ function loadConvDetail(convId, targetEl){
 
   var base = '/staff/conversations/' + encodeURIComponent(convId);
   var qs   = '?client=' + encodeURIComponent(getClient());
+  var client = getClient();
 
   function gjson(path){ return fetch(path).then(function(r){ return r.json(); }); }
 
@@ -7518,12 +7527,14 @@ function loadConvDetail(convId, targetEl){
     gjson(base + '/context'  + qs),
     gjson(base + '/draft'    + qs),
     gjson(base + '/staff-state' + qs),
+    fetchBotPauseState(client, convId),
   ]).then(function(results){
     var detailData = results[0];
     var msgsData   = results[1];
     var ctxData    = results[2];
     var draftData  = results[3];
     var stateData  = results[4];
+    var pauseData  = results[5];
 
     if (!detailData.success) throw new Error(detailData.error || 'detail error');
 
@@ -7532,7 +7543,7 @@ function loadConvDetail(convId, targetEl){
     var ctx   = (ctxData.success   && ctxData.context)    ? ctxData.context    : null;
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
     var state = (stateData.success && stateData.state)     ? stateData.state    : null;
-    var lunaGuestPaused = isLunaGuestAutomationPaused([detailData, c, stateData, state]);
+    var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c, stateData, state]);
 
     /* ── Header ── */
     var html = '<div class="detail-header">';
