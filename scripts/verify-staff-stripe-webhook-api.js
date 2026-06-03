@@ -313,6 +313,32 @@ check('M8', 'No confirmation_sent_at write in webhook handler',
 check('M9', 'No n8n HTTP call in webhook handler',
   !(/fetch\s*\([\s\S]{0,80}n8n|n8n[\s\S]{0,80}fetch\s*\(/.test(handlerSrc)));
 
+// ─── N. Stage 8.5.16 — persist confirmation_draft in bookings.metadata ─────
+console.log('\nN. Stage 8.5.16 — persist confirmation_draft metadata');
+
+check('N1', 'confirmation_draft persisted to bookings.metadata',
+  /UPDATE bookings[\s\S]{0,600}confirmation_draft/.test(handlerSrc) &&
+  /jsonb_build_object\s*\(\s*['"]confirmation_draft['"]/.test(handlerSrc));
+
+check('N2', 'confirmation_draft built once and reused (not double-built in response)',
+  /const confirmationDraft\s*=\s*buildPaymentConfirmationDraft/.test(handlerSrc) &&
+  /confirmation_draft:\s*confirmationDraft/.test(handlerSrc));
+
+check('N3', 'confirmation_draft still returned in webhook response',
+  /confirmation_draft\s*:/.test(handlerSrc));
+
+check('N4', 'confirmation_draft sends_whatsapp:false (persisted shape)',
+  /sends_whatsapp\s*:\s*false/.test(code.slice(code.indexOf('function buildPaymentConfirmationDraft'), code.indexOf('function buildPaymentConfirmationDraft') + 1200)));
+
+check('N5', 'No graph.facebook.com in webhook handler (reconfirm)',
+  !/graph\.facebook\.com/.test(handlerSrc));
+
+check('N6', 'No n8n HTTP call in webhook handler (reconfirm)',
+  !(/fetch\s*\([\s\S]{0,80}n8n|n8n[\s\S]{0,80}fetch\s*\(/.test(handlerSrc)));
+
+check('N7', 'No confirmation_sent_at write in webhook handler (reconfirm)',
+  !(/UPDATE[\s\S]{0,2500}confirmation_sent_at/.test(handlerSrc)));
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n──────────────────────────────────────────`);
 console.log(`verify-staff-stripe-webhook-api: ${pass} pass, ${fail} fail`);

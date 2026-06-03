@@ -576,6 +576,18 @@ Each slice is independently gated, independently provable, and does not depend o
 | n8n `stage8510SharedDryRun01` inactive | ✓ |
 | No WhatsApp sent | ✓ |
 
+### 8.5.16 - Persist confirmation_draft in bookings.metadata - **PASS (2026-06-03)**
+**Goal:** Store webhook `confirmation_draft` in `bookings.metadata.confirmation_draft` so Staff Portal/n8n can retrieve it later — no WhatsApp send.
+
+**Delivered:**
+- `buildPaymentConfirmationDraft()` result assigned once; reused for DB persist + webhook response.
+- Booking UPDATE merges `metadata.confirmation_draft` via `jsonb_build_object('confirmation_draft', $draft::jsonb)` in same transaction as payment truth.
+- Fields persisted match response: booking_code, guest_name, payment_status, amount_paid_cents, balance_due_cents, room_number, address, gate_code, sends_whatsapp:false, whatsapp_dry_run:true.
+- No `confirmation_sent_at` write. No WhatsApp. No n8n. Payment truth SQL unchanged.
+- `verify-staff-stripe-webhook-api.js` **76/76 PASS** (N-series checks).
+
+**Not in this slice:** hosted staging re-proof; Staff Portal drawer read of metadata.confirmation_draft.
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)

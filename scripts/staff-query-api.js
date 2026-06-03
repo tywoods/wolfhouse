@@ -2093,6 +2093,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
 //   Booking status NOT changed to confirmed here (payment truth only slice).
 //   Stage 8.5.14: returns confirmation_draft (dry-run) when payment_status
 //   becomes deposit_paid or paid — no send, no confirmation_sent write.
+//   Stage 8.5.16: persists confirmation_draft to bookings.metadata.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function loadClientConfirmationArrival(clientSlug) {
@@ -2284,6 +2285,8 @@ async function handleStripeWebhook(req, res) {
     newBkPayStatus = 'waiting_payment';
   }
 
+  const confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
+
   // ── 9. Atomic DB update: payment + booking ────────────────────────────────
   try {
     await withPgClient(async (pg) => {
@@ -2312,12 +2315,22 @@ async function handleStripeWebhook(req, res) {
           ]
         );
         await pg.query(
-          `UPDATE bookings
-             SET amount_paid_cents = $1,
-                 balance_due_cents = $2,
-                 payment_status    = $3::payment_status
-           WHERE id = $4`,
-          [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id]
+          confirmationDraft
+            ? `UPDATE bookings
+                 SET amount_paid_cents = $1,
+                     balance_due_cents = $2,
+                     payment_status    = $3::payment_status,
+                     metadata          = COALESCE(metadata, '{}'::jsonb)
+                                         || jsonb_build_object('confirmation_draft', $5::jsonb)
+               WHERE id = $4`
+            : `UPDATE bookings
+                 SET amount_paid_cents = $1,
+                     balance_due_cents = $2,
+                     payment_status    = $3::payment_status
+               WHERE id = $4`,
+          confirmationDraft
+            ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(confirmationDraft)]
+            : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id]
         );
         await pg.query('COMMIT');
       } catch (e) {
@@ -2359,7 +2372,7 @@ async function handleStripeWebhook(req, res) {
     no_email:                  true,
     no_n8n:                    true,
     no_confirmation_sent:      true,
-    confirmation_draft:        buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance),
+    confirmation_draft:        confirmationDraft,
     elapsed_ms:                elapsed,
   });
 }
