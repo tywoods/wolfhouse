@@ -26,7 +26,7 @@
 |------|-------|
 | Staff Portal | `https://staff-staging.lunafrontdesk.com` |
 | Login | Company: `wolfhouse-somo` · Email: `admin.stage72c@example.test` · Password: see comment in [`scripts/fixtures/stage7.2c-auth-seed.sql`](../scripts/fixtures/stage7.2c-auth-seed.sql) |
-| Staff API revision (8.7.7) | `wh-staging-staff-api--0000024` |
+| Staff API revision (8.7.9) | `wh-staging-staff-api--0000025` |
 | n8n editor (read-only for demo) | `https://wh-staging-n8n-main.braveplant-5c685569.northeurope.azurecontainerapps.io/home` |
 | Golden booking | `MB-WOLFHO-20260801-4f10c3` · check-in **2026-08-01** · check-out **2026-08-06** |
 | Bed Calendar date range | **From** `2026-07-28` **To** `2026-08-10` → click **Load** |
@@ -189,7 +189,7 @@
 
 **UI notes (non-blocking):**
 
-- Bed Calendar **defaults** to ~today + 30 days — golden booking (Aug 2026) is **hidden until you change the range** (script step still required).
+- Bed Calendar **defaults** to Next 30 days and **auto-loads** on first tab open (8.7.8) — golden booking (Aug 2026) still needs **Jul–Aug range** or manual dates + Load.
 - Only **one** booking block in the demo date range — sparse but sufficient.
 - Switching to **Ask Luna** tab leaves the **booking drawer open** on the right — can distract; close drawer first or call out as known UX.
 - Departures/cleaning **empty on demo day** (2026-06-03) is expected — explain date-driven SQL.
@@ -234,9 +234,26 @@
 
 ---
 
+## Hosted Bed Calendar UX proof — Stage 8.7.9 (2026-06-03)
+
+**Result:** **PASS** — auto-load + selection fixes live on staging.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:d50da7e-stage879-bed-calendar-ux` · ACR `cbk` · revision `--0000025` |
+| Auto-load Next 30 days | **PASS** | Tab open → `2026-06-03`→`2026-07-03` · chip **Next 30 days** active · grid rendered without manual Load |
+| Load button | **PASS** | `#bc-load` still present |
+| Empty cell select | **PASS** | `#bc-sel-panel` opens |
+| Cell toggle deselect | **PASS** | Re-click clears selection; panel hides when none remain |
+| Booking click | **PASS** | Manual panel closes; `#bc-detail` visible with golden booking |
+| Safety | **PASS** | `/staff/bed-calendar` + `/staff/bookings/.../context` only; no stripe.com / Facebook / n8n |
+
+---
+
 ## Pre-demo checklist (5 min before call)
 
 - [ ] Staff Portal login works
+- [ ] Bed Calendar auto-loads on first tab open (Next 30 days)
 - [ ] Golden booking visible in range `2026-07-28` → `2026-08-10`
 - [ ] Drawer shows **Deposit paid ✓** + **Luna confirmation draft ready**
 - [ ] Ask Luna **Ask button** works (not just API fetch)
