@@ -15,7 +15,7 @@
 --   Migration 007 is a normalized add-on order model (not yet applied).
 --   This flat table is the MVP path per STAGE-8.8.6; a SQL view may unify later.
 --
--- NOT YET APPLIED — spec only (Stage 8.8.7). Do not run without explicit approval.
+-- NOT YET APPLIED — spec only (Stage 8.8.7; source CHECK updated 8.8.9). Do not run without explicit approval.
 
 BEGIN;
 
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS booking_service_records (
   payment_status      TEXT NOT NULL DEFAULT 'not_requested'
                       CHECK (payment_status IN ('not_requested', 'pending', 'paid', 'refunded', 'waived')),
   source              TEXT NOT NULL DEFAULT 'staff_manual'
-                      CHECK (source IN ('staff_manual', 'luna_guest', 'import', 'stripe')),
+                      CHECK (source IN ('staff_manual', 'luna_guest', 'import', 'stripe', 'demo_fixture_stage888')),
   notes               TEXT,
   metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -57,6 +57,9 @@ COMMENT ON COLUMN booking_service_records.service_date IS
 
 COMMENT ON COLUMN booking_service_records.payment_status IS
   'Payment truth: paid only after Stripe webhook or staff manual mark-paid — never from chat.';
+
+COMMENT ON COLUMN booking_service_records.source IS
+  'Row origin: staff_manual, luna_guest, import, stripe, or demo_fixture_stage888 (Stage 8.8.8 demo seed only).';
 
 CREATE INDEX IF NOT EXISTS idx_booking_service_records_client_date
   ON booking_service_records (client_slug, service_date);

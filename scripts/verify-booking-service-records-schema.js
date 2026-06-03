@@ -92,6 +92,12 @@ check('C5', 'amount_due_cents >= 0 CHECK',
 check('C6', 'amount_paid_cents >= 0 CHECK',
   /amount_paid_cents[\s\S]{0,120}CHECK\s*\(\s*amount_paid_cents\s*>=\s*0\s*\)/i.test(sql));
 
+check('C7', 'source CHECK includes demo_fixture_stage888 (Stage 8.8.9)',
+  /source[\s\S]{0,200}CHECK\s*\(\s*source IN/i.test(sql)
+  && /'staff_manual'/.test(sql) && /'luna_guest'/.test(sql)
+  && /'import'/.test(sql) && /'stripe'/.test(sql)
+  && /'demo_fixture_stage888'/.test(sql));
+
 // ── D. Indexes ─────────────────────────────────────────────────────────────
 check('D1', 'index client_slug + service_date',
   /idx_booking_service_records_client_date[\s\S]{0,120}\(\s*client_slug\s*,\s*service_date\s*\)/i.test(sql));

@@ -10,6 +10,7 @@ const path = require('path');
 const ROOT    = path.resolve(__dirname, '..');
 const UP_F    = path.join(ROOT, 'scripts', 'fixtures', 'booking-service-records-demo-up.sql');
 const DOWN_F  = path.join(ROOT, 'scripts', 'fixtures', 'booking-service-records-demo-down.sql');
+const MIG_F     = path.join(ROOT, 'database', 'migrations', '010_booking_service_records.sql');
 const API_SRC = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const PKG     = path.join(ROOT, 'package.json');
 const SELF    = __filename;
@@ -30,8 +31,10 @@ function check(id, desc, ok, detail) {
 
 let upSql = '';
 let downSql = '';
+let migSql = '';
 try { upSql = fs.readFileSync(UP_F, 'utf8'); } catch (e) { check('A0', 'up fixture exists', false, e.message); }
 try { downSql = fs.readFileSync(DOWN_F, 'utf8'); } catch (e) { check('A0b', 'down fixture exists', false, e.message); }
+try { migSql = fs.readFileSync(MIG_F, 'utf8'); } catch (e) { check('A0c', '010 migration exists', false, e.message); }
 
 const apiSrc = fs.existsSync(API_SRC) ? fs.readFileSync(API_SRC, 'utf8') : '';
 const pkgJson = fs.existsSync(PKG) ? JSON.parse(fs.readFileSync(PKG, 'utf8')) : {};
@@ -46,6 +49,10 @@ check('A5', 'down uses BEGIN/COMMIT', /^\s*BEGIN\s*;/m.test(downSql) && /COMMIT\
 check('B1', 'up inserts into booking_service_records', /INSERT INTO booking_service_records\b/i.test(upSql));
 check('B2', "client_slug='wolfhouse-somo'", /'wolfhouse-somo'/.test(upSql));
 check('B3', "source='demo_fixture_stage888'", /'demo_fixture_stage888'/.test(upSql));
+
+check('B4', 'migration 010 source CHECK allows demo_fixture_stage888',
+  migSql.length > 0 && /'demo_fixture_stage888'/.test(migSql)
+  && /source[\s\S]{0,200}CHECK\s*\(\s*source IN/i.test(migSql));
 
 for (const t of ['yoga', 'meal', 'surf_lesson', 'wetsuit', 'surfboard']) {
   check(`C-${t}`, `service_type ${t} represented`, new RegExp(`'${t}'`).test(upSql));
