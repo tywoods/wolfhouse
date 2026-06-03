@@ -624,6 +624,25 @@ Each slice is independently gated, independently provable, and does not depend o
 - No send button. No WhatsApp/n8n/Stripe from drawer. No `confirmation_sent_at` write.
 - `verify-staff-bed-calendar-ui.js` **294/294 PASS**.
 
+### 8.5.19 - Hosted Luna confirmation draft drawer proof - **PASS (2026-06-03)**
+**Goal:** Deploy Stage 8.5.18 Staff API to Azure staging and prove the booking drawer shows persisted `bookings.metadata.confirmation_draft` on hosted Staff Portal.
+
+**Delivered:**
+- Image `wh-staff-api:4872768-stage8519-confirmation-drawer` → revision `--0000022` (Healthy, 100% traffic).
+- Hosted drawer proof on `MB-WOLFHO-20260801-4f10c3` (Luna Test 855): panel shows all draft fields; Deposit paid ✓; €100.00 paid / €150.00 balance; DEMO-R1; gate `2684#`; `sends_whatsapp: false` · `whatsapp_dry_run: true`.
+- No send button (Copy only). Drawer network: `GET /staff/bookings/.../context` only — no Stripe, n8n, or WhatsApp calls.
+- n8n `stage8510SharedDryRun01` **inactive** (`active:false`). No WhatsApp sent.
+
+| Check | Result |
+|-------|--------|
+| Deploy `4872768-stage8519-confirmation-drawer` | ✓ |
+| Drawer: Luna confirmation draft ready | ✓ |
+| booking_code / guest_name / deposit paid / amounts / room / gate | ✓ |
+| sends_whatsapp:false / whatsapp_dry_run:true | ✓ |
+| No send button | ✓ |
+| No Stripe/n8n/WhatsApp from drawer | ✓ |
+| n8n `stage8510SharedDryRun01` inactive | ✓ |
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)
