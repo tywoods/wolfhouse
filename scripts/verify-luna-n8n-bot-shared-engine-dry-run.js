@@ -1,8 +1,12 @@
 'use strict';
 // ============================================================================
 // verify-luna-n8n-bot-shared-engine-dry-run.js
-// Static verifier for Stage 8.5.7 → 8.5.9
+// Static verifier for Stage 8.5.7 → 8.5.11
 // Luna n8n dry-run shared-engine wiring.
+// Stage 8.5.11 additions:
+//   • Set - DryRun Mode Flags (dry_run:true, live_send_enabled:false)
+//   • IF DryRun Guard checks $json.dry_run (no $env in IF expressions)
+//   • X-Luna-Bot-Token via httpHeaderAuth credential placeholder (not $env, not hardcoded)
 // Stage 8.5.9 additions:
 //   • /staff/bot/availability-check node present and wired before booking-create
 //   • selected_bed_codes sourced from availability-check response (not hardcoded)
@@ -80,23 +84,60 @@ check('B5', '"HTTP - Bot Availability Check" node exists in workflow',
   nodeNames.includes('HTTP - Bot Availability Check'));
 
 // ── C. Auth token handling ───────────────────────────────────────────────────
-check('C1', 'X-Luna-Bot-Token header used in HTTP nodes',
-  wfText.includes('X-Luna-Bot-Token'));
+const botHttpNodes = wf.nodes.filter(n =>
+  n.type === 'n8n-nodes-base.httpRequest' &&
+  (n.parameters?.url || '').includes('/staff/bot/')
+);
 
-check('C2', 'token value is from env var ($env.LUNA_BOT_INTERNAL_TOKEN), not hardcoded',
-  wfText.includes('LUNA_BOT_INTERNAL_TOKEN') && !wfText.match(/X-Luna-Bot-Token[^}]*?:\s*["'][0-9a-f]{32,}/i));
+check('C1', 'bot HTTP nodes use httpHeaderAuth credential (X-Luna-Bot-Token at bind time)',
+  botHttpNodes.length >= 4 &&
+  botHttpNodes.every(n =>
+    n.credentials?.httpHeaderAuth?.name === 'Luna Bot Internal Token (staging)' &&
+    n.parameters?.genericAuthType === 'httpHeaderAuth'
+  ),
+  `found ${botHttpNodes.length} bot HTTP nodes; credential binding incomplete`);
+
+check('C2', 'no $env.LUNA_BOT_INTERNAL_TOKEN in workflow (staging blocks env access)',
+  !wfText.includes('$env.LUNA_BOT_INTERNAL_TOKEN') && !wfText.includes('$env.LUNA_BOT'));
 
 check('C3', 'no literal secret/token value hardcoded (no bearer hex string)',
-  !wfText.match(/Authorization[^}]*Bearer\s+[0-9a-f]{20,}/i));
+  !wfText.match(/Authorization[^}]*Bearer\s+[0-9a-f]{20,}/i) &&
+  !wfText.match(/X-Luna-Bot-Token[^}]*?:\s*["'][0-9a-f]{32,}/i));
 
-// ── D. WHATSAPP_DRY_RUN guard ────────────────────────────────────────────────
-check('D1', 'WHATSAPP_DRY_RUN guard node exists',
-  wfText.includes('WHATSAPP_DRY_RUN'));
+// ── D. Dry-run guard (workflow JSON, no $env in IF) ─────────────────────────
+const modeFlagsNode = wf.nodes.find(n => (n.name || '').includes('DryRun Mode Flags'));
+check('D1', 'Set - DryRun Mode Flags node present',
+  !!modeFlagsNode);
 
+if (modeFlagsNode) {
+  const modeStr = JSON.stringify(modeFlagsNode.parameters || {});
+  check('D1b', 'mode flags node sets dry_run:true',
+    modeStr.includes('dry_run') && modeStr.includes('true'));
+  check('D1c', 'mode flags node sets live_send_enabled:false',
+    modeStr.includes('live_send_enabled') && modeStr.includes('false'));
+}
+
+const dryRunGuardNode = wf.nodes.find(n =>
+  n.type === 'n8n-nodes-base.if' && (n.name || '').includes('DryRun Guard')
+);
 check('D2', 'IF - DryRun Guard node is present',
-  nodeNames.some(n => n.toLowerCase().includes('dryrun guard') || n.toLowerCase().includes('dry run guard') || n.toLowerCase().includes('dry-run guard')));
+  !!dryRunGuardNode);
 
-check('D3', 'Respond - DryRun Disabled node present (guard false branch)',
+if (dryRunGuardNode) {
+  const guardStr = JSON.stringify(dryRunGuardNode.parameters || {});
+  check('D2b', 'IF guard checks $json.dry_run (not WHATSAPP_DRY_RUN env)',
+    guardStr.includes('$json.dry_run') || guardStr.includes('dry_run'));
+  check('D2c', 'no $env in IF DryRun Guard expression',
+    !guardStr.includes('$env'));
+}
+
+const ifNodes = wf.nodes.filter(n => n.type === 'n8n-nodes-base.if');
+const ifWithEnv = ifNodes.filter(n => JSON.stringify(n.parameters || {}).includes('$env'));
+check('D3', 'no $env references in any IF node expressions',
+  ifWithEnv.length === 0,
+  ifWithEnv.length ? 'found in: ' + ifWithEnv.map(n => n.name).join(', ') : '');
+
+check('D4', 'Respond - DryRun Disabled node present (guard false branch)',
   nodeNames.some(n => n.toLowerCase().includes('disabled') || n.toLowerCase().includes('dryrun disabled')));
 
 // ── E. No live WhatsApp sends ────────────────────────────────────────────────
@@ -213,11 +254,14 @@ if (orig) {
 check('K1', 'integration map docs reference Stage 8.5.7 (still present)',
   mapDoc.includes('8.5.7'));
 
-check('K2', 'integration map docs reference Stage 8.5.9 (new)',
+check('K2', 'integration map docs reference Stage 8.5.9 (still present)',
   mapDoc.includes('8.5.9'));
 
-check('K3', 'roadmap references Stage 8.5.9',
-  roadmap.includes('8.5.9'));
+check('K2b', 'integration map docs reference Stage 8.5.11 (staging-safe guard)',
+  mapDoc.includes('8.5.11'));
+
+check('K3', 'roadmap references Stage 8.5.11',
+  roadmap.includes('8.5.11'));
 
 // Staff Ask Luna checks (Stage 8.6 roadmap)
 check('K4', 'docs reference Staff Ask Luna or Stage 8.6',

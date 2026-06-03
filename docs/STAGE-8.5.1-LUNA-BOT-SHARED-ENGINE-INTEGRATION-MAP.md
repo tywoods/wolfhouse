@@ -464,7 +464,21 @@ Each slice is independently gated, independently provable, and does not depend o
 
 **Staging import note:** Staging n8n has `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` and no `LUNA_BOT_INTERNAL_TOKEN` on the n8n container. Import applied staging-only patches: `Set - DryRun Mode Flags` + `$json.dry_run` guard (same pattern as Stage 8.6.6) and bot token injection from Key Vault into HTTP header fields. Repo JSON unchanged in this slice.
 
-**Proof:** Hosted manual execution only. No Staff API edits. No Stripe webhook fired. No WhatsApp sent.
+**Next:** Stage 8.5.11 repo guard fix (same pattern as 8.6.6) — see §8.5.11.
+
+### 8.5.11 - Repo staging-safe dry-run guard + credential auth - **PASS (2026-06-03)**
+**Goal:** Update repo dry-run workflow JSON so it imports cleanly into staging n8n without manual `$env` patches when `N8N_BLOCK_ENV_ACCESS_IN_NODE=true`.
+
+**Delivered:**
+- `Set - DryRun Mode Flags` Code node added after webhook: sets `dry_run:true`, `live_send_enabled:false` on inbound payload (no `$env`).
+- `IF - DryRun Guard` updated to check `$json.dry_run === true` (boolean), not `$env.WHATSAPP_DRY_RUN`.
+- All four bot HTTP nodes (`booking-preview`, `availability-check`, `bookings/create`, `payments/:id/create-stripe-link`) use n8n **Header Auth** credential placeholder `Luna Bot Internal Token (staging)` (`httpHeaderAuth`, empty id — bind token value at import; header name `X-Luna-Bot-Token` configured in credential).
+- No hardcoded secrets. No `$env` in IF expressions. `active:false` retained. All branches keep `whatsapp_sent:false`. No `graph.facebook.com`. No `api.stripe.com`.
+- `scripts/verify-luna-n8n-bot-shared-engine-dry-run.js` updated for 8.5.11 checks.
+
+**Import note:** After re-import, create/bind Header Auth credential in staging n8n UI: Name=`X-Luna-Bot-Token`, Value=Key Vault `LUNA_BOT_INTERNAL_TOKEN`. Workflow not re-imported or activated in this slice.
+
+**Proof:** Static verifier only. No hosted execution in 8.5.11.
 
 ---
 

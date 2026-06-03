@@ -2,8 +2,8 @@
   "name": "Wolfhouse Booking Assistant - Main - Shared Engine Dry Run",
   "active": false,
   "meta": {
-    "description": "Stage 8.5.9 dry-run fork (updated from 8.5.7). NOT a replacement for the live workflow. INACTIVE / NOT IMPORTED into production n8n. Full shared-engine path: WHATSAPP_DRY_RUN guard -> booking-preview -> availability-check -> (not-enough-beds branch: log draft, no send) OR (has beds: booking-create with real selected_bed_codes -> Stripe link -> draft payment reply). Staging placeholder bed code REMOVED — selected_bed_codes now come from /staff/bot/availability-check response. Token from LUNA_BOT_INTERNAL_TOKEN env var, never hardcoded. No graph.facebook.com nodes. No api.stripe.com calls. No STRIPE_DEFAULT_DEPOSIT_CENTS.",
-    "instanceId": "dry-run-stage859"
+    "description": "Stage 8.5.11 dry-run fork (updated from 8.5.9). NOT a replacement for the live workflow. INACTIVE / NOT IMPORTED into production n8n. Full shared-engine path: Set - DryRun Mode Flags (dry_run:true, live_send_enabled:false) -> IF DryRun Guard on $json.dry_run (no $env; staging blocks env in expressions) -> booking-preview -> availability-check -> (not-enough-beds branch: log draft, no send) OR (has beds: booking-create with real selected_bed_codes -> Stripe link -> draft payment reply). selected_bed_codes from /staff/bot/availability-check. X-Luna-Bot-Token via n8n Header Auth credential Luna Bot Internal Token (staging) — bind at import, never hardcoded. No graph.facebook.com nodes. No api.stripe.com calls. No STRIPE_DEFAULT_DEPOSIT_CENTS.",
+    "instanceId": "dry-run-stage8511"
   },
   "nodes": [
     {
@@ -20,6 +20,16 @@
       }
     },
     {
+      "id": "n1a",
+      "name": "Set - DryRun Mode Flags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "parameters": {
+        "jsCode": "// Stage 8.5.11 — workflow JSON dry-run flags (no $env; staging n8n blocks env in expressions)\nconst inbound = $input.first().json;\nreturn [{\n  json: {\n    ...inbound,\n    dry_run: true,\n    live_send_enabled: false\n  }\n}];"
+      }
+    },
+    {
       "id": "n2",
       "name": "IF - DryRun Guard",
       "type": "n8n-nodes-base.if",
@@ -31,9 +41,9 @@
           "conditions": [
             {
               "id": "dryrun-check",
-              "leftValue": "={{ $env.WHATSAPP_DRY_RUN }}",
-              "rightValue": "true",
-              "operator": { "type": "string", "operation": "equals" }
+              "leftValue": "={{ $json.dry_run }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
             }
           ],
           "combinator": "and"
@@ -48,7 +58,7 @@
       "position": [560, 480],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={ \"error\": \"dry_run_guard_blocked\", \"detail\": \"WHATSAPP_DRY_RUN is not true; refusing to run shared-engine dry-run path\" }"
+        "responseBody": "={ \"error\": \"dry_run_guard_blocked\", \"detail\": \"dry_run is not true; refusing to run shared-engine dry-run path\", \"whatsapp_sent\": false }"
       }
     },
     {
@@ -70,13 +80,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://staff-staging.lunafrontdesk.com/staff/bot/booking-preview",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "X-Luna-Bot-Token",
-              "value": "={{ $env.LUNA_BOT_INTERNAL_TOKEN }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -92,6 +100,12 @@
               "responseFormat": "json"
             }
           }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Luna Bot Internal Token (staging)"
         }
       }
     },
@@ -157,13 +171,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://staff-staging.lunafrontdesk.com/staff/bot/availability-check",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "X-Luna-Bot-Token",
-              "value": "={{ $env.LUNA_BOT_INTERNAL_TOKEN }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -179,6 +191,12 @@
               "responseFormat": "json"
             }
           }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Luna Bot Internal Token (staging)"
         }
       }
     },
@@ -245,13 +263,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://staff-staging.lunafrontdesk.com/staff/bot/bookings/create",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "X-Luna-Bot-Token",
-              "value": "={{ $env.LUNA_BOT_INTERNAL_TOKEN }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -268,6 +284,12 @@
             }
           }
         }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Luna Bot Internal Token (staging)"
+        }
       }
     },
     {
@@ -279,13 +301,11 @@
       "parameters": {
         "method": "POST",
         "url": "={{ 'https://staff-staging.lunafrontdesk.com/staff/bot/payments/' + $json.payment_id + '/create-stripe-link' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "X-Luna-Bot-Token",
-              "value": "={{ $env.LUNA_BOT_INTERNAL_TOKEN }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -299,6 +319,12 @@
               "responseFormat": "json"
             }
           }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Luna Bot Internal Token (staging)"
         }
       }
     },
@@ -326,6 +352,9 @@
   ],
   "connections": {
     "Webhook - Dry Run Trigger": {
+      "main": [[{ "node": "Set - DryRun Mode Flags", "type": "main", "index": 0 }]]
+    },
+    "Set - DryRun Mode Flags": {
       "main": [[{ "node": "IF - DryRun Guard", "type": "main", "index": 0 }]]
     },
     "IF - DryRun Guard": {
