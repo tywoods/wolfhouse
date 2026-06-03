@@ -215,6 +215,55 @@ check('M49', /function runManualBookingCreate/.test(src),
     'UI runManualBookingCreate does NOT send deposit_amount_cents/total_amount_cents (trust quote only)');
 })();
 
+// ── O. Stage 8.8.16 — booking_service_records on manual create ───────────────
+(function check8816ManualCreateServiceRecords(){
+  check('O51', /INSERT INTO booking_service_records/.test(src) &&
+        /tryInsertManualBookingServiceRecords/.test(handler),
+    'manual create inserts into booking_service_records (Stage 8.8.16)');
+  check('O52', /tryInsertManualBookingServiceRecords/.test(handler) &&
+        /await pg\.query\('COMMIT'\)/.test(handler) &&
+        handler.indexOf('tryInsertManualBookingServiceRecords') < handler.indexOf("await pg.query('COMMIT')"),
+    'service record insert happens inside transaction before COMMIT (Stage 8.8.16)');
+  check('O53', /buildManualBookingServiceRecordRows\(\{/.test(handler) &&
+        /bookingId:\s*result\.booking_id/.test(handler) &&
+        /bookingCode:\s*result\.booking_code/.test(handler) &&
+        /clientSlug,/.test(handler) && /guestName,/.test(handler),
+    'service records use booking_id, booking_code, client_slug, guest_name (Stage 8.8.16)');
+  check('O54', /MANUAL_BOOKING_ADDON_SERVICE_MAP/.test(src) &&
+        /wetsuit_rental.*wetsuit|wetsuit_rental:\s*'wetsuit'/.test(src) &&
+        /soft_top_rental.*surfboard|soft_top_rental:\s*'surfboard'/.test(src) &&
+        /surf_lesson/.test(src) && /yoga_class.*yoga|'yoga'/.test(src),
+    'supported add-on → service_type mapping exists (Stage 8.8.16)');
+  check('O55', /wetsuit_soft_top_combo/.test(src) && /wetsuit_hard_board_combo/.test(src) &&
+        /combo_part:\s*'wetsuit'/.test(src) && /combo_part:\s*'surfboard'/.test(src),
+    'combo add-ons expand to wetsuit + surfboard records (Stage 8.8.16)');
+  check('O56', /\/meal\/i\.test\(addon\.code\)/.test(src) &&
+        !/service_type:\s*'meal'/.test(handler),
+    'meals are not inserted as service records (Stage 8.8.16)');
+  check('O57', /function servicePaymentStatus/.test(src) &&
+        /return Number\(amountDueCents\) > 0 \? 'pending' : 'not_requested'/.test(src),
+    'service record payment_status is pending or not_requested only — never paid (Stage 8.8.16)');
+  check('O58', /isMissingBookingServiceRecordsTable/.test(src) &&
+        /service_records_warning/.test(handler),
+    'table-missing safe skip with service_records_warning (Stage 8.8.16)');
+  check('O59', /service_records_created/.test(handler),
+    'response includes service_records_created (Stage 8.8.16)');
+  check('O60', /needs_scheduling:\s*true|needs_scheduling\s*=\s*true/.test(src) &&
+        /rental_days/.test(src),
+    'metadata includes needs_scheduling and rental_days when applicable (Stage 8.8.16)');
+  check('O61', /source:\s*'staff_manual'/.test(src.slice(src.indexOf('buildManualBookingServiceRecordRows'),
+        src.indexOf('insertManualBookingServiceRecords'))),
+    'service records use source staff_manual (Stage 8.8.16)');
+  check('O62', !/graph\.facebook\.com/.test(handler),
+    'handler has no graph.facebook.com (Stage 8.8.16)');
+  check('O63', !(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(handler)),
+    'handler has no n8n URL fetch (Stage 8.8.16)');
+  check('O64', !/checkout\.sessions?\.create|api\.stripe\.com/.test(handler),
+    'handler has no Stripe API changes (Stage 8.8.16)');
+  check('O65', !/confirmation_sent_at/.test(handler),
+    'handler does not write confirmation_sent_at (Stage 8.8.16)');
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log(`\nResult: ${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);

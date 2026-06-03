@@ -3711,12 +3711,235 @@ async function handleBotBookingCreate(req, res, user, authMode) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stage 8.8.16 — Manual booking create → booking_service_records
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Map priced add-on codes to operational service_type values (meals excluded). */
+const MANUAL_BOOKING_ADDON_SERVICE_MAP = {
+  wetsuit_rental:            'wetsuit',
+  soft_top_rental:           'surfboard',
+  hard_board_rental:         'surfboard',
+  wetsuit_soft_top_combo:    null, // expands to wetsuit + surfboard
+  wetsuit_hard_board_combo:  null,
+  surf_lesson_single:        'surf_lesson',
+  surf_lesson_multi:         'surf_lesson',
+  yoga_class:                'yoga',
+};
+
+const MANUAL_BOOKING_COMBO_REPLACES = {
+  wetsuit_soft_top_combo:   ['wetsuit_rental', 'soft_top_rental'],
+  wetsuit_hard_board_combo: ['wetsuit_rental', 'hard_board_rental'],
+};
+
+function quoteLineItemAmount(quote, code) {
+  const items = (quote && Array.isArray(quote.line_items)) ? quote.line_items : [];
+  const li = items.find((x) => x.code === code);
+  if (!li || li.total_cents == null) return null;
+  return Number(li.total_cents);
+}
+
+/**
+ * Build booking_service_records rows for manual booking create.
+ * Amounts come from quote line_items when safely matchable; otherwise 0 + metadata.
+ */
+function buildManualBookingServiceRecordRows({
+  addOns, quote, clientSlug, bookingId, bookingCode, guestName, checkIn, guestCount,
+}) {
+  const rows = [];
+  const addOnList = Array.isArray(addOns) ? addOns : [];
+  if (addOnList.length === 0) return rows;
+
+  const replaced = new Set();
+  for (const addon of addOnList) {
+    const reps = MANUAL_BOOKING_COMBO_REPLACES[addon.code];
+    if (reps) for (const r of reps) replaced.add(r);
+  }
+
+  function servicePaymentStatus(amountDueCents) {
+    return Number(amountDueCents) > 0 ? 'pending' : 'not_requested';
+  }
+
+  function pushRow({
+    serviceType, quantity, amountDueCents, sourceAddonCode, metadataExtra, needsScheduling,
+  }) {
+    const meta = {
+      source_addon_code: sourceAddonCode,
+      ...(metadataExtra || {}),
+    };
+    if (needsScheduling) meta.needs_scheduling = true;
+    const amt = Math.max(0, Number(amountDueCents) || 0);
+    rows.push({
+      client_slug:        clientSlug,
+      booking_id:         bookingId,
+      booking_code:       bookingCode,
+      guest_name:         guestName,
+      service_type:       serviceType,
+      service_date:       checkIn,
+      quantity:           Math.max(1, Number(quantity) || 1),
+      status:             'confirmed',
+      amount_due_cents:   amt,
+      amount_paid_cents:  0,
+      payment_status:     servicePaymentStatus(amt),
+      source:             'staff_manual',
+      notes:              null,
+      metadata:           meta,
+    });
+  }
+
+  // Combo add-ons → wetsuit + surfboard (amount not split across rows)
+  for (const addon of addOnList) {
+    if (addon.code !== 'wetsuit_soft_top_combo' && addon.code !== 'wetsuit_hard_board_combo') continue;
+    const days = Math.max(1, parseInt(addon.days, 10) || 1);
+    const liAmt = quoteLineItemAmount(quote, addon.code);
+    const comboMeta = {
+      rental_days: days,
+      source_quote_line_code: addon.code,
+      combo_line_total_cents: liAmt,
+      quote_amount_unsplit: true,
+    };
+    pushRow({
+      serviceType: 'wetsuit', quantity: guestCount, amountDueCents: 0,
+      sourceAddonCode: addon.code, metadataExtra: { ...comboMeta, combo_part: 'wetsuit' },
+    });
+    pushRow({
+      serviceType: 'surfboard', quantity: guestCount, amountDueCents: 0,
+      sourceAddonCode: addon.code, metadataExtra: { ...comboMeta, combo_part: 'surfboard' },
+    });
+  }
+
+  // Individual rental add-ons
+  for (const addon of addOnList) {
+    if (replaced.has(addon.code)) continue;
+    if (addon.code === 'wetsuit_soft_top_combo' || addon.code === 'wetsuit_hard_board_combo') continue;
+    if (addon.code === 'surf_lesson_single' || addon.code === 'surf_lesson_multi') continue;
+    if (addon.code === 'yoga_class') continue;
+    if (/meal/i.test(addon.code)) continue;
+
+    const serviceType = MANUAL_BOOKING_ADDON_SERVICE_MAP[addon.code];
+    if (!serviceType) continue;
+
+    const days = Math.max(1, parseInt(addon.days, 10) || 1);
+    const liAmt = quoteLineItemAmount(quote, addon.code);
+    pushRow({
+      serviceType,
+      quantity: guestCount,
+      amountDueCents: liAmt != null ? liAmt : 0,
+      sourceAddonCode: addon.code,
+      metadataExtra: {
+        rental_days: days,
+        source_quote_line_code: addon.code,
+        ...(liAmt == null ? { quote_line_not_matched: true } : {}),
+      },
+    });
+  }
+
+  // Surf lessons — pooled quantity (matches quote calculator)
+  let totalLessons = 0;
+  for (const addon of addOnList) {
+    if (addon.code === 'surf_lesson_single' || addon.code === 'surf_lesson_multi') {
+      totalLessons += Math.max(1, parseInt(addon.quantity, 10) || 1);
+    }
+  }
+  if (totalLessons > 0) {
+    const lessonCode = totalLessons === 1 ? 'surf_lesson_single' : 'surf_lesson_multi';
+    const liAmt = quoteLineItemAmount(quote, lessonCode);
+    pushRow({
+      serviceType: 'surf_lesson',
+      quantity: totalLessons,
+      amountDueCents: liAmt != null ? liAmt : 0,
+      sourceAddonCode: lessonCode,
+      needsScheduling: true,
+      metadataExtra: {
+        source_quote_line_code: lessonCode,
+        ...(liAmt == null ? { quote_line_not_matched: true } : {}),
+      },
+    });
+  }
+
+  // Yoga classes
+  for (const addon of addOnList) {
+    if (addon.code !== 'yoga_class') continue;
+    const qty = Math.max(1, parseInt(addon.quantity, 10) || 1);
+    const liAmt = quoteLineItemAmount(quote, 'yoga_class');
+    pushRow({
+      serviceType: 'yoga',
+      quantity: qty,
+      amountDueCents: liAmt != null ? liAmt : 0,
+      sourceAddonCode: 'yoga_class',
+      needsScheduling: true,
+      metadataExtra: {
+        source_quote_line_code: 'yoga_class',
+        ...(liAmt == null ? { quote_line_not_matched: true } : {}),
+      },
+    });
+  }
+
+  return rows;
+}
+
+async function insertManualBookingServiceRecords(pg, rows) {
+  if (!rows.length) return { created: 0, available: true, warning: null };
+  let created = 0;
+  for (const row of rows) {
+    await pg.query(
+      `INSERT INTO booking_service_records (
+         client_slug, booking_id, booking_code, guest_name,
+         service_type, service_date, quantity, status,
+         amount_due_cents, amount_paid_cents, payment_status,
+         source, notes, metadata
+       ) VALUES (
+         $1, $2::uuid, $3, $4,
+         $5, $6::date, $7, $8,
+         $9, $10, $11,
+         $12, $13, $14::jsonb
+       )`,
+      [
+        row.client_slug,
+        row.booking_id,
+        row.booking_code,
+        row.guest_name,
+        row.service_type,
+        row.service_date,
+        row.quantity,
+        row.status,
+        row.amount_due_cents,
+        row.amount_paid_cents,
+        row.payment_status,
+        row.source,
+        row.notes,
+        JSON.stringify(row.metadata || {}),
+      ]
+    );
+    created++;
+  }
+  return { created, available: true, warning: null };
+}
+
+async function tryInsertManualBookingServiceRecords(pg, rows) {
+  if (!rows.length) return { created: 0, available: true, warning: null };
+  try {
+    return await insertManualBookingServiceRecords(pg, rows);
+  } catch (err) {
+    if (isMissingBookingServiceRecordsTable(err)) {
+      return {
+        created:  0,
+        available: false,
+        warning:  'booking_service_records table not available — service records skipped',
+      };
+    }
+    throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/manual-bookings/create  (Stage 8.4 — PROVISIONAL / DISABLED)
 //
 // Stage 8.4.8: Booking-first flow, quote-driven amounts.
 // calculateWolfhouseQuote() runs server-side; amounts are NEVER trusted from
 // the client. quote_snapshot stored in booking.metadata. Draft payment record
 // created from quote.payment_link_amount_cents. No Stripe. No WhatsApp. No n8n.
+// Stage 8.8.16: When add_ons present, inserts booking_service_records in the
+// same transaction (source=staff_manual). Meals excluded. Table-missing → warning.
 //
 // Required flags (both env vars must be true to use from UI):
 //   MANUAL_BOOKING_ENABLED=true  — gates this route (returns 403 if false)
@@ -3997,6 +4220,22 @@ async function handleManualBookingCreate(req, res, user) {
         );
         result._payment_id = pmUpdate.rows.length > 0 ? pmUpdate.rows[0].payment_id : null;
 
+        // Stage 8.8.16: booking_service_records for priced add-ons (same transaction)
+        const serviceRecordRows = buildManualBookingServiceRecordRows({
+          addOns,
+          quote,
+          clientSlug,
+          bookingId:   result.booking_id,
+          bookingCode: result.booking_code,
+          guestName,
+          checkIn,
+          guestCount,
+        });
+        const svcInsert = await tryInsertManualBookingServiceRecords(pg, serviceRecordRows);
+        result._service_records_created   = svcInsert.created;
+        result._service_records_available = svcInsert.available;
+        result._service_records_warning   = svcInsert.warning;
+
         await pg.query('COMMIT');
         return result;
       } catch (e) {
@@ -4093,6 +4332,9 @@ async function handleManualBookingCreate(req, res, user) {
     no_stripe:         true,
     no_whatsapp:       true,
     no_n8n:            true,
+    service_records_created:   Number(row._service_records_created || 0),
+    service_records_available: row._service_records_available !== false,
+    service_records_warning:   row._service_records_warning || null,
     message:           'Manual booking created. Draft payment record created. No Stripe link yet.',
     elapsed_ms:        elapsed,
   });

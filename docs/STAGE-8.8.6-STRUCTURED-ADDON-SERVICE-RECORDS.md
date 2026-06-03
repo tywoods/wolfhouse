@@ -128,7 +128,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Hosted proof** | **8.8.12** ✓ | Deploy + Luna API proof | `--0000035`; 14/14 PASS |
 | **Flows design** | **8.8.13** ✓ | Booking-time + guest Luna + drawer (docs) | §8–§11 below |
 | **Portal display** | **8.8.14–8.8.15** ✓ | Read-only drawer UI + hosted proof | `--0000036`; golden empty state PASS; demo rows need real bookings (8.8.16) |
-| **Booking create writes** | **8.8.15+** | Persist service rows on manual/bot create | §8 Flow A step 3 |
+| **Booking create writes** | **8.8.16** ✓ | Manual create → `booking_service_records` | §8 Flow A step A3; staging deploy pending |
 | **Guest Luna add-on API** | **8.8.16+** | Bot endpoint + payment draft | §8 Flow B; live send still NO_GO |
 
 **Out of scope until explicit GO:** live WhatsApp send, n8n activation, applying migration to production.
@@ -154,9 +154,9 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | `booking_service_records` table | **Applied on staging** — demo fixture 11 rows (`demo_fixture_stage888`) |
 | Ask Luna service intents | **Live on staging** — revision `--0000035` (`ef122ac-stage8812-service-queries`); hosted proof **PASS** |
 | Today demo totals | Wetsuit qty **3**, surfboard qty **4**; yoga + lesson paid today; meal paid tomorrow; Jun 15 meal paid + lesson pending |
-| Manual booking create | Still does not write `booking_service_records` |
-| Booking drawer services | **Live on staging** — revision `--0000036` (`ab67ea8-stage8815-service-records-drawer`); golden booking shows empty panel; demo fixture codes 404 on context API |
-| Next slice | **8.8.16** — persist service rows on booking create (§8 Flow A step 3) |
+| Manual booking create | **Writes `booking_service_records`** when add-ons present (8.8.16 code; deploy pending) |
+| Booking drawer services | **Live on staging** — revision `--0000036`; populated rows after manual create with add-ons |
+| Next slice | **8.8.17** — deploy 8.8.16 + populated drawer proof |
 
 ---
 
@@ -182,7 +182,7 @@ Quote UI / bot payload
 | **A3. Service records** | Staff API | On successful booking create, insert `booking_service_records` for each selected operational service: map quote codes → `service_type` (`yoga_class`→`yoga`, `surf_lesson`/`surf_lesson_multi`→`surf_lesson`, rentals→`wetsuit`/`surfboard`). Set `service_date` (see §9). Set `source='staff_manual'` (portal) or `source='luna_guest'` (bot). Link `booking_id`, denormalize `guest_name`/`booking_code`. Initial `payment_status`: `pending` if checkout created, `not_requested` if on-site-only (yoga), `paid` only after webhook. |
 | **A4. Payment truth** | Stripe webhook | Existing `POST /staff/stripe/webhook` marks `payments.status=paid` and updates booking balances. **Extend** webhook handler to set linked `booking_service_records.payment_status='paid'`, `amount_paid_cents`, and `status='paid'` when `metadata` includes `service_record_id`(s) or payment is tagged `payment_kind=addon_service`. Never infer paid from chat. |
 
-**Today vs target:** Quote calculator + manual form support rentals/lessons/yoga; meals UI-only. **No** `booking_service_records` insert on create yet — Flow A step A3 is the next write-path slice after drawer read (8.8.14).
+**Today vs target:** Quote calculator + manual form support rentals/lessons/yoga; meals UI-only. **8.8.16** implements Flow A step A3 for staff manual create (`source=staff_manual`). Bot create + Stripe webhook service-row payment truth still pending.
 
 ---
 
@@ -277,10 +277,10 @@ When staff click a booking on Bed Calendar, the context drawer shows operational
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.15** | Manual booking create → insert `booking_service_records` | Flow A step A3 |
-| **2** | **8.8.16** | `payment_kind=addon_service` migration + webhook hook | Flow A/B payment truth for service rows |
-| **3** | **8.8.17** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
-| **4** | **8.8.18+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
+| **1** | **8.8.17** | Deploy 8.8.16 + populated drawer proof | Manual create with add-ons → drawer rows |
+| **2** | **8.8.18** | `payment_kind=addon_service` migration + webhook hook | Flow A/B payment truth for service rows |
+| **3** | **8.8.19** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
+| **4** | **8.8.20+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
 
 ---
 
