@@ -554,5 +554,21 @@ o_write_performed:true, sends_whatsapp:false, intent, nswer, ows, ow_count, s
 **Verifier:** `scripts/verify-staff-ask-luna-whatsapp-dry-run.js` **40/40 PASS** (new). `scripts/verify-staff-ask-luna-api.js` **48/48 PASS** (unchanged).
 **Proof:** Static verification only (workflow not imported/activated). Allowlisted phone `+34999000999` would return 200/answer; unlisted phone would return 403/phone_not_allowlisted and log "not enabled" draft. All dry-run outputs have `whatsapp_sent:false`.
 
-### 8.6.4 — Staff WhatsApp live gated send — *pending*
+### 8.6.4 — Azure staging deploy (Staff Ask Luna live) — **PASS (2026-06-03)**
+**Goal:** Deploy current HEAD to Azure staging so Stage 8.6.1/8.6.2 are live on `staff-staging.lunafrontdesk.com`.
+**Delivered:**
+- Image `wh-staff-api:1f9e21e-stage864-ask-luna` built and pushed to `whstagingacr.azurecr.io`.
+- Deployed to `wh-staging-staff-api` revision `--0000018` (`provisioningState: Succeeded`).
+- Hosted proofs:
+  - `GET /staff/login` → 200 ✓
+  - `GET /staff/ui` → 200, 170234 chars — Ask Luna tab, `al-input`, `al-btn`, `alAsk`, `source:staff_portal` all present; no `graph.facebook.com`; no `api.stripe.com` ✓
+  - `POST /staff/ask-luna` (session auth, `staff_portal`) → 200 / `payments.balance_due` / `read_only:true` / `no_write_performed:true` / `sends_whatsapp:false` / `staff_access:session` / `row_count:1` ✓
+  - `POST /staff/ask-luna` (allowlisted phone `+34999000999`, `staff_whatsapp`) → 200 / `staff_access:allowlisted_phone` / `sends_whatsapp:false` ✓
+  - `POST /staff/ask-luna` (unlisted phone) → 403 ✓
+- No n8n import/activation. No Stripe calls. No WhatsApp sent.
+- `staff_whatsapp_enabled:true` in staging config for hosted smoke test.
+
+### 8.6.5 — Staff WhatsApp live gated send — *pending (requires explicit go/no-go)*
+**Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit approval + real staff phone numbers in config.
+
 **Goal:** Enable live WhatsApp replies to allowlisted staff numbers. Requires explicit go/no-go approval. Real staff phone numbers added to allowlist config only after approval.
