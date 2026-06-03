@@ -5368,6 +5368,9 @@ function alAsk(){
   });
 }
 
+// alAsk must be global so onclick/onkeydown in Ask Luna HTML resolve it (Stage 8.7.4)
+window.alAsk = alAsk;
+
 /* ═══════════════════════════════════════════════════════════════════════════
    QUERY TOOLS TAB — existing staff query interface (unchanged)
    ═══════════════════════════════════════════════════════════════════════════ */

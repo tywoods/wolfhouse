@@ -130,6 +130,9 @@ if (has(src, /row_count|data\.rows/))                                     { pass
 if (has(src, /unsupported_intent/))                                       { pass('unsupported_intent handled in UI'); }                    else { fail('unsupported_intent not handled'); }
 if (has(src, /alShowError\s*\(/))                                         { pass('alShowError error-state function present'); }            else { fail('alShowError missing'); }
 if (has(src, /alSetLoading\s*\(/))                                        { pass('alSetLoading loading-state function present'); }         else { fail('alSetLoading missing'); }
+if (has(src, /window\.alAsk\s*=\s*alAsk/) || has(src, /el\(['"]al-btn['"]\)\.addEventListener\(\s*['"]click['"]/)) { pass('Ask Luna click handler globally bound (window.alAsk or addEventListener)'); } else { fail('Ask Luna click handler not globally bound — inline onclick will fail'); }
+if (has(src, /id="al-btn"[^>]*onclick="alAsk\(\)"/) || has(src, /el\(['"]al-btn['"]\)\.addEventListener\(\s*['"]click['"]/)) { pass('Ask Luna button has working click path'); } else { fail('Ask Luna button missing click path (onclick or addEventListener)'); }
+if (has(src, /onkeydown="if\(event\.key==='Enter'\)alAsk\(\)"/))          { pass('Ask Luna Enter key invokes alAsk'); }                     else { fail('Ask Luna Enter key handler missing'); }
 if (lacks(src, /graph\.facebook\.com|twilio\.com|sendWhatsApp/))          { pass('no WhatsApp calls in Ask Luna JS'); }                   else { fail('WhatsApp call found in Ask Luna section'); }
 if (lacks(src, /stripe\.com|createPaymentIntent|Stripe\s*\(/))           { pass('no Stripe calls in Ask Luna JS'); }                     else { fail('Stripe call found near Ask Luna'); }
 
