@@ -480,6 +480,21 @@ Each slice is independently gated, independently provable, and does not depend o
 
 **Proof:** Static verifier only. No hosted execution in 8.5.11.
 
+### 8.5.12 - Staging-safe re-import + hosted proof (no patches) - **PASS (2026-06-03)**
+**Goal:** Re-import the Stage 8.5.11 repo workflow into staging n8n, bind Header Auth credential, run one manual execution, and confirm it works **without** import-time `$env` or token header patches.
+
+**Delivered:**
+- Credential created in staging n8n: `Luna Bot Internal Token (staging)` (`stage8512LunaBotTok01`, type `httpHeaderAuth`, header name `X-Luna-Bot-Token`, value from Key Vault `luna-bot-internal-token`).
+- Workflow updated from repo JSON as-is (`stage8510SharedDryRun01`, `active:false`, 17 nodes). No guard bypass. No manual token injection into HTTP header fields.
+- Manual execution #5 (`mode:manual`, status:success, ~2s) with pinned payload: phone `+34999000123`, guest Test Guest, email `test@example.test`, check_in 2026-08-22, check_out 2026-08-27 (5 nights), guest_count 2, malibu, shared, deposit, source luna_whatsapp.
+- Happy path: `Set - DryRun Mode Flags` (`dry_run:true`, `live_send_enabled:false`) → `IF - DryRun Guard` (pass on `$json.dry_run`) → booking-preview → availability-check → booking-create → Stripe link → draft payment reply.
+- Results: `booking_code:MB-WOLFHO-20260822-3a4d1a`; `payment_status:checkout_created`; `checkout_url` via Staff API; `reply_draft` present; `whatsapp_sent:false`; `no_payment_truth_recorded:true`.
+- Safety: no `dry_run_guard_blocked`; no `$env.WHATSAPP_DRY_RUN`; no `graph.facebook.com`; no direct `api.stripe.com` in n8n execution.
+- Workflow left **inactive**. No activation. No live WhatsApp.
+- Test booking **left on staging** (disposable): `MB-WOLFHO-20260822-3a4d1a`, phone `+34999000123`, payment checkout_created, not paid.
+
+**Contrast with 8.5.10:** 8.5.10 required import-time patches for `$env` block + token injection. 8.5.12 proves the 8.5.11 repo JSON imports and runs cleanly with credential binding only.
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)
