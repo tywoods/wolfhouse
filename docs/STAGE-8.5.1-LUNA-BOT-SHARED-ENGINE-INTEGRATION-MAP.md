@@ -588,6 +588,32 @@ Each slice is independently gated, independently provable, and does not depend o
 
 **Not in this slice:** hosted staging re-proof; Staff Portal drawer read of metadata.confirmation_draft.
 
+### 8.5.17 - Hosted persisted confirmation_draft proof - **PASS (2026-06-03)**
+**Goal:** Deploy Stage 8.5.16 to Azure staging and prove webhook persists `confirmation_draft` to `bookings.metadata.confirmation_draft`.
+
+**Azure deploy:**
+- Image: `whstagingacr.azurecr.io/wh-staff-api:bdc2b3f-stage8517-persist-confirmation-draft` (ACR build run `cbf`, commit `bdc2b3f`).
+- Container App: `wh-staging-staff-api` revision `--0000021` (100% traffic, Healthy).
+
+**Hosted webhook proof (booking `MB-WOLFHO-20260801-4f10c3`, Luna bot 8.5.6):**
+
+| Check | Result |
+|---|---|
+| Webhook 200 | ✓ |
+| Response `confirmation_draft` | ✓ |
+| `bookings.metadata.confirmation_draft` persisted | ✓ |
+| `booking_code` | ✓ `MB-WOLFHO-20260801-4f10c3` |
+| `payment_status:deposit_paid` | ✓ |
+| `amount_paid_cents:10000` | ✓ |
+| `balance_due_cents:15000` | ✓ |
+| `room_number:DEMO-R1` | ✓ |
+| `gate_code:2684#` | ✓ |
+| `sends_whatsapp:false` / `whatsapp_dry_run:true` | ✓ |
+| `confirmation_sent_at` null | ✓ |
+| `no_whatsapp/no_n8n/no_confirmation_sent:true` | ✓ |
+| n8n `stage8510SharedDryRun01` inactive | ✓ |
+| No WhatsApp / no live send | ✓ |
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)
