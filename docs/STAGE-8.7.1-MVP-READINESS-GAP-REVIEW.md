@@ -1,7 +1,7 @@
 # Stage 8.7.1 — MVP Readiness Gap Review
 
-**Status:** PASS — docs only (2026-06-03).  
-**Basis:** Stages 8.4.13 (Staff manual booking MVP), 8.5.19 (Luna confirmation drawer), 8.6.10 (Ask Luna hosted), Phase 7.6 pilot checklist (**NO_GO**).  
+**Status:** PASS — docs only (2026-06-03). **Updated by:** [STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md](STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md) (Ty post-demo priorities).  
+**Basis:** Stages 8.4.13 (Staff manual booking MVP), 8.5.19 (Luna confirmation drawer), 8.6.10 (Ask Luna hosted), 8.7.27 (demo-ready), Phase 7.6 pilot checklist (**NO_GO**).  
 **Non-negotiables:** No code. No deploy. No n8n activation. No WhatsApp. No Stripe changes.
 
 **Legend**
@@ -29,6 +29,8 @@
 
 **Staff Portal gaps for pilot:** Bed calendar **move / cancel / operator block / operator release** writes remain future slices (`8.3p+`); Tour Operator forms are **skeleton only** (buttons disabled). Inbox remains **copy-only** for guest replies (no send from portal).
 
+**Post-demo UI freeze (8.8.1):** Booking **drawer** and Bed **Calendar view** are **good enough** — prioritize write paths and Ask Luna coverage over further cosmetic polish.
+
 ---
 
 ## 2. Guest Luna (WhatsApp booking bot)
@@ -37,6 +39,7 @@
 |------------|:----------:|:-------------:|--------------|
 | **Dry-run workflow imported inactive** | ✓ Explain in demo | ✓ `stage8510SharedDryRun01`, `active:false` (8.5.10–8.5.12) | Must stay inactive until explicit GO |
 | **Quote → availability → booking → Stripe link → draft reply** | Partial — show manual n8n exec log or API proofs | ✓ Full chain via Staff API bot endpoints (8.5.10 exec #4/#5); `whatsapp_sent:false` | **Live inbound WhatsApp not wired** to shared-engine path; production **Main** workflow still Airtable/direct-Stripe (8.5.1 map) |
+| **End-to-end autonomous guest journey** | ✗ Live only | Partial dry-run | **8.8.1 MVP target:** inquiry → details → availability → quote → booking → payment link → Stripe truth → confirmation — all automatic after GO |
 | **Webhook payment truth** | ✓ Show drawer after test payment (Luna bookings `MB-WOLFHO-*`) | ✓ Same Staff API webhook as portal path (8.5.13–8.5.17) | Guest completes real payment without staff supervision |
 | **Confirmation draft** | ✓ Drawer panel + persisted metadata (8.5.18–8.5.19) | ✓ Draft only; `sends_whatsapp:false` | **No live confirmation send** to guest; n8n Send Confirmation not redirected to Postgres draft |
 
@@ -53,6 +56,10 @@
 | **Allowlisted staff phone path** | ✓ Staging test `+34999000999` only | ✓ `staff_whatsapp_enabled` + allowlist config | **Real Ty/Cami/Ale numbers** not in config; Gate 3 **PARTIAL** (8.6.8) |
 | **Payment / ops questions** | ✓ `who still owes money`, waiting payments, handoffs, arrivals | ✓ All read-only SQL | Wrong answer liability without owner review of intent coverage |
 | **Departures / cleaning** | ✓ Hosted 8.6.10 (`departures_today`, `rooms_or_beds_need_cleaning`) | ✓ Same | Data quality depends on bed assignments + check-out dates in Postgres |
+| **Add-on / yoga / meal / rental / lesson questions** | ✗ Not implemented (8.8.1 priority list) | — | **Requires structured add-on/service records** — not chat-log inference; see [8.8.1 §3](STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md) |
+| **Check-in counts / named dates** | Partial | — | `check_in` today/tomorrow/Saturday intents not yet in Ask Luna registry |
+
+**Staff Ask Luna priority questions (8.8.1):** Who still needs to pay; yoga/meal paid on date; lesson today; wetsuit/board need today; surfboard/wetsuit counts ready; rooms to clean; check-out today; check-in today/tomorrow; headcounts for check-out/in tomorrow and Saturday. Full table: [STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md §3](STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md).
 
 ---
 
@@ -65,7 +72,7 @@
 | **Confirmation send policy** | Open | Draft exists; no approved path to set `confirmation_sent_at` or message guest |
 | **Demo / test data cleanup** | Open | Disposable Luna bookings left on staging (`MB-WOLFHO-20260801-4f10c3`, `…15-…`, `…22-…`); no purge runbook for demo vs real |
 | **Wolfhouse business rules** | Partial | Formula B + packages seeded; multiple `REQUIRED_FROM_STAFF` fields (deposits by package/room, add-on timing, operator pricing, retreats) — [`STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md`](STAGE-8.4.1-WOLFHOUSE-PRICING-PAYMENT-CONFIG-PLAN.md) |
-| **Operator / manual booking UI completeness** | Partial | Manual booking MVP ✓; move/cancel/operator block/release **not enabled** in UI (`8.3p+`); spreadsheet replacement incomplete |
+| **Operator / manual booking UI completeness** | Partial | Manual booking create ✓ (priority **#1**, 8.8.1); move/cancel/operator **#2–#4** not enabled (`8.3p+`); spreadsheet replacement incomplete |
 | **Phase 7.6 pilot gates** | **NO_GO** | 81 gates; Cami/Ale accounts, monitoring, backup drills largely deferred |
 | **Production Main Luna workflow** | **Not migrated** | Shared engine proven only on inactive dry-run fork |
 
@@ -99,12 +106,15 @@ Rationale: live WhatsApp is explicitly **NO_GO** (8.6.8); guest Luna live has th
 
 | Priority | Slice | Why |
 |----------|-------|-----|
-| 1 | **8.7.2 Demo runbook** | Single scripted walkthrough for Ale/Cami (dates, bookings, talking points) |
-| 2 | **8.6.11 Live staff WhatsApp** (gated) | Only after 8.6.8 GO + Ty pilot reply |
-| 3 | **8.5.20 Confirmation send policy** | Define when/how guest confirmation may fire (still gated) |
-| 4 | **8.3p+ Calendar writes** | Move/cancel/operator — spreadsheet replacement |
-| 5 | **Pricing REQUIRED_FROM_STAFF closure** | Ale/Cami answers for deposit/add-on/operator rules |
+| 1 | **8.8.x Ask Luna intents + add-on persistence** | Ty priority questions (8.8.1 §3); structured records before yoga/meal/rental answers |
+| 2 | **8.3p+ Calendar writes** | Move → cancel → operator (8.8.1 manual ops priority #2–#4) |
+| 3 | **8.5.x Guest Luna live path** | Full autonomous journey (8.8.1 §2) after Main cutover + GO |
+| 4 | **8.6.11 Live staff WhatsApp** (gated) | Only after 8.6.8 GO + Ty pilot reply |
+| 5 | **8.5.20 Confirmation send policy** | Last step of guest journey; still gated |
+| 6 | **Pricing REQUIRED_FROM_STAFF closure** | Ale/Cami answers for deposit/add-on/operator rules |
+
+*(Supersedes pre–8.7.27 slice list; 8.7.2 demo runbook **DONE** 8.7.27.)*
 
 ---
 
-**Related docs:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · [`ROADMAP.md`](ROADMAP.md) · [`STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md`](STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md) · [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md)
+**Related docs:** [`PROJECT-STATE.md`](PROJECT-STATE.md) · [`ROADMAP.md`](ROADMAP.md) · [`STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md`](STAGE-8.8.1-MVP-OPERATING-REQUIREMENTS.md) · [`STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md`](STAGE-8.5.1-LUNA-BOT-SHARED-ENGINE-INTEGRATION-MAP.md) · [`PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md`](PHASE-7.6-PILOT-READINESS-GO-NO-GO-CHECKLIST.md)
