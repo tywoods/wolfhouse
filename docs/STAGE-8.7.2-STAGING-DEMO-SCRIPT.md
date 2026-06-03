@@ -299,6 +299,23 @@
 
 ---
 
+## Hosted Tour Operator + manual form cleanup proof — Stage 8.7.19 (2026-06-03)
+
+**Result:** **PASS** — 8.7.17 + 8.7.18 live on staging.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:a4f14b8-stage8719-operator-manual-form-cleanup` · ACR `cbq` · revision `--0000029` |
+| Preflight | **PASS** | `a4f14b8`; verifier 364/364 |
+| Tour Operator Block | **PASS** | Start/end dates; room `<select>`; Nights/Beds/Block type/Est guest count/defaults removed; Create/Preview disabled |
+| Operator Room Release | **PASS** | Block `<select>`; release start/end; room `<select>`; beds/release type/defaults removed; Release/Preview disabled |
+| Manual booking Guest | **PASS** | `.bk-compact-grid`; name/phone/email `bk-input-sm` (not full-width) |
+| Manual booking Payment | **PASS** | `.bk-compact-grid`; inputs left-aligned with add-ons |
+| Room type | **PASS** | Shared + Private only; Double absent |
+| Safety | **PASS** | No graph.facebook.com / n8n / Stripe / operator create-release fetch |
+
+---
+
 ## Manual booking guest + payment alignment — Stage 8.7.18 (2026-06-03)
 
 **Result:** **PASS** — local UI-only; not deployed.
