@@ -299,9 +299,31 @@
 
 ---
 
+## Hosted Staff Portal parse fix proof — Stage 8.7.21 (2026-06-03)
+
+**Result:** **PASS** — 8.7.20 fix live on staging; Today tiles, nav, and Ask Luna restored.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Deploy | **PASS** | `wh-staff-api:6790bef-stage8721-portal-parse-fix` · ACR `cbr` · revision `--0000030` |
+| Preflight | **PASS** | `6790bef`; `verify-staff-query-ui.js` 64/64; `verify-staff-bed-calendar-ui.js` 366/366 |
+| Console | **PASS** | No `Uncaught SyntaxError`; no `Unexpected token` |
+| Globals | **PASS** | `typeof window.switchToTab/switchToTabOnly/alAsk` → `function` |
+| Today → Needs Human | **PASS** | Switches to Inbox / conversations tab |
+| Today → Open Conversations | **PASS** | Switches to Inbox / conversations tab |
+| Today → Bed Calendar | **PASS** | `bed-calendar` tab active |
+| Nav tabs | **PASS** | Today, Inbox, Bed Calendar, Luna, Tour Operator, Developer Tools all switch |
+| Ask Luna button | **PASS** | `POST /staff/ask-luna` · `source:staff_portal` · `payments.balance_due` · **4 rows** |
+| Bed Calendar auto-load | **PASS** | `2026-06-03`–`2026-07-03`; grid visible with rows |
+| Manual booking form | **PASS** | `.bk-compact-grid` present; no add-on checkboxes |
+| Tour Operator forms | **PASS** | Start/end + room select; no Nights/Beds fields; Create disabled |
+| Safety | **PASS** | No graph.facebook.com / api.stripe.com / n8n URL fetch; no WhatsApp send |
+
+---
+
 ## Staff Portal script parse fix — Stage 8.7.20 (2026-06-03)
 
-**Result:** **PASS** — local UI-only; **not deployed** (staging `--0000029` still has the bug until redeploy).
+**Result:** **PASS** — local UI-only; **deployed in 8.7.21** (`--0000030`).
 
 | Check | Result | Notes |
 |-------|--------|-------|
