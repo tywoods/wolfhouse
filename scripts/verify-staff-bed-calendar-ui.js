@@ -1477,6 +1477,33 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '223g: drawer makes no n8n calls (Stage 8.7.6)');
 })();
 
+// ── Stage 8.7.8 — bed calendar load + selection UX ─────────────────────────
+(function(){
+  check(/function bcOnBedCalendarTabOpen/.test(src),
+    '224: bcOnBedCalendarTabOpen present (Stage 8.7.8)');
+  check(/bed-calendar['"]\)\s*bcOnBedCalendarTabOpen|target === 'bed-calendar'[\s\S]{0,80}bcOnBedCalendarTabOpen/.test(src),
+    '224b: Bed Calendar tab open triggers bcOnBedCalendarTabOpen (Stage 8.7.8)');
+  (function checkBcTabAutoLoad(){
+    const fnStart = src.indexOf('function bcOnBedCalendarTabOpen');
+    const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction bcSetRange', fnStart) : -1;
+    const fnSrc   = fnStart > 0 && fnEnd > fnStart ? src.slice(fnStart, fnEnd) : '';
+    check(/30 \* 86400000|'30days'/.test(fnSrc) && (/loadBedCalendar\(\)/.test(fnSrc) || /bcSetRange/.test(fnSrc)),
+      '224c: tab open uses next-30-days default load path (Stage 8.7.8)');
+  })();
+  check(/function showBlockDetail[\s\S]{0,200}bcClearSelection/.test(src),
+    '224d: showBlockDetail clears manual booking panel (Stage 8.7.8)');
+  check(/function bcHandleCellClick[\s\S]{0,600}bc-sel[\s\S]{0,400}bcClearSelection/.test(src),
+    '224e: selected empty cell can be toggled/deselected (Stage 8.7.8)');
+  check(/id="bc-load"/.test(src),
+    '224f: Load button still present (Stage 8.7.8)');
+  check(!/graph\.facebook\.com/.test(src),
+    '224g: bed calendar UI has no graph.facebook.com (Stage 8.7.8)');
+  check(!/api\.stripe\.com/.test(src),
+    '224h: bed calendar UI has no api.stripe.com (Stage 8.7.8)');
+  check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
+    '224i: bed calendar UI has no n8n URL fetch (Stage 8.7.8)');
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');

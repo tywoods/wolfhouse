@@ -4767,6 +4767,7 @@ function switchToTab(tab, subtab){
     var spanel = el('subtab-' + subtab);
     if (spanel) spanel.classList.add('active');
   }
+  if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
 
@@ -4783,6 +4784,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     this.classList.add('active');
     el('tab-' + target).classList.add('active');
     if (target === 'today') loadTodaySummary();
+    if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
   });
 });
 
@@ -5768,6 +5770,37 @@ function bcHandleCellClick(td){
   /* Close booking detail panel if open (Stage 8.4.5) */
   var _detail = el('bc-detail');
   if (_detail && _detail.style.display !== 'none') _detail.style.display = 'none';
+  /* Toggle deselect — clicking a highlighted empty cell removes it (Stage 8.7.8) */
+  if (td.classList.contains('bc-sel')){
+    var selCells = document.querySelectorAll('.bc-day-cell.bc-sel');
+    if (selCells.length <= 1 || !bcSel){
+      bcClearSelection();
+      return;
+    }
+    var a = bcSel.anchor_date;
+    var b = bcSel.cursor_date;
+    var selStart = a <= b ? a : b;
+    var selEnd   = a <= b ? b : a;
+    if (date === selStart && date === selEnd){
+      bcClearSelection();
+      return;
+    }
+    if (date === selStart){
+      bcSel.anchor_date = bcAddDaysISO(selStart, 1);
+      if (bcSel.anchor_date > selEnd){ bcClearSelection(); return; }
+    } else if (date === selEnd){
+      bcSel.cursor_date = bcAddDaysISO(selEnd, -1);
+      if (bcSel.cursor_date < selStart){ bcClearSelection(); return; }
+    } else {
+      bcSel.cursor_date = bcAddDaysISO(date, -1);
+      if (bcSel.cursor_date < selStart){
+        bcSel.anchor_date = bcAddDaysISO(date, 1);
+        if (bcSel.anchor_date > selEnd){ bcClearSelection(); return; }
+      }
+    }
+    bcApplySelectionHighlight();
+    return;
+  }
   /* Multi-bed selection (Stage 8.4.5) */
   if (!bcSel){
     /* Start new selection */
@@ -6448,6 +6481,7 @@ function updateBcDetailHeader(data){
 
 function showBlockDetail(blk){
   if (!blk) return;
+  bcClearSelection();
   bcLastOpenedBlock = blk;
   el('bc-detail').innerHTML =
     '<div class="toolbar"><h2 class="bc-detail-title">' + escHtml(blk.booking_code||'\u2014') +
@@ -6830,6 +6864,31 @@ bcInitAddOns();
 
 /* ── Bed calendar date shortcuts (Stage 8.3a) ────────────────────────────── */
 function bcIso(d){ return d.toISOString().slice(0,10); }
+function bcAddDaysISO(iso, delta){
+  var d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + delta);
+  return bcIso(d);
+}
+
+var bcInitialLoadDone = false;
+function bcOnBedCalendarTabOpen(){
+  var sEl = el('bc-start');
+  var eEl = el('bc-end');
+  if ((sEl && !sEl.value) || (eEl && !eEl.value)){
+    var today = new Date();
+    var end30 = new Date(today.getTime() + 30 * 86400000);
+    bcInitialLoadDone = true;
+    bcSetRange(bcIso(today), bcIso(end30), '30days');
+    return;
+  }
+  if (!bcInitialLoadDone){
+    bcInitialLoadDone = true;
+    document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
+    var chip30 = document.querySelector('.bc-chip[data-chip="30days"]');
+    if (chip30) chip30.classList.add('bc-chip-active');
+    loadBedCalendar();
+  }
+}
 
 function bcSetRange(start, end, chipKey){
   var s = el('bc-start'); var e = el('bc-end');

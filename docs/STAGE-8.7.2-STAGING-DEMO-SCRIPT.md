@@ -50,8 +50,8 @@
 
 ### Step 2 — Bed Calendar → golden booking drawer (~5 min)
 
-1. Click **Bed Calendar**
-2. Set **From** `2026-07-28`, **To** `2026-08-10` → **Load**
+1. Click **Bed Calendar** — calendar auto-loads **Next 30 days** on first open (Stage 8.7.8; no manual Load click required for default range)
+2. For golden booking demo range, set **From** `2026-07-28`, **To** `2026-08-10` → **Load** (or use **Jul – Aug** chip if present)
 3. Click block **MB-WOLFHO-20260801-4f10c3 – Luna Test 855**
 
 **Payment truth — confirm visible:**
