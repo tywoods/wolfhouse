@@ -4194,10 +4194,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
           <label class="bk-label" for="bc-sel-nights">Nights</label>
           <input type="text" id="bc-sel-nights" class="bk-input bk-input-sm" readonly>
         </div>
-        <div class="bk-compact-row">
-          <label class="bk-label" for="bc-sel-room">Room</label>
-          <input type="text" id="bc-sel-room" class="bk-input bk-input-sm" readonly>
-        </div>
       </div>
       <!-- Multi-bed selection list (Stage 8.4.5) -->
       <div class="bc-sel-beds-section">
@@ -5380,7 +5376,7 @@ function bcClearSelection(){
     td.classList.remove('bc-sel', 'bc-sel-anchor');
   });
   /* Reset pre-filled stay fields (Stage 8.3d) */
-  ['bc-sel-cin','bc-sel-cout','bc-sel-nights','bc-sel-room'].forEach(function(id){
+  ['bc-sel-cin','bc-sel-cout','bc-sel-nights'].forEach(function(id){
     var inp = el(id); if (inp) inp.value = '';
   });
   /* Reset beds list (Stage 8.4.5) */
@@ -5454,11 +5450,9 @@ function bcApplySelectionHighlight(){
   });
 
   /* Update form skeleton pre-filled fields (Stage 8.3d) */
-  var firstBed = bcSelectedBeds[0] || { room_code: '', bed_code: '' };
   var cinInp    = el('bc-sel-cin');    if (cinInp)    cinInp.value    = selStart;
   var coutInp   = el('bc-sel-cout');   if (coutInp)   coutInp.value   = checkOut;
   var nightsInp = el('bc-sel-nights'); if (nightsInp) nightsInp.value = String(nights);
-  var roomInp   = el('bc-sel-room');   if (roomInp)   roomInp.value   = firstBed.room_code;
 
   /* Update selected beds list (Stage 8.4.5) */
   var _blEl = el('bc-sel-beds-list');

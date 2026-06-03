@@ -471,9 +471,9 @@ check(/id="bc-sel-cin"[^>]*type="date"/.test(src) || /type="date"[^>]*id="bc-sel
 check(/id="bc-sel-cout"[^>]*type="date"/.test(src) || /type="date"[^>]*id="bc-sel-cout"/.test(src),
   'Check-out date input field (bc-sel-cout) present in form (Stage 8.3d)');
 
-// 93. Room readonly input present (Stage 8.3d; Bed field removed 8.7.24 — chips show beds)
-check(/id="bc-sel-room"/.test(src),
-  'Room (bc-sel-room) readonly input present (Stage 8.3d)');
+// 93. Selected Stay date/nights fields present (Stage 8.3d; room/bed rows removed 8.7.24/8.7.25)
+check(/id="bc-sel-cin"/.test(src) && /id="bc-sel-cout"/.test(src) && /id="bc-sel-nights"/.test(src),
+  'Check-in, check-out, and nights fields present in Selected Stay (Stage 8.3d)');
 
 // 94. Payment status select present (Stage 8.3d)
 check(/id="bk-payment-status"/.test(src),
@@ -524,13 +524,13 @@ check(!/form[^>]*action\s*=\s*['"](?!#)[^'"]*['"]/.test(src) && !/form[^>]*metho
     'bcClearSelection resets booking form fields (Stage 8.3d)');
 })();
 
-// 105. bcApplySelectionHighlight sets bc-sel-room (Stage 8.3d)
-(function checkRoomPrefill(){
+// 105. bcApplySelectionHighlight prefills stay fields and bed chips (Stage 8.3d)
+(function checkStayPrefill(){
   const fnStart = src.indexOf('function bcApplySelectionHighlight');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bc-sel-room/.test(fnSrc),
-    'bcApplySelectionHighlight prefills bc-sel-room (Stage 8.3d)');
+  check(/bc-sel-cin/.test(fnSrc) && /bc-sel-beds-list/.test(fnSrc),
+    'bcApplySelectionHighlight prefills stay fields and bed chips (Stage 8.3d)');
 })();
 
 // ── Stage 8.3a regression fix — embedded JS syntax safety ─────────────────
@@ -1767,8 +1767,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   check(!/for="bc-sel-bed"|id="bc-sel-bed"/.test(staySrc),
     '230: Selected Stay has no redundant Bed field row (Stage 8.7.24)');
   check(/id="bc-sel-cin"/.test(staySrc) && /id="bc-sel-cout"/.test(staySrc) &&
-        /id="bc-sel-nights"/.test(staySrc) && /id="bc-sel-room"/.test(staySrc),
-    '230b: check-in/check-out/nights/room still in Selected Stay (Stage 8.7.24)');
+        /id="bc-sel-nights"/.test(staySrc),
+    '230b: check-in/check-out/nights still in Selected Stay (Stage 8.7.24)');
   check(/id="bc-sel-beds-list"/.test(staySrc) && /bc-sel-bed-tag/.test(src),
     '230c: selected bed chips still render (Stage 8.7.24)');
 
@@ -1790,6 +1790,44 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '230f: bed calendar UI has no graph.facebook.com or api.stripe.com (Stage 8.7.24)');
   check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
     '230g: bed calendar UI has no n8n URL fetch (Stage 8.7.24)');
+})();
+
+// ── Stage 8.7.25 — Selected Stay: remove redundant Room field ───────────────
+(function check8725SelectedStayRoomField(){
+  const panelStart = src.indexOf('id="bc-sel-panel"');
+  const guestStart = panelStart > 0 ? src.indexOf('<!-- Section: Guest', panelStart) : -1;
+  const stayStart  = panelStart > 0 ? src.indexOf('<!-- Section: Selected Stay', panelStart) : -1;
+  const staySrc    = stayStart >= 0 && guestStart > stayStart ? src.slice(stayStart, guestStart) : '';
+
+  check(!/for="bc-sel-room"|id="bc-sel-room"/.test(staySrc),
+    '231: Selected Stay has no redundant Room field row (Stage 8.7.25)');
+  check(!/for="bc-sel-bed"|id="bc-sel-bed"/.test(staySrc),
+    '231b: Selected Stay has no redundant Bed field row (Stage 8.7.25)');
+  check(/id="bc-sel-cin"/.test(staySrc) && /id="bc-sel-cout"/.test(staySrc) &&
+        /id="bc-sel-nights"/.test(staySrc),
+    '231c: check-in/check-out/nights still in Selected Stay (Stage 8.7.25)');
+  check(/id="bc-sel-beds-list"/.test(staySrc) && /bc-sel-bed-tag/.test(src) &&
+        /escHtml\(b\.room_code\)/.test(src),
+    '231d: selected bed chips still render with room/bed info (Stage 8.7.25)');
+
+  (function checkQuoteCreateBeds(){
+    const quoteStart = src.indexOf('function runQuotePreview');
+    const quoteEnd   = quoteStart > 0 ? src.indexOf('\nfunction ', quoteStart + 1) : -1;
+    const quoteSrc   = quoteStart > 0 && quoteEnd > quoteStart ? src.slice(quoteStart, quoteEnd) : '';
+    const createStart = src.indexOf('function runManualBookingCreate');
+    const createEnd   = createStart > 0 ? src.indexOf('\nfunction ', createStart + 1) : -1;
+    const createSrc   = createStart > 0 && createEnd > createStart ? src.slice(createStart, createEnd) : '';
+    check(/bcSelectedBeds\.map\(function\(b\)\{ return b\.bed_code; \}\)/.test(quoteSrc) &&
+          /selected_bed_codes:\s*bcSelectedBeds\.map/.test(createSrc),
+      '231e: quote/create still use bcSelectedBeds for selected_bed_codes (Stage 8.7.25)');
+    check(/var bcSelectedBeds/.test(src) && /room_code/.test(src.slice(src.indexOf('var bcSelectedBeds'), src.indexOf('var bcSelectedBeds') + 120)),
+      '231f: internal bcSelectedBeds room/bed data preserved (Stage 8.7.25)');
+  })();
+
+  check(!/graph\.facebook\.com/.test(src) && !/api\.stripe\.com/.test(src),
+    '231g: bed calendar UI has no graph.facebook.com or api.stripe.com (Stage 8.7.25)');
+  check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
+    '231h: bed calendar UI has no n8n URL fetch (Stage 8.7.25)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -33,7 +33,7 @@
 
 **Range chips (8.7.23):** This week · Next 30 days (default auto-load) · Jul – Aug — **Today chip removed**.
 
-**Selected Stay (8.7.24):** Check-in · Check-out · Nights · Room + bed chips — **Bed field row removed** (redundant with chips).
+**Selected Stay (8.7.25):** Check-in · Check-out · Nights + bed chips (room/bed) — **Room and Bed field rows removed** (redundant with chips).
 
 **Opening line for audience:** *“This is Azure staging in shadow mode — Stripe test mode, no WhatsApp sends, workflows inactive. We’re showing the shared booking/payment engine and read-only staff tools.”*
 
@@ -300,6 +300,23 @@
 | Auto-select | **PASS** | Top conversation selected when filtered list has rows |
 | Empty state | **PASS** | “No conversations need staff review right now.” |
 | Safety | **PASS** | Client-side filter on `/staff/conversations`; no `/staff/handoffs` UI fetch; no WhatsApp/n8n/Stripe |
+
+---
+
+## Selected Stay — remove redundant Room field — Stage 8.7.25 (2026-06-03)
+
+**Result:** **PASS** — local UI-only; **not deployed** (batch with next redeploy).
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Room field row | **PASS** | No `bc-sel-room` in Selected Stay HTML |
+| Bed field row | **PASS** | No `bc-sel-bed` (from 8.7.24) |
+| Stay fields kept | **PASS** | check-in / check-out / nights |
+| Bed chips | **PASS** | `#bc-sel-beds-list` + `.bc-sel-bed-tag` with room/bed |
+| Selection logic | **PASS** | `bcSelectedBeds` + cell click handler unchanged |
+| Quote/create payload | **PASS** | `selected_bed_codes` from `bcSelectedBeds.map(...)` |
+| Verifier | **PASS** | `verify-staff-bed-calendar-ui.js` 391/391 |
+| Safety | **PASS** | No backend / WhatsApp / n8n / Stripe / Azure |
 
 ---
 
