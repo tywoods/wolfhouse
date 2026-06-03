@@ -495,6 +495,48 @@ Each slice is independently gated, independently provable, and does not depend o
 
 **Contrast with 8.5.10:** 8.5.10 required import-time patches for `$env` block + token injection. 8.5.12 proves the 8.5.11 repo JSON imports and runs cleanly with credential binding only.
 
+### 8.5.13 - Luna-created booking webhook truth proof - **PASS (2026-06-03)**
+**Goal:** Prove a booking created by the Luna shared-engine dry-run path reaches Stripe webhook payment truth — same `/staff/stripe/webhook` handler as Stage 8.4.13 manual-booking proof, but sourced from the bot chain (`source:bot_stage855`).
+
+**Booking under test:** `MB-WOLFHO-20260822-3a4d1a` (created in Stage 8.5.12 n8n manual execution #5).
+
+**Payment lookup (staging DB):**
+| Field | Value |
+|---|---|
+| `booking_id` | `f970104d-22f2-453f-8b45-8fef18f89e6b` |
+| `payment_id` | `a90d9cf6-5a8d-4741-94db-8e461796590f` |
+| `stripe_checkout_session_id` | `cs_test_a122Kv5aHuDLB3kxYI4KWEaF6HATwKZoq99NArMjrRD4B64jGSus6TEMpE` |
+| BEFORE webhook | `pm_status=checkout_created`, `amount_due_cents=10000`, `bk.payment_status=not_requested`, metadata `source:bot_stage855` |
+
+**Webhook proof:**
+- Signed test `checkout.session.completed` event sent to `https://staff-staging.lunafrontdesk.com/staff/stripe/webhook` using Key Vault `stripe-webhook-secret` + Stripe SDK test header (HMAC-valid; `STRIPE_WEBHOOK_SKIP_VERIFY=false`).
+- Event metadata included `payment_id`, `booking_id`, `client_slug`, `source:bot_stage855`.
+- Response **200**: `success:true`, `payment_status:deposit_paid`, `amount_paid_cents:10000`, `booking_balance_due_cents:40000`, `no_whatsapp:true`, `no_n8n:true`, `no_confirmation_sent:true`.
+
+**DB AFTER (all PASS):**
+| Assertion | Result |
+|---|---|
+| `payments.status=paid` | ✓ |
+| `payments.amount_paid_cents=10000` | ✓ |
+| `payments.paid_at` set | ✓ |
+| `payments.stripe_payment_intent_id` set | ✓ |
+| `bookings.payment_status=deposit_paid` | ✓ |
+| `bookings.amount_paid_cents=10000` | ✓ |
+| `bookings.balance_due_cents=40000` | ✓ |
+
+**Staff Portal drawer proof (browser + API):**
+- Login → Bed Calendar → open `MB-WOLFHO-20260822-3a4d1a` drawer.
+- Green **Deposit paid ✓** banner; Total €500.00; Deposit required €100.00; Booking paid €100.00; Balance due €400.00.
+- Payment row **Paid ✓** (Deposit only); paid_at `3 Jun 2026, 11:11`; truncated session/intent IDs; checkout URL + copy button.
+- `GET /staff/bookings/MB-WOLFHO-20260822-3a4d1a/context` confirms same fields (9/9 drawer checks PASS).
+
+**Safety:**
+- No WhatsApp sent (`no_whatsapp:true` in webhook response; `WHATSAPP_DRY_RUN=true` on staging).
+- No n8n activation; no workflow called.
+- No confirmation send; no live guest message.
+
+**Outcome:** Luna bot path booking → Staff API draft payment + Stripe checkout link → Stripe webhook → Postgres payment truth → Staff Portal drawer visibility. Same chain as manual booking (8.4.13), now proven for bot-created bookings. Test booking left on staging (disposable).
+
 ---
 
 ## 10. Files identified (static inspection, no changes made)
