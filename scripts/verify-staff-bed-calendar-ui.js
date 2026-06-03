@@ -1123,17 +1123,17 @@ check(/id="bc-sel-create"/.test(src),
 // ─────────────────────────────────────────────────────────────────────────────
 // ── Stage 8.4.7 — add-ons selector ───────────────────────────────────────────
 
-// 196. Add-ons section present in manual booking form
-check(/id="bk-ao-ws-combo"/.test(src) && /id="bk-ao-wetsuit"/.test(src),
-  'Add-ons section with combo and individual rental checkboxes present (Stage 8.4.7)');
+// 196. Add-ons section present in manual booking form (qty-only since 8.7.15)
+check(/id="bk-ao-ws-combo-days"/.test(src) && /id="bk-ao-wetsuit-days"/.test(src),
+  'Add-ons section with combo and individual rental qty inputs present (Stage 8.4.7)');
 
-// 197. All expected add-on controls present
+// 197. All expected add-on qty controls present
 (function checkAddOnControls(){
-  check(/id="bk-ao-ws-combo"/.test(src),   'Wetsuit+Soft top combo checkbox present (Stage 8.4.7)');
-  check(/id="bk-ao-wb-combo"/.test(src),   'Wetsuit+Hard board combo checkbox present (Stage 8.4.7)');
-  check(/id="bk-ao-wetsuit"/.test(src),    'Wetsuit rental checkbox present (Stage 8.4.7)');
-  check(/id="bk-ao-softtop"/.test(src),    'Soft top rental checkbox present (Stage 8.4.7)');
-  check(/id="bk-ao-hardboard"/.test(src),  'Hard board rental checkbox present (Stage 8.4.7)');
+  check(/id="bk-ao-ws-combo-days"/.test(src),   'Wetsuit+Soft top combo days input present (Stage 8.4.7)');
+  check(/id="bk-ao-wb-combo-days"/.test(src),   'Wetsuit+Hard board combo days input present (Stage 8.4.7)');
+  check(/id="bk-ao-wetsuit-days"/.test(src),    'Wetsuit rental days input present (Stage 8.4.7)');
+  check(/id="bk-ao-softtop-days"/.test(src),    'Soft top rental days input present (Stage 8.4.7)');
+  check(/id="bk-ao-hardboard-days"/.test(src),  'Hard board rental days input present (Stage 8.4.7)');
   check(/id="bk-ao-surf-lessons"/.test(src),'Surf lessons quantity input present (Stage 8.4.7)');
   check(/id="bk-ao-yoga"/.test(src),       'Yoga classes quantity input present (Stage 8.4.7)');
 })();
@@ -1161,6 +1161,10 @@ check(/id="bk-ao-ws-combo"/.test(src) && /id="bk-ao-wetsuit"/.test(src),
     'buildAddOns uses surf_lesson_single code (Stage 8.4.7)');
   check(/yoga_class/.test(fnSrc),
     'buildAddOns uses yoga_class code (Stage 8.4.7)');
+  check(/aoQtyInput/.test(fnSrc) && /> 0/.test(fnSrc),
+    'buildAddOns uses aoQtyInput and qty > 0 selection (Stage 8.4.7 / 8.7.15)');
+  check(!/\.checked/.test(fnSrc),
+    'buildAddOns does not use checkbox .checked (Stage 8.7.15)');
 })();
 
 // 200. runQuotePreview calls buildAddOns() (not hardcoded [])
@@ -1172,18 +1176,20 @@ check(/id="bk-ao-ws-combo"/.test(src) && /id="bk-ao-wetsuit"/.test(src),
     'runQuotePreview calls buildAddOns() for add_ons payload (Stage 8.4.7)');
 })();
 
-// 201. bcClearSelection resets add-on checkboxes (Stage 8.4.7)
+// 201. bcClearSelection resets add-on qty inputs to 0 (Stage 8.4.7 / 8.7.15)
 (function checkClearResetsAddOns(){
   const fnStart = src.indexOf('function bcClearSelection');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bk-ao-wetsuit/.test(fnSrc) && /bk-ao-yoga/.test(fnSrc),
-    'bcClearSelection resets add-on controls (Stage 8.4.7)');
+  check(/bk-ao-wetsuit-days/.test(fnSrc) && /bk-ao-yoga/.test(fnSrc),
+    'bcClearSelection resets add-on qty controls (Stage 8.4.7)');
+  check(/inp\.value\s*=\s*['"]0['"]/.test(fnSrc),
+    'bcClearSelection sets add-on qty inputs to 0 (Stage 8.7.15)');
 })();
 
-// 202. bcInitAddOns function wires checkbox → qty enabled/disabled
-check(/function bcInitAddOns/.test(src),
-  'bcInitAddOns function present (Stage 8.4.7)');
+// 202. bcInitAddOns removed — qty > 0 replaces checkbox wiring (Stage 8.7.15)
+check(!/function bcInitAddOns/.test(src),
+  'bcInitAddOns removed; qty > 0 selects add-ons (Stage 8.4.7 / 8.7.15)');
 
 // 203. /staff/manual-bookings/create fetch IS present in UI (Stage 8.4.8 wires it)
 check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(src),
@@ -1554,6 +1560,52 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '225o: bed calendar UI has no api.stripe.com (Stage 8.7.11)');
   check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
     '225p: bed calendar UI has no n8n URL fetch (Stage 8.7.11)');
+})();
+
+// ── Stage 8.7.15 — clean manual booking notes + add-ons layout ───────────────
+(function check8715NotesAndAddOns(){
+  const aoStart = src.indexOf('<!-- Section: Add-ons');
+  const aoEnd   = aoStart > 0 ? src.indexOf('<!-- Section: Quote Preview', aoStart) : -1;
+  const aoSrc   = aoStart > 0 && aoEnd > 0 ? src.slice(aoStart, aoEnd) : '';
+
+  check(/\.bk-notes-block/.test(src),
+    '226: bk-notes-block CSS present (Stage 8.7.15)');
+  check(/class="bk-notes-block"/.test(src) && /for="bk-notes"/.test(src),
+    '226b: staff notes use stacked bk-notes-block near label (Stage 8.7.15)');
+  check(!/Notes[\s\S]{0,400}bk-form-row[\s\S]{0,120}bk-notes/.test(src),
+    '226c: notes textarea not in wide bk-form-row layout (Stage 8.7.15)');
+
+  check(!/type="checkbox"/.test(aoSrc),
+    '226d: no add-on checkboxes in manual booking form (Stage 8.7.15)');
+  check(/\.bk-ao-grid\{display:flex/.test(src) && /\.bk-ao-row\{display:grid/.test(src),
+    '226e: add-ons compact left-aligned grid (Stage 8.7.15)');
+  check(/\.bk-ao-unit/.test(src) && /class="bk-ao-unit">days/.test(aoSrc) &&
+        /class="bk-ao-unit">lessons/.test(aoSrc) && /class="bk-ao-unit">classes/.test(aoSrc) &&
+        /class="bk-ao-unit">meals/.test(aoSrc),
+    '226f: day/lesson/class/meals unit labels visible beside inputs (Stage 8.7.15)');
+
+  (function checkQtyDefaults(){
+    ['bk-ao-ws-combo-days','bk-ao-wb-combo-days','bk-ao-wetsuit-days','bk-ao-softtop-days',
+     'bk-ao-hardboard-days','bk-ao-surf-lessons','bk-ao-yoga','bk-ao-meals'].forEach(function(id){
+      check(new RegExp('id="' + id + '"[^>]*value="0"').test(aoSrc),
+        '226g: ' + id + ' defaults to 0 (Stage 8.7.15)');
+    });
+  })();
+
+  const fnStart = src.indexOf('function buildAddOns');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
+  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  check(/function aoQtyInput/.test(src) && /aoQtyInput\(/.test(fnSrc) && /> 0/.test(fnSrc),
+    '226h: buildAddOns uses aoQtyInput and qty > 0 (Stage 8.7.15)');
+  check(!/bk-ao-meals/.test(fnSrc) && !/code:\s*['"][^'"]*meal/i.test(fnSrc),
+    '226i: meals still visual-only — not sent via buildAddOns (Stage 8.7.15)');
+
+  check(!/graph\.facebook\.com/.test(src),
+    '226j: bed calendar UI has no graph.facebook.com (Stage 8.7.15)');
+  check(!/api\.stripe\.com/.test(src),
+    '226k: bed calendar UI has no api.stripe.com (Stage 8.7.15)');
+  check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
+    '226l: bed calendar UI has no n8n URL fetch (Stage 8.7.15)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

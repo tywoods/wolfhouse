@@ -299,6 +299,23 @@
 
 ---
 
+## Manual booking notes + add-ons layout — Stage 8.7.15 (2026-06-03)
+
+**Result:** **PASS** — local UI patch only; not deployed.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Notes layout | **PASS** | `.bk-notes-block` — label + textarea stacked left (max-width 420px) |
+| Add-ons alignment | **PASS** | Compact left-aligned `.bk-ao-grid` rows |
+| Checkboxes removed | **PASS** | Qty-only; default `0`; qty > 0 selects add-on |
+| Unit labels | **PASS** | days / lessons / classes / meals visible beside inputs (`.bk-ao-unit`) |
+| buildAddOns | **PASS** | `aoQtyInput()` + `> 0`; no `.checked` |
+| Meals | **PASS** | Visual-only — `#bk-ao-meals` + on-site note; excluded from `buildAddOns()` |
+| Verifier | **PASS** | `node scripts/verify-staff-bed-calendar-ui.js` |
+| Safety | **PASS** | UI-only; no graph.facebook.com / n8n / Stripe / Azure deploy |
+
+---
+
 ## Hosted Inbox filter proof — Stage 8.7.14 (2026-06-03)
 
 **Result:** **PASS** — Needs Human is an Inbox filter on staging.

@@ -3889,6 +3889,9 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bk-form-section-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin-bottom:10px}
 .bk-form-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
 .bk-label{font-size:11.5px;color:var(--text-2);min-width:148px;flex-shrink:0;text-align:right}
+.bk-notes-block{display:flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:420px}
+.bk-notes-block .bk-label{min-width:0;text-align:left}
+.bk-notes-block textarea.bk-input{width:100%;max-width:420px;box-sizing:border-box;margin:0}
 .bk-input{border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:5px 9px;font-size:12px;color:var(--text);background:#fff;width:100%;box-sizing:border-box;font-family:inherit;line-height:1.4}
 .bk-input.bk-input-sm{max-width:200px;width:auto}
 .bk-input[readonly]{background:var(--surface-soft);color:var(--text-2);border-style:dashed;cursor:default}
@@ -3924,15 +3927,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bk-quote-subtotal{font-weight:500}
 .bk-quote-total{font-weight:700;font-size:13px;padding:6px 0!important}
 .bk-quote-formula{font-size:10px;color:var(--text-3);font-style:italic;margin-top:8px;line-height:1.5}
-/* Stage 8.4.7 — add-ons selector */
-.bk-ao-grid{display:flex;flex-direction:column;gap:6px;margin-top:4px;max-width:420px}
-.bk-ao-row{display:grid;grid-template-columns:minmax(0,1fr) 52px auto;align-items:center;gap:8px;min-height:26px}
-.bk-ao-label{font-size:12px;color:var(--text-1);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;justify-self:start;text-align:left}
-.bk-ao-qty-label{cursor:default}
-.bk-ao-qty{width:52px!important;text-align:center;padding:3px 5px!important;font-size:12px!important;justify-self:start}
-.bk-ao-unit{font-size:11px;color:var(--text-3);white-space:nowrap;justify-self:start}
-.bk-ao-note{font-size:11px;color:var(--text-3);font-style:italic;margin-top:6px;line-height:1.45}
-.bk-ao-meals-note{font-size:11px;color:#A2743D;margin-top:2px}
+/* Stage 8.4.7 / 8.7.15 — add-ons selector (qty-only, no checkboxes) */
+.bk-ao-grid{display:flex;flex-direction:column;gap:5px;margin-top:4px;max-width:440px}
+.bk-ao-row{display:grid;grid-template-columns:minmax(0,168px) 56px minmax(44px,auto);align-items:center;gap:4px 8px;min-height:28px}
+.bk-ao-label{font-size:12px;color:var(--text-1);display:block;line-height:1.35;justify-self:start;text-align:left;padding-right:4px}
+.bk-ao-qty{width:56px!important;min-width:56px;max-width:56px;text-align:center;padding:3px 4px!important;font-size:12px!important;justify-self:start;box-sizing:border-box}
+.bk-ao-unit{font-size:11px;color:var(--text-3);white-space:nowrap;justify-self:start;padding-left:2px}
+.bk-ao-note{font-size:11px;color:var(--text-3);font-style:italic;margin-top:6px;line-height:1.45;max-width:440px}
+.bk-ao-meals-note{font-size:11px;color:#A2743D;margin-top:2px;max-width:440px}
 /* Stage 8.3q — tour operator block skeleton */
 .bc-op-divider{border:none;border-top:2px solid var(--border-1,#e0e8ef);margin:20px 0 16px}
 .bc-op-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
@@ -4275,58 +4277,58 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <!-- Section: Notes -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Notes</div>
-      <div class="bk-form-row">
+      <div class="bk-notes-block">
         <label class="bk-label" for="bk-notes">Staff notes</label>
         <textarea id="bk-notes" class="bk-input" rows="3" placeholder="Internal booking notes..."></textarea>
       </div>
     </div>
 
-    <!-- Section: Add-ons (Stage 8.4.7 — quote preview only, no writes) -->
+    <!-- Section: Add-ons (Stage 8.4.7 — qty &gt; 0 selects add-on; Stage 8.7.15) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Add-ons</div>
       <div class="bk-ao-grid">
         <div class="bk-ao-row">
-          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-ws-combo"> Wetsuit + Soft top combo</label>
-          <input type="number" id="bk-ao-ws-combo-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-label">Wetsuit + Soft top combo</span>
+          <input type="number" id="bk-ao-ws-combo-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Wetsuit + Soft top combo days">
           <span class="bk-ao-unit">days</span>
         </div>
         <div class="bk-ao-row">
-          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-wb-combo"> Wetsuit + Hard board combo</label>
-          <input type="number" id="bk-ao-wb-combo-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-label">Wetsuit + Hard board combo</span>
+          <input type="number" id="bk-ao-wb-combo-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Wetsuit + Hard board combo days">
           <span class="bk-ao-unit">days</span>
         </div>
         <div class="bk-ao-row">
-          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-wetsuit"> Wetsuit rental</label>
-          <input type="number" id="bk-ao-wetsuit-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-label">Wetsuit rental</span>
+          <input type="number" id="bk-ao-wetsuit-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Wetsuit rental days">
           <span class="bk-ao-unit">days</span>
         </div>
         <div class="bk-ao-row">
-          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-softtop"> Soft top rental</label>
-          <input type="number" id="bk-ao-softtop-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-label">Soft top rental</span>
+          <input type="number" id="bk-ao-softtop-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Soft top rental days">
           <span class="bk-ao-unit">days</span>
         </div>
         <div class="bk-ao-row">
-          <label class="bk-ao-label"><input type="checkbox" id="bk-ao-hardboard"> Hard board rental</label>
-          <input type="number" id="bk-ao-hardboard-days" class="bk-input bk-ao-qty" value="1" min="1" max="30" disabled>
+          <span class="bk-ao-label">Hard board rental</span>
+          <input type="number" id="bk-ao-hardboard-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Hard board rental days">
           <span class="bk-ao-unit">days</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label bk-ao-qty-label">Surf lessons</span>
-          <input type="number" id="bk-ao-surf-lessons" class="bk-input bk-ao-qty" value="0" min="0" max="20">
+          <span class="bk-ao-label">Surf lessons</span>
+          <input type="number" id="bk-ao-surf-lessons" class="bk-input bk-ao-qty" value="0" min="0" max="20" aria-label="Surf lessons quantity">
           <span class="bk-ao-unit">lessons</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label bk-ao-qty-label">Yoga classes</span>
-          <input type="number" id="bk-ao-yoga" class="bk-input bk-ao-qty" value="0" min="0" max="30">
+          <span class="bk-ao-label">Yoga classes</span>
+          <input type="number" id="bk-ao-yoga" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Yoga classes quantity">
           <span class="bk-ao-unit">classes</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label bk-ao-qty-label">Meals</span>
-          <input type="number" id="bk-ao-meals" class="bk-input bk-ao-qty" value="0" min="0" max="60" title="On-site only — not priced in quote yet">
+          <span class="bk-ao-label">Meals</span>
+          <input type="number" id="bk-ao-meals" class="bk-input bk-ao-qty" value="0" min="0" max="60" aria-label="Meals quantity" title="On-site only — not priced in quote yet">
           <span class="bk-ao-unit">meals</span>
         </div>
       </div>
-      <div class="bk-ao-note">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate.</div>
+      <div class="bk-ao-note">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate. Enter a quantity &gt; 0 to include an add-on.</div>
       <div class="bk-ao-meals-note">Meals: on-site / not priced in quote yet.</div>
     </div>
 
@@ -5472,16 +5474,11 @@ function bcClearSelection(){
   var _crEl = el('bc-create-result'); if (_crEl) _crEl.innerHTML = '';
   var _slEl = el('bc-stripe-link-result'); if (_slEl) _slEl.innerHTML = '';
   bcUpdateCreateButton();
-  /* Reset add-on checkboxes and qty inputs (Stage 8.4.7) */
-  ['bk-ao-ws-combo','bk-ao-wb-combo','bk-ao-wetsuit','bk-ao-softtop','bk-ao-hardboard'].forEach(function(id){
-    var cb = el(id); if (cb) cb.checked = false;
+  /* Reset add-on qty inputs (Stage 8.7.15 — qty-only, default 0) */
+  ['bk-ao-ws-combo-days','bk-ao-wb-combo-days','bk-ao-wetsuit-days','bk-ao-softtop-days','bk-ao-hardboard-days',
+   'bk-ao-surf-lessons','bk-ao-yoga','bk-ao-meals'].forEach(function(id){
+    var inp = el(id); if (inp) inp.value = '0';
   });
-  ['bk-ao-ws-combo-days','bk-ao-wb-combo-days','bk-ao-wetsuit-days','bk-ao-softtop-days','bk-ao-hardboard-days'].forEach(function(id){
-    var inp = el(id); if (inp){ inp.value = '1'; inp.disabled = true; }
-  });
-  var _slEl = el('bk-ao-surf-lessons'); if (_slEl) _slEl.value = '0';
-  var _ygEl = el('bk-ao-yoga'); if (_ygEl) _ygEl.value = '0';
-  var _mlEl = el('bk-ao-meals'); if (_mlEl) _mlEl.value = '0';
   var warnEl = el('bc-sel-warn');
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
@@ -5745,59 +5742,31 @@ function bcHandleCellClick(td){
   bcApplySelectionHighlight();
 }
 
-/* ── Add-ons checkbox wiring + payload builder (Stage 8.4.7) ────────────── */
-function bcInitAddOns(){
-  /* Wire each checkbox to enable/disable its quantity input */
-  [
-    ['bk-ao-ws-combo',  'bk-ao-ws-combo-days'],
-    ['bk-ao-wb-combo',  'bk-ao-wb-combo-days'],
-    ['bk-ao-wetsuit',   'bk-ao-wetsuit-days'],
-    ['bk-ao-softtop',   'bk-ao-softtop-days'],
-    ['bk-ao-hardboard', 'bk-ao-hardboard-days'],
-  ].forEach(function(pair){
-    var cb = el(pair[0]); var qty = el(pair[1]);
-    if (cb && qty) cb.onchange = function(){ qty.disabled = !this.checked; };
-  });
+/* ── Add-ons payload builder (Stage 8.4.7 / 8.7.15 qty &gt; 0) ─────────────── */
+function aoQtyInput(id){
+  return parseInt((el(id) || {}).value || '0', 10) || 0;
 }
 
 function buildAddOns(){
   var result = [];
-  var wsCombo = el('bk-ao-ws-combo');
-  var wbCombo = el('bk-ao-wb-combo');
+  var wsComboDays = aoQtyInput('bk-ao-ws-combo-days');
+  var wbComboDays = aoQtyInput('bk-ao-wb-combo-days');
   /* Combos first — they replace individual rentals */
-  if (wsCombo && wsCombo.checked){
-    var d = parseInt((el('bk-ao-ws-combo-days')||{}).value||'1',10)||1;
-    result.push({ code: 'wetsuit_soft_top_combo', days: d });
-  }
-  if (wbCombo && wbCombo.checked){
-    var d2 = parseInt((el('bk-ao-wb-combo-days')||{}).value||'1',10)||1;
-    result.push({ code: 'wetsuit_hard_board_combo', days: d2 });
-  }
-  /* Individual rentals — skip if replaced by a combo */
-  var wsActive  = wsCombo && wsCombo.checked;
-  var wbActive  = wbCombo && wbCombo.checked;
-  var wetEl     = el('bk-ao-wetsuit');
-  var stEl      = el('bk-ao-softtop');
-  var hbEl      = el('bk-ao-hardboard');
-  if (wetEl && wetEl.checked && !wsActive && !wbActive){
-    var d3 = parseInt((el('bk-ao-wetsuit-days')||{}).value||'1',10)||1;
-    result.push({ code: 'wetsuit_rental', days: d3 });
-  }
-  if (stEl && stEl.checked && !wsActive){
-    var d4 = parseInt((el('bk-ao-softtop-days')||{}).value||'1',10)||1;
-    result.push({ code: 'soft_top_rental', days: d4 });
-  }
-  if (hbEl && hbEl.checked && !wbActive){
-    var d5 = parseInt((el('bk-ao-hardboard-days')||{}).value||'1',10)||1;
-    result.push({ code: 'hard_board_rental', days: d5 });
-  }
+  if (wsComboDays > 0) result.push({ code: 'wetsuit_soft_top_combo', days: wsComboDays });
+  if (wbComboDays > 0) result.push({ code: 'wetsuit_hard_board_combo', days: wbComboDays });
+  var wsActive = wsComboDays > 0;
+  var wbActive = wbComboDays > 0;
+  var wetDays  = aoQtyInput('bk-ao-wetsuit-days');
+  var stDays   = aoQtyInput('bk-ao-softtop-days');
+  var hbDays   = aoQtyInput('bk-ao-hardboard-days');
+  if (wetDays > 0 && !wsActive && !wbActive) result.push({ code: 'wetsuit_rental', days: wetDays });
+  if (stDays > 0 && !wsActive) result.push({ code: 'soft_top_rental', days: stDays });
+  if (hbDays > 0 && !wbActive) result.push({ code: 'hard_board_rental', days: hbDays });
   /* Surf lessons — send as surf_lesson_single; calculator auto-selects single vs multi */
-  var slEl = el('bk-ao-surf-lessons');
-  var slQty = parseInt(slEl ? slEl.value : '0', 10) || 0;
+  var slQty = aoQtyInput('bk-ao-surf-lessons');
   if (slQty > 0) result.push({ code: 'surf_lesson_single', quantity: slQty });
   /* Yoga classes */
-  var ygEl = el('bk-ao-yoga');
-  var ygQty = parseInt(ygEl ? ygEl.value : '0', 10) || 0;
+  var ygQty = aoQtyInput('bk-ao-yoga');
   if (ygQty > 0) result.push({ code: 'yoga_class', quantity: ygQty });
   /* Meals: visual-only in UI (Stage 8.7.11) — not in pricing.json add_ons yet; do not send to quote */
   return result;
@@ -6784,7 +6753,6 @@ function loadBedCalendar(){
 }
 
 el('bc-load').addEventListener('click', loadBedCalendar);
-bcInitAddOns();
 
 /* ── Bed calendar date shortcuts (Stage 8.3a) ────────────────────────────── */
 function bcIso(d){ return d.toISOString().slice(0,10); }
