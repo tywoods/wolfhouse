@@ -10,6 +10,7 @@
  *   D. getBookingConversationQuery        — conversation linked by phone
  *   E. getBookingHandoffQuery             — open/latest handoff for booking
  *   F. getBookingAddOnSummaryQuery        — add-on orders + items for booking
+ *   G. getBookingServiceRecordsQuery      — booking_service_records for booking
  *
  * All queries are scoped by client slug ($1) and booking_code ($2).
  * SELECT-only. No mutations.
@@ -236,6 +237,43 @@ ORDER BY ao.requested_at ASC, ai.item_type ASC
 `;
 }
 
+// ---------------------------------------------------------------------------
+// G. Structured service / add-on records (Stage 8.8.14)
+// ---------------------------------------------------------------------------
+
+/**
+ * booking_service_records rows for this booking.
+ * Matches by booking_id when set; falls back to booking_code for demo rows
+ * with null booking_id. Never reads chat logs.
+ *
+ * @returns {string} SQL ($1 = client slug, $2 = booking_code)
+ */
+function getBookingServiceRecordsQuery() {
+  return `
+SELECT
+  sr.id::text               AS service_record_id,
+  sr.service_type,
+  sr.service_date::text     AS service_date,
+  sr.quantity,
+  sr.status,
+  sr.payment_status,
+  sr.amount_due_cents,
+  sr.amount_paid_cents,
+  sr.source,
+  sr.notes
+FROM booking_service_records sr
+INNER JOIN clients c ON c.slug = sr.client_slug
+INNER JOIN bookings b ON b.client_id = c.id
+  AND b.booking_code = $2
+WHERE sr.client_slug = $1
+  AND (
+    sr.booking_id = b.id
+    OR (sr.booking_id IS NULL AND sr.booking_code = b.booking_code)
+  )
+ORDER BY sr.service_date ASC, sr.service_type ASC
+`;
+}
+
 module.exports = {
   getBookingDetailQuery,
   getBookingPaymentsQuery,
@@ -243,4 +281,5 @@ module.exports = {
   getBookingConversationQuery,
   getBookingHandoffQuery,
   getBookingAddOnSummaryQuery,
+  getBookingServiceRecordsQuery,
 };

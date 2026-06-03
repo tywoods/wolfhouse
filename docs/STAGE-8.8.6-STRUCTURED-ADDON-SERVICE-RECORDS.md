@@ -127,7 +127,7 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | **Ask Luna** | **8.8.11** ✓ | Read-only intents + router | 7 `services.*` intents on `booking_service_records` |
 | **Hosted proof** | **8.8.12** ✓ | Deploy + Luna API proof | `--0000035`; 14/14 PASS |
 | **Flows design** | **8.8.13** ✓ | Booking-time + guest Luna + drawer (docs) | §8–§11 below |
-| **Portal display** | **8.8.14+** | Read-only drawer UI | `GET` service rows by `booking_id`; §8 Flow C |
+| **Portal display** | **8.8.14** ✓ | Read-only drawer UI | `GET` context `service_records[]`; §8 Flow C |
 | **Booking create writes** | **8.8.15+** | Persist service rows on manual/bot create | §8 Flow A step 3 |
 | **Guest Luna add-on API** | **8.8.16+** | Bot endpoint + payment draft | §8 Flow B; live send still NO_GO |
 
@@ -155,7 +155,8 @@ Smart understanding → **fixed intent keys** → parameterized SELECT (no LLM S
 | Ask Luna service intents | **Live on staging** — revision `--0000035` (`ef122ac-stage8812-service-queries`); hosted proof **PASS** |
 | Today demo totals | Wetsuit qty **3**, surfboard qty **4**; yoga + lesson paid today; meal paid tomorrow; Jun 15 meal paid + lesson pending |
 | Manual booking create | Still does not write `booking_service_records` |
-| Next slice | **8.8.14** — read-only services section in booking drawer (§8 Flow C) |
+| Booking drawer services | **Live in code** — read-only panel from context API; **not deployed** until next Azure slice |
+| Next slice | **8.8.15** — persist service rows on booking create (§8 Flow A step 3) |
 
 ---
 
@@ -239,7 +240,7 @@ When staff click a booking on Bed Calendar, the context drawer shows operational
 | **C5. No send** | **No** WhatsApp send, confirmation send, or “charge guest” button in read-only slice. |
 | **C6. API shape** | Extend `GET /staff/bookings/:id/context` (or nested query) to include `service_records: []` array; drawer renders from JSON only. |
 
-**Today vs target:** Drawer shows payment truth + Luna confirmation draft; **no** services section yet — 8.8.14 implements C1–C6 read-only.
+**Today vs target:** Drawer shows payment truth + Luna confirmation draft + **Services & Add-ons** panel (8.8.14, read-only). Demo rows visible when `booking_code` matches fixture codes; golden booking may show empty state until linked.
 
 ---
 
@@ -276,11 +277,10 @@ When staff click a booking on Bed Calendar, the context drawer shows operational
 
 | Order | Stage | Scope | Delivers |
 |-------|-------|-------|----------|
-| **1** | **8.8.14** | Drawer read-only UI + context API | Flow C; verifier + staging deploy |
-| **2** | **8.8.15** | `payment_kind=addon_service` migration + webhook hook | Flow A/B payment truth for service rows |
-| **3** | **8.8.16** | Manual booking create → insert `booking_service_records` | Flow A step A3 |
-| **4** | **8.8.17** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
-| **5** | **8.8.18+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
+| **1** | **8.8.15** | Manual booking create → insert `booking_service_records` | Flow A step A3 |
+| **2** | **8.8.16** | `payment_kind=addon_service` migration + webhook hook | Flow A/B payment truth for service rows |
+| **3** | **8.8.17** | Bot `POST /staff/bot/add-on-request` (dry-run) | Flow B without live WhatsApp |
+| **4** | **8.8.18+** | Live guest add-on send | Flow B7 — only after 8.6.8 GO |
 
 ---
 

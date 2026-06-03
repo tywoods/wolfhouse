@@ -79,6 +79,7 @@ const {
   getBookingConversationQuery,
   getBookingHandoffQuery,
   getBookingAddOnSummaryQuery,
+  getBookingServiceRecordsQuery,
 } = require('./lib/staff-booking-detail-queries');
 const {
   reassignBookingBedSql,
@@ -4389,6 +4390,10 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-pay-amount.paid{color:#5C7350}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
 .ctx-addon-row:last-child{border-bottom:none}
+.ctx-svc-record{padding:8px 10px;margin-bottom:6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-2,#f8f9fa);font-size:12px}
+.ctx-svc-record:last-child{margin-bottom:0}
+.ctx-svc-date-label{font-size:11px;font-weight:600;color:var(--text-2);margin:8px 0 4px;text-transform:uppercase;letter-spacing:.03em}
+.ctx-svc-date-label:first-child{margin-top:0}
 .ctx-bed-row{font-size:11px;color:var(--text-2);padding:3px 0;display:flex;gap:14px;align-items:baseline}
 .ctx-bed-row b{color:var(--text);font-weight:600}
 .ctx-planned{margin-top:16px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm)}
@@ -7054,6 +7059,40 @@ function renderBookingContextDrawer(data){
   html += '</div>'; /* end ctx-pay-box */
   html += '</div>'; /* end Payment section */
 
+  /* ── 4c. Services & add-ons (Stage 8.8.14) — booking_service_records only ─ */
+  var svcRows = data.service_records || [];
+  html += '<div class="ctx-section ctx-service-records" id="bc-service-records">';
+  html += '<h3>Services &amp; Add-ons</h3>';
+  var svcTypeLabel = function(t){
+    if (!t) return '\u2014';
+    var m = { yoga: 'Yoga', meal: 'Meal', surf_lesson: 'Surf lesson', wetsuit: 'Wetsuit', surfboard: 'Surfboard' };
+    return m[t] || String(t).replace(/_/g, ' ');
+  };
+  if (svcRows.length === 0){
+    html += '<div class="ctx-none">No services/add-ons recorded for this booking.</div>';
+  } else {
+    var lastSvcDate = null;
+    svcRows.forEach(function(sr){
+      if (sr.service_date !== lastSvcDate){
+        html += '<div class="ctx-svc-date-label">' + escHtml(sr.service_date || '\u2014') + '</div>';
+        lastSvcDate = sr.service_date;
+      }
+      html += '<div class="ctx-svc-record">';
+      html += '<div class="ctx-pay-block" style="margin:0">';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Service</span><span class="ctx-pay-amount" style="font-weight:500">' + escHtml(svcTypeLabel(sr.service_type)) + '</span></div>';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Date</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.service_date || '\u2014') + '</span></div>';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Qty</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.quantity != null ? String(sr.quantity) : '\u2014') + '</span></div>';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Status</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.status || '\u2014') + '</span></div>';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Payment</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.payment_status || '\u2014') + '</span></div>';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Due</span><span class="ctx-pay-amount">' + escHtml(eur(sr.amount_due_cents)) + '</span></div>';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(sr.amount_paid_cents)) + '</span></div>';
+      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Source</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.source || '\u2014') + '</span></div>';
+      if (sr.notes) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Notes</span><span class="ctx-pay-amount" style="font-weight:400;white-space:normal">' + escHtml(sr.notes) + '</span></div>';
+      html += '</div></div>';
+    });
+  }
+  html += '</div>';
+
   /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
   var confDraft = (data.booking && data.booking.confirmation_draft) ||
                   (data.booking && data.booking.metadata && data.booking.metadata.confirmation_draft) ||
@@ -8576,6 +8615,26 @@ async function handleBedReassignConfirm(req, res) {
 
 const BOOKING_CONTEXT_RE = /^\/staff\/bookings\/([A-Za-z0-9_\-]+)\/context$/;
 
+/** Stage 8.8.14 — safe when migration 010 not applied yet. */
+function isMissingBookingServiceRecordsTable(err) {
+  if (!err) return false;
+  if (err.code === '42P01') return true;
+  const msg = String(err.message || '');
+  return /booking_service_records/.test(msg) && /does not exist|undefined table/i.test(msg);
+}
+
+async function loadBookingServiceRecords(pg, clientSlug, bookingCode) {
+  try {
+    const r = await pg.query(getBookingServiceRecordsQuery(), [clientSlug, bookingCode]);
+    return { rows: r.rows, available: true };
+  } catch (err) {
+    if (isMissingBookingServiceRecordsTable(err)) {
+      return { rows: [], available: false };
+    }
+    throw err;
+  }
+}
+
 async function handleBookingContext(bookingCode, query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -8594,10 +8653,12 @@ async function handleBookingContext(bookingCode, query, res, user) {
   };
 
   let bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows;
+  let serviceRecordRows = [];
+  let serviceRecordsAvailable = false;
   try {
-    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows] =
+    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows, serviceRecordRows, serviceRecordsAvailable] =
       await withPgClient(async (pg) => {
-        const [b, p, r, c, h, a, m] = await Promise.all([
+        const [b, p, r, c, h, a, m, svc] = await Promise.all([
           pg.query(getBookingDetailQuery(),             [clientSlug, bookingCode]),
           pg.query(getBookingPaymentsQuery(),           [clientSlug, bookingCode]),
           pg.query(getBookingRoomingAssignmentsQuery(), [clientSlug, bookingCode]),
@@ -8612,8 +8673,9 @@ async function handleBookingContext(bookingCode, query, res, user) {
               LIMIT 1`,
             [clientSlug, bookingCode]
           ),
+          loadBookingServiceRecords(pg, clientSlug, bookingCode),
         ]);
-        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows, m.rows];
+        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows, m.rows, svc.rows, svc.available];
       });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -8646,6 +8708,8 @@ async function handleBookingContext(bookingCode, query, res, user) {
     conv_linked:      convRows.length > 0,
     handoff_open:     handoffRows.length > 0,
     addon_rows:       addonRows.length,
+    service_records:  serviceRecordRows.length,
+    service_records_available: serviceRecordsAvailable,
     elapsed_ms:       elapsed,
   });
 
@@ -8714,6 +8778,8 @@ async function handleBookingContext(bookingCode, query, res, user) {
         ? 'No add-on orders found for this booking'
         : null,
     },
+    service_records: serviceRecordRows,
+    service_records_available: serviceRecordsAvailable,
     warnings: [],
     elapsed_ms: elapsed,
   });

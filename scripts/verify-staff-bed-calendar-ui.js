@@ -1830,6 +1830,65 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '231h: bed calendar UI has no n8n URL fetch (Stage 8.7.25)');
 })();
 
+// ── Stage 8.8.14 — Services & add-ons panel in booking drawer ───────────────
+(function check8814BookingServiceRecordsDrawer(){
+  const fnStart = src.indexOf('function renderBookingContextDrawer');
+  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 100) : -1;
+  const drawerFn = (fnStart > 0 && fnEnd > fnStart) ? src.slice(fnStart, fnEnd) : '';
+
+  const svcStart = drawerFn.indexOf('ctx-service-records');
+  const svcEnd   = svcStart > 0 ? drawerFn.indexOf('/* ── 4d. Luna confirmation draft', svcStart) : -1;
+  const svcPanel = svcStart > 0 && svcEnd > svcStart ? drawerFn.slice(svcStart, svcEnd) : '';
+
+  check(/service_records:/.test(src) && /service_records_available:/.test(src),
+    '232: booking context API returns service_records + service_records_available (Stage 8.8.14)');
+
+  let libSrc = '';
+  try { libSrc = fs.readFileSync(path.join(__dirname, 'lib', 'staff-booking-detail-queries.js'), 'utf8'); } catch(_){}
+  const qMatch = libSrc.match(/function getBookingServiceRecordsQuery[\s\S]{0,2500}/);
+  const qSrc = qMatch ? qMatch[0] : '';
+  check(/FROM booking_service_records/.test(qSrc),
+    '232b: getBookingServiceRecordsQuery reads booking_service_records (Stage 8.8.14)');
+  check(/booking_id = b\.id/.test(qSrc) && /booking_code = b\.booking_code/.test(qSrc),
+    '232c: service records query uses booking_id + booking_code fallback (Stage 8.8.14)');
+  check(/ORDER BY sr\.service_date/.test(qSrc) && /service_type/.test(qSrc),
+    '232d: service records ordered by service_date then service_type (Stage 8.8.14)');
+
+  check(/isMissingBookingServiceRecordsTable|42P01/.test(src) &&
+        /service_records_available/.test(src),
+    '232e: table-missing safe fallback for service_records (Stage 8.8.14)');
+  check(/loadBookingServiceRecords/.test(src),
+    '232f: loadBookingServiceRecords helper exists (Stage 8.8.14)');
+
+  check(/Services &amp; Add-ons|Services & Add-ons/.test(svcPanel),
+    '232g: drawer renders Services & Add-ons panel (Stage 8.8.14)');
+  check(/bc-service-records/.test(svcPanel),
+    '232h: drawer service panel has bc-service-records id (Stage 8.8.14)');
+  check(/service_type/.test(svcPanel) && /service_date/.test(svcPanel) &&
+        /quantity/.test(svcPanel) && /payment_status/.test(svcPanel) &&
+        /amount_due_cents/.test(svcPanel) && /amount_paid_cents/.test(svcPanel) &&
+        /source/.test(svcPanel) && /notes/.test(svcPanel),
+    '232i: drawer service panel renders required fields (Stage 8.8.14)');
+  check(/No services\/add-ons recorded for this booking/.test(svcPanel),
+    '232j: drawer service panel empty state (Stage 8.8.14)');
+
+  check(!/Add service|Add add-on|Edit service|Edit add-on|Send payment|payment link|bcCopyUrl|checkout_url/i.test(svcPanel),
+    '232k: service panel has no Add/Edit/Send/payment link buttons (Stage 8.8.14)');
+
+  const ctxFnMatch = src.match(/async function handleBookingContext[\s\S]{0,4500}/);
+  const ctxFn = ctxFnMatch ? ctxFnMatch[0] : '';
+  check(!/conversations|conversation_messages|chat_log/.test(qSrc),
+    '232l: service records query does not read chat/conversation logs (Stage 8.8.14)');
+  check(!/INSERT|UPDATE|DELETE/.test(ctxFn.match(/loadBookingServiceRecords[\s\S]{0,800}/) ?
+        ctxFn.match(/loadBookingServiceRecords[\s\S]{0,800}/)[0] : ctxFn),
+    '232m: booking context service load has no INSERT/UPDATE/DELETE (Stage 8.8.14)');
+
+  check(!/graph\.facebook\.com/.test(svcPanel) && !/api\.stripe\.com/.test(svcPanel),
+    '232n: service panel has no graph.facebook.com or api.stripe.com (Stage 8.8.14)');
+  check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(svcPanel)),
+    '232o: service panel has no n8n URL fetch (Stage 8.8.14)');
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
