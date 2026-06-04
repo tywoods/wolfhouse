@@ -5632,6 +5632,218 @@ async function handleBookingEditWrite(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.5f — Booking cancel (Staff Portal internal write only)
+//
+// POST /staff/bookings/cancel
+//
+// Sets booking status cancelled and DELETEs booking_beds for client/booking.
+// No payment paid-truth mutation, no booking_service_records, no Stripe/WhatsApp/n8n.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BOOKING_CANCEL_UPDATE_STATUS_SQL = `
+UPDATE bookings b
+SET status = 'cancelled'::booking_status
+FROM clients c
+WHERE b.client_id = c.id
+  AND c.slug = $1
+  AND b.id::text = $2
+RETURNING
+  b.id::text        AS booking_id,
+  b.booking_code,
+  b.status::text    AS status,
+  b.guest_name,
+  b.check_in::text   AS check_in,
+  b.check_out::text  AS check_out
+`;
+
+const BOOKING_CANCEL_DELETE_BEDS_SQL = `
+DELETE FROM booking_beds bb
+USING clients c, bookings b
+WHERE bb.client_id = c.id
+  AND b.client_id = c.id
+  AND bb.booking_id = b.id
+  AND c.slug = $1
+  AND b.id::text = $2
+`;
+
+const BOOKING_CANCEL_COUNT_BEDS_SQL = `
+SELECT COUNT(*)::int AS c
+FROM booking_beds bb
+INNER JOIN bookings b ON b.id = bb.booking_id
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.id::text = $2
+`;
+
+function bookingStatusIsCancelled(status) {
+  const s = String(status || '').toLowerCase();
+  return s === 'cancelled' || s === 'canceled' || s === 'expired';
+}
+
+function bookingCancelSnapshot(row) {
+  return {
+    booking_id:   row.booking_id,
+    booking_code: row.booking_code,
+    status:       row.status,
+    guest_name:   row.guest_name,
+    check_in:     row.check_in,
+    check_out:    row.check_out,
+  };
+}
+
+async function handleBookingCancel(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId      = String(body.booking_id   || '').trim();
+  const bookingCode    = String(body.booking_code || '').trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const reason         = String(body.reason || '').trim().slice(0, 500) || 'Cancelled from Staff Portal';
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const actorId    = user ? user.staff_user_id : 'dev-cancel-local';
+  const actorRole  = user ? user.role          : 'operator';
+  const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:booking_cancel',
+    category:        'booking_cancel_write',
+    preview_only:    false,
+    would_mutate:    true,
+    client_slug:     clientSlug,
+    booking_id:      bookingId || null,
+    booking_code:    bookingCode || null,
+    idempotency_key: idempotencyKey,
+    staff_user_id:   actorId,
+    staff_role:      actorRole,
+    reason,
+  };
+
+  const auditResponse = {
+    actor: actorLabel,
+    reason,
+    idempotency_key: idempotencyKey,
+  };
+
+  let bookingRow;
+  try {
+    bookingRow = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      return bookingRes.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'cancel query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', cancelled: false, would_mutate: false });
+  }
+
+  const before = bookingCancelSnapshot(bookingRow);
+
+  if (bookingStatusIsCancelled(bookingRow.status)) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, cancelled: false, idempotent: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      cancelled: false,
+      idempotent: true,
+      booking: bookingCancelSnapshot(bookingRow),
+      before,
+      after: before,
+      beds_released_count: 0,
+      audit: auditResponse,
+      message: 'Booking is already cancelled. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+        ]);
+        const bedsBefore = countRes.rows[0] ? Number(countRes.rows[0].c) : 0;
+
+        const delRes = await pg.query(BOOKING_CANCEL_DELETE_BEDS_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+        ]);
+        const bedsReleased = delRes.rowCount != null ? delRes.rowCount : bedsBefore;
+
+        const upd = await pg.query(BOOKING_CANCEL_UPDATE_STATUS_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+        ]);
+        if (!upd.rows[0]) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+        await pg.query('COMMIT');
+        return { updatedRow: upd.rows[0], bedsReleased };
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    if (!result) {
+      appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'cancel update failed', cancelled: false });
+    }
+
+    const after = bookingCancelSnapshot(result.updatedRow);
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      cancelled: true,
+      beds_released_count: result.bedsReleased,
+      before,
+      after,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      cancelled: true,
+      idempotent: false,
+      booking: after,
+      before,
+      after,
+      beds_released_count: result.bedsReleased,
+      audit: auditResponse,
+      message: 'Booking cancelled and assigned beds released. No refund, Stripe, WhatsApp, or n8n action was taken.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'cancel failed', detail: err.message, cancelled: false });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
 //
 // Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
@@ -10177,6 +10389,16 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-field-preview-result.is-blocked .ctx-field-preview-badge{background:#F5E8E4;color:#9C5742}
 .ctx-field-preview-result .ctx-field-preview-delta{font-weight:600;margin-top:6px}
 .ctx-field-nights-hint{font-size:11px;color:var(--text-3);margin-left:6px}
+/* Phase 10.5f — cancel reservation (danger-light + confirm panel) */
+.btn-danger-light{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC;border-radius:var(--radius-sm);padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-danger-light:hover{background:#F0D9D2;border-color:#D9A89A}
+.btn-danger-light:disabled{opacity:.55;cursor:not-allowed}
+.ctx-booking-cancel{margin-top:20px;padding-top:16px;border-top:1px solid var(--border-soft)}
+.bc-cancel-confirm{margin-top:12px;padding:12px 14px;background:#FBF7F0;border:1px solid #E6C7BC;border-radius:var(--radius-sm);max-width:440px}
+.bc-cancel-confirm-title{font-size:13px;font-weight:700;color:#9C5742;margin-bottom:8px}
+.bc-cancel-confirm-meta{font-size:12px;color:var(--text);line-height:1.55;margin-bottom:8px}
+.bc-cancel-confirm-warn{font-size:11.5px;color:#9C5742;line-height:1.5;margin-bottom:12px;padding:8px 10px;background:#F6E7E1;border-radius:6px}
+.bc-cancel-confirm-actions{display:flex;gap:8px;flex-wrap:wrap}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
 .ctx-addon-row:last-child{border-bottom:none}
 .ctx-svc-record{padding:8px 10px;margin-bottom:6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-2,#f8f9fa);font-size:12px}
@@ -10469,7 +10691,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-review"></span>Needs review</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-operator"></span>Operator block</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Manual / staff</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-cancelled"></span>Cancelled</span>
     </div>
 
     <!-- Summary strip -->
@@ -12970,6 +13191,7 @@ function showBlockDetail(blk){
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
     '<button class="btn btn-ghost" id="bc-close-detail">&times; Close</button></div>' +
     '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>' +
+    '<div id="bc-cancel-confirm-host"></div>' +
     '<div class="bc-detail-note">&#128274; Bed calendar is read-only \u2014 booking edits disabled until write gates approved.</div>';
   el('bc-detail').style.display = 'block';
   el('bc-close-detail').addEventListener('click', function(){ el('bc-detail').style.display = 'none'; });
@@ -12992,6 +13214,7 @@ function loadBlockDetail(bookingCode){
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
       updateBcDetailHeader(res.data);
       bcInitFieldEditShell(res.data);
+      bcInitBookingCancelShell(res.data);
       bcInitMovePanel(res.data);
       /* Wire "Open conversation" button */
       var btnConv = document.getElementById('bc-open-conv-btn');
@@ -14439,6 +14662,150 @@ function bcFieldEditUpdateGuestPreview(){
   bcFieldEditUpdateGuestsSaveState();
 }
 
+/* Phase 10.5f — cancel reservation (confirmation required; reload drawer + calendar) */
+var bcCancelCtx = {
+  bookingId: null,
+  bookingCode: null,
+  guestName: null,
+  checkIn: null,
+  checkOut: null,
+  inFlight: false,
+};
+
+function bcBookingStatusIsCancelled(status){
+  var s = String(status || '').toLowerCase();
+  return s === 'cancelled' || s === 'canceled' || s === 'expired';
+}
+
+function bcNewCancelIdempotencyKey(){
+  return 'bc-cancel-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcCancelFormatDatesLine(bk){
+  bk = bk || {};
+  var cin = bk.check_in || '\u2014';
+  var cout = bk.check_out || '\u2014';
+  return cin + ' \u2192 ' + cout;
+}
+
+function bcCloseCancelConfirm(){
+  var host = el('bc-cancel-confirm-host');
+  if (host) host.innerHTML = '';
+}
+
+function bcRenderCancelConfirmPanel(data){
+  var bk = (data && data.booking) || {};
+  var host = el('bc-cancel-confirm-host');
+  if (!host) return;
+  host.innerHTML =
+    '<div class="bc-cancel-confirm" id="bc-cancel-confirm" role="dialog" aria-labelledby="bc-cancel-confirm-title">' +
+    '<div class="bc-cancel-confirm-title" id="bc-cancel-confirm-title">Cancel reservation?</div>' +
+    '<div class="bc-cancel-confirm-meta">' +
+    '<div><strong>Booking:</strong> ' + escHtml(bk.booking_code || bcCancelCtx.bookingCode || '\u2014') + '</div>' +
+    '<div><strong>Guest:</strong> ' + escHtml(bk.guest_name || bcCancelCtx.guestName || '\u2014') + '</div>' +
+    '<div><strong>Dates:</strong> ' + escHtml(bcCancelFormatDatesLine(bk)) + '</div>' +
+    '</div>' +
+    '<div class="bc-cancel-confirm-warn">This will cancel the booking and release assigned beds. No refund or Stripe action will happen.</div>' +
+    '<div class="bc-cancel-confirm-actions">' +
+    '<button type="button" class="btn btn-danger-light" id="bc-cancel-confirm-btn">Confirm cancellation</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-cancel-keep-btn">Back / Keep reservation</button>' +
+    '</div></div>';
+  var keepBtn = el('bc-cancel-keep-btn');
+  if (keepBtn) keepBtn.onclick = function(){ bcCloseCancelConfirm(); };
+  var confirmBtn = el('bc-cancel-confirm-btn');
+  if (confirmBtn) confirmBtn.onclick = function(){ bcRunCancelReservation(); };
+}
+
+function bcRenderCancelResult(data, isError){
+  var box = el('bc-cancel-result');
+  if (!box) return;
+  if (isError || !data || !data.success){
+    box.innerHTML = '<div class="state-msg error" style="margin-top:10px">' +
+      escHtml((data && data.error) || (data && data.message) || 'Cancellation failed.') + '</div>';
+    return;
+  }
+  box.innerHTML = '<div class="state-msg" style="margin-top:10px;color:#5C7350;background:#F3FAF1;border:1px solid #B5D3AD;border-radius:6px;padding:8px 10px">' +
+    escHtml(data.message || 'Booking cancelled.') +
+    (data.beds_released_count != null
+      ? '<div style="margin-top:4px;font-size:11px">Beds released: ' + escHtml(String(data.beds_released_count)) + '</div>'
+      : '') +
+    '</div>';
+}
+
+function bcRunCancelReservation(){
+  if (bcCancelCtx.inFlight) return;
+  var code = bcCancelCtx.bookingCode;
+  if (!code) return;
+  bcCancelCtx.inFlight = true;
+  var confirmBtn = el('bc-cancel-confirm-btn');
+  var openBtn = el('bc-cancel-reservation-btn');
+  if (confirmBtn) confirmBtn.disabled = true;
+  if (openBtn) openBtn.disabled = true;
+  bcRenderCancelResult({ success: true, message: 'Cancelling reservation\u2026' }, false);
+  fetch('/staff/bookings/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_slug: getBcClient(),
+      booking_id: bcCancelCtx.bookingId,
+      booking_code: bcCancelCtx.bookingCode,
+      idempotency_key: bcNewCancelIdempotencyKey(),
+      reason: 'Cancelled from Staff Portal',
+    }),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      bcCancelCtx.inFlight = false;
+      var data = res.data || {};
+      if (!res.ok || !data.success){
+        bcRenderCancelResult({
+          success: false,
+          error: data.error || ('Cancel failed (HTTP ' + res.status + ')'),
+          message: data.message,
+        }, true);
+        if (confirmBtn) confirmBtn.disabled = false;
+        if (openBtn) openBtn.disabled = false;
+        return;
+      }
+      bcCloseCancelConfirm();
+      bcRenderCancelResult(data, false);
+      if (code) loadBlockDetail(code);
+      if (typeof loadBedCalendar === 'function') loadBedCalendar();
+    })
+    .catch(function(e){
+      bcCancelCtx.inFlight = false;
+      bcRenderCancelResult({ success: false, error: e.message || 'Network error' }, true);
+      if (confirmBtn) confirmBtn.disabled = false;
+      if (openBtn) openBtn.disabled = false;
+    });
+}
+
+function bcInitBookingCancelShell(data){
+  var bk = (data && data.booking) || {};
+  bcCancelCtx.bookingId = bk.booking_id || null;
+  bcCancelCtx.bookingCode = bk.booking_code || null;
+  bcCancelCtx.guestName = bk.guest_name || null;
+  bcCancelCtx.checkIn = bk.check_in || null;
+  bcCancelCtx.checkOut = bk.check_out || null;
+  bcCancelCtx.inFlight = false;
+  bcCloseCancelConfirm();
+  var openBtn = el('bc-cancel-reservation-btn');
+  if (!openBtn) return;
+  if (bcBookingStatusIsCancelled(bk.status)){
+    openBtn.style.display = 'none';
+    openBtn.disabled = true;
+    return;
+  }
+  openBtn.style.display = '';
+  openBtn.disabled = false;
+  openBtn.onclick = function(){
+    if (bcCancelCtx.inFlight) return;
+    bcRenderCancelConfirmPanel(data);
+    var host = el('bc-cancel-confirm-host');
+    if (host) host.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+}
+
 function bcInitFieldEditShell(data){
   var bk = (data && data.booking) || {};
   bcFieldEditState.clientSlug = getBcClient();
@@ -14560,6 +14927,14 @@ function renderBookingContextDrawer(data){
 
   /* ── Phase 10.4e — field edit UI shell (contact / dates / guests / package) ─ */
   html += bcRenderFieldEditSectionsHtml(data);
+
+  /* ── Phase 10.5f — Cancel reservation (active bookings only) ─────────────── */
+  if (!bcBookingStatusIsCancelled(bk.status)) {
+    html += '<div class="ctx-section ctx-booking-cancel" id="bc-booking-cancel">';
+    html += '<button type="button" class="btn btn-danger-light" id="bc-cancel-reservation-btn">Cancel reservation</button>';
+    html += '<div id="bc-cancel-result" aria-live="polite"></div>';
+    html += '</div>';
+  }
 
   /* ── Phase 10.3e / 10.3e.1 / 10.3h — Move bed (under stay details, above Payment) ─ */
   var rmMove = data.rooming || {};
@@ -15499,7 +15874,9 @@ function buildRoomHierarchy(roomRows) {
 }
 
 function buildCalendarBlocks(blockRows, startDate, endDate) {
-  return blockRows.map(row => {
+  return blockRows
+    .filter(row => !bookingStatusIsCancelled(row.booking_status))
+    .map(row => {
     const span = computeBlockSpan(row, startDate, endDate);
     return {
       booking_id:        row.booking_id,
@@ -16397,6 +16774,17 @@ async function router(req, res) {
     return handleBookingEditWrite(req, res, auth.user);
   }
 
+  // ── Phase 10.5f — Booking cancel (Staff Portal internal write) ─────────────
+  if (pathname === '/staff/bookings/cancel') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/cancel' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingCancel(req, res, auth.user);
+  }
+
   // ── Phase 10.3b — Booking move write (gated; single-bed same dates) ────────
   if (pathname === '/staff/bookings/move') {
     if (method !== 'POST') {
@@ -16755,6 +17143,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-change preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edit preview (calculate-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c contact + package edit write (ENABLED)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel reservation (beds released; no refund)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);

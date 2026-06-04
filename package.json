@@ -96,6 +96,7 @@
     "verify:staff-booking-package-save-ui": "node scripts/verify-staff-booking-package-save-ui.js",
     "verify:staff-booking-date-save-ui": "node scripts/verify-staff-booking-date-save-ui.js",
     "verify:staff-booking-guest-save-ui": "node scripts/verify-staff-booking-guest-save-ui.js",
+    "verify:staff-booking-cancel-ui": "node scripts/verify-staff-booking-cancel-ui.js",
     "verify:staff-booking-contact-save-ui": "node scripts/verify-staff-booking-contact-save-ui.js",
     "verify:staff-today-navigation-ui": "node scripts/verify-staff-today-navigation-ui.js",
     "verify:staff-stripe-payment-link-api": "node scripts/verify-staff-stripe-payment-link-api.js",
