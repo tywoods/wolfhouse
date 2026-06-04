@@ -37,12 +37,12 @@ try {
   fail('staff-query-api.js passes node --check');
 }
 
-const handlerMatch = src.match(/async function handleBookingEditWrite[\s\S]*?async function handleQuotePreview/);
+const handlerMatch = src.match(/async function handleBookingEditWrite\(req[\s\S]*?async function handleQuotePreview/);
+const previewHandlerMatch = src.match(/async function handleBookingEditPreview[\s\S]*?async function handleBookingEditWritePackage/);
 const handlerBlock = handlerMatch ? handlerMatch[0] : '';
 const routeIdx = src.indexOf("if (pathname === '/staff/bookings/edit')");
 const routeSlice = routeIdx >= 0 ? src.slice(routeIdx, routeIdx + 800) : '';
 const fieldBlock = src.match(/\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function bcInitFieldEditShell[\s\S]*?\n  if \(cout\)/)?.[0] || '';
-const previewHandlerMatch = src.match(/async function handleBookingEditPreview[\s\S]*?async function handleBookingEditWrite/);
 const previewHandlerBlock = previewHandlerMatch ? previewHandlerMatch[0] : '';
 const contactUpdateSql = src.match(/const EDIT_WRITE_CONTACT_UPDATE_SQL = `([\s\S]*?)`;/);
 const contactUpdateBlock = contactUpdateSql ? contactUpdateSql[1] : '';
@@ -91,17 +91,23 @@ check(/phone:\s*patch\.phone !== undefined/.test(src) || /patch\.phone !== undef
 check(/email:\s*patch\.email !== undefined/.test(src) || /patch\.email !== undefined/.test(handlerBlock),
   'merge applies explicit email patch including null clear');
 
-console.log('\nC. Contact-only scope (10.5b)');
+console.log('\nC. Contact write scope (10.5b path)');
 
-check(/editType !== 'contact'/.test(handlerBlock) &&
-  /edit_type_not_supported_in_phase_10_5b/.test(handlerBlock),
-  'unsupported edit_type rejected in Phase 10.5b');
-check(/editType === 'dates'/.test(previewHandlerBlock) &&
-  !/editType === 'dates'/.test(handlerBlock),
-  'no dates write in contact slice');
-check(/editType === 'package'/.test(previewHandlerBlock) &&
-  !/editType === 'package'/.test(handlerBlock),
-  'no package write in contact slice');
+check(/EDIT_WRITE_SUPPORTED_TYPES/.test(src) && /'contact'/.test(src),
+  'contact remains in EDIT_WRITE_SUPPORTED_TYPES');
+check(/handleBookingEditWritePackage/.test(src),
+  'package write lives in separate handler (10.5c)');
+check(/if \(editType === 'package'\)/.test(handlerBlock),
+  'main handler routes package before contact patch');
+check(/edit_type_not_supported_in_phase_10_5c/.test(handlerBlock),
+  'dates/guests rejected in write handler');
+check(/editType === 'dates'/.test(previewHandlerBlock),
+  'dates remains edit-preview only');
+check(!/check_in\s*=|check_out\s*=/.test(contactUpdateBlock),
+  'contact UPDATE does not set check_in/check_out');
+check(/EDIT_WRITE_PACKAGE_UPDATE_SQL/.test(src) &&
+  !/EDIT_WRITE_PACKAGE_UPDATE_SQL/.test(handlerBlock),
+  'package UPDATE SQL not in contact handler tail');
 check(/if \(editType === 'guests'\)|editType === 'guests'/.test(previewHandlerBlock) ||
   /\/\/ edit_type === 'guests'/.test(previewHandlerBlock),
   'guest decrease remains preview-only in edit-preview');

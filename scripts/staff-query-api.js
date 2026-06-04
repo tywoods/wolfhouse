@@ -3625,6 +3625,7 @@ async function handleBookingDateChangePreview(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
+const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package']);
 const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({ package: true, package_proration: true, room_supplement: true });
 const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
 
@@ -3731,6 +3732,28 @@ RETURNING
   b.email
 `;
 
+const EDIT_WRITE_PACKAGE_UPDATE_SQL = `
+UPDATE bookings b
+SET package_code = $3,
+    total_amount_cents = $4,
+    balance_due_cents = $5,
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb
+FROM clients c
+WHERE b.client_id = c.id
+  AND c.slug = $1
+  AND b.id::text = $2
+RETURNING
+  b.id::text           AS booking_id,
+  b.booking_code,
+  b.package_code,
+  b.total_amount_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents,
+  b.guest_name,
+  b.phone,
+  b.email
+`;
+
 function editWriteContactSnapshot(row) {
   return {
     guest_name: row.guest_name,
@@ -3789,6 +3812,41 @@ function editWriteContactBookingSummary(row) {
     guest_name:   row.guest_name,
     phone:        row.phone || null,
     email:        row.email || null,
+  };
+}
+
+function editWritePackageSnapshot(row) {
+  return {
+    package_code:        row.package_code || null,
+    total_amount_cents:  row.total_amount_cents != null ? Number(row.total_amount_cents) : null,
+    balance_due_cents:   row.balance_due_cents != null ? Number(row.balance_due_cents) : null,
+  };
+}
+
+function editWritePackageBookingSummary(row) {
+  return {
+    booking_id:   row.booking_id,
+    booking_code: row.booking_code,
+    package_code: row.package_code || null,
+    guest_name:   row.guest_name,
+    phone:        row.phone || null,
+    email:        row.email || null,
+  };
+}
+
+function editWriteInvoiceImpactFromPreview(invoicePreview, packageChanged) {
+  const proposed = (invoicePreview && invoicePreview.proposed) || {};
+  return {
+    requires_reprice:     !!(invoicePreview && invoicePreview.requires_reprice),
+    package_changed:    !!packageChanged,
+    payment_mutation:   false,
+    stripe_mutation:    false,
+    total_amount_cents: proposed.total_amount_cents != null ? proposed.total_amount_cents : null,
+    balance_due_cents:  proposed.balance_due_cents != null ? proposed.balance_due_cents : null,
+    needs_refund:       proposed.needs_refund === true,
+    delta_amount_cents: invoicePreview && invoicePreview.delta_amount_cents != null
+      ? invoicePreview.delta_amount_cents
+      : null,
   };
 }
 
@@ -4367,13 +4425,182 @@ async function handleBookingEditPreview(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 10.5b — Booking field edit write (gated; contact only)
+// Phase 10.5b/10.5c — Booking field edit write (gated; contact + package)
 //
 // POST /staff/bookings/edit
 //
-// Gate: BOOKING_EDIT_WRITE_ENABLED=true. Updates bookings guest_name/phone/email only.
-// No package/date/guest writes, beds, payments, service records, Stripe, n8n, or WhatsApp.
+// Gate: BOOKING_EDIT_WRITE_ENABLED=true.
+// contact: guest_name/phone/email. package: package_code + expected invoice amounts.
+// No date/guest writes, beds, payments, service records, Stripe, n8n, or WhatsApp.
 // ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBookingEditWritePackage(
+  res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
+) {
+  const packageCode = body.package_code != null ? String(body.package_code).trim().toLowerCase() : '';
+  if (!packageCode) return send400(res, 'package_code is required');
+
+  const auditResponse = {
+    actor: actorLabel,
+    reason: auditBase.reason,
+    idempotency_key: auditBase.idempotency_key,
+  };
+
+  let bookingRow, svcRows;
+  try {
+    const loaded = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      const booking = bookingRes.rows[0] || null;
+      if (!booking) return { bookingRow: null, svcRows: [] };
+      const svc = await loadBookingServiceRecords(pg, clientSlug, booking.booking_code);
+      return { bookingRow: booking, svcRows: svc.rows };
+    });
+    bookingRow = loaded.bookingRow;
+    svcRows = loaded.svcRows;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'edit write query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', updated: false, would_mutate: false });
+  }
+
+  if (!editPreviewIsValidPackage(packageCode, bookingRow.package_code)) {
+    return send400(res, 'package_code is not a recognized package');
+  }
+
+  bookingRow._client_slug = clientSlug;
+  const currentPkg = String(bookingRow.package_code || '').trim().toLowerCase();
+  const before = editWritePackageSnapshot(bookingRow);
+
+  if (currentPkg === packageCode) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, updated: false, idempotent: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: false,
+      idempotent: true,
+      edit_type: 'package',
+      booking: editWritePackageBookingSummary(bookingRow),
+      before,
+      after: before,
+      invoice_impact: editWriteInvoiceImpactFromPreview(null, false),
+      audit: auditResponse,
+      message: 'Booking package already matches the requested package_code.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const pricingAffects = true;
+  const invoice_preview = editPreviewBuildInvoicePreview(
+    bookingRow,
+    svcRows,
+    { package_code: packageCode },
+    pricingAffects
+  );
+  const invoice_impact = editWriteInvoiceImpactFromPreview(invoice_preview, true);
+
+  if (invoice_preview.requires_reprice &&
+      (invoice_preview.proposed == null || invoice_preview.proposed.total_amount_cents == null)) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: 'package_reprice_calculation_unavailable',
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'package_reprice_calculation_unavailable',
+      edit_type: 'package',
+      updated: false,
+      would_mutate: false,
+      before: { package_code: bookingRow.package_code || null },
+      proposed: { package_code: packageCode },
+      invoice_impact,
+      invoice_preview,
+      message: 'Package change could not be calculated. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const proposedTotals = invoice_preview.proposed || {};
+  const totalCents = proposedTotals.total_amount_cents;
+  const balanceDue = proposedTotals.balance_due_cents != null ? proposedTotals.balance_due_cents : 0;
+
+  const quote = editPreviewTryQuote(
+    clientSlug,
+    bookingRow.check_in,
+    bookingRow.check_out,
+    Number(bookingRow.guest_count) || 1,
+    packageCode
+  );
+  const metadataPatch = (quote && quote.success)
+    ? JSON.stringify({ quote_snapshot: quote })
+    : '{}';
+
+  try {
+    const updatedRow = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const upd = await pg.query(EDIT_WRITE_PACKAGE_UPDATE_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+          packageCode,
+          totalCents,
+          balanceDue,
+          metadataPatch,
+        ]);
+        if (!upd.rows[0]) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+        await pg.query('COMMIT');
+        return upd.rows[0];
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    if (!updatedRow) {
+      appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'package update failed', updated: false });
+    }
+
+    const after = editWritePackageSnapshot(updatedRow);
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      updated: true,
+      before,
+      after,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: true,
+      edit_type: 'package',
+      booking: editWritePackageBookingSummary(updatedRow),
+      before,
+      after,
+      invoice_impact,
+      invoice_preview,
+      audit: auditResponse,
+      message: 'Booking package updated. Expected invoice amounts recalculated. No payment, bed, service, Stripe, n8n, or WhatsApp changes were made.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'package update failed', detail: err.message, updated: false });
+  }
+}
 
 async function handleBookingEditWrite(req, res, user) {
   const started = Date.now();
@@ -4438,20 +4665,29 @@ async function handleBookingEditWrite(req, res, user) {
     reason,
   };
 
-  if (editType !== 'contact') {
+  if (!EDIT_WRITE_SUPPORTED_TYPES.includes(editType)) {
+    const unsupportedErr = (editType === 'dates' || editType === 'guests')
+      ? 'edit_type_not_supported_in_phase_10_5c'
+      : 'edit_type_not_supported';
     appendAuditLog({
       ...auditBase,
       success: false,
-      error: 'edit_type_not_supported_in_phase_10_5b',
+      error: unsupportedErr,
       elapsed_ms: Date.now() - started,
     });
     return sendJSON(res, 400, {
       success: false,
-      error: 'edit_type_not_supported_in_phase_10_5b',
+      error: unsupportedErr,
       edit_type: editType,
       updated: false,
       would_mutate: false,
     });
+  }
+
+  if (editType === 'package') {
+    return handleBookingEditWritePackage(
+      res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
+    );
   }
 
   const contactPatch = editWriteParseContactPatch(body);
