@@ -106,6 +106,11 @@ const {
   fetchAskLunaHandoffRows,
   formatAskLunaHandoffsAnswer,
 } = require('./lib/staff-ask-luna-handoffs');
+const {
+  resolveAskLunaOccupancyIntentKey,
+  getAskLunaOccupancyOnNightQuery,
+  formatAskLunaOccupancyAnswer,
+} = require('./lib/staff-ask-luna-occupancy');
 const { getStormglassConfigStatus } = require('./lib/staff-stormglass-config');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
@@ -1530,6 +1535,8 @@ const ASK_LUNA_LOCAL_QUERY = {
   'housekeeping.cleaning_today':    getAskLunaCleaningOnDateQuery,
   'housekeeping.cleaning_tomorrow': getAskLunaCleaningOnDateQuery,
   'housekeeping.cleaning_on_date':  getAskLunaCleaningOnDateQuery,
+  'bookings.occupancy_tonight':       getAskLunaOccupancyOnNightQuery,
+  'bookings.occupancy_tomorrow_night': getAskLunaOccupancyOnNightQuery,
   'bookings.lookup':               getAskLunaBookingLookupByCodeQuery,
 };
 
@@ -1563,6 +1570,11 @@ function resolveNaturalLanguageIntent(question) {
     question, REGISTRY_BY_KEY, refDate,
   );
   if (cleaningIntentEarly) return cleaningIntentEarly;
+
+  const occupancyIntentEarly = resolveAskLunaOccupancyIntentKey(
+    question, REGISTRY_BY_KEY, refDate,
+  );
+  if (occupancyIntentEarly) return occupancyIntentEarly;
 
   const arrivalsCheckoutsIntentEarly = resolveAskLunaArrivalsCheckoutsIntentKey(
     question, REGISTRY_BY_KEY, refDate,
@@ -1744,6 +1756,8 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'bookings.checkouts_today':     'No checkouts are currently scheduled for today.',
       'bookings.checkouts_tomorrow':  'No checkouts are currently scheduled for tomorrow.',
       'bookings.checkouts_on_date':   'No checkouts are currently scheduled for that date.',
+      'bookings.occupancy_tonight':       'No active guests are staying tonight.',
+      'bookings.occupancy_tomorrow_night': 'No active guests are staying tomorrow night.',
       'housekeeping.cleaning_today':    'No rooms or beds are currently flagged for checkout cleaning today.',
       'housekeeping.cleaning_tomorrow': 'No rooms or beds are currently flagged for checkout cleaning tomorrow.',
       'housekeeping.cleaning_on_date':  `No rooms or beds are currently flagged for checkout cleaning ${when}.`,
@@ -1892,6 +1906,9 @@ function formatAnswer(intentKey, rows, ctx = {}) {
     case 'housekeeping.cleaning_tomorrow':
     case 'housekeeping.cleaning_on_date':
       return formatAskLunaCleaningAnswer(rows, ctx);
+    case 'bookings.occupancy_tonight':
+    case 'bookings.occupancy_tomorrow_night':
+      return formatAskLunaOccupancyAnswer(rows, ctx);
     case 'bookings.lookup':
       return formatAskLunaBookingLookupAnswer(rows, ctx);
     default: {
@@ -2070,6 +2087,7 @@ async function handleAskLuna(req, res) {
       dateLabel: extraParams.dateLabel || 'today',
       serviceCategory: extraParams.serviceCategory,
       flow: extraParams.flow,
+      nightLabel: extraParams.nightLabel,
       lookupMode: extraParams.lookupMode,
       lookupFocus: extraParams.lookupFocus,
       searchValue: extraParams.searchValue,

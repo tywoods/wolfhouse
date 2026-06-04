@@ -352,6 +352,7 @@ function extractAskLunaRouterChunk() {
     const cleaningLib = require('./lib/staff-ask-luna-cleaning');
     const bookingLookupLib = require('./lib/staff-ask-luna-booking-lookup');
     const handoffsLib = require('./lib/staff-ask-luna-handoffs');
+    const occupancyLib = require('./lib/staff-ask-luna-occupancy');
     const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
     const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
     const mealsYogaRoutingBlock = mealsYogaLib.getAskLunaMealsYogaRoutingSmokeBlock();
@@ -359,6 +360,7 @@ function extractAskLunaRouterChunk() {
     const cleaningRoutingBlock = cleaningLib.getAskLunaCleaningRoutingSmokeBlock();
     const bookingLookupRoutingBlock = bookingLookupLib.getAskLunaBookingLookupRoutingSmokeBlock();
     const handoffsRoutingBlock = handoffsLib.getAskLunaHandoffsRoutingSmokeBlock();
+    const occupancyRoutingBlock = occupancyLib.getAskLunaOccupancyRoutingSmokeBlock();
     const registryKeys = [...require('./lib/staff-query-registry').REGISTRY_BY_KEY.keys()];
     const wrapped = `
       const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
@@ -371,6 +373,7 @@ function extractAskLunaRouterChunk() {
       ${cleaningRoutingBlock}
       ${bookingLookupRoutingBlock}
       ${handoffsRoutingBlock}
+      ${occupancyRoutingBlock}
       const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) {
@@ -400,6 +403,9 @@ function extractAskLunaRouterChunk() {
         }
         if (String(id).includes('staff-ask-luna-handoffs')) {
           return { resolveAskLunaHandoffsIntentKey };
+        }
+        if (String(id).includes('staff-ask-luna-occupancy')) {
+          return { resolveAskLunaOccupancyIntentKey };
         }
         throw new Error('unexpected require: ' + id);
       };
@@ -469,9 +475,15 @@ function extractAskLunaRouterChunk() {
       resolveIntent('Any urgent handoffs?').intentKey === 'handoffs.urgent');
     check('K-I20', 'runtime: registry handoffs.open → handoffs.open',
       resolveIntent('handoffs.open').intentKey === 'handoffs.open');
+    check('K-I21', 'runtime: who is staying tonight → bookings.occupancy_tonight',
+      resolveIntent('Who is staying tonight?').intentKey === 'bookings.occupancy_tonight');
+    check('K-I22', 'runtime: occupied tomorrow night → bookings.occupancy_tomorrow_night',
+      resolveIntent('Which rooms are occupied tomorrow night?').intentKey === 'bookings.occupancy_tomorrow_night');
+    check('K-I23', 'runtime: currently in house → bookings.occupancy_tonight',
+      resolveIntent('Who is currently in house?').intentKey === 'bookings.occupancy_tonight');
   } catch (e) {
     check('K-I1', 'runtime intent routing smoke', false, e.message);
-    ['K-I2', 'K-I3', 'K-I4', 'K-I4b', 'K-I4c', 'K-I4d', 'K-I4e', 'K-I4f', 'K-I4g', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13', 'K-I14', 'K-I15', 'K-I16', 'K-I17', 'K-I18', 'K-I19', 'K-I20']
+    ['K-I2', 'K-I3', 'K-I4', 'K-I4b', 'K-I4c', 'K-I4d', 'K-I4e', 'K-I4f', 'K-I4g', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13', 'K-I14', 'K-I15', 'K-I16', 'K-I17', 'K-I18', 'K-I19', 'K-I20', 'K-I21', 'K-I22', 'K-I23']
       .forEach(id => check(id, 'runtime intent routing smoke (skipped)', false, e.message));
   }
 })();
