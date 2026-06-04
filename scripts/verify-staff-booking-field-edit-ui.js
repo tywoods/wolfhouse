@@ -88,13 +88,13 @@ console.log('\nC. Pencil icon edit controls (10.4f.3)');
 check(/function bcRenderFieldEditPencilBtn/.test(src), 'pencil edit button helper exists');
 check(/\\u270E/.test(renderField), 'pencil icon character in edit buttons');
 check(!/>Edit<\/button>/.test(renderField), 'visible Edit text removed from field buttons');
-check(/bcRenderFieldEditPencilBtn\('contact', 'Edit contact'\)/.test(renderField),
+check(/bcRenderFieldEditReadRow\('contact', 'Edit contact'/.test(renderField),
   'accessible label for contact edit');
-check(/bcRenderFieldEditPencilBtn\('dates', 'Edit dates'\)/.test(renderField),
+check(/bcRenderFieldEditReadRow\('dates', 'Edit dates'/.test(renderField),
   'accessible label for dates edit');
-check(/bcRenderFieldEditPencilBtn\('guests', 'Edit guests'\)/.test(renderField),
+check(/bcRenderFieldEditReadRow\('guests', 'Edit guests'/.test(renderField),
   'accessible label for guests edit');
-check(/bcRenderFieldEditPencilBtn\('package', 'Edit package'\)/.test(renderField),
+check(/bcRenderFieldEditReadRow\('package', 'Edit package'/.test(renderField),
   'accessible label for package edit');
 
 console.log('\nD. Contact edit shell');
@@ -207,22 +207,40 @@ try {
   fail('package.json readable for script check');
 }
 
-console.log('\nM. Drawer spacing + stale warnings removed (10.6a.4)');
+console.log('\nM. Drawer compact horizontal field rows (10.6a)');
 
 check(!/bc-detail-note/.test(src) || !/write gates approved/.test(src),
-  '10.6a.4: bc-detail-note read-only gate banner removed');
+  '10.6a: bc-detail-note read-only gate banner removed');
 check(!/Bed calendar is read-only/.test(src.match(/function showBlockDetail[\s\S]*?function loadBlockDetail/)?.[0] || ''),
-  '10.6a.4: no read-only bed calendar banner in showBlockDetail');
+  '10.6a: no read-only bed calendar banner in showBlockDetail');
 check(!/Planned operations/.test(drawerFn),
-  '10.6a.4: Planned operations stale block removed from drawer');
+  '10.6a: Planned operations stale block removed from drawer');
 check(!/write gates not approved/.test(drawerFn),
-  '10.6a.4: write gates not approved copy removed from drawer');
+  '10.6a: write gates not approved copy removed from drawer');
 check(/ctx-field-edit-group/.test(renderField) && !/ctx-section ctx-field-edit-group/.test(renderField),
-  '10.6a.4: field sections use compact ctx-field-edit-group without ctx-section chrome');
-check(/#bc-ctx-body \.ctx-field-edit-group \.kv-grid/.test(src),
-  '10.6a.4: field kv-grid uses compact single-column layout');
+  '10.6a: field sections use compact ctx-field-edit-group without ctx-section chrome');
+check(/function bcRenderFieldEditReadRow/.test(renderField),
+  '10.6a: horizontal read-row helper exists');
+check(/ctx-field-read-row/.test(renderField) && /\.ctx-field-read-row \.kv-grid/.test(src),
+  '10.6a: kv-grid renders horizontal inside read row');
+check(!/flex-direction:column[\s\S]{0,40}max-width:440px/.test(
+  src.match(/ctx-field-read-row[\s\S]{0,400}/)?.[0] || ''),
+  '10.6a: removed vertical-only kv-grid spacer override');
+check(/kvBC\('Name'[\s\S]*kvBC\('Phone'[\s\S]*kvBC\('Email'[\s\S]*bcRenderFieldEditReadRow\('contact'/.test(renderField),
+  '10.6a: contact Name/Phone/Email share one kv-grid row');
+check(/kvBC\('Check-in'[\s\S]*kvBC\('Check-out'[\s\S]*bcRenderFieldEditReadRow\('dates'/.test(renderField),
+  '10.6a: check-in/check-out/nights share one kv-grid row');
+check(/bcRenderFieldEditReadRow\('guests', 'Edit guests', kvBC\('Guests'/.test(renderField),
+  '10.6a: guests value on compact read row');
+check(/kvBC\('Package'/.test(renderField) && /kvBC\('Room pref'/.test(renderField) &&
+  /bcRenderFieldEditReadRow\('package'/.test(renderField),
+  '10.6a: package and room pref share one kv-grid row');
+check(/ctx-field-read-row[\s\S]*kv-grid[\s\S]*ctx-field-header[\s\S]*bcRenderFieldEditPencilBtn/.test(renderField),
+  '10.6a: pencil edit button at far right of read row');
+check(!/ctx-field-header-label/.test(renderField),
+  '10.6a: no GUEST/DATES/GUESTS/PACKAGE section title labels');
 check(/ctx-field-guests-preview:empty|has-preview/.test(src),
-  '10.6a.4: guests preview hidden until editing');
+  '10.6a: guests preview hidden until editing');
 check(/id="bc-field-save-contact"/.test(renderField) && /id="bc-field-save-dates"/.test(renderField),
   '10.6a.4: contact and dates Save controls still present');
 check(/id="bc-move-booking-btn"/.test(drawerFn) && /bcRenderAddServicePanelHtml/.test(drawerFn),
