@@ -35,7 +35,7 @@ function extractTourOperatorJs(source) {
   return end > start ? source.slice(start, end) : '';
 }
 
-console.log('\nverify-staff-tour-operator-actions.js  (Phase 10.7a)\n');
+console.log('\nverify-staff-tour-operator-actions.js  (Phase 10.7a.2)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -168,8 +168,32 @@ check(!/INSERT INTO payments|UPDATE payments|INSERT INTO booking_service_records
   'handlers do not mutate payments or booking_service_records');
 check(/no_whatsapp:\s*true/.test(createFn) || /no_whatsapp:\s*true/.test(src.match(/handleTourOperatorBlockCreate[\s\S]{0,2500}/)?.[0] || ''),
   'create response flags no_whatsapp');
-check(/loadOperatorRoomReleaseImpactPlan/.test(src) && /executeOperatorRoomRelease/.test(src),
-  'release reuses operator room release plan/execute helpers (no n8n)');
+check(/loadOperatorRoomReleaseImpactPlan/.test(src) && /tourOperatorExecuteRoomRelease/.test(src),
+  'release uses staff-portal execute with remainder bed assignments (no n8n)');
+
+console.log('\nK. Whole-room operator bed expansion + release remainder assignments');
+
+check(/async function tourOperatorAssignWholeRoomBeds/.test(src),
+  'tourOperatorAssignWholeRoomBeds helper exists');
+check(/TO_ROOM_BEDS_FOR_BLOCK_SQL/.test(src) && /bd\.active = TRUE/.test(src) && /bd\.sellable = TRUE/.test(src),
+  'room bed expansion uses active/sellable beds from rooms/beds tables');
+check(/operator_bed_assignment_count_mismatch/.test(src),
+  'bed assignment count mismatch triggers rollback error');
+check(/async function tourOperatorExecuteRoomRelease/.test(src),
+  'tourOperatorExecuteRoomRelease assigns beds in same transaction as split');
+const releaseExecSlice = src.match(/async function tourOperatorExecuteRoomRelease[\s\S]*?\nasync function handleTourOperatorRooms/)?.[0] || '';
+check(/tourOperatorAssignWholeRoomBeds/.test(releaseExecSlice) &&
+      /remainder segment A/.test(releaseExecSlice) &&
+      /remainder segment B/.test(releaseExecSlice),
+  'release A/B remainders call whole-room bed assignment for each segment');
+check(/await pg\.query\('ROLLBACK'\)/.test(releaseExecSlice),
+  'release execute rolls back on failure (no orphan remainder bookings without beds)');
+check(/tourOperatorAssignWholeRoomBeds/.test(createFn),
+  'operator create uses shared whole-room bed assignment helper');
+check(/booking_source::text, block_type::text/.test(src) &&
+      /row\.is_operator_block/.test(src) &&
+      /bedCalendarColorType/.test(src),
+  'bed calendar enriches booking_source for operator color_type styling');
 
 console.log('\nI. Package script');
 

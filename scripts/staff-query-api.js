@@ -110,7 +110,14 @@ const {
   normalizeOperatorName,
   normalizeRoomCode,
 } = require('./lib/operator-room-release-impact-plan');
-const { executeOperatorRoomRelease } = require('./lib/operator-room-release-pg-sql');
+const {
+  countPayments: toReleaseCountPayments,
+  countPaymentEvents: toReleaseCountPaymentEvents,
+  findCompletedRequestByCode: toReleaseFindCompletedRequest,
+  loadBookingSummary: toReleaseLoadBookingSummary,
+  validateDeterministicBlockCodes: toReleaseValidateBlockCodes,
+  EXECUTE_NOTES: TO_RELEASE_EXECUTE_NOTES,
+} = require('./lib/operator-room-release-pg-sql');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -19654,6 +19661,8 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       payment_status:    row.payment_status,
       assignment_status: row.assignment_status,
       booking_source:    row.booking_source || null,
+      block_type:        row.block_type || null,
+      is_operator_block: !!row.is_operator_block,
       room_code:         row.room_code,
       bed_code:          row.bed_code,
       start_date:        row.assignment_start_date,
@@ -19725,6 +19734,20 @@ async function handleBedCalendar(query, res, user) {
           pg.query(BED_CALENDAR_UNPAID_LINK_SQL, [bookingIds]),
         ]);
         mergeBedCalendarPaymentSnapshots(rows, ledgerSnap.rows, linkRows.rows);
+        const srcRes = await pg.query(
+          `SELECT id::text AS booking_id, booking_source::text, block_type::text
+           FROM bookings WHERE id = ANY($1::uuid[])`,
+          [bookingIds]
+        );
+        const srcMap = Object.fromEntries(srcRes.rows.map((r) => [r.booking_id, r]));
+        for (const row of rows) {
+          const extra = srcMap[row.booking_id];
+          if (extra) {
+            row.booking_source = extra.booking_source;
+            row.block_type = extra.block_type;
+            row.is_operator_block = extra.booking_source === 'operator' && extra.block_type === 'whole_room';
+          }
+        }
       }
       return [rr.rows, rows, sr.rows];
     });
@@ -19881,6 +19904,330 @@ function tourOperatorReleaseInputFromBody(body, clientSlug) {
 function tourOperatorPlanIsBlocked(plan) {
   if (!plan || plan.error) return true;
   return (plan.actionable || []).some((a) => TO_RELEASE_BLOCKING_ACTIONS.has(a));
+}
+
+/** All active/sellable beds in room — booking_beds for operator whole_room blocks. */
+async function tourOperatorAssignWholeRoomBeds(pg, {
+  clientId,
+  clientSlug,
+  bookingId,
+  roomCode,
+  checkIn,
+  checkOut,
+  operatorName,
+  assignmentNotes = 'Staff Portal tour operator whole-room block',
+  replaceExisting = true,
+}) {
+  const beds = (await pg.query(TO_ROOM_BEDS_FOR_BLOCK_SQL, [clientSlug, roomCode])).rows;
+  if (!beds.length) {
+    throw Object.assign(new Error('room_not_found_or_no_active_beds'), { code: 'no_room_beds' });
+  }
+  if (replaceExisting) {
+    await pg.query(
+      `DELETE FROM booking_beds WHERE client_id = $1 AND booking_id = $2`,
+      [clientId, bookingId]
+    );
+  }
+  for (const bed of beds) {
+    await pg.query(
+      `INSERT INTO booking_beds (
+         client_id, booking_id, bed_id, assignment_type, assignment_notes,
+         assignment_start_date, assignment_end_date, guest_name, room_code, bed_code
+       ) VALUES (
+         $1, $2, $3::uuid, 'operator_block', $4,
+         $5::date, $6::date, $7, $8, $9
+       )`,
+      [
+        clientId, bookingId, bed.bed_id, assignmentNotes,
+        checkIn, checkOut, operatorName, bed.room_code, bed.bed_code,
+      ]
+    );
+  }
+  const cntRes = await pg.query(
+    `SELECT COUNT(*)::int AS c FROM booking_beds WHERE client_id = $1 AND booking_id = $2`,
+    [clientId, bookingId]
+  );
+  const actual = cntRes.rows[0].c;
+  if (actual !== beds.length) {
+    throw Object.assign(new Error('operator_bed_assignment_count_mismatch'), {
+      expected: beds.length,
+      actual,
+      booking_id: bookingId,
+    });
+  }
+  await pg.query(
+    `UPDATE bookings SET assignment_status = 'assigned' WHERE id = $1 AND client_id = $2`,
+    [bookingId, clientId]
+  );
+  return { bed_count: beds.length, bed_codes: beds.map((b) => b.bed_code) };
+}
+
+function toReleaseAppendStaffNotes(existing, note) {
+  const base = String(existing || '').trim();
+  const addition = String(note || '').trim();
+  if (!addition) return base || null;
+  if (!base) return addition;
+  if (base.includes(addition)) return base;
+  return `${base}\n${addition}`;
+}
+
+async function toReleaseInsertBlockBooking(pg, clientId, bookingCode, blockPreview, operatorName, roomCode, roomId, splitNote) {
+  const metadata = JSON.stringify({
+    operator_release_block: bookingCode.endsWith('-A') ? 'A' : 'B',
+    operator_release_parent: bookingCode.replace(/-[AB]$/, ''),
+    source: 'operator-room-release-staff-portal',
+  });
+  const staffNotes = `${splitNote}\n${TO_RELEASE_EXECUTE_NOTES}`;
+  const { rows } = await pg.query(
+    `INSERT INTO bookings (
+       client_id, booking_code, guest_name, operator_name, booking_source, block_type,
+       status, payment_status, assignment_status, availability_check_status,
+       check_in, check_out, guest_count, primary_room_code, room_to_block_id,
+       staff_notes, deposit_required_cents, deposit_paid_cents, balance_due_cents,
+       total_amount_cents, amount_paid_cents, metadata
+     ) VALUES (
+       $1, $2, $3, $4, 'operator', 'whole_room', 'confirmed', 'not_requested',
+       'unassigned', 'unknown', $5::date, $6::date, 1, $7, $8, $9,
+       0, 0, 0, 0, 0, $10::jsonb
+     )
+     RETURNING id, booking_code, check_in::text AS check_in, check_out::text AS check_out`,
+    [
+      clientId, bookingCode, operatorName, operatorName,
+      blockPreview.check_in, blockPreview.check_out, roomCode, roomId, staffNotes, metadata,
+    ]
+  );
+  return rows[0];
+}
+
+async function toReleaseUpsertRequestProcessing(pg, clientId, input, roomId) {
+  if (input.requestCode) {
+    const { rows: existing } = await pg.query(
+      `SELECT id, status::text AS status FROM operator_room_release_requests
+       WHERE client_id = $1 AND request_code = $2 ORDER BY updated_at DESC LIMIT 1`,
+      [clientId, input.requestCode]
+    );
+    if (existing.length && existing[0].status === 'processing') {
+      return { error: 'request_stuck_processing', request_id: existing[0].id };
+    }
+    if (existing.length && existing[0].status !== 'completed') {
+      const { rows } = await pg.query(
+        `UPDATE operator_room_release_requests
+         SET status = 'processing', operator_name = $3, room_id = $4, room_code = $5,
+             release_start_date = $6::date, release_end_date = $7::date,
+             notes = COALESCE($8, notes), error_notes = NULL, updated_at = NOW()
+         WHERE id = $1 AND client_id = $2 RETURNING id`,
+        [
+          existing[0].id, clientId, input.operator, roomId, input.roomCode,
+          input.releaseStart, input.releaseEnd, input.notes || null,
+        ]
+      );
+      return { request_id: rows[0].id, created: false };
+    }
+  }
+  const { rows } = await pg.query(
+    `INSERT INTO operator_room_release_requests (
+       client_id, operator_name, room_id, room_code, release_start_date, release_end_date,
+       request_code, notes, status, airtable_record_id
+     ) VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, 'processing', $9)
+     RETURNING id`,
+    [
+      clientId, input.operator, roomId, input.roomCode,
+      input.releaseStart, input.releaseEnd, input.requestCode || null,
+      input.notes || null, input.releaseRecordId || null,
+    ]
+  );
+  return { request_id: rows[0].id, created: true };
+}
+
+async function toReleaseAssertPaymentsUnchanged(pg, clientId, bookingId, paymentsBefore, paymentStatusBefore) {
+  const paymentsAfter = await toReleaseCountPayments(pg, clientId, bookingId);
+  if (paymentsAfter !== paymentsBefore) {
+    throw new Error('payments row count changed unexpectedly');
+  }
+  const { rows } = await pg.query(
+    `SELECT payment_status::text AS payment_status FROM bookings WHERE id = $1 AND client_id = $2`,
+    [bookingId, clientId]
+  );
+  if (rows[0].payment_status !== paymentStatusBefore) {
+    throw new Error('payment_status changed unexpectedly');
+  }
+}
+
+/** Release execute with A/B remainder booking_beds for all active/sellable room beds. */
+async function tourOperatorExecuteRoomRelease(pg, plan, input) {
+  const clientId = plan.client_id;
+  const cancel = plan.cancel_phase;
+  const split = plan.split_phase;
+  const original = cancel.original_booking_preview;
+  const originalBookingId = original.booking_id;
+  const originalBookingCode = original.booking_code;
+  const clientSlug = input.clientSlug;
+  const roomCode = input.roomCode;
+
+  const completed = await toReleaseFindCompletedRequest(pg, clientId, input.requestCode);
+  if (completed) {
+    const orig = await toReleaseLoadBookingSummary(pg, clientId, completed.original_booking_id);
+    const blockA = completed.new_booking_a_id
+      ? await toReleaseLoadBookingSummary(pg, clientId, completed.new_booking_a_id) : null;
+    const blockB = completed.new_booking_b_id
+      ? await toReleaseLoadBookingSummary(pg, clientId, completed.new_booking_b_id) : null;
+    return {
+      idempotent: true,
+      request_id: completed.id,
+      request_code: completed.request_code,
+      original_booking: orig,
+      block_a: blockA,
+      block_b: blockB,
+    };
+  }
+
+  const { rows: origRows } = await pg.query(
+    `SELECT id, booking_code, status::text AS status, payment_status::text AS payment_status,
+            staff_notes, assignment_status::text AS assignment_status
+     FROM bookings WHERE id = $1 AND client_id = $2 FOR UPDATE`,
+    [originalBookingId, clientId]
+  );
+  if (!origRows.length) return { error: 'original_booking_not_found' };
+  const origBooking = origRows[0];
+
+  if (origBooking.status === 'cancelled' || origBooking.status === 'expired') {
+    return {
+      error: 'already_cancelled_ambiguous',
+      booking_code: origBooking.booking_code,
+      status: origBooking.status,
+    };
+  }
+
+  const paymentsBefore = await toReleaseCountPayments(pg, clientId, originalBookingId);
+  const eventsBefore = await toReleaseCountPaymentEvents(pg, clientId, originalBookingId);
+  if (paymentsBefore > 0 || eventsBefore > 0) {
+    return {
+      error: 'payments_exist',
+      payments_count: paymentsBefore,
+      payment_events_count: eventsBefore,
+    };
+  }
+
+  const blockValidation = await toReleaseValidateBlockCodes(
+    pg, clientId, originalBookingCode, split
+  );
+  if (blockValidation.error) return blockValidation;
+
+  const { codes } = blockValidation;
+  const splitNote = split.split_note;
+  const operatorName = input.operator;
+
+  await pg.query('BEGIN');
+  try {
+    const req = await toReleaseUpsertRequestProcessing(pg, clientId, input, plan.room.room_id);
+    if (req.error) {
+      throw Object.assign(new Error(req.error), { code: req.error, details: req });
+    }
+
+    const deleteBeds = await pg.query(
+      `DELETE FROM booking_beds WHERE client_id = $1 AND booking_id = $2`,
+      [clientId, originalBookingId]
+    );
+
+    const newStaffNotes = toReleaseAppendStaffNotes(origBooking.staff_notes, splitNote);
+    const updateOrig = await pg.query(
+      `UPDATE bookings
+       SET status = 'cancelled', assignment_status = 'needs_review',
+           availability_check_status = 'needs_review', staff_notes = $3, updated_at = NOW()
+       WHERE id = $1 AND client_id = $2`,
+      [originalBookingId, clientId, newStaffNotes]
+    );
+
+    let blockAId = blockValidation.existing_a?.id || null;
+    let blockBId = blockValidation.existing_b?.id || null;
+    let blockACode = null;
+    let blockBCode = null;
+    let blockABeds = null;
+    let blockBBeds = null;
+
+    if (split.should_create_a && !blockAId) {
+      const row = await toReleaseInsertBlockBooking(
+        pg, clientId, codes.a, split.block_a, operatorName, roomCode, plan.room.room_id, splitNote
+      );
+      blockAId = row.id;
+      blockACode = row.booking_code;
+    } else if (blockAId) {
+      blockACode = codes.a;
+    }
+    if (blockAId && split.block_a) {
+      blockABeds = await tourOperatorAssignWholeRoomBeds(pg, {
+        clientId, clientSlug, bookingId: blockAId, roomCode,
+        checkIn: split.block_a.check_in, checkOut: split.block_a.check_out, operatorName,
+        assignmentNotes: 'Operator room release remainder segment A',
+      });
+    }
+
+    if (split.should_create_b && !blockBId) {
+      const row = await toReleaseInsertBlockBooking(
+        pg, clientId, codes.b, split.block_b, operatorName, roomCode, plan.room.room_id, splitNote
+      );
+      blockBId = row.id;
+      blockBCode = row.booking_code;
+    } else if (blockBId) {
+      blockBCode = codes.b;
+    }
+    if (blockBId && split.block_b) {
+      blockBBeds = await tourOperatorAssignWholeRoomBeds(pg, {
+        clientId, clientSlug, bookingId: blockBId, roomCode,
+        checkIn: split.block_b.check_in, checkOut: split.block_b.check_out, operatorName,
+        assignmentNotes: 'Operator room release remainder segment B',
+      });
+    }
+
+    await pg.query(
+      `UPDATE operator_room_release_requests
+       SET status = 'completed', original_booking_id = $3, new_booking_a_id = $4,
+           new_booking_b_id = $5, error_notes = NULL, updated_at = NOW()
+       WHERE id = $1 AND client_id = $2`,
+      [req.request_id, clientId, originalBookingId, blockAId, blockBId]
+    );
+
+    await toReleaseAssertPaymentsUnchanged(
+      pg, clientId, originalBookingId, paymentsBefore, origBooking.payment_status
+    );
+
+    await pg.query('COMMIT');
+
+    return {
+      idempotent: false,
+      request_id: req.request_id,
+      request_code: input.requestCode || null,
+      original_booking_id: originalBookingId,
+      original_booking_code: originalBookingCode,
+      deleted_beds: deleteBeds.rowCount,
+      booking_rows_updated: updateOrig.rowCount,
+      block_a: blockAId ? {
+        id: blockAId,
+        booking_code: blockACode || codes.a,
+        bed_count: blockABeds ? blockABeds.bed_count : 0,
+        bed_codes: blockABeds ? blockABeds.bed_codes : [],
+      } : null,
+      block_b: blockBId ? {
+        id: blockBId,
+        booking_code: blockBCode || codes.b,
+        bed_count: blockBBeds ? blockBBeds.bed_count : 0,
+        bed_codes: blockBBeds ? blockBBeds.bed_codes : [],
+      } : null,
+      payments_count: paymentsBefore,
+      payment_events_count: eventsBefore,
+    };
+  } catch (err) {
+    await pg.query('ROLLBACK');
+    if (input.requestCode) {
+      await pg.query(
+        `UPDATE operator_room_release_requests
+         SET status = 'failed', error_notes = $3, updated_at = NOW()
+         WHERE client_id = $1 AND request_code = $2 AND status = 'processing'`,
+        [clientId, input.requestCode, String(err.message || err).slice(0, 500)]
+      ).catch(() => {});
+    }
+    throw err;
+  }
 }
 
 async function handleTourOperatorRooms(query, res, user) {
@@ -20065,22 +20412,15 @@ async function handleTourOperatorBlockCreate(req, res, user) {
         );
         const booking = bkIns.rows[0];
 
-        for (const bed of beds) {
-          await pg.query(
-            `INSERT INTO booking_beds (
-               client_id, booking_id, bed_id, assignment_type, assignment_notes,
-               assignment_start_date, assignment_end_date, guest_name, room_code, bed_code
-             ) VALUES (
-               $1, $2, $3::uuid, 'operator_block', $4,
-               $5::date, $6::date, $7, $8, $9
-             )`,
-            [
-              clientId, booking.id, bed.bed_id,
-              'Staff Portal tour operator whole-room block',
-              checkIn, checkOut, operatorName, bed.room_code, bed.bed_code,
-            ]
-          );
-        }
+        const bedAssign = await tourOperatorAssignWholeRoomBeds(pg, {
+          clientId,
+          clientSlug,
+          bookingId: booking.id,
+          roomCode,
+          checkIn,
+          checkOut,
+          operatorName,
+        });
 
         await pg.query('COMMIT');
         return {
@@ -20090,8 +20430,8 @@ async function handleTourOperatorBlockCreate(req, res, user) {
           check_out: booking.check_out,
           room_code: roomCode,
           operator_name: operatorName,
-          bed_count: beds.length,
-          bed_codes: beds.map((b) => b.bed_code),
+          bed_count: bedAssign.bed_count,
+          bed_codes: bedAssign.bed_codes,
         };
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
@@ -20232,7 +20572,7 @@ async function handleTourOperatorRelease(req, res, user) {
         return { error: 'booking_id_mismatch', status: 409 };
       }
 
-      const exec = await executeOperatorRoomRelease(pg, plan, input);
+      const exec = await tourOperatorExecuteRoomRelease(pg, plan, input);
       if (exec.error) return { error: exec.error, status: 409, detail: exec };
       return { exec, plan, booking: bk };
     });
