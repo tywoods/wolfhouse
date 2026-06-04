@@ -15115,18 +15115,86 @@ function bcFilterManualBookingQuoteWarnings(warnings){
   });
 }
 
+function bcQuoteReplaceCentDigits(note, fmtEur){
+  var out = '';
+  var i = 0;
+  while (i < note.length) {
+    if (note.charAt(i) >= '0' && note.charAt(i) <= '9') {
+      var j = i;
+      while (j < note.length && note.charAt(j) >= '0' && note.charAt(j) <= '9') j++;
+      if (note.charAt(j) === '\u00a2' || note.charAt(j) === '\u00a2') {
+        out += fmtEur(Number(note.slice(i, j)));
+        i = j + 1;
+        continue;
+      }
+    }
+    out += note.charAt(i);
+    i++;
+  }
+  return out;
+}
+
+function bcQuoteDigitsBeforeCent(s){
+  s = String(s || '');
+  var idx = s.indexOf('\u00a2');
+  if (idx < 0) idx = s.indexOf('\u00a2');
+  if (idx < 0) return NaN;
+  var digits = s.slice(0, idx).replace(/[^\d]/g, '');
+  return digits ? Number(digits) : NaN;
+}
+
+function bcQuoteParseTrailingInt(s, suffix){
+  s = String(s || '').trim();
+  if (suffix && s.slice(-suffix.length) !== suffix) return NaN;
+  var digits = (suffix ? s.slice(0, -suffix.length) : s).replace(/[^\d]/g, '');
+  return digits ? Number(digits) : NaN;
+}
+
 function bcQuoteAccommodationNote(li, fmtEur){
   if (!li || !li.note) return '';
   var note = String(li.note);
-  var m7 = note.match(/^7-night flat:\s*(\d+)¢\/person\/week\s*×\s*(\d+)g\s*=\s*(\d+)¢$/);
-  if (m7) {
-    return fmtEur(Number(m7[1])) + '/person/week × ' + m7[2] + ' guest' + (Number(m7[2]) !== 1 ? 's' : '') + ' = ' + fmtEur(Number(m7[3]));
+  var times = '\u00d7';
+  if (note.indexOf('7-night flat:') === 0) {
+    var rest7 = note.slice('7-night flat:'.length).trim();
+    var eq7 = rest7.split('=');
+    if (eq7.length === 2) {
+      var parts7 = eq7[0].trim().split(times);
+      if (parts7.length === 2) {
+        var unit7 = bcQuoteDigitsBeforeCent(parts7[0].trim());
+        var guests7 = bcQuoteParseTrailingInt(parts7[1].trim(), 'g');
+        var total7 = bcQuoteParseTrailingInt(eq7[1].trim(), '\u00a2');
+        if (!isNaN(unit7) && !isNaN(guests7) && !isNaN(total7)) {
+          return fmtEur(unit7) + '/person/week ' + times + ' ' + guests7 + ' guest' + (guests7 !== 1 ? 's' : '') + ' = ' + fmtEur(total7);
+        }
+      }
+    }
   }
-  var mB = note.match(/^Formula B:\s*ceil5\((\d+)¢\/7\)=(\d+)¢\/night\s*×\s*(\d+)n\s*×\s*(\d+)g\s*=\s*(\d+)¢$/);
-  if (mB) {
-    return fmtEur(Number(mB[1])) + '/7 = ' + fmtEur(Number(mB[2])) + '/night × ' + mB[3] + ' night' + (Number(mB[3]) !== 1 ? 's' : '') + ' × ' + mB[4] + ' guest' + (Number(mB[4]) !== 1 ? 's' : '') + ' = ' + fmtEur(Number(mB[5]));
+  if (note.indexOf('Formula B:') === 0) {
+    var restB = note.slice('Formula B:'.length).trim();
+    var eqB = restB.split('=');
+    if (eqB.length >= 3) {
+      var totalB = bcQuoteParseTrailingInt(eqB[eqB.length - 1].trim(), '\u00a2');
+      var beforeTotal = eqB.slice(0, eqB.length - 1).join('=').trim();
+      var segB = beforeTotal.split(times);
+      if (segB.length >= 3) {
+        var nightsB = bcQuoteParseTrailingInt(segB[1].trim(), 'n');
+        var guestsB = bcQuoteParseTrailingInt(segB[2].trim(), 'g');
+        var nightlyRaw = segB[0].trim().split('=').pop().trim();
+        var nightlyCents = bcQuoteDigitsBeforeCent(nightlyRaw);
+        var openIdx = restB.indexOf('ceil5(');
+        var weeklyCents = NaN;
+        if (openIdx >= 0) {
+          var pStart = openIdx + 'ceil5('.length;
+          var pEnd = restB.indexOf('\u00a2', pStart);
+          if (pEnd > pStart) weeklyCents = Number(restB.slice(pStart, pEnd).replace(/[^\d]/g, ''));
+        }
+        if (!isNaN(weeklyCents) && !isNaN(nightlyCents) && !isNaN(nightsB) && !isNaN(guestsB) && !isNaN(totalB)) {
+          return fmtEur(weeklyCents) + '/7 = ' + fmtEur(nightlyCents) + '/night ' + times + ' ' + nightsB + ' night' + (nightsB !== 1 ? 's' : '') + ' ' + times + ' ' + guestsB + ' guest' + (guestsB !== 1 ? 's' : '') + ' = ' + fmtEur(totalB);
+        }
+      }
+    }
   }
-  return note.replace(/(\d+)¢/g, function(_, c){ return fmtEur(Number(c)); });
+  return bcQuoteReplaceCentDigits(note, fmtEur);
 }
 
 function renderQuoteResult(resp){

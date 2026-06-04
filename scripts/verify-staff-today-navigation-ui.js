@@ -105,10 +105,26 @@ if (!rawJs) {
   }
   check(/window\.switchToTabOnly\s*=\s*switchToTabOnly/.test(js),
     'embedded script exposes window.switchToTabOnly');
+  check(/window\.switchToTab\s*=\s*switchToTab/.test(js),
+    'embedded script exposes window.switchToTab');
+  check(/function switchToTab\(tab, subtab\)/.test(js), 'embedded script defines switchToTab');
+  check(/function switchToTabOnly\(tab\)/.test(js), 'embedded script defines switchToTabOnly');
   check(/function bcFieldEditActivate\(group\)/.test(js),
     'bcFieldEditActivate declared (10.4f.2 parse fix)');
   check(!/function bcFieldEditCloseAll\([\s\S]{0,400}\}\s+if \(!group\) return;/.test(js),
     'no orphaned activate body after bcFieldEditCloseAll');
+  check(/function pickCalendarGuestDisplayName/.test(js),
+    'embedded script defines pickCalendarGuestDisplayName');
+  const pickIdx = js.indexOf('function pickCalendarGuestDisplayName');
+  const calLabelIdx = js.indexOf('function bcCalendarBlockDisplayLabel');
+  check(pickIdx >= 0 && calLabelIdx > pickIdx,
+    'pickCalendarGuestDisplayName defined before bcCalendarBlockDisplayLabel');
+  check(/function bcQuoteAccommodationNote/.test(js),
+    'embedded script defines bcQuoteAccommodationNote');
+  check(!/match\(\/^7-night flat:[\s\S]*?¢\/person/.test(js),
+    'no slash-regex in bcQuoteAccommodationNote (10.6h parse hotfix)');
+  check(!/Invalid regular expression flags/i.test(js),
+    'embedded script has no invalid-regex-flag literals');
 }
 
 console.log('\nD. Preserve drawer / portal features');
