@@ -95,6 +95,12 @@ const {
   getAskLunaBookingLookupByCodeQuery,
   formatAskLunaBookingLookupAnswer,
 } = require('./lib/staff-ask-luna-booking-lookup');
+const {
+  OPS_MULTI_TOOL_INTENT,
+  resolveOpsPlannerIntent,
+  executeOpsPlannerTools,
+  formatCombinedOpsPlannerAnswer,
+} = require('./lib/staff-ask-luna-multi-tool-planner');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1642,6 +1648,18 @@ async function resolveAskLunaIntent(question) {
   }
 
   try {
+    const opsPlan = await resolveOpsPlannerIntent(question);
+    if (opsPlan && opsPlan.intentKey === OPS_MULTI_TOOL_INTENT) {
+      return opsPlan;
+    }
+    if (opsPlan && opsPlan.intentKey === 'unsupported_intent') {
+      return { ...opsPlan, intent_source: 'ops_planner' };
+    }
+  } catch (err) {
+    console.warn('[ask-luna] ops planner error:', err.message);
+  }
+
+  try {
     const ai = await classifyAskLunaIntentWithAi(question);
     if (ai && ai.intent) {
       return {
@@ -2000,6 +2018,48 @@ async function handleAskLuna(req, res) {
   }
 
   const { intentKey, extraParams, intent_source, ai_confidence, ai_reason } = resolution;
+
+  if (intentKey === OPS_MULTI_TOOL_INTENT) {
+    const toolIntents = extraParams.tool_intents || [];
+    const planDate = extraParams.date || askLunaTodayUTC();
+    const planCtx = {
+      date: planDate,
+      dateLabel: extraParams.dateLabel || 'today',
+    };
+    let allRows = [];
+    let sections = [];
+    try {
+      await withPgClient(async (pgClient) => {
+        const out = await executeOpsPlannerTools(pgClient, clientSlug, toolIntents, planCtx);
+        sections = out.sections;
+        allRows = out.allRows;
+      });
+    } catch (err) {
+      console.error('[ask-luna] ops planner DB error:', err.message);
+      return sendJSON(res, 500, {
+        success: false, error: 'query_error', detail: err.message,
+      });
+    }
+    const answer = formatCombinedOpsPlannerAnswer(sections, planCtx.dateLabel);
+    return sendJSON(res, 200, {
+      success:            true,
+      client_slug:        clientSlug,
+      source,
+      staff_access:       staffAccess,
+      intent:             OPS_MULTI_TOOL_INTENT,
+      category:           'ops',
+      query_date:         planDate,
+      tool_intents:       toolIntents,
+      answer,
+      rows:               allRows.slice(0, MAX_ROWS),
+      row_count:          allRows.length,
+      read_only:          true,
+      no_write_performed: true,
+      sends_whatsapp:     false,
+      elapsed_ms:         Date.now() - started,
+      ...askLunaIntentMeta(resolution),
+    });
+  }
 
   if (ASK_LUNA_LOCAL_QUERY[intentKey]) {
     const today = extraParams.date || askLunaTodayUTC();

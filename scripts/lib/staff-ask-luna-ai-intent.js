@@ -227,6 +227,7 @@ module.exports = {
   getConfidenceMin,
   getAskLunaAiAllowedIntents,
   buildClassifierSystemPrompt,
+  extractJsonObjectText,
   parseAndValidateClassifierOutput,
   classifyAskLunaIntentWithAi,
   SQL_OR_TOOL_RE,
