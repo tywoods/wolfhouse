@@ -11200,7 +11200,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
   <div class="card">
     <div class="toolbar">
       <h2>Bed Calendar</h2>
-      <span class="hq-ro-label">READ-ONLY BED CALENDAR &mdash; edits disabled</span>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
         From&nbsp;<input id="bc-start" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
       </label>

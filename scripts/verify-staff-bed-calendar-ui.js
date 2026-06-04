@@ -11,7 +11,7 @@
  *   8:     End date input present (bc-end)
  *   9:     Client input present (bc-client)
  *  10:     Load Calendar button present (bc-load)
- *  11:     READ-ONLY BED CALENDAR label present
+ *  11:     READ-ONLY BED CALENDAR header removed (10.6a.5)
  *  12:     bc-summary-strip / summary element present
  *  13:     bc-grid-wrap / grid container present
  *  14:     bc-grid CSS class referenced (bc-grid)
@@ -23,7 +23,7 @@
  *  20:     showBlockDetail function present
  *  21:     loadBedCalendar function present
  *  22:     Booking detail panel (bc-detail) present
- *  23:     "Booking edits are disabled" notice present
+ *  23:     stale "Booking edits disabled" notice absent (10.6a.5)
  *  24:     No POST/PATCH/DELETE fetch in UI JS
  *  25:     No draggable/dragstart/drop references
  *  26:     No reassign/date-change endpoint references in UI
@@ -115,9 +115,21 @@ check(/id="bc-client"/.test(src) || /id='bc-client'/.test(src),
 check(/id="bc-load"/.test(src) || /id='bc-load'/.test(src),
   'Load Calendar button (id="bc-load") present');
 
-// 11. READ-ONLY BED CALENDAR label
-check(/READ-ONLY BED CALENDAR/i.test(src),
-  'READ-ONLY BED CALENDAR warning label present');
+// 11. Stale READ-ONLY BED CALENDAR header removed (10.6a.5)
+const bcPanelStart = src.indexOf('id="tab-bed-calendar"');
+const bcPanelEnd   = bcPanelStart >= 0 ? src.indexOf('id="tab-tour-operator"', bcPanelStart) : -1;
+const bcPanelSrc   = bcPanelStart >= 0 && bcPanelEnd > bcPanelStart
+  ? src.slice(bcPanelStart, bcPanelEnd) : '';
+check(!/READ-ONLY BED CALENDAR/i.test(bcPanelSrc),
+  '10.6a.5: READ-ONLY BED CALENDAR header text removed from bed calendar tab');
+check(!/edits disabled/i.test(bcPanelSrc),
+  '10.6a.5: edits disabled header text removed from bed calendar tab');
+check(/id="bc-start"/.test(bcPanelSrc) && /id="bc-end"/.test(bcPanelSrc) && /id="bc-load"/.test(bcPanelSrc),
+  '10.6a.5: From / To inputs and Load button still in bed calendar tab');
+check(/id="bc-chips"/.test(bcPanelSrc) && /data-chip="30days"/.test(bcPanelSrc),
+  '10.6a.5: quick range chips still in bed calendar tab');
+check(/bc-grid-wrap|renderBedCalendar/.test(src),
+  '10.6a.5: calendar grid still renders');
 
 // 12. Summary stats row removed (Phase 10.6a.4)
 check(!/id="bc-summary"|bc-rooms-count|bc-blocks-count/.test(src),
@@ -163,9 +175,9 @@ check(/function loadBedCalendar/.test(src),
 check(/id="bc-detail"/.test(src) || /id='bc-detail'/.test(src),
   'Block detail panel (id="bc-detail") present');
 
-// 23. "Booking edits" read-only notice (wording updated in Stage 8.3b)
-check(/Booking edits.*disabled|booking edits disabled/i.test(src),
-  '"Booking edits" read-only notice present in detail panel');
+// 23. Stale booking-edits-disabled notice removed (10.6a.5)
+check(!/Booking edits.*disabled|booking edits disabled/i.test(src),
+  '10.6a.5: stale booking edits disabled notice absent');
 
 // 24. No POST/PATCH/DELETE write fetch in embedded UI JS except the read-only preview
 // Stage 8.3l: POST to preview is allowed. The manual-bookings/create route exists
@@ -252,9 +264,9 @@ check(/bc-add-ons-title|id="bc-add-ons-panel"/.test(src),
 check(/Open conversation|btn-open-conv/i.test(src),
   '"Open conversation" button present in drawer (Stage 7.7i)');
 
-// 40. Booking edits disabled note still present (wording updated Stage 8.3b)
-check(/Booking edits.*disabled|booking edits disabled/i.test(src),
-  '"Booking edits disabled" note still present (Stage 7.7i / 8.3b)');
+// 40. Stale booking edits disabled note absent (10.6a.5)
+check(!/bc-detail-note[\s\S]{0,120}edits disabled/i.test(src),
+  '10.6a.5: no bc-detail-note edits-disabled banner in drawer shell');
 
 // ── Stage 8.2 — Bed calendar polish checks ────────────────────────────────
 
