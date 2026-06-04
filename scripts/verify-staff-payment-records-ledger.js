@@ -223,5 +223,18 @@ try {
 check(!docsChanged, 'no docs changes in working tree');
 check(!migChanged, 'no database/migrations changes in working tree');
 
+console.log('\nL. Phase 10.7c — Payment history copy buttons');
+
+const copyIconFn = src.match(/function bcCopyPaymentLinkIcon[\s\S]*?\n\}/)?.[0] || '';
+check(/btn-bc-copy-link-icon/.test(invFn), '10.7c: icon-only copy button in Payment history');
+check(/bcPaymentLedgerRowLinkUrl/.test(invFn), '10.7c: resolves link from checkout_url or metadata');
+check(!/onclick="bcCopyUrl\(this\)"/.test(invFn), '10.7c: no broken inline copy onclick');
+check(/bcCopyPaymentLinkIcon/.test(cancelUi), '10.7c: copy wired in bcInitCancelPaymentLinkShell');
+check(/title="Copy payment link"/.test(invFn) && /aria-label="Copy payment link"/.test(invFn),
+  '10.7c: copy title and aria-label');
+check(/Copied/.test(copyIconFn), '10.7c: copied feedback on copy helper');
+check(/navigator\.clipboard\.writeText/.test(copyIconFn), '10.7c: clipboard copy with prompt fallback');
+check(/btn-bc-cancel-link-icon/.test(invFn), '10.7c: cancel link icon preserved');
+
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');
 if (failures > 0) process.exit(1);

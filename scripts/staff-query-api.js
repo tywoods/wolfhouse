@@ -12967,6 +12967,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days">Next 30 days</span>
+      <span class="bc-chip" data-chip="apr-may">Apr - May</span>
+      <span class="bc-chip" data-chip="may-jun">May - Jun</span>
       <span class="bc-chip" data-chip="jun-jul">Jun - Jul</span>
       <span class="bc-chip" data-chip="jul-aug">Jul - Aug</span>
       <span class="bc-chip" data-chip="aug-sept">Aug - Sep</span>
@@ -16196,9 +16198,14 @@ function bcPaymentLedgerIsCancelledLinkStatus(status){
 
 function bcPaymentLedgerRowHasLinkUrl(pr){
   if (!pr) return false;
-  if (pr.checkout_url) return true;
+  return !!bcPaymentLedgerRowLinkUrl(pr);
+}
+
+function bcPaymentLedgerRowLinkUrl(pr){
+  if (!pr) return '';
+  if (pr.checkout_url) return String(pr.checkout_url);
   var md = bcPaymentLedgerParseMetadata(pr.metadata);
-  return !!(md.payment_link_url || md.checkout_url);
+  return String(md.payment_link_url || md.checkout_url || '');
 }
 
 function bcPaymentLedgerCanCancelLinkRow(pr){
@@ -16544,14 +16551,15 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
           html += '<div>Intent: <code>' + escHtml(shortId(pr.stripe_payment_intent_id)) + '</code></div>';
         html += '</div>';
       }
-      if (pr.checkout_url){
+      var linkUrl = bcPaymentLedgerRowLinkUrl(pr);
+      if (linkUrl){
         html += '<div class="ctx-pay-record-url">';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-        html += '<a href="' + escHtml(pr.checkout_url) + '" target="_blank" rel="noopener" ' +
+        html += '<a href="' + escHtml(linkUrl) + '" target="_blank" rel="noopener" ' +
           'style="word-break:break-all;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--accent)">' +
-          escHtml(pr.checkout_url.slice(0, 50)) + '\u2026</a>';
-        html += '<button class="btn" data-url="' + escHtml(pr.checkout_url) + '" ' +
-          'style="font-size:11px;padding:2px 8px" onclick="bcCopyUrl(this)">\uD83D\uDCCB Copy</button>';
+          escHtml(linkUrl.slice(0, 50)) + '\u2026</a>';
+        html += '<button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(linkUrl) + '" ' +
+          'title="Copy payment link" aria-label="Copy payment link">\uD83D\uDCCB</button>';
         html += '</div></div>';
       }
       html += '</div>';
@@ -16589,8 +16597,17 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
 function bcCopyPaymentLinkIcon(btn){
   var u = btn && btn.dataset && btn.dataset.url;
   if (!u) return;
+  var origTitle = btn.getAttribute('title') || 'Copy payment link';
+  function showCopied(){
+    btn.setAttribute('title', 'Copied');
+    btn.setAttribute('aria-label', 'Copied');
+    setTimeout(function(){
+      btn.setAttribute('title', origTitle);
+      btn.setAttribute('aria-label', origTitle);
+    }, 2000);
+  }
   if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(u).catch(function(){ prompt('Payment link:', u); });
+    navigator.clipboard.writeText(u).then(showCopied).catch(function(){ prompt('Payment link:', u); });
   } else {
     prompt('Payment link:', u);
   }
@@ -16664,6 +16681,10 @@ function bcInitCancelPaymentLinkShell(data){
       if (!exceptPid || panel.getAttribute('data-payment-id') !== exceptPid) panel.style.display = 'none';
     });
   }
+
+  wrap.querySelectorAll('.btn-bc-copy-link-icon').forEach(function(btn){
+    btn.addEventListener('click', function(){ bcCopyPaymentLinkIcon(btn); });
+  });
 
   wrap.querySelectorAll('.btn-bc-cancel-link-icon').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -18873,6 +18894,10 @@ document.querySelectorAll('.bc-chip').forEach(function(chip){
     } else if (key === '30days'){
       var end30 = new Date(today.getTime() + 30 * 86400000);
       bcSetRange(t, bcIso(end30), '30days');
+    } else if (key === 'apr-may'){
+      bcSetRange('2026-04-01', '2026-05-31', 'apr-may');
+    } else if (key === 'may-jun'){
+      bcSetRange('2026-05-01', '2026-06-30', 'may-jun');
     } else if (key === 'jun-jul'){
       bcSetRange('2026-06-01', '2026-07-31', 'jun-jul');
     } else if (key === 'jul-aug'){

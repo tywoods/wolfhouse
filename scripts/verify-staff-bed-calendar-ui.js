@@ -1460,7 +1460,7 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '219b: drawer shows amount_paid_cents (Stage 8.4.12)');
   check(/balance_due/.test(payFn),
     '219c: drawer shows balance_due (Stage 8.4.12)');
-  check(/checkout_url/.test(payFn),
+  check(/checkout_url/.test(payFn) || /bcPaymentLedgerRowLinkUrl/.test(payFn),
     '219d: drawer shows checkout_url (Stage 8.4.12)');
   let libSrc219 = '';
   try { libSrc219 = fs.readFileSync(path.join(__dirname, 'lib', 'staff-booking-detail-queries.js'), 'utf8'); } catch(_){}
@@ -1480,8 +1480,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   check(/No payment record yet|No payment/.test(payFn),
     '219k: drawer shows "No payment record yet" when no rows (Stage 8.4.12)');
 
-  check(/bcCopyUrl/.test(payFn),
-    '219l: drawer uses bcCopyUrl for checkout_url copy button (Stage 8.4.12)');
+  check(/btn-bc-copy-link-icon/.test(payFn) && /bcCopyPaymentLinkIcon/.test(src),
+    '219l: drawer uses bcCopyPaymentLinkIcon for payment link copy (Stage 10.7c)');
 
   check(!/stripe\.(checkout|charges|paymentIntents|sessions)\.create/i.test(payUi),
     '219m: drawer does not make Stripe API calls (Stage 8.4.12)');
@@ -1768,6 +1768,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '229b: This week chip still present (Stage 8.7.23)');
   check(/data-chip="30days"/.test(chipsSrc),
     '229c: Next 30 days chip still present (Stage 8.7.23)');
+  check(/data-chip="apr-may"[^>]*>Apr - May</.test(chipsSrc),
+    '10.7c: Apr - May chip present');
+  check(/data-chip="may-jun"[^>]*>May - Jun</.test(chipsSrc),
+    '10.7c: May - Jun chip present');
   check(/data-chip="jun-jul"[^>]*>Jun - Jul</.test(chipsSrc),
     '10.6a.4: Jun - Jul chip present (3-letter months)');
   check(/data-chip="jul-aug"[^>]*>Jul - Aug</.test(chipsSrc),
@@ -1776,8 +1780,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6a.4: Aug - Sep chip present (3-letter months)');
   check(/data-chip="sep-oct"[^>]*>Sep - Oct</.test(chipsSrc),
     '10.7b: Sep - Oct chip present');
-  check(/data-chip="week"[\s\S]*?data-chip="30days"[\s\S]*?data-chip="jun-jul"[\s\S]*?data-chip="jul-aug"[\s\S]*?data-chip="aug-sept"[\s\S]*?data-chip="sep-oct"/.test(chipsSrc),
-    '10.7b: quick range chips in desired order including Sep - Oct');
+  check(/data-chip="week"[\s\S]*?data-chip="30days"[\s\S]*?data-chip="apr-may"[\s\S]*?data-chip="may-jun"[\s\S]*?data-chip="jun-jul"[\s\S]*?data-chip="jul-aug"[\s\S]*?data-chip="aug-sept"[\s\S]*?data-chip="sep-oct"/.test(chipsSrc),
+    '10.7c: quick range chips in desired order including Apr-May and May-Jun');
   check(/bc-chip-active[\s\S]*?data-chip="30days"|data-chip="30days"[\s\S]*?bc-chip-active/.test(chipsSrc),
     '10.6a.4: Next 30 days remains default active chip in markup');
 
@@ -1789,6 +1793,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6a.4: Aug - Sep chip sets 2026-08-01 to 2026-09-30');
   check(/key === 'sep-oct'[\s\S]{0,120}bcSetRange\('2026-09-01', '2026-10-31', 'sep-oct'\)/.test(src),
     '10.7b: Sep - Oct chip sets 2026-09-01 to 2026-10-31');
+  check(/key === 'apr-may'[\s\S]{0,120}bcSetRange\('2026-04-01', '2026-05-31', 'apr-may'\)/.test(src),
+    '10.7c: Apr - May chip sets 2026-04-01 to 2026-05-31');
+  check(/key === 'may-jun'[\s\S]{0,120}bcSetRange\('2026-05-01', '2026-06-30', 'may-jun'\)/.test(src),
+    '10.7c: May - Jun chip sets 2026-05-01 to 2026-06-30');
 
   (function checkBcTabAutoLoad(){
     const fnStart = src.indexOf('function bcOnBedCalendarTabOpen');
@@ -2197,6 +2205,20 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     src.match(/async function handleBedCalendar[\s\S]*?\n\/\/ ── Phase 10\.7a/)?.[0] || ''
   ),
     '10.7b: bed calendar handler has no DB writes');
+})();
+
+// ── Phase 10.7c — Apr-May / May-Jun chips + source legend preserved ─────────
+(function check107cRangeChipsAndLegend(){
+  const legendSlice = (() => {
+    const s = src.indexOf('id="bc-legend"');
+    return s >= 0 ? src.slice(s, s + 800) : '';
+  })();
+  check(/>Staff \/ manual</.test(legendSlice) && />Luna</.test(legendSlice),
+    '10.7c: source legend still Staff/manual + Luna only');
+  check(!/>Confirmed</.test(legendSlice) && !/>Payment pending</.test(legendSlice),
+    '10.7c: old status-color legend entries still absent');
+  check(/bcCalendarPaymentBadgesHtml/.test(src),
+    '10.7c: payment badges helper still present');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

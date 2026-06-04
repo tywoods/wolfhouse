@@ -88,13 +88,25 @@ check(!/res\.data\.payment_link_url|res\.data\.checkout_url/.test(linkInit),
   '10.6g.4: success handler does not inject raw checkout URL');
 check(!/bc-payment-link-copy-btn/.test(linkInit),
   '10.6g.4: init does not wire duplicate copy under button');
-check(/pr\.checkout_url/.test(invFn), 'Payment history row renders checkout_url');
+check(/pr\.checkout_url/.test(invFn) || /bcPaymentLedgerRowLinkUrl/.test(invFn), 'Payment history row renders link URL');
 check(/ctx-pay-record-url/.test(invFn), 'checkout link block in Payment history');
-check(/bcCopyUrl\(this\)/.test(invFn) || /btn-bc-copy-link-icon/.test(invFn),
-  'Payment history keeps copy control');
+check(/btn-bc-copy-link-icon/.test(invFn), 'Payment history icon-only copy button');
+check(/bcPaymentLedgerRowLinkUrl/.test(invFn), 'Payment history resolves checkout_url or metadata link');
+check(!/onclick="bcCopyUrl\(this\)"/.test(invFn), '10.7c: no broken inline copy onclick in Payment history');
+check(/bcInitCancelPaymentLinkShell/.test(src) && /btn-bc-copy-link-icon/.test(cancelUi),
+  '10.7c: copy icons wired via drawer init event listeners');
+check(/bcCopyPaymentLinkIcon/.test(cancelUi), '10.7c: copy handler attached in payment ledger init');
+check(/title="Copy payment link"/.test(invFn) && /aria-label="Copy payment link"/.test(invFn),
+  '10.7c: copy button title and aria-label');
+check(/Copied/.test(copyIconFn), '10.7c: copied feedback on copy helper');
+check(!/\\uD83D\\uDCCB Copy/.test(invFn) && !/>Copy</.test(invFn.match(/ctx-pay-record-url[\s\S]{0,400}/)?.[0] || ''),
+  '10.7c: copy button is icon-only (no Copy label)');
 check(/btn-bc-cancel-link-icon/.test(invFn), 'Payment history cancel link icon');
 check(/navigator\.clipboard\.writeText/.test(copyIconFn),
-  'clipboard helper kept for manual-create copy icon');
+  'clipboard helper kept for copy icon');
+check(/bcPaymentLedgerRowLinkUrl/.test(src) && /payment_link_url|checkout_url/.test(
+  src.match(/function bcPaymentLedgerRowLinkUrl[\s\S]*?\n\}/)?.[0] || ''),
+  '10.7c: link URL helper supports checkout_url and metadata payment_link_url');
 check(!/bcCopyPaymentLinkIcon/.test(linkInit),
   'generate init does not wire section copy icon');
 
