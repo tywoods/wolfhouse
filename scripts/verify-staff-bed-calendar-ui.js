@@ -1741,12 +1741,12 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '229b: This week chip still present (Stage 8.7.23)');
   check(/data-chip="30days"/.test(chipsSrc),
     '229c: Next 30 days chip still present (Stage 8.7.23)');
-  check(/data-chip="jun-jul"/.test(chipsSrc),
-    '10.6a.4: Jun–July chip present');
-  check(/data-chip="jul-aug"/.test(chipsSrc),
-    '229d: Jul–Aug chip still present (Stage 8.7.23)');
-  check(/data-chip="aug-sept"/.test(chipsSrc),
-    '10.6a.4: Aug–Sept chip present');
+  check(/data-chip="jun-jul"[^>]*>Jun - Jul</.test(chipsSrc),
+    '10.6a.4: Jun - Jul chip present (3-letter months)');
+  check(/data-chip="jul-aug"[^>]*>Jul - Aug</.test(chipsSrc),
+    '10.6a.4: Jul - Aug chip present (3-letter months)');
+  check(/data-chip="aug-sept"[^>]*>Aug - Sep</.test(chipsSrc),
+    '10.6a.4: Aug - Sep chip present (3-letter months)');
   check(/data-chip="week"[\s\S]*?data-chip="30days"[\s\S]*?data-chip="jun-jul"[\s\S]*?data-chip="jul-aug"[\s\S]*?data-chip="aug-sept"/.test(chipsSrc),
     '10.6a.4: quick range chips in desired order');
   check(/bc-chip-active[\s\S]*?data-chip="30days"|data-chip="30days"[\s\S]*?bc-chip-active/.test(chipsSrc),
@@ -1755,9 +1755,9 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   check(/bcSetRange/.test(src) && /loadBedCalendar/.test(src.match(/function bcSetRange[\s\S]*?\n\}/)?.[0] || ''),
     '10.6a.4: quick range chips call bcSetRange which loads calendar');
   check(/key === 'jun-jul'[\s\S]{0,120}bcSetRange\('2026-06-01', '2026-07-31', 'jun-jul'\)/.test(src),
-    '10.6a.4: Jun–July chip sets 2026-06-01 to 2026-07-31');
+    '10.6a.4: Jun - Jul chip sets 2026-06-01 to 2026-07-31');
   check(/key === 'aug-sept'[\s\S]{0,120}bcSetRange\('2026-08-01', '2026-09-30', 'aug-sept'\)/.test(src),
-    '10.6a.4: Aug–Sept chip sets 2026-08-01 to 2026-09-30');
+    '10.6a.4: Aug - Sep chip sets 2026-08-01 to 2026-09-30');
 
   (function checkBcTabAutoLoad(){
     const fnStart = src.indexOf('function bcOnBedCalendarTabOpen');

@@ -11212,9 +11212,9 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days">Next 30 days</span>
-      <span class="bc-chip" data-chip="jun-jul">Jun &ndash; July</span>
-      <span class="bc-chip" data-chip="jul-aug">Jul &ndash; Aug</span>
-      <span class="bc-chip" data-chip="aug-sept">Aug &ndash; Sept</span>
+      <span class="bc-chip" data-chip="jun-jul">Jun - Jul</span>
+      <span class="bc-chip" data-chip="jul-aug">Jul - Aug</span>
+      <span class="bc-chip" data-chip="aug-sept">Aug - Sep</span>
     </div>
 
     <!-- Color legend (Stage 8.3a) -->
