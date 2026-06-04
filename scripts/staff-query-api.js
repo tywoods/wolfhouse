@@ -12766,9 +12766,13 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   return html;
 }
 
-/* Phase 10.5f-lite — contact field edit write UI (gated; POST /staff/bookings/edit) */
+/* Phase 10.5f-lite / 10.5c.1 — contact + package field edit write UI (gated; POST /staff/bookings/edit) */
 function bcNewContactEditIdempotencyKey(){
   return 'bc-contact-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcNewPackageEditIdempotencyKey(){
+  return 'bc-package-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 }
 
 function bcFieldEditOptionalContactInput(raw){
@@ -12891,6 +12895,117 @@ function bcFieldEditRunContactSave(){
     });
 }
 
+function bcFieldEditPackageChanged(packageCode){
+  var s = bcFieldEditState.snapshot || {};
+  var cur = s.package_code ? String(s.package_code).trim().toLowerCase() : '';
+  var next = packageCode ? String(packageCode).trim().toLowerCase() : '';
+  return cur !== next;
+}
+
+function bcFieldEditUpdatePackageSaveState(){
+  var btn = el('bc-field-save-package');
+  var hint = el('bc-field-package-save-hint');
+  if (!btn) return;
+  if (!BC_BOOKING_EDIT_WRITE){
+    btn.disabled = true;
+    if (hint) hint.style.display = '';
+    return;
+  }
+  if (hint) hint.style.display = 'none';
+  var pkgEl = el('bc-field-package-select');
+  var packageCode = pkgEl ? String(pkgEl.value).trim().toLowerCase() : '';
+  var valid = !!packageCode;
+  var changed = bcFieldEditPackageChanged(packageCode);
+  btn.disabled = !valid || !changed;
+}
+
+function bcFieldEditBuildPackageWritePayload(){
+  var pkgEl = el('bc-field-package-select');
+  var packageCode = pkgEl ? String(pkgEl.value).trim().toLowerCase() : '';
+  if (!packageCode) return { error: 'Package is required.' };
+  return {
+    client_slug: bcFieldEditState.clientSlug || getBcClient(),
+    booking_id: bcFieldEditState.bookingId,
+    booking_code: bcFieldEditState.bookingCode,
+    edit_type: 'package',
+    package_code: packageCode,
+    idempotency_key: bcNewPackageEditIdempotencyKey(),
+    reason: 'Staff portal package edit',
+  };
+}
+
+function bcFieldEditFormatPackageLine(obj){
+  if (!obj) return '\u2014';
+  var code = obj.package_code ? String(obj.package_code) : '\u2014';
+  var total = obj.total_amount_cents != null ? bcFieldEditFormatEuro(obj.total_amount_cents) : '\u2014';
+  var balance = obj.balance_due_cents != null ? bcFieldEditFormatEuro(obj.balance_due_cents) : '\u2014';
+  return code + ' \u00b7 total ' + total + ' \u00b7 balance ' + balance;
+}
+
+function bcFieldEditRenderPackageSaveResult(data, isError){
+  var box = el('bc-field-package-preview-result');
+  if (!box) return;
+  box.style.display = '';
+  if (isError || !data || !data.success){
+    box.className = 'ctx-field-preview-result is-visible is-blocked';
+    box.innerHTML = '<div class="ctx-field-preview-badge">Save failed</div>' +
+      escHtml((data && data.error) || (data && data.message) || 'Package save failed.') +
+      (data && data.detail ? '<div style="margin-top:4px">' + escHtml(data.detail) + '</div>' : '');
+    return;
+  }
+  box.className = 'ctx-field-preview-result is-visible';
+  var html = '<div class="ctx-field-preview-badge">Package saved</div>';
+  html += '<div>' + escHtml(data.message || 'Booking package updated.') + '</div>';
+  if (data.before && data.after){
+    html += '<div style="margin-top:8px"><strong>Before:</strong> ' +
+      escHtml(bcFieldEditFormatPackageLine(data.before)) + '</div>';
+    html += '<div><strong>After:</strong> ' +
+      escHtml(bcFieldEditFormatPackageLine(data.after)) + '</div>';
+  }
+  if (data.idempotent) html += '<div style="margin-top:6px;font-style:italic">No changes were needed (already matched).</div>';
+  box.innerHTML = html;
+}
+
+function bcFieldEditRunPackageSave(){
+  if (!BC_BOOKING_EDIT_WRITE){
+    bcFieldEditRenderPackageSaveResult({ success: false, error: 'Package saving is disabled.' }, true);
+    return;
+  }
+  var built = bcFieldEditBuildPackageWritePayload();
+  if (built.error){
+    bcFieldEditRenderPackageSaveResult({ success: false, error: built.error }, true);
+    return;
+  }
+  var btn = el('bc-field-save-package');
+  if (btn) btn.disabled = true;
+  bcFieldEditRenderPackageSaveResult({ success: true, message: 'Saving package\u2026' }, false);
+  fetch('/staff/bookings/edit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(built),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data || !res.data.success){
+        bcFieldEditRenderPackageSaveResult({
+          success: false,
+          error: (res.data && res.data.error) || ('Save failed (HTTP ' + res.status + ')'),
+          detail: res.data && res.data.detail,
+        }, true);
+        bcFieldEditUpdatePackageSaveState();
+        return;
+      }
+      bcFieldEditRenderPackageSaveResult(res.data, false);
+      var code = bcFieldEditState.bookingCode;
+      bcFieldEditCloseAll();
+      if (code) loadBlockDetail(code);
+    })
+    .catch(function(e){
+      bcFieldEditRenderPackageSaveResult({ success: false, error: e.message || 'Network error' }, true);
+      bcFieldEditUpdatePackageSaveState();
+    });
+}
+
 /* Phase 10.4e — field edit UI shell helpers (read-only; no API writes) */
 function bcFieldEditPackageOptions(currentCode){
   /* Temporary: mirrors manual-create package dropdown until pricing config on context API (10.4f+). */
@@ -12934,12 +13049,20 @@ function bcRenderFieldEditPencilBtn(group, ariaLabel){
 }
 
 function bcRenderFieldEditActionsHtml(group){
-  var saveBtn = group === 'contact'
-    ? '<button type="button" class="btn btn-primary" data-bc-field-contact-save="contact" id="bc-field-save-contact">Save</button>'
-    : '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Save</button>';
-  var gateHint = group === 'contact'
-    ? '<div class="ctx-field-save-hint" id="bc-field-contact-save-hint" style="display:none">Contact saving is disabled.</div>'
-    : '';
+  var saveBtn;
+  if (group === 'contact'){
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-contact-save="contact" id="bc-field-save-contact">Save</button>';
+  } else if (group === 'package'){
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-package-save="package" id="bc-field-save-package">Save</button>';
+  } else {
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Save</button>';
+  }
+  var gateHint = '';
+  if (group === 'contact'){
+    gateHint = '<div class="ctx-field-save-hint" id="bc-field-contact-save-hint" style="display:none">Contact saving is disabled.</div>';
+  } else if (group === 'package'){
+    gateHint = '<div class="ctx-field-save-hint" id="bc-field-package-save-hint" style="display:none">Package saving is disabled.</div>';
+  }
   return '<div class="ctx-field-edit-actions">' + saveBtn +
     '<button type="button" class="btn btn-ghost" data-bc-field-cancel="' + escHtml(group) + '" id="bc-field-cancel-' + escHtml(group) + '">Cancel</button>' +
     '</div>' + gateHint +
@@ -13234,6 +13357,7 @@ function bcFieldEditActivate(group){
   if (group === 'guests') bcFieldEditUpdateGuestPreview();
   if (group === 'dates') bcFieldEditUpdateDatesPreview();
   if (group === 'contact') bcFieldEditUpdateContactSaveState();
+  if (group === 'package') bcFieldEditUpdatePackageSaveState();
 }
 
 function bcFieldEditUpdateDatesPreview(){
@@ -13312,7 +13436,15 @@ function bcInitFieldEditShell(data){
       bcFieldEditRunContactSave();
     };
   }
+  var packageSaveBtn = el('bc-field-save-package');
+  if (packageSaveBtn){
+    packageSaveBtn.onclick = function(e){
+      e.preventDefault();
+      bcFieldEditRunPackageSave();
+    };
+  }
   bcFieldEditUpdateContactSaveState();
+  bcFieldEditUpdatePackageSaveState();
   ['bc-field-contact-name', 'bc-field-contact-phone', 'bc-field-contact-email'].forEach(function(id){
     var input = el(id);
     if (!input) return;
@@ -13332,6 +13464,12 @@ function bcInitFieldEditShell(data){
   if (cout){
     cout.onchange = function(){ bcFieldEditUpdateDatesPreview(); };
     cout.oninput = function(){ bcFieldEditUpdateDatesPreview(); };
+  }
+  var pkgSel = el('bc-field-package-select');
+  if (pkgSel){
+    var pkgHandler = function(){ bcFieldEditUpdatePackageSaveState(); };
+    pkgSel.onchange = pkgHandler;
+    pkgSel.oninput = pkgHandler;
   }
 }
 

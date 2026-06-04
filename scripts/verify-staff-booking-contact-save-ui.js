@@ -38,8 +38,7 @@ try {
 
 const uiFlags = src.slice(src.indexOf('var BC_STAFF_ACTIONS'), src.indexOf('var bcLastQuote'));
 const fieldSlice = src.match(/\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function renderBookingContextDrawer/)?.[0] || '';
-const contactWriteUi = src.match(/\/\* Phase 10\.5f-lite[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
-const contactSaveFn = contactWriteUi;
+const contactSaveFn = src.match(/function bcFieldEditBuildContactWritePayload[\s\S]*?function bcFieldEditPackageChanged/)?.[0] || '';
 const actionsFn = src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)?.[0] || '';
 const previewFn = src.match(/function bcFieldEditRunPreview[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
 const initFn = src.match(/function bcInitFieldEditShell[\s\S]*?function renderBookingContextDrawer/)?.[0] || '';
@@ -53,7 +52,7 @@ check(/BC_BOOKING_EDIT_WRITE\s*=\s*\$\{BOOKING_EDIT_WRITE_ENABLED\}/.test(uiFlag
 console.log('\nB. Contact Save → write');
 
 check(/function bcFieldEditRunContactSave/.test(src), 'contact save runner exists');
-check(/fetch\('\/staff\/bookings\/edit'/.test(contactSaveFn),
+check(/fetch\('\/staff\/bookings\/edit'/.test(src.match(/function bcFieldEditRunContactSave[\s\S]*?function bcFieldEditPackageChanged/)?.[0] || ''),
   'contact Save calls POST /staff/bookings/edit');
 check(/edit_type:\s*'contact'/.test(contactSaveFn), 'contact write payload edit_type contact');
 check(/guest_name:/.test(contactSaveFn) && /phone:/.test(contactSaveFn) && /email:/.test(contactSaveFn),
@@ -67,19 +66,20 @@ check(/Contact saving is disabled/.test(actionsFn), 'gate-off hint copy present'
 
 console.log('\nC. Gate OFF / gate ON UX');
 
-check(/!BC_BOOKING_EDIT_WRITE/.test(contactSaveFn + initFn),
+const contactRunFn = src.match(/function bcFieldEditRunContactSave[\s\S]*?function bcFieldEditPackageChanged/)?.[0] || '';
+check(/!BC_BOOKING_EDIT_WRITE/.test(contactRunFn + initFn),
   'contact save checks BC_BOOKING_EDIT_WRITE');
 check(/bc-field-contact-save-hint/.test(actionsFn + initFn),
   'contact save hint element wired');
 check(/bcFieldEditUpdateContactSaveState/.test(src), 'contact save enablement helper exists');
-check(/btn\.disabled = true/.test(contactSaveFn) || /btn\.disabled = !valid/.test(src),
+check(/btn\.disabled = true/.test(contactRunFn) || /btn\.disabled = !valid/.test(src),
   'contact Save disabled when gate off or invalid');
 check(/!valid \|\| !changed/.test(src), 'contact Save requires valid changed fields when gate on');
 
 console.log('\nD. Success reload');
 
-check(/loadBlockDetail\(code\)/.test(contactSaveFn), 'successful contact save reloads booking drawer');
-check(/bcFieldEditCloseAll/.test(contactSaveFn), 'contact save closes edit shell after success');
+check(/loadBlockDetail\(code\)/.test(contactRunFn), 'successful contact save reloads booking drawer');
+check(/bcFieldEditCloseAll/.test(contactRunFn), 'contact save closes edit shell after success');
 
 console.log('\nE. Non-contact groups stay preview-only');
 
@@ -87,11 +87,13 @@ check(/fetch\('\/staff\/bookings\/edit-preview'/.test(previewFn),
   'preview runner still calls edit-preview');
 check(!/fetch\('\/staff\/bookings\/edit'/.test(previewFn),
   'preview runner does not call write endpoint');
-check(/group === 'contact'/.test(actionsFn) && /data-bc-field-preview/.test(actionsFn),
-  'non-contact groups use data-bc-field-preview Save buttons');
+check(/data-bc-field-preview/.test(actionsFn),
+  'dates/guests use data-bc-field-preview Save buttons');
+check(/group === 'package'/.test(actionsFn) && /data-bc-field-package-save/.test(actionsFn),
+  'package uses dedicated package-save Save button');
 check(/data-bc-field-contact-save/.test(actionsFn) && /group === 'contact'/.test(actionsFn),
   'only contact branch uses contact-save attribute');
-check(!/data-bc-field-contact-save="dates"|data-bc-field-contact-save="package"|data-bc-field-contact-save="guests"/.test(actionsFn),
+check(!/data-bc-field-contact-save="dates"|data-bc-field-contact-save="guests"/.test(actionsFn),
   'only contact uses contact-save attribute');
 
 console.log('\nF. No package/date/guest write in UI');
@@ -109,15 +111,15 @@ check(/fetch\('\/staff\/bookings\/edit-preview'/.test(src), 'edit-preview still 
 
 console.log('\nH. Safety');
 
-check(!/api\.stripe\.com/.test(contactSaveFn + fieldSlice),
+check(!/api\.stripe\.com/.test(contactRunFn + fieldSlice),
   'no Stripe API in contact save UI slice');
-check(!/graph\.facebook\.com/.test(contactSaveFn + fieldSlice),
+check(!/graph\.facebook\.com/.test(contactRunFn + fieldSlice),
   'no WhatsApp in contact save UI slice');
-check(!/n8n\.cloud|activate.*workflow/i.test(contactSaveFn + fieldSlice),
+check(!/n8n\.cloud|activate.*workflow/i.test(contactRunFn + fieldSlice),
   'no n8n activation in contact save UI slice');
-check(!/UPDATE payments|booking_service_records|UPDATE booking_beds/i.test(contactSaveFn),
+check(!/UPDATE payments|booking_service_records|UPDATE booking_beds/i.test(contactRunFn),
   'no payment/bed/service mutation in contact save UI');
-check(!/INSERT INTO|DELETE FROM/i.test(contactSaveFn),
+check(!/INSERT INTO|DELETE FROM/i.test(contactRunFn),
   'no SQL mutation in contact save UI runner');
 
 console.log('\nI. No docs / migration / deploy');

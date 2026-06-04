@@ -1,0 +1,166 @@
+/**
+ * Phase 10.5c.1 — Static verifier for package Save → gated write UI wiring.
+ *
+ * Usage:
+ *   npm run verify:staff-booking-package-save-ui
+ */
+
+'use strict';
+
+const path = require('path');
+const fs   = require('fs');
+const { execSync } = require('child_process');
+
+const API_FILE = path.join(__dirname, 'staff-query-api.js');
+const PKG_FILE = path.join(__dirname, '..', 'package.json');
+const MIG_DIR  = path.join(__dirname, '..', 'database', 'migrations');
+
+let passes = 0;
+let failures = 0;
+
+function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
+function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
+function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
+
+console.log('\nverify-staff-booking-package-save-ui.js  (Phase 10.5c.1)\n');
+
+check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
+if (!fs.existsSync(API_FILE)) process.exit(1);
+
+const src = fs.readFileSync(API_FILE, 'utf8');
+
+try {
+  execSync(`node --check "${API_FILE}"`, { stdio: 'ignore' });
+  ok('staff-query-api.js passes node --check');
+} catch (_) {
+  fail('staff-query-api.js passes node --check');
+}
+
+const uiFlags = src.slice(src.indexOf('var BC_STAFF_ACTIONS'), src.indexOf('var bcLastQuote'));
+const writeUiBlock = src.match(/\/\* Phase 10\.5f-lite[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
+const packageSaveFn = src.match(/function bcFieldEditBuildPackageWritePayload[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
+const contactSaveFn = src.match(/function bcFieldEditBuildContactWritePayload[\s\S]*?function bcFieldEditPackageChanged/)?.[0] || '';
+const actionsFn = src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)?.[0] || '';
+const previewFn = src.match(/function bcFieldEditRunPreview[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
+const initFn = src.match(/function bcInitFieldEditShell[\s\S]*?function renderBookingContextDrawer/)?.[0] || '';
+const fieldSlice = src.match(/\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function renderBookingContextDrawer/)?.[0] || '';
+
+console.log('\nA. Frontend gate (unchanged)');
+
+check(/BOOKING_EDIT_WRITE_ENABLED/.test(src), 'server BOOKING_EDIT_WRITE_ENABLED gate exists');
+check(/BC_BOOKING_EDIT_WRITE\s*=\s*\$\{BOOKING_EDIT_WRITE_ENABLED\}/.test(uiFlags),
+  'BC_BOOKING_EDIT_WRITE interpolated from server env');
+check(!/BOOKING_EDIT_WRITE_ENABLED\s*=/.test(writeUiBlock),
+  'UI does not redefine server write gate');
+
+console.log('\nB. Package Save → write');
+
+check(/function bcFieldEditRunPackageSave/.test(src), 'package save runner exists');
+check(/fetch\('\/staff\/bookings\/edit'/.test(packageSaveFn),
+  'package Save calls POST /staff/bookings/edit');
+check(/edit_type:\s*'package'/.test(packageSaveFn), 'package write payload edit_type package');
+check(/package_code:/.test(packageSaveFn), 'package write payload includes package_code');
+check(/idempotency_key:/.test(packageSaveFn), 'package write sends idempotency_key');
+check(/reason:/.test(packageSaveFn), 'package write sends reason');
+check(/bcNewPackageEditIdempotencyKey/.test(src), 'package idempotency key helper');
+check(/data-bc-field-package-save/.test(actionsFn), 'package Save uses dedicated package-save button');
+check(/id="bc-field-save-package"/.test(actionsFn), 'package Save button id present');
+check(/Package saving is disabled/.test(actionsFn), 'gate-off hint copy present');
+
+console.log('\nC. Enablement + validation');
+
+check(/bcFieldEditUpdatePackageSaveState/.test(src), 'package save enablement helper exists');
+check(/bcFieldEditPackageChanged/.test(src), 'package changed helper exists');
+check(/!valid \|\| !changed/.test(src), 'package Save disabled when invalid or unchanged');
+check(/!BC_BOOKING_EDIT_WRITE/.test(packageSaveFn + initFn),
+  'package save checks BC_BOOKING_EDIT_WRITE');
+check(/bc-field-package-save-hint/.test(actionsFn + initFn),
+  'package save hint element wired');
+
+console.log('\nD. Success reload + error path');
+
+check(/loadBlockDetail\(code\)/.test(packageSaveFn), 'successful package save reloads booking drawer');
+check(/bcFieldEditCloseAll/.test(packageSaveFn), 'package save closes edit shell after success');
+check(/bcFieldEditRenderPackageSaveResult/.test(src), 'package save result renderer exists');
+check(/Save failed/.test(packageSaveFn), 'package save error path shows failure badge');
+check(/res\.data && res\.data\.error/.test(packageSaveFn),
+  'package save surfaces API error from response');
+
+console.log('\nE. Contact preserved');
+
+check(/function bcFieldEditRunContactSave/.test(src), 'contact save runner still exists');
+check(/fetch\('\/staff\/bookings\/edit'/.test(contactSaveFn),
+  'contact Save still calls POST /staff/bookings/edit');
+check(/edit_type:\s*'contact'/.test(contactSaveFn), 'contact write payload unchanged');
+
+console.log('\nF. Dates/guests preview-only');
+
+check(/fetch\('\/staff\/bookings\/edit-preview'/.test(previewFn),
+  'preview runner still calls edit-preview');
+check(!/fetch\('\/staff\/bookings\/edit'/.test(previewFn),
+  'preview runner does not call write endpoint');
+check(/data-bc-field-preview="dates"|data-bc-field-preview="' \+ escHtml\(group\)/.test(actionsFn),
+  'dates/guests still use preview Save buttons');
+check(!/data-bc-field-package-save="dates"|data-bc-field-package-save="guests"/.test(actionsFn),
+  'only package uses package-save attribute');
+check(!/edit_type:\s*'dates'/.test(packageSaveFn + previewFn), 'UI write path has no dates edit_type');
+check(!/edit_type:\s*'guests'/.test(packageSaveFn + previewFn), 'UI write path has no guests edit_type');
+
+console.log('\nG. Preserve drawer features');
+
+check(/bcRenderRunningInvoiceHtml/.test(src), 'running invoice preserved');
+check(/bcInitMovePanel/.test(src), 'move bed panel preserved');
+check(/fetch\('\/staff\/bookings\/edit-preview'/.test(src), 'edit-preview still available');
+
+console.log('\nH. Safety');
+
+check(!/api\.stripe\.com/.test(packageSaveFn + fieldSlice),
+  'no Stripe API in package save UI slice');
+check(!/graph\.facebook\.com/.test(packageSaveFn + fieldSlice),
+  'no WhatsApp in package save UI slice');
+check(!/n8n\.cloud|activate.*workflow/i.test(packageSaveFn + fieldSlice),
+  'no n8n activation in package save UI slice');
+check(!/UPDATE payments|booking_service_records|UPDATE booking_beds/i.test(packageSaveFn),
+  'no payment/bed/service mutation in package save UI');
+check(!/amount_paid_cents/.test(packageSaveFn),
+  'package save UI does not reference paid-truth field updates');
+check(!/INSERT INTO|DELETE FROM/i.test(packageSaveFn),
+  'no SQL mutation in package save UI runner');
+
+console.log('\nI. No docs / migration / deploy');
+
+if (fs.existsSync(MIG_DIR)) {
+  const migHit = fs.readdirSync(MIG_DIR).filter((f) => f.endsWith('.sql')).some((f) => {
+    const body = fs.readFileSync(path.join(MIG_DIR, f), 'utf8');
+    return /bc-field-package-save|package-save-ui/i.test(body);
+  });
+  check(!migHit, 'no migration for package save UI');
+} else {
+  ok('migrations directory not present (skip)');
+}
+
+try {
+  const docOut = execSync('git diff --name-only HEAD -- docs/', {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'ignore'],
+  }).trim();
+  check(!docOut, 'no docs changes in working tree');
+} catch (_) {
+  ok('no docs changes in working tree (skip git diff)');
+}
+
+console.log('\nJ. package.json script');
+
+if (fs.existsSync(PKG_FILE)) {
+  const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
+  check(
+    pkg.scripts && pkg.scripts['verify:staff-booking-package-save-ui'] ===
+      'node scripts/verify-staff-booking-package-save-ui.js',
+    'package.json has verify:staff-booking-package-save-ui script'
+  );
+} else {
+  fail('package.json exists');
+}
+
+console.log(`\nResult: ${passes} passed, ${failures} failed\n`);
+process.exit(failures > 0 ? 1 : 0);

@@ -63,6 +63,7 @@ const previewHandlerBlock = previewHandlerMatch ? previewHandlerMatch[0] : '';
 const fieldBlock = src.match(
   /\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function bcInitFieldEditShell[\s\S]*?\n  if \(cout\)/
 )?.[0] || '';
+const packageSaveUiFn = src.match(/function bcFieldEditBuildPackageWritePayload[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
 
 console.log('\nA. Route + gate');
 
@@ -168,15 +169,18 @@ check(/idempotency_key/.test(packageHandlerBlock), 'audit includes idempotency_k
 check(/No payment, bed, service, Stripe, n8n, or WhatsApp changes were made/.test(packageHandlerBlock),
   'success message documents no payment/bed/service/Stripe/n8n/WhatsApp');
 
-console.log('\nH. UI — no package Save write wiring');
+console.log('\nH. UI — package Save wired (10.5c.1)');
 
 check(/bcFieldEditRunContactSave/.test(src), 'contact Save helper exists');
-check(!/bcFieldEditRunPackageSave|data-bc-field-package-save/.test(src),
-  'no package Save write UI helper');
+check(/bcFieldEditRunPackageSave/.test(src), 'package Save helper calls write API');
+check(/data-bc-field-package-save/.test(src), 'package Save button attribute present');
+check(/edit_type:\s*'package'/.test(packageSaveUiFn) &&
+  /fetch\('\/staff\/bookings\/edit'/.test(packageSaveUiFn),
+  'package UI posts to /staff/bookings/edit');
 check(/data-bc-field-preview/.test(fieldBlock),
-  'non-contact field groups still use edit-preview Save');
+  'dates/guests field groups still use edit-preview Save');
 check(/group === 'contact'/.test(src) && /data-bc-field-contact-save/.test(src),
-  'only contact group uses gated write Save');
+  'contact group uses gated write Save');
 
 console.log('\nI. Safety — no forbidden integrations');
 
