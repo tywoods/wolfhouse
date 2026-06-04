@@ -15050,7 +15050,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
 function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows){
   bk = bk || {};
   ledgerRows = ledgerRows || [];
-  if (bookingStatusIsCancelled(bk.status)) return '';
+  if (bcBookingStatusIsCancelled(bk.status)) return '';
   if (needsRefund) {
     return '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">' +
       '<div class="state-msg error" style="font-size:12px;margin:0">Refund / credit review needed before creating a payment link.</div></div>';
@@ -15167,7 +15167,7 @@ function bcInitPaymentLinkShell(data){
 
 function bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund){
   bk = bk || {};
-  if (bookingStatusIsCancelled(bk.status)) return '';
+  if (bcBookingStatusIsCancelled(bk.status)) return '';
   if (needsRefund) return '';
   if (invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal) return '';
   var today = new Date().toISOString().slice(0, 10);

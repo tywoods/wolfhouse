@@ -57,8 +57,10 @@ console.log('\nB. Generate Payment Link UI');
 check(/Generate Payment Link/.test(linkUiFn), 'Generate Payment Link button label');
 check(/id="bc-generate-payment-link-btn"/.test(linkUiFn), 'generate button id');
 check(/bcRenderPaymentLinkSectionHtml/.test(invFn), 'running invoice renders payment link section');
-check(/bookingStatusIsCancelled\(bk\.status\)/.test(linkUiFn),
+check(/bcBookingStatusIsCancelled\(bk\.status\)/.test(linkUiFn),
   'cancelled booking hides payment link section');
+check(!/bookingStatusIsCancelled\(/.test(linkUiFn),
+  'payment link UI uses client bcBookingStatusIsCancelled helper');
 check(/needsRefund/.test(linkUiFn) && /Refund \/ credit review/.test(linkUiFn),
   'refund review blocks payment link UI');
 check(/paidInFull|balanceDue <= 0/.test(linkUiFn),

@@ -277,6 +277,33 @@ check(/bcRenderAddServicePanelHtml[\s\S]*bcRenderRunningInvoiceHtml/.test(drawer
 check(/bcRenderBookingCancelFooterHtml/.test(drawerFn),
   '10.6a.4: cancel reservation footer still present');
 
+console.log('\nO. Drawer booking status helper (10.6c runtime fix)');
+
+const payLinkFn = src.match(/function bcRenderPaymentLinkSectionHtml[\s\S]*?\n\}/)?.[0] || '';
+const cashPayFn = src.match(/function bcRenderCashPaymentFormHtml[\s\S]*?\n\}/)?.[0] || '';
+const bcStatusFn = src.match(/function bcBookingStatusIsCancelled[\s\S]*?\n\}/)?.[0] || '';
+const addOnsFn = src.match(/function bcRenderAddServicePanelHtml[\s\S]*?\n\}/)?.[0] || '';
+const cancelFootFn = src.match(/function bcRenderBookingCancelFooterHtml[\s\S]*?\n\}/)?.[0] || '';
+
+check(/function bcBookingStatusIsCancelled/.test(src), 'bcBookingStatusIsCancelled defined in staff UI bundle');
+check(/cancelled/.test(bcStatusFn) && /canceled/.test(bcStatusFn) && /expired/.test(bcStatusFn),
+  'bcBookingStatusIsCancelled treats cancelled/canceled/expired');
+check(/bcBookingStatusIsCancelled\(bk\.status\)/.test(payLinkFn),
+  'payment link section gates on bcBookingStatusIsCancelled');
+check(/bcBookingStatusIsCancelled\(bk\.status\)/.test(cashPayFn),
+  'cash payment section gates on bcBookingStatusIsCancelled');
+check(!/bookingStatusIsCancelled\(/.test(payLinkFn + cashPayFn + drawerFn),
+  'embedded drawer payment paths do not call server-only bookingStatusIsCancelled');
+check(/bcBookingStatusIsCancelled/.test(addOnsFn) || /bcBookingStatusIsCancelled/.test(drawerFn),
+  'add-ons panel cancel visibility uses client status helper');
+check(/bcBookingStatusIsCancelled/.test(cancelFootFn),
+  'cancel footer uses bcBookingStatusIsCancelled');
+check(/function staffAddonUiTypeLabel/.test(src), 'staffAddonUiTypeLabel still defined (no regression)');
+check(!/api\.stripe\.com/.test(payLinkFn + cashPayFn + drawerFn),
+  'no Stripe API URL in drawer status-fix slice');
+check(!/graph\.facebook\.com|n8n\.cloud.*activate/i.test(payLinkFn + cashPayFn + drawerFn),
+  'no WhatsApp/n8n in drawer status-fix slice');
+
 console.log('\nN. No docs / migration changes');
 
 let docsChanged = false;
