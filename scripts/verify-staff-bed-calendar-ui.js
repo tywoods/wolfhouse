@@ -327,10 +327,12 @@ check(/bc-legend/.test(src),
     '10.7b: legend has Staff / manual (green) swatch');
   check(/bc-legend-sw-payment/.test(legendSlice) && />Luna</.test(legendSlice),
     '10.7b: legend has Luna (blue) swatch');
+  check(/bc-legend-sw-tour_operator/.test(legendSlice) && />Tour operator</.test(legendSlice),
+    '10.7d: legend has Tour operator (purple) swatch');
   check(!/bc-legend-sw-hold/.test(legendSlice) && !/bc-legend-sw-review/.test(legendSlice) &&
-        !/bc-legend-sw-operator/.test(legendSlice) && !/bc-legend-sw-balance/.test(legendSlice) &&
+        !/bc-legend-sw-balance/.test(legendSlice) &&
         !/bc-legend-sw-cancelled/.test(legendSlice),
-    '10.7b: legend omits hold/review/operator/balance/cancelled swatches');
+    '10.7b: legend omits hold/review/balance/cancelled swatches');
   check(!/>Confirmed</.test(legendSlice) && !/>Payment pending</.test(legendSlice) &&
         !/>Cancelled</.test(legendSlice) && !/>Operator block</.test(legendSlice) &&
         !/>Balance due</.test(legendSlice),
@@ -338,8 +340,8 @@ check(/bc-legend/.test(src),
 })();
 
 // 50. Operator block color class present (Stage 8.3a)
-check(/bc-block-operator/.test(src),
-  'Operator block CSS class (bc-block-operator) present (Stage 8.3a)');
+check(/bc-block-tour_operator/.test(src) && /bc-block-operator/.test(src),
+  '10.7d: tour operator block CSS (pastel purple) present');
 
 // 51. No inline A/D bc-marker spans in renderBookingBlock (Stage 8.3a)
 // The bc-marker class and A/D text should no longer be rendered inline in blocks
@@ -2160,8 +2162,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 // ── Phase 10.7b — source-based calendar block colors + Sep-Oct chip ─────────
 (function check107bSourceColors(){
   const colorFn = src.match(/function bedCalendarIsLunaBotSource[\s\S]*?function computeBlockSpan/)?.[0] || '';
-  check(/function bedCalendarIsLunaBotSource/.test(colorFn) && /function bedCalendarColorType/.test(colorFn),
-    '10.7b: source color helpers present');
+  check(/function bedCalendarIsLunaBotSource/.test(colorFn) &&
+        /function bedCalendarIsTourOperatorSource/.test(colorFn) &&
+        /function bedCalendarColorType/.test(colorFn),
+    '10.7d: source color helpers present (incl. tour operator)');
   check(!/payment_status|balance_due|deposit_paid|cancelled/.test(
     src.match(/function bedCalendarColorType[\s\S]*?\n\}/)?.[0] || ''
   ),
@@ -2172,18 +2176,21 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.7b: calendar enrichment pulls metadata source fields');
 
   const lunaSrc = colorFn.match(/function bedCalendarIsLunaBotSource[\s\S]*?\n\}/)?.[0] || '';
+  const tourSrc = colorFn.match(/function bedCalendarIsTourOperatorSource[\s\S]*?\n\}/)?.[0] || '';
   const colorTypeSrc = src.match(/function bedCalendarColorType[\s\S]*?\n\}/)?.[0] || '';
-  if (lunaSrc && colorTypeSrc) {
+  if (lunaSrc && tourSrc && colorTypeSrc) {
     const vm = require('vm');
-    const colorType = vm.runInNewContext(lunaSrc + '\n' + colorTypeSrc + '; bedCalendarColorType;');
+    const colorType = vm.runInNewContext(lunaSrc + '\n' + tourSrc + '\n' + colorTypeSrc + '; bedCalendarColorType;');
     check(typeof colorType === 'function',
       '10.7b: source color helpers are callable');
     check(colorType({ booking_source: 'manual_staff' }) === 'confirmed',
       '10.7b: manual_staff maps to confirmed green');
-    check(colorType({ booking_source: 'operator' }) === 'confirmed',
-      '10.7b: operator block maps to confirmed green');
-    check(colorType({ booking_source: 'tour_operator' }) === 'confirmed',
-      '10.7b: tour_operator maps to confirmed green');
+    check(colorType({ booking_source: 'operator' }) === 'tour_operator',
+      '10.7d: operator booking maps to tour_operator purple');
+    check(colorType({ booking_source: 'tour_operator' }) === 'tour_operator',
+      '10.7d: tour_operator source maps to tour_operator purple');
+    check(colorType({ booking_source: 'manual_staff', is_operator_block: true }) === 'tour_operator',
+      '10.7d: is_operator_block flag maps to tour_operator purple');
     check(colorType({ booking_source: 'manual_staff', metadata_source: 'bot_booking_stage854' }) === 'payment_pending',
       '10.7b: bot metadata on staff source maps to Luna blue');
     check(colorType({ booking_source: 'luna' }) === 'payment_pending',
@@ -2238,14 +2245,25 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.7c: showBlockDetail still opens booking drawer from calendar');
 })();
 
+// ── Phase 10.7d — tour operator pastel purple on calendar ───────────────────
+(function check107dTourOperatorPurple(){
+  check(/#E8DDF5/.test(src) && /\.bc-block-tour_operator/.test(src),
+    '10.7d: tour operator block uses soft pastel purple');
+  check(/bc-legend-sw-tour_operator/.test(src) && />Tour operator</.test(
+    src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 900)
+  ),
+    '10.7d: calendar legend shows Tour operator purple swatch');
+})();
+
 // ── Phase 10.7c — Apr-May / May-Jun chips + source legend preserved ─────────
 (function check107cRangeChipsAndLegend(){
   const legendSlice = (() => {
     const s = src.indexOf('id="bc-legend"');
     return s >= 0 ? src.slice(s, s + 800) : '';
   })();
-  check(/>Staff \/ manual</.test(legendSlice) && />Luna</.test(legendSlice),
-    '10.7c: source legend still Staff/manual + Luna only');
+  check(/>Staff \/ manual</.test(legendSlice) && />Luna</.test(legendSlice) &&
+        />Tour operator</.test(legendSlice),
+    '10.7c: source legend has Staff/manual, Luna, and Tour operator');
   check(!/>Confirmed</.test(legendSlice) && !/>Payment pending</.test(legendSlice),
     '10.7c: old status-color legend entries still absent');
   check(/bcCalendarPaymentBadgesHtml/.test(src),

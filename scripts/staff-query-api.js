@@ -12569,7 +12569,8 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-needs_review{background:#F3DCC1;color:#9B6320;border-left:3px solid #D9A057}
 .bc-block-cancelled{background:#E4E0D9;color:#7A8078;border-left:3px solid #BDB9B0;text-decoration:line-through;opacity:.7}
 .bc-block-conflict{background:#EFD9D0;color:#9C5742;border-left:3px solid #C98B76}
-.bc-block-operator{background:#D5E3EE;color:#3A5A72;border-left:3px solid #85A8C0;font-style:italic}
+.bc-block-operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
+.bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-manual{background:#D5EAE3;color:#3A6657;border-left:3px solid #7ABFAD}
 .bc-day-cell-turnover{position:relative;height:30px;vertical-align:middle;padding:2px 3px}
 .bc-day-cell-turnover .bc-block{position:relative;z-index:2}
@@ -12581,6 +12582,8 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-checkout-marker.bc-block-payment_pending{background:linear-gradient(90deg,rgba(122,170,187,.28) 0%,rgba(122,170,187,.08) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-needs_review{background:linear-gradient(90deg,rgba(217,160,87,.28) 0%,rgba(217,160,87,.08) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-manual{background:linear-gradient(90deg,rgba(122,191,173,.28) 0%,rgba(122,191,173,.08) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-tour_operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
@@ -12600,7 +12603,8 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-legend-sw-hold{background:#F2E7D3;border-left-color:#DCC8B7}
 .bc-legend-sw-payment{background:#D5E5EF;border-left-color:#7AAABB}
 .bc-legend-sw-review{background:#F3DCC1;border-left-color:#D9A057}
-.bc-legend-sw-operator{background:#D5E3EE;border-left-color:#85A8C0}
+.bc-legend-sw-operator{background:#E8DDF5;border-left-color:#B39BCB}
+.bc-legend-sw-tour_operator{background:#E8DDF5;border-left-color:#B39BCB}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
 .bc-legend-sw-manual{background:#D5EAE3;border-left-color:#7ABFAD}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
@@ -13025,6 +13029,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span style="font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Legend:</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-confirmed"></span>Staff / manual</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span>Luna</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span>Tour operator</span>
     </div>
 
     <!-- Warnings -->
@@ -15413,7 +15418,7 @@ function bcCalendarBlockInnerHtml(blk, labelHtml){
 
 function bcColorClass(ct){
   var c = (ct||'hold').toLowerCase();
-  var valid = ['confirmed','hold','payment_pending','needs_review','cancelled','conflict','operator','manual'];
+  var valid = ['confirmed','hold','payment_pending','needs_review','cancelled','conflict','operator','tour_operator','manual'];
   return 'bc-block-' + (valid.indexOf(c) >= 0 ? c : 'hold');
 }
 
@@ -19619,9 +19624,18 @@ function bedCalendarIsLunaBotSource(row) {
   return false;
 }
 
+function bedCalendarIsTourOperatorSource(row) {
+  row = row || {};
+  const src = String(row.booking_source || '').toLowerCase();
+  if (src === 'operator' || src === 'tour_operator') return true;
+  if (row.is_operator_block) return true;
+  return false;
+}
+
 /** Main block color = booking source only (badges carry payment/status). */
 function bedCalendarColorType(row) {
   if (bedCalendarIsLunaBotSource(row)) return 'payment_pending';
+  if (bedCalendarIsTourOperatorSource(row)) return 'tour_operator';
   return 'confirmed';
 }
 
