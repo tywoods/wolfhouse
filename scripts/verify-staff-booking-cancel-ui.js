@@ -23,7 +23,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-cancel-ui.js  (Phase 10.5f)\n');
+console.log('\nverify-staff-booking-cancel-ui.js  (Phase 10.5f / 10.5f.1)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -52,25 +52,53 @@ const cancelUiBlock =
   (src.match(/function bcRenderCancelConfirmPanel[\s\S]*?function bcRunCancelReservation/)?.[0] || '');
 
 const renderDrawerBlock = src.match(
-  /function renderBookingContextDrawer\(data\)\{[\s\S]*?Phase 10\.5f[\s\S]*?return html;\r?\n\}/
-)?.[0] || src.match(/Phase 10\.5f — Cancel reservation[\s\S]*?bc-cancel-reservation-btn/)?.[0] || '';
+  /function renderBookingContextDrawer\(data\)\{[\s\S]*?return html;\r?\n\}/
+)?.[0] || '';
+const cancelFooterBlock = src.match(
+  /function bcRenderBookingCancelFooterHtml[\s\S]*?function bcRenderCancelConfirmPanel/
+)?.[0] || '';
 
 const buildBlocksBlock = src.match(/function buildCalendarBlocks[\s\S]*?async function handleBedCalendar/)?.[0] || '';
 
 console.log('\nA. UI — Cancel reservation button + danger-light');
 
 check(/btn-danger-light/.test(src), 'btn-danger-light style class exists');
-check(/Cancel reservation/.test(renderDrawerBlock), 'drawer includes Cancel reservation label');
-check(/id="bc-cancel-reservation-btn"/.test(renderDrawerBlock),
-  'cancel button id bc-cancel-reservation-btn in drawer');
-check(/bcBookingStatusIsCancelled/.test(renderDrawerBlock),
-  'cancel button hidden when booking already cancelled');
-check(/btn-danger-light/.test(renderDrawerBlock),
+check(/bcRenderBookingCancelFooterHtml/.test(src), 'bcRenderBookingCancelFooterHtml helper exists');
+check(/Cancel reservation/.test(cancelFooterBlock), 'footer includes Cancel reservation label');
+check(/id="bc-cancel-reservation-btn"/.test(cancelFooterBlock),
+  'cancel button id bc-cancel-reservation-btn in footer');
+check(/bcBookingStatusIsCancelled/.test(cancelFooterBlock),
+  'cancel footer hidden when booking already cancelled');
+check(/btn-danger-light/.test(cancelFooterBlock),
   'cancel button uses danger-light style');
+check(/ctx-booking-cancel-footer/.test(cancelFooterBlock),
+  'cancel section uses drawer footer class');
 
-console.log('\nB. Confirmation UI');
+console.log('\nA2. Drawer bottom placement');
+
+const drawerIdx = renderDrawerBlock.indexOf('function renderBookingContextDrawer');
+const fieldEditIdx = renderDrawerBlock.indexOf('bcRenderFieldEditSectionsHtml');
+const cancelFooterCallIdx = renderDrawerBlock.indexOf('bcRenderBookingCancelFooterHtml');
+const convIdx = renderDrawerBlock.indexOf('Conversation / Handoff');
+const plannedIdx = renderDrawerBlock.indexOf('ctx-planned');
+check(cancelFooterCallIdx > fieldEditIdx && cancelFooterCallIdx > convIdx,
+  'cancel footer rendered after field edits and conversation');
+check(cancelFooterCallIdx > plannedIdx || cancelFooterCallIdx > renderDrawerBlock.indexOf('Planned operations'),
+  'cancel footer rendered after planned-ops block (drawer bottom)');
+check(!/bcRenderFieldEditSectionsHtml[\s\S]{0,800}bc-cancel-reservation-btn/.test(renderDrawerBlock),
+  'cancel button not immediately under field edit sections');
+check(!/id="bc-cancel-confirm-host"/.test(src),
+  'no top-level bc-cancel-confirm-host outside drawer body');
+
+console.log('\nB. Confirmation UI (inline below button)');
 
 check(/Cancel reservation\?/.test(cancelUiBlock), 'confirmation title Cancel reservation?');
+check(/bc-cancel-confirm-inline/.test(cancelFooterBlock + cancelUiBlock),
+  'inline confirm host below cancel button');
+check(/id="bc-cancel-reservation-btn"[\s\S]*?id="bc-cancel-confirm-inline"/.test(cancelFooterBlock),
+  'confirm host immediately after cancel button in footer HTML');
+check(/bc-cancel-confirm-inline/.test(cancelUiBlock) && /el\('bc-cancel-confirm-inline'\)/.test(cancelUiBlock),
+  'confirm panel renders into bc-cancel-confirm-inline');
 check(/bc-cancel-confirm/.test(cancelUiBlock), 'confirmation panel present');
 check(/Confirm cancellation/.test(cancelUiBlock), 'Confirm cancellation button');
 check(/Back \/ Keep reservation/.test(cancelUiBlock), 'Back / Keep reservation button');

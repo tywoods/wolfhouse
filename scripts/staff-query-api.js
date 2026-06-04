@@ -10393,8 +10393,9 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .btn-danger-light{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC;border-radius:var(--radius-sm);padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer}
 .btn-danger-light:hover{background:#F0D9D2;border-color:#D9A89A}
 .btn-danger-light:disabled{opacity:.55;cursor:not-allowed}
-.ctx-booking-cancel{margin-top:20px;padding-top:16px;border-top:1px solid var(--border-soft)}
-.bc-cancel-confirm{margin-top:12px;padding:12px 14px;background:#FBF7F0;border:1px solid #E6C7BC;border-radius:var(--radius-sm);max-width:440px}
+.ctx-booking-cancel-footer{margin-top:24px;padding-top:16px;border-top:1px solid var(--border-soft)}
+.bc-cancel-confirm-inline:empty{display:none}
+.bc-cancel-confirm,.bc-cancel-confirm-inline .bc-cancel-confirm{margin-top:12px;padding:12px 14px;background:#FBF7F0;border:1px solid #E6C7BC;border-radius:var(--radius-sm);max-width:440px}
 .bc-cancel-confirm-title{font-size:13px;font-weight:700;color:#9C5742;margin-bottom:8px}
 .bc-cancel-confirm-meta{font-size:12px;color:var(--text);line-height:1.55;margin-bottom:8px}
 .bc-cancel-confirm-warn{font-size:11.5px;color:#9C5742;line-height:1.5;margin-bottom:12px;padding:8px 10px;background:#F6E7E1;border-radius:6px}
@@ -13191,7 +13192,6 @@ function showBlockDetail(blk){
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
     '<button class="btn btn-ghost" id="bc-close-detail">&times; Close</button></div>' +
     '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>' +
-    '<div id="bc-cancel-confirm-host"></div>' +
     '<div class="bc-detail-note">&#128274; Bed calendar is read-only \u2014 booking edits disabled until write gates approved.</div>';
   el('bc-detail').style.display = 'block';
   el('bc-close-detail').addEventListener('click', function(){ el('bc-detail').style.display = 'none'; });
@@ -14689,13 +14689,23 @@ function bcCancelFormatDatesLine(bk){
 }
 
 function bcCloseCancelConfirm(){
-  var host = el('bc-cancel-confirm-host');
+  var host = el('bc-cancel-confirm-inline');
   if (host) host.innerHTML = '';
+}
+
+function bcRenderBookingCancelFooterHtml(data){
+  var bk = (data && data.booking) || {};
+  if (bcBookingStatusIsCancelled(bk.status)) return '';
+  return '<div class="ctx-section ctx-booking-cancel-footer" id="bc-booking-cancel">' +
+    '<button type="button" class="btn btn-danger-light" id="bc-cancel-reservation-btn">Cancel reservation</button>' +
+    '<div id="bc-cancel-confirm-inline" class="bc-cancel-confirm-inline"></div>' +
+    '<div id="bc-cancel-result" aria-live="polite"></div>' +
+    '</div>';
 }
 
 function bcRenderCancelConfirmPanel(data){
   var bk = (data && data.booking) || {};
-  var host = el('bc-cancel-confirm-host');
+  var host = el('bc-cancel-confirm-inline');
   if (!host) return;
   host.innerHTML =
     '<div class="bc-cancel-confirm" id="bc-cancel-confirm" role="dialog" aria-labelledby="bc-cancel-confirm-title">' +
@@ -14801,8 +14811,6 @@ function bcInitBookingCancelShell(data){
   openBtn.onclick = function(){
     if (bcCancelCtx.inFlight) return;
     bcRenderCancelConfirmPanel(data);
-    var host = el('bc-cancel-confirm-host');
-    if (host) host.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 }
 
@@ -14928,14 +14936,6 @@ function renderBookingContextDrawer(data){
   /* ── Phase 10.4e — field edit UI shell (contact / dates / guests / package) ─ */
   html += bcRenderFieldEditSectionsHtml(data);
 
-  /* ── Phase 10.5f — Cancel reservation (active bookings only) ─────────────── */
-  if (!bcBookingStatusIsCancelled(bk.status)) {
-    html += '<div class="ctx-section ctx-booking-cancel" id="bc-booking-cancel">';
-    html += '<button type="button" class="btn btn-danger-light" id="bc-cancel-reservation-btn">Cancel reservation</button>';
-    html += '<div id="bc-cancel-result" aria-live="polite"></div>';
-    html += '</div>';
-  }
-
   /* ── Phase 10.3e / 10.3e.1 / 10.3h — Move bed (under stay details, above Payment) ─ */
   var rmMove = data.rooming || {};
   var moveAssigns = rmMove.assignments || [];
@@ -15036,6 +15036,9 @@ function renderBookingContextDrawer(data){
     '<span class="ctx-planned-action" title="Not enabled — write gates not approved">Change dates</span>' +
     '<span class="ctx-planned-action" title="Not enabled — write gates not approved">Cancel booking</span>' +
     '</div>';
+
+  /* ── Phase 10.5f.1 — Cancel reservation at drawer bottom (confirm inline below button) ─ */
+  html += bcRenderBookingCancelFooterHtml(data);
 
   return html;
 }
