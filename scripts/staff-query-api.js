@@ -54,6 +54,11 @@ require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 
 const { withPgClient }       = require('./lib/pg-connect');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
+const {
+  computeBalanceDueRows,
+  formatAskLunaBalanceDueAnswer,
+  matchesBalanceDueQuestion,
+} = require('./lib/staff-ask-luna-balance-due');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1293,13 +1298,7 @@ function askLunaMatchesCleaning(q) {
 }
 
 function askLunaMatchesBalanceDue(q) {
-  return /\b(owes?|owed|still\s+(needs?\s+to\s+)?pay|balance\s+due|still\s+ow)\b/.test(q)
-    || /\b(debe|deben|saldo)\b/.test(q)
-    || /\b(deve(\s+pagare)?)\b/.test(q)
-    || /\b(schuldet|offen)\b/.test(q)
-    || /\b(doit(\s+payer)?|solde)\b/.test(q)
-    || (/\b(quien|who)\b/.test(q) && /\b(debe|owes?)\b/.test(q))
-    || (/\b(quien|who)\b/.test(q) && /\bpagar\b/.test(q) && /\bdebe\b/.test(q));
+  return matchesBalanceDueQuestion(q);
 }
 
 function askLunaIsDeparturesTodayPhrase(q, dateInfo, today) {
@@ -1555,7 +1554,7 @@ function formatAnswer(intentKey, rows, ctx = {}) {
 
   if (n === 0) {
     const empty = {
-      'payments.balance_due':         'No guests currently owe a remaining balance. ✅',
+      'payments.balance_due':         'No active bookings currently have a balance due.',
       'payments.waiting':             'No payment links are pending right now. ✅',
       'payments.deposit':             'No guests are in deposit-paid state.',
       'payments.fully_paid':          'No guests have paid in full yet.',
@@ -1604,6 +1603,7 @@ function formatAnswer(intentKey, rows, ctx = {}) {
 
   switch (intentKey) {
     case 'payments.balance_due':
+      return formatAskLunaBalanceDueAnswer(rows);
     case 'payments.deposit': {
       const list = rows.slice(0, MAX_SUMMARY).map(r =>
         `${nameLine(r)} — balance ${centsStr(r.balance_due_cents)}`
@@ -1854,6 +1854,34 @@ async function handleAskLuna(req, res) {
       answer,
       rows:               localRows.slice(0, MAX_ROWS),
       row_count:          localRows.length,
+      read_only:          true,
+      no_write_performed: true,
+      sends_whatsapp:     false,
+      elapsed_ms:         Date.now() - started,
+    });
+  }
+
+  if (intentKey === 'payments.balance_due') {
+    let balanceRows = [];
+    try {
+      balanceRows = await withPgClient((pgClient) => computeBalanceDueRows(pgClient, clientSlug));
+    } catch (err) {
+      console.error('[ask-luna] DB error:', err.message);
+      return sendJSON(res, 500, {
+        success: false, error: 'query_error', detail: err.message,
+      });
+    }
+    const answer = formatAskLunaBalanceDueAnswer(balanceRows);
+    return sendJSON(res, 200, {
+      success:            true,
+      client_slug:        clientSlug,
+      source,
+      staff_access:       staffAccess,
+      intent:             intentKey,
+      category:           'payments',
+      answer,
+      rows:               balanceRows.slice(0, MAX_ROWS),
+      row_count:          balanceRows.length,
       read_only:          true,
       no_write_performed: true,
       sends_whatsapp:     false,

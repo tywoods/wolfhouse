@@ -116,37 +116,7 @@ ORDER BY b.check_in ASC
  * @returns {string} Parameterised SQL ($1 = client slug)
  */
 function getBalanceDueQuery() {
-  return `
-SELECT
-  b.id::text                AS booking_id,
-  b.booking_code,
-  b.phone,
-  b.guest_name,
-  b.guest_count,
-  b.package_code,
-  b.check_in,
-  b.check_out,
-  b.payment_status::text,
-  b.amount_paid_cents,
-  b.total_amount_cents,
-  b.balance_due_cents,
-  GREATEST(
-    COALESCE(b.balance_due_cents, 0),
-    GREATEST(COALESCE(b.total_amount_cents, 0) - COALESCE(b.amount_paid_cents, 0), 0)
-  )                         AS computed_balance_due_cents,
-  b.deposit_required_cents,
-  b.deposit_paid_cents
-FROM bookings b
-INNER JOIN clients c ON c.id = b.client_id
-WHERE c.slug = $1
-  AND b.payment_status = 'deposit_paid'
-  AND (
-    COALESCE(b.balance_due_cents, 0) > 0
-    OR COALESCE(b.total_amount_cents, 0) - COALESCE(b.amount_paid_cents, 0) > 0
-  )
-  AND b.status NOT IN ('cancelled', 'expired')
-ORDER BY b.check_in ASC
-`;
+  return require('./staff-ask-luna-balance-due').getBalanceDueQuery();
 }
 
 // ---------------------------------------------------------------------------

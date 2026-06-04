@@ -344,9 +344,14 @@ function extractAskLunaRouterChunk() {
   try {
     const chunk = extractAskLunaRouterChunk();
     if (!chunk) throw new Error('could not extract Ask Luna router chunk');
+    const balanceDueLib = require('./lib/staff-ask-luna-balance-due');
     const wrapped = `
+      const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) return { REGISTRY_BY_KEY: new Map() };
+        if (String(id).includes('staff-ask-luna-balance-due')) {
+          return { matchesBalanceDueQuestion };
+        }
         throw new Error('unexpected require: ' + id);
       };
       ${chunk}
@@ -432,10 +437,12 @@ check('L4', 'multilingual cleaning helper (askLunaMatchesCleaning)',
   routerChunk.includes('limpiar') && routerChunk.includes('gereinigt') &&
   routerChunk.includes('nettoyer'));
 
-check('L5', 'multilingual balance-due helper (askLunaMatchesBalanceDue)',
+const balanceDueLibSrc = fs.readFileSync(path.join(__dirname, 'lib', 'staff-ask-luna-balance-due.js'), 'utf8');
+check('L5', 'multilingual balance-due helper (askLunaMatchesBalanceDue + lib phrases)',
   routerChunk.includes('function askLunaMatchesBalanceDue(') &&
-  routerChunk.includes('debe') && routerChunk.includes('schuldet') &&
-  routerChunk.includes('doit'));
+  routerChunk.includes('matchesBalanceDueQuestion') &&
+  balanceDueLibSrc.includes('debe') && balanceDueLibSrc.includes('schuldet') &&
+  balanceDueLibSrc.includes('doit'));
 
 check('L6', 'multilingual today/tomorrow words in date resolver',
   routerChunk.includes('hoy') && routerChunk.includes('oggi') &&
