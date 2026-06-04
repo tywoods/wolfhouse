@@ -682,6 +682,134 @@ function send405(res) {
   res.end(JSON.stringify({ success: false, error: 'Method not allowed — this API is read-only (GET only)' }));
 }
 
+function sendHTML(res, statusCode, html) {
+  res.writeHead(statusCode, {
+    'Content-Type':  'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Powered-By':  'wolfhouse-staff-api/stripe-landing',
+  });
+  res.end(html);
+}
+
+function escLandingHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function safeLandingBookingCode(v) {
+  const s = String(v || '').trim();
+  return /^[A-Za-z0-9_-]{1,80}$/.test(s) ? s : '';
+}
+
+function safeLandingClientSlug(v) {
+  const s = String(v || '').trim();
+  return /^[a-z0-9][a-z0-9_-]{0,62}$/.test(s) ? s : '';
+}
+
+function stripeCheckoutLandingReturnLinkHtml(query) {
+  const clientSlug = safeLandingClientSlug(query && query.client_slug);
+  const href = clientSlug
+    ? '/staff/ui?client=' + encodeURIComponent(clientSlug)
+    : '/staff/login';
+  return '<p style="margin-top:18px"><a href="' + escLandingHtml(href) + '">Return to Luna Front Desk</a></p>';
+}
+
+function buildStripeCheckoutSuccessLandingHtml(query) {
+  query = query || {};
+  const bookingCode = safeLandingBookingCode(query.booking_code);
+  const bookingLine = bookingCode
+    ? '<p>Reference: <strong>' + escLandingHtml(bookingCode) + '</strong></p>'
+    : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payment received</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f6f4f0;color:#2a302c;
+      margin:0;padding:32px 20px;display:flex;min-height:100vh;align-items:center;justify-content:center}
+    .card{max-width:420px;background:#fff;border:1px solid #e2ddd4;border-radius:12px;padding:28px 24px;
+      box-shadow:0 2px 12px rgba(42,48,44,.08)}
+    h1{font-size:22px;margin:0 0 12px}
+    p{margin:0 0 10px;line-height:1.5;font-size:15px}
+    a{color:#3d6b52}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Payment received</h1>
+    <p>Thanks &mdash; your payment was received.</p>
+    <p>Wolfhouse has your booking/payment update.</p>
+    <p>You can close this page.</p>
+    ${bookingLine}
+    ${stripeCheckoutLandingReturnLinkHtml(query)}
+  </div>
+</body>
+</html>`;
+}
+
+function buildStripeCheckoutCancelLandingHtml(query) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payment not completed</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f6f4f0;color:#2a302c;
+      margin:0;padding:32px 20px;display:flex;min-height:100vh;align-items:center;justify-content:center}
+    .card{max-width:420px;background:#fff;border:1px solid #e2ddd4;border-radius:12px;padding:28px 24px;
+      box-shadow:0 2px 12px rgba(42,48,44,.08)}
+    h1{font-size:22px;margin:0 0 12px}
+    p{margin:0 0 10px;line-height:1.5;font-size:15px}
+    a{color:#3d6b52}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Payment not completed</h1>
+    <p>No payment was completed. You can close this page or contact Wolfhouse.</p>
+    ${stripeCheckoutLandingReturnLinkHtml(query)}
+  </div>
+</body>
+</html>`;
+}
+
+function handleStripeCheckoutSuccessLanding(query, res) {
+  return sendHTML(res, 200, buildStripeCheckoutSuccessLandingHtml(query));
+}
+
+function handleStripeCheckoutCancelLanding(query, res) {
+  return sendHTML(res, 200, buildStripeCheckoutCancelLandingHtml(query));
+}
+
+function stripeCheckoutLandingPathFromEnvUrl(rawUrl) {
+  if (!rawUrl) return null;
+  try {
+    const u = new URL(rawUrl);
+    const p = u.pathname.replace(/\/+$/, '') || '/';
+    return p;
+  } catch (_) {
+    return null;
+  }
+}
+
+function isStripeCheckoutSuccessLandingPath(pathname, query) {
+  if (pathname === '/staff/payment/success' || pathname === '/staff/stripe/success') return true;
+  if (pathname === '/staff' && query && query.session_id) return true;
+  return false;
+}
+
+function isStripeCheckoutCancelLandingPath(pathname, query) {
+  if (pathname === '/staff/payment/cancel' || pathname === '/staff/stripe/cancel') return true;
+  if (pathname === '/staff' && !(query && query.session_id)) return true;
+  return false;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Route: GET /staff/intents
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19722,6 +19850,16 @@ async function router(req, res) {
   const parsed   = url.parse(req.url, true);
   const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
   const method   = req.method.toUpperCase();
+
+  // ── Phase 10.6g.5 — Stripe Checkout redirect landing (display only; no auth) ─
+  if (method === 'GET') {
+    if (isStripeCheckoutSuccessLandingPath(pathname, parsed.query)) {
+      return handleStripeCheckoutSuccessLanding(parsed.query, res);
+    }
+    if (isStripeCheckoutCancelLandingPath(pathname, parsed.query)) {
+      return handleStripeCheckoutCancelLanding(parsed.query, res);
+    }
+  }
 
   // ── POST /staff/auth/login  (Stage 7.2c — session auth) ──────────────────
   if (pathname === '/staff/auth/login') {

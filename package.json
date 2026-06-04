@@ -104,6 +104,7 @@
     "verify:staff-booking-contact-save-ui": "node scripts/verify-staff-booking-contact-save-ui.js",
     "verify:staff-today-navigation-ui": "node scripts/verify-staff-today-navigation-ui.js",
     "verify:staff-stripe-payment-link-api": "node scripts/verify-staff-stripe-payment-link-api.js",
+    "verify:staff-stripe-checkout-landing": "node scripts/verify-staff-stripe-checkout-landing.js",
     "verify:staff-addon-service-payment-api": "node scripts/verify-staff-addon-service-payment-api.js",
     "verify:staff-stripe-webhook-api": "node scripts/verify-staff-stripe-webhook-api.js",
     "verify:wolfhouse-pricing-config": "node scripts/verify-wolfhouse-pricing-config.js",
