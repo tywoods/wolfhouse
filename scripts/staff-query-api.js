@@ -11519,9 +11519,13 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-field-edit-group{margin:0;padding:6px 0 0;border-top:1px solid var(--border-soft)}
 .ctx-field-edit-group:first-child{padding-top:0;border-top:none}
 .ctx-field-read-row{display:flex;align-items:flex-start;gap:8px}
-.ctx-field-read-row .kv-grid{flex:1;display:flex;flex-direction:row;flex-wrap:wrap;align-items:flex-start;gap:6px 18px;min-width:0;max-width:none}
-.ctx-field-read-row .kv{flex:0 1 auto;min-width:0}
-.ctx-field-read-row .ctx-field-header{flex-shrink:0;display:flex;align-items:center;justify-content:flex-end;margin:0}
+.ctx-field-read-row .kv-grid.ctx-field-kv-grid{flex:1;display:grid;grid-template-columns:minmax(180px,1.4fr) minmax(140px,1fr) minmax(180px,1.4fr);gap:6px 18px;align-items:start;min-width:0}
+.ctx-field-read-row .kv-grid.ctx-field-kv-grid--2{grid-template-columns:minmax(180px,1.4fr) minmax(140px,1fr)}
+.ctx-field-read-row .kv{min-width:0}
+.ctx-field-read-row .kv .v{overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
+.ctx-field-read-row .ctx-field-header{flex-shrink:0;width:28px;display:flex;align-items:center;justify-content:flex-end;margin:0}
+.ctx-field-read-row--sub .ctx-field-header--spacer{visibility:hidden;pointer-events:none}
+.ctx-field-read-row--sub{padding-top:2px}
 .btn-bc-field-edit{font-size:14px;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .btn-bc-field-edit:hover{background:var(--surface-soft);color:var(--accent)}
 .ctx-field-edit-group.is-editing .btn-bc-field-edit{font-weight:600;border-color:var(--accent);color:var(--accent)}
@@ -15778,12 +15782,24 @@ function bcRenderFieldEditPencilBtn(group, ariaLabel){
   return '<button type="button" class="btn-bc-field-edit" data-bc-field-group="' + escHtml(group) + '" aria-label="' + escHtml(ariaLabel) + '" title="' + escHtml(ariaLabel) + '">\u270E</button>';
 }
 
-function bcRenderFieldEditReadRow(group, pencilLabel, kvInnerHtml){
+function bcRenderFieldEditReadRow(group, pencilLabel, kvInnerHtml, colTemplate){
+  var gridCls = 'kv-grid ctx-field-kv-grid';
+  if (colTemplate === 2) gridCls += ' ctx-field-kv-grid--2';
+  else gridCls += ' ctx-field-kv-grid--3';
   return '<div class="ctx-field-read" id="bc-field-' + escHtml(group) + '-read">' +
     '<div class="ctx-field-read-row">' +
-    '<div class="kv-grid" id="bc-field-' + escHtml(group) + '-kv">' + kvInnerHtml + '</div>' +
+    '<div class="' + gridCls + '" id="bc-field-' + escHtml(group) + '-kv">' + kvInnerHtml + '</div>' +
     '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn(group, pencilLabel) + '</div>' +
     '</div></div>';
+}
+
+function bcRenderFieldEditReadRowSub(kvInnerHtml, colTemplate){
+  var gridCls = 'kv-grid ctx-field-kv-grid';
+  if (colTemplate === 2) gridCls += ' ctx-field-kv-grid--2';
+  else gridCls += ' ctx-field-kv-grid--3';
+  return '<div class="ctx-field-read-row ctx-field-read-row--sub">' +
+    '<div class="' + gridCls + '">' + kvInnerHtml + '</div>' +
+    '<div class="ctx-field-header ctx-field-header--spacer" aria-hidden="true"></div></div>';
 }
 
 function bcRenderFieldEditActionsHtml(group){
@@ -15824,9 +15840,11 @@ function bcRenderFieldEditSectionsHtml(data){
 
   html += '<div class="ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
   var contactKv = kvBC('Name', bk.guest_name) + kvBC('Phone', bk.phone) + kvBC('Email', bk.email);
-  if (bk.language) contactKv += kvBC('Language', bk.language);
-  if (bk.booking_source && bk.booking_source !== 'manual_staff') contactKv += kvBC('Source', bk.booking_source);
-  html += bcRenderFieldEditReadRow('contact', 'Edit contact', contactKv);
+  html += bcRenderFieldEditReadRow('contact', 'Edit contact', contactKv, 3);
+  var contactExtraKv = '';
+  if (bk.language) contactExtraKv += kvBC('Language', bk.language);
+  if (bk.booking_source && bk.booking_source !== 'manual_staff') contactExtraKv += kvBC('Source', bk.booking_source);
+  if (contactExtraKv) html += bcRenderFieldEditReadRowSub(contactExtraKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-contact-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-contact-name">Name</label>';
   html += '<input type="text" id="bc-field-contact-name" class="bk-input bk-input-sm" value="' + escHtml(bk.guest_name || '') + '">';
@@ -15840,7 +15858,7 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-dates" data-bc-field-group="dates">';
   var datesKv = kvBC('Check-in', bk.check_in) + kvBC('Check-out', bk.check_out);
   if (nights > 0) datesKv += kvBC('Nights', nights);
-  html += bcRenderFieldEditReadRow('dates', 'Edit dates', datesKv);
+  html += bcRenderFieldEditReadRow('dates', 'Edit dates', datesKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-dates-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-dates-check-in">Check-in</label>';
   html += '<input type="date" id="bc-field-dates-check-in" class="bk-input bk-input-sm" value="' + escHtml(bk.check_in || '') + '">';
@@ -15853,7 +15871,7 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '</div></div>';
 
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  html += bcRenderFieldEditReadRow('guests', 'Edit guests', kvBC('Guests', guestCount));
+  html += bcRenderFieldEditReadRow('guests', 'Edit guests', kvBC('Guests', guestCount), 3);
   html += '<div class="ctx-field-edit" id="bc-field-guests-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-guests-select">Guest count</label>';
   html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
@@ -15868,7 +15886,7 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   var packageKv = kvBC('Package', bk.package_code || '\u2014');
   if (roomPref) packageKv += kvBC('Room pref', roomPref);
-  html += bcRenderFieldEditReadRow('package', 'Edit package', packageKv);
+  html += bcRenderFieldEditReadRow('package', 'Edit package', packageKv, roomPref ? 2 : 3);
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-package-select">Package</label>';
   html += '<select id="bc-field-package-select" class="bk-input bk-input-sm">';

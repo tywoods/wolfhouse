@@ -221,8 +221,16 @@ check(/ctx-field-edit-group/.test(renderField) && !/ctx-section ctx-field-edit-g
   '10.6a: field sections use compact ctx-field-edit-group without ctx-section chrome');
 check(/function bcRenderFieldEditReadRow/.test(renderField),
   '10.6a: horizontal read-row helper exists');
-check(/ctx-field-read-row/.test(renderField) && /\.ctx-field-read-row \.kv-grid/.test(src),
-  '10.6a: kv-grid renders horizontal inside read row');
+check(/ctx-field-read-row/.test(renderField) && /\.ctx-field-read-row \.kv-grid\.ctx-field-kv-grid/.test(src),
+  '10.6a.6: read rows use shared aligned field kv-grid class');
+check(/grid-template-columns:minmax\(180px,1\.4fr\)/.test(src),
+  '10.6a.6: fixed column grid template on field read rows');
+check(/ctx-field-kv-grid--3/.test(renderField) && /ctx-field-kv-grid--2/.test(renderField),
+  '10.6a.6: three-column and two-column field grid variants');
+check(!/flex-wrap:wrap/.test(src.match(/ctx-field-read-row[\s\S]{0,500}/)?.[0] || ''),
+  '10.6a.6: field read grid is not content-width flex-wrap');
+check(/overflow-wrap:anywhere/.test(src) && /word-break:break-word/.test(src.match(/ctx-field-read-row[\s\S]{0,600}/)?.[0] || ''),
+  '10.6a.6: long name/email wrap CSS on field values');
 check(!/flex-direction:column[\s\S]{0,40}max-width:440px/.test(
   src.match(/ctx-field-read-row[\s\S]{0,400}/)?.[0] || ''),
   '10.6a: removed vertical-only kv-grid spacer override');
@@ -230,13 +238,30 @@ check(/kvBC\('Name'[\s\S]*kvBC\('Phone'[\s\S]*kvBC\('Email'[\s\S]*bcRenderFieldE
   '10.6a: contact Name/Phone/Email share one kv-grid row');
 check(/kvBC\('Check-in'[\s\S]*kvBC\('Check-out'[\s\S]*bcRenderFieldEditReadRow\('dates'/.test(renderField),
   '10.6a: check-in/check-out/nights share one kv-grid row');
+check(/bcRenderFieldEditReadRow\('contact'[\s\S]*,\s*3\)/.test(renderField) &&
+  /bcRenderFieldEditReadRow\('dates'[\s\S]*,\s*3\)/.test(renderField),
+  '10.6a.6: contact and dates rows use same 3-column template');
+check(/kvBC\('Name'/.test(renderField) && /kvBC\('Check-in'/.test(renderField) &&
+  /ctx-field-kv-grid--3/.test(renderField),
+  '10.6a.6: Name and Check-in share 3-column grid structure');
+check(/kvBC\('Phone'/.test(renderField) && /kvBC\('Check-out'/.test(renderField),
+  '10.6a.6: Phone and Check-out in middle column slot');
+check(/kvBC\('Email'/.test(renderField) && /kvBC\('Nights'/.test(renderField),
+  '10.6a.6: Email and Nights in third column slot');
 check(/bcRenderFieldEditReadRow\('guests', 'Edit guests', kvBC\('Guests'/.test(renderField),
   '10.6a: guests value on compact read row');
 check(/kvBC\('Package'/.test(renderField) && /kvBC\('Room pref'/.test(renderField) &&
   /bcRenderFieldEditReadRow\('package'/.test(renderField),
   '10.6a: package and room pref share one kv-grid row');
-check(/ctx-field-read-row[\s\S]*kv-grid[\s\S]*ctx-field-header[\s\S]*bcRenderFieldEditPencilBtn/.test(renderField),
+check(/bcRenderFieldEditReadRow\('package'[\s\S]*roomPref \? 2 : 3/.test(renderField) &&
+  /ctx-field-kv-grid--2/.test(renderField),
+  '10.6a.6: package row uses 2-column grid when room pref present');
+const readRowFn = renderField.match(/function bcRenderFieldEditReadRow[\s\S]*?function bcRenderFieldEditReadRowSub/)?.[0] || '';
+check(/ctx-field-read-row/.test(readRowFn) && /ctx-field-kv-grid/.test(readRowFn) &&
+  /ctx-field-header/.test(readRowFn) && /bcRenderFieldEditPencilBtn/.test(readRowFn),
   '10.6a: pencil edit button at far right of read row');
+check(!/ctx-field-spacer|ctx-field-gap-xl|margin-bottom:\s*32px/.test(renderField),
+  '10.6a.6: no giant spacer classes in field rows');
 check(!/ctx-field-header-label/.test(renderField),
   '10.6a: no GUEST/DATES/GUESTS/PACKAGE section title labels');
 check(/ctx-field-guests-preview:empty|has-preview/.test(src),
