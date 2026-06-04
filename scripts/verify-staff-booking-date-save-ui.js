@@ -102,6 +102,10 @@ check(/EDIT_WRITE_DATES_UPDATE_BOOKING_SQL/.test(src), 'dates booking UPDATE SQL
 check(/check_in = \$3/.test(datesBookingSql) && /check_out = \$4/.test(datesBookingSql),
   'UPDATE sets check_in and check_out');
 check(/EDIT_WRITE_DATES_UPDATE_BEDS_SQL/.test(src), 'dates booking_beds UPDATE SQL present');
+check(/WHERE booking_beds\.id IN \(/.test(datesBedsSql),
+  'beds UPDATE uses subquery (no invalid bb FROM alias)');
+check(!/UPDATE booking_beds bb[\s\S]*?FROM clients c[\s\S]*?bb\.booking_id/.test(datesBedsSql),
+  'beds UPDATE avoids invalid PostgreSQL bb FROM reference');
 check(/assignment_start_date = \$3/.test(datesBedsSql) && /assignment_end_date = \$4/.test(datesBedsSql),
   'UPDATE sets bed assignment dates');
 check(!/amount_paid_cents/.test(datesBookingSql.split(/RETURNING/i)[0] || datesBookingSql),
@@ -111,13 +115,25 @@ check(!/UPDATE payments|INSERT INTO payments|DELETE FROM payments/i.test(writeSl
 check(!/UPDATE booking_service_records|INSERT INTO booking_service_records/i.test(writeSlice),
   'no booking_service_records mutation in dates write slice');
 
-console.log('\nD. Idempotency + reprice');
+console.log('\nD. Idempotency + reprice + short-stay no-package');
 
 check(/idempotent:\s*true/.test(datesHandlerBlock),
   'dates idempotent path present');
 check(/editWriteDatesFieldsMatch/.test(src), 'dates match helper for idempotency');
+check(/EDIT_WRITE_PACKAGE_MIN_NIGHTS/.test(src) && /editWriteStayRequiresPackageCode/.test(src),
+  'package min nights helper for edit writes');
+check(/editWriteResolveProposedAccommodation/.test(src),
+  'shared proposed accommodation resolver for short stays');
+check(/editWriteShortStayAccFromQuoteSnapshot/.test(src),
+  'short stay can reprice from quote_snapshot without package');
+check(/package_required_for_long_stay/.test(src),
+  'long stay missing package returns package_required_for_long_stay');
+check(/editWriteShouldBlockPricingWrite/.test(datesHandlerBlock),
+  'dates write uses pricing block helper');
 check(/dates_reprice_calculation_unavailable/.test(datesHandlerBlock),
-  'blocks write when reprice unavailable');
+  'blocks write when reprice truly unavailable');
+check(/Stays of 6 nights or longer require a package/.test(datesHandlerBlock),
+  'dates long-stay package message present');
 
 console.log('\nE. UI — Dates Save → write');
 

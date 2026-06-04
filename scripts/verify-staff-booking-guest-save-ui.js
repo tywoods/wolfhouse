@@ -112,10 +112,20 @@ check(!/UPDATE payments|INSERT INTO payments|DELETE FROM payments/i.test(writeSl
 check(!/UPDATE booking_service_records|INSERT INTO booking_service_records/i.test(writeSlice),
   'no booking_service_records mutation in guests write slice');
 
-console.log('\nE. Invoice / refund review');
+console.log('\nE. Invoice / refund review + short-stay no-package');
 
 check(/editPreviewBuildInvoicePreview/.test(guestsHandlerBlock),
   'guest write recalculates invoice preview');
+check(/editWriteStayRequiresPackageCode/.test(src),
+  'guest write uses package min nights helper');
+check(/editWriteScaleAccommodationCents/.test(src),
+  'guest write can scale accommodation for short no-package stays');
+check(/package_required_for_long_stay/.test(guestsHandlerBlock),
+  'guest write handles package_required_for_long_stay');
+check(/editWriteShouldBlockPricingWrite/.test(guestsHandlerBlock),
+  'guest write uses pricing block helper');
+check(!/guests_reprice_calculation_unavailable[\s\S]*?package_code is required/.test(guestsHandlerBlock),
+  'guest write does not hard-code package_code is required blocker');
 check(/needs_refund/.test(guestsHandlerBlock),
   'response includes needs_refund when applicable');
 check(/refund_review_needed/.test(guestsHandlerBlock),

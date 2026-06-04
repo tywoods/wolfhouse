@@ -3780,20 +3780,27 @@ RETURNING
 `;
 
 const EDIT_WRITE_DATES_UPDATE_BEDS_SQL = `
-UPDATE booking_beds bb
+UPDATE booking_beds
 SET assignment_start_date = $3::date,
     assignment_end_date = $4::date,
     updated_at = NOW()
-FROM clients c
-INNER JOIN bookings b ON b.id = bb.booking_id AND b.client_id = c.id
-WHERE c.slug = $1
-  AND b.id::text = $2
+WHERE booking_beds.id IN (
+  SELECT bb.id
+  FROM booking_beds bb
+  INNER JOIN bookings b ON b.id = bb.booking_id
+  INNER JOIN clients c ON c.id = bb.client_id
+  WHERE c.slug = $1
+    AND b.id::text = $2
+)
 RETURNING
-  bb.id::text                    AS booking_bed_id,
-  bb.bed_code,
-  bb.assignment_start_date::text AS check_in,
-  bb.assignment_end_date::text   AS check_out
+  booking_beds.id::text                    AS booking_bed_id,
+  booking_beds.bed_code,
+  booking_beds.assignment_start_date::text AS check_in,
+  booking_beds.assignment_end_date::text   AS check_out
 `;
+
+/** Stays of 6+ nights use package-style quote; shorter stays may keep package_code null. */
+const EDIT_WRITE_PACKAGE_MIN_NIGHTS = 6;
 
 const EDIT_WRITE_GUESTS_UPDATE_BOOKING_SQL = `
 UPDATE bookings b
@@ -4047,6 +4054,183 @@ function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageC
   }
 }
 
+function editWriteStayRequiresPackageCode(nights) {
+  return nights != null && nights >= EDIT_WRITE_PACKAGE_MIN_NIGHTS;
+}
+
+function editWriteShortStayAccFromQuoteSnapshot(quoteSnap, nights, guestCount) {
+  if (!quoteSnap || !Array.isArray(quoteSnap.line_items) || nights == null || nights <= 0) return null;
+  const guests = Math.max(1, Number(guestCount) || 1);
+  for (const li of quoteSnap.line_items) {
+    if (!li.code || !EDIT_PREVIEW_ACCOMM_LINE_CODES[li.code]) continue;
+    if (li.unit_cents != null && li.nights > 0) {
+      const perNight = Number(li.unit_cents);
+      return perNight * nights * guests;
+    }
+    if (li.total_cents != null && li.nights > 0 && li.guest_count > 0) {
+      const perNightPerGuest = Number(li.total_cents) / (li.nights * li.guest_count);
+      return Math.round(perNightPerGuest * nights * guests);
+    }
+    if (li.total_cents != null && li.nights > 0) {
+      const perNight = Number(li.total_cents) / li.nights;
+      return Math.round(perNight * nights * guests);
+    }
+  }
+  return null;
+}
+
+function editWriteScaleAccommodationCents(curAccCents, curNights, newNights, curGuests, newGuests) {
+  if (curAccCents == null || curNights == null || curNights <= 0 || newNights == null || newNights <= 0) {
+    return null;
+  }
+  const perNight = curAccCents / curNights;
+  const curG = Math.max(1, Number(curGuests) || 1);
+  const newG = Math.max(1, Number(newGuests) || 1);
+  const guestFactor = newG / curG;
+  return Math.round(perNight * newNights * guestFactor);
+}
+
+function editWriteResolveProposedAccommodation(bookingRow, svcRows, proposedFields, pricingAffects) {
+  const calculation_warnings = [];
+  const checkIn = proposedFields.check_in || bookingRow.check_in;
+  const checkOut = proposedFields.check_out || bookingRow.check_out;
+  const guestCount = proposedFields.guest_count != null
+    ? proposedFields.guest_count
+    : Number(bookingRow.guest_count) || 1;
+  const packageCodeRaw = proposedFields.package_code !== undefined
+    ? proposedFields.package_code
+    : bookingRow.package_code;
+  const packageCode = packageCodeRaw != null && String(packageCodeRaw).trim() !== ''
+    ? String(packageCodeRaw).trim().toLowerCase()
+    : null;
+  const nights = movePreviewNights(checkIn, checkOut);
+  const metadata = bookingRow.metadata || {};
+  const quoteSnap = (metadata && typeof metadata === 'object' && metadata.quote_snapshot) || null;
+  const curAcc = editPreviewAccommodationCents(bookingRow, svcRows, quoteSnap);
+  const curNights = movePreviewNights(bookingRow.check_in, bookingRow.check_out);
+  const curGuests = Number(bookingRow.guest_count) || 1;
+
+  if (!pricingAffects) {
+    return {
+      proposedAcc: curAcc,
+      proposedQuoteLines: null,
+      requires_reprice: false,
+      package_required_for_long_stay: false,
+      calculation_warnings,
+    };
+  }
+
+  if (editWriteStayRequiresPackageCode(nights) && !packageCode) {
+    return {
+      proposedAcc: null,
+      proposedQuoteLines: null,
+      requires_reprice: true,
+      package_required_for_long_stay: true,
+      calculation_warnings: ['package_required_for_long_stay'],
+    };
+  }
+
+  if (packageCode) {
+    const q = editPreviewTryQuote(
+      bookingRow._client_slug || DEFAULT_CLIENT,
+      checkIn,
+      checkOut,
+      guestCount,
+      packageCode,
+    );
+    if (q && q.success) {
+      const proposedAcc = editPreviewAccFromQuote(q);
+      if (proposedAcc == null) {
+        calculation_warnings.push('Quote returned no accommodation line items.');
+        return {
+          proposedAcc: null,
+          proposedQuoteLines: q.line_items,
+          requires_reprice: true,
+          package_required_for_long_stay: false,
+          calculation_warnings,
+        };
+      }
+      return {
+        proposedAcc,
+        proposedQuoteLines: q.line_items,
+        requires_reprice: false,
+        package_required_for_long_stay: false,
+        calculation_warnings,
+      };
+    }
+    const blockers = (q && Array.isArray(q.blockers)) ? q.blockers.map(String) : [];
+    if (q && q.error) calculation_warnings.push(String(q.error));
+    else if (blockers.length) calculation_warnings.push(...blockers);
+    else calculation_warnings.push('Quote calculation blocked or incomplete.');
+    return {
+      proposedAcc: null,
+      proposedQuoteLines: null,
+      requires_reprice: true,
+      package_required_for_long_stay: false,
+      calculation_warnings,
+    };
+  }
+
+  let proposedAcc = editWriteShortStayAccFromQuoteSnapshot(quoteSnap, nights, guestCount);
+  if (proposedAcc != null) {
+    calculation_warnings.push('Short stay repriced from quote_snapshot nightly rate (no package).');
+    return {
+      proposedAcc,
+      proposedQuoteLines: null,
+      requires_reprice: false,
+      package_required_for_long_stay: false,
+      calculation_warnings,
+    };
+  }
+
+  proposedAcc = editWriteScaleAccommodationCents(curAcc, curNights, nights, curGuests, guestCount);
+  if (proposedAcc != null) {
+    calculation_warnings.push('Short stay accommodation scaled from current booking rate (no package).');
+    return {
+      proposedAcc,
+      proposedQuoteLines: null,
+      requires_reprice: false,
+      package_required_for_long_stay: false,
+      calculation_warnings,
+    };
+  }
+
+  if (curAcc != null) {
+    calculation_warnings.push(
+      'Exact short-stay reprice unavailable; preserving current accommodation total on write.'
+    );
+    return {
+      proposedAcc: curAcc,
+      proposedQuoteLines: null,
+      requires_reprice: false,
+      package_required_for_long_stay: false,
+      calculation_warnings,
+    };
+  }
+
+  calculation_warnings.push('Accommodation total could not be derived for short stay without package.');
+  return {
+    proposedAcc: null,
+    proposedQuoteLines: null,
+    requires_reprice: true,
+    package_required_for_long_stay: false,
+    calculation_warnings,
+  };
+}
+
+function editWriteShouldBlockPricingWrite(invoicePreview, pricingAffects, repriceErrorCode) {
+  if (!pricingAffects) return { block: false };
+  if (invoicePreview.package_required_for_long_stay) {
+    return { block: true, error: 'package_required_for_long_stay' };
+  }
+  const proposed = (invoicePreview && invoicePreview.proposed) || {};
+  if (proposed.total_amount_cents != null) return { block: false };
+  if (invoicePreview && invoicePreview.requires_reprice) {
+    return { block: true, error: repriceErrorCode };
+  }
+  return { block: false };
+}
+
 function editPreviewBuildInvoicePreview(bookingRow, svcRows, proposedFields, pricingAffects) {
   const metadata = bookingRow.metadata || {};
   const quoteSnap = (metadata && typeof metadata === 'object' && metadata.quote_snapshot) || null;
@@ -4054,39 +4238,13 @@ function editPreviewBuildInvoicePreview(bookingRow, svcRows, proposedFields, pri
   const curAcc = editPreviewAccommodationCents(bookingRow, svcRows, quoteSnap);
   const current = editPreviewInvoiceSide(curAcc, svcRows, paidCents, null);
 
-  const calculation_warnings = [];
-  let proposedAcc = curAcc;
-  let proposedQuoteLines = null;
-  let requires_reprice = false;
-
-  if (pricingAffects) {
-    const q = editPreviewTryQuote(
-      bookingRow._client_slug || DEFAULT_CLIENT,
-      proposedFields.check_in || bookingRow.check_in,
-      proposedFields.check_out || bookingRow.check_out,
-      proposedFields.guest_count != null ? proposedFields.guest_count : Number(bookingRow.guest_count) || 1,
-      proposedFields.package_code || bookingRow.package_code,
-    );
-    if (q && q.success) {
-      proposedAcc = editPreviewAccFromQuote(q);
-      proposedQuoteLines = q.line_items;
-      if (proposedAcc == null) {
-        requires_reprice = true;
-        calculation_warnings.push('Quote returned no accommodation line items.');
-      }
-    } else {
-      requires_reprice = true;
-      proposedAcc = null;
-      if (q && q.error) calculation_warnings.push(String(q.error));
-      else if (q && Array.isArray(q.blockers) && q.blockers.length) {
-        calculation_warnings.push(...q.blockers.map(String));
-      } else if (q && !q.success) {
-        calculation_warnings.push('Quote calculation blocked or incomplete.');
-      }
-    }
-  }
-
-  const proposed = editPreviewInvoiceSide(proposedAcc, svcRows, paidCents, proposedQuoteLines);
+  const resolved = editWriteResolveProposedAccommodation(bookingRow, svcRows, proposedFields, pricingAffects);
+  const proposed = editPreviewInvoiceSide(
+    resolved.proposedAcc,
+    svcRows,
+    paidCents,
+    resolved.proposedQuoteLines
+  );
   const delta_amount_cents = (current.total_amount_cents != null && proposed.total_amount_cents != null)
     ? proposed.total_amount_cents - current.total_amount_cents
     : null;
@@ -4099,8 +4257,9 @@ function editPreviewBuildInvoicePreview(bookingRow, svcRows, proposedFields, pri
     stripe_mutation: false,
     note: 'Preview only. No booking, bed, payment, service, or Stripe changes were made.',
   };
-  if (requires_reprice) invoice.requires_reprice = true;
-  if (calculation_warnings.length) invoice.calculation_warnings = calculation_warnings;
+  if (resolved.requires_reprice) invoice.requires_reprice = true;
+  if (resolved.package_required_for_long_stay) invoice.package_required_for_long_stay = true;
+  if (resolved.calculation_warnings.length) invoice.calculation_warnings = resolved.calculation_warnings;
   return invoice;
 }
 
@@ -4856,18 +5015,25 @@ async function handleBookingEditWriteDates(
     });
   }
 
-  if (pricingAffects && invoice_preview.requires_reprice &&
-      (invoice_preview.proposed == null || invoice_preview.proposed.total_amount_cents == null)) {
+  const pricingBlock = editWriteShouldBlockPricingWrite(
+    invoice_preview,
+    pricingAffects,
+    'dates_reprice_calculation_unavailable'
+  );
+  if (pricingBlock.block) {
     const elapsed = Date.now() - started;
     appendAuditLog({
       ...auditBase,
       success: false,
-      error: 'dates_reprice_calculation_unavailable',
+      error: pricingBlock.error,
       elapsed_ms: elapsed,
     });
+    const blockMsg = pricingBlock.error === 'package_required_for_long_stay'
+      ? 'Stays of 6 nights or longer require a package before dates can be saved.'
+      : 'Date change could not be calculated. No changes were made.';
     return sendJSON(res, 400, {
       success: false,
-      error: 'dates_reprice_calculation_unavailable',
+      error: pricingBlock.error,
       edit_type: 'dates',
       updated: false,
       would_mutate: false,
@@ -4875,7 +5041,7 @@ async function handleBookingEditWriteDates(
       proposed: proposedView,
       invoice_impact,
       invoice_preview,
-      message: 'Date change could not be calculated. No changes were made.',
+      message: blockMsg,
       elapsed_ms: elapsed,
     });
   }
@@ -4883,13 +5049,18 @@ async function handleBookingEditWriteDates(
   const proposedTotals = invoice_preview.proposed || {};
   const totalCents = proposedTotals.total_amount_cents;
   const balanceDue = proposedTotals.balance_due_cents != null ? proposedTotals.balance_due_cents : 0;
-  const quote = editPreviewTryQuote(
-    clientSlug,
-    checkIn,
-    checkOut,
-    Number(bookingRow.guest_count) || 1,
-    bookingRow.package_code
-  );
+  const pkgForQuote = bookingRow.package_code
+    ? String(bookingRow.package_code).trim().toLowerCase()
+    : null;
+  const quote = pkgForQuote
+    ? editPreviewTryQuote(
+      clientSlug,
+      checkIn,
+      checkOut,
+      Number(bookingRow.guest_count) || 1,
+      pkgForQuote
+    )
+    : null;
   const metadataPatch = (quote && quote.success)
     ? JSON.stringify({ quote_snapshot: quote })
     : '{}';
@@ -5101,18 +5272,25 @@ async function handleBookingEditWriteGuests(
   const needs_refund = invoice_impact.needs_refund === true;
   const refund_review_needed = invoice_impact.refund_review_needed === true;
 
-  if (invoice_preview.requires_reprice &&
-      (invoice_preview.proposed == null || invoice_preview.proposed.total_amount_cents == null)) {
+  const pricingBlock = editWriteShouldBlockPricingWrite(
+    invoice_preview,
+    true,
+    'guests_reprice_calculation_unavailable'
+  );
+  if (pricingBlock.block) {
     const elapsed = Date.now() - started;
     appendAuditLog({
       ...auditBase,
       success: false,
-      error: 'guests_reprice_calculation_unavailable',
+      error: pricingBlock.error,
       elapsed_ms: elapsed,
     });
+    const blockMsg = pricingBlock.error === 'package_required_for_long_stay'
+      ? 'Stays of 6 nights or longer require a package before guest count can be saved.'
+      : 'Guest reduction could not be calculated. No changes were made.';
     return sendJSON(res, 400, {
       success: false,
-      error: 'guests_reprice_calculation_unavailable',
+      error: pricingBlock.error,
       edit_type: 'guests',
       updated: false,
       would_mutate: false,
@@ -5120,7 +5298,7 @@ async function handleBookingEditWriteGuests(
       proposed: { guest_count: guestCount },
       invoice_impact,
       invoice_preview,
-      message: 'Guest reduction could not be calculated. No changes were made.',
+      message: blockMsg,
       elapsed_ms: elapsed,
     });
   }
@@ -5130,13 +5308,18 @@ async function handleBookingEditWriteGuests(
   const balanceDue = proposedTotals.balance_due_cents != null ? proposedTotals.balance_due_cents : 0;
   const releaseIds = release.release_booking_bed_ids || [];
 
-  const quote = editPreviewTryQuote(
-    clientSlug,
-    bookingRow.check_in,
-    bookingRow.check_out,
-    guestCount,
-    bookingRow.package_code
-  );
+  const pkgForQuote = bookingRow.package_code
+    ? String(bookingRow.package_code).trim().toLowerCase()
+    : null;
+  const quote = pkgForQuote
+    ? editPreviewTryQuote(
+      clientSlug,
+      bookingRow.check_in,
+      bookingRow.check_out,
+      guestCount,
+      pkgForQuote
+    )
+    : null;
   const metadataPatch = (quote && quote.success)
     ? JSON.stringify({ quote_snapshot: quote })
     : '{}';
