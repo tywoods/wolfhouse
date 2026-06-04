@@ -347,8 +347,10 @@ function extractAskLunaRouterChunk() {
     const balanceDueLib = require('./lib/staff-ask-luna-balance-due');
     const lessonsLib = require('./lib/staff-ask-luna-lessons');
     const gearLib = require('./lib/staff-ask-luna-gear');
+    const mealsYogaLib = require('./lib/staff-ask-luna-meals-yoga');
     const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
     const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
+    const mealsYogaRoutingBlock = mealsYogaLib.getAskLunaMealsYogaRoutingSmokeBlock();
     const registryKeys = [...require('./lib/staff-query-registry').REGISTRY_BY_KEY.keys()];
     const wrapped = `
       const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
@@ -356,6 +358,7 @@ function extractAskLunaRouterChunk() {
       const resolveBalanceDueIntentKey = ${balanceDueLib.resolveBalanceDueIntentKey.toString()};
       ${lessonsRoutingBlock}
       ${gearRoutingBlock}
+      ${mealsYogaRoutingBlock}
       const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) {
@@ -370,6 +373,9 @@ function extractAskLunaRouterChunk() {
         }
         if (String(id).includes('staff-ask-luna-gear')) {
           return { resolveAskLunaGearIntentKey };
+        }
+        if (String(id).includes('staff-ask-luna-meals-yoga')) {
+          return { resolveAskLunaMealsYogaIntentKey };
         }
         throw new Error('unexpected require: ' + id);
       };
@@ -387,16 +393,16 @@ function extractAskLunaRouterChunk() {
       coCount && coCount.intentKey === 'check_outs.count');
     check('K-I3', 'runtime: checkout count Saturday → check_outs.count',
       coSat && coSat.intentKey === 'check_outs.count' && coSat.extraParams.dateLabel === 'saturday');
-    check('K-I4', 'runtime: yoga paid question → services.yoga.paid_on_date',
-      yoga && yoga.intentKey === 'services.yoga.paid_on_date' && yoga.extraParams.dateLabel === 'today');
+    check('K-I4', 'runtime: yoga paid tonight → services.yoga_today',
+      yoga && yoga.intentKey === 'services.yoga_today' && yoga.extraParams.dateLabel === 'today');
     const mealPaid = resolveIntent('Who paid for meals tomorrow');
     const lesson = resolveIntent('Who has a lesson today');
     const wetsuit = resolveIntent('Who needs a wetsuit today');
     const wetsuitCount = resolveIntent('How many wetsuits do we need ready today');
     const board = resolveIntent('Who needs a surfboard tomorrow');
     const boardCount = resolveIntent('How many surfboards do we need on June 15');
-    check('K-I4b', 'runtime: meal paid tomorrow → services.meal.paid_on_date',
-      mealPaid && mealPaid.intentKey === 'services.meal.paid_on_date' && mealPaid.extraParams.dateLabel === 'tomorrow');
+    check('K-I4b', 'runtime: meal paid tomorrow → services.meals_tomorrow',
+      mealPaid && mealPaid.intentKey === 'services.meals_tomorrow' && mealPaid.extraParams.dateLabel === 'tomorrow');
     check('K-I4c', 'runtime: lesson today → services.lessons_today',
       lesson && lesson.intentKey === 'services.lessons_today' && lesson.extraParams.dateLabel === 'today');
     check('K-I4d', 'runtime: wetsuit who today → services.gear_today',

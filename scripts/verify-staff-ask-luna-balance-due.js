@@ -169,14 +169,17 @@ try {
   const bdLib = require('./lib/staff-ask-luna-balance-due');
   const lessonsLib = require('./lib/staff-ask-luna-lessons');
   const gearLib = require('./lib/staff-ask-luna-gear');
+  const mealsYogaLib = require('./lib/staff-ask-luna-meals-yoga');
   const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
   const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
+  const mealsYogaRoutingBlock = mealsYogaLib.getAskLunaMealsYogaRoutingSmokeBlock();
   const routeWrapped = `
     const matchesBalanceDueQuestion = ${bdLib.matchesBalanceDueQuestion.toString()};
     const normalizeBalanceDueQuestionText = ${bdLib.normalizeBalanceDueQuestionText.toString()};
     const resolveBalanceDueIntentKey = ${bdLib.resolveBalanceDueIntentKey.toString()};
     ${lessonsRoutingBlock}
     ${gearRoutingBlock}
+    ${mealsYogaRoutingBlock}
     const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
     const require = (id) => {
       if (String(id).includes('staff-query-registry')) {
@@ -191,6 +194,9 @@ try {
       }
       if (String(id).includes('staff-ask-luna-gear')) {
         return { resolveAskLunaGearIntentKey };
+      }
+      if (String(id).includes('staff-ask-luna-meals-yoga')) {
+        return { resolveAskLunaMealsYogaIntentKey };
       }
       throw new Error('require ' + id);
     };

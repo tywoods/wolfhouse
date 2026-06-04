@@ -36,6 +36,7 @@ const addonQueries   = require('./staff-addon-queries');
 const handoffQueries = require('./staff-handoff-queries');
 const askLunaLessons   = require('./staff-ask-luna-lessons');
 const askLunaGear      = require('./staff-ask-luna-gear');
+const askLunaMealsYoga = require('./staff-ask-luna-meals-yoga');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Param descriptor shape (for documentation + CLI validation)
@@ -485,6 +486,96 @@ const REGISTRY = [
     helperRef:       askLunaGear.getAskLunaGearOnDateQuery,
     requiredParams:  [
       { name: 'date', description: 'Gear date (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.meals_today',
+    category:        'services',
+    description:     'Who has meals booked today?',
+    helperModule:    'lib/staff-ask-luna-meals-yoga',
+    helperFn:        'getAskLunaMealsOnDateQuery',
+    helperRef:       askLunaMealsYoga.getAskLunaMealsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Meal date (ISO date, use today)', example: '2026-06-04' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.meals_tomorrow',
+    category:        'services',
+    description:     'Who has meals booked tomorrow?',
+    helperModule:    'lib/staff-ask-luna-meals-yoga',
+    helperFn:        'getAskLunaMealsOnDateQuery',
+    helperRef:       askLunaMealsYoga.getAskLunaMealsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Meal date (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.yoga_today',
+    category:        'services',
+    description:     'Who has yoga booked today?',
+    helperModule:    'lib/staff-ask-luna-meals-yoga',
+    helperFn:        'getAskLunaYogaOnDateQuery',
+    helperRef:       askLunaMealsYoga.getAskLunaYogaOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Yoga date (ISO date, use today)', example: '2026-06-04' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.yoga_tomorrow',
+    category:        'services',
+    description:     'Who has yoga booked tomorrow?',
+    helperModule:    'lib/staff-ask-luna-meals-yoga',
+    helperFn:        'getAskLunaYogaOnDateQuery',
+    helperRef:       askLunaMealsYoga.getAskLunaYogaOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Yoga date (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.meals_on_date',
+    category:        'services',
+    description:     'Who has meals on a specific date (weekday within 5 days)?',
+    helperModule:    'lib/staff-ask-luna-meals-yoga',
+    helperFn:        'getAskLunaMealsOnDateQuery',
+    helperRef:       askLunaMealsYoga.getAskLunaMealsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Meal date (ISO)', example: '2026-06-06' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.yoga_on_date',
+    category:        'services',
+    description:     'Who has yoga on a specific date (weekday within 5 days)?',
+    helperModule:    'lib/staff-ask-luna-meals-yoga',
+    helperFn:        'getAskLunaYogaOnDateQuery',
+    helperRef:       askLunaMealsYoga.getAskLunaYogaOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Yoga date (ISO)', example: '2026-06-06' },
     ],
     optionalParams:  [],
     clientSlugged:   true,

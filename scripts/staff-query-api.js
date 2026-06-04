@@ -72,6 +72,12 @@ const {
   getAskLunaGearOnDateQuery,
   formatAskLunaGearAnswer,
 } = require('./lib/staff-ask-luna-gear');
+const {
+  resolveAskLunaMealsYogaIntentKey,
+  getAskLunaMealsOnDateQuery,
+  getAskLunaYogaOnDateQuery,
+  formatAskLunaMealsYogaAnswer,
+} = require('./lib/staff-ask-luna-meals-yoga');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1480,6 +1486,12 @@ const ASK_LUNA_LOCAL_QUERY = {
   'services.lessons_tomorrow': getAskLunaLessonsOnDateQuery,
   'services.gear_today':       getAskLunaGearOnDateQuery,
   'services.gear_tomorrow':    getAskLunaGearOnDateQuery,
+  'services.meals_today':      getAskLunaMealsOnDateQuery,
+  'services.meals_tomorrow':   getAskLunaMealsOnDateQuery,
+  'services.yoga_today':       getAskLunaYogaOnDateQuery,
+  'services.yoga_tomorrow':    getAskLunaYogaOnDateQuery,
+  'services.meals_on_date':    getAskLunaMealsOnDateQuery,
+  'services.yoga_on_date':     getAskLunaYogaOnDateQuery,
 };
 
 /**
@@ -1496,6 +1508,9 @@ function resolveNaturalLanguageIntent(question) {
 
   const gearIntentEarly = resolveAskLunaGearIntentKey(question, REGISTRY_BY_KEY, refDate);
   if (gearIntentEarly) return gearIntentEarly;
+
+  const mealsYogaIntentEarly = resolveAskLunaMealsYogaIntentKey(question, REGISTRY_BY_KEY, refDate);
+  if (mealsYogaIntentEarly) return mealsYogaIntentEarly;
 
   // Direct registry key passthrough before normalize (keeps dots in keys)
   const rawQ = String(question || '').trim().toLowerCase();
@@ -1650,6 +1665,12 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'services.lessons_tomorrow':    'No surf lessons are currently booked for tomorrow.',
       'services.gear_today':          'No surf gear is currently booked for today.',
       'services.gear_tomorrow':       'No surf gear is currently booked for tomorrow.',
+      'services.meals_today':         'No meals are currently booked for today.',
+      'services.meals_tomorrow':      'No meals are currently booked for tomorrow.',
+      'services.yoga_today':          'No yoga classes are currently booked for today.',
+      'services.yoga_tomorrow':       'No yoga classes are currently booked for tomorrow.',
+      'services.meals_on_date':       'No meals are currently booked for that date.',
+      'services.yoga_on_date':        'No yoga classes are currently booked for that date.',
       'services.wetsuit.on_date':     `No wetsuits needed ${when}.`,
       'services.surfboard.on_date':   `No surfboards needed ${when}.`,
     };
@@ -1777,6 +1798,15 @@ function formatAnswer(intentKey, rows, ctx = {}) {
     case 'services.gear_today':
     case 'services.gear_tomorrow':
       return formatAskLunaGearAnswer(rows, ctx);
+    case 'services.meals_today':
+    case 'services.meals_tomorrow':
+    case 'services.yoga_today':
+    case 'services.yoga_tomorrow':
+    case 'services.meals_on_date':
+    case 'services.yoga_on_date': {
+      const serviceCategory = intentKey.includes('yoga') ? 'yoga' : 'meals';
+      return formatAskLunaMealsYogaAnswer(rows, { ...ctx, serviceCategory });
+    }
     default: {
       return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
     }
@@ -1873,6 +1903,7 @@ async function handleAskLuna(req, res) {
       'who paid for yoga/meals (services.yoga/meal.paid_on_date)',
       'surf lessons today or tomorrow (services.lessons_today / services.lessons_tomorrow)',
       'surf gear today or tomorrow (services.gear_today / services.gear_tomorrow)',
+      'meals or yoga today/tomorrow/weekday (services.meals_* / services.yoga_*)',
       'surf lessons / wetsuits / surfboards (services.*)',
       'who needs human reply (handoffs.open)',
       'deposit paid (payments.deposit)',
@@ -1904,7 +1935,11 @@ async function handleAskLuna(req, res) {
 
   if (ASK_LUNA_LOCAL_QUERY[intentKey]) {
     const today = extraParams.date || askLunaTodayUTC();
-    const fmtCtx = { date: today, dateLabel: extraParams.dateLabel || 'today' };
+    const fmtCtx = {
+      date: today,
+      dateLabel: extraParams.dateLabel || 'today',
+      serviceCategory: extraParams.serviceCategory,
+    };
     let localRows = [];
     try {
       const sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
