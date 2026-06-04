@@ -3614,6 +3614,665 @@ async function handleBookingDateChangePreview(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.4f — Booking edit preview (calculate-only; no writes)
+//
+// POST /staff/bookings/edit-preview
+//
+// Broad field-level edit preview: contact, dates, package, guest decrease.
+// SELECT/calculate-only — no UPDATE/INSERT/DELETE. Write deferred to Phase 10.5.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
+const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({ package: true, package_proration: true, room_supplement: true });
+const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
+
+const EDIT_PREVIEW_BOOKING_BY_ID_SQL = `
+SELECT
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.email,
+  b.guest_count,
+  b.package_code,
+  b.check_in::text          AS check_in,
+  b.check_out::text         AS check_out,
+  b.status::text            AS status,
+  b.payment_status::text    AS payment_status,
+  b.total_amount_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents,
+  b.primary_room_code,
+  b.metadata
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.id::text = $2
+LIMIT 1
+`;
+
+const EDIT_PREVIEW_BOOKING_BY_CODE_SQL = `
+SELECT
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.email,
+  b.guest_count,
+  b.package_code,
+  b.check_in::text          AS check_in,
+  b.check_out::text         AS check_out,
+  b.status::text            AS status,
+  b.payment_status::text    AS payment_status,
+  b.total_amount_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents,
+  b.primary_room_code,
+  b.metadata
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.booking_code = $2
+LIMIT 1
+`;
+
+function editPreviewKnownPackageCodes() {
+  try {
+    const cfgPath = path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    return (cfg.packages || []).map((p) => String(p.code).toLowerCase());
+  } catch (_) {
+    return [...EDIT_PREVIEW_PACKAGE_FALLBACK];
+  }
+}
+
+function editPreviewIsValidPackage(code, currentCode) {
+  const c = String(code || '').trim().toLowerCase();
+  if (!c) return false;
+  const known = editPreviewKnownPackageCodes();
+  if (known.includes(c)) return true;
+  if (currentCode && c === String(currentCode).trim().toLowerCase()) return true;
+  return false;
+}
+
+function editPreviewLightEmailOk(email) {
+  if (email == null || String(email).trim() === '') return true;
+  const e = String(email).trim();
+  if (e.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+function editPreviewLightNameOk(name) {
+  if (name == null) return true;
+  return String(name).trim().length <= 200;
+}
+
+function editPreviewBookingSummary(row) {
+  return {
+    booking_id:     row.booking_id,
+    booking_code:   row.booking_code,
+    guest_name:     row.guest_name,
+    email:          row.email || null,
+    guest_count:    row.guest_count != null ? Number(row.guest_count) : null,
+    package_code:   row.package_code || null,
+    check_in:       row.check_in,
+    check_out:      row.check_out,
+    payment_status: row.payment_status,
+  };
+}
+
+function editPreviewSvcSum(svcRows) {
+  return (svcRows || []).reduce((s, r) => s + (Number(r.amount_due_cents) || 0), 0);
+}
+
+function editPreviewAccommodationCents(bk, svcRows, quoteSnap) {
+  if (quoteSnap && Array.isArray(quoteSnap.line_items)) {
+    let sum = 0;
+    let any = false;
+    for (const li of quoteSnap.line_items) {
+      if (li.code && EDIT_PREVIEW_ACCOMM_LINE_CODES[li.code] && li.total_cents != null) {
+        sum += Number(li.total_cents);
+        any = true;
+      }
+    }
+    if (any) return sum;
+  }
+  const svcSum = editPreviewSvcSum(svcRows);
+  if (bk && bk.total_amount_cents != null) {
+    const total = Number(bk.total_amount_cents);
+    const derived = total - svcSum;
+    return derived >= 0 ? derived : total;
+  }
+  return null;
+}
+
+function editPreviewAccFromQuote(quote) {
+  if (!quote || !quote.success || !Array.isArray(quote.line_items)) return null;
+  let sum = 0;
+  let any = false;
+  for (const li of quote.line_items) {
+    if (li.code && EDIT_PREVIEW_ACCOMM_LINE_CODES[li.code] && li.total_cents != null) {
+      sum += Number(li.total_cents);
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
+function editPreviewBuildLineItems(accCents, svcRows, quoteLineItems) {
+  const items = [];
+  if (quoteLineItems && quoteLineItems.length) {
+    for (const li of quoteLineItems) {
+      if (li.code && EDIT_PREVIEW_ACCOMM_LINE_CODES[li.code]) {
+        items.push({
+          kind: 'accommodation',
+          code: li.code,
+          label: li.label || li.description || li.code,
+          amount_cents: Number(li.total_cents),
+        });
+      }
+    }
+  } else if (accCents != null) {
+    items.push({ kind: 'accommodation', code: 'accommodation', label: 'Accommodation', amount_cents: accCents });
+  }
+  for (const sr of (svcRows || [])) {
+    items.push({
+      kind: 'addon',
+      code: sr.service_type,
+      label: sr.service_type,
+      amount_cents: sr.amount_due_cents != null ? Number(sr.amount_due_cents) : null,
+    });
+  }
+  return items;
+}
+
+function editPreviewInvoiceSide(accCents, svcRows, paidCents, quoteLineItems) {
+  const svcSum = editPreviewSvcSum(svcRows);
+  const line_items = editPreviewBuildLineItems(accCents, svcRows, quoteLineItems);
+  const total_amount_cents = accCents != null ? accCents + svcSum : null;
+  const paid_amount_cents = paidCents != null ? Number(paidCents) : null;
+  let balance_due_cents = null;
+  let needs_refund = false;
+  if (total_amount_cents != null && paid_amount_cents != null) {
+    if (total_amount_cents > paid_amount_cents) {
+      balance_due_cents = total_amount_cents - paid_amount_cents;
+    } else if (total_amount_cents < paid_amount_cents) {
+      needs_refund = true;
+      balance_due_cents = 0;
+    } else {
+      balance_due_cents = 0;
+    }
+  }
+  return { line_items, total_amount_cents, paid_amount_cents, balance_due_cents, needs_refund };
+}
+
+function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageCode) {
+  try {
+    return calculateWolfhouseQuote({
+      client_slug:    clientSlug,
+      check_in:       checkIn,
+      check_out:      checkOut,
+      guest_count:    guestCount,
+      package_code:   packageCode,
+      room_type:      'shared',
+      payment_choice: 'deposit',
+      add_ons:        [],
+    });
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function editPreviewBuildInvoicePreview(bookingRow, svcRows, proposedFields, pricingAffects) {
+  const metadata = bookingRow.metadata || {};
+  const quoteSnap = (metadata && typeof metadata === 'object' && metadata.quote_snapshot) || null;
+  const paidCents = bookingRow.amount_paid_cents != null ? Number(bookingRow.amount_paid_cents) : null;
+  const curAcc = editPreviewAccommodationCents(bookingRow, svcRows, quoteSnap);
+  const current = editPreviewInvoiceSide(curAcc, svcRows, paidCents, null);
+
+  const calculation_warnings = [];
+  let proposedAcc = curAcc;
+  let proposedQuoteLines = null;
+  let requires_reprice = false;
+
+  if (pricingAffects) {
+    const q = editPreviewTryQuote(
+      bookingRow._client_slug || DEFAULT_CLIENT,
+      proposedFields.check_in || bookingRow.check_in,
+      proposedFields.check_out || bookingRow.check_out,
+      proposedFields.guest_count != null ? proposedFields.guest_count : Number(bookingRow.guest_count) || 1,
+      proposedFields.package_code || bookingRow.package_code,
+    );
+    if (q && q.success) {
+      proposedAcc = editPreviewAccFromQuote(q);
+      proposedQuoteLines = q.line_items;
+      if (proposedAcc == null) {
+        requires_reprice = true;
+        calculation_warnings.push('Quote returned no accommodation line items.');
+      }
+    } else {
+      requires_reprice = true;
+      proposedAcc = null;
+      if (q && q.error) calculation_warnings.push(String(q.error));
+      else if (q && Array.isArray(q.blockers) && q.blockers.length) {
+        calculation_warnings.push(...q.blockers.map(String));
+      } else if (q && !q.success) {
+        calculation_warnings.push('Quote calculation blocked or incomplete.');
+      }
+    }
+  }
+
+  const proposed = editPreviewInvoiceSide(proposedAcc, svcRows, paidCents, proposedQuoteLines);
+  const delta_amount_cents = (current.total_amount_cents != null && proposed.total_amount_cents != null)
+    ? proposed.total_amount_cents - current.total_amount_cents
+    : null;
+
+  const invoice = {
+    current,
+    proposed,
+    delta_amount_cents,
+    payment_mutation: false,
+    stripe_mutation: false,
+    note: 'Preview only. No booking, bed, payment, service, or Stripe changes were made.',
+  };
+  if (requires_reprice) invoice.requires_reprice = true;
+  if (calculation_warnings.length) invoice.calculation_warnings = calculation_warnings;
+  return invoice;
+}
+
+function editPreviewGuestBedRelease(sourceBeds, currentGuests, newGuestCount) {
+  const ordered = (sourceBeds || []).slice();
+  const cur = Math.max(1, Number(currentGuests) || 1);
+  const next = Number(newGuestCount);
+  if (next > cur) {
+    return { blocked: true, reason: 'guest_increase_not_supported' };
+  }
+  if (next < 1 || !Number.isFinite(next)) {
+    return { blocked: true, reason: 'invalid_guest_count' };
+  }
+  if (next === cur) {
+    return {
+      changed: false,
+      from: cur,
+      to: next,
+      release_booking_bed_ids: [],
+      released_beds: [],
+      remaining_beds: ordered.map((r) => r.bed_code),
+    };
+  }
+  const nRelease = cur - next;
+  if (ordered.length < nRelease) {
+    return { requires_manual_review: true, reason: 'insufficient_assignment_rows', from: cur, to: next };
+  }
+  const releaseRows = ordered.slice(-nRelease);
+  const remainRows = ordered.slice(0, ordered.length - nRelease);
+  return {
+    changed: true,
+    from: cur,
+    to: next,
+    release_count: nRelease,
+    release_booking_bed_ids: releaseRows.map((r) => r.booking_bed_id),
+    released_beds: releaseRows.map((r) => r.bed_code),
+    remaining_beds: remainRows.map((r) => r.bed_code),
+  };
+}
+
+function editPreviewDatesBuildConflicts(assignmentRows, sourceBookingId, checkIn, checkOut, sourceBeds) {
+  const bedById = {};
+  for (const b of sourceBeds) bedById[b.bed_id] = b;
+  return assignmentRows
+    .filter((row) => sourceBeds.some((b) => b.bed_id === row.bed_id))
+    .filter((row) => row.booking_id !== sourceBookingId)
+    .filter(movePreviewIsBlockingAssignment)
+    .filter((row) => movePreviewHalfOpenOverlaps(row.check_in, row.check_out, checkIn, checkOut))
+    .map((row) => ({
+      booking_bed_id: row.booking_bed_id,
+      booking_id:   row.booking_id,
+      booking_code: row.booking_code,
+      guest_name:   row.guest_name,
+      check_in:     row.check_in,
+      check_out:    row.check_out,
+      bed_id:       row.bed_id,
+      bed_code:     row.bed_code || (bedById[row.bed_id] && bedById[row.bed_id].bed_code),
+    }));
+}
+
+async function handleBookingEditPreview(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug   = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId    = String(body.booking_id   || '').trim();
+  const bookingCode  = String(body.booking_code || '').trim();
+  const editType     = String(body.edit_type || '').trim().toLowerCase();
+  const reason       = String(body.reason || '').trim().slice(0, 500) || null;
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!EDIT_PREVIEW_VALID_TYPES.includes(editType)) {
+    return send400(res, 'edit_type must be one of: contact, dates, package, guests');
+  }
+
+  const actorId   = user ? user.staff_user_id : 'dev-edit-preview-local';
+  const actorRole = user ? user.role          : 'operator';
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:booking_edit_preview',
+    category:      'booking_edit_preview',
+    preview_only:  true,
+    would_mutate:  false,
+    client_slug:   clientSlug,
+    booking_id:    bookingId || null,
+    booking_code:  bookingCode || null,
+    edit_type:     editType,
+    reason,
+    staff_user_id: actorId,
+    staff_role:    actorRole,
+  };
+
+  let bookingRow, sourceBeds, svcRows;
+  try {
+    const result = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      const booking = bookingRes.rows[0] || null;
+      if (!booking) return { bookingRow: null, sourceBeds: [], svcRows: [] };
+      const bedsRes = await pg.query(MOVE_WRITE_SOURCE_BEDS_SQL, [clientSlug, booking.booking_id]);
+      const svc = await loadBookingServiceRecords(pg, clientSlug, booking.booking_code);
+      return { bookingRow: booking, sourceBeds: bedsRes.rows, svcRows: svc.rows };
+    });
+    bookingRow = result.bookingRow;
+    sourceBeds = result.sourceBeds;
+    svcRows    = result.svcRows;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'edit preview query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, {
+      success: false,
+      error: 'booking not found',
+      preview_only: true,
+      would_mutate: false,
+    });
+  }
+
+  bookingRow._client_slug = clientSlug;
+  const currentGuests = Math.max(1, Number(bookingRow.guest_count) || 1);
+  const baseResp = {
+    preview_only: true,
+    would_mutate: false,
+    payment_mutation: false,
+    stripe_mutation: false,
+    edit_type: editType,
+    booking: editPreviewBookingSummary(bookingRow),
+  };
+
+  if (editType === 'contact') {
+    const guestName = body.guest_name != null ? String(body.guest_name).trim() : bookingRow.guest_name;
+    const email     = body.email != null ? String(body.email).trim() : (bookingRow.email || '');
+    if (!editPreviewLightNameOk(guestName)) return send400(res, 'guest_name is too long');
+    if (!editPreviewLightEmailOk(email)) return send400(res, 'email format is invalid');
+
+    const current = { guest_name: bookingRow.guest_name, email: bookingRow.email || null };
+    const proposed = { guest_name: guestName, email: email || null };
+    const invoice_preview = editPreviewBuildInvoicePreview(bookingRow, svcRows, {}, false);
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, can_apply: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      ...baseResp,
+      success: true,
+      can_apply: true,
+      current,
+      proposed,
+      pricing_impact: { payment_mutation: false, stripe_mutation: false, no_pricing_change: true },
+      invoice_preview,
+      message: 'Edit preview calculated. No changes were saved.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  if (editType === 'dates') {
+    const checkIn  = String(body.check_in  || '').trim();
+    const checkOut = String(body.check_out || '').trim();
+    if (!checkIn || !checkOut) return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
+    if (!DATE_RE.test(checkIn) || !DATE_RE.test(checkOut)) return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+    if (!parseCalendarDate(checkIn) || !parseCalendarDate(checkOut)) return send400(res, 'check_in and check_out must be valid dates');
+    if (checkOut <= checkIn) return send400(res, 'check_out must be after check_in');
+
+    const currentNights  = movePreviewNights(bookingRow.check_in, bookingRow.check_out);
+    const proposedNights = movePreviewNights(checkIn, checkOut);
+    const current = {
+      check_in: bookingRow.check_in,
+      check_out: bookingRow.check_out,
+      nights: currentNights,
+      assigned_beds: sourceBeds.map((b) => b.bed_code),
+    };
+    const proposed = {
+      check_in: checkIn,
+      check_out: checkOut,
+      nights: proposedNights,
+      nights_delta: proposedNights != null && currentNights != null ? proposedNights - currentNights : null,
+      assigned_beds: sourceBeds.map((b) => b.bed_code),
+    };
+
+    let conflicts = [];
+    let requires_manual_review = false;
+    let reviewReason = null;
+
+    if (sourceBeds.length === 0) {
+      requires_manual_review = true;
+      reviewReason = 'no_active_assignments';
+    } else {
+      try {
+        const avail = await withPgClient(async (pg) => {
+          const assignRes = await pg.query(MOVE_TARGETS_RANGE_ASSIGNMENTS_SQL, [clientSlug, checkIn, checkOut]);
+          let bedNotSellable = false;
+          for (const bed of sourceBeds) {
+            const bedRes = await pg.query(MOVE_PREVIEW_BED_BY_ID_SQL, [clientSlug, bed.bed_id]);
+            const bedRow = bedRes.rows[0];
+            if (bedRow && (bedRow.active === false || bedRow.sellable === false)) {
+              bedNotSellable = true;
+            }
+          }
+          return { assignmentRows: assignRes.rows, bedNotSellable };
+        });
+        conflicts = editPreviewDatesBuildConflicts(
+          avail.assignmentRows,
+          bookingRow.booking_id,
+          checkIn,
+          checkOut,
+          sourceBeds
+        );
+        if (avail.bedNotSellable) {
+          requires_manual_review = true;
+          reviewReason = reviewReason || 'bed_not_sellable';
+        }
+      } catch (err) {
+        appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+        return sendJSON(res, 500, { success: false, error: 'availability check failed', detail: err.message });
+      }
+    }
+
+    const can_apply = conflicts.length === 0 && !requires_manual_review;
+    const pricingAffects = proposed.nights_delta !== 0;
+    const invoice_preview = editPreviewBuildInvoicePreview(
+      bookingRow,
+      svcRows,
+      { check_in: checkIn, check_out: checkOut },
+      pricingAffects
+    );
+    if (pricingAffects && invoice_preview.requires_reprice) {
+      invoice_preview.nights_delta = proposed.nights_delta;
+    }
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      can_apply,
+      conflict_count: conflicts.length,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      ...baseResp,
+      success: true,
+      can_apply,
+      requires_manual_review,
+      reason: reviewReason,
+      current,
+      proposed,
+      conflicts,
+      pricing_impact: {
+        requires_reprice: pricingAffects,
+        nights_delta: proposed.nights_delta,
+        payment_mutation: false,
+        stripe_mutation: false,
+      },
+      invoice_preview,
+      message: can_apply
+        ? 'Edit preview calculated. No changes were saved.'
+        : (conflicts.length
+          ? 'Proposed dates conflict with other assignments. No changes were saved.'
+          : 'Manual review required for proposed dates. No changes were saved.'),
+      elapsed_ms: elapsed,
+    });
+  }
+
+  if (editType === 'package') {
+    const packageCode = body.package_code != null ? String(body.package_code).trim().toLowerCase() : '';
+    if (!packageCode) return send400(res, 'package_code is required');
+    if (!editPreviewIsValidPackage(packageCode, bookingRow.package_code)) {
+      return send400(res, 'package_code is not a recognized package');
+    }
+
+    const current = { package_code: bookingRow.package_code || null };
+    const proposed = { package_code: packageCode };
+    const pricingAffects = String(bookingRow.package_code || '').toLowerCase() !== packageCode;
+    const invoice_preview = editPreviewBuildInvoicePreview(
+      bookingRow,
+      svcRows,
+      { package_code: packageCode },
+      pricingAffects
+    );
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, can_apply: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      ...baseResp,
+      success: true,
+      can_apply: true,
+      current,
+      proposed,
+      pricing_impact: {
+        package_changed: pricingAffects,
+        payment_mutation: false,
+        stripe_mutation: false,
+      },
+      invoice_preview,
+      message: 'Edit preview calculated. No changes were saved.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  // edit_type === 'guests'
+  const guestCountRaw = body.guest_count;
+  if (guestCountRaw == null || guestCountRaw === '') return send400(res, 'guest_count is required');
+  const guestCount = Number(guestCountRaw);
+  if (!Number.isFinite(guestCount) || guestCount < 1) return send400(res, 'guest_count must be at least 1');
+  if (guestCount > currentGuests) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, can_apply: false, reason: 'guest_increase_not_supported', elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      ...baseResp,
+      success: true,
+      can_apply: false,
+      reason: 'guest_increase_not_supported',
+      current: { guest_count: currentGuests },
+      proposed: { guest_count: guestCount },
+      message: 'Guest count increases are not supported in preview. No changes were saved.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const release = editPreviewGuestBedRelease(sourceBeds, currentGuests, guestCount);
+  if (release.blocked) {
+    return send400(res, release.reason || 'invalid guest_count');
+  }
+
+  const current = { guest_count: currentGuests, assigned_beds: sourceBeds.map((b) => b.bed_code) };
+  const proposed = {
+    guest_count: guestCount,
+    release_booking_bed_ids: release.release_booking_bed_ids || [],
+    released_beds: release.released_beds || [],
+    remaining_beds: release.remaining_beds || [],
+  };
+
+  if (release.requires_manual_review) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, can_apply: false, requires_manual_review: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      ...baseResp,
+      success: true,
+      can_apply: false,
+      requires_manual_review: true,
+      reason: release.reason,
+      current,
+      proposed,
+      message: 'Not enough assignment rows to release beds cleanly. Manual review required. No changes were saved.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const pricingAffects = guestCount !== currentGuests;
+  const invoice_preview = editPreviewBuildInvoicePreview(
+    bookingRow,
+    svcRows,
+    { guest_count: guestCount },
+    pricingAffects
+  );
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({ ...auditBase, success: true, can_apply: true, elapsed_ms: elapsed });
+  return sendJSON(res, 200, {
+    ...baseResp,
+    success: true,
+    can_apply: true,
+    current,
+    proposed,
+    bed_release: release.changed ? {
+      from: release.from,
+      to: release.to,
+      release_count: release.release_count,
+      release_booking_bed_ids: release.release_booking_bed_ids,
+      released_beds: release.released_beds,
+      remaining_beds: release.remaining_beds,
+    } : null,
+    pricing_impact: {
+      guest_count_delta: guestCount - currentGuests,
+      payment_mutation: false,
+      stripe_mutation: false,
+    },
+    invoice_preview,
+    message: 'Edit preview calculated. No changes were saved.',
+    elapsed_ms: elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
 //
 // Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
@@ -8154,6 +8813,11 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-field-dates-nights{font-size:11px;color:var(--text-2);margin-top:6px}
 .ctx-field-dates-error{font-size:11px;color:#9C5742;margin-top:6px;display:none}
 .ctx-field-guests-preview{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.55;padding:8px 10px;background:#fff;border:1px dashed var(--border-soft);border-radius:6px}
+.ctx-field-preview-result{font-size:11px;color:var(--text-2);margin-top:10px;line-height:1.55;padding:10px 12px;background:#fff;border:1px solid var(--border-soft);border-radius:6px;display:none}
+.ctx-field-preview-result.is-visible{display:block}
+.ctx-field-preview-result .ctx-field-preview-badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:4px;margin-bottom:8px;background:#E8F0E6;color:#3D5C38}
+.ctx-field-preview-result.is-blocked .ctx-field-preview-badge{background:#F5E8E4;color:#9C5742}
+.ctx-field-preview-result .ctx-field-preview-delta{font-weight:600;margin-top:6px}
 .ctx-field-nights-hint{font-size:11px;color:var(--text-3);margin-left:6px}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
 .ctx-addon-row:last-child{border-bottom:none}
@@ -11593,10 +12257,10 @@ function bcFieldEditGuestReleasePreview(currentCount, newCount, assignments){
 
 function bcRenderFieldEditActionsHtml(group){
   return '<div class="ctx-field-edit-actions">' +
-    '<button type="button" class="btn btn-primary" data-bc-field-save="' + escHtml(group) + '" id="bc-field-save-' + escHtml(group) + '" disabled title="Preview/save coming next">Save</button>' +
-    '<span class="ctx-field-save-hint">Preview/save coming next</span>' +
+    '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Preview</button>' +
     '<button type="button" class="btn btn-ghost" data-bc-field-cancel="' + escHtml(group) + '" id="bc-field-cancel-' + escHtml(group) + '">Cancel</button>' +
-    '</div>';
+    '</div>' +
+    '<div class="ctx-field-preview-result" id="bc-field-' + escHtml(group) + '-preview-result" aria-live="polite"></div>';
 }
 
 function bcRenderFieldEditSectionsHtml(data){
@@ -11686,7 +12350,148 @@ function bcRenderFieldEditSectionsHtml(data){
   return html;
 }
 
-var bcFieldEditState = { activeGroup: null, snapshot: null, assignments: [], guestCount: 1 };
+var bcFieldEditState = { activeGroup: null, snapshot: null, assignments: [], guestCount: 1, clientSlug: null, bookingId: null, bookingCode: null };
+
+function bcFieldEditClearPreviewResults(){
+  document.querySelectorAll('.ctx-field-preview-result').forEach(function(box){
+    box.classList.remove('is-visible', 'is-blocked');
+    box.innerHTML = '';
+    box.style.display = 'none';
+  });
+}
+
+function bcFieldEditFormatEuro(cents){
+  if (cents == null || isNaN(Number(cents))) return '\u2014';
+  return '\u20ac' + (Number(cents) / 100).toFixed(2);
+}
+
+function bcFieldEditRenderPreviewResult(group, data){
+  var box = el('bc-field-' + group + '-preview-result');
+  if (!box) return;
+  if (!data || !data.success){
+    box.className = 'ctx-field-preview-result is-visible is-blocked';
+    box.style.display = '';
+    box.innerHTML = '<div class="ctx-field-preview-badge">Preview failed</div>' +
+      escHtml((data && data.error) || 'Preview request failed.') +
+      '<div style="margin-top:6px;font-style:italic">Preview only \u2014 not saved</div>';
+    return;
+  }
+  var blocked = data.can_apply === false;
+  box.className = 'ctx-field-preview-result is-visible' + (blocked ? ' is-blocked' : '');
+  box.style.display = '';
+  var html = '<div class="ctx-field-preview-badge">' + (blocked ? 'Preview blocked' : 'Preview only \u2014 not saved') + '</div>';
+  html += '<div>' + escHtml(data.message || 'Edit preview calculated.') + '</div>';
+
+  if (group === 'contact' && data.current && data.proposed){
+    html += '<div style="margin-top:8px"><strong>Current:</strong> ' +
+      escHtml(data.current.guest_name || '\u2014') + ', ' + escHtml(data.current.email || '\u2014') + '</div>';
+    html += '<div><strong>Proposed:</strong> ' +
+      escHtml(data.proposed.guest_name || '\u2014') + ', ' + escHtml(data.proposed.email || '\u2014') + '</div>';
+  }
+  if (group === 'dates' && data.proposed){
+    html += '<div style="margin-top:8px"><strong>Proposed:</strong> ' +
+      escHtml(data.proposed.check_in) + ' \u2192 ' + escHtml(data.proposed.check_out);
+    if (data.proposed.nights != null) html += ' (' + data.proposed.nights + ' nights)';
+    html += '</div>';
+    if (data.conflicts && data.conflicts.length){
+      html += '<div style="margin-top:6px;color:#9C5742"><strong>Conflicts:</strong> ' +
+        escHtml(data.conflicts.map(function(c){ return c.bed_code + ' / ' + c.booking_code; }).join('; ')) + '</div>';
+    }
+  }
+  if (group === 'package' && data.proposed){
+    html += '<div style="margin-top:8px"><strong>Proposed package:</strong> ' + escHtml(data.proposed.package_code || '\u2014') + '</div>';
+  }
+  if (group === 'guests' && data.proposed){
+    html += '<div style="margin-top:8px"><strong>Guests:</strong> ' +
+      escHtml(String((data.current && data.current.guest_count) || bcFieldEditState.guestCount)) +
+      ' \u2192 ' + escHtml(String(data.proposed.guest_count)) + '</div>';
+    if (data.bed_release && data.bed_release.released_beds && data.bed_release.released_beds.length){
+      html += '<div><strong>Will release:</strong> ' + escHtml(data.bed_release.released_beds.join(', ')) + '</div>';
+      html += '<div><strong>Remaining:</strong> ' + escHtml((data.bed_release.remaining_beds || []).join(', ')) + '</div>';
+    } else if (data.proposed.released_beds && data.proposed.released_beds.length){
+      html += '<div><strong>Will release:</strong> ' + escHtml(data.proposed.released_beds.join(', ')) + '</div>';
+      html += '<div><strong>Remaining:</strong> ' + escHtml((data.proposed.remaining_beds || []).join(', ')) + '</div>';
+    }
+  }
+  if (data.reason) html += '<div style="margin-top:6px"><strong>Reason:</strong> ' + escHtml(data.reason) + '</div>';
+
+  var inv = data.invoice_preview;
+  if (inv){
+    if (inv.delta_amount_cents != null){
+      var sign = inv.delta_amount_cents > 0 ? '+' : '';
+      html += '<div class="ctx-field-preview-delta">Invoice delta: ' + sign + bcFieldEditFormatEuro(inv.delta_amount_cents) + '</div>';
+    }
+    if (inv.proposed && inv.proposed.total_amount_cents != null){
+      html += '<div>Proposed total: ' + bcFieldEditFormatEuro(inv.proposed.total_amount_cents);
+      if (inv.proposed.balance_due_cents != null) html += ' (balance ' + bcFieldEditFormatEuro(inv.proposed.balance_due_cents) + ')';
+      html += '</div>';
+    }
+    if (inv.requires_reprice) html += '<div style="margin-top:4px;font-style:italic">Requires reprice \u2014 totals may be incomplete.</div>';
+    if (inv.calculation_warnings && inv.calculation_warnings.length){
+      html += '<div style="margin-top:4px;color:#9C5742">' + escHtml(inv.calculation_warnings.join('; ')) + '</div>';
+    }
+    html += '<div style="margin-top:6px;font-size:10.5px;font-style:italic">' + escHtml(inv.note || 'Preview only.') + '</div>';
+  }
+  box.innerHTML = html;
+}
+
+function bcFieldEditBuildPreviewPayload(group){
+  var payload = {
+    client_slug: bcFieldEditState.clientSlug || getBcClient(),
+    booking_id: bcFieldEditState.bookingId,
+    booking_code: bcFieldEditState.bookingCode,
+    edit_type: group,
+  };
+  if (group === 'contact'){
+    var nameEl = el('bc-field-contact-name');
+    var emailEl = el('bc-field-contact-email');
+    payload.guest_name = nameEl ? nameEl.value.trim() : '';
+    payload.email = emailEl ? emailEl.value.trim() : '';
+  } else if (group === 'dates'){
+    var cin = el('bc-field-dates-check-in');
+    var cout = el('bc-field-dates-check-out');
+    if (!cin || !cout || !cin.value || !cout.value) return { error: 'Check-in and check-out are required.' };
+    if (cout.value <= cin.value) return { error: 'Check-out must be after check-in.' };
+    payload.check_in = cin.value;
+    payload.check_out = cout.value;
+  } else if (group === 'package'){
+    var pkgEl = el('bc-field-package-select');
+    payload.package_code = pkgEl ? pkgEl.value : '';
+  } else if (group === 'guests'){
+    var guestEl = el('bc-field-guests-select');
+    payload.guest_count = guestEl ? parseInt(guestEl.value, 10) : bcFieldEditState.guestCount;
+  }
+  return payload;
+}
+
+function bcFieldEditRunPreview(group){
+  var built = bcFieldEditBuildPreviewPayload(group);
+  if (built.error){
+    bcFieldEditRenderPreviewResult(group, { success: false, error: built.error });
+    return;
+  }
+  var btn = el('bc-field-preview-' + group);
+  if (btn) btn.disabled = true;
+  fetch('/staff/bookings/edit-preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(built),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (!res.ok && res.data && !res.data.preview_only){
+        bcFieldEditRenderPreviewResult(group, { success: false, error: (res.data && res.data.error) || 'Preview failed' });
+        return;
+      }
+      bcFieldEditRenderPreviewResult(group, res.data);
+    })
+    .catch(function(e){
+      bcFieldEditRenderPreviewResult(group, { success: false, error: e.message || 'Network error' });
+    })
+    .finally(function(){
+      if (btn) btn.disabled = false;
+    });
+}
 
 function bcFieldEditRestoreForms(){
   var s = bcFieldEditState.snapshot;
@@ -11716,10 +12521,9 @@ function bcFieldEditCloseAll(){
     if (read) read.style.display = '';
     if (edit) edit.style.display = 'none';
   });
+  bcFieldEditClearPreviewResults();
   bcFieldEditRestoreForms();
 }
-
-function bcFieldEditActivate(group){
   if (!group) return;
   if (bcFieldEditState.activeGroup === group) return;
   bcFieldEditCloseAll();
@@ -11771,6 +12575,9 @@ function bcFieldEditUpdateGuestPreview(){
 
 function bcInitFieldEditShell(data){
   var bk = (data && data.booking) || {};
+  bcFieldEditState.clientSlug = getBcClient();
+  bcFieldEditState.bookingId = bk.booking_id || null;
+  bcFieldEditState.bookingCode = bk.booking_code || null;
   bcFieldEditState.assignments = bcFieldEditOrderedAssignments(((data.rooming || {}).assignments || []));
   bcFieldEditState.guestCount = Math.max(1, parseInt(bk.guest_count, 10) || 1);
   bcFieldEditState.snapshot = {
@@ -11793,11 +12600,11 @@ function bcInitFieldEditShell(data){
   document.querySelectorAll('[data-bc-field-cancel]').forEach(function(btn){
     btn.onclick = function(){ bcFieldEditCloseAll(); };
   });
-  document.querySelectorAll('[data-bc-field-save]').forEach(function(btn){
-    btn.disabled = true;
+  document.querySelectorAll('[data-bc-field-preview]').forEach(function(btn){
     btn.onclick = function(e){
       e.preventDefault();
-      return false;
+      var g = btn.getAttribute('data-bc-field-preview');
+      if (g) bcFieldEditRunPreview(g);
     };
   });
 
@@ -13651,6 +14458,17 @@ async function router(req, res) {
     return handleBookingDateChangePreview(req, res, auth.user);
   }
 
+  // ── Phase 10.4f — Booking edit preview (calculate-only; no writes) ─────────
+  if (pathname === '/staff/bookings/edit-preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/edit-preview' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingEditPreview(req, res, auth.user);
+  }
+
   // ── Phase 10.3b — Booking move write (gated; single-bed same dates) ────────
   if (pathname === '/staff/bookings/move') {
     if (method !== 'POST') {
@@ -14006,6 +14824,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-targets         <- 10.3h.4 move target availability (SELECT-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-change preview (no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edit preview (calculate-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);

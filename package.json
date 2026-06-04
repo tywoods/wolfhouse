@@ -90,6 +90,7 @@
     "verify:staff-booking-drawer-layout": "node scripts/verify-staff-booking-drawer-layout.js",
     "verify:staff-running-invoice-display": "node scripts/verify-staff-running-invoice-display.js",
     "verify:staff-booking-field-edit-ui": "node scripts/verify-staff-booking-field-edit-ui.js",
+    "verify:staff-booking-edit-preview": "node scripts/verify-staff-booking-edit-preview.js",
     "verify:staff-stripe-payment-link-api": "node scripts/verify-staff-stripe-payment-link-api.js",
     "verify:staff-addon-service-payment-api": "node scripts/verify-staff-addon-service-payment-api.js",
     "verify:staff-stripe-webhook-api": "node scripts/verify-staff-stripe-webhook-api.js",
