@@ -12524,6 +12524,8 @@ function bcFieldEditCloseAll(){
   bcFieldEditClearPreviewResults();
   bcFieldEditRestoreForms();
 }
+
+function bcFieldEditActivate(group){
   if (!group) return;
   if (bcFieldEditState.activeGroup === group) return;
   bcFieldEditCloseAll();
