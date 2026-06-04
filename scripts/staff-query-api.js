@@ -2834,6 +2834,286 @@ async function handleBookingMovePreview(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.4b — Booking date-change preview (read-only; no writes)
+//
+// POST /staff/bookings/date-change-preview
+//
+// Preview whether an existing single-bed booking can move to new check_in/check_out
+// on the same bed (or optional target_bed_id). SELECT-only — no mutation.
+// Date-change write deferred to Phase 10.5.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function dateChangePreviewBookingSummary(row) {
+  return {
+    booking_id:     row.booking_id,
+    booking_code:   row.booking_code,
+    guest_name:     row.guest_name,
+    payment_status: row.payment_status,
+  };
+}
+
+function dateChangePreviewStaySummary(checkIn, checkOut, bedRow, nights, nightsDelta) {
+  const stay = {
+    check_in:  checkIn,
+    check_out: checkOut,
+    nights,
+    bed_id:    bedRow.bed_id,
+    bed_code:  bedRow.bed_code,
+    room_code: bedRow.room_code,
+  };
+  if (nightsDelta != null) stay.nights_delta = nightsDelta;
+  return stay;
+}
+
+function dateChangePreviewPricingImpact(currentNights, proposedNights) {
+  const nightsDelta = proposedNights - currentNights;
+  return {
+    requires_reprice:  nightsDelta !== 0,
+    nights_delta:      nightsDelta,
+    payment_mutation:  false,
+    stripe_mutation:   false,
+    note: 'Preview only. No payment or Stripe changes were made.',
+  };
+}
+
+function dateChangePreviewBuildConflicts(assignmentRows, sourceBookingId, checkIn, checkOut, bedRow) {
+  return assignmentRows
+    .filter((row) => row.booking_id !== sourceBookingId)
+    .filter(movePreviewIsBlockingAssignment)
+    .filter((row) => movePreviewHalfOpenOverlaps(row.check_in, row.check_out, checkIn, checkOut))
+    .map((row) => ({
+      booking_id:   row.booking_id,
+      booking_code: row.booking_code,
+      guest_name:   row.guest_name,
+      check_in:     row.check_in,
+      check_out:    row.check_out,
+      bed_id:       bedRow.bed_id,
+      bed_code:     row.bed_code || bedRow.bed_code,
+    }));
+}
+
+async function handleBookingDateChangePreview(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug   = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId    = String(body.booking_id   || '').trim();
+  const bookingCode  = String(body.booking_code || '').trim();
+  const newCheckIn   = String(body.new_check_in  || '').trim();
+  const newCheckOut  = String(body.new_check_out || '').trim();
+  const targetBedId  = String(body.target_bed_id || '').trim();
+  const reason       = String(body.reason || '').trim().slice(0, 500) || null;
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (targetBedId && !UUID_VALIDATE_RE.test(targetBedId)) return send400(res, 'target_bed_id must be a valid UUID');
+  if (!newCheckIn || !newCheckOut) return send400(res, 'new_check_in and new_check_out are required (YYYY-MM-DD)');
+  if (!DATE_RE.test(newCheckIn) || !DATE_RE.test(newCheckOut)) return send400(res, 'new_check_in and new_check_out must be YYYY-MM-DD');
+  if (!parseCalendarDate(newCheckIn) || !parseCalendarDate(newCheckOut)) return send400(res, 'new_check_in and new_check_out must be valid dates');
+  if (newCheckOut <= newCheckIn) return send400(res, 'new_check_out must be after new_check_in');
+
+  const actorId   = user ? user.staff_user_id : 'dev-date-change-preview-local';
+  const actorRole = user ? user.role          : 'operator';
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:booking_date_change_preview',
+    category:      'booking_date_change_preview',
+    preview_only:  true,
+    would_mutate:  false,
+    client_slug:   clientSlug,
+    booking_id:    bookingId || null,
+    booking_code:  bookingCode || null,
+    new_check_in:  newCheckIn,
+    new_check_out: newCheckOut,
+    target_bed_id: targetBedId || null,
+    reason,
+    staff_user_id: actorId,
+    staff_role:    actorRole,
+  };
+
+  let bookingRow, bedRow, sourceBeds, assignmentRows;
+  try {
+    const result = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? MOVE_PREVIEW_BOOKING_BY_ID_SQL : MOVE_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      const booking = bookingRes.rows[0] || null;
+      if (!booking) {
+        return { bookingRow: null, bedRow: null, sourceBeds: [], assignmentRows: [] };
+      }
+      const bedsRes = await pg.query(MOVE_WRITE_SOURCE_BEDS_SQL, [clientSlug, booking.booking_id]);
+      const sourceBedsRows = bedsRes.rows;
+      const resolvedBedId = targetBedId || (sourceBedsRows[0] && sourceBedsRows[0].bed_id) || '';
+      let bed = null;
+      let assignments = [];
+      if (resolvedBedId) {
+        const bedRes = await pg.query(MOVE_PREVIEW_BED_BY_ID_SQL, [clientSlug, resolvedBedId]);
+        bed = bedRes.rows[0] || null;
+        if (bed && bed.bed_code) {
+          const assignRes = await pg.query(
+            MOVE_PREVIEW_TARGET_ASSIGNMENTS_SQL,
+            [clientSlug, bed.bed_code, newCheckIn, newCheckOut]
+          );
+          assignments = assignRes.rows;
+        }
+      }
+      return {
+        bookingRow:     booking,
+        bedRow:         bed,
+        sourceBeds:     sourceBedsRows,
+        assignmentRows: assignments,
+      };
+    });
+    bookingRow     = result.bookingRow;
+    bedRow         = result.bedRow;
+    sourceBeds     = result.sourceBeds;
+    assignmentRows = result.assignmentRows;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'date-change preview query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, {
+      success: false,
+      error: 'booking not found',
+      preview_only: true,
+      would_mutate: false,
+    });
+  }
+
+  if (sourceBeds.length !== 1) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      can_change_dates: false,
+      requires_manual_review: true,
+      source_bed_count: sourceBeds.length,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      can_change_dates: false,
+      preview_only: true,
+      would_mutate: false,
+      requires_manual_review: true,
+      reason: 'single_bed_booking_required',
+      booking: dateChangePreviewBookingSummary(bookingRow),
+      message: 'This booking has multiple or no active bed assignments and requires manual review.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const sourceBed = sourceBeds[0];
+  const resolvedTargetBedId = targetBedId || sourceBed.bed_id;
+
+  if (!bedRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'target_bed_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, {
+      success: false,
+      error: 'target bed not found',
+      preview_only: true,
+      would_mutate: false,
+    });
+  }
+
+  if (bedRow.bed_id !== resolvedTargetBedId) {
+    appendAuditLog({ ...auditBase, success: false, error: 'target_bed_mismatch', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'target_bed_id does not match resolved bed',
+      preview_only: true,
+      would_mutate: false,
+    });
+  }
+
+  const currentNights  = movePreviewNights(bookingRow.check_in, bookingRow.check_out);
+  const proposedNights = movePreviewNights(newCheckIn, newCheckOut);
+  const pricingImpact  = dateChangePreviewPricingImpact(currentNights, proposedNights);
+  const currentStay    = dateChangePreviewStaySummary(
+    bookingRow.check_in,
+    bookingRow.check_out,
+    { bed_id: sourceBed.bed_id, bed_code: sourceBed.bed_code, room_code: sourceBed.room_code },
+    currentNights
+  );
+  const proposedStay   = dateChangePreviewStaySummary(
+    newCheckIn,
+    newCheckOut,
+    bedRow,
+    proposedNights,
+    pricingImpact.nights_delta
+  );
+
+  if (bedRow.active === false || bedRow.sellable === false) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, can_change_dates: false, error: 'target_bed_unavailable', elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      can_change_dates: false,
+      preview_only: true,
+      would_mutate: false,
+      requires_manual_review: false,
+      booking: dateChangePreviewBookingSummary(bookingRow),
+      current: currentStay,
+      proposed: proposedStay,
+      conflicts: [],
+      pricing_impact: pricingImpact,
+      message: 'Current bed is not active or sellable for the proposed dates. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const sourceBookingId = bookingRow.booking_id;
+  const conflicts = dateChangePreviewBuildConflicts(
+    assignmentRows,
+    sourceBookingId,
+    newCheckIn,
+    newCheckOut,
+    bedRow
+  );
+  const canChangeDates = conflicts.length === 0;
+  const elapsed = Date.now() - started;
+
+  appendAuditLog({
+    ...auditBase,
+    success: true,
+    can_change_dates: canChangeDates,
+    conflict_count: conflicts.length,
+    elapsed_ms: elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success: true,
+    can_change_dates: canChangeDates,
+    preview_only: true,
+    would_mutate: false,
+    requires_manual_review: false,
+    booking: dateChangePreviewBookingSummary(bookingRow),
+    current: currentStay,
+    proposed: proposedStay,
+    conflicts,
+    pricing_impact: pricingImpact,
+    message: canChangeDates
+      ? 'Date-change preview passed. No changes were made.'
+      : 'Current bed is not available for the proposed dates. No changes were made.',
+    elapsed_ms: elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
 //
 // Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
@@ -12458,6 +12738,17 @@ async function router(req, res) {
     return handleBookingMovePreview(req, res, auth.user);
   }
 
+  // ── Phase 10.4b — Booking date-change preview (read-only; no writes) ───────
+  if (pathname === '/staff/bookings/date-change-preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/date-change-preview' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingDateChangePreview(req, res, auth.user);
+  }
+
   // ── Phase 10.3b — Booking move write (gated; single-bed same dates) ────────
   if (pathname === '/staff/bookings/move') {
     if (method !== 'POST') {
@@ -12811,6 +13102,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/staff-state`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move preview (no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-change preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
