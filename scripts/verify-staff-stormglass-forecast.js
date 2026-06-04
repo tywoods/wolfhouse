@@ -1,5 +1,6 @@
 /**
  * Phase 11b.1 — Verifier for GET /staff/surf-forecast (Stormglass backend-only).
+ * Phase 11b.1a — UTC Z window bounds for Stormglass requests.
  *
  * Usage:
  *   npm run verify:staff-stormglass-forecast
@@ -23,7 +24,7 @@ function ok(msg) { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, pass, failMsg) { if (cond) ok(pass); else fail(failMsg || pass); }
 
-console.log('\nverify-staff-stormglass-forecast.js  (Phase 11b.1)\n');
+console.log('\nverify-staff-stormglass-forecast.js  (Phase 11b.1a)\n');
 
 for (const f of [API_FILE, SG_CONFIG, SG_FORECAST, PKG_FILE]) {
   check(fs.existsSync(f), `${path.basename(f)} exists`);
@@ -122,20 +123,65 @@ check(forecastSrc.includes('not auto-cancelled'),
 check(!/cancelled automatically|automatically cancel/i.test(forecastSrc),
   'summary does not imply automatic cancellation');
 
+check(!/T\d{2}:\d{2}:\d{2}\+0[12]:00/.test(forecastSrc),
+  'forecast lib does not hardcode +01:00/+02:00 offset windows');
+check(forecastSrc.includes('madridLocalToUtcZ'), 'madridLocalToUtcZ helper defined');
+check(forecastSrc.includes('Europe/Madrid'), 'uses Europe/Madrid timezone');
+
 const {
   setStormglassFetchForTests,
   fetchSurfForecastForStaff,
   buildStaffSafeForecastSummary,
+  aggregateStormglassHours,
+  madridLocalToUtcZ,
+  getMadridDayWindow,
 } = require('./lib/staff-stormglass-forecast');
+
+const UTC_Z_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+
+const summerWindow = getMadridDayWindow('today', Date.parse('2026-06-05T12:00:00Z'));
+check(UTC_Z_RE.test(summerWindow.start), 'summer start is UTC Z string');
+check(UTC_Z_RE.test(summerWindow.end), 'summer end is UTC Z string');
+check(!summerWindow.start.includes('+') && !summerWindow.end.includes('+'),
+  'summer window has no numeric offset suffix');
+check(summerWindow.start === '2026-06-05T04:00:00Z', 'summer 06:00 Madrid → 04:00 UTC (CEST)');
+check(summerWindow.end === '2026-06-05T18:00:00Z', 'summer 20:00 Madrid → 18:00 UTC (CEST)');
+
+const winterWindow = getMadridDayWindow('today', Date.parse('2026-01-15T12:00:00Z'));
+check(UTC_Z_RE.test(winterWindow.start), 'winter start is UTC Z string');
+check(UTC_Z_RE.test(winterWindow.end), 'winter end is UTC Z string');
+check(winterWindow.start === '2026-01-15T05:00:00Z', 'winter 06:00 Madrid → 05:00 UTC (CET)');
+check(winterWindow.end === '2026-01-15T19:00:00Z', 'winter 20:00 Madrid → 19:00 UTC (CET)');
+
+check(madridLocalToUtcZ('2026-06-05', 6, 0) === '2026-06-05T04:00:00Z',
+  'madridLocalToUtcZ summer CEST offset');
+check(madridLocalToUtcZ('2026-01-15', 6, 0) === '2026-01-15T05:00:00Z',
+  'madridLocalToUtcZ winter CET offset');
+
+const emptyMetrics = aggregateStormglassHours([]);
+check(emptyMetrics.wave_height_m == null, 'empty hours → null wave_height_m');
+const unclear = buildStaffSafeForecastSummary(emptyMetrics);
+check(unclear.summary.includes('Conditions unclear'), 'empty hours → Conditions unclear summary');
+check(unclear.summary.includes('Staff should confirm lessons day-by-day'),
+  'empty hours summary still includes staff caveat');
 
 const prevKey = process.env.STORMGLASS_API_KEY;
 process.env.STORMGLASS_API_KEY = '  verifier-mock-stormglass-key  ';
 
 let mockCalled = false;
+let mockRequestUrl = '';
 setStormglassFetchForTests(async (url, init) => {
   mockCalled = true;
+  mockRequestUrl = url;
   check(typeof url === 'string' && url.includes('api.stormglass.io/v2/weather/point'),
     'mock fetch receives Stormglass weather point URL');
+  const qs = new URL(url, 'https://example.test').searchParams;
+  const start = qs.get('start') || '';
+  const end = qs.get('end') || '';
+  check(UTC_Z_RE.test(start), 'Stormglass start query param is UTC Z');
+  check(UTC_Z_RE.test(end), 'Stormglass end query param is UTC Z');
+  check(!start.includes('+01:00') && !start.includes('+02:00'), 'start has no +01/+02 offset');
+  check(!end.includes('+01:00') && !end.includes('+02:00'), 'end has no +01/+02 offset');
   check(init && init.headers && typeof init.headers.Authorization === 'string',
     'mock fetch uses Authorization header (key not logged)');
   check(init.headers.Authorization === 'verifier-mock-stormglass-key',
@@ -172,8 +218,22 @@ setStormglassFetchForTests(async (url, init) => {
     check(result.forecast.summary.includes('Staff should confirm lessons day-by-day'),
       'live mock summary includes staff caveat');
     check(result.forecast.wave_height_m != null, 'forecast.wave_height_m present');
+    check(result.forecast.swell_height_m != null, 'forecast.swell_height_m present');
+    check(result.forecast.swell_period_s != null, 'forecast.swell_period_s present');
+    check(result.forecast.wind_speed_mps != null, 'forecast.wind_speed_mps present');
+    check(Math.abs(result.forecast.wave_height_m - 1.2) < 0.001, 'mock hourly data maps wave_height_m');
     check(JSON.stringify(result).indexOf('verifier-mock-stormglass-key') === -1,
       'response JSON does not leak API key');
+
+    setStormglassFetchForTests(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ hours: [] }),
+    }));
+    const emptyResult = await fetchSurfForecastForStaff({ clientSlug: 'wolfhouse-somo', day: 'today' });
+    check(emptyResult.forecast.summary.includes('Conditions unclear'),
+      'all-null upstream hours → Conditions unclear summary');
+    check(emptyResult.read_only === true, 'empty upstream response stays read_only');
 
     const windy = buildStaffSafeForecastSummary({ wave_height_m: 0.5, wind_speed_mps: 8 });
     check(windy.summary.includes('Wind may affect conditions'), 'windy summary mentions wind');

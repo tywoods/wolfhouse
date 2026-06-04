@@ -1,5 +1,6 @@
 /**
  * Phase 11b.1 — Stormglass surf forecast client (backend-only).
+ * Phase 11b.1a — Madrid local daytime window sent to Stormglass as UTC Z bounds.
  *
  * @module staff-stormglass-forecast
  */
@@ -21,6 +22,10 @@ const STORMGLASS_PARAMS = [
   'windDirection',
 ].join(',');
 const DEFAULT_TIMEOUT_MS = 12000;
+const MADRID_TZ = 'Europe/Madrid';
+const DAY_MS = 86400000;
+const SURF_WINDOW_START_HOUR = 6;
+const SURF_WINDOW_END_HOUR = 20;
 
 /** @type {((url: string, init: object) => Promise<{ ok: boolean, status: number, json: () => Promise<object>, text?: () => Promise<string> }>) | null} */
 let _fetchImpl = typeof fetch === 'function' ? fetch.bind(globalThis) : null;
@@ -34,16 +39,83 @@ function setStormglassFetchForTests(fn) {
 }
 
 /**
+ * @param {number} n
+ * @returns {string}
+ */
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+/**
+ * @param {Date} instant
+ * @returns {{ year: number, month: number, day: number, hour: number, minute: number }}
+ */
+function readMadridWallClock(instant) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: MADRID_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(instant)
+      .filter((p) => p.type !== 'literal')
+      .map((p) => [p.type, Number(p.value)]),
+  );
+  return {
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    hour: parts.hour,
+    minute: parts.minute,
+  };
+}
+
+/**
+ * Convert Madrid local wall-clock time to UTC ISO string ending in Z.
+ * @param {string} ymd YYYY-MM-DD in Europe/Madrid calendar
+ * @param {number} hour 0-23 local Madrid
+ * @param {number} [minute=0]
+ * @returns {string}
+ */
+function madridLocalToUtcZ(ymd, hour, minute = 0) {
+  const [y, mo, d] = ymd.split('-').map(Number);
+  const startMs = Date.UTC(y, mo - 1, d, 0, 0, 0) - 3 * 3600000;
+  for (let ms = startMs; ms < startMs + 36 * 3600000; ms += 60000) {
+    const p = readMadridWallClock(new Date(ms));
+    if (p.year === y && p.month === mo && p.day === d && p.hour === hour && p.minute === minute) {
+      const dt = new Date(ms);
+      return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`
+        + `T${pad2(dt.getUTCHours())}:${pad2(dt.getUTCMinutes())}:${pad2(dt.getUTCSeconds())}Z`;
+    }
+  }
+  throw new Error(`unable to resolve Madrid local time ${ymd} ${hour}:${pad2(minute)}`);
+}
+
+/**
  * @param {string} dayLabel
+ * @param {number} [nowMs=Date.now()]
+ * @returns {string}
+ */
+function getMadridCalendarYmd(dayLabel, nowMs = Date.now()) {
+  const dayOffset = dayLabel === 'tomorrow' ? 1 : 0;
+  const anchor = new Date(nowMs + dayOffset * DAY_MS);
+  return anchor.toLocaleDateString('en-CA', { timeZone: MADRID_TZ });
+}
+
+/**
+ * Madrid local surf daytime window (06:00–20:00) as UTC Z bounds for Stormglass.
+ * @param {string} dayLabel today|tomorrow
+ * @param {number} [nowMs=Date.now()]
  * @returns {{ start: string, end: string }}
  */
-function getMadridDayWindow(dayLabel) {
-  const dayOffset = dayLabel === 'tomorrow' ? 1 : 0;
-  const anchor = new Date(Date.now() + dayOffset * 86400000);
-  const ymd = anchor.toLocaleDateString('en-CA', { timeZone: 'Europe/Madrid' });
+function getMadridDayWindow(dayLabel, nowMs = Date.now()) {
+  const ymd = getMadridCalendarYmd(dayLabel, nowMs);
   return {
-    start: `${ymd}T06:00:00+01:00`,
-    end: `${ymd}T20:00:00+01:00`,
+    start: madridLocalToUtcZ(ymd, SURF_WINDOW_START_HOUR, 0),
+    end: madridLocalToUtcZ(ymd, SURF_WINDOW_END_HOUR, 0),
   };
 }
 
@@ -257,7 +329,12 @@ module.exports = {
   STORMGLASS_POINT_URL,
   STORMGLASS_PARAMS,
   DEFAULT_TIMEOUT_MS,
+  MADRID_TZ,
+  SURF_WINDOW_START_HOUR,
+  SURF_WINDOW_END_HOUR,
   setStormglassFetchForTests,
+  madridLocalToUtcZ,
+  getMadridCalendarYmd,
   getMadridDayWindow,
   pickStormglassValue,
   aggregateStormglassHours,
