@@ -91,6 +91,7 @@
     "verify:staff-running-invoice-display": "node scripts/verify-staff-running-invoice-display.js",
     "verify:staff-payment-records-ledger": "node scripts/verify-staff-payment-records-ledger.js",
     "verify:staff-generate-payment-link": "node scripts/verify-staff-generate-payment-link.js",
+    "verify:staff-manual-booking-payment-choice": "node scripts/verify-staff-manual-booking-payment-choice.js",
     "verify:staff-booking-field-edit-ui": "node scripts/verify-staff-booking-field-edit-ui.js",
     "verify:staff-booking-edit-preview": "node scripts/verify-staff-booking-edit-preview.js",
     "verify:staff-booking-edit-write-contact": "node scripts/verify-staff-booking-edit-write-contact.js",

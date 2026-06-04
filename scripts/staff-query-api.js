@@ -7016,7 +7016,11 @@ async function handleQuotePreview(req, res, user) {
   const guestCount    = body.guest_count;
   const packageCode   = body.package_code   != null ? String(body.package_code).trim()  : undefined;
   const roomType      = String(body.room_type      || 'shared').trim();
-  const paymentChoice = String(body.payment_choice || 'deposit').trim();
+  const paymentChoiceRaw = String(body.payment_choice || 'stripe_deposit').trim();
+  const staffNorm = normalizeManualBookingStaffPaymentChoice(paymentChoiceRaw);
+  const paymentChoice = staffNorm
+    ? manualBookingQuotePaymentChoice(staffNorm)
+    : paymentChoiceRaw;
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
 
   if (!checkIn || !checkOut) {
@@ -10809,7 +10813,68 @@ async function tryInsertManualBookingServiceRecords(pg, rows) {
 //   - NO Stripe session, invoice, or payment link is ever created here.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Map UI payment-status values to payment_status enum values.
+// Phase 10.6d — staff payment choices at manual booking create
+const MANUAL_BOOKING_STAFF_PAYMENT_CHOICES = new Set([
+  'stripe_deposit',
+  'stripe_full',
+  'paid_cash',
+  'paid_bank_transfer',
+  'no_payment_yet',
+]);
+
+const MANUAL_BOOKING_LEGACY_PAYMENT_MAP = Object.freeze({
+  deposit: 'stripe_deposit',
+  full: 'stripe_full',
+  pay_on_arrival: 'no_payment_yet',
+});
+
+function normalizeManualBookingStaffPaymentChoice(raw) {
+  const c = String(raw || '').trim().toLowerCase();
+  if (MANUAL_BOOKING_STAFF_PAYMENT_CHOICES.has(c)) return c;
+  if (MANUAL_BOOKING_LEGACY_PAYMENT_MAP[c]) return MANUAL_BOOKING_LEGACY_PAYMENT_MAP[c];
+  return null;
+}
+
+function manualBookingQuotePaymentChoice(staffChoice) {
+  if (staffChoice === 'stripe_deposit') return 'deposit';
+  if (staffChoice === 'stripe_full') return 'full';
+  return 'pay_on_arrival';
+}
+
+function manualBookingPaymentKindForStaffChoice(staffChoice) {
+  return staffChoice === 'stripe_full' ? 'full_amount' : 'deposit_only';
+}
+
+function manualBookingAmountDueForStaffChoice(staffChoice, depositCents, totalCents) {
+  if (staffChoice === 'stripe_full') return totalCents;
+  if (staffChoice === 'stripe_deposit') return depositCents;
+  return 0;
+}
+
+function resolveManualBookingPaidAmountCents(depositCents, totalCents, paidAmountType, customCents) {
+  const t = String(paidAmountType || 'deposit').toLowerCase();
+  if (t === 'full') return Number(totalCents || 0);
+  if (t === 'custom') {
+    const n = Math.floor(Number(customCents));
+    if (!n || n <= 0) return null;
+    return n;
+  }
+  return Number(depositCents || 0);
+}
+
+function manualBookingBookingPaymentStatusForCreate(staffChoice, paidCents, totalCents) {
+  if (staffChoice === 'paid_cash' || staffChoice === 'paid_bank_transfer') {
+    const total = Number(totalCents || 0);
+    const paid = Number(paidCents || 0);
+    if (total > 0 && paid >= total) return 'paid';
+    if (paid > 0) return 'deposit_paid';
+    return 'not_requested';
+  }
+  if (staffChoice === 'stripe_deposit' || staffChoice === 'stripe_full') return 'waiting_payment';
+  return 'not_requested';
+}
+
+// Map UI payment-status values to payment_status enum values (legacy form fields).
 const MANUAL_BOOKING_PAYMENT_STATUS_MAP = Object.freeze({
   unpaid:          'not_requested',
   not_requested:   'not_requested',
@@ -10817,6 +10882,253 @@ const MANUAL_BOOKING_PAYMENT_STATUS_MAP = Object.freeze({
   deposit_paid:    'deposit_paid',
   paid:            'paid',
 });
+
+async function manualBookingApplyStaffPaymentChoice(pg, opts) {
+  const staffPaymentChoice = opts.staffPaymentChoice;
+  const paidAmountType = opts.paidAmountType;
+  const paidAmountCustomCents = opts.paidAmountCustomCents;
+  let paymentId = opts.paymentId || null;
+  const bookingId = opts.bookingId;
+  const bookingCode = opts.bookingCode;
+  const clientSlug = opts.clientSlug;
+  const depositCents = opts.depositCents;
+  const totalCents = opts.totalCents;
+  const actorId = opts.actorId;
+  const actorLabel = opts.actorLabel || actorId;
+  const idempotencyKey = opts.idempotencyKey;
+  const guestName = opts.guestName || 'Guest';
+  const checkIn = opts.checkIn || '';
+  const checkOut = opts.checkOut || '';
+
+  const outcome = {
+    payment_choice: staffPaymentChoice,
+    payment_id: paymentId,
+    payment_status: 'not_requested',
+    payment_link_url: null,
+    checkout_url: null,
+    amount_due_cents: 0,
+    amount_paid_cents: 0,
+    stripe_called: false,
+    message: '',
+  };
+
+  if (staffPaymentChoice === 'no_payment_yet') {
+    outcome.message = 'Booking created. No payment link or paid record yet — balance remains due.';
+    return outcome;
+  }
+
+  if (staffPaymentChoice === 'paid_cash' || staffPaymentChoice === 'paid_bank_transfer') {
+    const paidCents = resolveManualBookingPaidAmountCents(
+      depositCents, totalCents, paidAmountType, paidAmountCustomCents,
+    );
+    if (paidCents == null || paidCents <= 0) {
+      const err = new Error('INVALID_PAID_AMOUNT');
+      err.code = 'INVALID_PAID_AMOUNT';
+      throw err;
+    }
+    const isBank = staffPaymentChoice === 'paid_bank_transfer';
+    const method = isBank ? 'bank_transfer' : 'cash';
+    const source = isBank ? 'staff_bank_transfer' : 'staff_cash';
+    const paidIdemKey = `mb-paid-${idempotencyKey}`;
+
+    const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+    const clientId = clientRes.rows[0] && clientRes.rows[0].id;
+    if (!clientId) throw new Error('client not found');
+
+    const idem = await pg.query(
+      `SELECT id::text AS payment_id FROM payments
+        WHERE booking_id = $1::uuid AND metadata->>'idempotency_key' = $2 LIMIT 1`,
+      [bookingId, paidIdemKey],
+    );
+    if (idem.rows[0]) {
+      paymentId = idem.rows[0].payment_id;
+    } else {
+      const paidAt = new Date().toISOString();
+      const pmMeta = {
+        source,
+        method,
+        idempotency_key: paidIdemKey,
+        staff_portal: true,
+        phase: '10.6d',
+        recorded_by: actorLabel,
+        paid_amount_type: paidAmountType || 'deposit',
+        manual_booking_create: true,
+      };
+      const ins = await pg.query(
+        `INSERT INTO payments (
+           client_id, booking_id, status, payment_kind, currency,
+           amount_due_cents, amount_paid_cents, paid_at, metadata
+         ) VALUES (
+           $1, $2::uuid, 'paid'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
+           $3, $3, $4::timestamptz, $5::jsonb
+         ) RETURNING id::text AS payment_id`,
+        [clientId, bookingId, paidCents, paidAt, JSON.stringify(pmMeta)],
+      );
+      paymentId = ins.rows[0].payment_id;
+    }
+
+    const sumRes = await pg.query(
+      `SELECT COALESCE(SUM(amount_paid_cents), 0)::int AS total
+         FROM payments
+        WHERE booking_id = $1::uuid AND status = 'paid'::payment_record_status`,
+      [bookingId],
+    );
+    const newBkPaid = Number(sumRes.rows[0].total || 0);
+    const newBalance = totalCents > 0 ? Math.max(totalCents - newBkPaid, 0) : 0;
+    const newBkPayStatus = manualBookingBookingPaymentStatusForCreate(
+      staffPaymentChoice, newBkPaid, totalCents,
+    );
+
+    await pg.query(
+      `UPDATE bookings
+          SET amount_paid_cents = $1, balance_due_cents = $2, payment_status = $3::payment_status
+        WHERE id = $4::uuid`,
+      [newBkPaid, newBalance, newBkPayStatus, bookingId],
+    );
+
+    outcome.payment_id = paymentId;
+    outcome.amount_paid_cents = paidCents;
+    outcome.payment_status = newBkPayStatus;
+    outcome.message = `Booking created. ${isBank ? 'Bank transfer' : 'Cash'} payment of \u20ac${(paidCents / 100).toFixed(2)} recorded. No Stripe link was created or sent.`;
+    return outcome;
+  }
+
+  if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+    const err = new Error('STRIPE_NOT_CONFIGURED');
+    err.code = 'STRIPE_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const amountDueCents = manualBookingAmountDueForStaffChoice(
+    staffPaymentChoice, depositCents, totalCents,
+  );
+  const paymentKind = manualBookingPaymentKindForStaffChoice(staffPaymentChoice);
+  const stripeIdemKey = `mb-stripe-${idempotencyKey}-${staffPaymentChoice}`;
+
+  if (!paymentId) {
+    const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+    const clientId = clientRes.rows[0] && clientRes.rows[0].id;
+    if (!clientId) throw new Error('client not found');
+    const ins = await pg.query(
+      `INSERT INTO payments (
+         client_id, booking_id, status, payment_kind, currency,
+         amount_due_cents, amount_paid_cents, metadata
+       ) VALUES (
+         $1, $2::uuid, 'draft'::payment_record_status, $3::payment_kind, 'EUR',
+         $4, 0, $5::jsonb
+       ) RETURNING id::text AS payment_id`,
+      [clientId, bookingId, paymentKind, amountDueCents, JSON.stringify({
+        source: 'staff_manual_stripe',
+        method: 'payment_link',
+        idempotency_key: stripeIdemKey,
+        phase: '10.6d',
+      })],
+    );
+    paymentId = ins.rows[0].payment_id;
+  } else {
+    await pg.query(
+      `UPDATE payments
+          SET payment_kind = $1::payment_kind,
+              amount_due_cents = $2,
+              amount_paid_cents = 0,
+              metadata = metadata || $3::jsonb
+        WHERE id = $4::uuid`,
+      [paymentKind, amountDueCents, JSON.stringify({
+        source: 'staff_manual_stripe',
+        method: 'payment_link',
+        idempotency_key: stripeIdemKey,
+        phase: '10.6d',
+      }), paymentId],
+    );
+  }
+
+  const existRes = await pg.query(
+    `SELECT checkout_url, status::text AS payment_status FROM payments WHERE id = $1::uuid`,
+    [paymentId],
+  );
+  const exist = existRes.rows[0];
+  if (exist && exist.checkout_url && exist.payment_status === 'checkout_created') {
+    outcome.payment_id = paymentId;
+    outcome.payment_link_url = exist.checkout_url;
+    outcome.checkout_url = exist.checkout_url;
+    outcome.amount_due_cents = amountDueCents;
+    outcome.payment_status = 'payment_link_created';
+    outcome.message = 'Booking created. Stripe payment link ready (idempotent). Link not marked paid — webhook confirms payment.';
+    return outcome;
+  }
+
+  let stripe;
+  try {
+    stripe = require('stripe')(STRIPE_SECRET_KEY);
+  } catch (e) {
+    throw new Error('STRIPE_SDK_LOAD_FAILED: ' + e.message);
+  }
+
+  const productName = `Booking ${bookingCode || paymentId} \u2014 ${guestName}`;
+  const productDesc = `${staffPaymentChoice === 'stripe_full' ? 'Full payment' : 'Deposit'} | ${checkIn} \u2013 ${checkOut} | ${clientSlug}`;
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    currency: 'eur',
+    line_items: [{
+      price_data: {
+        currency: 'eur',
+        product_data: { name: productName, description: productDesc },
+        unit_amount: amountDueCents,
+      },
+      quantity: 1,
+    }],
+    metadata: {
+      client_slug: clientSlug,
+      booking_id: bookingId,
+      booking_code: bookingCode || '',
+      payment_id: paymentId,
+      payment_kind: paymentKind,
+      source: 'staff_manual_stripe',
+      idempotency_key: stripeIdemKey,
+      staff_payment_choice: staffPaymentChoice,
+    },
+    success_url: STRIPE_SUCCESS_URL,
+    cancel_url: STRIPE_CANCEL_URL,
+  });
+
+  const expiresAt = session.expires_at
+    ? new Date(session.expires_at * 1000).toISOString()
+    : null;
+
+  await pg.query(
+    `UPDATE payments
+        SET status = 'checkout_created'::payment_record_status,
+            stripe_checkout_session_id = $1,
+            checkout_url = $2,
+            expires_at = $3,
+            amount_due_cents = $4,
+            amount_paid_cents = 0,
+            metadata = metadata || $5::jsonb
+      WHERE id = $6::uuid`,
+    [session.id, session.url, expiresAt, amountDueCents, JSON.stringify({
+      stripe_session_id: session.id,
+      payment_link_url: session.url,
+      staff_payment_choice: staffPaymentChoice,
+    }), paymentId],
+  );
+
+  await pg.query(
+    `UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,
+    [bookingId],
+  );
+
+  outcome.payment_id = paymentId;
+  outcome.payment_link_url = session.url;
+  outcome.checkout_url = session.url;
+  outcome.amount_due_cents = amountDueCents;
+  outcome.payment_status = 'payment_link_created';
+  outcome.stripe_called = true;
+  outcome.message = staffPaymentChoice === 'stripe_full'
+    ? 'Booking created. Stripe full-payment link generated. Link not marked paid — webhook confirms payment.'
+    : 'Booking created. Stripe deposit link generated. Link not marked paid — webhook confirms payment.';
+  return outcome;
+}
 
 async function handleManualBookingCreate(req, res, user) {
   const started = Date.now();
@@ -10861,15 +11173,27 @@ async function handleManualBookingCreate(req, res, user) {
   const packageCode   = String(body.package_code || body.package_or_stay_type || '').trim().slice(0, 50) || null;
   const roomType      = String(body.room_type || 'shared').trim().slice(0, 20) || 'shared';
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
-  const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();
-  const paymentKind   = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
+  const staffPayChoice = normalizeManualBookingStaffPaymentChoice(body.payment_choice);
+  if (!staffPayChoice) {
+    return send400(res, 'payment_choice must be one of: stripe_deposit, stripe_full, paid_cash, paid_bank_transfer, no_payment_yet');
+  }
+  const paidAmountType = String(body.paid_amount_type || 'deposit').trim().toLowerCase();
+  const paidAmountCustomCents = body.paid_amount_cents != null
+    ? Math.floor(Number(body.paid_amount_cents))
+    : (body.paid_amount_euros != null ? Math.round(Number(body.paid_amount_euros) * 100) : null);
+  if (staffPayChoice === 'paid_cash' || staffPayChoice === 'paid_bank_transfer') {
+    if (!['deposit', 'full', 'custom'].includes(paidAmountType)) {
+      return send400(res, 'paid_amount_type must be deposit, full, or custom for cash/bank payment');
+    }
+    if (paidAmountType === 'custom' && (!paidAmountCustomCents || paidAmountCustomCents <= 0)) {
+      return send400(res, 'paid_amount_cents (or paid_amount_euros) is required when paid_amount_type is custom');
+    }
+  }
   const confirmFlag   = body.confirm === true;
   const warningsAck  = body.warnings_acknowledged === true;
   const bookingCode  = body.booking_code ? String(body.booking_code).trim().slice(0, 60) : null;
 
-  // payment_status: map UI value → enum; default not_requested
-  const rawPayStatus = String(body.payment_status || 'unpaid').trim().toLowerCase();
-  const paymentStatus = MANUAL_BOOKING_PAYMENT_STATUS_MAP[rawPayStatus] || 'not_requested';
+  const quotePaymentChoice = manualBookingQuotePaymentChoice(staffPayChoice);
   // booking_status: manual staff bookings are confirmed by default
   const bookingStatus = 'confirmed';
 
@@ -10922,7 +11246,7 @@ async function handleManualBookingCreate(req, res, user) {
     guest_count:    guestCount,
     package_code:   packageCode,
     room_type:      roomType,
-    payment_choice: paymentChoice,
+    payment_choice: quotePaymentChoice,
     add_ons:        addOns,
   });
   if (!quote.success || quote.blockers.length > 0) {
@@ -10930,7 +11254,21 @@ async function handleManualBookingCreate(req, res, user) {
   }
   const depositCents           = quote.deposit_required_cents;
   const totalCents             = quote.total_cents;
-  const paymentLinkAmountCents = quote.payment_link_amount_cents;
+  const paymentKind            = manualBookingPaymentKindForStaffChoice(staffPayChoice);
+  const paymentLinkAmountCents = manualBookingAmountDueForStaffChoice(
+    staffPayChoice, depositCents, totalCents,
+  ) || quote.payment_link_amount_cents;
+  const sqlDepositCents = (staffPayChoice === 'no_payment_yet'
+    || staffPayChoice === 'paid_cash'
+    || staffPayChoice === 'paid_bank_transfer')
+    ? 0
+    : depositCents;
+  const prePaidCents = (staffPayChoice === 'paid_cash' || staffPayChoice === 'paid_bank_transfer')
+    ? resolveManualBookingPaidAmountCents(depositCents, totalCents, paidAmountType, paidAmountCustomCents)
+    : 0;
+  const paymentStatus = manualBookingBookingPaymentStatusForCreate(
+    staffPayChoice, prePaidCents, totalCents,
+  );
 
   // ── 6. Idempotency key ───────────────────────────────────────────────────────
   // Accept caller-provided key; otherwise build a deterministic key from the
@@ -10984,7 +11322,7 @@ async function handleManualBookingCreate(req, res, user) {
           roomPref,          // $15
           bookingStatus,     // $16
           paymentStatus,     // $17
-          depositCents,      // $18
+          sqlDepositCents,   // $18 — 0 skips draft payment for no_payment / paid paths
           totalCents,        // $19
           source,            // $20
           reason,            // $21
@@ -11037,35 +11375,67 @@ async function handleManualBookingCreate(req, res, user) {
             roomType,
             JSON.stringify({
               quote_snapshot:   quote,
-              payment_choice:   paymentChoice,
+              payment_choice:   staffPayChoice,
+              paid_amount_type: paidAmountType,
               add_ons_at_create: addOns,
             }),
             result.booking_id,
           ]
         );
 
-        // Stage 8.4.8: Update payment record — payment_kind from payment_choice + correct amount
-        // Stage 8.4.10: RETURNING id so payment_id can be included in the API response
-        const pmUpdate = await pg.query(
-          `UPDATE payments
-             SET payment_kind     = $1::payment_kind,
-                 amount_due_cents = $2,
-                 metadata         = metadata || $3::jsonb
-           WHERE booking_id = $4
-           RETURNING id AS payment_id`,
-          [
-            paymentKind,
-            paymentLinkAmountCents,
-            JSON.stringify({
-              payment_choice:            paymentChoice,
-              quote_total_cents:         totalCents,
-              payment_link_amount_cents: paymentLinkAmountCents,
-              source:                    'quote_driven_stage848',
-            }),
-            result.booking_id,
-          ]
-        );
-        result._payment_id = pmUpdate.rows.length > 0 ? pmUpdate.rows[0].payment_id : null;
+        if (staffPayChoice === 'stripe_deposit' || staffPayChoice === 'stripe_full') {
+          const pmUpdate = await pg.query(
+            `UPDATE payments
+               SET payment_kind      = $1::payment_kind,
+                   amount_due_cents  = $2,
+                   amount_paid_cents = 0,
+                   metadata          = metadata || $3::jsonb
+             WHERE booking_id = $4
+             RETURNING id AS payment_id`,
+            [
+              paymentKind,
+              paymentLinkAmountCents,
+              JSON.stringify({
+                payment_choice:            staffPayChoice,
+                quote_total_cents:         totalCents,
+                payment_link_amount_cents: paymentLinkAmountCents,
+                source:                    'staff_manual_stage106d',
+              }),
+              result.booking_id,
+            ],
+          );
+          result._payment_id = pmUpdate.rows.length > 0 ? pmUpdate.rows[0].payment_id : null;
+        } else {
+          result._payment_id = null;
+        }
+
+        let payOutcome;
+        try {
+          payOutcome = await manualBookingApplyStaffPaymentChoice(pg, {
+            staffPaymentChoice: staffPayChoice,
+            paidAmountType,
+            paidAmountCustomCents,
+            paymentId: result._payment_id,
+            bookingId: result.booking_id,
+            bookingCode: result.booking_code,
+            clientSlug,
+            depositCents,
+            totalCents,
+            actorId,
+            actorLabel: user ? (user.email || user.staff_user_id) : actorId,
+            idempotencyKey,
+            guestName,
+            checkIn,
+            checkOut,
+          });
+          result._pay_outcome = payOutcome;
+          result._payment_id = payOutcome.payment_id || result._payment_id;
+        } catch (payErr) {
+          await pg.query('ROLLBACK');
+          result._payment_failed = true;
+          result._payment_error = payErr.code || payErr.message;
+          return result;
+        }
 
         // Stage 8.8.16: booking_service_records for priced add-ons (same transaction)
         const serviceRecordRows = buildManualBookingServiceRecordRows({
@@ -11134,6 +11504,26 @@ async function handleManualBookingCreate(req, res, user) {
     });
   }
 
+  if (row._payment_failed) {
+    appendAuditLog({ ...auditBase, success: false,
+      error: row._payment_error || 'payment_step_failed', elapsed_ms: elapsed });
+    const isStripe = row._payment_error === 'STRIPE_NOT_CONFIGURED';
+    const isPaidAmt = row._payment_error === 'INVALID_PAID_AMOUNT';
+    return sendJSON(res, isStripe ? 503 : (isPaidAmt ? 400 : 422), {
+      success: false,
+      error: row._payment_error || 'payment_step_failed',
+      message: isStripe
+        ? 'Booking was not created — Stripe is not configured for payment links.'
+        : (isPaidAmt
+          ? 'Booking was not created — invalid paid amount for cash/bank choice.'
+          : 'Booking was not created — payment step failed. Transaction rolled back.'),
+      no_write_performed: true,
+      no_stripe: !isStripe,
+      no_whatsapp: true,
+      no_n8n: true,
+    });
+  }
+
   // ── 10. Safety violation ───────────────────────────────────────────────────────
   if (row._safety_violation) {
     appendAuditLog({ ...auditBase, success: false,
@@ -11147,17 +11537,22 @@ async function handleManualBookingCreate(req, res, user) {
     });
   }
 
+  const payOutcome = row._pay_outcome || {};
+  const stripeCalled = !!payOutcome.stripe_called;
+
   // ── 11. Success ────────────────────────────────────────────────────────────────
   appendAuditLog({ ...auditBase, success: true,
     booking_id: row.booking_id, booking_code: row.booking_code,
     beds_inserted: row.beds_inserted, payments_inserted: row.payments_inserted,
-    audit_event_id: row.audit_event_id, elapsed_ms: elapsed });
+    audit_event_id: row.audit_event_id, elapsed_ms: elapsed,
+    stripe_called: stripeCalled, payment_choice: staffPayChoice });
 
   return sendJSON(res, 201, {
     success:           true,
     booking_id:        row.booking_id,
     booking_code:      row.booking_code,
-    payment_id:        row._payment_id || null,   // Stage 8.4.10: for Stripe link creation
+    payment_id:        row._payment_id || null,
+    payment_choice:    staffPayChoice,
     beds_inserted:     Number(row.beds_inserted || 0),
     payments_inserted: Number(row.payments_inserted || 0),
     audit_event_id:    row.audit_event_id,
@@ -11165,24 +11560,29 @@ async function handleManualBookingCreate(req, res, user) {
     check_in:          checkIn,
     check_out:         checkOut,
     selected_bed_codes: selectedBedCodes,
-    payment_status:    paymentStatus,
+    payment_status:    payOutcome.payment_status || paymentStatus,
+    payment_link_url:  payOutcome.payment_link_url || null,
+    checkout_url:      payOutcome.checkout_url || payOutcome.payment_link_url || null,
+    amount_due_cents:  payOutcome.amount_due_cents || 0,
+    amount_paid_cents: payOutcome.amount_paid_cents || 0,
     booking_status:    bookingStatus,
-    // Stage 8.4.8: quote summary from server-side calculation
     quote_summary: {
       total_cents:               quote.total_cents,
       deposit_required_cents:    quote.deposit_required_cents,
       payment_link_amount_cents: paymentLinkAmountCents,
       payment_kind:              paymentKind,
       formula_summary:           quote.formula_summary,
-      no_stripe_link:            true,
+      no_stripe_link:            !stripeCalled,
     },
-    no_stripe:         true,
+    stripe_called:     stripeCalled,
+    no_stripe:         !stripeCalled,
     no_whatsapp:       true,
     no_n8n:            true,
+    send_mutation:     false,
     service_records_created:   Number(row._service_records_created || 0),
     service_records_available: row._service_records_available !== false,
     service_records_warning:   row._service_records_warning || null,
-    message:           'Manual booking created. Draft payment record created. No Stripe link yet.',
+    message:           payOutcome.message || 'Manual booking created.',
     elapsed_ms:        elapsed,
   });
 }
@@ -11956,28 +12356,26 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <div class="bk-compact-row">
           <label class="bk-label" for="bk-payment-choice">Payment choice</label>
           <select id="bk-payment-choice" class="bk-input bk-input-sm">
-            <option value="deposit">Deposit only</option>
-            <option value="full">Full payment</option>
-            <option value="pay_on_arrival">Pay on arrival</option>
+            <option value="stripe_deposit">Stripe deposit link</option>
+            <option value="stripe_full">Stripe full payment link</option>
+            <option value="paid_cash">Already paid cash</option>
+            <option value="paid_bank_transfer">Already paid bank transfer</option>
+            <option value="no_payment_yet">No payment yet</option>
           </select>
         </div>
-        <div class="bk-compact-row">
-          <label class="bk-label" for="bk-payment-status">Payment status</label>
-          <select id="bk-payment-status" class="bk-input bk-input-sm">
-            <option value="unpaid">Unpaid</option>
-            <option value="deposit_paid">Deposit paid</option>
-            <option value="paid">Paid in full</option>
+        <div class="bk-compact-row" id="bk-paid-amount-type-row" style="display:none">
+          <label class="bk-label" for="bk-paid-amount-type">Paid amount</label>
+          <select id="bk-paid-amount-type" class="bk-input bk-input-sm">
+            <option value="deposit">Deposit</option>
+            <option value="full">Full invoice total</option>
+            <option value="custom">Custom amount</option>
           </select>
         </div>
-        <div class="bk-compact-row">
-          <label class="bk-label" for="bk-deposit">Deposit amount paid (&euro;)</label>
-          <input type="number" id="bk-deposit" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0">
+        <div class="bk-compact-row" id="bk-paid-amount-custom-row" style="display:none">
+          <label class="bk-label" for="bk-paid-amount-custom">Custom paid amount (&euro;)</label>
+          <input type="number" id="bk-paid-amount-custom" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0.01">
         </div>
-        <div class="bk-compact-hint">For manual records only &mdash; no Stripe charge is created.</div>
-        <div class="bk-compact-row">
-          <label class="bk-label" for="bk-total">Total amount (&euro;)</label>
-          <input type="number" id="bk-total" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0">
-        </div>
+        <div class="bk-compact-hint" id="bk-payment-choice-hint">Stripe links are created at booking save &mdash; nothing is sent automatically.</div>
       </div>
     </div>
 
@@ -13216,12 +13614,14 @@ function bcClearSelection(){
   var _blEl = el('bc-sel-beds-list'); if (_blEl) _blEl.innerHTML = '';
   var _bcEl = el('bc-sel-bed-count'); if (_bcEl) _bcEl.textContent = '';
   /* Reset guest/payment/notes fields */
-  ['bk-guest-name','bk-phone','bk-email','bk-notes','bk-deposit','bk-total'].forEach(function(id){
+  ['bk-guest-name','bk-phone','bk-email','bk-notes','bk-paid-amount-custom'].forEach(function(id){
     var inp = el(id); if (inp) inp.value = '';
   });
   var gc = el('bk-guest-count'); if (gc) gc.value = '1';
-  var ps = el('bk-payment-status'); if (ps) ps.value = 'unpaid';
-  var pc = el('bk-payment-choice'); if (pc) pc.value = 'deposit';
+  var pc = el('bk-payment-choice'); if (pc) pc.value = 'stripe_deposit';
+  var pat = el('bk-paid-amount-type'); if (pat) pat.value = 'deposit';
+  var pac = el('bk-paid-amount-custom'); if (pac) pac.value = '';
+  if (typeof bcUpdateManualBookingPaidFields === 'function') bcUpdateManualBookingPaidFields();
   var pk = el('bk-package'); if (pk) pk.value = '';
   var rt = el('bk-room-type'); if (rt) rt.value = 'shared';
   /* Reset quote state and create panel (Stage 8.4.8/10) */
@@ -13569,8 +13969,33 @@ function bcUpdateCreateButton(){
     : (!quoteOk ? 'Calculate Quote first' : 'Fill all required fields first');
   if (note){
     note.textContent = ready
-      ? 'Booking creation enabled \u2014 flags active. No Stripe link will be created.'
+      ? 'Booking creation enabled \u2014 flags active. Payment choice applies at create; nothing is sent automatically.'
       : (!quoteOk ? 'Click Calculate Quote first to enable booking creation.' : 'Complete all required fields.');
+  }
+}
+
+/* Phase 10.6d — show paid amount sub-fields for cash/bank choices */
+function bcUpdateManualBookingPaidFields(){
+  var pc = el('bk-payment-choice');
+  var choice = pc ? pc.value : 'stripe_deposit';
+  var showPaid = choice === 'paid_cash' || choice === 'paid_bank_transfer';
+  var typeRow = el('bk-paid-amount-type-row');
+  var customRow = el('bk-paid-amount-custom-row');
+  var hint = el('bk-payment-choice-hint');
+  if (typeRow) typeRow.style.display = showPaid ? '' : 'none';
+  if (customRow) {
+    var pat = el('bk-paid-amount-type');
+    var isCustom = showPaid && pat && pat.value === 'custom';
+    customRow.style.display = isCustom ? '' : 'none';
+  }
+  if (hint) {
+    if (choice === 'stripe_deposit' || choice === 'stripe_full') {
+      hint.textContent = 'Stripe link is created when you save the booking. Nothing is sent automatically.';
+    } else if (showPaid) {
+      hint.textContent = 'Paid amount is recorded in Payment history immediately. No Stripe link.';
+    } else {
+      hint.textContent = 'No payment row or link at create. Balance remains due.';
+    }
   }
 }
 
@@ -13634,7 +14059,10 @@ function runManualBookingCreate(){
   var gcEl         = el('bk-guest-count');
   var guestCount   = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
   var packageCode  = el('bk-package')        ? el('bk-package').value        : '';
-  var payChoice    = el('bk-payment-choice') ? el('bk-payment-choice').value : 'deposit';
+  var payChoice    = el('bk-payment-choice') ? el('bk-payment-choice').value : 'stripe_deposit';
+  var paidAmtType  = el('bk-paid-amount-type') ? el('bk-paid-amount-type').value : 'deposit';
+  var paidCustomEl = el('bk-paid-amount-custom');
+  var paidCustomEuros = paidCustomEl ? parseFloat(paidCustomEl.value) : NaN;
   var roomType     = el('bk-room-type')      ? el('bk-room-type').value      : 'shared';
   var guestName    = el('bk-guest-name')     ? (el('bk-guest-name').value||'').trim()     : '';
   var phone        = el('bk-phone')          ? (el('bk-phone').value||'').trim()          : '';
@@ -13653,11 +14081,15 @@ function runManualBookingCreate(){
     package_code:       packageCode,
     room_type:          roomType,
     payment_choice:     payChoice,
+    paid_amount_type:   paidAmtType,
     add_ons:            buildAddOns(),
     booking_source:     source,
     notes:              notes,
     confirm:            true,
   };
+  if (paidAmtType === 'custom' && !isNaN(paidCustomEuros) && paidCustomEuros > 0) {
+    payload.paid_amount_cents = Math.round(paidCustomEuros * 100);
+  }
   cr.innerHTML = '<div class="bk-preview-loading">Creating booking\u2026</div>';
   var createBtn = el('bc-sel-create');
   bcManualCreateInFlight = true;
@@ -13684,11 +14116,8 @@ function runManualBookingCreate(){
       bcLastPaymentId = null;
     }
     cr.innerHTML = renderCreateResult(res, createCtx);
-    /* Wire the Stripe link button if rendered */
-    var slBtn = document.getElementById('bc-sel-stripe-link');
-    if (slBtn && !slBtn.disabled) {
-      slBtn.addEventListener('click', runCreateStripeLink);
-    }
+    var cpBtn = document.getElementById('bc-create-payment-link-copy-btn');
+    if (cpBtn) cpBtn.addEventListener('click', function(){ bcCopyPaymentLinkIcon(cpBtn); });
     bcManualCreateInFlight = false;
     if (createBtn){
       createBtn.textContent = createBtn.dataset.origLabel || 'Create Manual Booking';
@@ -13750,11 +14179,14 @@ function renderCreateResult(res, ctx){
       ' service record' + (d.service_records_created === 1 ? '' : 's') + '.</div>';
   else if (d.service_records_warning)
     html += '<div class="bk-preview-meta" style="color:#9B6320">' + escHtml(d.service_records_warning) + '</div>';
-  var payStatus = d.payment_status || 'draft';
-  var payReady = d.payment_id ? 'Draft payment ready' : 'No payment record';
-  html += '<div class="bk-preview-meta">Payment: ' + escHtml(payReady) +
-    (payStatus ? ' \u00b7 ' + escHtml(String(payStatus).replace(/_/g, ' ')) : '') +
-    (qs.payment_link_amount_cents != null ? ' \u00b7 ' + fmtEur(qs.payment_link_amount_cents) + ' due' : '') + '</div>';
+  var payChoiceLbl = d.payment_choice ? escHtml(String(d.payment_choice).replace(/_/g, ' ')) : '';
+  var payStatus = d.payment_status || '';
+  html += '<div class="bk-preview-meta">Payment choice: ' + (payChoiceLbl || '\u2014') +
+    (payStatus ? ' \u00b7 ' + escHtml(String(payStatus).replace(/_/g, ' ')) : '') + '</div>';
+  if (d.amount_paid_cents > 0)
+    html += '<div class="bk-preview-meta">Paid: ' + fmtEur(d.amount_paid_cents) + '</div>';
+  if (d.amount_due_cents > 0 && d.payment_link_url)
+    html += '<div class="bk-preview-meta">Link amount due: ' + fmtEur(d.amount_due_cents) + '</div>';
   html += '<div class="bk-quote-items">';
   html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Booking code</span><span class="bk-quote-item-amount">' + codeLabel + '</span></div>';
   html += '<div class="bk-quote-item"><span class="bk-quote-item-label">Beds assigned</span><span class="bk-quote-item-amount">' + escHtml(String(d.beds_inserted||0)) + '</span></div>';
@@ -13769,21 +14201,14 @@ function renderCreateResult(res, ctx){
     html += '<div class="bk-quote-formula">' + escHtml(qs.formula_summary) + '</div>';
   if (d.message)
     html += '<div class="bk-preview-meta" style="margin-top:6px;font-size:11px">' + escHtml(d.message) + '</div>';
-  /* Stage 8.4.10: Stripe link button area */
-  var canCreateLink = BC_STRIPE_LINKS && BC_STAFF_ACTIONS && !!d.payment_id;
-  html += '<div style="margin-top:12px">';
-  if (canCreateLink){
-    html += '<button class="btn btn-primary" id="bc-sel-stripe-link" style="margin-right:8px">' +
-      '&#128279; Create Stripe Payment Link</button>';
-  } else {
-    html += '<button class="btn btn-primary" id="bc-sel-stripe-link" disabled title="' +
-      (!BC_STRIPE_LINKS ? 'Set STRIPE_LINKS_ENABLED=true to enable' : (!BC_STAFF_ACTIONS ? 'Set STAFF_ACTIONS_ENABLED=true to enable' : 'No payment ID available')) +
-      '" style="opacity:.45;cursor:not-allowed">&#128279; Create Stripe Payment Link</button>';
-    html += '<div style="font-size:11px;color:var(--text-3);margin-top:4px">' +
-      (BC_STRIPE_LINKS ? '' : 'Set STRIPE_LINKS_ENABLED=true to enable.') + '</div>';
+  if (d.payment_link_url) {
+    html += '<div style="margin-top:10px"><div class="bk-preview-meta" style="margin-bottom:4px">Payment link (copy to send manually):</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<a href="' + escHtml(d.payment_link_url) + '" target="_blank" rel="noopener" style="word-break:break-all;font-size:11px;color:var(--accent)">' +
+      escHtml(d.payment_link_url.length > 56 ? d.payment_link_url.slice(0, 56) + '\u2026' : d.payment_link_url) + '</a>' +
+      '<button type="button" class="btn-bc-copy-link-icon" id="bc-create-payment-link-copy-btn" data-url="' + escHtml(d.payment_link_url) + '" ' +
+      'title="Copy payment link" aria-label="Copy payment link">\uD83D\uDCCB</button></div></div>';
   }
-  html += '<div id="bc-stripe-link-result" style="margin-top:8px"></div>';
-  html += '</div>';
   return html;
 }
 
@@ -13897,7 +14322,7 @@ function runQuotePreview(){
   var pkgEl = el('bk-package');
   var packageCode = pkgEl ? pkgEl.value : '';
   var pcEl = el('bk-payment-choice');
-  var paymentChoice = (pcEl && pcEl.value) ? pcEl.value : 'deposit';
+  var paymentChoice = (pcEl && pcEl.value) ? pcEl.value : 'stripe_deposit';
   var payload = {
     client_slug: client,
     check_in: checkIn,
@@ -14147,15 +14572,23 @@ function renderBedCalendar(data){
   var _createBtn = el('bc-sel-create');
   if (_createBtn) _createBtn.onclick = runManualBookingCreate;
   /* Wire form field listeners for quote + create button enable/disable */
-  ['bk-package','bk-payment-choice','bk-guest-count','bk-guest-name','bk-phone'].forEach(function(fId){
-    var fEl = el(fId); if (fEl) fEl.onchange = function(){ bcUpdateQuoteButton(); bcUpdateCreateButton(); };
+  ['bk-package','bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-guest-name','bk-phone'].forEach(function(fId){
+    var fEl = el(fId);
+    if (fEl) fEl.onchange = function(){
+      if (fId === 'bk-payment-choice' || fId === 'bk-paid-amount-type') bcUpdateManualBookingPaidFields();
+      bcUpdateQuoteButton();
+      bcUpdateCreateButton();
+    };
   });
+  var pacEl = el('bk-paid-amount-custom');
+  if (pacEl) pacEl.oninput = function(){ bcUpdateCreateButton(); };
+  bcUpdateManualBookingPaidFields();
   /* Update create button state and safety notice on each calendar load */
   bcUpdateCreateButton();
   var _notice = el('bc-safety-notice');
   if (_notice){
     if (BC_STAFF_ACTIONS && BC_MANUAL_BOOKING){
-      _notice.innerHTML = '&#128994; Booking creation enabled \u2014 MANUAL_BOOKING_ENABLED=true, STAFF_ACTIONS_ENABLED=true.<br>Calculate Quote, then Create Manual Booking. No Stripe link will be sent.';
+      _notice.innerHTML = '&#128994; Booking creation enabled \u2014 MANUAL_BOOKING_ENABLED=true, STAFF_ACTIONS_ENABLED=true.<br>Calculate Quote, choose payment option, then Create Manual Booking. Nothing is sent automatically.';
       _notice.style.background = 'var(--green-bg, #d4edda)';
       _notice.style.borderColor = 'var(--green-border, #c3e6cb)';
       _notice.style.color = 'var(--green-text, #155724)';
