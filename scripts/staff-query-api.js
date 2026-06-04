@@ -2137,6 +2137,311 @@ async function handleManualBookingPreview(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.2 — Booking move preview (read-only; no writes)
+//
+// POST /staff/bookings/move-preview
+//
+// Preview whether an existing booking could move to a target bed/date span.
+// SELECT-only — no UPDATE/INSERT/DELETE. No booking move write in this phase.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MOVE_PREVIEW_NON_BLOCKING_STATUSES = Object.freeze(['cancelled', 'expired']);
+
+const MOVE_PREVIEW_BOOKING_BY_ID_SQL = `
+SELECT
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.check_in::text          AS check_in,
+  b.check_out::text         AS check_out,
+  b.status::text            AS status,
+  b.payment_status::text      AS payment_status,
+  b.guest_count,
+  b.primary_room_code
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.id::text = $2
+LIMIT 1
+`;
+
+const MOVE_PREVIEW_BOOKING_BY_CODE_SQL = `
+SELECT
+  b.id::text                AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.check_in::text          AS check_in,
+  b.check_out::text         AS check_out,
+  b.status::text            AS status,
+  b.payment_status::text      AS payment_status,
+  b.guest_count,
+  b.primary_room_code
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.booking_code = $2
+LIMIT 1
+`;
+
+const MOVE_PREVIEW_BED_BY_ID_SQL = `
+SELECT
+  bd.id::text         AS bed_id,
+  bd.bed_code,
+  bd.bed_label,
+  bd.active           AS active,
+  bd.sellable         AS sellable,
+  r.id::text          AS room_id,
+  r.room_code,
+  r.room_name
+FROM beds bd
+INNER JOIN rooms r   ON r.id = bd.room_id AND r.client_id = bd.client_id
+INNER JOIN clients c ON c.id = bd.client_id
+WHERE c.slug = $1
+  AND bd.id::text = $2
+LIMIT 1
+`;
+
+const MOVE_PREVIEW_TARGET_ASSIGNMENTS_SQL = `
+SELECT
+  bb.id::text                             AS booking_bed_id,
+  bb.bed_code,
+  b.id::text                              AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.status::text                          AS booking_status,
+  b.assignment_status::text               AS assignment_status,
+  bb.assignment_start_date::text          AS check_in,
+  bb.assignment_end_date::text            AS check_out
+FROM booking_beds bb
+INNER JOIN bookings b ON b.id = bb.booking_id
+INNER JOIN clients  c ON c.id = bb.client_id
+WHERE c.slug = $1
+  AND bb.bed_code = $2
+  AND bb.assignment_start_date < $4::date
+  AND bb.assignment_end_date   > $3::date
+ORDER BY bb.assignment_start_date ASC
+`;
+
+function movePreviewNights(checkIn, checkOut) {
+  const start = parseCalendarDate(checkIn);
+  const end   = parseCalendarDate(checkOut);
+  if (!start || !end || end <= start) return null;
+  return Math.round((end - start) / 86400000);
+}
+
+/** Half-open overlap: existing.check_in < target.check_out && existing.check_out > target.check_in */
+function movePreviewHalfOpenOverlaps(existingStart, existingEnd, targetCheckIn, targetCheckOut) {
+  if (!existingStart || !existingEnd || !targetCheckIn || !targetCheckOut) return false;
+  return existingStart < targetCheckOut && existingEnd > targetCheckIn;
+}
+
+function movePreviewIsBlockingAssignment(row) {
+  const bookingStatus    = String(row.booking_status    || '').trim().toLowerCase();
+  const assignmentStatus = String(row.assignment_status || '').trim().toLowerCase();
+  if (MOVE_PREVIEW_NON_BLOCKING_STATUSES.includes(bookingStatus)) return false;
+  if (assignmentStatus && MOVE_PREVIEW_NON_BLOCKING_STATUSES.includes(assignmentStatus)) return false;
+  return true;
+}
+
+function movePreviewBookingSummary(row) {
+  return {
+    booking_id:      row.booking_id,
+    booking_code:    row.booking_code,
+    guest_name:      row.guest_name,
+    check_in:        row.check_in,
+    check_out:       row.check_out,
+    status:          row.status,
+    payment_status:  row.payment_status,
+    guest_count:     row.guest_count != null ? Number(row.guest_count) : null,
+    primary_room_code: row.primary_room_code || null,
+  };
+}
+
+async function handleBookingMovePreview(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug    = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId     = String(body.booking_id   || '').trim();
+  const bookingCode   = String(body.booking_code || '').trim();
+  const targetBedId   = String(body.target_bed_id || '').trim();
+  const targetRoomId  = String(body.target_room_id || '').trim();
+  const checkIn       = String(body.check_in  || '').trim();
+  const checkOut      = String(body.check_out || '').trim();
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!targetBedId) return send400(res, 'target_bed_id is required');
+  if (!UUID_VALIDATE_RE.test(targetBedId)) return send400(res, 'target_bed_id must be a valid UUID');
+  if (targetRoomId && !UUID_VALIDATE_RE.test(targetRoomId)) return send400(res, 'target_room_id must be a valid UUID');
+  if (!checkIn || !checkOut) return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
+  if (!DATE_RE.test(checkIn) || !DATE_RE.test(checkOut)) return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  if (!parseCalendarDate(checkIn) || !parseCalendarDate(checkOut)) return send400(res, 'check_in and check_out must be valid dates');
+  if (checkOut <= checkIn) return send400(res, 'check_out must be after check_in');
+
+  const nights = movePreviewNights(checkIn, checkOut);
+  const actorId   = user ? user.staff_user_id : 'dev-preview-local';
+  const actorRole = user ? user.role          : 'operator';
+
+  const auditBase = {
+    ts:             new Date().toISOString(),
+    intent:         'api:booking_move_preview',
+    category:       'booking_move_preview',
+    preview_only:   true,
+    would_mutate:   false,
+    client_slug:    clientSlug,
+    booking_id:     bookingId || null,
+    booking_code:   bookingCode || null,
+    target_bed_id:  targetBedId,
+    check_in:       checkIn,
+    check_out:      checkOut,
+    staff_user_id:  actorId,
+    staff_role:     actorRole,
+  };
+
+  let bookingRow, bedRow, assignmentRows;
+  try {
+    const result = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? MOVE_PREVIEW_BOOKING_BY_ID_SQL : MOVE_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      const bedRes = await pg.query(MOVE_PREVIEW_BED_BY_ID_SQL, [clientSlug, targetBedId]);
+      const bed = bedRes.rows[0] || null;
+      let assignments = [];
+      if (bed && bed.bed_code) {
+        const assignRes = await pg.query(
+          MOVE_PREVIEW_TARGET_ASSIGNMENTS_SQL,
+          [clientSlug, bed.bed_code, checkIn, checkOut]
+        );
+        assignments = assignRes.rows;
+      }
+      return {
+        bookingRow:      bookingRes.rows[0] || null,
+        bedRow:          bed,
+        assignmentRows:  assignments,
+      };
+    });
+    bookingRow      = result.bookingRow;
+    bedRow          = result.bedRow;
+    assignmentRows  = result.assignmentRows;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'move preview query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, {
+      success: false,
+      error: 'booking not found',
+      preview_only: true,
+      would_mutate: false,
+    });
+  }
+
+  if (!bedRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'target_bed_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, {
+      success: false,
+      error: 'target bed not found',
+      preview_only: true,
+      would_mutate: false,
+    });
+  }
+
+  if (targetRoomId && bedRow.room_id !== targetRoomId) {
+    appendAuditLog({ ...auditBase, success: false, error: 'target_room_mismatch', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'target_room_id does not match the target bed room',
+      preview_only: true,
+      would_mutate: false,
+    });
+  }
+
+  if (bedRow.active === false || bedRow.sellable === false) {
+    appendAuditLog({ ...auditBase, success: false, can_move: false, error: 'target_bed_unavailable', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, {
+      success: true,
+      can_move: false,
+      preview_only: true,
+      would_mutate: false,
+      booking: movePreviewBookingSummary(bookingRow),
+      target: {
+        bed_id:   bedRow.bed_id,
+        room_id:  bedRow.room_id,
+        bed_code: bedRow.bed_code,
+        room_code: bedRow.room_code,
+        check_in: checkIn,
+        check_out: checkOut,
+        nights,
+      },
+      conflicts: [],
+      message: 'Target bed is not active or sellable. No changes were made.',
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  const sourceBookingId = bookingRow.booking_id;
+  const conflicts = assignmentRows
+    .filter((row) => row.booking_id !== sourceBookingId)
+    .filter(movePreviewIsBlockingAssignment)
+    .filter((row) => movePreviewHalfOpenOverlaps(row.check_in, row.check_out, checkIn, checkOut))
+    .map((row) => ({
+      booking_id:   row.booking_id,
+      booking_code: row.booking_code,
+      guest_name:   row.guest_name,
+      check_in:     row.check_in,
+      check_out:    row.check_out,
+      bed_id:       bedRow.bed_id,
+    }));
+
+  const canMove = conflicts.length === 0;
+  const target = {
+    bed_id:    bedRow.bed_id,
+    room_id:   bedRow.room_id,
+    bed_code:  bedRow.bed_code,
+    room_code: bedRow.room_code,
+    check_in:  checkIn,
+    check_out: checkOut,
+    nights,
+  };
+  const elapsed = Date.now() - started;
+
+  appendAuditLog({
+    ...auditBase,
+    success: true,
+    can_move: canMove,
+    conflict_count: conflicts.length,
+    elapsed_ms: elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success: true,
+    can_move: canMove,
+    preview_only: true,
+    would_mutate: false,
+    booking: movePreviewBookingSummary(bookingRow),
+    target,
+    conflicts,
+    message: canMove
+      ? 'Move preview passed. No changes were made.'
+      : 'Target bed is not available for this date range. No changes were made.',
+    elapsed_ms: elapsed,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
 //
 // Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
@@ -11467,6 +11772,17 @@ async function router(req, res) {
     return handleManualBookingPreview(req, res, auth.user);
   }
 
+  // ── Phase 10.2 — Booking move preview (read-only; no writes) ───────────────
+  if (pathname === '/staff/bookings/move-preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/move-preview' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingMovePreview(req, res, auth.user);
+  }
+
   // ── Stage 8.4 — Manual booking creation (write; gated by MANUAL_BOOKING_ENABLED) ──
   if (pathname === '/staff/manual-bookings/create') {
     if (method !== 'POST') {
@@ -11807,6 +12123,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/draft`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/staff-state`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only preview (no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/availability-check      <- 8.5.8 Luna bot availability check (read-only, no writes)`);
