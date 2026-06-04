@@ -1,6 +1,31 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-04 (**Phase 10.7 — Staff Portal operations checkpoint**): **COMPLETE ENOUGH / PASS** (docs closeout). **Hosted:** commit **`753d101402005a980ab072126f6758ea7041b0bf`** → image `whstagingacr.azurecr.io/wh-staff-api:753d101-stage107a2-operator-room-release-fix` (ACR `cb2p`) → revision **`wh-staging-staff-api--0000105`** (Healthy, **100% traffic**). **Staff Portal operations working enough on staging:** manual booking create · payment choices (Stripe deposit/full, cash, bank, no payment) · payment ledger/history · Generate Payment Link · cancel unpaid payment link · Stripe webhook paid truth · cash/bank paid ledger rows · add/remove add-ons · edit contact/dates/package/reduce guests · Move Bed · Cancel reservation · New Conversation from booking drawer · bed calendar payment badges · **Tour Operator whole-room create** · **Tour Operator room release with A/B remainder bed assignments**. **Tour Operator proof (fresh disposable):** `OP-20260604-77A99F` on **DEMO-R1** **2028-04-01→2028-04-15** · 2/2 active/sellable beds assigned · release **2028-04-05→2028-04-10** · original cancelled · A **2028-04-01→2028-04-05** (2 beds) · B **2028-04-10→2028-04-15** (2 beds) · released middle free · before/after blocked · operator calendar styling · no payments/`booking_service_records`/Stripe/WhatsApp/n8n mutation. Commits: **`7b6390b`** (10.7a enable) · **`4e42a85`** (verifier align) · **`753d101`** (10.7a.2 remainder beds). **Deferred:** Staff Ask Luna operational query expansion · housekeeping/cleaning logic · conversation send/approval workflow · confirmation copy/send workflow · **Live WhatsApp NO_GO** unless explicitly approved · **n8n inactive / no live sends** unless explicitly approved. **Safety:** docs only · no code · no DB · no deploy · staging checkpoint record only. **Next:** **Phase 11** — Staff Ask Luna operational queries from structured data.
+**Last updated:** 2026-06-04 (**Phase 10.7 — Staff Portal operations checkpoint**, docs closeout): **COMPLETE ENOUGH / PASS**. **Hosted (latest):** commit **`5011975`** → image `whstagingacr.azurecr.io/wh-staff-api:5011975-stage107d-tour-operator-purple` (ACR `cb2t`) → revision **`wh-staging-staff-api--0000109`** (Healthy, **100% traffic**). **10.7 span:** `753d101` operator A/B release through `5011975` calendar/copy/refresh polish. **Next:** **Phase 11**. **Safety (this task):** docs only · no code · no DB · no deploy · no Stripe · no WhatsApp · no n8n · no migrations.
+
+### Phase 10.7 — Staff Portal operations (staging closeout)
+
+**Working enough on staging:**
+- Manual booking create
+- Payment choices: Stripe deposit/full, cash, bank, no payment
+- Generate Payment Link · cancel unpaid payment link
+- Stripe checkout landing pages · Stripe webhook payment truth
+- Payment history/ledger · payment link copy in booking drawer
+- Add/remove add-ons
+- Edit contact / dates / package / reduce guests
+- Move Bed · Cancel reservation
+- New Conversation from booking drawer · booking drawer **Refresh** (reload context only)
+- Bed Calendar source colors: Staff/manual green · Luna blue · Tour operator pastel purple
+- Bed Calendar payment badges inside blocks
+- Tour Operator whole-room create
+- Tour Operator room release with A/B remainder `booking_beds`
+
+**Tour Operator rules:** Whole-room operator booking blocks all active/sellable beds in that room. Releasing a middle window creates **A/B remainder** bookings with `booking_beds`; the released window is free; before/after segments stay blocked.
+
+**Payment guardrails:** Stripe Checkout links do **not** mark paid. **Stripe webhook** is payment truth. Landing pages are **display-only**. No WhatsApp/n8n auto-send from staff flows. **Live WhatsApp: NO_GO** unless explicitly approved. **n8n: inactive.**
+
+**Next:** **Phase 11** — Staff Ask Luna operational queries from structured data: who still owes money / balance due · lessons today/tomorrow · board/wetsuit needs · meals/yoga today · check-ins/check-outs · room/bed cleaning/turnover · needs human/handoffs.
+
+**Tour Operator proof (reference):** disposable `OP-20260604-77A99F` · DEMO-R1 · middle-window release → A/B remainder · no payment/service/Stripe/WhatsApp/n8n mutation.
 
 **Prior — Phase 10.5a (2026-06-04):** **PASS** (docs-only). Spec: [PHASE-10.5-FIELD-EDIT-WRITE-SPEC.md](PHASE-10.5-FIELD-EDIT-WRITE-SPEC.md). **Gate:** `BOOKING_EDIT_WRITE_ENABLED=false` (default). **Proposed route:** `POST /staff/bookings/edit` — operator auth · required `idempotency_key` · one `edit_type` per request · reuse edit-preview validation before mutation. **Write types:** contact · dates · package · guest decrease (no increase). **Payment:** Stripe webhook truth unchanged · no auto refund/link · internal `total`/`balance_due`/`needs_refund` rules only where columns exist. **Split:** **10.5b** contact write → **10.5c** package → **10.5d** dates → **10.5e** guest decrease → **10.5f** UI Save wiring. **Safety:** docs only · no code · no DB · no deploy · no n8n · no WhatsApp · no Stripe · move gate OFF. **Next was:** **10.5b** contact write API.
 
@@ -55,8 +80,8 @@ equireAuth -- normal staff auth unchanged; supports X-Luna-Bot-Token header + Au
 | **7** Scalable | **IN PROGRESS** (2026-06-02) ? 7.0?7.7 DESIGN DONE. **7.2b/c DONE** ? **7.3b DONE** ? **7.3c PREFLIGHT PASS** ? **7.3d AZURE STAGING DEPLOYED + LOGIN PROVEN (2026-06-01)** ? **7.3e LOGIN PAGE + LOGOUT FIX + COMPANY WORDING (2026-06-02)** ? **7.3f CUSTOM DOMAIN + TLS DONE (2026-06-02)** ? **7.7a?d + 7.7f?7.7j DONE** ? **7.7k1?k8 DONE**. **7.3f**: `staff-staging.lunafrontdesk.com` bound; Azure managed cert; smoke PASS on clean URL. Calendar editing NOT approved. Next: Stage 8.0 client-ready staging roadmap (DONE) ? 8.1 dashboard UX cleanup plan. Plan: [PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md](PHASE-7-PRODUCTION-HARDENING-PILOT-PLAN.md). | Multi-client + Azure when approved |
 | **8** Client-ready staging | **CLOSED — foundation complete (2026-06-03)** | **Staff Portal + Ask Luna + add-on dry-run foundation.** Demo path, Bed Calendar, Inbox Needs Human, drawer (payment / confirmation draft / Services & Add-ons), Ask Luna (portal + multilingual router + service queries from `booking_service_records`), manual booking + service rows, `addon_service` payment links, webhook paid service rows, bot add-on preview/create/idempotency, inactive n8n guest add-on dry-run (`stage8832GuestAddon01`). **Live WhatsApp: NO_GO.** Guest booking WhatsApp not fully live. Closeout: `8.8.33`. **No further Stage 8.x expansion** — use Phases 9+. Doc: [STAGE-8.8.6 §13](STAGE-8.8.6-STRUCTURED-ADDON-SERVICE-RECORDS.md). |
 | **9** Control & Safety | **COMPLETE ENOUGH / PASS (2026-06-03)** | **9.1–9.6.1 PASS** (design · spec · Inbox read-only · migration/API · staging proofs · live pause-state · Pause/Resume buttons · guest automation gate). Hosted **`7360c24`** → `7360c24-stage95b-inbox-pause-buttons` · revision **`--0000046`**. Migration 012 **staging/test only**. `BOT_PAUSE_CONTROLS_ENABLED=true` **staging only**. Inbox: Luna active/paused + Pause/Resume buttons; Mode/Needs human kv removed. Gate blocks guest automation when paused. **Live WhatsApp: NO_GO.** **n8n: inactive.** Docs: [PHASE-9.1-BOT-PAUSE-RESUME-DESIGN.md](PHASE-9.1-BOT-PAUSE-RESUME-DESIGN.md) · [PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md](PHASE-9.2-BOT-PAUSE-RESUME-SCHEMA-API-SPEC.md). |
-| **10** Staff Operations Polish | **COMPLETE ENOUGH / PASS (2026-06-04)** | **10.0–10.7** closed on staging through Tour Operator create/release (**`753d101`** → **`--0000105`**). Manual booking · payments · ledger · add-ons · field edits · move · cancel · drawer conversation · calendar badges · operator whole-room block + A/B release remainder beds. **Deferred:** Ask Luna ops query expansion · housekeeping · send/approval workflows. |
-| **11** Staff Ask Luna operational queries | **NEXT** | Structured read-only queries: balance due · lessons today/tomorrow · board/wetsuit needs · meals/yoga today · check-ins/check-outs · cleaning/turnover · needs human/handoffs. **Live WhatsApp: NO_GO.** **n8n: inactive.** |
+| **10** Staff Operations Polish | **COMPLETE ENOUGH / PASS (2026-06-04)** | **10.0–10.7** closed on staging (**`5011975`** → **`--0000109`**). Manual booking · payments · ledger · add-ons · field edits · move · cancel · drawer Refresh · conversation · calendar source colors + badges · operator whole-room + A/B release. |
+| **11** Staff Ask Luna operational queries | **NEXT** | Structured read-only: balance due · lessons today/tomorrow · board/wetsuit · meals/yoga today · check-ins/check-outs · cleaning/turnover · needs human/handoffs. **Live WhatsApp: NO_GO.** **n8n: inactive.** |
 
 ---
 
