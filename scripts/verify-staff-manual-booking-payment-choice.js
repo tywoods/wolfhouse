@@ -1,5 +1,5 @@
 /**
- * Phase 10.6d / 10.6d.1 — Manual booking payment choices + create flow polish.
+ * Phase 10.6d / 10.6d.1 / 10.6d.2 — Manual booking payment choices + UI polish.
  *
  * Usage:
  *   npm run verify:staff-manual-booking-payment-choice
@@ -13,6 +13,7 @@ const { execSync } = require('child_process');
 
 const API_FILE = path.join(__dirname, 'staff-query-api.js');
 const PKG_FILE = path.join(__dirname, '..', 'package.json');
+const PRICING_FILE = path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
 
 let passes = 0;
 let failures = 0;
@@ -21,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-manual-booking-payment-choice.js  (Phase 10.6d / 10.6d.1)\n');
+console.log('\nverify-staff-manual-booking-payment-choice.js  (Phase 10.6d / 10.6d.1 / 10.6d.2)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -46,7 +47,10 @@ const resultFn = src.match(/function renderCreateResult[\s\S]*?\n\}/)?.[0] || ''
 const quoteFn = src.match(/function renderQuoteResult[\s\S]*?\n\}/)?.[0] || '';
 const paidFieldsFn = src.match(/function bcUpdateManualBookingPaidFields[\s\S]*?\n\}/)?.[0] || '';
 const createBtnFn = src.match(/function bcUpdateCreateButton[\s\S]*?\n\}/)?.[0] || '';
+const buildAddonsFn = src.match(/function buildAddOns[\s\S]*?\n\}/)?.[0] || '';
 const ledgerFn = src.match(/function paymentLedgerPaidTotalCents[\s\S]*?\n\}/)?.[0] || '';
+const bannerBlock = src.match(/<div id="banner">[\s\S]*?<\/div>\s*\n\s*<!-- ── Tabs/)?.[0] || '';
+const todayTab = src.match(/<div id="tab-today"[\s\S]*?<!-- Needs Attention tiles -->/)?.[0] || '';
 
 console.log('\nA. Package script');
 
@@ -76,7 +80,15 @@ check(!/MANUAL_BOOKING_ENABLED=true, STAFF_ACTIONS_ENABLED=true/.test(src),
   'green flag banner copy removed');
 check(!/id="bc-sel-conflicts"/.test(selPanel), 'Preview Conflicts button removed');
 check(!/function runPreviewConflicts/.test(src), 'runPreviewConflicts removed');
-check(/id="bc-sel-create"/.test(selPanel), 'Create Manual Booking button present');
+check(/id="bc-sel-create"/.test(selPanel), 'Create New Booking button present');
+check(/Create New Booking/.test(selPanel), 'Create New Booking label in panel');
+check(!/Create Manual Booking/.test(selPanel), 'Create Manual Booking label removed from panel');
+check(/btn-bc-quote-soft/.test(selPanel) && /\.btn-bc-quote-soft/.test(src),
+  'Calculate Quote uses soft yellow btn-bc-quote-soft');
+check(/btn-bc-create-soft/.test(selPanel) && /\.btn-bc-create-soft/.test(src),
+  'Create New Booking uses soft green btn-bc-create-soft');
+check(/btn-bc-create-soft:disabled/.test(src) && !/\.bc-sel-create-btn\{opacity/.test(src),
+  'create disabled styling scoped to :disabled (enabled button not dimmed)');
 check(/bcFetchManualBookingAvailability/.test(createFn),
   'create runs internal availability check');
 check(/bcSelectedBedCodes/.test(src) && /bcSelectedBeds\.map/.test(createFn),
@@ -86,6 +98,10 @@ check(/bcLastQuote/.test(createBtnFn) && !/phone/.test(createBtnFn.match(/var re
   'create enables after quote without requiring phone');
 check(/bcUpdateCreateButton/.test(src.match(/function bcApplySelectionHighlight[\s\S]*?\n\}/)?.[0] || ''),
   'selection highlight updates create button state');
+check(/btn\.disabled = !ready/.test(createBtnFn),
+  'create button disabled only when required fields or quote missing');
+check(/bcLastQuote = \(q && q\.success\)[\s\S]*?bcUpdateCreateButton\(\)/.test(src),
+  'quote success triggers bcUpdateCreateButton');
 
 console.log('\nD. Quote preview clarity');
 
@@ -161,6 +177,27 @@ check(/send_mutation:\s*false/.test(handler), 'success response send_mutation fa
 check(!/INSERT INTO booking_beds|UPDATE booking_beds|DELETE FROM booking_beds/.test(applyFn),
   'apply does not mutate booking_beds');
 check(!/docs\//.test(path.basename(__filename)), 'verifier is not under docs');
+
+console.log('\nJ. Phase 10.6d.2 — banner, yoga note, meals pricing');
+
+check(!/READ-ONLY\s*&bull;\s*SHADOW MODE/.test(bannerBlock),
+  'global top banner READ-ONLY SHADOW MODE badge removed');
+check(!/Shadow Mode active/.test(todayTab) && !/No operations affect live guest data/.test(todayTab),
+  'Today tab shadow-mode hero copy removed');
+check(!/booked and paid on site.*confirm with staff/i.test(selPanel),
+  'manual booking panel has no yoga on-site staff note');
+check(!/bk-ao-meals-note/.test(selPanel) && !/not priced in quote yet/i.test(selPanel),
+  'meals on-site / not priced note removed');
+check(/bcFilterManualBookingQuoteWarnings/.test(src),
+  'quote preview filters stale yoga on-site warnings');
+check(/code: 'meals'/.test(buildAddonsFn), 'buildAddOns sends meals add-on to quote');
+if (fs.existsSync(PRICING_FILE)) {
+  const pricing = JSON.parse(fs.readFileSync(PRICING_FILE, 'utf8'));
+  const meals = pricing.add_ons && pricing.add_ons.meals;
+  check(meals && meals.price_cents === 1500, 'wolfhouse add_ons.meals price_cents = 1500');
+} else {
+  fail('wolfhouse-somo.pricing.json exists for meals price check');
+}
 
 console.log(`\nResult: ${passes} passed, ${failures} failed\n`);
 process.exit(failures > 0 ? 1 : 0);

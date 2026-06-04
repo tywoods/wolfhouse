@@ -7356,9 +7356,6 @@ function previewGuestAddonPricing(serviceType, quantity, clientSlug) {
     if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
       return { amount_due_cents: null, pricing_addon_code: 'yoga_class', unit_cents: null, payment_required: false, warnings: ['Yoga class price not safely available — staff review required.'] };
     }
-    if (cfg.on_site) {
-      warnings.push('Yoga is normally booked and paid on site — prepayment only when staff/policy enables it.');
-    }
     return { amount_due_cents: cfg.price_cents * quantity, pricing_addon_code: 'yoga_class', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_class', warnings };
   }
 
@@ -11599,7 +11596,7 @@ async function handleManualBookingCreate(req, res, user) {
 //   - GET-only fetch calls from JS (no mutation methods)
 //   - No external scripts, no write form controls, no dynamic code execution
 //   - No handoff.resolve, no approve-send, no reply composer, no send button
-//   - READ-ONLY / SHADOW MODE banner visible at all times
+//   - No global read-only / shadow-mode banner (Phase 10.6d.2)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildUiHtml(port) {
@@ -11986,8 +11983,15 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-sel-notice{font-size:11px;color:var(--text-3);font-style:italic;margin:10px 0 12px}
 .bc-sel-warn{font-size:11px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:7px 10px;margin:8px 0}
 .bc-sel-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.bc-sel-create-btn{opacity:.42;cursor:not-allowed !important}
-.bc-sel-create-btn:hover{opacity:.42}
+.btn-bc-quote-soft{background:#F5E6D2;color:#A2743D;border:1px solid #ECD7BC}
+.btn-bc-quote-soft:hover:not(:disabled){background:#F0DFC8;border-color:#E5D0B8}
+.btn-bc-quote-soft:disabled{opacity:.5;cursor:not-allowed !important;background:#F5F0E8;color:#B8A898;border-color:#E8E0D4}
+.btn-bc-create-soft{background:#DCEAD2;color:#5C7350;border:1px solid #CADCBE}
+.btn-bc-create-soft:hover:not(:disabled){background:#D0E2C6;border-color:#BFD4B4}
+.btn-bc-create-soft:disabled{opacity:.42;cursor:not-allowed !important}
+.btn-bc-create-soft:disabled:hover{opacity:.42}
+.bc-sel-create-btn:disabled{opacity:.42;cursor:not-allowed !important}
+.bc-sel-create-btn:disabled:hover{opacity:.42}
 /* ── Manual booking form skeleton (Stage 8.3d) ───────────────────────────── */
 .bk-form-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft)}
 .bk-form-section-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin-bottom:10px}
@@ -12099,7 +12103,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
   <a href="/staff/ui" class="brand" style="text-decoration:none;color:inherit;">Luna Front Desk</a>
-  <span class="badge">READ-ONLY &bull; SHADOW MODE</span>
   <button class="btn-logout" id="btn-logout" onclick="doLogout()">Sign out</button>
 </div>
 
@@ -12116,15 +12119,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
 <!-- ── Today / Needs Attention tab (Stage 8.2) ────────────────────────────── -->
 <div id="tab-today" class="tab-panel active">
 <div id="wrap-today" style="max-width:1100px;margin:0 auto;padding:26px 20px">
-
-  <!-- Shadow-mode hero card -->
-  <div class="today-hero-card">
-    <div class="today-hero-icon">&#128274;</div>
-    <div>
-      <div class="today-hero-title">Read-only &mdash; Shadow Mode active</div>
-      <div class="today-hero-body">Luna Front Desk is running in staging. No messages are sent. No operations affect live guest data. Staff actions are disabled.</div>
-    </div>
-  </div>
 
   <!-- Needs Attention tiles -->
   <div class="today-section-hdr">Needs Attention</div>
@@ -12433,12 +12427,11 @@ textarea.bk-input{resize:vertical;min-height:60px}
         </div>
         <div class="bk-ao-row">
           <span class="bk-ao-label">Meals</span>
-          <input type="number" id="bk-ao-meals" class="bk-input bk-ao-qty" value="0" min="0" max="60" aria-label="Meals quantity" title="On-site only — not priced in quote yet">
+          <input type="number" id="bk-ao-meals" class="bk-input bk-ao-qty" value="0" min="0" max="60" aria-label="Meals quantity">
           <span class="bk-ao-unit">meals</span>
         </div>
       </div>
       <div class="bk-ao-note">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate. Enter a quantity &gt; 0 to include an add-on.</div>
-      <div class="bk-ao-meals-note">Meals: on-site / not priced in quote yet.</div>
     </div>
 
     <!-- Section: Quote Preview (Stage 8.4.5 — calls /staff/quote-preview, no writes) -->
@@ -12452,11 +12445,11 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <!-- Actions -->
     <div class="bc-sel-actions" style="margin-top:16px">
       <button class="btn btn-ghost" id="bc-sel-clear">Clear selection</button>
-      <button class="btn bc-sel-create-btn" disabled id="bc-sel-create"
+      <button class="btn btn-bc-create-soft" disabled id="bc-sel-create"
         title="Calculate Quote first, then fill required fields to create.">
-        Create Manual Booking
+        Create New Booking
       </button>
-      <button class="btn" disabled id="bc-sel-quote"
+      <button class="btn btn-bc-quote-soft" disabled id="bc-sel-quote"
         title="Select beds, dates, and package to calculate quote">
         Calculate Quote
       </button>
@@ -13141,12 +13134,6 @@ function loadConvDetail(convId, targetEl){
     html +=     '<li>Paste and send manually in WhatsApp</li>';
     html +=     '<li class="shadow-checklist-gate">Do <strong>not</strong> use this dashboard for live sends yet &mdash; live-send gate required</li>';
     html +=   '</ol>';
-    html += '</div>';
-
-    /* Read-only footer */
-    html += '<div style="margin-top:12px;padding:10px 14px;background:#FBF7F0;border:1px solid #EFE8DC;border-radius:10px;font-size:11px;color:#6B756F">';
-    html +=   'READ-ONLY VIEW &mdash; SHADOW MODE. No live sends from this dashboard. ';
-    html +=   'Draft is not sent automatically.';
     html += '</div>';
 
     html += '</div>'; /* /detail-main */
@@ -13862,7 +13849,8 @@ function buildAddOns(){
   /* Yoga classes */
   var ygQty = aoQtyInput('bk-ao-yoga');
   if (ygQty > 0) result.push({ code: 'yoga_class', quantity: ygQty });
-  /* Meals: visual-only in UI (Stage 8.7.11) — not in pricing.json add_ons yet; do not send to quote */
+  var mealsQty = aoQtyInput('bk-ao-meals');
+  if (mealsQty > 0) result.push({ code: 'meals', quantity: mealsQty });
   return result;
 }
 
@@ -14049,7 +14037,7 @@ function runManualBookingCreate(){
   function finishCreateUiBusy(busyLabel) {
     bcManualCreateInFlight = false;
     if (createBtn) {
-      createBtn.textContent = createBtn.dataset.origLabel || 'Create Manual Booking';
+      createBtn.textContent = createBtn.dataset.origLabel || 'Create New Booking';
       createBtn.disabled = false;
     }
     bcUpdateCreateButton();
@@ -14391,6 +14379,17 @@ function runQuotePreview(){
   });
 }
 
+/* Phase 10.6d.2 — hide stale yoga on-site copy from manual booking quote preview */
+function bcFilterManualBookingQuoteWarnings(warnings){
+  if (!warnings || !warnings.length) return [];
+  return warnings.filter(function(w){
+    var s = String(w);
+    if (/yoga\s+class.*normally booked|normally booked and paid on site.*confirm with staff/i.test(s)) return false;
+    if (/^Yoga class:/i.test(s) && /on site|confirm with staff/i.test(s)) return false;
+    return true;
+  });
+}
+
 function renderQuoteResult(resp){
   if (!resp){ return '<div class="bk-preview-error"><div class="bk-preview-badge">No response</div>Quote request failed.</div>'; }
   var q = resp.quote || {};
@@ -14443,9 +14442,10 @@ function renderQuoteResult(resp){
   html += '</div>';
 
   html += '</div>';
-  if (q.warnings && q.warnings.length > 0){
+  var quoteWarnings = bcFilterManualBookingQuoteWarnings(q.warnings);
+  if (quoteWarnings.length > 0){
     html += '<div class="bk-preview-warn">';
-    q.warnings.forEach(function(w){ html += '<div>' + escHtml(String(w)) + '</div>'; });
+    quoteWarnings.forEach(function(w){ html += '<div>' + escHtml(String(w)) + '</div>'; });
     html += '</div>';
   }
   if (q.staff_review_required) html += '<div class="bk-preview-warn">\u26a0 Staff review required before creating this booking.</div>';
@@ -14612,7 +14612,7 @@ function renderBedCalendar(data){
   /* Wire Calculate Quote button (Stage 8.4.5 — re-wired each render) */
   var _quoteBtn = el('bc-sel-quote');
   if (_quoteBtn) _quoteBtn.onclick = runQuotePreview;
-  /* Wire Create Manual Booking button (Stage 8.4.8 — gated by flags + quote) */
+  /* Wire Create New Booking button (Stage 8.4.8 — gated by flags + quote) */
   var _createBtn = el('bc-sel-create');
   if (_createBtn) _createBtn.onclick = runManualBookingCreate;
   /* Wire form field listeners for quote + create button enable/disable */

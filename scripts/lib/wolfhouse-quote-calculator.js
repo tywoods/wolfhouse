@@ -352,6 +352,21 @@ function calculateWolfhouseQuote(input, config) {
       continue;
     }
 
+    if (cfgA.pricing_unit === 'per_meal') {
+      const qty   = Math.max(1, parseInt(addon.quantity, 10) || 1);
+      const unit  = cfgA.price_cents;
+      const total = unit * qty;
+      addons_cents += total;
+      line_items.push({
+        code: addon.code,
+        label: `${cfgA.name} (${qty} meal${qty !== 1 ? 's' : ''} × ${unit / 100}€)`,
+        quantity: qty,
+        unit_cents: unit,
+        total_cents: total,
+      });
+      continue;
+    }
+
     warnings.push(`add-on "${addon.code}" has unhandled pricing_unit "${cfgA.pricing_unit}" — skipped`);
   }
 
