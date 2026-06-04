@@ -1,5 +1,5 @@
 /**
- * Phase 10.3h — Static verifier for multi-bed source selection in Move bed panel.
+ * Phase 10.3h / 10.3h.2 — Static verifier for multi-bed source selection in Move bed panel.
  *
  * Usage:
  *   npm run verify:staff-booking-move-assignment-ui
@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-move-assignment-ui.js  (Phase 10.3h)\n');
+console.log('\nverify-staff-booking-move-assignment-ui.js  (Phase 10.3h / 10.3h.2)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -55,6 +55,23 @@ check(/data-bed-code/.test(pillsFn),
   'selectable pills include bed_code data attribute');
 check(/data-check-in/.test(pillsFn) && /data-check-out/.test(pillsFn),
   'selectable pills include check_in/check_out when available');
+
+console.log('\nA2. Pill visual polish (10.3h.2)');
+
+const cssBlock = src.match(/\.bc-move-source-pill[\s\S]*?\.bc-move-source-pill:focus\{[^}]+\}/)?.[0] || '';
+check(/\.bc-move-source-pill/.test(src), '.bc-move-source-pill class exists');
+check(/\.bc-move-source-pill\.is-selected/.test(src),
+  '.bc-move-source-pill.is-selected selected state exists');
+check(/#e8f4fd|#b8dff5|#2474a1|#4da3d4/.test(cssBlock),
+  'source pills use light/darker blue styling (not plain grey buttons)');
+check(/box-shadow|font-weight:700|border:2px solid/.test(cssBlock),
+  'selected pill uses stronger active visual styling');
+check(/function bcMoveSourcePillLabel/.test(src),
+  'pill label helper present');
+check(/room_code.*bed_code|bcMoveSourcePillLabel\(a\)/.test(pillsFn),
+  'pill label uses room / bed format with fallback');
+check(!/class="btn bc-move-source-pill/.test(pillsFn),
+  'source pills do not use plain grey .btn styling');
 
 console.log('\nB. Preview + move requests include booking_bed_id');
 

@@ -7906,6 +7906,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bc-sel-beds-section{margin-top:8px;min-height:24px}
 .bc-sel-bed-count{font-size:11px;color:var(--text-2);margin-bottom:4px}
 .bc-sel-bed-tag{display:inline-block;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:2px 10px;font-size:11px;margin:2px 3px 2px 0;white-space:nowrap}
+/* Phase 10.3h.2 — Move bed source pills (match create-booking selected-bed tags) */
+.bc-move-source-pills{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0}
+.bc-move-source-pill{display:inline-block;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:3px 12px;font-size:11px;font-weight:500;font-family:inherit;line-height:1.4;margin:2px 0;white-space:nowrap;cursor:pointer;transition:background .14s,border-color .14s,box-shadow .14s,font-weight .14s}
+.bc-move-source-pill:hover{background:#d9ecfb;border-color:#6cb8df}
+.bc-move-source-pill.is-selected{background:#b8dff5;color:#1a5f85;border:2px solid #4da3d4;font-weight:700;box-shadow:0 1px 3px rgba(36,116,161,.22);padding:2px 11px}
+.bc-move-source-pill:focus{outline:2px solid #90c8e8;outline-offset:2px}
 .bk-quote-banner{background:#fffbe6;border-left:3px solid #e6c200;padding:8px 12px;border-radius:4px;font-size:11px;color:#7a6a00;margin-bottom:10px;font-style:italic}
 .bk-quote-items{font-size:12px;margin-top:6px}
 .bk-quote-item{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #e8eef4}
@@ -10712,26 +10718,35 @@ function bcMoveBedTargetFieldHtml(excludeBedId){
   return '<input type="text" id="bc-move-target-bed-id" class="bk-input-sm" placeholder="Target bed UUID" style="width:100%;max-width:440px">';
 }
 
+function bcMoveSourcePillLabel(a){
+  var room = (a && a.room_code) ? String(a.room_code).trim() : '';
+  var bed = (a && a.bed_code) ? String(a.bed_code).trim() : '\u2014';
+  if (room) return room + ' / ' + bed;
+  return bed;
+}
+
 function bcRenderMoveSourcePillsHtml(assignments){
   if (!assignments || assignments.length === 0) return '';
   var html = '<div id="bc-move-source-wrap" style="margin-top:10px">';
   html += '<label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px">Current bed</label>';
   html += '<div class="ctx-none" style="margin-bottom:6px;font-size:11px;line-height:1.45">Choose which current bed to move.</div>';
-  html += '<div id="bc-move-source-pills" style="display:flex;gap:6px;flex-wrap:wrap">';
+  html += '<div id="bc-move-source-pills" class="bc-move-source-pills">';
   assignments.forEach(function(a, idx){
     var selected = assignments.length === 1 && idx === 0;
     var bbId = a.booking_bed_id || '';
     var bedId = a.bed_id || '';
     var bedCode = a.bed_code || '\u2014';
+    var roomCode = a.room_code || '';
     var cin = a.check_in || a.assignment_start_date || '';
     var cout = a.check_out || a.assignment_end_date || '';
-    html += '<button type="button" class="btn bc-move-source-pill' + (selected ? ' is-selected' : '') + '"';
+    html += '<button type="button" class="bc-move-source-pill' + (selected ? ' is-selected' : '') + '"';
     html += ' data-booking-bed-id="' + escHtml(bbId) + '"';
     html += ' data-bed-id="' + escHtml(bedId) + '"';
     html += ' data-bed-code="' + escHtml(bedCode) + '"';
+    html += ' data-room-code="' + escHtml(roomCode) + '"';
     html += ' data-check-in="' + escHtml(cin) + '"';
     html += ' data-check-out="' + escHtml(cout) + '">';
-    html += escHtml(bedCode) + '</button>';
+    html += escHtml(bcMoveSourcePillLabel(a)) + '</button>';
   });
   html += '</div></div>';
   return html;
@@ -10784,6 +10799,7 @@ function bcOnMoveSourcePillClick(btn){
   bcMoveCtx.selectedBookingBedId = String(btn.getAttribute('data-booking-bed-id') || '').trim() || null;
   bcMoveCtx.selectedSourceBedId = String(btn.getAttribute('data-bed-id') || '').trim() || null;
   bcMoveCtx.currentBedCode = String(btn.getAttribute('data-bed-code') || '').trim() || null;
+  bcMoveCtx.currentRoomCode = String(btn.getAttribute('data-room-code') || '').trim() || null;
   bcResetMovePreviewState();
   bcRefreshMoveTargetField();
 }
