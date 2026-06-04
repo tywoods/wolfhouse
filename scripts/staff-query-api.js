@@ -78,6 +78,12 @@ const {
   getAskLunaYogaOnDateQuery,
   formatAskLunaMealsYogaAnswer,
 } = require('./lib/staff-ask-luna-meals-yoga');
+const {
+  resolveAskLunaArrivalsCheckoutsIntentKey,
+  getAskLunaArrivalsOnDateQuery,
+  getAskLunaCheckoutsOnDateQuery,
+  formatAskLunaArrivalsCheckoutsAnswer,
+} = require('./lib/staff-ask-luna-arrivals-checkouts');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1492,6 +1498,12 @@ const ASK_LUNA_LOCAL_QUERY = {
   'services.yoga_tomorrow':    getAskLunaYogaOnDateQuery,
   'services.meals_on_date':    getAskLunaMealsOnDateQuery,
   'services.yoga_on_date':     getAskLunaYogaOnDateQuery,
+  'bookings.arrivals_today':     getAskLunaArrivalsOnDateQuery,
+  'bookings.arrivals_tomorrow':  getAskLunaArrivalsOnDateQuery,
+  'bookings.arrivals_on_date':   getAskLunaArrivalsOnDateQuery,
+  'bookings.checkouts_today':    getAskLunaCheckoutsOnDateQuery,
+  'bookings.checkouts_tomorrow': getAskLunaCheckoutsOnDateQuery,
+  'bookings.checkouts_on_date':  getAskLunaCheckoutsOnDateQuery,
 };
 
 /**
@@ -1511,6 +1523,11 @@ function resolveNaturalLanguageIntent(question) {
 
   const mealsYogaIntentEarly = resolveAskLunaMealsYogaIntentKey(question, REGISTRY_BY_KEY, refDate);
   if (mealsYogaIntentEarly) return mealsYogaIntentEarly;
+
+  const arrivalsCheckoutsIntentEarly = resolveAskLunaArrivalsCheckoutsIntentKey(
+    question, REGISTRY_BY_KEY, refDate,
+  );
+  if (arrivalsCheckoutsIntentEarly) return arrivalsCheckoutsIntentEarly;
 
   // Direct registry key passthrough before normalize (keeps dots in keys)
   const rawQ = String(question || '').trim().toLowerCase();
@@ -1671,6 +1688,12 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'services.yoga_tomorrow':       'No yoga classes are currently booked for tomorrow.',
       'services.meals_on_date':       'No meals are currently booked for that date.',
       'services.yoga_on_date':        'No yoga classes are currently booked for that date.',
+      'bookings.arrivals_today':      'No arrivals are currently scheduled for today.',
+      'bookings.arrivals_tomorrow':   'No arrivals are currently scheduled for tomorrow.',
+      'bookings.arrivals_on_date':    'No arrivals are currently scheduled for that date.',
+      'bookings.checkouts_today':     'No checkouts are currently scheduled for today.',
+      'bookings.checkouts_tomorrow':  'No checkouts are currently scheduled for tomorrow.',
+      'bookings.checkouts_on_date':   'No checkouts are currently scheduled for that date.',
       'services.wetsuit.on_date':     `No wetsuits needed ${when}.`,
       'services.surfboard.on_date':   `No surfboards needed ${when}.`,
     };
@@ -1807,6 +1830,15 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       const serviceCategory = intentKey.includes('yoga') ? 'yoga' : 'meals';
       return formatAskLunaMealsYogaAnswer(rows, { ...ctx, serviceCategory });
     }
+    case 'bookings.arrivals_today':
+    case 'bookings.arrivals_tomorrow':
+    case 'bookings.arrivals_on_date':
+    case 'bookings.checkouts_today':
+    case 'bookings.checkouts_tomorrow':
+    case 'bookings.checkouts_on_date': {
+      const flow = intentKey.includes('checkout') ? 'checkouts' : 'arrivals';
+      return formatAskLunaArrivalsCheckoutsAnswer(rows, { ...ctx, flow });
+    }
     default: {
       return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
     }
@@ -1904,6 +1936,7 @@ async function handleAskLuna(req, res) {
       'surf lessons today or tomorrow (services.lessons_today / services.lessons_tomorrow)',
       'surf gear today or tomorrow (services.gear_today / services.gear_tomorrow)',
       'meals or yoga today/tomorrow/weekday (services.meals_* / services.yoga_*)',
+      'arrivals or checkouts today/tomorrow/weekday (bookings.arrivals_* / bookings.checkouts_*)',
       'surf lessons / wetsuits / surfboards (services.*)',
       'who needs human reply (handoffs.open)',
       'deposit paid (payments.deposit)',
@@ -1939,6 +1972,7 @@ async function handleAskLuna(req, res) {
       date: today,
       dateLabel: extraParams.dateLabel || 'today',
       serviceCategory: extraParams.serviceCategory,
+      flow: extraParams.flow,
     };
     let localRows = [];
     try {

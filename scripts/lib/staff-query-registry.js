@@ -37,6 +37,7 @@ const handoffQueries = require('./staff-handoff-queries');
 const askLunaLessons   = require('./staff-ask-luna-lessons');
 const askLunaGear      = require('./staff-ask-luna-gear');
 const askLunaMealsYoga = require('./staff-ask-luna-meals-yoga');
+const askLunaArrivalsCheckouts = require('./staff-ask-luna-arrivals-checkouts');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Param descriptor shape (for documentation + CLI validation)
@@ -581,6 +582,99 @@ const REGISTRY = [
     clientSlugged:   true,
     readOnly:        true,
     migrationRequired: 'migration_010',
+  },
+
+  // ── Bookings — arrivals / checkouts (Ask Luna Phase 11e) ───────────────────
+
+  {
+    key:             'bookings.arrivals_today',
+    category:        'bookings',
+    description:     'Who is checking in / arriving today?',
+    helperModule:    'lib/staff-ask-luna-arrivals-checkouts',
+    helperFn:        'getAskLunaArrivalsOnDateQuery',
+    helperRef:       askLunaArrivalsCheckouts.getAskLunaArrivalsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Arrival date (ISO date, use today)', example: '2026-06-04' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+  {
+    key:             'bookings.arrivals_tomorrow',
+    category:        'bookings',
+    description:     'Who is checking in / arriving tomorrow?',
+    helperModule:    'lib/staff-ask-luna-arrivals-checkouts',
+    helperFn:        'getAskLunaArrivalsOnDateQuery',
+    helperRef:       askLunaArrivalsCheckouts.getAskLunaArrivalsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Arrival date (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+  {
+    key:             'bookings.arrivals_on_date',
+    category:        'bookings',
+    description:     'Who is arriving on a specific date (weekday within 5 days)?',
+    helperModule:    'lib/staff-ask-luna-arrivals-checkouts',
+    helperFn:        'getAskLunaArrivalsOnDateQuery',
+    helperRef:       askLunaArrivalsCheckouts.getAskLunaArrivalsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Arrival date (ISO)', example: '2026-06-06' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+  {
+    key:             'bookings.checkouts_today',
+    category:        'bookings',
+    description:     'Who is checking out / leaving today?',
+    helperModule:    'lib/staff-ask-luna-arrivals-checkouts',
+    helperFn:        'getAskLunaCheckoutsOnDateQuery',
+    helperRef:       askLunaArrivalsCheckouts.getAskLunaCheckoutsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Checkout date (ISO date, use today)', example: '2026-06-04' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+  {
+    key:             'bookings.checkouts_tomorrow',
+    category:        'bookings',
+    description:     'Who is checking out / leaving tomorrow?',
+    helperModule:    'lib/staff-ask-luna-arrivals-checkouts',
+    helperFn:        'getAskLunaCheckoutsOnDateQuery',
+    helperRef:       askLunaArrivalsCheckouts.getAskLunaCheckoutsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Checkout date (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+  {
+    key:             'bookings.checkouts_on_date',
+    category:        'bookings',
+    description:     'Who is checking out on a specific date (weekday within 5 days)?',
+    helperModule:    'lib/staff-ask-luna-arrivals-checkouts',
+    helperFn:        'getAskLunaCheckoutsOnDateQuery',
+    helperRef:       askLunaArrivalsCheckouts.getAskLunaCheckoutsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Checkout date (ISO)', example: '2026-06-06' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
   },
 
   // ── Handoffs ──────────────────────────────────────────────────────────────

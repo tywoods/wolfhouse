@@ -170,9 +170,11 @@ try {
   const lessonsLib = require('./lib/staff-ask-luna-lessons');
   const gearLib = require('./lib/staff-ask-luna-gear');
   const mealsYogaLib = require('./lib/staff-ask-luna-meals-yoga');
+  const arrivalsLib = require('./lib/staff-ask-luna-arrivals-checkouts');
   const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
   const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
   const mealsYogaRoutingBlock = mealsYogaLib.getAskLunaMealsYogaRoutingSmokeBlock();
+  const arrivalsRoutingBlock = arrivalsLib.getAskLunaArrivalsCheckoutsRoutingSmokeBlock();
   const routeWrapped = `
     const matchesBalanceDueQuestion = ${bdLib.matchesBalanceDueQuestion.toString()};
     const normalizeBalanceDueQuestionText = ${bdLib.normalizeBalanceDueQuestionText.toString()};
@@ -180,6 +182,7 @@ try {
     ${lessonsRoutingBlock}
     ${gearRoutingBlock}
     ${mealsYogaRoutingBlock}
+    ${arrivalsRoutingBlock}
     const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
     const require = (id) => {
       if (String(id).includes('staff-query-registry')) {
@@ -197,6 +200,9 @@ try {
       }
       if (String(id).includes('staff-ask-luna-meals-yoga')) {
         return { resolveAskLunaMealsYogaIntentKey };
+      }
+      if (String(id).includes('staff-ask-luna-arrivals-checkouts')) {
+        return { resolveAskLunaArrivalsCheckoutsIntentKey };
       }
       throw new Error('require ' + id);
     };
