@@ -10727,8 +10727,7 @@ function bcMoveSourcePillLabel(a){
 
 function bcRenderMoveSourcePillsHtml(assignments){
   if (!assignments || assignments.length === 0) return '';
-  var html = '<div id="bc-move-source-wrap" style="margin-top:10px">';
-  html += '<label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px">Current bed</label>';
+  var html = '<div id="bc-move-source-wrap">';
   html += '<div class="ctx-none" style="margin-bottom:6px;font-size:11px;line-height:1.45">Choose which current bed to move.</div>';
   html += '<div id="bc-move-source-pills" class="bc-move-source-pills">';
   assignments.forEach(function(a, idx){
@@ -10816,10 +10815,14 @@ function bcUpdateMoveButtons(){
   }
 }
 
-function bcResetMovePreviewState(){
-  bcMoveCtx.previewCanMove = false;
+function bcClearMoveResult(){
   var resEl = el('bc-move-result');
   if (resEl) resEl.innerHTML = '';
+}
+
+function bcResetMovePreviewState(){
+  bcMoveCtx.previewCanMove = false;
+  bcClearMoveResult();
   bcUpdateMoveButtons();
 }
 
@@ -10900,7 +10903,7 @@ function bcRunMovePreview(){
       }
       bcMoveCtx.previewCanMove = b.can_move === true;
       if (b.can_move){
-        bcRenderMoveResult(escHtml(b.message || 'Move preview passed. No changes were made.'), false);
+        bcClearMoveResult();
       } else if (b.conflicts && b.conflicts.length){
         var lines = b.conflicts.map(function(c){
           return escHtml((c.booking_code || c.booking_id || 'Booking') + ': ' + (c.guest_name || '') + ' ' + (c.check_in || '') + '\u2192' + (c.check_out || ''));
@@ -11069,18 +11072,6 @@ function renderBookingContextDrawer(data){
   html += '<div class="kv-grid">';
   html += kvBC('Check-in',  bk.check_in);
   html += kvBC('Check-out', bk.check_out);
-  /* Room/Beds — summary only; no per-bed duplicate rows */
-  var rm = data.rooming || {};
-  if ((rm.assigned_room_codes||[]).length) html += kvBC('Room', (rm.assigned_room_codes||[]).join(', '));
-  else if (bk.room_code)                  html += kvBC('Room', bk.room_code);
-  if (rm.assignments && rm.assignments.length > 0){
-    var bedList = rm.assignments.map(function(a){ return a.bed_code; }).filter(Boolean);
-    if (bedList.length) html += kvBC('Beds', bedList.join(', '));
-  } else {
-    if ((rm.assigned_bed_codes||[]).length) html += kvBC('Beds', (rm.assigned_bed_codes||[]).join(', '));
-    else if (bk.bed_code)                   html += kvBC('Bed',  bk.bed_code);
-  }
-  if (bk.assignment_status)              html += kvBC('Assignment', bk.assignment_status);
   if (bk.guest_count)  html += kvBC('Guests', bk.guest_count);
   if (bk.package_code) html += kvBC('Package', bk.package_code);
   var roomPref = bk.requested_room_type || bk.room_preference;
@@ -11094,9 +11085,6 @@ function renderBookingContextDrawer(data){
   var moveExcludeBedId = moveAssigns.length === 1 ? (moveAssigns[0].bed_id || null) : null;
   html += '<div class="ctx-section ctx-move-bed" id="bc-move-bed">';
   html += '<h3>Move bed</h3>';
-  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px;line-height:1.45">';
-  html += 'Preview does not change anything. Move is same-date bed move only. Date changes are not supported here.';
-  html += '</div>';
   if (moveNoBeds){
     html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">This booking has no bed assignments and requires manual review.</div>';
   } else {

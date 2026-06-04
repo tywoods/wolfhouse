@@ -44,12 +44,12 @@ console.log('\nA. Drawer move section');
 
 check(/Move bed/.test(drawerFn), 'drawer contains "Move bed" section');
 check(/id="bc-move-bed"/.test(drawerFn), 'Move bed section id present');
-check(/Preview does not change anything/.test(drawerFn),
-  'safety copy: preview does not change anything');
-check(/same-date bed move only/.test(drawerFn),
-  'safety copy: same-date bed move only');
-check(/Date changes are not supported here/.test(drawerFn),
-  'safety copy: date changes not supported');
+check(!/Preview does not change anything/.test(drawerFn),
+  'long preview/same-date helper copy removed from Move bed panel (10.3h.3)');
+check(/Choose which current bed to move/.test(
+  drawerFn + moveFnBlock + (src.match(/function bcRenderMoveSourcePillsHtml[\s\S]*?\n\}/)?.[0] || '')
+),
+  'Move bed panel keeps source selection prompt');
 
 console.log('\nB. Buttons');
 

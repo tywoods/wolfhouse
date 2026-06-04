@@ -1,5 +1,5 @@
 /**
- * Phase 10.3h / 10.3h.2 — Static verifier for multi-bed source selection in Move bed panel.
+ * Phase 10.3h / 10.3h.2 / 10.3h.3 — Static verifier for multi-bed source selection in Move bed panel.
  *
  * Usage:
  *   npm run verify:staff-booking-move-assignment-ui
@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-move-assignment-ui.js  (Phase 10.3h / 10.3h.2)\n');
+console.log('\nverify-staff-booking-move-assignment-ui.js  (Phase 10.3h / 10.3h.3)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -72,6 +72,32 @@ check(/room_code.*bed_code|bcMoveSourcePillLabel\(a\)/.test(pillsFn),
   'pill label uses room / bed format with fallback');
 check(!/class="btn bc-move-source-pill/.test(pillsFn),
   'source pills do not use plain grey .btn styling');
+
+console.log('\nA3. Drawer UI cleanup (10.3h.3)');
+
+const stayDetailBlock = drawerFn.match(/Stay details[\s\S]*?Move bed \(under stay details/)?.[0] ||
+  drawerFn.match(/kvBC\('Check-in'[\s\S]*?id="bc-move-bed"/)?.[0] || '';
+check(!/kvBC\('Room',/.test(stayDetailBlock),
+  'stay details no longer renders Room field');
+check(!/kvBC\('Beds',/.test(stayDetailBlock) && !/kvBC\('Bed',/.test(stayDetailBlock),
+  'stay details no longer renders Beds/Bed field');
+check(!/kvBC\('Assignment',/.test(stayDetailBlock),
+  'stay details no longer renders Assignment field');
+check(/kvBC\('Check-in'/.test(drawerFn) && /kvBC\('Check-out'/.test(drawerFn),
+  'stay details still renders check-in and check-out');
+check(!/Preview does not change anything/.test(drawerFn),
+  'Move bed panel no longer renders long preview/same-date helper sentence');
+check(!/Current bed/.test(pillsFn),
+  'Move bed panel no longer renders Current bed label');
+check(/Choose which current bed to move/.test(drawerFn + pillsFn),
+  'Choose which current bed to move copy still present');
+check(/function bcClearMoveResult/.test(moveFnBlock),
+  'bcClearMoveResult helper present');
+check(/bcClearMoveResult\(\)/.test(moveFnBlock) &&
+      !/if \(b\.can_move\)[\s\S]{0,120}bcRenderMoveResult\(escHtml\(b\.message \|\| 'Move preview passed/.test(moveFnBlock),
+  'successful preview clears result instead of rendering success block');
+check(/bcRenderMoveResult/.test(moveFnBlock),
+  'error/conflict messages can still render via bcRenderMoveResult');
 
 console.log('\nB. Preview + move requests include booking_bed_id');
 
@@ -143,8 +169,6 @@ check(!/multiple or no bed assignments and requires manual review/.test(drawerFn
 
 console.log('\nH. Preserve existing move behavior');
 
-check(/Preview does not change anything/.test(drawerFn),
-  'safety copy preserved');
 check(/bcReloadAfterMoveSuccess/.test(moveFnBlock),
   'reload/reopen drawer after success preserved');
 check(/booking_move_write_disabled/.test(moveFnBlock),
