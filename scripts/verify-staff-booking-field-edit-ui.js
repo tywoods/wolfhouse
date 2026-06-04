@@ -223,10 +223,16 @@ check(/function bcRenderFieldEditReadRow/.test(renderField),
   '10.6a: horizontal read-row helper exists');
 check(/ctx-field-read-row/.test(renderField) && /\.ctx-field-read-row \.kv-grid\.ctx-field-kv-grid/.test(src),
   '10.6a.6: read rows use shared aligned field kv-grid class');
-check(/grid-template-columns:minmax\(180px,1\.4fr\)/.test(src),
-  '10.6a.6: fixed column grid template on field read rows');
-check(/ctx-field-kv-grid--3/.test(renderField) && /ctx-field-kv-grid--2/.test(renderField),
-  '10.6a.6: three-column and two-column field grid variants');
+check(/grid-template-columns:minmax\(0,1\.35fr\) minmax\(0,0\.92fr\) minmax\(0,1\.08fr\)/.test(src),
+  '10.6c: balanced 3-column grid without wide min widths');
+check(!/minmax\(180px/.test(src.match(/ctx-field-read-row[\s\S]{0,700}/)?.[0] || ''),
+  '10.6c: grid template does not push columns excessively right');
+check(/column-gap:12px/.test(src.match(/ctx-field-read-row[\s\S]{0,700}/)?.[0] || ''),
+  '10.6c: modest column gap for drawer balance');
+check(/ctx-field-kv-grid--3/.test(renderField),
+  '10.6c: shared 3-column field grid class on read rows');
+check(/\.kv:nth-child\(2\)\{grid-column:2\}/.test(src),
+  '10.6c: second column slot explicit for Phone/Check-out/Room pref');
 check(!/flex-wrap:wrap/.test(src.match(/ctx-field-read-row[\s\S]{0,500}/)?.[0] || ''),
   '10.6a.6: field read grid is not content-width flex-wrap');
 check(/overflow-wrap:anywhere/.test(src) && /word-break:break-word/.test(src.match(/ctx-field-read-row[\s\S]{0,600}/)?.[0] || ''),
@@ -253,9 +259,10 @@ check(/bcRenderFieldEditReadRow\('guests', 'Edit guests', kvBC\('Guests'/.test(r
 check(/kvBC\('Package'/.test(renderField) && /kvBC\('Room pref'/.test(renderField) &&
   /bcRenderFieldEditReadRow\('package'/.test(renderField),
   '10.6a: package and room pref share one kv-grid row');
-check(/bcRenderFieldEditReadRow\('package'[\s\S]*roomPref \? 2 : 3/.test(renderField) &&
-  /ctx-field-kv-grid--2/.test(renderField),
-  '10.6a.6: package row uses 2-column grid when room pref present');
+check(/kvBC\('Package'[\s\S]*kvBC\('Room pref'[\s\S]*bcRenderFieldEditReadRow\('package'[\s\S]*,\s*3\)/.test(renderField),
+  '10.6c: package row uses same 3-column grid with room pref in column 2');
+check(!/bcRenderFieldEditReadRow\('package'[\s\S]*roomPref \? 2/.test(renderField),
+  '10.6c: package row does not use separate 2-column template');
 const readRowFn = renderField.match(/function bcRenderFieldEditReadRow[\s\S]*?function bcRenderFieldEditReadRowSub/)?.[0] || '';
 check(/ctx-field-read-row/.test(readRowFn) && /ctx-field-kv-grid/.test(readRowFn) &&
   /ctx-field-header/.test(readRowFn) && /bcRenderFieldEditPencilBtn/.test(readRowFn),

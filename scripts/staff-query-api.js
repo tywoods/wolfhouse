@@ -11519,9 +11519,11 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-field-edit-group{margin:0;padding:6px 0 0;border-top:1px solid var(--border-soft)}
 .ctx-field-edit-group:first-child{padding-top:0;border-top:none}
 .ctx-field-read-row{display:flex;align-items:flex-start;gap:8px}
-.ctx-field-read-row .kv-grid.ctx-field-kv-grid{flex:1;display:grid;grid-template-columns:minmax(180px,1.4fr) minmax(140px,1fr) minmax(180px,1.4fr);gap:6px 18px;align-items:start;min-width:0}
-.ctx-field-read-row .kv-grid.ctx-field-kv-grid--2{grid-template-columns:minmax(180px,1.4fr) minmax(140px,1fr)}
-.ctx-field-read-row .kv{min-width:0}
+.ctx-field-read-row .kv-grid.ctx-field-kv-grid{flex:1;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,0.92fr) minmax(0,1.08fr);column-gap:12px;row-gap:6px;align-items:start;min-width:0;width:100%}
+.ctx-field-read-row .kv{min-width:0;grid-column:auto}
+.ctx-field-read-row .kv:nth-child(1){grid-column:1}
+.ctx-field-read-row .kv:nth-child(2){grid-column:2}
+.ctx-field-read-row .kv:nth-child(3){grid-column:3}
 .ctx-field-read-row .kv .v{overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
 .ctx-field-read-row .ctx-field-header{flex-shrink:0;width:28px;display:flex;align-items:center;justify-content:flex-end;margin:0}
 .ctx-field-read-row--sub .ctx-field-header--spacer{visibility:hidden;pointer-events:none}
@@ -15783,9 +15785,8 @@ function bcRenderFieldEditPencilBtn(group, ariaLabel){
 }
 
 function bcRenderFieldEditReadRow(group, pencilLabel, kvInnerHtml, colTemplate){
-  var gridCls = 'kv-grid ctx-field-kv-grid';
-  if (colTemplate === 2) gridCls += ' ctx-field-kv-grid--2';
-  else gridCls += ' ctx-field-kv-grid--3';
+  var gridCls = 'kv-grid ctx-field-kv-grid ctx-field-kv-grid--3';
+  if (colTemplate !== 3) gridCls = 'kv-grid ctx-field-kv-grid';
   return '<div class="ctx-field-read" id="bc-field-' + escHtml(group) + '-read">' +
     '<div class="ctx-field-read-row">' +
     '<div class="' + gridCls + '" id="bc-field-' + escHtml(group) + '-kv">' + kvInnerHtml + '</div>' +
@@ -15794,9 +15795,8 @@ function bcRenderFieldEditReadRow(group, pencilLabel, kvInnerHtml, colTemplate){
 }
 
 function bcRenderFieldEditReadRowSub(kvInnerHtml, colTemplate){
-  var gridCls = 'kv-grid ctx-field-kv-grid';
-  if (colTemplate === 2) gridCls += ' ctx-field-kv-grid--2';
-  else gridCls += ' ctx-field-kv-grid--3';
+  var gridCls = 'kv-grid ctx-field-kv-grid ctx-field-kv-grid--3';
+  if (colTemplate !== 3) gridCls = 'kv-grid ctx-field-kv-grid';
   return '<div class="ctx-field-read-row ctx-field-read-row--sub">' +
     '<div class="' + gridCls + '">' + kvInnerHtml + '</div>' +
     '<div class="ctx-field-header ctx-field-header--spacer" aria-hidden="true"></div></div>';
@@ -15886,7 +15886,7 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   var packageKv = kvBC('Package', bk.package_code || '\u2014');
   if (roomPref) packageKv += kvBC('Room pref', roomPref);
-  html += bcRenderFieldEditReadRow('package', 'Edit package', packageKv, roomPref ? 2 : 3);
+  html += bcRenderFieldEditReadRow('package', 'Edit package', packageKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-package-select">Package</label>';
   html += '<select id="bc-field-package-select" class="bk-input bk-input-sm">';
