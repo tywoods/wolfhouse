@@ -15768,6 +15768,14 @@ function updateBcDetailHeader(data){
   meta.innerHTML = bcDetailHeaderMetaHtml(bcLastOpenedBlock, bk, ledger);
 }
 
+function bcRefreshBlockDetail(){
+  var blk = bcLastOpenedBlock;
+  if (!blk || !blk.booking_code) return;
+  var ctxEl = el('bc-ctx-body');
+  if (ctxEl) ctxEl.innerHTML = '<div class="ctx-loading">Loading booking details\u2026</div>';
+  loadBlockDetail(blk.booking_code);
+}
+
 function showBlockDetail(blk){
   if (!blk) return;
   bcClearSelection();
@@ -15775,10 +15783,10 @@ function showBlockDetail(blk){
   el('bc-detail').innerHTML =
     '<div class="toolbar"><h2 class="bc-detail-title">' + escHtml(blk.booking_code||'\u2014') +
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
-    '<button class="btn btn-ghost" id="bc-close-detail">&times; Close</button></div>' +
+    '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="Refresh booking details">\u21bb Refresh</button></div>' +
     '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>';
   el('bc-detail').style.display = 'block';
-  el('bc-close-detail').addEventListener('click', function(){ el('bc-detail').style.display = 'none'; });
+  el('bc-refresh-detail').addEventListener('click', bcRefreshBlockDetail);
   if (blk.booking_code) loadBlockDetail(blk.booking_code);
 }
 

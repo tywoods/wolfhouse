@@ -2207,6 +2207,35 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.7b: bed calendar handler has no DB writes');
 })();
 
+// ── Phase 10.7c — booking drawer Refresh (not Close) ───────────────────────
+(function check107cDrawerRefresh(){
+  const showStart = src.indexOf('function showBlockDetail');
+  const showEnd   = showStart > 0 ? src.indexOf('\nfunction ', showStart + 10) : -1;
+  const showSrc   = showStart > 0 && showEnd > 0 ? src.slice(showStart, showEnd) : '';
+  check(/id="bc-refresh-detail"/.test(showSrc) &&
+        (/\\u21bb Refresh/.test(showSrc) || />Refresh</.test(showSrc)),
+    '10.7c: booking drawer header has Refresh button');
+  check(!/id="bc-close-detail"/.test(showSrc) && !/&times;\s*Close/.test(showSrc),
+    '10.7c: booking drawer header has no × Close button');
+  check(/function bcRefreshBlockDetail/.test(src),
+    '10.7c: bcRefreshBlockDetail helper present');
+  const refreshStart = src.indexOf('function bcRefreshBlockDetail');
+  const refreshEnd   = refreshStart > 0 ? src.indexOf('\nfunction ', refreshStart + 10) : -1;
+  const refreshSrc   = refreshStart > 0 && refreshEnd > 0 ? src.slice(refreshStart, refreshEnd) : '';
+  check(/loadBlockDetail\s*\(/.test(refreshSrc) && /bcLastOpenedBlock/.test(refreshSrc),
+    '10.7c: Refresh reloads via loadBlockDetail using bcLastOpenedBlock');
+  check(!/location\.reload\s*\(/.test(refreshSrc),
+    '10.7c: Refresh does not call location.reload()');
+  check(/bc-refresh-detail/.test(showSrc) && /bcRefreshBlockDetail/.test(showSrc),
+    '10.7c: drawer Refresh click wires bcRefreshBlockDetail');
+  check(!/bcRefreshBlockDetail[\s\S]{0,400}display\s*=\s*['"]none['"]/.test(refreshSrc),
+    '10.7c: Refresh does not hide booking drawer');
+  check(/function loadBlockDetail/.test(src),
+    '10.7c: loadBlockDetail context reload path still present');
+  check(/showBlockDetail\s*\(/.test(src),
+    '10.7c: showBlockDetail still opens booking drawer from calendar');
+})();
+
 // ── Phase 10.7c — Apr-May / May-Jun chips + source legend preserved ─────────
 (function check107cRangeChipsAndLegend(){
   const legendSlice = (() => {
