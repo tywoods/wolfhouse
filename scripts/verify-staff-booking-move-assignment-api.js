@@ -40,7 +40,7 @@ try {
 }
 
 const previewHandler = src.match(/async function handleBookingMovePreview[\s\S]*?(?=\r?\n\/\/ ─+\r?\n\/\/ Phase 10\.4b)/)?.[0] || '';
-const writeHandler   = src.match(/async function handleBookingMoveWrite[\s\S]*?(?=\r?\nasync function handleBookingMovePreview)/)?.[0] || '';
+const writeHandler   = src.match(/async function handleBookingMoveWrite[\s\S]*?(?=\r?\nasync function handleBookingMoveTargets)/)?.[0] || '';
 const sharedBlock    = src.slice(src.indexOf('function moveResolveSourceBed'), src.indexOf('async function handleBookingMoveWrite'));
 
 console.log('\nA. Request field booking_bed_id');
@@ -87,6 +87,10 @@ check(/MOVE_WRITE_UPDATE_BED_SQL/.test(writeHandler),
   'write uses single booking_beds UPDATE by id');
 check(/sourceBed\.booking_bed_id/.test(writeHandler),
   'write passes selected booking_bed_id to UPDATE');
+check(/const sourceBookingId = bookingRow\.booking_id/.test(writeHandler),
+  'sourceBookingId defined from bookingRow.booking_id (10.3i.1)');
+check(/sourceBookingId,/.test(writeHandler),
+  'UPDATE path uses sourceBookingId for booking ownership check');
 check(!/INSERT INTO booking_beds/i.test(writeHandler),
   'no INSERT booking_beds in move write');
 check(!/DELETE FROM booking_beds/i.test(writeHandler),

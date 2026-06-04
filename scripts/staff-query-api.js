@@ -2716,6 +2716,7 @@ async function handleBookingMoveWrite(req, res, user) {
   }
 
   const previousAssignment = moveWriteAssignmentSummary(sourceBed, null);
+  const sourceBookingId = bookingRow.booking_id;
 
   if (
     sourceBed.bed_id === bedRow.bed_id &&

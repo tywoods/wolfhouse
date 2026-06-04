@@ -37,7 +37,7 @@ try {
   fail('staff-query-api.js passes node --check');
 }
 
-const handlerMatch = src.match(/async function handleBookingMoveWrite[\s\S]*?(?=\r?\nasync function handleBookingMovePreview)/);
+const handlerMatch = src.match(/async function handleBookingMoveWrite[\s\S]*?(?=\r?\nasync function handleBookingMoveTargets)/);
 const handlerBlock = handlerMatch ? handlerMatch[0] : '';
 const previewHandlerMatch = src.match(/async function handleBookingMovePreview[\s\S]*?(?=\r?\n\/\/ ─+\r?\n\/\/ Route: POST \/staff\/quote-preview)/);
 const previewHandlerBlock = previewHandlerMatch ? previewHandlerMatch[0] : '';
@@ -108,6 +108,14 @@ check(/await pg\.query\('BEGIN'\)/.test(handlerBlock),
   'write uses transaction BEGIN');
 check(/conflicts\.length > 0/.test(handlerBlock),
   'conflict recheck blocks mutation');
+
+check(/sourceBed\.booking_bed_id/.test(handlerBlock),
+  'write passes selected booking_bed_id to UPDATE');
+check(/const sourceBookingId = bookingRow\.booking_id/.test(handlerBlock),
+  'sourceBookingId defined from bookingRow.booking_id before UPDATE');
+check(/sourceBookingId,/.test(handlerBlock) &&
+      /MOVE_WRITE_UPDATE_BED_SQL/.test(handlerBlock),
+  'UPDATE uses sourceBookingId from resolved booking row');
 
 console.log('\nE. Mutation — single booking_beds UPDATE only');
 
