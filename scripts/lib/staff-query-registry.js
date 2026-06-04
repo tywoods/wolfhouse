@@ -34,6 +34,7 @@ const paymentQueries = require('./staff-payment-queries');
 const roomingQueries = require('./staff-rooming-queries');
 const addonQueries   = require('./staff-addon-queries');
 const handoffQueries = require('./staff-handoff-queries');
+const askLunaLessons   = require('./staff-ask-luna-lessons');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Param descriptor shape (for documentation + CLI validation)
@@ -425,6 +426,39 @@ const REGISTRY = [
     clientSlugged:   true,
     readOnly:        true,
     migrationRequired: 'migration_007',
+  },
+
+  // ── Services (Ask Luna — booking_service_records) ─────────────────────────
+
+  {
+    key:             'services.lessons_today',
+    category:        'services',
+    description:     'Who has surf lessons booked today?',
+    helperModule:    'lib/staff-ask-luna-lessons',
+    helperFn:        'getAskLunaLessonsOnDateQuery',
+    helperRef:       askLunaLessons.getAskLunaLessonsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Lesson date (ISO date, use today)', example: '2026-06-04' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.lessons_tomorrow',
+    category:        'services',
+    description:     'Who has surf lessons booked tomorrow?',
+    helperModule:    'lib/staff-ask-luna-lessons',
+    helperFn:        'getAskLunaLessonsOnDateQuery',
+    helperRef:       askLunaLessons.getAskLunaLessonsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Lesson date (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
   },
 
   // ── Handoffs ──────────────────────────────────────────────────────────────

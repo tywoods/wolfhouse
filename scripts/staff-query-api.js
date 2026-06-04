@@ -62,6 +62,11 @@ const {
 } = require('./lib/staff-ask-luna-balance-due');
 const { classifyAskLunaIntentWithAi } = require('./lib/staff-ask-luna-ai-intent');
 const { formatBalanceDueAnswerNatural } = require('./lib/staff-ask-luna-ai-answer-format');
+const {
+  resolveAskLunaLessonsIntentKey,
+  getAskLunaLessonsOnDateQuery,
+  formatAskLunaLessonsAnswer,
+} = require('./lib/staff-ask-luna-lessons');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1466,6 +1471,8 @@ const ASK_LUNA_LOCAL_QUERY = {
   'services.surfboard.on_date':  getAskLunaServiceSurfboardQuery,
   'services.wetsuit.count_on_date': getAskLunaServiceWetsuitCountQuery,
   'services.surfboard.count_on_date': getAskLunaServiceSurfboardCountQuery,
+  'services.lessons_today':    getAskLunaLessonsOnDateQuery,
+  'services.lessons_tomorrow': getAskLunaLessonsOnDateQuery,
 };
 
 /**
@@ -1474,6 +1481,11 @@ const ASK_LUNA_LOCAL_QUERY = {
  */
 function resolveNaturalLanguageIntent(question) {
   const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
+  const refDate = new Date();
+
+  // Lessons today/tomorrow before generic registry passthrough (needs date params)
+  const lessonsIntentEarly = resolveAskLunaLessonsIntentKey(question, REGISTRY_BY_KEY, refDate);
+  if (lessonsIntentEarly) return lessonsIntentEarly;
 
   // Direct registry key passthrough before normalize (keeps dots in keys)
   const rawQ = String(question || '').trim().toLowerCase();
@@ -1624,6 +1636,8 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'services.yoga.paid_on_date':   `No yoga payments recorded ${when}.`,
       'services.meal.paid_on_date':   `No meal payments recorded ${when}.`,
       'services.surf_lesson.on_date': `No surf lessons scheduled ${when}.`,
+      'services.lessons_today':       'No surf lessons are currently booked for today.',
+      'services.lessons_tomorrow':    'No surf lessons are currently booked for tomorrow.',
       'services.wetsuit.on_date':     `No wetsuits needed ${when}.`,
       'services.surfboard.on_date':   `No surfboards needed ${when}.`,
     };
@@ -1745,6 +1759,9 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       const total = Number(rows[0]?.quantity ?? 0);
       return `${total} surfboard${total !== 1 ? 's' : ''} needed ${when}.`;
     }
+    case 'services.lessons_today':
+    case 'services.lessons_tomorrow':
+      return formatAskLunaLessonsAnswer(rows, ctx);
     default: {
       return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
     }
@@ -1839,6 +1856,7 @@ async function handleAskLuna(req, res) {
       'how many check out tomorrow (check_outs.count)',
       'rooms/beds needing cleaning (rooms_or_beds_need_cleaning)',
       'who paid for yoga/meals (services.yoga/meal.paid_on_date)',
+      'surf lessons today or tomorrow (services.lessons_today / services.lessons_tomorrow)',
       'surf lessons / wetsuits / surfboards (services.*)',
       'who needs human reply (handoffs.open)',
       'deposit paid (payments.deposit)',

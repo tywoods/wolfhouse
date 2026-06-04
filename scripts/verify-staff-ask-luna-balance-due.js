@@ -167,10 +167,13 @@ const routeChunk = [
 
 try {
   const bdLib = require('./lib/staff-ask-luna-balance-due');
+  const lessonsLib = require('./lib/staff-ask-luna-lessons');
+  const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
   const routeWrapped = `
     const matchesBalanceDueQuestion = ${bdLib.matchesBalanceDueQuestion.toString()};
     const normalizeBalanceDueQuestionText = ${bdLib.normalizeBalanceDueQuestionText.toString()};
     const resolveBalanceDueIntentKey = ${bdLib.resolveBalanceDueIntentKey.toString()};
+    ${lessonsRoutingBlock}
     const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
     const require = (id) => {
       if (String(id).includes('staff-query-registry')) {
@@ -179,6 +182,9 @@ try {
       }
       if (String(id).includes('staff-ask-luna-balance-due')) {
         return { matchesBalanceDueQuestion, normalizeBalanceDueQuestionText, resolveBalanceDueIntentKey, BALANCE_DUE_INTENT_KEY };
+      }
+      if (String(id).includes('staff-ask-luna-lessons')) {
+        return { resolveAskLunaLessonsIntentKey };
       }
       throw new Error('require ' + id);
     };

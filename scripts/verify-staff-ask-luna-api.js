@@ -345,11 +345,14 @@ function extractAskLunaRouterChunk() {
     const chunk = extractAskLunaRouterChunk();
     if (!chunk) throw new Error('could not extract Ask Luna router chunk');
     const balanceDueLib = require('./lib/staff-ask-luna-balance-due');
+    const lessonsLib = require('./lib/staff-ask-luna-lessons');
+    const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
     const registryKeys = [...require('./lib/staff-query-registry').REGISTRY_BY_KEY.keys()];
     const wrapped = `
       const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
       const normalizeBalanceDueQuestionText = ${balanceDueLib.normalizeBalanceDueQuestionText.toString()};
       const resolveBalanceDueIntentKey = ${balanceDueLib.resolveBalanceDueIntentKey.toString()};
+      ${lessonsRoutingBlock}
       const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) {
@@ -358,6 +361,9 @@ function extractAskLunaRouterChunk() {
         }
         if (String(id).includes('staff-ask-luna-balance-due')) {
           return { matchesBalanceDueQuestion, normalizeBalanceDueQuestionText, resolveBalanceDueIntentKey, BALANCE_DUE_INTENT_KEY };
+        }
+        if (String(id).includes('staff-ask-luna-lessons')) {
+          return { resolveAskLunaLessonsIntentKey };
         }
         throw new Error('unexpected require: ' + id);
       };
@@ -385,8 +391,8 @@ function extractAskLunaRouterChunk() {
     const boardCount = resolveIntent('How many surfboards do we need on June 15');
     check('K-I4b', 'runtime: meal paid tomorrow → services.meal.paid_on_date',
       mealPaid && mealPaid.intentKey === 'services.meal.paid_on_date' && mealPaid.extraParams.dateLabel === 'tomorrow');
-    check('K-I4c', 'runtime: lesson today → services.surf_lesson.on_date',
-      lesson && lesson.intentKey === 'services.surf_lesson.on_date');
+    check('K-I4c', 'runtime: lesson today → services.lessons_today',
+      lesson && lesson.intentKey === 'services.lessons_today' && lesson.extraParams.dateLabel === 'today');
     check('K-I4d', 'runtime: wetsuit who → services.wetsuit.on_date',
       wetsuit && wetsuit.intentKey === 'services.wetsuit.on_date');
     check('K-I4e', 'runtime: wetsuit count → services.wetsuit.count_on_date',
