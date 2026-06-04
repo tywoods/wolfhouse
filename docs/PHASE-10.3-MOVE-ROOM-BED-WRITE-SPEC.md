@@ -1,13 +1,13 @@
 # Phase 10.3 — Move Room/Bed Write Spec
 
-**Status:** COMPLETE ENOUGH / PASS — Phase 10.3 (2026-06-04). Implementation + hosted proof complete.  
+**Status:** COMPLETE ENOUGH / PASS — Phase 10.3 + **10.3e** (2026-06-04). Implementation + hosted proof complete.  
 **Parent:** Phase 10 — Staff Operations Polish  
 **Prior:** [Phase 10.2 move preview closeout](ROADMAP.md) — `POST /staff/bookings/move-preview` hosted and proven SELECT-only (commit `6d339e3`, revision `--0000054`)  
-**Next:** Decide **10.3e** Staff Portal UI move controls vs **Phase 10.4** date-change preview
+**Next:** **Phase 10.4 — Date-change preview** (preview-only; same bed/room MVP; half-open overlap; no mutation)
 
-**Implementation commits:** `d9b5c36` (10.3a spec) · `b5c76fe` (10.3b API) · `0a1acbf` (10.3b.1 verifier alignment). **Hosted:** `0a1acbf-stage103c-move-write-gated` → revisions `--0000055` (gate OFF) · `--0000056` (gate ON, move proof) · `--0000057` (gate OFF cleanup, current). **Staging gate:** `BOOKING_MOVE_WRITE_ENABLED=false` (default OFF).
+**Implementation commits:** `d9b5c36` (10.3a spec) · `b5c76fe` (10.3b API) · `0a1acbf` (10.3b.1 verifier alignment) · **`7104815`** (10.3e Staff Portal drawer move controls). **Hosted:** `7104815-stage103e-move-ui-gate-off` → revisions **`--0000058`** (gate OFF UI proof) · **`--0000059`** (gate ON move proof) · **`--0000060`** (gate OFF cleanup, current, **100% traffic**). **Staging gate:** `BOOKING_MOVE_WRITE_ENABLED=false` (default OFF).
 
-**Non-negotiables (preserved):** No n8n activation. No WhatsApp. No Stripe calls from move write. No payment or `booking_service_records` mutation. No UI move button yet (10.3e). Write gate OFF on staging after proof.
+**Non-negotiables (preserved):** No n8n activation. No WhatsApp. No Stripe calls from move write. No payment or `booking_service_records` mutation. Staff Portal drawer move UI (**10.3e**) — preview always available; write gated. Write gate OFF on staging after proof.
 
 **Context:** Live WhatsApp **NO_GO**. n8n **inactive** unless explicitly approved. Stripe webhook remains payment truth. `booking_service_records` remains service/add-on truth. Preview path reuses Phase 10.2 half-open overlap + same-day turnover rules.
 
@@ -242,7 +242,7 @@ File audit: reuse `appendAuditLog()` pattern from `staff-query-api.js` with `int
 | Service records | No mutation |
 | Ask Luna | No changes |
 | Live guest automation | **NO_GO** |
-| Proof booking | `MB-WOLFHO-20260920-4f62e2` (Manual Polish Test) — moved B1→B2 on staging; remains on **DEMO-R1-B2** after proof |
+| Proof booking | `MB-WOLFHO-20260920-4f62e2` (Manual Polish Test) — 10.3c moved B1→B2; 10.3e gate-ON moved B2→B1; remains on **DEMO-R1-B1** after cleanup (`--0000060`) |
 
 ---
 
@@ -254,8 +254,8 @@ File audit: reuse `appendAuditLog()` pattern from `staff-query-api.js` with `int
 | **10.3b** | API handler | **PASS** (`b5c76fe`) — `POST /staff/bookings/move`; operator auth + `BOOKING_MOVE_WRITE_ENABLED`; transaction + conflict recheck; Option A UPDATE; no UI |
 | **10.3b.1** | Verifier alignment | **PASS** (`0a1acbf`) — preview verifier distinguishes gated write route |
 | **10.3c** | Hosted proof + safety cleanup | **PASS** — move B1→B2 on `MB-WOLFHO-20260920-4f62e2`; gate OFF/ON/OFF; idempotency; revision `--0000057` gate OFF |
-| **10.3e** | UI (optional) | **Not started** — Bed Calendar / drawer "Move" button |
-| **10.4** | Date-change preview/write | **Deferred** |
+| **10.3e** | Staff Portal drawer move UI | **PASS** (`7104815`) — Move bed panel; Preview move + Move booking; gate-OFF UI proof `--0000058`; gate-ON move B2→B1 `--0000059`; cleanup `--0000060` gate OFF |
+| **10.4** | Date-change preview/write | **Next** — preview-only; same bed/room MVP; half-open overlap; no mutation yet |
 
 Preview route and verifier (`verify:staff-booking-move-preview`) remain unchanged.
 
@@ -288,8 +288,7 @@ Preview route and verifier (`verify:staff-booking-move-preview`) remain unchange
 **Out of scope (defer):**
 
 - Multi-bed moves
-- Date-span changes (→ 10.4)
-- UI button (→ 10.3e)
+- Date-span changes (→ 10.4 preview first)
 - `bookings.primary_room_code` sync (unless drawer proof requires it)
 - Payment/service/message side effects
 - n8n / WhatsApp / Stripe
