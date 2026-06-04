@@ -85,6 +85,7 @@
     "verify:staff-booking-move-write": "node scripts/verify-staff-booking-move-write.js",
     "verify:staff-booking-move-ui": "node scripts/verify-staff-booking-move-ui.js",
     "verify:staff-booking-move-assignment-api": "node scripts/verify-staff-booking-move-assignment-api.js",
+    "verify:staff-booking-move-assignment-ui": "node scripts/verify-staff-booking-move-assignment-ui.js",
     "verify:staff-booking-drawer-layout": "node scripts/verify-staff-booking-drawer-layout.js",
     "verify:staff-stripe-payment-link-api": "node scripts/verify-staff-stripe-payment-link-api.js",
     "verify:staff-addon-service-payment-api": "node scripts/verify-staff-addon-service-payment-api.js",
