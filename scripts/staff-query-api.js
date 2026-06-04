@@ -3718,11 +3718,28 @@ function paymentLedgerCanCancelLinkRow(pr) {
   return true;
 }
 
+function paymentLedgerIsActiveUnpaidLinkRow(pr) {
+  if (!pr) return false;
+  const st = String(pr.payment_status || '').toLowerCase();
+  if (paymentLedgerIsCancelledLinkStatus(st)) return false;
+  if (!PAYMENT_LEDGER_CANCELLABLE_LINK_STATUSES.has(st)) return false;
+  if (Number(pr.amount_paid_cents || 0) > 0) return false;
+  if (st === 'draft' && !paymentLedgerRowHasLinkUrl(pr) && !pr.checkout_url) return false;
+  return !!(pr.checkout_url || paymentLedgerRowHasLinkUrl(pr));
+}
+
+function paymentLedgerIsStaleUnpaidLinkRow(pr, balanceDueCents) {
+  if (!paymentLedgerIsActiveUnpaidLinkRow(pr)) return false;
+  if (balanceDueCents == null || balanceDueCents <= 0) return false;
+  return Number(pr.amount_due_cents) !== Number(balanceDueCents);
+}
+
 function ledgerActivePaymentLinkRow(rows, balanceDueCents) {
   if (!balanceDueCents || balanceDueCents <= 0) return null;
   for (const pr of rows || []) {
     const st = String(pr.payment_status || '').toLowerCase();
     if (paymentLedgerIsCancelledLinkStatus(st)) continue;
+    if (paymentLedgerIsStaleUnpaidLinkRow(pr, balanceDueCents)) continue;
     if ((st === 'checkout_created' || st === 'draft')
         && pr.checkout_url
         && Number(pr.amount_due_cents) === Number(balanceDueCents)
@@ -12078,7 +12095,10 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-pay-record-paid{background:#F3FAF1;border-color:#B5D3AD}
 .ctx-pay-record-checkout{border-color:#B5C7D3}
 .ctx-pay-record-cancelled{opacity:.78;border-color:#E0D8CE;background:#F5F0EB}
+.ctx-pay-record-stale{border-color:#E8D4A8;background:#FFFBF3}
 .ctx-pay-record-badge{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px}
+.ctx-pay-record-badge-outdated{background:#F5E6D6;color:#7A4A12}
+.ctx-pay-record-stale-note{font-size:11px;color:var(--text-2);margin-top:6px;padding-top:6px;border-top:1px solid var(--border-soft);line-height:1.4}
 .btn-bc-cancel-link-icon,.btn-bc-copy-link-icon{border:1px solid var(--border-soft);background:var(--bg-0,#fff);border-radius:4px;padding:2px 7px;font-size:13px;line-height:1;cursor:pointer;color:var(--text-2)}
 .btn-bc-cancel-link-icon:hover{background:#FDF3F0;border-color:#D4A89A;color:#8B3A2A}
 .ctx-cancel-link-confirm{margin-top:8px;padding:8px 10px;border:1px solid #E8D4CE;border-radius:6px;background:#FDF8F6;font-size:11.5px;line-height:1.45}
@@ -15518,6 +15538,22 @@ function bcBookingLedgerBalance(bk, svcRows, paymentRows){
   };
 }
 
+function bcPaymentLedgerIsActiveUnpaidLinkRow(pr){
+  if (!pr) return false;
+  var st = String(pr.payment_status || '').toLowerCase();
+  if (bcPaymentLedgerIsCancelledLinkStatus(st)) return false;
+  if (st !== 'checkout_created' && st !== 'draft' && st !== 'pending') return false;
+  if (Number(pr.amount_paid_cents || 0) > 0) return false;
+  if (st === 'draft' && !bcPaymentLedgerRowHasLinkUrl(pr) && !pr.checkout_url) return false;
+  return !!(pr.checkout_url || bcPaymentLedgerRowHasLinkUrl(pr));
+}
+
+function bcPaymentLedgerIsStaleUnpaidLinkRow(pr, balanceDueCents){
+  if (!bcPaymentLedgerIsActiveUnpaidLinkRow(pr)) return false;
+  if (balanceDueCents == null || balanceDueCents <= 0) return false;
+  return Number(pr.amount_due_cents) !== Number(balanceDueCents);
+}
+
 function bcLedgerActivePaymentLinkRow(rows, balanceDueCents){
   rows = rows || [];
   if (!balanceDueCents || balanceDueCents <= 0) return null;
@@ -15525,6 +15561,7 @@ function bcLedgerActivePaymentLinkRow(rows, balanceDueCents){
     var pr = rows[i];
     var st = String(pr.payment_status || '').toLowerCase();
     if (bcPaymentLedgerIsCancelledLinkStatus(st)) continue;
+    if (bcPaymentLedgerIsStaleUnpaidLinkRow(pr, balanceDueCents)) continue;
     if ((st === 'checkout_created' || st === 'draft')
         && pr.checkout_url
         && Number(pr.amount_due_cents) === Number(balanceDueCents)
@@ -15535,18 +15572,48 @@ function bcLedgerActivePaymentLinkRow(rows, balanceDueCents){
   return null;
 }
 
-function bcPaymentLedgerMethodLabel(pr){
+function bcPaymentLedgerRowSortGroup(pr, balanceDueCents){
+  if (bcPaymentLedgerIsActiveUnpaidLinkRow(pr)) return 0;
+  if (bcPaymentLedgerIsPaidStatus(pr.payment_status)) return 1;
+  return 2;
+}
+
+function bcPaymentLedgerSortRows(rows, balanceDueCents){
+  rows = (rows || []).slice();
+  rows.sort(function(a, b){
+    var ga = bcPaymentLedgerRowSortGroup(a, balanceDueCents);
+    var gb = bcPaymentLedgerRowSortGroup(b, balanceDueCents);
+    if (ga !== gb) return ga - gb;
+    var ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    var tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
+  return rows;
+}
+
+function bcPaymentLedgerRowDisplayLabel(pr){
   pr = pr || {};
+  var st = String(pr.payment_status || '').toLowerCase();
   var md = bcPaymentLedgerParseMetadata(pr.metadata);
-  if (md.method) return String(md.method);
-  if (md.source === 'staff_payment_link' || md.source === 'staff_portal_payment_link') return 'payment link';
-  if (md.source === 'staff_cash') return 'cash';
-  if (md.source === 'staff_manual') return 'manual';
-  if (pr.stripe_checkout_session_id || pr.stripe_payment_intent_id) return 'stripe';
-  if (pr.payment_status === 'checkout_created') return 'payment link';
-  if (pr.payment_status === 'draft') return 'draft';
-  if (pr.payment_kind) return String(pr.payment_kind).replace(/_/g, ' ');
-  return '\u2014';
+  var method = String(md.method || '').toLowerCase();
+  var source = String(md.source || '').toLowerCase();
+
+  if (st === 'failed') return 'Failed payment';
+  if (st === 'cancelled' || st === 'canceled') return 'Cancelled payment link';
+  if (st === 'expired') return 'Cancelled payment link';
+
+  if (bcPaymentLedgerIsPaidStatus(st)) {
+    if (source === 'staff_cash' || method === 'cash') return 'Paid cash';
+    if (source === 'staff_bank_transfer' || method === 'bank_transfer') return 'Paid bank transfer';
+    return 'Stripe paid';
+  }
+
+  if (st === 'checkout_created' || st === 'pending' || (st === 'draft' && (pr.checkout_url || bcPaymentLedgerRowHasLinkUrl(pr)))) {
+    return 'Stripe link created \u2014 awaiting payment';
+  }
+
+  if (st === 'draft') return 'Draft payment';
+  return st ? st.replace(/_/g, ' ') : '\u2014';
 }
 
 function bcRunningInvoiceSvcLineText(sr){
@@ -15580,13 +15647,6 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
     return '\u20ac' + (Number(cents) / 100).toFixed(2);
-  };
-  var pmtStatusLabel = function(s){
-    var m = {
-      draft: 'Draft payment', checkout_created: 'Checkout link created', pending: 'Pending',
-      paid: 'Paid \u2713', expired: 'Expired', cancelled: 'Cancelled link', failed: 'Failed',
-    };
-    return m[s] || (s ? s.replace(/_/g, ' ') : '\u2014');
   };
   var shortId = function(v){ return v ? (v.length > 14 ? v.slice(0, 14) + '\u2026' : v) : null; };
   var fmtDate = function(v){
@@ -15670,29 +15730,39 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   }
   html += '</div>';
 
+  var needsRefund = invoiceTotal != null && paidCents != null && invoiceTotal < paidCents;
+  var balanceDue = (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents)
+    ? invoiceTotal - paidCents : (needsRefund ? 0 : null);
+  var sortedLedgerRows = bcPaymentLedgerSortRows(ledgerRows, balanceDue);
+
   /* Payment history ledger */
   html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
   html += '<div class="ctx-inv-subtitle">Payment history</div>';
-  if (ledgerRows.length > 0){
-    ledgerRows.forEach(function(pr){
+  if (sortedLedgerRows.length > 0){
+    sortedLedgerRows.forEach(function(pr){
       var isPaid = bcPaymentLedgerIsPaidStatus(pr.payment_status);
       var isCancelled = bcPaymentLedgerIsCancelledLinkStatus(pr.payment_status);
-      var isCreated = pr.payment_status === 'checkout_created';
+      var isActiveUnpaid = bcPaymentLedgerIsActiveUnpaidLinkRow(pr);
+      var isStale = bcPaymentLedgerIsStaleUnpaidLinkRow(pr, balanceDue);
+      var isCreated = isActiveUnpaid && !isStale;
       var canCancel = bcPaymentLedgerCanCancelLinkRow(pr);
+      var displayLabel = bcPaymentLedgerRowDisplayLabel(pr);
       var recCls = 'ctx-pay-record';
       if (isPaid) recCls += ' ctx-pay-record-paid';
       else if (isCancelled) recCls += ' ctx-pay-record-cancelled';
+      else if (isStale) recCls += ' ctx-pay-record-stale';
       else if (isCreated) recCls += ' ctx-pay-record-checkout';
       var md = bcPaymentLedgerParseMetadata(pr.metadata);
-      var methodLabel = bcPaymentLedgerMethodLabel(pr);
       var pid = pr.payment_id || '';
       html += '<div class="' + recCls + '" data-payment-id="' + escHtml(pid) + '">';
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">';
       var badgeCls = isPaid ? 'ctx-pay-record-badge ctx-pay-record-badge-paid' :
         isCreated ? 'ctx-pay-record-badge ctx-pay-record-badge-checkout' :
         'ctx-pay-record-badge ctx-pay-record-badge-default';
-      html += '<span class="' + badgeCls + '">' + escHtml(pmtStatusLabel(pr.payment_status)) + '</span>';
-      html += '<span class="ctx-pay-record-badge ctx-pay-record-badge-default">' + escHtml(methodLabel) + '</span>';
+      html += '<span class="' + badgeCls + '">' + escHtml(displayLabel) + '</span>';
+      if (isStale){
+        html += '<span class="ctx-pay-record-badge ctx-pay-record-badge-outdated">Outdated amount</span>';
+      }
       if (canCancel){
         html += '<button type="button" class="btn-bc-cancel-link-icon" data-payment-id="' + escHtml(pid) + '" ' +
           'title="Cancel payment link" aria-label="Cancel payment link">\u2715</button>';
@@ -15714,8 +15784,8 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
       if (pr.payment_id)
         html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Ref</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px"><code>' + escHtml(shortId(pr.payment_id)) + '</code></span></div>';
       html += '</div>';
-      if (isCreated && !isPaid && !isCancelled){
-        html += '<div class="ctx-pay-record-wait">\u23F3 Payment link created \u2014 awaiting payment.</div>';
+      if (isStale){
+        html += '<div class="ctx-pay-record-stale-note">Current balance changed. Generate a new link.</div>';
       }
       if (canCancel){
         var confirmAmt = pr.amount_due_cents != null ? eur(pr.amount_due_cents) : '\u2014';
@@ -15760,9 +15830,6 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   }
   html += '</div>';
 
-  var needsRefund = invoiceTotal != null && paidCents != null && invoiceTotal < paidCents;
-  var balanceDue = (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents)
-    ? invoiceTotal - paidCents : (needsRefund ? 0 : null);
   html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
   html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
 

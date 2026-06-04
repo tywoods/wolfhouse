@@ -46,6 +46,8 @@ const linkInit = src.match(/function bcInitPaymentLinkShell[\s\S]*?\n\}/)?.[0] |
 const cancelHandler = src.match(/async function handleBookingCancelPaymentLink[\s\S]*?\n\}/)?.[0] || '';
 const cancelUi = src.match(/function bcInitCancelPaymentLinkShell[\s\S]*?\n\}/)?.[0] || '';
 const invFn = src.match(/function bcRenderRunningInvoiceHtml[\s\S]*?\n\}/)?.[0] || '';
+const labelFn = src.match(/function bcPaymentLedgerRowDisplayLabel[\s\S]*?\n\}/)?.[0] || '';
+const ledgerUiSlice = src.match(/function bcPaymentLedgerSortRows[\s\S]*?function bcRenderPaymentLinkSectionHtml/)?.[0] || '';
 const ledgerHelpers = src.match(/function paymentLedgerPaidTotalCents[\s\S]*?function bookingLedgerBalanceFromRows/)?.[0] || '';
 
 console.log('\nA. Package script');
@@ -134,7 +136,8 @@ check(/bcInitPaymentLinkShell\(res\.data\)/.test(src), 'drawer init payment link
 check(/loadBlockDetail\(bk\.booking_code\)/.test(linkInit),
   'success reloads drawer for payment history');
 check(/generate-payment-link/.test(linkInit), 'UI posts to generate-payment-link');
-check(/checkout_created/.test(invFn), 'history shows checkout_created rows');
+check(/return 'Stripe link created/.test(src),
+  'history shows awaiting-payment label for link rows');
 check(/bcPaymentLedgerIsPaidStatus/.test(invFn) || /bcPaymentLedgerIsPaidStatus/.test(ledgerHelpers),
   'paid helper excludes link rows from Paid total');
 check(/ctx-pay-record-checkout/.test(invFn), 'checkout link styling in history');
@@ -157,7 +160,25 @@ check(/bcInitCancelPaymentLinkShell\(res\.data\)/.test(src), 'drawer init cancel
 check(/loadBlockDetail\(bk\.booking_code\)/.test(cancelUi),
   'after cancel reload enables fresh generate state');
 
-console.log('\nI. Safety boundaries');
+console.log('\nI. Phase 10.6f.1 — stale link + generate behavior');
+
+check(/paymentLedgerIsStaleUnpaidLinkRow/.test(ledgerHelpers),
+  'server stale link helper in ledger block');
+check(/ledgerActivePaymentLinkRow[\s\S]{0,400}paymentLedgerIsStaleUnpaidLinkRow/.test(ledgerHelpers),
+  'active link reuse skips stale wrong-amount rows');
+check(/amount_due_cents\) === Number\(balanceDueCents\)/.test(ledgerHelpers),
+  'active link requires amount match to current balance');
+check(/bcPaymentLedgerIsStaleUnpaidLinkRow/.test(linkUiFn) || /bcPaymentLedgerIsStaleUnpaidLinkRow/.test(ledgerUiSlice),
+  'UI stale link detection');
+check(/Outdated amount/.test(ledgerUiSlice), 'stale badge in payment history');
+check(/Current balance changed\. Generate a new link\./.test(ledgerUiSlice),
+  'stale guidance allows new link generation');
+check(/bcLedgerActivePaymentLinkRow\(ledgerRows, balanceDue\)/.test(linkUiFn),
+  'generate section uses balance-matched active link only');
+check(!/bcLedgerActivePaymentLinkRow\(ledgerRows\)/.test(linkUiFn),
+  'generate section does not reuse link without balance arg');
+
+console.log('\nJ. Safety boundaries');
 
 check(!/sendWhatsApp|whatsapp\.com|triggerN8n|n8n\.webhook|fetch\([^)]*n8n/i.test(linkHandler + cancelHandler),
   'no WhatsApp/n8n calls in handler');

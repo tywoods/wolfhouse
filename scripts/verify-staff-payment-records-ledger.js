@@ -49,6 +49,8 @@ const cancelUi = src.match(/function bcInitCancelPaymentLinkShell[\s\S]*?\n\}/)?
 const cashUi = src.match(/function bcInitCashPaymentShell[\s\S]*?\n\}/)?.[0] || '';
 const cashFormFn = src.match(/function bcRenderCashPaymentFormHtml[\s\S]*?\n\}/)?.[0] || '';
 const ledgerHelpers = src.match(/\/\* Phase 10\.6b — payment ledger helpers[\s\S]*?function bcRunningInvoiceSvcLineText/)?.[0] || '';
+const labelFn = src.match(/function bcPaymentLedgerRowDisplayLabel[\s\S]*?\n\}/)?.[0] || '';
+const ledgerUiSlice = src.match(/function bcPaymentLedgerSortRows[\s\S]*?function bcRenderPaymentLinkSectionHtml/)?.[0] || '';
 
 console.log('\nA. Drawer order');
 
@@ -72,8 +74,8 @@ check(/bcPaymentLedgerPaidTotalCents/.test(invFn),
   'running invoice Paid uses ledger paid helper');
 check(/bcPaymentLedgerIsPaidStatus/.test(ledgerHelpers),
   'paid status helper excludes non-paid rows');
-check(/bcPaymentLedgerMethodLabel/.test(invFn) || /bcPaymentLedgerMethodLabel/.test(ledgerHelpers),
-  'method/source label helper for ledger rows');
+check(/bcPaymentLedgerRowDisplayLabel/.test(invFn) || /bcPaymentLedgerRowDisplayLabel/.test(ledgerHelpers),
+  'user-facing payment row display label helper');
 check(/BOOKING_PAYMENTS_LEDGER_SQL/.test(src),
   'context loads payment metadata for ledger');
 
@@ -149,7 +151,35 @@ check(/loadBlockDetail\(bk\.booking_code\)/.test(cancelUi),
 check(/paymentLedgerIsCancelledLinkStatus/.test(src) || /bcPaymentLedgerIsCancelledLinkStatus/.test(src),
   'cancelled link rows excluded from active link logic');
 
-console.log('\nG. Safety boundaries');
+console.log('\nG. Phase 10.6f.1 — Payment history labels + stale links');
+
+check(/return 'Stripe link created/.test(src),
+  'awaiting payment user-facing label');
+check(/Stripe paid/.test(labelFn) && /Paid cash/.test(labelFn) && /Paid bank transfer/.test(labelFn),
+  'paid row user-facing labels');
+check(/Cancelled payment link/.test(labelFn) && /Failed payment/.test(labelFn),
+  'cancelled/failed user-facing labels');
+check(!/bcPaymentLedgerMethodLabel/.test(invFn),
+  'raw method label not used as main ledger badge');
+check(!/>Checkout link created</.test(invFn) && !/>payment link</.test(invFn.match(/ctx-pay-record-badge[^<]*/)?.[0] || invFn),
+  'no raw checkout_created/payment_link main badges');
+check(/bcPaymentLedgerSortRows/.test(ledgerUiSlice), 'payment history sort helper');
+check(/bcPaymentLedgerRowSortGroup/.test(ledgerUiSlice) || /bcPaymentLedgerRowSortGroup/.test(ledgerHelpers),
+  'sort groups active unpaid before paid before old');
+check(/bcPaymentLedgerIsStaleUnpaidLinkRow/.test(ledgerUiSlice) || /bcPaymentLedgerIsStaleUnpaidLinkRow/.test(ledgerHelpers),
+  'stale unpaid link helper');
+check(/Outdated amount/.test(ledgerUiSlice) && /Current balance changed\. Generate a new link\./.test(ledgerUiSlice),
+  'stale link badge and guidance copy');
+check(/paymentLedgerIsStaleUnpaidLinkRow/.test(src),
+  'server stale link helper skips wrong-amount active link');
+check(/bcPaymentLedgerIsStaleUnpaidLinkRow\(pr, balanceDue\)/.test(ledgerUiSlice),
+  'UI stale detection uses current balance due');
+check(/function bcLedgerActivePaymentLinkRow[\s\S]{0,600}bcPaymentLedgerIsStaleUnpaidLinkRow/.test(src),
+  'active link UI ignores stale amounts');
+check(/btn-bc-cancel-link-icon/.test(invFn) && /bcPaymentLedgerCanCancelLinkRow/.test(invFn),
+  'cancel still available on stale unpaid links');
+
+console.log('\nH. Safety boundaries');
 
 check(!/UPDATE booking_beds|INSERT INTO booking_beds|DELETE FROM booking_beds/.test(cashHandler + cancelHandler),
   'no booking_beds mutation in cash/cancel handlers');
@@ -164,13 +194,13 @@ check(!(/fetch[\s\S]{0,80}n8n|n8n\.cloud.*activate/i.test(cashHandler + cancelHa
 check(!/deploy-staff|az containerapp update/i.test(cashHandler + cashUi + cancelHandler),
   'no deploy scripts in slice');
 
-console.log('\nH. Preserved features');
+console.log('\nI. Preserved features');
 
 check(/bcRenderAddServicePanelHtml/.test(drawerFn), 'Add-ons panel preserved');
 check(/id="bc-move-booking-btn"/.test(drawerFn), 'Move bed preserved');
 check(/bcRenderBookingCancelFooterHtml/.test(drawerFn), 'Cancel footer preserved');
 
-console.log('\nI. package.json script');
+console.log('\nJ. package.json script');
 
 try {
   const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
@@ -180,7 +210,7 @@ try {
   fail('package.json readable');
 }
 
-console.log('\nJ. No docs / migration changes');
+console.log('\nK. No docs / migration changes');
 
 let docsChanged = false;
 let migChanged = false;
