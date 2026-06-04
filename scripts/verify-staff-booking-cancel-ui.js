@@ -39,7 +39,7 @@ try {
 }
 
 const cancelHandlerMatch = src.match(
-  /async function handleBookingCancel[\s\S]*?async function handleQuotePreview/
+  /async function handleBookingCancel[\s\S]*?async function handleBookingAddService/
 );
 const cancelHandlerBlock = cancelHandlerMatch ? cancelHandlerMatch[0] : '';
 const cancelSqlBlock = (
@@ -51,9 +51,13 @@ const cancelUiBlock =
   (src.match(/function bcRunCancelReservation[\s\S]*?function bcInitBookingCancelShell/)?.[0] || '') +
   (src.match(/function bcRenderCancelConfirmPanel[\s\S]*?function bcRunCancelReservation/)?.[0] || '');
 
-const renderDrawerBlock = src.match(
-  /function renderBookingContextDrawer\(data\)\{[\s\S]*?return html;\r?\n\}/
-)?.[0] || '';
+function extractRenderBookingContextDrawer(source) {
+  const start = source.indexOf('function renderBookingContextDrawer(data){');
+  if (start < 0) return '';
+  const end = source.indexOf('\n/* ── Tour Operator forms', start);
+  return end > start ? source.slice(start, end) : '';
+}
+const renderDrawerBlock = extractRenderBookingContextDrawer(src);
 const cancelFooterBlock = src.match(
   /function bcRenderBookingCancelFooterHtml[\s\S]*?function bcRenderCancelConfirmPanel/
 )?.[0] || '';
@@ -80,11 +84,12 @@ const drawerIdx = renderDrawerBlock.indexOf('function renderBookingContextDrawer
 const fieldEditIdx = renderDrawerBlock.indexOf('bcRenderFieldEditSectionsHtml');
 const cancelFooterCallIdx = renderDrawerBlock.indexOf('bcRenderBookingCancelFooterHtml');
 const convIdx = renderDrawerBlock.indexOf('Conversation / Handoff');
-const plannedIdx = renderDrawerBlock.indexOf('ctx-planned');
 check(cancelFooterCallIdx > fieldEditIdx && cancelFooterCallIdx > convIdx,
   'cancel footer rendered after field edits and conversation');
-check(cancelFooterCallIdx > plannedIdx || cancelFooterCallIdx > renderDrawerBlock.indexOf('Planned operations'),
-  'cancel footer rendered after planned-ops block (drawer bottom)');
+check(!/ctx-planned/.test(renderDrawerBlock),
+  '10.6a.4: stale planned-ops block removed from drawer');
+check(!/Planned operations/.test(renderDrawerBlock),
+  '10.6a.4: Planned operations copy removed');
 check(!/bcRenderFieldEditSectionsHtml[\s\S]{0,800}bc-cancel-reservation-btn/.test(renderDrawerBlock),
   'cancel button not immediately under field edit sections');
 check(!/id="bc-cancel-confirm-host"/.test(src),

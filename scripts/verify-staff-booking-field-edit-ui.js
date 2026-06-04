@@ -39,7 +39,12 @@ try {
 
 const renderField = src.match(/function bcRenderFieldEditPencilBtn[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
 const actionsHtml = src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)?.[0] || '';
-const drawerFn = src.match(/function renderBookingContextDrawer[\s\S]*?\n\}/)?.[0] || '';
+const drawerFn = (() => {
+  const i = src.indexOf('function renderBookingContextDrawer(data){');
+  if (i < 0) return '';
+  const j = src.indexOf('\n/* ── Tour Operator forms', i);
+  return j > i ? src.slice(i, j) : '';
+})();
 const fieldUiSlice = src.match(/\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function bcInitFieldEditShell[\s\S]*?\n  if \(cout\)/)?.[0] || '';
 const previewRunner = src.match(/function bcFieldEditRunPreview[\s\S]*?\n\}/)?.[0] || '';
 const previewResultFn = src.match(/function bcFieldEditRenderPreviewResult[\s\S]*?\n\}/)?.[0] || '';
@@ -202,7 +207,32 @@ try {
   fail('package.json readable for script check');
 }
 
-console.log('\nM. No docs / migration changes');
+console.log('\nM. Drawer spacing + stale warnings removed (10.6a.4)');
+
+check(!/bc-detail-note/.test(src) || !/write gates approved/.test(src),
+  '10.6a.4: bc-detail-note read-only gate banner removed');
+check(!/Bed calendar is read-only/.test(src.match(/function showBlockDetail[\s\S]*?function loadBlockDetail/)?.[0] || ''),
+  '10.6a.4: no read-only bed calendar banner in showBlockDetail');
+check(!/Planned operations/.test(drawerFn),
+  '10.6a.4: Planned operations stale block removed from drawer');
+check(!/write gates not approved/.test(drawerFn),
+  '10.6a.4: write gates not approved copy removed from drawer');
+check(/ctx-field-edit-group/.test(renderField) && !/ctx-section ctx-field-edit-group/.test(renderField),
+  '10.6a.4: field sections use compact ctx-field-edit-group without ctx-section chrome');
+check(/#bc-ctx-body \.ctx-field-edit-group \.kv-grid/.test(src),
+  '10.6a.4: field kv-grid uses compact single-column layout');
+check(/ctx-field-guests-preview:empty|has-preview/.test(src),
+  '10.6a.4: guests preview hidden until editing');
+check(/id="bc-field-save-contact"/.test(renderField) && /id="bc-field-save-dates"/.test(renderField),
+  '10.6a.4: contact and dates Save controls still present');
+check(/id="bc-move-booking-btn"/.test(drawerFn) && /bcRenderAddServicePanelHtml/.test(drawerFn),
+  '10.6a.4: Move bed and add-ons panel still in drawer');
+check(/bcRenderAddServicePanelHtml[\s\S]*bcRenderRunningInvoiceHtml/.test(drawerFn),
+  '10.6a.4: add-ons still above Payment');
+check(/bcRenderBookingCancelFooterHtml/.test(drawerFn),
+  '10.6a.4: cancel reservation footer still present');
+
+console.log('\nN. No docs / migration changes');
 
 let docsChanged = false;
 let migChanged = false;

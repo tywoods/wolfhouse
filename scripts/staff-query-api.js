@@ -10892,9 +10892,11 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-inv-truth-note{margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);font-size:10.5px;color:var(--text-3);line-height:1.45;font-style:italic}
 .ctx-inv-subtitle{font-size:10.5px;font-weight:600;color:var(--text-2);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.04em}
 .ctx-inv-payment-records{margin-top:4px}
-/* Phase 10.4e — field-level edit UI shell (no writes) */
-.ctx-field-edit-group{margin-top:0}
-.ctx-field-header{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px}
+/* Phase 10.4e — field-level edit UI shell (compact; no extra section chrome) */
+.ctx-field-edit-group{margin:0;padding:8px 0 0;border-top:1px solid var(--border-soft)}
+.ctx-field-edit-group:first-child{padding-top:0;border-top:none}
+#bc-ctx-body .ctx-field-edit-group .kv-grid{display:flex;flex-direction:column;gap:6px;max-width:440px}
+.ctx-field-edit-group .ctx-field-header{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:4px}
 .btn-bc-field-edit{font-size:14px;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .btn-bc-field-edit:hover{background:var(--surface-soft);color:var(--accent)}
 .ctx-field-edit-group.is-editing .btn-bc-field-edit{font-weight:600;border-color:var(--accent);color:var(--accent)}
@@ -10906,8 +10908,9 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-field-save-hint{font-size:10.5px;color:var(--text-3);font-style:italic}
 .ctx-field-dates-nights{font-size:11px;color:var(--text-2);margin-top:6px}
 .ctx-field-dates-error{font-size:11px;color:#9C5742;margin-top:6px;display:none}
-.ctx-field-guests-preview{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.55;padding:8px 10px;background:#fff;border:1px dashed var(--border-soft);border-radius:6px}
-.ctx-field-preview-result{font-size:11px;color:var(--text-2);margin-top:10px;line-height:1.55;padding:10px 12px;background:#fff;border:1px solid var(--border-soft);border-radius:6px;display:none}
+.ctx-field-guests-preview{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.55;padding:8px 10px;background:#fff;border:1px dashed var(--border-soft);border-radius:6px;display:none}
+.ctx-field-guests-preview.has-preview{display:block}
+.ctx-field-preview-result{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.55;padding:8px 10px;background:#fff;border:1px solid var(--border-soft);border-radius:6px;display:none;margin-bottom:0}
 .ctx-field-preview-result.is-visible{display:block}
 .ctx-field-preview-result .ctx-field-preview-badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:4px;margin-bottom:8px;background:#E8F0E6;color:#3D5C38}
 .ctx-field-preview-result.is-blocked .ctx-field-preview-badge{background:#F5E8E4;color:#9C5742}
@@ -13700,8 +13703,7 @@ function showBlockDetail(blk){
     '<div class="toolbar"><h2 class="bc-detail-title">' + escHtml(blk.booking_code||'\u2014') +
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
     '<button class="btn btn-ghost" id="bc-close-detail">&times; Close</button></div>' +
-    '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>' +
-    '<div class="bc-detail-note">&#128274; Bed calendar is read-only \u2014 booking edits disabled until write gates approved.</div>';
+    '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>';
   el('bc-detail').style.display = 'block';
   el('bc-close-detail').addEventListener('click', function(){ el('bc-detail').style.display = 'none'; });
   if (blk.booking_code) loadBlockDetail(blk.booking_code);
@@ -14867,7 +14869,7 @@ function bcRenderFieldEditSectionsHtml(data){
   var roomPref = bk.requested_room_type || bk.room_preference;
   var html = '';
 
-  html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
+  html += '<div class="ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
   html += '<div class="ctx-field-read" id="bc-field-contact-read">';
   html += '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn('contact', 'Edit contact') + '</div>';
   html += '<div class="kv-grid" id="bc-field-contact-kv">';
@@ -14887,7 +14889,7 @@ function bcRenderFieldEditSectionsHtml(data){
   html += bcRenderFieldEditActionsHtml('contact');
   html += '</div></div>';
 
-  html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-dates" data-bc-field-group="dates">';
+  html += '<div class="ctx-field-edit-group" id="bc-field-group-dates" data-bc-field-group="dates">';
   html += '<div class="ctx-field-read" id="bc-field-dates-read">';
   html += '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn('dates', 'Edit dates') + '</div>';
   html += '<div class="kv-grid" id="bc-field-dates-kv">';
@@ -14906,7 +14908,7 @@ function bcRenderFieldEditSectionsHtml(data){
   html += bcRenderFieldEditActionsHtml('dates');
   html += '</div></div>';
 
-  html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
+  html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
   html += '<div class="ctx-field-read" id="bc-field-guests-read">';
   html += '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn('guests', 'Edit guests') + '</div>';
   html += '<div class="kv-grid" id="bc-field-guests-kv">';
@@ -14919,11 +14921,11 @@ function bcRenderFieldEditSectionsHtml(data){
     html += '<option value="' + g + '">' + g + '</option>';
   }
   html += '</select>';
-  html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview">Select a lower guest count to preview bed release.</div>';
+  html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
   html += bcRenderFieldEditActionsHtml('guests');
   html += '</div></div>';
 
-  html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
+  html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   html += '<div class="ctx-field-read" id="bc-field-package-read">';
   html += '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn('package', 'Edit package') + '</div>';
   html += '<div class="kv-grid" id="bc-field-package-kv">';
@@ -15120,6 +15122,11 @@ function bcFieldEditCloseAll(){
     if (read) read.style.display = '';
     if (edit) edit.style.display = 'none';
   });
+  var guestPrev = el('bc-field-guests-release-preview');
+  if (guestPrev){
+    guestPrev.classList.remove('has-preview');
+    guestPrev.textContent = '';
+  }
   bcFieldEditClearPreviewResults();
   bcFieldEditRestoreForms();
 }
@@ -15169,6 +15176,7 @@ function bcFieldEditUpdateGuestPreview(){
   var cur = bcFieldEditState.guestCount;
   var next = parseInt(sel.value, 10) || cur;
   var p = bcFieldEditGuestReleasePreview(cur, next, bcFieldEditState.assignments);
+  prev.classList.add('has-preview');
   if (!p.changed){
     prev.textContent = next >= cur
       ? 'No bed release preview (count unchanged or increase not allowed).'
@@ -15854,13 +15862,6 @@ function renderBookingContextDrawer(data){
     html += '<div class="ctx-section"><h3>Warnings</h3><div class="state-msg error">' +
       data.warnings.map(function(w){ return escHtml(w); }).join('<br>') + '</div></div>';
   }
-
-  /* ── Planned operations (disabled — read-only staging) ─────────────────── */
-  html += '<div class="ctx-planned">' +
-    '<div class="ctx-planned-title">Planned operations (not enabled in staging)</div>' +
-    '<span class="ctx-planned-action" title="Not enabled — write gates not approved">Change dates</span>' +
-    '<span class="ctx-planned-action" title="Not enabled — write gates not approved">Cancel booking</span>' +
-    '</div>';
 
   /* ── Phase 10.5f.1 — Cancel reservation at drawer bottom (confirm inline below button) ─ */
   html += bcRenderBookingCancelFooterHtml(data);

@@ -377,13 +377,11 @@ check(/Remaining balance|Balance due/i.test(src),
 check(/ctx-pay-label.*Total|Total.*ctx-pay|kvBC.*Total|kvBC.*Paid|ctx-pay-row/i.test(src),
   'Total / Paid payment row labels present in drawer (Stage 8.3b)');
 
-// 67. Planned actions disabled area present (Stage 8.3b)
-check(/ctx-planned/.test(src),
-  'Planned actions area (ctx-planned) present in drawer (Stage 8.3b)');
-
-// 68. Planned actions use disabled span (not live button with onclick) (Stage 8.3b)
-check(/ctx-planned-action/.test(src),
-  'Planned action items use disabled span class (ctx-planned-action) (Stage 8.3b)');
+// 67–68. Stale planned-ops block removed (Phase 10.6a.4)
+check(!/Planned operations \(not enabled in staging\)/.test(src),
+  '10.6a.4: Planned operations stale banner removed from drawer');
+check(!/renderBookingContextDrawer[\s\S]*ctx-planned/.test(src),
+  '10.6a.4: ctx-planned block not rendered in booking drawer');
 
 // 69. Move/cancel handlers wired in drawer (Phase 10.6a.3+)
 check(/function bcRunMoveWrite/.test(src) && /bcInitBookingCancelShell/.test(src),
