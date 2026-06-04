@@ -13215,7 +13215,10 @@ textarea.bk-input{resize:vertical;min-height:60px}
 #al-input:focus{outline:2px solid #7AAB6E;outline-offset:1px}
 #al-btn{flex-shrink:0;padding:10px 22px;font-size:13px;font-weight:700}
 #al-btn:disabled{opacity:.5;cursor:default}
-.al-hint{font-size:11px;color:var(--text-3);margin-bottom:18px}
+.al-hint{font-size:11px;color:var(--text-3);margin:0 0 6px}
+.al-examples{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 16px}
+.al-example-chip{font-size:11px;line-height:1.3;padding:5px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);color:var(--text-2);cursor:pointer;transition:border-color .15s,color .15s}
+.al-example-chip:hover{border-color:#9AB88C;color:var(--text)}
 #al-status{font-size:12px;color:var(--text-2);padding:6px 0;min-height:22px}
 #al-error{font-size:12.5px;color:#A0392A;background:#FDF4F2;border:1px solid #F0C9C1;border-radius:var(--radius-sm);padding:10px 14px;margin:8px 0;display:none}
 .al-answer-box{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:18px 20px;margin:12px 0 0}
@@ -13775,13 +13778,28 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
   <div class="card">
     <div class="al-form-row">
-      <input id="al-input" type="text" placeholder="Who still owes money?"
+      <input id="al-input" type="text" placeholder="What&rsquo;s happening today?"
              autocomplete="off" spellcheck="false"
              onkeydown="if(event.key==='Enter')alAsk()">
       <button class="btn btn-primary" id="al-btn" onclick="alAsk()">Ask</button>
     </div>
-    <div class="al-hint">
-      Try: &ldquo;Who still owes money?&rdquo; &bull; &ldquo;Any payment links pending?&rdquo; &bull; &ldquo;Who needs human help?&rdquo; &bull; &ldquo;Any urgent handoffs?&rdquo; &bull; &ldquo;Who&rsquo;s arriving today?&rdquo;
+    <div class="al-hint">Tap an example or type your own question:</div>
+    <div class="al-examples" id="al-examples">
+      <button type="button" class="al-example-chip" data-q="What's happening today?">What&rsquo;s happening today?</button>
+      <button type="button" class="al-example-chip" data-q="What should I prepare for tomorrow?">What should I prepare for tomorrow?</button>
+      <button type="button" class="al-example-chip" data-q="Who is checking in today?">Who is checking in today?</button>
+      <button type="button" class="al-example-chip" data-q="Who is checking out tomorrow?">Who is checking out tomorrow?</button>
+      <button type="button" class="al-example-chip" data-q="What rooms need cleaning today?">What rooms need cleaning today?</button>
+      <button type="button" class="al-example-chip" data-q="Who is staying tonight?">Who is staying tonight?</button>
+      <button type="button" class="al-example-chip" data-q="Which beds are free tonight?">Which beds are free tonight?</button>
+      <button type="button" class="al-example-chip" data-q="Who has surf lessons today?">Who has surf lessons today?</button>
+      <button type="button" class="al-example-chip" data-q="What gear do we need tomorrow?">What gear do we need tomorrow?</button>
+      <button type="button" class="al-example-chip" data-q="Who has meals today?">Who has meals today?</button>
+      <button type="button" class="al-example-chip" data-q="How many people are in yoga on Friday?">How many people are in yoga on Friday?</button>
+      <button type="button" class="al-example-chip" data-q="Which conversations need staff reply?">Which conversations need staff reply?</button>
+      <button type="button" class="al-example-chip" data-q="Show Jimmy's booking">Show Jimmy&rsquo;s booking</button>
+      <button type="button" class="al-example-chip" data-q="Who is in R1?">Who is in R1?</button>
+      <button type="button" class="al-example-chip" data-q="Which bookings need payment follow-up?">Which bookings need payment follow-up?</button>
     </div>
     <div id="al-error"></div>
     <div id="al-status"></div>
@@ -14558,6 +14576,21 @@ function alAsk(){
     alShowError('Network error: ' + e.message);
   });
 }
+
+function alPickExample(btn){
+  var q = btn && btn.getAttribute('data-q');
+  if (!q) return;
+  var inp = el('al-input');
+  if (inp){ inp.value = q; inp.focus(); }
+}
+(function(){
+  var wrap = el('al-examples');
+  if (!wrap) return;
+  wrap.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest('.al-example-chip');
+    if (btn) alPickExample(btn);
+  });
+})();
 
 // alAsk must be global so onclick/onkeydown in Ask Luna HTML resolve it (Stage 8.7.4)
 window.alAsk = alAsk;

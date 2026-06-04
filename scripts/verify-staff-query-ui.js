@@ -137,6 +137,62 @@ if (lacks(src, /graph\.facebook\.com|twilio\.com|sendWhatsApp/))          { pass
 if (lacks(src, /stripe\.com|createPaymentIntent|Stripe\s*\(/))           { pass('no Stripe calls in Ask Luna JS'); }                     else { fail('Stripe call found near Ask Luna'); }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('7b2. Ask Luna example questions (Phase 11 UI)');
+
+(function(){
+  const alStart = src.indexOf('<!-- ── Ask Luna tab');
+  const alEnd   = src.indexOf('</div><!-- /tab-ask-luna -->', alStart);
+  if (alStart < 0 || alEnd < 0) { fail('Ask Luna panel slice not found'); return; }
+  const alPanel = src.slice(alStart, alEnd);
+
+  const examples = [
+    "What's happening today?",
+    'What should I prepare for tomorrow?',
+    'Who is checking in today?',
+    'Who is checking out tomorrow?',
+    'What rooms need cleaning today?',
+    'Who is staying tonight?',
+    'Which beds are free tonight?',
+    'Who has surf lessons today?',
+    'What gear do we need tomorrow?',
+    'Who has meals today?',
+    'How many people are in yoga on Friday?',
+    'Which conversations need staff reply?',
+    "Show Jimmy's booking",
+    'Who is in R1?',
+    'Which bookings need payment follow-up?',
+  ];
+
+  for (const ex of examples) {
+    if (alPanel.includes('data-q="' + ex + '"')) { pass('example chip: ' + ex); }
+    else { fail('missing example chip: ' + ex); }
+  }
+
+  const firstChip = alPanel.match(/class="al-example-chip"[^>]*data-q="([^"]+)"/);
+  if (firstChip && firstChip[1] === "What's happening today?") {
+    pass('first visible example is ops summary (not payment)');
+  } else {
+    fail('first example chip is not What\'s happening today? — got: ' + (firstChip ? firstChip[1] : 'none'));
+  }
+
+  const opsIdx = alPanel.indexOf("data-q=\"What's happening today?\"");
+  const payIdx = alPanel.indexOf('data-q="Which bookings need payment follow-up?"');
+  if (opsIdx >= 0 && payIdx > opsIdx) { pass('ops example appears before payment follow-up'); }
+  else { fail('payment follow-up must come after ops summary in example list'); }
+
+  const banned = [/Who owes money/i, /Who still owes money/i, /Any payment links pending/i];
+  for (const re of banned) {
+    if (lacks(alPanel, re)) { pass('visible examples omit tacky phrase: ' + re.source); }
+    else { fail('visible examples still contain: ' + re.source); }
+  }
+
+  if (has(alPanel, /id="al-examples"/)) { pass('al-examples container present'); } else { fail('al-examples container missing'); }
+  if (has(src, /function alPickExample/)) { pass('example chip click handler present'); } else { fail('alPickExample handler missing'); }
+  if (lacks(alPanel, /placeholder="Who still owes money/i)) { pass('input placeholder is not money-first'); }
+  else { fail('input placeholder still leads with money'); }
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('7c. Portal click handlers (Stage 8.7.4)');
 
 if (has(src, /window\.switchToTab\s*=\s*switchToTab/))                    { pass('switchToTab exposed on window'); }                        else { fail('switchToTab not on window — Today tile onclick will fail'); }
