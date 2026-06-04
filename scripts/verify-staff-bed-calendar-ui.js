@@ -52,6 +52,23 @@ function ok(msg)  { console.log('  PASS  ' + msg); passes++; }
 function fail(msg){ console.error('  FAIL  ' + msg); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
+/** Full drawer fn (nested `function eur` breaks naive `\nfunction ` slicing). */
+function extractRenderBookingContextDrawer(fileSrc) {
+  const start = 'function renderBookingContextDrawer(data){';
+  const i = fileSrc.indexOf(start);
+  if (i < 0) return '';
+  const j = fileSrc.indexOf('\n/* ── Tour Operator forms', i);
+  return j > i ? fileSrc.slice(i, j) : fileSrc.slice(i);
+}
+
+function extractBcRenderRunningInvoiceHtml(fileSrc) {
+  const start = 'function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){';
+  const i = fileSrc.indexOf(start);
+  if (i < 0) return '';
+  const j = fileSrc.indexOf('\n/* Phase 10.5f-lite', i);
+  return j > i ? fileSrc.slice(i, j) : fileSrc.slice(i);
+}
+
 console.log('\nverify-staff-bed-calendar-ui.js  (Stage 7.7h)\n');
 
 // 1. File exists
@@ -102,9 +119,9 @@ check(/id="bc-load"/.test(src) || /id='bc-load'/.test(src),
 check(/READ-ONLY BED CALENDAR/i.test(src),
   'READ-ONLY BED CALENDAR warning label present');
 
-// 12. Summary element
-check(/bc-summary/.test(src),
-  'Summary strip element (bc-summary) present');
+// 12. Summary stats row removed (Phase 10.6a.4)
+check(!/id="bc-summary"|bc-rooms-count|bc-blocks-count/.test(src),
+  'Calendar summary stats row removed (no rooms/beds/blocks/free strip)');
 
 // 13. Grid container
 check(/bc-grid-wrap/.test(src),
@@ -227,9 +244,9 @@ check(/h3.*Conversation/i.test(src),
 check(/h3.*Handoff/i.test(src),
   'Handoff section present in drawer (Stage 7.7i)');
 
-// 38. Add-ons section in drawer
-check(/h3.*Add-on/i.test(src),
-  'Add-ons section present in drawer (Stage 7.7i)');
+// 38. Add-ons section in drawer (Phase 10.6a — inline panel, not h3)
+check(/bc-add-ons-title|id="bc-add-ons-panel"/.test(src),
+  'Add-ons section present in drawer (Stage 7.7i / 10.6a)');
 
 // 39. Open conversation button present
 check(/Open conversation|btn-open-conv/i.test(src),
@@ -298,9 +315,9 @@ check(/Arrives|Departs|arrDep/.test(src),
 check(/2026-07-16.*demo|demo.*2026-07-16/.test(src),
   'Demo shortcut chip maps to Jul 16-22 range (Stage 8.3a)');
 
-// 54. Free beds count shown in summary (Stage 8.3a)
-check(/bc-free-count|free.*beds|freeBeds/.test(src),
-  'Free beds count shown in summary strip (Stage 8.3a)');
+// 54. Summary stats not rendered after calendar load (Phase 10.6a.4)
+check(!/el\('bc-summary'\)\.style\.display\s*=\s*'flex'/.test(src),
+  'renderBedCalendar does not show summary stats strip');
 
 // 55. Bed code is the primary label (not bed_label only) (Stage 8.3a)
 check(/bed\.bed_code/.test(src),
@@ -345,9 +362,12 @@ check(/h3.*Payment|Payment.*h3/i.test(src),
 check(/h3.*Conversation.*Handoff|Conversation.*Handoff.*h3/i.test(src),
   'Conversation / Handoff section heading present in drawer (Stage 8.3b)');
 
-// 64. Nights badge in drawer header (Stage 8.7.6)
-check(/bc-detail-meta|bcDetailHeaderMetaHtml|ctx-nights-badge/.test(src),
-  'Nights badge wired to drawer header (Stage 8.7.6)');
+// 64. Nights badge removed from drawer header (Phase 10.6a.3)
+check(/bc-detail-meta|bcDetailHeaderMetaHtml/.test(src) &&
+      !/ctx-nights-badge/.test(
+        src.match(/function bcDetailHeaderMetaHtml[\s\S]*?function updateBcDetailHeader/)?.[0] || ''
+      ),
+  'Drawer header has meta without nights badge (Phase 10.6a.3)');
 
 // 65. Balance label present (Stage 8.3b, updated 8.4.12: label renamed to "Balance due")
 check(/Remaining balance|Balance due/i.test(src),
@@ -365,13 +385,13 @@ check(/ctx-planned/.test(src),
 check(/ctx-planned-action/.test(src),
   'Planned action items use disabled span class (ctx-planned-action) (Stage 8.3b)');
 
-// 69. No live move/cancel/date-change button handlers in drawer (Stage 8.3b)
-check(!/onclick.*move|onclick.*cancel|onclick.*date.change|btn-move-booking|btn-cancel-booking/i.test(src),
-  'No live move/cancel/date-change onclick handlers in drawer (Stage 8.3b)');
+// 69. Move/cancel handlers wired in drawer (Phase 10.6a.3+)
+check(/function bcRunMoveWrite/.test(src) && /bcInitBookingCancelShell/.test(src),
+  'Move booking and cancel handlers present in drawer (Phase 10.6a.3)');
 
-// 70. Add-ons / Activities heading present (Stage 8.3b)
-check(/h3.*Add-ons|Add-ons.*h3/i.test(src),
-  'Add-ons / Activities section heading present in drawer (Stage 8.3b)');
+// 70. Add-ons title in drawer (Phase 10.6a)
+check(/bc-add-ons-title|>Add-ons</.test(src),
+  'Add-ons title present in drawer (Phase 10.6a)');
 
 // 71. Check-in and Check-out labels in drawer (Stage 8.3b)
 check(/kvBC\('Check-in'/.test(src) && /kvBC\('Check-out'/.test(src),
@@ -1098,11 +1118,9 @@ check(/No Stripe link created/i.test(src),
 
 // 188. Duplicate assignment detail rows removed (Stage 8.7.6)
 (function checkNoDuplicateBedRows(){
-  const fnStart = src.indexOf('function renderBookingContextDrawer');
-  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
-  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/rm\.assignments\.map\(function\(a\)\{ return a\.bed_code/.test(fnSrc),
-    'renderBookingContextDrawer summarizes beds from assignments (Stage 8.7.6)');
+  const fnSrc = extractRenderBookingContextDrawer(src);
+  check(/bcRenderMoveSourcePillsHtml\(moveAssigns\)/.test(fnSrc),
+    'renderBookingContextDrawer uses move pills for bed assignments (Stage 8.7.6)');
   check(!/ctx-bed-row/.test(fnSrc),
     'renderBookingContextDrawer has no per-bed ctx-bed-row duplicates (Stage 8.7.6)');
 })();
@@ -1391,57 +1409,53 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 
 // 219. renderBookingContextDrawer payment truth section
 (function checkDrawerPaymentTruth(){
-  const fnStart = src.indexOf('function renderBookingContextDrawer');
-  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 100) : -1;
-  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
+  const drawerFn = extractRenderBookingContextDrawer(src);
+  const payFn = extractBcRenderRunningInvoiceHtml(src);
+  const payUi = drawerFn + payFn;
 
-  check(fnSrc.length > 100,
+  check(drawerFn.length > 500,
     '219: renderBookingContextDrawer function found and non-trivial');
 
-  // Payment truth field references
-  check(/paid_at/.test(fnSrc),
+  check(/paid_at/.test(payFn),
     '219a: drawer shows paid_at (Stage 8.4.12)');
-  check(/amount_paid_cents/.test(fnSrc),
+  check(/amount_paid_cents/.test(payFn),
     '219b: drawer shows amount_paid_cents (Stage 8.4.12)');
-  check(/balance_due/.test(fnSrc),
+  check(/balance_due/.test(payFn),
     '219c: drawer shows balance_due (Stage 8.4.12)');
-  check(/checkout_url/.test(fnSrc),
+  check(/checkout_url/.test(payFn),
     '219d: drawer shows checkout_url (Stage 8.4.12)');
-  check(/payment_kind/.test(fnSrc),
-    '219e: drawer shows payment_kind (Stage 8.4.12)');
-  check(/stripe_checkout_session_id/.test(fnSrc),
+  let libSrc219 = '';
+  try { libSrc219 = fs.readFileSync(path.join(__dirname, 'lib', 'staff-booking-detail-queries.js'), 'utf8'); } catch(_){}
+  check(/payment_kind/.test(libSrc219),
+    '219e: payment_kind available in booking payments query (Stage 8.4.12)');
+  check(/stripe_checkout_session_id/.test(payFn),
     '219f: drawer shows stripe_checkout_session_id (Stage 8.4.12)');
-  check(/stripe_payment_intent_id/.test(fnSrc),
+  check(/stripe_payment_intent_id/.test(payFn),
     '219g: drawer shows stripe_payment_intent_id (Stage 8.4.12)');
 
-  // Status labels
-  check(/Deposit paid|deposit_paid/.test(fnSrc),
+  check(/deposit_paid|Deposit paid/.test(payUi),
     '219h: drawer has deposit-paid label (Stage 8.4.12)');
-  check(/Paid in full|isFullyPaid/.test(fnSrc),
+  check(/Paid in full|paid-in-full/.test(payUi),
     '219i: drawer has paid-in-full label (Stage 8.4.12)');
-  check(/waiting for Stripe webhook|waiting.*webhook/i.test(fnSrc),
+  check(/waiting for Stripe webhook|waiting.*webhook/i.test(payFn),
     '219j: drawer has waiting-for-webhook text (Stage 8.4.12)');
-  check(/No payment record yet|No payment/.test(fnSrc),
+  check(/No payment record yet|No payment/.test(payFn),
     '219k: drawer shows "No payment record yet" when no rows (Stage 8.4.12)');
 
-  // Copy button
-  check(/bcCopyUrl/.test(fnSrc),
+  check(/bcCopyUrl/.test(payFn),
     '219l: drawer uses bcCopyUrl for checkout_url copy button (Stage 8.4.12)');
 
-  // Safety: read-only — no writes, no Stripe calls, no WhatsApp/n8n
-  check(!/stripe\.(checkout|charges|paymentIntents|sessions)\.create/i.test(fnSrc),
+  check(!/stripe\.(checkout|charges|paymentIntents|sessions)\.create/i.test(payUi),
     '219m: drawer does not make Stripe API calls (Stage 8.4.12)');
-  check(!/sendWhatsApp|twilio|n8n.*webhook|triggerN8n/i.test(fnSrc),
+  check(!/sendWhatsApp|twilio|n8n.*webhook|triggerN8n/i.test(payUi),
     '219n: drawer does not call WhatsApp/n8n (Stage 8.4.12)');
-  check(!/pg\.query.*UPDATE|pg\.query.*INSERT/i.test(fnSrc),
+  check(!/pg\.query.*UPDATE|pg\.query.*INSERT/i.test(payUi),
     '219o: drawer does not perform DB writes (Stage 8.4.12)');
 
-  // Visual differentiation: green/teal banners
-  check(/isDepositPaid|isFullyPaid/.test(fnSrc),
+  check(/payment_status === 'paid'|ctx-pay-record-paid/.test(payFn),
     '219p: drawer has paid state flags for banner rendering (Stage 8.4.12)');
 
-  // Payment card: pmtStatusLabel or Checkout link created string
-  check(/pmtStatusLabel|Checkout link created/.test(fnSrc),
+  check(/pmtStatusLabel|Checkout link created/.test(payFn),
     '219q: drawer uses pmtStatusLabel helper for payment status (Stage 8.4.12)');
 })();
 
@@ -1550,23 +1564,22 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 
 // ── Stage 8.7.11 — payment box + compact add-ons layout ───────────────────
 (function check8711PaymentAndAddOns(){
-  const drawerStart = src.indexOf('function renderBookingContextDrawer');
-  const drawerEnd   = drawerStart > 0 ? src.indexOf('\nfunction ', drawerStart + 10) : -1;
-  const drawerSrc   = drawerStart > 0 && drawerEnd > 0 ? src.slice(drawerStart, drawerEnd) : '';
+  const drawerSrc = extractRenderBookingContextDrawer(src);
+  const paySrc = extractBcRenderRunningInvoiceHtml(src);
+  const payUi = drawerSrc + paySrc;
 
   check(/\.ctx-pay-box/.test(src),
     '225: ctx-pay-box CSS present (Stage 8.7.11)');
-  check(/ctx-pay-box/.test(drawerSrc),
+  check(/ctx-pay-box/.test(paySrc),
     '225b: payment section wrapped in ctx-pay-box (Stage 8.7.11)');
-  check(/ctx-pay-record-paid/.test(src) && /ctx-pay-record/.test(drawerSrc),
+  check(/ctx-pay-record-paid/.test(src) && /ctx-pay-record/.test(paySrc),
     '225c: payment records use contained card classes (Stage 8.7.11)');
-  check(!/margin-top:8px;padding:8px 10px;background:#F3FAF1/.test(drawerSrc),
+  check(!/margin-top:8px;padding:8px 10px;background:#F3FAF1/.test(payUi),
     '225d: no full-width inline green payment card stretch (Stage 8.7.11)');
-  check(/Deposit required/.test(drawerSrc) && /Amount due/.test(drawerSrc) &&
-        /Amount paid/.test(drawerSrc) && /Paid at/.test(drawerSrc) &&
-        /stripe_checkout_session_id/.test(drawerSrc),
+  check(/Amount due/.test(paySrc) && /Amount paid/.test(paySrc) && /Paid at/.test(paySrc) &&
+        /stripe_checkout_session_id/.test(paySrc),
     '225e: payment truth fields still render in drawer (Stage 8.7.11)');
-  check(/bc-luna-confirmation-draft/.test(src),
+  check(/bc-luna-confirmation-draft/.test(drawerSrc),
     '225f: Luna confirmation draft panel unchanged (Stage 8.7.11)');
   check(!/sendConfirmation|Send confirmation/i.test(drawerSrc),
     '225g: drawer still has no send button (Stage 8.7.11)');
@@ -1716,10 +1729,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '228i: bed calendar UI has no n8n URL fetch (Stage 8.7.18)');
 })();
 
-// ── Stage 8.7.23 — Bed Calendar range chips + Selected Stay layout ───────────
+// ── Stage 8.7.23 / 10.6a.4 — Bed Calendar range chips + Selected Stay layout ─
 (function check8723RangeAndStayLayout(){
   const chipsStart = src.indexOf('id="bc-chips"');
-  const chipsEnd   = chipsStart > 0 ? src.indexOf('</div>', src.indexOf('jul-aug', chipsStart)) : -1;
+  const chipsEnd   = chipsStart > 0 ? src.indexOf('</div>', src.indexOf('aug-sept', chipsStart)) : -1;
   const chipsSrc   = chipsStart > 0 && chipsEnd > chipsStart ? src.slice(chipsStart, chipsEnd + 6) : '';
 
   check(!/data-chip="today"|data-chip='today'/.test(chipsSrc),
@@ -1728,8 +1741,23 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '229b: This week chip still present (Stage 8.7.23)');
   check(/data-chip="30days"/.test(chipsSrc),
     '229c: Next 30 days chip still present (Stage 8.7.23)');
+  check(/data-chip="jun-jul"/.test(chipsSrc),
+    '10.6a.4: Jun–July chip present');
   check(/data-chip="jul-aug"/.test(chipsSrc),
     '229d: Jul–Aug chip still present (Stage 8.7.23)');
+  check(/data-chip="aug-sept"/.test(chipsSrc),
+    '10.6a.4: Aug–Sept chip present');
+  check(/data-chip="week"[\s\S]*?data-chip="30days"[\s\S]*?data-chip="jun-jul"[\s\S]*?data-chip="jul-aug"[\s\S]*?data-chip="aug-sept"/.test(chipsSrc),
+    '10.6a.4: quick range chips in desired order');
+  check(/bc-chip-active[\s\S]*?data-chip="30days"|data-chip="30days"[\s\S]*?bc-chip-active/.test(chipsSrc),
+    '10.6a.4: Next 30 days remains default active chip in markup');
+
+  check(/bcSetRange/.test(src) && /loadBedCalendar/.test(src.match(/function bcSetRange[\s\S]*?\n\}/)?.[0] || ''),
+    '10.6a.4: quick range chips call bcSetRange which loads calendar');
+  check(/key === 'jun-jul'[\s\S]{0,120}bcSetRange\('2026-06-01', '2026-07-31', 'jun-jul'\)/.test(src),
+    '10.6a.4: Jun–July chip sets 2026-06-01 to 2026-07-31');
+  check(/key === 'aug-sept'[\s\S]{0,120}bcSetRange\('2026-08-01', '2026-09-30', 'aug-sept'\)/.test(src),
+    '10.6a.4: Aug–Sept chip sets 2026-08-01 to 2026-09-30');
 
   (function checkBcTabAutoLoad(){
     const fnStart = src.indexOf('function bcOnBedCalendarTabOpen');
@@ -1832,13 +1860,7 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 
 // ── Stage 8.8.14 — Services & add-ons panel in booking drawer ───────────────
 (function check8814BookingServiceRecordsDrawer(){
-  const fnStart = src.indexOf('function renderBookingContextDrawer');
-  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 100) : -1;
-  const drawerFn = (fnStart > 0 && fnEnd > fnStart) ? src.slice(fnStart, fnEnd) : '';
-
-  const svcStart = drawerFn.indexOf('ctx-service-records');
-  const svcEnd   = svcStart > 0 ? drawerFn.indexOf('/* ── 4d. Luna confirmation draft', svcStart) : -1;
-  const svcPanel = svcStart > 0 && svcEnd > svcStart ? drawerFn.slice(svcStart, svcEnd) : '';
+  const svcPanel = extractBcRenderRunningInvoiceHtml(src);
 
   check(/service_records:/.test(src) && /service_records_available:/.test(src),
     '232: booking context API returns service_records + service_records_available (Stage 8.8.14)');
@@ -1860,20 +1882,17 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   check(/loadBookingServiceRecords/.test(src),
     '232f: loadBookingServiceRecords helper exists (Stage 8.8.14)');
 
-  check(/Services &amp; Add-ons|Services & Add-ons/.test(svcPanel),
-    '232g: drawer renders Services & Add-ons panel (Stage 8.8.14)');
-  check(/bc-service-records/.test(svcPanel),
-    '232h: drawer service panel has bc-service-records id (Stage 8.8.14)');
-  check(/service_type/.test(svcPanel) && /service_date/.test(svcPanel) &&
-        /quantity/.test(svcPanel) && /payment_status/.test(svcPanel) &&
-        /amount_due_cents/.test(svcPanel) && /amount_paid_cents/.test(svcPanel) &&
-        /source/.test(svcPanel) && /notes/.test(svcPanel),
-    '232i: drawer service panel renders required fields (Stage 8.8.14)');
-  check(/No services\/add-ons recorded for this booking/.test(svcPanel),
-    '232j: drawer service panel empty state (Stage 8.8.14)');
+  check(/bcRenderRunningInvoiceHtml|id="bc-inv-addons"/.test(svcPanel),
+    '232g: running invoice shows add-on lines from service_records (Stage 10.4d)');
+  check(!/id="bc-service-records"/.test(svcPanel),
+    '232h: legacy bc-service-records panel removed (Stage 10.4d)');
+  check(/bcRunningInvoiceSvcLineText|amount_due_cents/.test(svcPanel),
+    '232i: running invoice renders service record amounts (Stage 10.4d)');
+  check(/No add-ons recorded/.test(svcPanel),
+    '232j: running invoice empty add-ons copy (Stage 10.4d)');
 
-  check(!/Add service|Add add-on|Edit service|Edit add-on|Send payment|payment link|bcCopyUrl|checkout_url/i.test(svcPanel),
-    '232k: service panel has no Add/Edit/Send/payment link buttons (Stage 8.8.14)');
+  check(!/Add service|Add add-on|Edit service|Edit add-on|Send payment|payment link sent/i.test(svcPanel),
+    '232k: running invoice has no Add/Edit/Send payment link buttons (Stage 8.8.14)');
 
   const ctxFnMatch = src.match(/async function handleBookingContext[\s\S]{0,4500}/);
   const ctxFn = ctxFnMatch ? ctxFnMatch[0] : '';
@@ -1887,6 +1906,28 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '232n: service panel has no graph.facebook.com or api.stripe.com (Stage 8.8.14)');
   check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(svcPanel)),
     '232o: service panel has no n8n URL fetch (Stage 8.8.14)');
+})();
+
+// ── Phase 10.6a.4 — drawer/move/add-ons regressions + safety ───────────────
+(function check106a4DrawerAndSafety(){
+  check(/function loadBedCalendar/.test(src) && /renderBedCalendar/.test(src),
+    '10.6a.4: bed calendar load/render still present');
+  check(!/ctx-nights-badge/.test(
+    src.match(/function bcDetailHeaderMetaHtml[\s\S]*?function updateBcDetailHeader/)?.[0] || ''
+  ),
+    '10.6a.4: drawer header nights badge still removed');
+  check(/id="bc-add-ons-panel"/.test(src) && /bcRenderAddServicePanelHtml[\s\S]*?bcRenderRunningInvoiceHtml/.test(
+    src.match(/function renderBookingContextDrawer[\s\S]*?return html;/)?.[0] || ''
+  ),
+    '10.6a.4: add-ons panel still above Payment in drawer');
+  check(/id="bc-move-booking-btn"/.test(src) && /BC_BOOKING_MOVE_WRITE = true/.test(src),
+    '10.6a.4: Move booking control still enabled in drawer');
+  check(!/graph\.facebook\.com/.test(src) && !/api\.stripe\.com/.test(src),
+    '10.6a.4: no WhatsApp/Stripe URLs in staff bundle');
+  check(!/INSERT INTO booking_service_records|UPDATE payments|DELETE FROM booking_beds/i.test(
+    src.match(/function loadBedCalendar[\s\S]*?function bcIso/)?.[0] || ''
+  ),
+    '10.6a.4: calendar load path has no DB mutation');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

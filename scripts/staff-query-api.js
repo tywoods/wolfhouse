@@ -11208,11 +11208,13 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <button class="btn btn-primary" id="bc-load">&#128197; Load</button>
     </div>
 
-    <!-- Date shortcut chips (Stage 8.3a) -->
+    <!-- Date shortcut chips (Stage 8.3a / 10.6a.4) -->
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days">Next 30 days</span>
+      <span class="bc-chip" data-chip="jun-jul">Jun &ndash; July</span>
       <span class="bc-chip" data-chip="jul-aug">Jul &ndash; Aug</span>
+      <span class="bc-chip" data-chip="aug-sept">Aug &ndash; Sept</span>
     </div>
 
     <!-- Color legend (Stage 8.3a) -->
@@ -11224,14 +11226,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-review"></span>Needs review</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-operator"></span>Operator block</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Manual / staff</span>
-    </div>
-
-    <!-- Summary strip -->
-    <div class="bc-summary-strip" id="bc-summary" style="display:none">
-      <span><b id="bc-rooms-count">0 rooms</b></span>
-      <span><b id="bc-beds-count">0 beds</b></span>
-      <span><b id="bc-blocks-count">0 blocks</b></span>
-      <span id="bc-free-count" style="color:var(--text-3)"></span>
     </div>
 
     <!-- Warnings -->
@@ -13372,21 +13366,6 @@ function renderBedCalendar(data){
     if (ao !== bo) return ao - bo;
     return (a.room_name || a.room_code || '').localeCompare(b.room_name || b.room_code || '', undefined, { numeric: true, sensitivity: 'base' });
   });
-
-  /* Summary strip */
-  var totalBeds = 0;
-  rooms.forEach(function(r){ totalBeds += (r.beds ? r.beds.length : 0); });
-  /* Count beds that have at least one block in this range */
-  var bedsWithBlocks = {};
-  blocks.forEach(function(blk){ bedsWithBlocks[blk.room_code + '|' + blk.bed_code] = true; });
-  var occupiedBeds = Object.keys(bedsWithBlocks).length;
-  var freeBeds = totalBeds - occupiedBeds;
-  el('bc-rooms-count').textContent  = rooms.length  + ' room'  + (rooms.length  === 1 ? '' : 's');
-  el('bc-beds-count').textContent   = totalBeds      + ' bed'   + (totalBeds      === 1 ? '' : 's');
-  el('bc-blocks-count').textContent = blocks.length  + ' booking block' + (blocks.length === 1 ? '' : 's');
-  var freeEl = el('bc-free-count');
-  if (freeEl) freeEl.textContent = freeBeds > 0 ? freeBeds + ' free' : (totalBeds > 0 ? 'fully booked' : '');
-  el('bc-summary').style.display = 'flex';
 
   /* Warnings */
   if (data.warnings && data.warnings.length > 0){
@@ -15978,7 +15957,6 @@ function loadBedCalendar(afterRender){
 
   el('bc-grid-wrap').style.display = 'none';
   el('bc-detail').style.display    = 'none';
-  el('bc-summary').style.display   = 'none';
   el('bc-state').className         = 'state-msg';
   el('bc-state').textContent       = 'Loading bed calendar\u2026';
   el('bc-state').style.display     = 'block';
@@ -16081,8 +16059,12 @@ document.querySelectorAll('.bc-chip').forEach(function(chip){
     } else if (key === '30days'){
       var end30 = new Date(today.getTime() + 30 * 86400000);
       bcSetRange(t, bcIso(end30), '30days');
+    } else if (key === 'jun-jul'){
+      bcSetRange('2026-06-01', '2026-07-31', 'jun-jul');
     } else if (key === 'jul-aug'){
       bcSetRange('2026-07-01', '2026-08-31', 'jul-aug');
+    } else if (key === 'aug-sept'){
+      bcSetRange('2026-08-01', '2026-09-30', 'aug-sept');
     } else if (key === 'demo'){
       bcSetRange('2026-07-16', '2026-07-22', 'demo');
     }
