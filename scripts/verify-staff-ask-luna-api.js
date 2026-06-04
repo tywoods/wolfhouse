@@ -191,8 +191,8 @@ check('H4', 'who_owes_money intent supported (payments.balance_due)',
 check('H5', 'payment_links_pending intent supported (payments.waiting)',
   resolver.includes('payments.waiting'));
 
-check('H6', 'needs_human intent supported (handoffs.open)',
-  resolver.includes('handoffs.open'));
+check('H6', 'handoffs resolver wired (handoffs.open)',
+  resolver.includes('resolveAskLunaHandoffsIntentKey') && resolver.includes('handoffsIntentEarly'));
 
 check('H7', 'departures_today intent supported (not unsupported_intent)',
   resolver.includes("'departures_today'") &&
@@ -351,12 +351,14 @@ function extractAskLunaRouterChunk() {
     const arrivalsLib = require('./lib/staff-ask-luna-arrivals-checkouts');
     const cleaningLib = require('./lib/staff-ask-luna-cleaning');
     const bookingLookupLib = require('./lib/staff-ask-luna-booking-lookup');
+    const handoffsLib = require('./lib/staff-ask-luna-handoffs');
     const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
     const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
     const mealsYogaRoutingBlock = mealsYogaLib.getAskLunaMealsYogaRoutingSmokeBlock();
     const arrivalsRoutingBlock = arrivalsLib.getAskLunaArrivalsCheckoutsRoutingSmokeBlock();
     const cleaningRoutingBlock = cleaningLib.getAskLunaCleaningRoutingSmokeBlock();
     const bookingLookupRoutingBlock = bookingLookupLib.getAskLunaBookingLookupRoutingSmokeBlock();
+    const handoffsRoutingBlock = handoffsLib.getAskLunaHandoffsRoutingSmokeBlock();
     const registryKeys = [...require('./lib/staff-query-registry').REGISTRY_BY_KEY.keys()];
     const wrapped = `
       const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
@@ -368,6 +370,7 @@ function extractAskLunaRouterChunk() {
       ${arrivalsRoutingBlock}
       ${cleaningRoutingBlock}
       ${bookingLookupRoutingBlock}
+      ${handoffsRoutingBlock}
       const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) {
@@ -394,6 +397,9 @@ function extractAskLunaRouterChunk() {
         }
         if (String(id).includes('staff-ask-luna-booking-lookup')) {
           return { resolveAskLunaBookingLookupIntentKey };
+        }
+        if (String(id).includes('staff-ask-luna-handoffs')) {
+          return { resolveAskLunaHandoffsIntentKey };
         }
         throw new Error('unexpected require: ' + id);
       };
@@ -457,9 +463,15 @@ function extractAskLunaRouterChunk() {
       resolveIntent('payments.balance_due').intentKey === 'payments.balance_due');
     check('K-I17', 'runtime: unpaid balances → payments.balance_due',
       resolveIntent('unpaid balances').intentKey === 'payments.balance_due');
+    check('K-I18', 'runtime: who needs human reply → handoffs.open',
+      resolveIntent('Who needs human reply?').intentKey === 'handoffs.open');
+    check('K-I19', 'runtime: any urgent handoffs → handoffs.urgent',
+      resolveIntent('Any urgent handoffs?').intentKey === 'handoffs.urgent');
+    check('K-I20', 'runtime: registry handoffs.open → handoffs.open',
+      resolveIntent('handoffs.open').intentKey === 'handoffs.open');
   } catch (e) {
     check('K-I1', 'runtime intent routing smoke', false, e.message);
-    ['K-I2', 'K-I3', 'K-I4', 'K-I4b', 'K-I4c', 'K-I4d', 'K-I4e', 'K-I4f', 'K-I4g', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13', 'K-I14', 'K-I15', 'K-I16', 'K-I17']
+    ['K-I2', 'K-I3', 'K-I4', 'K-I4b', 'K-I4c', 'K-I4d', 'K-I4e', 'K-I4f', 'K-I4g', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13', 'K-I14', 'K-I15', 'K-I16', 'K-I17', 'K-I18', 'K-I19', 'K-I20']
       .forEach(id => check(id, 'runtime intent routing smoke (skipped)', false, e.message));
   }
 })();

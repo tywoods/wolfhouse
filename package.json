@@ -141,6 +141,7 @@
     "verify:staff-ask-luna-meals-yoga": "node scripts/verify-staff-ask-luna-meals-yoga.js",
     "verify:staff-ask-luna-arrivals-checkouts": "node scripts/verify-staff-ask-luna-arrivals-checkouts.js",
     "verify:staff-ask-luna-cleaning": "node scripts/verify-staff-ask-luna-cleaning.js",
+    "verify:staff-ask-luna-handoffs": "node scripts/verify-staff-ask-luna-handoffs.js",
     "verify:staff-ask-luna-booking-lookup": "node scripts/verify-staff-ask-luna-booking-lookup.js",
     "verify:staff-ask-luna-multi-tool-planner": "node scripts/verify-staff-ask-luna-multi-tool-planner.js",
     "verify:staff-stormglass-config": "node scripts/verify-staff-stormglass-config.js",

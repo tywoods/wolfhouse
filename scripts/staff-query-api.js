@@ -101,6 +101,11 @@ const {
   executeOpsPlannerTools,
   formatCombinedOpsPlannerAnswer,
 } = require('./lib/staff-ask-luna-multi-tool-planner');
+const {
+  resolveAskLunaHandoffsIntentKey,
+  fetchAskLunaHandoffRows,
+  formatAskLunaHandoffsAnswer,
+} = require('./lib/staff-ask-luna-handoffs');
 const { getStormglassConfigStatus } = require('./lib/staff-stormglass-config');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
@@ -1551,6 +1556,9 @@ function resolveNaturalLanguageIntent(question) {
   );
   if (bookingLookupIntentEarly) return bookingLookupIntentEarly;
 
+  const handoffsIntentEarly = resolveAskLunaHandoffsIntentKey(question, REGISTRY_BY_KEY);
+  if (handoffsIntentEarly) return handoffsIntentEarly;
+
   const cleaningIntentEarly = resolveAskLunaCleaningIntentKey(
     question, REGISTRY_BY_KEY, refDate,
   );
@@ -1617,8 +1625,6 @@ function resolveNaturalLanguageIntent(question) {
   // Natural language → intent mapping (English fallbacks)
   if (/payment.?link|checkout.?link|pending.?link|waiting.?for.?pay/.test(q))   return { intentKey: 'payments.waiting',            extraParams: {} };
   if (/arriv|check.?in.?today|arriving.?today/.test(q))                         return { intentKey: 'rooming.arrivals',            extraParams: { date: today } };
-  if (/needs?.human|needs?.staff|handoff|who.?needs.?help/.test(q))             return { intentKey: 'handoffs.open',               extraParams: {} };
-  if (/urgent.?handoff|high.?priority.?handoff/.test(q))                        return { intentKey: 'handoffs.urgent',             extraParams: {} };
   if (/deposit.paid|paid.?deposit/.test(q))                                     return { intentKey: 'payments.deposit',            extraParams: {} };
   if (/confirm|confirmation.?need/.test(q))                                     return { intentKey: 'payments.confirmation_needed', extraParams: {} };
   if (/fully.?paid|paid.?in.?full/.test(q))                                     return { intentKey: 'payments.fully_paid',         extraParams: {} };
@@ -1712,8 +1718,8 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'check_ins.count':              `0 guests checking in ${when}.`,
       'check_outs.on_date':           `No guests are checking out ${when}.`,
       'check_outs.count':             `0 guests checking out ${when}.`,
-      'handoffs.open':                'No open handoffs — all conversations handled. ✅',
-      'handoffs.urgent':              'No urgent handoffs right now. ✅',
+      'handoffs.open':                'No conversations are currently waiting for staff.',
+      'handoffs.urgent':              'No urgent handoffs are currently open.',
       'holds.active':                 'No active holds at the moment.',
       'addons.action_required':       'No add-ons require staff action.',
       'addons.lessons':               'No surf lessons found for that date.',
@@ -1828,13 +1834,8 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       return `${n} bed${n !== 1 ? 's' : ''} need cleaning after today's departures: ${list}${extra}`;
     }
     case 'handoffs.open':
-    case 'handoffs.urgent': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r =>
-        r.guest_phone || r.booking_code || r.id || '?'
-      ).join('; ');
-      const label = intentKey === 'handoffs.urgent' ? 'urgent handoff' : 'open handoff';
-      return `${n} ${label}${n !== 1 ? 's' : ''} need${n !== 1 ? '' : 's'} a human reply: ${list}${extra}`;
-    }
+    case 'handoffs.urgent':
+      return formatAskLunaHandoffsAnswer(intentKey, rows, ctx);
     case 'holds.active': {
       const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
       return `${n} active hold${n !== 1 ? 's' : ''}: ${list}${extra}`;
@@ -2143,6 +2144,36 @@ async function handleAskLuna(req, res) {
       answer_format_source,
       rows:               balanceRows.slice(0, MAX_ROWS),
       row_count:          balanceRows.length,
+      read_only:          true,
+      no_write_performed: true,
+      sends_whatsapp:     false,
+      elapsed_ms:         Date.now() - started,
+      ...askLunaIntentMeta(resolution),
+    });
+  }
+
+  if (intentKey === 'handoffs.open' || intentKey === 'handoffs.urgent') {
+    let handoffRows = [];
+    try {
+      handoffRows = await withPgClient((pgClient) =>
+        fetchAskLunaHandoffRows(pgClient, clientSlug, intentKey));
+    } catch (err) {
+      console.error('[ask-luna] DB error:', err.message);
+      return sendJSON(res, 500, {
+        success: false, error: 'query_error', detail: err.message,
+      });
+    }
+    const answer = formatAskLunaHandoffsAnswer(intentKey, handoffRows);
+    return sendJSON(res, 200, {
+      success:            true,
+      client_slug:        clientSlug,
+      source,
+      staff_access:       staffAccess,
+      intent:             intentKey,
+      category:           'handoffs',
+      answer,
+      rows:               handoffRows.slice(0, MAX_ROWS),
+      row_count:          handoffRows.length,
       read_only:          true,
       no_write_performed: true,
       sends_whatsapp:     false,

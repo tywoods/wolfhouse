@@ -173,12 +173,14 @@ try {
   const arrivalsLib = require('./lib/staff-ask-luna-arrivals-checkouts');
   const cleaningLib = require('./lib/staff-ask-luna-cleaning');
   const bookingLookupLib = require('./lib/staff-ask-luna-booking-lookup');
+  const handoffsLib = require('./lib/staff-ask-luna-handoffs');
   const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
   const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
   const mealsYogaRoutingBlock = mealsYogaLib.getAskLunaMealsYogaRoutingSmokeBlock();
   const arrivalsRoutingBlock = arrivalsLib.getAskLunaArrivalsCheckoutsRoutingSmokeBlock();
   const cleaningRoutingBlock = cleaningLib.getAskLunaCleaningRoutingSmokeBlock();
   const bookingLookupRoutingBlock = bookingLookupLib.getAskLunaBookingLookupRoutingSmokeBlock();
+  const handoffsRoutingBlock = handoffsLib.getAskLunaHandoffsRoutingSmokeBlock();
   const routeWrapped = `
     const matchesBalanceDueQuestion = ${bdLib.matchesBalanceDueQuestion.toString()};
     const normalizeBalanceDueQuestionText = ${bdLib.normalizeBalanceDueQuestionText.toString()};
@@ -189,6 +191,7 @@ try {
     ${arrivalsRoutingBlock}
     ${cleaningRoutingBlock}
     ${bookingLookupRoutingBlock}
+    ${handoffsRoutingBlock}
     const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
     const require = (id) => {
       if (String(id).includes('staff-query-registry')) {
@@ -215,6 +218,9 @@ try {
       }
       if (String(id).includes('staff-ask-luna-booking-lookup')) {
         return { resolveAskLunaBookingLookupIntentKey };
+      }
+      if (String(id).includes('staff-ask-luna-handoffs')) {
+        return { resolveAskLunaHandoffsIntentKey };
       }
       throw new Error('require ' + id);
     };
