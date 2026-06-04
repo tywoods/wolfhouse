@@ -101,14 +101,14 @@ check(/bcPaymentLedgerPaidTotalCents/.test(invFn),
 
 console.log('\nE. Payment history / truth copy');
 
-check(/ctx-inv-truth-note/.test(invFn),
-  'payment truth note CSS class');
+check(!/ctx-inv-truth-note/.test(invFn) || !/Paid total uses payment history/.test(invFn),
+  'explanatory paid-total disclaimer removed from running invoice');
+check(!/Paid total uses payment history \(paid rows only\)/.test(invFn),
+  'removed Paid total uses payment history copy');
+check(!/Invoice total is expected charges/.test(invFn),
+  'removed Invoice total is expected charges copy');
 check(/Payment history/.test(invFn),
   'Payment history ledger section');
-check(/paid rows only|Paid total uses payment history/.test(invFn),
-  'paid total disclaimer references payment history');
-check(/This invoice is expected charges|expected charges/.test(invFn),
-  'expected charges disclaimer copy');
 
 console.log('\nF. No legacy duplicate Services panel');
 

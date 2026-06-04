@@ -3688,10 +3688,41 @@ function paymentLedgerPaidTotalCents(rows) {
   }, 0);
 }
 
+const PAYMENT_LEDGER_CANCELLABLE_LINK_STATUSES = new Set(['checkout_created', 'draft', 'pending']);
+
+function paymentLedgerParseMetadata(raw) {
+  if (raw && typeof raw === 'object') return raw;
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch (_) { return {}; }
+}
+
+function paymentLedgerIsCancelledLinkStatus(status) {
+  const s = String(status || '').toLowerCase();
+  return s === 'cancelled' || s === 'canceled' || s === 'expired' || s === 'failed';
+}
+
+function paymentLedgerRowHasLinkUrl(pr) {
+  if (!pr) return false;
+  if (pr.checkout_url) return true;
+  const md = paymentLedgerParseMetadata(pr.metadata);
+  return !!(md.payment_link_url || md.checkout_url);
+}
+
+function paymentLedgerCanCancelLinkRow(pr) {
+  if (!pr) return false;
+  const st = String(pr.payment_status || '').toLowerCase();
+  if (paymentLedgerIsCancelledLinkStatus(st)) return false;
+  if (!PAYMENT_LEDGER_CANCELLABLE_LINK_STATUSES.has(st)) return false;
+  if (Number(pr.amount_paid_cents || 0) > 0) return false;
+  if (!paymentLedgerRowHasLinkUrl(pr)) return false;
+  return true;
+}
+
 function ledgerActivePaymentLinkRow(rows, balanceDueCents) {
   if (!balanceDueCents || balanceDueCents <= 0) return null;
   for (const pr of rows || []) {
     const st = String(pr.payment_status || '').toLowerCase();
+    if (paymentLedgerIsCancelledLinkStatus(st)) continue;
     if ((st === 'checkout_created' || st === 'draft')
         && pr.checkout_url
         && Number(pr.amount_due_cents) === Number(balanceDueCents)
@@ -6465,6 +6496,170 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     message: 'Payment link created. Nothing was sent to the guest.',
     elapsed_ms: elapsed,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.6f — Cancel unpaid payment link (payments status only; no paid truth)
+//
+// POST /staff/bookings/cancel-payment-link
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBookingCancelPaymentLink(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId      = String(body.booking_id   || '').trim();
+  const bookingCode    = String(body.booking_code || '').trim();
+  const paymentId      = String(body.payment_id   || '').trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const reason         = body.reason != null ? String(body.reason).trim().slice(0, 500) : 'Cancelled from Staff Portal';
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!paymentId) return send400(res, 'payment_id is required');
+  if (!UUID_VALIDATE_RE.test(paymentId)) return send400(res, 'payment_id must be a valid UUID');
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const actorId    = user ? user.staff_user_id : 'dev-cancel-link-local';
+  const actorRole  = user ? user.role          : 'operator';
+  const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:booking_cancel_payment_link',
+    category:        'booking_payment_link_cancel',
+    client_slug:     clientSlug,
+    booking_id:      bookingId || null,
+    booking_code:    bookingCode || null,
+    payment_id:      paymentId,
+    idempotency_key: idempotencyKey,
+    staff_user_id:   actorId,
+    staff_role:      actorRole,
+  };
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      const payRes = await pg.query(
+        `SELECT p.id::text AS payment_id, p.status::text AS payment_status,
+                p.amount_due_cents, p.amount_paid_cents, p.checkout_url, p.metadata,
+                p.booking_id::text AS row_booking_id,
+                b.booking_code
+           FROM payments p
+          INNER JOIN bookings b ON b.id = p.booking_id
+          INNER JOIN clients c ON c.id = b.client_id
+          WHERE p.id = $1::uuid
+            AND c.slug = $2
+          LIMIT 1`,
+        [paymentId, clientSlug]
+      );
+      const row = payRes.rows[0];
+      if (!row) return { error: 'payment_not_found' };
+
+      if (bookingId && row.row_booking_id !== bookingId) return { error: 'payment_booking_mismatch' };
+      if (bookingCode) {
+        const codeRes = await pg.query(
+          `SELECT b.id::text AS booking_id, b.booking_code
+             FROM bookings b
+            INNER JOIN clients c ON c.id = b.client_id
+            WHERE c.slug = $1 AND b.booking_code = $2
+            LIMIT 1`,
+          [clientSlug, bookingCode]
+        );
+        const bk = codeRes.rows[0];
+        if (!bk) return { error: 'booking_not_found' };
+        if (bk.booking_id !== row.row_booking_id) return { error: 'payment_booking_mismatch' };
+      }
+
+      const st = String(row.payment_status || '').toLowerCase();
+      if (st === 'cancelled' || st === 'canceled') {
+        return { idempotent: true, payment: row, cancelled: true };
+      }
+
+      if (paymentLedgerIsPaidStatus(st) || Number(row.amount_paid_cents || 0) > 0) {
+        return { error: 'payment_already_paid' };
+      }
+      if (!paymentLedgerCanCancelLinkRow(row)) {
+        return { error: 'payment_not_cancellable' };
+      }
+
+      const cancelMeta = {
+        cancel_idempotency_key: idempotencyKey,
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: actorLabel,
+        cancel_reason: reason,
+        staff_portal: true,
+        phase: '10.6f',
+      };
+
+      const upd = await pg.query(
+        `UPDATE payments
+            SET status = 'cancelled'::payment_record_status,
+                metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+          WHERE id = $1::uuid
+          RETURNING id::text AS payment_id, status::text AS payment_status,
+                    amount_due_cents, amount_paid_cents, checkout_url, metadata`,
+        [paymentId, JSON.stringify(cancelMeta)]
+      );
+      return { idempotent: false, payment: upd.rows[0], cancelled: true };
+    });
+
+    if (result.error === 'payment_not_found') {
+      return sendJSON(res, 404, { success: false, error: 'payment not found' });
+    }
+    if (result.error === 'booking_not_found') {
+      return sendJSON(res, 404, { success: false, error: 'booking not found' });
+    }
+    if (result.error === 'payment_booking_mismatch') {
+      return sendJSON(res, 400, { success: false, error: 'payment does not belong to this booking' });
+    }
+    if (result.error === 'payment_already_paid') {
+      return sendJSON(res, 400, {
+        success: false,
+        error: 'payment_already_paid',
+        message: 'Cannot cancel a paid payment row.',
+      });
+    }
+    if (result.error === 'payment_not_cancellable') {
+      return sendJSON(res, 400, {
+        success: false,
+        error: 'payment_not_cancellable',
+        message: 'Only unpaid checkout/payment-link rows can be cancelled.',
+      });
+    }
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      idempotent: !!result.idempotent,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      idempotent: !!result.idempotent,
+      cancelled: true,
+      payment: result.payment,
+      message: result.idempotent
+        ? 'Payment link already cancelled (idempotent).'
+        : 'Payment link cancelled. Row preserved for audit. No refund, paid totals, Stripe expire, WhatsApp, or n8n action was taken.',
+      no_stripe: true,
+      no_whatsapp: true,
+      no_n8n: true,
+      no_paid_truth_mutation: true,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'cancel payment link failed', detail: err.message });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11882,7 +12077,12 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-pay-record{margin-top:8px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:6px;font-size:12px;background:var(--bg-1,#f8f9fa)}
 .ctx-pay-record-paid{background:#F3FAF1;border-color:#B5D3AD}
 .ctx-pay-record-checkout{border-color:#B5C7D3}
+.ctx-pay-record-cancelled{opacity:.78;border-color:#E0D8CE;background:#F5F0EB}
 .ctx-pay-record-badge{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px}
+.btn-bc-cancel-link-icon,.btn-bc-copy-link-icon{border:1px solid var(--border-soft);background:var(--bg-0,#fff);border-radius:4px;padding:2px 7px;font-size:13px;line-height:1;cursor:pointer;color:var(--text-2)}
+.btn-bc-cancel-link-icon:hover{background:#FDF3F0;border-color:#D4A89A;color:#8B3A2A}
+.ctx-cancel-link-confirm{margin-top:8px;padding:8px 10px;border:1px solid #E8D4CE;border-radius:6px;background:#FDF8F6;font-size:11.5px;line-height:1.45}
+.ctx-cancel-link-confirm-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 .ctx-pay-record-badge-paid{background:#DCEAD2;color:#3d6130}
 .ctx-pay-record-badge-checkout{background:#D0E4EE;color:#1d5570}
 .ctx-pay-record-badge-default{background:#E8E8E8;color:var(--text-2)}
@@ -14832,6 +15032,7 @@ function loadBlockDetail(bookingCode){
       bcInitMovePanel(res.data);
       bcInitCashPaymentShell(res.data);
       bcInitPaymentLinkShell(res.data);
+      bcInitCancelPaymentLinkShell(res.data);
       bcInitBookingCancelShell(res.data);
       /* Wire "Open conversation" button */
       var btnConv = document.getElementById('bc-open-conv-btn');
@@ -15267,6 +15468,28 @@ function bcPaymentLedgerPaidTotalCents(rows){
   }, 0);
 }
 
+function bcPaymentLedgerIsCancelledLinkStatus(status){
+  var s = String(status || '').toLowerCase();
+  return s === 'cancelled' || s === 'canceled' || s === 'expired' || s === 'failed';
+}
+
+function bcPaymentLedgerRowHasLinkUrl(pr){
+  if (!pr) return false;
+  if (pr.checkout_url) return true;
+  var md = bcPaymentLedgerParseMetadata(pr.metadata);
+  return !!(md.payment_link_url || md.checkout_url);
+}
+
+function bcPaymentLedgerCanCancelLinkRow(pr){
+  if (!pr) return false;
+  var st = String(pr.payment_status || '').toLowerCase();
+  if (bcPaymentLedgerIsCancelledLinkStatus(st)) return false;
+  if (st !== 'checkout_created' && st !== 'draft' && st !== 'pending') return false;
+  if (Number(pr.amount_paid_cents || 0) > 0) return false;
+  if (!bcPaymentLedgerRowHasLinkUrl(pr)) return false;
+  return true;
+}
+
 function bcBookingLedgerBalance(bk, svcRows, paymentRows){
   bk = bk || {};
   svcRows = svcRows || [];
@@ -15301,6 +15524,7 @@ function bcLedgerActivePaymentLinkRow(rows, balanceDueCents){
   for (var i = 0; i < rows.length; i++){
     var pr = rows[i];
     var st = String(pr.payment_status || '').toLowerCase();
+    if (bcPaymentLedgerIsCancelledLinkStatus(st)) continue;
     if ((st === 'checkout_created' || st === 'draft')
         && pr.checkout_url
         && Number(pr.amount_due_cents) === Number(balanceDueCents)
@@ -15360,7 +15584,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   var pmtStatusLabel = function(s){
     var m = {
       draft: 'Draft payment', checkout_created: 'Checkout link created', pending: 'Pending',
-      paid: 'Paid \u2713', expired: 'Expired', cancelled: 'Cancelled', failed: 'Failed',
+      paid: 'Paid \u2713', expired: 'Expired', cancelled: 'Cancelled link', failed: 'Failed',
     };
     return m[s] || (s ? s.replace(/_/g, ' ') : '\u2014');
   };
@@ -15446,27 +15670,33 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   }
   html += '</div>';
 
-  html += '<div class="ctx-inv-truth-note">Paid total uses payment history (paid rows only). Invoice total is expected charges.</div>';
-
   /* Payment history ledger */
   html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
   html += '<div class="ctx-inv-subtitle">Payment history</div>';
   if (ledgerRows.length > 0){
     ledgerRows.forEach(function(pr){
       var isPaid = bcPaymentLedgerIsPaidStatus(pr.payment_status);
+      var isCancelled = bcPaymentLedgerIsCancelledLinkStatus(pr.payment_status);
       var isCreated = pr.payment_status === 'checkout_created';
+      var canCancel = bcPaymentLedgerCanCancelLinkRow(pr);
       var recCls = 'ctx-pay-record';
       if (isPaid) recCls += ' ctx-pay-record-paid';
+      else if (isCancelled) recCls += ' ctx-pay-record-cancelled';
       else if (isCreated) recCls += ' ctx-pay-record-checkout';
       var md = bcPaymentLedgerParseMetadata(pr.metadata);
       var methodLabel = bcPaymentLedgerMethodLabel(pr);
-      html += '<div class="' + recCls + '">';
+      var pid = pr.payment_id || '';
+      html += '<div class="' + recCls + '" data-payment-id="' + escHtml(pid) + '">';
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">';
       var badgeCls = isPaid ? 'ctx-pay-record-badge ctx-pay-record-badge-paid' :
         isCreated ? 'ctx-pay-record-badge ctx-pay-record-badge-checkout' :
         'ctx-pay-record-badge ctx-pay-record-badge-default';
       html += '<span class="' + badgeCls + '">' + escHtml(pmtStatusLabel(pr.payment_status)) + '</span>';
       html += '<span class="ctx-pay-record-badge ctx-pay-record-badge-default">' + escHtml(methodLabel) + '</span>';
+      if (canCancel){
+        html += '<button type="button" class="btn-bc-cancel-link-icon" data-payment-id="' + escHtml(pid) + '" ' +
+          'title="Cancel payment link" aria-label="Cancel payment link">\u2715</button>';
+      }
       html += '</div>';
       html += '<div class="ctx-pay-block" style="margin:0 0 4px">';
       var showAmt = isPaid && pr.amount_paid_cents != null ? pr.amount_paid_cents : pr.amount_due_cents;
@@ -15484,8 +15714,26 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
       if (pr.payment_id)
         html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Ref</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px"><code>' + escHtml(shortId(pr.payment_id)) + '</code></span></div>';
       html += '</div>';
-      if (isCreated && !isPaid){
+      if (isCreated && !isPaid && !isCancelled){
         html += '<div class="ctx-pay-record-wait">\u23F3 Payment link created \u2014 awaiting payment.</div>';
+      }
+      if (canCancel){
+        var confirmAmt = pr.amount_due_cents != null ? eur(pr.amount_due_cents) : '\u2014';
+        var confirmDate = pr.created_at ? fmtDate(pr.created_at) : '';
+        html += '<div class="ctx-cancel-link-confirm" id="bc-cancel-link-confirm-' + escHtml(pid) + '" style="display:none" data-payment-id="' + escHtml(pid) + '">';
+        html += '<div><strong>Cancel this payment link?</strong></div>';
+        if (confirmAmt !== '\u2014' || confirmDate){
+          html += '<div style="margin-top:4px">';
+          if (confirmAmt !== '\u2014') html += 'Amount: ' + escHtml(confirmAmt);
+          if (confirmAmt !== '\u2014' && confirmDate) html += ' \u00b7 ';
+          if (confirmDate) html += 'Created: ' + escHtml(confirmDate);
+          html += '</div>';
+        }
+        html += '<div style="margin-top:6px;color:var(--text-2)">This does not refund or change paid totals. The guest should not use this link.</div>';
+        html += '<div class="ctx-cancel-link-confirm-actions">';
+        html += '<button type="button" class="btn btn-ghost btn-bc-cancel-link-confirm" data-payment-id="' + escHtml(pid) + '">Confirm cancel</button>';
+        html += '<button type="button" class="btn btn-ghost btn-bc-cancel-link-keep" data-payment-id="' + escHtml(pid) + '">Keep link</button>';
+        html += '</div></div>';
       }
       if (pr.stripe_checkout_session_id || pr.stripe_payment_intent_id){
         html += '<div class="ctx-pay-record-meta">';
@@ -15638,6 +15886,69 @@ function bcInitPaymentLinkShell(data){
 
   var copyBtn = el('bc-payment-link-copy-btn');
   if (copyBtn) copyBtn.addEventListener('click', function(){ bcCopyPaymentLinkIcon(copyBtn); });
+}
+
+function bcNewCancelPaymentLinkIdempotencyKey(){
+  return 'bc-cancel-link-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcInitCancelPaymentLinkShell(data){
+  var bk = (data && data.booking) || {};
+  var wrap = el('bc-inv-payment-records');
+  if (!wrap) return;
+
+  function hideAllConfirmPanels(exceptPid){
+    wrap.querySelectorAll('.ctx-cancel-link-confirm').forEach(function(panel){
+      if (!exceptPid || panel.getAttribute('data-payment-id') !== exceptPid) panel.style.display = 'none';
+    });
+  }
+
+  wrap.querySelectorAll('.btn-bc-cancel-link-icon').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var pid = btn.getAttribute('data-payment-id');
+      if (!pid) return;
+      hideAllConfirmPanels(pid);
+      var panel = document.getElementById('bc-cancel-link-confirm-' + pid);
+      if (panel) panel.style.display = 'block';
+    });
+  });
+
+  wrap.querySelectorAll('.btn-bc-cancel-link-keep').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var pid = btn.getAttribute('data-payment-id');
+      var panel = pid && document.getElementById('bc-cancel-link-confirm-' + pid);
+      if (panel) panel.style.display = 'none';
+    });
+  });
+
+  wrap.querySelectorAll('.btn-bc-cancel-link-confirm').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var pid = btn.getAttribute('data-payment-id');
+      if (!pid || !bk.booking_code) return;
+      btn.disabled = true;
+      var client = getClient();
+      fetch('/staff/bookings/cancel-payment-link?client=' + encodeURIComponent(client), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          client_slug: client,
+          booking_code: bk.booking_code,
+          booking_id: bk.booking_id,
+          payment_id: pid,
+          idempotency_key: bcNewCancelPaymentLinkIdempotencyKey(),
+          reason: 'Cancelled from Staff Portal',
+        }),
+      })
+        .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+        .then(function(res){
+          btn.disabled = false;
+          if (!res.ok || !res.data.success) return;
+          hideAllConfirmPanels();
+          loadBlockDetail(bk.booking_code);
+        })
+        .catch(function(){ btn.disabled = false; });
+    });
+  });
 }
 
 function bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund){
@@ -19082,6 +19393,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingGeneratePaymentLink(req, res, auth.user);
+  }
+
+  // ── Phase 10.6f — Cancel unpaid payment link (payments status only) ───────
+  if (pathname === '/staff/bookings/cancel-payment-link') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/cancel-payment-link' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingCancelPaymentLink(req, res, auth.user);
   }
 
   // ── Phase 10.6a.2 — Booking remove add-on (DELETE one service record) ─────

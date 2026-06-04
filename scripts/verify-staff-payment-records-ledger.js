@@ -44,6 +44,8 @@ const drawerFn = (() => {
 
 const invFn = src.match(/function bcRenderRunningInvoiceHtml[\s\S]*?\n\}/)?.[0] || '';
 const cashHandler = src.match(/async function handleBookingRecordCashPayment[\s\S]*?\n\}/)?.[0] || '';
+const cancelHandler = src.match(/async function handleBookingCancelPaymentLink[\s\S]*?\n\}/)?.[0] || '';
+const cancelUi = src.match(/function bcInitCancelPaymentLinkShell[\s\S]*?\n\}/)?.[0] || '';
 const cashUi = src.match(/function bcInitCashPaymentShell[\s\S]*?\n\}/)?.[0] || '';
 const cashFormFn = src.match(/function bcRenderCashPaymentFormHtml[\s\S]*?\n\}/)?.[0] || '';
 const ledgerHelpers = src.match(/\/\* Phase 10\.6b — payment ledger helpers[\s\S]*?function bcRunningInvoiceSvcLineText/)?.[0] || '';
@@ -113,28 +115,62 @@ check(!/stripe\.checkout|createCheckout|checkout\.sessions\.create/.test(cashHan
 check(!/checkout_url/.test(cashHandler.match(/INSERT INTO payments[\s\S]{0,500}/)?.[0] || ''),
   'cash insert does not create payment link');
 
-console.log('\nF. Safety boundaries');
+console.log('\nF. Phase 10.6f — Cancel unpaid payment link');
 
-check(!/UPDATE booking_beds|INSERT INTO booking_beds|DELETE FROM booking_beds/.test(cashHandler),
-  'no booking_beds mutation in cash handler');
-check(!/booking_service_records/.test(cashHandler),
-  'no booking_service_records mutation in cash handler');
-check(!/graph\.facebook\.com/.test(cashHandler + cashUi + invFn),
-  'no WhatsApp in cash/ledger slice');
-check(!/api\.stripe\.com/.test(cashHandler + cashUi),
-  'no Stripe API in cash UI/handler');
-check(!(/fetch[\s\S]{0,80}n8n|n8n\.cloud.*activate/i.test(cashHandler)),
-  'no n8n activation in cash handler');
-check(!/deploy-staff|az containerapp update/i.test(cashHandler + cashUi),
+check(!/Paid total uses payment history/.test(invFn),
+  'explanatory totals copy removed');
+check(/btn-bc-cancel-link-icon/.test(invFn), 'icon-only cancel button in ledger');
+check(/title="Cancel payment link"/.test(invFn) && /aria-label="Cancel payment link"/.test(invFn),
+  'cancel button title and aria-label');
+check(/bcPaymentLedgerCanCancelLinkRow/.test(invFn) || /bcPaymentLedgerCanCancelLinkRow/.test(ledgerHelpers),
+  'client helper gates cancel button to cancellable rows');
+check(/Cancel this payment link\?/.test(invFn), 'inline confirmation prompt');
+check(/Confirm cancel/.test(invFn) && /Keep link/.test(invFn), 'confirm and keep buttons');
+check(/does not refund or change paid totals/.test(invFn),
+  'cancel warning about paid totals');
+check(/async function handleBookingCancelPaymentLink/.test(src), 'cancel payment link handler');
+check(/pathname === '\/staff\/bookings\/cancel-payment-link'/.test(src), 'cancel route registered');
+check(/paymentLedgerCanCancelLinkRow/.test(src), 'server cancellable row helper');
+check(/'cancelled'::payment_record_status/.test(cancelHandler),
+  'sets payment status to cancelled');
+check(!/DELETE FROM payments/.test(cancelHandler), 'does not delete payment rows');
+check(!/amount_paid_cents\s*=/.test(cancelHandler),
+  'does not mutate amount_paid_cents');
+check(!/UPDATE bookings/.test(cancelHandler), 'does not update bookings table');
+check(/idempotent:\s*true/.test(cancelHandler), 'idempotent when already cancelled');
+check(/payment_already_paid|payment_not_cancellable/.test(cancelHandler),
+  'blocks paid and non-cancellable rows');
+check(/payment_booking_mismatch|payment_not_found/.test(cancelHandler),
+  'verifies payment ownership');
+check(/bcInitCancelPaymentLinkShell/.test(src), 'cancel link shell init');
+check(/cancel-payment-link/.test(cancelUi), 'UI posts to cancel-payment-link');
+check(/loadBlockDetail\(bk\.booking_code\)/.test(cancelUi),
+  'cancel success reloads drawer');
+check(/paymentLedgerIsCancelledLinkStatus/.test(src) || /bcPaymentLedgerIsCancelledLinkStatus/.test(src),
+  'cancelled link rows excluded from active link logic');
+
+console.log('\nG. Safety boundaries');
+
+check(!/UPDATE booking_beds|INSERT INTO booking_beds|DELETE FROM booking_beds/.test(cashHandler + cancelHandler),
+  'no booking_beds mutation in cash/cancel handlers');
+check(!/booking_service_records/.test(cashHandler + cancelHandler),
+  'no booking_service_records mutation in cash/cancel handlers');
+check(!/graph\.facebook\.com/.test(cashHandler + cashUi + cancelHandler + cancelUi + invFn),
+  'no WhatsApp in cash/cancel/ledger slice');
+check(!/stripe\.checkout|checkout\.sessions\.expire/.test(cancelHandler + cancelUi),
+  'no Stripe expire in cancel handler/UI');
+check(!(/fetch[\s\S]{0,80}n8n|n8n\.cloud.*activate/i.test(cashHandler + cancelHandler)),
+  'no n8n activation in cash/cancel handlers');
+check(!/deploy-staff|az containerapp update/i.test(cashHandler + cashUi + cancelHandler),
   'no deploy scripts in slice');
 
-console.log('\nG. Preserved features');
+console.log('\nH. Preserved features');
 
 check(/bcRenderAddServicePanelHtml/.test(drawerFn), 'Add-ons panel preserved');
 check(/id="bc-move-booking-btn"/.test(drawerFn), 'Move bed preserved');
 check(/bcRenderBookingCancelFooterHtml/.test(drawerFn), 'Cancel footer preserved');
 
-console.log('\nH. package.json script');
+console.log('\nI. package.json script');
 
 try {
   const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
@@ -144,7 +180,7 @@ try {
   fail('package.json readable');
 }
 
-console.log('\nI. No docs / migration changes');
+console.log('\nJ. No docs / migration changes');
 
 let docsChanged = false;
 let migChanged = false;

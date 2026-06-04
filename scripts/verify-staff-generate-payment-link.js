@@ -43,6 +43,8 @@ const linkHandler = linkHandlerStart >= 0 && linkHandlerEnd > linkHandlerStart
 const linkUiFn = src.match(/function bcRenderPaymentLinkSectionHtml[\s\S]*?\n\}/)?.[0] || '';
 const linkUrlRow = src.match(/function bcRenderPaymentLinkUrlRowHtml[\s\S]*?\n\}/)?.[0] || '';
 const linkInit = src.match(/function bcInitPaymentLinkShell[\s\S]*?\n\}/)?.[0] || '';
+const cancelHandler = src.match(/async function handleBookingCancelPaymentLink[\s\S]*?\n\}/)?.[0] || '';
+const cancelUi = src.match(/function bcInitCancelPaymentLinkShell[\s\S]*?\n\}/)?.[0] || '';
 const invFn = src.match(/function bcRenderRunningInvoiceHtml[\s\S]*?\n\}/)?.[0] || '';
 const ledgerHelpers = src.match(/function paymentLedgerPaidTotalCents[\s\S]*?function bookingLedgerBalanceFromRows/)?.[0] || '';
 
@@ -137,9 +139,27 @@ check(/bcPaymentLedgerIsPaidStatus/.test(invFn) || /bcPaymentLedgerIsPaidStatus/
   'paid helper excludes link rows from Paid total');
 check(/ctx-pay-record-checkout/.test(invFn), 'checkout link styling in history');
 
-console.log('\nH. Safety boundaries');
+console.log('\nH. Phase 10.6f — cancel link + regenerate');
 
-check(!/sendWhatsApp|whatsapp\.com|triggerN8n|n8n\.webhook|fetch\([^)]*n8n/i.test(linkHandler),
+check(!/Paid total uses payment history/.test(invFn),
+  'explanatory totals copy removed');
+check(/paymentLedgerIsCancelledLinkStatus/.test(ledgerHelpers) || /bcPaymentLedgerIsCancelledLinkStatus/.test(src),
+  'cancelled rows skipped for active link');
+check(/ledgerActivePaymentLinkRow/.test(ledgerHelpers) && /paymentLedgerIsCancelledLinkStatus/.test(ledgerHelpers),
+  'active link helper ignores cancelled rows');
+check(/bcLedgerActivePaymentLinkRow/.test(linkUiFn),
+  'UI active link uses cancelled-aware helper');
+check(/async function handleBookingCancelPaymentLink/.test(src), 'cancel handler exists');
+check(/pathname === '\/staff\/bookings\/cancel-payment-link'/.test(src), 'cancel route registered');
+check(/'cancelled'::payment_record_status/.test(cancelHandler), 'void sets cancelled status');
+check(!/UPDATE bookings/.test(cancelHandler), 'cancel does not change booking paid total');
+check(/bcInitCancelPaymentLinkShell\(res\.data\)/.test(src), 'drawer init cancel shell');
+check(/loadBlockDetail\(bk\.booking_code\)/.test(cancelUi),
+  'after cancel reload enables fresh generate state');
+
+console.log('\nI. Safety boundaries');
+
+check(!/sendWhatsApp|whatsapp\.com|triggerN8n|n8n\.webhook|fetch\([^)]*n8n/i.test(linkHandler + cancelHandler),
   'no WhatsApp/n8n calls in handler');
 check(/no_whatsapp:\s*true/.test(linkHandler) && /n8n_called:\s*false/.test(linkHandler),
   'response flags no WhatsApp/n8n send');
