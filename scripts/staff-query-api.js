@@ -152,6 +152,51 @@ const STRIPE_LINKS_ENABLED   = process.env.STRIPE_LINKS_ENABLED   === 'true';
 const STRIPE_SECRET_KEY      = process.env.STRIPE_SECRET_KEY      || null;
 const STRIPE_SUCCESS_URL     = process.env.STRIPE_CHECKOUT_SUCCESS_URL || process.env.STRIPE_SUCCESS_URL || null;
 const STRIPE_CANCEL_URL      = process.env.STRIPE_CHECKOUT_CANCEL_URL  || process.env.STRIPE_CANCEL_URL  || null;
+
+/** Public site origin for Stripe Checkout redirects (env URLs or STAFF_PUBLIC_BASE_URL). */
+function stripeCheckoutPublicOrigin() {
+  for (const raw of [
+    process.env.STRIPE_CHECKOUT_PUBLIC_BASE_URL,
+    process.env.STAFF_PUBLIC_BASE_URL,
+    STRIPE_SUCCESS_URL,
+    STRIPE_CANCEL_URL,
+  ]) {
+    if (!raw) continue;
+    try { return new URL(raw).origin; } catch (_) { /* skip invalid */ }
+  }
+  return null;
+}
+
+/** Stripe success redirect — must include session_id placeholder (not bare /staff). */
+function stripeCheckoutSessionSuccessUrl() {
+  const env = STRIPE_SUCCESS_URL;
+  if (env && env.includes('{CHECKOUT_SESSION_ID}')
+      && /\/staff\/payment\/success|\/staff\/stripe\/success/.test(env)) {
+    return env;
+  }
+  const origin = stripeCheckoutPublicOrigin();
+  if (origin) return `${origin}/staff/payment/success?session_id={CHECKOUT_SESSION_ID}`;
+  return env;
+}
+
+/** Stripe cancel redirect — explicit cancel path (never share bare /staff with success). */
+function stripeCheckoutSessionCancelUrl() {
+  const env = STRIPE_CANCEL_URL;
+  if (env && /\/staff\/payment\/cancel|\/staff\/stripe\/cancel/.test(env)) {
+    return env;
+  }
+  const origin = stripeCheckoutPublicOrigin();
+  if (origin) return `${origin}/staff/payment/cancel`;
+  return env;
+}
+
+function stripeCheckoutRedirectUrlsConfigured() {
+  return !!(stripeCheckoutSessionSuccessUrl() && stripeCheckoutSessionCancelUrl());
+}
+
+function stripeCheckoutRedirectUrlsDistinct() {
+  return stripeCheckoutSessionSuccessUrl() !== stripeCheckoutSessionCancelUrl();
+}
 // Stage 8.4.11 — Stripe webhook payment truth.
 // STRIPE_WEBHOOK_SECRET: whsec_... from Stripe dashboard (or Stripe CLI for local testing).
 //   Required unless STRIPE_WEBHOOK_SKIP_VERIFY=true.
@@ -6679,7 +6724,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
       no_db_write: true,
     });
   }
-  if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+  if (!stripeCheckoutRedirectUrlsConfigured()) {
     return sendJSON(res, 503, {
       success: false,
       error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
@@ -6920,8 +6965,8 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
         source: 'staff_payment_link',
         idempotency_key: idempotencyKey,
       },
-      success_url: STRIPE_SUCCESS_URL,
-      cancel_url: STRIPE_CANCEL_URL,
+      success_url: stripeCheckoutSessionSuccessUrl(),
+      cancel_url: stripeCheckoutSessionCancelUrl(),
     });
   } catch (stripeErr) {
     return sendJSON(res, 500, {
@@ -8632,7 +8677,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     if (!STRIPE_SECRET_KEY) {
       return sendJSON(res, 503, { success: false, error: 'STRIPE_SECRET_KEY not configured.', write_performed: false });
     }
-    if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+    if (!stripeCheckoutRedirectUrlsConfigured()) {
       return sendJSON(res, 503, {
         success: false,
         error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
@@ -8778,8 +8823,8 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
           service_record_ids: JSON.stringify([serviceRecordId]),
           source: 'luna_guest_addon_request',
         },
-        success_url: STRIPE_SUCCESS_URL,
-        cancel_url: STRIPE_CANCEL_URL,
+        success_url: stripeCheckoutSessionSuccessUrl(),
+        cancel_url: stripeCheckoutSessionCancelUrl(),
       });
     } catch (stripeErr) {
       return sendJSON(res, 500, {
@@ -10113,7 +10158,7 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
       no_db_write: true,
     });
   }
-  if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+  if (!stripeCheckoutRedirectUrlsConfigured()) {
     return sendJSON(res, 503, {
       success: false,
       error:   'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
@@ -10228,8 +10273,8 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
         payment_kind:  pm.payment_kind  || '',
         source:        'staff_portal_manual_booking',
       },
-      success_url: STRIPE_SUCCESS_URL,
-      cancel_url:  STRIPE_CANCEL_URL,
+      success_url: stripeCheckoutSessionSuccessUrl(),
+      cancel_url:  stripeCheckoutSessionCancelUrl(),
     });
   } catch (stripeErr) {
     return sendJSON(res, 500, {
@@ -10349,7 +10394,7 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
       no_db_write: true,
     });
   }
-  if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+  if (!stripeCheckoutRedirectUrlsConfigured()) {
     return sendJSON(res, 503, {
       success: false,
       error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
@@ -10613,8 +10658,8 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
         payment_kind: 'addon_service',
         service_record_ids: JSON.stringify(serviceRecordIds),
       },
-      success_url: STRIPE_SUCCESS_URL,
-      cancel_url: STRIPE_CANCEL_URL,
+      success_url: stripeCheckoutSessionSuccessUrl(),
+      cancel_url: stripeCheckoutSessionCancelUrl(),
     });
   } catch (stripeErr) {
     return sendJSON(res, 500, {
@@ -10754,7 +10799,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
       no_db_write: true,
     });
   }
-  if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+  if (!stripeCheckoutRedirectUrlsConfigured()) {
     return sendJSON(res, 503, {
       success: false,
       error:   'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
@@ -10865,8 +10910,8 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
         payment_kind: pm.payment_kind  || '',
         source:       'bot_stage855',
       },
-      success_url: STRIPE_SUCCESS_URL,
-      cancel_url:  STRIPE_CANCEL_URL,
+      success_url: stripeCheckoutSessionSuccessUrl(),
+      cancel_url:  stripeCheckoutSessionCancelUrl(),
     });
   } catch (stripeErr) {
     return sendJSON(res, 500, {
@@ -11697,7 +11742,7 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
     return outcome;
   }
 
-  if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+  if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !stripeCheckoutRedirectUrlsConfigured()) {
     const err = new Error('STRIPE_NOT_CONFIGURED');
     err.code = 'STRIPE_NOT_CONFIGURED';
     throw err;
@@ -11792,8 +11837,8 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
       idempotency_key: stripeIdemKey,
       staff_payment_choice: staffPaymentChoice,
     },
-    success_url: STRIPE_SUCCESS_URL,
-    cancel_url: STRIPE_CANCEL_URL,
+    success_url: stripeCheckoutSessionSuccessUrl(),
+    cancel_url: stripeCheckoutSessionCancelUrl(),
   });
 
   const expiresAt = session.expires_at

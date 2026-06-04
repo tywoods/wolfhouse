@@ -53,19 +53,31 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
 check(pkg.scripts && pkg.scripts['verify:staff-stripe-checkout-landing'],
   'package.json has verify:staff-stripe-checkout-landing script');
 
-console.log('\nB. Checkout redirect URLs use env');
-check(/success_url:\s*STRIPE_SUCCESS_URL/.test(src),
-  'checkout success_url comes from STRIPE_SUCCESS_URL env');
-check(/cancel_url:\s*STRIPE_CANCEL_URL/.test(src),
-  'checkout cancel_url comes from STRIPE_CANCEL_URL env');
+console.log('\nB. Checkout redirect URLs (Phase 10.7c)');
+check(/function stripeCheckoutSessionSuccessUrl/.test(src),
+  'stripeCheckoutSessionSuccessUrl helper exists');
+check(/function stripeCheckoutSessionCancelUrl/.test(src),
+  'stripeCheckoutSessionCancelUrl helper exists');
+check(/\/staff\/payment\/success\?session_id=\{CHECKOUT_SESSION_ID\}/.test(src),
+  'success URL uses /staff/payment/success with CHECKOUT_SESSION_ID placeholder');
+check(/\/staff\/payment\/cancel/.test(src.match(/function stripeCheckoutSessionCancelUrl[\s\S]*?\n\}/)?.[0] || ''),
+  'cancel URL uses /staff/payment/cancel');
+check(/success_url:\s*stripeCheckoutSessionSuccessUrl\(\)/.test(src),
+  'checkout success_url uses stripeCheckoutSessionSuccessUrl()');
+check(/cancel_url:\s*stripeCheckoutSessionCancelUrl\(\)/.test(src),
+  'checkout cancel_url uses stripeCheckoutSessionCancelUrl()');
+check(/function stripeCheckoutRedirectUrlsDistinct/.test(src),
+  'helper ensures success and cancel URLs differ');
+check(/stripeCheckoutSessionSuccessUrl\(\)\s*!==\s*stripeCheckoutSessionCancelUrl\(\)/.test(src),
+  'success and cancel redirect URLs are not identical');
 
 console.log('\nC. Success landing route + HTML');
 check(/handleStripeCheckoutSuccessLanding/.test(landingBlock),
   'success landing handler exists');
 check(/Payment received/.test(landingBlock) && /Thanks/.test(landingBlock),
   'success page title and thanks copy');
-check(/Wolfhouse has your booking\/payment update/.test(landingBlock),
-  'success page Wolfhouse confirmation copy');
+check(/You can close this page/.test(landingBlock),
+  'success page close guidance');
 check(/sendHTML\(res,\s*200/.test(landingBlock),
   'success route returns HTML 200');
 check(/\/staff\/payment\/success/.test(landingBlock) || /isStripeCheckoutSuccessLandingPath/.test(landingBlock),
