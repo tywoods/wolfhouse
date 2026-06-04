@@ -77,7 +77,8 @@ check(/BOOKING_PAYMENTS_LEDGER_SQL/.test(src),
 
 console.log('\nC. Paid total rules');
 
-check(/bcPaymentLedgerPaidTotalCents\(paymentRows\)/.test(src.match(/async function handleBookingContext[\s\S]{0,3500}/)?.[0] || ''),
+check(/paymentLedgerPaidTotalCents\(paymentRows\)|bcPaymentLedgerPaidTotalCents\(paymentRows\)/.test(
+  src.match(/async function handleBookingContext[\s\S]{0,3500}/)?.[0] || ''),
   'context totalPaid uses ledger paid helper');
 check(/status = 'paid'::payment_record_status/.test(cashHandler),
   'cash payment inserts paid status');

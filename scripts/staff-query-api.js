@@ -3677,6 +3677,39 @@ WHERE c.slug = $1
 ORDER BY p.created_at DESC
 `;
 
+function paymentLedgerIsPaidStatus(status) {
+  return String(status || '').toLowerCase() === 'paid';
+}
+
+function paymentLedgerPaidTotalCents(rows) {
+  return (rows || []).reduce((sum, pr) => {
+    if (!paymentLedgerIsPaidStatus(pr.payment_status)) return sum;
+    return sum + Number(pr.amount_paid_cents || 0);
+  }, 0);
+}
+
+function ledgerActivePaymentLinkRow(rows, balanceDueCents) {
+  if (!balanceDueCents || balanceDueCents <= 0) return null;
+  for (const pr of rows || []) {
+    const st = String(pr.payment_status || '').toLowerCase();
+    if ((st === 'checkout_created' || st === 'draft')
+        && pr.checkout_url
+        && Number(pr.amount_due_cents) === Number(balanceDueCents)
+        && Number(pr.amount_paid_cents || 0) === 0) {
+      return pr;
+    }
+  }
+  return null;
+}
+
+function bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows) {
+  const metadata = bookingRow.metadata || {};
+  const quoteSnap = (metadata && typeof metadata === 'object' && metadata.quote_snapshot) || null;
+  const accCents = editPreviewAccommodationCents(bookingRow, svcRows, quoteSnap);
+  const paidCents = paymentLedgerPaidTotalCents(paymentRows);
+  return editPreviewInvoiceSide(accCents, svcRows, paidCents, null);
+}
+
 const EDIT_PREVIEW_BOOKING_BY_CODE_SQL = `
 SELECT
   b.id::text                AS booking_id,
@@ -6068,6 +6101,370 @@ async function handleBookingRecordCashPayment(req, res, user) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'cash payment failed', detail: err.message });
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.6c — Generate Stripe payment link for booking balance (no send)
+//
+// POST /staff/bookings/generate-payment-link
+//
+// Creates checkout_created payment row + Stripe Checkout Session for current
+// invoice total minus paid ledger total. No paid-truth, no WhatsApp, no n8n.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBookingGeneratePaymentLink(req, res, user) {
+  const started = Date.now();
+
+  if (!STAFF_ACTIONS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+      staff_actions_enabled: false,
+    });
+  }
+  if (!STRIPE_LINKS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.',
+      stripe_links_enabled: false,
+    });
+  }
+  if (!STRIPE_SECRET_KEY) {
+    return sendJSON(res, 503, {
+      success: false,
+      error: 'STRIPE_SECRET_KEY not configured.',
+      no_db_write: true,
+    });
+  }
+  if (!STRIPE_SUCCESS_URL || !STRIPE_CANCEL_URL) {
+    return sendJSON(res, 503, {
+      success: false,
+      error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
+      no_db_write: true,
+    });
+  }
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId      = String(body.booking_id   || '').trim();
+  const bookingCode    = String(body.booking_code || '').trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const reason         = body.reason != null ? String(body.reason).trim().slice(0, 500) : null;
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const actorId = user ? user.staff_user_id : 'dev-pay-link-local';
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:booking_generate_payment_link',
+    category: 'booking_payment_link_write',
+    client_slug: clientSlug,
+    booking_id: bookingId || null,
+    booking_code: bookingCode || null,
+    idempotency_key: idempotencyKey,
+    staff_user_id: actorId,
+  };
+
+  let bookingRow;
+  let svcRows = [];
+  let paymentRows = [];
+  try {
+    const loaded = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode],
+      );
+      const bk = bookingRes.rows[0] || null;
+      if (!bk) return { booking: null, svc: [], payments: [] };
+      const svc = await loadBookingServiceRecords(pg, clientSlug, bk.booking_code);
+      const pm = await pg.query(BOOKING_PAYMENTS_LEDGER_SQL, [clientSlug, bk.booking_code]);
+      return { booking: bk, svc: svc.rows, payments: pm.rows };
+    });
+    bookingRow = loaded.booking;
+    svcRows = loaded.svc;
+    paymentRows = loaded.payments;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'booking lookup failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    return sendJSON(res, 404, { success: false, error: 'booking not found' });
+  }
+
+  if (bookingStatusIsCancelled(bookingRow.status)) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'booking_not_active',
+      message: 'Cannot create a payment link on a cancelled or expired booking.',
+    });
+  }
+
+  const ledger = bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows);
+  const amountDueCents = ledger.balance_due_cents;
+
+  if (ledger.needs_refund) {
+    return sendJSON(res, 409, {
+      success: false,
+      error: 'refund_review_needed',
+      message: 'Refund / credit review needed before creating a payment link.',
+    });
+  }
+
+  if (amountDueCents == null || amountDueCents <= 0) {
+    return sendJSON(res, 200, {
+      success: true,
+      created: false,
+      idempotent: false,
+      error: 'no_payment_due',
+      booking_code: bookingRow.booking_code,
+      amount_due_cents: 0,
+      message: 'No outstanding balance due.',
+    });
+  }
+
+  const existingByKey = paymentRows.find((pr) => {
+    const md = pr.metadata;
+    let parsed = md;
+    if (typeof md === 'string') {
+      try { parsed = JSON.parse(md); } catch (_) { parsed = {}; }
+    }
+    return parsed && parsed.idempotency_key === idempotencyKey && pr.checkout_url;
+  });
+  if (existingByKey) {
+    return sendJSON(res, 200, {
+      success: true,
+      created: false,
+      idempotent: true,
+      booking_code: bookingRow.booking_code,
+      amount_due_cents: Number(existingByKey.amount_due_cents || amountDueCents),
+      payment_status: 'payment_link_created',
+      payment_link_url: existingByKey.checkout_url,
+      checkout_url: existingByKey.checkout_url,
+      stripe_mutation: false,
+      send_mutation: false,
+      message: 'Payment link already created (idempotent). Nothing was sent to the guest.',
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  const activeLink = ledgerActivePaymentLinkRow(paymentRows, amountDueCents);
+  if (activeLink && activeLink.checkout_url) {
+    return sendJSON(res, 200, {
+      success: true,
+      created: false,
+      idempotent: true,
+      booking_code: bookingRow.booking_code,
+      amount_due_cents: amountDueCents,
+      payment_status: 'payment_link_created',
+      payment_link_url: activeLink.checkout_url,
+      checkout_url: activeLink.checkout_url,
+      payment_id: activeLink.payment_id,
+      stripe_mutation: false,
+      send_mutation: false,
+      message: 'Payment link already exists for this balance. Nothing was sent to the guest.',
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  let stripe;
+  try {
+    stripe = require('stripe')(STRIPE_SECRET_KEY);
+  } catch (e) {
+    return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
+  }
+
+  const pmMeta = {
+    source: 'staff_payment_link',
+    method: 'payment_link',
+    idempotency_key: idempotencyKey,
+    booking_code: bookingRow.booking_code,
+    amount_due_cents: amountDueCents,
+    reason: reason,
+    created_by: actorId,
+    staff_portal: true,
+    phase: '10.6c',
+  };
+
+  let paymentId;
+  try {
+    paymentId = await withPgClient(async (pg) => {
+      const idem = await pg.query(
+        `SELECT p.id::text AS payment_id, p.status::text AS payment_status,
+                p.amount_due_cents, p.checkout_url, p.metadata
+           FROM payments p
+          WHERE p.booking_id = $1::uuid
+            AND p.metadata->>'idempotency_key' = $2
+          LIMIT 1`,
+        [bookingRow.booking_id, idempotencyKey],
+      );
+      if (idem.rows[0] && idem.rows[0].checkout_url) {
+        return { reuse: true, row: idem.rows[0] };
+      }
+
+      const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+      const clientId = clientRes.rows[0] && clientRes.rows[0].id;
+      if (!clientId) throw new Error('client not found');
+
+      const ins = await pg.query(
+        `INSERT INTO payments (
+           client_id, booking_id, status, payment_kind, currency,
+           amount_due_cents, amount_paid_cents, metadata
+         ) VALUES (
+           $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
+           $3, 0, $4::jsonb
+         )
+         RETURNING id::text AS payment_id`,
+        [clientId, bookingRow.booking_id, amountDueCents, JSON.stringify(pmMeta)],
+      );
+      return { reuse: false, payment_id: ins.rows[0].payment_id };
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'payment draft insert failed', detail: err.message });
+  }
+
+  if (paymentId.reuse) {
+    return sendJSON(res, 200, {
+      success: true,
+      created: false,
+      idempotent: true,
+      booking_code: bookingRow.booking_code,
+      amount_due_cents: Number(paymentId.row.amount_due_cents || amountDueCents),
+      payment_status: 'payment_link_created',
+      payment_link_url: paymentId.row.checkout_url,
+      checkout_url: paymentId.row.checkout_url,
+      stripe_mutation: false,
+      send_mutation: false,
+      message: 'Payment link already created (idempotent). Nothing was sent to the guest.',
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  const newPaymentId = paymentId.payment_id;
+  const productName = `Booking ${bookingRow.booking_code || newPaymentId} \u2014 ${bookingRow.guest_name || 'Guest'}`;
+  const productDesc = `Outstanding balance | ${bookingRow.check_in || ''} \u2013 ${bookingRow.check_out || ''} | ${clientSlug}`;
+
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      currency: 'eur',
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          product_data: { name: productName, description: productDesc },
+          unit_amount: amountDueCents,
+        },
+        quantity: 1,
+      }],
+      metadata: {
+        client_slug: clientSlug,
+        booking_id: bookingRow.booking_id,
+        booking_code: bookingRow.booking_code || '',
+        payment_id: newPaymentId,
+        payment_kind: 'full_amount',
+        source: 'staff_payment_link',
+        idempotency_key: idempotencyKey,
+      },
+      success_url: STRIPE_SUCCESS_URL,
+      cancel_url: STRIPE_CANCEL_URL,
+    });
+  } catch (stripeErr) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Stripe session creation failed: ' + stripeErr.message,
+      no_db_write: true,
+    });
+  }
+
+  const expiresAt = session.expires_at
+    ? new Date(session.expires_at * 1000).toISOString()
+    : null;
+
+  try {
+    await withPgClient(async (pg) => {
+      await pg.query(
+        `UPDATE payments
+            SET status                     = 'checkout_created'::payment_record_status,
+                stripe_checkout_session_id = $1,
+                checkout_url               = $2,
+                expires_at                 = $3,
+                metadata                   = metadata || $4::jsonb
+          WHERE id = $5`,
+        [
+          session.id,
+          session.url,
+          expiresAt,
+          JSON.stringify({
+            stripe_session_id: session.id,
+            stripe_livemode: session.livemode,
+            stripe_payment_status: session.payment_status,
+            payment_link_url: session.url,
+          }),
+          newPaymentId,
+        ],
+      );
+    });
+  } catch (dbErr) {
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
+      payment_id: newPaymentId,
+      session_id: session.id,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Stripe session created but DB update failed: ' + dbErr.message,
+      checkout_url: session.url,
+    });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success: true,
+    payment_id: newPaymentId,
+    amount_due_cents: amountDueCents,
+    stripe_session_id: session.id,
+    elapsed_ms: elapsed,
+    stripe_called: true,
+    whatsapp_called: false,
+    n8n_called: false,
+    send_mutation: false,
+  });
+
+  return sendJSON(res, 200, {
+    success: true,
+    created: true,
+    idempotent: false,
+    booking_code: bookingRow.booking_code,
+    amount_due_cents: amountDueCents,
+    payment_status: 'payment_link_created',
+    payment_link_url: session.url,
+    checkout_url: session.url,
+    payment_id: newPaymentId,
+    stripe_checkout_session_id: session.id,
+    stripe_mutation: true,
+    send_mutation: false,
+    no_payment_truth_recorded: true,
+    no_whatsapp: true,
+    no_n8n: true,
+    message: 'Payment link created. Nothing was sent to the guest.',
+    elapsed_ms: elapsed,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -13955,6 +14352,7 @@ function loadBlockDetail(bookingCode){
       bcInitAddServiceShell(res.data);
       bcInitMovePanel(res.data);
       bcInitCashPaymentShell(res.data);
+      bcInitPaymentLinkShell(res.data);
       bcInitBookingCancelShell(res.data);
       /* Wire "Open conversation" button */
       var btnConv = document.getElementById('bc-open-conv-btn');
@@ -14390,10 +14788,55 @@ function bcPaymentLedgerPaidTotalCents(rows){
   }, 0);
 }
 
+function bcBookingLedgerBalance(bk, svcRows, paymentRows){
+  bk = bk || {};
+  svcRows = svcRows || [];
+  paymentRows = paymentRows || [];
+  var md = bk.metadata || {};
+  if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_) { md = {}; } }
+  var quoteSnap = md.quote_snapshot || null;
+  var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+  var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
+  var invoiceTotal = accCents != null ? accCents + svcSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
+  var paidCents = bcPaymentLedgerPaidTotalCents(paymentRows);
+  var balanceDue = null;
+  var needsRefund = false;
+  if (invoiceTotal != null && paidCents != null) {
+    if (invoiceTotal > paidCents) balanceDue = invoiceTotal - paidCents;
+    else if (invoiceTotal < paidCents) { needsRefund = true; balanceDue = 0; }
+    else balanceDue = 0;
+  } else if (invoiceTotal != null) {
+    balanceDue = invoiceTotal;
+  }
+  return {
+    invoice_total_cents: invoiceTotal,
+    paid_cents: paidCents,
+    balance_due_cents: balanceDue,
+    needs_refund: needsRefund,
+  };
+}
+
+function bcLedgerActivePaymentLinkRow(rows, balanceDueCents){
+  rows = rows || [];
+  if (!balanceDueCents || balanceDueCents <= 0) return null;
+  for (var i = 0; i < rows.length; i++){
+    var pr = rows[i];
+    var st = String(pr.payment_status || '').toLowerCase();
+    if ((st === 'checkout_created' || st === 'draft')
+        && pr.checkout_url
+        && Number(pr.amount_due_cents) === Number(balanceDueCents)
+        && Number(pr.amount_paid_cents || 0) === 0) {
+      return pr;
+    }
+  }
+  return null;
+}
+
 function bcPaymentLedgerMethodLabel(pr){
   pr = pr || {};
   var md = bcPaymentLedgerParseMetadata(pr.metadata);
   if (md.method) return String(md.method);
+  if (md.source === 'staff_payment_link' || md.source === 'staff_portal_payment_link') return 'payment link';
   if (md.source === 'staff_cash') return 'cash';
   if (md.source === 'staff_manual') return 'manual';
   if (pr.stripe_checkout_session_id || pr.stripe_payment_intent_id) return 'stripe';
@@ -14590,15 +15033,138 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   }
   html += '</div>';
 
-  html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents);
+  var needsRefund = invoiceTotal != null && paidCents != null && invoiceTotal < paidCents;
+  var balanceDue = (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents)
+    ? invoiceTotal - paidCents : (needsRefund ? 0 : null);
+  html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
+  html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
 
   html += '</div></div>';
   return html;
 }
 
-function bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents){
+function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows){
+  bk = bk || {};
+  ledgerRows = ledgerRows || [];
+  if (bookingStatusIsCancelled(bk.status)) return '';
+  if (needsRefund) {
+    return '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">' +
+      '<div class="state-msg error" style="font-size:12px;margin:0">Refund / credit review needed before creating a payment link.</div></div>';
+  }
+  var paidInFull = invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal;
+  if (paidInFull || balanceDue == null || balanceDue <= 0) return '';
+
+  var active = bcLedgerActivePaymentLinkRow(ledgerRows, balanceDue);
+  var html = '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">';
+  html += '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn">Generate Payment Link</button>';
+  html += '<div id="bc-payment-link-active" style="margin-top:10px' + (active ? '' : ';display:none') + '">';
+  if (active && active.checkout_url) {
+    html += bcRenderPaymentLinkUrlRowHtml(active.checkout_url);
+  }
+  html += '</div>';
+  html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite"></div>';
+  html += '</div>';
+  return html;
+}
+
+function bcRenderPaymentLinkUrlRowHtml(url){
+  if (!url) return '';
+  return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+    '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" id="bc-payment-link-url" ' +
+    'style="word-break:break-all;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--accent)">' +
+    escHtml(url.length > 56 ? url.slice(0, 56) + '\u2026' : url) + '</a>' +
+    '<button type="button" class="btn-bc-copy-link-icon" id="bc-payment-link-copy-btn" data-url="' + escHtml(url) + '" ' +
+    'onclick="bcCopyPaymentLinkIcon(this)" title="Copy payment link" aria-label="Copy payment link">\uD83D\uDCCB</button>' +
+    '<span id="bc-payment-link-copied" style="display:none;font-size:11px;color:var(--text-3)">Copied</span>' +
+    '</div>';
+}
+
+function bcCopyPaymentLinkIcon(btn){
+  var u = btn && btn.dataset && btn.dataset.url;
+  if (!u) return;
+  var confirmEl = document.getElementById('bc-payment-link-copied');
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(u)
+      .then(function(){
+        if (confirmEl){
+          confirmEl.textContent = 'Copied';
+          confirmEl.style.display = 'inline';
+          setTimeout(function(){ confirmEl.style.display = 'none'; }, 2000);
+        }
+      })
+      .catch(function(){ prompt('Payment link:', u); });
+  } else {
+    prompt('Payment link:', u);
+  }
+}
+
+function bcNewPaymentLinkIdempotencyKey(){
+  return 'bc-pay-link-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcInitPaymentLinkShell(data){
+  var bk = (data && data.booking) || {};
+  var genBtn = el('bc-generate-payment-link-btn');
+  if (!genBtn) return;
+  var resultEl = el('bc-payment-link-result');
+  var activeWrap = el('bc-payment-link-active');
+
+  genBtn.addEventListener('click', function(){
+    genBtn.disabled = true;
+    if (resultEl){ resultEl.classList.remove('is-visible', 'is-blocked'); resultEl.innerHTML = ''; resultEl.style.display = 'none'; }
+    var client = getClient();
+    fetch('/staff/bookings/generate-payment-link?client=' + encodeURIComponent(client), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        client_slug: client,
+        booking_code: bk.booking_code,
+        booking_id: bk.booking_id,
+        idempotency_key: bcNewPaymentLinkIdempotencyKey(),
+        reason: 'Outstanding balance after booking edit',
+      }),
+    })
+      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+      .then(function(res){
+        genBtn.disabled = false;
+        if (!res.ok || !res.data.success){
+          if (resultEl){
+            resultEl.innerHTML = escHtml((res.data && res.data.error) || (res.data && res.data.message) || 'Payment link failed');
+            resultEl.classList.add('is-visible', 'is-blocked');
+            resultEl.style.display = 'block';
+          }
+          return;
+        }
+        var url = res.data.payment_link_url || res.data.checkout_url;
+        if (activeWrap && url) {
+          activeWrap.style.display = 'block';
+          activeWrap.innerHTML = bcRenderPaymentLinkUrlRowHtml(url);
+        }
+        if (resultEl && res.data.message) {
+          resultEl.innerHTML = escHtml(res.data.message);
+          resultEl.classList.add('is-visible');
+          resultEl.style.display = 'block';
+        }
+        if (bk.booking_code) loadBlockDetail(bk.booking_code);
+      })
+      .catch(function(err){
+        genBtn.disabled = false;
+        if (resultEl){
+          resultEl.innerHTML = escHtml(err.message || 'Network error');
+          resultEl.classList.add('is-visible', 'is-blocked');
+          resultEl.style.display = 'block';
+        }
+      });
+  });
+
+  var copyBtn = el('bc-payment-link-copy-btn');
+  if (copyBtn) copyBtn.addEventListener('click', function(){ bcCopyPaymentLinkIcon(copyBtn); });
+}
+
+function bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund){
   bk = bk || {};
   if (bookingStatusIsCancelled(bk.status)) return '';
+  if (needsRefund) return '';
   if (invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal) return '';
   var today = new Date().toISOString().slice(0, 10);
   return '<div class="ctx-cash-payment" id="bc-cash-payment" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">' +
@@ -17758,7 +18324,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
   const confirmationDraft = bkMetadata.confirmation_draft || null;
 
   // Payments aggregate — paid truth from paid payment rows only (10.6b)
-  const totalPaid = bcPaymentLedgerPaidTotalCents(paymentRows);
+  const totalPaid = paymentLedgerPaidTotalCents(paymentRows);
   const latestStatus = paymentRows.length > 0 ? paymentRows[0].payment_status : null;
 
   // Rooming
@@ -18014,6 +18580,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingRecordCashPayment(req, res, auth.user);
+  }
+
+  // ── Phase 10.6c — Generate payment link for booking balance ────────────────
+  if (pathname === '/staff/bookings/generate-payment-link') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/generate-payment-link' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingGeneratePaymentLink(req, res, auth.user);
   }
 
   // ── Phase 10.6a.2 — Booking remove add-on (DELETE one service record) ─────
@@ -18389,6 +18966,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-on service record (no Stripe)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/remove-service     <- 10.6a.2 remove one add-on row (no Stripe)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/record-cash-payment <- 10.6b record cash payment (no Stripe/link)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/generate-payment-link <- 10.6c Stripe link (no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
