@@ -1,5 +1,7 @@
 /**
- * Phase 10.4e — Static verifier for Staff Portal booking drawer field edit UI shell.
+ * Phase 10.4e / 10.4f.1 — Static verifier for Staff Portal booking drawer field edit UI.
+ *
+ * UI shell from 10.4e; Preview flow wired in 10.4f (calculate-only edit-preview API).
  *
  * Usage:
  *   npm run verify:staff-booking-field-edit-ui
@@ -21,7 +23,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-field-edit-ui.js  (Phase 10.4e)\n');
+console.log('\nverify-staff-booking-field-edit-ui.js  (Phase 10.4e / 10.4f.1)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -35,10 +37,13 @@ try {
   fail('staff-query-api.js passes node --check');
 }
 
-const fieldBlock = src.match(/\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function bcInitFieldEditShell[\s\S]*?\n\}/)?.[0] || '';
 const renderField = src.match(/function bcRenderFieldEditSectionsHtml[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
 const actionsHtml = src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)?.[0] || '';
 const drawerFn = src.match(/function renderBookingContextDrawer[\s\S]*?\n\}/)?.[0] || '';
+const fieldUiSlice = src.match(/\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function bcInitFieldEditShell[\s\S]*?\n  if \(cout\)/)?.[0] || '';
+const previewRunner = src.match(/function bcFieldEditRunPreview[\s\S]*?\n\}/)?.[0] || '';
+const fieldInitBlock = src.match(/function bcInitFieldEditShell[\s\S]*?\n  if \(cout\)/)?.[0] || '';
+const fieldBlock = fieldUiSlice + previewRunner;
 
 console.log('\nA. Field edit structure');
 
@@ -59,8 +64,11 @@ console.log('\nB. Contact edit shell');
 
 check(/id="bc-field-contact-name"/.test(renderField), 'contact name input');
 check(/id="bc-field-contact-email"/.test(renderField), 'contact email input');
-check(/data-bc-field-save=/.test(actionsHtml) && /Save<\/button>/.test(actionsHtml), 'Save control in actions helper');
-check(/data-bc-field-cancel=/.test(actionsHtml) && /Cancel<\/button>/.test(actionsHtml), 'Cancel control in actions helper');
+check(/data-bc-field-preview=/.test(actionsHtml) && />Preview<\/button>/.test(actionsHtml),
+  'Preview control in actions helper');
+check(/data-bc-field-cancel=/.test(actionsHtml) && /Cancel<\/button>/.test(actionsHtml),
+  'Cancel control in actions helper');
+check(!/data-bc-field-save=/.test(actionsHtml), 'no disabled Save control in actions helper');
 
 console.log('\nC. Dates edit shell');
 
@@ -96,17 +104,36 @@ check(/slice\(-nRelease\)|slice\(-n\)/.test(src), 'release beds from end of assi
 check(!/id="bc-field-guests-bed-select"|choose.*bed.*release|select which bed/i.test(renderField + fieldBlock),
   'no bed selection UI for guest reduction');
 
-console.log('\nF. Save / Cancel behavior');
+console.log('\nF. Preview / Cancel behavior (10.4f)');
 
-check(/Preview\/save coming next/.test(renderField + fieldBlock), 'save placeholder copy');
-check(/btn\.disabled = true/.test(fieldBlock), 'Save buttons disabled');
-check(/data-bc-field-save/.test(actionsHtml + renderField), 'Save buttons marked');
-check(!/fetch\([^)]*\/staff\/bookings\/[^)]*edit|booking-edit-write|BOOKING_EDIT_WRITE/.test(fieldBlock),
-  'field edit shell Save does not call write API');
+check(/bcFieldEditRunPreview/.test(src), 'Preview runner function exists');
+check(/fetch\('\/staff\/bookings\/edit-preview'/.test(previewRunner),
+  'Preview calls calculate-only /staff/bookings/edit-preview');
+check(/data-bc-field-preview/.test(actionsHtml + fieldInitBlock),
+  'Preview buttons wired in field edit shell');
+check(!/data-bc-field-save/.test(actionsHtml + fieldInitBlock),
+  'no Save buttons in field edit shell');
+check(!/btn\.disabled = true[\s\S]{0,40}data-bc-field-preview|data-bc-field-preview[\s\S]{0,80}disabled = true/.test(fieldInitBlock),
+  'Preview buttons are not permanently disabled');
+check(/Preview only.*not saved|Preview only \\u2014 not saved/.test(fieldBlock),
+  'preview result says not saved');
+check(/bcFieldEditClearPreviewResults/.test(fieldBlock),
+  'Cancel/preview clear preview result panels');
 check(/bcFieldEditRestoreForms/.test(fieldBlock), 'Cancel restores form snapshot');
 check(/bcFieldEditCloseAll/.test(fieldBlock), 'Cancel closes edit shell');
 
-console.log('\nG. Preserve existing drawer features');
+console.log('\nG. Edit-preview boundary (calculate-only; no write/save)');
+
+check(/\/staff\/bookings\/edit-preview/.test(src),
+  'edit-preview route exists in staff API');
+check(/handleBookingEditPreview/.test(src),
+  'edit-preview handler exists (calculate-only backend)');
+check(!/fetch\([^)]*\/staff\/bookings\/[^)]*\/edit[^\-p]|booking-edit-write|BOOKING_EDIT_WRITE|handleBookingEditWrite/.test(fieldBlock),
+  'field edit UI does not call booking edit write API');
+check(!/INSERT INTO|UPDATE\s+|DELETE FROM/i.test(fieldBlock),
+  'no UPDATE/INSERT/DELETE in field edit UI slice');
+
+console.log('\nH. Preserve existing drawer features');
 
 check(/bcRenderRunningInvoiceHtml\(bk, svcRows, pmt\)/.test(drawerFn),
   'running invoice display preserved');
@@ -114,7 +141,7 @@ check(/id="bc-move-bed"/.test(drawerFn), 'Move bed panel preserved');
 check(/bcInitMovePanel\(res\.data\)/.test(src), 'move panel init preserved');
 check(/loadBlockDetail/.test(src), 'booking drawer reload preserved');
 
-console.log('\nH. Safety boundaries');
+console.log('\nI. Safety boundaries');
 
 check(!/api\.stripe\.com/.test(fieldBlock + renderField), 'no Stripe API URL in field edit slice');
 check(!/graph\.facebook\.com/.test(fieldBlock + renderField), 'no WhatsApp URL in field edit slice');
@@ -125,10 +152,10 @@ check(!/ask-luna|alAsk|resolveNaturalLanguageIntent/.test(fieldBlock),
   'no Ask Luna changes in field edit slice');
 check(!/Add service|Add add-on|create-payment-link/.test(fieldBlock + renderField),
   'no add-ons creation UI in field edit slice');
-check(!/handleBookingEdit|\/staff\/bookings\/.*\/edit/.test(src.match(/bcInitFieldEditShell[\s\S]*?\n\}/)?.[0] || ''),
-  'no booking edit write endpoint in init');
+check(!/handleBookingEditWrite|\/staff\/bookings\/[^'"]+\/edit[^\-p]/.test(fieldInitBlock + previewRunner),
+  'no booking edit write endpoint in field edit init/preview');
 
-console.log('\nI. Package script');
+console.log('\nJ. Package script');
 
 try {
   const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
@@ -138,7 +165,7 @@ try {
   fail('package.json readable for script check');
 }
 
-console.log('\nJ. No docs / migration changes');
+console.log('\nK. No docs / migration changes');
 
 let docsChanged = false;
 let migChanged = false;
