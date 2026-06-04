@@ -124,12 +124,12 @@ When `booking_service_records.payment_status` may change — full rules in [STAG
 
 Replace spreadsheet workflows in this order:
 
-| Priority | Operation | Status (8.7.27) | Notes |
-|----------|-----------|-------------------|-------|
-| **1** | **Create booking** | ✓ MVP on staging (8.4.13) | Manual portal path + Luna bot path share engine |
-| **2** | **Move booking** | ✗ Future (`8.3p+`) | Reassign beds/dates; no UI write yet |
-| **3** | **Cancel booking** | ✗ Future (`8.3p+`) | Release beds; payment/refund policy TBD |
-| **4** | **Operator blocks / releases** | ✗ Skeleton only | Tour Operator forms simplified; Create/Preview/Release disabled |
+| Priority | Operation | Status (Phase 10.7) | Notes |
+|----------|-----------|---------------------|-------|
+| **1** | **Create booking** | ✓ PASS on staging | Manual portal path + Luna bot path share engine |
+| **2** | **Move booking** | ✓ PASS on staging (10.3) | Reassign beds; assignment-level multi-bed move |
+| **3** | **Cancel booking** | ✓ PASS on staging | Release beds; payment policy per existing gates |
+| **4** | **Operator blocks / releases** | ✓ PASS on staging (10.7) | Whole-room create + A/B release remainder beds; **`753d101`** → **`--0000105`** |
 
 ---
 
