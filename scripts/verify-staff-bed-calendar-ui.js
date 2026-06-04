@@ -69,6 +69,19 @@ function extractBcRenderRunningInvoiceHtml(fileSrc) {
   return j > i ? fileSrc.slice(i, j) : fileSrc.slice(i);
 }
 
+function extractTourOperatorJs(fileSrc) {
+  const start = fileSrc.indexOf('/* ── Tour Operator forms');
+  if (start < 0) return '';
+  const end = fileSrc.indexOf('\nfunction loadBedCalendar', start);
+  return end > start ? fileSrc.slice(start, end) : '';
+}
+
+function extractTourOperatorTabHtml(fileSrc) {
+  const start = fileSrc.indexOf('id="tab-tour-operator"');
+  const end = fileSrc.indexOf('</div><!-- /tab-tour-operator -->', start);
+  return start >= 0 && end > start ? fileSrc.slice(start, end) : '';
+}
+
 console.log('\nverify-staff-bed-calendar-ui.js  (Stage 7.7h)\n');
 
 // 1. File exists
@@ -77,6 +90,8 @@ if (!fs.existsSync(API_FILE)) { process.exit(1); }
 
 // 2. Readable
 const src = fs.readFileSync(API_FILE, 'utf8');
+const toJs = extractTourOperatorJs(src);
+const toTab = extractTourOperatorTabHtml(src);
 check(src.length > 10000, 'File is readable and non-trivial length');
 
 // 3. Syntax clean
@@ -748,37 +763,38 @@ check(/id="to-op-manager"/.test(src),
     'Block defaults kept internally in TO_OP_BLOCK_DEFAULTS (Stage 8.7.17)');
 })();
 
-// 130. Create Operator Block button is disabled (Stage 8.3u / 8.7.17)
-check(/disabled[^>]*id="to-op-create-btn"|id="to-op-create-btn"[^>]*disabled/.test(src),
-  'Create Operator Block button has disabled attribute (to-op-create-btn) (Stage 8.3u)');
+// 130. Create Operator Block button enabled via JS when fields complete (Phase 10.7a)
+check(/id="to-op-create-btn"/.test(src) &&
+      !/disabled[^>]*id="to-op-create-btn"|id="to-op-create-btn"[^>]*disabled/.test(toTab),
+  'Create Operator Block button present and not hard-disabled in HTML (Phase 10.7a)');
+check(/function toOpFormReady/.test(toJs) && /function toUpdateOpButtons/.test(toJs) &&
+      /create\.disabled = !ready/.test(toJs),
+  'Create Operator Block button gated by toOpFormReady/toUpdateOpButtons (Phase 10.7a)');
 
-// 131. Preview Operator Block button is disabled (Stage 8.3u / 8.7.17)
-check(/disabled[^>]*id="to-op-preview-btn"|id="to-op-preview-btn"[^>]*disabled/.test(src),
-  'Preview Operator Block button has disabled attribute (to-op-preview-btn) (Stage 8.3u)');
+// 131. Preview Operator Block button enabled via JS (Phase 10.7a)
+check(/id="to-op-preview-btn"/.test(src) &&
+      !/disabled[^>]*id="to-op-preview-btn"|id="to-op-preview-btn"[^>]*disabled/.test(toTab),
+  'Preview Operator Block button present and not hard-disabled in HTML (Phase 10.7a)');
+check(/toOpPreview/.test(toJs) && /prev\.disabled = !ready/.test(toJs),
+  'Preview Operator Block wired and JS-gated (Phase 10.7a)');
 
-// 132. Operator block safety notice present (Stage 8.3q)
-check(/no operator block will be created/i.test(src),
-  '"no operator block will be created" safety notice present (Stage 8.3q / 8.3u)');
+// 132. Stale shadow copy removed from Tour Operator tab (Phase 10.7a)
+check(!/no operator block will be created|Preview only.*coming soon|approval gates before they can be enabled|READ-ONLY.*writes disabled/i.test(toTab),
+  'Tour Operator tab has no stale shadow/disabled copy (Phase 10.7a)');
 
-// 133. n8n workflow will not run safety text (Stage 8.3q)
-check(/n8n workflow will not run|n8n workflow will run.*not|no.*n8n|n8n.*not triggered/i.test(src),
-  '"n8n workflow will not run" safety text present (Stage 8.3q / 8.3u)');
+// 133. Tour Operator actions do not call n8n/webhooks (Phase 10.7a)
+check(!/n8n\.cloud|\/webhook\/|graph\.facebook\.com/i.test(toJs),
+  'Tour Operator JS has no n8n/webhook/WhatsApp URLs (Phase 10.7a)');
 
-// 134. No new POST/PATCH/DELETE fetch in Tour Operator block panel (Stage 8.3u / 8.7.17)
-(function checkOpNoPost(){
-  const opIdx = src.indexOf('id="to-op-panel"');
-  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
-  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
-  check(!/fetch[^)]*,\s*\{[^}]*method\s*:\s*['"](?:POST|PATCH|DELETE|PUT)['"]/i.test(opSrc),
-    'No POST/PATCH/DELETE fetch inside Tour Operator block panel (Stage 8.3u)');
-})();
+// 134. Tour Operator create uses staff API POST (Phase 10.7a)
+check(/\/staff\/tour-operator\/blocks\/preview/.test(toJs) &&
+      /\/staff\/tour-operator\/blocks\/create/.test(toJs),
+  'Tour Operator block panel JS posts to tour-operator blocks API (Phase 10.7a)');
 
-// 135. No n8n or webhook URL called from operator block actions (Stage 8.3u)
+// 135. No n8n or webhook URL called from operator block actions (Stage 8.3u / 10.7a)
 (function checkOpNoN8n(){
-  const opIdx = src.indexOf('to-op-create-btn');
-  const opSrc = opIdx >= 0 ? src.slice(opIdx, opIdx + 3000) : '';
-  check(!/n8n.*webhook|webhook.*n8n|\.n8n\.|n8n\.cloud|\/webhook\//i.test(opSrc),
-    'No n8n/webhook URL called from operator block actions (Stage 8.3u)');
+  check(!/n8n.*webhook|webhook.*n8n|\.n8n\.|n8n\.cloud|\/webhook\//i.test(toJs),
+    'No n8n/webhook URL called from operator block actions (Phase 10.7a)');
 })();
 
 // 136. Tour Operator tab exists (Stage 8.3u)
@@ -789,9 +805,11 @@ check(/data-tab="tour-operator"/.test(src),
 check(/id="tab-tour-operator"/.test(src),
   'Tour Operator tab panel (id="tab-tour-operator") present (Stage 8.3u)');
 
-// 138. toRefreshRoomSelects populates room dropdowns from calendar (Stage 8.7.17)
-check(/function toRefreshRoomSelects/.test(src) && /to-op-room/.test(src) && /bcData\.rooms/.test(src),
-  'toRefreshRoomSelects uses Bed Calendar room data for dropdowns (Stage 8.7.17)');
+// 138. Room dropdowns load from rooms API with calendar fallback (Phase 10.7a)
+check(/function toRefreshRoomSelects/.test(toJs) && /to-op-room/.test(toJs) &&
+      /function toLoadRooms/.test(toJs) && /\/staff\/tour-operator\/rooms/.test(toJs) &&
+      /bcData\.rooms/.test(toJs),
+  'toLoadRooms/toRefreshRoomSelects use tour-operator rooms API and calendar fallback (Phase 10.7a)');
 
 // ── Stage 8.3r/8.3u — Operator Room Release (moved to Tour Operator tab) ─────
 
@@ -847,21 +865,28 @@ check(/id="to-rr-reason"/.test(src),
     'Release nights calculated display-only (Stage 8.7.17)');
 })();
 
-// 150. Release Dates button is disabled (Stage 8.3u)
-check(/disabled[^>]*id="to-rr-release-btn"|id="to-rr-release-btn"[^>]*disabled/.test(src),
-  'Release Dates button has disabled attribute (to-rr-release-btn) (Stage 8.3u)');
+// 150. Release Dates button enabled via JS (Phase 10.7a)
+check(/id="to-rr-release-btn"/.test(src) &&
+      !/disabled[^>]*id="to-rr-release-btn"|id="to-rr-release-btn"[^>]*disabled/.test(toTab),
+  'Release Dates button present and not hard-disabled in HTML (Phase 10.7a)');
+check(/function toRrFormReady/.test(toJs) && /rel\.disabled = !ready/.test(toJs),
+  'Release Dates button gated by toRrFormReady/toUpdateRrButtons (Phase 10.7a)');
 
-// 151. Preview Release button is disabled (Stage 8.3u)
-check(/disabled[^>]*id="to-rr-preview-btn"|id="to-rr-preview-btn"[^>]*disabled/.test(src),
-  'Preview Release button has disabled attribute (to-rr-preview-btn) (Stage 8.3u)');
+// 151. Preview Release button enabled via JS (Phase 10.7a)
+check(/id="to-rr-preview-btn"/.test(src) &&
+      !/disabled[^>]*id="to-rr-preview-btn"|id="to-rr-preview-btn"[^>]*disabled/.test(toTab),
+  'Preview Release button present and not hard-disabled in HTML (Phase 10.7a)');
+check(/toRrPreview/.test(toJs),
+  'Preview Release handler wired (Phase 10.7a)');
 
-// 152. Room release safety notice present (Stage 8.3r)
-check(/no dates will be released/i.test(src),
-  '"no dates will be released" safety notice present (Stage 8.3r / 8.3u)');
+// 152. Stale room-release shadow copy removed (Phase 10.7a)
+check(!/no dates will be released|Preview only.*no room will be released/i.test(toTab),
+  'Room release form has no stale preview-only shadow copy (Phase 10.7a)');
 
-// 153. "Room release writes require approval gates" text present (Stage 8.3r)
-check(/Room release writes require approval gates/i.test(src),
-  '"Room release writes require approval gates" notice present (Stage 8.3r / 8.3u)');
+// 153. Operator blocks load from API for release dropdown (Phase 10.7a)
+check(/function toLoadBlocks/.test(toJs) && /\/staff\/tour-operator\/blocks/.test(toJs) &&
+      /function toRenderBlockSelect/.test(toJs),
+  'Release form loads operator blocks from tour-operator blocks API (Phase 10.7a)');
 
 // 154. Room release defaults not displayed (Stage 8.7.17)
 (function checkRrDefaultsHidden(){
@@ -921,9 +946,10 @@ check(/Room release writes require approval gates/i.test(src),
 check(/id="to-op-panel"/.test(src),
   'Tour Operator panel (to-op-panel) present in Tour Operator tab (Stage 8.3u)');
 
-// 160. Create Operator Block still disabled in Tour Operator tab (regression — Stage 8.3u)
-check(/disabled[^>]*id="to-op-create-btn"|id="to-op-create-btn"[^>]*disabled/.test(src),
-  'Create Operator Block button still disabled in Tour Operator tab (Stage 8.3u)');
+// 160. Create Operator Block enabled in Tour Operator tab (Phase 10.7a regression)
+check(/id="to-op-create-btn"/.test(src) && /toOpCreate/.test(toJs) &&
+      !/disabled[^>]*id="to-op-create-btn"|id="to-op-create-btn"[^>]*disabled/.test(toTab),
+  'Create Operator Block enabled via JS in Tour Operator tab (Phase 10.7a)');
 
 // 161. bcHandleCellClick reads date/room/bed from td.dataset (Stage 8.3u fix)
 (function checkCellClickFix(){
@@ -1652,30 +1678,26 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '226l: bed calendar UI has no n8n URL fetch (Stage 8.7.15)');
 })();
 
-// ── Stage 8.7.17 — simplified Tour Operator forms ───────────────────────────
-(function check8717TourOperator(){
-  const opIdx = src.indexOf('id="to-op-panel"');
-  const opEnd = opIdx >= 0 ? src.indexOf('id="to-rr-panel"', opIdx) : -1;
-  const opSrc = opIdx >= 0 && opEnd > opIdx ? src.slice(opIdx, opEnd) : '';
-  const rrIdx = src.indexOf('id="to-rr-panel"');
-  const rrEnd = rrIdx >= 0 ? src.indexOf('</div><!-- /tab-tour-operator -->', rrIdx) : -1;
-  const rrSrc = rrIdx >= 0 ? src.slice(rrIdx, rrEnd > rrIdx ? rrEnd : rrIdx + 12000) : '';
-
+// ── Phase 10.7a — enabled Tour Operator forms (supersedes 8.7.17 skeleton) ───
+(function check107aTourOperator(){
   check(/data-tab="tour-operator"/.test(src) && /id="to-op-panel"/.test(src) && /id="to-rr-panel"/.test(src),
-    '227: Tour Operator tab and both panels present (Stage 8.7.17)');
+    '227: Tour Operator tab and both panels present (Phase 10.7a)');
 
-  check(!/operator.*block.*create|operator.*room.*release|to-op-create|to-rr-release/i.test(src.replace(/\/\/[^\n]*/g,'')) ||
-        !/fetch\s*\(\s*['"][^'"]*(?:operator|room-release)/i.test(src),
-    '227b: no create/release fetch calls for Tour Operator (Stage 8.7.17)');
+  check(/\/staff\/tour-operator\/blocks\/create/.test(toJs) &&
+        /\/staff\/tour-operator\/release/.test(toJs),
+    '227b: Tour Operator JS fetches create/release staff API endpoints (Phase 10.7a)');
 
-  check(!/graph\.facebook\.com/.test(src) && !/api\.stripe\.com/.test(src),
-    '227c: Tour Operator UI slice has no graph.facebook.com or api.stripe.com (Stage 8.7.17)');
+  check(!/graph\.facebook\.com/.test(toJs + toTab) && !/api\.stripe\.com/.test(toJs + toTab),
+    '227c: Tour Operator UI slice has no graph.facebook.com or api.stripe.com (Phase 10.7a)');
 
-  check(/Dynamic operator block list|dynamic list later/i.test(rrSrc),
-    '227d: operator block dropdown documents dynamic loading later (Stage 8.7.17)');
+  check(/function toRenderBlockSelect/.test(toJs) && /data-cin/.test(toJs),
+    '227d: operator block dropdown populated with readable labels and dates (Phase 10.7a)');
 
-  check(/Load Bed Calendar for room list|dedicated room API later/i.test(opSrc + rrSrc),
-    '227e: room dropdowns document calendar/API loading path (Stage 8.7.17)');
+  check(/\/staff\/tour-operator\/rooms/.test(toJs) && /function toOnTourOperatorTabOpen/.test(toJs),
+    '227e: room/blocks load via tour-operator API on tab open (Phase 10.7a)');
+
+  check(/function toAfterMutation/.test(toJs) && /loadBedCalendar/.test(toJs),
+    '227f: calendar reload after successful create/release (Phase 10.7a)');
 })();
 
 // ── Stage 8.7.18 — align manual booking guest + payment sections ─────────────
