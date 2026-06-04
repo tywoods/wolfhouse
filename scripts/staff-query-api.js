@@ -16175,50 +16175,18 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
   var paidInFull = invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal;
   if (paidInFull || balanceDue == null || balanceDue <= 0) return '';
 
-  var ledgerCtx = {
-    balance_due_cents: balanceDue,
-    deposit_required_cents: bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0,
-    invoice_total_cents: invoiceTotal,
-  };
-  var active = bcLedgerActivePaymentLinkRow(ledgerRows, ledgerCtx);
   var html = '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">';
   html += '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn">Generate Payment Link</button>';
-  html += '<div id="bc-payment-link-active" style="margin-top:10px' + (active ? '' : ';display:none') + '">';
-  if (active && active.checkout_url) {
-    html += bcRenderPaymentLinkUrlRowHtml(active.checkout_url);
-  }
-  html += '</div>';
   html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite"></div>';
   html += '</div>';
   return html;
 }
 
-function bcRenderPaymentLinkUrlRowHtml(url){
-  if (!url) return '';
-  return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-    '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" id="bc-payment-link-url" ' +
-    'style="word-break:break-all;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--accent)">' +
-    escHtml(url.length > 56 ? url.slice(0, 56) + '\u2026' : url) + '</a>' +
-    '<button type="button" class="btn-bc-copy-link-icon" id="bc-payment-link-copy-btn" data-url="' + escHtml(url) + '" ' +
-    'onclick="bcCopyPaymentLinkIcon(this)" title="Copy payment link" aria-label="Copy payment link">\uD83D\uDCCB</button>' +
-    '<span id="bc-payment-link-copied" style="display:none;font-size:11px;color:var(--text-3)">Copied</span>' +
-    '</div>';
-}
-
 function bcCopyPaymentLinkIcon(btn){
   var u = btn && btn.dataset && btn.dataset.url;
   if (!u) return;
-  var confirmEl = document.getElementById('bc-payment-link-copied');
   if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(u)
-      .then(function(){
-        if (confirmEl){
-          confirmEl.textContent = 'Copied';
-          confirmEl.style.display = 'inline';
-          setTimeout(function(){ confirmEl.style.display = 'none'; }, 2000);
-        }
-      })
-      .catch(function(){ prompt('Payment link:', u); });
+    navigator.clipboard.writeText(u).catch(function(){ prompt('Payment link:', u); });
   } else {
     prompt('Payment link:', u);
   }
@@ -16233,7 +16201,6 @@ function bcInitPaymentLinkShell(data){
   var genBtn = el('bc-generate-payment-link-btn');
   if (!genBtn) return;
   var resultEl = el('bc-payment-link-result');
-  var activeWrap = el('bc-payment-link-active');
 
   genBtn.addEventListener('click', function(){
     genBtn.disabled = true;
@@ -16261,13 +16228,8 @@ function bcInitPaymentLinkShell(data){
           }
           return;
         }
-        var url = res.data.payment_link_url || res.data.checkout_url;
-        if (activeWrap && url) {
-          activeWrap.style.display = 'block';
-          activeWrap.innerHTML = bcRenderPaymentLinkUrlRowHtml(url);
-        }
-        if (resultEl && res.data.message) {
-          resultEl.innerHTML = escHtml(res.data.message);
+        if (resultEl) {
+          resultEl.innerHTML = escHtml('Payment link ready in Payment history.');
           resultEl.classList.add('is-visible');
           resultEl.style.display = 'block';
         }
@@ -16282,9 +16244,6 @@ function bcInitPaymentLinkShell(data){
         }
       });
   });
-
-  var copyBtn = el('bc-payment-link-copy-btn');
-  if (copyBtn) copyBtn.addEventListener('click', function(){ bcCopyPaymentLinkIcon(copyBtn); });
 }
 
 function bcNewCancelPaymentLinkIdempotencyKey(){

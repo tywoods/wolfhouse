@@ -1,5 +1,5 @@
 /**
- * Phase 10.6c — Generate payment link + icon copy (no send).
+ * Phase 10.6c / 10.6g.4 — Generate payment link (no duplicate URL under button).
  *
  * Usage:
  *   npm run verify:staff-generate-payment-link
@@ -21,7 +21,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-generate-payment-link.js  (Phase 10.6c)\n');
+console.log('\nverify-staff-generate-payment-link.js  (Phase 10.6c / 10.6g.4)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -41,14 +41,13 @@ const linkHandler = linkHandlerStart >= 0 && linkHandlerEnd > linkHandlerStart
   ? src.slice(linkHandlerStart, linkHandlerEnd)
   : '';
 const linkUiFn = src.match(/function bcRenderPaymentLinkSectionHtml[\s\S]*?\n\}/)?.[0] || '';
-const linkUrlRow = src.match(/function bcRenderPaymentLinkUrlRowHtml[\s\S]*?\n\}/)?.[0] || '';
 const linkInit = src.match(/function bcInitPaymentLinkShell[\s\S]*?\n\}/)?.[0] || '';
 const cancelHandler = src.match(/async function handleBookingCancelPaymentLink[\s\S]*?\n\}/)?.[0] || '';
 const cancelUi = src.match(/function bcInitCancelPaymentLinkShell[\s\S]*?\n\}/)?.[0] || '';
 const invFn = src.match(/function bcRenderRunningInvoiceHtml[\s\S]*?\n\}/)?.[0] || '';
-const labelFn = src.match(/function bcPaymentLedgerRowDisplayLabel[\s\S]*?\n\}/)?.[0] || '';
 const ledgerUiSlice = src.match(/function bcPaymentLedgerSortRows[\s\S]*?function bcRenderPaymentLinkSectionHtml/)?.[0] || '';
 const ledgerHelpers = src.match(/function paymentLedgerPaidTotalCents[\s\S]*?function bookingLedgerBalanceFromRows/)?.[0] || '';
+const copyIconFn = src.match(/function bcCopyPaymentLinkIcon[\s\S]*?\n\}/)?.[0] || '';
 
 console.log('\nA. Package script');
 
@@ -56,10 +55,11 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
 check(pkg.scripts && pkg.scripts['verify:staff-generate-payment-link'],
   'package.json has verify:staff-generate-payment-link script');
 
-console.log('\nB. Generate Payment Link UI');
+console.log('\nB. Generate Payment Link UI (no duplicate URL)');
 
 check(/Generate Payment Link/.test(linkUiFn), 'Generate Payment Link button label');
 check(/id="bc-generate-payment-link-btn"/.test(linkUiFn), 'generate button id');
+check(/id="bc-payment-link-result"/.test(linkUiFn), 'result area for confirmation only');
 check(/bcRenderPaymentLinkSectionHtml/.test(invFn), 'running invoice renders payment link section');
 check(/bcBookingStatusIsCancelled\(bk\.status\)/.test(linkUiFn),
   'cancelled booking hides payment link section');
@@ -69,24 +69,34 @@ check(/needsRefund/.test(linkUiFn) && /Refund \/ credit review/.test(linkUiFn),
   'refund review blocks payment link UI');
 check(/paidInFull|balanceDue <= 0/.test(linkUiFn),
   'paid in full / zero balance hides generate button');
-check(/bcLedgerActivePaymentLinkRow/.test(linkUiFn),
-  'shows existing active link when same balance');
+check(!/bc-payment-link-active/.test(linkUiFn),
+  '10.6g.4: no active-link URL row under generate button');
+check(!/bcRenderPaymentLinkUrlRowHtml/.test(linkUiFn),
+  '10.6g.4: section does not render duplicate URL row helper');
+check(!/bc-payment-link-copy-btn/.test(linkUiFn),
+  '10.6g.4: no duplicate copy button under generate button');
+check(!/checkout_url/.test(linkUiFn),
+  '10.6g.4: generate section HTML has no checkout_url');
+check(!/bcRenderPaymentLinkUrlRowHtml/.test(src),
+  '10.6g.4: duplicate URL row helper removed from bundle');
 
-console.log('\nC. Icon-only copy control');
+console.log('\nC. Success message + history link display');
 
-check(/id="bc-payment-link-copy-btn"/.test(linkUrlRow), 'copy icon button id');
-check(/btn-bc-copy-link-icon/.test(linkUrlRow), 'icon-only copy button class');
-check(/title="Copy payment link"/.test(linkUrlRow), 'copy button title');
-check(/aria-label="Copy payment link"/.test(linkUrlRow), 'copy button aria-label');
-check(!/>Copy<\/button>/.test(linkUrlRow) && !/>\s*Copy\s*<\/button>/.test(linkUrlRow),
-  'no visible Copy button label in payment link row');
-check(!/bcCopyUrl\(this\)/.test(linkUrlRow),
-  'payment link row does not use text Copy helper');
-check(/bc-payment-link-copied/.test(linkUrlRow) && /Copied/.test(linkUrlRow),
-  'Copied confirmation element');
-check(/navigator\.clipboard\.writeText/.test(src.match(/function bcCopyPaymentLinkIcon[\s\S]*?\n\}/)?.[0] || ''),
-  'clipboard writeText for payment link copy');
-check(/bcCopyPaymentLinkIcon/.test(linkInit), 'init wires copy icon handler');
+check(/Payment link ready in Payment history\./.test(linkInit),
+  '10.6g.4: success points to Payment history');
+check(!/res\.data\.payment_link_url|res\.data\.checkout_url/.test(linkInit),
+  '10.6g.4: success handler does not inject raw checkout URL');
+check(!/bc-payment-link-copy-btn/.test(linkInit),
+  '10.6g.4: init does not wire duplicate copy under button');
+check(/pr\.checkout_url/.test(invFn), 'Payment history row renders checkout_url');
+check(/ctx-pay-record-url/.test(invFn), 'checkout link block in Payment history');
+check(/bcCopyUrl\(this\)/.test(invFn) || /btn-bc-copy-link-icon/.test(invFn),
+  'Payment history keeps copy control');
+check(/btn-bc-cancel-link-icon/.test(invFn), 'Payment history cancel link icon');
+check(/navigator\.clipboard\.writeText/.test(copyIconFn),
+  'clipboard helper kept for manual-create copy icon');
+check(!/bcCopyPaymentLinkIcon/.test(linkInit),
+  'generate init does not wire section copy icon');
 
 console.log('\nD. API endpoint');
 
@@ -150,8 +160,6 @@ check(/paymentLedgerIsCancelledLinkStatus/.test(ledgerHelpers) || /bcPaymentLedg
   'cancelled rows skipped for active link');
 check(/ledgerActivePaymentLinkRow/.test(ledgerHelpers) && /paymentLedgerIsCancelledLinkStatus/.test(ledgerHelpers),
   'active link helper ignores cancelled rows');
-check(/bcLedgerActivePaymentLinkRow/.test(linkUiFn),
-  'UI active link uses cancelled-aware helper');
 check(/async function handleBookingCancelPaymentLink/.test(src), 'cancel handler exists');
 check(/pathname === '\/staff\/bookings\/cancel-payment-link'/.test(src), 'cancel route registered');
 check(/'cancelled'::payment_record_status/.test(cancelHandler), 'void sets cancelled status');
@@ -170,13 +178,11 @@ check(/paymentLinkIntendedAmountCents/.test(ledgerHelpers),
   '10.6g.2: active link matches intended amount (deposit vs balance)');
 check(/deposit_only/.test(ledgerHelpers),
   '10.6g.2: deposit link kind in server stale helper');
-check(/bcPaymentLedgerIsStaleUnpaidLinkRow/.test(linkUiFn) || /bcPaymentLedgerIsStaleUnpaidLinkRow/.test(ledgerUiSlice),
-  'UI stale link detection');
+check(/bcPaymentLedgerIsStaleUnpaidLinkRow/.test(ledgerUiSlice),
+  'UI stale link detection in payment history');
 check(/Outdated amount/.test(ledgerUiSlice), 'stale badge in payment history');
 check(/Current balance changed\. Generate a new link\./.test(ledgerUiSlice),
   'stale guidance allows new link generation');
-check(/bcLedgerActivePaymentLinkRow\(ledgerRows, ledgerCtx\)/.test(linkUiFn),
-  '10.6g.2: generate section uses ledger-context active link');
 check(/bcPaymentLinkIntendedAmountCents/.test(src),
   '10.6g.2: UI intended payment amount helper');
 
@@ -193,7 +199,6 @@ check(!/booking_service_records/.test(linkHandler),
 check(!/database\/migrations|run-sql\.js/.test(linkHandler), 'no migrations in handler');
 check(!/deploy|production/i.test(linkHandler), 'no deploy/production in handler');
 
-const stripeOutsideHandler = src.replace(linkHandler, '');
 const bookingGenRouteOnly = /handleBookingGeneratePaymentLink/.test(src);
 check(bookingGenRouteOnly, 'booking generate handler is the 10.6c Stripe entry for balance');
 
