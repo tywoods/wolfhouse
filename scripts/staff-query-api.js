@@ -8138,6 +8138,23 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-inv-truth-note{margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);font-size:10.5px;color:var(--text-3);line-height:1.45;font-style:italic}
 .ctx-inv-subtitle{font-size:10.5px;font-weight:600;color:var(--text-2);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.04em}
 .ctx-inv-payment-records{margin-top:4px}
+/* Phase 10.4e — field-level edit UI shell (no writes) */
+.ctx-field-edit-group{margin-top:0}
+.ctx-field-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.ctx-field-header-label{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em}
+.btn-bc-field-edit{font-size:11px;padding:2px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1.5}
+.btn-bc-field-edit:hover{background:var(--surface-soft);color:var(--text)}
+.ctx-field-edit-group.is-editing .btn-bc-field-edit{font-weight:600;border-color:var(--accent);color:var(--accent)}
+.ctx-field-edit{margin-top:8px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
+.ctx-field-label{display:block;font-size:11px;color:var(--text-2);margin:8px 0 4px}
+.ctx-field-label:first-child{margin-top:0}
+.ctx-field-edit .bk-input{max-width:100%}
+.ctx-field-edit-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
+.ctx-field-save-hint{font-size:10.5px;color:var(--text-3);font-style:italic}
+.ctx-field-dates-nights{font-size:11px;color:var(--text-2);margin-top:6px}
+.ctx-field-dates-error{font-size:11px;color:#9C5742;margin-top:6px;display:none}
+.ctx-field-guests-preview{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.55;padding:8px 10px;background:#fff;border:1px dashed var(--border-soft);border-radius:6px}
+.ctx-field-nights-hint{font-size:11px;color:var(--text-3);margin-left:6px}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
 .ctx-addon-row:last-child{border-bottom:none}
 .ctx-svc-record{padding:8px 10px;margin-bottom:6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-2,#f8f9fa);font-size:12px}
@@ -10951,6 +10968,7 @@ function loadBlockDetail(bookingCode){
       }
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
       updateBcDetailHeader(res.data);
+      bcInitFieldEditShell(res.data);
       bcInitMovePanel(res.data);
       /* Wire "Open conversation" button */
       var btnConv = document.getElementById('bc-open-conv-btn');
@@ -11535,6 +11553,268 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   return html;
 }
 
+/* Phase 10.4e — field edit UI shell helpers (read-only; no API writes) */
+function bcFieldEditPackageOptions(currentCode){
+  /* Temporary: mirrors manual-create package dropdown until pricing config on context API (10.4f+). */
+  var base = ['malibu', 'uluwatu', 'waimea'];
+  var cur = currentCode ? String(currentCode).trim().toLowerCase() : '';
+  if (cur && base.indexOf(cur) < 0) base.unshift(cur);
+  return base;
+}
+
+function bcFieldEditBedLabel(a){
+  if (!a) return '\u2014';
+  if (a.bed_code) return String(a.bed_code);
+  return a.bed_id || '\u2014';
+}
+
+function bcFieldEditOrderedAssignments(assignments){
+  return (assignments || []).slice();
+}
+
+function bcFieldEditGuestReleasePreview(currentCount, newCount, assignments){
+  var ordered = bcFieldEditOrderedAssignments(assignments);
+  var cur = Math.max(1, Number(currentCount) || 1);
+  var next = Math.max(1, Math.min(Number(newCount) || cur, cur));
+  if (next >= cur){
+    return { changed: false, from: cur, to: next, release: [], remaining: ordered.map(bcFieldEditBedLabel) };
+  }
+  var nRelease = cur - next;
+  var releaseRows = ordered.slice(-nRelease);
+  var remainRows = ordered.slice(0, ordered.length - nRelease);
+  return {
+    changed: true,
+    from: cur,
+    to: next,
+    release: releaseRows.map(bcFieldEditBedLabel),
+    remaining: remainRows.map(bcFieldEditBedLabel),
+  };
+}
+
+function bcRenderFieldEditActionsHtml(group){
+  return '<div class="ctx-field-edit-actions">' +
+    '<button type="button" class="btn btn-primary" data-bc-field-save="' + escHtml(group) + '" id="bc-field-save-' + escHtml(group) + '" disabled title="Preview/save coming next">Save</button>' +
+    '<span class="ctx-field-save-hint">Preview/save coming next</span>' +
+    '<button type="button" class="btn btn-ghost" data-bc-field-cancel="' + escHtml(group) + '" id="bc-field-cancel-' + escHtml(group) + '">Cancel</button>' +
+    '</div>';
+}
+
+function bcRenderFieldEditSectionsHtml(data){
+  var bk = (data && data.booking) || {};
+  var guestCount = Math.max(1, parseInt(bk.guest_count, 10) || 1);
+  var nights = bcStayNightsFromCheckInOut(bk.check_in, bk.check_out);
+  var pkgOpts = bcFieldEditPackageOptions(bk.package_code);
+  var roomPref = bk.requested_room_type || bk.room_preference;
+  var html = '';
+
+  html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
+  html += '<div class="ctx-field-read" id="bc-field-contact-read">';
+  html += '<div class="ctx-field-header"><span class="ctx-field-header-label">Guest</span>';
+  html += '<button type="button" class="btn-bc-field-edit" data-bc-field-group="contact" aria-label="Edit guest name and email">Edit</button></div>';
+  html += '<div class="kv-grid" id="bc-field-contact-kv">';
+  html += kvBC('Name', bk.guest_name);
+  html += kvBC('Phone', bk.phone);
+  html += kvBC('Email', bk.email);
+  if (bk.language) html += kvBC('Language', bk.language);
+  if (bk.booking_source && bk.booking_source !== 'manual_staff') html += kvBC('Source', bk.booking_source);
+  html += '</div></div>';
+  html += '<div class="ctx-field-edit" id="bc-field-contact-edit" style="display:none">';
+  html += '<label class="ctx-field-label" for="bc-field-contact-name">Name</label>';
+  html += '<input type="text" id="bc-field-contact-name" class="bk-input bk-input-sm" value="' + escHtml(bk.guest_name || '') + '">';
+  html += '<label class="ctx-field-label" for="bc-field-contact-email">Email</label>';
+  html += '<input type="email" id="bc-field-contact-email" class="bk-input bk-input-sm" value="' + escHtml(bk.email || '') + '">';
+  html += bcRenderFieldEditActionsHtml('contact');
+  html += '</div></div>';
+
+  html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-dates" data-bc-field-group="dates">';
+  html += '<div class="ctx-field-read" id="bc-field-dates-read">';
+  html += '<div class="ctx-field-header"><span class="ctx-field-header-label">Dates</span>';
+  html += '<button type="button" class="btn-bc-field-edit" data-bc-field-group="dates" aria-label="Edit check-in and check-out">Edit</button></div>';
+  html += '<div class="kv-grid" id="bc-field-dates-kv">';
+  html += kvBC('Check-in', bk.check_in);
+  html += kvBC('Check-out', bk.check_out);
+  if (nights > 0) html += kvBC('Nights', nights);
+  html += '</div></div>';
+  html += '<div class="ctx-field-edit" id="bc-field-dates-edit" style="display:none">';
+  html += '<label class="ctx-field-label" for="bc-field-dates-check-in">Check-in</label>';
+  html += '<input type="date" id="bc-field-dates-check-in" class="bk-input bk-input-sm" value="' + escHtml(bk.check_in || '') + '">';
+  html += '<label class="ctx-field-label" for="bc-field-dates-check-out">Check-out</label>';
+  html += '<input type="date" id="bc-field-dates-check-out" class="bk-input bk-input-sm" value="' + escHtml(bk.check_out || '') + '">';
+  html += '<div class="ctx-field-dates-nights" id="bc-field-dates-nights">' +
+    (nights > 0 ? escHtml(String(nights) + ' night' + (nights === 1 ? '' : 's')) : '\u2014') + '</div>';
+  html += '<div class="ctx-field-dates-error" id="bc-field-dates-error">Check-out must be after check-in.</div>';
+  html += bcRenderFieldEditActionsHtml('dates');
+  html += '</div></div>';
+
+  html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
+  html += '<div class="ctx-field-read" id="bc-field-guests-read">';
+  html += '<div class="ctx-field-header"><span class="ctx-field-header-label">Guests</span>';
+  html += '<button type="button" class="btn-bc-field-edit" data-bc-field-group="guests" aria-label="Edit guest count">Edit</button></div>';
+  html += '<div class="kv-grid" id="bc-field-guests-kv">';
+  html += kvBC('Guests', guestCount);
+  html += '</div></div>';
+  html += '<div class="ctx-field-edit" id="bc-field-guests-edit" style="display:none">';
+  html += '<label class="ctx-field-label" for="bc-field-guests-select">Guest count</label>';
+  html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
+  for (var g = guestCount; g >= 1; g--){
+    html += '<option value="' + g + '">' + g + '</option>';
+  }
+  html += '</select>';
+  html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview">Select a lower guest count to preview bed release.</div>';
+  html += bcRenderFieldEditActionsHtml('guests');
+  html += '</div></div>';
+
+  html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
+  html += '<div class="ctx-field-read" id="bc-field-package-read">';
+  html += '<div class="ctx-field-header"><span class="ctx-field-header-label">Package</span>';
+  html += '<button type="button" class="btn-bc-field-edit" data-bc-field-group="package" aria-label="Edit package">Edit</button></div>';
+  html += '<div class="kv-grid" id="bc-field-package-kv">';
+  html += kvBC('Package', bk.package_code || '\u2014');
+  if (roomPref) html += kvBC('Room pref', roomPref);
+  html += '</div></div>';
+  html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
+  html += '<label class="ctx-field-label" for="bc-field-package-select">Package</label>';
+  html += '<select id="bc-field-package-select" class="bk-input bk-input-sm">';
+  pkgOpts.forEach(function(code){
+    var sel = (bk.package_code && String(bk.package_code).toLowerCase() === code) ? ' selected' : '';
+    html += '<option value="' + escHtml(code) + '"' + sel + '>' + escHtml(code.charAt(0).toUpperCase() + code.slice(1)) + '</option>';
+  });
+  html += '</select>';
+  html += bcRenderFieldEditActionsHtml('package');
+  html += '</div></div>';
+
+  return html;
+}
+
+var bcFieldEditState = { activeGroup: null, snapshot: null, assignments: [], guestCount: 1 };
+
+function bcFieldEditRestoreForms(){
+  var s = bcFieldEditState.snapshot;
+  if (!s) return;
+  var nameEl = el('bc-field-contact-name');
+  var emailEl = el('bc-field-contact-email');
+  var cinEl = el('bc-field-dates-check-in');
+  var coutEl = el('bc-field-dates-check-out');
+  var pkgEl = el('bc-field-package-select');
+  var guestEl = el('bc-field-guests-select');
+  if (nameEl) nameEl.value = s.guest_name || '';
+  if (emailEl) emailEl.value = s.email || '';
+  if (cinEl) cinEl.value = s.check_in || '';
+  if (coutEl) coutEl.value = s.check_out || '';
+  if (pkgEl && s.package_code) pkgEl.value = String(s.package_code).toLowerCase();
+  if (guestEl) guestEl.value = String(s.guest_count || bcFieldEditState.guestCount);
+  bcFieldEditUpdateDatesPreview();
+  bcFieldEditUpdateGuestPreview();
+}
+
+function bcFieldEditCloseAll(){
+  bcFieldEditState.activeGroup = null;
+  document.querySelectorAll('.ctx-field-edit-group').forEach(function(root){
+    root.classList.remove('is-editing');
+    var read = root.querySelector('.ctx-field-read');
+    var edit = root.querySelector('.ctx-field-edit');
+    if (read) read.style.display = '';
+    if (edit) edit.style.display = 'none';
+  });
+  bcFieldEditRestoreForms();
+}
+
+function bcFieldEditActivate(group){
+  if (!group) return;
+  if (bcFieldEditState.activeGroup === group) return;
+  bcFieldEditCloseAll();
+  bcFieldEditState.activeGroup = group;
+  var root = document.getElementById('bc-field-group-' + group);
+  if (!root) return;
+  root.classList.add('is-editing');
+  var read = root.querySelector('.ctx-field-read');
+  var edit = root.querySelector('.ctx-field-edit');
+  if (read) read.style.display = 'none';
+  if (edit) edit.style.display = '';
+  if (group === 'guests') bcFieldEditUpdateGuestPreview();
+  if (group === 'dates') bcFieldEditUpdateDatesPreview();
+}
+
+function bcFieldEditUpdateDatesPreview(){
+  var cin = el('bc-field-dates-check-in');
+  var cout = el('bc-field-dates-check-out');
+  var nightsEl = el('bc-field-dates-nights');
+  var errEl = el('bc-field-dates-error');
+  if (!cin || !cout) return;
+  var nights = bcStayNightsFromCheckInOut(cin.value, cout.value);
+  if (nightsEl){
+    nightsEl.textContent = nights > 0 ? (nights + ' night' + (nights === 1 ? '' : 's')) : '\u2014';
+  }
+  var invalid = cin.value && cout.value && cout.value <= cin.value;
+  if (errEl){
+    errEl.style.display = invalid ? '' : 'none';
+  }
+}
+
+function bcFieldEditUpdateGuestPreview(){
+  var sel = el('bc-field-guests-select');
+  var prev = el('bc-field-guests-release-preview');
+  if (!sel || !prev) return;
+  var cur = bcFieldEditState.guestCount;
+  var next = parseInt(sel.value, 10) || cur;
+  var p = bcFieldEditGuestReleasePreview(cur, next, bcFieldEditState.assignments);
+  if (!p.changed){
+    prev.textContent = next >= cur
+      ? 'No bed release preview (count unchanged or increase not allowed).'
+      : 'Select a lower guest count to preview bed release.';
+    return;
+  }
+  prev.innerHTML = 'Guests: ' + p.from + ' \u2192 ' + p.to +
+    '<br>Will release: ' + escHtml(p.release.join(', ')) +
+    '<br>Remaining: ' + escHtml(p.remaining.join(', '));
+}
+
+function bcInitFieldEditShell(data){
+  var bk = (data && data.booking) || {};
+  bcFieldEditState.assignments = bcFieldEditOrderedAssignments(((data.rooming || {}).assignments || []));
+  bcFieldEditState.guestCount = Math.max(1, parseInt(bk.guest_count, 10) || 1);
+  bcFieldEditState.snapshot = {
+    guest_name: bk.guest_name || '',
+    email: bk.email || '',
+    check_in: bk.check_in || '',
+    check_out: bk.check_out || '',
+    package_code: bk.package_code ? String(bk.package_code).toLowerCase() : '',
+    guest_count: bcFieldEditState.guestCount,
+  };
+  bcFieldEditState.activeGroup = null;
+  bcFieldEditCloseAll();
+
+  document.querySelectorAll('.btn-bc-field-edit').forEach(function(btn){
+    btn.onclick = function(){
+      var g = btn.getAttribute('data-bc-field-group');
+      if (g) bcFieldEditActivate(g);
+    };
+  });
+  document.querySelectorAll('[data-bc-field-cancel]').forEach(function(btn){
+    btn.onclick = function(){ bcFieldEditCloseAll(); };
+  });
+  document.querySelectorAll('[data-bc-field-save]').forEach(function(btn){
+    btn.disabled = true;
+    btn.onclick = function(e){
+      e.preventDefault();
+      return false;
+    };
+  });
+
+  var guestSel = el('bc-field-guests-select');
+  if (guestSel) guestSel.onchange = function(){ bcFieldEditUpdateGuestPreview(); };
+  var cin = el('bc-field-dates-check-in');
+  var cout = el('bc-field-dates-check-out');
+  if (cin){
+    cin.onchange = function(){ bcFieldEditUpdateDatesPreview(); };
+    cin.oninput = function(){ bcFieldEditUpdateDatesPreview(); };
+  }
+  if (cout){
+    cout.onchange = function(){ bcFieldEditUpdateDatesPreview(); };
+    cout.oninput = function(){ bcFieldEditUpdateDatesPreview(); };
+  }
+}
+
 /* Render the enriched booking context drawer sections (Stage 8.3b) */
 function renderBookingContextDrawer(data){
   var html = '';
@@ -11554,26 +11834,8 @@ function renderBookingContextDrawer(data){
     return m[s] || (s ? s.replace(/_/g, ' ') : '\u2014');
   };
 
-  /* ── Guest (no section label — Stage 8.7.6) ─────────────────────────────── */
-  html += '<div class="ctx-section">';
-  html += '<div class="kv-grid">';
-  html += kvBC('Name',  bk.guest_name);
-  html += kvBC('Phone', bk.phone);
-  html += kvBC('Email', bk.email);
-  if (bk.language)       html += kvBC('Language', bk.language);
-  if (bk.booking_source && bk.booking_source !== 'manual_staff') html += kvBC('Source', bk.booking_source);
-  html += '</div></div>';
-
-  /* ── Stay details (no section label; status/nights in drawer header — 8.7.6) */
-  html += '<div class="ctx-section">';
-  html += '<div class="kv-grid">';
-  html += kvBC('Check-in',  bk.check_in);
-  html += kvBC('Check-out', bk.check_out);
-  if (bk.guest_count)  html += kvBC('Guests', bk.guest_count);
-  if (bk.package_code) html += kvBC('Package', bk.package_code);
-  var roomPref = bk.requested_room_type || bk.room_preference;
-  if (roomPref) html += kvBC('Room pref', roomPref);
-  html += '</div></div>';
+  /* ── Phase 10.4e — field edit UI shell (contact / dates / guests / package) ─ */
+  html += bcRenderFieldEditSectionsHtml(data);
 
   /* ── Phase 10.3e / 10.3e.1 / 10.3h — Move bed (under stay details, above Payment) ─ */
   var rmMove = data.rooming || {};
