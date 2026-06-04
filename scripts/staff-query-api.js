@@ -5844,6 +5844,351 @@ async function handleBookingCancel(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.6a — Staff add service record (booking_service_records INSERT only)
+//
+// POST /staff/bookings/add-service
+//
+// No Stripe link, no payments paid-truth mutation, no booking_beds, no WhatsApp/n8n.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STAFF_ADDON_UI_SERVICE_TYPES = new Set([
+  'wetsuit', 'soft_board', 'hard_board', 'surf_lesson', 'yoga',
+]);
+
+const STAFF_ADDON_PRICING_CONFIG_PATH = path.join(
+  __dirname, '..', 'config', 'clients', 'wolfhouse-somo.pricing.json'
+);
+
+function staffAddonLoadPricingConfig() {
+  return JSON.parse(fs.readFileSync(STAFF_ADDON_PRICING_CONFIG_PATH, 'utf8'));
+}
+
+function staffAddonUiTypeLabel(uiType) {
+  const m = {
+    wetsuit: 'Wetsuit',
+    soft_board: 'Soft board',
+    hard_board: 'Hard board',
+    surf_lesson: 'Surf lesson',
+    yoga: 'Yoga',
+  };
+  return m[uiType] || uiType;
+}
+
+function staffAddonResolvePricing(uiServiceType, quantity, clientSlug) {
+  const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+  if (!STAFF_ADDON_UI_SERVICE_TYPES.has(uiServiceType)) {
+    return { ok: false, error: 'invalid service_type' };
+  }
+  if (clientSlug !== 'wolfhouse-somo') {
+    return { ok: false, error: 'pricing not configured for client' };
+  }
+
+  let config;
+  try {
+    config = staffAddonLoadPricingConfig();
+  } catch (err) {
+    return { ok: false, error: 'pricing config unavailable', detail: err.message };
+  }
+  const addOns = config.add_ons || {};
+  const warnings = [];
+
+  if (uiServiceType === 'wetsuit') {
+    const cfg = addOns.wetsuit_rental;
+    const unit = cfg && cfg.price_cents ? Number(cfg.price_cents) : 500;
+    return {
+      ok: true,
+      db_service_type: 'wetsuit',
+      amount_due_cents: unit * qty,
+      quantity: qty,
+      pricing_addon_code: 'wetsuit_rental',
+      unit_cents: unit,
+      pricing_unit: 'per_day',
+      metadata_extra: { rental_days: qty, staff_ui_service_type: uiServiceType },
+      warnings,
+    };
+  }
+
+  if (uiServiceType === 'soft_board') {
+    const cfg = addOns.soft_top_rental;
+    const unit = cfg && cfg.price_cents ? Number(cfg.price_cents) : 1500;
+    return {
+      ok: true,
+      db_service_type: 'surfboard',
+      amount_due_cents: unit * qty,
+      quantity: qty,
+      pricing_addon_code: 'soft_top_rental',
+      unit_cents: unit,
+      pricing_unit: 'per_day',
+      metadata_extra: { rental_days: qty, board_variant: 'soft', staff_ui_service_type: uiServiceType },
+      warnings: ['Recorded as surfboard with soft-top pricing.'],
+    };
+  }
+
+  if (uiServiceType === 'hard_board') {
+    const cfg = addOns.hard_board_rental;
+    const unit = cfg && cfg.price_cents ? Number(cfg.price_cents) : 2000;
+    return {
+      ok: true,
+      db_service_type: 'surfboard',
+      amount_due_cents: unit * qty,
+      quantity: qty,
+      pricing_addon_code: 'hard_board_rental',
+      unit_cents: unit,
+      pricing_unit: 'per_day',
+      metadata_extra: { rental_days: qty, board_variant: 'hard', staff_ui_service_type: uiServiceType },
+      warnings: ['Recorded as surfboard with hard-board pricing.'],
+    };
+  }
+
+  if (uiServiceType === 'surf_lesson') {
+    if (qty === 1) {
+      const cfg = addOns.surf_lesson_single;
+      const unit = cfg && cfg.price_cents ? Number(cfg.price_cents) : 3500;
+      return {
+        ok: true,
+        db_service_type: 'surf_lesson',
+        amount_due_cents: unit,
+        quantity: 1,
+        pricing_addon_code: 'surf_lesson_single',
+        unit_cents: unit,
+        pricing_unit: 'per_lesson',
+        metadata_extra: { staff_ui_service_type: uiServiceType },
+        warnings,
+      };
+    }
+    const cfg = addOns.surf_lesson_multi;
+    const unit = cfg && cfg.price_cents_each ? Number(cfg.price_cents_each) : 3000;
+    return {
+      ok: true,
+      db_service_type: 'surf_lesson',
+      amount_due_cents: unit * qty,
+      quantity: qty,
+      pricing_addon_code: 'surf_lesson_multi',
+      unit_cents: unit,
+      pricing_unit: 'per_lesson',
+      metadata_extra: { staff_ui_service_type: uiServiceType },
+      warnings,
+    };
+  }
+
+  if (uiServiceType === 'yoga') {
+    const cfg = addOns.yoga_class;
+    const unit = cfg && cfg.price_cents ? Number(cfg.price_cents) : 1500;
+    return {
+      ok: true,
+      db_service_type: 'yoga',
+      amount_due_cents: unit * qty,
+      quantity: qty,
+      pricing_addon_code: 'yoga_class',
+      unit_cents: unit,
+      pricing_unit: 'per_class',
+      metadata_extra: { staff_ui_service_type: uiServiceType },
+      warnings,
+    };
+  }
+
+  return { ok: false, error: 'unsupported service_type' };
+}
+
+async function handleBookingAddService(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId      = String(body.booking_id   || '').trim();
+  const bookingCode    = String(body.booking_code || '').trim();
+  const uiServiceType  = String(body.service_type || '').trim().toLowerCase();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const note           = body.note != null ? String(body.note).trim().slice(0, 500) : null;
+  const serviceDateIn  = String(body.service_date || '').trim();
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!uiServiceType) return send400(res, 'service_type is required');
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+  if (!STAFF_ADDON_UI_SERVICE_TYPES.has(uiServiceType)) {
+    return send400(res, 'service_type must be one of: wetsuit, soft_board, hard_board, surf_lesson, yoga');
+  }
+
+  const pricing = staffAddonResolvePricing(uiServiceType, body.quantity, clientSlug);
+  if (!pricing.ok) {
+    return send400(res, pricing.error || 'pricing failed', { detail: pricing.detail });
+  }
+
+  const actorId    = user ? user.staff_user_id : 'dev-add-service-local';
+  const actorRole  = user ? user.role          : 'operator';
+  const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:booking_add_service',
+    category:        'booking_add_service_write',
+    client_slug:     clientSlug,
+    booking_id:      bookingId || null,
+    booking_code:    bookingCode || null,
+    service_type:    uiServiceType,
+    idempotency_key: idempotencyKey,
+    staff_user_id:   actorId,
+    staff_role:      actorRole,
+  };
+
+  let bookingRow;
+  try {
+    bookingRow = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      return bookingRes.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'add service lookup failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', created: false });
+  }
+
+  if (bookingStatusIsCancelled(bookingRow.status)) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'booking_not_active',
+      message: 'Cannot add services to a cancelled or expired booking.',
+      created: false,
+    });
+  }
+
+  let serviceDate = serviceDateIn;
+  if (!serviceDate || !DATE_RE.test(serviceDate) || !parseCalendarDate(serviceDate)) {
+    serviceDate = bookingRow.check_in || null;
+  }
+  if (!serviceDate) return send400(res, 'service_date is required (YYYY-MM-DD) or booking must have check_in');
+
+  const serviceMeta = {
+    staff_portal: true,
+    staff_ui_service_type: uiServiceType,
+    pricing_addon_code: pricing.pricing_addon_code,
+    pricing_unit: pricing.pricing_unit,
+    unit_cents: pricing.unit_cents,
+    idempotency_key: idempotencyKey,
+    created_by: actorLabel,
+    ...(pricing.metadata_extra || {}),
+  };
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      const idem = await pg.query(
+        `SELECT id::text AS id, service_type, quantity, amount_due_cents, service_date::text AS service_date
+         FROM booking_service_records
+         WHERE booking_id = $1::uuid AND metadata->>'idempotency_key' = $2
+         LIMIT 1`,
+        [bookingRow.booking_id, idempotencyKey]
+      );
+      if (idem.rows[0]) {
+        return { idempotent: true, row: idem.rows[0] };
+      }
+
+      await pg.query('BEGIN');
+      try {
+        const ins = await pg.query(
+          `INSERT INTO booking_service_records (
+             client_slug, booking_id, booking_code, guest_name,
+             service_type, service_date, quantity, status,
+             amount_due_cents, amount_paid_cents, payment_status,
+             source, notes, metadata
+           ) VALUES (
+             $1, $2::uuid, $3, $4,
+             $5, $6::date, $7, 'requested',
+             $8, 0, 'not_requested',
+             'staff_manual', $9, $10::jsonb
+           )
+           RETURNING
+             id::text AS service_record_id,
+             service_type,
+             service_date::text AS service_date,
+             quantity,
+             status,
+             payment_status,
+             amount_due_cents,
+             amount_paid_cents,
+             notes,
+             metadata`,
+          [
+            clientSlug,
+            bookingRow.booking_id,
+            bookingRow.booking_code,
+            bookingRow.guest_name,
+            pricing.db_service_type,
+            serviceDate,
+            pricing.quantity,
+            pricing.amount_due_cents,
+            note,
+            JSON.stringify(serviceMeta),
+          ]
+        );
+        await pg.query('COMMIT');
+        return { idempotent: false, row: ins.rows[0] };
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      created: !result.idempotent,
+      idempotent: result.idempotent,
+      service_record_id: result.row.service_record_id || result.row.id,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      created: !result.idempotent,
+      idempotent: result.idempotent,
+      service_record: result.row,
+      pricing: {
+        service_type: uiServiceType,
+        db_service_type: pricing.db_service_type,
+        quantity: pricing.quantity,
+        amount_due_cents: pricing.amount_due_cents,
+        unit_cents: pricing.unit_cents,
+        pricing_unit: pricing.pricing_unit,
+        warnings: pricing.warnings,
+      },
+      audit: { actor: actorLabel, idempotency_key: idempotencyKey },
+      message: result.idempotent
+        ? 'Service record already exists for this idempotency key.'
+        : 'Service record added. Running invoice will include the new add-on. No Stripe link or payment was created.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    if (isMissingBookingServiceRecordsTable(err)) {
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'booking_service_records table not available',
+        created: false,
+      });
+    }
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'add service failed', detail: err.message, created: false });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
 //
 // Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
@@ -10400,6 +10745,10 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-cancel-confirm-meta{font-size:12px;color:var(--text);line-height:1.55;margin-bottom:8px}
 .bc-cancel-confirm-warn{font-size:11.5px;color:#9C5742;line-height:1.5;margin-bottom:12px;padding:8px 10px;background:#F6E7E1;border-radius:6px}
 .bc-cancel-confirm-actions{display:flex;gap:8px;flex-wrap:wrap}
+/* Phase 10.6a — add service inline form (running invoice add-ons) */
+.bc-add-service-form-wrap{margin-top:10px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
+.bc-add-service-form-wrap .ctx-field-label{margin-top:8px}
+.bc-add-service-form-wrap .ctx-field-label:first-child{margin-top:0}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
 .ctx-addon-row:last-child{border-bottom:none}
 .ctx-svc-record{padding:8px 10px;margin-bottom:6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-2,#f8f9fa);font-size:12px}
@@ -13214,6 +13563,7 @@ function loadBlockDetail(bookingCode){
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
       updateBcDetailHeader(res.data);
       bcInitFieldEditShell(res.data);
+      bcInitAddServiceShell(res.data);
       bcInitBookingCancelShell(res.data);
       bcInitMovePanel(res.data);
       /* Wire "Open conversation" button */
@@ -13609,7 +13959,11 @@ function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
   return null;
 }
 
-function bcRunningInvoiceSvcTypeLabel(t){
+function bcRunningInvoiceSvcTypeLabel(t, meta){
+  meta = meta || {};
+  if (meta.staff_ui_service_type) return staffAddonUiTypeLabel(meta.staff_ui_service_type);
+  if (t === 'surfboard' && meta.board_variant === 'soft') return 'Soft board';
+  if (t === 'surfboard' && meta.board_variant === 'hard') return 'Hard board';
   if (!t) return '\u2014';
   var m = { yoga: 'Yoga', meal: 'Meal', surf_lesson: 'Surf lesson', wetsuit: 'Wetsuit', surfboard: 'Surfboard' };
   return m[t] || String(t).replace(/_/g, ' ');
@@ -13625,9 +13979,12 @@ function bcRunningInvoiceSvcUnitLabel(serviceType){
 }
 
 function bcRunningInvoiceSvcLineText(sr){
-  var label = bcRunningInvoiceSvcTypeLabel(sr.service_type);
-  var qty = sr.quantity != null ? Number(sr.quantity) : null;
   var meta = sr.metadata || {};
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch (_) { meta = {}; }
+  }
+  var label = bcRunningInvoiceSvcTypeLabel(sr.service_type, meta);
+  var qty = sr.quantity != null ? Number(sr.quantity) : null;
   if ((sr.service_type === 'wetsuit' || sr.service_type === 'surfboard') && meta.rental_days != null){
     qty = Number(meta.rental_days);
   }
@@ -14662,6 +15019,177 @@ function bcFieldEditUpdateGuestPreview(){
   bcFieldEditUpdateGuestsSaveState();
 }
 
+/* Phase 10.6a — add booking service record (inline form near running invoice) */
+var bcAddServiceCtx = {
+  bookingId: null,
+  bookingCode: null,
+  checkIn: null,
+  inFlight: false,
+};
+
+function bcRenderAddServicePanelHtml(bk){
+  if (bcBookingStatusIsCancelled(bk && bk.status)) return '';
+  return '<div class="ctx-section ctx-add-service-panel" id="bc-add-service-panel">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">' +
+    '<span style="font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em">Add service</span>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-service-btn" style="font-size:11px;padding:4px 10px">Add service</button>' +
+    '</div>' +
+    '<div id="bc-add-service-form-wrap" class="bc-add-service-form-wrap" style="display:none">' +
+    '<label class="ctx-field-label" for="bc-add-service-type">Service type</label>' +
+    '<select id="bc-add-service-type" class="bk-input bk-input-sm">' +
+    '<option value="wetsuit">Wetsuit (\u20ac5/day)</option>' +
+    '<option value="soft_board">Soft board (\u20ac15/day)</option>' +
+    '<option value="hard_board">Hard board (\u20ac20/day)</option>' +
+    '<option value="surf_lesson">Surf lesson (\u20ac35 / \u20ac30 each)</option>' +
+    '<option value="yoga">Yoga (\u20ac15/class)</option>' +
+    '</select>' +
+    '<label class="ctx-field-label" for="bc-add-service-qty" id="bc-add-service-qty-label">Quantity / days</label>' +
+    '<input type="number" id="bc-add-service-qty" class="bk-input bk-input-sm" min="1" value="1">' +
+    '<label class="ctx-field-label" for="bc-add-service-date">Service date</label>' +
+    '<input type="date" id="bc-add-service-date" class="bk-input bk-input-sm">' +
+    '<label class="ctx-field-label" for="bc-add-service-note">Note (optional)</label>' +
+    '<input type="text" id="bc-add-service-note" class="bk-input bk-input-sm" maxlength="500">' +
+    '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
+    '<button type="button" class="btn btn-primary" id="bc-add-service-save-btn">Save service</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-service-cancel-btn">Cancel</button>' +
+    '</div></div>' +
+    '<div id="bc-add-service-result" aria-live="polite"></div>' +
+    '</div>';
+}
+
+function bcNewAddServiceIdempotencyKey(){
+  return 'bc-add-svc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcAddServiceUpdateQtyLabel(){
+  var sel = el('bc-add-service-type');
+  var lbl = el('bc-add-service-qty-label');
+  if (!sel || !lbl) return;
+  var t = sel.value;
+  if (t === 'surf_lesson') lbl.textContent = 'Quantity / lessons';
+  else if (t === 'yoga') lbl.textContent = 'Quantity / classes';
+  else lbl.textContent = 'Quantity / days';
+}
+
+function bcCloseAddServiceForm(){
+  var wrap = el('bc-add-service-form-wrap');
+  if (wrap) wrap.style.display = 'none';
+  var btn = el('bc-add-service-btn');
+  if (btn) btn.disabled = false;
+}
+
+function bcOpenAddServiceForm(data){
+  var wrap = el('bc-add-service-form-wrap');
+  if (!wrap) return;
+  var bk = (data && data.booking) || {};
+  var dateEl = el('bc-add-service-date');
+  if (dateEl && bk.check_in) dateEl.value = bk.check_in;
+  var noteEl = el('bc-add-service-note');
+  if (noteEl) noteEl.value = '';
+  var qtyEl = el('bc-add-service-qty');
+  if (qtyEl) qtyEl.value = '1';
+  bcAddServiceUpdateQtyLabel();
+  wrap.style.display = '';
+  var btn = el('bc-add-service-btn');
+  if (btn) btn.disabled = true;
+  var resBox = el('bc-add-service-result');
+  if (resBox) resBox.innerHTML = '';
+}
+
+function bcRenderAddServiceResult(data, isError){
+  var box = el('bc-add-service-result');
+  if (!box) return;
+  if (isError || !data || !data.success){
+    box.innerHTML = '<div class="state-msg error" style="margin-top:8px">' +
+      escHtml((data && data.error) || (data && data.message) || 'Add service failed.') + '</div>';
+    return;
+  }
+  box.innerHTML = '<div class="state-msg" style="margin-top:8px;color:#5C7350;background:#F3FAF1;border:1px solid #B5D3AD;border-radius:6px;padding:8px 10px">' +
+    escHtml(data.message || 'Service added.') + '</div>';
+}
+
+function bcRunAddServiceSave(){
+  if (bcAddServiceCtx.inFlight) return;
+  var code = bcAddServiceCtx.bookingCode;
+  if (!code) return;
+  var typeEl = el('bc-add-service-type');
+  var qtyEl = el('bc-add-service-qty');
+  var dateEl = el('bc-add-service-date');
+  var noteEl = el('bc-add-service-note');
+  var qty = qtyEl ? parseInt(qtyEl.value, 10) : 1;
+  if (!Number.isFinite(qty) || qty < 1){
+    bcRenderAddServiceResult({ success: false, error: 'Quantity must be at least 1.' }, true);
+    return;
+  }
+  bcAddServiceCtx.inFlight = true;
+  var saveBtn = el('bc-add-service-save-btn');
+  if (saveBtn) saveBtn.disabled = true;
+  bcRenderAddServiceResult({ success: true, message: 'Saving service\u2026' }, false);
+  fetch('/staff/bookings/add-service', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_slug: getBcClient(),
+      booking_id: bcAddServiceCtx.bookingId,
+      booking_code: bcAddServiceCtx.bookingCode,
+      service_type: typeEl ? typeEl.value : '',
+      quantity: qty,
+      service_date: dateEl ? dateEl.value : null,
+      note: noteEl && noteEl.value ? noteEl.value : null,
+      idempotency_key: bcNewAddServiceIdempotencyKey(),
+    }),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      bcAddServiceCtx.inFlight = false;
+      var data = res.data || {};
+      if (!res.ok || !data.success){
+        bcRenderAddServiceResult({
+          success: false,
+          error: data.error || ('Save failed (HTTP ' + res.status + ')'),
+          message: data.message,
+        }, true);
+        if (saveBtn) saveBtn.disabled = false;
+        return;
+      }
+      bcCloseAddServiceForm();
+      bcRenderAddServiceResult(data, false);
+      if (code) loadBlockDetail(code);
+    })
+    .catch(function(e){
+      bcAddServiceCtx.inFlight = false;
+      bcRenderAddServiceResult({ success: false, error: e.message || 'Network error' }, true);
+      if (saveBtn) saveBtn.disabled = false;
+    });
+}
+
+function bcInitAddServiceShell(data){
+  var bk = (data && data.booking) || {};
+  bcAddServiceCtx.bookingId = bk.booking_id || null;
+  bcAddServiceCtx.bookingCode = bk.booking_code || null;
+  bcAddServiceCtx.checkIn = bk.check_in || null;
+  bcAddServiceCtx.inFlight = false;
+  bcCloseAddServiceForm();
+  var openBtn = el('bc-add-service-btn');
+  if (openBtn){
+    if (bcBookingStatusIsCancelled(bk.status)){
+      openBtn.style.display = 'none';
+    } else {
+      openBtn.style.display = '';
+      openBtn.onclick = function(){
+        if (bcAddServiceCtx.inFlight) return;
+        bcOpenAddServiceForm(data);
+      };
+    }
+  }
+  var typeSel = el('bc-add-service-type');
+  if (typeSel) typeSel.onchange = bcAddServiceUpdateQtyLabel;
+  var cancelBtn = el('bc-add-service-cancel-btn');
+  if (cancelBtn) cancelBtn.onclick = function(){ bcCloseAddServiceForm(); };
+  var saveBtn = el('bc-add-service-save-btn');
+  if (saveBtn) saveBtn.onclick = function(e){ e.preventDefault(); bcRunAddServiceSave(); };
+}
+
 /* Phase 10.5f — cancel reservation (confirmation required; reload drawer + calendar) */
 var bcCancelCtx = {
   bookingId: null,
@@ -14964,6 +15492,9 @@ function renderBookingContextDrawer(data){
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
   html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
+
+  /* ── Phase 10.6a — Add service (inline form below running invoice / add-ons) ─ */
+  html += bcRenderAddServicePanelHtml(bk);
 
   /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
   var confDraft = (data.booking && data.booking.confirmation_draft) ||
@@ -16483,9 +17014,15 @@ function isMissingBookingServiceRecordsTable(err) {
   return /booking_service_records/.test(msg) && /does not exist|undefined table/i.test(msg);
 }
 
+function bookingContextServiceRecordsSql() {
+  const base = getBookingServiceRecordsQuery();
+  if (/sr\.metadata/.test(base)) return base;
+  return base.replace('sr.notes', 'sr.notes,\n  sr.metadata');
+}
+
 async function loadBookingServiceRecords(pg, clientSlug, bookingCode) {
   try {
-    const r = await pg.query(getBookingServiceRecordsQuery(), [clientSlug, bookingCode]);
+    const r = await pg.query(bookingContextServiceRecordsSql(), [clientSlug, bookingCode]);
     return { rows: r.rows, available: true };
   } catch (err) {
     if (isMissingBookingServiceRecordsTable(err)) {
@@ -16786,6 +17323,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingCancel(req, res, auth.user);
+  }
+
+  // ── Phase 10.6a — Booking add service record (staff_manual INSERT only) ───
+  if (pathname === '/staff/bookings/add-service') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/add-service' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingAddService(req, res, auth.user);
   }
 
   // ── Phase 10.3b — Booking move write (gated; single-bed same dates) ────────
@@ -17147,6 +17695,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edit preview (calculate-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c contact + package edit write (ENABLED)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel reservation (beds released; no refund)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-on service record (no Stripe)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
