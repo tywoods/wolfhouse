@@ -15287,8 +15287,15 @@ function bcTurnoverCheckoutSeg(segs){
   return null;
 }
 
+function bcCalendarBlockDisplayLabel(blk){
+  blk = blk || {};
+  var guest = String(blk.guest_name || blk.bed_guest_name || '').trim();
+  if (guest.length > 0 && guest !== '\u2014') return guest;
+  return String(blk.booking_code || '').trim() || '\u2014';
+}
+
 function bcTurnoverVisibleLabel(blk){
-  return escHtml(blk.guest_name || blk.booking_code || '\u2014');
+  return escHtml(bcCalendarBlockDisplayLabel(blk));
 }
 
 function bcTurnoverCellTooltip(segs){
@@ -15315,14 +15322,10 @@ function bcBlockTooltip(blk){
 }
 
 function bcBlockLabel(blk, spanDays, layer){
-  if (layer === 'checkout'){
-    return escHtml(blk.guest_name || blk.booking_code || '\u2014');
-  }
-  var codeShort = (blk.booking_code||'').replace(/^(DEMO-|WH-|OP-)/, '');
+  var label = bcCalendarBlockDisplayLabel(blk);
   var span = spanDays != null ? spanDays : blk.span_days;
-  return span >= 3
-    ? escHtml((blk.guest_name || blk.booking_code || '\u2014'))
-    : escHtml(codeShort || blk.guest_name || '\u2014');
+  if (span < 3 && label.length > 16) label = label.slice(0, 14) + '\u2026';
+  return escHtml(label);
 }
 
 function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
@@ -19002,16 +19005,23 @@ function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows) {
   }
 }
 
+function calendarBlockDisplayLabel(row) {
+  const guest = String(row.guest_name || row.bed_guest_name || '').trim();
+  if (guest.length > 0 && guest !== '\u2014') return guest;
+  return String(row.booking_code || '').trim() || '\u2014';
+}
+
 function buildCalendarBlocks(blockRows, startDate, endDate) {
   return blockRows
     .filter(row => !bookingStatusIsCancelled(row.booking_status))
     .map(row => {
     const span = computeBlockSpan(row, startDate, endDate);
     const payState = calendarBlockPaymentState(row);
+    const displayGuest = String(row.guest_name || row.bed_guest_name || '').trim() || null;
     return {
       booking_id:        row.booking_id,
       booking_code:      row.booking_code,
-      guest_name:        row.guest_name || row.bed_guest_name || '—',
+      guest_name:        displayGuest,
       phone:             row.phone || null,
       status:            row.booking_status,
       payment_status:    row.payment_status,
@@ -19023,7 +19033,7 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       end_date:          row.assignment_end_date,
       start_offset:      span.start_offset,
       span_days:         span.span_days,
-      label:             (row.booking_code || '') + (row.guest_name ? ' \u2014 ' + row.guest_name : ''),
+      label:             calendarBlockDisplayLabel(row),
       color_type:        bedCalendarColorType(row),
       needs_review:      !!(row.needs_rooming_review || (row.assignment_status || '').toLowerCase() === 'needs_review'),
       is_arrival:        span.is_arrival,

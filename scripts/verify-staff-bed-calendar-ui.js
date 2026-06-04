@@ -1948,6 +1948,36 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6g: bed calendar handler has no payment writes');
 })();
 
+// ── Phase 10.6g.6 — calendar block guest name label ─────────────────────────
+(function check106g6CalendarGuestLabel(){
+  const qFile = fs.readFileSync(require('path').join(__dirname, 'lib', 'staff-bed-calendar-queries.js'), 'utf8');
+  const calPaySlice = src.match(/function bcCalendarBlockDisplayLabel[\s\S]*?function bcTurnoverVisibleLabel/)?.[0] || '';
+  const blockLabelFn = src.match(/function bcBlockLabel[\s\S]*?\n\}/)?.[0] || '';
+  const buildSlice = src.match(/function calendarBlockDisplayLabel[\s\S]*?function buildCalendarBlocks[\s\S]*?\n\}/)?.[0] || '';
+
+  check(/b\.guest_name/.test(qFile) && /bed_guest_name/.test(qFile),
+    '10.6g.6: bed calendar SELECT includes guest_name fields');
+  check(/function bcCalendarBlockDisplayLabel/.test(src),
+    '10.6g.6: client calendar display label helper');
+  check(/function calendarBlockDisplayLabel/.test(src),
+    '10.6g.6: server calendar display label helper');
+  check(/guest_name \|\| .*bed_guest_name/.test(calPaySlice + buildSlice),
+    '10.6g.6: label prefers guest_name over booking_code');
+  check(/booking_code/.test(calPaySlice + buildSlice),
+    '10.6g.6: booking_code remains fallback');
+  check(/bcCalendarBlockDisplayLabel\(blk\)/.test(blockLabelFn),
+    '10.6g.6: bcBlockLabel uses display label helper');
+  check(!/codeShort/.test(blockLabelFn),
+    '10.6g.6: short-span path no longer prefers booking_code shortcut');
+  check(/calendarBlockDisplayLabel\(row\)/.test(buildSlice),
+    '10.6g.6: API block label uses guest-first helper');
+  check(/label\.length > 16/.test(blockLabelFn),
+    '10.6g.6: narrow blocks truncate guest name instead of swapping to code');
+
+  check(/return guest/.test(calPaySlice) || /guest\.length > 0/.test(calPaySlice),
+    '10.6g.6: regression — guest_name wins when present');
+})();
+
 // ── Phase 10.6g.5 — calendar badge inline layout ────────────────────────────
 (function check106g5CalendarBadgeLayout(){
   const blockCss = src.match(/\.bc-block\{[^}]+\}/)?.[0] || '';

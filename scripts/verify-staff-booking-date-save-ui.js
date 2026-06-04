@@ -151,6 +151,10 @@ check(/btn\.disabled = !valid \|\| !changed/.test(src),
   'dates Save disabled when invalid or unchanged');
 check(/loadBlockDetail\(code\)/.test(datesSaveFn), 'successful dates save reloads drawer');
 check(/loadBedCalendar/.test(datesSaveFn), 'successful dates save refreshes bed calendar');
+check(/function bcCalendarBlockDisplayLabel/.test(src) && /function bcBlockLabel/.test(src),
+  '10.6g.6: calendar reload uses guest-first block label helpers');
+check(!/codeShort/.test(src.match(/function bcBlockLabel[\s\S]*?\n\}/)?.[0] || ''),
+  '10.6g.6: date-save calendar path does not use booking-code-first short labels');
 
 console.log('\nF. All field groups wired; contact/package/dates preserved');
 
