@@ -92,6 +92,7 @@
     "verify:staff-booking-field-edit-ui": "node scripts/verify-staff-booking-field-edit-ui.js",
     "verify:staff-booking-edit-preview": "node scripts/verify-staff-booking-edit-preview.js",
     "verify:staff-booking-edit-write-contact": "node scripts/verify-staff-booking-edit-write-contact.js",
+    "verify:staff-booking-contact-save-ui": "node scripts/verify-staff-booking-contact-save-ui.js",
     "verify:staff-today-navigation-ui": "node scripts/verify-staff-today-navigation-ui.js",
     "verify:staff-stripe-payment-link-api": "node scripts/verify-staff-stripe-payment-link-api.js",
     "verify:staff-addon-service-payment-api": "node scripts/verify-staff-addon-service-payment-api.js",

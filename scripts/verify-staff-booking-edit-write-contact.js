@@ -163,10 +163,10 @@ check(/handleBookingEditPreview/.test(src), 'edit-preview handler still present'
 check(/\/staff\/bookings\/edit-preview/.test(src), 'edit-preview route still present');
 check(/preview_only:\s*true/.test(previewHandlerBlock),
   'edit-preview still returns preview_only:true');
-check(!/fetch\([^)]*\/staff\/bookings\/edit[^\-p]|handleBookingEditWrite|BOOKING_EDIT_WRITE/.test(fieldBlock),
-  'field edit UI does not wire Save to write endpoint');
+check(/bcFieldEditRunContactSave/.test(src) && /fetch\('\/staff\/bookings\/edit'/.test(src),
+  'contact Save UI wired to gated write (10.5f-lite)');
 check(/\/staff\/bookings\/edit-preview/.test(fieldBlock),
-  'field edit UI still calls edit-preview only');
+  'non-contact field edit UI still uses edit-preview');
 
 console.log('\nH. Safety — no forbidden integrations');
 

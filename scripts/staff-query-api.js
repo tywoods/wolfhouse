@@ -10747,6 +10747,8 @@ var BC_MANUAL_BOOKING = ${MANUAL_BOOKING_ENABLED};
 var BC_STRIPE_LINKS   = ${STRIPE_LINKS_ENABLED};
 /* Phase 10.3e — booking move write (API gated by BOOKING_MOVE_WRITE_ENABLED) */
 var BC_BOOKING_MOVE_WRITE = ${BOOKING_MOVE_WRITE_ENABLED};
+/* Phase 10.5f — booking field edit write (contact only; gated by BOOKING_EDIT_WRITE_ENABLED) */
+var BC_BOOKING_EDIT_WRITE = ${BOOKING_EDIT_WRITE_ENABLED};
 /* Last successful quote (required for create) */
 var bcLastQuote = null;
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
@@ -12528,6 +12530,131 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   return html;
 }
 
+/* Phase 10.5f-lite — contact field edit write UI (gated; POST /staff/bookings/edit) */
+function bcNewContactEditIdempotencyKey(){
+  return 'bc-contact-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcFieldEditOptionalContactInput(raw){
+  var trimmed = String(raw == null ? '' : raw).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function bcFieldEditContactFieldsChanged(name, phone, email){
+  var s = bcFieldEditState.snapshot || {};
+  var snapPhone = s.phone || '';
+  var snapEmail = s.email || '';
+  var nextPhone = phone == null ? '' : String(phone);
+  var nextEmail = email == null ? '' : String(email);
+  return String(s.guest_name || '') !== String(name || '')
+    || String(snapPhone) !== nextPhone
+    || String(snapEmail) !== nextEmail;
+}
+
+function bcFieldEditUpdateContactSaveState(){
+  var btn = el('bc-field-save-contact');
+  var hint = el('bc-field-contact-save-hint');
+  if (!btn) return;
+  if (!BC_BOOKING_EDIT_WRITE){
+    btn.disabled = true;
+    if (hint) hint.style.display = '';
+    return;
+  }
+  if (hint) hint.style.display = 'none';
+  var nameEl = el('bc-field-contact-name');
+  var phoneEl = el('bc-field-contact-phone');
+  var emailEl = el('bc-field-contact-email');
+  var guestName = nameEl ? nameEl.value.trim() : '';
+  var phone = bcFieldEditOptionalContactInput(phoneEl ? phoneEl.value : '');
+  var email = bcFieldEditOptionalContactInput(emailEl ? emailEl.value : '');
+  var valid = !!guestName;
+  var changed = bcFieldEditContactFieldsChanged(guestName, phone, email);
+  btn.disabled = !valid || !changed;
+}
+
+function bcFieldEditBuildContactWritePayload(){
+  var nameEl = el('bc-field-contact-name');
+  var phoneEl = el('bc-field-contact-phone');
+  var emailEl = el('bc-field-contact-email');
+  var guestName = nameEl ? nameEl.value.trim() : '';
+  if (!guestName) return { error: 'Guest name is required.' };
+  return {
+    client_slug: bcFieldEditState.clientSlug || getBcClient(),
+    booking_id: bcFieldEditState.bookingId,
+    booking_code: bcFieldEditState.bookingCode,
+    edit_type: 'contact',
+    guest_name: guestName,
+    phone: bcFieldEditOptionalContactInput(phoneEl ? phoneEl.value : ''),
+    email: bcFieldEditOptionalContactInput(emailEl ? emailEl.value : ''),
+    idempotency_key: bcNewContactEditIdempotencyKey(),
+    reason: 'Staff portal contact edit',
+  };
+}
+
+function bcFieldEditRenderContactSaveResult(data, isError){
+  var box = el('bc-field-contact-preview-result');
+  if (!box) return;
+  box.style.display = '';
+  if (isError || !data || !data.success){
+    box.className = 'ctx-field-preview-result is-visible is-blocked';
+    box.innerHTML = '<div class="ctx-field-preview-badge">Save failed</div>' +
+      escHtml((data && data.error) || (data && data.message) || 'Contact save failed.') +
+      (data && data.detail ? '<div style="margin-top:4px">' + escHtml(data.detail) + '</div>' : '');
+    return;
+  }
+  box.className = 'ctx-field-preview-result is-visible';
+  var html = '<div class="ctx-field-preview-badge">Contact saved</div>';
+  html += '<div>' + escHtml(data.message || 'Booking contact details updated.') + '</div>';
+  if (data.before && data.after){
+    html += '<div style="margin-top:8px"><strong>Before:</strong> ' +
+      escHtml(bcFieldEditFormatContactLine(data.before)) + '</div>';
+    html += '<div><strong>After:</strong> ' +
+      escHtml(bcFieldEditFormatContactLine(data.after)) + '</div>';
+  }
+  if (data.idempotent) html += '<div style="margin-top:6px;font-style:italic">No changes were needed (already matched).</div>';
+  box.innerHTML = html;
+}
+
+function bcFieldEditRunContactSave(){
+  if (!BC_BOOKING_EDIT_WRITE){
+    bcFieldEditRenderContactSaveResult({ success: false, error: 'Contact saving is disabled.' }, true);
+    return;
+  }
+  var built = bcFieldEditBuildContactWritePayload();
+  if (built.error){
+    bcFieldEditRenderContactSaveResult({ success: false, error: built.error }, true);
+    return;
+  }
+  var btn = el('bc-field-save-contact');
+  if (btn) btn.disabled = true;
+  bcFieldEditRenderContactSaveResult({ success: true, message: 'Saving contact\u2026' }, false);
+  fetch('/staff/bookings/edit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(built),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data || !res.data.success){
+        bcFieldEditRenderContactSaveResult({
+          success: false,
+          error: (res.data && res.data.error) || ('Save failed (HTTP ' + res.status + ')'),
+          detail: res.data && res.data.detail,
+        }, true);
+        bcFieldEditUpdateContactSaveState();
+        return;
+      }
+      bcFieldEditRenderContactSaveResult(res.data, false);
+      var code = bcFieldEditState.bookingCode;
+      bcFieldEditCloseAll();
+      if (code) loadBlockDetail(code);
+    })
+    .catch(function(e){
+      bcFieldEditRenderContactSaveResult({ success: false, error: e.message || 'Network error' }, true);
+      bcFieldEditUpdateContactSaveState();
+    });
+}
+
 /* Phase 10.4e — field edit UI shell helpers (read-only; no API writes) */
 function bcFieldEditPackageOptions(currentCode){
   /* Temporary: mirrors manual-create package dropdown until pricing config on context API (10.4f+). */
@@ -12571,10 +12698,15 @@ function bcRenderFieldEditPencilBtn(group, ariaLabel){
 }
 
 function bcRenderFieldEditActionsHtml(group){
-  return '<div class="ctx-field-edit-actions">' +
-    '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Save</button>' +
+  var saveBtn = group === 'contact'
+    ? '<button type="button" class="btn btn-primary" data-bc-field-contact-save="contact" id="bc-field-save-contact">Save</button>'
+    : '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Save</button>';
+  var gateHint = group === 'contact'
+    ? '<div class="ctx-field-save-hint" id="bc-field-contact-save-hint" style="display:none">Contact saving is disabled.</div>'
+    : '';
+  return '<div class="ctx-field-edit-actions">' + saveBtn +
     '<button type="button" class="btn btn-ghost" data-bc-field-cancel="' + escHtml(group) + '" id="bc-field-cancel-' + escHtml(group) + '">Cancel</button>' +
-    '</div>' +
+    '</div>' + gateHint +
     '<div class="ctx-field-preview-result" id="bc-field-' + escHtml(group) + '-preview-result" aria-live="polite"></div>';
 }
 
@@ -12865,6 +12997,7 @@ function bcFieldEditActivate(group){
   if (edit) edit.style.display = '';
   if (group === 'guests') bcFieldEditUpdateGuestPreview();
   if (group === 'dates') bcFieldEditUpdateDatesPreview();
+  if (group === 'contact') bcFieldEditUpdateContactSaveState();
 }
 
 function bcFieldEditUpdateDatesPreview(){
@@ -12935,6 +13068,21 @@ function bcInitFieldEditShell(data){
       var g = btn.getAttribute('data-bc-field-preview');
       if (g) bcFieldEditRunPreview(g);
     };
+  });
+  var contactSaveBtn = el('bc-field-save-contact');
+  if (contactSaveBtn){
+    contactSaveBtn.onclick = function(e){
+      e.preventDefault();
+      bcFieldEditRunContactSave();
+    };
+  }
+  bcFieldEditUpdateContactSaveState();
+  ['bc-field-contact-name', 'bc-field-contact-phone', 'bc-field-contact-email'].forEach(function(id){
+    var input = el(id);
+    if (!input) return;
+    var handler = function(){ bcFieldEditUpdateContactSaveState(); };
+    input.oninput = handler;
+    input.onchange = handler;
   });
 
   var guestSel = el('bc-field-guests-select');
@@ -15148,6 +15296,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
   console.log(`  Booking move write: ${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED (BOOKING_MOVE_WRITE_ENABLED=true)' : 'DISABLED'}`);
+  console.log(`  Booking edit write: ${BOOKING_EDIT_WRITE_ENABLED ? 'ENABLED (BOOKING_EDIT_WRITE_ENABLED=true)' : 'DISABLED'} — contact only in UI`);
   console.log('  Endpoints:');
   console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/login    <- login`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/logout   <- revoke session`);
@@ -15165,6 +15314,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-change preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edit preview (calculate-only)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b contact edit write (${BOOKING_EDIT_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
