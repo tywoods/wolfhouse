@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-move-preview.js  (Phase 10.2 / 10.2a / 10.2b)\n');
+console.log('\nverify-staff-booking-move-preview.js  (Phase 10.2 / 10.2a / 10.2b / 10.3b.1)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -117,10 +117,26 @@ check(!/INSERT INTO|UPDATE\s+|DELETE FROM/i.test(handlerBlock),
   'no UPDATE/INSERT/DELETE in move-preview handler');
 check(!/BEGIN|COMMIT|ROLLBACK/i.test(handlerBlock),
   'no transaction mutations in move-preview handler');
-check(!/\/staff\/bookings\/move['"]|bookings\/move\/confirm|Confirm Move/i.test(src),
-  'no booking move write/confirm route added in this slice');
 check(!/INSERT INTO bookings|UPDATE bookings|DELETE FROM booking_beds|UPDATE booking_beds/i.test(handlerBlock),
   'handler does not mutate bookings or booking_beds');
+check(!/pathname === '\/staff\/bookings\/move'/.test(handlerBlock),
+  'move-preview handler block does not register POST /staff/bookings/move write route');
+check(!/handleBookingMoveWrite/.test(handlerBlock),
+  'move-preview handler block does not invoke move write handler');
+check(!/bookings\/move\/confirm|Confirm Move/i.test(src),
+  'no move confirm route or UI confirm string added');
+
+console.log('\nE2. Write route awareness (Phase 10.3b+)');
+
+const writeRoutePresent = /pathname === '\/staff\/bookings\/move'/.test(src) &&
+  /BOOKING_MOVE_WRITE_ENABLED/.test(src);
+if (writeRoutePresent) {
+  ok('gated POST /staff/bookings/move may coexist; preview handler block remains SELECT-only');
+} else {
+  ok('no gated move write route in router (preview-only deployment)');
+}
+check(/pathname === '\/staff\/bookings\/move-preview'/.test(src),
+  'move-preview route pathname distinct from /staff/bookings/move');
 
 console.log('\nF. Safety — no forbidden integrations');
 
