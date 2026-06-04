@@ -65,17 +65,18 @@ const fieldBlock = src.match(
 )?.[0] || '';
 const packageSaveUiFn = src.match(/function bcFieldEditBuildPackageWritePayload[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
 
-console.log('\nA. Route + gate');
+console.log('\nA. Route (no BOOKING_EDIT_WRITE gate — 10.5c.2)');
 
 check(/\/staff\/bookings\/edit/.test(src), 'POST /staff/bookings/edit route present');
 check(/handleBookingEditWrite\s*\(/.test(src), 'handleBookingEditWrite handler defined');
 check(/handleBookingEditWritePackage/.test(src), 'handleBookingEditWritePackage handler defined');
 check(/pathname === '\/staff\/bookings\/edit'/.test(src), 'edit write pathname wired in router');
-check(/BOOKING_EDIT_WRITE_ENABLED/.test(src), 'BOOKING_EDIT_WRITE_ENABLED gate exists');
-check(/process\.env\.BOOKING_EDIT_WRITE_ENABLED === 'true'/.test(src),
-  'BOOKING_EDIT_WRITE_ENABLED defaults OFF unless env true');
-check(/booking_edit_write_disabled/.test(writeHandlerBlock),
-  'disabled gate returns booking_edit_write_disabled');
+check(!/const BOOKING_EDIT_WRITE_ENABLED/.test(src),
+  'BOOKING_EDIT_WRITE_ENABLED env gate constant removed');
+check(!/booking_edit_write_disabled/.test(writeHandlerBlock),
+  'package write handler does not return booking_edit_write_disabled');
+check(!/if \(!BOOKING_EDIT_WRITE_ENABLED\)/.test(writeHandlerBlock),
+  'handleBookingEditWrite does not check BOOKING_EDIT_WRITE_ENABLED');
 check(/requireAuth\(req, res, 'operator'\)/.test(routeSlice),
   'edit write route requires operator auth');
 

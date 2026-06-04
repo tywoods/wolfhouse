@@ -129,8 +129,7 @@ const BOT_ADDON_REQUESTS_ENABLED = process.env.BOT_ADDON_REQUESTS_ENABLED === 't
 const BOT_PAUSE_CONTROLS_ENABLED = process.env.BOT_PAUSE_CONTROLS_ENABLED === 'true';
 // Phase 10.3b — Staff booking move write (single-bed, same dates). Default OFF.
 const BOOKING_MOVE_WRITE_ENABLED = process.env.BOOKING_MOVE_WRITE_ENABLED === 'true';
-// Phase 10.5b — Staff booking field edit write (contact only in this slice). Default OFF.
-const BOOKING_EDIT_WRITE_ENABLED = process.env.BOOKING_EDIT_WRITE_ENABLED === 'true';
+// Phase 10.5c.2 — Staff booking field edit write (contact + package) always on for Staff Portal test edits.
 // Stage 8.4.9 — Stripe checkout link creation from draft payment records.
 // STRIPE_LINKS_ENABLED must be explicitly set to 'true'; default false.
 // STRIPE_SECRET_KEY must be a valid Stripe secret (sk_test_... or sk_live_...).
@@ -4425,11 +4424,10 @@ async function handleBookingEditPreview(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 10.5b/10.5c — Booking field edit write (gated; contact + package)
+// Phase 10.5b/10.5c/10.5c.2 — Booking field edit write (contact + package; no env gate)
 //
 // POST /staff/bookings/edit
 //
-// Gate: BOOKING_EDIT_WRITE_ENABLED=true.
 // contact: guest_name/phone/email. package: package_code + expected invoice amounts.
 // No date/guest writes, beds, payments, service records, Stripe, n8n, or WhatsApp.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4604,24 +4602,6 @@ async function handleBookingEditWritePackage(
 
 async function handleBookingEditWrite(req, res, user) {
   const started = Date.now();
-
-  if (!BOOKING_EDIT_WRITE_ENABLED) {
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:booking_edit',
-      category: 'booking_edit_write',
-      success: false,
-      error: 'booking_edit_write_disabled',
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 403, {
-      success: false,
-      enabled: false,
-      error: 'booking_edit_write_disabled',
-      updated: false,
-      would_mutate: false,
-    });
-  }
 
   let body = {};
   try {
@@ -10983,8 +10963,7 @@ var BC_MANUAL_BOOKING = ${MANUAL_BOOKING_ENABLED};
 var BC_STRIPE_LINKS   = ${STRIPE_LINKS_ENABLED};
 /* Phase 10.3e — booking move write (API gated by BOOKING_MOVE_WRITE_ENABLED) */
 var BC_BOOKING_MOVE_WRITE = ${BOOKING_MOVE_WRITE_ENABLED};
-/* Phase 10.5f — booking field edit write (contact only; gated by BOOKING_EDIT_WRITE_ENABLED) */
-var BC_BOOKING_EDIT_WRITE = ${BOOKING_EDIT_WRITE_ENABLED};
+/* Phase 10.5f/10.5c.1 — booking field edit write UI (contact + package; no env gate) */
 /* Last successful quote (required for create) */
 var bcLastQuote = null;
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
@@ -12793,14 +12772,7 @@ function bcFieldEditContactFieldsChanged(name, phone, email){
 
 function bcFieldEditUpdateContactSaveState(){
   var btn = el('bc-field-save-contact');
-  var hint = el('bc-field-contact-save-hint');
   if (!btn) return;
-  if (!BC_BOOKING_EDIT_WRITE){
-    btn.disabled = true;
-    if (hint) hint.style.display = '';
-    return;
-  }
-  if (hint) hint.style.display = 'none';
   var nameEl = el('bc-field-contact-name');
   var phoneEl = el('bc-field-contact-phone');
   var emailEl = el('bc-field-contact-email');
@@ -12856,10 +12828,6 @@ function bcFieldEditRenderContactSaveResult(data, isError){
 }
 
 function bcFieldEditRunContactSave(){
-  if (!BC_BOOKING_EDIT_WRITE){
-    bcFieldEditRenderContactSaveResult({ success: false, error: 'Contact saving is disabled.' }, true);
-    return;
-  }
   var built = bcFieldEditBuildContactWritePayload();
   if (built.error){
     bcFieldEditRenderContactSaveResult({ success: false, error: built.error }, true);
@@ -12904,14 +12872,7 @@ function bcFieldEditPackageChanged(packageCode){
 
 function bcFieldEditUpdatePackageSaveState(){
   var btn = el('bc-field-save-package');
-  var hint = el('bc-field-package-save-hint');
   if (!btn) return;
-  if (!BC_BOOKING_EDIT_WRITE){
-    btn.disabled = true;
-    if (hint) hint.style.display = '';
-    return;
-  }
-  if (hint) hint.style.display = 'none';
   var pkgEl = el('bc-field-package-select');
   var packageCode = pkgEl ? String(pkgEl.value).trim().toLowerCase() : '';
   var valid = !!packageCode;
@@ -12967,10 +12928,6 @@ function bcFieldEditRenderPackageSaveResult(data, isError){
 }
 
 function bcFieldEditRunPackageSave(){
-  if (!BC_BOOKING_EDIT_WRITE){
-    bcFieldEditRenderPackageSaveResult({ success: false, error: 'Package saving is disabled.' }, true);
-    return;
-  }
   var built = bcFieldEditBuildPackageWritePayload();
   if (built.error){
     bcFieldEditRenderPackageSaveResult({ success: false, error: built.error }, true);
@@ -13057,15 +13014,9 @@ function bcRenderFieldEditActionsHtml(group){
   } else {
     saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Save</button>';
   }
-  var gateHint = '';
-  if (group === 'contact'){
-    gateHint = '<div class="ctx-field-save-hint" id="bc-field-contact-save-hint" style="display:none">Contact saving is disabled.</div>';
-  } else if (group === 'package'){
-    gateHint = '<div class="ctx-field-save-hint" id="bc-field-package-save-hint" style="display:none">Package saving is disabled.</div>';
-  }
   return '<div class="ctx-field-edit-actions">' + saveBtn +
     '<button type="button" class="btn btn-ghost" data-bc-field-cancel="' + escHtml(group) + '" id="bc-field-cancel-' + escHtml(group) + '">Cancel</button>' +
-    '</div>' + gateHint +
+    '</div>' +
     '<div class="ctx-field-preview-result" id="bc-field-' + escHtml(group) + '-preview-result" aria-live="polite"></div>';
 }
 
@@ -15670,7 +15621,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
   console.log(`  Booking move write: ${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED (BOOKING_MOVE_WRITE_ENABLED=true)' : 'DISABLED'}`);
-  console.log(`  Booking edit write: ${BOOKING_EDIT_WRITE_ENABLED ? 'ENABLED (BOOKING_EDIT_WRITE_ENABLED=true)' : 'DISABLED'} — contact only in UI`);
+  console.log('  Booking edit write: ENABLED — contact + package (Staff Portal test edits; no env gate)');
   console.log('  Endpoints:');
   console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/login    <- login`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/auth/logout   <- revoke session`);
@@ -15688,7 +15639,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-change preview (no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edit preview (calculate-only)`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b contact edit write (${BOOKING_EDIT_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c contact + package edit write (ENABLED)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);

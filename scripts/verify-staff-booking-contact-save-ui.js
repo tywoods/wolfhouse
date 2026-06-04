@@ -43,11 +43,12 @@ const actionsFn = src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)
 const previewFn = src.match(/function bcFieldEditRunPreview[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
 const initFn = src.match(/function bcInitFieldEditShell[\s\S]*?function renderBookingContextDrawer/)?.[0] || '';
 
-console.log('\nA. Frontend gate');
+console.log('\nA. No frontend write gate (10.5c.2)');
 
-check(/BOOKING_EDIT_WRITE_ENABLED/.test(src), 'server BOOKING_EDIT_WRITE_ENABLED gate exists');
-check(/BC_BOOKING_EDIT_WRITE\s*=\s*\$\{BOOKING_EDIT_WRITE_ENABLED\}/.test(uiFlags),
-  'BC_BOOKING_EDIT_WRITE interpolated from server env');
+check(!/BC_BOOKING_EDIT_WRITE/.test(src),
+  'BC_BOOKING_EDIT_WRITE UI flag removed');
+check(!/const BOOKING_EDIT_WRITE_ENABLED/.test(src),
+  'BOOKING_EDIT_WRITE_ENABLED server constant removed');
 
 console.log('\nB. Contact Save → write');
 
@@ -62,19 +63,20 @@ check(/trimmed === '' \? null : trimmed/.test(src), 'empty string becomes null f
 check(/idempotency_key:/.test(contactSaveFn), 'contact write sends idempotency_key');
 check(/data-bc-field-contact-save/.test(actionsFn), 'contact Save uses dedicated contact-save button');
 check(/id="bc-field-save-contact"/.test(actionsFn), 'contact Save button id present');
-check(/Contact saving is disabled/.test(actionsFn), 'gate-off hint copy present');
+check(!/Contact saving is disabled/.test(actionsFn),
+  'no contact gate-off disabled hint copy');
 
-console.log('\nC. Gate OFF / gate ON UX');
+console.log('\nC. Save enablement (valid + changed)');
 
 const contactRunFn = src.match(/function bcFieldEditRunContactSave[\s\S]*?function bcFieldEditPackageChanged/)?.[0] || '';
-check(/!BC_BOOKING_EDIT_WRITE/.test(contactRunFn + initFn),
-  'contact save checks BC_BOOKING_EDIT_WRITE');
-check(/bc-field-contact-save-hint/.test(actionsFn + initFn),
-  'contact save hint element wired');
+check(!/BC_BOOKING_EDIT_WRITE/.test(contactRunFn + initFn + actionsFn),
+  'contact save does not depend on BC_BOOKING_EDIT_WRITE');
+check(!/bc-field-contact-save-hint/.test(actionsFn),
+  'contact save gate hint element removed');
 check(/bcFieldEditUpdateContactSaveState/.test(src), 'contact save enablement helper exists');
-check(/btn\.disabled = true/.test(contactRunFn) || /btn\.disabled = !valid/.test(src),
-  'contact Save disabled when gate off or invalid');
-check(/!valid \|\| !changed/.test(src), 'contact Save requires valid changed fields when gate on');
+check(/btn\.disabled = !valid \|\| !changed/.test(src),
+  'contact Save disabled only when invalid or unchanged');
+check(/!valid \|\| !changed/.test(src), 'contact Save requires valid changed fields');
 
 console.log('\nD. Success reload');
 

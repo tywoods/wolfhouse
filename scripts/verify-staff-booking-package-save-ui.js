@@ -45,13 +45,12 @@ const previewFn = src.match(/function bcFieldEditRunPreview[\s\S]*?function bcFi
 const initFn = src.match(/function bcInitFieldEditShell[\s\S]*?function renderBookingContextDrawer/)?.[0] || '';
 const fieldSlice = src.match(/\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function renderBookingContextDrawer/)?.[0] || '';
 
-console.log('\nA. Frontend gate (unchanged)');
+console.log('\nA. No frontend write gate (10.5c.2)');
 
-check(/BOOKING_EDIT_WRITE_ENABLED/.test(src), 'server BOOKING_EDIT_WRITE_ENABLED gate exists');
-check(/BC_BOOKING_EDIT_WRITE\s*=\s*\$\{BOOKING_EDIT_WRITE_ENABLED\}/.test(uiFlags),
-  'BC_BOOKING_EDIT_WRITE interpolated from server env');
-check(!/BOOKING_EDIT_WRITE_ENABLED\s*=/.test(writeUiBlock),
-  'UI does not redefine server write gate');
+check(!/BC_BOOKING_EDIT_WRITE/.test(src),
+  'BC_BOOKING_EDIT_WRITE UI flag removed');
+check(!/const BOOKING_EDIT_WRITE_ENABLED/.test(src),
+  'BOOKING_EDIT_WRITE_ENABLED server constant removed');
 
 console.log('\nB. Package Save → write');
 
@@ -65,17 +64,19 @@ check(/reason:/.test(packageSaveFn), 'package write sends reason');
 check(/bcNewPackageEditIdempotencyKey/.test(src), 'package idempotency key helper');
 check(/data-bc-field-package-save/.test(actionsFn), 'package Save uses dedicated package-save button');
 check(/id="bc-field-save-package"/.test(actionsFn), 'package Save button id present');
-check(/Package saving is disabled/.test(actionsFn), 'gate-off hint copy present');
+check(!/Package saving is disabled/.test(actionsFn),
+  'no package gate-off disabled hint copy');
 
-console.log('\nC. Enablement + validation');
+console.log('\nC. Save enablement (valid + changed)');
 
 check(/bcFieldEditUpdatePackageSaveState/.test(src), 'package save enablement helper exists');
 check(/bcFieldEditPackageChanged/.test(src), 'package changed helper exists');
-check(/!valid \|\| !changed/.test(src), 'package Save disabled when invalid or unchanged');
-check(/!BC_BOOKING_EDIT_WRITE/.test(packageSaveFn + initFn),
-  'package save checks BC_BOOKING_EDIT_WRITE');
-check(/bc-field-package-save-hint/.test(actionsFn + initFn),
-  'package save hint element wired');
+check(/btn\.disabled = !valid \|\| !changed/.test(src),
+  'package Save disabled only when invalid or unchanged');
+check(!/BC_BOOKING_EDIT_WRITE/.test(packageSaveFn + initFn + actionsFn),
+  'package save does not depend on BC_BOOKING_EDIT_WRITE');
+check(!/bc-field-package-save-hint/.test(actionsFn),
+  'package save gate hint element removed');
 
 console.log('\nD. Success reload + error path');
 

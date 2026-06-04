@@ -47,18 +47,17 @@ const previewHandlerBlock = previewHandlerMatch ? previewHandlerMatch[0] : '';
 const contactUpdateSql = src.match(/const EDIT_WRITE_CONTACT_UPDATE_SQL = `([\s\S]*?)`;/);
 const contactUpdateBlock = contactUpdateSql ? contactUpdateSql[1] : '';
 
-console.log('\nA. Route + gate');
+console.log('\nA. Route (no BOOKING_EDIT_WRITE gate — 10.5c.2)');
 
 check(/\/staff\/bookings\/edit/.test(src), 'POST /staff/bookings/edit route present');
 check(/handleBookingEditWrite\s*\(/.test(src), 'handleBookingEditWrite handler defined');
 check(/pathname === '\/staff\/bookings\/edit'/.test(src), 'edit write pathname wired in router');
-check(/BOOKING_EDIT_WRITE_ENABLED/.test(src), 'BOOKING_EDIT_WRITE_ENABLED gate exists');
-check(/process\.env\.BOOKING_EDIT_WRITE_ENABLED === 'true'/.test(src),
-  'BOOKING_EDIT_WRITE_ENABLED defaults OFF unless env true');
-check(/booking_edit_write_disabled/.test(handlerBlock),
-  'disabled gate returns booking_edit_write_disabled');
-check(/enabled:\s*false/.test(handlerBlock), 'disabled gate returns enabled:false');
-check(/updated:\s*false/.test(handlerBlock), 'disabled gate returns updated:false');
+check(!/const BOOKING_EDIT_WRITE_ENABLED/.test(src),
+  'BOOKING_EDIT_WRITE_ENABLED env gate constant removed');
+check(!/booking_edit_write_disabled/.test(handlerBlock),
+  'contact write handler does not return booking_edit_write_disabled');
+check(!/if \(!BOOKING_EDIT_WRITE_ENABLED\)/.test(handlerBlock),
+  'handleBookingEditWrite does not check BOOKING_EDIT_WRITE_ENABLED');
 check(/requireAuth\(req, res, 'operator'\)/.test(routeSlice),
   'edit write route requires operator auth');
 
