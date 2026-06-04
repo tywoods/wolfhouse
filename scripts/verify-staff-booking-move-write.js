@@ -59,7 +59,7 @@ check(/booking_move_write_disabled/.test(handlerBlock),
 check(/enabled:\s*false/.test(handlerBlock),
   'disabled gate returns enabled:false');
 check(/requireAuth\(req, res, 'operator'\)/.test(
-  src.slice(src.indexOf("'/staff/bookings/move'"), src.indexOf("'/staff/bookings/move'") + 800)
+  src.slice(src.indexOf("if (pathname === '/staff/bookings/move')"), src.indexOf("if (pathname === '/staff/bookings/move')") + 800)
 ),
   'move write route requires operator auth');
 
@@ -163,8 +163,10 @@ check(!/UPDATE payments|INSERT INTO payments|booking_service_records/i.test(hand
 
 console.log('\nI. No UI changes');
 
-check(!/bcMoveBooking|Confirm Move|move-booking-btn/i.test(src),
-  'no UI move button added');
+check(/id="bc-move-booking-btn"|Move booking/.test(src),
+  'Phase 10.3e drawer Move booking control present');
+check(!/Confirm Move|bcDragMove|drag.?drop.*move/i.test(src),
+  'no Confirm Move modal or drag/drop move UI');
 
 console.log('\nJ. Migrations unchanged');
 

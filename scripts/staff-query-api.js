@@ -8950,6 +8950,8 @@ var BC_STAFF_ACTIONS  = ${STAFF_ACTIONS_ENABLED};
 var BC_MANUAL_BOOKING = ${MANUAL_BOOKING_ENABLED};
 /* Stage 8.4.9/10 — Stripe link flag */
 var BC_STRIPE_LINKS   = ${STRIPE_LINKS_ENABLED};
+/* Phase 10.3e — booking move write (API gated by BOOKING_MOVE_WRITE_ENABLED) */
+var BC_BOOKING_MOVE_WRITE = ${BOOKING_MOVE_WRITE_ENABLED};
 /* Last successful quote (required for create) */
 var bcLastQuote = null;
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
@@ -10146,6 +10148,7 @@ function loadBlockDetail(bookingCode){
       }
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
       updateBcDetailHeader(res.data);
+      bcInitMovePanel(res.data);
       /* Wire "Open conversation" button */
       var btnConv = document.getElementById('bc-open-conv-btn');
       if (btnConv){
@@ -10163,6 +10166,252 @@ function loadBlockDetail(bookingCode){
       var ctxEl = el('bc-ctx-body');
       if (ctxEl) ctxEl.innerHTML = '<div class="state-msg error">Network error: ' + escHtml(e.message) + '</div>';
     });
+}
+
+/* ── Phase 10.3e — booking drawer move bed (preview + gated write) ─────────── */
+var bcMoveCtx = {
+  bookingId: null,
+  bookingCode: null,
+  checkIn: null,
+  checkOut: null,
+  guestName: null,
+  currentBedCode: null,
+  currentRoomCode: null,
+  singleBed: true,
+  previewCanMove: false,
+  previewInFlight: false,
+  moveInFlight: false,
+};
+
+function bcNewMoveIdempotencyKey(){
+  return 'bc-move-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcMoveBedTargetFieldHtml(currentBedCode){
+  var rooms = (bcData && bcData.rooms) ? bcData.rooms : [];
+  var hasIds = false;
+  var opts = '<option value="">— select target bed —</option>';
+  rooms.forEach(function(room){
+    (room.beds || []).forEach(function(bed){
+      if (!bed.bed_id) return;
+      hasIds = true;
+      if (bed.bed_code === currentBedCode) return;
+      var label = (room.room_code || '') + ' / ' + (bed.bed_code || '');
+      opts += '<option value="' + escHtml(bed.bed_id) + '">' + escHtml(label) + '</option>';
+    });
+  });
+  if (hasIds){
+    return '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px">' + opts + '</select>';
+  }
+  return '<input type="text" id="bc-move-target-bed-id" class="bk-input-sm" placeholder="Target bed UUID" style="width:100%;max-width:440px">';
+}
+
+function bcGetMoveTargetBedId(){
+  var elTarget = el('bc-move-target-bed-id');
+  return elTarget ? String(elTarget.value || '').trim() : '';
+}
+
+function bcUpdateMoveButtons(){
+  var prevBtn = el('bc-move-preview-btn');
+  var moveBtn = el('bc-move-booking-btn');
+  var busy = bcMoveCtx.previewInFlight || bcMoveCtx.moveInFlight;
+  if (prevBtn){
+    prevBtn.disabled = busy || !bcMoveCtx.singleBed;
+  }
+  if (moveBtn){
+    moveBtn.disabled = busy || !bcMoveCtx.previewCanMove || !BC_BOOKING_MOVE_WRITE;
+  }
+}
+
+function bcResetMovePreviewState(){
+  bcMoveCtx.previewCanMove = false;
+  var resEl = el('bc-move-result');
+  if (resEl) resEl.innerHTML = '';
+  bcUpdateMoveButtons();
+}
+
+function bcRenderMoveResult(html, isError){
+  var resEl = el('bc-move-result');
+  if (!resEl) return;
+  resEl.innerHTML = '<div class="' + (isError ? 'state-msg error' : 'state-msg') + '" style="margin-top:8px;font-size:12px">' + html + '</div>';
+}
+
+function bcReloadAfterMoveSuccess(bookingCode){
+  var startEl = el('bc-start');
+  var endEl = el('bc-end');
+  var hasCalRange = !!(startEl && endEl && startEl.value && endEl.value && bcData);
+  if (hasCalRange){
+    loadBedCalendar(function(){
+      var blk = null;
+      (bcData.blocks || []).some(function(b){
+        if (b.booking_code === bookingCode){ blk = b; return true; }
+        return false;
+      });
+      if (blk) showBlockDetail(blk);
+      else loadBlockDetail(bookingCode);
+    });
+  } else if (bookingCode){
+    loadBlockDetail(bookingCode);
+  }
+}
+
+function bcRunMovePreview(){
+  if (bcMoveCtx.previewInFlight || bcMoveCtx.moveInFlight) return;
+  if (!bcMoveCtx.singleBed){
+    bcRenderMoveResult('This booking has multiple or no bed assignments and requires manual review.', true);
+    return;
+  }
+  var targetBedId = bcGetMoveTargetBedId();
+  if (!targetBedId){
+    bcRenderMoveResult('Select or enter a target bed.', true);
+    return;
+  }
+  bcMoveCtx.previewInFlight = true;
+  bcMoveCtx.previewCanMove = false;
+  bcUpdateMoveButtons();
+  bcRenderMoveResult('Running move preview\u2026', false);
+
+  fetch('/staff/bookings/move-preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      client_slug: getClient(),
+      booking_code: bcMoveCtx.bookingCode,
+      booking_id: bcMoveCtx.bookingId || undefined,
+      target_bed_id: targetBedId,
+      check_in: bcMoveCtx.checkIn,
+      check_out: bcMoveCtx.checkOut,
+    }),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { status: r.status, body: d }; }); })
+    .then(function(res){
+      bcMoveCtx.previewInFlight = false;
+      var b = res.body || {};
+      if (res.status !== 200 || !b.success){
+        bcRenderMoveResult(escHtml(b.error || b.message || 'Move preview failed.'), true);
+        bcUpdateMoveButtons();
+        return;
+      }
+      bcMoveCtx.previewCanMove = b.can_move === true;
+      if (b.can_move){
+        bcRenderMoveResult(escHtml(b.message || 'Move preview passed. No changes were made.'), false);
+      } else if (b.conflicts && b.conflicts.length){
+        var lines = b.conflicts.map(function(c){
+          return escHtml((c.booking_code || c.booking_id || 'Booking') + ': ' + (c.guest_name || '') + ' ' + (c.check_in || '') + '\u2192' + (c.check_out || ''));
+        }).join('<br>');
+        bcRenderMoveResult(escHtml(b.message || 'Target bed is not available for this date range. No changes were made.') + '<br>' + lines, true);
+      } else {
+        bcRenderMoveResult(escHtml(b.message || 'Move is not available for this target.'), true);
+      }
+      bcUpdateMoveButtons();
+    })
+    .catch(function(e){
+      bcMoveCtx.previewInFlight = false;
+      bcRenderMoveResult(escHtml(e.message || 'Network error during move preview.'), true);
+      bcUpdateMoveButtons();
+    });
+}
+
+function bcRunMoveWrite(){
+  if (bcMoveCtx.moveInFlight || bcMoveCtx.previewInFlight) return;
+  if (!BC_BOOKING_MOVE_WRITE){
+    bcRenderMoveResult('Move controls are disabled.', true);
+    return;
+  }
+  if (!bcMoveCtx.previewCanMove){
+    bcRenderMoveResult('Run Preview move first and confirm the target bed is available.', true);
+    return;
+  }
+  var targetBedId = bcGetMoveTargetBedId();
+  if (!targetBedId){
+    bcRenderMoveResult('Select or enter a target bed.', true);
+    return;
+  }
+  var idemKey = bcNewMoveIdempotencyKey();
+  bcMoveCtx.moveInFlight = true;
+  bcUpdateMoveButtons();
+  bcRenderMoveResult('Moving booking\u2026', false);
+
+  fetch('/staff/bookings/move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      client_slug: getClient(),
+      booking_code: bcMoveCtx.bookingCode,
+      booking_id: bcMoveCtx.bookingId || undefined,
+      target_bed_id: targetBedId,
+      check_in: bcMoveCtx.checkIn,
+      check_out: bcMoveCtx.checkOut,
+      idempotency_key: idemKey,
+      reason: 'Moved from Staff Portal booking drawer',
+    }),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { status: r.status, body: d }; }); })
+    .then(function(res){
+      bcMoveCtx.moveInFlight = false;
+      var b = res.body || {};
+      if (res.status === 403 && b.error === 'booking_move_write_disabled'){
+        bcRenderMoveResult('Move controls are disabled.', true);
+        bcUpdateMoveButtons();
+        return;
+      }
+      if (res.status !== 200 || !b.success){
+        bcRenderMoveResult(escHtml(b.error || b.message || 'Booking move failed.'), true);
+        bcUpdateMoveButtons();
+        return;
+      }
+      if (b.idempotent){
+        bcRenderMoveResult(escHtml(b.message || 'Booking is already assigned to the requested bed/date range.'), false);
+        bcReloadAfterMoveSuccess(bcMoveCtx.bookingCode);
+        bcUpdateMoveButtons();
+        return;
+      }
+      if (b.moved){
+        bcRenderMoveResult(escHtml(b.message || 'Booking moved. No payment, service, or message changes were made.'), false);
+        bcMoveCtx.previewCanMove = false;
+        bcReloadAfterMoveSuccess(bcMoveCtx.bookingCode);
+      } else {
+        bcRenderMoveResult(escHtml(b.message || 'No changes were made.'), true);
+      }
+      bcUpdateMoveButtons();
+    })
+    .catch(function(e){
+      bcMoveCtx.moveInFlight = false;
+      bcRenderMoveResult(escHtml(e.message || 'Network error during booking move.'), true);
+      bcUpdateMoveButtons();
+    });
+}
+
+function bcInitMovePanel(data){
+  var bk = (data && data.booking) || {};
+  var rm = (data && data.rooming) || {};
+  var assigns = rm.assignments || [];
+  bcMoveCtx.bookingId = bk.booking_id || null;
+  bcMoveCtx.bookingCode = bk.booking_code || null;
+  bcMoveCtx.checkIn = bk.check_in || null;
+  bcMoveCtx.checkOut = bk.check_out || null;
+  bcMoveCtx.guestName = bk.guest_name || null;
+  bcMoveCtx.currentBedCode = assigns.length === 1 ? (assigns[0].bed_code || null) : ((rm.assigned_bed_codes || [])[0] || null);
+  bcMoveCtx.currentRoomCode = assigns.length === 1 ? (assigns[0].room_code || null) : ((rm.assigned_room_codes || [])[0] || null);
+  bcMoveCtx.singleBed = assigns.length === 1;
+  bcMoveCtx.previewCanMove = false;
+  bcMoveCtx.previewInFlight = false;
+  bcMoveCtx.moveInFlight = false;
+
+  var prevBtn = el('bc-move-preview-btn');
+  var moveBtn = el('bc-move-booking-btn');
+  var targetEl = el('bc-move-target-bed-id');
+  if (prevBtn){
+    prevBtn.onclick = bcRunMovePreview;
+  }
+  if (moveBtn){
+    moveBtn.onclick = bcRunMoveWrite;
+  }
+  if (targetEl){
+    targetEl.onchange = bcResetMovePreviewState;
+    targetEl.oninput = bcResetMovePreviewState;
+  }
+  bcUpdateMoveButtons();
 }
 
 /* Render the enriched booking context drawer sections (Stage 8.3b) */
@@ -10393,6 +10642,40 @@ function renderBookingContextDrawer(data){
   }
   html += '</div>';
 
+  /* ── Phase 10.3e — Move bed (same-date single-bed; preview + gated write) ─ */
+  var rmMove = data.rooming || {};
+  var moveAssigns = rmMove.assignments || [];
+  var moveSingleBed = moveAssigns.length === 1;
+  var moveCurrentBed = moveSingleBed ? (moveAssigns[0].bed_code || '\u2014') : ((rmMove.assigned_bed_codes || []).join(', ') || '\u2014');
+  var moveCurrentRoom = moveSingleBed ? (moveAssigns[0].room_code || '\u2014') : ((rmMove.assigned_room_codes || []).join(', ') || '\u2014');
+  html += '<div class="ctx-section ctx-move-bed" id="bc-move-bed">';
+  html += '<h3>Move bed</h3>';
+  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px;line-height:1.45">';
+  html += 'Preview does not change anything. Move is same-date bed move only. Date changes are not supported here.';
+  html += '</div>';
+  html += '<div class="kv-grid">';
+  html += kvBC('Booking', bk.booking_code);
+  html += kvBC('Guest', bk.guest_name);
+  html += kvBC('Current bed', moveCurrentBed);
+  html += kvBC('Current room', moveCurrentRoom);
+  html += kvBC('Check-in', bk.check_in);
+  html += kvBC('Check-out', bk.check_out);
+  html += '</div>';
+  if (!moveSingleBed){
+    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">This booking has multiple or no bed assignments and requires manual review.</div>';
+  }
+  html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px">Target bed</label>';
+  html += bcMoveBedTargetFieldHtml(moveSingleBed ? moveAssigns[0].bed_code : null);
+  html += '</div>';
+  if (!BC_BOOKING_MOVE_WRITE){
+    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">Move controls are disabled.</div>';
+  }
+  html += '<div id="bc-move-result"></div>';
+  html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
+  html += '<button type="button" class="btn" id="bc-move-preview-btn">Preview move</button>';
+  html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
+  html += '</div></div>';
+
   /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
   var confDraft = (data.booking && data.booking.confirmation_draft) ||
                   (data.booking && data.booking.metadata && data.booking.metadata.confirmation_draft) ||
@@ -10479,7 +10762,6 @@ function renderBookingContextDrawer(data){
   /* ── Planned operations (disabled — read-only staging) ─────────────────── */
   html += '<div class="ctx-planned">' +
     '<div class="ctx-planned-title">Planned operations (not enabled in staging)</div>' +
-    '<span class="ctx-planned-action" title="Not enabled — write gates not approved">Move room / bed</span>' +
     '<span class="ctx-planned-action" title="Not enabled — write gates not approved">Change dates</span>' +
     '<span class="ctx-planned-action" title="Not enabled — write gates not approved">Cancel booking</span>' +
     '</div>';
@@ -11310,6 +11592,7 @@ function buildRoomHierarchy(roomRows) {
     }
     if (row.bed_code) {
       roomMap[row.room_code].beds.push({
+        bed_id:    row.bed_id || null,
         bed_code:  row.bed_code,
         bed_label: row.bed_label || row.bed_code,
         sort_order: row.bed_number != null ? Number(row.bed_number) : 0,

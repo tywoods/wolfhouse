@@ -50,7 +50,7 @@ check(/handleBookingMovePreview\s*\(/.test(src),
   'handleBookingMovePreview handler defined');
 check(/pathname === '\/staff\/bookings\/move-preview'/.test(src),
   'move-preview pathname wired in router');
-check(/method !== 'POST'/.test(src.slice(src.indexOf("'/staff/bookings/move-preview'"), src.indexOf("'/staff/bookings/move-preview'") + 600)),
+check(/method !== 'POST'/.test(src.slice(src.indexOf("if (pathname === '/staff/bookings/move-preview')"), src.indexOf("if (pathname === '/staff/bookings/move-preview')") + 600)),
   'move-preview route accepts POST only');
 
 console.log('\nB. Preview response contract');
