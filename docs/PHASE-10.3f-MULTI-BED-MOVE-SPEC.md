@@ -1,9 +1,9 @@
 # Phase 10.3f — Multi-Bed Move Selection Spec
 
-**Status:** SPEC ONLY / PASS (2026-06-04) — docs-only design; **no code in this slice**  
-**Parent:** Phase 10.3 — Move Room/Bed Write  
-**Prior:** [Phase 10.3 move write + UI](PHASE-10.3-MOVE-ROOM-BED-WRITE-SPEC.md) — single-bed same-date move proven on staging; drawer layout cleaned in **10.3e.1** (`efc199a`)  
-**Next:** **10.3g** — API: `booking_bed_id` in move-preview + move write → **10.3h** UI source-bed pills → **10.3i** hosted multi-bed proof → close Phase 10.3 fully
+**Status:** **COMPLETE ENOUGH / PASS** (2026-06-04) — implemented in **10.3g–10.3i**; hosted multi-bed proof PASS
+**Parent:** Phase 10.3 — Move Room/Bed Write
+**Prior:** [Phase 10.3 move write + UI](PHASE-10.3-MOVE-ROOM-BED-WRITE-SPEC.md) — single-bed same-date move proven on staging; drawer layout cleaned in **10.3e.1** (`efc199a`)
+**Next:** **10.4e** — Staff Portal date-change preview UI (preview-only; bed-move vertical closed)
 
 **Non-negotiables (preserved):** No n8n activation. No WhatsApp. No Stripe calls. No payment or `booking_service_records` mutation. No booking date mutation. No Ask Luna changes. Live WhatsApp **NO_GO**. n8n **inactive**. Stripe webhook remains payment truth. Write remains gated (`BOOKING_MOVE_WRITE_ENABLED`).
 
@@ -196,15 +196,16 @@ WHERE id = :booking_bed_id
 
 ## 7. Suggested implementation split
 
-| Slice | Scope | Deliverable |
-|-------|--------|-------------|
-| **10.3f** | Docs/spec | This document — **current step** |
-| **10.3g** | API | `booking_bed_id` on move-preview + move write; `requires_selection` response; assignment-scoped conflict exclusion; verifiers updated |
-| **10.3h** | UI | Source-bed pills/radios in drawer; send `booking_bed_id`; target dropdown excludes selected source; handle `requires_selection` |
-| **10.3i** | Hosted proof | Gate OFF + ON with **multi-bed fixture booking**; move one assignment; verify sibling unchanged; counts audit |
-| **10.3 closeout** | Docs | Update [PHASE-10.3-MOVE-ROOM-BED-WRITE-SPEC.md](PHASE-10.3-MOVE-ROOM-BED-WRITE-SPEC.md) § MVP out-of-scope; PROJECT-STATE / ROADMAP |
+| Slice | Scope | Status |
+|-------|--------|--------|
+| **10.3f** | Docs/spec | **PASS** — this document |
+| **10.3g** | API | **PASS** — `booking_bed_id` on move-preview + move write; `requires_selection`; assignment-scoped conflict exclusion |
+| **10.3h** | UI | **PASS** — source-bed pills; `move-targets` bulk availability; available-only dropdown; no Preview button (`7a5f423`) |
+| **10.3h.4** | API | **PASS** — `POST /staff/bookings/move-targets` SELECT-only (`1db77d9`) |
+| **10.3i** | Hosted proof | **PASS** — gate ON move one assignment on **`DEMO-2603`**; sibling unchanged; gate OFF cleanup (`636aac2` / `--0000071`) |
+| **10.3 closeout** | Docs | **PASS** (2026-06-04) — PROJECT-STATE / ROADMAP / spec updates |
 
-**Parallel work:** Phase **10.4e** (date-change preview UI) and **10.5** (date-change write) remain independent tracks. Multi-bed move completes Phase **10.3** bed-move vertical without blocking date-change work.
+**Parallel work:** Phase **10.4e** (date-change preview UI) and **10.5** (date-change write) remain independent tracks. Multi-bed move **closed** Phase **10.3** bed-move vertical (2026-06-04).
 
 ---
 
@@ -255,11 +256,39 @@ Implement **10.3g** by extending existing handlers; do **not** fork new routes.
 
 | Check | Status |
 |-------|--------|
-| Docs only | ✓ |
-| No code | ✓ |
-| No migrations | ✓ |
-| No DB writes | ✓ |
-| No deploy | ✓ |
-| No n8n | ✓ |
+| Docs only (10.3f design) | ✓ |
+| Implementation (10.3g–10.3i) | ✓ — staging only |
+| Final write gate | **OFF** (`BOOKING_MOVE_WRITE_ENABLED=false`, revision `--0000071`) |
+| No production DB | ✓ |
+| No n8n activation | ✓ |
 | No WhatsApp | ✓ |
 | No Stripe | ✓ |
+| No payment / `booking_service_records` mutation | ✓ |
+| No Ask Luna change | ✓ |
+| No date-change UI | ✓ |
+
+---
+
+## 12. Hosted proof closeout (10.3i — PASS)
+
+| Field | Value |
+|-------|-------|
+| Commit | **`636aac2`** |
+| Image | `whstagingacr.azurecr.io/wh-staff-api:636aac2-stage103i-assignment-move-fix` |
+| Fix deploy | `wh-staging-staff-api--0000069` (gate OFF) |
+| Gate-ON proof | `wh-staging-staff-api--0000070` |
+| Gate-OFF cleanup | `wh-staging-staff-api--0000071` (**100% traffic**, Healthy) |
+| Final gate | `BOOKING_MOVE_WRITE_ENABLED=false` |
+
+**Proof booking:** `DEMO-2603` · **Lena Demo** · **2026-07-16 → 2026-07-22**
+
+| Assignment | `booking_bed_id` | Before → After |
+|------------|------------------|----------------|
+| Selected (moved) | `b24abf1e-e628-48c3-aa31-384d8ed1c7c7` | **DEMO-R1-B1 → DEMO-R2-B1** |
+| Sibling (unchanged) | `aabd40a8-a8aa-4da4-9ea6-3d010931745d` | **DEMO-R1-B2** (unchanged) |
+
+**UI (Staff Portal Move bed panel):** source-bed pills · pretty selected/unselected styling · available-only target dropdown · source bed excluded · occupied sibling excluded · no Preview button · Move booking enabled when source + available target + gate ON · disabled when gate OFF · no date-change UI · no drag/drop.
+
+**API:** `booking_bed_id` on move-preview + move-write · single-bed infers ID · multi-bed requires selection (`requires_selection:true` + `assignments[]`) · `/staff/bookings/move-targets` SELECT-only · write UPDATEs exactly one `booking_beds` row · siblings unchanged · no INSERT/DELETE · idempotent retry `moved:false` / `idempotent:true` · write rechecks conflicts in transaction.
+
+**Counts unchanged:** bookings **11** · booking_beds **12** · payments **15** · service_records **19**.

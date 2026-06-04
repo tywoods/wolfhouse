@@ -1,13 +1,14 @@
 # Phase 10.3 — Move Room/Bed Write Spec
 
-**Status:** COMPLETE ENOUGH / PASS — Phase 10.3 + **10.3e** (2026-06-04). Implementation + hosted proof complete.  
+**Status:** **COMPLETE ENOUGH / PASS** — Phase 10.3 single-bed + **10.3g–10.3i** multi-bed assignment move (2026-06-04). Implementation + hosted proof complete.  
 **Parent:** Phase 10 — Staff Operations Polish  
 **Prior:** [Phase 10.2 move preview closeout](ROADMAP.md) — `POST /staff/bookings/move-preview` hosted and proven SELECT-only (commit `6d339e3`, revision `--0000054`)  
-**Next:** **Phase 10.4 — Date-change preview** (preview-only; same bed/room MVP; half-open overlap; no mutation)
+**Related:** [Phase 10.3f multi-bed move spec](PHASE-10.3f-MULTI-BED-MOVE-SPEC.md) — assignment-level move design; **implemented**  
+**Next:** **10.4e** — Staff Portal date-change preview UI (preview-only; no write)
 
-**Implementation commits:** `d9b5c36` (10.3a spec) · `b5c76fe` (10.3b API) · `0a1acbf` (10.3b.1 verifier alignment) · **`7104815`** (10.3e Staff Portal drawer move controls). **Hosted:** `7104815-stage103e-move-ui-gate-off` → revisions **`--0000058`** (gate OFF UI proof) · **`--0000059`** (gate ON move proof) · **`--0000060`** (gate OFF cleanup, current, **100% traffic**). **Staging gate:** `BOOKING_MOVE_WRITE_ENABLED=false` (default OFF).
+**Implementation commits:** `d9b5c36` (10.3a spec) · `b5c76fe` (10.3b API) · `0a1acbf` (10.3b.1) · `7104815` (10.3e UI) · **`e93f200`–`636aac2`** (10.3g–10.3i multi-bed). **Latest hosted:** `636aac2-stage103i-assignment-move-fix` → **`--0000069`** (fix deploy) · **`--0000070`** (gate ON) · **`--0000071`** (gate OFF cleanup, **100% traffic**). **Staging gate:** `BOOKING_MOVE_WRITE_ENABLED=false`.
 
-**Non-negotiables (preserved):** No n8n activation. No WhatsApp. No Stripe calls from move write. No payment or `booking_service_records` mutation. Staff Portal drawer move UI (**10.3e**) — preview always available; write gated. Write gate OFF on staging after proof.
+**Non-negotiables (preserved):** No n8n activation. No WhatsApp. No Stripe calls from move write. No payment or `booking_service_records` mutation. Staff Portal drawer move UI — write gated; available-only target dropdown; no Preview button (10.3h.5). Write gate OFF on staging after proof.
 
 **Context:** Live WhatsApp **NO_GO**. n8n **inactive** unless explicitly approved. Stripe webhook remains payment truth. `booking_service_records` remains service/add-on truth. Preview path reuses Phase 10.2 half-open overlap + same-day turnover rules.
 
@@ -242,7 +243,7 @@ File audit: reuse `appendAuditLog()` pattern from `staff-query-api.js` with `int
 | Service records | No mutation |
 | Ask Luna | No changes |
 | Live guest automation | **NO_GO** |
-| Proof booking | `MB-WOLFHO-20260920-4f62e2` (Manual Polish Test) — 10.3c moved B1→B2; 10.3e gate-ON moved B2→B1; remains on **DEMO-R1-B1** after cleanup (`--0000060`) |
+| Proof booking | **`DEMO-2603`** (Lena Demo, 2026-07-16→2026-07-22) — **10.3i** moved selected assignment **DEMO-R1-B1 → DEMO-R2-B1**; sibling **DEMO-R1-B2** unchanged. Prior single-bed proofs: `MB-WOLFHO-20260920-4f62e2` (10.3c/10.3e). |
 
 ---
 
@@ -254,8 +255,12 @@ File audit: reuse `appendAuditLog()` pattern from `staff-query-api.js` with `int
 | **10.3b** | API handler | **PASS** (`b5c76fe`) — `POST /staff/bookings/move`; operator auth + `BOOKING_MOVE_WRITE_ENABLED`; transaction + conflict recheck; Option A UPDATE; no UI |
 | **10.3b.1** | Verifier alignment | **PASS** (`0a1acbf`) — preview verifier distinguishes gated write route |
 | **10.3c** | Hosted proof + safety cleanup | **PASS** — move B1→B2 on `MB-WOLFHO-20260920-4f62e2`; gate OFF/ON/OFF; idempotency; revision `--0000057` gate OFF |
-| **10.3e** | Staff Portal drawer move UI | **PASS** (`7104815`) — Move bed panel; Preview move + Move booking; gate-OFF UI proof `--0000058`; gate-ON move B2→B1 `--0000059`; cleanup `--0000060` gate OFF |
-| **10.4** | Date-change preview/write | **Next** — preview-only; same bed/room MVP; half-open overlap; no mutation yet |
+| **10.3e** | Staff Portal drawer move UI | **PASS** (`7104815`) — Move bed panel; gate-OFF `--0000058`; gate-ON `--0000059`; cleanup `--0000060` |
+| **10.3g** | Assignment-scoped API | **PASS** — `booking_bed_id`; `requires_selection`; single-row UPDATE |
+| **10.3h** | Multi-bed UI | **PASS** — source-bed pills; `move-targets`; available-only dropdown; no Preview (`7a5f423`) |
+| **10.3i** | Hosted multi-bed proof | **PASS** (`636aac2`) — `DEMO-2603` one assignment moved; sibling unchanged; `--0000071` gate OFF |
+| **10.4** | Date-change preview | **PASS** (API) — preview-only endpoint hosted `--0000061` |
+| **10.4e** | Date-change preview UI | **Next** — Staff Portal drawer; preview-only; no write |
 
 Preview route and verifier (`verify:staff-booking-move-preview`) remain unchanged.
 
