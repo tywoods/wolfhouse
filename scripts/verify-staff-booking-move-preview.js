@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-move-preview.js  (Phase 10.2 / 10.2a)\n');
+console.log('\nverify-staff-booking-move-preview.js  (Phase 10.2 / 10.2a / 10.2b)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -67,6 +67,10 @@ check(/Target bed is not available for this date range\. No changes were made\./
   'blocked preview message present');
 check(/conflicts:/.test(handlerBlock),
   'handler returns conflicts array');
+check(/room_name:\s*bedRow\.room_name/.test(handlerBlock),
+  'target response includes room_name from bed lookup');
+check(/room_code:\s*bedRow\.room_code/.test(handlerBlock),
+  'target response still includes room_code');
 
 console.log('\nC. Input validation');
 
