@@ -505,41 +505,44 @@ check(/id="bc-sel-cout"[^>]*type="date"/.test(src) || /type="date"[^>]*id="bc-se
 check(/id="bc-sel-cin"/.test(src) && /id="bc-sel-cout"/.test(src) && /id="bc-sel-nights"/.test(src),
   'Check-in, check-out, and nights fields present in Selected Stay (Stage 8.3d)');
 
-// 94. Payment status select present (Stage 8.3d)
-check(/id="bk-payment-status"/.test(src),
-  'Payment status select field (bk-payment-status) present (Stage 8.3d)');
+// 94. Payment choice select present (Stage 10.6d — replaces bk-payment-status)
+check(/id="bk-payment-choice"/.test(src),
+  'Payment choice select (bk-payment-choice) present (Stage 10.6d)');
 
-// 95. Deposit amount field present (Stage 8.3d)
-check(/id="bk-deposit"/.test(src),
-  'Deposit amount field (bk-deposit) present (Stage 8.3d)');
+// 95. Legacy payment-status / deposit fields removed (10.6g.1)
+check(!/id="bk-payment-status"/.test(src) && !/id="bk-deposit"/.test(src),
+  'Legacy bk-payment-status and bk-deposit fields removed');
 
-// 96. Deposit hint: no Stripe charge (Stage 8.3d)
-check(/no Stripe charge is created/i.test(src),
-  '"no Stripe charge is created" deposit hint present (Stage 8.3d)');
+// 96. Quote preview guidance (replaces preview-only banner)
+check(/bk-preview-not-run|Select beds, dates, and package, then click Calculate Quote/i.test(src),
+  'Calculate Quote guidance shown before quote runs');
 
-// 97. Preview-only safety notice present (Stage 8.3d)
-check(/Preview only.*no booking will be created/i.test(src),
-  '"Preview only — no booking will be created" safety notice present (Stage 8.3d)');
+// 97. Flag-aware create note (replaces staging write-gate banner)
+check(/MANUAL_BOOKING_ENABLED|bc-create-note/.test(src),
+  'Flag-aware manual booking create note present');
 
-// 98. Staff writes disabled in staging notice (Stage 8.3d)
-check(/Staff writes are disabled in staging/i.test(src),
-  '"Staff writes are disabled in staging" notice present (Stage 8.3d)');
+// 98. Payment choice hint — nothing sent automatically (10.6g.1)
+check(/nothing is sent automatically/i.test(src),
+  'Payment choice hint: Stripe links not auto-sent');
 
-// 99. No WhatsApp / no Stripe notice (Stage 8.3d)
-check(/No WhatsApp message or Stripe payment link will be sent/i.test(src),
-  '"No WhatsApp message or Stripe payment link will be sent" notice present (Stage 8.3d)');
+// 99. Create New Booking + Calculate Quote actions (10.6g.1)
+check(/id="bc-sel-create"/.test(src) && /Create New Booking/.test(src),
+  'Create New Booking button present');
+check(/id="bc-sel-quote"/.test(src) && /Calculate Quote/.test(src),
+  'Calculate Quote button present');
 
-// 100. Create Manual Booking button disabled in HTML (Stage 8.3d)
-check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled|bc-sel-create-btn/.test(src),
-  'Create Manual Booking button is disabled/safe (Stage 8.3d)');
+// 100. Preview Conflicts UI removed (10.6g.1)
+check(!/id="bc-sel-conflicts"/.test(src) && !/function runPreviewConflicts/.test(src),
+  'Preview Conflicts button and handler removed');
 
-// 101. Availability/conflicts placeholder present (Stage 8.3d)
-check(/Availability.*conflict.*preview.*appear|conflict.*preview.*appear/i.test(src),
-  'Availability/conflicts placeholder text present (Stage 8.3d)');
+// 101. Create checks availability internally (10.6g.1)
+check(/function bcFetchManualBookingAvailability/.test(src) &&
+      /Checking availability/.test(src.match(/function runManualBookingCreate[\s\S]*?\n\}/)?.[0] || ''),
+  'Create New Booking checks availability before POST create');
 
-// 102. Preview Conflicts disabled button present (Stage 8.3d)
-check(/id="bc-sel-conflicts"/.test(src),
-  'Preview Conflicts disabled button (bc-sel-conflicts) present (Stage 8.3d)');
+// 102. Create button disabled until quote/fields ready (Stage 8.3d)
+check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src),
+  'Create New Booking button starts disabled (Stage 8.3d)');
 
 // 103. No form submit that could POST data (Stage 8.3d)
 check(!/form[^>]*action\s*=\s*['"](?!#)[^'"]*['"]/.test(src) && !/form[^>]*method\s*=\s*['"]post['"]/i.test(src),
@@ -550,8 +553,8 @@ check(!/form[^>]*action\s*=\s*['"](?!#)[^'"]*['"]/.test(src) && !/form[^>]*metho
   const fnStart = src.indexOf('function bcClearSelection');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bk-guest-name/.test(fnSrc) || /bk-deposit/.test(fnSrc),
-    'bcClearSelection resets booking form fields (Stage 8.3d)');
+  check(/bk-guest-name/.test(fnSrc) && /bc-quote-result/.test(fnSrc),
+    'bcClearSelection resets booking form and quote result (Stage 10.6g.1)');
 })();
 
 // 105. bcApplySelectionHighlight prefills stay fields and bed chips (Stage 8.3d)
@@ -613,27 +616,22 @@ check(rbStart > 0 && !/'\s*\\n\s*'/.test(rbSrc),
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Stage 8.3l — Preview Conflicts UI wiring ─────────────────────────────────
+// ── Stage 8.3l / 10.6g.1 — quote preview + create wiring (conflicts preview removed) ─
 
-// 106. runPreviewConflicts function present (Stage 8.3l)
-check(/function runPreviewConflicts/.test(src),
-  'runPreviewConflicts function present (Stage 8.3l)');
-
-// 107. Preview Conflicts button (bc-sel-conflicts) present (still)
-check(/id="bc-sel-conflicts"/.test(src),
-  'Preview Conflicts button (bc-sel-conflicts) present (Stage 8.3l)');
-
-// 108. Preview call uses POST to /staff/manual-bookings/preview only
-check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/preview['"]/.test(src),
-  "fetch('/staff/manual-bookings/preview') call present (Stage 8.3l)");
+// 108. Preview endpoint only via internal availability helper (10.6g.1)
+check(/function bcFetchManualBookingAvailability/.test(src) &&
+      /fetch\s*\(\s*['"]\/staff\/manual-bookings\/preview['"]/.test(
+        src.match(/function bcFetchManualBookingAvailability[\s\S]*?\n\}/)?.[0] || ''
+      ),
+  'manual-bookings/preview fetch only in bcFetchManualBookingAvailability (10.6g.1)');
 
 // 109. /staff/manual-bookings/create fetch IS wired in UI (Stage 8.4.8, gated by flags)
 check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(src),
   'fetch to /staff/manual-bookings/create present in UI (Stage 8.4.8 — wired with flag gate)');
 
-// 110. bc-preview-result element present (Stage 8.3l)
-check(/id="bc-preview-result"/.test(src),
-  'Preview result container (id="bc-preview-result") present (Stage 8.3l)');
+// 110. bc-preview-result element removed; quote uses bc-quote-result (10.6g.1)
+check(!/id="bc-preview-result"/.test(src) && /id="bc-quote-result"/.test(src),
+  'Quote result uses bc-quote-result (bc-preview-result removed)');
 
 // 111. Preview loading state text present (Stage 8.3l)
 check(/Checking availability|bk-preview-loading/.test(src),
@@ -654,38 +652,29 @@ check(/bk-preview-error/.test(src),
 // 115. preview_only / creates_booking safety fields handled in result
 // (endpoint returns preview_only:true, creates_booking:false — handled by
 //  showing result without enabling create button)
-check(/preview_only|creates_booking|no_write_performed/.test(src) || /runPreviewConflicts/.test(src),
-  'Preview-only endpoint result handled (preview_only/creates_booking awareness) (Stage 8.3l)');
+check(/preview_only|creates_booking|no_write_performed/.test(src) || /\/staff\/quote-preview/.test(src),
+  'Quote preview is read-only (quote-preview / preview_only awareness) (Stage 8.3l)');
 
-// 116. Create Manual Booking button remains disabled in HTML (Stage 8.3l)
+// 116. Create button starts disabled until quote/fields ready (Stage 8.3l)
 check(/disabled[^>]*id="bc-sel-create"|id="bc-sel-create"[^>]*disabled/.test(src),
-  'Create Manual Booking button has disabled attribute in HTML (Stage 8.3l)');
+  'Create New Booking button has disabled attribute in HTML (Stage 8.3l)');
 
-// 117. runPreviewConflicts does NOT enable create button
-(function checkPreviewNoEnablesCreate(){
-  const fnStart = src.indexOf('function runPreviewConflicts');
-  const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
-  const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(!/bc-sel-create.*disabled\s*=\s*false|bc-sel-create.*removeAttribute.*disabled/i.test(fnSrc),
-    'runPreviewConflicts does not enable the Create button (Stage 8.3l)');
-})();
-
-// 118. bcClearSelection resets preview result (Stage 8.3l)
+// 118. bcClearSelection resets quote result (10.6g.1)
 (function checkClearResetsPreview(){
   const fnStart = src.indexOf('function bcClearSelection');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bc-preview-result/.test(fnSrc),
-    'bcClearSelection resets bc-preview-result (Stage 8.3l)');
+  check(/bc-quote-result/.test(fnSrc),
+    'bcClearSelection resets bc-quote-result (Stage 10.6g.1)');
 })();
 
-// 119. bcApplySelectionHighlight enables Preview Conflicts when cells selected (Stage 8.3l)
-(function checkSelectionEnablesPreview(){
+// 119. bcApplySelectionHighlight enables Calculate Quote when cells selected (10.6g.1)
+(function checkSelectionEnablesQuote(){
   const fnStart = src.indexOf('function bcApplySelectionHighlight');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bc-sel-conflicts/.test(fnSrc) && /\.disabled\s*=/.test(fnSrc),
-    'bcApplySelectionHighlight manages bc-sel-conflicts disabled state (Stage 8.3l)');
+  check(/bcUpdateQuoteButton\s*\(/.test(fnSrc) && /bcUpdateCreateButton\s*\(/.test(fnSrc),
+    'bcApplySelectionHighlight refreshes quote/create button state (Stage 10.6g.1)');
 })();
 
 // 120. Flag-aware creation note present in UI (Stage 8.4.8: note references MANUAL_BOOKING_ENABLED)
@@ -1074,13 +1063,15 @@ check(/id="bc-quote-result"/.test(src),
 check(/function renderQuoteResult/.test(src),
   'renderQuoteResult function present (Stage 8.4.5)');
 
-// 181. "Quote preview only" text present (itemized line items label)
-check(/Quote preview only/i.test(src),
-  '"Quote preview only" text present in UI (Stage 8.4.5)');
+// 181. Quote preview is read-only (no booking write from quote path)
+check(/\/staff\/quote-preview/.test(src) && !/fetch[^)]*manual-bookings\/create[^)]*preview/.test(src),
+  'Quote preview uses /staff/quote-preview only (Stage 8.4.5)');
 
-// 182. "No Stripe link created" text present
-check(/No Stripe link created/i.test(src),
-  '"No Stripe link created" text present in quote preview area (Stage 8.4.5)');
+// 182. Quote result shows totals / line items (10.6g.1)
+check(/function renderQuoteResult/.test(src) && /line_items|invoice total|deposit_required_cents/i.test(
+  src.match(/function renderQuoteResult[\s\S]*?\n\}/)?.[0] || ''
+),
+  'renderQuoteResult shows quote totals and line items (Stage 8.4.5)');
 
 // 183. line_items rendered in renderQuoteResult (itemized display)
 (function checkLineItemsRendered(){
@@ -1118,12 +1109,13 @@ check(/No Stripe link created/i.test(src),
     'bcClearSelection resets bcSelectedBeds to [] (Stage 8.4.5)');
 })();
 
-// 187. Payment choice select (bk-payment-choice) present with deposit/full/pay_on_arrival options
+// 187. Payment choice select has staff payment choices (10.6d)
 (function checkPaymentChoiceSelect(){
   const pcIdx = src.indexOf('id="bk-payment-choice"');
-  const pcSrc = pcIdx >= 0 ? src.slice(pcIdx, pcIdx + 400) : '';
-  check(/value="deposit"/.test(pcSrc) && /value="full"/.test(pcSrc) && /value="pay_on_arrival"/.test(pcSrc),
-    'Payment choice select (bk-payment-choice) has deposit/full/pay_on_arrival options (Stage 8.4.5)');
+  const pcSrc = pcIdx >= 0 ? src.slice(pcIdx, pcIdx + 700) : '';
+  check(/value="stripe_deposit"/.test(pcSrc) && /value="stripe_full"/.test(pcSrc) &&
+        /value="paid_cash"/.test(pcSrc) && /value="no_payment_yet"/.test(pcSrc),
+    'Payment choice select (bk-payment-choice) has stripe/cash/bank/none options (Stage 10.6d)');
 })();
 
 // 188. Duplicate assignment detail rows removed (Stage 8.7.6)
@@ -1383,19 +1375,17 @@ check(/function renderStripeLinkResult/.test(src),
     '215e: renderStripeLinkResult does NOT update paid/confirmed state (Stage 8.4.10)');
 })();
 
-// 216. Create Stripe Payment Link button in renderCreateResult
-(function checkCreateResultHasStripeBtn(){
+// 216. Create result shows payment link copy (inline; no separate Stripe button — 10.6g.1)
+(function checkCreateResultPaymentLink(){
   const fnStart = src.indexOf('function renderCreateResult');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction run', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bc-sel-stripe-link/.test(fnSrc),
-    '216: renderCreateResult contains bc-sel-stripe-link button (Stage 8.4.10)');
-  check(/BC_STRIPE_LINKS/.test(fnSrc),
-    '216b: renderCreateResult gates Stripe button by BC_STRIPE_LINKS (Stage 8.4.10)');
-  check(/bc-stripe-link-result/.test(fnSrc),
-    '216c: renderCreateResult includes bc-stripe-link-result container (Stage 8.4.10)');
+  check(!/bc-sel-stripe-link/.test(fnSrc),
+    '216: renderCreateResult no longer uses bc-sel-stripe-link button (10.6g.1)');
+  check(/payment_link_url/.test(fnSrc) && /bc-create-payment-link-copy-btn/.test(fnSrc),
+    '216b: renderCreateResult shows payment link URL with copy icon (10.6g.1)');
   check(/payment_id/.test(fnSrc),
-    '216d: renderCreateResult shows payment_id from response (Stage 8.4.10)');
+    '216c: renderCreateResult shows payment_id from response (Stage 8.4.10)');
 })();
 
 // 217. No direct Stripe API calls from UI code
@@ -1407,10 +1397,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   const fnStart = src.indexOf('function runManualBookingCreate');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(/bcLastPaymentId\s*=/.test(fnSrc),
-    '218: runManualBookingCreate sets bcLastPaymentId from response (Stage 8.4.10)');
-  check(/bc-sel-stripe-link/.test(fnSrc),
-    '218b: runManualBookingCreate wires bc-sel-stripe-link button after render (Stage 8.4.10)');
+  check(/bcLastPaymentId\s*=/.test(fnSrc) || /payment_id/.test(fnSrc),
+    '218: runManualBookingCreate tracks payment from create response (Stage 8.4.10)');
+  check(!/bc-sel-stripe-link/.test(fnSrc),
+    '218b: runManualBookingCreate does not wire removed bc-sel-stripe-link button (10.6g.1)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1447,8 +1437,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '219h: drawer has deposit-paid label (Stage 8.4.12)');
   check(/Paid in full|paid-in-full/.test(payUi),
     '219i: drawer has paid-in-full label (Stage 8.4.12)');
-  check(/waiting for Stripe webhook|waiting.*webhook/i.test(payFn),
-    '219j: drawer has waiting-for-webhook text (Stage 8.4.12)');
+  check(/bcPaymentLedgerRowDisplayLabel|Stripe paid|Paid cash/.test(payFn),
+    '219j: drawer uses user-facing payment row labels (Stage 10.6f.1)');
   check(/No payment record yet|No payment/.test(payFn),
     '219k: drawer shows "No payment record yet" when no rows (Stage 8.4.12)');
 
@@ -1465,8 +1455,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   check(/payment_status === 'paid'|ctx-pay-record-paid/.test(payFn),
     '219p: drawer has paid state flags for banner rendering (Stage 8.4.12)');
 
-  check(/pmtStatusLabel|Checkout link created/.test(payFn),
-    '219q: drawer uses pmtStatusLabel helper for payment status (Stage 8.4.12)');
+  check(/bcPaymentLedgerRowDisplayLabel/.test(src),
+    '219q: drawer uses bcPaymentLedgerRowDisplayLabel for payment status (Stage 10.6f.1)');
 })();
 
 // 220. getBookingPaymentsQuery (in staff-booking-detail-queries.js, loaded via require)
@@ -1586,9 +1576,9 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '225c: payment records use contained card classes (Stage 8.7.11)');
   check(!/margin-top:8px;padding:8px 10px;background:#F3FAF1/.test(payUi),
     '225d: no full-width inline green payment card stretch (Stage 8.7.11)');
-  check(/Amount due/.test(paySrc) && /Amount paid/.test(paySrc) && /Paid at/.test(paySrc) &&
-        /stripe_checkout_session_id/.test(paySrc),
-    '225e: payment truth fields still render in drawer (Stage 8.7.11)');
+  check(/Invoice total|Balance due|bcPaymentLedgerPaidTotalCents/.test(paySrc) &&
+        /Payment history|stripe_checkout_session_id/.test(paySrc),
+    '225e: running invoice payment truth still renders in drawer (Stage 10.4d)');
   check(/bc-luna-confirmation-draft/.test(drawerSrc),
     '225f: Luna confirmation draft panel unchanged (Stage 8.7.11)');
   check(!/sendConfirmation|Send confirmation/i.test(drawerSrc),
@@ -1600,14 +1590,14 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '225i: add-ons label no longer flex:1 stretch (Stage 8.7.11)');
   check(/id="bk-ao-meals"/.test(src),
     '225j: meals add-on input present (Stage 8.7.11)');
-  check(/bk-ao-meals-note|not priced in quote yet/i.test(src),
-    '225k: meals marked on-site / not priced in quote (Stage 8.7.11)');
+  check(!/not priced in quote yet/i.test(src),
+    '225k: legacy meals on-site-only copy removed (Stage 10.6d)');
 
   const fnStart = src.indexOf('function buildAddOns');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 10) : -1;
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
-  check(!/bk-ao-meals/.test(fnSrc) && !/code:\s*['"][^'"]*meal/i.test(fnSrc) && !/dinner_meal/.test(fnSrc),
-    '225l: buildAddOns does not send meals as priced add-on (Stage 8.7.11)');
+  check(/bk-ao-meals/.test(fnSrc) && /code:\s*['"]meals['"]/.test(fnSrc),
+    '225l: buildAddOns includes meals as priced add-on when qty > 0 (Stage 10.6d)');
 
   const clearStart = src.indexOf('function bcClearSelection');
   const clearEnd   = clearStart > 0 ? src.indexOf('\nfunction ', clearStart + 10) : -1;
@@ -1658,8 +1648,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
   check(/function aoQtyInput/.test(src) && /aoQtyInput\(/.test(fnSrc) && /> 0/.test(fnSrc),
     '226h: buildAddOns uses aoQtyInput and qty > 0 (Stage 8.7.15)');
-  check(!/bk-ao-meals/.test(fnSrc) && !/code:\s*['"][^'"]*meal/i.test(fnSrc),
-    '226i: meals still visual-only — not sent via buildAddOns (Stage 8.7.15)');
+  check(/bk-ao-meals/.test(fnSrc) && /code:\s*['"]meals['"]/.test(fnSrc),
+    '226i: meals qty > 0 sent via buildAddOns (Stage 10.6d)');
 
   check(!/graph\.facebook\.com/.test(src),
     '226j: bed calendar UI has no graph.facebook.com (Stage 8.7.15)');
