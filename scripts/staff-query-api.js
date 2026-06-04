@@ -3688,6 +3688,141 @@ function paymentLedgerPaidTotalCents(rows) {
   }, 0);
 }
 
+/* Phase 10.6g.2 — invoice + ledger payment truth (calendar, drawer, stale links) */
+function bookingLedgerParseMetadata(raw) {
+  if (raw && typeof raw === 'object') return raw;
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch (_) { return {}; }
+}
+
+function bookingLedgerAccommodationCents(bookingRow, svcDueCents, quoteSnap) {
+  const svcSum = Number(svcDueCents || 0);
+  if (quoteSnap && Array.isArray(quoteSnap.line_items)) {
+    let sum = 0;
+    let any = false;
+    for (const li of quoteSnap.line_items) {
+      if (li.code && EDIT_PREVIEW_ACCOMM_LINE_CODES[li.code] && li.total_cents != null) {
+        sum += Number(li.total_cents);
+        any = true;
+      }
+    }
+    if (any) return sum;
+  }
+  if (bookingRow && bookingRow.total_amount_cents != null) {
+    const total = Number(bookingRow.total_amount_cents);
+    const derived = total - svcSum;
+    return derived >= 0 ? derived : total;
+  }
+  return null;
+}
+
+function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCents) {
+  const bk = bookingRow || {};
+  const md = bookingLedgerParseMetadata(bk.metadata);
+  const quoteSnap = md.quote_snapshot || null;
+  const svcSum = Number(svcDueCents || 0);
+  const accCents = bookingLedgerAccommodationCents(bk, svcSum, quoteSnap);
+  const invoiceTotal = accCents != null ? accCents + svcSum : null;
+  const paidTotal = ledgerPaidCents != null ? Number(ledgerPaidCents) : 0;
+  const depositRequired = bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0;
+  let balanceDue = null;
+  let needsRefund = false;
+  if (invoiceTotal != null) {
+    if (invoiceTotal > paidTotal) balanceDue = invoiceTotal - paidTotal;
+    else if (invoiceTotal < paidTotal) { needsRefund = true; balanceDue = 0; }
+    else balanceDue = 0;
+  }
+  return {
+    invoice_total_cents: invoiceTotal,
+    paid_total_cents: paidTotal,
+    balance_due_cents: balanceDue,
+    deposit_required_cents: depositRequired,
+    needs_refund: needsRefund,
+  };
+}
+
+function paymentLedgerNormalizeCtx(ctxOrBalance, bookingRow) {
+  if (ctxOrBalance != null && typeof ctxOrBalance === 'object' && !Array.isArray(ctxOrBalance)) {
+    return ctxOrBalance;
+  }
+  const bk = bookingRow || {};
+  return {
+    balance_due_cents: ctxOrBalance,
+    deposit_required_cents: bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : null,
+    invoice_total_cents: bk.invoice_total_cents != null ? Number(bk.invoice_total_cents) : null,
+  };
+}
+
+function paymentLinkIntendedAmountCents(pr, ledgerCtx) {
+  if (!pr) return null;
+  const kind = String(pr.payment_kind || '').toLowerCase();
+  const md = paymentLedgerParseMetadata(pr.metadata);
+  const source = String(md.source || '').toLowerCase();
+  if (kind === 'deposit_only' || kind === 'deposit') {
+    return ledgerCtx.deposit_required_cents != null ? Number(ledgerCtx.deposit_required_cents) : null;
+  }
+  if (kind === 'addon_service') return null;
+  if (kind === 'full_amount') {
+    if (source === 'staff_payment_link' || md.phase === '10.6c') {
+      return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+    }
+    return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+  }
+  return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+}
+
+function paymentLedgerHasActiveValidLink(rows, ledgerCtx) {
+  for (const pr of rows || []) {
+    if (paymentLedgerIsActiveUnpaidLinkRow(pr) && !paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function bookingCalendarPaymentDisplayState(ledgerTotals, hasActiveLink) {
+  const invoice = ledgerTotals.invoice_total_cents;
+  const paid = ledgerTotals.paid_total_cents;
+  const balance = ledgerTotals.balance_due_cents;
+  const depositReq = Number(ledgerTotals.deposit_required_cents || 0);
+  const link = !!hasActiveLink;
+
+  if (invoice != null && paid != null && invoice > 0 && paid > invoice) {
+    return {
+      primary: 'refund_review',
+      amount_cents: paid - invoice,
+      show_deposit_paid: false,
+      has_active_payment_link: link,
+    };
+  }
+  if (balance != null && balance > 0) {
+    const showDepositPaid = depositReq > 0 && paid >= depositReq;
+    return {
+      primary: 'balance_due',
+      amount_cents: balance,
+      show_deposit_paid: showDepositPaid,
+      has_active_payment_link: link,
+    };
+  }
+  if (balance === 0 && invoice != null && invoice > 0) {
+    return {
+      primary: 'paid',
+      amount_cents: 0,
+      show_deposit_paid: false,
+      has_active_payment_link: link,
+    };
+  }
+  if (link) {
+    return {
+      primary: 'payment_link_created',
+      amount_cents: 0,
+      show_deposit_paid: false,
+      has_active_payment_link: true,
+    };
+  }
+  return null;
+}
+
 const PAYMENT_LEDGER_CANCELLABLE_LINK_STATUSES = new Set(['checkout_created', 'draft', 'pending']);
 
 function paymentLedgerParseMetadata(raw) {
@@ -3728,21 +3863,27 @@ function paymentLedgerIsActiveUnpaidLinkRow(pr) {
   return !!(pr.checkout_url || paymentLedgerRowHasLinkUrl(pr));
 }
 
-function paymentLedgerIsStaleUnpaidLinkRow(pr, balanceDueCents) {
+function paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtxOrBalance, bookingRow) {
   if (!paymentLedgerIsActiveUnpaidLinkRow(pr)) return false;
-  if (balanceDueCents == null || balanceDueCents <= 0) return false;
-  return Number(pr.amount_due_cents) !== Number(balanceDueCents);
+  const ledgerCtx = paymentLedgerNormalizeCtx(ledgerCtxOrBalance, bookingRow);
+  const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
+  if (intended == null || intended <= 0) return false;
+  return Number(pr.amount_due_cents) !== Number(intended);
 }
 
-function ledgerActivePaymentLinkRow(rows, balanceDueCents) {
-  if (!balanceDueCents || balanceDueCents <= 0) return null;
+function ledgerActivePaymentLinkRow(rows, ledgerCtxOrBalance, bookingRow) {
+  const ledgerCtx = paymentLedgerNormalizeCtx(ledgerCtxOrBalance, bookingRow);
+  const balanceDue = ledgerCtx.balance_due_cents;
+  if (balanceDue == null || balanceDue <= 0) return null;
   for (const pr of rows || []) {
     const st = String(pr.payment_status || '').toLowerCase();
     if (paymentLedgerIsCancelledLinkStatus(st)) continue;
-    if (paymentLedgerIsStaleUnpaidLinkRow(pr, balanceDueCents)) continue;
-    if ((st === 'checkout_created' || st === 'draft')
+    if (paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx)) continue;
+    const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
+    if ((st === 'checkout_created' || st === 'draft' || st === 'pending')
         && pr.checkout_url
-        && Number(pr.amount_due_cents) === Number(balanceDueCents)
+        && intended != null
+        && Number(pr.amount_due_cents) === Number(intended)
         && Number(pr.amount_paid_cents || 0) === 0) {
       return pr;
     }
@@ -3751,11 +3892,28 @@ function ledgerActivePaymentLinkRow(rows, balanceDueCents) {
 }
 
 function bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows) {
-  const metadata = bookingRow.metadata || {};
-  const quoteSnap = (metadata && typeof metadata === 'object' && metadata.quote_snapshot) || null;
-  const accCents = editPreviewAccommodationCents(bookingRow, svcRows, quoteSnap);
+  const svcDue = editPreviewSvcSum(svcRows);
   const paidCents = paymentLedgerPaidTotalCents(paymentRows);
-  return editPreviewInvoiceSide(accCents, svcRows, paidCents, null);
+  const totals = bookingLedgerInvoicePaidBalance(bookingRow, svcDue, paidCents);
+  const line_items = editPreviewBuildLineItems(
+    bookingLedgerAccommodationCents(
+      bookingRow,
+      svcDue,
+      (bookingLedgerParseMetadata(bookingRow.metadata).quote_snapshot) || null,
+    ),
+    svcRows,
+    null,
+  );
+  return {
+    line_items,
+    total_amount_cents: totals.invoice_total_cents,
+    paid_amount_cents: totals.paid_total_cents,
+    balance_due_cents: totals.balance_due_cents,
+    needs_refund: totals.needs_refund,
+    invoice_total_cents: totals.invoice_total_cents,
+    paid_total_cents: totals.paid_total_cents,
+    deposit_required_cents: totals.deposit_required_cents,
+  };
 }
 
 const EDIT_PREVIEW_BOOKING_BY_CODE_SQL = `
@@ -6306,7 +6464,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     });
   }
 
-  const activeLink = ledgerActivePaymentLinkRow(paymentRows, amountDueCents);
+  const activeLink = ledgerActivePaymentLinkRow(paymentRows, ledger);
   if (activeLink && activeLink.checkout_url) {
     return sendJSON(res, 200, {
       success: true,
@@ -12018,6 +12176,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-pay-wrap{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;max-width:58%}
 .bc-block-pay-badge{font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;line-height:1.25;white-space:nowrap}
 .bc-block-pay-balance{background:#F5E0D0;color:#9B4E12;border:1px solid #E8C4A8}
+.bc-block-pay-deposit{background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9}
 .bc-block-pay-paid{background:#DCEAD2;color:#3d6130;border:1px solid #B5D3AD}
 .bc-block-pay-refund{background:#F3DDE8;color:#7A3A52;border:1px solid #D4A8BC}
 .bc-block-pay-link{background:#E8EEF2;color:#4A6270;border:1px solid #C5D5DE}
@@ -14689,26 +14848,35 @@ function bcCalendarFormatEur(cents){
 
 function bcCalendarBlockPaymentState(blk){
   blk = blk || {};
-  if (blk.calendar_payment_state) {
+  if (blk.calendar_payment_primary) {
     return {
-      kind: blk.calendar_payment_state,
+      kind: blk.calendar_payment_primary,
       amount_cents: blk.calendar_payment_amount_cents != null ? Number(blk.calendar_payment_amount_cents) : 0,
+      show_deposit_paid: !!blk.calendar_show_deposit_paid,
+      has_active_payment_link: !!blk.has_active_payment_link,
     };
   }
-  var total = blk.total_amount_cents != null ? Number(blk.total_amount_cents) : null;
-  var paid = blk.amount_paid_cents != null ? Number(blk.amount_paid_cents) : null;
+  var invoice = blk.invoice_total_cents != null ? Number(blk.invoice_total_cents) : null;
+  var paid = blk.ledger_paid_cents != null ? Number(blk.ledger_paid_cents)
+    : (blk.amount_paid_cents != null ? Number(blk.amount_paid_cents) : 0);
   var balance = blk.balance_due_cents != null ? Number(blk.balance_due_cents) : null;
-  if (total != null && paid != null && total > 0 && paid > total) {
-    return { kind: 'refund_review', amount_cents: paid - total };
+  var depositReq = blk.deposit_required_cents != null ? Number(blk.deposit_required_cents) : 0;
+  if (invoice != null && paid > invoice && invoice > 0) {
+    return { kind: 'refund_review', amount_cents: paid - invoice, show_deposit_paid: false,
+      has_active_payment_link: !!blk.has_active_payment_link };
   }
   if (balance != null && balance > 0) {
-    return { kind: 'balance_due', amount_cents: balance };
+    return { kind: 'balance_due', amount_cents: balance,
+      show_deposit_paid: depositReq > 0 && paid >= depositReq,
+      has_active_payment_link: !!blk.has_active_payment_link };
   }
-  if (balance === 0 && total != null && total > 0) {
-    return { kind: 'paid', amount_cents: 0 };
+  if (balance === 0 && invoice != null && invoice > 0) {
+    return { kind: 'paid', amount_cents: 0, show_deposit_paid: false,
+      has_active_payment_link: !!blk.has_active_payment_link };
   }
   if (blk.has_active_payment_link) {
-    return { kind: 'payment_link_created', amount_cents: 0 };
+    return { kind: 'payment_link_created', amount_cents: 0, show_deposit_paid: false,
+      has_active_payment_link: true };
   }
   return null;
 }
@@ -14716,9 +14884,17 @@ function bcCalendarBlockPaymentState(blk){
 function bcCalendarPaymentTooltipHint(blk){
   var st = bcCalendarBlockPaymentState(blk);
   if (!st || !st.kind) return '';
-  if (st.kind === 'balance_due') return ' | Balance due ' + bcCalendarFormatEur(st.amount_cents);
+  if (st.kind === 'balance_due') {
+    var hint = '';
+    if (st.show_deposit_paid) hint += ' | Deposit paid';
+    hint += ' | Balance due ' + bcCalendarFormatEur(st.amount_cents);
+    if (st.has_active_payment_link) hint += ' | Link sent';
+    return hint;
+  }
   if (st.kind === 'refund_review') return ' | Refund review ' + bcCalendarFormatEur(st.amount_cents);
-  if (st.kind === 'paid') return ' | Paid';
+  if (st.kind === 'paid') {
+    return st.has_active_payment_link ? ' | Paid | Link sent' : ' | Paid';
+  }
   if (st.kind === 'payment_link_created') return ' | Payment link sent';
   return '';
 }
@@ -14728,18 +14904,24 @@ function bcCalendarPaymentBadgesHtml(blk){
   if (!st || !st.kind) return '';
   var html = '<span class="bc-block-pay-wrap">';
   if (st.kind === 'balance_due') {
+    if (st.show_deposit_paid) {
+      html += '<span class="bc-block-pay-badge bc-block-pay-deposit">Deposit paid</span>';
+    }
     html += '<span class="bc-block-pay-badge bc-block-pay-balance">Balance due ' +
       escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
-    if (blk.has_active_payment_link) {
+    if (st.has_active_payment_link) {
       html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
     }
   } else if (st.kind === 'paid') {
     html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
+    if (st.has_active_payment_link) {
+      html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
+    }
   } else if (st.kind === 'refund_review') {
     html += '<span class="bc-block-pay-badge bc-block-pay-refund">Refund review ' +
       escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
   } else if (st.kind === 'payment_link_created') {
-    html += '<span class="bc-block-pay-badge bc-block-pay-link">Payment link sent</span>';
+    html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
   }
   html += '</span>';
   return html;
@@ -15074,34 +15256,44 @@ function bcDrawerStatusPillCls(s){
   if (v === 'needs_review' || v === 'needs_human') return 'pill-orange';
   return 'pill-blue';
 }
-function bcDetailHeaderMetaHtml(blk, bk){
+function bcDetailHeaderMetaHtml(blk, bk, ledger){
   bk = bk || {};
   blk = blk || {};
+  ledger = ledger || {};
   var html = '';
-  var total = bk.total_amount_cents != null ? Number(bk.total_amount_cents)
-    : (blk.total_amount_cents != null ? Number(blk.total_amount_cents) : null);
-  var paid = bk.amount_paid_cents != null ? Number(bk.amount_paid_cents)
-    : (blk.amount_paid_cents != null ? Number(blk.amount_paid_cents) : null);
-  var balance = bk.balance_due_cents != null ? Number(bk.balance_due_cents)
-    : (blk.balance_due_cents != null ? Number(blk.balance_due_cents) : null);
   var calPay = bcCalendarBlockPaymentState({
-    total_amount_cents: total,
-    amount_paid_cents: paid,
-    balance_due_cents: balance,
-    has_active_payment_link: !!(blk.has_active_payment_link || bk.has_active_payment_link),
-    calendar_payment_state: blk.calendar_payment_state || bk.calendar_payment_state || null,
+    calendar_payment_primary: blk.calendar_payment_primary || bk.calendar_payment_primary || null,
     calendar_payment_amount_cents: blk.calendar_payment_amount_cents != null
       ? blk.calendar_payment_amount_cents
       : (bk.calendar_payment_amount_cents != null ? bk.calendar_payment_amount_cents : null),
+    calendar_show_deposit_paid: blk.calendar_show_deposit_paid || bk.calendar_show_deposit_paid,
+    invoice_total_cents: ledger.invoice_total_cents != null ? ledger.invoice_total_cents
+      : (blk.invoice_total_cents != null ? blk.invoice_total_cents : bk.invoice_total_cents),
+    ledger_paid_cents: ledger.paid_total_cents != null ? ledger.paid_total_cents
+      : (blk.ledger_paid_cents != null ? blk.ledger_paid_cents : null),
+    balance_due_cents: ledger.balance_due_cents != null ? ledger.balance_due_cents
+      : (blk.balance_due_cents != null ? blk.balance_due_cents : bk.balance_due_cents),
+    deposit_required_cents: ledger.deposit_required_cents != null ? ledger.deposit_required_cents
+      : (blk.deposit_required_cents != null ? blk.deposit_required_cents : bk.deposit_required_cents),
+    has_active_payment_link: !!(blk.has_active_payment_link || bk.has_active_payment_link),
   });
   if (calPay && calPay.kind === 'refund_review') {
     html += '<span class="pill pill-orange">Refund review ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
   } else if (calPay && calPay.kind === 'balance_due') {
+    if (calPay.show_deposit_paid) {
+      html += '<span class="pill pill-green">Deposit paid</span>';
+    }
     html += '<span class="pill pill-orange">Balance due ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
+    if (calPay.has_active_payment_link) {
+      html += '<span class="pill pill-blue">Link sent</span>';
+    }
   } else if (calPay && calPay.kind === 'paid') {
     html += '<span class="pill pill-green">Paid</span>';
+    if (calPay.has_active_payment_link) {
+      html += '<span class="pill pill-blue">Link sent</span>';
+    }
   } else if (calPay && calPay.kind === 'payment_link_created') {
-    html += '<span class="pill pill-blue">Payment link sent</span>';
+    html += '<span class="pill pill-blue">Link sent</span>';
   }
   var bkPay = bk.payment_status || null;
   if (!calPay && (bkPay === 'deposit_paid' || bkPay === 'paid')){
@@ -15118,7 +15310,9 @@ function bcDetailHeaderMetaHtml(blk, bk){
 function updateBcDetailHeader(data){
   var meta = el('bc-detail-meta');
   if (!meta) return;
-  meta.innerHTML = bcDetailHeaderMetaHtml(bcLastOpenedBlock, (data && data.booking) || {});
+  var bk = (data && data.booking) || {};
+  var ledger = bcBookingLedgerBalance(bk, (data && data.service_records) || [], (data && data.payments && data.payments.rows) || []);
+  meta.innerHTML = bcDetailHeaderMetaHtml(bcLastOpenedBlock, bk, ledger);
 }
 
 function showBlockDetail(blk){
@@ -15617,28 +15811,47 @@ function bcBookingLedgerBalance(bk, svcRows, paymentRows){
   bk = bk || {};
   svcRows = svcRows || [];
   paymentRows = paymentRows || [];
+  var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
+  var paidCents = bcPaymentLedgerPaidTotalCents(paymentRows);
   var md = bk.metadata || {};
   if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_) { md = {}; } }
   var quoteSnap = md.quote_snapshot || null;
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
-  var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
-  var invoiceTotal = accCents != null ? accCents + svcSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
-  var paidCents = bcPaymentLedgerPaidTotalCents(paymentRows);
+  var invoiceTotal = accCents != null ? accCents + svcSum : null;
+  var depositRequired = bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0;
   var balanceDue = null;
   var needsRefund = false;
-  if (invoiceTotal != null && paidCents != null) {
+  if (invoiceTotal != null) {
     if (invoiceTotal > paidCents) balanceDue = invoiceTotal - paidCents;
     else if (invoiceTotal < paidCents) { needsRefund = true; balanceDue = 0; }
     else balanceDue = 0;
-  } else if (invoiceTotal != null) {
-    balanceDue = invoiceTotal;
   }
   return {
     invoice_total_cents: invoiceTotal,
     paid_cents: paidCents,
+    paid_total_cents: paidCents,
     balance_due_cents: balanceDue,
+    deposit_required_cents: depositRequired,
     needs_refund: needsRefund,
   };
+}
+
+function bcPaymentLinkIntendedAmountCents(pr, ledgerCtx){
+  if (!pr) return null;
+  var kind = String(pr.payment_kind || '').toLowerCase();
+  var md = bcPaymentLedgerParseMetadata(pr.metadata);
+  var source = String(md.source || '').toLowerCase();
+  if (kind === 'deposit_only' || kind === 'deposit') {
+    return ledgerCtx.deposit_required_cents != null ? Number(ledgerCtx.deposit_required_cents) : null;
+  }
+  if (kind === 'addon_service') return null;
+  if (kind === 'full_amount') {
+    if (source === 'staff_payment_link' || md.phase === '10.6c') {
+      return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+    }
+    return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+  }
+  return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
 }
 
 function bcPaymentLedgerIsActiveUnpaidLinkRow(pr){
@@ -15651,23 +15864,29 @@ function bcPaymentLedgerIsActiveUnpaidLinkRow(pr){
   return !!(pr.checkout_url || bcPaymentLedgerRowHasLinkUrl(pr));
 }
 
-function bcPaymentLedgerIsStaleUnpaidLinkRow(pr, balanceDueCents){
+function bcPaymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx){
   if (!bcPaymentLedgerIsActiveUnpaidLinkRow(pr)) return false;
-  if (balanceDueCents == null || balanceDueCents <= 0) return false;
-  return Number(pr.amount_due_cents) !== Number(balanceDueCents);
+  ledgerCtx = ledgerCtx || {};
+  var intended = bcPaymentLinkIntendedAmountCents(pr, ledgerCtx);
+  if (intended == null || intended <= 0) return false;
+  return Number(pr.amount_due_cents) !== Number(intended);
 }
 
-function bcLedgerActivePaymentLinkRow(rows, balanceDueCents){
+function bcLedgerActivePaymentLinkRow(rows, ledgerCtx){
   rows = rows || [];
-  if (!balanceDueCents || balanceDueCents <= 0) return null;
+  ledgerCtx = ledgerCtx || {};
+  var balanceDue = ledgerCtx.balance_due_cents;
+  if (balanceDue == null || balanceDue <= 0) return null;
   for (var i = 0; i < rows.length; i++){
     var pr = rows[i];
     var st = String(pr.payment_status || '').toLowerCase();
     if (bcPaymentLedgerIsCancelledLinkStatus(st)) continue;
-    if (bcPaymentLedgerIsStaleUnpaidLinkRow(pr, balanceDueCents)) continue;
-    if ((st === 'checkout_created' || st === 'draft')
+    if (bcPaymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx)) continue;
+    var intended = bcPaymentLinkIntendedAmountCents(pr, ledgerCtx);
+    if ((st === 'checkout_created' || st === 'draft' || st === 'pending')
         && pr.checkout_url
-        && Number(pr.amount_due_cents) === Number(balanceDueCents)
+        && intended != null
+        && Number(pr.amount_due_cents) === Number(intended)
         && Number(pr.amount_paid_cents || 0) === 0) {
       return pr;
     }
@@ -15836,6 +16055,11 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   var needsRefund = invoiceTotal != null && paidCents != null && invoiceTotal < paidCents;
   var balanceDue = (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents)
     ? invoiceTotal - paidCents : (needsRefund ? 0 : null);
+  var ledgerCtx = {
+    balance_due_cents: balanceDue,
+    deposit_required_cents: bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0,
+    invoice_total_cents: invoiceTotal,
+  };
   var sortedLedgerRows = bcPaymentLedgerSortRows(ledgerRows, balanceDue);
 
   /* Payment history ledger */
@@ -15846,7 +16070,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
       var isPaid = bcPaymentLedgerIsPaidStatus(pr.payment_status);
       var isCancelled = bcPaymentLedgerIsCancelledLinkStatus(pr.payment_status);
       var isActiveUnpaid = bcPaymentLedgerIsActiveUnpaidLinkRow(pr);
-      var isStale = bcPaymentLedgerIsStaleUnpaidLinkRow(pr, balanceDue);
+      var isStale = bcPaymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx);
       var isCreated = isActiveUnpaid && !isStale;
       var canCancel = bcPaymentLedgerCanCancelLinkRow(pr);
       var displayLabel = bcPaymentLedgerRowDisplayLabel(pr);
@@ -15951,7 +16175,12 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
   var paidInFull = invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal;
   if (paidInFull || balanceDue == null || balanceDue <= 0) return '';
 
-  var active = bcLedgerActivePaymentLinkRow(ledgerRows, balanceDue);
+  var ledgerCtx = {
+    balance_due_cents: balanceDue,
+    deposit_required_cents: bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0,
+    invoice_total_cents: invoiceTotal,
+  };
+  var active = bcLedgerActivePaymentLinkRow(ledgerRows, ledgerCtx);
   var html = '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">';
   html += '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn">Generate Payment Link</button>';
   html += '<div id="bc-payment-link-active" style="margin-top:10px' + (active ? '' : ';display:none') + '">';
@@ -18614,51 +18843,102 @@ function buildRoomHierarchy(roomRows) {
   return rooms;
 }
 
-/* Phase 10.6g — calendar payment badge state (separate from booking.status) */
+/* Phase 10.6g — calendar payment badge state (ledger truth; separate from booking.status) */
 function calendarBlockPaymentState(row) {
-  const total = row.total_amount_cents != null ? Number(row.total_amount_cents) : null;
-  const paid = row.amount_paid_cents != null ? Number(row.amount_paid_cents) : null;
-  const balance = row.balance_due_cents != null ? Number(row.balance_due_cents) : null;
-
-  if (total != null && paid != null && total > 0 && paid > total) {
-    return { kind: 'refund_review', amount_cents: paid - total };
-  }
-  if (balance != null && balance > 0) {
-    return { kind: 'balance_due', amount_cents: balance };
-  }
-  if (balance === 0 && total != null && total > 0) {
-    return { kind: 'paid', amount_cents: 0 };
-  }
-  if (row.has_active_payment_link) {
-    return { kind: 'payment_link_created', amount_cents: 0 };
-  }
-  return null;
+  const display = bookingCalendarPaymentDisplayState(
+    {
+      invoice_total_cents: row.invoice_total_cents,
+      paid_total_cents: row.ledger_paid_cents,
+      balance_due_cents: row.balance_due_cents,
+      deposit_required_cents: row.deposit_required_cents,
+    },
+    row.has_active_payment_link,
+  );
+  if (!display) return null;
+  return {
+    kind: display.primary,
+    amount_cents: display.amount_cents,
+    show_deposit_paid: display.show_deposit_paid,
+    has_active_payment_link: display.has_active_payment_link,
+  };
 }
 
-const BED_CALENDAR_BOOKING_PAYMENT_SQL = `
+const BED_CALENDAR_BOOKING_LEDGER_SQL = `
 SELECT b.id::text AS booking_id,
        b.total_amount_cents,
-       b.amount_paid_cents,
-       b.balance_due_cents
+       b.deposit_required_cents,
+       b.metadata,
+       COALESCE(paid.paid_cents, 0)::bigint AS ledger_paid_cents,
+       COALESCE(svc.svc_due_cents, 0)::bigint AS svc_due_cents
   FROM bookings b
+  LEFT JOIN (
+    SELECT booking_id, SUM(amount_paid_cents)::bigint AS paid_cents
+      FROM payments
+     WHERE booking_id = ANY($1::uuid[])
+       AND status = 'paid'::payment_record_status
+     GROUP BY booking_id
+  ) paid ON paid.booking_id = b.id
+  LEFT JOIN (
+    SELECT booking_id, SUM(amount_due_cents)::bigint AS svc_due_cents
+      FROM booking_service_records
+     WHERE booking_id = ANY($1::uuid[])
+     GROUP BY booking_id
+  ) svc ON svc.booking_id = b.id
  WHERE b.id = ANY($1::uuid[])
 `;
 
-const BED_CALENDAR_ACTIVE_PAYMENT_LINK_SQL = `
-SELECT DISTINCT p.booking_id::text AS booking_id
+const BED_CALENDAR_UNPAID_LINK_SQL = `
+SELECT p.booking_id::text AS booking_id,
+       p.id::text AS payment_id,
+       p.status::text AS payment_status,
+       p.payment_kind::text AS payment_kind,
+       p.amount_due_cents,
+       p.amount_paid_cents,
+       p.checkout_url,
+       p.metadata
   FROM payments p
  WHERE p.booking_id = ANY($1::uuid[])
    AND p.status IN ('checkout_created'::payment_record_status, 'draft'::payment_record_status, 'pending'::payment_record_status)
    AND COALESCE(p.amount_paid_cents, 0) = 0
    AND p.checkout_url IS NOT NULL
-   AND NOT (p.status = 'cancelled'::payment_record_status)
-   AND EXISTS (
-     SELECT 1 FROM bookings b
-      WHERE b.id = p.booking_id
-        AND b.balance_due_cents > 0
-        AND p.amount_due_cents = b.balance_due_cents
-   )
 `;
+
+function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows) {
+  const ledgerById = {};
+  for (const r of ledgerRows || []) ledgerById[r.booking_id] = r;
+  const linksById = {};
+  for (const pr of linkRows || []) {
+    if (!linksById[pr.booking_id]) linksById[pr.booking_id] = [];
+    linksById[pr.booking_id].push(pr);
+  }
+  for (const row of blockRows) {
+    const snap = ledgerById[row.booking_id] || {};
+    const bookingRow = {
+      total_amount_cents: snap.total_amount_cents,
+      deposit_required_cents: snap.deposit_required_cents,
+      metadata: snap.metadata,
+    };
+    const totals = bookingLedgerInvoicePaidBalance(
+      bookingRow,
+      snap.svc_due_cents,
+      snap.ledger_paid_cents,
+    );
+    const ledgerCtx = {
+      balance_due_cents: totals.balance_due_cents,
+      deposit_required_cents: totals.deposit_required_cents,
+      invoice_total_cents: totals.invoice_total_cents,
+    };
+    const links = linksById[row.booking_id] || [];
+    const hasActiveLink = paymentLedgerHasActiveValidLink(links, ledgerCtx);
+    row.invoice_total_cents = totals.invoice_total_cents;
+    row.ledger_paid_cents = totals.paid_total_cents;
+    row.balance_due_cents = totals.balance_due_cents;
+    row.deposit_required_cents = totals.deposit_required_cents;
+    row.amount_paid_cents = totals.paid_total_cents;
+    row.total_amount_cents = totals.invoice_total_cents;
+    row.has_active_payment_link = hasActiveLink;
+  }
+}
 
 function buildCalendarBlocks(blockRows, startDate, endDate) {
   return blockRows
@@ -18686,12 +18966,17 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       needs_review:      !!(row.needs_rooming_review || (row.assignment_status || '').toLowerCase() === 'needs_review'),
       is_arrival:        span.is_arrival,
       is_departure:      span.is_departure,
-      total_amount_cents: row.total_amount_cents != null ? Number(row.total_amount_cents) : null,
-      amount_paid_cents:  row.amount_paid_cents != null ? Number(row.amount_paid_cents) : null,
+      invoice_total_cents: row.invoice_total_cents != null ? Number(row.invoice_total_cents) : null,
+      ledger_paid_cents: row.ledger_paid_cents != null ? Number(row.ledger_paid_cents) : null,
+      deposit_required_cents: row.deposit_required_cents != null ? Number(row.deposit_required_cents) : null,
+      total_amount_cents: row.invoice_total_cents != null ? Number(row.invoice_total_cents) : null,
+      amount_paid_cents:  row.ledger_paid_cents != null ? Number(row.ledger_paid_cents) : null,
       balance_due_cents:  row.balance_due_cents != null ? Number(row.balance_due_cents) : null,
       has_active_payment_link: !!row.has_active_payment_link,
-      calendar_payment_state: payState ? payState.kind : null,
+      calendar_payment_primary: payState ? payState.kind : null,
       calendar_payment_amount_cents: payState ? payState.amount_cents : null,
+      calendar_show_deposit_paid: payState ? !!payState.show_deposit_paid : false,
+      calendar_payment_state: payState ? payState.kind : null,
     };
   }).filter(b => b.span_days > 0);
 }
@@ -18736,20 +19021,11 @@ async function handleBedCalendar(query, res, user) {
       const rows = br.rows;
       const bookingIds = [...new Set(rows.map((r) => r.booking_id).filter(Boolean))];
       if (bookingIds.length > 0) {
-        const [paySnap, activeLinks] = await Promise.all([
-          pg.query(BED_CALENDAR_BOOKING_PAYMENT_SQL, [bookingIds]),
-          pg.query(BED_CALENDAR_ACTIVE_PAYMENT_LINK_SQL, [bookingIds]),
+        const [ledgerSnap, linkRows] = await Promise.all([
+          pg.query(BED_CALENDAR_BOOKING_LEDGER_SQL, [bookingIds]),
+          pg.query(BED_CALENDAR_UNPAID_LINK_SQL, [bookingIds]),
         ]);
-        const payById = {};
-        paySnap.rows.forEach((r) => { payById[r.booking_id] = r; });
-        const linkSet = new Set(activeLinks.rows.map((r) => r.booking_id));
-        rows.forEach((r) => {
-          const p = payById[r.booking_id] || {};
-          r.total_amount_cents = p.total_amount_cents != null ? Number(p.total_amount_cents) : null;
-          r.amount_paid_cents = p.amount_paid_cents != null ? Number(p.amount_paid_cents) : null;
-          r.balance_due_cents = p.balance_due_cents != null ? Number(p.balance_due_cents) : null;
-          r.has_active_payment_link = linkSet.has(r.booking_id);
-        });
+        mergeBedCalendarPaymentSnapshots(rows, ledgerSnap.rows, linkRows.rows);
       }
       return [rr.rows, rows, sr.rows];
     });

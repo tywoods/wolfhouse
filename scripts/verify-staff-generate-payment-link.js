@@ -166,17 +166,19 @@ check(/paymentLedgerIsStaleUnpaidLinkRow/.test(ledgerHelpers),
   'server stale link helper in ledger block');
 check(/ledgerActivePaymentLinkRow[\s\S]{0,400}paymentLedgerIsStaleUnpaidLinkRow/.test(ledgerHelpers),
   'active link reuse skips stale wrong-amount rows');
-check(/amount_due_cents\) === Number\(balanceDueCents\)/.test(ledgerHelpers),
-  'active link requires amount match to current balance');
+check(/paymentLinkIntendedAmountCents/.test(ledgerHelpers),
+  '10.6g.2: active link matches intended amount (deposit vs balance)');
+check(/deposit_only/.test(ledgerHelpers),
+  '10.6g.2: deposit link kind in server stale helper');
 check(/bcPaymentLedgerIsStaleUnpaidLinkRow/.test(linkUiFn) || /bcPaymentLedgerIsStaleUnpaidLinkRow/.test(ledgerUiSlice),
   'UI stale link detection');
 check(/Outdated amount/.test(ledgerUiSlice), 'stale badge in payment history');
 check(/Current balance changed\. Generate a new link\./.test(ledgerUiSlice),
   'stale guidance allows new link generation');
-check(/bcLedgerActivePaymentLinkRow\(ledgerRows, balanceDue\)/.test(linkUiFn),
-  'generate section uses balance-matched active link only');
-check(!/bcLedgerActivePaymentLinkRow\(ledgerRows\)/.test(linkUiFn),
-  'generate section does not reuse link without balance arg');
+check(/bcLedgerActivePaymentLinkRow\(ledgerRows, ledgerCtx\)/.test(linkUiFn),
+  '10.6g.2: generate section uses ledger-context active link');
+check(/bcPaymentLinkIntendedAmountCents/.test(src),
+  '10.6g.2: UI intended payment amount helper');
 
 console.log('\nJ. Safety boundaries');
 

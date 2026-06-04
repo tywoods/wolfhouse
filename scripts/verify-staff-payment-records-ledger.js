@@ -172,8 +172,10 @@ check(/Outdated amount/.test(ledgerUiSlice) && /Current balance changed\. Genera
   'stale link badge and guidance copy');
 check(/paymentLedgerIsStaleUnpaidLinkRow/.test(src),
   'server stale link helper skips wrong-amount active link');
-check(/bcPaymentLedgerIsStaleUnpaidLinkRow\(pr, balanceDue\)/.test(ledgerUiSlice),
-  'UI stale detection uses current balance due');
+check(/bcPaymentLedgerIsStaleUnpaidLinkRow\(pr, ledgerCtx\)/.test(ledgerUiSlice),
+  'UI stale detection uses ledger context (balance + deposit)');
+check(/deposit_only/.test(ledgerUiSlice) || /paymentLinkIntendedAmountCents/.test(src),
+  '10.6g.2: deposit link kind in stale helper');
 check(/function bcLedgerActivePaymentLinkRow[\s\S]{0,600}bcPaymentLedgerIsStaleUnpaidLinkRow/.test(src),
   'active link UI ignores stale amounts');
 check(/btn-bc-cancel-link-icon/.test(invFn) && /bcPaymentLedgerCanCancelLinkRow/.test(invFn),

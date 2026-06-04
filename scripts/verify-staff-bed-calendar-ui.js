@@ -1912,19 +1912,29 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 (function check106gCalendarPaymentBadges(){
   const calPaySlice = src.match(/\/\* Phase 10\.6g — bed calendar payment badges[\s\S]*?function bcColorClass/)?.[0] || '';
   const buildSlice = src.match(/function buildCalendarBlocks[\s\S]*?async function handleBedCalendar/)?.[0] || '';
+  const ledgerSlice = src.match(/Phase 10\.6g\.2 — invoice \+ ledger payment truth[\s\S]*?PAYMENT_LEDGER_CANCELLABLE/)?.[0] || '';
+  const staleSlice = src.match(/function bcPaymentLinkIntendedAmountCents[\s\S]*?function bcPaymentLedgerRowSortGroup/)?.[0] || '';
 
   check(/function bcCalendarBlockPaymentState/.test(src) && /function calendarBlockPaymentState/.test(src),
     '10.6g: client and server calendar payment state helpers');
-  check(/kind: 'balance_due'/.test(src) && /balance != null && balance > 0/.test(src),
-    '10.6g: balance due when balance_due_cents > 0');
-  check(/bc-block-pay-balance/.test(src) && /Balance due/.test(calPaySlice),
-    '10.6g: balance due badge label and soft orange style class');
-  check(/bc-block-pay-paid/.test(src) && /kind: 'paid'/.test(calPaySlice),
-    '10.6g: paid badge for zero balance with invoice total');
-  check(/bc-block-pay-refund/.test(src) && /refund_review/.test(calPaySlice),
-    '10.6g: refund review badge for overpaid');
-  check(/bc-block-pay-link/.test(src) && /payment_link_created/.test(calPaySlice),
-    '10.6g: payment link sent subtle badge');
+  check(/bookingLedgerInvoicePaidBalance/.test(ledgerSlice) && /ledger_paid_cents/.test(buildSlice),
+    '10.6g.2: calendar uses invoice + ledger paid totals (not booking.payment_status alone)');
+  check(/booking_service_records/.test(src.match(/BED_CALENDAR_BOOKING_LEDGER_SQL[\s\S]*?;/)?.[0] || ''),
+    '10.6g.2: calendar ledger SQL includes service_record sums');
+  check(/status = 'paid'::payment_record_status/.test(src.match(/BED_CALENDAR_BOOKING_LEDGER_SQL[\s\S]*?;/)?.[0] || ''),
+    '10.6g.2: calendar paid total sums paid payment rows only');
+  check(/show_deposit_paid/.test(calPaySlice) && /bc-block-pay-deposit/.test(src),
+    '10.6g.2: Deposit paid secondary badge when deposit threshold met');
+  check(/balance_due/.test(calPaySlice) && /bc-block-pay-balance/.test(src),
+    '10.6g.2: Balance due badge takes priority over Paid');
+  check(/bc-block-pay-link/.test(src) && /Link sent/.test(calPaySlice),
+    '10.6g.2: Link sent is secondary badge, not replacement for balance due');
+  check(/deposit_only/.test(staleSlice) && /deposit_required_cents/.test(staleSlice),
+    '10.6g.2: deposit link stale compares to deposit_required, not full balance');
+  check(/paymentLinkIntendedAmountCents/.test(ledgerSlice),
+    '10.6g.2: server payment-link intended amount helper');
+  check(/bcPaymentLinkIntendedAmountCents/.test(staleSlice),
+    '10.6g.2: drawer payment-link intended amount helper');
   check(!/status:\s*'balance_due'|status:\s*"balance_due"|'balance_due'::booking_status/.test(src),
     '10.6g: no new booking.status balance_due');
   check(!/Balance due<\/span>\s*<\/span>\s*<\/div>\s*[\s\S]{0,80}bc-legend-sw-cancelled/.test(
@@ -1935,8 +1945,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6g: Balance due legend item');
   check(/function showBlockDetail/.test(src) && /bcCalendarBlockInnerHtml/.test(src),
     '10.6g: calendar block click/drawer with payment badge markup');
-  check(/BED_CALENDAR_BOOKING_PAYMENT_SQL/.test(src) && /BED_CALENDAR_ACTIVE_PAYMENT_LINK_SQL/.test(src),
-    '10.6g: calendar enriches blocks with payment snapshot SELECTs only');
+  check(/BED_CALENDAR_BOOKING_LEDGER_SQL/.test(src) && /BED_CALENDAR_UNPAID_LINK_SQL/.test(src),
+    '10.6g.2: calendar enriches blocks with ledger SELECTs only');
+  check(/mergeBedCalendarPaymentSnapshots/.test(src),
+    '10.6g.2: calendar merges ledger + link rows before badge state');
   check(!/stripe\.checkout|graph\.facebook\.com/.test(buildSlice + calPaySlice),
     '10.6g: no Stripe/WhatsApp in calendar payment badge slice');
   check(!/INSERT INTO|UPDATE bookings|UPDATE payments/.test(buildSlice.match(/handleBedCalendar[\s\S]*/)?.[0] || ''),
