@@ -3745,20 +3745,40 @@ function editWriteContactFieldsMatch(a, b) {
     && String(a.email || '') === String(b.email || '');
 }
 
-function editWriteMergeContactFields(bookingRow, body) {
-  const guestName = body.guest_name != null
-    ? String(body.guest_name).trim()
-    : bookingRow.guest_name;
-  const phone = body.phone != null
-    ? String(body.phone).trim()
-    : (bookingRow.phone || '');
-  const email = body.email != null
-    ? String(body.email).trim()
-    : (bookingRow.email || '');
+/** phone/email: null or '' clears; undefined = leave unchanged. */
+function editWriteNormalizeOptionalContactField(value) {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function editWriteParseContactPatch(body) {
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(body, 'guest_name')) {
+    patch.guest_name = body.guest_name === null
+      ? null
+      : String(body.guest_name).trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'phone')) {
+    patch.phone = editWriteNormalizeOptionalContactField(body.phone);
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'email')) {
+    patch.email = editWriteNormalizeOptionalContactField(body.email);
+  }
+  return patch;
+}
+
+function editWriteMergeContactFields(bookingRow, patch) {
   return {
-    guest_name: guestName,
-    phone:      phone || null,
-    email:      email || null,
+    guest_name: patch.guest_name !== undefined
+      ? patch.guest_name
+      : bookingRow.guest_name,
+    phone: patch.phone !== undefined
+      ? patch.phone
+      : (bookingRow.phone || null),
+    email: patch.email !== undefined
+      ? patch.email
+      : (bookingRow.email || null),
   };
 }
 
@@ -4434,26 +4454,23 @@ async function handleBookingEditWrite(req, res, user) {
     });
   }
 
-  const hasGuestName = body.guest_name != null;
-  const hasPhone     = body.phone != null;
-  const hasEmail     = body.email != null;
-  if (!hasGuestName && !hasPhone && !hasEmail) {
+  const contactPatch = editWriteParseContactPatch(body);
+  if (contactPatch.guest_name === null) {
+    return send400(res, 'guest_name cannot be null');
+  }
+  const patchKeys = Object.keys(contactPatch);
+  if (patchKeys.length === 0) {
     return send400(res, 'at least one of guest_name, phone, or email is required');
   }
-  if (hasGuestName) {
-    const guestName = String(body.guest_name).trim();
-    if (!guestName) return send400(res, 'guest_name must not be empty');
-    if (!editPreviewLightNameOk(guestName)) return send400(res, 'guest_name is too long');
+  if (contactPatch.guest_name !== undefined) {
+    if (!contactPatch.guest_name) return send400(res, 'guest_name must not be empty');
+    if (!editPreviewLightNameOk(contactPatch.guest_name)) return send400(res, 'guest_name is too long');
   }
-  if (hasPhone) {
-    const phone = String(body.phone).trim();
-    if (!phone) return send400(res, 'phone must not be empty');
-    if (!editPreviewLightPhoneOk(phone)) return send400(res, 'phone is too long');
+  if (contactPatch.phone !== undefined && contactPatch.phone !== null) {
+    if (!editPreviewLightPhoneOk(contactPatch.phone)) return send400(res, 'phone is too long');
   }
-  if (hasEmail) {
-    const email = String(body.email).trim();
-    if (!email) return send400(res, 'email must not be empty');
-    if (!editPreviewLightEmailOk(email)) return send400(res, 'email format is invalid');
+  if (contactPatch.email !== undefined && contactPatch.email !== null) {
+    if (!editPreviewLightEmailOk(contactPatch.email)) return send400(res, 'email format is invalid');
   }
 
   let bookingRow;
@@ -4476,7 +4493,7 @@ async function handleBookingEditWrite(req, res, user) {
   }
 
   const before = editWriteContactSnapshot(bookingRow);
-  const after  = editWriteMergeContactFields(bookingRow, body);
+  const after  = editWriteMergeContactFields(bookingRow, contactPatch);
   const auditResponse = {
     actor: actorLabel,
     reason,

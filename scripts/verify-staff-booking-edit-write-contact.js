@@ -72,11 +72,24 @@ check(/edit_type is required/.test(handlerBlock), 'edit_type required');
 check(/at least one of guest_name, phone, or email is required/.test(handlerBlock),
   'at least one contact field required');
 check(/guest_name must not be empty/.test(handlerBlock), 'guest_name non-empty when provided');
-check(/phone must not be empty/.test(handlerBlock), 'phone non-empty when provided');
-check(/email must not be empty/.test(handlerBlock), 'email non-empty when provided');
+check(/guest_name cannot be null/.test(handlerBlock), 'guest_name cannot be null');
+check(/editWriteNormalizeOptionalContactField/.test(src), 'optional phone/email normalize helper');
+check(/editWriteParseContactPatch/.test(src), 'contact patch parser with hasOwnProperty');
+check(/trimmed === '' \? null : trimmed/.test(src), 'empty phone/email string normalizes to null');
+check(!/phone must not be empty/.test(handlerBlock), 'phone may be cleared (no must-not-be-empty)');
+check(!/email must not be empty/.test(handlerBlock), 'email may be cleared (no must-not-be-empty)');
+check(/contactPatch\.phone !== undefined && contactPatch\.phone !== null/.test(handlerBlock),
+  'phone validated only when non-null value');
+check(/contactPatch\.email !== undefined && contactPatch\.email !== null/.test(handlerBlock),
+  'email validated only when non-null value');
 check(/editPreviewLightEmailOk/.test(handlerBlock), 'contact email validation');
 check(/editPreviewLightNameOk/.test(handlerBlock), 'contact name validation');
 check(/editPreviewLightPhoneOk/.test(handlerBlock), 'contact phone validation');
+check(/editWriteContactFieldsMatch/.test(handlerBlock), 'idempotent match helper for contact fields');
+check(/phone:\s*patch\.phone !== undefined/.test(src) || /patch\.phone !== undefined/.test(handlerBlock),
+  'merge applies explicit phone patch including null clear');
+check(/email:\s*patch\.email !== undefined/.test(src) || /patch\.email !== undefined/.test(handlerBlock),
+  'merge applies explicit email patch including null clear');
 
 console.log('\nC. Contact-only scope (10.5b)');
 
@@ -138,6 +151,11 @@ check(/already match the requested values/.test(handlerBlock),
   'idempotent message for matching contact values');
 check(/updated:\s*false/.test(handlerBlock) && /editWriteContactFieldsMatch/.test(handlerBlock),
   'idempotent path skips UPDATE when values already match');
+check(/hasOwnProperty\.call\(body, 'phone'\)/.test(src) &&
+  /hasOwnProperty\.call\(body, 'email'\)/.test(src),
+  'phone/email clear uses explicit body keys (null idempotent when already null)');
+check(/editWriteMergeContactFields\(bookingRow, contactPatch\)/.test(handlerBlock),
+  'merge uses parsed patch so email:null / phone:null clear correctly');
 
 console.log('\nG. Preview + UI unchanged');
 
