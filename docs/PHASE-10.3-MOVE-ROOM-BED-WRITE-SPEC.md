@@ -1,11 +1,13 @@
 # Phase 10.3 — Move Room/Bed Write Spec
 
-**Status:** PASS — Phase 10.3a docs/spec (2026-06-03). **No implementation yet.**  
+**Status:** COMPLETE ENOUGH / PASS — Phase 10.3 (2026-06-04). Implementation + hosted proof complete.  
 **Parent:** Phase 10 — Staff Operations Polish  
 **Prior:** [Phase 10.2 move preview closeout](ROADMAP.md) — `POST /staff/bookings/move-preview` hosted and proven SELECT-only (commit `6d339e3`, revision `--0000054`)  
-**Next:** **10.3b** — API write handler behind staff/operator auth, no UI
+**Next:** Decide **10.3e** Staff Portal UI move controls vs **Phase 10.4** date-change preview
 
-**Non-negotiables (this slice):** No code. No migration. No DB apply. No API routes. No UI. No deploy. No n8n activation. No WhatsApp. No Stripe. No DB writes.
+**Implementation commits:** `d9b5c36` (10.3a spec) · `b5c76fe` (10.3b API) · `0a1acbf` (10.3b.1 verifier alignment). **Hosted:** `0a1acbf-stage103c-move-write-gated` → revisions `--0000055` (gate OFF) · `--0000056` (gate ON, move proof) · `--0000057` (gate OFF cleanup, current). **Staging gate:** `BOOKING_MOVE_WRITE_ENABLED=false` (default OFF).
+
+**Non-negotiables (preserved):** No n8n activation. No WhatsApp. No Stripe calls from move write. No payment or `booking_service_records` mutation. No UI move button yet (10.3e). Write gate OFF on staging after proof.
 
 **Context:** Live WhatsApp **NO_GO**. n8n **inactive** unless explicitly approved. Stripe webhook remains payment truth. `booking_service_records` remains service/add-on truth. Preview path reuses Phase 10.2 half-open overlap + same-day turnover rules.
 
@@ -62,7 +64,7 @@ Preview (`POST /staff/bookings/move-preview`) remains available and unchanged. W
 
 - Session auth: **operator** role minimum (`requireAuth('operator')`).
 - `STAFF_ACTIONS_ENABLED=true` (same pattern as manual booking writes).
-- Proposed additional flag: `BOOKING_MOVE_ENABLED=true` (default **false**; staging-only until proof).
+- Proposed additional flag: `BOOKING_MOVE_WRITE_ENABLED=true` (default **false**; staging-only until proof; **currently OFF on staging after 10.3c cleanup**).
 - **Not** bot-token auth in MVP.
 
 ---
@@ -240,7 +242,7 @@ File audit: reuse `appendAuditLog()` pattern from `staff-query-api.js` with `int
 | Service records | No mutation |
 | Ask Luna | No changes |
 | Live guest automation | **NO_GO** |
-| Proof booking | `MB-WOLFHO-20260920-4f62e2` (Manual Polish Test) — move B1→B2, revert in proof plan |
+| Proof booking | `MB-WOLFHO-20260920-4f62e2` (Manual Polish Test) — moved B1→B2 on staging; remains on **DEMO-R1-B2** after proof |
 
 ---
 
@@ -248,11 +250,12 @@ File audit: reuse `appendAuditLog()` pattern from `staff-query-api.js` with `int
 
 | Slice | Scope | Deliverable |
 |-------|-------|-------------|
-| **10.3a** | Docs/spec | This document — **PASS** |
-| **10.3b** | API handler | `POST /staff/bookings/move` in `staff-query-api.js`; operator auth + flags; transaction + conflict recheck; Option A UPDATE; **no UI** |
-| **10.3c** | Static verifier | `verify-staff-booking-move-write.js` + `npm run verify:staff-booking-move-write` |
-| **10.3d** | Hosted proof | Staging deploy; move + idempotent retry + blocked case; safety counts; proof booking only |
-| **10.3e** | UI (optional) | Bed Calendar / drawer "Move" button — **only after 10.3d PASS** |
+| **10.3a** | Docs/spec | **PASS** (`d9b5c36`) — this document |
+| **10.3b** | API handler | **PASS** (`b5c76fe`) — `POST /staff/bookings/move`; operator auth + `BOOKING_MOVE_WRITE_ENABLED`; transaction + conflict recheck; Option A UPDATE; no UI |
+| **10.3b.1** | Verifier alignment | **PASS** (`0a1acbf`) — preview verifier distinguishes gated write route |
+| **10.3c** | Hosted proof + safety cleanup | **PASS** — move B1→B2 on `MB-WOLFHO-20260920-4f62e2`; gate OFF/ON/OFF; idempotency; revision `--0000057` gate OFF |
+| **10.3e** | UI (optional) | **Not started** — Bed Calendar / drawer "Move" button |
+| **10.4** | Date-change preview/write | **Deferred** |
 
 Preview route and verifier (`verify:staff-booking-move-preview`) remain unchanged.
 
