@@ -13224,9 +13224,15 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .al-answer-box{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:18px 20px;margin:12px 0 0}
 .al-answer-intent{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
 .al-answer-text{font-size:14px;font-weight:600;color:var(--text);line-height:1.5;margin-bottom:10px}
-.al-answer-unsupported{font-size:13px;color:var(--text-2);line-height:1.5}
-.al-answer-rowcount{font-size:11.5px;color:var(--text-3);margin-bottom:8px}
-.al-rows-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:8px}
+.al-answer-prose{font-size:14px;font-weight:500;color:var(--text);line-height:1.65;white-space:pre-wrap;margin:0 0 12px}
+.al-answer-unsupported{font-size:13px;color:var(--text-2);line-height:1.5;white-space:pre-wrap}
+.al-answer-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px}
+.al-answer-rowcount{font-size:11px;color:var(--text-3);letter-spacing:.01em}
+.al-raw-toggle{font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text-2);cursor:pointer;line-height:1.3}
+.al-raw-toggle:hover{color:var(--text);border-color:#9AB88C}
+.al-raw-wrap{display:none;margin-top:8px}
+.al-raw-wrap.is-open{display:block}
+.al-rows-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:0}
 .al-rows-table th{text-align:left;padding:5px 8px;background:#F5F0E8;border-bottom:1px solid var(--border-soft);color:var(--text-2);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
 .al-rows-table td{padding:5px 8px;border-bottom:1px solid #F2EDE4;vertical-align:top;color:var(--text)}
 .al-rows-table tr:last-child td{border-bottom:none}
@@ -14500,12 +14506,56 @@ function alSetLoading(on){
   el('al-status').textContent = on ? 'Asking Luna\u2026' : '';
 }
 
+function alFormatAnswerHtml(text){
+  return escHtml(text == null ? '' : String(text));
+}
+
+function alBuildRawRowsTableHtml(rows){
+  if (!rows || rows.length === 0) return '';
+  var cols = Object.keys(rows[0]).filter(function(c){
+    return ['booking_id','payment_id'].indexOf(c) === -1;
+  });
+  var html = '<div style="overflow-x:auto"><table class="al-rows-table"><thead><tr>';
+  cols.forEach(function(c){ html += '<th>' + escHtml(c) + '</th>'; });
+  html += '</tr></thead><tbody>';
+  rows.slice(0, 20).forEach(function(row){
+    html += '<tr>';
+    cols.forEach(function(c){
+      var v = row[c] == null ? '' : String(row[c]);
+      html += '<td>' + escHtml(v) + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  if (rows.length > 20){
+    html += '<div style="font-size:11px;color:var(--text-3);text-align:right;margin-top:4px">Showing first 20 of ' + rows.length + '</div>';
+  }
+  return html;
+}
+
+function alToggleRawData(btn){
+  var block = btn && btn.closest('.al-raw-block');
+  if (!block) return;
+  var wrap = block.querySelector('.al-raw-wrap');
+  if (!wrap) return;
+  var open = wrap.classList.contains('is-open');
+  if (open){
+    wrap.classList.remove('is-open');
+    btn.textContent = 'Show raw data';
+    btn.setAttribute('aria-expanded', 'false');
+  } else {
+    wrap.classList.add('is-open');
+    btn.textContent = 'Hide raw data';
+    btn.setAttribute('aria-expanded', 'true');
+  }
+}
+
 function alRenderResult(data){
   var html = '';
   if (data.intent === 'unsupported_intent'){
     html += '<div class="al-answer-box">';
     html += '<div class="al-answer-intent">unsupported intent</div>';
-    html += '<div class="al-answer-text">&#129300; ' + escHtml(data.answer || 'Unsupported question.') + '</div>';
+    html += '<div class="al-answer-prose">&#129300; ' + alFormatAnswerHtml(data.answer || 'Unsupported question.') + '</div>';
     if (data.intent_hint){
       html += '<div class="al-answer-unsupported">Intent hint: <strong>' + escHtml(data.intent_hint) + '</strong></div>';
     }
@@ -14513,33 +14563,21 @@ function alRenderResult(data){
   } else {
     html += '<div class="al-answer-box">';
     html += '<div class="al-answer-intent">' + escHtml(data.intent || '') + (data.category ? ' &bull; ' + escHtml(data.category) : '') + '</div>';
-    html += '<div class="al-answer-text">&#10004;&#65038; ' + escHtml(data.answer || '') + '</div>';
+    html += '<div class="al-answer-prose">' + alFormatAnswerHtml(data.answer || '') + '</div>';
     var n = data.row_count != null ? data.row_count : (data.rows ? data.rows.length : 0);
-    if (n > 0){
-      html += '<div class="al-answer-rowcount">' + n + ' row' + (n !== 1 ? 's' : '') + ' returned</div>';
-      var rows = data.rows || [];
-      if (rows.length > 0){
-        var cols = Object.keys(rows[0]).filter(function(c){
-          return ['booking_id','payment_id'].indexOf(c) === -1;
-        });
-        html += '<div style="overflow-x:auto"><table class="al-rows-table"><thead><tr>';
-        cols.forEach(function(c){ html += '<th>' + escHtml(c) + '</th>'; });
-        html += '</tr></thead><tbody>';
-        rows.slice(0, 20).forEach(function(row){
-          html += '<tr>';
-          cols.forEach(function(c){
-            var v = row[c] == null ? '' : String(row[c]);
-            html += '<td>' + escHtml(v) + '</td>';
-          });
-          html += '</tr>';
-        });
-        html += '</tbody></table></div>';
-        if (rows.length > 20){
-          html += '<div style="font-size:11px;color:var(--text-3);text-align:right;margin-top:4px">Showing first 20 of ' + rows.length + '</div>';
-        }
-      }
+    var rows = data.rows || [];
+    if (n > 0 && rows.length > 0){
+      html += '<div class="al-raw-block">';
+      html += '<div class="al-answer-meta">';
+      html += '<span class="al-answer-rowcount">' + n + ' row' + (n !== 1 ? 's' : '') + ' returned</span>';
+      html += '<button type="button" class="al-raw-toggle" aria-expanded="false">Show raw data</button>';
+      html += '</div>';
+      html += '<div class="al-raw-wrap">' + alBuildRawRowsTableHtml(rows) + '</div>';
+      html += '</div>';
+    } else if (n > 0){
+      html += '<div class="al-answer-meta"><span class="al-answer-rowcount">' + n + ' row' + (n !== 1 ? 's' : '') + ' returned</span></div>';
     } else {
-      html += '<div class="al-answer-rowcount" style="color:#6B9B5A">No rows &mdash; all clear.</div>';
+      html += '<div class="al-answer-meta"><span class="al-answer-rowcount" style="color:#6B9B5A">No rows &mdash; all clear.</span></div>';
     }
     html += '</div>';
   }
@@ -14589,6 +14627,14 @@ function alPickExample(btn){
   wrap.addEventListener('click', function(ev){
     var btn = ev.target && ev.target.closest('.al-example-chip');
     if (btn) alPickExample(btn);
+  });
+})();
+(function(){
+  var result = el('al-result');
+  if (!result) return;
+  result.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest('.al-raw-toggle');
+    if (btn) alToggleRawData(btn);
   });
 })();
 

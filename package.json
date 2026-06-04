@@ -148,6 +148,7 @@
     "verify:staff-ask-luna-multi-tool-planner": "node scripts/verify-staff-ask-luna-multi-tool-planner.js",
     "verify:staff-ask-luna-phase11-closeout": "node scripts/verify-staff-ask-luna-phase11-closeout.js",
     "verify:staff-ask-luna-examples-ui": "node scripts/verify-staff-ask-luna-examples-ui.js",
+    "verify:staff-ask-luna-display-ui": "node scripts/verify-staff-ask-luna-display-ui.js",
     "verify:staff-stormglass-config": "node scripts/verify-staff-stormglass-config.js",
     "verify:staff-stormglass-forecast": "node scripts/verify-staff-stormglass-forecast.js",
     "verify:staff-ask-luna-whatsapp-dry-run": "node scripts/verify-staff-ask-luna-whatsapp-dry-run.js",

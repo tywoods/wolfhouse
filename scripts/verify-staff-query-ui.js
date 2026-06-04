@@ -193,6 +193,15 @@ section('7b2. Ask Luna example questions (Phase 11 UI)');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('7b3. Ask Luna answer display (readable prose + collapsed raw rows)');
+
+if (has(src, /\.al-raw-wrap\{display:none/)) { pass('raw rows hidden by default (CSS)'); } else { fail('raw rows not hidden by default'); }
+if (has(src, /Show raw data/))              { pass('Show raw data toggle present'); } else { fail('Show raw data toggle missing'); }
+if (has(src, /function alToggleRawData/))   { pass('alToggleRawData handler present'); } else { fail('alToggleRawData missing'); }
+if (has(src, /\.al-answer-prose[^}]*white-space:pre-wrap/)) { pass('answer prose uses pre-wrap'); } else { fail('answer prose missing pre-wrap'); }
+if (has(src, /class="al-rows-table"/))       { pass('raw table markup preserved'); } else { fail('raw table markup missing'); }
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('7c. Portal click handlers (Stage 8.7.4)');
 
 if (has(src, /window\.switchToTab\s*=\s*switchToTab/))                    { pass('switchToTab exposed on window'); }                        else { fail('switchToTab not on window — Today tile onclick will fail'); }
