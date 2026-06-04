@@ -13437,18 +13437,62 @@ function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+/* Stage 8.4.10 / 10.7c — payment link URL from copy button or sibling anchor */
+function bcPaymentLinkUrlFromCopyBtn(btn){
+  if (!btn) return '';
+  var row = btn.closest ? btn.closest('.ctx-pay-record-url') : null;
+  if (row){
+    var a = row.querySelector('a[href]');
+    if (a && a.href) return String(a.href);
+  }
+  var u = btn.getAttribute('data-url');
+  if (u) return u;
+  return (btn.dataset && btn.dataset.url) || '';
+}
+
+function bcCopyTextToClipboard(text, onSuccess, onFail){
+  text = String(text || '');
+  if (!text){ if (onFail) onFail(); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      if (onSuccess) onSuccess();
+    }).catch(function(){
+      bcCopyTextToClipboardExecCommand(text, onSuccess, onFail);
+    });
+    return;
+  }
+  bcCopyTextToClipboardExecCommand(text, onSuccess, onFail);
+}
+
+function bcCopyTextToClipboardExecCommand(text, onSuccess, onFail){
+  var ok = false;
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+  } catch (_) { ok = false; }
+  if (ok){ if (onSuccess) onSuccess(); return; }
+  if (onFail) onFail();
+}
+
 /* Stage 8.4.10 — shared clipboard helper for dynamically-rendered copy buttons */
 function bcCopyUrl(btn){
-  var u = btn && btn.dataset && btn.dataset.url;
+  var u = bcPaymentLinkUrlFromCopyBtn(btn);
   if (!u) return;
   var orig = btn.textContent;
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(u)
-      .then(function(){ btn.textContent = '\u2713 Copied!'; setTimeout(function(){ btn.textContent = orig; }, 2000); })
-      .catch(function(){ prompt('Payment link:', u); });
-  } else {
-    prompt('Payment link:', u);
-  }
+  bcCopyTextToClipboard(u, function(){
+    btn.textContent = '\u2713 Copied!';
+    setTimeout(function(){ btn.textContent = orig; }, 2000);
+  }, function(){ prompt('Payment link:', u); });
 }
 function fmtTs(ts){
   if (!ts) return '';
@@ -15778,6 +15822,7 @@ function bcRefreshBlockDetail(){
 
 function showBlockDetail(blk){
   if (!blk) return;
+  bcInitDetailCopyDelegation();
   bcClearSelection();
   bcLastOpenedBlock = blk;
   el('bc-detail').innerHTML =
@@ -16648,22 +16693,36 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
 }
 
 function bcCopyPaymentLinkIcon(btn){
-  var u = btn && btn.dataset && btn.dataset.url;
+  var u = bcPaymentLinkUrlFromCopyBtn(btn);
   if (!u) return;
   var origTitle = btn.getAttribute('title') || 'Copy payment link';
+  var origLabel = btn.getAttribute('aria-label') || origTitle;
+  var origText = btn.textContent;
   function showCopied(){
+    btn.textContent = '\u2713';
     btn.setAttribute('title', 'Copied');
     btn.setAttribute('aria-label', 'Copied');
     setTimeout(function(){
+      btn.textContent = origText;
       btn.setAttribute('title', origTitle);
-      btn.setAttribute('aria-label', origTitle);
+      btn.setAttribute('aria-label', origLabel);
     }, 2000);
   }
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(u).then(showCopied).catch(function(){ prompt('Payment link:', u); });
-  } else {
-    prompt('Payment link:', u);
-  }
+  bcCopyTextToClipboard(u, showCopied, function(){ prompt('Payment link:', u); });
+}
+
+var bcDetailCopyDelegationBound = false;
+function bcInitDetailCopyDelegation(){
+  if (bcDetailCopyDelegationBound) return;
+  var panel = el('bc-detail');
+  if (!panel) return;
+  bcDetailCopyDelegationBound = true;
+  panel.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('.btn-bc-copy-link-icon') : null;
+    if (!btn || !panel.contains(btn)) return;
+    ev.preventDefault();
+    bcCopyPaymentLinkIcon(btn);
+  });
 }
 
 function bcNewPaymentLinkIdempotencyKey(){
@@ -16734,10 +16793,6 @@ function bcInitCancelPaymentLinkShell(data){
       if (!exceptPid || panel.getAttribute('data-payment-id') !== exceptPid) panel.style.display = 'none';
     });
   }
-
-  wrap.querySelectorAll('.btn-bc-copy-link-icon').forEach(function(btn){
-    btn.addEventListener('click', function(){ bcCopyPaymentLinkIcon(btn); });
-  });
 
   wrap.querySelectorAll('.btn-bc-cancel-link-icon').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -18896,6 +18951,7 @@ function bcAddDaysISO(iso, delta){
 
 var bcInitialLoadDone = false;
 function bcOnBedCalendarTabOpen(){
+  bcInitDetailCopyDelegation();
   var sEl = el('bc-start');
   var eEl = el('bc-end');
   if ((sEl && !sEl.value) || (eEl && !eEl.value)){

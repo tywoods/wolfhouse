@@ -229,11 +229,13 @@ const copyIconFn = src.match(/function bcCopyPaymentLinkIcon[\s\S]*?\n\}/)?.[0] 
 check(/btn-bc-copy-link-icon/.test(invFn), '10.7c: icon-only copy button in Payment history');
 check(/bcPaymentLedgerRowLinkUrl/.test(invFn), '10.7c: resolves link from checkout_url or metadata');
 check(!/onclick="bcCopyUrl\(this\)"/.test(invFn), '10.7c: no broken inline copy onclick');
-check(/bcCopyPaymentLinkIcon/.test(cancelUi), '10.7c: copy wired in bcInitCancelPaymentLinkShell');
+check(/bcInitDetailCopyDelegation/.test(src), '10.7c: copy delegated on bc-detail panel');
+check(/bcPaymentLinkUrlFromCopyBtn/.test(copyIconFn), '10.7c: copy resolves URL from anchor or data-url');
 check(/title="Copy payment link"/.test(invFn) && /aria-label="Copy payment link"/.test(invFn),
   '10.7c: copy title and aria-label');
 check(/Copied/.test(copyIconFn), '10.7c: copied feedback on copy helper');
-check(/navigator\.clipboard\.writeText/.test(copyIconFn), '10.7c: clipboard copy with prompt fallback');
+check(/bcCopyTextToClipboard/.test(copyIconFn), '10.7c: shared clipboard helper with execCommand fallback');
+check(/execCommand\s*\(\s*['"]copy['"]/.test(src), '10.7c: execCommand copy fallback present');
 check(/btn-bc-cancel-link-icon/.test(invFn), '10.7c: cancel link icon preserved');
 
 console.log('\nResult: ' + passes + ' passed, ' + failures + ' failed\n');

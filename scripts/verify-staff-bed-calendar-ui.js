@@ -1482,6 +1482,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 
   check(/btn-bc-copy-link-icon/.test(payFn) && /bcCopyPaymentLinkIcon/.test(src),
     '219l: drawer uses bcCopyPaymentLinkIcon for payment link copy (Stage 10.7c)');
+  check(/bcInitDetailCopyDelegation/.test(src) && /bcPaymentLinkUrlFromCopyBtn/.test(src),
+    '219l: payment link copy uses anchor fallback + bc-detail delegation (10.7c fix)');
 
   check(!/stripe\.(checkout|charges|paymentIntents|sessions)\.create/i.test(payUi),
     '219m: drawer does not make Stripe API calls (Stage 8.4.12)');
