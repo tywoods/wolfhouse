@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-addons-ui.js  (Phase 10.6a / 10.6a.1)\n');
+console.log('\nverify-staff-booking-addons-ui.js  (Phase 10.6a / 10.6a.2)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -37,13 +37,20 @@ try {
 }
 
 const addHandlerMatch = src.match(
-  /async function handleBookingAddService[\s\S]*?async function handleQuotePreview/
+  /async function handleBookingAddService[\s\S]*?async function handleBookingRemoveService/
 );
 const addHandlerBlock = addHandlerMatch ? addHandlerMatch[0] : '';
+
+const removeHandlerMatch = src.match(
+  /async function handleBookingRemoveService[\s\S]*?async function handleQuotePreview/
+);
+const removeHandlerBlock = removeHandlerMatch ? removeHandlerMatch[0] : '';
 
 const addUiBlock =
   (src.match(/function bcInitAddServiceShell[\s\S]*?function bcInitBookingCancelShell/)?.[0] || '') +
   (src.match(/function bcRunAddServiceSave[\s\S]*?function bcInitAddServiceShell/)?.[0] || '') +
+  (src.match(/function bcRunRemoveServiceSave[\s\S]*?function bcRunAddServiceSave/)?.[0] || '') +
+  (src.match(/function bcPopulateRemoveSelect[\s\S]*?function bcOpenAddServiceForm/)?.[0] || '') +
   (src.match(/function bcOpenAddServiceForm[\s\S]*?function bcRenderAddServiceResult/)?.[0] || '');
 
 const addPanelBlock = src.match(
@@ -84,16 +91,26 @@ check(/bcRenderAddServicePanelHtml[\s\S]*?bcRenderRunningInvoiceHtml/.test(drawe
 check(!/bcRenderRunningInvoiceHtml[\s\S]*?bcRenderAddServicePanelHtml/.test(drawerFn),
   'running invoice is not above add-ons panel');
 
-console.log('\nC. UI — Add-ons header + Add button');
+console.log('\nC. UI — compact Add-ons header (Add + Remove near title)');
 
 check(/id="bc-add-ons-panel"/.test(addPanelBlock), 'Add-ons panel id bc-add-ons-panel');
 check(/bc-add-ons-title/.test(addPanelBlock) && />Add-ons</.test(addPanelBlock),
   'Add-ons section title present');
+check(/bc-add-ons-actions/.test(addPanelBlock), 'add-ons action buttons grouped near title');
+check(!/justify-content:\s*space-between/.test(
+  src.match(/\.ctx-add-ons-panel \.bc-add-ons-header[\s\S]*?\}/)?.[0] || ''
+),
+  'add-ons header does not push buttons to far drawer edge');
 check(/id="bc-add-ons-btn"/.test(addPanelBlock) && />Add</.test(addPanelBlock),
-  'Add button in add-ons header');
-check(/bc-add-ons-header[\s\S]*?bc-add-ons-title[\s\S]*?bc-add-ons-btn/.test(addPanelBlock),
-  'Add button sits on same header row as Add-ons title (right side layout)');
+  'Add button present');
+check(/id="bc-add-ons-remove-btn"/.test(addPanelBlock) && />Remove</.test(addPanelBlock),
+  'Remove button present in header actions');
+check(/bc-add-ons-header[\s\S]*?bc-add-ons-title[\s\S]*?bc-add-ons-actions[\s\S]*?bc-add-ons-btn/.test(addPanelBlock),
+  'Add button grouped with title (compact header)');
 check(/id="bc-add-ons-form-wrap"/.test(addPanelBlock), 'inline add-ons form wrap exists');
+check(/id="bc-add-ons-remove-wrap"/.test(addPanelBlock), 'inline remove form wrap exists');
+check(/id="bc-add-ons-remove-select"/.test(addPanelBlock), 'remove add-on select exists');
+check(/Confirm remove/.test(addPanelBlock), 'Confirm remove button in remove form');
 check(/id="bc-add-ons-type"/.test(addPanelBlock), 'add-on type dropdown exists');
 check(/value="wetsuit"/.test(addPanelBlock) && /value="soft_board"/.test(addPanelBlock) &&
   /value="hard_board"/.test(addPanelBlock) && /value="surf_lesson"/.test(addPanelBlock) &&
@@ -111,6 +128,25 @@ check(!/\\u20ac\d|€\d|\(\\u20ac|\(\u20ac/.test(addPanelBlock),
   'dropdown option labels do not embed prices');
 check(/function bcInitAddServiceShell/.test(src), 'bcInitAddServiceShell wires drawer controls');
 check(/bcInitAddServiceShell\(res\.data\)/.test(src), 'drawer load initializes add-ons shell');
+
+console.log('\nD2. Remove UI — existing service_records only');
+
+check(/function bcPopulateRemoveSelect/.test(addUiBlock),
+  'bcPopulateRemoveSelect builds remove options from context');
+check(/bcRunningInvoiceSvcLineText\(sr\)/.test(addUiBlock),
+  'remove list labels reuse running invoice line text');
+check(/function bcUpdateRemoveButton/.test(addUiBlock),
+  'bcUpdateRemoveButton toggles Remove visibility');
+check(/bcUpdateRemoveButton\(svcRows/.test(addUiBlock),
+  'Remove button state depends on service_records length');
+check(!/value="wetsuit"/.test(
+  (addPanelBlock.match(/id="bc-add-ons-remove-select"[\s\S]*?<\/select>/)?.[0] || '')
+),
+  'remove select is not a static add-on type dropdown');
+check(/data\.service_records/.test(addUiBlock),
+  'remove flow reads service_records from drawer context');
+check(/bcOpenRemoveServiceForm/.test(addUiBlock) && /bcCloseRemoveServiceForm/.test(addUiBlock),
+  'remove form open/close helpers exist');
 
 console.log('\nE. API — POST /staff/bookings/add-service (endpoint name unchanged)');
 
@@ -169,23 +205,56 @@ check(/loadBlockDetail\(code\)/.test(addUiBlock), 'successful add reloads drawer
 check(/\/staff\/bookings\/add-service/.test(addUiBlock), 'UI posts to /staff/bookings/add-service');
 check(/bcCloseAddServiceForm/.test(addUiBlock), 'form closes after success');
 
+console.log('\nH2. API — POST /staff/bookings/remove-service');
+
+check(/async function handleBookingRemoveService/.test(src), 'handleBookingRemoveService handler exists');
+check(/pathname === '\/staff\/bookings\/remove-service'/.test(src),
+  'route POST /staff/bookings/remove-service registered');
+check(/requireAuth\(req, res, 'operator'\)/.test(
+  src.slice(src.indexOf("pathname === '/staff/bookings/remove-service'"),
+    src.indexOf("pathname === '/staff/bookings/remove-service'") + 420)
+), 'remove-service route requires operator auth');
+check(/booking_service_record_id/.test(removeHandlerBlock),
+  'remove request accepts booking_service_record_id');
+check(/DELETE FROM booking_service_records/.test(removeHandlerBlock),
+  'remove deletes one booking_service_records row');
+check(/row\.booking_id !== bookingRow\.booking_id|record_not_on_booking|not_owned/.test(removeHandlerBlock),
+  'remove verifies record belongs to booking');
+check(/idempotent:\s*true,\s*removed:\s*false|removed:\s*false[\s\S]*idempotent:\s*true/.test(removeHandlerBlock),
+  'idempotent response when row already missing');
+check(!/INSERT INTO payments|UPDATE payments|amount_paid_cents\s*=/.test(removeHandlerBlock),
+  'no payments paid-truth mutation in remove-service handler');
+check(!/UPDATE booking_beds|DELETE FROM booking_beds|INSERT INTO booking_beds/i.test(removeHandlerBlock),
+  'no booking_beds mutation in remove-service handler');
+const removeUiSlice = src.match(/function bcRunRemoveServiceSave[\s\S]*?function bcRunAddServiceSave/)?.[0] || '';
+check(!/api\.stripe\.com|createStripe|payment_link|createRefund/i.test(removeHandlerBlock + removeUiSlice),
+  'no Stripe/refund creation in remove-service slice');
+check(/\/staff\/bookings\/remove-service/.test(removeUiSlice),
+  'UI posts to /staff/bookings/remove-service');
+check(/loadBlockDetail\(code\)/.test(removeUiSlice),
+  'successful remove reloads drawer context');
+check(/bcCloseRemoveServiceForm/.test(addUiBlock),
+  'remove form closes after success');
+
 console.log('\nI. Calendar / safety');
 
 check(/bookingStatusIsCancelled/.test(src.match(/function buildCalendarBlocks[\s\S]*?async function handleBedCalendar/)?.[0] || ''),
   'cancelled bookings still filtered from calendar blocks');
-check(!/graph\.facebook\.com/i.test(addHandlerBlock + addUiBlock),
+check(!/graph\.facebook\.com/i.test(addHandlerBlock + removeHandlerBlock + addUiBlock),
   'no WhatsApp in add-ons slice');
-check(!/n8n\.cloud|activate.*workflow/i.test(addHandlerBlock + addUiBlock),
+check(!/n8n\.cloud|activate.*workflow/i.test(addHandlerBlock + removeHandlerBlock + addUiBlock),
   'no n8n activation in add-ons slice');
 check(!/UPDATE booking_service_records/i.test(addHandlerBlock),
   'add-service handler does not UPDATE existing service rows (INSERT only)');
+check(!/UPDATE booking_service_records/i.test(removeHandlerBlock),
+  'remove-service uses DELETE not UPDATE on service rows');
 
 console.log('\nJ. No docs / migration / deploy in slice');
 
 if (fs.existsSync(MIG_DIR)) {
   const migHit = fs.readdirSync(MIG_DIR).filter((f) => f.endsWith('.sql')).some((f) => {
     const body = fs.readFileSync(path.join(MIG_DIR, f), 'utf8');
-    return /handleBookingAddService|staff\/bookings\/add-service/i.test(body);
+    return /handleBookingAddService|handleBookingRemoveService|staff\/bookings\/(add|remove)-service/i.test(body);
   });
   check(!migHit, 'no new migration for add-service in this slice');
 } else {

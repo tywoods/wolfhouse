@@ -6215,6 +6215,158 @@ async function handleBookingAddService(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bookings/remove-service
+//
+// DELETE one booking_service_records row. No payments, Stripe, WhatsApp, n8n.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBookingRemoveService(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId      = String(body.booking_id   || '').trim();
+  const bookingCode    = String(body.booking_code || '').trim();
+  const recordId       = String(body.booking_service_record_id || '').trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const reason         = body.reason != null ? String(body.reason).trim().slice(0, 500) : null;
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!recordId || !UUID_VALIDATE_RE.test(recordId)) {
+    return send400(res, 'booking_service_record_id must be a valid UUID');
+  }
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const actorId    = user ? user.staff_user_id : 'dev-remove-service-local';
+  const actorRole  = user ? user.role          : 'operator';
+  const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:booking_remove_service',
+    category:        'booking_remove_service_write',
+    client_slug:     clientSlug,
+    booking_id:      bookingId || null,
+    booking_code:    bookingCode || null,
+    service_record_id: recordId,
+    idempotency_key: idempotencyKey,
+    staff_user_id:   actorId,
+    staff_role:      actorRole,
+  };
+
+  let bookingRow;
+  try {
+    bookingRow = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      return bookingRes.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'remove add-on lookup failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', removed: false });
+  }
+
+  if (bookingStatusIsCancelled(bookingRow.status)) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'booking_not_active',
+      message: 'Cannot remove add-ons from a cancelled or expired booking.',
+      removed: false,
+    });
+  }
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      const existing = await pg.query(
+        `SELECT sr.id::text AS id, sr.booking_id::text AS booking_id, sr.service_type,
+                sr.quantity, sr.amount_due_cents
+         FROM booking_service_records sr
+         WHERE sr.id = $1::uuid AND sr.client_slug = $2
+         LIMIT 1`,
+        [recordId, clientSlug]
+      );
+      const row = existing.rows[0];
+      if (!row) {
+        return { idempotent: true, removed: false, row: null };
+      }
+      if (row.booking_id !== bookingRow.booking_id) {
+        return { not_owned: true };
+      }
+      const del = await pg.query(
+        `DELETE FROM booking_service_records
+         WHERE id = $1::uuid AND client_slug = $2 AND booking_id = $3::uuid
+         RETURNING id::text AS service_record_id, service_type, quantity, amount_due_cents`,
+        [recordId, clientSlug, bookingRow.booking_id]
+      );
+      return {
+        idempotent: false,
+        removed: del.rows.length > 0,
+        row: del.rows[0] || null,
+        reason,
+      };
+    });
+
+    if (result.not_owned) {
+      appendAuditLog({ ...auditBase, success: false, error: 'record_not_on_booking', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 404, {
+        success: false,
+        error: 'add-on record not found on this booking',
+        removed: false,
+      });
+    }
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      removed: result.removed,
+      idempotent: result.idempotent,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      removed: result.removed,
+      idempotent: result.idempotent,
+      service_record_id: recordId,
+      removed_record: result.row,
+      audit: { actor: actorLabel, idempotency_key: idempotencyKey, reason: reason || null },
+      message: result.idempotent
+        ? 'Add-on record was already removed.'
+        : 'Add-on removed. Running invoice will no longer include this line. No payment or Stripe changes were made.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    if (isMissingBookingServiceRecordsTable(err)) {
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'booking_service_records table not available',
+        removed: false,
+      });
+    }
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'remove add-on failed', detail: err.message, removed: false });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
 //
 // Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
@@ -10775,8 +10927,10 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-add-ons-form-wrap{margin-top:10px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
 .bc-add-ons-form-wrap .ctx-field-label{margin-top:8px}
 .bc-add-ons-form-wrap .ctx-field-label:first-child{margin-top:0}
-.ctx-add-ons-panel .bc-add-ons-header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.ctx-add-ons-panel .bc-add-ons-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .ctx-add-ons-panel .bc-add-ons-title{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
+.ctx-add-ons-panel .bc-add-ons-actions{display:flex;align-items:center;gap:6px}
+.ctx-add-ons-panel .bc-add-ons-actions .btn{font-size:11px;padding:4px 10px}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
 .ctx-addon-row:last-child{border-bottom:none}
 .ctx-svc-record{padding:8px 10px;margin-bottom:6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-2,#f8f9fa);font-size:12px}
@@ -15060,21 +15214,35 @@ function bcFieldEditUpdateGuestPreview(){
   bcFieldEditUpdateGuestsSaveState();
 }
 
-/* Phase 10.6a — add booking add-on record (inline form above Payment / running invoice) */
+/* Phase 10.6a — add/remove booking add-on records (inline forms above Payment) */
 var bcAddServiceCtx = {
   bookingId: null,
   bookingCode: null,
   checkIn: null,
-  inFlight: false,
+  addInFlight: false,
+  removeInFlight: false,
 };
+
+function bcNewRemoveServiceIdempotencyKey(){
+  return 'bc-remove-svc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
 
 function bcRenderAddServicePanelHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) return '';
   return '<div class="ctx-section ctx-add-ons-panel" id="bc-add-ons-panel">' +
     '<div class="bc-add-ons-header">' +
     '<span class="bc-add-ons-title">Add-ons</span>' +
-    '<button type="button" class="btn btn-ghost" id="bc-add-ons-btn" style="font-size:11px;padding:4px 10px">Add</button>' +
-    '</div>' +
+    '<div class="bc-add-ons-actions">' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-btn">Add</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-btn" style="display:none">Remove</button>' +
+    '</div></div>' +
+    '<div id="bc-add-ons-remove-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
+    '<label class="ctx-field-label" for="bc-add-ons-remove-select">Remove add-on</label>' +
+    '<select id="bc-add-ons-remove-select" class="bk-input bk-input-sm"></select>' +
+    '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
+    '<button type="button" class="btn btn-primary" id="bc-add-ons-remove-confirm-btn">Confirm remove</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-cancel-btn">Cancel</button>' +
+    '</div></div>' +
     '<div id="bc-add-ons-form-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
     '<label class="ctx-field-label" for="bc-add-ons-type">Add-on type</label>' +
     '<select id="bc-add-ons-type" class="bk-input bk-input-sm">' +
@@ -15121,7 +15289,43 @@ function bcCloseAddServiceForm(){
   if (btn) btn.disabled = false;
 }
 
+function bcCloseRemoveServiceForm(){
+  var wrap = el('bc-add-ons-remove-wrap');
+  if (wrap) wrap.style.display = 'none';
+  var btn = el('bc-add-ons-remove-btn');
+  if (btn) btn.disabled = false;
+}
+
+function bcPopulateRemoveSelect(svcRows){
+  var sel = el('bc-add-ons-remove-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  (svcRows || []).forEach(function(sr){
+    var id = sr.service_record_id || sr.id;
+    if (!id) return;
+    var opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = bcRunningInvoiceSvcLineText(sr);
+    sel.appendChild(opt);
+  });
+}
+
+function bcUpdateRemoveButton(svcRows, cancelled){
+  var btn = el('bc-add-ons-remove-btn');
+  if (!btn) return;
+  var hasRows = Array.isArray(svcRows) && svcRows.length > 0;
+  if (cancelled || !hasRows){
+    btn.style.display = 'none';
+    btn.disabled = true;
+    bcCloseRemoveServiceForm();
+    return;
+  }
+  btn.style.display = '';
+  btn.disabled = false;
+}
+
 function bcOpenAddServiceForm(data){
+  bcCloseRemoveServiceForm();
   var wrap = el('bc-add-ons-form-wrap');
   if (!wrap) return;
   var bk = (data && data.booking) || {};
@@ -15139,6 +15343,20 @@ function bcOpenAddServiceForm(data){
   if (resBox) resBox.innerHTML = '';
 }
 
+function bcOpenRemoveServiceForm(data){
+  bcCloseAddServiceForm();
+  var wrap = el('bc-add-ons-remove-wrap');
+  if (!wrap) return;
+  var svcRows = (data && data.service_records) || [];
+  if (!svcRows.length) return;
+  bcPopulateRemoveSelect(svcRows);
+  wrap.style.display = '';
+  var btn = el('bc-add-ons-remove-btn');
+  if (btn) btn.disabled = true;
+  var resBox = el('bc-add-ons-result');
+  if (resBox) resBox.innerHTML = '';
+}
+
 function bcRenderAddServiceResult(data, isError){
   var box = el('bc-add-ons-result');
   if (!box) return;
@@ -15151,8 +15369,58 @@ function bcRenderAddServiceResult(data, isError){
     escHtml(data.message || 'Add-on saved.') + '</div>';
 }
 
+function bcRunRemoveServiceSave(){
+  if (bcAddServiceCtx.removeInFlight) return;
+  var code = bcAddServiceCtx.bookingCode;
+  if (!code) return;
+  var sel = el('bc-add-ons-remove-select');
+  var recordId = sel ? sel.value : '';
+  if (!recordId){
+    bcRenderAddServiceResult({ success: false, error: 'Select an add-on to remove.' }, true);
+    return;
+  }
+  bcAddServiceCtx.removeInFlight = true;
+  var confirmBtn = el('bc-add-ons-remove-confirm-btn');
+  if (confirmBtn) confirmBtn.disabled = true;
+  bcRenderAddServiceResult({ success: true, message: 'Removing add-on\u2026' }, false);
+  fetch('/staff/bookings/remove-service', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_slug: getBcClient(),
+      booking_id: bcAddServiceCtx.bookingId,
+      booking_code: bcAddServiceCtx.bookingCode,
+      booking_service_record_id: recordId,
+      idempotency_key: bcNewRemoveServiceIdempotencyKey(),
+      reason: 'Removed from Staff Portal',
+    }),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      bcAddServiceCtx.removeInFlight = false;
+      var data = res.data || {};
+      if (!res.ok || !data.success){
+        bcRenderAddServiceResult({
+          success: false,
+          error: data.error || ('Remove failed (HTTP ' + res.status + ')'),
+          message: data.message,
+        }, true);
+        if (confirmBtn) confirmBtn.disabled = false;
+        return;
+      }
+      bcCloseRemoveServiceForm();
+      bcRenderAddServiceResult(data, false);
+      if (code) loadBlockDetail(code);
+    })
+    .catch(function(e){
+      bcAddServiceCtx.removeInFlight = false;
+      bcRenderAddServiceResult({ success: false, error: e.message || 'Network error' }, true);
+      if (confirmBtn) confirmBtn.disabled = false;
+    });
+}
+
 function bcRunAddServiceSave(){
-  if (bcAddServiceCtx.inFlight) return;
+  if (bcAddServiceCtx.addInFlight) return;
   var code = bcAddServiceCtx.bookingCode;
   if (!code) return;
   var typeEl = el('bc-add-ons-type');
@@ -15164,7 +15432,7 @@ function bcRunAddServiceSave(){
     bcRenderAddServiceResult({ success: false, error: 'Quantity must be at least 1.' }, true);
     return;
   }
-  bcAddServiceCtx.inFlight = true;
+  bcAddServiceCtx.addInFlight = true;
   var saveBtn = el('bc-add-ons-save-btn');
   if (saveBtn) saveBtn.disabled = true;
   bcRenderAddServiceResult({ success: true, message: 'Saving add-on\u2026' }, false);
@@ -15184,7 +15452,7 @@ function bcRunAddServiceSave(){
   })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
-      bcAddServiceCtx.inFlight = false;
+      bcAddServiceCtx.addInFlight = false;
       var data = res.data || {};
       if (!res.ok || !data.success){
         bcRenderAddServiceResult({
@@ -15200,7 +15468,7 @@ function bcRunAddServiceSave(){
       if (code) loadBlockDetail(code);
     })
     .catch(function(e){
-      bcAddServiceCtx.inFlight = false;
+      bcAddServiceCtx.addInFlight = false;
       bcRenderAddServiceResult({ success: false, error: e.message || 'Network error' }, true);
       if (saveBtn) saveBtn.disabled = false;
     });
@@ -15208,22 +15476,36 @@ function bcRunAddServiceSave(){
 
 function bcInitAddServiceShell(data){
   var bk = (data && data.booking) || {};
+  var svcRows = (data && data.service_records) || [];
+  var cancelled = bcBookingStatusIsCancelled(bk.status);
   bcAddServiceCtx.bookingId = bk.booking_id || null;
   bcAddServiceCtx.bookingCode = bk.booking_code || null;
   bcAddServiceCtx.checkIn = bk.check_in || null;
-  bcAddServiceCtx.inFlight = false;
+  bcAddServiceCtx.addInFlight = false;
+  bcAddServiceCtx.removeInFlight = false;
   bcCloseAddServiceForm();
+  bcCloseRemoveServiceForm();
+  bcUpdateRemoveButton(svcRows, cancelled);
+  bcPopulateRemoveSelect(svcRows);
   var openBtn = el('bc-add-ons-btn');
   if (openBtn){
-    if (bcBookingStatusIsCancelled(bk.status)){
+    if (cancelled){
       openBtn.style.display = 'none';
     } else {
       openBtn.style.display = '';
       openBtn.onclick = function(){
-        if (bcAddServiceCtx.inFlight) return;
+        if (bcAddServiceCtx.addInFlight || bcAddServiceCtx.removeInFlight) return;
         bcOpenAddServiceForm(data);
       };
     }
+  }
+  var removeBtn = el('bc-add-ons-remove-btn');
+  if (removeBtn && !cancelled){
+    removeBtn.onclick = function(){
+      if (bcAddServiceCtx.addInFlight || bcAddServiceCtx.removeInFlight) return;
+      if (!svcRows.length) return;
+      bcOpenRemoveServiceForm(data);
+    };
   }
   var typeSel = el('bc-add-ons-type');
   if (typeSel) typeSel.onchange = bcAddServiceUpdateQtyLabel;
@@ -15231,6 +15513,10 @@ function bcInitAddServiceShell(data){
   if (cancelBtn) cancelBtn.onclick = function(){ bcCloseAddServiceForm(); };
   var saveBtn = el('bc-add-ons-save-btn');
   if (saveBtn) saveBtn.onclick = function(e){ e.preventDefault(); bcRunAddServiceSave(); };
+  var removeCancelBtn = el('bc-add-ons-remove-cancel-btn');
+  if (removeCancelBtn) removeCancelBtn.onclick = function(){ bcCloseRemoveServiceForm(); };
+  var removeConfirmBtn = el('bc-add-ons-remove-confirm-btn');
+  if (removeConfirmBtn) removeConfirmBtn.onclick = function(e){ e.preventDefault(); bcRunRemoveServiceSave(); };
 }
 
 /* Phase 10.5f — cancel reservation (confirmation required; reload drawer + calendar) */
@@ -17379,6 +17665,17 @@ async function router(req, res) {
     return handleBookingAddService(req, res, auth.user);
   }
 
+  // ── Phase 10.6a.2 — Booking remove add-on (DELETE one service record) ─────
+  if (pathname === '/staff/bookings/remove-service') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/remove-service' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingRemoveService(req, res, auth.user);
+  }
+
   // ── Phase 10.3b — Booking move write (gated; single-bed same dates) ────────
   if (pathname === '/staff/bookings/move') {
     if (method !== 'POST') {
@@ -17739,6 +18036,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c contact + package edit write (ENABLED)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel reservation (beds released; no refund)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-on service record (no Stripe)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/remove-service     <- 10.6a.2 remove one add-on row (no Stripe)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
