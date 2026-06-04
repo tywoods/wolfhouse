@@ -1951,9 +1951,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 // ── Phase 10.6g.6 — calendar block guest name label ─────────────────────────
 (function check106g6CalendarGuestLabel(){
   const qFile = fs.readFileSync(require('path').join(__dirname, 'lib', 'staff-bed-calendar-queries.js'), 'utf8');
+  const pickFn = src.match(/function pickCalendarGuestDisplayName[\s\S]*?\n\}/)?.[0] || '';
   const calPaySlice = src.match(/function bcCalendarBlockDisplayLabel[\s\S]*?function bcTurnoverVisibleLabel/)?.[0] || '';
   const blockLabelFn = src.match(/function bcBlockLabel[\s\S]*?\n\}/)?.[0] || '';
-  const buildSlice = src.match(/function calendarBlockDisplayLabel[\s\S]*?function buildCalendarBlocks[\s\S]*?\n\}/)?.[0] || '';
+  const buildSlice = src.match(/function buildCalendarBlocks[\s\S]*?\n\}/)?.[0] || '';
 
   check(/b\.guest_name/.test(qFile) && /bed_guest_name/.test(qFile),
     '10.6g.6: bed calendar SELECT includes guest_name fields');
@@ -1961,21 +1962,51 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6g.6: client calendar display label helper');
   check(/function calendarBlockDisplayLabel/.test(src),
     '10.6g.6: server calendar display label helper');
-  check(/guest_name \|\| .*bed_guest_name/.test(calPaySlice + buildSlice),
-    '10.6g.6: label prefers guest_name over booking_code');
-  check(/booking_code/.test(calPaySlice + buildSlice),
+  check(/bookingGuest \|\| bedGuest/.test(pickFn),
+    '10.6g.6: label prefers guest_name / bed_guest_name over booking_code');
+  check(/return code/.test(pickFn),
     '10.6g.6: booking_code remains fallback');
   check(/bcCalendarBlockDisplayLabel\(blk\)/.test(blockLabelFn),
     '10.6g.6: bcBlockLabel uses display label helper');
   check(!/codeShort/.test(blockLabelFn),
     '10.6g.6: short-span path no longer prefers booking_code shortcut');
-  check(/calendarBlockDisplayLabel\(row\)/.test(buildSlice),
+  check(/pickCalendarGuestDisplayName\(row\)/.test(buildSlice),
     '10.6g.6: API block label uses guest-first helper');
   check(/label\.length > 16/.test(blockLabelFn),
     '10.6g.6: narrow blocks truncate guest name instead of swapping to code');
 
-  check(/return guest/.test(calPaySlice) || /guest\.length > 0/.test(calPaySlice),
-    '10.6g.6: regression — guest_name wins when present');
+  check(/bookingGuest \|\| bedGuest \|\| planning/.test(pickFn),
+    '10.6g.6: regression — human guest name wins when present');
+})();
+
+// ── Phase 10.6h.1 — preserve guest name after date-change calendar reload ───
+(function check106h1CalendarGuestNameAfterDates(){
+  const pickFn = src.match(/function pickCalendarGuestDisplayName[\s\S]*?\n\}/)?.[0] || '';
+  const buildSlice = src.match(/function buildCalendarBlocks[\s\S]*?\n\}/)?.[0] || '';
+  const datesSaveFn = src.match(/function bcFieldEditRunDatesSave[\s\S]*?\n\}/)?.[0] || '';
+
+  check(/function pickCalendarGuestDisplayName/.test(src),
+    '10.6h.1: shared pickCalendarGuestDisplayName helper');
+  check(/toLowerCase\(\) === code\.toLowerCase\(\)/.test(pickFn),
+    '10.6h.1: skips guest_name when it equals booking_code');
+  check(/bed_guest_name/.test(pickFn) && /planning_row_label/.test(pickFn),
+    '10.6h.1: label prefers bed/planning names before booking_code fallback');
+  check(/pickCalendarGuestDisplayName\(row\)/.test(buildSlice),
+    '10.6h.1: API blocks resolve guest label via pick helper');
+  check(/bed_guest_name:/.test(buildSlice) && /planning_row_label:/.test(buildSlice),
+    '10.6h.1: calendar blocks expose bed/planning guest fields for client render');
+  check(/bcCalendarBlockDisplayLabel[\s\S]*pickCalendarGuestDisplayName/.test(src),
+    '10.6h.1: client block label uses same pick helper');
+  check(/calendarBlockDisplayLabel[\s\S]*pickCalendarGuestDisplayName/.test(src),
+    '10.6h.1: server block label uses same pick helper');
+  check(/loadBedCalendar/.test(datesSaveFn),
+    '10.6h.1: date save success reloads bed calendar');
+  check(/loadBlockDetail\(code\)/.test(datesSaveFn),
+    '10.6h.1: date save success reloads booking drawer');
+  check(/bcCalendarPaymentBadgesHtml/.test(src),
+    '10.6h.1: payment badges helper still present');
+  check(/Balance due|Deposit paid|bc-block-pay-paid|bc-block-pay-link/.test(src),
+    '10.6h.1: payment badge labels still present');
 })();
 
 // ── Phase 10.6g.5 — calendar badge inline layout ────────────────────────────

@@ -151,10 +151,14 @@ check(/btn\.disabled = !valid \|\| !changed/.test(src),
   'dates Save disabled when invalid or unchanged');
 check(/loadBlockDetail\(code\)/.test(datesSaveFn), 'successful dates save reloads drawer');
 check(/loadBedCalendar/.test(datesSaveFn), 'successful dates save refreshes bed calendar');
-check(/function bcCalendarBlockDisplayLabel/.test(src) && /function bcBlockLabel/.test(src),
-  '10.6g.6: calendar reload uses guest-first block label helpers');
+check(/function pickCalendarGuestDisplayName/.test(src) && /function bcBlockLabel/.test(src),
+  '10.6h.1: calendar reload uses shared guest-first label helper');
+check(/pickCalendarGuestDisplayName\(blk\)/.test(src.match(/function bcCalendarBlockDisplayLabel[\s\S]*?\n\}/)?.[0] || ''),
+  '10.6h.1: client calendar label delegates to pick helper');
 check(!/codeShort/.test(src.match(/function bcBlockLabel[\s\S]*?\n\}/)?.[0] || ''),
-  '10.6g.6: date-save calendar path does not use booking-code-first short labels');
+  '10.6h.1: date-save calendar path does not use booking-code-first short labels');
+check(/toLowerCase\(\) === code\.toLowerCase\(\)/.test(src.match(/function pickCalendarGuestDisplayName[\s\S]*?\n\}/)?.[0] || ''),
+  '10.6h.1: booking_code stored as guest_name does not win over bed guest name');
 
 console.log('\nF. All field groups wired; contact/package/dates preserved');
 

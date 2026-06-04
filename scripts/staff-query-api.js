@@ -15497,10 +15497,7 @@ function bcTurnoverCheckoutSeg(segs){
 }
 
 function bcCalendarBlockDisplayLabel(blk){
-  blk = blk || {};
-  var guest = String(blk.guest_name || blk.bed_guest_name || '').trim();
-  if (guest.length > 0 && guest !== '\u2014') return guest;
-  return String(blk.booking_code || '').trim() || '\u2014';
+  return pickCalendarGuestDisplayName(blk);
 }
 
 function bcTurnoverVisibleLabel(blk){
@@ -19262,10 +19259,26 @@ function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows) {
   }
 }
 
+/** Guest-first calendar label; booking_code only when no human name is available. */
+function pickCalendarGuestDisplayName(src) {
+  src = src || {};
+  const code = String(src.booking_code || '').trim();
+  const norm = (v) => {
+    const s = String(v || '').trim();
+    if (!s || s === '\u2014') return '';
+    if (code && s.toLowerCase() === code.toLowerCase()) return '';
+    return s;
+  };
+  const bookingGuest = norm(src.guest_name);
+  const bedGuest = norm(src.bed_guest_name);
+  const planning = norm(src.planning_row_label || src.assignment_label);
+  const resolved = bookingGuest || bedGuest || planning;
+  if (resolved) return resolved;
+  return code || '\u2014';
+}
+
 function calendarBlockDisplayLabel(row) {
-  const guest = String(row.guest_name || row.bed_guest_name || '').trim();
-  if (guest.length > 0 && guest !== '\u2014') return guest;
-  return String(row.booking_code || '').trim() || '\u2014';
+  return pickCalendarGuestDisplayName(row);
 }
 
 function buildCalendarBlocks(blockRows, startDate, endDate) {
@@ -19274,11 +19287,15 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
     .map(row => {
     const span = computeBlockSpan(row, startDate, endDate);
     const payState = calendarBlockPaymentState(row);
-    const displayGuest = String(row.guest_name || row.bed_guest_name || '').trim() || null;
+    const displayGuest = pickCalendarGuestDisplayName(row);
+    const displayGuestOrNull = displayGuest && displayGuest !== '\u2014' ? displayGuest : null;
     return {
       booking_id:        row.booking_id,
       booking_code:      row.booking_code,
-      guest_name:        displayGuest,
+      guest_name:        displayGuestOrNull,
+      bed_guest_name:    String(row.bed_guest_name || '').trim() || null,
+      planning_row_label: row.planning_row_label || null,
+      assignment_label:  row.assignment_label || null,
       phone:             row.phone || null,
       status:            row.booking_status,
       payment_status:    row.payment_status,
