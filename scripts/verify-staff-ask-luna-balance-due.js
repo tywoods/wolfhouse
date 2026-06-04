@@ -54,6 +54,7 @@ check(libSrc.includes('outstanding\\s+balances?'), 'phrase: outstanding balances
 check(libSrc.includes('unpaid\\s+balance'), 'phrase: unpaid balance');
 check(libSrc.includes('balance\\s+due'), 'phrase: balance due');
 check(libSrc.includes('still\\s+needs?\\s+to\\s+pay'), 'phrase: who still needs to pay');
+check(libSrc.includes('payment\\s+follow'), 'phrase: payment follow-up routing');
 
 check(apiSrc.includes("intentKey === 'payments.balance_due'"), 'Ask Luna routes payments.balance_due');
 check(apiSrc.includes('computeBalanceDueRows'), 'Ask Luna uses computeBalanceDueRows');
@@ -130,6 +131,14 @@ const {
 } = require('./lib/staff-ask-luna-balance-due');
 const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
 
+const SOFT_PAYMENT_FOLLOW_UP_PHRASES = [
+  'Which bookings need payment follow-up?',
+  'Who needs payment follow-up?',
+  'Bookings needing payment follow-up',
+  'Payment follow-up',
+  'Who should I follow up with for payment?',
+];
+
 const REQUIRED_BALANCE_DUE_PHRASES = [
   'Who owes money?',
   'Who still needs to pay?',
@@ -140,6 +149,7 @@ const REQUIRED_BALANCE_DUE_PHRASES = [
   'balance due',
   'who has outstanding balance',
   'who has an outstanding balance',
+  ...SOFT_PAYMENT_FOLLOW_UP_PHRASES,
 ];
 
 for (const p of REQUIRED_BALANCE_DUE_PHRASES) {

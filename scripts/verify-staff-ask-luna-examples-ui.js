@@ -96,5 +96,13 @@ for (const [re, label] of categories) {
   check(has(alPanel, re), 'category present: ' + label);
 }
 
+const { resolveBalanceDueIntentKey } = require('./lib/staff-ask-luna-balance-due');
+const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
+check(
+  resolveBalanceDueIntentKey('Which bookings need payment follow-up?', REGISTRY_BY_KEY)
+    === 'payments.balance_due',
+  'UI example chip routes to payments.balance_due',
+);
+
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
 process.exit(failures > 0 ? 1 : 0);
