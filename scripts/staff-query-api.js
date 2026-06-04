@@ -101,6 +101,7 @@ const {
   executeOpsPlannerTools,
   formatCombinedOpsPlannerAnswer,
 } = require('./lib/staff-ask-luna-multi-tool-planner');
+const { getStormglassConfigStatus } = require('./lib/staff-stormglass-config');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -22316,6 +22317,7 @@ async function router(req, res) {
       service:      'wolfhouse-staff-query-api',
       stage:        '7.7b',
       auth_enabled: STAFF_AUTH_REQUIRED,
+      stormglass:   getStormglassConfigStatus(),
       note:         'read-only staff API + UI + conversation endpoints (shadow-mode review)',
     });
   }

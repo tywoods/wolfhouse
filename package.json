@@ -143,6 +143,7 @@
     "verify:staff-ask-luna-cleaning": "node scripts/verify-staff-ask-luna-cleaning.js",
     "verify:staff-ask-luna-booking-lookup": "node scripts/verify-staff-ask-luna-booking-lookup.js",
     "verify:staff-ask-luna-multi-tool-planner": "node scripts/verify-staff-ask-luna-multi-tool-planner.js",
+    "verify:staff-stormglass-config": "node scripts/verify-staff-stormglass-config.js",
     "verify:staff-ask-luna-whatsapp-dry-run": "node scripts/verify-staff-ask-luna-whatsapp-dry-run.js",
     "verify:booking-service-records-schema": "node scripts/verify-booking-service-records-schema.js",
     "verify:service-payment-linkage-schema": "node scripts/verify-service-payment-linkage-schema.js",
