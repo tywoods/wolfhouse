@@ -337,13 +337,29 @@ async function computeBalanceDueRows(pgClient, clientSlug) {
   return out;
 }
 
-function matchesBalanceDueQuestion(q) {
+/** Same normalization as Ask Luna router (deterministic; no LLM). */
+function normalizeBalanceDueQuestionText(question) {
+  let q = String(question || '').toLowerCase().trim();
+  q = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  q = q.replace(/[''`´]/g, ' ');
+  q = q.replace(/\bwho\s+s\b/g, 'who');
+  q = q.replace(/[?!.,;:()[\]{}""]/g, ' ');
+  q = q.replace(/\s+/g, ' ').trim();
+  return q;
+}
+
+const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
+
+function matchesBalanceDueQuestion(question) {
+  const normalized = normalizeBalanceDueQuestionText(question);
   const patterns = [
     /\bwho\s+owes?\s+money\b/,
     /\bwho\s+has\s+(?:an?\s+)?(?:unpaid\s+)?balance\s+due\b/,
+    /\bwho\s+has\s+(?:an?\s+)?unpaid\s+balance\b/,
+    /\bwho\s+has\s+(?:an?\s+)?outstanding\s+balance\b/,
     /\bwho\s+still\s+needs?\s+to\s+pay\b/,
     /\boutstanding\s+balances?\b/,
-    /\bunpaid\s+balance\b/,
+    /\bunpaid\s+balances?\b/,
     /\bbalance\s+due\b/,
     /\b(owes?|owed|still\s+ow)\b/,
     /\b(debe|deben|saldo)\b/,
@@ -351,13 +367,33 @@ function matchesBalanceDueQuestion(q) {
     /\b(schuldet|offen)\b/,
     /\b(doit(\s+payer)?|solde)\b/,
   ];
-  const normalized = String(q || '').toLowerCase().replace(/\s+/g, ' ').trim();
   if (patterns.some((re) => re.test(normalized))) return true;
   if (/\b(quien|who)\b/.test(normalized) && /\b(debe|owes?)\b/.test(normalized)) return true;
   if (/\b(quien|who)\b/.test(normalized) && /\bpagar\b/.test(normalized) && /\bdebe\b/.test(normalized)) {
     return true;
   }
   return false;
+}
+
+/**
+ * Resolve balance-due intent from raw staff question (registry key + phrases).
+ * @returns {string|null} `payments.balance_due` or null
+ */
+function resolveBalanceDueIntentKey(question, registryByKey) {
+  const raw = String(question || '').trim().toLowerCase();
+  if (raw === BALANCE_DUE_INTENT_KEY) return BALANCE_DUE_INTENT_KEY;
+  if (registryByKey && typeof registryByKey.has === 'function' && registryByKey.has(raw)) {
+    return raw === BALANCE_DUE_INTENT_KEY ? BALANCE_DUE_INTENT_KEY : null;
+  }
+  const normalized = normalizeBalanceDueQuestionText(question);
+  if (normalized === 'payments balance_due' || normalized === 'payments balance due') {
+    return BALANCE_DUE_INTENT_KEY;
+  }
+  if (registryByKey && registryByKey.has(normalized)) {
+    return normalized === BALANCE_DUE_INTENT_KEY ? BALANCE_DUE_INTENT_KEY : null;
+  }
+  if (matchesBalanceDueQuestion(question)) return BALANCE_DUE_INTENT_KEY;
+  return null;
 }
 
 function formatAskLunaBalanceDueAnswer(rows) {
@@ -388,7 +424,10 @@ module.exports = {
   getBalanceDueActiveBookingsSql,
   computeBalanceDueRows,
   formatAskLunaBalanceDueAnswer,
+  normalizeBalanceDueQuestionText,
   matchesBalanceDueQuestion,
+  resolveBalanceDueIntentKey,
+  BALANCE_DUE_INTENT_KEY,
   isPaidPaymentStatus,
   invoicePaidBalance,
 };

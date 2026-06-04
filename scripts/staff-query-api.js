@@ -58,6 +58,7 @@ const {
   computeBalanceDueRows,
   formatAskLunaBalanceDueAnswer,
   matchesBalanceDueQuestion,
+  resolveBalanceDueIntentKey,
 } = require('./lib/staff-ask-luna-balance-due');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
@@ -1297,8 +1298,8 @@ function askLunaMatchesCleaning(q) {
     && /\b(clean|limpiar|pulire|reinigen|nettoyer|gereinigt|sauber|menage|needs?\s+to\s+be\s+cleaned)\b/.test(q);
 }
 
-function askLunaMatchesBalanceDue(q) {
-  return matchesBalanceDueQuestion(q);
+function askLunaMatchesBalanceDue(question) {
+  return matchesBalanceDueQuestion(question);
 }
 
 function askLunaIsDeparturesTodayPhrase(q, dateInfo, today) {
@@ -1470,11 +1471,15 @@ const ASK_LUNA_LOCAL_QUERY = {
  * Returns { intentKey, extraParams } or null for unsupported questions.
  */
 function resolveNaturalLanguageIntent(question) {
+  const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
+
+  // Direct registry key passthrough before normalize (keeps dots in keys)
+  const rawQ = String(question || '').trim().toLowerCase();
+  if (REGISTRY_BY_KEY.has(rawQ)) return { intentKey: rawQ, extraParams: {} };
+
   const q = normalizeAskLunaQuestion(question);
   const today = askLunaTodayUTC();
 
-  // Direct registry key passthrough (e.g. "payments.balance_due")
-  const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
   if (REGISTRY_BY_KEY.has(q)) return { intentKey: q, extraParams: {} };
 
   const dateInfo = resolveAskLunaDatePhrase(question);
@@ -1486,9 +1491,10 @@ function resolveNaturalLanguageIntent(question) {
     return { intentKey: 'rooms_or_beds_need_cleaning', extraParams: { date: di.date, dateLabel: di.label } };
   }
 
-  // ── Balance due (8.8.4 i18n) ──
-  if (askLunaMatchesBalanceDue(q) && !/\bpayment.?link|checkout.?link|pending.?link|waiting.?for.?pay\b/.test(q)) {
-    return { intentKey: 'payments.balance_due', extraParams: {} };
+  // ── Balance due (Phase 11a / 11a.1) — registry key + phrase list ──
+  const balanceDueIntent = resolveBalanceDueIntentKey(question, REGISTRY_BY_KEY);
+  if (balanceDueIntent && !/\bpayment.?link|checkout.?link|pending.?link|waiting.?for.?pay\b/.test(q)) {
+    return { intentKey: balanceDueIntent, extraParams: {} };
   }
 
   // ── Check-in / check-out date queries (8.8.2 + 8.8.4) ──

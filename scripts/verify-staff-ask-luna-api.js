@@ -186,7 +186,7 @@ check('H3', 'arrivals_today intent supported (rooming.arrivals)',
   resolver.includes('rooming.arrivals'));
 
 check('H4', 'who_owes_money intent supported (payments.balance_due)',
-  resolver.includes('payments.balance_due'));
+  resolver.includes('resolveBalanceDueIntentKey') && resolver.includes('balanceDueIntent'));
 
 check('H5', 'payment_links_pending intent supported (payments.waiting)',
   resolver.includes('payments.waiting'));
@@ -345,12 +345,19 @@ function extractAskLunaRouterChunk() {
     const chunk = extractAskLunaRouterChunk();
     if (!chunk) throw new Error('could not extract Ask Luna router chunk');
     const balanceDueLib = require('./lib/staff-ask-luna-balance-due');
+    const registryKeys = [...require('./lib/staff-query-registry').REGISTRY_BY_KEY.keys()];
     const wrapped = `
       const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
+      const normalizeBalanceDueQuestionText = ${balanceDueLib.normalizeBalanceDueQuestionText.toString()};
+      const resolveBalanceDueIntentKey = ${balanceDueLib.resolveBalanceDueIntentKey.toString()};
+      const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
       const require = (id) => {
-        if (String(id).includes('staff-query-registry')) return { REGISTRY_BY_KEY: new Map() };
+        if (String(id).includes('staff-query-registry')) {
+          const keys = ${JSON.stringify(registryKeys)};
+          return { REGISTRY_BY_KEY: new Map(keys.map((k) => [k, k])) };
+        }
         if (String(id).includes('staff-ask-luna-balance-due')) {
-          return { matchesBalanceDueQuestion };
+          return { matchesBalanceDueQuestion, normalizeBalanceDueQuestionText, resolveBalanceDueIntentKey, BALANCE_DUE_INTENT_KEY };
         }
         throw new Error('unexpected require: ' + id);
       };
@@ -406,9 +413,17 @@ function extractAskLunaRouterChunk() {
       resolveIntent('Who still needs to pay?').intentKey === 'payments.balance_due');
     check('K-I13', 'runtime: ES balance due → payments.balance_due',
       resolveIntent('Quien debe pagar?').intentKey === 'payments.balance_due');
+    check('K-I14', 'runtime: Outstanding balances → payments.balance_due',
+      resolveIntent('Outstanding balances').intentKey === 'payments.balance_due');
+    check('K-I15', 'runtime: Who has unpaid balance → payments.balance_due',
+      resolveIntent('Who has unpaid balance?').intentKey === 'payments.balance_due');
+    check('K-I16', 'runtime: registry key payments.balance_due → payments.balance_due',
+      resolveIntent('payments.balance_due').intentKey === 'payments.balance_due');
+    check('K-I17', 'runtime: unpaid balances → payments.balance_due',
+      resolveIntent('unpaid balances').intentKey === 'payments.balance_due');
   } catch (e) {
     check('K-I1', 'runtime intent routing smoke', false, e.message);
-    ['K-I2', 'K-I3', 'K-I4', 'K-I4b', 'K-I4c', 'K-I4d', 'K-I4e', 'K-I4f', 'K-I4g', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13']
+    ['K-I2', 'K-I3', 'K-I4', 'K-I4b', 'K-I4c', 'K-I4d', 'K-I4e', 'K-I4f', 'K-I4g', 'K-I5', 'K-I6', 'K-I7', 'K-I8', 'K-I9', 'K-I10', 'K-I11', 'K-I12', 'K-I13', 'K-I14', 'K-I15', 'K-I16', 'K-I17']
       .forEach(id => check(id, 'runtime intent routing smoke (skipped)', false, e.message));
   }
 })();

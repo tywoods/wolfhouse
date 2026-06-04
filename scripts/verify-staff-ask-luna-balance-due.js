@@ -64,7 +64,10 @@ const resolverEnd   = apiSrc.indexOf('\nfunction formatAnswer', resolverStart);
 const resolver      = resolverStart > -1
   ? apiSrc.slice(resolverStart, resolverEnd > -1 ? resolverEnd : resolverStart + 8000)
   : '';
-check(resolver.includes('payments.balance_due'), 'resolveNaturalLanguageIntent maps to payments.balance_due');
+check(
+  resolver.includes('resolveBalanceDueIntentKey') && resolver.includes('balanceDueIntent'),
+  'resolveNaturalLanguageIntent maps balance-due via resolveBalanceDueIntentKey',
+);
 
 console.log('\nB. Structured data sources (no chat logs)');
 
@@ -120,20 +123,78 @@ console.log('\nF. Runtime smoke (phrase routing + formatter)');
 
 const {
   matchesBalanceDueQuestion,
+  resolveBalanceDueIntentKey,
   formatAskLunaBalanceDueAnswer,
   isPaidPaymentStatus,
   invoicePaidBalance,
 } = require('./lib/staff-ask-luna-balance-due');
+const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
 
-const phrases = [
+const REQUIRED_BALANCE_DUE_PHRASES = [
   'Who owes money?',
-  'Who has balance due?',
   'Who still needs to pay?',
   'Outstanding balances',
   'Who has unpaid balance?',
+  'payments.balance_due',
+  'unpaid balances',
+  'balance due',
+  'who has outstanding balance',
+  'who has an outstanding balance',
 ];
-for (const p of phrases) {
-  check(matchesBalanceDueQuestion(p), `matches: ${p}`);
+
+for (const p of REQUIRED_BALANCE_DUE_PHRASES) {
+  check(
+    resolveBalanceDueIntentKey(p, REGISTRY_BY_KEY) === 'payments.balance_due',
+    `routes to payments.balance_due: ${p}`,
+  );
+}
+
+console.log('\nG. Ask Luna resolver routing (end-to-end)');
+
+const apiSrcForRoute = fs.readFileSync(API_FILE, 'utf8');
+const routeStart = apiSrcForRoute.indexOf('function normalizeAskLunaQuestion');
+const routeLocal = apiSrcForRoute.indexOf('const ASK_LUNA_LOCAL_QUERY', routeStart);
+const routeResolver = apiSrcForRoute.indexOf('function resolveNaturalLanguageIntent(', routeStart);
+const routeEnd = apiSrcForRoute.indexOf('\nfunction formatAnswer', routeStart);
+const routeChunk = [
+  apiSrcForRoute.match(/const ASK_LUNA_WEEKDAYS = [^;]+;/)?.[0],
+  apiSrcForRoute.match(/const ASK_LUNA_MONTHS = \{[\s\S]*?\};/)?.[0],
+  apiSrcForRoute.match(/function askLunaIsoDateUTC[\s\S]*?\n\}/)?.[0],
+  apiSrcForRoute.match(/function askLunaTodayUTC[\s\S]*?\n\}/)?.[0],
+  apiSrcForRoute.slice(routeStart, routeLocal),
+  apiSrcForRoute.slice(routeResolver, routeEnd),
+].filter(Boolean).join('\n');
+
+try {
+  const bdLib = require('./lib/staff-ask-luna-balance-due');
+  const routeWrapped = `
+    const matchesBalanceDueQuestion = ${bdLib.matchesBalanceDueQuestion.toString()};
+    const normalizeBalanceDueQuestionText = ${bdLib.normalizeBalanceDueQuestionText.toString()};
+    const resolveBalanceDueIntentKey = ${bdLib.resolveBalanceDueIntentKey.toString()};
+    const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
+    const require = (id) => {
+      if (String(id).includes('staff-query-registry')) {
+        const keys = ${JSON.stringify([...REGISTRY_BY_KEY.keys()])};
+        return { REGISTRY_BY_KEY: new Map(keys.map((k) => [k, k])) };
+      }
+      if (String(id).includes('staff-ask-luna-balance-due')) {
+        return { matchesBalanceDueQuestion, normalizeBalanceDueQuestionText, resolveBalanceDueIntentKey, BALANCE_DUE_INTENT_KEY };
+      }
+      throw new Error('require ' + id);
+    };
+    ${routeChunk}
+    return resolveNaturalLanguageIntent;
+  `;
+  const resolveIntent = new Function(routeWrapped)();
+  for (const p of REQUIRED_BALANCE_DUE_PHRASES) {
+    const got = resolveIntent(p);
+    check(
+      got && got.intentKey === 'payments.balance_due',
+      `resolver routes "${p}" → payments.balance_due`,
+    );
+  }
+} catch (e) {
+  fail(`Ask Luna resolver routing smoke: ${e.message}`);
 }
 
 check(!isPaidPaymentStatus('checkout_created'), 'checkout_created is not paid');
