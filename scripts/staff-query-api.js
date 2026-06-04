@@ -15115,6 +15115,20 @@ function bcFilterManualBookingQuoteWarnings(warnings){
   });
 }
 
+function bcQuoteAccommodationNote(li, fmtEur){
+  if (!li || !li.note) return '';
+  var note = String(li.note);
+  var m7 = note.match(/^7-night flat:\s*(\d+)¢\/person\/week\s*×\s*(\d+)g\s*=\s*(\d+)¢$/);
+  if (m7) {
+    return fmtEur(Number(m7[1])) + '/person/week × ' + m7[2] + ' guest' + (Number(m7[2]) !== 1 ? 's' : '') + ' = ' + fmtEur(Number(m7[3]));
+  }
+  var mB = note.match(/^Formula B:\s*ceil5\((\d+)¢\/7\)=(\d+)¢\/night\s*×\s*(\d+)n\s*×\s*(\d+)g\s*=\s*(\d+)¢$/);
+  if (mB) {
+    return fmtEur(Number(mB[1])) + '/7 = ' + fmtEur(Number(mB[2])) + '/night × ' + mB[3] + ' night' + (Number(mB[3]) !== 1 ? 's' : '') + ' × ' + mB[4] + ' guest' + (Number(mB[4]) !== 1 ? 's' : '') + ' = ' + fmtEur(Number(mB[5]));
+  }
+  return note.replace(/(\d+)¢/g, function(_, c){ return fmtEur(Number(c)); });
+}
+
 function renderQuoteResult(resp){
   if (!resp){ return '<div class="bk-preview-error"><div class="bk-preview-badge">No response</div>Quote request failed.</div>'; }
   var q = resp.quote || {};
@@ -15141,7 +15155,7 @@ function renderQuoteResult(resp){
   (q.line_items||[]).forEach(function(li){
     html += '<div class="bk-quote-item"><span class="bk-quote-item-label">' + escHtml(li.label||li.code||'') + '</span>' +
       '<span class="bk-quote-item-amount">' + escHtml(fmtEur(li.total_cents)) + '</span></div>';
-    if (li.note) html += '<div class="bk-quote-item-note">' + escHtml(li.note) + '</div>';
+    if (li.note) html += '<div class="bk-quote-item-note">' + escHtml(bcQuoteAccommodationNote(li, fmtEur)) + '</div>';
   });
   if (q.discount_cents > 0) {
     html += '<div class="bk-quote-item"><span>Discount</span><span>\u2212' + escHtml(fmtEur(q.discount_cents)) + '</span></div>';
@@ -15167,13 +15181,7 @@ function renderQuoteResult(resp){
   html += '</div>';
 
   html += '</div>';
-  var quoteWarnings = bcFilterManualBookingQuoteWarnings(q.warnings);
-  if (quoteWarnings.length > 0){
-    html += '<div class="bk-preview-warn">';
-    quoteWarnings.forEach(function(w){ html += '<div>' + escHtml(String(w)) + '</div>'; });
-    html += '</div>';
-  }
-  if (q.staff_review_required) html += '<div class="bk-preview-warn">\u26a0 Staff review required before creating this booking.</div>';
+
   return html;
 }
 

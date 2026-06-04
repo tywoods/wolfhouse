@@ -111,7 +111,14 @@ check(/bk-quote-section-title">Selected payment/.test(quoteFn), 'quote Selected 
 check(/bk-quote-section-title">After create/.test(quoteFn), 'quote After create section');
 check(/bcQuoteSelectedPaymentLabel/.test(quoteFn), 'selected payment label helper');
 check(/bcQuotePaidNowCents/.test(quoteFn), 'paid-now helper for after-create balance');
+check(/bcQuoteAccommodationNote/.test(quoteFn), 'accommodation note uses euro display helper');
+const noteFn = src.match(/function bcQuoteAccommodationNote[\s\S]*?\n\}/)?.[0] || '';
+check(/fmtEur\(Number\(mB\[1\]\)\)/.test(noteFn) && /\/night × /.test(noteFn),
+  'accommodation formula shows euros not cents');
 check(!/formula_summary/.test(quoteFn), 'formula_summary not shown in quote UI');
+const quoteSuccessSlice = quoteFn.slice(quoteFn.indexOf("var html = '<div class=\"bk-quote-items\">'"));
+check(!/bk-preview-warn/.test(quoteSuccessSlice), 'quote success path has no bottom warning banners');
+check(!/quoteWarnings/.test(quoteSuccessSlice), 'quote success path does not render warning footer');
 check(!/Payment link amount/.test(quoteFn), 'duplicate payment link amount row removed');
 check(/bcRefreshQuotePreviewDisplay/.test(src), 'payment choice refreshes quote display');
 
@@ -188,8 +195,10 @@ check(!/booked and paid on site.*confirm with staff/i.test(selPanel),
   'manual booking panel has no yoga on-site staff note');
 check(!/bk-ao-meals-note/.test(selPanel) && !/not priced in quote yet/i.test(selPanel),
   'meals on-site / not priced note removed');
-check(/bcFilterManualBookingQuoteWarnings/.test(src),
-  'quote preview filters stale yoga on-site warnings');
+check(/bcQuoteAccommodationNote/.test(src),
+  'quote preview formats accommodation formula in euros');
+check(!/quoteWarnings/.test(quoteFn.slice(quoteFn.indexOf("var html = '<div class=\"bk-quote-items\">'"))),
+  'quote preview omits bottom warning banner area');
 check(/code: 'meals'/.test(buildAddonsFn), 'buildAddOns sends meals add-on to quote');
 if (fs.existsSync(PRICING_FILE)) {
   const pricing = JSON.parse(fs.readFileSync(PRICING_FILE, 'utf8'));
