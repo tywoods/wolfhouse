@@ -8121,6 +8121,23 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-pay-amount{font-weight:600;color:var(--text);text-align:left;justify-self:start;max-width:100%}
 .ctx-pay-amount.owing{color:#9C5742}
 .ctx-pay-amount.paid{color:#5C7350}
+/* Phase 10.4d — running invoice line items in booking drawer */
+.ctx-running-invoice .ctx-inv-group{margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft)}
+.ctx-running-invoice .ctx-inv-group:first-child{margin-top:0;padding-top:0;border-top:none}
+.ctx-inv-group-title{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.ctx-inv-line{font-size:12px;line-height:1.5;color:var(--text);padding:2px 0}
+.ctx-inv-total-row{display:grid;grid-template-columns:108px minmax(0,1fr);gap:4px 10px;align-items:baseline;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border-soft)}
+.ctx-inv-total-row:last-child{border-bottom:none}
+.ctx-inv-total-label{color:var(--text-2);font-size:11px}
+.ctx-inv-total-amount{font-weight:600;color:var(--text)}
+.ctx-inv-total-amount.owing{color:#9C5742}
+.ctx-inv-total-amount.paid{color:#5C7350}
+.ctx-inv-status-msg{font-weight:600;padding:6px 0;border-bottom:none}
+.ctx-inv-status-msg.paid-in-full{color:#5C7350}
+.ctx-inv-status-msg.needs-refund{color:#9C5742}
+.ctx-inv-truth-note{margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);font-size:10.5px;color:var(--text-3);line-height:1.45;font-style:italic}
+.ctx-inv-subtitle{font-size:10.5px;font-weight:600;color:var(--text-2);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.04em}
+.ctx-inv-payment-records{margin-top:4px}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
 .ctx-addon-row:last-child{border-bottom:none}
 .ctx-svc-record{padding:8px 10px;margin-bottom:6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-2,#f8f9fa);font-size:12px}
@@ -11295,6 +11312,229 @@ function bcInitMovePanel(data){
   bcUpdateMoveButtons();
 }
 
+/* Phase 10.4d — running invoice helpers (read-only drawer display) */
+var BC_RUNNING_INVOICE_ACCOMM_CODES = { package: true, package_proration: true, room_supplement: true };
+
+function bcRunningInvoicePackageLabel(code){
+  if (!code) return null;
+  var c = String(code).trim();
+  if (!c) return null;
+  return c.charAt(0).toUpperCase() + c.slice(1).replace(/_/g, ' ') + ' package';
+}
+
+function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
+  if (quoteSnap && Array.isArray(quoteSnap.line_items)){
+    var sum = 0;
+    var any = false;
+    quoteSnap.line_items.forEach(function(li){
+      if (li.code && BC_RUNNING_INVOICE_ACCOMM_CODES[li.code] && li.total_cents != null){
+        sum += Number(li.total_cents);
+        any = true;
+      }
+    });
+    if (any) return sum;
+  }
+  var svcSum = (svcRows || []).reduce(function(s, r){
+    return s + (Number(r.amount_due_cents) || 0);
+  }, 0);
+  if (bk && bk.total_amount_cents != null){
+    var total = Number(bk.total_amount_cents);
+    var derived = total - svcSum;
+    return derived >= 0 ? derived : total;
+  }
+  return null;
+}
+
+function bcRunningInvoiceSvcTypeLabel(t){
+  if (!t) return '\u2014';
+  var m = { yoga: 'Yoga', meal: 'Meal', surf_lesson: 'Surf lesson', wetsuit: 'Wetsuit', surfboard: 'Surfboard' };
+  return m[t] || String(t).replace(/_/g, ' ');
+}
+
+function bcRunningInvoiceSvcUnitLabel(serviceType){
+  var t = (serviceType || '').toLowerCase();
+  if (t === 'wetsuit' || t === 'surfboard') return 'days';
+  if (t === 'surf_lesson') return 'lessons';
+  if (t === 'yoga') return 'classes';
+  if (t === 'meal') return 'meals';
+  return null;
+}
+
+function bcRunningInvoiceSvcLineText(sr){
+  var label = bcRunningInvoiceSvcTypeLabel(sr.service_type);
+  var qty = sr.quantity != null ? Number(sr.quantity) : null;
+  var meta = sr.metadata || {};
+  if ((sr.service_type === 'wetsuit' || sr.service_type === 'surfboard') && meta.rental_days != null){
+    qty = Number(meta.rental_days);
+  }
+  var totalCents = sr.amount_due_cents != null ? Number(sr.amount_due_cents) : null;
+  var eur = function(cents){
+    if (cents == null || isNaN(Number(cents))) return null;
+    return '\u20ac' + (Number(cents) / 100).toFixed(2);
+  };
+  if (totalCents == null) return label + ' \u2014 Not available';
+  var unitLabel = bcRunningInvoiceSvcUnitLabel(sr.service_type);
+  if (qty != null && qty > 0 && totalCents >= 0){
+    if (unitLabel && totalCents % qty === 0){
+      return label + ' \u2014 ' + qty + ' ' + unitLabel + ' \u00d7 ' + eur(totalCents / qty) + ' = ' + eur(totalCents);
+    }
+    return label + ' \u2014 ' + qty + ' \u00d7 ' + eur(totalCents) + ' = ' + eur(totalCents);
+  }
+  return label + ' \u2014 ' + eur(totalCents);
+}
+
+function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
+  var html = '';
+  var eur = function(cents){
+    if (cents == null || isNaN(Number(cents))) return '\u2014';
+    return '\u20ac' + (Number(cents) / 100).toFixed(2);
+  };
+  var pmtStatusLabel = function(s){
+    var m = {
+      draft: 'Draft payment', checkout_created: 'Checkout link created', pending: 'Pending',
+      paid: 'Paid \u2713', expired: 'Expired', cancelled: 'Cancelled', failed: 'Failed',
+    };
+    return m[s] || (s ? s.replace(/_/g, ' ') : '\u2014');
+  };
+  var shortId = function(v){ return v ? (v.length > 14 ? v.slice(0, 14) + '\u2026' : v) : null; };
+  var fmtDate = function(v){
+    if (!v) return null;
+    try {
+      var d = new Date(v);
+      return d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+    } catch(_){ return String(v).slice(0, 19); }
+  };
+
+  bk = bk || {};
+  svcRows = svcRows || [];
+  pmt = pmt || {};
+  var md = bk.metadata || {};
+  var quoteSnap = md.quote_snapshot || null;
+  var nights = bcStayNightsFromCheckInOut(bk.check_in, bk.check_out);
+  var pkgLabel = bcRunningInvoicePackageLabel(bk.package_code);
+  var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+  var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
+  var invoiceTotal = accCents != null ? accCents + svcSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
+  var paidCents = bk.amount_paid_cents != null ? Number(bk.amount_paid_cents)
+    : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
+
+  html += '<div class="ctx-section"><h3>Payment</h3>';
+  html += '<div class="ctx-pay-box ctx-running-invoice" id="bc-running-invoice">';
+
+  /* Accommodation */
+  html += '<div class="ctx-inv-group" id="bc-inv-accommodation">';
+  html += '<div class="ctx-inv-group-title">Accommodation</div>';
+  var accLine = null;
+  if (accCents != null && pkgLabel && nights > 0 && accCents > 0 && accCents % nights === 0){
+    accLine = pkgLabel + ' \u2014 ' + nights + ' night' + (nights === 1 ? '' : 's') +
+      ' \u00d7 ' + eur(accCents / nights) + ' = ' + eur(accCents);
+  } else if (accCents != null){
+    var accParts = [];
+    if (pkgLabel) accParts.push(pkgLabel);
+    if (nights > 0) accParts.push(nights + ' night' + (nights === 1 ? '' : 's'));
+    accLine = (accParts.length ? accParts.join(' \u2014 ') + ' \u2014 ' : '') + 'Accommodation total: ' + eur(accCents);
+  } else if (pkgLabel || nights > 0){
+    accLine = (pkgLabel || 'Accommodation') +
+      (nights > 0 ? ' \u2014 ' + nights + ' night' + (nights === 1 ? '' : 's') : '') +
+      ' \u2014 Not available';
+  }
+  html += '<div class="ctx-inv-line">' + escHtml(accLine || 'Not available') + '</div>';
+  html += '</div>';
+
+  /* Add-ons / services — booking_service_records only */
+  html += '<div class="ctx-inv-group" id="bc-inv-addons">';
+  html += '<div class="ctx-inv-group-title">Add-ons</div>';
+  if (svcRows.length === 0){
+    html += '<div class="ctx-inv-line ctx-none">No add-ons recorded.</div>';
+  } else {
+    svcRows.forEach(function(sr){
+      html += '<div class="ctx-inv-line ctx-inv-addon-line" data-service-type="' + escHtml(sr.service_type || '') + '">' +
+        escHtml(bcRunningInvoiceSvcLineText(sr)) + '</div>';
+    });
+  }
+  html += '</div>';
+
+  /* Totals / payment status */
+  html += '<div class="ctx-inv-group ctx-inv-totals" id="bc-inv-totals">';
+  html += '<div class="ctx-inv-group-title">Totals</div>';
+  if (invoiceTotal != null){
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Invoice total</span><span class="ctx-inv-total-amount">' + escHtml(eur(invoiceTotal)) + '</span></div>';
+  }
+  if (paidCents != null){
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Paid</span><span class="ctx-inv-total-amount paid">' + escHtml(eur(paidCents)) + '</span></div>';
+  }
+  if (invoiceTotal != null && paidCents != null){
+    if (invoiceTotal > paidCents){
+      html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Balance due</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span></div>';
+    } else if (invoiceTotal === paidCents){
+      html += '<div class="ctx-inv-total-row ctx-inv-status-msg paid-in-full"><span>Paid in full</span></div>';
+    } else if (invoiceTotal < paidCents){
+      html += '<div class="ctx-inv-total-row ctx-inv-status-msg needs-refund"><span>Needs refund / credit review</span></div>';
+      html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Credit review</span><span class="ctx-inv-total-amount">' + escHtml(eur(paidCents - invoiceTotal)) + '</span></div>';
+    }
+  } else if (bk.balance_due_cents != null && paidCents == null){
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Balance due</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(bk.balance_due_cents)) + '</span></div>';
+  }
+  html += '</div>';
+
+  html += '<div class="ctx-inv-truth-note">Stripe/webhook payments remain payment truth. This invoice is expected charges.</div>';
+
+  /* Payment record rows (webhook truth details — read-only) */
+  if (pmt.rows && pmt.rows.length > 0){
+    html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
+    html += '<div class="ctx-inv-subtitle">Payment records</div>';
+    pmt.rows.forEach(function(pr){
+      var isPaid = pr.payment_status === 'paid';
+      var isCreated = pr.payment_status === 'checkout_created';
+      var recCls = 'ctx-pay-record';
+      if (isPaid) recCls += ' ctx-pay-record-paid';
+      else if (isCreated) recCls += ' ctx-pay-record-checkout';
+      html += '<div class="' + recCls + '">';
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+      var badgeCls = isPaid ? 'ctx-pay-record-badge ctx-pay-record-badge-paid' :
+        isCreated ? 'ctx-pay-record-badge ctx-pay-record-badge-checkout' :
+        'ctx-pay-record-badge ctx-pay-record-badge-default';
+      html += '<span class="' + badgeCls + '">' + escHtml(pmtStatusLabel(pr.payment_status)) + '</span>';
+      html += '</div>';
+      html += '<div class="ctx-pay-block" style="margin:0 0 4px">';
+      if (pr.amount_due_cents != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount due</span><span class="ctx-pay-amount">' + escHtml(eur(pr.amount_due_cents)) + '</span></div>';
+      if (pr.amount_paid_cents != null && Number(pr.amount_paid_cents) > 0)
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(pr.amount_paid_cents)) + '</span></div>';
+      if (pr.paid_at)
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid at</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.paid_at)) + '</span></div>';
+      html += '</div>';
+      if (isCreated && !isPaid){
+        html += '<div class="ctx-pay-record-wait">\u23F3 Payment link created \u2014 waiting for Stripe webhook.</div>';
+      }
+      if (pr.stripe_checkout_session_id || pr.stripe_payment_intent_id){
+        html += '<div class="ctx-pay-record-meta">';
+        if (pr.stripe_checkout_session_id)
+          html += '<div>Session: <code>' + escHtml(shortId(pr.stripe_checkout_session_id)) + '</code></div>';
+        if (pr.stripe_payment_intent_id)
+          html += '<div>Intent: <code>' + escHtml(shortId(pr.stripe_payment_intent_id)) + '</code></div>';
+        html += '</div>';
+      }
+      if (pr.checkout_url){
+        html += '<div class="ctx-pay-record-url">';
+        html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+        html += '<a href="' + escHtml(pr.checkout_url) + '" target="_blank" rel="noopener" ' +
+          'style="word-break:break-all;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--accent)">' +
+          escHtml(pr.checkout_url.slice(0, 50)) + '\u2026</a>';
+        html += '<button class="btn" data-url="' + escHtml(pr.checkout_url) + '" ' +
+          'style="font-size:11px;padding:2px 8px" onclick="bcCopyUrl(this)">\uD83D\uDCCB Copy</button>';
+        html += '</div></div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div class="ctx-none" style="margin-top:8px">No payment record yet.</div>';
+  }
+
+  html += '</div></div>';
+  return html;
+}
+
 /* Render the enriched booking context drawer sections (Stage 8.3b) */
 function renderBookingContextDrawer(data){
   var html = '';
@@ -11305,12 +11545,13 @@ function renderBookingContextDrawer(data){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
     return '\u20ac' + (Number(cents) / 100).toFixed(2);
   };
-  var statusPillCls = function(s){
-    var v = (s||'').toLowerCase().replace(/ /g,'_');
-    if (v === 'confirmed' || v === 'paid') return 'pill-green';
-    if (v === 'cancelled') return 'pill-grey';
-    if (v === 'needs_review' || v === 'needs_human') return 'pill-orange';
-    return 'pill-blue';
+  var bkPayLabel = function(s){
+    var m = {
+      not_requested: 'Not requested', waiting_payment: 'Waiting for payment',
+      payment_link_sent: 'Payment link sent', deposit_paid: 'Deposit paid \u2713',
+      paid: 'Paid in full \u2713', refunded: 'Refunded', failed: 'Failed', expired: 'Expired',
+    };
+    return m[s] || (s ? s.replace(/_/g, ' ') : '\u2014');
   };
 
   /* ── Guest (no section label — Stage 8.7.6) ─────────────────────────────── */
@@ -11358,182 +11599,10 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
   html += '</div></div>';
 
-  /* ── 4. Payment ────────────────────────────────────────────────────────── */
-  /* Stage 8.4.12: full payment truth panel — shows webhook result, paid_at,
-     checkout URL, session/intent IDs, deposit vs. full-paid labels.
-     Read-only. No writes, no Stripe calls, no WhatsApp/email/n8n. */
-  var pmt = data.payments || {};
-
-  /* Helper: human-readable label for payment_record_status enum */
-  var pmtStatusLabel = function(s){
-    var m = {
-      draft:             'Draft payment',
-      checkout_created:  'Checkout link created',
-      pending:           'Pending',
-      paid:              'Paid \u2713',
-      expired:           'Expired',
-      cancelled:         'Cancelled',
-      failed:            'Failed',
-    };
-    return m[s] || (s ? s.replace(/_/g,' ') : '\u2014');
-  };
-  /* Helper: human-readable label for booking payment_status enum */
-  var bkPayLabel = function(s){
-    var m = {
-      not_requested:    'Not requested',
-      waiting_payment:  'Waiting for payment',
-      payment_link_sent:'Payment link sent',
-      deposit_paid:     'Deposit paid \u2713',
-      paid:             'Paid in full \u2713',
-      refunded:         'Refunded',
-      failed:           'Failed',
-      expired:          'Expired',
-    };
-    return m[s] || (s ? s.replace(/_/g,' ') : '\u2014');
-  };
-  /* Helper: short ID display (first 12 chars + …) */
-  var shortId = function(v){ return v ? (v.length > 14 ? v.slice(0, 14) + '\u2026' : v) : null; };
-  /* Helper: format ISO date-time to local readable */
-  var fmtDate = function(v){
-    if (!v) return null;
-    try {
-      var d = new Date(v);
-      return d.toLocaleString('en-GB', { dateStyle:'medium', timeStyle:'short' });
-    } catch(_){ return String(v).slice(0, 19); }
-  };
-
-  html += '<div class="ctx-section"><h3>Payment</h3>';
-  html += '<div class="ctx-pay-box">';
-
-  /* ── 4a. Booking-level payment status — header shows primary pill (8.7.6) ─ */
-  var bkPayStatus = bk.payment_status || pmt.latest_status || null;
-  var isDepositPaid = bkPayStatus === 'deposit_paid';
-  var isFullyPaid   = bkPayStatus === 'paid';
-
-  if (!isDepositPaid && !isFullyPaid && bkPayStatus) {
-    html += '<div class="ctx-status-row"><span class="pill ' + statusPillCls(bkPayStatus) + '">' + escHtml(bkPayLabel(bkPayStatus)) + '</span></div>';
-  }
-
-  /* ── 4b. Booking totals ───────────────────────────────────────────────── */
-  var hasBookingAmts = bk.total_amount_cents != null || bk.amount_paid_cents != null || bk.balance_due_cents != null;
-  if (hasBookingAmts){
-    html += '<div class="ctx-pay-block">';
-    if (bk.total_amount_cents    != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Total</span><span class="ctx-pay-amount">' + escHtml(eur(bk.total_amount_cents)) + '</span></div>';
-    if (bk.deposit_required_cents != null && bk.deposit_required_cents > 0)
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Deposit required</span><span class="ctx-pay-amount">' + escHtml(eur(bk.deposit_required_cents)) + '</span></div>';
-    if (bk.amount_paid_cents     != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Booking paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(bk.amount_paid_cents)) + '</span></div>';
-    if (bk.balance_due_cents     != null){
-      var balCls = Number(bk.balance_due_cents) > 0 ? ' owing' : ' paid';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Balance due</span><span class="ctx-pay-amount' + balCls + '">' + escHtml(eur(bk.balance_due_cents)) + '</span></div>';
-    }
-    html += '</div>';
-  }
-
-  /* ── 4c. Payment record row(s) ───────────────────────────────────────── */
-  if (!pmt.rows || pmt.rows.length === 0){
-    html += '<div class="ctx-none" style="margin-top:6px">No payment record yet.</div>';
-  } else {
-    pmt.rows.forEach(function(pr){
-      var isPaid    = pr.payment_status === 'paid';
-      var isCreated = pr.payment_status === 'checkout_created';
-      var recCls = 'ctx-pay-record';
-      if (isPaid) recCls += ' ctx-pay-record-paid';
-      else if (isCreated) recCls += ' ctx-pay-record-checkout';
-
-      html += '<div class="' + recCls + '">';
-
-      /* Status badge row */
-      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-      var badgeCls = isPaid ? 'ctx-pay-record-badge ctx-pay-record-badge-paid' :
-                     isCreated ? 'ctx-pay-record-badge ctx-pay-record-badge-checkout' :
-                     'ctx-pay-record-badge ctx-pay-record-badge-default';
-      html += '<span class="' + badgeCls + '">' + escHtml(pmtStatusLabel(pr.payment_status)) + '</span>';
-      if (pr.payment_kind){
-        var kindLabel = pr.payment_kind === 'deposit_only' ? 'Deposit only' :
-                        pr.payment_kind === 'full_payment'  ? 'Full payment'  :
-                        pr.payment_kind.replace(/_/g,' ');
-        html += '<span style="font-size:10px;color:var(--text-3)">' + escHtml(kindLabel) + '</span>';
-      }
-      html += '</div>';
-
-      /* Amount rows */
-      html += '<div class="ctx-pay-block" style="margin:0 0 4px">';
-      if (pr.amount_due_cents  != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount due</span><span class="ctx-pay-amount">' + escHtml(eur(pr.amount_due_cents)) + '</span></div>';
-      if (pr.amount_paid_cents != null && Number(pr.amount_paid_cents) > 0)
-        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(pr.amount_paid_cents)) + '</span></div>';
-      if (pr.paid_at)
-        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid at</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.paid_at)) + '</span></div>';
-      html += '</div>';
-
-      /* Stripe webhook waiting banner */
-      if (isCreated && !isPaid){
-        html += '<div class="ctx-pay-record-wait">' +
-          '\u23F3 Payment link created \u2014 waiting for Stripe webhook.' +
-          '</div>';
-      }
-
-      /* Stripe ID details (collapsed, small) */
-      var hasIds = pr.stripe_checkout_session_id || pr.stripe_payment_intent_id;
-      if (hasIds){
-        html += '<div class="ctx-pay-record-meta">';
-        if (pr.stripe_checkout_session_id)
-          html += '<div>Session: <code>' + escHtml(shortId(pr.stripe_checkout_session_id)) + '</code></div>';
-        if (pr.stripe_payment_intent_id)
-          html += '<div>Intent: <code>' + escHtml(shortId(pr.stripe_payment_intent_id)) + '</code></div>';
-        html += '</div>';
-      }
-
-      /* Checkout URL + copy button */
-      if (pr.checkout_url){
-        html += '<div class="ctx-pay-record-url">';
-        html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-        html += '<a href="' + escHtml(pr.checkout_url) + '" target="_blank" rel="noopener" ' +
-          'style="word-break:break-all;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--accent)">' +
-          escHtml(pr.checkout_url.slice(0, 50)) + '\u2026</a>';
-        html += '<button class="btn" data-url="' + escHtml(pr.checkout_url) + '" ' +
-          'style="font-size:11px;padding:2px 8px" onclick="bcCopyUrl(this)">\uD83D\uDCCB Copy</button>';
-        html += '</div></div>';
-      }
-
-      html += '</div>'; /* end ctx-pay-record */
-    });
-  }
-  html += '</div>'; /* end ctx-pay-box */
-  html += '</div>'; /* end Payment section */
-
-  /* ── 4c. Services & add-ons (Stage 8.8.14) — booking_service_records only ─ */
+  /* ── 4. Running invoice (Phase 10.4d) — read-only; no writes ───────────── */
   var svcRows = data.service_records || [];
-  html += '<div class="ctx-section ctx-service-records" id="bc-service-records">';
-  html += '<h3>Services &amp; Add-ons</h3>';
-  var svcTypeLabel = function(t){
-    if (!t) return '\u2014';
-    var m = { yoga: 'Yoga', meal: 'Meal', surf_lesson: 'Surf lesson', wetsuit: 'Wetsuit', surfboard: 'Surfboard' };
-    return m[t] || String(t).replace(/_/g, ' ');
-  };
-  if (svcRows.length === 0){
-    html += '<div class="ctx-none">No services/add-ons recorded for this booking.</div>';
-  } else {
-    var lastSvcDate = null;
-    svcRows.forEach(function(sr){
-      if (sr.service_date !== lastSvcDate){
-        html += '<div class="ctx-svc-date-label">' + escHtml(sr.service_date || '\u2014') + '</div>';
-        lastSvcDate = sr.service_date;
-      }
-      html += '<div class="ctx-svc-record">';
-      html += '<div class="ctx-pay-block" style="margin:0">';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Service</span><span class="ctx-pay-amount" style="font-weight:500">' + escHtml(svcTypeLabel(sr.service_type)) + '</span></div>';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Date</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.service_date || '\u2014') + '</span></div>';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Qty</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.quantity != null ? String(sr.quantity) : '\u2014') + '</span></div>';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Status</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.status || '\u2014') + '</span></div>';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Payment</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.payment_status || '\u2014') + '</span></div>';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Due</span><span class="ctx-pay-amount">' + escHtml(eur(sr.amount_due_cents)) + '</span></div>';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(sr.amount_paid_cents)) + '</span></div>';
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Source</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(sr.source || '\u2014') + '</span></div>';
-      if (sr.notes) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Notes</span><span class="ctx-pay-amount" style="font-weight:400;white-space:normal">' + escHtml(sr.notes) + '</span></div>';
-      html += '</div></div>';
-    });
-  }
-  html += '</div>';
+  var pmt = data.payments || {};
+  html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
 
   /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
   var confDraft = (data.booking && data.booking.confirmation_draft) ||
