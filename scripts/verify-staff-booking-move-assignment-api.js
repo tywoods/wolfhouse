@@ -1,5 +1,7 @@
 /**
- * Phase 10.3g — Static verifier for assignment-scoped booking move API.
+ * Phase 10.3g / 10.3h.1 — Static verifier for assignment-scoped booking move API.
+ *
+ * Source-bed pill UI is covered by verify-staff-booking-move-assignment-ui.js (10.3h).
  *
  * Usage:
  *   npm run verify:staff-booking-move-assignment-api
@@ -22,7 +24,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-move-assignment-api.js  (Phase 10.3g)\n');
+console.log('\nverify-staff-booking-move-assignment-api.js  (Phase 10.3g / 10.3h.1)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -99,25 +101,29 @@ check(/function moveWriteBuildConflicts/.test(src),
 check(/row\.booking_bed_id !== excludeId/.test(src),
   'conflicts exclude selected booking_bed_id only');
 check(/existingStart < targetCheckOut && existingEnd > targetCheckIn/.test(src),
-  'half-open overlap unchanged');
+  'half-open overlap unchanged (same-day turnover allowed)');
 check(/idempotent:\s*true/.test(writeHandler + previewHandler),
   'idempotent path retained');
 
-console.log('\nF. Context payload for future UI');
+console.log('\nF. Context payload for assignment UI');
 
 check(/BOOKING_CONTEXT_ROOMING_SQL/.test(src),
-  'booking context rooming SQL includes bed_id for 10.3h');
+  'booking context rooming SQL includes bed_id for assignment UI');
 check(/bb\.bed_id::text\s+AS bed_id/.test(src),
   'context rooming query selects bed_id');
 check(/AS check_in/.test(src.match(/BOOKING_CONTEXT_ROOMING_SQL = `[\s\S]*?`;/m)?.[0] || ''),
   'context assignments expose check_in alias');
 
-console.log('\nG. Gate + no UI pills yet');
+console.log('\nG. Gate (API scope only)');
 
 check(/BOOKING_MOVE_WRITE_ENABLED/.test(src),
   'BOOKING_MOVE_WRITE_ENABLED gate remains');
-check(!/bc-move-source-bed|move-source-pill|Select which bed to move/i.test(src),
-  'no move source-bed UI pills added yet');
+check(!/bc-move-source-pill|bcRenderMoveSourcePillsHtml/.test(previewHandler + writeHandler),
+  'move API handlers do not embed source-bed UI (UI covered by assignment-ui verifier)');
+check(
+  fs.existsSync(path.join(__dirname, 'verify-staff-booking-move-assignment-ui.js')),
+  'source-bed pill UI delegated to verify-staff-booking-move-assignment-ui.js'
+);
 
 console.log('\nH. Safety — scope boundaries');
 
