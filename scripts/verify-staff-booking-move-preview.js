@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-move-preview.js  (Phase 10.2)\n');
+console.log('\nverify-staff-booking-move-preview.js  (Phase 10.2 / 10.2a)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -39,6 +39,8 @@ try {
 
 const handlerMatch = src.match(/async function handleBookingMovePreview[\s\S]*?(?=\r?\nasync function handleQuotePreview)/);
 const handlerBlock = handlerMatch ? handlerMatch[0] : '';
+const bedSqlMatch = src.match(/const MOVE_PREVIEW_BED_BY_ID_SQL = `([\s\S]*?)`;/);
+const bedSqlBlock = bedSqlMatch ? bedSqlMatch[1] : '';
 
 console.log('\nA. Route + handler');
 
@@ -78,6 +80,17 @@ check(/check_in and check_out are required/.test(handlerBlock),
   'check_in and check_out required');
 check(/check_out must be after check_in/.test(handlerBlock),
   'check_out after check_in enforced');
+
+console.log('\nC2. Bed lookup SQL (Phase 10.2a)');
+
+check(bedSqlBlock.length > 20,
+  'MOVE_PREVIEW_BED_BY_ID_SQL block present');
+check(!/\br\.room_name\b/.test(bedSqlBlock),
+  'MOVE_PREVIEW_BED_BY_ID_SQL does not reference r.room_name');
+check(/r\.name\s+AS\s+room_name/i.test(bedSqlBlock),
+  'MOVE_PREVIEW_BED_BY_ID_SQL uses r.name AS room_name');
+check(!/INSERT INTO|UPDATE\s+|DELETE FROM/i.test(bedSqlBlock),
+  'MOVE_PREVIEW_BED_BY_ID_SQL is SELECT-only');
 
 console.log('\nD. Conflict logic');
 

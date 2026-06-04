@@ -2192,7 +2192,7 @@ SELECT
   bd.sellable         AS sellable,
   r.id::text          AS room_id,
   r.room_code,
-  r.room_name
+  r.name              AS room_name
 FROM beds bd
 INNER JOIN rooms r   ON r.id = bd.room_id AND r.client_id = bd.client_id
 INNER JOIN clients c ON c.id = bd.client_id
