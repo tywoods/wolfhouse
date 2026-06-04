@@ -12013,7 +12013,14 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-room-hdr{background:var(--olive);color:#fff;font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.02em}
 .bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:11px;padding:6px 10px;min-width:120px;position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
 .bc-day-cell{height:30px;min-width:46px;vertical-align:middle;padding:2px 3px}
-.bc-block{height:28px;border-radius:7px;padding:3px 9px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
+.bc-block{height:28px;border-radius:7px;padding:3px 6px 3px 9px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;display:flex;align-items:center;gap:4px;min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
+.bc-block-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+.bc-block-pay-wrap{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;max-width:58%}
+.bc-block-pay-badge{font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;line-height:1.25;white-space:nowrap}
+.bc-block-pay-balance{background:#F5E0D0;color:#9B4E12;border:1px solid #E8C4A8}
+.bc-block-pay-paid{background:#DCEAD2;color:#3d6130;border:1px solid #B5D3AD}
+.bc-block-pay-refund{background:#F3DDE8;color:#7A3A52;border:1px solid #D4A8BC}
+.bc-block-pay-link{background:#E8EEF2;color:#4A6270;border:1px solid #C5D5DE}
 .bc-block:hover{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
 .bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C}
 .bc-block-hold{background:#F2E7D3;color:#8A6F4F;border-left:3px solid #DCC8B7}
@@ -12055,6 +12062,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-legend-sw-operator{background:#D5E3EE;border-left-color:#85A8C0}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
 .bc-legend-sw-manual{background:#D5EAE3;border-left-color:#7ABFAD}
+.bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input{font-size:12px;padding:5px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:130px}
 input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
@@ -12477,6 +12485,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-review"></span>Needs review</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-operator"></span>Operator block</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Manual / staff</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-balance"></span>Balance due</span>
     </div>
 
     <!-- Warnings -->
@@ -14672,6 +14681,74 @@ function renderQuoteResult(resp){
   return html;
 }
 
+/* Phase 10.6g — bed calendar payment badges (separate from booking.status) */
+function bcCalendarFormatEur(cents){
+  if (cents == null || isNaN(Number(cents))) return '\u2014';
+  return '\u20ac' + (Number(cents) / 100).toFixed(2);
+}
+
+function bcCalendarBlockPaymentState(blk){
+  blk = blk || {};
+  if (blk.calendar_payment_state) {
+    return {
+      kind: blk.calendar_payment_state,
+      amount_cents: blk.calendar_payment_amount_cents != null ? Number(blk.calendar_payment_amount_cents) : 0,
+    };
+  }
+  var total = blk.total_amount_cents != null ? Number(blk.total_amount_cents) : null;
+  var paid = blk.amount_paid_cents != null ? Number(blk.amount_paid_cents) : null;
+  var balance = blk.balance_due_cents != null ? Number(blk.balance_due_cents) : null;
+  if (total != null && paid != null && total > 0 && paid > total) {
+    return { kind: 'refund_review', amount_cents: paid - total };
+  }
+  if (balance != null && balance > 0) {
+    return { kind: 'balance_due', amount_cents: balance };
+  }
+  if (balance === 0 && total != null && total > 0) {
+    return { kind: 'paid', amount_cents: 0 };
+  }
+  if (blk.has_active_payment_link) {
+    return { kind: 'payment_link_created', amount_cents: 0 };
+  }
+  return null;
+}
+
+function bcCalendarPaymentTooltipHint(blk){
+  var st = bcCalendarBlockPaymentState(blk);
+  if (!st || !st.kind) return '';
+  if (st.kind === 'balance_due') return ' | Balance due ' + bcCalendarFormatEur(st.amount_cents);
+  if (st.kind === 'refund_review') return ' | Refund review ' + bcCalendarFormatEur(st.amount_cents);
+  if (st.kind === 'paid') return ' | Paid';
+  if (st.kind === 'payment_link_created') return ' | Payment link sent';
+  return '';
+}
+
+function bcCalendarPaymentBadgesHtml(blk){
+  var st = bcCalendarBlockPaymentState(blk);
+  if (!st || !st.kind) return '';
+  var html = '<span class="bc-block-pay-wrap">';
+  if (st.kind === 'balance_due') {
+    html += '<span class="bc-block-pay-badge bc-block-pay-balance">Balance due ' +
+      escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
+    if (blk.has_active_payment_link) {
+      html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
+    }
+  } else if (st.kind === 'paid') {
+    html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
+  } else if (st.kind === 'refund_review') {
+    html += '<span class="bc-block-pay-badge bc-block-pay-refund">Refund review ' +
+      escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
+  } else if (st.kind === 'payment_link_created') {
+    html += '<span class="bc-block-pay-badge bc-block-pay-link">Payment link sent</span>';
+  }
+  html += '</span>';
+  return html;
+}
+
+function bcCalendarBlockInnerHtml(blk, labelHtml){
+  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcCalendarPaymentBadgesHtml(blk);
+}
+
 function bcColorClass(ct){
   var c = (ct||'hold').toLowerCase();
   var valid = ['confirmed','hold','payment_pending','needs_review','cancelled','conflict','operator','manual'];
@@ -14919,9 +14996,10 @@ function bcBlockTooltip(blk){
   if (blk.is_arrival)   arrDep.push('Arrives ' + (blk.start_date||''));
   if (blk.is_departure) arrDep.push('Departs ' + (blk.end_date||''));
   var statusHint = blk.color_type ? ' [' + blk.color_type.replace(/_/g,' ') + ']' : '';
+  var payHint = bcCalendarPaymentTooltipHint(blk);
   return escHtml(
     (blk.booking_code||'\u2014') + ' \u2013 ' + (blk.guest_name||'') +
-    ' | ' + (blk.start_date||'') + ' \u2192 ' + (blk.end_date||'') + statusHint +
+    ' | ' + (blk.start_date||'') + ' \u2192 ' + (blk.end_date||'') + statusHint + payHint +
     (arrDep.length ? ' | ' + arrDep.join(' \u00b7 ') : '')
   );
 }
@@ -14950,7 +15028,7 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
 
   var priColor = bcColorClass(primary.blk.color_type);
   inner += '<div class="bc-block ' + priColor + ' bc-block-checkin-layer" data-bidx="' + primary.idx + '" title="' + bcTurnoverCellTooltip(segs) + '">' +
-    bcTurnoverVisibleLabel(primary.blk) + '</div>';
+    bcCalendarBlockInnerHtml(primary.blk, bcTurnoverVisibleLabel(primary.blk)) + '</div>';
 
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
 }
@@ -14977,7 +15055,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   return '<td colspan="' + spanDays + '" class="bc-day-cell' + turnoverCls + '" style="position:relative;padding:2px 3px">' +
     markerHtml +
     '<div class="bc-block ' + colorCls + '" data-bidx="' + idx + '" title="' + tip + '">' +
-    label + '</div></td>';
+    bcCalendarBlockInnerHtml(blk, label) + '</div></td>';
 }
 
 function kvBC(k, v){
@@ -15000,12 +15078,37 @@ function bcDetailHeaderMetaHtml(blk, bk){
   bk = bk || {};
   blk = blk || {};
   var html = '';
+  var total = bk.total_amount_cents != null ? Number(bk.total_amount_cents)
+    : (blk.total_amount_cents != null ? Number(blk.total_amount_cents) : null);
+  var paid = bk.amount_paid_cents != null ? Number(bk.amount_paid_cents)
+    : (blk.amount_paid_cents != null ? Number(blk.amount_paid_cents) : null);
+  var balance = bk.balance_due_cents != null ? Number(bk.balance_due_cents)
+    : (blk.balance_due_cents != null ? Number(blk.balance_due_cents) : null);
+  var calPay = bcCalendarBlockPaymentState({
+    total_amount_cents: total,
+    amount_paid_cents: paid,
+    balance_due_cents: balance,
+    has_active_payment_link: !!(blk.has_active_payment_link || bk.has_active_payment_link),
+    calendar_payment_state: blk.calendar_payment_state || bk.calendar_payment_state || null,
+    calendar_payment_amount_cents: blk.calendar_payment_amount_cents != null
+      ? blk.calendar_payment_amount_cents
+      : (bk.calendar_payment_amount_cents != null ? bk.calendar_payment_amount_cents : null),
+  });
+  if (calPay && calPay.kind === 'refund_review') {
+    html += '<span class="pill pill-orange">Refund review ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
+  } else if (calPay && calPay.kind === 'balance_due') {
+    html += '<span class="pill pill-orange">Balance due ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
+  } else if (calPay && calPay.kind === 'paid') {
+    html += '<span class="pill pill-green">Paid</span>';
+  } else if (calPay && calPay.kind === 'payment_link_created') {
+    html += '<span class="pill pill-blue">Payment link sent</span>';
+  }
   var bkPay = bk.payment_status || null;
-  if (bkPay === 'deposit_paid' || bkPay === 'paid'){
+  if (!calPay && (bkPay === 'deposit_paid' || bkPay === 'paid')){
     html += '<span class="pill pill-green">' + escHtml(bkPay === 'deposit_paid' ? 'Deposit paid \u2713' : 'Paid in full \u2713') + '</span>';
-  } else if (bk.status){
+  } else if (!calPay && bk.status){
     html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(String(bk.status).replace(/_/g,' ')) + '</span>';
-  } else if (blk.color_type){
+  } else if (!calPay && blk.color_type){
     var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',operator:'pill-blue',manual:'pill-blue'};
     html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(String(blk.color_type).replace(/_/g,' ')) + '</span>';
   }
@@ -18511,11 +18614,58 @@ function buildRoomHierarchy(roomRows) {
   return rooms;
 }
 
+/* Phase 10.6g — calendar payment badge state (separate from booking.status) */
+function calendarBlockPaymentState(row) {
+  const total = row.total_amount_cents != null ? Number(row.total_amount_cents) : null;
+  const paid = row.amount_paid_cents != null ? Number(row.amount_paid_cents) : null;
+  const balance = row.balance_due_cents != null ? Number(row.balance_due_cents) : null;
+
+  if (total != null && paid != null && total > 0 && paid > total) {
+    return { kind: 'refund_review', amount_cents: paid - total };
+  }
+  if (balance != null && balance > 0) {
+    return { kind: 'balance_due', amount_cents: balance };
+  }
+  if (balance === 0 && total != null && total > 0) {
+    return { kind: 'paid', amount_cents: 0 };
+  }
+  if (row.has_active_payment_link) {
+    return { kind: 'payment_link_created', amount_cents: 0 };
+  }
+  return null;
+}
+
+const BED_CALENDAR_BOOKING_PAYMENT_SQL = `
+SELECT b.id::text AS booking_id,
+       b.total_amount_cents,
+       b.amount_paid_cents,
+       b.balance_due_cents
+  FROM bookings b
+ WHERE b.id = ANY($1::uuid[])
+`;
+
+const BED_CALENDAR_ACTIVE_PAYMENT_LINK_SQL = `
+SELECT DISTINCT p.booking_id::text AS booking_id
+  FROM payments p
+ WHERE p.booking_id = ANY($1::uuid[])
+   AND p.status IN ('checkout_created'::payment_record_status, 'draft'::payment_record_status, 'pending'::payment_record_status)
+   AND COALESCE(p.amount_paid_cents, 0) = 0
+   AND p.checkout_url IS NOT NULL
+   AND NOT (p.status = 'cancelled'::payment_record_status)
+   AND EXISTS (
+     SELECT 1 FROM bookings b
+      WHERE b.id = p.booking_id
+        AND b.balance_due_cents > 0
+        AND p.amount_due_cents = b.balance_due_cents
+   )
+`;
+
 function buildCalendarBlocks(blockRows, startDate, endDate) {
   return blockRows
     .filter(row => !bookingStatusIsCancelled(row.booking_status))
     .map(row => {
     const span = computeBlockSpan(row, startDate, endDate);
+    const payState = calendarBlockPaymentState(row);
     return {
       booking_id:        row.booking_id,
       booking_code:      row.booking_code,
@@ -18536,6 +18686,12 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       needs_review:      !!(row.needs_rooming_review || (row.assignment_status || '').toLowerCase() === 'needs_review'),
       is_arrival:        span.is_arrival,
       is_departure:      span.is_departure,
+      total_amount_cents: row.total_amount_cents != null ? Number(row.total_amount_cents) : null,
+      amount_paid_cents:  row.amount_paid_cents != null ? Number(row.amount_paid_cents) : null,
+      balance_due_cents:  row.balance_due_cents != null ? Number(row.balance_due_cents) : null,
+      has_active_payment_link: !!row.has_active_payment_link,
+      calendar_payment_state: payState ? payState.kind : null,
+      calendar_payment_amount_cents: payState ? payState.amount_cents : null,
     };
   }).filter(b => b.span_days > 0);
 }
@@ -18577,7 +18733,25 @@ async function handleBedCalendar(query, res, user) {
         pg.query(getBedCalendarBlocksQuery(),  [clientSlug, startISO, endISO]),
         pg.query(getBedCalendarSummaryQuery(), [clientSlug, startISO, endISO]),
       ]);
-      return [rr.rows, br.rows, sr.rows];
+      const rows = br.rows;
+      const bookingIds = [...new Set(rows.map((r) => r.booking_id).filter(Boolean))];
+      if (bookingIds.length > 0) {
+        const [paySnap, activeLinks] = await Promise.all([
+          pg.query(BED_CALENDAR_BOOKING_PAYMENT_SQL, [bookingIds]),
+          pg.query(BED_CALENDAR_ACTIVE_PAYMENT_LINK_SQL, [bookingIds]),
+        ]);
+        const payById = {};
+        paySnap.rows.forEach((r) => { payById[r.booking_id] = r; });
+        const linkSet = new Set(activeLinks.rows.map((r) => r.booking_id));
+        rows.forEach((r) => {
+          const p = payById[r.booking_id] || {};
+          r.total_amount_cents = p.total_amount_cents != null ? Number(p.total_amount_cents) : null;
+          r.amount_paid_cents = p.amount_paid_cents != null ? Number(p.amount_paid_cents) : null;
+          r.balance_due_cents = p.balance_due_cents != null ? Number(p.balance_due_cents) : null;
+          r.has_active_payment_link = linkSet.has(r.booking_id);
+        });
+      }
+      return [rr.rows, rows, sr.rows];
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });

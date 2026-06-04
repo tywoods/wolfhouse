@@ -1918,6 +1918,41 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '232o: service panel has no n8n URL fetch (Stage 8.8.14)');
 })();
 
+// ── Phase 10.6g — Bed calendar payment badges ───────────────────────────────
+(function check106gCalendarPaymentBadges(){
+  const calPaySlice = src.match(/\/\* Phase 10\.6g — bed calendar payment badges[\s\S]*?function bcColorClass/)?.[0] || '';
+  const buildSlice = src.match(/function buildCalendarBlocks[\s\S]*?async function handleBedCalendar/)?.[0] || '';
+
+  check(/function bcCalendarBlockPaymentState/.test(src) && /function calendarBlockPaymentState/.test(src),
+    '10.6g: client and server calendar payment state helpers');
+  check(/kind: 'balance_due'/.test(src) && /balance != null && balance > 0/.test(src),
+    '10.6g: balance due when balance_due_cents > 0');
+  check(/bc-block-pay-balance/.test(src) && /Balance due/.test(calPaySlice),
+    '10.6g: balance due badge label and soft orange style class');
+  check(/bc-block-pay-paid/.test(src) && /kind: 'paid'/.test(calPaySlice),
+    '10.6g: paid badge for zero balance with invoice total');
+  check(/bc-block-pay-refund/.test(src) && /refund_review/.test(calPaySlice),
+    '10.6g: refund review badge for overpaid');
+  check(/bc-block-pay-link/.test(src) && /payment_link_created/.test(calPaySlice),
+    '10.6g: payment link sent subtle badge');
+  check(!/status:\s*'balance_due'|status:\s*"balance_due"|'balance_due'::booking_status/.test(src),
+    '10.6g: no new booking.status balance_due');
+  check(!/Balance due<\/span>\s*<\/span>\s*<\/div>\s*[\s\S]{0,80}bc-legend-sw-cancelled/.test(
+    src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 1200)
+  ) && !/>Cancelled<\/span>/.test(src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 1200)),
+    '10.6g: Balance due legend present and Cancelled legend item absent');
+  check(/bc-legend-sw-balance/.test(src) && />Balance due</.test(src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 1200)),
+    '10.6g: Balance due legend item');
+  check(/function showBlockDetail/.test(src) && /bcCalendarBlockInnerHtml/.test(src),
+    '10.6g: calendar block click/drawer with payment badge markup');
+  check(/BED_CALENDAR_BOOKING_PAYMENT_SQL/.test(src) && /BED_CALENDAR_ACTIVE_PAYMENT_LINK_SQL/.test(src),
+    '10.6g: calendar enriches blocks with payment snapshot SELECTs only');
+  check(!/stripe\.checkout|graph\.facebook\.com/.test(buildSlice + calPaySlice),
+    '10.6g: no Stripe/WhatsApp in calendar payment badge slice');
+  check(!/INSERT INTO|UPDATE bookings|UPDATE payments/.test(buildSlice.match(/handleBedCalendar[\s\S]*/)?.[0] || ''),
+    '10.6g: bed calendar handler has no payment writes');
+})();
+
 // ── Phase 10.6a.4 — drawer/move/add-ons regressions + safety ───────────────
 (function check106a4DrawerAndSafety(){
   check(/function loadBedCalendar/.test(src) && /renderBedCalendar/.test(src),
