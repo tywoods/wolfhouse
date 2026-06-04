@@ -10745,6 +10745,30 @@ function renderBookingContextDrawer(data){
   if (roomPref) html += kvBC('Room pref', roomPref);
   html += '</div></div>';
 
+  /* ── Phase 10.3e / 10.3e.1 — Move bed (under stay details, above Payment) ─ */
+  var rmMove = data.rooming || {};
+  var moveAssigns = rmMove.assignments || [];
+  var moveSingleBed = moveAssigns.length === 1;
+  html += '<div class="ctx-section ctx-move-bed" id="bc-move-bed">';
+  html += '<h3>Move bed</h3>';
+  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px;line-height:1.45">';
+  html += 'Preview does not change anything. Move is same-date bed move only. Date changes are not supported here.';
+  html += '</div>';
+  if (!moveSingleBed){
+    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">This booking has multiple or no bed assignments and requires manual review.</div>';
+  }
+  html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px">Target bed</label>';
+  html += bcMoveBedTargetFieldHtml(moveSingleBed ? moveAssigns[0].bed_code : null);
+  html += '</div>';
+  if (!BC_BOOKING_MOVE_WRITE){
+    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">Move controls are disabled.</div>';
+  }
+  html += '<div id="bc-move-result"></div>';
+  html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
+  html += '<button type="button" class="btn" id="bc-move-preview-btn">Preview move</button>';
+  html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
+  html += '</div></div>';
+
   /* ── 4. Payment ────────────────────────────────────────────────────────── */
   /* Stage 8.4.12: full payment truth panel — shows webhook result, paid_at,
      checkout URL, session/intent IDs, deposit vs. full-paid labels.
@@ -10922,40 +10946,6 @@ function renderBookingContextDrawer(data){
   }
   html += '</div>';
 
-  /* ── Phase 10.3e — Move bed (same-date single-bed; preview + gated write) ─ */
-  var rmMove = data.rooming || {};
-  var moveAssigns = rmMove.assignments || [];
-  var moveSingleBed = moveAssigns.length === 1;
-  var moveCurrentBed = moveSingleBed ? (moveAssigns[0].bed_code || '\u2014') : ((rmMove.assigned_bed_codes || []).join(', ') || '\u2014');
-  var moveCurrentRoom = moveSingleBed ? (moveAssigns[0].room_code || '\u2014') : ((rmMove.assigned_room_codes || []).join(', ') || '\u2014');
-  html += '<div class="ctx-section ctx-move-bed" id="bc-move-bed">';
-  html += '<h3>Move bed</h3>';
-  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px;line-height:1.45">';
-  html += 'Preview does not change anything. Move is same-date bed move only. Date changes are not supported here.';
-  html += '</div>';
-  html += '<div class="kv-grid">';
-  html += kvBC('Booking', bk.booking_code);
-  html += kvBC('Guest', bk.guest_name);
-  html += kvBC('Current bed', moveCurrentBed);
-  html += kvBC('Current room', moveCurrentRoom);
-  html += kvBC('Check-in', bk.check_in);
-  html += kvBC('Check-out', bk.check_out);
-  html += '</div>';
-  if (!moveSingleBed){
-    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">This booking has multiple or no bed assignments and requires manual review.</div>';
-  }
-  html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px">Target bed</label>';
-  html += bcMoveBedTargetFieldHtml(moveSingleBed ? moveAssigns[0].bed_code : null);
-  html += '</div>';
-  if (!BC_BOOKING_MOVE_WRITE){
-    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">Move controls are disabled.</div>';
-  }
-  html += '<div id="bc-move-result"></div>';
-  html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
-  html += '<button type="button" class="btn" id="bc-move-preview-btn">Preview move</button>';
-  html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
-  html += '</div></div>';
-
   /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
   var confDraft = (data.booking && data.booking.confirmation_draft) ||
                   (data.booking && data.booking.metadata && data.booking.metadata.confirmation_draft) ||
@@ -10982,24 +10972,6 @@ function renderBookingContextDrawer(data){
     html += '<br><span style="font-style:italic">Draft only — not sent. No WhatsApp in this slice.</span>';
     html += '</div></div></div>';
   }
-
-  /* ── 5. Add-ons / Activities ───────────────────────────────────────────── */
-  var ao = data.addons || {};
-  html += '<div class="ctx-section"><h3>Add-ons / Activities</h3>';
-  if (!ao.rows || ao.rows.length === 0){
-    html += '<div class="ctx-none">' + escHtml(ao.note || 'No add-on orders recorded.') + '</div>';
-  } else {
-    var seenOrders = {};
-    ao.rows.forEach(function(r){
-      if (!seenOrders[r.order_id]){
-        seenOrders[r.order_id] = true;
-        var statusLabel = [r.order_status, r.order_payment_status].filter(Boolean).join(' / ');
-        html += '<div class="ctx-addon-row"><span>' + escHtml(r.order_code || 'Order') + '</span>' +
-          '<span style="font-size:11px;color:var(--text-2)">' + escHtml(statusLabel) + '</span></div>';
-      }
-    });
-  }
-  html += '</div>';
 
   /* ── 6. Conversation / Handoff ─────────────────────────────────────────── */
   html += '<div class="ctx-section"><h3>Conversation / Handoff</h3>';
