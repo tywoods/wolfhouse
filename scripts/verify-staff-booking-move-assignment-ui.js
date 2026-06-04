@@ -99,39 +99,40 @@ check(/bcClearMoveResult\(\)/.test(moveFnBlock) &&
 check(/bcRenderMoveResult/.test(moveFnBlock),
   'error/conflict messages can still render via bcRenderMoveResult');
 
-console.log('\nB. Preview + move requests include booking_bed_id');
+console.log('\nB. Move write requests include booking_bed_id');
 
 check(/booking_bed_id:\s*bookingBedId/.test(moveFnBlock),
-  'move-preview and move send booking_bed_id from selection');
+  'move write sends booking_bed_id from selection');
 check(/bcGetSelectedBookingBedId/.test(moveFnBlock),
   'helper resolves selected source booking_bed_id');
-check(/\/staff\/bookings\/move-preview/.test(moveFnBlock),
-  'POST /staff/bookings/move-preview called from UI');
 check(/\/staff\/bookings\/move['"]/.test(moveFnBlock),
   'POST /staff/bookings/move called from UI');
+check(!/\/staff\/bookings\/move-preview/.test(moveFnBlock),
+  'Move bed UI no longer calls move-preview (10.3h.5)');
 
-console.log('\nC. Preview move enablement');
+console.log('\nC. Move booking enablement (10.3h.5)');
 
-check(/function bcMoveInputsReadyForPreview/.test(moveFnBlock),
-  'preview readiness helper present');
-check(/prevBtn\.disabled = busy \|\| !bcMoveInputsReadyForPreview\(\)/.test(moveFnBlock),
-  'Preview move enabled when source + target + dates present (not gated on prior preview)');
-check(!/prevBtn\.disabled = busy \|\| !bcMoveCtx\.singleBed/.test(moveFnBlock),
-  'Preview move no longer blocked solely by multi-bed singleBed flag');
+check(/function bcMoveInputsReadyForWrite/.test(moveFnBlock),
+  'write readiness helper present');
+check(/moveBtn\.disabled = busy \|\| !bcMoveInputsReadyForWrite\(\) \|\| !BC_BOOKING_MOVE_WRITE/.test(moveFnBlock),
+  'Move booking enabled when source + target + gate ON');
+check(!/id="bc-move-preview-btn"/.test(drawerFn),
+  'Preview move button removed from drawer');
+check(!/Preview move/.test(drawerFn),
+  'Preview move label not in drawer HTML');
 
-console.log('\nD. Move booking gating + preview reset');
+console.log('\nD. Move booking gating + target change');
 
-check(/moveBtn\.disabled = busy \|\| !bcMoveCtx\.previewCanMove/.test(moveFnBlock),
-  'Move booking disabled until previewCanMove is true');
-check(/function bcResetMovePreviewState/.test(moveFnBlock),
-  'preview reset helper present');
-check(/bcMoveCtx\.previewCanMove = false/.test(moveFnBlock),
-  'previewCanMove cleared on input changes');
-check(/bcOnMoveSourcePillClick/.test(moveFnBlock) && /bcResetMovePreviewState/.test(moveFnBlock),
-  'changing source pill clears preview state');
-check(/targetEl\.onchange = bcResetMovePreviewState/.test(moveFnBlock) ||
+check(!/previewCanMove/.test(moveFnBlock),
+  'Move UI no longer depends on previewCanMove');
+check(/function bcOnMoveTargetChange/.test(moveFnBlock),
+  'target change handler present');
+check(/bcOnMoveSourcePillClick/.test(moveFnBlock) &&
+      /bcRefreshMoveTargetField|bcLoadMoveTargets/.test(moveFnBlock),
+  'changing source pill reloads available targets');
+check(/targetEl\.onchange = bcOnMoveTargetChange/.test(moveFnBlock) ||
       /bcWireMoveTargetField/.test(moveFnBlock),
-  'changing target bed clears preview state');
+  'changing target bed updates Move booking enablement');
 
 console.log('\nE. Gate-off + requires_selection handling');
 
@@ -139,20 +140,17 @@ check(/!BC_BOOKING_MOVE_WRITE/.test(moveFnBlock),
   'Move booking remains disabled when BC_BOOKING_MOVE_WRITE is false');
 check(/Move controls are disabled/.test(moveFnBlock + drawerFn),
   'gate-off shows Move controls are disabled message');
-check(/requires_selection/.test(moveFnBlock),
-  'requires_selection response handled in preview');
 check(/Select which bed assignment to move/.test(moveFnBlock),
-  'requires_selection shows Select which bed assignment to move message');
+  'multi-bed without selection shows Select which bed assignment to move message');
 
-console.log('\nF. Target bed excludes selected source');
+console.log('\nF. Target bed available-only filtering (10.3h.4+)');
 
-check(/function bcMoveBedTargetFieldHtml\(excludeBedId\)/.test(moveFnBlock) ||
-      /bcMoveBedTargetFieldHtml\(excludeBedId\)/.test(moveFnBlock),
-  'target field builder accepts excludeBedId');
-check(/excludeBedId && bed\.bed_id === excludeBedId/.test(moveFnBlock),
-  'target bed dropdown excludes selected source bed by bed_id');
-check(/bcRefreshMoveTargetField/.test(moveFnBlock),
-  'target dropdown refreshes when source selection changes');
+check(/bcRefreshMoveTargetField|bcLoadMoveTargets/.test(moveFnBlock),
+  'target dropdown reloads when source selection changes');
+check(/Only available target beds are shown/.test(moveFnBlock),
+  'available-only helper text present');
+check(!/bcMoveBedTargetFieldHtml/.test(moveFnBlock),
+  'no unfiltered legacy target dropdown in move UI');
 
 console.log('\nG. Single-bed + zero-bed paths');
 

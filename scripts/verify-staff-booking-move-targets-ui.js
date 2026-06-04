@@ -1,5 +1,5 @@
 /**
- * Phase 10.3h.4 — Static verifier for bulk move target availability filtering.
+ * Phase 10.3h.4 / 10.3h.5 — Static verifier for move target filtering + no-preview flow.
  *
  * Usage:
  *   npm run verify:staff-booking-move-targets-ui
@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-move-targets-ui.js  (Phase 10.3h.4)\n');
+console.log('\nverify-staff-booking-move-targets-ui.js  (Phase 10.3h.4 / 10.3h.5)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -38,6 +38,7 @@ try {
 }
 
 const targetsHandler = src.match(/async function handleBookingMoveTargets[\s\S]*?(?=\r?\nasync function handleBookingMovePreview)/)?.[0] || '';
+const writeHandler   = src.match(/async function handleBookingMoveWrite[\s\S]*?(?=\r?\nasync function handleBookingMoveTargets)/)?.[0] || '';
 const targetsRoute = src.match(/pathname === '\/staff\/bookings\/move-targets'[\s\S]*?handleBookingMoveTargets/)?.[0] || '';
 const loadTargetsFn = src.match(/function bcLoadMoveTargets[\s\S]*?\n\}/)?.[0] || '';
 const moveFnBlock = src.match(/\/\* ── Phase 10\.3e — booking drawer move bed[\s\S]*?function bcInitMovePanel[\s\S]*?\n\}/)?.[0] || '';
@@ -119,6 +120,8 @@ check(!/\/staff\/bookings\/move-preview/.test(loadTargetsFn),
   'bcLoadMoveTargets does not call move-preview (bulk filter only)');
 check(!/(forEach|for\s*\()[\s\S]{0,200}\/staff\/bookings\/move-preview/.test(moveFnBlock),
   'UI does not loop move-preview per bed');
+check(!/\/staff\/bookings\/move-preview/.test(moveFnBlock),
+  'Move bed UI does not call move-preview endpoint');
 
 console.log('\nF. Dropdown filtering + fallback');
 
@@ -128,36 +131,56 @@ check(/t\.available/.test(moveFnBlock),
   'dropdown filters to available targets');
 check(/Only available target beds are shown/.test(moveFnBlock),
   'helper text when hiding unavailable beds');
-check(/function bcRenderMoveTargetFallback/.test(moveFnBlock),
-  'fallback renderer present');
-check(/Could not filter beds; use Preview move to check availability/.test(moveFnBlock),
-  'fallback message on move-targets failure');
-check(/bcMoveBedTargetFieldHtml/.test(moveFnBlock),
-  'fallback uses legacy target dropdown builder');
+check(/function bcRenderMoveTargetFailed/.test(moveFnBlock),
+  'failed-target renderer present');
+check(/Could not load available beds/.test(moveFnBlock),
+  'fallback message when move-targets fails');
+check(/targetsLoadFailed/.test(moveFnBlock),
+  'targetsLoadFailed keeps Move booking disabled on failure');
+check(!/bcMoveBedTargetFieldHtml/.test(moveFnBlock),
+  'no unfiltered legacy target dropdown fallback in move UI');
 check(/bc-move-target-note/.test(drawerFn + moveFnBlock),
   'target note element in drawer');
 
-console.log('\nG. Preview still required + preview reset preserved');
+console.log('\nG. Preview button removed + Move enablement');
 
-check(/moveBtn\.disabled = busy \|\| !bcMoveCtx\.previewCanMove/.test(moveFnBlock),
-  'Move booking disabled until previewCanMove');
-check(/function bcResetMovePreviewState/.test(moveFnBlock),
-  'preview reset helper preserved');
-check(/bcMoveCtx\.previewCanMove = false/.test(moveFnBlock),
-  'previewCanMove cleared on input changes');
-check(/\/staff\/bookings\/move-preview/.test(moveFnBlock),
-  'Preview move still calls move-preview');
-check(/prevBtn\.disabled = busy \|\| !bcMoveInputsReadyForPreview\(\)/.test(moveFnBlock),
-  'Preview move enabled when inputs ready');
+check(!/id="bc-move-preview-btn"/.test(drawerFn),
+  'visible Preview move button removed from drawer');
+check(!/Preview move/.test(drawerFn),
+  'Preview move label not rendered in Move bed panel');
+check(!/previewCanMove/.test(moveFnBlock),
+  'Move UI no longer depends on previewCanMove');
+check(/function bcMoveInputsReadyForWrite/.test(moveFnBlock),
+  'write readiness helper present');
+check(/moveBtn\.disabled = busy \|\| !bcMoveInputsReadyForWrite\(\) \|\| !BC_BOOKING_MOVE_WRITE/.test(moveFnBlock),
+  'Move booking enables from source + target + gate ON');
+check(/function bcOnMoveTargetChange/.test(moveFnBlock),
+  'target change handler updates Move booking enablement');
+check(/bcClearMoveResult\(\)/.test(moveFnBlock) &&
+      /bcOnMoveSourcePillClick/.test(moveFnBlock),
+  'source change clears result and reloads targets');
 
-console.log('\nH. Gate-off behavior');
+console.log('\nH. Write endpoint remains final validation');
+
+check(/function bcRunMoveWrite/.test(moveFnBlock),
+  'bcRunMoveWrite present');
+check(/\/staff\/bookings\/move['"]/.test(moveFnBlock),
+  'Move booking POSTs /staff/bookings/move');
+check(/booking_bed_id:\s*bookingBedId/.test(
+  src.match(/function bcRunMoveWrite[\s\S]*?\n\}/)?.[0] || ''),
+  'write request sends booking_bed_id');
+check(/function moveWriteBuildConflicts/.test(src) &&
+      /moveWriteBuildConflicts/.test(writeHandler),
+  'write handler still rechecks conflicts');
+
+console.log('\nI. Gate-off behavior');
 
 check(/!BC_BOOKING_MOVE_WRITE/.test(moveFnBlock),
   'Move booking remains disabled when gate OFF');
 check(/Move controls are disabled/.test(moveFnBlock + drawerFn),
   'gate-off message preserved');
 
-console.log('\nI. Safety — forbidden scope');
+console.log('\nJ. Safety — forbidden scope');
 
 check(!/bc-move.*check_in|id="bc-move-check/.test(drawerFn + moveFnBlock),
   'no date-change UI inputs');
@@ -174,20 +197,20 @@ check(!/UPDATE payments|INSERT INTO payments|UPDATE booking_service_records|INSE
 check(!/resolveNaturalLanguageIntent|function alAsk/.test(moveFnBlock + targetsHandler),
   'no Ask Luna changes');
 
-console.log('\nJ. Migrations unchanged');
+console.log('\nK. Migrations unchanged');
 
 if (fs.existsSync(MIG_DIR)) {
   const migFiles = fs.readdirSync(MIG_DIR).filter((f) => f.endsWith('.sql'));
   const migHit = migFiles.some((f) => {
     const body = fs.readFileSync(path.join(MIG_DIR, f), 'utf8');
-    return /move-targets|moveBuildTargetAvailability|10\.3h\.4/i.test(body);
+    return /move-targets|moveBuildTargetAvailability|10\.3h\.[45]/i.test(body);
   });
   check(!migHit, 'no new migration references move-targets');
 } else {
   ok('migrations directory not present (skip)');
 }
 
-console.log('\nK. package.json script');
+console.log('\nL. package.json script');
 
 if (fs.existsSync(PKG_FILE)) {
   const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));

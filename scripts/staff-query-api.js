@@ -10966,33 +10966,13 @@ var bcMoveCtx = {
   selectedBookingBedId: null,
   selectedSourceBedId: null,
   singleBed: true,
-  previewCanMove: false,
-  previewInFlight: false,
   moveInFlight: false,
   targetsInFlight: false,
+  targetsLoadFailed: false,
 };
 
 function bcNewMoveIdempotencyKey(){
   return 'bc-move-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
-}
-
-function bcMoveBedTargetFieldHtml(excludeBedId){
-  var rooms = (bcData && bcData.rooms) ? bcData.rooms : [];
-  var hasIds = false;
-  var opts = '<option value="">— select target bed —</option>';
-  rooms.forEach(function(room){
-    (room.beds || []).forEach(function(bed){
-      if (!bed.bed_id) return;
-      hasIds = true;
-      if (excludeBedId && bed.bed_id === excludeBedId) return;
-      var label = (room.room_code || '') + ' / ' + (bed.bed_code || '');
-      opts += '<option value="' + escHtml(bed.bed_id) + '">' + escHtml(label) + '</option>';
-    });
-  });
-  if (hasIds){
-    return '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px">' + opts + '</select>';
-  }
-  return '<input type="text" id="bc-move-target-bed-id" class="bk-input-sm" placeholder="Target bed UUID" style="width:100%;max-width:440px">';
 }
 
 function bcMoveSourcePillLabel(a){
@@ -11042,7 +11022,8 @@ function bcGetMoveTargetBedId(){
   return elTarget ? String(elTarget.value || '').trim() : '';
 }
 
-function bcMoveInputsReadyForPreview(){
+function bcMoveInputsReadyForWrite(){
+  if (bcMoveCtx.targetsLoadFailed || bcMoveCtx.targetsInFlight) return false;
   if (!bcMoveCtx.checkIn || !bcMoveCtx.checkOut) return false;
   if (!bcMoveCtx.assignments || bcMoveCtx.assignments.length === 0) return false;
   if (!bcGetSelectedBookingBedId()) return false;
@@ -11053,18 +11034,30 @@ function bcMoveInputsReadyForPreview(){
 function bcWireMoveTargetField(){
   var targetEl = el('bc-move-target-bed-id');
   if (targetEl){
-    targetEl.onchange = bcResetMovePreviewState;
-    targetEl.oninput = bcResetMovePreviewState;
+    targetEl.onchange = bcOnMoveTargetChange;
+    targetEl.oninput = bcOnMoveTargetChange;
   }
 }
 
-function bcRenderMoveTargetFallback(message){
+function bcRenderMoveTargetEmpty(placeholder){
   var wrap = el('bc-move-target-field');
   var note = el('bc-move-target-note');
   if (!wrap) return;
-  wrap.innerHTML = bcMoveBedTargetFieldHtml(bcMoveCtx.selectedSourceBedId || null);
-  if (note) note.textContent = message || '';
-  bcWireMoveTargetField();
+  bcMoveCtx.targetsLoadFailed = false;
+  wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled>' +
+    '<option value="">' + escHtml(placeholder || '\u2014 select target bed \u2014') + '</option></select>';
+  if (note) note.textContent = '';
+  bcUpdateMoveButtons();
+}
+
+function bcRenderMoveTargetFailed(message){
+  var wrap = el('bc-move-target-field');
+  var note = el('bc-move-target-note');
+  if (!wrap) return;
+  bcMoveCtx.targetsLoadFailed = true;
+  wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled>' +
+    '<option value="">\u2014 unavailable \u2014</option></select>';
+  if (note) note.textContent = message || 'Could not load available beds.';
   bcUpdateMoveButtons();
 }
 
@@ -11072,6 +11065,7 @@ function bcRenderMoveTargetsFiltered(targets){
   var wrap = el('bc-move-target-field');
   var note = el('bc-move-target-note');
   if (!wrap) return;
+  bcMoveCtx.targetsLoadFailed = false;
   var available = (targets || []).filter(function(t){ return t.available; });
   var opts = '<option value="">\u2014 select target bed \u2014</option>';
   available.forEach(function(t){
@@ -11089,10 +11083,11 @@ function bcLoadMoveTargets(){
   if (!wrap) return;
   var bookingBedId = bcGetSelectedBookingBedId();
   if (!bookingBedId || !bcMoveCtx.checkIn || !bcMoveCtx.checkOut){
-    bcRenderMoveTargetFallback('');
+    bcRenderMoveTargetEmpty('\u2014 select source bed first \u2014');
     return;
   }
   if (bcMoveCtx.targetsInFlight) return;
+  bcMoveCtx.targetsLoadFailed = false;
   bcMoveCtx.targetsInFlight = true;
   wrap.innerHTML = '<div class="ctx-none" style="font-size:11px">Loading target beds\u2026</div>';
   var note = el('bc-move-target-note');
@@ -11117,12 +11112,12 @@ function bcLoadMoveTargets(){
       if (res.status === 200 && b.success && Array.isArray(b.targets)){
         bcRenderMoveTargetsFiltered(b.targets);
       } else {
-        bcRenderMoveTargetFallback('Could not filter beds; use Preview move to check availability.');
+        bcRenderMoveTargetFailed('Could not load available beds.');
       }
     })
     .catch(function(){
       bcMoveCtx.targetsInFlight = false;
-      bcRenderMoveTargetFallback('Could not filter beds; use Preview move to check availability.');
+      bcRenderMoveTargetFailed('Could not load available beds.');
     });
 }
 
@@ -11140,19 +11135,15 @@ function bcOnMoveSourcePillClick(btn){
   bcMoveCtx.selectedSourceBedId = String(btn.getAttribute('data-bed-id') || '').trim() || null;
   bcMoveCtx.currentBedCode = String(btn.getAttribute('data-bed-code') || '').trim() || null;
   bcMoveCtx.currentRoomCode = String(btn.getAttribute('data-room-code') || '').trim() || null;
-  bcResetMovePreviewState();
+  bcClearMoveResult();
   bcRefreshMoveTargetField();
 }
 
 function bcUpdateMoveButtons(){
-  var prevBtn = el('bc-move-preview-btn');
   var moveBtn = el('bc-move-booking-btn');
-  var busy = bcMoveCtx.previewInFlight || bcMoveCtx.moveInFlight;
-  if (prevBtn){
-    prevBtn.disabled = busy || !bcMoveInputsReadyForPreview();
-  }
+  var busy = bcMoveCtx.moveInFlight || bcMoveCtx.targetsInFlight;
   if (moveBtn){
-    moveBtn.disabled = busy || !bcMoveCtx.previewCanMove || !BC_BOOKING_MOVE_WRITE;
+    moveBtn.disabled = busy || !bcMoveInputsReadyForWrite() || !BC_BOOKING_MOVE_WRITE;
   }
 }
 
@@ -11161,8 +11152,7 @@ function bcClearMoveResult(){
   if (resEl) resEl.innerHTML = '';
 }
 
-function bcResetMovePreviewState(){
-  bcMoveCtx.previewCanMove = false;
+function bcOnMoveTargetChange(){
   bcClearMoveResult();
   bcUpdateMoveButtons();
 }
@@ -11192,85 +11182,14 @@ function bcReloadAfterMoveSuccess(bookingCode){
   }
 }
 
-function bcRunMovePreview(){
-  if (bcMoveCtx.previewInFlight || bcMoveCtx.moveInFlight) return;
-  if (!bcMoveCtx.assignments || bcMoveCtx.assignments.length === 0){
-    bcRenderMoveResult('This booking has no bed assignments and requires manual review.', true);
-    return;
-  }
-  var bookingBedId = bcGetSelectedBookingBedId();
-  if (!bookingBedId){
-    bcRenderMoveResult('Select which bed assignment to move.', true);
-    return;
-  }
-  var targetBedId = bcGetMoveTargetBedId();
-  if (!targetBedId){
-    bcRenderMoveResult('Select or enter a target bed.', true);
-    return;
-  }
-  bcMoveCtx.previewInFlight = true;
-  bcMoveCtx.previewCanMove = false;
-  bcUpdateMoveButtons();
-  bcRenderMoveResult('Running move preview\u2026', false);
-
-  fetch('/staff/bookings/move-preview', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({
-      client_slug: getClient(),
-      booking_code: bcMoveCtx.bookingCode,
-      booking_id: bcMoveCtx.bookingId || undefined,
-      booking_bed_id: bookingBedId,
-      target_bed_id: targetBedId,
-      check_in: bcMoveCtx.checkIn,
-      check_out: bcMoveCtx.checkOut,
-    }),
-  })
-    .then(function(r){ return r.json().then(function(d){ return { status: r.status, body: d }; }); })
-    .then(function(res){
-      bcMoveCtx.previewInFlight = false;
-      var b = res.body || {};
-      if (res.status !== 200 || !b.success){
-        bcMoveCtx.previewCanMove = false;
-        bcRenderMoveResult(escHtml(b.error || b.message || 'Move preview failed.'), true);
-        bcUpdateMoveButtons();
-        return;
-      }
-      if (b.requires_selection){
-        bcMoveCtx.previewCanMove = false;
-        bcRenderMoveResult(escHtml(b.message || 'Select which bed assignment to move.'), true);
-        bcUpdateMoveButtons();
-        return;
-      }
-      bcMoveCtx.previewCanMove = b.can_move === true;
-      if (b.can_move){
-        bcClearMoveResult();
-      } else if (b.conflicts && b.conflicts.length){
-        var lines = b.conflicts.map(function(c){
-          return escHtml((c.booking_code || c.booking_id || 'Booking') + ': ' + (c.guest_name || '') + ' ' + (c.check_in || '') + '\u2192' + (c.check_out || ''));
-        }).join('<br>');
-        bcRenderMoveResult(escHtml(b.message || 'Target bed is not available for this date range. No changes were made.') + '<br>' + lines, true);
-      } else {
-        bcRenderMoveResult(escHtml(b.message || 'Move is not available for this target.'), true);
-      }
-      bcUpdateMoveButtons();
-    })
-    .catch(function(e){
-      bcMoveCtx.previewInFlight = false;
-      bcMoveCtx.previewCanMove = false;
-      bcRenderMoveResult(escHtml(e.message || 'Network error during move preview.'), true);
-      bcUpdateMoveButtons();
-    });
-}
-
 function bcRunMoveWrite(){
-  if (bcMoveCtx.moveInFlight || bcMoveCtx.previewInFlight) return;
+  if (bcMoveCtx.moveInFlight || bcMoveCtx.targetsInFlight) return;
   if (!BC_BOOKING_MOVE_WRITE){
     bcRenderMoveResult('Move controls are disabled.', true);
     return;
   }
-  if (!bcMoveCtx.previewCanMove){
-    bcRenderMoveResult('Run Preview move first and confirm the target bed is available.', true);
+  if (!bcMoveInputsReadyForWrite()){
+    bcRenderMoveResult('Select source and target bed.', true);
     return;
   }
   var bookingBedId = bcGetSelectedBookingBedId();
@@ -11325,7 +11244,6 @@ function bcRunMoveWrite(){
       }
       if (b.moved){
         bcRenderMoveResult(escHtml(b.message || 'Booking moved. No payment, service, or message changes were made.'), false);
-        bcMoveCtx.previewCanMove = false;
         bcReloadAfterMoveSuccess(bcMoveCtx.bookingCode);
       } else {
         bcRenderMoveResult(escHtml(b.message || 'No changes were made.'), true);
@@ -11361,16 +11279,11 @@ function bcInitMovePanel(data){
     bcMoveCtx.currentBedCode = ((rm.assigned_bed_codes || [])[0] || null);
     bcMoveCtx.currentRoomCode = ((rm.assigned_room_codes || [])[0] || null);
   }
-  bcMoveCtx.previewCanMove = false;
-  bcMoveCtx.previewInFlight = false;
   bcMoveCtx.moveInFlight = false;
   bcMoveCtx.targetsInFlight = false;
+  bcMoveCtx.targetsLoadFailed = false;
 
-  var prevBtn = el('bc-move-preview-btn');
   var moveBtn = el('bc-move-booking-btn');
-  if (prevBtn){
-    prevBtn.onclick = bcRunMovePreview;
-  }
   if (moveBtn){
     moveBtn.onclick = bcRunMoveWrite;
   }
@@ -11424,7 +11337,6 @@ function renderBookingContextDrawer(data){
   var rmMove = data.rooming || {};
   var moveAssigns = rmMove.assignments || [];
   var moveNoBeds = moveAssigns.length === 0;
-  var moveExcludeBedId = moveAssigns.length === 1 ? (moveAssigns[0].bed_id || null) : null;
   html += '<div class="ctx-section ctx-move-bed" id="bc-move-bed">';
   html += '<h3>Move bed</h3>';
   if (moveNoBeds){
@@ -11434,7 +11346,7 @@ function renderBookingContextDrawer(data){
   }
   html += '<div style="margin-top:10px" id="bc-move-target-wrap"><label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px">Target bed</label>';
   html += '<div id="bc-move-target-field">';
-  html += bcMoveBedTargetFieldHtml(moveExcludeBedId);
+  html += '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled><option value="">\u2014 loading \u2014</option></select>';
   html += '</div>';
   html += '<div id="bc-move-target-note" class="ctx-none" style="margin-top:4px;font-size:11px;line-height:1.45"></div></div>';
   if (!BC_BOOKING_MOVE_WRITE){
@@ -11442,7 +11354,6 @@ function renderBookingContextDrawer(data){
   }
   html += '<div id="bc-move-result"></div>';
   html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
-  html += '<button type="button" class="btn" id="bc-move-preview-btn">Preview move</button>';
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
   html += '</div></div>';
 
