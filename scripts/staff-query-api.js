@@ -129,6 +129,8 @@ const BOT_ADDON_REQUESTS_ENABLED = process.env.BOT_ADDON_REQUESTS_ENABLED === 't
 const BOT_PAUSE_CONTROLS_ENABLED = process.env.BOT_PAUSE_CONTROLS_ENABLED === 'true';
 // Phase 10.3b — Staff booking move write (single-bed, same dates). Default OFF.
 const BOOKING_MOVE_WRITE_ENABLED = process.env.BOOKING_MOVE_WRITE_ENABLED === 'true';
+// Phase 10.5b — Staff booking field edit write (contact only in this slice). Default OFF.
+const BOOKING_EDIT_WRITE_ENABLED = process.env.BOOKING_EDIT_WRITE_ENABLED === 'true';
 // Stage 8.4.9 — Stripe checkout link creation from draft payment records.
 // STRIPE_LINKS_ENABLED must be explicitly set to 'true'; default false.
 // STRIPE_SECRET_KEY must be a valid Stripe secret (sk_test_... or sk_live_...).
@@ -3631,6 +3633,7 @@ SELECT
   b.id::text                AS booking_id,
   b.booking_code,
   b.guest_name,
+  b.phone,
   b.email,
   b.guest_count,
   b.package_code,
@@ -3655,6 +3658,7 @@ SELECT
   b.id::text                AS booking_id,
   b.booking_code,
   b.guest_name,
+  b.phone,
   b.email,
   b.guest_count,
   b.package_code,
@@ -3710,11 +3714,70 @@ function editPreviewLightPhoneOk(phone) {
   return String(phone).trim().length <= 40;
 }
 
+const EDIT_WRITE_CONTACT_UPDATE_SQL = `
+UPDATE bookings b
+SET guest_name = $3,
+    phone      = $4,
+    email      = $5
+FROM clients c
+WHERE b.client_id = c.id
+  AND c.slug = $1
+  AND b.id::text = $2
+RETURNING
+  b.id::text      AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.phone,
+  b.email
+`;
+
+function editWriteContactSnapshot(row) {
+  return {
+    guest_name: row.guest_name,
+    phone:      row.phone || null,
+    email:      row.email || null,
+  };
+}
+
+function editWriteContactFieldsMatch(a, b) {
+  return String(a.guest_name || '') === String(b.guest_name || '')
+    && String(a.phone || '') === String(b.phone || '')
+    && String(a.email || '') === String(b.email || '');
+}
+
+function editWriteMergeContactFields(bookingRow, body) {
+  const guestName = body.guest_name != null
+    ? String(body.guest_name).trim()
+    : bookingRow.guest_name;
+  const phone = body.phone != null
+    ? String(body.phone).trim()
+    : (bookingRow.phone || '');
+  const email = body.email != null
+    ? String(body.email).trim()
+    : (bookingRow.email || '');
+  return {
+    guest_name: guestName,
+    phone:      phone || null,
+    email:      email || null,
+  };
+}
+
+function editWriteContactBookingSummary(row) {
+  return {
+    booking_id:   row.booking_id,
+    booking_code: row.booking_code,
+    guest_name:   row.guest_name,
+    phone:        row.phone || null,
+    email:        row.email || null,
+  };
+}
+
 function editPreviewBookingSummary(row) {
   return {
     booking_id:     row.booking_id,
     booking_code:   row.booking_code,
     guest_name:     row.guest_name,
+    phone:          row.phone || null,
     email:          row.email || null,
     guest_count:    row.guest_count != null ? Number(row.guest_count) : null,
     package_code:   row.package_code || null,
@@ -4281,6 +4344,227 @@ async function handleBookingEditPreview(req, res, user) {
     message: 'Edit preview calculated. No changes were saved.',
     elapsed_ms: elapsed,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.5b — Booking field edit write (gated; contact only)
+//
+// POST /staff/bookings/edit
+//
+// Gate: BOOKING_EDIT_WRITE_ENABLED=true. Updates bookings guest_name/phone/email only.
+// No package/date/guest writes, beds, payments, service records, Stripe, n8n, or WhatsApp.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBookingEditWrite(req, res, user) {
+  const started = Date.now();
+
+  if (!BOOKING_EDIT_WRITE_ENABLED) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:booking_edit',
+      category: 'booking_edit_write',
+      success: false,
+      error: 'booking_edit_write_disabled',
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, {
+      success: false,
+      enabled: false,
+      error: 'booking_edit_write_disabled',
+      updated: false,
+      would_mutate: false,
+    });
+  }
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId      = String(body.booking_id   || '').trim();
+  const bookingCode    = String(body.booking_code || '').trim();
+  const editType       = String(body.edit_type || '').trim().toLowerCase();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const reason         = String(body.reason || '').trim().slice(0, 500) || null;
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!editType) return send400(res, 'edit_type is required');
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const actorId    = user ? user.staff_user_id : 'dev-edit-write-local';
+  const actorRole  = user ? user.role          : 'operator';
+  const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:booking_edit',
+    category:        'booking_edit_write',
+    preview_only:    false,
+    would_mutate:    true,
+    client_slug:     clientSlug,
+    booking_id:      bookingId || null,
+    booking_code:    bookingCode || null,
+    edit_type:       editType,
+    idempotency_key: idempotencyKey,
+    staff_user_id:   actorId,
+    staff_role:      actorRole,
+    reason,
+  };
+
+  if (editType !== 'contact') {
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: 'edit_type_not_supported_in_phase_10_5b',
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'edit_type_not_supported_in_phase_10_5b',
+      edit_type: editType,
+      updated: false,
+      would_mutate: false,
+    });
+  }
+
+  const hasGuestName = body.guest_name != null;
+  const hasPhone     = body.phone != null;
+  const hasEmail     = body.email != null;
+  if (!hasGuestName && !hasPhone && !hasEmail) {
+    return send400(res, 'at least one of guest_name, phone, or email is required');
+  }
+  if (hasGuestName) {
+    const guestName = String(body.guest_name).trim();
+    if (!guestName) return send400(res, 'guest_name must not be empty');
+    if (!editPreviewLightNameOk(guestName)) return send400(res, 'guest_name is too long');
+  }
+  if (hasPhone) {
+    const phone = String(body.phone).trim();
+    if (!phone) return send400(res, 'phone must not be empty');
+    if (!editPreviewLightPhoneOk(phone)) return send400(res, 'phone is too long');
+  }
+  if (hasEmail) {
+    const email = String(body.email).trim();
+    if (!email) return send400(res, 'email must not be empty');
+    if (!editPreviewLightEmailOk(email)) return send400(res, 'email format is invalid');
+  }
+
+  let bookingRow;
+  try {
+    bookingRow = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      return bookingRes.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'edit write query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', updated: false, would_mutate: false });
+  }
+
+  const before = editWriteContactSnapshot(bookingRow);
+  const after  = editWriteMergeContactFields(bookingRow, body);
+  const auditResponse = {
+    actor: actorLabel,
+    reason,
+    idempotency_key: idempotencyKey,
+  };
+  const invoiceImpact = {
+    requires_reprice: false,
+    payment_mutation: false,
+    stripe_mutation: false,
+  };
+
+  if (editWriteContactFieldsMatch(before, after)) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      updated: false,
+      idempotent: true,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: false,
+      idempotent: true,
+      edit_type: 'contact',
+      booking: editWriteContactBookingSummary(bookingRow),
+      before,
+      after,
+      invoice_impact: invoiceImpact,
+      audit: auditResponse,
+      message: 'Booking contact details already match the requested values.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  try {
+    const updatedRow = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const upd = await pg.query(EDIT_WRITE_CONTACT_UPDATE_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+          after.guest_name,
+          after.phone,
+          after.email,
+        ]);
+        if (!upd.rows[0]) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+        await pg.query('COMMIT');
+        return upd.rows[0];
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    if (!updatedRow) {
+      appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'contact update failed', updated: false });
+    }
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      updated: true,
+      before,
+      after: editWriteContactSnapshot(updatedRow),
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: true,
+      edit_type: 'contact',
+      booking: editWriteContactBookingSummary(updatedRow),
+      before,
+      after: editWriteContactSnapshot(updatedRow),
+      invoice_impact: invoiceImpact,
+      audit: auditResponse,
+      message: 'Booking contact details updated. No payment, bed, service, Stripe, n8n, or WhatsApp changes were made.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'contact update failed', detail: err.message, updated: false });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -14495,6 +14779,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingEditPreview(req, res, auth.user);
+  }
+
+  // ── Phase 10.5b — Booking field edit write (gated; contact only) ─────────────
+  if (pathname === '/staff/bookings/edit') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/edit' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingEditWrite(req, res, auth.user);
   }
 
   // ── Phase 10.3b — Booking move write (gated; single-bed same dates) ────────
