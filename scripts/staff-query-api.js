@@ -105,6 +105,12 @@ const {
   resumeConversation,
   formatPauseStateRow,
 } = require('./lib/staff-bot-pause-sql');
+const {
+  loadOperatorRoomReleaseImpactPlan,
+  normalizeOperatorName,
+  normalizeRoomCode,
+} = require('./lib/operator-room-release-impact-plan');
+const { executeOperatorRoomRelease } = require('./lib/operator-room-release-pg-sql');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -13181,24 +13187,21 @@ textarea.bk-input{resize:vertical;min-height:60px}
 </div>
 </div><!-- /tab-bed-calendar -->
 
-<!-- ── Tour Operator tab (Stage 8.3u — preview only, no writes) ───────────── -->
+<!-- ── Tour Operator tab (Phase 10.7a — block create + room release) ───────── -->
 <div id="tab-tour-operator" class="tab-panel">
 <div id="wrap-to" style="max-width:900px;margin:0 auto;padding:16px 20px">
 
-  <!-- Intro card -->
   <div class="card" style="margin-bottom:0">
     <div class="toolbar">
-      <h2>&#128274; Tour Operator</h2>
-      <span class="hq-ro-label">READ-ONLY &mdash; writes disabled in staging</span>
+      <h2>Tour Operator</h2>
     </div>
-    <p style="font-size:13px;color:var(--text-2);margin:6px 0 0">Use these forms to preview upcoming operator operations before they are enabled. No records will be created or modified.</p>
+    <p style="font-size:13px;color:var(--text-2);margin:6px 0 0">Create operator room blocks and release dates back to guest availability. Changes apply to the staging test database only.</p>
   </div>
 
-  <!-- ── Tour Operator Block (Stage 8.3u) ─────────────────────────────────── -->
+  <!-- ── Tour Operator Block ───────────────────────────────────────────────── -->
   <div class="card" id="to-op-panel" style="margin-top:16px">
     <div class="bc-op-header">
-      <span class="bc-op-title">&#128274; Tour Operator Block</span>
-      <span class="bc-op-badge">Preview only &mdash; coming soon</span>
+      <span class="bc-op-title">Tour Operator Block</span>
     </div>
 
     <!-- Section: Operator contact -->
@@ -13237,10 +13240,9 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <label class="bk-label" for="to-op-room">Room</label>
         <select id="to-op-room" class="bk-input bk-input-sm">
           <option value="">— select room —</option>
-          <option value="" disabled>Load Bed Calendar for room list</option>
         </select>
       </div>
-      <div class="to-form-hint">Rooms populate from loaded Bed Calendar data; dedicated room API later if needed.</div>
+      <div class="to-form-hint">Rooms load from the rooms table when you open this tab or after Bed Calendar load.</div>
     </div>
 
     <!-- Section: Notes -->
@@ -13256,37 +13258,21 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
-    <!-- Safety notice -->
-    <div class="bk-safety-notice">
-      &#128274; Preview only &mdash; no operator block will be created.<br>
-      No guest message, Stripe payment link, or n8n workflow will run.<br>
-      Operator booking writes require approval gates before they can be enabled.
-    </div>
+    <div id="to-op-result" style="display:none;margin-top:12px"></div>
 
-    <!-- Disabled actions -->
     <div class="bc-sel-actions" style="margin-top:16px">
-      <button class="btn bc-sel-create-btn" disabled id="to-op-preview-btn"
-        title="Operator block preview coming soon.">
-        Preview Operator Block
-      </button>
-      <button class="btn bc-sel-create-btn" disabled id="to-op-create-btn"
-        title="Operator block creation requires write-gate approval.">
-        Create Operator Block
-      </button>
+      <button class="btn bc-sel-create-btn" id="to-op-preview-btn">Preview Operator Block</button>
+      <button class="btn btn-primary bc-sel-create-btn" id="to-op-create-btn">Create Operator Block</button>
     </div>
-    <div class="bk-preview-create-note">Operator booking writes require approval gates before they can be enabled.</div>
   </div>
 
-  <!-- ── Operator Room Release (Stage 8.3u) ───────────────────────────────── -->
+  <!-- ── Operator Room Release ───────────────────────────────────────────── -->
   <div class="card" id="to-rr-panel" style="margin-top:16px">
     <div class="bc-op-header">
-      <span class="bc-op-title">&#128477; Operator Room Release</span>
-      <span class="bc-op-badge">Preview only &mdash; coming soon</span>
+      <span class="bc-op-title">Operator Room Release</span>
     </div>
     <div class="bc-rr-purpose">
-      Use this when an operator has blocked a room for a long period but releases specific dates back to normal availability.
-      This will eventually split the operator booking and release selected dates back to regular availability.
-      <strong>Preview only &mdash; no room will be released.</strong>
+      Release dates from an existing operator block back to normal availability. The original block may split into remaining segments.
     </div>
 
     <!-- Section: Operator Block (Stage 8.7.17 — simplified) -->
@@ -13296,7 +13282,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <label class="bk-label" for="to-rr-block-select">Operator block</label>
         <select id="to-rr-block-select" class="bk-input bk-input-sm">
           <option value="">— select operator block —</option>
-          <option value="" disabled>Dynamic operator block list — coming soon</option>
         </select>
       </div>
       <div class="bk-form-row">
@@ -13307,7 +13292,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <label class="bk-label" for="to-rr-orig-cout">Block end date</label>
         <input type="date" id="to-rr-orig-cout" class="bk-input bk-input-sm bc-date-input bc-op-locked" readonly aria-readonly="true">
       </div>
-      <div class="to-form-hint">Block dates fill when an operator block is selected (dynamic list later).</div>
+      <div class="to-form-hint">Block dates fill when you select an operator block from the list.</div>
     </div>
 
     <!-- Section: Release Dates -->
@@ -13334,10 +13319,9 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <label class="bk-label" for="to-rr-room">Room to release</label>
         <select id="to-rr-room" class="bk-input bk-input-sm">
           <option value="">— select room —</option>
-          <option value="" disabled>Load Bed Calendar for room list</option>
         </select>
       </div>
-      <div class="to-form-hint">Rooms populate from loaded Bed Calendar data; dedicated room API later if needed.</div>
+      <div class="to-form-hint">Room list loads from the rooms table; defaults to the selected block room when available.</div>
     </div>
 
     <!-- Section: Notes -->
@@ -13353,25 +13337,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
-    <!-- Safety notice -->
-    <div class="bk-safety-notice">
-      &#128274; Preview only &mdash; no dates will be released.<br>
-      No guest message, Stripe action, or n8n workflow will run.<br>
-      Room release writes require approval gates, conflict checks, audit, and rollback proof before they can be enabled.
-    </div>
+    <div id="to-rr-result" style="display:none;margin-top:12px"></div>
 
-    <!-- Disabled actions -->
     <div class="bc-sel-actions" style="margin-top:16px">
-      <button class="btn bc-sel-create-btn" disabled id="to-rr-preview-btn"
-        title="Release preview coming soon.">
-        Preview Release
-      </button>
-      <button class="btn bc-sel-create-btn" disabled id="to-rr-release-btn"
-        title="Room release requires write-gate approval.">
-        Release Dates
-      </button>
+      <button class="btn bc-sel-create-btn" id="to-rr-preview-btn">Preview Release</button>
+      <button class="btn btn-primary bc-sel-create-btn" id="to-rr-release-btn">Release Dates</button>
     </div>
-    <div class="bk-preview-create-note">Room release writes require approval gates before they can be enabled.</div>
   </div>
 
 </div>
@@ -13461,6 +13432,7 @@ function switchToTab(tab, subtab){
     else if (subtab === 'inbox') setInboxFilter('all');
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
+  if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
 
@@ -13478,6 +13450,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     el('tab-' + target).classList.add('active');
     if (target === 'today') loadTodaySummary();
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
+    if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
 });
 
@@ -18419,8 +18392,7 @@ function renderBookingContextDrawer(data){
   return html;
 }
 
-/* ── Tour Operator forms (Stage 8.7.17 — simplified skeleton, no writes) ─── */
-/* Internal defaults — not shown to staff; for future write path only */
+/* ── Tour Operator forms (Phase 10.7a — block create + room release) ───────── */
 var TO_OP_BLOCK_DEFAULTS = {
   source: 'operator',
   payment_status: 'not_requested',
@@ -18429,10 +18401,17 @@ var TO_OP_BLOCK_DEFAULTS = {
   n8n_trigger: false,
   block_type: 'whole_room'
 };
+var toRoomsCache = null;
+var toBlocksCache = [];
+var toOpBusy = false;
+var toRrBusy = false;
 
-function toRefreshRoomSelects(){
-  var rooms = (bcData && bcData.rooms) ? bcData.rooms : [];
-  var sorted = rooms.slice().sort(function(a, b){
+function toGetClient(){
+  return getBcClient();
+}
+
+function toRenderRoomSelects(rooms){
+  var sorted = (rooms || []).slice().sort(function(a, b){
     var ao = a.sort_order != null ? a.sort_order : 999;
     var bo = b.sort_order != null ? b.sort_order : 999;
     if (ao !== bo) return ao - bo;
@@ -18441,6 +18420,7 @@ function toRefreshRoomSelects(){
   ['to-op-room', 'to-rr-room'].forEach(function(selId){
     var sel = el(selId);
     if (!sel || sel.tagName !== 'SELECT') return;
+    var prev = sel.value;
     var html = '<option value="">— select room —</option>';
     if (sorted.length){
       sorted.forEach(function(r){
@@ -18449,10 +18429,257 @@ function toRefreshRoomSelects(){
         html += '<option value="' + escHtml(r.room_code) + '">' + label + '</option>';
       });
     } else {
-      html += '<option value="" disabled>Load Bed Calendar for room list</option>';
+      html += '<option value="" disabled>No active rooms found</option>';
     }
     sel.innerHTML = html;
+    if (prev) sel.value = prev;
   });
+}
+
+function toRefreshRoomSelects(){
+  if (toRoomsCache && toRoomsCache.length){
+    toRenderRoomSelects(toRoomsCache);
+    return;
+  }
+  var rooms = (bcData && bcData.rooms) ? bcData.rooms : [];
+  toRenderRoomSelects(rooms);
+}
+
+function toLoadRooms(cb){
+  fetch('/staff/tour-operator/rooms?client=' + encodeURIComponent(toGetClient()))
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (res.ok && res.data && res.data.success && res.data.rooms){
+        toRoomsCache = res.data.rooms;
+        toRenderRoomSelects(toRoomsCache);
+      } else {
+        toRefreshRoomSelects();
+      }
+      if (typeof cb === 'function') cb();
+    })
+    .catch(function(){ toRefreshRoomSelects(); if (typeof cb === 'function') cb(); });
+}
+
+function toRenderBlockSelect(blocks){
+  var sel = el('to-rr-block-select');
+  if (!sel) return;
+  var prev = sel.value;
+  var html = '<option value="">— select operator block —</option>';
+  (blocks || []).forEach(function(b){
+    var label = escHtml(b.operator_name || b.guest_name || 'Operator');
+    if (b.booking_code) label += ' · ' + escHtml(b.booking_code);
+    if (b.room_code) label += ' · ' + escHtml(b.room_code);
+    if (b.check_in && b.check_out) label += ' · ' + escHtml(b.check_in) + ' → ' + escHtml(b.check_out);
+    html += '<option value="' + escHtml(b.booking_id) + '" data-cin="' + escHtml(b.check_in || '') + '" data-cout="' + escHtml(b.check_out || '') + '" data-room="' + escHtml(b.room_code || '') + '">' + label + '</option>';
+  });
+  if (!blocks || !blocks.length){
+    html += '<option value="" disabled>No operator blocks found</option>';
+  }
+  sel.innerHTML = html;
+  if (prev) sel.value = prev;
+}
+
+function toLoadBlocks(cb){
+  fetch('/staff/tour-operator/blocks?client=' + encodeURIComponent(toGetClient()))
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (res.ok && res.data && res.data.success){
+        toBlocksCache = res.data.blocks || [];
+        toRenderBlockSelect(toBlocksCache);
+      }
+      if (typeof cb === 'function') cb();
+    })
+    .catch(function(){ if (typeof cb === 'function') cb(); });
+}
+
+function toOpFormReady(){
+  var name = (el('to-op-name') && el('to-op-name').value || '').trim();
+  var cin = (el('to-op-cin') && el('to-op-cin').value || '').trim();
+  var cout = (el('to-op-cout') && el('to-op-cout').value || '').trim();
+  var room = (el('to-op-room') && el('to-op-room').value || '').trim();
+  return !!(name && cin && cout && room && cout > cin);
+}
+
+function toRrFormReady(){
+  var blockId = (el('to-rr-block-select') && el('to-rr-block-select').value || '').trim();
+  var rs = (el('to-rr-start') && el('to-rr-start').value || '').trim();
+  var re = (el('to-rr-end') && el('to-rr-end').value || '').trim();
+  var room = (el('to-rr-room') && el('to-rr-room').value || '').trim();
+  return !!(blockId && rs && re && room && re > rs);
+}
+
+function toUpdateOpButtons(){
+  var ready = toOpFormReady();
+  var prev = el('to-op-preview-btn');
+  var create = el('to-op-create-btn');
+  if (prev) prev.disabled = !ready || toOpBusy;
+  if (create) create.disabled = !ready || toOpBusy;
+}
+
+function toUpdateRrButtons(){
+  var ready = toRrFormReady();
+  var prev = el('to-rr-preview-btn');
+  var rel = el('to-rr-release-btn');
+  if (prev) prev.disabled = !ready || toRrBusy;
+  if (rel) rel.disabled = !ready || toRrBusy;
+}
+
+function toShowResult(elId, html, isErr){
+  var box = el(elId);
+  if (!box) return;
+  box.style.display = 'block';
+  box.className = isErr ? 'bk-preview-error' : 'bk-preview-ok';
+  box.innerHTML = html;
+}
+
+function toOpPayload(){
+  return {
+    client_slug: toGetClient(),
+    operator_name: (el('to-op-name').value || '').trim(),
+    manager: (el('to-op-manager') && el('to-op-manager').value || '').trim(),
+    phone: (el('to-op-phone') && el('to-op-phone').value || '').trim(),
+    email: (el('to-op-email') && el('to-op-email').value || '').trim(),
+    check_in: (el('to-op-cin').value || '').trim(),
+    check_out: (el('to-op-cout').value || '').trim(),
+    room_code: (el('to-op-room').value || '').trim(),
+    notes: (el('to-op-notes') && el('to-op-notes').value || '').trim(),
+    staff_note: (el('to-op-staff-note') && el('to-op-staff-note').value || '').trim(),
+  };
+}
+
+function toRrPayload(extra){
+  var payload = {
+    client_slug: toGetClient(),
+    booking_id: (el('to-rr-block-select').value || '').trim(),
+    release_start: (el('to-rr-start').value || '').trim(),
+    release_end: (el('to-rr-end').value || '').trim(),
+    room_code: (el('to-rr-room').value || '').trim(),
+    reason: (el('to-rr-reason') && el('to-rr-reason').value || '').trim(),
+    notes: (el('to-rr-staff-note') && el('to-rr-staff-note').value || '').trim(),
+  };
+  if (extra) Object.keys(extra).forEach(function(k){ payload[k] = extra[k]; });
+  return payload;
+}
+
+function toAfterMutation(){
+  toLoadBlocks(function(){
+    if (typeof loadBedCalendar === 'function') loadBedCalendar();
+  });
+}
+
+function toOpPreview(){
+  if (!toOpFormReady()) return;
+  toOpBusy = true; toUpdateOpButtons();
+  fetch('/staff/tour-operator/blocks/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(toOpPayload()),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
+    .then(function(res){
+      toOpBusy = false; toUpdateOpButtons();
+      var p = res.data.preview || {};
+      if (res.ok && res.data.success && p.can_create){
+        toShowResult('to-op-result', '<div class="bk-preview-badge">Ready</div>Whole-room block for ' + escHtml(String(p.bed_count)) + ' bed(s): ' + escHtml((p.bed_codes || []).join(', ')) + '. No conflicts in range.', false);
+      } else if (res.ok && p.has_conflict){
+        var msg = (p.conflicts || []).map(function(c){ return escHtml(c.bed_code + ' → ' + c.booking_code); }).join('<br>');
+        toShowResult('to-op-result', '<div class="bk-preview-badge">Conflict</div>' + (msg || 'Bed conflicts in selected range.'), true);
+      } else {
+        toShowResult('to-op-result', '<div class="bk-preview-badge">Error</div>' + escHtml(res.data.error || 'Preview failed'), true);
+      }
+    })
+    .catch(function(e){
+      toOpBusy = false; toUpdateOpButtons();
+      toShowResult('to-op-result', '<div class="bk-preview-badge">Error</div>' + escHtml(e.message), true);
+    });
+}
+
+function toOpCreate(){
+  if (!toOpFormReady()) return;
+  if (!window.confirm('Create operator block for the selected room and dates?')) return;
+  toOpBusy = true; toUpdateOpButtons();
+  var payload = toOpPayload();
+  payload.confirm = true;
+  payload.idempotency_key = 'to-block-' + Date.now();
+  fetch('/staff/tour-operator/blocks/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      toOpBusy = false; toUpdateOpButtons();
+      if (res.ok && res.data.success){
+        var b = res.data.booking || {};
+        toShowResult('to-op-result', '<div class="bk-preview-badge">Created</div>Operator block <b>' + escHtml(b.booking_code || '') + '</b> · ' + escHtml(b.room_code || '') + ' · ' + escHtml(b.check_in || '') + ' → ' + escHtml(b.check_out || ''), false);
+        toAfterMutation();
+      } else {
+        var detail = (res.data.conflicts || []).map(function(c){ return escHtml(c.bed_code + ' → ' + c.booking_code); }).join('<br>');
+        toShowResult('to-op-result', '<div class="bk-preview-badge">Error</div>' + escHtml(res.data.error || 'Create failed') + (detail ? '<br>' + detail : ''), true);
+      }
+    })
+    .catch(function(e){
+      toOpBusy = false; toUpdateOpButtons();
+      toShowResult('to-op-result', '<div class="bk-preview-badge">Error</div>' + escHtml(e.message), true);
+    });
+}
+
+function toRrPreview(){
+  if (!toRrFormReady()) return;
+  toRrBusy = true; toUpdateRrButtons();
+  fetch('/staff/tour-operator/release/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(toRrPayload()),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      toRrBusy = false; toUpdateRrButtons();
+      if (res.ok && res.data.success && res.data.can_release){
+        var split = (res.data.preview && res.data.preview.split_phase) || {};
+        var parts = [];
+        if (split.block_a) parts.push('Block A: ' + escHtml(split.block_a.check_in) + ' → ' + escHtml(split.block_a.check_out));
+        if (split.block_b) parts.push('Block B: ' + escHtml(split.block_b.check_in) + ' → ' + escHtml(split.block_b.check_out));
+        if (split.release_fully_covers_block) parts.push('Full block release (no remainder segments).');
+        toShowResult('to-rr-result', '<div class="bk-preview-badge">Ready</div>' + (parts.join('<br>') || 'Release window is valid.'), false);
+      } else {
+        var act = (res.data.preview && res.data.preview.actionable) || [];
+        toShowResult('to-rr-result', '<div class="bk-preview-badge">Blocked</div>' + escHtml(res.data.error || act.join(', ') || 'Release preview blocked'), true);
+      }
+    })
+    .catch(function(e){
+      toRrBusy = false; toUpdateRrButtons();
+      toShowResult('to-rr-result', '<div class="bk-preview-badge">Error</div>' + escHtml(e.message), true);
+    });
+}
+
+function toRrRelease(){
+  if (!toRrFormReady()) return;
+  if (!window.confirm('Release the selected dates from this operator block?')) return;
+  toRrBusy = true; toUpdateRrButtons();
+  fetch('/staff/tour-operator/release', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(toRrPayload({ confirm: true, idempotency_key: 'to-release-' + Date.now() })),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      toRrBusy = false; toUpdateRrButtons();
+      if (res.ok && res.data.success){
+        var rel = res.data.release || {};
+        var msg = 'Release completed.';
+        if (rel.block_a) msg += ' Block A: ' + escHtml(rel.block_a.booking_code || '');
+        if (rel.block_b) msg += ' Block B: ' + escHtml(rel.block_b.booking_code || '');
+        toShowResult('to-rr-result', '<div class="bk-preview-badge">Released</div>' + msg, false);
+        toAfterMutation();
+      } else {
+        toShowResult('to-rr-result', '<div class="bk-preview-badge">Error</div>' + escHtml(res.data.error || 'Release failed'), true);
+      }
+    })
+    .catch(function(e){
+      toRrBusy = false; toUpdateRrButtons();
+      toShowResult('to-rr-result', '<div class="bk-preview-badge">Error</div>' + escHtml(e.message), true);
+    });
 }
 
 function toCalcReleaseNights(){
@@ -18469,28 +18696,61 @@ function toCalcReleaseNights(){
   } else {
     rn.value = '';
   }
+  toUpdateRrButtons();
 }
 
 function toOnBlockSelectChange(){
   var sel = el('to-rr-block-select');
   var cin = el('to-rr-orig-cin');
   var cout = el('to-rr-orig-cout');
+  var roomSel = el('to-rr-room');
   if (!sel) return;
   var opt = sel.options[sel.selectedIndex];
   var cIn = opt && opt.dataset ? opt.dataset.cin : '';
   var cOut = opt && opt.dataset ? opt.dataset.cout : '';
+  var room = opt && opt.dataset ? opt.dataset.room : '';
   if (cin) cin.value = cIn || '';
   if (cout) cout.value = cOut || '';
+  if (roomSel && room) roomSel.value = room;
+  toUpdateRrButtons();
 }
 
-function toInitForms(){
-  toRefreshRoomSelects();
+function toBindFormListeners(){
+  ['to-op-name', 'to-op-cin', 'to-op-cout', 'to-op-room'].forEach(function(id){
+    var node = el(id);
+    if (node) node.addEventListener('input', toUpdateOpButtons);
+    if (node) node.addEventListener('change', toUpdateOpButtons);
+  });
+  ['to-rr-block-select', 'to-rr-start', 'to-rr-end', 'to-rr-room'].forEach(function(id){
+    var node = el(id);
+    if (node) node.addEventListener('input', toUpdateRrButtons);
+    if (node) node.addEventListener('change', toUpdateRrButtons);
+  });
   var blockSel = el('to-rr-block-select');
   if (blockSel) blockSel.onchange = toOnBlockSelectChange;
   var rs = el('to-rr-start');
   var re = el('to-rr-end');
   if (rs) rs.addEventListener('change', toCalcReleaseNights);
   if (re) re.addEventListener('change', toCalcReleaseNights);
+  var opPrev = el('to-op-preview-btn');
+  var opCreate = el('to-op-create-btn');
+  var rrPrev = el('to-rr-preview-btn');
+  var rrRel = el('to-rr-release-btn');
+  if (opPrev) opPrev.addEventListener('click', toOpPreview);
+  if (opCreate) opCreate.addEventListener('click', toOpCreate);
+  if (rrPrev) rrPrev.addEventListener('click', toRrPreview);
+  if (rrRel) rrRel.addEventListener('click', toRrRelease);
+}
+
+function toInitForms(){
+  toBindFormListeners();
+  toUpdateOpButtons();
+  toUpdateRrButtons();
+}
+
+function toOnTourOperatorTabOpen(){
+  toLoadRooms();
+  toLoadBlocks();
 }
 
 (function initTourOperatorForms(){
@@ -19502,6 +19762,504 @@ async function handleBedCalendar(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.7a — Tour Operator block create + room release (staff portal)
+//
+// GET  /staff/tour-operator/rooms?client=<slug>
+// GET  /staff/tour-operator/blocks?client=<slug>
+// POST /staff/tour-operator/blocks/preview
+// POST /staff/tour-operator/blocks/create
+// POST /staff/tour-operator/release/preview
+// POST /staff/tour-operator/release
+//
+// Writes: bookings + booking_beds (+ operator_room_release_requests on release).
+// No payments, booking_service_records, Stripe, WhatsApp, or n8n.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TO_OPERATOR_BLOCKS_LIST_SQL = `
+SELECT
+  b.id::text              AS booking_id,
+  b.booking_code,
+  b.operator_name,
+  b.guest_name,
+  b.check_in::text        AS check_in,
+  b.check_out::text       AS check_out,
+  b.primary_room_code     AS room_code,
+  b.status::text          AS status,
+  b.block_type::text      AS block_type
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.booking_source = 'operator'
+  AND b.block_type = 'whole_room'
+  AND b.status NOT IN ('cancelled', 'expired')
+ORDER BY b.check_in DESC, b.operator_name ASC NULLS LAST, b.booking_code ASC
+`;
+
+const TO_ROOM_BEDS_FOR_BLOCK_SQL = `
+SELECT
+  bd.id::text             AS bed_id,
+  bd.bed_code,
+  r.id::text              AS room_id,
+  r.room_code
+FROM beds bd
+INNER JOIN rooms r ON r.id = bd.room_id
+INNER JOIN clients c ON c.id = bd.client_id
+WHERE c.slug = $1
+  AND upper(trim(r.room_code)) = upper(trim($2))
+  AND r.active = TRUE
+  AND bd.active = TRUE
+  AND bd.sellable = TRUE
+ORDER BY COALESCE(bd.bed_number, 999) ASC, bd.bed_code ASC
+`;
+
+const TO_BED_CONFLICTS_SQL = `
+SELECT
+  bb.bed_code,
+  b.booking_code,
+  b.booking_source::text  AS booking_source
+FROM booking_beds bb
+INNER JOIN bookings b ON b.id = bb.booking_id
+INNER JOIN clients c ON c.id = b.client_id
+INNER JOIN beds bd ON bd.id = bb.bed_id
+INNER JOIN rooms r ON r.id = bd.room_id
+WHERE c.slug = $1
+  AND upper(trim(r.room_code)) = upper(trim($2))
+  AND bb.assignment_start_date < $4::date
+  AND bb.assignment_end_date   > $3::date
+  AND b.status NOT IN ('cancelled', 'expired')
+ORDER BY bb.bed_code ASC, b.booking_code ASC
+`;
+
+const TO_OPERATOR_BOOKING_BY_ID_SQL = `
+SELECT
+  b.id,
+  b.booking_code,
+  b.operator_name,
+  b.primary_room_code,
+  b.check_in::text AS check_in,
+  b.check_out::text AS check_out,
+  b.status::text AS status,
+  b.booking_source::text AS booking_source,
+  b.block_type::text AS block_type
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1 AND b.id = $2::uuid
+LIMIT 1
+`;
+
+const TO_RELEASE_BLOCKING_ACTIONS = new Set([
+  'missing_required_fields',
+  'invalid_date_range',
+  'client_not_found',
+  'room_not_found',
+  'no_matching_operator_booking',
+  'ambiguous_operator_booking_match',
+  'release_window_does_not_overlap_original_block',
+  'postgres_overlap_conflicts_in_release_window',
+  'booking_id_mismatch',
+]);
+
+function generateTourOperatorBookingCode() {
+  const d = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const rand = crypto.randomBytes(3).toString('hex');
+  return `OP-${d}-${rand}`.toUpperCase();
+}
+
+function tourOperatorReleaseInputFromBody(body, clientSlug) {
+  return {
+    clientSlug,
+    operator: normalizeOperatorName(body.operator || body.operator_name || ''),
+    roomCode: normalizeRoomCode(body.room_code || body.room || ''),
+    releaseStart: String(body.release_start || body.release_start_date || '').trim(),
+    releaseEnd: String(body.release_end || body.release_end_date || '').trim(),
+    requestCode: body.idempotency_key ? String(body.idempotency_key).slice(0, 120) : null,
+    notes: String(body.reason || body.notes || '').trim().slice(0, 2000) || null,
+    releaseRecordId: null,
+  };
+}
+
+function tourOperatorPlanIsBlocked(plan) {
+  if (!plan || plan.error) return true;
+  return (plan.actionable || []).some((a) => TO_RELEASE_BLOCKING_ACTIONS.has(a));
+}
+
+async function handleTourOperatorRooms(query, res, user) {
+  const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  try {
+    const roomRows = await withPgClient((pg) =>
+      pg.query(getBedCalendarRoomsQuery(), [clientSlug]).then((r) => r.rows));
+    const rooms = buildRoomHierarchy(roomRows);
+    return sendJSON(res, 200, {
+      success: true,
+      client_slug: clientSlug,
+      rooms,
+      source: 'rooms_table',
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
+  }
+}
+
+async function handleTourOperatorBlocks(query, res, user) {
+  const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  try {
+    const blocks = await withPgClient((pg) =>
+      pg.query(TO_OPERATOR_BLOCKS_LIST_SQL, [clientSlug]).then((r) => r.rows));
+    return sendJSON(res, 200, {
+      success: true,
+      client_slug: clientSlug,
+      blocks,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
+  }
+}
+
+async function handleTourOperatorBlockPreview(req, res, user) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const operatorName = normalizeOperatorName(body.operator_name || body.operator || '');
+  const roomCode = normalizeRoomCode(body.room_code || body.room || '');
+  const checkIn = String(body.check_in || '').trim();
+  const checkOut = String(body.check_out || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!operatorName) return send400(res, 'operator_name is required');
+  if (!roomCode) return send400(res, 'room_code is required');
+  if (!DATE_RE.test(checkIn) || !DATE_RE.test(checkOut)) return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  if (checkOut <= checkIn) return send400(res, 'check_out must be after check_in');
+
+  try {
+    const preview = await withPgClient(async (pg) => {
+      const beds = (await pg.query(TO_ROOM_BEDS_FOR_BLOCK_SQL, [clientSlug, roomCode])).rows;
+      if (!beds.length) return { error: 'room_not_found_or_no_beds', room_code: roomCode };
+      const conflicts = (await pg.query(TO_BED_CONFLICTS_SQL, [clientSlug, roomCode, checkIn, checkOut])).rows;
+      return {
+        operator_name: operatorName,
+        room_code: roomCode,
+        check_in: checkIn,
+        check_out: checkOut,
+        bed_count: beds.length,
+        bed_codes: beds.map((b) => b.bed_code),
+        conflicts,
+        has_conflict: conflicts.length > 0,
+        can_create: conflicts.length === 0,
+      };
+    });
+    if (preview.error) return sendJSON(res, 404, { success: false, ...preview });
+    return sendJSON(res, 200, { success: true, preview, send_mutation: false });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'preview failed', detail: err.message });
+  }
+}
+
+async function handleTourOperatorBlockCreate(req, res, user) {
+  if (!STAFF_ACTIONS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+    });
+  }
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const operatorName = normalizeOperatorName(body.operator_name || body.operator || '');
+  const roomCode = normalizeRoomCode(body.room_code || body.room || '');
+  const checkIn = String(body.check_in || '').trim();
+  const checkOut = String(body.check_out || '').trim();
+  const manager = String(body.manager || body.contact || '').trim().slice(0, 200) || null;
+  const phone = String(body.phone || '').trim().slice(0, 50) || null;
+  const email = String(body.email || '').trim().slice(0, 200) || null;
+  const notes = String(body.notes || '').trim().slice(0, 2000) || null;
+  const staffNote = String(body.staff_note || body.internal_staff_note || '').trim().slice(0, 2000) || null;
+  const confirm = body.confirm === true;
+  const actorId = user ? user.staff_user_id : 'tour-operator-local';
+  const actorRole = user ? user.role : 'operator';
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!operatorName) return send400(res, 'operator_name is required');
+  if (!roomCode) return send400(res, 'room_code is required');
+  if (!DATE_RE.test(checkIn) || !DATE_RE.test(checkOut)) return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  if (checkOut <= checkIn) return send400(res, 'check_out must be after check_in');
+  if (!confirm) return send400(res, 'confirm: true is required');
+
+  const staffNotesParts = [];
+  if (notes) staffNotesParts.push(notes);
+  if (staffNote) staffNotesParts.push('[staff] ' + staffNote);
+  staffNotesParts.push(`Tour operator block created via Staff Portal (${actorId})`);
+  const staffNotes = staffNotesParts.join('\n');
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:tour_operator_block_create',
+    category: 'tour_operator',
+    client_slug: clientSlug,
+    operator_name: operatorName,
+    room_code: roomCode,
+    check_in: checkIn,
+    check_out: checkOut,
+    staff_user_id: actorId,
+    stripe_called: false,
+    whatsapp_called: false,
+    n8n_called: false,
+  };
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const clientRes = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
+        if (!clientRes.rows.length) throw Object.assign(new Error('client_not_found'), { code: 404 });
+        const clientId = clientRes.rows[0].id;
+
+        const beds = (await pg.query(TO_ROOM_BEDS_FOR_BLOCK_SQL, [clientSlug, roomCode])).rows;
+        if (!beds.length) throw Object.assign(new Error('room_not_found_or_no_active_beds'), { code: 404 });
+
+        const conflicts = (await pg.query(TO_BED_CONFLICTS_SQL, [clientSlug, roomCode, checkIn, checkOut])).rows;
+        if (conflicts.length) {
+          throw Object.assign(new Error('bed_conflicts'), { code: 409, conflicts });
+        }
+
+        const roomId = beds[0].room_id;
+        let bookingCode = body.booking_code ? String(body.booking_code).trim().slice(0, 60) : null;
+        if (!bookingCode) bookingCode = generateTourOperatorBookingCode();
+        const metadata = JSON.stringify({
+          source: 'staff_tour_operator',
+          manager,
+          phone,
+          email,
+          created_by: actorId,
+          created_role: actorRole,
+        });
+
+        const bkIns = await pg.query(
+          `INSERT INTO bookings (
+             client_id, booking_code, guest_name, operator_name, phone, email,
+             booking_source, block_type, status, payment_status, assignment_status,
+             availability_check_status, check_in, check_out, guest_count,
+             primary_room_code, room_to_block_id, staff_notes,
+             deposit_required_cents, deposit_paid_cents, balance_due_cents,
+             total_amount_cents, amount_paid_cents, metadata
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6,
+             'operator', 'whole_room', 'confirmed', 'not_requested', 'assigned',
+             'unknown', $7::date, $8::date, 1,
+             $9, $10::uuid, $11,
+             0, 0, 0, 0, 0, $12::jsonb
+           )
+           RETURNING id, booking_code, check_in::text AS check_in, check_out::text AS check_out`,
+          [
+            clientId, bookingCode, operatorName, operatorName, phone, email,
+            checkIn, checkOut, roomCode, roomId, staffNotes, metadata,
+          ]
+        );
+        const booking = bkIns.rows[0];
+
+        for (const bed of beds) {
+          await pg.query(
+            `INSERT INTO booking_beds (
+               client_id, booking_id, bed_id, assignment_type, assignment_notes,
+               assignment_start_date, assignment_end_date, guest_name, room_code, bed_code
+             ) VALUES (
+               $1, $2, $3::uuid, 'operator_block', $4,
+               $5::date, $6::date, $7, $8, $9
+             )`,
+            [
+              clientId, booking.id, bed.bed_id,
+              'Staff Portal tour operator whole-room block',
+              checkIn, checkOut, operatorName, bed.room_code, bed.bed_code,
+            ]
+          );
+        }
+
+        await pg.query('COMMIT');
+        return {
+          booking_id: booking.id,
+          booking_code: booking.booking_code,
+          check_in: booking.check_in,
+          check_out: booking.check_out,
+          room_code: roomCode,
+          operator_name: operatorName,
+          bed_count: beds.length,
+          bed_codes: beds.map((b) => b.bed_code),
+        };
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    appendAuditLog({ ...auditBase, success: true, booking_code: result.booking_code });
+    return sendJSON(res, 201, {
+      success: true,
+      send_mutation: true,
+      no_whatsapp: true,
+      no_n8n: true,
+      no_stripe: true,
+      booking: result,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message });
+    if (err.code === 409 && err.message === 'bed_conflicts') {
+      return sendJSON(res, 409, {
+        success: false,
+        error: 'bed_conflicts',
+        conflicts: err.conflicts || [],
+      });
+    }
+    if (err.code === 404) return sendJSON(res, 404, { success: false, error: err.message });
+    return sendJSON(res, 500, { success: false, error: 'create failed', detail: err.message });
+  }
+}
+
+async function handleTourOperatorReleasePreview(req, res, user) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId = String(body.booking_id || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+
+  try {
+    const out = await withPgClient(async (pg) => {
+      const bkRes = await pg.query(TO_OPERATOR_BOOKING_BY_ID_SQL, [clientSlug, bookingId]);
+      if (!bkRes.rows.length) return { error: 'booking_not_found', status: 404 };
+      const bk = bkRes.rows[0];
+      if (bk.booking_source !== 'operator') return { error: 'not_operator_booking', status: 409 };
+      if (bk.status === 'cancelled' || bk.status === 'expired') return { error: 'booking_not_active', status: 409 };
+
+      const input = tourOperatorReleaseInputFromBody({
+        ...body,
+        operator: bk.operator_name,
+        room_code: bk.primary_room_code,
+      }, clientSlug);
+      const plan = await loadOperatorRoomReleaseImpactPlan(pg, input);
+      if (plan.match_phase && plan.match_phase.match_count === 1
+          && String(plan.match_phase.candidates[0].booking_id) !== String(bookingId)) {
+        plan.actionable = (plan.actionable || []).concat(['booking_id_mismatch']);
+      }
+      return { plan, booking: bk, input, blocked: tourOperatorPlanIsBlocked(plan) };
+    });
+    if (out.error) return sendJSON(res, out.status || 400, { success: false, error: out.error });
+    return sendJSON(res, 200, {
+      success: true,
+      send_mutation: false,
+      preview: out.plan,
+      booking: out.booking,
+      can_release: !out.blocked,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'preview failed', detail: err.message });
+  }
+}
+
+async function handleTourOperatorRelease(req, res, user) {
+  if (!STAFF_ACTIONS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+    });
+  }
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId = String(body.booking_id || '').trim();
+  const confirm = body.confirm === true;
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!confirm) return send400(res, 'confirm: true is required');
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:tour_operator_release',
+    category: 'tour_operator',
+    client_slug: clientSlug,
+    booking_id: bookingId,
+    staff_user_id: user ? user.staff_user_id : null,
+    stripe_called: false,
+    whatsapp_called: false,
+    n8n_called: false,
+  };
+
+  try {
+    const out = await withPgClient(async (pg) => {
+      const bkRes = await pg.query(TO_OPERATOR_BOOKING_BY_ID_SQL, [clientSlug, bookingId]);
+      if (!bkRes.rows.length) return { error: 'booking_not_found', status: 404 };
+      const bk = bkRes.rows[0];
+      if (bk.booking_source !== 'operator') return { error: 'not_operator_booking', status: 409 };
+
+      const input = tourOperatorReleaseInputFromBody({
+        ...body,
+        operator: bk.operator_name,
+        room_code: body.room_code ? normalizeRoomCode(body.room_code) : normalizeRoomCode(bk.primary_room_code),
+      }, clientSlug);
+
+      const releaseStart = input.releaseStart;
+      const releaseEnd = input.releaseEnd;
+      if (!DATE_RE.test(releaseStart) || !DATE_RE.test(releaseEnd)) {
+        return { error: 'release_start and release_end must be YYYY-MM-DD', status: 400 };
+      }
+      if (releaseEnd <= releaseStart) return { error: 'release_end must be after release_start', status: 400 };
+      if (releaseStart < bk.check_in || releaseEnd > bk.check_out) {
+        return { error: 'release_dates_outside_block', status: 409 };
+      }
+
+      const plan = await loadOperatorRoomReleaseImpactPlan(pg, input);
+      if (tourOperatorPlanIsBlocked(plan)) {
+        return { error: 'release_blocked', status: 409, plan };
+      }
+      const matchedId = plan.match_phase && plan.match_phase.candidates[0]
+        ? plan.match_phase.candidates[0].booking_id : null;
+      if (matchedId && String(matchedId) !== String(bookingId)) {
+        return { error: 'booking_id_mismatch', status: 409 };
+      }
+
+      const exec = await executeOperatorRoomRelease(pg, plan, input);
+      if (exec.error) return { error: exec.error, status: 409, detail: exec };
+      return { exec, plan, booking: bk };
+    });
+
+    if (out.error) {
+      appendAuditLog({ ...auditBase, success: false, error: out.error });
+      return sendJSON(res, out.status || 400, { success: false, error: out.error, detail: out.detail || out.plan || null });
+    }
+
+    appendAuditLog({ ...auditBase, success: true, request_id: out.exec.request_id });
+    return sendJSON(res, 200, {
+      success: true,
+      send_mutation: true,
+      no_whatsapp: true,
+      no_n8n: true,
+      no_stripe: true,
+      idempotent: !!out.exec.idempotent,
+      release: out.exec,
+      split: out.plan.split_phase,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message });
+    return sendJSON(res, 500, { success: false, error: 'release failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7k3 — Bed reassignment preview handler (proposal-only, no write)
 //
 // GET /staff/bed-calendar/reassign/preview
@@ -20405,6 +21163,44 @@ async function router(req, res) {
     return handleBookingMoveWrite(req, res, auth.user);
   }
 
+  // ── Phase 10.7a — Tour Operator block create + room release ────────────────
+  if (pathname === '/staff/tour-operator/blocks/preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleTourOperatorBlockPreview(req, res, auth.user);
+  }
+  if (pathname === '/staff/tour-operator/blocks/create') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleTourOperatorBlockCreate(req, res, auth.user);
+  }
+  if (pathname === '/staff/tour-operator/release/preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleTourOperatorReleasePreview(req, res, auth.user);
+  }
+  if (pathname === '/staff/tour-operator/release') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleTourOperatorRelease(req, res, auth.user);
+  }
+
   // ── Stage 8.4 — Manual booking creation (write; gated by MANUAL_BOOKING_ENABLED) ──
   if (pathname === '/staff/manual-bookings/create') {
     if (method !== 'POST') {
@@ -20622,6 +21418,18 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleHandoffQueue(parsed.query, res, auth.user);
+  }
+
+  // ── Phase 10.7a — Tour Operator rooms + blocks (read-only) ────────────────
+  if (pathname === '/staff/tour-operator/rooms') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleTourOperatorRooms(parsed.query, res, auth.user);
+  }
+  if (pathname === '/staff/tour-operator/blocks') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleTourOperatorBlocks(parsed.query, res, auth.user);
   }
 
   // ── Stage 7.7g — Bed calendar (read-only) ─────────────────────────────────
