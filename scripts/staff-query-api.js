@@ -12035,6 +12035,10 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bc-move-source-pill.is-selected{background:#b8dff5;color:#1a5f85;border:2px solid #4da3d4;font-weight:700;box-shadow:0 1px 3px rgba(36,116,161,.22);padding:2px 11px}
 .bc-move-source-pill:focus{outline:2px solid #90c8e8;outline-offset:2px}
 .bk-quote-banner{background:#fffbe6;border-left:3px solid #e6c200;padding:8px 12px;border-radius:4px;font-size:11px;color:#7a6a00;margin-bottom:10px;font-style:italic}
+.bk-quote-section{margin-top:10px}
+.bk-quote-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:0 0 6px}
+.bk-quote-section .bk-quote-item{font-size:12px}
+.bk-quote-section .bk-quote-item-note{font-size:11px;color:var(--text-3);margin:-2px 0 6px 0;padding-left:0}
 .bk-quote-items{font-size:12px;margin-top:6px}
 .bk-quote-item{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #e8eef4}
 .bk-quote-item:last-child{border-bottom:none}
@@ -12445,31 +12449,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
-    <!-- Section: Availability / Conflicts (Stage 8.3l — wired to read-only preview) -->
-    <div class="bk-form-section">
-      <div class="bk-form-section-title">Availability / Conflicts</div>
-      <div id="bc-preview-result">
-        <div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>
-      </div>
-    </div>
-
-    <!-- Safety notice -->
-    <div class="bk-safety-notice" id="bc-safety-notice">
-      &#128274; Preview only &mdash; no booking will be created.<br>
-      Staff writes are disabled in staging.<br>
-      No WhatsApp message or Stripe payment link will be sent.
-    </div>
-
     <!-- Actions -->
     <div class="bc-sel-actions" style="margin-top:16px">
       <button class="btn btn-ghost" id="bc-sel-clear">Clear selection</button>
       <button class="btn bc-sel-create-btn" disabled id="bc-sel-create"
-        title="Calculate Quote first, then Create Manual Booking becomes available when both flags are enabled.">
+        title="Calculate Quote first, then fill required fields to create.">
         Create Manual Booking
-      </button>
-      <button class="btn" disabled id="bc-sel-conflicts"
-        title="Select empty cells to enable conflict preview">
-        Preview Conflicts
       </button>
       <button class="btn" disabled id="bc-sel-quote"
         title="Select beds, dates, and package to calculate quote">
@@ -13576,6 +13561,7 @@ var BC_BOOKING_MOVE_WRITE = true;
 /* Phase 10.5f/10.5c.1 — booking field edit write UI (contact + package; no env gate) */
 /* Last successful quote (required for create) */
 var bcLastQuote = null;
+var bcLastQuoteResp = null;
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
 var bcLastPaymentId = null;
 var bcManualCreateInFlight = false;
@@ -13626,6 +13612,7 @@ function bcClearSelection(){
   var rt = el('bk-room-type'); if (rt) rt.value = 'shared';
   /* Reset quote state and create panel (Stage 8.4.8/10) */
   bcLastQuote = null;
+  bcLastQuoteResp = null;
   bcLastPaymentId = null;
   bcManualCreateInFlight = false;
   var _crEl = el('bc-create-result'); if (_crEl) _crEl.innerHTML = '';
@@ -13640,11 +13627,6 @@ function bcClearSelection(){
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'none';
-  /* Reset preview result and disable conflicts button (Stage 8.3l) */
-  var _prClear = el('bc-preview-result');
-  if (_prClear) _prClear.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
-  var _cBtnClear = el('bc-sel-conflicts');
-  if (_cBtnClear){ _cBtnClear.disabled = true; _cBtnClear.title = 'Select empty cells to enable conflict preview'; }
   /* Reset quote result and disable Calculate Quote button (Stage 8.4.5) */
   var _qrClear = el('bc-quote-result');
   if (_qrClear) _qrClear.innerHTML = '<div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>';
@@ -13709,129 +13691,85 @@ function bcApplySelectionHighlight(){
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'block';
 
-  /* Enable/disable Preview Conflicts based on selection (Stage 8.3l) */
-  var _cBtnSel = el('bc-sel-conflicts');
-  if (_cBtnSel) {
-    _cBtnSel.disabled = (selectionNights < 1);
-    _cBtnSel.title = selectionNights >= 1 ? 'Check availability for selected dates and beds' : 'Select empty cells to enable conflict preview';
-  }
-  /* Clear stale previews when selection changes (Stage 8.3l + 8.4.5) */
-  var _prSel = el('bc-preview-result');
-  if (_prSel) _prSel.innerHTML = '<div class="bk-preview-not-run">Availability and conflict preview will appear here before booking creation is enabled.</div>';
+  /* Clear stale quote when selection changes */
+  bcLastQuote = null;
+  bcLastQuoteResp = null;
   var _qrSel = el('bc-quote-result');
   if (_qrSel) _qrSel.innerHTML = '<div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>';
-  /* Update Calculate Quote button enabled state (Stage 8.4.5) */
   bcUpdateQuoteButton();
+  bcUpdateCreateButton();
 }
 
-/* ── Preview Conflicts (Stage 8.3l — read-only, no writes) ─────────────────── */
-/* Posts ONLY to /staff/manual-bookings/preview — no booking created, no writes. */
-function runPreviewConflicts() {
-  if (!bcSel) return;
-  var pr = el('bc-preview-result');
-  if (!pr) return;
-  var cinEl = el('bc-sel-cin');
-  var coutEl = el('bc-sel-cout');
-  var checkIn = cinEl ? cinEl.value : '';
-  var checkOut = coutEl ? coutEl.value : '';
-  if (!checkIn || !checkOut) {
-    pr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing dates</div>Select a date range to preview.</div>';
-    return;
+/* Phase 10.6d.1 — bed codes from multi-bed selection (not bcSel, which has no bed_code). */
+function bcSelectedBedCodes(){
+  return bcSelectedBeds.map(function(b){ return b.bed_code; }).filter(Boolean);
+}
+
+function bcRenderAvailabilityBlockersHtml(avail){
+  avail = avail || {};
+  var blockers = avail.blockers || [];
+  var conflictBeds = avail.conflict_beds || [];
+  var conflictAssignments = avail.conflict_assignments || [];
+  var html = '<div class="bk-preview-blocked"><div class="bk-preview-badge">Dates or beds unavailable</div>';
+  if (blockers.length > 0) {
+    html += '<ul class="bk-preview-list">';
+    blockers.forEach(function(b) {
+      var code = (b && b.code) ? b.code : String(b);
+      var detail = (b && b.detail) ? b.detail : '';
+      if (code === 'bed_not_found') {
+        detail = detail || 'Selected bed was not found. Clear selection and re-select beds on the calendar.';
+      }
+      if (code === 'overlap_conflict') {
+        detail = detail || 'These dates/beds conflict with an existing booking.';
+      }
+      html += '<li>' + escHtml(code) + (detail ? ': ' + escHtml(detail) : '') + '</li>';
+    });
+    html += '</ul>';
   }
-  var client = getBcClient();
+  if (conflictBeds.length > 0) {
+    html += '<div class="bk-preview-meta">Conflict beds: ' +
+      conflictBeds.map(function(cb) { return escHtml(cb.bed_code || String(cb)); }).join(', ') +
+      '</div>';
+  }
+  if (conflictAssignments.length > 0) {
+    html += '<div class="bk-preview-meta">Conflicting bookings: ' +
+      conflictAssignments.map(function(ca) {
+        return escHtml(ca.booking_code || ca.booking_id || '?');
+      }).join(', ') + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+/* Read-only availability check — used internally before create (no separate UI button). */
+function bcFetchManualBookingAvailability(){
+  var checkIn = el('bc-sel-cin') ? el('bc-sel-cin').value : '';
+  var checkOut = el('bc-sel-cout') ? el('bc-sel-cout').value : '';
+  var bedCodes = bcSelectedBedCodes();
+  if (!checkIn || !checkOut || bedCodes.length === 0) {
+    return Promise.resolve({ ok: false, error: 'missing_fields' });
+  }
   var gcEl = el('bk-guest-count');
-  var guestCount = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
-  var pkgEl = el('bk-package');
-  var depositEl = el('bk-deposit');
-  var totalEl = el('bk-total');
-  var psEl = el('bk-payment-status');
   var payload = {
-    client_slug: client,
+    client_slug: getBcClient(),
     check_in: checkIn,
     check_out: checkOut,
-    selected_bed_codes: [bcSel.bed_code],
-    guest_count: guestCount
+    selected_bed_codes: bedCodes,
+    guest_count: parseInt(gcEl ? gcEl.value : '1', 10) || 1,
   };
+  var pkgEl = el('bk-package');
   if (pkgEl && pkgEl.value) payload.package_or_stay_type = pkgEl.value;
-  if (depositEl && parseFloat(depositEl.value) > 0)
-    payload.deposit_amount_cents = Math.round(parseFloat(depositEl.value) * 100);
-  if (totalEl && parseFloat(totalEl.value) > 0)
-    payload.total_amount_cents = Math.round(parseFloat(totalEl.value) * 100);
-  if (psEl && psEl.value) payload.payment_status = psEl.value;
-  /* Loading state */
-  pr.innerHTML = '<div class="bk-preview-loading">Checking availability\u2026</div>';
-  /* POST to read-only preview endpoint — preview_only=true, creates_booking=false */
-  fetch('/staff/manual-bookings/preview', {
+  return fetch('/staff/manual-bookings/preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   })
   .then(function(r) {
     if (r.status === 401 || r.status === 403) {
-      pr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Could not run preview</div>Please refresh or log in again.</div>';
-      return null;
+      return { ok: false, auth: true };
     }
     return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; });
-  })
-  .then(function(res) {
-    if (!res) return;
-    var d = res.data;
-    if (!res.ok || !d || !d.success) {
-      pr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Preview error</div>' +
-        escHtml((d && d.error) || 'Request failed. Please try again.') + '</div>';
-      return;
-    }
-    var avail = d.availability || {};
-    var isValid = avail.is_valid;
-    var blockers = avail.blockers || [];
-    var warnings = avail.warnings || [];
-    var nights = avail.proposed_nights || 0;
-    var bedCount = avail.selected_bed_count || 0;
-    var conflictBeds = avail.conflict_beds || [];
-    var conflictAssignments = avail.conflict_assignments || [];
-    var html = '';
-    if (isValid && blockers.length === 0) {
-      html = '<div class="bk-preview-valid">' +
-        '<div class="bk-preview-badge">\u2714 Available</div>' +
-        '<div>' + nights + ' night' + (nights === 1 ? '' : 's') + ' \u00b7 ' +
-        bedCount + ' bed' + (bedCount === 1 ? '' : 's') + ' selected</div>';
-      if (avail.summary) html += '<div class="bk-preview-meta">' + escHtml(avail.summary) + '</div>';
-      html += '</div>';
-    } else {
-      html = '<div class="bk-preview-blocked">' +
-        '<div class="bk-preview-badge">\u26a0 Not available</div>';
-      if (blockers.length > 0) {
-        html += '<ul class="bk-preview-list">';
-        blockers.forEach(function(b) {
-          html += '<li>' + escHtml(b.code || String(b)) +
-            (b.detail ? ': ' + escHtml(b.detail) : '') + '</li>';
-        });
-        html += '</ul>';
-      }
-      if (conflictBeds.length > 0) {
-        html += '<div class="bk-preview-meta">Conflict beds: ' +
-          conflictBeds.map(function(cb) { return escHtml(cb.bed_code || String(cb)); }).join(', ') +
-          '</div>';
-      }
-      if (conflictAssignments.length > 0) {
-        html += '<div class="bk-preview-meta">Conflicting: ' +
-          conflictAssignments.map(function(ca) {
-            return escHtml(ca.booking_code || ca.booking_id || '?');
-          }).join(', ') + '</div>';
-      }
-      html += '</div>';
-    }
-    if (warnings.length > 0) {
-      html += '<div class="bk-preview-warn">' +
-        warnings.map(function(w) {
-          return escHtml(w.code || String(w)) + (w.detail ? ': ' + escHtml(w.detail) : '');
-        }).join('<br>') + '</div>';
-    }
-    pr.innerHTML = html;
-  })
-  .catch(function() {
-    pr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Could not run preview</div>Please refresh or log in again.</div>';
   });
 }
 
@@ -13932,7 +13870,7 @@ function buildAddOns(){
 function bcUpdateQuoteButton(){
   var btn = el('bc-sel-quote');
   if (!btn) return;
-  var hasSelection = bcSel && bcSelectedBeds.length > 0;
+  var hasSelection = bcSelectedBeds.length > 0;
   var cin  = el('bc-sel-cin')       ? el('bc-sel-cin').value       : '';
   var cout = el('bc-sel-cout')      ? el('bc-sel-cout').value      : '';
   var gc   = parseInt(el('bk-guest-count') ? el('bk-guest-count').value : '0', 10) || 0;
@@ -13953,24 +13891,24 @@ function bcUpdateCreateButton(){
     if (note) note.textContent = 'Manual booking creation disabled in this environment.';
     return;
   }
-  var hasSelection = bcSel && bcSelectedBeds.length > 0;
+  var hasSelection = bcSelectedBeds.length > 0;
   var cin          = el('bc-sel-cin')        ? el('bc-sel-cin').value        : '';
   var cout         = el('bc-sel-cout')       ? el('bc-sel-cout').value       : '';
   var gc           = parseInt(el('bk-guest-count')   ? el('bk-guest-count').value   : '0', 10) || 0;
   var pkg          = el('bk-package')        ? el('bk-package').value        : '';
   var pc           = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
   var gname        = el('bk-guest-name')     ? (el('bk-guest-name').value||'').trim() : '';
-  var phone        = el('bk-phone')          ? (el('bk-phone').value||'').trim()      : '';
   var quoteOk      = !!bcLastQuote;
-  var ready        = hasSelection && cin && cout && gc >= 1 && pkg && pc && gname && phone && quoteOk;
+  var ready        = hasSelection && cin && cout && gc >= 1 && pkg && pc && gname && quoteOk;
   btn.disabled = !ready;
   btn.title    = ready
-    ? 'Create manual booking with calculated quote'
-    : (!quoteOk ? 'Calculate Quote first' : 'Fill all required fields first');
+    ? 'Create manual booking (availability checked on click)'
+    : (!quoteOk ? 'Calculate Quote first' : 'Fill required fields: beds, dates, package, guest name, payment choice');
   if (note){
     note.textContent = ready
-      ? 'Booking creation enabled \u2014 flags active. Payment choice applies at create; nothing is sent automatically.'
-      : (!quoteOk ? 'Click Calculate Quote first to enable booking creation.' : 'Complete all required fields.');
+      ? ''
+      : (!quoteOk ? 'Calculate Quote first.' : 'Complete required fields to enable Create.');
+    note.style.display = note.textContent ? '' : 'none';
   }
 }
 
@@ -14007,8 +13945,8 @@ function bcManualCreateErrorMessage(d, status){
   var combined = (reason + ' ' + err).toLowerCase();
   if (/guest_name|check_in|check_out|required|missing|invalid_dates|no_selected_beds|package_code|confirm/.test(combined))
     return { headline: 'Missing or invalid field', detail: err || 'Check required fields and try again.' };
-  if (reason === 'overlap_conflict' || /conflict|unavailable|overlap|could not be safely/.test(combined))
-    return { headline: 'Dates or beds unavailable', detail: err || 'These dates/beds conflict with an existing booking.' };
+  if (reason === 'overlap_conflict' || reason === 'bed_not_found' || /conflict|unavailable|overlap|bed_not_found|could not be safely/.test(combined))
+    return { headline: 'Dates or beds unavailable', detail: err || 'These dates/beds are not available for booking.' };
   if (reason === 'invalid_payment_amounts' || /invalid_payment_amounts|invalid payment/.test(combined))
     return { headline: 'Invalid payment amount', detail: err || 'Deposit or payment amount is invalid for this stay length.' };
   if (d.service_records_warning || /service_record|add.?on/.test(combined))
@@ -14090,25 +14028,68 @@ function runManualBookingCreate(){
   if (paidAmtType === 'custom' && !isNaN(paidCustomEuros) && paidCustomEuros > 0) {
     payload.paid_amount_cents = Math.round(paidCustomEuros * 100);
   }
-  cr.innerHTML = '<div class="bk-preview-loading">Creating booking\u2026</div>';
+  if (!checkIn || !checkOut || bcSelectedBeds.length === 0) {
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing input</div>Select beds and dates on the calendar.</div>';
+    return;
+  }
+  if (!guestName) {
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Guest name required</div>Enter guest name before creating.</div>';
+    return;
+  }
+  cr.innerHTML = '<div class="bk-preview-loading">Checking availability\u2026</div>';
   var createBtn = el('bc-sel-create');
   bcManualCreateInFlight = true;
   if (createBtn){
     if (!createBtn.dataset.origLabel) createBtn.dataset.origLabel = createBtn.textContent;
     createBtn.disabled = true;
-    createBtn.textContent = 'Creating booking\u2026';
+    createBtn.textContent = 'Checking availability\u2026';
   }
   var createCtx = { guestName: guestName, checkIn: checkIn, checkOut: checkOut, beds: bcSelectedBeds.slice() };
-  fetch('/staff/manual-bookings/create', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(payload)
+
+  function finishCreateUiBusy(busyLabel) {
+    bcManualCreateInFlight = false;
+    if (createBtn) {
+      createBtn.textContent = createBtn.dataset.origLabel || 'Create Manual Booking';
+      createBtn.disabled = false;
+    }
+    bcUpdateCreateButton();
+    if (busyLabel) cr.innerHTML = '<div class="bk-preview-loading">' + escHtml(busyLabel) + '</div>';
+  }
+
+  bcFetchManualBookingAvailability()
+  .then(function(prev) {
+    if (prev.auth) {
+      finishCreateUiBusy(null);
+      cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Auth error</div>Please refresh or log in again.</div>';
+      return null;
+    }
+    if (!prev.ok || !prev.data || !prev.data.success) {
+      finishCreateUiBusy(null);
+      cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Availability check failed</div>' +
+        escHtml((prev.data && prev.data.error) || prev.error || 'Please try again.') + '</div>';
+      return null;
+    }
+    var avail = prev.data.availability || {};
+    if (!avail.is_valid || (avail.blockers && avail.blockers.length > 0)) {
+      finishCreateUiBusy(null);
+      cr.innerHTML = bcRenderAvailabilityBlockersHtml(avail);
+      return null;
+    }
+    if (createBtn) createBtn.textContent = 'Creating booking\u2026';
+    cr.innerHTML = '<div class="bk-preview-loading">Creating booking\u2026</div>';
+    return fetch('/staff/manual-bookings/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
   })
   .then(function(r){
+    if (!r) return null;
     return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; });
   })
   .then(function(res){
+    if (!res) return;
     /* Stage 8.4.10: capture payment_id before rendering */
     if (res.ok && res.data && res.data.success && res.data.payment_id) {
       bcLastPaymentId = res.data.payment_id;
@@ -14118,24 +14099,16 @@ function runManualBookingCreate(){
     cr.innerHTML = renderCreateResult(res, createCtx);
     var cpBtn = document.getElementById('bc-create-payment-link-copy-btn');
     if (cpBtn) cpBtn.addEventListener('click', function(){ bcCopyPaymentLinkIcon(cpBtn); });
-    bcManualCreateInFlight = false;
-    if (createBtn){
-      createBtn.textContent = createBtn.dataset.origLabel || 'Create Manual Booking';
-    }
+    finishCreateUiBusy(null);
     if (res.ok && res.data && res.data.success) {
       loadBedCalendar(function(calData){
         bcOpenDrawerAfterManualCreate(res.data, calData, createCtx);
       });
     }
-    bcUpdateCreateButton();
   })
   .catch(function(e){
-    bcManualCreateInFlight = false;
-    if (createBtn){
-      createBtn.textContent = createBtn.dataset.origLabel || 'Create Manual Booking';
-    }
+    finishCreateUiBusy(null);
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Network error</div>' + escHtml(String(e)) + '</div>';
-    bcUpdateCreateButton();
   });
 }
 
@@ -14306,6 +14279,58 @@ function renderStripeLinkResult(res){
   return html;
 }
 
+function bcQuotePaidNowCents(paymentChoice, paidAmountType, quote) {
+  var q = quote || {};
+  var total = Number(q.total_cents || 0);
+  var deposit = Number(q.deposit_required_cents || 0);
+  if (paymentChoice === 'paid_cash' || paymentChoice === 'paid_bank_transfer') {
+    var pat = paidAmountType || 'deposit';
+    if (pat === 'full') return total;
+    if (pat === 'custom') {
+      var customEl = el('bk-paid-amount-custom');
+      var euros = customEl ? parseFloat(customEl.value) : NaN;
+      if (!isNaN(euros) && euros > 0) return Math.round(euros * 100);
+      return 0;
+    }
+    return deposit;
+  }
+  return 0;
+}
+
+function bcQuoteSelectedPaymentLabel(paymentChoice, paidAmountType, quote) {
+  var fmtEur = function(cents) {
+    return '\u20ac' + (Number(cents) / 100).toFixed(2);
+  };
+  var total = Number(quote.total_cents || 0);
+  var deposit = Number(quote.deposit_required_cents || 0);
+  if (paymentChoice === 'stripe_deposit') {
+    return 'Stripe deposit link \u2014 ' + fmtEur(deposit);
+  }
+  if (paymentChoice === 'stripe_full') {
+    return 'Stripe full payment link \u2014 ' + fmtEur(total);
+  }
+  if (paymentChoice === 'paid_cash') {
+    var amt = bcQuotePaidNowCents(paymentChoice, paidAmountType, quote);
+    var kind = paidAmountType === 'full' ? 'full invoice' : (paidAmountType === 'custom' ? 'custom' : 'deposit');
+    return 'Already paid cash \u2014 ' + fmtEur(amt) + ' (' + kind + ')';
+  }
+  if (paymentChoice === 'paid_bank_transfer') {
+    var amtB = bcQuotePaidNowCents(paymentChoice, paidAmountType, quote);
+    var kindB = paidAmountType === 'full' ? 'full invoice' : (paidAmountType === 'custom' ? 'custom' : 'deposit');
+    return 'Already paid bank transfer \u2014 ' + fmtEur(amtB) + ' (' + kindB + ')';
+  }
+  if (paymentChoice === 'no_payment_yet') {
+    return 'No payment yet \u2014 balance remains due';
+  }
+  return paymentChoice;
+}
+
+function bcRefreshQuotePreviewDisplay(){
+  if (!bcLastQuoteResp) return;
+  var qr = el('bc-quote-result');
+  if (qr) qr.innerHTML = renderQuoteResult(bcLastQuoteResp);
+}
+
 /* ── Quote preview (Stage 8.4.5 — posts to /staff/quote-preview, no writes) ─ */
 function runQuotePreview(){
   var qr = el('bc-quote-result');
@@ -14352,8 +14377,8 @@ function runQuotePreview(){
   })
   .then(function(res){
     if (!res) return;
+    bcLastQuoteResp = res.data;
     qr.innerHTML = renderQuoteResult(res.data);
-    /* Stage 8.4.8: track successful quote and update create button */
     var q = res.data && res.data.quote;
     bcLastQuote = (q && q.success) ? q : null;
     bcUpdateCreateButton();
@@ -14361,6 +14386,7 @@ function runQuotePreview(){
   .catch(function(){
     qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Network error</div>Please try again.</div>';
     bcLastQuote = null;
+    bcLastQuoteResp = null;
     bcUpdateCreateButton();
   });
 }
@@ -14372,30 +14398,51 @@ function renderQuoteResult(resp){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
     return '\u20ac' + (Number(cents)/100).toFixed(2);
   };
-  var html = '<div class="bk-quote-banner">Quote preview only \u2014 no booking created. No Stripe link created.</div>';
+  var paymentChoice = (el('bk-payment-choice') && el('bk-payment-choice').value) || 'stripe_deposit';
+  var paidAmountType = (el('bk-paid-amount-type') && el('bk-paid-amount-type').value) || 'deposit';
   if (!q.success){
-    html += '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 Quote not available</div>';
+    var html = '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 Quote not available</div>';
     (q.blockers||[]).forEach(function(b){ html += '<div class="bk-preview-meta">' + escHtml(String(b)) + '</div>'; });
     html += '</div>';
     if (q.missing_config) html += '<div class="bk-preview-warn">Missing config \u2014 staff review required.</div>';
     else if (q.staff_review_required) html += '<div class="bk-preview-warn">Staff review required before booking.</div>';
     return html;
   }
-  html += '<div class="bk-quote-items">';
+  var invoiceTotal = Number(q.total_cents || 0);
+  var paidNow = bcQuotePaidNowCents(paymentChoice, paidAmountType, q);
+  var balanceAfter = Math.max(invoiceTotal - paidNow, 0);
+  var html = '<div class="bk-quote-items">';
+
+  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">Accommodation</div>';
   (q.line_items||[]).forEach(function(li){
     html += '<div class="bk-quote-item"><span class="bk-quote-item-label">' + escHtml(li.label||li.code||'') + '</span>' +
       '<span class="bk-quote-item-amount">' + escHtml(fmtEur(li.total_cents)) + '</span></div>';
     if (li.note) html += '<div class="bk-quote-item-note">' + escHtml(li.note) + '</div>';
   });
-  html += '<hr class="bk-quote-divider">';
-  html += '<div class="bk-quote-item bk-quote-subtotal"><span>Subtotal</span><span>' + escHtml(fmtEur(q.subtotal_cents)) + '</span></div>';
-  if (q.discount_cents > 0) html += '<div class="bk-quote-item"><span>Discount</span><span>\u2212' + escHtml(fmtEur(q.discount_cents)) + '</span></div>';
-  html += '<div class="bk-quote-item bk-quote-total"><span><b>Total</b></span><span><b>' + escHtml(fmtEur(q.total_cents)) + '</b></span></div>';
-  html += '<div class="bk-quote-item"><span>Deposit required</span><span>' + escHtml(fmtEur(q.deposit_required_cents)) + '</span></div>';
-  html += '<div class="bk-quote-item"><span>Payment link amount</span><span>' + escHtml(fmtEur(q.payment_link_amount_cents)) + '</span></div>';
-  html += '<div class="bk-quote-item"><span>Balance due</span><span>' + escHtml(fmtEur(q.balance_due_cents)) + '</span></div>';
+  if (q.discount_cents > 0) {
+    html += '<div class="bk-quote-item"><span>Discount</span><span>\u2212' + escHtml(fmtEur(q.discount_cents)) + '</span></div>';
+  }
+  if (Number(q.subtotal_cents) !== invoiceTotal && Number(q.subtotal_cents) > 0) {
+    html += '<div class="bk-quote-item bk-quote-total"><span>Invoice total</span><span><b>' + escHtml(fmtEur(invoiceTotal)) + '</b></span></div>';
+  } else if ((q.line_items||[]).length === 0) {
+    html += '<div class="bk-quote-item bk-quote-total"><span>Invoice total</span><span><b>' + escHtml(fmtEur(invoiceTotal)) + '</b></span></div>';
+  }
   html += '</div>';
-  if (q.formula_summary) html += '<div class="bk-quote-formula">' + escHtml(q.formula_summary) + '</div>';
+
+  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">Deposit</div>';
+  html += '<div class="bk-quote-item"><span>Deposit required</span><span>' + escHtml(fmtEur(q.deposit_required_cents)) + '</span></div>';
+  html += '</div>';
+
+  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">Selected payment</div>';
+  html += '<div class="bk-quote-item"><span>' + escHtml(bcQuoteSelectedPaymentLabel(paymentChoice, paidAmountType, q)) + '</span></div>';
+  html += '</div>';
+
+  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">After create</div>';
+  html += '<div class="bk-quote-item"><span>Paid now</span><span>' + escHtml(fmtEur(paidNow)) + '</span></div>';
+  html += '<div class="bk-quote-item"><span>Balance due</span><span>' + escHtml(fmtEur(balanceAfter)) + '</span></div>';
+  html += '</div>';
+
+  html += '</div>';
   if (q.warnings && q.warnings.length > 0){
     html += '<div class="bk-preview-warn">';
     q.warnings.forEach(function(w){ html += '<div>' + escHtml(String(w)) + '</div>'; });
@@ -14562,9 +14609,6 @@ function renderBedCalendar(data){
   /* Wire selection panel clear button (re-wired each render) */
   var _clearBtn = el('bc-sel-clear');
   if (_clearBtn) _clearBtn.onclick = bcClearSelection;
-  /* Wire Preview Conflicts button (Stage 8.3l — re-wired each render) */
-  var _conflBtn = el('bc-sel-conflicts');
-  if (_conflBtn) _conflBtn.onclick = runPreviewConflicts;
   /* Wire Calculate Quote button (Stage 8.4.5 — re-wired each render) */
   var _quoteBtn = el('bc-sel-quote');
   if (_quoteBtn) _quoteBtn.onclick = runQuotePreview;
@@ -14575,25 +14619,21 @@ function renderBedCalendar(data){
   ['bk-package','bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-guest-name','bk-phone'].forEach(function(fId){
     var fEl = el(fId);
     if (fEl) fEl.onchange = function(){
-      if (fId === 'bk-payment-choice' || fId === 'bk-paid-amount-type') bcUpdateManualBookingPaidFields();
+      if (fId === 'bk-payment-choice' || fId === 'bk-paid-amount-type') {
+        bcUpdateManualBookingPaidFields();
+        bcRefreshQuotePreviewDisplay();
+      }
       bcUpdateQuoteButton();
       bcUpdateCreateButton();
     };
   });
   var pacEl = el('bk-paid-amount-custom');
-  if (pacEl) pacEl.oninput = function(){ bcUpdateCreateButton(); };
+  if (pacEl) pacEl.oninput = function(){
+    bcRefreshQuotePreviewDisplay();
+    bcUpdateCreateButton();
+  };
   bcUpdateManualBookingPaidFields();
-  /* Update create button state and safety notice on each calendar load */
   bcUpdateCreateButton();
-  var _notice = el('bc-safety-notice');
-  if (_notice){
-    if (BC_STAFF_ACTIONS && BC_MANUAL_BOOKING){
-      _notice.innerHTML = '&#128994; Booking creation enabled \u2014 MANUAL_BOOKING_ENABLED=true, STAFF_ACTIONS_ENABLED=true.<br>Calculate Quote, choose payment option, then Create Manual Booking. Nothing is sent automatically.';
-      _notice.style.background = 'var(--green-bg, #d4edda)';
-      _notice.style.borderColor = 'var(--green-border, #c3e6cb)';
-      _notice.style.color = 'var(--green-text, #155724)';
-    }
-  }
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
 }
 
