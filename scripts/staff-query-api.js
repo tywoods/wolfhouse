@@ -2271,9 +2271,55 @@ function moveWriteAssignmentSummary(row, bedRow) {
   };
 }
 
-function moveWriteBuildConflicts(assignmentRows, sourceBookingId, checkIn, checkOut, bedRow) {
+function moveFormatAssignmentOptions(rows) {
+  return rows.map((row) => ({
+    booking_bed_id: row.booking_bed_id,
+    bed_id:         row.bed_id,
+    bed_code:       row.bed_code,
+    room_code:      row.room_code || null,
+    check_in:       row.check_in,
+    check_out:      row.check_out,
+  }));
+}
+
+/** Phase 10.3g — resolve which booking_beds row to move (single infer, multi select, zero manual). */
+function moveResolveSourceBed(sourceBeds, bookingBedId) {
+  const id = String(bookingBedId || '').trim();
+  if (sourceBeds.length === 0) {
+    return {
+      status:  'manual_review',
+      reason:  'single_bed_booking_required',
+      message: 'This booking has multiple or no active bed assignments and requires manual review.',
+    };
+  }
+  if (sourceBeds.length > 1 && !id) {
+    return {
+      status:      'requires_selection',
+      reason:      'booking_bed_selection_required',
+      message:     'Select which bed assignment to move.',
+      assignments: moveFormatAssignmentOptions(sourceBeds),
+    };
+  }
+  let sourceBed = null;
+  if (id) {
+    sourceBed = sourceBeds.find((b) => b.booking_bed_id === id) || null;
+    if (!sourceBed) {
+      return {
+        status:     'invalid_id',
+        error:      'booking_bed_id not found for this booking',
+        httpStatus: 400,
+      };
+    }
+  } else {
+    sourceBed = sourceBeds[0];
+  }
+  return { status: 'ok', sourceBed };
+}
+
+function moveWriteBuildConflicts(assignmentRows, excludeBookingBedId, checkIn, checkOut, bedRow) {
+  const excludeId = String(excludeBookingBedId || '');
   return assignmentRows
-    .filter((row) => row.booking_id !== sourceBookingId)
+    .filter((row) => row.booking_bed_id !== excludeId)
     .filter(movePreviewIsBlockingAssignment)
     .filter((row) => movePreviewHalfOpenOverlaps(row.check_in, row.check_out, checkIn, checkOut))
     .map((row) => ({
@@ -2323,6 +2369,35 @@ RETURNING
   bb.assignment_end_date::text   AS check_out
 `;
 
+/** Phase 10.3g — booking context rooming includes bed_id + check_in/out aliases for move UI. */
+const BOOKING_CONTEXT_ROOMING_SQL = `
+SELECT
+  bb.id::text               AS booking_bed_id,
+  bb.bed_id::text           AS bed_id,
+  bb.room_code,
+  bb.bed_code,
+  bb.assignment_start_date::text AS assignment_start_date,
+  bb.assignment_end_date::text   AS assignment_end_date,
+  bb.assignment_start_date::text AS check_in,
+  bb.assignment_end_date::text   AS check_out,
+  bb.planning_row_label,
+  bb.assignment_label,
+  bb.assignment_type,
+  bb.guest_name             AS bed_guest_name,
+  r.name                    AS room_name,
+  r.room_type,
+  r.gender_strategy,
+  r.capacity
+FROM booking_beds bb
+INNER JOIN bookings b ON b.id = bb.booking_id
+INNER JOIN clients c ON c.id = b.client_id
+LEFT JOIN beds bd ON bd.id = bb.bed_id
+LEFT JOIN rooms r ON r.id = bd.room_id
+WHERE c.slug = $1
+  AND b.booking_code = $2
+ORDER BY bb.assignment_start_date ASC, bb.room_code ASC
+`;
+
 async function handleBookingMoveWrite(req, res, user) {
   const started = Date.now();
 
@@ -2357,6 +2432,7 @@ async function handleBookingMoveWrite(req, res, user) {
   const bookingCode    = String(body.booking_code || '').trim();
   const targetBedId    = String(body.target_bed_id || '').trim();
   const targetRoomId   = String(body.target_room_id || '').trim();
+  const bookingBedId   = String(body.booking_bed_id || '').trim();
   const checkIn        = String(body.check_in  || '').trim();
   const checkOut       = String(body.check_out || '').trim();
   const idempotencyKey = String(body.idempotency_key || '').trim();
@@ -2366,6 +2442,7 @@ async function handleBookingMoveWrite(req, res, user) {
   if (!clientSlug) return send400(res, 'client_slug is required');
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (bookingBedId && !UUID_VALIDATE_RE.test(bookingBedId)) return send400(res, 'booking_bed_id must be a valid UUID');
   if (!targetBedId) return send400(res, 'target_bed_id is required');
   if (!UUID_VALIDATE_RE.test(targetBedId)) return send400(res, 'target_bed_id must be a valid UUID');
   if (targetRoomId && !UUID_VALIDATE_RE.test(targetRoomId)) return send400(res, 'target_room_id must be a valid UUID');
@@ -2389,6 +2466,7 @@ async function handleBookingMoveWrite(req, res, user) {
     booking_id:      bookingId || null,
     booking_code:    bookingCode || null,
     target_bed_id:   targetBedId,
+    booking_bed_id:  bookingBedId || null,
     check_in:        checkIn,
     check_out:       checkOut,
     idempotency_key: idempotencyKey,
@@ -2456,7 +2534,32 @@ async function handleBookingMoveWrite(req, res, user) {
     });
   }
 
-  if (sourceBeds.length !== 1) {
+  // Phase 10.3g: zero beds → single_bed_booking_required; sourceBeds.length !== 1 → requires_selection
+  const resolvedWrite = moveResolveSourceBed(sourceBeds, bookingBedId);
+  if (resolvedWrite.status === 'requires_selection') {
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      moved: false,
+      can_move: false,
+      requires_selection: true,
+      source_bed_count: sourceBeds.length,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      moved: false,
+      can_move: false,
+      preview_only: false,
+      would_mutate: false,
+      requires_selection: true,
+      reason: resolvedWrite.reason,
+      assignments: resolvedWrite.assignments,
+      booking: movePreviewBookingSummary(bookingRow),
+      message: resolvedWrite.message,
+    });
+  }
+  if (resolvedWrite.status === 'manual_review') {
     appendAuditLog({
       ...auditBase,
       success: true,
@@ -2471,15 +2574,23 @@ async function handleBookingMoveWrite(req, res, user) {
       moved: false,
       can_move: false,
       requires_manual_review: true,
-      reason: 'single_bed_booking_required',
+      reason: resolvedWrite.reason,
       preview_only: false,
       would_mutate: false,
       booking: movePreviewBookingSummary(bookingRow),
-      message: 'This booking has multiple or no active bed assignments and requires manual review.',
+      message: resolvedWrite.message,
     });
   }
-
-  const sourceBed = sourceBeds[0];
+  if (resolvedWrite.status === 'invalid_id') {
+    appendAuditLog({ ...auditBase, success: false, error: resolvedWrite.error, elapsed_ms: Date.now() - started });
+    return sendJSON(res, resolvedWrite.httpStatus || 400, {
+      success: false,
+      error: resolvedWrite.error,
+      moved: false,
+      would_mutate: false,
+    });
+  }
+  const sourceBed = resolvedWrite.sourceBed;
   if (sourceBed.check_in !== checkIn || sourceBed.check_out !== checkOut) {
     appendAuditLog({
       ...auditBase,
@@ -2544,8 +2655,6 @@ async function handleBookingMoveWrite(req, res, user) {
     });
   }
 
-  const sourceBookingId = bookingRow.booking_id;
-
   try {
     const writeResult = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
@@ -2556,7 +2665,7 @@ async function handleBookingMoveWrite(req, res, user) {
         );
         const conflicts = moveWriteBuildConflicts(
           assignRes.rows,
-          sourceBookingId,
+          sourceBed.booking_bed_id,
           checkIn,
           checkOut,
           bedRow
@@ -2663,6 +2772,7 @@ async function handleBookingMovePreview(req, res, user) {
   const bookingCode   = String(body.booking_code || '').trim();
   const targetBedId   = String(body.target_bed_id || '').trim();
   const targetRoomId  = String(body.target_room_id || '').trim();
+  const bookingBedId  = String(body.booking_bed_id || '').trim();
   const checkIn       = String(body.check_in  || '').trim();
   const checkOut      = String(body.check_out || '').trim();
 
@@ -2670,6 +2780,7 @@ async function handleBookingMovePreview(req, res, user) {
   if (!clientSlug) return send400(res, 'client_slug is required');
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (bookingBedId && !UUID_VALIDATE_RE.test(bookingBedId)) return send400(res, 'booking_bed_id must be a valid UUID');
   if (!targetBedId) return send400(res, 'target_bed_id is required');
   if (!UUID_VALIDATE_RE.test(targetBedId)) return send400(res, 'target_bed_id must be a valid UUID');
   if (targetRoomId && !UUID_VALIDATE_RE.test(targetRoomId)) return send400(res, 'target_room_id must be a valid UUID');
@@ -2692,21 +2803,27 @@ async function handleBookingMovePreview(req, res, user) {
     booking_id:     bookingId || null,
     booking_code:   bookingCode || null,
     target_bed_id:  targetBedId,
+    booking_bed_id: bookingBedId || null,
     check_in:       checkIn,
     check_out:      checkOut,
     staff_user_id:  actorId,
     staff_role:     actorRole,
   };
 
-  let bookingRow, bedRow, assignmentRows;
+  let bookingRow, bedRow, sourceBeds, assignmentRows;
   try {
     const result = await withPgClient(async (pg) => {
       const bookingRes = await pg.query(
         bookingId ? MOVE_PREVIEW_BOOKING_BY_ID_SQL : MOVE_PREVIEW_BOOKING_BY_CODE_SQL,
         [clientSlug, bookingId || bookingCode]
       );
+      const booking = bookingRes.rows[0] || null;
+      if (!booking) {
+        return { bookingRow: null, bedRow: null, sourceBeds: [], assignmentRows: [] };
+      }
       const bedRes = await pg.query(MOVE_PREVIEW_BED_BY_ID_SQL, [clientSlug, targetBedId]);
       const bed = bedRes.rows[0] || null;
+      const bedsRes = await pg.query(MOVE_WRITE_SOURCE_BEDS_SQL, [clientSlug, booking.booking_id]);
       let assignments = [];
       if (bed && bed.bed_code) {
         const assignRes = await pg.query(
@@ -2716,14 +2833,16 @@ async function handleBookingMovePreview(req, res, user) {
         assignments = assignRes.rows;
       }
       return {
-        bookingRow:      bookingRes.rows[0] || null,
-        bedRow:          bed,
-        assignmentRows:  assignments,
+        bookingRow:     booking,
+        bedRow:         bed,
+        sourceBeds:     bedsRes.rows,
+        assignmentRows: assignments,
       };
     });
-    bookingRow      = result.bookingRow;
-    bedRow          = result.bedRow;
-    assignmentRows  = result.assignmentRows;
+    bookingRow     = result.bookingRow;
+    bedRow         = result.bedRow;
+    sourceBeds     = result.sourceBeds;
+    assignmentRows = result.assignmentRows;
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'move preview query failed', detail: err.message });
@@ -2759,45 +2878,99 @@ async function handleBookingMovePreview(req, res, user) {
     });
   }
 
-  if (bedRow.active === false || bedRow.sellable === false) {
-    appendAuditLog({ ...auditBase, success: false, can_move: false, error: 'target_bed_unavailable', elapsed_ms: Date.now() - started });
+  if (checkIn !== bookingRow.check_in || checkOut !== bookingRow.check_out) {
+    appendAuditLog({ ...auditBase, success: false, error: 'date_change_not_supported_in_phase_10_3', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 400, {
+      success: false,
+      can_move: false,
+      error: 'date_change_not_supported_in_phase_10_3',
+      message: 'Date changes are not supported in Phase 10.3. Request dates must match the booking stay.',
+      preview_only: true,
+      would_mutate: false,
+    });
+  }
+
+  const resolvedPreview = moveResolveSourceBed(sourceBeds, bookingBedId);
+  if (resolvedPreview.status === 'requires_selection') {
+    const elapsedSel = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      can_move: false,
+      requires_selection: true,
+      source_bed_count: sourceBeds.length,
+      elapsed_ms: elapsedSel,
+    });
     return sendJSON(res, 200, {
       success: true,
       can_move: false,
       preview_only: true,
       would_mutate: false,
+      requires_selection: true,
+      reason: resolvedPreview.reason,
+      assignments: resolvedPreview.assignments,
       booking: movePreviewBookingSummary(bookingRow),
-      target: {
-        bed_id:   bedRow.bed_id,
-        room_id:  bedRow.room_id,
-        bed_code: bedRow.bed_code,
-        room_code: bedRow.room_code,
-        room_name: bedRow.room_name,
-        check_in: checkIn,
-        check_out: checkOut,
-        nights,
-      },
-      conflicts: [],
-      message: 'Target bed is not active or sellable. No changes were made.',
-      elapsed_ms: Date.now() - started,
+      message: resolvedPreview.message,
+      elapsed_ms: elapsedSel,
+    });
+  }
+  if (resolvedPreview.status === 'manual_review') {
+    const elapsedMr = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      can_move: false,
+      requires_manual_review: true,
+      source_bed_count: sourceBeds.length,
+      elapsed_ms: elapsedMr,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      can_move: false,
+      preview_only: true,
+      would_mutate: false,
+      requires_manual_review: true,
+      reason: resolvedPreview.reason,
+      booking: movePreviewBookingSummary(bookingRow),
+      message: resolvedPreview.message,
+      elapsed_ms: elapsedMr,
+    });
+  }
+  if (resolvedPreview.status === 'invalid_id') {
+    appendAuditLog({ ...auditBase, success: false, error: resolvedPreview.error, elapsed_ms: Date.now() - started });
+    return sendJSON(res, resolvedPreview.httpStatus || 400, {
+      success: false,
+      error: resolvedPreview.error,
+      preview_only: true,
+      would_mutate: false,
     });
   }
 
-  const sourceBookingId = bookingRow.booking_id;
-  const conflicts = assignmentRows
-    .filter((row) => row.booking_id !== sourceBookingId)
-    .filter(movePreviewIsBlockingAssignment)
-    .filter((row) => movePreviewHalfOpenOverlaps(row.check_in, row.check_out, checkIn, checkOut))
-    .map((row) => ({
-      booking_id:   row.booking_id,
-      booking_code: row.booking_code,
-      guest_name:   row.guest_name,
-      check_in:     row.check_in,
-      check_out:    row.check_out,
-      bed_id:       bedRow.bed_id,
-    }));
+  const sourceBed = resolvedPreview.sourceBed;
+  if (sourceBed.check_in !== checkIn || sourceBed.check_out !== checkOut) {
+    const elapsedMis = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      can_move: false,
+      requires_manual_review: true,
+      error: 'assignment_date_mismatch',
+      elapsed_ms: elapsedMis,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      can_move: false,
+      preview_only: true,
+      would_mutate: false,
+      requires_manual_review: true,
+      reason: 'assignment_date_mismatch',
+      booking: movePreviewBookingSummary(bookingRow),
+      source_assignment: moveWriteAssignmentSummary(sourceBed, null),
+      message: 'Assignment dates do not match the booking stay. Manual review required.',
+      elapsed_ms: elapsedMis,
+    });
+  }
 
-  const canMove = conflicts.length === 0;
   const target = {
     bed_id:    bedRow.bed_id,
     room_id:   bedRow.room_id,
@@ -2808,6 +2981,54 @@ async function handleBookingMovePreview(req, res, user) {
     check_out: checkOut,
     nights,
   };
+
+  if (
+    sourceBed.bed_id === bedRow.bed_id &&
+    sourceBed.bed_code === bedRow.bed_code
+  ) {
+    const elapsedIdem = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, can_move: true, idempotent: true, elapsed_ms: elapsedIdem });
+    return sendJSON(res, 200, {
+      success: true,
+      can_move: true,
+      idempotent: true,
+      preview_only: true,
+      would_mutate: false,
+      booking: movePreviewBookingSummary(bookingRow),
+      source_assignment: moveWriteAssignmentSummary(sourceBed, null),
+      target,
+      conflicts: [],
+      message: 'Move preview passed. Selected assignment is already on the target bed.',
+      elapsed_ms: elapsedIdem,
+    });
+  }
+
+  if (bedRow.active === false || bedRow.sellable === false) {
+    appendAuditLog({ ...auditBase, success: false, can_move: false, error: 'target_bed_unavailable', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, {
+      success: true,
+      can_move: false,
+      preview_only: true,
+      would_mutate: false,
+      booking: movePreviewBookingSummary(bookingRow),
+      source_assignment: moveWriteAssignmentSummary(sourceBed, null),
+      target,
+      conflicts: [],
+      message: 'Target bed is not active or sellable. No changes were made.',
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  // Assignment-scoped conflicts (booking_bed_id; not row.booking_id !== sourceBookingId)
+  const conflicts = moveWriteBuildConflicts(
+    assignmentRows,
+    sourceBed.booking_bed_id,
+    checkIn,
+    checkOut,
+    bedRow
+  );
+
+  const canMove = conflicts.length === 0;
   const elapsed = Date.now() - started;
 
   appendAuditLog({
@@ -2815,6 +3036,7 @@ async function handleBookingMovePreview(req, res, user) {
     success: true,
     can_move: canMove,
     conflict_count: conflicts.length,
+    booking_bed_id: sourceBed.booking_bed_id,
     elapsed_ms: elapsed,
   });
 
@@ -2824,6 +3046,7 @@ async function handleBookingMovePreview(req, res, user) {
     preview_only: true,
     would_mutate: false,
     booking: movePreviewBookingSummary(bookingRow),
+    source_assignment: moveWriteAssignmentSummary(sourceBed, null),
     target,
     conflicts,
     message: canMove
@@ -12497,7 +12720,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
         const [b, p, r, c, h, a, m, svc] = await Promise.all([
           pg.query(getBookingDetailQuery(),             [clientSlug, bookingCode]),
           pg.query(getBookingPaymentsQuery(),           [clientSlug, bookingCode]),
-          pg.query(getBookingRoomingAssignmentsQuery(), [clientSlug, bookingCode]),
+          pg.query(BOOKING_CONTEXT_ROOMING_SQL,       [clientSlug, bookingCode]),
           pg.query(getBookingConversationQuery(),       [clientSlug, bookingCode]),
           pg.query(getBookingHandoffQuery(),            [clientSlug, bookingCode]),
           pg.query(getBookingAddOnSummaryQuery(),       [clientSlug, bookingCode]).catch(() => ({ rows: [] })),
