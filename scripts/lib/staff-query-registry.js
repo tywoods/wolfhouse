@@ -39,6 +39,7 @@ const askLunaGear      = require('./staff-ask-luna-gear');
 const askLunaMealsYoga = require('./staff-ask-luna-meals-yoga');
 const askLunaArrivalsCheckouts = require('./staff-ask-luna-arrivals-checkouts');
 const askLunaCleaning = require('./staff-ask-luna-cleaning');
+const askLunaBookingLookup = require('./staff-ask-luna-booking-lookup');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Param descriptor shape (for documentation + CLI validation)
@@ -673,6 +674,27 @@ const REGISTRY = [
       { name: 'date', description: 'Checkout date (ISO)', example: '2026-06-06' },
     ],
     optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+
+  // ── Booking lookup (Phase 11g) ──────────────────────────────────────────────
+
+  {
+    key:             'bookings.lookup',
+    category:        'bookings',
+    description:     'Look up a booking by guest name, booking code, or room/bed',
+    helperModule:    'lib/staff-ask-luna-booking-lookup',
+    helperFn:        'buildAskLunaBookingLookupQuery',
+    helperRef:       askLunaBookingLookup.buildAskLunaBookingLookupQuery,
+    requiredParams:  [
+      { name: 'lookupMode', description: 'booking_code | guest_name | room | bed', example: 'guest_name' },
+      { name: 'searchValue', description: 'Search term (name, code, or room)', example: 'Jimmy' },
+    ],
+    optionalParams:  [
+      { name: 'lookupFocus', description: 'general | arrival | checkout | room | bed', example: 'general' },
+    ],
     clientSlugged:   true,
     readOnly:        true,
     migrationRequired: 'migration_001',

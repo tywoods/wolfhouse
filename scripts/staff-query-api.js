@@ -89,6 +89,12 @@ const {
   getAskLunaCleaningOnDateQuery,
   formatAskLunaCleaningAnswer,
 } = require('./lib/staff-ask-luna-cleaning');
+const {
+  resolveAskLunaBookingLookupIntentKey,
+  buildAskLunaBookingLookupQuery,
+  getAskLunaBookingLookupByCodeQuery,
+  formatAskLunaBookingLookupAnswer,
+} = require('./lib/staff-ask-luna-booking-lookup');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1512,6 +1518,7 @@ const ASK_LUNA_LOCAL_QUERY = {
   'housekeeping.cleaning_today':    getAskLunaCleaningOnDateQuery,
   'housekeeping.cleaning_tomorrow': getAskLunaCleaningOnDateQuery,
   'housekeeping.cleaning_on_date':  getAskLunaCleaningOnDateQuery,
+  'bookings.lookup':               getAskLunaBookingLookupByCodeQuery,
 };
 
 /**
@@ -1531,6 +1538,11 @@ function resolveNaturalLanguageIntent(question) {
 
   const mealsYogaIntentEarly = resolveAskLunaMealsYogaIntentKey(question, REGISTRY_BY_KEY, refDate);
   if (mealsYogaIntentEarly) return mealsYogaIntentEarly;
+
+  const bookingLookupIntentEarly = resolveAskLunaBookingLookupIntentKey(
+    question, REGISTRY_BY_KEY, refDate,
+  );
+  if (bookingLookupIntentEarly) return bookingLookupIntentEarly;
 
   const cleaningIntentEarly = resolveAskLunaCleaningIntentKey(
     question, REGISTRY_BY_KEY, refDate,
@@ -1710,6 +1722,7 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'housekeeping.cleaning_today':    'No rooms or beds are currently flagged for checkout cleaning today.',
       'housekeeping.cleaning_tomorrow': 'No rooms or beds are currently flagged for checkout cleaning tomorrow.',
       'housekeeping.cleaning_on_date':  `No rooms or beds are currently flagged for checkout cleaning ${when}.`,
+      'bookings.lookup':              'I couldn\'t find an active booking matching that.',
       'services.wetsuit.on_date':     `No wetsuits needed ${when}.`,
       'services.surfboard.on_date':   `No surfboards needed ${when}.`,
     };
@@ -1859,6 +1872,8 @@ function formatAnswer(intentKey, rows, ctx = {}) {
     case 'housekeeping.cleaning_tomorrow':
     case 'housekeeping.cleaning_on_date':
       return formatAskLunaCleaningAnswer(rows, ctx);
+    case 'bookings.lookup':
+      return formatAskLunaBookingLookupAnswer(rows, ctx);
     default: {
       return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
     }
@@ -1993,12 +2008,26 @@ async function handleAskLuna(req, res) {
       dateLabel: extraParams.dateLabel || 'today',
       serviceCategory: extraParams.serviceCategory,
       flow: extraParams.flow,
+      lookupMode: extraParams.lookupMode,
+      lookupFocus: extraParams.lookupFocus,
+      searchValue: extraParams.searchValue,
+      roomCode: extraParams.roomCode,
+      bedCode: extraParams.bedCode,
     };
     let localRows = [];
     try {
-      const sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
+      let sql;
+      let queryParams;
+      if (intentKey === 'bookings.lookup') {
+        const bundle = buildAskLunaBookingLookupQuery(extraParams, clientSlug);
+        sql = bundle.sql;
+        queryParams = bundle.params;
+      } else {
+        sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
+        queryParams = [clientSlug, today];
+      }
       localRows = await withPgClient(async (pgClient) => {
-        const result = await pgClient.query(sql, [clientSlug, today]);
+        const result = await pgClient.query(sql, queryParams);
         return result.rows;
       });
     } catch (err) {

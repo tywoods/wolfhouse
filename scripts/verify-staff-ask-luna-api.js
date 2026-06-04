@@ -350,11 +350,13 @@ function extractAskLunaRouterChunk() {
     const mealsYogaLib = require('./lib/staff-ask-luna-meals-yoga');
     const arrivalsLib = require('./lib/staff-ask-luna-arrivals-checkouts');
     const cleaningLib = require('./lib/staff-ask-luna-cleaning');
+    const bookingLookupLib = require('./lib/staff-ask-luna-booking-lookup');
     const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
     const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
     const mealsYogaRoutingBlock = mealsYogaLib.getAskLunaMealsYogaRoutingSmokeBlock();
     const arrivalsRoutingBlock = arrivalsLib.getAskLunaArrivalsCheckoutsRoutingSmokeBlock();
     const cleaningRoutingBlock = cleaningLib.getAskLunaCleaningRoutingSmokeBlock();
+    const bookingLookupRoutingBlock = bookingLookupLib.getAskLunaBookingLookupRoutingSmokeBlock();
     const registryKeys = [...require('./lib/staff-query-registry').REGISTRY_BY_KEY.keys()];
     const wrapped = `
       const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
@@ -365,6 +367,7 @@ function extractAskLunaRouterChunk() {
       ${mealsYogaRoutingBlock}
       ${arrivalsRoutingBlock}
       ${cleaningRoutingBlock}
+      ${bookingLookupRoutingBlock}
       const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) {
@@ -388,6 +391,9 @@ function extractAskLunaRouterChunk() {
         }
         if (String(id).includes('staff-ask-luna-cleaning')) {
           return { resolveAskLunaCleaningIntentKey };
+        }
+        if (String(id).includes('staff-ask-luna-booking-lookup')) {
+          return { resolveAskLunaBookingLookupIntentKey };
         }
         throw new Error('unexpected require: ' + id);
       };
