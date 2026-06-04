@@ -137,6 +137,7 @@
     "verify:staff-ask-luna-ai-intent-fallback": "node scripts/verify-staff-ask-luna-ai-intent-fallback.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
+    "verify:staff-ask-luna-surf-forecast": "node scripts/verify-staff-ask-luna-surf-forecast.js",
     "verify:staff-ask-luna-gear": "node scripts/verify-staff-ask-luna-gear.js",
     "verify:staff-ask-luna-meals-yoga": "node scripts/verify-staff-ask-luna-meals-yoga.js",
     "verify:staff-ask-luna-arrivals-checkouts": "node scripts/verify-staff-ask-luna-arrivals-checkouts.js",

@@ -325,6 +325,164 @@ async function fetchSurfForecastForStaff(opts) {
   };
 }
 
+// ── Phase 11b.2 — Staff Ask Luna surf forecast (read-only, backend Stormglass) ─
+
+const SURF_FORECAST_TODAY_KEY = 'forecast.surf_today';
+const SURF_FORECAST_TOMORROW_KEY = 'forecast.surf_tomorrow';
+
+const ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER =
+  'Surf forecast is unavailable right now because the forecast provider quota/connection failed. Staff should check conditions manually.';
+
+function normalizeSurfForecastQuestionText(question) {
+  let q = String(question || '').toLowerCase().trim();
+  q = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  q = q.replace(/[''`´]/g, ' ');
+  q = q.replace(/[?!.,;:()[\]{}""]/g, ' ');
+  q = q.replace(/\s+/g, ' ').trim();
+  return q;
+}
+
+function surfForecastHasTodayWord(q) {
+  return /\b(today|tonight|hoy|oggi|heute|aujourdhui|aujourd hui)\b/.test(q);
+}
+
+function surfForecastHasTomorrowWord(q) {
+  return /\b(tomorrow|manana|domani|morgen|demain)\b/.test(q);
+}
+
+function matchesSurfForecastTopic(q) {
+  if (/\b(who has|who needs|how many|booked|scheduled|show)\b/.test(q) && /\blessons?\b/.test(q)) {
+    return false;
+  }
+  return /\b(surf\s*forecast|wave\s*forecast|forecast)\b/.test(q)
+    || /\bhow are the waves\b/.test(q)
+    || /\bare the waves\b/.test(q)
+    || /\bis the surf good\b/.test(q)
+    || /\bis it good for lessons\b/.test(q)
+    || /\b(como estan las olas|prevision del surf|prevision surf|prevision de olas)\b/.test(q)
+    || /\b(com vanno le onde|previsione surf|previsione delle onde)\b/.test(q)
+    || (/\b(waves?|surf|olas|onde)\b/.test(q) && /\b(good|bad|conditions?|forecast|prevision)\b/.test(q));
+}
+
+function resolveSurfForecastDayLabel(question) {
+  const q = normalizeSurfForecastQuestionText(question);
+  if (surfForecastHasTomorrowWord(q) && !surfForecastHasTodayWord(q)) return 'tomorrow';
+  if (surfForecastHasTomorrowWord(q)) return 'tomorrow';
+  return 'today';
+}
+
+/**
+ * @param {string} question
+ * @param {Map<string, object>|null} registryByKey
+ * @returns {{ intentKey: string, extraParams: { day: string, dayLabel: string } } | null}
+ */
+function resolveAskLunaSurfForecastIntentKey(question, registryByKey) {
+  const raw = String(question || '').trim().toLowerCase();
+  if (registryByKey && registryByKey.has(raw)) {
+    if (raw === SURF_FORECAST_TODAY_KEY) {
+      return { intentKey: SURF_FORECAST_TODAY_KEY, extraParams: { day: 'today', dayLabel: 'today' } };
+    }
+    if (raw === SURF_FORECAST_TOMORROW_KEY) {
+      return { intentKey: SURF_FORECAST_TOMORROW_KEY, extraParams: { day: 'tomorrow', dayLabel: 'tomorrow' } };
+    }
+  }
+  if (raw === SURF_FORECAST_TODAY_KEY) {
+    return { intentKey: SURF_FORECAST_TODAY_KEY, extraParams: { day: 'today', dayLabel: 'today' } };
+  }
+  if (raw === SURF_FORECAST_TOMORROW_KEY) {
+    return { intentKey: SURF_FORECAST_TOMORROW_KEY, extraParams: { day: 'tomorrow', dayLabel: 'tomorrow' } };
+  }
+  const q = normalizeSurfForecastQuestionText(question);
+  if (!matchesSurfForecastTopic(q)) return null;
+  const dayLabel = resolveSurfForecastDayLabel(question);
+  const intentKey = dayLabel === 'tomorrow' ? SURF_FORECAST_TOMORROW_KEY : SURF_FORECAST_TODAY_KEY;
+  return { intentKey, extraParams: { day: dayLabel, dayLabel } };
+}
+
+/**
+ * @param {number|null|undefined} metres
+ * @param {number} [decimals=1]
+ * @returns {string|null}
+ */
+function formatSurfForecastMetres(metres, decimals = 1) {
+  if (metres == null || !Number.isFinite(metres)) return null;
+  return `${metres.toFixed(decimals)}m`;
+}
+
+/**
+ * Staff-style surf forecast answer for Ask Luna.
+ * @param {object} payload fetchSurfForecastForStaff result
+ * @returns {string}
+ */
+function formatAskLunaSurfForecastAnswer(payload) {
+  payload = payload || {};
+  const day = payload.day || 'today';
+  const spot = payload.spot || 'Somo';
+  const fc = payload.forecast || {};
+
+  const wave = formatSurfForecastMetres(fc.wave_height_m);
+  const swellH = formatSurfForecastMetres(fc.swell_height_m);
+  const swellP = fc.swell_period_s != null && Number.isFinite(fc.swell_period_s)
+    ? `${Math.round(fc.swell_period_s)}s`
+    : null;
+  const swellD = fc.swell_direction_deg != null && Number.isFinite(fc.swell_direction_deg)
+    ? `${Math.round(fc.swell_direction_deg)}°`
+    : null;
+  const windS = fc.wind_speed_mps != null && Number.isFinite(fc.wind_speed_mps)
+    ? `${fc.wind_speed_mps.toFixed(1)} m/s`
+    : null;
+  const windD = fc.wind_direction_deg != null && Number.isFinite(fc.wind_direction_deg)
+    ? `${Math.round(fc.wind_direction_deg)}°`
+    : null;
+
+  const lines = [`Surf forecast for ${spot} ${day}:`, ''];
+  lines.push(wave ? `• Waves: ${wave}` : '• Waves: unavailable');
+
+  if (swellH && swellP && swellD) lines.push(`• Swell: ${swellH} @ ${swellP} from ${swellD}`);
+  else if (swellH) lines.push(`• Swell: ${swellH}`);
+  else lines.push('• Swell: unavailable');
+
+  if (windS && windD) lines.push(`• Wind: ${windS} from ${windD}`);
+  else if (windS) lines.push(`• Wind: ${windS}`);
+  else lines.push('• Wind: unavailable');
+
+  if (fc.summary) lines.push(`• Summary: ${fc.summary}`);
+  lines.push('• Staff note: Staff should confirm lessons day-by-day. Lessons are not auto-cancelled.');
+
+  return lines.join('\n');
+}
+
+/**
+ * Ask Luna backend path — uses fetchSurfForecastForStaff; safe fallback on quota/errors.
+ * @param {{ clientSlug: string, day: string }} opts
+ * @returns {Promise<{ ok: boolean, answer: string, unavailable?: boolean, forecast?: object, source?: string }>}
+ */
+async function fetchSurfForecastForAskLuna(opts) {
+  const clientSlug = String(opts.clientSlug || '').trim();
+  const day = String(opts.day || 'today').trim().toLowerCase();
+  try {
+    const payload = await fetchSurfForecastForStaff({ clientSlug, day });
+    return {
+      ok: true,
+      answer: formatAskLunaSurfForecastAnswer(payload),
+      forecast: payload.forecast,
+      source: payload.source,
+      day: payload.day,
+      spot: payload.spot,
+    };
+  } catch (err) {
+    const code = err && err.code;
+    const status = err && err.status;
+    if (code === 'NOT_CONFIGURED' || code === 'UPSTREAM_ERROR' || status === 402) {
+      return { ok: false, answer: ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER, unavailable: true };
+    }
+    if (code === 'UNSUPPORTED_CLIENT' || code === 'INVALID_DAY') {
+      return { ok: false, answer: ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER, unavailable: true };
+    }
+    return { ok: false, answer: ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER, unavailable: true };
+  }
+}
+
 module.exports = {
   STORMGLASS_POINT_URL,
   STORMGLASS_PARAMS,
@@ -340,4 +498,10 @@ module.exports = {
   aggregateStormglassHours,
   buildStaffSafeForecastSummary,
   fetchSurfForecastForStaff,
+  SURF_FORECAST_TODAY_KEY,
+  SURF_FORECAST_TOMORROW_KEY,
+  ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER,
+  resolveAskLunaSurfForecastIntentKey,
+  formatAskLunaSurfForecastAnswer,
+  fetchSurfForecastForAskLuna,
 };

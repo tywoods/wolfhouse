@@ -117,7 +117,14 @@ const {
   formatAskLunaFreeBedsAnswer,
 } = require('./lib/staff-ask-luna-free-beds');
 const { hasStormglassConfig, getStormglassConfigStatus } = require('./lib/staff-stormglass-config');
-const { fetchSurfForecastForStaff } = require('./lib/staff-stormglass-forecast');
+const {
+  fetchSurfForecastForStaff,
+  resolveAskLunaSurfForecastIntentKey,
+  fetchSurfForecastForAskLuna,
+  SURF_FORECAST_TODAY_KEY,
+  SURF_FORECAST_TOMORROW_KEY,
+  ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER,
+} = require('./lib/staff-stormglass-forecast');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1556,6 +1563,10 @@ function resolveNaturalLanguageIntent(question) {
   const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
   const refDate = new Date();
 
+  // Surf/wave forecast (Stormglass backend) before lessons/gear to avoid "good for lessons" mis-route
+  const surfForecastIntentEarly = resolveAskLunaSurfForecastIntentKey(question, REGISTRY_BY_KEY);
+  if (surfForecastIntentEarly) return surfForecastIntentEarly;
+
   // Lessons today/tomorrow before generic registry passthrough (needs date params)
   const lessonsIntentEarly = resolveAskLunaLessonsIntentKey(question, REGISTRY_BY_KEY, refDate);
   if (lessonsIntentEarly) return lessonsIntentEarly;
@@ -2024,6 +2035,7 @@ async function handleAskLuna(req, res) {
       'rooms/beds needing cleaning (rooms_or_beds_need_cleaning)',
       'who paid for yoga/meals (services.yoga/meal.paid_on_date)',
       'surf lessons today or tomorrow (services.lessons_today / services.lessons_tomorrow)',
+      'surf/wave forecast today or tomorrow (forecast.surf_today / forecast.surf_tomorrow)',
       'surf gear today or tomorrow (services.gear_today / services.gear_tomorrow)',
       'meals or yoga today/tomorrow/weekday (services.meals_* / services.yoga_*)',
       'arrivals or checkouts today/tomorrow/weekday (bookings.arrivals_* / bookings.checkouts_*)',
@@ -2093,6 +2105,36 @@ async function handleAskLuna(req, res) {
       read_only:          true,
       no_write_performed: true,
       sends_whatsapp:     false,
+      elapsed_ms:         Date.now() - started,
+      ...askLunaIntentMeta(resolution),
+    });
+  }
+
+  if (intentKey === SURF_FORECAST_TODAY_KEY || intentKey === SURF_FORECAST_TOMORROW_KEY) {
+    const day = extraParams.day || (intentKey === SURF_FORECAST_TOMORROW_KEY ? 'tomorrow' : 'today');
+    let surfResult;
+    try {
+      surfResult = await fetchSurfForecastForAskLuna({ clientSlug, day });
+    } catch (err) {
+      console.error('[ask-luna] surf forecast error:', err.message);
+      surfResult = { ok: false, answer: ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER, unavailable: true };
+    }
+    return sendJSON(res, 200, {
+      success:            true,
+      client_slug:        clientSlug,
+      source,
+      staff_access:       staffAccess,
+      intent:             intentKey,
+      category:           'forecast',
+      query_day:          day,
+      answer:             surfResult.answer,
+      rows:               [],
+      row_count:          0,
+      read_only:          true,
+      no_write_performed: true,
+      sends_whatsapp:     false,
+      surf_forecast_unavailable: surfResult.unavailable === true,
+      surf_forecast_source: surfResult.source || (surfResult.unavailable ? null : 'stormglass'),
       elapsed_ms:         Date.now() - started,
       ...askLunaIntentMeta(resolution),
     });
