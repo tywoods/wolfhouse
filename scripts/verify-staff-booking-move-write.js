@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-move-write.js  (Phase 10.3b)\n');
+console.log('\nverify-staff-booking-move-write.js  (Phase 10.3b / 10.6a.3)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -39,7 +39,9 @@ try {
 
 const handlerMatch = src.match(/async function handleBookingMoveWrite[\s\S]*?(?=\r?\nasync function handleBookingMoveTargets)/);
 const handlerBlock = handlerMatch ? handlerMatch[0] : '';
-const previewHandlerMatch = src.match(/async function handleBookingMovePreview[\s\S]*?(?=\r?\n\/\/ ─+\r?\n\/\/ Route: POST \/staff\/quote-preview)/);
+const previewHandlerMatch = src.match(
+  /async function handleBookingMovePreview[\s\S]*?\/\/ POST \/staff\/bookings\/date-change-preview/
+);
 const previewHandlerBlock = previewHandlerMatch ? previewHandlerMatch[0] : '';
 
 console.log('\nA. Route + gate');
@@ -51,13 +53,13 @@ check(/handleBookingMoveWrite\s*\(/.test(src),
 check(/pathname === '\/staff\/bookings\/move'/.test(src),
   'move write pathname wired in router');
 check(/BOOKING_MOVE_WRITE_ENABLED/.test(src),
-  'BOOKING_MOVE_WRITE_ENABLED gate exists');
-check(/process\.env\.BOOKING_MOVE_WRITE_ENABLED === 'true'/.test(src),
-  'BOOKING_MOVE_WRITE_ENABLED defaults OFF unless env true');
+  'BOOKING_MOVE_WRITE_ENABLED flag exists');
+check(/BOOKING_MOVE_WRITE_ENABLED !== 'false'/.test(src),
+  'BOOKING_MOVE_WRITE_ENABLED enabled by default (opt-out via env false)');
 check(/booking_move_write_disabled/.test(handlerBlock),
-  'disabled gate returns booking_move_write_disabled');
-check(/enabled:\s*false/.test(handlerBlock),
-  'disabled gate returns enabled:false');
+  'opt-out gate can return booking_move_write_disabled');
+check(!/process\.env\.BOOKING_MOVE_WRITE_ENABLED === 'true'/.test(src),
+  'move write no longer requires env true to enable');
 check(/requireAuth\(req, res, 'operator'\)/.test(
   src.slice(src.indexOf("if (pathname === '/staff/bookings/move')"), src.indexOf("if (pathname === '/staff/bookings/move')") + 800)
 ),
@@ -169,10 +171,16 @@ check(!/resolveNaturalLanguageIntent|function alAsk/.test(handlerBlock),
 check(!/UPDATE payments|INSERT INTO payments|booking_service_records/i.test(handlerBlock),
   'no payment or service-record mutation in move write handler');
 
-console.log('\nI. No UI changes');
+console.log('\nI. Drawer chrome (10.6a.3)');
 
 check(/id="bc-move-booking-btn"|Move booking/.test(src),
-  'Phase 10.3e drawer Move booking control present');
+  'drawer Move booking control present');
+check(!/ctx-nights-badge/.test(
+  src.match(/function bcDetailHeaderMetaHtml[\s\S]*?function updateBcDetailHeader/)?.[0] || ''
+),
+  'drawer header nights badge removed');
+check(!/Move controls are disabled/.test(src),
+  'no "Move controls are disabled." copy in staff bundle');
 check(!/Confirm Move|bcDragMove|drag.?drop.*move/i.test(src),
   'no Confirm Move modal or drag/drop move UI');
 

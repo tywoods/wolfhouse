@@ -128,7 +128,8 @@ const BOT_ADDON_REQUESTS_ENABLED = process.env.BOT_ADDON_REQUESTS_ENABLED === 't
 // Phase 9.4b — Luna guest pause/resume writes (bot_pause_states SoT). Default OFF.
 const BOT_PAUSE_CONTROLS_ENABLED = process.env.BOT_PAUSE_CONTROLS_ENABLED === 'true';
 // Phase 10.3b — Staff booking move write (single-bed, same dates). Default OFF.
-const BOOKING_MOVE_WRITE_ENABLED = process.env.BOOKING_MOVE_WRITE_ENABLED === 'true';
+// Staff Portal bed moves enabled by default (set BOOKING_MOVE_WRITE_ENABLED=false to disable).
+const BOOKING_MOVE_WRITE_ENABLED = process.env.BOOKING_MOVE_WRITE_ENABLED !== 'false';
 // Phase 10.5c.2 — Staff booking field edit write (contact + package) always on for Staff Portal test edits.
 // Stage 8.4.9 — Stripe checkout link creation from draft payment records.
 // STRIPE_LINKS_ENABLED must be explicitly set to 'true'; default false.
@@ -12545,8 +12546,8 @@ var BC_STAFF_ACTIONS  = ${STAFF_ACTIONS_ENABLED};
 var BC_MANUAL_BOOKING = ${MANUAL_BOOKING_ENABLED};
 /* Stage 8.4.9/10 — Stripe link flag */
 var BC_STRIPE_LINKS   = ${STRIPE_LINKS_ENABLED};
-/* Phase 10.3e — booking move write (API gated by BOOKING_MOVE_WRITE_ENABLED) */
-var BC_BOOKING_MOVE_WRITE = ${BOOKING_MOVE_WRITE_ENABLED};
+/* Phase 10.3e / 10.6a.3 — booking move write enabled in Staff Portal drawer */
+var BC_BOOKING_MOVE_WRITE = true;
 /* Phase 10.5f/10.5c.1 — booking field edit write UI (contact + package; no env gate) */
 /* Last successful quote (required for create) */
 var bcLastQuote = null;
@@ -13703,8 +13704,6 @@ function bcDetailHeaderMetaHtml(blk, bk){
     var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',operator:'pill-blue',manual:'pill-blue'};
     html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(String(blk.color_type).replace(/_/g,' ')) + '</span>';
   }
-  var nights = bcHeaderNights(bk.check_in, bk.check_out) || bcHeaderNights(blk.start_date, blk.end_date);
-  if (nights) html += '<span class="ctx-nights-badge">' + nights + (nights === 1 ? ' night' : ' nights') + '</span>';
   if (bk.needs_rooming_review) html += '<span class="pill pill-orange">Rooming review</span>';
   return html;
 }
@@ -13799,7 +13798,6 @@ function bcMoveSourcePillLabel(a){
 function bcRenderMoveSourcePillsHtml(assignments){
   if (!assignments || assignments.length === 0) return '';
   var html = '<div id="bc-move-source-wrap">';
-  html += '<div class="ctx-none" style="margin-bottom:6px;font-size:11px;line-height:1.45">Choose which current bed to move.</div>';
   html += '<div id="bc-move-source-pills" class="bc-move-source-pills">';
   assignments.forEach(function(a, idx){
     var selected = assignments.length === 1 && idx === 0;
@@ -13887,7 +13885,7 @@ function bcRenderMoveTargetsFiltered(targets){
     opts += '<option value="' + escHtml(t.bed_id) + '">' + escHtml(label) + '</option>';
   });
   wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px">' + opts + '</select>';
-  if (note) note.textContent = available.length ? 'Only available target beds are shown.' : 'No available target beds for this stay.';
+  if (note) note.textContent = available.length ? '' : 'No available target beds for this stay.';
   bcWireMoveTargetField();
   bcUpdateMoveButtons();
 }
@@ -13957,7 +13955,7 @@ function bcUpdateMoveButtons(){
   var moveBtn = el('bc-move-booking-btn');
   var busy = bcMoveCtx.moveInFlight || bcMoveCtx.targetsInFlight;
   if (moveBtn){
-    moveBtn.disabled = busy || !bcMoveInputsReadyForWrite() || !BC_BOOKING_MOVE_WRITE;
+    moveBtn.disabled = busy || !bcMoveInputsReadyForWrite();
   }
 }
 
@@ -13998,10 +13996,6 @@ function bcReloadAfterMoveSuccess(bookingCode){
 
 function bcRunMoveWrite(){
   if (bcMoveCtx.moveInFlight || bcMoveCtx.targetsInFlight) return;
-  if (!BC_BOOKING_MOVE_WRITE){
-    bcRenderMoveResult('Move controls are disabled.', true);
-    return;
-  }
   if (!bcMoveInputsReadyForWrite()){
     bcRenderMoveResult('Select source and target bed.', true);
     return;
@@ -14040,11 +14034,6 @@ function bcRunMoveWrite(){
     .then(function(res){
       bcMoveCtx.moveInFlight = false;
       var b = res.body || {};
-      if (res.status === 403 && b.error === 'booking_move_write_disabled'){
-        bcRenderMoveResult('Move controls are disabled.', true);
-        bcUpdateMoveButtons();
-        return;
-      }
       if (res.status !== 200 || !b.success){
         bcRenderMoveResult(escHtml(b.error || b.message || 'Booking move failed.'), true);
         bcUpdateMoveButtons();
@@ -15804,14 +15793,11 @@ function renderBookingContextDrawer(data){
   } else {
     html += bcRenderMoveSourcePillsHtml(moveAssigns);
   }
-  html += '<div style="margin-top:10px" id="bc-move-target-wrap"><label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px">Target bed</label>';
+  html += '<div style="margin-top:10px" id="bc-move-target-wrap">';
   html += '<div id="bc-move-target-field">';
   html += '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled><option value="">\u2014 loading \u2014</option></select>';
   html += '</div>';
   html += '<div id="bc-move-target-note" class="ctx-none" style="margin-top:4px;font-size:11px;line-height:1.45"></div></div>';
-  if (!BC_BOOKING_MOVE_WRITE){
-    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">Move controls are disabled.</div>';
-  }
   html += '<div id="bc-move-result"></div>';
   html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
