@@ -319,11 +319,23 @@ check(/function bcSetRange/.test(src),
 check(/bc-legend/.test(src),
   'Color legend (bc-legend) present (Stage 8.3a)');
 
-// 49. Legend has all required status swatches (Stage 8.3a)
-check(/bc-legend-sw-confirmed/.test(src) && /bc-legend-sw-hold/.test(src) &&
-      /bc-legend-sw-payment/.test(src)   && /bc-legend-sw-review/.test(src) &&
-      /bc-legend-sw-cancelled/.test(src),
-  'Legend has confirmed/hold/payment/review/cancelled swatches (Stage 8.3a)');
+// 49. Legend shows source colors only (Phase 10.7b)
+(function check107bLegend(){
+  const legendStart = src.indexOf('id="bc-legend"');
+  const legendSlice = legendStart >= 0 ? src.slice(legendStart, legendStart + 1200) : '';
+  check(/bc-legend-sw-confirmed/.test(legendSlice) && />Staff \/ manual</.test(legendSlice),
+    '10.7b: legend has Staff / manual (green) swatch');
+  check(/bc-legend-sw-payment/.test(legendSlice) && />Luna</.test(legendSlice),
+    '10.7b: legend has Luna (blue) swatch');
+  check(!/bc-legend-sw-hold/.test(legendSlice) && !/bc-legend-sw-review/.test(legendSlice) &&
+        !/bc-legend-sw-operator/.test(legendSlice) && !/bc-legend-sw-balance/.test(legendSlice) &&
+        !/bc-legend-sw-cancelled/.test(legendSlice),
+    '10.7b: legend omits hold/review/operator/balance/cancelled swatches');
+  check(!/>Confirmed</.test(legendSlice) && !/>Payment pending</.test(legendSlice) &&
+        !/>Cancelled</.test(legendSlice) && !/>Operator block</.test(legendSlice) &&
+        !/>Balance due</.test(legendSlice),
+    '10.7b: legend omits old status-color labels');
+})();
 
 // 50. Operator block color class present (Stage 8.3a)
 check(/bc-block-operator/.test(src),
@@ -1747,7 +1759,7 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 // ── Stage 8.7.23 / 10.6a.4 — Bed Calendar range chips + Selected Stay layout ─
 (function check8723RangeAndStayLayout(){
   const chipsStart = src.indexOf('id="bc-chips"');
-  const chipsEnd   = chipsStart > 0 ? src.indexOf('</div>', src.indexOf('aug-sept', chipsStart)) : -1;
+  const chipsEnd   = chipsStart > 0 ? src.indexOf('</div>', src.indexOf('sep-oct', chipsStart)) : -1;
   const chipsSrc   = chipsStart > 0 && chipsEnd > chipsStart ? src.slice(chipsStart, chipsEnd + 6) : '';
 
   check(!/data-chip="today"|data-chip='today'/.test(chipsSrc),
@@ -1762,8 +1774,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6a.4: Jul - Aug chip present (3-letter months)');
   check(/data-chip="aug-sept"[^>]*>Aug - Sep</.test(chipsSrc),
     '10.6a.4: Aug - Sep chip present (3-letter months)');
-  check(/data-chip="week"[\s\S]*?data-chip="30days"[\s\S]*?data-chip="jun-jul"[\s\S]*?data-chip="jul-aug"[\s\S]*?data-chip="aug-sept"/.test(chipsSrc),
-    '10.6a.4: quick range chips in desired order');
+  check(/data-chip="sep-oct"[^>]*>Sep - Oct</.test(chipsSrc),
+    '10.7b: Sep - Oct chip present');
+  check(/data-chip="week"[\s\S]*?data-chip="30days"[\s\S]*?data-chip="jun-jul"[\s\S]*?data-chip="jul-aug"[\s\S]*?data-chip="aug-sept"[\s\S]*?data-chip="sep-oct"/.test(chipsSrc),
+    '10.7b: quick range chips in desired order including Sep - Oct');
   check(/bc-chip-active[\s\S]*?data-chip="30days"|data-chip="30days"[\s\S]*?bc-chip-active/.test(chipsSrc),
     '10.6a.4: Next 30 days remains default active chip in markup');
 
@@ -1773,6 +1787,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6a.4: Jun - Jul chip sets 2026-06-01 to 2026-07-31');
   check(/key === 'aug-sept'[\s\S]{0,120}bcSetRange\('2026-08-01', '2026-09-30', 'aug-sept'\)/.test(src),
     '10.6a.4: Aug - Sep chip sets 2026-08-01 to 2026-09-30');
+  check(/key === 'sep-oct'[\s\S]{0,120}bcSetRange\('2026-09-01', '2026-10-31', 'sep-oct'\)/.test(src),
+    '10.7b: Sep - Oct chip sets 2026-09-01 to 2026-10-31');
 
   (function checkBcTabAutoLoad(){
     const fnStart = src.indexOf('function bcOnBedCalendarTabOpen');
@@ -1952,12 +1968,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6g.2: drawer payment-link intended amount helper');
   check(!/status:\s*'balance_due'|status:\s*"balance_due"|'balance_due'::booking_status/.test(src),
     '10.6g: no new booking.status balance_due');
-  check(!/Balance due<\/span>\s*<\/span>\s*<\/div>\s*[\s\S]{0,80}bc-legend-sw-cancelled/.test(
-    src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 1200)
-  ) && !/>Cancelled<\/span>/.test(src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 1200)),
-    '10.6g: Balance due legend present and Cancelled legend item absent');
-  check(/bc-legend-sw-balance/.test(src) && />Balance due</.test(src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 1200)),
-    '10.6g: Balance due legend item');
+  check(!/>Cancelled<\/span>/.test(src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 1200)),
+    '10.6g: Cancelled legend item absent');
+  check(!/>Balance due</.test(src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 1200)),
+    '10.7b: Balance due removed from main legend (badges remain in blocks)');
   check(/function showBlockDetail/.test(src) && /bcCalendarBlockInnerHtml/.test(src),
     '10.6g: calendar block click/drawer with payment badge markup');
   check(/BED_CALENDAR_BOOKING_LEDGER_SQL/.test(src) && /BED_CALENDAR_UNPAID_LINK_SQL/.test(src),
@@ -2131,6 +2145,58 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     src.match(/function loadBedCalendar[\s\S]*?function bcIso/)?.[0] || ''
   ),
     '10.6a.4: calendar load path has no DB mutation');
+})();
+
+// ── Phase 10.7b — source-based calendar block colors + Sep-Oct chip ─────────
+(function check107bSourceColors(){
+  const colorFn = src.match(/function bedCalendarIsLunaBotSource[\s\S]*?function computeBlockSpan/)?.[0] || '';
+  check(/function bedCalendarIsLunaBotSource/.test(colorFn) && /function bedCalendarColorType/.test(colorFn),
+    '10.7b: source color helpers present');
+  check(!/payment_status|balance_due|deposit_paid|cancelled/.test(
+    src.match(/function bedCalendarColorType[\s\S]*?\n\}/)?.[0] || ''
+  ),
+    '10.7b: bedCalendarColorType does not depend on payment/status fields');
+  check(/metadata_source|bot_source|metadata_created_by/.test(
+    src.match(/handleBedCalendar[\s\S]*?buildCalendarBlocks/)?.[0] || ''
+  ),
+    '10.7b: calendar enrichment pulls metadata source fields');
+
+  const lunaSrc = colorFn.match(/function bedCalendarIsLunaBotSource[\s\S]*?\n\}/)?.[0] || '';
+  const colorTypeSrc = src.match(/function bedCalendarColorType[\s\S]*?\n\}/)?.[0] || '';
+  if (lunaSrc && colorTypeSrc) {
+    const vm = require('vm');
+    const colorType = vm.runInNewContext(lunaSrc + '\n' + colorTypeSrc + '; bedCalendarColorType;');
+    check(typeof colorType === 'function',
+      '10.7b: source color helpers are callable');
+    check(colorType({ booking_source: 'manual_staff' }) === 'confirmed',
+      '10.7b: manual_staff maps to confirmed green');
+    check(colorType({ booking_source: 'operator' }) === 'confirmed',
+      '10.7b: operator block maps to confirmed green');
+    check(colorType({ booking_source: 'tour_operator' }) === 'confirmed',
+      '10.7b: tour_operator maps to confirmed green');
+    check(colorType({ booking_source: 'manual_staff', metadata_source: 'bot_booking_stage854' }) === 'payment_pending',
+      '10.7b: bot metadata on staff source maps to Luna blue');
+    check(colorType({ booking_source: 'luna' }) === 'payment_pending',
+      '10.7b: luna source maps to payment_pending blue');
+    check(colorType({ channel: 'whatsapp' }) === 'payment_pending',
+      '10.7b: whatsapp channel maps to Luna blue');
+    check(colorType({ payment_status: 'paid', booking_status: 'cancelled' }) === 'confirmed',
+      '10.7b: payment_status/cancelled do not drive main block color');
+  } else {
+    check(false, '10.7b: could not extract source color helpers for runtime checks');
+  }
+
+  check(/bc-block-pay-balance/.test(src) && /bc-block-pay-deposit/.test(src) &&
+        /bc-block-pay-link/.test(src) && /Refund review/.test(src),
+    '10.7b: payment/status badges still in block markup');
+  check(!/graph\.facebook\.com/.test(src) && !/api\.stripe\.com/.test(src),
+    '10.7b: no WhatsApp/Stripe URLs in staff bundle');
+  check(!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(src)),
+    '10.7b: no n8n URL fetch in staff bundle');
+  check(!/INSERT INTO|UPDATE bookings|UPDATE payments/.test(
+    src.match(/async function handleBedCalendar[\s\S]*?\n\/\/ ── Phase 10\.7a/)?.[0] || ''
+  ),
+    '10.7b: bed calendar handler has no DB writes');
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -12970,18 +12970,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span class="bc-chip" data-chip="jun-jul">Jun - Jul</span>
       <span class="bc-chip" data-chip="jul-aug">Jul - Aug</span>
       <span class="bc-chip" data-chip="aug-sept">Aug - Sep</span>
+      <span class="bc-chip" data-chip="sep-oct">Sep - Oct</span>
     </div>
 
     <!-- Color legend (Stage 8.3a) -->
     <div class="bc-legend" id="bc-legend">
       <span style="font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Legend:</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-confirmed"></span>Confirmed</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-hold"></span>Hold</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span>Payment pending</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-review"></span>Needs review</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-operator"></span>Operator block</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Manual / staff</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-balance"></span>Balance due</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-confirmed"></span>Staff / manual</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span>Luna</span>
     </div>
 
     <!-- Warnings -->
@@ -18883,6 +18879,8 @@ document.querySelectorAll('.bc-chip').forEach(function(chip){
       bcSetRange('2026-07-01', '2026-08-31', 'jul-aug');
     } else if (key === 'aug-sept'){
       bcSetRange('2026-08-01', '2026-09-30', 'aug-sept');
+    } else if (key === 'sep-oct'){
+      bcSetRange('2026-09-01', '2026-10-31', 'sep-oct');
     } else if (key === 'demo'){
       bcSetRange('2026-07-16', '2026-07-22', 'demo');
     }
@@ -19464,20 +19462,33 @@ function generateCalendarDays(startDate, endDate) {
   return days;
 }
 
+function bedCalendarIsLunaBotSource(row) {
+  const src = String(row.booking_source || '').toLowerCase();
+  const metaSrc = String(row.metadata_source || row.source || '').toLowerCase();
+  const botSrc = String(row.bot_source || '').toLowerCase();
+  const createdBy = String(row.metadata_created_by || row.created_by || '').toLowerCase();
+  const channel = String(row.channel || '').toLowerCase();
+  const staffSrc = String(row.staff_source || '').toLowerCase();
+
+  const hay = [src, metaSrc, botSrc, createdBy, channel, staffSrc].join('|');
+  const lunaMarkers = [
+    'luna', 'bot', 'whatsapp', 'guest_bot', 'n8n', 'bot_', 'luna_',
+    'bot_booking', 'bot_stage', 'luna_guest', 'luna_whatsapp',
+  ];
+  if (lunaMarkers.some((m) => hay.includes(m))) return true;
+
+  const staffSources = new Set([
+    'manual_staff', 'manual', 'staff', 'staff_manual', 'operator', 'tour_operator',
+  ]);
+  if (staffSources.has(src) || src.includes('operator')) return false;
+
+  return false;
+}
+
+/** Main block color = booking source only (badges carry payment/status). */
 function bedCalendarColorType(row) {
-  const s  = (row.booking_status   || '').toLowerCase();
-  const p  = (row.payment_status   || '').toLowerCase();
-  const a  = (row.assignment_status || '').toLowerCase();
-  const src = (row.booking_source   || '').toLowerCase();
-  if (s === 'cancelled')   return 'cancelled';
-  if (src === 'operator')  return 'operator';
-  if (src === 'manual_staff') return 'manual';
-  if (a === 'needs_review' || row.needs_rooming_review) return 'needs_review';
-  if (s === 'confirmed' && p === 'paid') return 'confirmed';
-  if (s === 'confirmed')   return 'confirmed';
-  if (p === 'payment_pending' || s === 'payment_pending') return 'payment_pending';
-  if (s === 'hold')        return 'hold';
-  return 'hold';
+  if (bedCalendarIsLunaBotSource(row)) return 'payment_pending';
+  return 'confirmed';
 }
 
 function computeBlockSpan(row, startDate, endDate) {
@@ -19735,7 +19746,13 @@ async function handleBedCalendar(query, res, user) {
         ]);
         mergeBedCalendarPaymentSnapshots(rows, ledgerSnap.rows, linkRows.rows);
         const srcRes = await pg.query(
-          `SELECT id::text AS booking_id, booking_source::text, block_type::text
+          `SELECT id::text AS booking_id,
+                  booking_source::text,
+                  block_type::text,
+                  metadata->>'source' AS metadata_source,
+                  metadata->>'bot_source' AS bot_source,
+                  metadata->>'created_by' AS metadata_created_by,
+                  metadata->>'staff_source' AS staff_source
            FROM bookings WHERE id = ANY($1::uuid[])`,
           [bookingIds]
         );
@@ -19745,6 +19762,10 @@ async function handleBedCalendar(query, res, user) {
           if (extra) {
             row.booking_source = extra.booking_source;
             row.block_type = extra.block_type;
+            row.metadata_source = extra.metadata_source;
+            row.bot_source = extra.bot_source;
+            row.metadata_created_by = extra.metadata_created_by;
+            row.staff_source = extra.staff_source;
             row.is_operator_block = extra.booking_source === 'operator' && extra.block_type === 'whole_room';
           }
         }
