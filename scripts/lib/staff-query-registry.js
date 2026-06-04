@@ -41,6 +41,7 @@ const askLunaArrivalsCheckouts = require('./staff-ask-luna-arrivals-checkouts');
 const askLunaCleaning = require('./staff-ask-luna-cleaning');
 const askLunaBookingLookup = require('./staff-ask-luna-booking-lookup');
 const askLunaOccupancy = require('./staff-ask-luna-occupancy');
+const askLunaFreeBeds = require('./staff-ask-luna-free-beds');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Param descriptor shape (for documentation + CLI validation)
@@ -706,6 +707,39 @@ const REGISTRY = [
     helperRef:       askLunaOccupancy.getAskLunaOccupancyOnNightQuery,
     requiredParams:  [
       { name: 'date', description: 'Occupancy night (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+
+  // ── Inventory snapshot (Phase 11l) ──────────────────────────────────────────
+
+  {
+    key:             'inventory.free_beds_tonight',
+    category:        'inventory',
+    description:     'Which sellable beds are free tonight (staff snapshot only)?',
+    helperModule:    'lib/staff-ask-luna-free-beds',
+    helperFn:        'getAskLunaFreeBedsOnNightQuery',
+    helperRef:       askLunaFreeBeds.getAskLunaFreeBedsOnNightQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Night date (ISO date, use today)', example: '2026-06-04' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+  {
+    key:             'inventory.free_beds_tomorrow_night',
+    category:        'inventory',
+    description:     'Which sellable beds are free tomorrow night (staff snapshot only)?',
+    helperModule:    'lib/staff-ask-luna-free-beds',
+    helperFn:        'getAskLunaFreeBedsOnNightQuery',
+    helperRef:       askLunaFreeBeds.getAskLunaFreeBedsOnNightQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Night date (ISO date, use tomorrow)', example: '2026-06-05' },
     ],
     optionalParams:  [],
     clientSlugged:   true,
