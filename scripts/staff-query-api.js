@@ -6235,6 +6235,202 @@ async function handleBookingCancel(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.6h — Create internal conversation linked to booking (no message send)
+//
+// POST /staff/bookings/create-conversation
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BOOKING_LINKED_CONVERSATION_SQL = `
+SELECT conv.id::text AS conversation_id
+FROM conversations conv
+INNER JOIN clients c ON c.id = conv.client_id
+WHERE c.slug = $1
+  AND (
+    conv.current_hold_booking_id = $2::uuid
+    OR (
+      $3::text IS NOT NULL
+      AND btrim($3::text) <> ''
+      AND conv.phone = $3::text
+      AND conv.client_id = c.id
+    )
+  )
+ORDER BY
+  CASE WHEN conv.current_hold_booking_id = $2::uuid THEN 0 ELSE 1 END,
+  conv.updated_at DESC
+LIMIT 1
+`;
+
+function staffManualConversationPhone(bookingRow) {
+  const phone = String(bookingRow.phone || '').trim();
+  if (phone) return phone;
+  return `staff:booking:${bookingRow.booking_id}`;
+}
+
+async function handleBookingCreateConversation(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId      = String(body.booking_id   || '').trim();
+  const bookingCode    = String(body.booking_code || '').trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const reason         = body.reason != null ? String(body.reason).trim().slice(0, 500) : 'Created from booking drawer';
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const actorId = user ? user.staff_user_id : 'dev-booking-conv-local';
+  const auditBase = {
+    ts:               new Date().toISOString(),
+    intent:           'api:booking_create_conversation',
+    category:         'booking_conversation_write',
+    client_slug:      clientSlug,
+    booking_id:       bookingId || null,
+    booking_code:     bookingCode || null,
+    idempotency_key:  idempotencyKey,
+    staff_user_id:    actorId,
+  };
+
+  let bookingRow;
+  let existingConvId = null;
+  let convCreated = false;
+  try {
+    const loaded = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode],
+      );
+      if (bookingRes.rows.length === 0) return { booking: null };
+
+      const bk = bookingRes.rows[0];
+      const phone = staffManualConversationPhone(bk);
+      const existing = await pg.query(BOOKING_LINKED_CONVERSATION_SQL, [
+        clientSlug,
+        bk.booking_id,
+        phone,
+      ]);
+      if (existing.rows.length > 0) {
+        const convId = existing.rows[0].conversation_id;
+        await pg.query(
+          `UPDATE conversations
+              SET current_hold_booking_id = COALESCE(current_hold_booking_id, $2::uuid),
+                  updated_at = NOW()
+            WHERE id = $1::uuid`,
+          [convId, bk.booking_id],
+        );
+        return { booking: bk, existingConvId: convId };
+      }
+
+      const clientRes = await pg.query(
+        'SELECT id FROM clients WHERE slug = $1 LIMIT 1',
+        [clientSlug],
+      );
+      if (clientRes.rows.length === 0) return { booking: bk, clientMissing: true };
+
+      const metadata = {
+        source:           'staff_manual',
+        channel:          'manual',
+        idempotency_key:  idempotencyKey,
+        reason,
+        created_from:     'booking_drawer',
+      };
+      const sessionState = {
+        source:                'staff_manual',
+        channel:               'manual',
+        current_hold_booking_code: bk.booking_code,
+      };
+
+      const ins = await pg.query(
+        `INSERT INTO conversations (
+           client_id,
+           phone,
+           display_name,
+           status,
+           bot_mode,
+           current_hold_booking_id,
+           conversation_stage,
+           metadata,
+           session_state
+         ) VALUES (
+           $1, $2, $3, 'open'::conversation_status, 'staff'::bot_mode, $4::uuid,
+           'staff_manual', $5::jsonb, $6::jsonb
+         )
+         ON CONFLICT (client_id, phone) DO UPDATE SET
+           current_hold_booking_id = COALESCE(conversations.current_hold_booking_id, EXCLUDED.current_hold_booking_id),
+           display_name = COALESCE(EXCLUDED.display_name, conversations.display_name),
+           metadata = conversations.metadata || EXCLUDED.metadata,
+           updated_at = NOW()
+         RETURNING id::text AS conversation_id`,
+        [
+          clientRes.rows[0].id,
+          phone,
+          bk.guest_name || null,
+          bk.booking_id,
+          JSON.stringify(metadata),
+          JSON.stringify(sessionState),
+        ],
+      );
+
+      return { booking: bk, conversationId: ins.rows[0].conversation_id, created: true };
+    });
+
+    bookingRow = loaded.booking;
+    if (!bookingRow) {
+      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 404, { success: false, error: 'booking not found' });
+    }
+    if (loaded.clientMissing) {
+      appendAuditLog({ ...auditBase, success: false, error: 'client_not_found', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 404, { success: false, error: 'client not found' });
+    }
+
+    if (loaded.existingConvId) {
+      existingConvId = loaded.existingConvId;
+      convCreated = false;
+    } else {
+      existingConvId = loaded.conversationId;
+      convCreated = !!loaded.created;
+    }
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'conversation create failed', detail: err.message });
+  }
+
+  const idempotent = !convCreated;
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success:          true,
+    conversation_id:  existingConvId,
+    idempotent,
+    created:          convCreated,
+    elapsed_ms:       elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success:          true,
+    conversation_id:  existingConvId,
+    booking_code:     bookingRow.booking_code,
+    idempotent,
+    existing:         idempotent,
+    created:          convCreated,
+    no_message_sent:  true,
+    no_whatsapp:      true,
+    n8n_called:       false,
+    send_mutation:    false,
+  });
+}
+
 // Phase 10.6b — Record cash payment (payments INSERT only; no Stripe/link/WA/n8n)
 //
 // POST /staff/bookings/record-cash-payment
@@ -13498,8 +13694,15 @@ function renderInbox(convs){
   }
 }
 
-/* Load inbox */
-function loadInbox(){
+/* Switch to Inbox, reload list, and open the given conversation in the detail panel. */
+function openInboxToConversation(convId){
+  if (!convId) return;
+  switchToTab('conversations', 'inbox');
+  loadInbox(convId);
+}
+
+/* Load inbox — optional selectConvIdAfterLoad opens that conversation after refresh. */
+function loadInbox(selectConvIdAfterLoad){
   el('inbox-state').textContent = 'Loading conversations\u2026';
   el('inbox-state').classList.remove('error');
   el('inbox-state').style.display = 'block';
@@ -13530,7 +13733,13 @@ function loadInbox(){
       var nhCount = inboxConversationsCache.filter(conversationNeedsHuman).length;
       var badge = el('hq-badge');
       if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
+      if (selectConvIdAfterLoad) selectedConvId = selectConvIdAfterLoad;
       applyInboxFilter();
+      if (selectConvIdAfterLoad){
+        var list = el('conv-list');
+        var card = list && list.querySelector('.conv-card[data-id="' + selectConvIdAfterLoad + '"]');
+        if (!card) loadConvDetail(selectConvIdAfterLoad);
+      }
     })
     .catch(function(err){
       el('inbox-state').textContent = 'Error loading inbox: ' + err.message;
@@ -15482,16 +15691,14 @@ function loadBlockDetail(bookingCode){
       bcInitPaymentLinkShell(res.data);
       bcInitCancelPaymentLinkShell(res.data);
       bcInitBookingCancelShell(res.data);
+      bcInitNewConversationShell(res.data);
       /* Wire "Open conversation" button */
       var btnConv = document.getElementById('bc-open-conv-btn');
       if (btnConv){
         btnConv.addEventListener('click', function(){
           var convId = this.dataset.convid;
           if (!convId) return;
-          /* Switch to Inbox tab and open that conversation */
-          switchToTab('conversations', 'inbox');
-          /* Load conversation detail */
-          loadConvDetail(convId);
+          openInboxToConversation(convId);
         });
       }
     })
@@ -17851,6 +18058,52 @@ function bcRunCancelReservation(){
     });
 }
 
+function bcInitNewConversationShell(data){
+  var btn = el('bc-new-conversation-btn');
+  var resultEl = el('bc-new-conversation-result');
+  if (!btn || !data || !data.booking) return;
+  var bk = data.booking;
+  btn.addEventListener('click', function(){
+    if (btn.disabled) return;
+    btn.disabled = true;
+    if (resultEl) resultEl.textContent = 'Creating conversation\u2026';
+    var client = getClient();
+    var idemKey = 'booking-drawer-conv-' + (bk.booking_id || bk.booking_code || 'unknown');
+    fetch('/staff/bookings/create-conversation?client=' + encodeURIComponent(client), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        client_slug: client,
+        booking_id: bk.booking_id || undefined,
+        booking_code: bk.booking_code || undefined,
+        idempotency_key: idemKey,
+        reason: 'Created from booking drawer',
+      }),
+    })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
+      .then(function(res){
+        btn.disabled = false;
+        if (!res.ok || !res.data || !res.data.success){
+          if (resultEl){
+            resultEl.innerHTML = '<span class="state-msg error">' +
+              escHtml((res.data && res.data.error) || 'Could not create conversation') + '</span>';
+          }
+          return;
+        }
+        if (resultEl) resultEl.textContent = '';
+        var convId = res.data.conversation_id;
+        if (convId) openInboxToConversation(convId);
+      })
+      .catch(function(e){
+        btn.disabled = false;
+        if (resultEl){
+          resultEl.innerHTML = '<span class="state-msg error">' + escHtml(e.message || 'Network error') + '</span>';
+        }
+      });
+  });
+}
+
 function bcInitBookingCancelShell(data){
   var bk = (data && data.booking) || {};
   bcCancelCtx.bookingId = bk.booking_id || null;
@@ -18030,24 +18283,29 @@ function renderBookingContextDrawer(data){
 
   /* ── 6. Conversation / Handoff ─────────────────────────────────────────── */
   html += '<div class="ctx-section"><h3>Conversation / Handoff</h3>';
-  if (!data.conversation && !data.handoff){
-    html += '<div class="ctx-none">No linked conversation or open handoff.</div>';
+  if (data.conversation){
+    var conv = data.conversation;
+    if (conv.needs_human) html += '<div class="ctx-status-row"><span class="pill pill-orange">NEEDS HUMAN REVIEW</span></div>';
+    html += '<div class="kv-grid">';
+    html += kvBC('Bot mode', conv.bot_mode);
+    if (conv.pending_action)        html += kvBC('Pending', conv.pending_action);
+    if (conv.last_message_preview)  html += kvBC('Last message', conv.last_message_preview);
+    html += '</div>';
+    html += '<div style="margin-top:8px">' +
+      '<button class="btn-open-conv" id="bc-open-conv-btn" data-convid="' + escHtml(conv.conversation_id||'') + '">' +
+      '&#128172; Open conversation</button>' +
+      '<span style="font-size:11px;color:var(--text-3);margin-left:8px">Switches to Inbox tab</span>' +
+      '</div>';
   } else {
-    if (data.conversation){
-      var conv = data.conversation;
-      if (conv.needs_human) html += '<div class="ctx-status-row"><span class="pill pill-orange">NEEDS HUMAN REVIEW</span></div>';
-      html += '<div class="kv-grid">';
-      html += kvBC('Bot mode', conv.bot_mode);
-      if (conv.pending_action)        html += kvBC('Pending', conv.pending_action);
-      if (conv.last_message_preview)  html += kvBC('Last message', conv.last_message_preview);
-      html += '</div>';
-      html += '<div style="margin-top:8px">' +
-        '<button class="btn-open-conv" id="bc-open-conv-btn" data-convid="' + escHtml(conv.conversation_id||'') + '">' +
-        '&#128172; Open conversation</button>' +
-        '<span style="font-size:11px;color:var(--text-3);margin-left:8px">Switches to Inbox tab</span>' +
-        '</div>';
-    }
-    if (data.handoff){
+    html += '<div class="ctx-none">No linked conversation yet.</div>';
+    html += '<div style="margin-top:8px">' +
+      '<button type="button" class="btn btn-bc-create-soft" id="bc-new-conversation-btn" ' +
+      'data-booking-id="' + escHtml(bk.booking_id||'') + '" ' +
+      'data-booking-code="' + escHtml(bk.booking_code||'') + '">New Conversation</button>' +
+      '</div>';
+    html += '<div id="bc-new-conversation-result" style="margin-top:6px;font-size:12px"></div>';
+  }
+  if (data.handoff){
       var hf = data.handoff;
       html += '<div class="kv-grid" style="margin-top:' + (data.conversation ? '12' : '0') + 'px">';
       html += kvBC('Handoff reason', hf.reason_code);
@@ -18056,7 +18314,6 @@ function renderBookingContextDrawer(data){
       if (hf.assigned_staff) html += kvBC('Assigned to', hf.assigned_staff);
       if (hf.opened_at)      html += kvBC('Opened', new Date(hf.opened_at).toLocaleString());
       html += '</div>';
-    }
   }
   html += '</div>';
 
@@ -19970,6 +20227,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingAddService(req, res, auth.user);
+  }
+
+  // ── Phase 10.6h — Create conversation linked to booking (no message send) ─
+  if (pathname === '/staff/bookings/create-conversation') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/create-conversation' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingCreateConversation(req, res, auth.user);
   }
 
   // ── Phase 10.6b — Record cash payment (payments INSERT only) ─────────────
