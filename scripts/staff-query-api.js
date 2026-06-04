@@ -5852,7 +5852,7 @@ async function handleBookingCancel(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STAFF_ADDON_UI_SERVICE_TYPES = new Set([
-  'wetsuit', 'soft_board', 'hard_board', 'surf_lesson', 'yoga',
+  'wetsuit', 'soft_board', 'hard_board', 'surf_lesson', 'yoga', 'meals',
 ]);
 
 const STAFF_ADDON_PRICING_CONFIG_PATH = path.join(
@@ -5870,6 +5870,8 @@ function staffAddonUiTypeLabel(uiType) {
     hard_board: 'Hard board',
     surf_lesson: 'Surf lesson',
     yoga: 'Yoga',
+    meals: 'Meals',
+    meal: 'Meals',
   };
   return m[uiType] || uiType;
 }
@@ -5987,6 +5989,30 @@ function staffAddonResolvePricing(uiServiceType, quantity, clientSlug) {
     };
   }
 
+  if (uiServiceType === 'meals') {
+    const cfg = addOns.meals || addOns.dinner_meal || addOns.meal;
+    let unit = null;
+    if (cfg && cfg.price_cents != null) unit = Number(cfg.price_cents);
+    else if (cfg && cfg.price_eur != null) unit = Math.round(Number(cfg.price_eur) * 100);
+    if (unit == null || !Number.isFinite(unit) || unit <= 0) {
+      return {
+        ok: false,
+        error: 'Meals pricing is not configured in wolfhouse pricing config (add_ons.meals, add_ons.dinner_meal, or add_ons.meal with price_cents)',
+      };
+    }
+    return {
+      ok: true,
+      db_service_type: 'meal',
+      amount_due_cents: unit * qty,
+      quantity: qty,
+      pricing_addon_code: (cfg && cfg.code) || 'meals',
+      unit_cents: unit,
+      pricing_unit: 'per_meal',
+      metadata_extra: { staff_ui_service_type: uiServiceType },
+      warnings,
+    };
+  }
+
   return { ok: false, error: 'unsupported service_type' };
 }
 
@@ -6016,7 +6042,7 @@ async function handleBookingAddService(req, res, user) {
   if (!uiServiceType) return send400(res, 'service_type is required');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
   if (!STAFF_ADDON_UI_SERVICE_TYPES.has(uiServiceType)) {
-    return send400(res, 'service_type must be one of: wetsuit, soft_board, hard_board, surf_lesson, yoga');
+    return send400(res, 'service_type must be one of: wetsuit, soft_board, hard_board, surf_lesson, yoga, meals');
   }
 
   const pricing = staffAddonResolvePricing(uiServiceType, body.quantity, clientSlug);
@@ -10745,10 +10771,12 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-cancel-confirm-meta{font-size:12px;color:var(--text);line-height:1.55;margin-bottom:8px}
 .bc-cancel-confirm-warn{font-size:11.5px;color:#9C5742;line-height:1.5;margin-bottom:12px;padding:8px 10px;background:#F6E7E1;border-radius:6px}
 .bc-cancel-confirm-actions{display:flex;gap:8px;flex-wrap:wrap}
-/* Phase 10.6a — add service inline form (running invoice add-ons) */
-.bc-add-service-form-wrap{margin-top:10px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
-.bc-add-service-form-wrap .ctx-field-label{margin-top:8px}
-.bc-add-service-form-wrap .ctx-field-label:first-child{margin-top:0}
+/* Phase 10.6a — add-ons inline form (above Payment / running invoice) */
+.bc-add-ons-form-wrap{margin-top:10px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
+.bc-add-ons-form-wrap .ctx-field-label{margin-top:8px}
+.bc-add-ons-form-wrap .ctx-field-label:first-child{margin-top:0}
+.ctx-add-ons-panel .bc-add-ons-header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.ctx-add-ons-panel .bc-add-ons-title{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
 .ctx-addon-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
 .ctx-addon-row:last-child{border-bottom:none}
 .ctx-svc-record{padding:8px 10px;margin-bottom:6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-2,#f8f9fa);font-size:12px}
@@ -13959,6 +13987,19 @@ function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
   return null;
 }
 
+function staffAddonUiTypeLabel(uiType){
+  var m = {
+    wetsuit: 'Wetsuit',
+    soft_board: 'Soft board',
+    hard_board: 'Hard board',
+    surf_lesson: 'Surf lesson',
+    yoga: 'Yoga',
+    meals: 'Meals',
+    meal: 'Meals',
+  };
+  return m[uiType] || uiType;
+}
+
 function bcRunningInvoiceSvcTypeLabel(t, meta){
   meta = meta || {};
   if (meta.staff_ui_service_type) return staffAddonUiTypeLabel(meta.staff_ui_service_type);
@@ -15019,7 +15060,7 @@ function bcFieldEditUpdateGuestPreview(){
   bcFieldEditUpdateGuestsSaveState();
 }
 
-/* Phase 10.6a — add booking service record (inline form near running invoice) */
+/* Phase 10.6a — add booking add-on record (inline form above Payment / running invoice) */
 var bcAddServiceCtx = {
   bookingId: null,
   bookingCode: null,
@@ -15029,31 +15070,32 @@ var bcAddServiceCtx = {
 
 function bcRenderAddServicePanelHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) return '';
-  return '<div class="ctx-section ctx-add-service-panel" id="bc-add-service-panel">' +
-    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">' +
-    '<span style="font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em">Add service</span>' +
-    '<button type="button" class="btn btn-ghost" id="bc-add-service-btn" style="font-size:11px;padding:4px 10px">Add service</button>' +
+  return '<div class="ctx-section ctx-add-ons-panel" id="bc-add-ons-panel">' +
+    '<div class="bc-add-ons-header">' +
+    '<span class="bc-add-ons-title">Add-ons</span>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-btn" style="font-size:11px;padding:4px 10px">Add</button>' +
     '</div>' +
-    '<div id="bc-add-service-form-wrap" class="bc-add-service-form-wrap" style="display:none">' +
-    '<label class="ctx-field-label" for="bc-add-service-type">Service type</label>' +
-    '<select id="bc-add-service-type" class="bk-input bk-input-sm">' +
-    '<option value="wetsuit">Wetsuit (\u20ac5/day)</option>' +
-    '<option value="soft_board">Soft board (\u20ac15/day)</option>' +
-    '<option value="hard_board">Hard board (\u20ac20/day)</option>' +
-    '<option value="surf_lesson">Surf lesson (\u20ac35 / \u20ac30 each)</option>' +
-    '<option value="yoga">Yoga (\u20ac15/class)</option>' +
+    '<div id="bc-add-ons-form-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
+    '<label class="ctx-field-label" for="bc-add-ons-type">Add-on type</label>' +
+    '<select id="bc-add-ons-type" class="bk-input bk-input-sm">' +
+    '<option value="wetsuit">Wetsuit</option>' +
+    '<option value="soft_board">Soft board</option>' +
+    '<option value="hard_board">Hard board</option>' +
+    '<option value="surf_lesson">Surf lesson</option>' +
+    '<option value="yoga">Yoga</option>' +
+    '<option value="meals">Meals</option>' +
     '</select>' +
-    '<label class="ctx-field-label" for="bc-add-service-qty" id="bc-add-service-qty-label">Quantity / days</label>' +
-    '<input type="number" id="bc-add-service-qty" class="bk-input bk-input-sm" min="1" value="1">' +
-    '<label class="ctx-field-label" for="bc-add-service-date">Service date</label>' +
-    '<input type="date" id="bc-add-service-date" class="bk-input bk-input-sm">' +
-    '<label class="ctx-field-label" for="bc-add-service-note">Note (optional)</label>' +
-    '<input type="text" id="bc-add-service-note" class="bk-input bk-input-sm" maxlength="500">' +
+    '<label class="ctx-field-label" for="bc-add-ons-qty" id="bc-add-ons-qty-label">Quantity / days</label>' +
+    '<input type="number" id="bc-add-ons-qty" class="bk-input bk-input-sm" min="1" value="1">' +
+    '<label class="ctx-field-label" for="bc-add-ons-date">Add-on date</label>' +
+    '<input type="date" id="bc-add-ons-date" class="bk-input bk-input-sm">' +
+    '<label class="ctx-field-label" for="bc-add-ons-note">Note (optional)</label>' +
+    '<input type="text" id="bc-add-ons-note" class="bk-input bk-input-sm" maxlength="500">' +
     '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
-    '<button type="button" class="btn btn-primary" id="bc-add-service-save-btn">Save service</button>' +
-    '<button type="button" class="btn btn-ghost" id="bc-add-service-cancel-btn">Cancel</button>' +
+    '<button type="button" class="btn btn-primary" id="bc-add-ons-save-btn">Save add-on</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-cancel-btn">Cancel</button>' +
     '</div></div>' +
-    '<div id="bc-add-service-result" aria-live="polite"></div>' +
+    '<div id="bc-add-ons-result" aria-live="polite"></div>' +
     '</div>';
 }
 
@@ -15062,69 +15104,70 @@ function bcNewAddServiceIdempotencyKey(){
 }
 
 function bcAddServiceUpdateQtyLabel(){
-  var sel = el('bc-add-service-type');
-  var lbl = el('bc-add-service-qty-label');
+  var sel = el('bc-add-ons-type');
+  var lbl = el('bc-add-ons-qty-label');
   if (!sel || !lbl) return;
   var t = sel.value;
   if (t === 'surf_lesson') lbl.textContent = 'Quantity / lessons';
   else if (t === 'yoga') lbl.textContent = 'Quantity / classes';
+  else if (t === 'meals') lbl.textContent = 'Quantity / meals';
   else lbl.textContent = 'Quantity / days';
 }
 
 function bcCloseAddServiceForm(){
-  var wrap = el('bc-add-service-form-wrap');
+  var wrap = el('bc-add-ons-form-wrap');
   if (wrap) wrap.style.display = 'none';
-  var btn = el('bc-add-service-btn');
+  var btn = el('bc-add-ons-btn');
   if (btn) btn.disabled = false;
 }
 
 function bcOpenAddServiceForm(data){
-  var wrap = el('bc-add-service-form-wrap');
+  var wrap = el('bc-add-ons-form-wrap');
   if (!wrap) return;
   var bk = (data && data.booking) || {};
-  var dateEl = el('bc-add-service-date');
+  var dateEl = el('bc-add-ons-date');
   if (dateEl && bk.check_in) dateEl.value = bk.check_in;
-  var noteEl = el('bc-add-service-note');
+  var noteEl = el('bc-add-ons-note');
   if (noteEl) noteEl.value = '';
-  var qtyEl = el('bc-add-service-qty');
+  var qtyEl = el('bc-add-ons-qty');
   if (qtyEl) qtyEl.value = '1';
   bcAddServiceUpdateQtyLabel();
   wrap.style.display = '';
-  var btn = el('bc-add-service-btn');
+  var btn = el('bc-add-ons-btn');
   if (btn) btn.disabled = true;
-  var resBox = el('bc-add-service-result');
+  var resBox = el('bc-add-ons-result');
   if (resBox) resBox.innerHTML = '';
 }
 
 function bcRenderAddServiceResult(data, isError){
-  var box = el('bc-add-service-result');
+  var box = el('bc-add-ons-result');
   if (!box) return;
   if (isError || !data || !data.success){
     box.innerHTML = '<div class="state-msg error" style="margin-top:8px">' +
-      escHtml((data && data.error) || (data && data.message) || 'Add service failed.') + '</div>';
+      escHtml((data && data.error) || (data && data.message) || 'Add-on save failed.') + '</div>';
     return;
   }
   box.innerHTML = '<div class="state-msg" style="margin-top:8px;color:#5C7350;background:#F3FAF1;border:1px solid #B5D3AD;border-radius:6px;padding:8px 10px">' +
-    escHtml(data.message || 'Service added.') + '</div>';
+    escHtml(data.message || 'Add-on saved.') + '</div>';
 }
 
 function bcRunAddServiceSave(){
   if (bcAddServiceCtx.inFlight) return;
   var code = bcAddServiceCtx.bookingCode;
   if (!code) return;
-  var typeEl = el('bc-add-service-type');
-  var qtyEl = el('bc-add-service-qty');
-  var dateEl = el('bc-add-service-date');
-  var noteEl = el('bc-add-service-note');
+  var typeEl = el('bc-add-ons-type');
+  var qtyEl = el('bc-add-ons-qty');
+  var dateEl = el('bc-add-ons-date');
+  var noteEl = el('bc-add-ons-note');
   var qty = qtyEl ? parseInt(qtyEl.value, 10) : 1;
   if (!Number.isFinite(qty) || qty < 1){
     bcRenderAddServiceResult({ success: false, error: 'Quantity must be at least 1.' }, true);
     return;
   }
   bcAddServiceCtx.inFlight = true;
-  var saveBtn = el('bc-add-service-save-btn');
+  var saveBtn = el('bc-add-ons-save-btn');
   if (saveBtn) saveBtn.disabled = true;
-  bcRenderAddServiceResult({ success: true, message: 'Saving service\u2026' }, false);
+  bcRenderAddServiceResult({ success: true, message: 'Saving add-on\u2026' }, false);
   fetch('/staff/bookings/add-service', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -15170,7 +15213,7 @@ function bcInitAddServiceShell(data){
   bcAddServiceCtx.checkIn = bk.check_in || null;
   bcAddServiceCtx.inFlight = false;
   bcCloseAddServiceForm();
-  var openBtn = el('bc-add-service-btn');
+  var openBtn = el('bc-add-ons-btn');
   if (openBtn){
     if (bcBookingStatusIsCancelled(bk.status)){
       openBtn.style.display = 'none';
@@ -15182,11 +15225,11 @@ function bcInitAddServiceShell(data){
       };
     }
   }
-  var typeSel = el('bc-add-service-type');
+  var typeSel = el('bc-add-ons-type');
   if (typeSel) typeSel.onchange = bcAddServiceUpdateQtyLabel;
-  var cancelBtn = el('bc-add-service-cancel-btn');
+  var cancelBtn = el('bc-add-ons-cancel-btn');
   if (cancelBtn) cancelBtn.onclick = function(){ bcCloseAddServiceForm(); };
-  var saveBtn = el('bc-add-service-save-btn');
+  var saveBtn = el('bc-add-ons-save-btn');
   if (saveBtn) saveBtn.onclick = function(e){ e.preventDefault(); bcRunAddServiceSave(); };
 }
 
@@ -15488,13 +15531,13 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
   html += '</div></div>';
 
-  /* ── 4. Running invoice (Phase 10.4d) — read-only; no writes ───────────── */
+  /* ── Phase 10.6a — Add-ons (inline form above Payment / running invoice) ─── */
+  html += bcRenderAddServicePanelHtml(bk);
+
+  /* ── 4. Payment / running invoice (Phase 10.4d) — read-only; no writes ─── */
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
   html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
-
-  /* ── Phase 10.6a — Add service (inline form below running invoice / add-ons) ─ */
-  html += bcRenderAddServicePanelHtml(bk);
 
   /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
   var confDraft = (data.booking && data.booking.confirmation_draft) ||

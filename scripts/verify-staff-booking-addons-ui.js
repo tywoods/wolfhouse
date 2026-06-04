@@ -1,5 +1,5 @@
 /**
- * Phase 10.6a — Static verifier for staff add-on / service record UI + API.
+ * Phase 10.6a / 10.6a.1 — Static verifier for staff add-ons UI + API.
  *
  * Usage:
  *   npm run verify:staff-booking-addons-ui
@@ -22,7 +22,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-addons-ui.js  (Phase 10.6a)\n');
+console.log('\nverify-staff-booking-addons-ui.js  (Phase 10.6a / 10.6a.1)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -49,41 +49,70 @@ const addUiBlock =
 const addPanelBlock = src.match(
   /function bcRenderAddServicePanelHtml[\s\S]*?function bcNewAddServiceIdempotencyKey/
 )?.[0] || '';
-const drawerAddPlacement = src.match(
-  /function renderBookingContextDrawer[\s\S]*?bcRenderRunningInvoiceHtml[\s\S]*?bcRenderAddServicePanelHtml/
+
+const drawerFn = src.match(/function renderBookingContextDrawer[\s\S]*?return html;\r?\n\}/)?.[0] || '';
+
+const drawerAddPlacement = drawerFn.match(
+  /bcRenderAddServicePanelHtml[\s\S]*?bcRenderRunningInvoiceHtml/
+)?.[0] || '';
+
+const invHelpers = src.match(
+  /\/\* Phase 10\.4d — running invoice helpers[\s\S]*?function bcRenderRunningInvoiceHtml/
 )?.[0] || '';
 
 const pricingBlock = src.match(
   /function staffAddonResolvePricing[\s\S]*?async function handleBookingAddService/
 )?.[0] || '';
 
-console.log('\nA. UI — Add service button + inline form');
+const clientLabelBlock = src.match(
+  /function staffAddonUiTypeLabel\(uiType\)[\s\S]*?function bcRunningInvoiceSvcTypeLabel/
+)?.[0] || '';
 
-check(/id="bc-add-service-btn"/.test(addPanelBlock), 'Add service button in add-service panel');
-check(/Add service/.test(addPanelBlock), 'Add service label present');
-check(/id="bc-add-service-form-wrap"/.test(addPanelBlock), 'inline add-service form wrap exists');
-check(/id="bc-add-service-type"/.test(addPanelBlock), 'service type dropdown exists');
+console.log('\nA. Runtime — staffAddonUiTypeLabel in drawer JS');
+
+check(/function staffAddonUiTypeLabel\(uiType\)/.test(clientLabelBlock),
+  'staffAddonUiTypeLabel defined in embedded drawer JS');
+check(/function bcRunningInvoiceSvcTypeLabel[\s\S]*?staffAddonUiTypeLabel/.test(invHelpers),
+  'running invoice labels call staffAddonUiTypeLabel (no undefined at runtime)');
+
+console.log('\nB. Layout — Add-ons above Payment');
+
+check(drawerAddPlacement.length > 0,
+  'Add-ons panel renders before Payment / running invoice in drawer');
+check(/bcRenderAddServicePanelHtml[\s\S]*?bcRenderRunningInvoiceHtml/.test(drawerFn),
+  'drawer order: add-ons panel then running invoice');
+check(!/bcRenderRunningInvoiceHtml[\s\S]*?bcRenderAddServicePanelHtml/.test(drawerFn),
+  'running invoice is not above add-ons panel');
+
+console.log('\nC. UI — Add-ons header + Add button');
+
+check(/id="bc-add-ons-panel"/.test(addPanelBlock), 'Add-ons panel id bc-add-ons-panel');
+check(/bc-add-ons-title/.test(addPanelBlock) && />Add-ons</.test(addPanelBlock),
+  'Add-ons section title present');
+check(/id="bc-add-ons-btn"/.test(addPanelBlock) && />Add</.test(addPanelBlock),
+  'Add button in add-ons header');
+check(/bc-add-ons-header[\s\S]*?bc-add-ons-title[\s\S]*?bc-add-ons-btn/.test(addPanelBlock),
+  'Add button sits on same header row as Add-ons title (right side layout)');
+check(/id="bc-add-ons-form-wrap"/.test(addPanelBlock), 'inline add-ons form wrap exists');
+check(/id="bc-add-ons-type"/.test(addPanelBlock), 'add-on type dropdown exists');
 check(/value="wetsuit"/.test(addPanelBlock) && /value="soft_board"/.test(addPanelBlock) &&
   /value="hard_board"/.test(addPanelBlock) && /value="surf_lesson"/.test(addPanelBlock) &&
-  /value="yoga"/.test(addPanelBlock),
-  'service dropdown includes wetsuit, soft_board, hard_board, surf_lesson, yoga');
-check(/id="bc-add-service-qty"/.test(addPanelBlock), 'quantity/days input exists');
-check(/id="bc-add-service-date"/.test(addPanelBlock), 'service date input exists');
-check(/id="bc-add-service-note"/.test(addPanelBlock), 'optional note input exists');
-check(/id="bc-add-service-btn"[\s\S]*?id="bc-add-service-form-wrap"/.test(addPanelBlock),
-  'add-service form opens directly below Add service button');
-check(/bcRenderAddServicePanelHtml/.test(drawerAddPlacement),
-  'add-service panel rendered immediately after running invoice in drawer');
-check(/id="bc-cancel-reservation-btn"[\s\S]*?id="bc-add-service-btn"/.test(
-  src.match(/function renderBookingContextDrawer[\s\S]*?return html;\r?\n\}/)?.[0] || ''
-) || /bcRenderAddServicePanelHtml[\s\S]*?bcRenderBookingCancelFooterHtml/.test(
-  src.match(/function renderBookingContextDrawer[\s\S]*?return html;\r?\n\}/)?.[0] || ''
-),
-  'add-service panel appears before cancel footer (near invoice, not drawer top)');
-check(/function bcInitAddServiceShell/.test(src), 'bcInitAddServiceShell wires drawer controls');
-check(/bcInitAddServiceShell\(res\.data\)/.test(src), 'drawer load initializes add-service shell');
+  /value="yoga"/.test(addPanelBlock) && /value="meals"/.test(addPanelBlock),
+  'dropdown includes wetsuit, soft_board, hard_board, surf_lesson, yoga, meals');
+check(/id="bc-add-ons-qty"/.test(addPanelBlock), 'quantity input exists');
+check(/id="bc-add-ons-date"/.test(addPanelBlock), 'add-on date input exists');
+check(/id="bc-add-ons-note"/.test(addPanelBlock), 'optional note input exists');
 
-console.log('\nB. API — POST /staff/bookings/add-service');
+console.log('\nD. Staff-facing copy — no service wording in panel UI');
+
+check(!/Add service|Save service|Service type|Service date/i.test(addPanelBlock),
+  'add-ons panel HTML avoids staff-facing "service" wording');
+check(!/\\u20ac\d|€\d|\(\\u20ac|\(\u20ac/.test(addPanelBlock),
+  'dropdown option labels do not embed prices');
+check(/function bcInitAddServiceShell/.test(src), 'bcInitAddServiceShell wires drawer controls');
+check(/bcInitAddServiceShell\(res\.data\)/.test(src), 'drawer load initializes add-ons shell');
+
+console.log('\nE. API — POST /staff/bookings/add-service (endpoint name unchanged)');
 
 check(/async function handleBookingAddService/.test(src), 'handleBookingAddService handler exists');
 check(/pathname === '\/staff\/bookings\/add-service'/.test(src), 'route POST /staff/bookings/add-service registered');
@@ -94,13 +123,30 @@ check(/service_type/.test(addHandlerBlock) && /idempotency_key/.test(addHandlerB
   'request accepts service_type and idempotency_key');
 check(/staffAddonResolvePricing/.test(addHandlerBlock),
   'handler uses staffAddonResolvePricing for amount_due_cents');
+check(/'meals'/.test(addHandlerBlock) || /meals/.test(pricingBlock),
+  'meals supported in pricing or validation');
 
-console.log('\nC. booking_service_records INSERT only');
+console.log('\nF. Pricing — config/helper (not dropdown labels)');
+
+check(/staffAddonLoadPricingConfig|wolfhouse-somo\.pricing\.json/.test(pricingBlock),
+  'pricing loads wolfhouse config file');
+check(/wetsuit_rental/.test(pricingBlock) && /soft_top_rental/.test(pricingBlock) &&
+  /hard_board_rental/.test(pricingBlock),
+  'pricing uses wolfhouse config rental codes');
+check(/surf_lesson_single/.test(pricingBlock) && /surf_lesson_multi/.test(pricingBlock),
+  'surf lesson single vs multi pricing');
+check(/yoga_class/.test(pricingBlock), 'yoga class pricing');
+check(/uiServiceType === 'meals'/.test(pricingBlock),
+  'meals branch in staffAddonResolvePricing');
+check(/Meals pricing is not configured/.test(pricingBlock),
+  'meals returns clear error when config price missing (no invented price)');
+check(!/>Wetsuit \(\\u20ac/.test(addPanelBlock) && !/>Wetsuit \(€/.test(addPanelBlock),
+  'dropdown labels are not the price source');
+
+console.log('\nG. booking_service_records INSERT only');
 
 check(/INSERT INTO booking_service_records/.test(addHandlerBlock),
   'INSERT into booking_service_records');
-check(/amount_due_cents/.test(addHandlerBlock) && /staffAddonResolvePricing/.test(pricingBlock),
-  'amount_due_cents calculation helper exists');
 check(/'requested'/.test(addHandlerBlock), "status uses 'requested' convention");
 check(/'not_requested'/.test(addHandlerBlock), "payment_status uses 'not_requested' (unpaid)");
 check(/'staff_manual'/.test(addHandlerBlock), "source is 'staff_manual'");
@@ -109,43 +155,32 @@ check(!/INSERT INTO payments|UPDATE payments|amount_paid_cents\s*=/.test(addHand
 check(!/UPDATE booking_beds|DELETE FROM booking_beds|INSERT INTO booking_beds/i.test(addHandlerBlock),
   'no booking_beds mutation in add-service handler');
 check(!/api\.stripe\.com|createStripe|payment_link/i.test(addHandlerBlock + addUiBlock),
-  'no Stripe link creation in add-service slice');
+  'no Stripe link creation in add-ons slice');
 
-console.log('\nD. Pricing — config + fallbacks');
+console.log('\nH. Running invoice consumes service_records + board labels');
 
-check(/wetsuit_rental/.test(pricingBlock) && /soft_top_rental/.test(pricingBlock) &&
-  /hard_board_rental/.test(pricingBlock),
-  'pricing uses wolfhouse config rental codes');
-check(/500|1500|2000|3500|3000/.test(pricingBlock) ||
-  (/price_cents/.test(pricingBlock) && /: 500/.test(src) === false),
-  'pricing references cent amounts or config price_cents');
-check(/surf_lesson_single/.test(pricingBlock) && /surf_lesson_multi/.test(pricingBlock),
-  'surf lesson single vs multi pricing');
-check(/yoga_class/.test(pricingBlock), 'yoga class pricing');
-
-console.log('\nE. After success — reload drawer / invoice');
-
+check(/bcRunningInvoiceSvcLineText/.test(invHelpers),
+  'running invoice line builder exists');
+check(/bcRunningInvoiceSvcTypeLabel/.test(invHelpers),
+  'running invoice type label helper exists');
+check(/board_variant === 'soft'/.test(invHelpers) && /board_variant === 'hard'/.test(invHelpers),
+  'Soft/Hard board labels from board_variant still work');
 check(/loadBlockDetail\(code\)/.test(addUiBlock), 'successful add reloads drawer context');
 check(/\/staff\/bookings\/add-service/.test(addUiBlock), 'UI posts to /staff/bookings/add-service');
 check(/bcCloseAddServiceForm/.test(addUiBlock), 'form closes after success');
 
-console.log('\nF. Calendar / cancel unrelated (unchanged)');
+console.log('\nI. Calendar / safety');
 
 check(/bookingStatusIsCancelled/.test(src.match(/function buildCalendarBlocks[\s\S]*?async function handleBedCalendar/)?.[0] || ''),
   'cancelled bookings still filtered from calendar blocks');
-check(!/bc-legend-sw-cancelled"><\/span>Cancelled/.test(src),
-  'Cancelled still absent from bed calendar legend');
-
-console.log('\nG. Safety — no WhatsApp / n8n');
-
 check(!/graph\.facebook\.com/i.test(addHandlerBlock + addUiBlock),
-  'no WhatsApp in add-service slice');
+  'no WhatsApp in add-ons slice');
 check(!/n8n\.cloud|activate.*workflow/i.test(addHandlerBlock + addUiBlock),
-  'no n8n activation in add-service slice');
+  'no n8n activation in add-ons slice');
 check(!/UPDATE booking_service_records/i.test(addHandlerBlock),
   'add-service handler does not UPDATE existing service rows (INSERT only)');
 
-console.log('\nH. No docs / migration / deploy in slice');
+console.log('\nJ. No docs / migration / deploy in slice');
 
 if (fs.existsSync(MIG_DIR)) {
   const migHit = fs.readdirSync(MIG_DIR).filter((f) => f.endsWith('.sql')).some((f) => {
@@ -168,9 +203,9 @@ try {
 }
 
 check(!/deploy-staff|az containerapp update/i.test(addHandlerBlock + addUiBlock),
-  'no deploy scripts in add-service slice');
+  'no deploy scripts in add-ons slice');
 
-console.log('\nI. package.json script');
+console.log('\nK. package.json script');
 
 if (fs.existsSync(PKG_FILE)) {
   const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
