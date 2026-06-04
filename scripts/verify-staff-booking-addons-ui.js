@@ -60,7 +60,7 @@ const addPanelBlock = src.match(
 const drawerFn = src.match(/function renderBookingContextDrawer[\s\S]*?return html;\r?\n\}/)?.[0] || '';
 
 const drawerAddPlacement = drawerFn.match(
-  /bcRenderAddServicePanelHtml[\s\S]*?bcRenderRunningInvoiceHtml/
+  /bcRenderAddServicePanelHtml[\s\S]*?(?:bcRenderRunningInvoiceHtml|id="bc-move-bed")/
 )?.[0] || '';
 
 const invHelpers = src.match(
@@ -82,12 +82,16 @@ check(/function staffAddonUiTypeLabel\(uiType\)/.test(clientLabelBlock),
 check(/function bcRunningInvoiceSvcTypeLabel[\s\S]*?staffAddonUiTypeLabel/.test(invHelpers),
   'running invoice labels call staffAddonUiTypeLabel (no undefined at runtime)');
 
-console.log('\nB. Layout — Add-ons above Payment');
+console.log('\nB. Layout — Add-ons above Move bed and Payment');
 
 check(drawerAddPlacement.length > 0,
-  'Add-ons panel renders before Payment / running invoice in drawer');
+  'Add-ons panel renders before Move bed / Payment in drawer');
+check(/bcRenderAddServicePanelHtml[\s\S]*?id="bc-move-bed"/.test(drawerFn),
+  'drawer order: add-ons panel then Move bed');
 check(/bcRenderAddServicePanelHtml[\s\S]*?bcRenderRunningInvoiceHtml/.test(drawerFn),
   'drawer order: add-ons panel then running invoice');
+check(!/id="bc-move-bed"[\s\S]*?bcRenderAddServicePanelHtml/.test(drawerFn),
+  'Move bed is not above add-ons panel');
 check(!/bcRenderRunningInvoiceHtml[\s\S]*?bcRenderAddServicePanelHtml/.test(drawerFn),
   'running invoice is not above add-ons panel');
 

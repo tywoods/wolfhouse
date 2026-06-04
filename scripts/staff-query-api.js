@@ -3654,6 +3654,29 @@ WHERE c.slug = $1
 LIMIT 1
 `;
 
+/* Phase 10.6b — payment ledger rows include metadata for method/source display */
+const BOOKING_PAYMENTS_LEDGER_SQL = `
+SELECT
+  p.id::text                    AS payment_id,
+  p.status::text                AS payment_status,
+  p.payment_kind::text          AS payment_kind,
+  p.currency,
+  p.amount_due_cents,
+  p.amount_paid_cents,
+  p.paid_at,
+  p.checkout_url,
+  p.stripe_checkout_session_id,
+  p.stripe_payment_intent_id,
+  p.metadata,
+  p.created_at
+FROM payments p
+INNER JOIN bookings b ON b.id = p.booking_id
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+  AND b.booking_code = $2
+ORDER BY p.created_at DESC
+`;
+
 const EDIT_PREVIEW_BOOKING_BY_CODE_SQL = `
 SELECT
   b.id::text                AS booking_id,
@@ -5841,6 +5864,209 @@ async function handleBookingCancel(req, res, user) {
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'cancel failed', detail: err.message, cancelled: false });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 10.6b — Record cash payment (payments INSERT only; no Stripe/link/WA/n8n)
+//
+// POST /staff/bookings/record-cash-payment
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleBookingRecordCashPayment(req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId      = String(body.booking_id   || '').trim();
+  const bookingCode    = String(body.booking_code || '').trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const note           = body.note != null ? String(body.note).trim().slice(0, 500) : null;
+  const paymentDateIn  = String(body.payment_date || '').trim();
+  const amountCents    = Math.floor(Number(body.amount_cents));
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
+  if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+  if (!amountCents || amountCents <= 0) return send400(res, 'amount_cents must be greater than zero');
+
+  let paymentDate = paymentDateIn;
+  if (!paymentDate || !DATE_RE.test(paymentDate) || !parseCalendarDate(paymentDate)) {
+    paymentDate = new Date().toISOString().slice(0, 10);
+  }
+
+  const actorId    = user ? user.staff_user_id : 'dev-cash-pay-local';
+  const actorRole  = user ? user.role          : 'operator';
+  const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'api:booking_record_cash_payment',
+    category:        'booking_cash_payment_write',
+    client_slug:     clientSlug,
+    booking_id:      bookingId || null,
+    booking_code:    bookingCode || null,
+    amount_cents:    amountCents,
+    idempotency_key: idempotencyKey,
+    staff_user_id:   actorId,
+    staff_role:      actorRole,
+  };
+
+  let bookingRow;
+  try {
+    bookingRow = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      return bookingRes.rows[0] || null;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'booking lookup failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found' });
+  }
+
+  if (bookingStatusIsCancelled(bookingRow.status)) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'booking_not_active',
+      message: 'Cannot record cash payment on a cancelled or expired booking.',
+    });
+  }
+
+  const pmMeta = {
+    source: 'staff_cash',
+    method: 'cash',
+    idempotency_key: idempotencyKey,
+    note: note,
+    payment_date: paymentDate,
+    recorded_by: actorLabel,
+    staff_portal: true,
+  };
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      const idem = await pg.query(
+        `SELECT p.id::text AS payment_id, p.status::text AS payment_status,
+                p.amount_due_cents, p.amount_paid_cents, p.paid_at, p.metadata
+           FROM payments p
+          WHERE p.booking_id = $1::uuid
+            AND p.metadata->>'idempotency_key' = $2
+          LIMIT 1`,
+        [bookingRow.booking_id, idempotencyKey]
+      );
+      if (idem.rows[0]) {
+        const sumIdem = await pg.query(
+          `SELECT COALESCE(SUM(amount_paid_cents), 0)::int AS total
+             FROM payments
+            WHERE booking_id = $1::uuid AND status = 'paid'::payment_record_status`,
+          [bookingRow.booking_id]
+        );
+        const paidTotal = Number(sumIdem.rows[0].total || 0);
+        const bkTotal = Number(bookingRow.total_amount_cents || 0);
+        return {
+          idempotent: true,
+          payment: idem.rows[0],
+          booking_paid_cents: paidTotal,
+          balance_due_cents: bkTotal > 0 ? Math.max(bkTotal - paidTotal, 0) : 0,
+        };
+      }
+
+      const clientRes = await pg.query(
+        'SELECT id FROM clients WHERE slug = $1 LIMIT 1',
+        [clientSlug]
+      );
+      const clientId = clientRes.rows[0] && clientRes.rows[0].id;
+      if (!clientId) throw new Error('client not found');
+
+      await pg.query('BEGIN');
+      try {
+        const paidAt = paymentDate + 'T12:00:00.000Z';
+        const ins = await pg.query(
+          `INSERT INTO payments (
+             client_id, booking_id, status, payment_kind, currency,
+             amount_due_cents, amount_paid_cents, paid_at, metadata
+           ) VALUES (
+             $1, $2::uuid, 'paid'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
+             $3, $3, $4::timestamptz, $5::jsonb
+           )
+           RETURNING id::text AS payment_id, status::text AS payment_status,
+                     amount_due_cents, amount_paid_cents, paid_at`,
+          [clientId, bookingRow.booking_id, amountCents, paidAt, JSON.stringify(pmMeta)]
+        );
+        const payment = ins.rows[0];
+
+        const sumRes = await pg.query(
+          `SELECT COALESCE(SUM(amount_paid_cents), 0)::int AS total
+             FROM payments
+            WHERE booking_id = $1::uuid
+              AND status = 'paid'::payment_record_status`,
+          [bookingRow.booking_id]
+        );
+        const newBkPaid = Number(sumRes.rows[0].total || 0);
+        const bkTotal = Number(bookingRow.total_amount_cents || 0);
+        const newBalance = bkTotal > 0 ? Math.max(bkTotal - newBkPaid, 0) : 0;
+        let newBkPayStatus = bookingRow.payment_status;
+        if (bkTotal > 0 && newBalance === 0) newBkPayStatus = 'paid';
+        else if (newBkPaid > 0 && newBkPayStatus === 'not_requested') newBkPayStatus = 'deposit_paid';
+
+        await pg.query(
+          `UPDATE bookings
+              SET amount_paid_cents = $1,
+                  balance_due_cents = $2,
+                  payment_status = $3::payment_status
+            WHERE id = $4::uuid`,
+          [newBkPaid, newBalance, newBkPayStatus, bookingRow.booking_id]
+        );
+
+        await pg.query('COMMIT');
+        return { idempotent: false, payment: payment, booking_paid_cents: newBkPaid, balance_due_cents: newBalance };
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      idempotent: !!result.idempotent,
+      payment_id: result.payment && result.payment.payment_id,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      idempotent: !!result.idempotent,
+      payment: result.payment,
+      booking_paid_cents: result.booking_paid_cents,
+      balance_due_cents: result.balance_due_cents,
+      message: result.idempotent
+        ? 'Cash payment already recorded (idempotent).'
+        : 'Cash payment recorded. No Stripe, payment link, WhatsApp, or n8n action was taken.',
+      no_stripe: true,
+      no_whatsapp: true,
+      no_n8n: true,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'cash payment failed', detail: err.message });
   }
 }
 
@@ -13727,8 +13953,9 @@ function loadBlockDetail(bookingCode){
       updateBcDetailHeader(res.data);
       bcInitFieldEditShell(res.data);
       bcInitAddServiceShell(res.data);
-      bcInitBookingCancelShell(res.data);
       bcInitMovePanel(res.data);
+      bcInitCashPaymentShell(res.data);
+      bcInitBookingCancelShell(res.data);
       /* Wire "Open conversation" button */
       var btnConv = document.getElementById('bc-open-conv-btn');
       if (btnConv){
@@ -14144,6 +14371,38 @@ function bcRunningInvoiceSvcUnitLabel(serviceType){
   return null;
 }
 
+/* Phase 10.6b — payment ledger helpers (paid truth from payment rows only) */
+function bcPaymentLedgerParseMetadata(raw){
+  if (raw && typeof raw === 'object') return raw;
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch (_) { return {}; }
+}
+
+function bcPaymentLedgerIsPaidStatus(status){
+  return String(status || '').toLowerCase() === 'paid';
+}
+
+function bcPaymentLedgerPaidTotalCents(rows){
+  rows = rows || [];
+  return rows.reduce(function(sum, pr){
+    if (!bcPaymentLedgerIsPaidStatus(pr.payment_status)) return sum;
+    return sum + Number(pr.amount_paid_cents || 0);
+  }, 0);
+}
+
+function bcPaymentLedgerMethodLabel(pr){
+  pr = pr || {};
+  var md = bcPaymentLedgerParseMetadata(pr.metadata);
+  if (md.method) return String(md.method);
+  if (md.source === 'staff_cash') return 'cash';
+  if (md.source === 'staff_manual') return 'manual';
+  if (pr.stripe_checkout_session_id || pr.stripe_payment_intent_id) return 'stripe';
+  if (pr.payment_status === 'checkout_created') return 'payment link';
+  if (pr.payment_status === 'draft') return 'draft';
+  if (pr.payment_kind) return String(pr.payment_kind).replace(/_/g, ' ');
+  return '\u2014';
+}
+
 function bcRunningInvoiceSvcLineText(sr){
   var meta = sr.metadata || {};
   if (typeof meta === 'string') {
@@ -14202,7 +14461,8 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
   var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
   var invoiceTotal = accCents != null ? accCents + svcSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
-  var paidCents = bk.amount_paid_cents != null ? Number(bk.amount_paid_cents)
+  var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
+  var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
     : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
 
   html += '<div class="ctx-section"><h3>Payment</h3>';
@@ -14264,34 +14524,46 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   }
   html += '</div>';
 
-  html += '<div class="ctx-inv-truth-note">Stripe/webhook payments remain payment truth. This invoice is expected charges.</div>';
+  html += '<div class="ctx-inv-truth-note">Paid total uses payment history (paid rows only). Invoice total is expected charges.</div>';
 
-  /* Payment record rows (webhook truth details — read-only) */
-  if (pmt.rows && pmt.rows.length > 0){
-    html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
-    html += '<div class="ctx-inv-subtitle">Payment records</div>';
-    pmt.rows.forEach(function(pr){
-      var isPaid = pr.payment_status === 'paid';
+  /* Payment history ledger */
+  html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
+  html += '<div class="ctx-inv-subtitle">Payment history</div>';
+  if (ledgerRows.length > 0){
+    ledgerRows.forEach(function(pr){
+      var isPaid = bcPaymentLedgerIsPaidStatus(pr.payment_status);
       var isCreated = pr.payment_status === 'checkout_created';
       var recCls = 'ctx-pay-record';
       if (isPaid) recCls += ' ctx-pay-record-paid';
       else if (isCreated) recCls += ' ctx-pay-record-checkout';
+      var md = bcPaymentLedgerParseMetadata(pr.metadata);
+      var methodLabel = bcPaymentLedgerMethodLabel(pr);
       html += '<div class="' + recCls + '">';
-      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">';
       var badgeCls = isPaid ? 'ctx-pay-record-badge ctx-pay-record-badge-paid' :
         isCreated ? 'ctx-pay-record-badge ctx-pay-record-badge-checkout' :
         'ctx-pay-record-badge ctx-pay-record-badge-default';
       html += '<span class="' + badgeCls + '">' + escHtml(pmtStatusLabel(pr.payment_status)) + '</span>';
+      html += '<span class="ctx-pay-record-badge ctx-pay-record-badge-default">' + escHtml(methodLabel) + '</span>';
       html += '</div>';
       html += '<div class="ctx-pay-block" style="margin:0 0 4px">';
-      if (pr.amount_due_cents != null) html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount due</span><span class="ctx-pay-amount">' + escHtml(eur(pr.amount_due_cents)) + '</span></div>';
-      if (pr.amount_paid_cents != null && Number(pr.amount_paid_cents) > 0)
-        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(pr.amount_paid_cents)) + '</span></div>';
+      var showAmt = isPaid && pr.amount_paid_cents != null ? pr.amount_paid_cents : pr.amount_due_cents;
+      if (showAmt != null){
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' +
+          (isPaid ? 'Amount' : 'Amount due') + '</span><span class="ctx-pay-amount' +
+          (isPaid ? ' paid' : '') + '">' + escHtml(eur(showAmt)) + '</span></div>';
+      }
+      if (pr.created_at)
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Created</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.created_at)) + '</span></div>';
       if (pr.paid_at)
-        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid at</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.paid_at)) + '</span></div>';
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.paid_at)) + '</span></div>';
+      if (md.note)
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Note</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(String(md.note)) + '</span></div>';
+      if (pr.payment_id)
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Ref</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px"><code>' + escHtml(shortId(pr.payment_id)) + '</code></span></div>';
       html += '</div>';
       if (isCreated && !isPaid){
-        html += '<div class="ctx-pay-record-wait">\u23F3 Payment link created \u2014 waiting for Stripe webhook.</div>';
+        html += '<div class="ctx-pay-record-wait">\u23F3 Payment link created \u2014 awaiting payment.</div>';
       }
       if (pr.stripe_checkout_session_id || pr.stripe_payment_intent_id){
         html += '<div class="ctx-pay-record-meta">';
@@ -14313,13 +14585,119 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
       }
       html += '</div>';
     });
-    html += '</div>';
   } else {
-    html += '<div class="ctx-none" style="margin-top:8px">No payment record yet.</div>';
+    html += '<div class="ctx-none" style="margin-top:4px">No payments recorded yet.</div>';
   }
+  html += '</div>';
+
+  html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents);
 
   html += '</div></div>';
   return html;
+}
+
+function bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents){
+  bk = bk || {};
+  if (bookingStatusIsCancelled(bk.status)) return '';
+  if (invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal) return '';
+  var today = new Date().toISOString().slice(0, 10);
+  return '<div class="ctx-cash-payment" id="bc-cash-payment" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">' +
+    '<button type="button" class="btn btn-ghost" id="bc-record-cash-btn">Record cash payment</button>' +
+    '<div class="bc-cash-payment-form-wrap ctx-field-edit" id="bc-cash-payment-form-wrap" style="display:none;margin-top:10px">' +
+    '<label class="ctx-field-label" for="bc-cash-payment-amount">Amount (\u20ac)</label>' +
+    '<input type="number" id="bc-cash-payment-amount" class="bk-input bk-input-sm" min="0.01" step="0.01" placeholder="0.00">' +
+    '<label class="ctx-field-label" for="bc-cash-payment-date">Payment date</label>' +
+    '<input type="date" id="bc-cash-payment-date" class="bk-input bk-input-sm" value="' + escHtml(today) + '">' +
+    '<label class="ctx-field-label" for="bc-cash-payment-note">Note / reference (optional)</label>' +
+    '<input type="text" id="bc-cash-payment-note" class="bk-input bk-input-sm" maxlength="500" placeholder="Paid cash at reception">' +
+    '<div class="ctx-field-edit-actions">' +
+    '<button type="button" class="btn btn-primary" id="bc-cash-payment-save-btn">Save payment</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-cash-payment-cancel-btn">Cancel</button>' +
+    '</div>' +
+    '<div class="ctx-field-preview-result" id="bc-cash-payment-result" aria-live="polite"></div>' +
+    '</div></div>';
+}
+
+function bcNewCashPaymentIdempotencyKey(){
+  return 'bc-cash-pay-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcInitCashPaymentShell(data){
+  var bk = (data && data.booking) || {};
+  var openBtn = el('bc-record-cash-btn');
+  var wrap = el('bc-cash-payment-form-wrap');
+  var saveBtn = el('bc-cash-payment-save-btn');
+  var cancelBtn = el('bc-cash-payment-cancel-btn');
+  var resultEl = el('bc-cash-payment-result');
+  if (!openBtn || !wrap) return;
+
+  function closeForm(){
+    wrap.style.display = 'none';
+    if (resultEl){ resultEl.classList.remove('is-visible'); resultEl.innerHTML = ''; resultEl.style.display = 'none'; }
+  }
+
+  openBtn.addEventListener('click', function(){
+    wrap.style.display = 'block';
+    var amt = el('bc-cash-payment-amount');
+    if (amt) amt.focus();
+  });
+  if (cancelBtn) cancelBtn.addEventListener('click', closeForm);
+
+  if (!saveBtn) return;
+  saveBtn.addEventListener('click', function(){
+    var amtEl = el('bc-cash-payment-amount');
+    var dateEl = el('bc-cash-payment-date');
+    var noteEl = el('bc-cash-payment-note');
+    var euros = amtEl ? parseFloat(amtEl.value, 10) : NaN;
+    if (!euros || isNaN(euros) || euros <= 0){
+      if (resultEl){
+        resultEl.innerHTML = 'Enter an amount greater than zero.';
+        resultEl.classList.add('is-visible', 'is-blocked');
+        resultEl.style.display = 'block';
+      }
+      return;
+    }
+    var amountCents = Math.round(euros * 100);
+    var paymentDate = dateEl && dateEl.value ? dateEl.value : new Date().toISOString().slice(0, 10);
+    var note = noteEl && noteEl.value ? noteEl.value.trim() : null;
+    saveBtn.disabled = true;
+    var client = getClient();
+    fetch('/staff/bookings/record-cash-payment?client=' + encodeURIComponent(client), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        client_slug: client,
+        booking_code: bk.booking_code,
+        booking_id: bk.booking_id,
+        amount_cents: amountCents,
+        note: note,
+        payment_date: paymentDate,
+        idempotency_key: bcNewCashPaymentIdempotencyKey(),
+      }),
+    })
+      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+      .then(function(res){
+        saveBtn.disabled = false;
+        if (!res.ok || !res.data.success){
+          if (resultEl){
+            resultEl.innerHTML = escHtml((res.data && res.data.error) || (res.data && res.data.message) || 'Cash payment failed');
+            resultEl.classList.add('is-visible', 'is-blocked');
+            resultEl.style.display = 'block';
+          }
+          return;
+        }
+        closeForm();
+        if (bk.booking_code) loadBlockDetail(bk.booking_code);
+      })
+      .catch(function(err){
+        saveBtn.disabled = false;
+        if (resultEl){
+          resultEl.innerHTML = escHtml(err.message || 'Network error');
+          resultEl.classList.add('is-visible', 'is-blocked');
+          resultEl.style.display = 'block';
+        }
+      });
+  });
 }
 
 /* Phase 10.5f-lite / 10.5c.1 / 10.5d / 10.5e — contact, package, dates, guests field edit write UI */
@@ -15762,7 +16140,10 @@ function renderBookingContextDrawer(data){
   /* ── Phase 10.4e — field edit UI shell (contact / dates / guests / package) ─ */
   html += bcRenderFieldEditSectionsHtml(data);
 
-  /* ── Phase 10.3e / 10.3e.1 / 10.3h — Move bed (under stay details, above Payment) ─ */
+  /* ── Phase 10.6a / 10.6b — Add-ons directly under package fields ─────────── */
+  html += bcRenderAddServicePanelHtml(bk);
+
+  /* ── Phase 10.3e / 10.3h — Move bed (below Add-ons, above Payment) ───────── */
   var rmMove = data.rooming || {};
   var moveAssigns = rmMove.assignments || [];
   var moveNoBeds = moveAssigns.length === 0;
@@ -15783,10 +16164,7 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
   html += '</div></div>';
 
-  /* ── Phase 10.6a — Add-ons (inline form above Payment / running invoice) ─── */
-  html += bcRenderAddServicePanelHtml(bk);
-
-  /* ── 4. Payment / running invoice (Phase 10.4d) — read-only; no writes ─── */
+  /* ── Payment / running invoice (Phase 10.4d / 10.6b ledger) ──────────────── */
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
   html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
@@ -17348,7 +17726,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
       await withPgClient(async (pg) => {
         const [b, p, r, c, h, a, m, svc] = await Promise.all([
           pg.query(getBookingDetailQuery(),             [clientSlug, bookingCode]),
-          pg.query(getBookingPaymentsQuery(),           [clientSlug, bookingCode]),
+          pg.query(BOOKING_PAYMENTS_LEDGER_SQL,         [clientSlug, bookingCode]),
           pg.query(BOOKING_CONTEXT_ROOMING_SQL,       [clientSlug, bookingCode]),
           pg.query(getBookingConversationQuery(),       [clientSlug, bookingCode]),
           pg.query(getBookingHandoffQuery(),            [clientSlug, bookingCode]),
@@ -17379,8 +17757,8 @@ async function handleBookingContext(bookingCode, query, res, user) {
   const bkMetadata = (metaRows[0] && metaRows[0].metadata) || {};
   const confirmationDraft = bkMetadata.confirmation_draft || null;
 
-  // Payments aggregate
-  const totalPaid = paymentRows.reduce((s, r) => s + Number(r.amount_paid_cents || 0), 0);
+  // Payments aggregate — paid truth from paid payment rows only (10.6b)
+  const totalPaid = bcPaymentLedgerPaidTotalCents(paymentRows);
   const latestStatus = paymentRows.length > 0 ? paymentRows[0].payment_status : null;
 
   // Rooming
@@ -17625,6 +18003,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingAddService(req, res, auth.user);
+  }
+
+  // ── Phase 10.6b — Record cash payment (payments INSERT only) ─────────────
+  if (pathname === '/staff/bookings/record-cash-payment') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/record-cash-payment' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingRecordCashPayment(req, res, auth.user);
   }
 
   // ── Phase 10.6a.2 — Booking remove add-on (DELETE one service record) ─────
@@ -17999,6 +18388,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel reservation (beds released; no refund)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-on service record (no Stripe)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/remove-service     <- 10.6a.2 remove one add-on row (no Stripe)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/record-cash-payment <- 10.6b record cash payment (no Stripe/link)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);

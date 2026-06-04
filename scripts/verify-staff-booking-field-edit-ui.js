@@ -243,10 +243,12 @@ check(/ctx-field-guests-preview:empty|has-preview/.test(src),
   '10.6a: guests preview hidden until editing');
 check(/id="bc-field-save-contact"/.test(renderField) && /id="bc-field-save-dates"/.test(renderField),
   '10.6a.4: contact and dates Save controls still present');
-check(/id="bc-move-booking-btn"/.test(drawerFn) && /bcRenderAddServicePanelHtml/.test(drawerFn),
-  '10.6a.4: Move bed and add-ons panel still in drawer');
+check(/bcRenderAddServicePanelHtml/.test(drawerFn) && /id="bc-move-booking-btn"/.test(drawerFn),
+  '10.6b: add-ons and Move bed still in drawer');
+check(/bcRenderAddServicePanelHtml[\s\S]*id="bc-move-bed"/.test(drawerFn),
+  '10.6b: add-ons above Move bed');
 check(/bcRenderAddServicePanelHtml[\s\S]*bcRenderRunningInvoiceHtml/.test(drawerFn),
-  '10.6a.4: add-ons still above Payment');
+  '10.6b: add-ons above Payment');
 check(/bcRenderBookingCancelFooterHtml/.test(drawerFn),
   '10.6a.4: cancel reservation footer still present');
 

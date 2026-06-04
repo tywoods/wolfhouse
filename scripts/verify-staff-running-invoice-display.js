@@ -96,16 +96,18 @@ check(/Paid in full/.test(invFn) && /paid-in-full/.test(invFn),
   'Paid in full status when total equals paid');
 check(/Needs refund \/ credit review/.test(invFn) && /needs-refund/.test(invFn),
   'Needs refund/credit review when total below paid');
-check(/amount_paid_cents/.test(invFn),
-  'Paid amount from booking/payment truth fields');
+check(/bcPaymentLedgerPaidTotalCents/.test(invFn),
+  'Paid amount from payment ledger (paid rows only)');
 
-console.log('\nE. Payment truth copy');
+console.log('\nE. Payment history / truth copy');
 
 check(/ctx-inv-truth-note/.test(invFn),
   'payment truth note CSS class');
-check(/Stripe\/webhook payments remain payment truth/.test(invFn),
-  'Stripe/webhook payment truth copy');
-check(/This invoice is expected charges/.test(invFn),
+check(/Payment history/.test(invFn),
+  'Payment history ledger section');
+check(/paid rows only|Paid total uses payment history/.test(invFn),
+  'paid total disclaimer references payment history');
+check(/This invoice is expected charges|expected charges/.test(invFn),
   'expected charges disclaimer copy');
 
 console.log('\nF. No legacy duplicate Services panel');
