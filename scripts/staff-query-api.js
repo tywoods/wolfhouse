@@ -116,7 +116,8 @@ const {
   getAskLunaFreeBedsOnNightQuery,
   formatAskLunaFreeBedsAnswer,
 } = require('./lib/staff-ask-luna-free-beds');
-const { getStormglassConfigStatus } = require('./lib/staff-stormglass-config');
+const { hasStormglassConfig, getStormglassConfigStatus } = require('./lib/staff-stormglass-config');
+const { fetchSurfForecastForStaff } = require('./lib/staff-stormglass-forecast');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -19926,6 +19927,70 @@ async function handleHandoffQueue(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 11b.1 — Surf forecast handler (read-only, Stormglass backend-only)
+//
+// GET /staff/surf-forecast?client=wolfhouse-somo&day=today|tomorrow
+//   Returns staff-safe marine forecast. Key stays server-side only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleSurfForecast(query, res, user) {
+  const started = Date.now();
+  const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
+  const day = String(query.day || 'today').trim().toLowerCase();
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (day !== 'today' && day !== 'tomorrow') {
+    return send400(res, "day must be 'today' or 'tomorrow'");
+  }
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:surf_forecast',
+    category:      'surf_forecast_api',
+    client_slug:   clientSlug,
+    day,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  if (!hasStormglassConfig()) {
+    appendAuditLog({ ...auditBase, success: false, configured: false, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 503, {
+      success:     false,
+      configured:  false,
+      error:       'STORMGLASS_API_KEY not configured',
+      read_only:   true,
+    });
+  }
+
+  try {
+    const payload = await fetchSurfForecastForStaff({ clientSlug, day });
+    appendAuditLog({ ...auditBase, success: true, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, payload);
+  } catch (err) {
+    const code = err && err.code;
+    if (code === 'UNSUPPORTED_CLIENT') {
+      return send400(res, err.message);
+    }
+    if (code === 'INVALID_DAY') {
+      return send400(res, err.message);
+    }
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: err.message,
+      upstream: code === 'UPSTREAM_ERROR',
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 502, {
+      success:   false,
+      error:     'stormglass forecast unavailable',
+      detail:    err.message,
+      read_only: true,
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7g — Bed calendar handler (read-only)
 //
 // GET /staff/bed-calendar?client=<slug>&start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -22299,6 +22364,13 @@ async function router(req, res) {
     return handleTourOperatorBlocks(parsed.query, res, auth.user);
   }
 
+  // ── Phase 11b.1 — Surf forecast (read-only, Stormglass backend-only) ───────
+  if (pathname === '/staff/surf-forecast') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleSurfForecast(parsed.query, res, auth.user);
+  }
+
   // ── Stage 7.7g — Bed calendar (read-only) ─────────────────────────────────
   if (pathname === '/staff/bed-calendar') {
     const auth = await requireAuth(req, res, 'viewer');
@@ -22444,6 +22516,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/resume                 <- 9.4b Luna guest resume write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/check-guest-automation-gate <- 9.6 Luna guest automation dry-run pause gate (read-only; no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/surf-forecast?client=wolfhouse-somo&day=today  <- 11b.1 surf forecast (read-only, Stormglass backend)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);
