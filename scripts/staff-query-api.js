@@ -12299,9 +12299,9 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-room-hdr{background:var(--olive);color:#fff;font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.02em}
 .bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:11px;padding:6px 10px;min-width:120px;position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
 .bc-day-cell{height:30px;min-width:46px;vertical-align:middle;padding:2px 3px}
-.bc-block{height:28px;border-radius:7px;padding:3px 6px 3px 9px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;display:flex;align-items:center;gap:4px;min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
-.bc-block-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
-.bc-block-pay-wrap{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;max-width:58%}
+.bc-block{min-height:28px;border-radius:7px;padding:3px 6px 3px 9px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:4px 6px;min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
+.bc-block-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto;max-width:100%}
+.bc-block-pay-wrap{display:inline-flex;flex:0 1 auto;flex-wrap:wrap;align-items:center;align-content:center;gap:3px;max-width:100%;min-width:0}
 .bc-block-pay-badge{font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;line-height:1.25;white-space:nowrap}
 .bc-block-pay-balance{background:#F5E0D0;color:#9B4E12;border:1px solid #E8C4A8}
 .bc-block-pay-deposit{background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9}
@@ -18015,7 +18015,7 @@ function renderBookingContextDrawer(data){
   html += '<div id="bc-move-target-note" class="ctx-none" style="margin-top:4px;font-size:11px;line-height:1.45"></div></div>';
   html += '<div id="bc-move-result"></div>';
   html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
-  html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move booking</button>';
+  html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move Bed</button>';
   html += '</div></div>';
 
   /* ── Payment / running invoice (Phase 10.4d / 10.6b ledger) ──────────────── */
@@ -18023,32 +18023,7 @@ function renderBookingContextDrawer(data){
   var pmt = data.payments || {};
   html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
 
-  /* ── 4d. Luna confirmation draft (Stage 8.5.18) — read-only, no send ───── */
-  var confDraft = (data.booking && data.booking.confirmation_draft) ||
-                  (data.booking && data.booking.metadata && data.booking.metadata.confirmation_draft) ||
-                  null;
-  if (confDraft && typeof confDraft === 'object'){
-    html += '<div class="ctx-section ctx-luna-confirmation-draft" id="bc-luna-confirmation-draft">';
-    html += '<h3>Luna confirmation draft</h3>';
-    html += '<div style="padding:8px 10px;background:#E8F0FA;border:1px solid #B5C7D3;border-radius:6px;font-size:12px">';
-    html += '<div style="font-weight:600;margin-bottom:6px;color:#1d5570">Luna confirmation draft ready</div>';
-    html += '<div class="ctx-pay-block" style="margin:0">';
-    if (confDraft.booking_code)      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Booking</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.booking_code) + '</span></div>';
-    if (confDraft.guest_name)        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Guest</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.guest_name) + '</span></div>';
-    if (confDraft.payment_status)    html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Payment status</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(bkPayLabel(confDraft.payment_status)) + '</span></div>';
-    if (confDraft.amount_paid_cents != null)
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Amount paid</span><span class="ctx-pay-amount paid">' + escHtml(eur(confDraft.amount_paid_cents)) + '</span></div>';
-    if (confDraft.balance_due_cents != null)
-      html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Balance due</span><span class="ctx-pay-amount' + (Number(confDraft.balance_due_cents) > 0 ? ' owing' : ' paid') + '">' + escHtml(eur(confDraft.balance_due_cents)) + '</span></div>';
-    if (confDraft.room_number)       html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Room</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.room_number) + '</span></div>';
-    if (confDraft.gate_code)         html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Gate code</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.gate_code) + '</span></div>';
-    if (confDraft.address)           html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Address</span><span class="ctx-pay-amount" style="font-weight:400">' + escHtml(confDraft.address) + '</span></div>';
-    html += '</div>';
-    html += '<div style="margin-top:6px;font-size:11px;color:var(--text-3);border-top:1px solid #B5C7D3;padding-top:4px">';
-    html += 'sends_whatsapp: <code>false</code> &middot; whatsapp_dry_run: <code>true</code>';
-    html += '<br><span style="font-style:italic">Draft only — not sent. No WhatsApp in this slice.</span>';
-    html += '</div></div></div>';
-  }
+  /* Luna confirmation draft: kept in booking context API; hidden from normal drawer (10.6g.5). */
 
   /* ── 6. Conversation / Handoff ─────────────────────────────────────────── */
   html += '<div class="ctx-section"><h3>Conversation / Handoff</h3>';

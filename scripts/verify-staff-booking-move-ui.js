@@ -63,16 +63,17 @@ check(/bc-move-source-pills/.test(drawerFn + sourcePillsFn),
 
 console.log('\nB. Buttons + enablement');
 
-check(/id="bc-move-booking-btn"/.test(drawerFn), 'Move booking button exists');
-check(/Move booking/.test(drawerFn), 'Move booking button label');
+check(/id="bc-move-booking-btn"/.test(drawerFn), 'Move Bed button exists');
+check(/>Move Bed</.test(drawerFn), '10.6g.5: Move Bed button label');
+check(!/>Move booking</.test(drawerFn), '10.6g.5: no Move booking visible label');
 check(/bc-move-booking-btn" disabled/.test(drawerFn),
-  'Move booking button initially disabled in HTML');
+  'Move Bed button initially disabled in HTML');
 check(/function bcMoveInputsReadyForWrite/.test(moveFnBlock),
-  'bcMoveInputsReadyForWrite gates Move booking enablement');
+  'bcMoveInputsReadyForWrite gates Move Bed enablement');
 check(/moveBtn\.disabled = busy \|\| !bcMoveInputsReadyForWrite\(\)/.test(moveFnBlock),
-  'Move booking enabled from source+target readiness (not env gate)');
+  'Move Bed enabled from source+target readiness (not env gate)');
 check(!/moveBtn\.disabled[\s\S]*BC_BOOKING_MOVE_WRITE/.test(moveFnBlock),
-  'Move booking button not blocked by BC_BOOKING_MOVE_WRITE');
+  'Move Bed button not blocked by BC_BOOKING_MOVE_WRITE');
 check(/var BC_BOOKING_MOVE_WRITE = true/.test(src),
   'BC_BOOKING_MOVE_WRITE hardcoded true in Staff Portal bundle');
 

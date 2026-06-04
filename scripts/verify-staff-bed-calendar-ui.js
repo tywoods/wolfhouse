@@ -1480,37 +1480,30 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '220e: getBookingPaymentsQuery returns paid_at (Stage 8.4.12)');
 })();
 
-// ── Stage 8.5.18 — Luna confirmation draft panel in booking drawer ───────────
+// ── Stage 8.5.18 / 10.6g.5 — Luna confirmation draft hidden from drawer ─────
 (function(){
   const fnStart = src.indexOf('function renderBookingContextDrawer');
   const fnEnd   = fnStart > 0 ? src.indexOf('\nfunction ', fnStart + 100) : -1;
   const drawerFn = (fnStart > 0 && fnEnd > fnStart) ? src.slice(fnStart, fnEnd) : '';
 
-  check(/ctx-luna-confirmation-draft|bc-luna-confirmation-draft/.test(drawerFn),
-    '221: Luna confirmation draft panel exists in drawer (Stage 8.5.18)');
-  check(/confirmation_draft/.test(drawerFn) &&
-        (/data\.booking\.confirmation_draft|data\.booking\.metadata/.test(drawerFn)),
-    '221b: drawer reads booking confirmation_draft from metadata (Stage 8.5.18)');
-  check(/Luna confirmation draft ready/.test(drawerFn),
-    '221c: drawer shows Luna confirmation draft ready heading (Stage 8.5.18)');
-  check(/gate_code/.test(drawerFn) && /room_number|Room/.test(drawerFn) && /balance_due/.test(drawerFn),
-    '221d: drawer displays gate_code, room, and balance (Stage 8.5.18)');
-  check(/sends_whatsapp.*false|sends_whatsapp:\s*<code>false<\/code>/.test(drawerFn),
-    '221e: drawer shows sends_whatsapp:false (Stage 8.5.18)');
-  check(/whatsapp_dry_run.*true|whatsapp_dry_run:\s*<code>true<\/code>/.test(drawerFn),
-    '221f: drawer shows whatsapp_dry_run:true (Stage 8.5.18)');
-  check(!/graph\.facebook\.com/.test(drawerFn),
-    '221g: drawer has no graph.facebook.com (Stage 8.5.18)');
-  check(!(/fetch[\s\S]{0,120}n8n|n8n[\s\S]{0,120}fetch/.test(drawerFn)),
-    '221h: drawer makes no n8n calls (Stage 8.5.18)');
+  check(!/ctx-luna-confirmation-draft|bc-luna-confirmation-draft/.test(drawerFn),
+    '10.6g.5: Luna confirmation draft panel not in normal drawer');
+  check(!/Luna confirmation draft ready/.test(drawerFn),
+    '10.6g.5: no Luna confirmation draft ready heading in drawer');
+  check(!/Draft only — not sent/.test(drawerFn),
+    '10.6g.5: no draft-only dry-run copy in drawer');
+  check(!/whatsapp_dry_run:\s*<code>true<\/code>/.test(drawerFn),
+    '10.6g.5: no whatsapp_dry_run dry-run panel in drawer');
+  check(!/sends_whatsapp:\s*<code>false<\/code>/.test(drawerFn),
+    '10.6g.5: no sends_whatsapp dry-run panel in drawer');
   check(!/Send confirmation|send-confirmation|confirmation-send|bc-send-confirmation/i.test(drawerFn),
-    '221i: drawer has no confirmation send button (Stage 8.5.18)');
+    '10.6g.5: drawer has no confirmation send button');
 
   check(/confirmation_draft/.test(src) &&
         (/metadata\.confirmation_draft|bkMetadata\.confirmation_draft/.test(src)),
-    '222: booking context API exposes metadata confirmation_draft (Stage 8.5.18)');
+    '10.6g.5: booking context API still exposes confirmation_draft backend');
   check(/SELECT b\.metadata/.test(src),
-    '222b: booking context loads bookings.metadata (Stage 8.5.18)');
+    '10.6g.5: booking context still loads bookings.metadata');
 })();
 
 // ── Stage 8.7.6 — booking drawer layout cleanup ───────────────────────────
@@ -1525,8 +1518,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '223b: payment rows use compact grid (not far-right flex) (Stage 8.7.6)');
   check(!/justify-content:space-between/.test(src.slice(src.indexOf('.ctx-pay-row'), src.indexOf('.ctx-pay-row') + 200)),
     '223c: ctx-pay-row no longer uses space-between (Stage 8.7.6)');
-  check(/ctx-luna-confirmation-draft|bc-luna-confirmation-draft/.test(drawerFn),
-    '223d: Luna confirmation draft panel still present (Stage 8.7.6)');
+  check(!/ctx-luna-confirmation-draft|bc-luna-confirmation-draft/.test(drawerFn),
+    '10.6g.5: Luna confirmation draft panel hidden (Stage 8.7.6 layout)');
   check(!/Send confirmation|send-confirmation|confirmation-send|bc-send-confirmation/i.test(drawerFn),
     '223e: drawer still has no send button (Stage 8.7.6)');
   check(!/graph\.facebook\.com/.test(drawerFn),
@@ -1579,8 +1572,8 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   check(/Invoice total|Balance due|bcPaymentLedgerPaidTotalCents/.test(paySrc) &&
         /Payment history|stripe_checkout_session_id/.test(paySrc),
     '225e: running invoice payment truth still renders in drawer (Stage 10.4d)');
-  check(/bc-luna-confirmation-draft/.test(drawerSrc),
-    '225f: Luna confirmation draft panel unchanged (Stage 8.7.11)');
+  check(!/bc-luna-confirmation-draft/.test(drawerSrc),
+    '10.6g.5: Luna confirmation draft panel hidden (Stage 8.7.11)');
   check(!/sendConfirmation|Send confirmation/i.test(drawerSrc),
     '225g: drawer still has no send button (Stage 8.7.11)');
 
@@ -1955,6 +1948,33 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6g: bed calendar handler has no payment writes');
 })();
 
+// ── Phase 10.6g.5 — calendar badge inline layout ────────────────────────────
+(function check106g5CalendarBadgeLayout(){
+  const blockCss = src.match(/\.bc-block\{[^}]+\}/)?.[0] || '';
+  const labelCss = src.match(/\.bc-block-label\{[^}]+\}/)?.[0] || '';
+  const payCss = src.match(/\.bc-block-pay-wrap\{[^}]+\}/)?.[0] || '';
+  const innerFn = src.match(/function bcCalendarBlockInnerHtml[\s\S]*?\n\}/)?.[0] || '';
+
+  check(/flex-wrap:wrap/.test(blockCss),
+    '10.6g.5: booking block uses flex-wrap for contained badges');
+  check(!/flex:\s*1\s+1\s+auto/.test(labelCss),
+    '10.6g.5: booking label not flex-grow (badges not pushed to far right)');
+  check(/flex:0\s+1\s+auto/.test(labelCss),
+    '10.6g.5: booking label stays inline before badges');
+  check(/flex-wrap:wrap/.test(payCss) && /max-width:100%/.test(payCss),
+    '10.6g.5: badge wrap is contained inside block');
+  check(!/max-width:58%/.test(payCss),
+    '10.6g.5: badge wrap not capped at far-right 58% column');
+  check(!/margin-left:\s*auto/.test(payCss),
+    '10.6g.5: badges not margin-left auto aligned');
+  check(/bc-block-label/.test(innerFn) && /bcCalendarPaymentBadgesHtml/.test(innerFn),
+    '10.6g.5: title/name renders before payment badges in block HTML');
+  check(/bc-block-pay-deposit/.test(src) && /bc-block-pay-balance/.test(src) && /bc-block-pay-link/.test(src),
+    '10.6g.5: Deposit paid / Balance due / Link sent badge classes preserved');
+  check(/handleStripeCheckoutSuccessLanding/.test(src) && /\/staff\/payment\/success/.test(src),
+    '10.6g.5: Stripe checkout landing routes preserved');
+})();
+
 // ── Phase 10.6a.4 — drawer/move/add-ons regressions + safety ───────────────
 (function check106a4DrawerAndSafety(){
   check(/function loadBedCalendar/.test(src) && /renderBedCalendar/.test(src),
@@ -1967,8 +1987,12 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     src.match(/function renderBookingContextDrawer[\s\S]*?return html;/)?.[0] || ''
   ),
     '10.6a.4: add-ons panel still above Payment in drawer');
-  check(/id="bc-move-booking-btn"/.test(src) && /BC_BOOKING_MOVE_WRITE = true/.test(src),
-    '10.6a.4: Move booking control still enabled in drawer');
+  check(/id="bc-move-booking-btn"/.test(src) && />Move Bed</.test(src) && !/>Move booking</.test(
+    src.match(/function renderBookingContextDrawer[\s\S]*?return html;/)?.[0] || ''
+  ),
+    '10.6g.5: visible Move Bed button label in drawer');
+  check(/BC_BOOKING_MOVE_WRITE = true/.test(src),
+    '10.6a.4: move write still enabled in drawer');
   check(!/graph\.facebook\.com/.test(src) && !/api\.stripe\.com/.test(src),
     '10.6a.4: no WhatsApp/Stripe URLs in staff bundle');
   check(!/INSERT INTO booking_service_records|UPDATE payments|DELETE FROM booking_beds/i.test(
