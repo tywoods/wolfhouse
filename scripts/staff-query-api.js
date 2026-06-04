@@ -3705,6 +3705,11 @@ function editPreviewLightNameOk(name) {
   return String(name).trim().length <= 200;
 }
 
+function editPreviewLightPhoneOk(phone) {
+  if (phone == null || String(phone).trim() === '') return true;
+  return String(phone).trim().length <= 40;
+}
+
 function editPreviewBookingSummary(row) {
   return {
     booking_id:     row.booking_id,
@@ -4022,12 +4027,18 @@ async function handleBookingEditPreview(req, res, user) {
 
   if (editType === 'contact') {
     const guestName = body.guest_name != null ? String(body.guest_name).trim() : bookingRow.guest_name;
+    const phone     = body.phone != null ? String(body.phone).trim() : (bookingRow.phone || '');
     const email     = body.email != null ? String(body.email).trim() : (bookingRow.email || '');
     if (!editPreviewLightNameOk(guestName)) return send400(res, 'guest_name is too long');
+    if (!editPreviewLightPhoneOk(phone)) return send400(res, 'phone is too long');
     if (!editPreviewLightEmailOk(email)) return send400(res, 'email format is invalid');
 
-    const current = { guest_name: bookingRow.guest_name, email: bookingRow.email || null };
-    const proposed = { guest_name: guestName, email: email || null };
+    const current = {
+      guest_name: bookingRow.guest_name,
+      phone: bookingRow.phone || null,
+      email: bookingRow.email || null,
+    };
+    const proposed = { guest_name: guestName, phone: phone || null, email: email || null };
     const invoice_preview = editPreviewBuildInvoicePreview(bookingRow, svcRows, {}, false);
     const elapsed = Date.now() - started;
     appendAuditLog({ ...auditBase, success: true, can_apply: true, elapsed_ms: elapsed });
@@ -8799,10 +8810,9 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-inv-payment-records{margin-top:4px}
 /* Phase 10.4e — field-level edit UI shell (no writes) */
 .ctx-field-edit-group{margin-top:0}
-.ctx-field-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
-.ctx-field-header-label{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em}
-.btn-bc-field-edit{font-size:11px;padding:2px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1.5}
-.btn-bc-field-edit:hover{background:var(--surface-soft);color:var(--text)}
+.ctx-field-header{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:8px}
+.btn-bc-field-edit{font-size:14px;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+.btn-bc-field-edit:hover{background:var(--surface-soft);color:var(--accent)}
 .ctx-field-edit-group.is-editing .btn-bc-field-edit{font-weight:600;border-color:var(--accent);color:var(--accent)}
 .ctx-field-edit{margin-top:8px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
 .ctx-field-label{display:block;font-size:11px;color:var(--text-2);margin:8px 0 4px}
@@ -12255,12 +12265,25 @@ function bcFieldEditGuestReleasePreview(currentCount, newCount, assignments){
   };
 }
 
+function bcRenderFieldEditPencilBtn(group, ariaLabel){
+  return '<button type="button" class="btn-bc-field-edit" data-bc-field-group="' + escHtml(group) + '" aria-label="' + escHtml(ariaLabel) + '" title="' + escHtml(ariaLabel) + '">\u270E</button>';
+}
+
 function bcRenderFieldEditActionsHtml(group){
   return '<div class="ctx-field-edit-actions">' +
-    '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Preview</button>' +
+    '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Save</button>' +
     '<button type="button" class="btn btn-ghost" data-bc-field-cancel="' + escHtml(group) + '" id="bc-field-cancel-' + escHtml(group) + '">Cancel</button>' +
     '</div>' +
     '<div class="ctx-field-preview-result" id="bc-field-' + escHtml(group) + '-preview-result" aria-live="polite"></div>';
+}
+
+function bcFieldEditFormatContactLine(obj){
+  var parts = [
+    obj && obj.guest_name ? String(obj.guest_name) : '\u2014',
+    obj && obj.phone ? String(obj.phone) : '\u2014',
+    obj && obj.email ? String(obj.email) : '\u2014',
+  ];
+  return parts.join(' \u00b7 ');
 }
 
 function bcRenderFieldEditSectionsHtml(data){
@@ -12273,8 +12296,7 @@ function bcRenderFieldEditSectionsHtml(data){
 
   html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
   html += '<div class="ctx-field-read" id="bc-field-contact-read">';
-  html += '<div class="ctx-field-header"><span class="ctx-field-header-label">Guest</span>';
-  html += '<button type="button" class="btn-bc-field-edit" data-bc-field-group="contact" aria-label="Edit guest name and email">Edit</button></div>';
+  html += '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn('contact', 'Edit contact') + '</div>';
   html += '<div class="kv-grid" id="bc-field-contact-kv">';
   html += kvBC('Name', bk.guest_name);
   html += kvBC('Phone', bk.phone);
@@ -12285,6 +12307,8 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '<div class="ctx-field-edit" id="bc-field-contact-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-contact-name">Name</label>';
   html += '<input type="text" id="bc-field-contact-name" class="bk-input bk-input-sm" value="' + escHtml(bk.guest_name || '') + '">';
+  html += '<label class="ctx-field-label" for="bc-field-contact-phone">Phone</label>';
+  html += '<input type="tel" id="bc-field-contact-phone" class="bk-input bk-input-sm" value="' + escHtml(bk.phone || '') + '">';
   html += '<label class="ctx-field-label" for="bc-field-contact-email">Email</label>';
   html += '<input type="email" id="bc-field-contact-email" class="bk-input bk-input-sm" value="' + escHtml(bk.email || '') + '">';
   html += bcRenderFieldEditActionsHtml('contact');
@@ -12292,8 +12316,7 @@ function bcRenderFieldEditSectionsHtml(data){
 
   html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-dates" data-bc-field-group="dates">';
   html += '<div class="ctx-field-read" id="bc-field-dates-read">';
-  html += '<div class="ctx-field-header"><span class="ctx-field-header-label">Dates</span>';
-  html += '<button type="button" class="btn-bc-field-edit" data-bc-field-group="dates" aria-label="Edit check-in and check-out">Edit</button></div>';
+  html += '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn('dates', 'Edit dates') + '</div>';
   html += '<div class="kv-grid" id="bc-field-dates-kv">';
   html += kvBC('Check-in', bk.check_in);
   html += kvBC('Check-out', bk.check_out);
@@ -12312,8 +12335,7 @@ function bcRenderFieldEditSectionsHtml(data){
 
   html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
   html += '<div class="ctx-field-read" id="bc-field-guests-read">';
-  html += '<div class="ctx-field-header"><span class="ctx-field-header-label">Guests</span>';
-  html += '<button type="button" class="btn-bc-field-edit" data-bc-field-group="guests" aria-label="Edit guest count">Edit</button></div>';
+  html += '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn('guests', 'Edit guests') + '</div>';
   html += '<div class="kv-grid" id="bc-field-guests-kv">';
   html += kvBC('Guests', guestCount);
   html += '</div></div>';
@@ -12330,8 +12352,7 @@ function bcRenderFieldEditSectionsHtml(data){
 
   html += '<div class="ctx-section ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   html += '<div class="ctx-field-read" id="bc-field-package-read">';
-  html += '<div class="ctx-field-header"><span class="ctx-field-header-label">Package</span>';
-  html += '<button type="button" class="btn-bc-field-edit" data-bc-field-group="package" aria-label="Edit package">Edit</button></div>';
+  html += '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn('package', 'Edit package') + '</div>';
   html += '<div class="kv-grid" id="bc-field-package-kv">';
   html += kvBC('Package', bk.package_code || '\u2014');
   if (roomPref) html += kvBC('Room pref', roomPref);
@@ -12384,9 +12405,9 @@ function bcFieldEditRenderPreviewResult(group, data){
 
   if (group === 'contact' && data.current && data.proposed){
     html += '<div style="margin-top:8px"><strong>Current:</strong> ' +
-      escHtml(data.current.guest_name || '\u2014') + ', ' + escHtml(data.current.email || '\u2014') + '</div>';
+      escHtml(bcFieldEditFormatContactLine(data.current)) + '</div>';
     html += '<div><strong>Proposed:</strong> ' +
-      escHtml(data.proposed.guest_name || '\u2014') + ', ' + escHtml(data.proposed.email || '\u2014') + '</div>';
+      escHtml(bcFieldEditFormatContactLine(data.proposed)) + '</div>';
   }
   if (group === 'dates' && data.proposed){
     html += '<div style="margin-top:8px"><strong>Proposed:</strong> ' +
@@ -12444,8 +12465,10 @@ function bcFieldEditBuildPreviewPayload(group){
   };
   if (group === 'contact'){
     var nameEl = el('bc-field-contact-name');
+    var phoneEl = el('bc-field-contact-phone');
     var emailEl = el('bc-field-contact-email');
     payload.guest_name = nameEl ? nameEl.value.trim() : '';
+    payload.phone = phoneEl ? phoneEl.value.trim() : '';
     payload.email = emailEl ? emailEl.value.trim() : '';
   } else if (group === 'dates'){
     var cin = el('bc-field-dates-check-in');
@@ -12497,12 +12520,14 @@ function bcFieldEditRestoreForms(){
   var s = bcFieldEditState.snapshot;
   if (!s) return;
   var nameEl = el('bc-field-contact-name');
+  var phoneEl = el('bc-field-contact-phone');
   var emailEl = el('bc-field-contact-email');
   var cinEl = el('bc-field-dates-check-in');
   var coutEl = el('bc-field-dates-check-out');
   var pkgEl = el('bc-field-package-select');
   var guestEl = el('bc-field-guests-select');
   if (nameEl) nameEl.value = s.guest_name || '';
+  if (phoneEl) phoneEl.value = s.phone || '';
   if (emailEl) emailEl.value = s.email || '';
   if (cinEl) cinEl.value = s.check_in || '';
   if (coutEl) coutEl.value = s.check_out || '';
@@ -12584,6 +12609,7 @@ function bcInitFieldEditShell(data){
   bcFieldEditState.guestCount = Math.max(1, parseInt(bk.guest_count, 10) || 1);
   bcFieldEditState.snapshot = {
     guest_name: bk.guest_name || '',
+    phone: bk.phone || '',
     email: bk.email || '',
     check_in: bk.check_in || '',
     check_out: bk.check_out || '',

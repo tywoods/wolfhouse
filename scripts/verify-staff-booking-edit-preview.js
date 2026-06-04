@@ -77,6 +77,10 @@ console.log('\nD. Contact preview');
 
 check(/editPreviewLightEmailOk/.test(src), 'contact email shape validation');
 check(/editPreviewLightNameOk/.test(src), 'contact name shape validation');
+check(/editPreviewLightPhoneOk/.test(src), 'contact phone shape validation (10.4f.3)');
+check(/body\.phone/.test(handlerBlock), 'contact preview accepts phone in request body');
+check(/phone: bookingRow\.phone/.test(handlerBlock), 'contact preview current includes phone');
+check(/phone: phone/.test(handlerBlock), 'contact preview proposed includes phone');
 check(/no_pricing_change/.test(handlerBlock), 'contact has no pricing impact flag');
 
 console.log('\nE. Dates preview');
@@ -118,8 +122,10 @@ console.log('\nI. UI wiring');
 
 check(/bcFieldEditRunPreview/.test(src), 'UI preview runner exists');
 check(/fetch\('\/staff\/bookings\/edit-preview'/.test(src), 'field edit shells call /staff/bookings/edit-preview');
-check(/data-bc-field-preview/.test(src), 'Preview button attribute present');
-check(/>Preview<\/button>/.test(src), 'UI button copy is Preview');
+check(/data-bc-field-preview/.test(src), 'Save button uses preview attribute (10.4f.3)');
+check(/>Save<\/button>/.test(src), 'UI button copy is Save (10.4f.3)');
+check(!/>Preview<\/button>/.test(src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)?.[0] || ''),
+  'Preview label removed from field edit actions');
 check(/Preview only.*not saved|Preview only \u2014 not saved/.test(src),
   'preview result says not saved');
 check(!/fetch\([^)]*\/staff\/bookings\/[^)]*\/edit[^-]/.test(fieldInitBlock + fieldBlock),

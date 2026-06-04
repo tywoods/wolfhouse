@@ -1,7 +1,7 @@
 /**
- * Phase 10.4e / 10.4f.1 — Static verifier for Staff Portal booking drawer field edit UI.
+ * Phase 10.4e / 10.4f / 10.4f.3 — Static verifier for Staff Portal booking drawer field edit UI.
  *
- * UI shell from 10.4e; Preview flow wired in 10.4f (calculate-only edit-preview API).
+ * UI shell from 10.4e; Preview flow wired in 10.4f; 10.4f.3 Save label + pencil icons + phone.
  *
  * Usage:
  *   npm run verify:staff-booking-field-edit-ui
@@ -23,7 +23,7 @@ function ok(msg)   { console.log(`  PASS  ${msg}`); passes++; }
 function fail(msg) { console.error(`  FAIL  ${msg}`); failures++; }
 function check(cond, msgPass, msgFail) { if (cond) ok(msgPass); else fail(msgFail || msgPass); }
 
-console.log('\nverify-staff-booking-field-edit-ui.js  (Phase 10.4e / 10.4f.1)\n');
+console.log('\nverify-staff-booking-field-edit-ui.js  (Phase 10.4e / 10.4f / 10.4f.3)\n');
 
 check(fs.existsSync(API_FILE), 'staff-query-api.js exists');
 if (!fs.existsSync(API_FILE)) process.exit(1);
@@ -37,13 +37,15 @@ try {
   fail('staff-query-api.js passes node --check');
 }
 
-const renderField = src.match(/function bcRenderFieldEditSectionsHtml[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
+const renderField = src.match(/function bcRenderFieldEditPencilBtn[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
 const actionsHtml = src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)?.[0] || '';
 const drawerFn = src.match(/function renderBookingContextDrawer[\s\S]*?\n\}/)?.[0] || '';
 const fieldUiSlice = src.match(/\/\* Phase 10\.4e — field edit UI shell[\s\S]*?function bcInitFieldEditShell[\s\S]*?\n  if \(cout\)/)?.[0] || '';
 const previewRunner = src.match(/function bcFieldEditRunPreview[\s\S]*?\n\}/)?.[0] || '';
+const previewResultFn = src.match(/function bcFieldEditRenderPreviewResult[\s\S]*?\n\}/)?.[0] || '';
 const fieldInitBlock = src.match(/function bcInitFieldEditShell[\s\S]*?\n  if \(cout\)/)?.[0] || '';
-const fieldBlock = fieldUiSlice + previewRunner;
+const payloadFn = src.match(/function bcFieldEditBuildPreviewPayload[\s\S]*?\n\}/)?.[0] || '';
+const fieldBlock = fieldUiSlice + previewRunner + previewResultFn;
 
 console.log('\nA. Field edit structure');
 
@@ -60,17 +62,52 @@ check(/bcFieldEditState\.activeGroup/.test(fieldBlock), 'single active edit grou
 check(/bcFieldEditCloseAll/.test(fieldBlock) && /bcFieldEditActivate/.test(fieldBlock),
   'activate closes prior edit group');
 
-console.log('\nB. Contact edit shell');
+console.log('\nB. Section titles removed (10.4f.3)');
+
+check(!/ctx-field-header-label/.test(renderField),
+  'standalone section titles GUEST/DATES/GUESTS/PACKAGE removed');
+check(!/>Guest<\/span>[\s\S]{0,80}btn-bc-field-edit|ctx-field-header-label">Guest/.test(renderField),
+  'no Guest section header label');
+check(!/ctx-field-header-label">Dates/.test(renderField), 'no Dates section header label');
+check(!/ctx-field-header-label">Guests/.test(renderField), 'no Guests section header label');
+check(!/ctx-field-header-label">Package/.test(renderField), 'no Package section header label');
+check(/kvBC\('Name'/.test(renderField) && /kvBC\('Phone'/.test(renderField) && /kvBC\('Email'/.test(renderField),
+  'field labels Name / Phone / Email remain');
+check(/kvBC\('Check-in'/.test(renderField) && /kvBC\('Check-out'/.test(renderField),
+  'field labels Check-in / Check-out remain');
+check(/kvBC\('Guests'/.test(renderField), 'field label Guests remains');
+check(/kvBC\('Package'/.test(renderField), 'field label Package remains');
+
+console.log('\nC. Pencil icon edit controls (10.4f.3)');
+
+check(/function bcRenderFieldEditPencilBtn/.test(src), 'pencil edit button helper exists');
+check(/\\u270E/.test(renderField), 'pencil icon character in edit buttons');
+check(!/>Edit<\/button>/.test(renderField), 'visible Edit text removed from field buttons');
+check(/bcRenderFieldEditPencilBtn\('contact', 'Edit contact'\)/.test(renderField),
+  'accessible label for contact edit');
+check(/bcRenderFieldEditPencilBtn\('dates', 'Edit dates'\)/.test(renderField),
+  'accessible label for dates edit');
+check(/bcRenderFieldEditPencilBtn\('guests', 'Edit guests'\)/.test(renderField),
+  'accessible label for guests edit');
+check(/bcRenderFieldEditPencilBtn\('package', 'Edit package'\)/.test(renderField),
+  'accessible label for package edit');
+
+console.log('\nD. Contact edit shell');
 
 check(/id="bc-field-contact-name"/.test(renderField), 'contact name input');
+check(/id="bc-field-contact-phone"/.test(renderField), 'contact phone input');
 check(/id="bc-field-contact-email"/.test(renderField), 'contact email input');
-check(/data-bc-field-preview=/.test(actionsHtml) && />Preview<\/button>/.test(actionsHtml),
-  'Preview control in actions helper');
+check(/payload\.phone/.test(payloadFn), 'contact edit preview sends phone');
+check(/bcFieldEditFormatContactLine/.test(previewResultFn),
+  'contact preview renders current/proposed phone');
+check(/data-bc-field-preview=/.test(actionsHtml) && />Save<\/button>/.test(actionsHtml),
+  'Save control in actions helper (preview-only wiring)');
+check(!/>Preview<\/button>/.test(actionsHtml), 'Preview label removed from actions helper');
 check(/data-bc-field-cancel=/.test(actionsHtml) && /Cancel<\/button>/.test(actionsHtml),
   'Cancel control in actions helper');
-check(!/data-bc-field-save=/.test(actionsHtml), 'no disabled Save control in actions helper');
+check(!/data-bc-field-save=/.test(actionsHtml), 'no separate write save attribute');
 
-console.log('\nC. Dates edit shell');
+console.log('\nE. Dates edit shell');
 
 check(/id="bc-field-dates-check-in"/.test(renderField) && /type="date"/.test(renderField),
   'check-in date input');
@@ -82,7 +119,7 @@ check(/check-out must be after check-in|Check-out must be after check-in/i.test(
 check(/cout\.value <= cin\.value|check_out.*check_in/.test(fieldBlock),
   'check_out after check_in client validation');
 
-console.log('\nD. Package edit shell');
+console.log('\nF. Package edit shell');
 
 check(/id="bc-field-package-select"/.test(renderField), 'package dropdown');
 check(/bcFieldEditPackageOptions/.test(src), 'package options helper');
@@ -90,7 +127,7 @@ check(/malibu|uluwatu|waimea/.test(src.match(/function bcFieldEditPackageOptions
   'known package fallback options');
 check(/Temporary.*manual-create|10\.4f/i.test(src), 'package fallback documented as temporary');
 
-console.log('\nE. Guests edit shell');
+console.log('\nG. Guests edit shell');
 
 check(/id="bc-field-guests-select"/.test(renderField), 'guest count dropdown');
 check(/for \(var g = guestCount; g >= 1; g--\)/.test(renderField),
@@ -104,25 +141,24 @@ check(/slice\(-nRelease\)|slice\(-n\)/.test(src), 'release beds from end of assi
 check(!/id="bc-field-guests-bed-select"|choose.*bed.*release|select which bed/i.test(renderField + fieldBlock),
   'no bed selection UI for guest reduction');
 
-console.log('\nF. Preview / Cancel behavior (10.4f)');
+console.log('\nH. Save / preview behavior (10.4f.3)');
 
-check(/bcFieldEditRunPreview/.test(src), 'Preview runner function exists');
+check(/bcFieldEditRunPreview/.test(src), 'preview runner function exists');
 check(/fetch\('\/staff\/bookings\/edit-preview'/.test(previewRunner),
-  'Preview calls calculate-only /staff/bookings/edit-preview');
+  'Save still calls calculate-only /staff/bookings/edit-preview');
 check(/data-bc-field-preview/.test(actionsHtml + fieldInitBlock),
-  'Preview buttons wired in field edit shell');
-check(!/data-bc-field-save/.test(actionsHtml + fieldInitBlock),
-  'no Save buttons in field edit shell');
-check(!/btn\.disabled = true[\s\S]{0,40}data-bc-field-preview|data-bc-field-preview[\s\S]{0,80}disabled = true/.test(fieldInitBlock),
-  'Preview buttons are not permanently disabled');
+  'Save buttons wired via data-bc-field-preview');
+check(!/fetch\([^)]*\/staff\/bookings\/edit[^\-p]/.test(previewRunner + fieldInitBlock),
+  'no mutation fetch for Save');
 check(/Preview only.*not saved|Preview only \\u2014 not saved/.test(fieldBlock),
-  'preview result says not saved');
+  'preview result still says not saved');
 check(/bcFieldEditClearPreviewResults/.test(fieldBlock),
   'Cancel/preview clear preview result panels');
 check(/bcFieldEditRestoreForms/.test(fieldBlock), 'Cancel restores form snapshot');
 check(/bcFieldEditCloseAll/.test(fieldBlock), 'Cancel closes edit shell');
+check(/phone: bk\.phone/.test(fieldInitBlock), 'snapshot includes phone for cancel restore');
 
-console.log('\nG. Edit-preview boundary (calculate-only; no write/save)');
+console.log('\nI. Edit-preview boundary (calculate-only; no write/save)');
 
 check(/\/staff\/bookings\/edit-preview/.test(src),
   'edit-preview route exists in staff API');
@@ -133,15 +169,16 @@ check(!/fetch\([^)]*\/staff\/bookings\/[^)]*\/edit[^\-p]|booking-edit-write|BOOK
 check(!/INSERT INTO|UPDATE\s+|DELETE FROM/i.test(fieldBlock),
   'no UPDATE/INSERT/DELETE in field edit UI slice');
 
-console.log('\nH. Preserve existing drawer features');
+console.log('\nJ. Preserve existing drawer features');
 
 check(/bcRenderRunningInvoiceHtml\(bk, svcRows, pmt\)/.test(drawerFn),
   'running invoice display preserved');
 check(/id="bc-move-bed"/.test(drawerFn), 'Move bed panel preserved');
 check(/bcInitMovePanel\(res\.data\)/.test(src), 'move panel init preserved');
 check(/loadBlockDetail/.test(src), 'booking drawer reload preserved');
+check(/window\.switchToTabOnly/.test(src), 'Today navigation globals preserved');
 
-console.log('\nI. Safety boundaries');
+console.log('\nK. Safety boundaries');
 
 check(!/api\.stripe\.com/.test(fieldBlock + renderField), 'no Stripe API URL in field edit slice');
 check(!/graph\.facebook\.com/.test(fieldBlock + renderField), 'no WhatsApp URL in field edit slice');
@@ -155,7 +192,7 @@ check(!/Add service|Add add-on|create-payment-link/.test(fieldBlock + renderFiel
 check(!/handleBookingEditWrite|\/staff\/bookings\/[^'"]+\/edit[^\-p]/.test(fieldInitBlock + previewRunner),
   'no booking edit write endpoint in field edit init/preview');
 
-console.log('\nJ. Package script');
+console.log('\nL. Package script');
 
 try {
   const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
@@ -165,7 +202,7 @@ try {
   fail('package.json readable for script check');
 }
 
-console.log('\nK. No docs / migration changes');
+console.log('\nM. No docs / migration changes');
 
 let docsChanged = false;
 let migChanged = false;
