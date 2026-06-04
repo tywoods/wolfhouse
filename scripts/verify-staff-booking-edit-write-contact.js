@@ -98,21 +98,22 @@ check(/handleBookingEditWritePackage/.test(src),
   'package write lives in separate handler (10.5c)');
 check(/if \(editType === 'package'\)/.test(handlerBlock),
   'main handler routes package before contact patch');
-check(/edit_type_not_supported_in_phase_10_5d/.test(handlerBlock),
-  'guests rejected in write handler (10.5d)');
+check(/handleBookingEditWriteGuests/.test(src),
+  'guests write handler exists (10.5e)');
 check(/handleBookingEditWriteDates/.test(src),
   'dates write handler exists (10.5d)');
+check(/if \(editType === 'guests'\)/.test(handlerBlock),
+  'main handler routes guests write');
 check(!/check_in\s*=|check_out\s*=/.test(contactUpdateBlock),
   'contact UPDATE does not set check_in/check_out');
 check(/EDIT_WRITE_PACKAGE_UPDATE_SQL/.test(src) &&
   !/EDIT_WRITE_PACKAGE_UPDATE_SQL/.test(handlerBlock),
   'package UPDATE SQL not in contact handler tail');
-check(/if \(editType === 'guests'\)|editType === 'guests'/.test(previewHandlerBlock) ||
+check(/edit_type === 'guests'/.test(previewHandlerBlock) ||
   /\/\/ edit_type === 'guests'/.test(previewHandlerBlock),
-  'guest decrease remains preview-only in edit-preview');
-check(!/if \(editType === 'guests'\)/.test(handlerBlock) &&
-  !/guest_count/.test(contactUpdateBlock),
-  'no guest write in contact slice');
+  'guest decrease preview remains in edit-preview');
+check(!/guest_count/.test(contactUpdateBlock),
+  'contact UPDATE does not set guest_count');
 
 console.log('\nD. Mutation — bookings contact fields only');
 

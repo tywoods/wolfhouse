@@ -59,7 +59,11 @@ const datesBookingSql = datesUpdateBooking ? datesUpdateBooking[1] : '';
 const datesBedsSql = datesUpdateBeds ? datesUpdateBeds[1] : '';
 
 const writeUiBlock = src.match(/\/\* Phase 10\.5f-lite[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
-const datesSaveFn = src.match(/function bcFieldEditBuildDatesWritePayload[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
+const datesSaveFn = (
+  src.match(/function bcFieldEditBuildDatesWritePayload[\s\S]*?function bcFieldEditFormatDatesLine/)?.[0] || ''
+) + (
+  src.match(/function bcFieldEditRunDatesSave[\s\S]*?function bcFieldEditGuestsCountLowerThanCurrent/)?.[0] || ''
+);
 const actionsFn = src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)?.[0] || '';
 const previewFn = src.match(/function bcFieldEditRunPreview[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
 const initFn = src.match(/function bcInitFieldEditShell[\s\S]*?function renderBookingContextDrawer/)?.[0] || '';
@@ -132,16 +136,14 @@ check(/btn\.disabled = !valid \|\| !changed/.test(src),
 check(/loadBlockDetail\(code\)/.test(datesSaveFn), 'successful dates save reloads drawer');
 check(/loadBedCalendar/.test(datesSaveFn), 'successful dates save refreshes bed calendar');
 
-console.log('\nF. Guests preview-only; contact/package preserved');
+console.log('\nF. All field groups wired; contact/package/dates preserved');
 
 check(/function bcFieldEditRunContactSave/.test(src), 'contact save still exists');
 check(/function bcFieldEditRunPackageSave/.test(src), 'package save still exists');
-check(/group !== 'guests'/.test(previewFn) || /group === 'guests'/.test(previewFn),
-  'preview runner scoped to guests only');
-check(!/data-bc-field-preview="dates"|data-bc-field-preview="contact"|data-bc-field-preview="package"/.test(actionsFn),
-  'contact/package/dates do not use preview Save attribute');
-check(/data-bc-field-preview="guests"|data-bc-field-preview="' \+ escHtml\(group\)/.test(actionsFn),
-  'guests still use preview Save');
+check(/function bcFieldEditRunGuestsSave/.test(src), 'guests save exists (10.5e)');
+check(!/data-bc-field-preview="dates"|data-bc-field-preview="contact"|data-bc-field-preview="package"|data-bc-field-preview="guests"/.test(actionsFn),
+  'contact/package/dates/guests use dedicated Save buttons');
+check(/data-bc-field-guests-save/.test(actionsFn), 'guests uses guests-save Save button');
 check(!/edit_type:\s*'guests'/.test(datesSaveFn), 'dates UI write has no guests edit_type');
 
 console.log('\nG. Safety');

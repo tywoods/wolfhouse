@@ -83,20 +83,20 @@ check(/requireAuth\(req, res, 'operator'\)/.test(routeSlice),
 console.log('\nB. Supported edit types');
 
 check(/EDIT_WRITE_SUPPORTED_TYPES/.test(src) &&
-  /'contact'/.test(src) && /'package'/.test(src) && /'dates'/.test(src),
-  'EDIT_WRITE_SUPPORTED_TYPES includes contact, package, and dates');
+  /'contact'/.test(src) && /'package'/.test(src) && /'dates'/.test(src) && /'guests'/.test(src),
+  'EDIT_WRITE_SUPPORTED_TYPES includes contact, package, dates, and guests');
 check(/if \(editType === 'package'\)/.test(writeHandlerBlock),
   'main handler routes edit_type package');
 check(/if \(editType === 'dates'\)/.test(writeHandlerBlock),
   'main handler routes edit_type dates');
 check(/editWriteParseContactPatch/.test(writeHandlerBlock),
   'contact write path still present');
-check(/edit_type_not_supported_in_phase_10_5d/.test(writeHandlerBlock),
-  'guests rejected with phase 10.5d error');
+check(/if \(editType === 'guests'\)/.test(writeHandlerBlock),
+  'main handler routes edit_type guests');
+check(/handleBookingEditWriteGuests/.test(src),
+  'guests write handler exists (10.5e)');
 check(/handleBookingEditWriteDates/.test(src),
   'dates write handler exists');
-check(!/if \(editType === 'guests'\)/.test(writeSlice),
-  'no guests write in edit write slice');
 
 console.log('\nC. Package request validation');
 
@@ -179,8 +179,10 @@ check(/data-bc-field-package-save/.test(src), 'package Save button attribute pre
 check(/edit_type:\s*'package'/.test(packageSaveUiFn) &&
   /fetch\('\/staff\/bookings\/edit'/.test(packageSaveUiFn),
   'package UI posts to /staff/bookings/edit');
-check(/data-bc-field-preview/.test(fieldBlock),
-  'dates/guests field groups still use edit-preview Save');
+check(/data-bc-field-guests-save/.test(fieldBlock),
+  'guests field group uses guests-save Save (10.5e)');
+check(/data-bc-field-dates-save/.test(fieldBlock),
+  'dates field group uses dates-save Save');
 check(/group === 'contact'/.test(src) && /data-bc-field-contact-save/.test(src),
   'contact group uses gated write Save');
 

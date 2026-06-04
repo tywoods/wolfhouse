@@ -38,7 +38,11 @@ try {
 
 const uiFlags = src.slice(src.indexOf('var BC_STAFF_ACTIONS'), src.indexOf('var bcLastQuote'));
 const writeUiBlock = src.match(/\/\* Phase 10\.5f-lite[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
-const packageSaveFn = src.match(/function bcFieldEditBuildPackageWritePayload[\s\S]*?\/\* Phase 10\.4e/)?.[0] || '';
+const packageSaveFn = (
+  src.match(/function bcFieldEditBuildPackageWritePayload[\s\S]*?function bcFieldEditFormatPackageLine/)?.[0] || ''
+) + (
+  src.match(/function bcFieldEditRunPackageSave[\s\S]*?function bcFieldEditBuildDatesWritePayload/)?.[0] || ''
+);
 const contactSaveFn = src.match(/function bcFieldEditBuildContactWritePayload[\s\S]*?function bcFieldEditPackageChanged/)?.[0] || '';
 const actionsFn = src.match(/function bcRenderFieldEditActionsHtml[\s\S]*?\n\}/)?.[0] || '';
 const previewFn = src.match(/function bcFieldEditRunPreview[\s\S]*?function bcFieldEditRestoreForms/)?.[0] || '';
@@ -94,19 +98,14 @@ check(/fetch\('\/staff\/bookings\/edit'/.test(contactSaveFn),
   'contact Save still calls POST /staff/bookings/edit');
 check(/edit_type:\s*'contact'/.test(contactSaveFn), 'contact write payload unchanged');
 
-console.log('\nF. Dates/guests preview-only');
+console.log('\nF. Package save scope');
 
-check(/fetch\('\/staff\/bookings\/edit-preview'/.test(previewFn),
-  'preview runner still calls edit-preview');
-check(!/fetch\('\/staff\/bookings\/edit'/.test(previewFn),
-  'preview runner does not call write endpoint');
-check(/data-bc-field-preview="dates"|data-bc-field-preview="' \+ escHtml\(group\)/.test(actionsFn),
-  'dates/guests still use preview Save buttons');
 check(!/data-bc-field-package-save="dates"|data-bc-field-package-save="guests"/.test(actionsFn),
   'only package uses package-save attribute');
 check(!/edit_type:\s*'dates'/.test(packageSaveFn), 'package save UI has no dates edit_type');
 check(/data-bc-field-dates-save/.test(actionsFn), 'dates uses dedicated write Save button');
-check(!/edit_type:\s*'guests'/.test(packageSaveFn + previewFn), 'UI write path has no guests edit_type');
+check(/data-bc-field-guests-save/.test(actionsFn), 'guests uses dedicated write Save button');
+check(!/edit_type:\s*'guests'/.test(packageSaveFn), 'package save UI has no guests edit_type');
 
 console.log('\nG. Preserve drawer features');
 

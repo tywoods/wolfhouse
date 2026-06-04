@@ -83,16 +83,12 @@ console.log('\nD. Success reload');
 check(/loadBlockDetail\(code\)/.test(contactRunFn), 'successful contact save reloads booking drawer');
 check(/bcFieldEditCloseAll/.test(contactRunFn), 'contact save closes edit shell after success');
 
-console.log('\nE. Non-contact groups stay preview-only');
+console.log('\nE. Other groups use dedicated write or preview wiring');
 
-check(/fetch\('\/staff\/bookings\/edit-preview'/.test(previewFn),
-  'preview runner still calls edit-preview');
-check(!/fetch\('\/staff\/bookings\/edit'/.test(previewFn),
-  'preview runner does not call write endpoint');
-check(/data-bc-field-preview/.test(actionsFn),
-  'guests use data-bc-field-preview Save button');
 check(/data-bc-field-dates-save/.test(actionsFn),
   'dates uses dedicated dates-save Save button');
+check(/data-bc-field-guests-save/.test(actionsFn),
+  'guests uses dedicated guests-save Save button');
 check(/group === 'package'/.test(actionsFn) && /data-bc-field-package-save/.test(actionsFn),
   'package uses dedicated package-save Save button');
 check(/data-bc-field-contact-save/.test(actionsFn) && /group === 'contact'/.test(actionsFn),
@@ -100,11 +96,11 @@ check(/data-bc-field-contact-save/.test(actionsFn) && /group === 'contact'/.test
 check(!/data-bc-field-contact-save="dates"|data-bc-field-contact-save="guests"/.test(actionsFn),
   'only contact uses contact-save attribute');
 
-console.log('\nF. No package/date/guest write in UI');
+console.log('\nF. Contact write path scope');
 
-check(!/edit_type:\s*'dates'/.test(contactSaveFn), 'UI write path has no dates edit_type');
-check(!/edit_type:\s*'package'/.test(contactSaveFn), 'UI write path has no package edit_type');
-check(!/edit_type:\s*'guests'/.test(contactSaveFn), 'UI write path has no guests edit_type');
+check(!/edit_type:\s*'dates'/.test(contactSaveFn), 'contact save has no dates edit_type');
+check(!/edit_type:\s*'package'/.test(contactSaveFn), 'contact save has no package edit_type');
+check(!/edit_type:\s*'guests'/.test(contactSaveFn), 'contact save has no guests edit_type');
 
 console.log('\nG. Preserve drawer features');
 

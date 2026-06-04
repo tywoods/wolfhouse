@@ -3624,7 +3624,7 @@ async function handleBookingDateChangePreview(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
-const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates']);
+const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests']);
 const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({ package: true, package_proration: true, room_supplement: true });
 const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
 
@@ -3795,6 +3795,44 @@ RETURNING
   bb.assignment_end_date::text   AS check_out
 `;
 
+const EDIT_WRITE_GUESTS_UPDATE_BOOKING_SQL = `
+UPDATE bookings b
+SET guest_count = $3,
+    total_amount_cents = $4,
+    balance_due_cents = $5,
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $6::jsonb
+FROM clients c
+WHERE b.client_id = c.id
+  AND c.slug = $1
+  AND b.id::text = $2
+RETURNING
+  b.id::text           AS booking_id,
+  b.booking_code,
+  b.guest_count,
+  b.package_code,
+  b.check_in::text     AS check_in,
+  b.check_out::text    AS check_out,
+  b.total_amount_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents,
+  b.guest_name,
+  b.phone,
+  b.email
+`;
+
+const EDIT_WRITE_GUESTS_DELETE_BEDS_SQL = `
+DELETE FROM booking_beds bb
+USING clients c, bookings b
+WHERE bb.client_id = c.id
+  AND bb.booking_id = b.id
+  AND c.slug = $1
+  AND b.id::text = $2
+  AND bb.id = ANY($3::uuid[])
+RETURNING
+  bb.id::text AS booking_bed_id,
+  bb.bed_code
+`;
+
 function editWriteContactSnapshot(row) {
   return {
     guest_name: row.guest_name,
@@ -3884,7 +3922,8 @@ function editWriteInvoiceImpactFromPreview(invoicePreview, packageChanged) {
     stripe_mutation:    false,
     total_amount_cents: proposed.total_amount_cents != null ? proposed.total_amount_cents : null,
     balance_due_cents:  proposed.balance_due_cents != null ? proposed.balance_due_cents : null,
-    needs_refund:       proposed.needs_refund === true,
+    needs_refund:           proposed.needs_refund === true,
+    refund_review_needed:   proposed.needs_refund === true,
     delta_amount_cents: invoicePreview && invoicePreview.delta_amount_cents != null
       ? invoicePreview.delta_amount_cents
       : null,
@@ -4512,12 +4551,13 @@ async function handleBookingEditPreview(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 10.5b/10.5c/10.5c.2 — Booking field edit write (contact + package; no env gate)
+// Phase 10.5b–10.5e — Booking field edit write (contact, package, dates, guest decrease; no env gate)
 //
 // POST /staff/bookings/edit
 //
-// contact: guest_name/phone/email. package: package_code + expected invoice amounts.
-// No date/guest writes, beds, payments, service records, Stripe, n8n, or WhatsApp.
+// contact: guest_name/phone/email. package/dates: repriced expected invoice.
+// guests: decrease guest_count + DELETE last N booking_beds rows only.
+// No guest increase, payments, service records, Stripe, n8n, or WhatsApp.
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function handleBookingEditWritePackage(
@@ -4926,6 +4966,279 @@ async function handleBookingEditWriteDates(
   }
 }
 
+async function handleBookingEditWriteGuests(
+  res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
+) {
+  const guestCountRaw = body.guest_count;
+  if (guestCountRaw == null || guestCountRaw === '') return send400(res, 'guest_count is required');
+  const guestCount = Number(guestCountRaw);
+  if (!Number.isFinite(guestCount) || Math.floor(guestCount) !== guestCount) {
+    return send400(res, 'guest_count must be an integer');
+  }
+  if (guestCount < 1) return send400(res, 'guest_count must be at least 1');
+
+  const auditResponse = {
+    actor: actorLabel,
+    reason: auditBase.reason,
+    idempotency_key: auditBase.idempotency_key,
+  };
+
+  let bookingRow, sourceBeds, svcRows;
+  try {
+    const loaded = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      const booking = bookingRes.rows[0] || null;
+      if (!booking) return { bookingRow: null, sourceBeds: [], svcRows: [] };
+      const bedsRes = await pg.query(MOVE_WRITE_SOURCE_BEDS_SQL, [clientSlug, booking.booking_id]);
+      const svc = await loadBookingServiceRecords(pg, clientSlug, booking.booking_code);
+      return { bookingRow: booking, sourceBeds: bedsRes.rows, svcRows: svc.rows };
+    });
+    bookingRow = loaded.bookingRow;
+    sourceBeds = loaded.sourceBeds;
+    svcRows = loaded.svcRows;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'edit write query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', updated: false, would_mutate: false });
+  }
+
+  const currentGuests = Math.max(1, Number(bookingRow.guest_count) || 1);
+  if (guestCount > currentGuests) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: 'guest_increase_not_supported',
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'guest_increase_not_supported',
+      edit_type: 'guests',
+      updated: false,
+      would_mutate: false,
+      current: { guest_count: currentGuests },
+      proposed: { guest_count: guestCount },
+      message: 'Guest count increases are not supported.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  bookingRow._client_slug = clientSlug;
+  const release = editPreviewGuestBedRelease(sourceBeds, currentGuests, guestCount);
+  if (release.blocked) {
+    return send400(res, release.reason || 'invalid guest_count');
+  }
+
+  const currentView = {
+    guest_count: currentGuests,
+    assigned_beds: sourceBeds.map((b) => b.bed_code),
+  };
+
+  if (!release.changed) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, updated: false, idempotent: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: false,
+      idempotent: true,
+      edit_type: 'guests',
+      booking: editPreviewBookingSummary(bookingRow),
+      before: currentView,
+      after: currentView,
+      invoice_impact: editWriteInvoiceImpactFromPreview(null, false),
+      audit: auditResponse,
+      message: 'Booking guest count already matches the requested guest_count.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  if (release.requires_manual_review) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      can_apply: false,
+      requires_manual_review: true,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      can_apply: false,
+      updated: false,
+      would_mutate: false,
+      requires_manual_review: true,
+      reason: release.reason,
+      edit_type: 'guests',
+      before: currentView,
+      proposed: {
+        guest_count: guestCount,
+        release_booking_bed_ids: [],
+        released_beds: [],
+        remaining_beds: sourceBeds.map((b) => b.bed_code),
+      },
+      audit: auditResponse,
+      message: 'Not enough assignment rows to release beds cleanly. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const pricingAffects = true;
+  const invoice_preview = editPreviewBuildInvoicePreview(
+    bookingRow,
+    svcRows,
+    { guest_count: guestCount },
+    pricingAffects
+  );
+  const invoice_impact = editWriteInvoiceImpactFromPreview(invoice_preview, true);
+  const needs_refund = invoice_impact.needs_refund === true;
+  const refund_review_needed = invoice_impact.refund_review_needed === true;
+
+  if (invoice_preview.requires_reprice &&
+      (invoice_preview.proposed == null || invoice_preview.proposed.total_amount_cents == null)) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: 'guests_reprice_calculation_unavailable',
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'guests_reprice_calculation_unavailable',
+      edit_type: 'guests',
+      updated: false,
+      would_mutate: false,
+      before: currentView,
+      proposed: { guest_count: guestCount },
+      invoice_impact,
+      invoice_preview,
+      message: 'Guest reduction could not be calculated. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const proposedTotals = invoice_preview.proposed || {};
+  const totalCents = proposedTotals.total_amount_cents;
+  const balanceDue = proposedTotals.balance_due_cents != null ? proposedTotals.balance_due_cents : 0;
+  const releaseIds = release.release_booking_bed_ids || [];
+
+  const quote = editPreviewTryQuote(
+    clientSlug,
+    bookingRow.check_in,
+    bookingRow.check_out,
+    guestCount,
+    bookingRow.package_code
+  );
+  const metadataPatch = (quote && quote.success)
+    ? JSON.stringify({ quote_snapshot: quote })
+    : '{}';
+
+  try {
+    const updated = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const bookingUpd = await pg.query(EDIT_WRITE_GUESTS_UPDATE_BOOKING_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+          guestCount,
+          totalCents,
+          balanceDue,
+          metadataPatch,
+        ]);
+        if (!bookingUpd.rows[0]) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+        const bedsDel = await pg.query(EDIT_WRITE_GUESTS_DELETE_BEDS_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+          releaseIds,
+        ]);
+        if (bedsDel.rowCount !== releaseIds.length) {
+          await pg.query('ROLLBACK');
+          return { mismatch: true };
+        }
+        await pg.query('COMMIT');
+        return { booking: bookingUpd.rows[0], released: bedsDel.rows };
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    if (updated && updated.mismatch) {
+      appendAuditLog({ ...auditBase, success: false, error: 'bed_release_mismatch', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, {
+        success: false,
+        error: 'bed_release_mismatch',
+        updated: false,
+        message: 'Bed release did not complete as expected. No changes were made.',
+      });
+    }
+
+    if (!updated) {
+      appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'guests update failed', updated: false });
+    }
+
+    const remainRes = await withPgClient(async (pg) => {
+      const bedsRes = await pg.query(MOVE_WRITE_SOURCE_BEDS_SQL, [clientSlug, bookingRow.booking_id]);
+      return bedsRes.rows;
+    });
+    const afterView = {
+      guest_count: Number(updated.booking.guest_count),
+      assigned_beds: remainRes.map((b) => b.bed_code),
+      released_beds: (updated.released || []).map((b) => b.bed_code),
+      remaining_beds: remainRes.map((b) => b.bed_code),
+    };
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      updated: true,
+      release_count: release.release_count,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: true,
+      can_apply: true,
+      edit_type: 'guests',
+      booking: editPreviewBookingSummary(updated.booking),
+      before: currentView,
+      after: afterView,
+      bed_release: {
+        from: release.from,
+        to: release.to,
+        release_count: release.release_count,
+        release_booking_bed_ids: releaseIds,
+        released_beds: release.released_beds,
+        remaining_beds: release.remaining_beds,
+      },
+      invoice_impact,
+      invoice_preview,
+      needs_refund,
+      refund_review_needed,
+      audit: auditResponse,
+      message: needs_refund
+        ? 'Guest count reduced and beds released. Expected invoice recalculated; refund or credit review may be required. No payment, service, Stripe, n8n, or WhatsApp changes were made.'
+        : 'Guest count reduced and beds released. Expected invoice amounts recalculated. No payment, service, Stripe, n8n, or WhatsApp changes were made.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'guests update failed', detail: err.message, updated: false });
+  }
+}
+
 async function handleBookingEditWrite(req, res, user) {
   const started = Date.now();
 
@@ -4972,18 +5285,15 @@ async function handleBookingEditWrite(req, res, user) {
   };
 
   if (!EDIT_WRITE_SUPPORTED_TYPES.includes(editType)) {
-    const unsupportedErr = editType === 'guests'
-      ? 'edit_type_not_supported_in_phase_10_5d'
-      : 'edit_type_not_supported';
     appendAuditLog({
       ...auditBase,
       success: false,
-      error: unsupportedErr,
+      error: 'edit_type_not_supported',
       elapsed_ms: Date.now() - started,
     });
     return sendJSON(res, 400, {
       success: false,
-      error: unsupportedErr,
+      error: 'edit_type_not_supported',
       edit_type: editType,
       updated: false,
       would_mutate: false,
@@ -4998,6 +5308,12 @@ async function handleBookingEditWrite(req, res, user) {
 
   if (editType === 'dates') {
     return handleBookingEditWriteDates(
+      res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
+    );
+  }
+
+  if (editType === 'guests') {
+    return handleBookingEditWriteGuests(
       res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
     );
   }
@@ -13077,7 +13393,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   return html;
 }
 
-/* Phase 10.5f-lite / 10.5c.1 / 10.5d — contact, package, dates field edit write UI */
+/* Phase 10.5f-lite / 10.5c.1 / 10.5d / 10.5e — contact, package, dates, guests field edit write UI */
 function bcNewContactEditIdempotencyKey(){
   return 'bc-contact-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 }
@@ -13088,6 +13404,10 @@ function bcNewPackageEditIdempotencyKey(){
 
 function bcNewDatesEditIdempotencyKey(){
   return 'bc-dates-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcNewGuestsEditIdempotencyKey(){
+  return 'bc-guests-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 }
 
 function bcFieldEditOptionalContactInput(raw){
@@ -13430,6 +13750,119 @@ function bcFieldEditRunDatesSave(){
     });
 }
 
+function bcFieldEditGuestsCountLowerThanCurrent(nextCount){
+  var cur = bcFieldEditState.guestCount;
+  var next = parseInt(nextCount, 10);
+  if (!Number.isFinite(next)) return false;
+  return next >= 1 && next < cur;
+}
+
+function bcFieldEditUpdateGuestsSaveState(){
+  var btn = el('bc-field-save-guests');
+  if (!btn) return;
+  var guestEl = el('bc-field-guests-select');
+  var next = guestEl ? parseInt(guestEl.value, 10) : bcFieldEditState.guestCount;
+  btn.disabled = !bcFieldEditGuestsCountLowerThanCurrent(next);
+}
+
+function bcFieldEditBuildGuestsWritePayload(){
+  var guestEl = el('bc-field-guests-select');
+  var guestCount = guestEl ? parseInt(guestEl.value, 10) : NaN;
+  if (!Number.isFinite(guestCount) || guestCount < 1) return { error: 'Guest count is required.' };
+  if (guestCount >= bcFieldEditState.guestCount) {
+    return { error: 'Select a lower guest count to save (increases are not supported).' };
+  }
+  return {
+    client_slug: bcFieldEditState.clientSlug || getBcClient(),
+    booking_id: bcFieldEditState.bookingId,
+    booking_code: bcFieldEditState.bookingCode,
+    edit_type: 'guests',
+    guest_count: guestCount,
+    idempotency_key: bcNewGuestsEditIdempotencyKey(),
+    reason: 'Staff portal guest reduction',
+  };
+}
+
+function bcFieldEditRenderGuestsSaveResult(data, isError){
+  var box = el('bc-field-guests-preview-result');
+  if (!box) return;
+  box.style.display = '';
+  if (isError || !data || !data.success){
+    box.className = 'ctx-field-preview-result is-visible is-blocked';
+    var errMsg = (data && data.error) || (data && data.message) || 'Guests save failed.';
+    box.innerHTML = '<div class="ctx-field-preview-badge">Save failed</div>' + escHtml(errMsg) +
+      (data && data.detail ? '<div style="margin-top:4px">' + escHtml(data.detail) + '</div>' : '');
+    return;
+  }
+  if (data.can_apply === false && !data.updated){
+    box.className = 'ctx-field-preview-result is-visible is-blocked';
+    box.innerHTML = '<div class="ctx-field-preview-badge">Save blocked</div>' +
+      escHtml(data.message || 'Guest reduction could not be saved.');
+    return;
+  }
+  box.className = 'ctx-field-preview-result is-visible';
+  var html = '<div class="ctx-field-preview-badge">Guests saved</div>';
+  html += '<div>' + escHtml(data.message || 'Guest count reduced.') + '</div>';
+  if (data.before && data.after){
+    html += '<div style="margin-top:8px"><strong>Before:</strong> ' +
+      escHtml(String(data.before.guest_count) + ' guest(s), beds: ' + (data.before.assigned_beds || []).join(', ')) + '</div>';
+    html += '<div><strong>After:</strong> ' +
+      escHtml(String(data.after.guest_count) + ' guest(s), beds: ' + (data.after.assigned_beds || []).join(', ')) + '</div>';
+  }
+  if (data.bed_release && data.bed_release.released_beds && data.bed_release.released_beds.length){
+    html += '<div style="margin-top:6px">Released: ' + escHtml(data.bed_release.released_beds.join(', ')) + '</div>';
+  }
+  if (data.needs_refund || data.refund_review_needed){
+    html += '<div style="margin-top:6px;color:#9C5742">Refund or credit review may be required (no automatic refund).</div>';
+  }
+  if (data.idempotent) html += '<div style="margin-top:6px;font-style:italic">No changes were needed (already matched).</div>';
+  box.innerHTML = html;
+}
+
+function bcFieldEditRunGuestsSave(){
+  var built = bcFieldEditBuildGuestsWritePayload();
+  if (built.error){
+    bcFieldEditRenderGuestsSaveResult({ success: false, error: built.error }, true);
+    return;
+  }
+  var btn = el('bc-field-save-guests');
+  if (btn) btn.disabled = true;
+  bcFieldEditRenderGuestsSaveResult({ success: true, message: 'Saving guest reduction\u2026' }, false);
+  fetch('/staff/bookings/edit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(built),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
+    .then(function(res){
+      var data = res.data || {};
+      if (!res.ok || !data.success){
+        bcFieldEditRenderGuestsSaveResult({
+          success: false,
+          error: data.error || ('Save failed (HTTP ' + res.status + ')'),
+          detail: data.detail,
+          message: data.message,
+        }, true);
+        bcFieldEditUpdateGuestsSaveState();
+        return;
+      }
+      if (data.updated === false && data.can_apply === false){
+        bcFieldEditRenderGuestsSaveResult(data, false);
+        bcFieldEditUpdateGuestsSaveState();
+        return;
+      }
+      bcFieldEditRenderGuestsSaveResult(data, false);
+      var code = bcFieldEditState.bookingCode;
+      bcFieldEditCloseAll();
+      if (code) loadBlockDetail(code);
+      if (typeof loadBedCalendar === 'function') loadBedCalendar();
+    })
+    .catch(function(e){
+      bcFieldEditRenderGuestsSaveResult({ success: false, error: e.message || 'Network error' }, true);
+      bcFieldEditUpdateGuestsSaveState();
+    });
+}
+
 /* Phase 10.4e — field edit UI shell helpers (read-only; no API writes) */
 function bcFieldEditPackageOptions(currentCode){
   /* Temporary: mirrors manual-create package dropdown until pricing config on context API (10.4f+). */
@@ -13480,6 +13913,8 @@ function bcRenderFieldEditActionsHtml(group){
     saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-dates-save="dates" id="bc-field-save-dates">Save</button>';
   } else if (group === 'package'){
     saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-package-save="package" id="bc-field-save-package">Save</button>';
+  } else if (group === 'guests'){
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-guests-save="guests" id="bc-field-save-guests">Save</button>';
   } else {
     saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Save</button>';
   }
@@ -13700,7 +14135,7 @@ function bcFieldEditBuildPreviewPayload(group){
 }
 
 function bcFieldEditRunPreview(group){
-  if (group !== 'guests') return;
+  return;
   var built = bcFieldEditBuildPreviewPayload(group);
   if (built.error){
     bcFieldEditRenderPreviewResult(group, { success: false, error: built.error });
@@ -13775,7 +14210,10 @@ function bcFieldEditActivate(group){
   var edit = root.querySelector('.ctx-field-edit');
   if (read) read.style.display = 'none';
   if (edit) edit.style.display = '';
-  if (group === 'guests') bcFieldEditUpdateGuestPreview();
+  if (group === 'guests') {
+    bcFieldEditUpdateGuestPreview();
+    bcFieldEditUpdateGuestsSaveState();
+  }
   if (group === 'dates') bcFieldEditUpdateDatesPreview();
   if (group === 'contact') bcFieldEditUpdateContactSaveState();
   if (group === 'package') bcFieldEditUpdatePackageSaveState();
@@ -13809,11 +14247,13 @@ function bcFieldEditUpdateGuestPreview(){
     prev.textContent = next >= cur
       ? 'No bed release preview (count unchanged or increase not allowed).'
       : 'Select a lower guest count to preview bed release.';
+    bcFieldEditUpdateGuestsSaveState();
     return;
   }
   prev.innerHTML = 'Guests: ' + p.from + ' \u2192 ' + p.to +
     '<br>Will release: ' + escHtml(p.release.join(', ')) +
     '<br>Remaining: ' + escHtml(p.remaining.join(', '));
+  bcFieldEditUpdateGuestsSaveState();
 }
 
 function bcInitFieldEditShell(data){
@@ -13872,6 +14312,13 @@ function bcInitFieldEditShell(data){
       bcFieldEditRunDatesSave();
     };
   }
+  var guestsSaveBtn = el('bc-field-save-guests');
+  if (guestsSaveBtn){
+    guestsSaveBtn.onclick = function(e){
+      e.preventDefault();
+      bcFieldEditRunGuestsSave();
+    };
+  }
   bcFieldEditUpdateContactSaveState();
   bcFieldEditUpdatePackageSaveState();
   bcFieldEditUpdateDatesSaveState();
@@ -13884,7 +14331,13 @@ function bcInitFieldEditShell(data){
   });
 
   var guestSel = el('bc-field-guests-select');
-  if (guestSel) guestSel.onchange = function(){ bcFieldEditUpdateGuestPreview(); };
+  if (guestSel){
+    guestSel.onchange = function(){
+      bcFieldEditUpdateGuestPreview();
+      bcFieldEditUpdateGuestsSaveState();
+    };
+  }
+  bcFieldEditUpdateGuestsSaveState();
   var cin = el('bc-field-dates-check-in');
   var cout = el('bc-field-dates-check-out');
   if (cin){
