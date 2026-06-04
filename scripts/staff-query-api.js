@@ -15496,6 +15496,23 @@ function bcTurnoverCheckoutSeg(segs){
   return null;
 }
 
+function pickCalendarGuestDisplayName(src){
+  src = src || {};
+  var code = String(src.booking_code || '').trim();
+  function norm(v){
+    var s = String(v || '').trim();
+    if (!s || s === '\u2014') return '';
+    if (code && s.toLowerCase() === code.toLowerCase()) return '';
+    return s;
+  }
+  var bookingGuest = norm(src.guest_name);
+  var bedGuest = norm(src.bed_guest_name);
+  var planning = norm(src.planning_row_label || src.assignment_label);
+  var resolved = bookingGuest || bedGuest || planning;
+  if (resolved) return resolved;
+  return code || '\u2014';
+}
+
 function bcCalendarBlockDisplayLabel(blk){
   return pickCalendarGuestDisplayName(blk);
 }

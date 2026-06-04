@@ -2009,6 +2009,55 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     '10.6h.1: payment badge labels still present');
 })();
 
+// ── Phase 10.6h hotfix — pickCalendarGuestDisplayName in browser bundle ─────
+(function check106hClientPickGuestBundle(){
+  const vm = require('vm');
+  function extractEmbeddedUiScript(source) {
+    const buildStart = source.indexOf('function buildUiHtml');
+    const searchFrom = buildStart >= 0 ? buildStart : 0;
+    const scriptTag = source.indexOf('<script>', searchFrom);
+    if (scriptTag < 0) return null;
+    const fnStart = source.indexOf('(function(){', scriptTag);
+    if (fnStart < 0) return null;
+    const endTag = source.indexOf('</script>', fnStart);
+    if (endTag < 0) return null;
+    const beforeClose = source.slice(fnStart, endTag);
+    const relEnd = beforeClose.lastIndexOf('})();');
+    if (relEnd < 0) return null;
+    return beforeClose.slice(0, relEnd + '})();'.length);
+  }
+  const js = extractEmbeddedUiScript(src);
+  if (!js) {
+    check(false, '10.6h hotfix: could not extract embedded UI script');
+    return;
+  }
+  const pickIdx = js.indexOf('function pickCalendarGuestDisplayName');
+  const displayIdx = js.indexOf('function bcCalendarBlockDisplayLabel');
+  check(pickIdx >= 0, '10.6h hotfix: browser bundle defines pickCalendarGuestDisplayName');
+  check(pickIdx >= 0 && displayIdx > pickIdx,
+    '10.6h hotfix: pickCalendarGuestDisplayName defined before bcCalendarBlockDisplayLabel');
+  check(/bed_guest_name/.test(js.slice(pickIdx, pickIdx + 600)) && /planning_row_label/.test(js.slice(pickIdx, pickIdx + 800)),
+    '10.6h hotfix: client pick helper includes bed/planning fallbacks');
+
+  const pickSrc = js.match(/function pickCalendarGuestDisplayName[\s\S]*?\n\}/)?.[0] || '';
+  if (pickSrc) {
+    const pick = vm.runInNewContext(pickSrc + '; pickCalendarGuestDisplayName;');
+    check(typeof pick === 'function', '10.6h hotfix: client pick helper is callable');
+    check(pick({ booking_code: 'MB-WOLFHO-20260627-7b47a6', guest_name: 'MB-WOLFHO-20260627-7b47a6', bed_guest_name: 'Jimmy' }) === 'Jimmy',
+      '10.6h hotfix: code-as-guest_name falls back to bed_guest_name Jimmy');
+    check(pick({ booking_code: 'MB-X', guest_name: 'Alice' }) === 'Alice',
+      '10.6h hotfix: real guest_name renders guest_name');
+    check(pick({ booking_code: 'MB-FALLBACK' }) === 'MB-FALLBACK',
+      '10.6h hotfix: booking_code fallback when no guest fields');
+    check(/function bcCalendarPaymentBadgesHtml/.test(js),
+      '10.6h hotfix: payment badge helper still in browser bundle');
+    check(!/graph\.facebook\.com/.test(js) && !/n8n\.cloud.*activate/i.test(js),
+      '10.6h hotfix: no WhatsApp/n8n in browser calendar bundle');
+  } else {
+    check(false, '10.6h hotfix: could not extract client pickCalendarGuestDisplayName');
+  }
+})();
+
 // ── Phase 10.6g.5 — calendar badge inline layout ────────────────────────────
 (function check106g5CalendarBadgeLayout(){
   const blockCss = src.match(/\.bc-block\{[^}]+\}/)?.[0] || '';
