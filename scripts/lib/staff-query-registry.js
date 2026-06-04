@@ -38,6 +38,7 @@ const askLunaLessons   = require('./staff-ask-luna-lessons');
 const askLunaGear      = require('./staff-ask-luna-gear');
 const askLunaMealsYoga = require('./staff-ask-luna-meals-yoga');
 const askLunaArrivalsCheckouts = require('./staff-ask-luna-arrivals-checkouts');
+const askLunaCleaning = require('./staff-ask-luna-cleaning');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Param descriptor shape (for documentation + CLI validation)
@@ -668,6 +669,54 @@ const REGISTRY = [
     helperModule:    'lib/staff-ask-luna-arrivals-checkouts',
     helperFn:        'getAskLunaCheckoutsOnDateQuery',
     helperRef:       askLunaArrivalsCheckouts.getAskLunaCheckoutsOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Checkout date (ISO)', example: '2026-06-06' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+
+  // ── Housekeeping (Phase 11f) ────────────────────────────────────────────────
+
+  {
+    key:             'housekeeping.cleaning_today',
+    category:        'housekeeping',
+    description:     'Which rooms/beds need cleaning after today\'s checkouts?',
+    helperModule:    'lib/staff-ask-luna-cleaning',
+    helperFn:        'getAskLunaCleaningOnDateQuery',
+    helperRef:       askLunaCleaning.getAskLunaCleaningOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Checkout date (ISO date, use today)', example: '2026-06-04' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+  {
+    key:             'housekeeping.cleaning_tomorrow',
+    category:        'housekeeping',
+    description:     'Which rooms/beds need cleaning after tomorrow\'s checkouts?',
+    helperModule:    'lib/staff-ask-luna-cleaning',
+    helperFn:        'getAskLunaCleaningOnDateQuery',
+    helperRef:       askLunaCleaning.getAskLunaCleaningOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Checkout date (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_001',
+  },
+  {
+    key:             'housekeeping.cleaning_on_date',
+    category:        'housekeeping',
+    description:     'Which rooms/beds need cleaning after checkouts on a given date?',
+    helperModule:    'lib/staff-ask-luna-cleaning',
+    helperFn:        'getAskLunaCleaningOnDateQuery',
+    helperRef:       askLunaCleaning.getAskLunaCleaningOnDateQuery,
     requiredParams:  [
       { name: 'date', description: 'Checkout date (ISO)', example: '2026-06-06' },
     ],

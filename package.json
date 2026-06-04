@@ -140,6 +140,7 @@
     "verify:staff-ask-luna-gear": "node scripts/verify-staff-ask-luna-gear.js",
     "verify:staff-ask-luna-meals-yoga": "node scripts/verify-staff-ask-luna-meals-yoga.js",
     "verify:staff-ask-luna-arrivals-checkouts": "node scripts/verify-staff-ask-luna-arrivals-checkouts.js",
+    "verify:staff-ask-luna-cleaning": "node scripts/verify-staff-ask-luna-cleaning.js",
     "verify:staff-ask-luna-whatsapp-dry-run": "node scripts/verify-staff-ask-luna-whatsapp-dry-run.js",
     "verify:booking-service-records-schema": "node scripts/verify-booking-service-records-schema.js",
     "verify:service-payment-linkage-schema": "node scripts/verify-service-payment-linkage-schema.js",

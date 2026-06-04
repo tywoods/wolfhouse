@@ -207,10 +207,10 @@ check('H11', 'departures_today query uses bookings + booking_beds (structured da
   API_SRC.includes('FROM bookings b') &&
   API_SRC.includes('booking_beds bb'));
 
-check('H12', 'cleaning query derived from today departures/turnover (booking_beds + check_out)',
-  API_SRC.includes('getAskLunaRoomsNeedCleaningQuery') &&
+check('H12', 'cleaning query derived from checkout turnover (booking_beds + check_out)',
+  (API_SRC.includes('getAskLunaCleaningOnDateQuery') || API_SRC.includes('getAskLunaRoomsNeedCleaningQuery')) &&
   API_SRC.includes('b.check_out = $2::date') &&
-  API_SRC.includes('FROM booking_beds bb'));
+  API_SRC.includes('booking_beds'));
 
 check('H13', 'local intents do not query conversation/chat logs',
   !API_SRC.slice(API_SRC.indexOf('getAskLunaDeparturesTodayQuery'), API_SRC.indexOf('const ASK_LUNA_LOCAL_QUERY')).match(/conversation|message_log|chat_log/i));
@@ -349,10 +349,12 @@ function extractAskLunaRouterChunk() {
     const gearLib = require('./lib/staff-ask-luna-gear');
     const mealsYogaLib = require('./lib/staff-ask-luna-meals-yoga');
     const arrivalsLib = require('./lib/staff-ask-luna-arrivals-checkouts');
+    const cleaningLib = require('./lib/staff-ask-luna-cleaning');
     const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
     const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
     const mealsYogaRoutingBlock = mealsYogaLib.getAskLunaMealsYogaRoutingSmokeBlock();
     const arrivalsRoutingBlock = arrivalsLib.getAskLunaArrivalsCheckoutsRoutingSmokeBlock();
+    const cleaningRoutingBlock = cleaningLib.getAskLunaCleaningRoutingSmokeBlock();
     const registryKeys = [...require('./lib/staff-query-registry').REGISTRY_BY_KEY.keys()];
     const wrapped = `
       const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
@@ -362,6 +364,7 @@ function extractAskLunaRouterChunk() {
       ${gearRoutingBlock}
       ${mealsYogaRoutingBlock}
       ${arrivalsRoutingBlock}
+      ${cleaningRoutingBlock}
       const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) {
@@ -382,6 +385,9 @@ function extractAskLunaRouterChunk() {
         }
         if (String(id).includes('staff-ask-luna-arrivals-checkouts')) {
           return { resolveAskLunaArrivalsCheckoutsIntentKey };
+        }
+        if (String(id).includes('staff-ask-luna-cleaning')) {
+          return { resolveAskLunaCleaningIntentKey };
         }
         throw new Error('unexpected require: ' + id);
       };
@@ -421,16 +427,16 @@ function extractAskLunaRouterChunk() {
       boardCount && boardCount.intentKey === 'services.surfboard.count_on_date' && boardCount.extraParams.date === '2026-06-15');
     check('K-I5', 'runtime: who leaves today → bookings.checkouts_today',
       resolveIntent('Who leaves today').intentKey === 'bookings.checkouts_today');
-    check('K-I6', 'runtime: cleaning contraction → rooms_or_beds_need_cleaning',
-      resolveIntent("who's room needs to be cleaned?").intentKey === 'rooms_or_beds_need_cleaning');
+    check('K-I6', 'runtime: cleaning contraction → housekeeping.cleaning_today',
+      resolveIntent("who's room needs to be cleaned?").intentKey === 'housekeeping.cleaning_today');
     check('K-I7', 'runtime: Quien sale hoy → bookings.checkouts_today',
       resolveIntent('Quien sale hoy?').intentKey === 'bookings.checkouts_today');
-    check('K-I8', 'runtime: ES cleaning → rooms_or_beds_need_cleaning',
-      resolveIntent('Cual cuartos tengo que limpiar hoy?').intentKey === 'rooms_or_beds_need_cleaning');
+    check('K-I8', 'runtime: ES cleaning → housekeeping.cleaning_today',
+      resolveIntent('Cual cuartos tengo que limpiar hoy?').intentKey === 'housekeeping.cleaning_today');
     check('K-I9', 'runtime: IT checkout today → bookings.checkouts_today',
       resolveIntent('Chi parte oggi?').intentKey === 'bookings.checkouts_today');
-    check('K-I10', 'runtime: DE cleaning → rooms_or_beds_need_cleaning',
-      resolveIntent('Welche Zimmer müssen heute gereinigt werden?').intentKey === 'rooms_or_beds_need_cleaning');
+    check('K-I10', 'runtime: DE cleaning → housekeeping.cleaning_today',
+      resolveIntent('Welche Zimmer müssen heute gereinigt werden?').intentKey === 'housekeeping.cleaning_today');
     check('K-I11', 'runtime: FR checkout today → bookings.checkouts_today',
       resolveIntent("Qui part aujourd'hui?").intentKey === 'bookings.checkouts_today');
     check('K-I12', 'runtime: EN balance due → payments.balance_due',

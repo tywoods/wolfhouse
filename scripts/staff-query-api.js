@@ -84,6 +84,11 @@ const {
   getAskLunaCheckoutsOnDateQuery,
   formatAskLunaArrivalsCheckoutsAnswer,
 } = require('./lib/staff-ask-luna-arrivals-checkouts');
+const {
+  resolveAskLunaCleaningIntentKey,
+  getAskLunaCleaningOnDateQuery,
+  formatAskLunaCleaningAnswer,
+} = require('./lib/staff-ask-luna-cleaning');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1504,6 +1509,9 @@ const ASK_LUNA_LOCAL_QUERY = {
   'bookings.checkouts_today':    getAskLunaCheckoutsOnDateQuery,
   'bookings.checkouts_tomorrow': getAskLunaCheckoutsOnDateQuery,
   'bookings.checkouts_on_date':  getAskLunaCheckoutsOnDateQuery,
+  'housekeeping.cleaning_today':    getAskLunaCleaningOnDateQuery,
+  'housekeeping.cleaning_tomorrow': getAskLunaCleaningOnDateQuery,
+  'housekeeping.cleaning_on_date':  getAskLunaCleaningOnDateQuery,
 };
 
 /**
@@ -1523,6 +1531,11 @@ function resolveNaturalLanguageIntent(question) {
 
   const mealsYogaIntentEarly = resolveAskLunaMealsYogaIntentKey(question, REGISTRY_BY_KEY, refDate);
   if (mealsYogaIntentEarly) return mealsYogaIntentEarly;
+
+  const cleaningIntentEarly = resolveAskLunaCleaningIntentKey(
+    question, REGISTRY_BY_KEY, refDate,
+  );
+  if (cleaningIntentEarly) return cleaningIntentEarly;
 
   const arrivalsCheckoutsIntentEarly = resolveAskLunaArrivalsCheckoutsIntentKey(
     question, REGISTRY_BY_KEY, refDate,
@@ -1694,6 +1707,9 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'bookings.checkouts_today':     'No checkouts are currently scheduled for today.',
       'bookings.checkouts_tomorrow':  'No checkouts are currently scheduled for tomorrow.',
       'bookings.checkouts_on_date':   'No checkouts are currently scheduled for that date.',
+      'housekeeping.cleaning_today':    'No rooms or beds are currently flagged for checkout cleaning today.',
+      'housekeeping.cleaning_tomorrow': 'No rooms or beds are currently flagged for checkout cleaning tomorrow.',
+      'housekeeping.cleaning_on_date':  `No rooms or beds are currently flagged for checkout cleaning ${when}.`,
       'services.wetsuit.on_date':     `No wetsuits needed ${when}.`,
       'services.surfboard.on_date':   `No surfboards needed ${when}.`,
     };
@@ -1839,6 +1855,10 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       const flow = intentKey.includes('checkout') ? 'checkouts' : 'arrivals';
       return formatAskLunaArrivalsCheckoutsAnswer(rows, { ...ctx, flow });
     }
+    case 'housekeeping.cleaning_today':
+    case 'housekeeping.cleaning_tomorrow':
+    case 'housekeeping.cleaning_on_date':
+      return formatAskLunaCleaningAnswer(rows, ctx);
     default: {
       return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
     }
