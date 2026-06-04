@@ -61,6 +61,7 @@ const {
   resolveBalanceDueIntentKey,
 } = require('./lib/staff-ask-luna-balance-due');
 const { classifyAskLunaIntentWithAi } = require('./lib/staff-ask-luna-ai-intent');
+const { formatBalanceDueAnswerNatural } = require('./lib/staff-ask-luna-ai-answer-format');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1917,7 +1918,7 @@ async function handleAskLuna(req, res) {
         success: false, error: 'query_error', detail: err.message,
       });
     }
-    const answer = formatAskLunaBalanceDueAnswer(balanceRows);
+    const { answer, answer_format_source } = await formatBalanceDueAnswerNatural(balanceRows);
     return sendJSON(res, 200, {
       success:            true,
       client_slug:        clientSlug,
@@ -1926,6 +1927,7 @@ async function handleAskLuna(req, res) {
       intent:             intentKey,
       category:           'payments',
       answer,
+      answer_format_source,
       rows:               balanceRows.slice(0, MAX_ROWS),
       row_count:          balanceRows.length,
       read_only:          true,
