@@ -168,12 +168,15 @@ const routeChunk = [
 try {
   const bdLib = require('./lib/staff-ask-luna-balance-due');
   const lessonsLib = require('./lib/staff-ask-luna-lessons');
+  const gearLib = require('./lib/staff-ask-luna-gear');
   const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
+  const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
   const routeWrapped = `
     const matchesBalanceDueQuestion = ${bdLib.matchesBalanceDueQuestion.toString()};
     const normalizeBalanceDueQuestionText = ${bdLib.normalizeBalanceDueQuestionText.toString()};
     const resolveBalanceDueIntentKey = ${bdLib.resolveBalanceDueIntentKey.toString()};
     ${lessonsRoutingBlock}
+    ${gearRoutingBlock}
     const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
     const require = (id) => {
       if (String(id).includes('staff-query-registry')) {
@@ -185,6 +188,9 @@ try {
       }
       if (String(id).includes('staff-ask-luna-lessons')) {
         return { resolveAskLunaLessonsIntentKey };
+      }
+      if (String(id).includes('staff-ask-luna-gear')) {
+        return { resolveAskLunaGearIntentKey };
       }
       throw new Error('require ' + id);
     };

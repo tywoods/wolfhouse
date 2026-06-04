@@ -67,6 +67,11 @@ const {
   getAskLunaLessonsOnDateQuery,
   formatAskLunaLessonsAnswer,
 } = require('./lib/staff-ask-luna-lessons');
+const {
+  resolveAskLunaGearIntentKey,
+  getAskLunaGearOnDateQuery,
+  formatAskLunaGearAnswer,
+} = require('./lib/staff-ask-luna-gear');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1473,6 +1478,8 @@ const ASK_LUNA_LOCAL_QUERY = {
   'services.surfboard.count_on_date': getAskLunaServiceSurfboardCountQuery,
   'services.lessons_today':    getAskLunaLessonsOnDateQuery,
   'services.lessons_tomorrow': getAskLunaLessonsOnDateQuery,
+  'services.gear_today':       getAskLunaGearOnDateQuery,
+  'services.gear_tomorrow':    getAskLunaGearOnDateQuery,
 };
 
 /**
@@ -1486,6 +1493,9 @@ function resolveNaturalLanguageIntent(question) {
   // Lessons today/tomorrow before generic registry passthrough (needs date params)
   const lessonsIntentEarly = resolveAskLunaLessonsIntentKey(question, REGISTRY_BY_KEY, refDate);
   if (lessonsIntentEarly) return lessonsIntentEarly;
+
+  const gearIntentEarly = resolveAskLunaGearIntentKey(question, REGISTRY_BY_KEY, refDate);
+  if (gearIntentEarly) return gearIntentEarly;
 
   // Direct registry key passthrough before normalize (keeps dots in keys)
   const rawQ = String(question || '').trim().toLowerCase();
@@ -1638,6 +1648,8 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'services.surf_lesson.on_date': `No surf lessons scheduled ${when}.`,
       'services.lessons_today':       'No surf lessons are currently booked for today.',
       'services.lessons_tomorrow':    'No surf lessons are currently booked for tomorrow.',
+      'services.gear_today':          'No surf gear is currently booked for today.',
+      'services.gear_tomorrow':       'No surf gear is currently booked for tomorrow.',
       'services.wetsuit.on_date':     `No wetsuits needed ${when}.`,
       'services.surfboard.on_date':   `No surfboards needed ${when}.`,
     };
@@ -1762,6 +1774,9 @@ function formatAnswer(intentKey, rows, ctx = {}) {
     case 'services.lessons_today':
     case 'services.lessons_tomorrow':
       return formatAskLunaLessonsAnswer(rows, ctx);
+    case 'services.gear_today':
+    case 'services.gear_tomorrow':
+      return formatAskLunaGearAnswer(rows, ctx);
     default: {
       return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
     }
@@ -1857,6 +1872,7 @@ async function handleAskLuna(req, res) {
       'rooms/beds needing cleaning (rooms_or_beds_need_cleaning)',
       'who paid for yoga/meals (services.yoga/meal.paid_on_date)',
       'surf lessons today or tomorrow (services.lessons_today / services.lessons_tomorrow)',
+      'surf gear today or tomorrow (services.gear_today / services.gear_tomorrow)',
       'surf lessons / wetsuits / surfboards (services.*)',
       'who needs human reply (handoffs.open)',
       'deposit paid (payments.deposit)',

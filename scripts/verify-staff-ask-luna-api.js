@@ -346,13 +346,16 @@ function extractAskLunaRouterChunk() {
     if (!chunk) throw new Error('could not extract Ask Luna router chunk');
     const balanceDueLib = require('./lib/staff-ask-luna-balance-due');
     const lessonsLib = require('./lib/staff-ask-luna-lessons');
+    const gearLib = require('./lib/staff-ask-luna-gear');
     const lessonsRoutingBlock = lessonsLib.getAskLunaLessonsRoutingSmokeBlock();
+    const gearRoutingBlock = gearLib.getAskLunaGearRoutingSmokeBlock();
     const registryKeys = [...require('./lib/staff-query-registry').REGISTRY_BY_KEY.keys()];
     const wrapped = `
       const matchesBalanceDueQuestion = ${balanceDueLib.matchesBalanceDueQuestion.toString()};
       const normalizeBalanceDueQuestionText = ${balanceDueLib.normalizeBalanceDueQuestionText.toString()};
       const resolveBalanceDueIntentKey = ${balanceDueLib.resolveBalanceDueIntentKey.toString()};
       ${lessonsRoutingBlock}
+      ${gearRoutingBlock}
       const BALANCE_DUE_INTENT_KEY = 'payments.balance_due';
       const require = (id) => {
         if (String(id).includes('staff-query-registry')) {
@@ -364,6 +367,9 @@ function extractAskLunaRouterChunk() {
         }
         if (String(id).includes('staff-ask-luna-lessons')) {
           return { resolveAskLunaLessonsIntentKey };
+        }
+        if (String(id).includes('staff-ask-luna-gear')) {
+          return { resolveAskLunaGearIntentKey };
         }
         throw new Error('unexpected require: ' + id);
       };
@@ -393,12 +399,12 @@ function extractAskLunaRouterChunk() {
       mealPaid && mealPaid.intentKey === 'services.meal.paid_on_date' && mealPaid.extraParams.dateLabel === 'tomorrow');
     check('K-I4c', 'runtime: lesson today → services.lessons_today',
       lesson && lesson.intentKey === 'services.lessons_today' && lesson.extraParams.dateLabel === 'today');
-    check('K-I4d', 'runtime: wetsuit who → services.wetsuit.on_date',
-      wetsuit && wetsuit.intentKey === 'services.wetsuit.on_date');
-    check('K-I4e', 'runtime: wetsuit count → services.wetsuit.count_on_date',
-      wetsuitCount && wetsuitCount.intentKey === 'services.wetsuit.count_on_date');
-    check('K-I4f', 'runtime: surfboard who → services.surfboard.on_date',
-      board && board.intentKey === 'services.surfboard.on_date');
+    check('K-I4d', 'runtime: wetsuit who today → services.gear_today',
+      wetsuit && wetsuit.intentKey === 'services.gear_today' && wetsuit.extraParams.dateLabel === 'today');
+    check('K-I4e', 'runtime: wetsuit count today → services.gear_today',
+      wetsuitCount && wetsuitCount.intentKey === 'services.gear_today');
+    check('K-I4f', 'runtime: surfboard who tomorrow → services.gear_tomorrow',
+      board && board.intentKey === 'services.gear_tomorrow' && board.extraParams.dateLabel === 'tomorrow');
     check('K-I4g', 'runtime: surfboard count June 15 → services.surfboard.count_on_date',
       boardCount && boardCount.intentKey === 'services.surfboard.count_on_date' && boardCount.extraParams.date === '2026-06-15');
     check('K-I5', 'runtime: who leaves today → departures_today',

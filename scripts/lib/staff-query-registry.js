@@ -35,6 +35,7 @@ const roomingQueries = require('./staff-rooming-queries');
 const addonQueries   = require('./staff-addon-queries');
 const handoffQueries = require('./staff-handoff-queries');
 const askLunaLessons   = require('./staff-ask-luna-lessons');
+const askLunaGear      = require('./staff-ask-luna-gear');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Param descriptor shape (for documentation + CLI validation)
@@ -454,6 +455,36 @@ const REGISTRY = [
     helperRef:       askLunaLessons.getAskLunaLessonsOnDateQuery,
     requiredParams:  [
       { name: 'date', description: 'Lesson date (ISO date, use tomorrow)', example: '2026-06-05' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.gear_today',
+    category:        'services',
+    description:     'What surf gear (boards/wetsuits) is needed today?',
+    helperModule:    'lib/staff-ask-luna-gear',
+    helperFn:        'getAskLunaGearOnDateQuery',
+    helperRef:       askLunaGear.getAskLunaGearOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Gear date (ISO date, use today)', example: '2026-06-04' },
+    ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.gear_tomorrow',
+    category:        'services',
+    description:     'What surf gear (boards/wetsuits) is needed tomorrow?',
+    helperModule:    'lib/staff-ask-luna-gear',
+    helperFn:        'getAskLunaGearOnDateQuery',
+    helperRef:       askLunaGear.getAskLunaGearOnDateQuery,
+    requiredParams:  [
+      { name: 'date', description: 'Gear date (ISO date, use tomorrow)', example: '2026-06-05' },
     ],
     optionalParams:  [],
     clientSlugged:   true,
