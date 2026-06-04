@@ -83,17 +83,18 @@ check(/requireAuth\(req, res, 'operator'\)/.test(routeSlice),
 console.log('\nB. Supported edit types');
 
 check(/EDIT_WRITE_SUPPORTED_TYPES/.test(src) &&
-  /'contact'/.test(src) && /'package'/.test(src),
-  'EDIT_WRITE_SUPPORTED_TYPES includes contact and package');
+  /'contact'/.test(src) && /'package'/.test(src) && /'dates'/.test(src),
+  'EDIT_WRITE_SUPPORTED_TYPES includes contact, package, and dates');
 check(/if \(editType === 'package'\)/.test(writeHandlerBlock),
   'main handler routes edit_type package');
+check(/if \(editType === 'dates'\)/.test(writeHandlerBlock),
+  'main handler routes edit_type dates');
 check(/editWriteParseContactPatch/.test(writeHandlerBlock),
   'contact write path still present');
-check(/edit_type_not_supported_in_phase_10_5c/.test(writeHandlerBlock),
-  'dates/guests rejected with phase 10.5c error');
-check(/editType === 'dates'/.test(previewHandlerBlock) &&
-  !/editType === 'dates'/.test(packageHandlerBlock),
-  'no dates write in package handler');
+check(/edit_type_not_supported_in_phase_10_5d/.test(writeHandlerBlock),
+  'guests rejected with phase 10.5d error');
+check(/handleBookingEditWriteDates/.test(src),
+  'dates write handler exists');
 check(!/if \(editType === 'guests'\)/.test(writeSlice),
   'no guests write in edit write slice');
 

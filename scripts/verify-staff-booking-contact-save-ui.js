@@ -90,7 +90,9 @@ check(/fetch\('\/staff\/bookings\/edit-preview'/.test(previewFn),
 check(!/fetch\('\/staff\/bookings\/edit'/.test(previewFn),
   'preview runner does not call write endpoint');
 check(/data-bc-field-preview/.test(actionsFn),
-  'dates/guests use data-bc-field-preview Save buttons');
+  'guests use data-bc-field-preview Save button');
+check(/data-bc-field-dates-save/.test(actionsFn),
+  'dates uses dedicated dates-save Save button');
 check(/group === 'package'/.test(actionsFn) && /data-bc-field-package-save/.test(actionsFn),
   'package uses dedicated package-save Save button');
 check(/data-bc-field-contact-save/.test(actionsFn) && /group === 'contact'/.test(actionsFn),

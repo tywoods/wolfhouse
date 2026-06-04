@@ -144,12 +144,13 @@ check(!/graph\.facebook\.com/.test(handlerBlock), 'no WhatsApp URL in handler');
 check(!/n8n\.cloud|activate.*workflow/i.test(handlerBlock), 'no n8n activation URL in handler');
 check(!/resolveNaturalLanguageIntent|function alAsk/.test(handlerBlock), 'no Ask Luna logic in handler');
 check(/handleBookingEditWrite/.test(src) && /pathname === '\/staff\/bookings\/edit'/.test(src),
-  'gated booking edit write route present (10.5b contact only)');
-check(!/handleBookingEditWrite|BOOKING_EDIT_WRITE_ENABLED/.test(handlerBlock),
+  'booking edit write route present (contact/package/dates)');
+check(!/handleBookingEditWrite|handleBookingEditWriteDates|handleBookingEditWritePackage/.test(handlerBlock),
   'edit-preview handler does not invoke write path');
-check(/BOOKING_EDIT_WRITE_ENABLED/.test(src) &&
-  /process\.env\.BOOKING_EDIT_WRITE_ENABLED === 'true'/.test(src),
-  'edit write gate exists and defaults OFF');
+check(!/const BOOKING_EDIT_WRITE_ENABLED/.test(src),
+  'no BOOKING_EDIT_WRITE_ENABLED env gate (10.5c.2+)');
+check(!/if \(!BOOKING_EDIT_WRITE_ENABLED\)/.test(src),
+  'write handler not gated by BOOKING_EDIT_WRITE_ENABLED');
 
 console.log('\nK. Preserve existing features');
 

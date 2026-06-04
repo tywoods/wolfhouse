@@ -3624,7 +3624,7 @@ async function handleBookingDateChangePreview(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
-const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package']);
+const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates']);
 const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({ package: true, package_proration: true, room_supplement: true });
 const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
 
@@ -3751,6 +3751,48 @@ RETURNING
   b.guest_name,
   b.phone,
   b.email
+`;
+
+const EDIT_WRITE_DATES_UPDATE_BOOKING_SQL = `
+UPDATE bookings b
+SET check_in = $3::date,
+    check_out = $4::date,
+    total_amount_cents = $5,
+    balance_due_cents = $6,
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $7::jsonb
+FROM clients c
+WHERE b.client_id = c.id
+  AND c.slug = $1
+  AND b.id::text = $2
+RETURNING
+  b.id::text           AS booking_id,
+  b.booking_code,
+  b.check_in::text     AS check_in,
+  b.check_out::text    AS check_out,
+  b.package_code,
+  b.guest_count,
+  b.total_amount_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents,
+  b.guest_name,
+  b.phone,
+  b.email
+`;
+
+const EDIT_WRITE_DATES_UPDATE_BEDS_SQL = `
+UPDATE booking_beds bb
+SET assignment_start_date = $3::date,
+    assignment_end_date = $4::date,
+    updated_at = NOW()
+FROM clients c
+INNER JOIN bookings b ON b.id = bb.booking_id AND b.client_id = c.id
+WHERE c.slug = $1
+  AND b.id::text = $2
+RETURNING
+  bb.id::text                    AS booking_bed_id,
+  bb.bed_code,
+  bb.assignment_start_date::text AS check_in,
+  bb.assignment_end_date::text   AS check_out
 `;
 
 function editWriteContactSnapshot(row) {
@@ -4058,6 +4100,52 @@ function editPreviewGuestBedRelease(sourceBeds, currentGuests, newGuestCount) {
     released_beds: releaseRows.map((r) => r.bed_code),
     remaining_beds: remainRows.map((r) => r.bed_code),
   };
+}
+
+async function editWriteDatesEvaluateAvailability(pg, clientSlug, bookingRow, sourceBeds, checkIn, checkOut) {
+  if (!sourceBeds.length) {
+    return {
+      conflicts: [],
+      requires_manual_review: true,
+      reason: 'no_active_assignments',
+    };
+  }
+  const assignRes = await pg.query(MOVE_TARGETS_RANGE_ASSIGNMENTS_SQL, [clientSlug, checkIn, checkOut]);
+  let bedNotSellable = false;
+  for (const bed of sourceBeds) {
+    const bedRes = await pg.query(MOVE_PREVIEW_BED_BY_ID_SQL, [clientSlug, bed.bed_id]);
+    const bedRow = bedRes.rows[0];
+    if (bedRow && (bedRow.active === false || bedRow.sellable === false)) {
+      bedNotSellable = true;
+    }
+  }
+  const conflicts = editPreviewDatesBuildConflicts(
+    assignRes.rows,
+    bookingRow.booking_id,
+    checkIn,
+    checkOut,
+    sourceBeds
+  );
+  return {
+    conflicts,
+    requires_manual_review: bedNotSellable,
+    reason: bedNotSellable ? 'bed_not_sellable' : null,
+  };
+}
+
+function editWriteDatesSnapshot(row) {
+  return {
+    check_in:  row.check_in || null,
+    check_out: row.check_out || null,
+    nights:    movePreviewNights(row.check_in, row.check_out),
+    total_amount_cents: row.total_amount_cents != null ? Number(row.total_amount_cents) : null,
+    balance_due_cents:  row.balance_due_cents != null ? Number(row.balance_due_cents) : null,
+  };
+}
+
+function editWriteDatesFieldsMatch(before, checkIn, checkOut) {
+  return String(before.check_in || '') === String(checkIn || '')
+    && String(before.check_out || '') === String(checkOut || '');
 }
 
 function editPreviewDatesBuildConflicts(assignmentRows, sourceBookingId, checkIn, checkOut, sourceBeds) {
@@ -4600,6 +4688,244 @@ async function handleBookingEditWritePackage(
   }
 }
 
+async function handleBookingEditWriteDates(
+  res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
+) {
+  const checkIn  = String(body.check_in  || '').trim();
+  const checkOut = String(body.check_out || '').trim();
+  if (!checkIn || !checkOut) return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
+  if (!DATE_RE.test(checkIn) || !DATE_RE.test(checkOut)) return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  if (!parseCalendarDate(checkIn) || !parseCalendarDate(checkOut)) return send400(res, 'check_in and check_out must be valid dates');
+  if (checkOut <= checkIn) return send400(res, 'check_out must be after check_in');
+
+  const auditResponse = {
+    actor: actorLabel,
+    reason: auditBase.reason,
+    idempotency_key: auditBase.idempotency_key,
+  };
+
+  let bookingRow, sourceBeds, svcRows;
+  try {
+    const loaded = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      const booking = bookingRes.rows[0] || null;
+      if (!booking) return { bookingRow: null, sourceBeds: [], svcRows: [] };
+      const bedsRes = await pg.query(MOVE_WRITE_SOURCE_BEDS_SQL, [clientSlug, booking.booking_id]);
+      const svc = await loadBookingServiceRecords(pg, clientSlug, booking.booking_code);
+      return { bookingRow: booking, sourceBeds: bedsRes.rows, svcRows: svc.rows };
+    });
+    bookingRow = loaded.bookingRow;
+    sourceBeds = loaded.sourceBeds;
+    svcRows = loaded.svcRows;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'edit write query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', updated: false, would_mutate: false });
+  }
+
+  bookingRow._client_slug = clientSlug;
+  const before = editWriteDatesSnapshot(bookingRow);
+  const currentNights = before.nights;
+  const proposedNights = movePreviewNights(checkIn, checkOut);
+  const currentView = {
+    check_in: bookingRow.check_in,
+    check_out: bookingRow.check_out,
+    nights: currentNights,
+    assigned_beds: sourceBeds.map((b) => b.bed_code),
+  };
+  const proposedView = {
+    check_in: checkIn,
+    check_out: checkOut,
+    nights: proposedNights,
+    nights_delta: proposedNights != null && currentNights != null ? proposedNights - currentNights : null,
+    assigned_beds: sourceBeds.map((b) => b.bed_code),
+  };
+
+  if (editWriteDatesFieldsMatch(before, checkIn, checkOut)) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, updated: false, idempotent: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: false,
+      idempotent: true,
+      edit_type: 'dates',
+      booking: editPreviewBookingSummary(bookingRow),
+      before: currentView,
+      after: currentView,
+      invoice_impact: editWriteInvoiceImpactFromPreview(null, false),
+      audit: auditResponse,
+      message: 'Booking dates already match the requested check-in and check-out.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  let avail;
+  try {
+    avail = await withPgClient(async (pg) =>
+      editWriteDatesEvaluateAvailability(pg, clientSlug, bookingRow, sourceBeds, checkIn, checkOut)
+    );
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'availability check failed', detail: err.message });
+  }
+
+  const can_apply = avail.conflicts.length === 0 && !avail.requires_manual_review;
+  const pricingAffects = proposedView.nights_delta !== 0;
+  const invoice_preview = editPreviewBuildInvoicePreview(
+    bookingRow,
+    svcRows,
+    { check_in: checkIn, check_out: checkOut },
+    pricingAffects
+  );
+  const invoice_impact = editWriteInvoiceImpactFromPreview(invoice_preview, pricingAffects);
+
+  if (!can_apply) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      can_apply: false,
+      conflict_count: avail.conflicts.length,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      can_apply: false,
+      updated: false,
+      would_mutate: false,
+      edit_type: 'dates',
+      requires_manual_review: !!avail.requires_manual_review,
+      reason: avail.reason,
+      before: currentView,
+      proposed: proposedView,
+      conflicts: avail.conflicts,
+      invoice_impact,
+      invoice_preview,
+      audit: auditResponse,
+      message: avail.conflicts.length
+        ? 'Proposed dates conflict with other assignments. No changes were made.'
+        : 'Manual review required for proposed dates. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  if (pricingAffects && invoice_preview.requires_reprice &&
+      (invoice_preview.proposed == null || invoice_preview.proposed.total_amount_cents == null)) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: 'dates_reprice_calculation_unavailable',
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'dates_reprice_calculation_unavailable',
+      edit_type: 'dates',
+      updated: false,
+      would_mutate: false,
+      before: currentView,
+      proposed: proposedView,
+      invoice_impact,
+      invoice_preview,
+      message: 'Date change could not be calculated. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const proposedTotals = invoice_preview.proposed || {};
+  const totalCents = proposedTotals.total_amount_cents;
+  const balanceDue = proposedTotals.balance_due_cents != null ? proposedTotals.balance_due_cents : 0;
+  const quote = editPreviewTryQuote(
+    clientSlug,
+    checkIn,
+    checkOut,
+    Number(bookingRow.guest_count) || 1,
+    bookingRow.package_code
+  );
+  const metadataPatch = (quote && quote.success)
+    ? JSON.stringify({ quote_snapshot: quote })
+    : '{}';
+
+  try {
+    const updated = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const bookingUpd = await pg.query(EDIT_WRITE_DATES_UPDATE_BOOKING_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+          checkIn,
+          checkOut,
+          totalCents,
+          balanceDue,
+          metadataPatch,
+        ]);
+        if (!bookingUpd.rows[0]) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+        const bedsUpd = await pg.query(EDIT_WRITE_DATES_UPDATE_BEDS_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+          checkIn,
+          checkOut,
+        ]);
+        await pg.query('COMMIT');
+        return { booking: bookingUpd.rows[0], beds: bedsUpd.rows };
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    if (!updated) {
+      appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'dates update failed', updated: false });
+    }
+
+    const afterView = {
+      check_in: updated.booking.check_in,
+      check_out: updated.booking.check_out,
+      nights: movePreviewNights(updated.booking.check_in, updated.booking.check_out),
+      assigned_beds: updated.beds.map((b) => b.bed_code),
+      booking_beds: updated.beds,
+    };
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      updated: true,
+      before,
+      after: afterView,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: true,
+      can_apply: true,
+      edit_type: 'dates',
+      booking: editPreviewBookingSummary(updated.booking),
+      before: currentView,
+      after: afterView,
+      invoice_impact,
+      invoice_preview,
+      audit: auditResponse,
+      message: 'Booking dates updated. Bed assignments and expected invoice amounts recalculated. No payment, service, Stripe, n8n, or WhatsApp changes were made.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'dates update failed', detail: err.message, updated: false });
+  }
+}
+
 async function handleBookingEditWrite(req, res, user) {
   const started = Date.now();
 
@@ -4646,8 +4972,8 @@ async function handleBookingEditWrite(req, res, user) {
   };
 
   if (!EDIT_WRITE_SUPPORTED_TYPES.includes(editType)) {
-    const unsupportedErr = (editType === 'dates' || editType === 'guests')
-      ? 'edit_type_not_supported_in_phase_10_5c'
+    const unsupportedErr = editType === 'guests'
+      ? 'edit_type_not_supported_in_phase_10_5d'
       : 'edit_type_not_supported';
     appendAuditLog({
       ...auditBase,
@@ -4666,6 +4992,12 @@ async function handleBookingEditWrite(req, res, user) {
 
   if (editType === 'package') {
     return handleBookingEditWritePackage(
+      res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
+    );
+  }
+
+  if (editType === 'dates') {
+    return handleBookingEditWriteDates(
       res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
     );
   }
@@ -12745,13 +13077,17 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   return html;
 }
 
-/* Phase 10.5f-lite / 10.5c.1 — contact + package field edit write UI (gated; POST /staff/bookings/edit) */
+/* Phase 10.5f-lite / 10.5c.1 / 10.5d — contact, package, dates field edit write UI */
 function bcNewContactEditIdempotencyKey(){
   return 'bc-contact-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 }
 
 function bcNewPackageEditIdempotencyKey(){
   return 'bc-package-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcNewDatesEditIdempotencyKey(){
+  return 'bc-dates-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 }
 
 function bcFieldEditOptionalContactInput(raw){
@@ -12963,6 +13299,137 @@ function bcFieldEditRunPackageSave(){
     });
 }
 
+function bcFieldEditDatesChanged(checkIn, checkOut){
+  var s = bcFieldEditState.snapshot || {};
+  return String(s.check_in || '') !== String(checkIn || '')
+    || String(s.check_out || '') !== String(checkOut || '');
+}
+
+function bcFieldEditUpdateDatesSaveState(){
+  var btn = el('bc-field-save-dates');
+  if (!btn) return;
+  bcFieldEditUpdateDatesPreview();
+  var cin = el('bc-field-dates-check-in');
+  var cout = el('bc-field-dates-check-out');
+  var checkIn = cin ? cin.value : '';
+  var checkOut = cout ? cout.value : '';
+  var valid = !!(checkIn && checkOut && checkOut > checkIn);
+  var changed = bcFieldEditDatesChanged(checkIn, checkOut);
+  btn.disabled = !valid || !changed;
+}
+
+function bcFieldEditBuildDatesWritePayload(){
+  var cin = el('bc-field-dates-check-in');
+  var cout = el('bc-field-dates-check-out');
+  if (!cin || !cout || !cin.value || !cout.value) return { error: 'Check-in and check-out are required.' };
+  if (cout.value <= cin.value) return { error: 'Check-out must be after check-in.' };
+  return {
+    client_slug: bcFieldEditState.clientSlug || getBcClient(),
+    booking_id: bcFieldEditState.bookingId,
+    booking_code: bcFieldEditState.bookingCode,
+    edit_type: 'dates',
+    check_in: cin.value,
+    check_out: cout.value,
+    idempotency_key: bcNewDatesEditIdempotencyKey(),
+    reason: 'Staff portal dates edit',
+  };
+}
+
+function bcFieldEditFormatDatesLine(obj){
+  if (!obj) return '\u2014';
+  var parts = [
+    obj.check_in ? String(obj.check_in) : '\u2014',
+    obj.check_out ? String(obj.check_out) : '\u2014',
+  ];
+  if (obj.nights != null) parts.push(String(obj.nights) + ' night' + (obj.nights === 1 ? '' : 's'));
+  return parts.join(' \u2192 ');
+}
+
+function bcFieldEditRenderDatesSaveResult(data, isError){
+  var box = el('bc-field-dates-preview-result');
+  if (!box) return;
+  box.style.display = '';
+  if (isError || !data || !data.success){
+    box.className = 'ctx-field-preview-result is-visible is-blocked';
+    var errMsg = (data && data.error) || (data && data.message) || 'Dates save failed.';
+    var html = '<div class="ctx-field-preview-badge">Save failed</div>' + escHtml(errMsg);
+    if (data && data.conflicts && data.conflicts.length){
+      html += '<div style="margin-top:6px;color:#9C5742"><strong>Conflicts:</strong> ' +
+        escHtml(data.conflicts.map(function(c){ return c.bed_code + ' / ' + c.booking_code; }).join('; ')) + '</div>';
+    }
+    if (data && data.detail) html += '<div style="margin-top:4px">' + escHtml(data.detail) + '</div>';
+    box.innerHTML = html;
+    return;
+  }
+  if (data.can_apply === false && !data.updated){
+    box.className = 'ctx-field-preview-result is-visible is-blocked';
+    var blocked = '<div class="ctx-field-preview-badge">Save blocked</div>' +
+      escHtml(data.message || 'Dates could not be saved.');
+    if (data.conflicts && data.conflicts.length){
+      blocked += '<div style="margin-top:6px;color:#9C5742"><strong>Conflicts:</strong> ' +
+        escHtml(data.conflicts.map(function(c){ return c.bed_code + ' / ' + c.booking_code; }).join('; ')) + '</div>';
+    }
+    box.innerHTML = blocked;
+    return;
+  }
+  box.className = 'ctx-field-preview-result is-visible';
+  var okHtml = '<div class="ctx-field-preview-badge">Dates saved</div>';
+  okHtml += '<div>' + escHtml(data.message || 'Booking dates updated.') + '</div>';
+  if (data.before && data.after){
+    okHtml += '<div style="margin-top:8px"><strong>Before:</strong> ' +
+      escHtml(bcFieldEditFormatDatesLine(data.before)) + '</div>';
+    okHtml += '<div><strong>After:</strong> ' +
+      escHtml(bcFieldEditFormatDatesLine(data.after)) + '</div>';
+  }
+  if (data.idempotent) okHtml += '<div style="margin-top:6px;font-style:italic">No changes were needed (already matched).</div>';
+  box.innerHTML = okHtml;
+}
+
+function bcFieldEditRunDatesSave(){
+  var built = bcFieldEditBuildDatesWritePayload();
+  if (built.error){
+    bcFieldEditRenderDatesSaveResult({ success: false, error: built.error }, true);
+    return;
+  }
+  var btn = el('bc-field-save-dates');
+  if (btn) btn.disabled = true;
+  bcFieldEditRenderDatesSaveResult({ success: true, message: 'Saving dates\u2026' }, false);
+  fetch('/staff/bookings/edit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(built),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
+    .then(function(res){
+      var data = res.data || {};
+      if (!res.ok || !data.success){
+        bcFieldEditRenderDatesSaveResult({
+          success: false,
+          error: data.error || ('Save failed (HTTP ' + res.status + ')'),
+          detail: data.detail,
+          conflicts: data.conflicts,
+          message: data.message,
+        }, true);
+        bcFieldEditUpdateDatesSaveState();
+        return;
+      }
+      if (data.updated === false && data.can_apply === false){
+        bcFieldEditRenderDatesSaveResult(data, false);
+        bcFieldEditUpdateDatesSaveState();
+        return;
+      }
+      bcFieldEditRenderDatesSaveResult(data, false);
+      var code = bcFieldEditState.bookingCode;
+      bcFieldEditCloseAll();
+      if (code) loadBlockDetail(code);
+      if (typeof loadBedCalendar === 'function') loadBedCalendar();
+    })
+    .catch(function(e){
+      bcFieldEditRenderDatesSaveResult({ success: false, error: e.message || 'Network error' }, true);
+      bcFieldEditUpdateDatesSaveState();
+    });
+}
+
 /* Phase 10.4e — field edit UI shell helpers (read-only; no API writes) */
 function bcFieldEditPackageOptions(currentCode){
   /* Temporary: mirrors manual-create package dropdown until pricing config on context API (10.4f+). */
@@ -13009,6 +13476,8 @@ function bcRenderFieldEditActionsHtml(group){
   var saveBtn;
   if (group === 'contact'){
     saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-contact-save="contact" id="bc-field-save-contact">Save</button>';
+  } else if (group === 'dates'){
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-dates-save="dates" id="bc-field-save-dates">Save</button>';
   } else if (group === 'package'){
     saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-package-save="package" id="bc-field-save-package">Save</button>';
   } else {
@@ -13231,6 +13700,7 @@ function bcFieldEditBuildPreviewPayload(group){
 }
 
 function bcFieldEditRunPreview(group){
+  if (group !== 'guests') return;
   var built = bcFieldEditBuildPreviewPayload(group);
   if (built.error){
     bcFieldEditRenderPreviewResult(group, { success: false, error: built.error });
@@ -13309,6 +13779,7 @@ function bcFieldEditActivate(group){
   if (group === 'dates') bcFieldEditUpdateDatesPreview();
   if (group === 'contact') bcFieldEditUpdateContactSaveState();
   if (group === 'package') bcFieldEditUpdatePackageSaveState();
+  if (group === 'dates') bcFieldEditUpdateDatesSaveState();
 }
 
 function bcFieldEditUpdateDatesPreview(){
@@ -13394,8 +13865,16 @@ function bcInitFieldEditShell(data){
       bcFieldEditRunPackageSave();
     };
   }
+  var datesSaveBtn = el('bc-field-save-dates');
+  if (datesSaveBtn){
+    datesSaveBtn.onclick = function(e){
+      e.preventDefault();
+      bcFieldEditRunDatesSave();
+    };
+  }
   bcFieldEditUpdateContactSaveState();
   bcFieldEditUpdatePackageSaveState();
+  bcFieldEditUpdateDatesSaveState();
   ['bc-field-contact-name', 'bc-field-contact-phone', 'bc-field-contact-email'].forEach(function(id){
     var input = el(id);
     if (!input) return;
@@ -13409,12 +13888,12 @@ function bcInitFieldEditShell(data){
   var cin = el('bc-field-dates-check-in');
   var cout = el('bc-field-dates-check-out');
   if (cin){
-    cin.onchange = function(){ bcFieldEditUpdateDatesPreview(); };
-    cin.oninput = function(){ bcFieldEditUpdateDatesPreview(); };
+    cin.onchange = function(){ bcFieldEditUpdateDatesSaveState(); };
+    cin.oninput = function(){ bcFieldEditUpdateDatesSaveState(); };
   }
   if (cout){
-    cout.onchange = function(){ bcFieldEditUpdateDatesPreview(); };
-    cout.oninput = function(){ bcFieldEditUpdateDatesPreview(); };
+    cout.onchange = function(){ bcFieldEditUpdateDatesSaveState(); };
+    cout.oninput = function(){ bcFieldEditUpdateDatesSaveState(); };
   }
   var pkgSel = el('bc-field-package-select');
   if (pkgSel){

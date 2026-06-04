@@ -104,7 +104,8 @@ check(/data-bc-field-preview="dates"|data-bc-field-preview="' \+ escHtml\(group\
   'dates/guests still use preview Save buttons');
 check(!/data-bc-field-package-save="dates"|data-bc-field-package-save="guests"/.test(actionsFn),
   'only package uses package-save attribute');
-check(!/edit_type:\s*'dates'/.test(packageSaveFn + previewFn), 'UI write path has no dates edit_type');
+check(!/edit_type:\s*'dates'/.test(packageSaveFn), 'package save UI has no dates edit_type');
+check(/data-bc-field-dates-save/.test(actionsFn), 'dates uses dedicated write Save button');
 check(!/edit_type:\s*'guests'/.test(packageSaveFn + previewFn), 'UI write path has no guests edit_type');
 
 console.log('\nG. Preserve drawer features');

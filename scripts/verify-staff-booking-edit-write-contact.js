@@ -98,10 +98,10 @@ check(/handleBookingEditWritePackage/.test(src),
   'package write lives in separate handler (10.5c)');
 check(/if \(editType === 'package'\)/.test(handlerBlock),
   'main handler routes package before contact patch');
-check(/edit_type_not_supported_in_phase_10_5c/.test(handlerBlock),
-  'dates/guests rejected in write handler');
-check(/editType === 'dates'/.test(previewHandlerBlock),
-  'dates remains edit-preview only');
+check(/edit_type_not_supported_in_phase_10_5d/.test(handlerBlock),
+  'guests rejected in write handler (10.5d)');
+check(/handleBookingEditWriteDates/.test(src),
+  'dates write handler exists (10.5d)');
 check(!/check_in\s*=|check_out\s*=/.test(contactUpdateBlock),
   'contact UPDATE does not set check_in/check_out');
 check(/EDIT_WRITE_PACKAGE_UPDATE_SQL/.test(src) &&
