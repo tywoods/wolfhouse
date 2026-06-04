@@ -1,9 +1,11 @@
 # Phase 10.4 — Date-Change Preview Spec
 
-**Status:** **10.4a PASS** — docs/spec only (2026-06-04). No implementation yet.  
+**Status:** COMPLETE ENOUGH / PASS — Phase 10.4 (2026-06-04). Spec + API + hosted proof complete.  
 **Parent:** Phase 10 — Staff Operations Polish  
 **Prior:** [Phase 10.3 move write + UI closeout](PHASE-10.3-MOVE-ROOM-BED-WRITE-SPEC.md) — same-date bed move write + Staff Portal drawer move controls proven on staging (`7104815`, revision `--0000060`, gate OFF)  
-**Next:** **10.4b** — SELECT-only `POST /staff/bookings/date-change-preview` API handler
+**Next:** **10.4e** — Staff Portal date-change preview UI (preview-only; recommend before write) **or** **10.5** — date-change write design/spec
+
+**Implementation commits:** `3152b74` (10.4a spec) · `ac4c1d5` (10.4b API + static verifier). **Hosted:** `ac4c1d5-stage104b-date-change-preview` → revision **`--0000061`** (current, **100% traffic**, Healthy). **Staging gate:** no write route; preview always available via API.
 
 **Non-negotiables (preserved):** No n8n activation. No WhatsApp. No Stripe calls. No payment or `booking_service_records` mutation. No booking/date mutation in 10.4. Live WhatsApp **NO_GO**. n8n **inactive** unless explicitly approved. Stripe webhook remains payment truth. `booking_service_records` remains service/add-on truth.
 
@@ -255,11 +257,12 @@ When proposed nights equal current nights, set `pricing_impact.requires_reprice:
 
 | Slice | Scope | Deliverable |
 |-------|-------|-------------|
-| **10.4a** | Docs/spec | **PASS** — this document |
-| **10.4b** | API handler | `POST /staff/bookings/date-change-preview`; operator auth; SELECT-only conflict check; response shapes above |
-| **10.4c** | Static verifier | `verify:staff-booking-date-change-preview` — route exists, SELECT-only, no write routes, safety flags |
-| **10.4d** | Hosted preview proof | Staging proof on `MB-WOLFHO-20260920-4f62e2` or golden booking; allowed + blocked cases; no DB mutation |
-| **10.5** | Date-change write | **Later** — gated write spec + implementation after preview proof |
+| **10.4a** | Docs/spec | **PASS** (`3152b74`) — this document |
+| **10.4b** | API handler | **PASS** (`ac4c1d5`) — `POST /staff/bookings/date-change-preview`; operator auth; SELECT-only |
+| **10.4c** | Static verifier | **PASS** (`ac4c1d5`) — `verify:staff-date-change-preview` **48/48** |
+| **10.4d** | Hosted preview proof | **PASS** — revision `--0000061`; allowed + reprice + blocked + turnover; no DB mutation |
+| **10.4e** | Staff Portal preview UI | **Next (optional, recommended)** — drawer date-change preview panel; no write button |
+| **10.5** | Date-change write | **Later** — gated write spec + implementation after preview UI or explicit skip |
 
 **Recommended proof booking:** `MB-WOLFHO-20260920-4f62e2` (Manual Polish Test, currently **DEMO-R1-B1**, 2026-09-20→2026-09-23).
 
