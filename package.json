@@ -134,6 +134,7 @@
     "proof:stage8.3k-manual-booking-rollback": "node scripts/fixtures/stage8.3k-manual-booking-rollback-proof.js",
     "verify:staff-ask-luna-api": "node scripts/verify-staff-ask-luna-api.js",
     "verify:staff-ask-luna-balance-due": "node scripts/verify-staff-ask-luna-balance-due.js",
+    "verify:staff-ask-luna-ai-intent-fallback": "node scripts/verify-staff-ask-luna-ai-intent-fallback.js",
     "verify:staff-ask-luna-whatsapp-dry-run": "node scripts/verify-staff-ask-luna-whatsapp-dry-run.js",
     "verify:booking-service-records-schema": "node scripts/verify-booking-service-records-schema.js",
     "verify:service-payment-linkage-schema": "node scripts/verify-service-payment-linkage-schema.js",

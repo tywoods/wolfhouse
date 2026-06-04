@@ -464,12 +464,13 @@ check('L6', 'multilingual today/tomorrow words in date resolver',
   routerChunk.includes('heute') && routerChunk.includes('manana') &&
   routerChunk.includes('demain'));
 
-check('L7', 'no OpenAI/Anthropic/Claude/LLM API calls in Ask Luna scope',
-  !askLunaScope.match(/\bopenai\b/i) &&
-  !askLunaScope.match(/\banthropic\b/i) &&
-  !askLunaScope.match(/\bclaude\b/i) &&
-  !askLunaScope.match(/\bllm\b/i) &&
-  !askLunaScope.match(/api\.openai\.com/i));
+check('L7', 'Ask Luna handler/router has no inline LLM API URLs (classifier in lib module)',
+  !askLunaScope.match(/api\.openai\.com/i) &&
+  !askLunaScope.match(/api\.anthropic\.com/i));
+check('L7b', 'AI intent fallback wired via gated lib module',
+  API_SRC.includes('staff-ask-luna-ai-intent') &&
+  API_SRC.includes('classifyAskLunaIntentWithAi') &&
+  API_SRC.includes('resolveAskLunaIntent'));
 
 check('L8', 'no INSERT/UPDATE/DELETE in Ask Luna handler',
   !handlerNoComments.match(/\bINSERT\b/i) &&

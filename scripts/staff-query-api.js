@@ -60,6 +60,7 @@ const {
   matchesBalanceDueQuestion,
   resolveBalanceDueIntentKey,
 } = require('./lib/staff-ask-luna-balance-due');
+const { classifyAskLunaIntentWithAi } = require('./lib/staff-ask-luna-ai-intent');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -1552,6 +1553,44 @@ function resolveNaturalLanguageIntent(question) {
 }
 
 /**
+ * Resolve Ask Luna intent: deterministic phrases/registry first, then optional AI classifier.
+ */
+async function resolveAskLunaIntent(question) {
+  const deterministic = resolveNaturalLanguageIntent(question);
+  if (deterministic && deterministic.intentKey !== 'unsupported_intent') {
+    return { ...deterministic, intent_source: 'deterministic' };
+  }
+
+  try {
+    const ai = await classifyAskLunaIntentWithAi(question);
+    if (ai && ai.intent) {
+      return {
+        intentKey:     ai.intent,
+        extraParams:   {},
+        intent_source: 'ai',
+        ai_confidence: ai.confidence,
+        ai_reason:     ai.reason,
+      };
+    }
+  } catch (err) {
+    console.warn('[ask-luna] AI intent fallback error:', err.message);
+  }
+
+  if (deterministic) {
+    return { ...deterministic, intent_source: 'deterministic' };
+  }
+  return null;
+}
+
+function askLunaIntentMeta(resolution) {
+  if (!resolution) return { intent_source: 'none' };
+  const meta = { intent_source: resolution.intent_source || 'deterministic' };
+  if (resolution.ai_confidence != null) meta.ai_confidence = resolution.ai_confidence;
+  if (resolution.ai_reason) meta.ai_reason = resolution.ai_reason;
+  return meta;
+}
+
+/**
  * Formats query rows into a concise WhatsApp-friendly answer string.
  */
 function formatAnswer(intentKey, rows, ctx = {}) {
@@ -1783,8 +1822,8 @@ async function handleAskLuna(req, res) {
   if (!question) return send400(res, 'question is required');
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
 
-  // ── Resolve intent ────────────────────────────────────────────────────────
-  const resolution = resolveNaturalLanguageIntent(question);
+  // ── Resolve intent (deterministic → optional AI registry classifier) ───────
+  const resolution = await resolveAskLunaIntent(question);
 
   if (!resolution || resolution.intentKey === 'unsupported_intent') {
     const hint = resolution ? resolution.intentHint : null;
@@ -1826,7 +1865,7 @@ async function handleAskLuna(req, res) {
     });
   }
 
-  const { intentKey, extraParams } = resolution;
+  const { intentKey, extraParams, intent_source, ai_confidence, ai_reason } = resolution;
 
   if (ASK_LUNA_LOCAL_QUERY[intentKey]) {
     const today = extraParams.date || askLunaTodayUTC();
@@ -1864,6 +1903,7 @@ async function handleAskLuna(req, res) {
       no_write_performed: true,
       sends_whatsapp:     false,
       elapsed_ms:         Date.now() - started,
+      ...askLunaIntentMeta(resolution),
     });
   }
 
@@ -1892,6 +1932,7 @@ async function handleAskLuna(req, res) {
       no_write_performed: true,
       sends_whatsapp:     false,
       elapsed_ms:         Date.now() - started,
+      ...askLunaIntentMeta(resolution),
     });
   }
 
@@ -1911,6 +1952,7 @@ async function handleAskLuna(req, res) {
       no_write_performed: true,
       sends_whatsapp:    false,
       elapsed_ms:        Date.now() - started,
+      ...askLunaIntentMeta(resolution),
     });
   }
 
@@ -1949,6 +1991,7 @@ async function handleAskLuna(req, res) {
     no_write_performed: true,
     sends_whatsapp:     false,
     elapsed_ms:         elapsed,
+    ...askLunaIntentMeta(resolution),
   });
 }
 // ─────────────────────────────────────────────────────────────────────────────
