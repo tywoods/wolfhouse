@@ -184,6 +184,11 @@ const {
   getLunaBookingConfirmationPreview,
 } = require('./lib/luna-booking-confirmation-preview');
 const {
+  extractLunaGuestMessageIntake,
+  validateLunaGuestMessageIntake,
+  buildDryRunInputFromIntake,
+} = require('./lib/luna-guest-message-intake');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10290,6 +10295,111 @@ async function handleBotBookingConfirmationPreview(req, res, user, authMode) {
       error:                        err.message,
       auth_mode:                    resolvedAuthMode,
       elapsed_ms:                   elapsed,
+    });
+  }
+}
+
+// Route: POST /staff/bot/message-intake-preview  (Phase 15b — read-only)
+//
+// Deterministic guest message extraction → validation → optional dry-run plan.
+// No writes, WhatsApp, n8n, or Stripe.
+async function handleBotMessageIntakePreview(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-message-intake-local';
+
+  try {
+    const extraction = extractLunaGuestMessageIntake(body, {
+      reference_date: body.reference_date || undefined,
+    });
+    const validation = validateLunaGuestMessageIntake(extraction);
+
+    let dryRunPlan = null;
+    let dryRunInput = null;
+    if (validation.can_chain_dry_run) {
+      dryRunInput = buildDryRunInputFromIntake(validation.extraction, body);
+      dryRunPlan = await withPgClient((pg) => runLunaGuestBookingDryRun(dryRunInput, { pg }));
+    }
+
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ts:                  new Date().toISOString(),
+      intent:              'api:bot_message_intake_preview',
+      category:            'bot_message_intake_preview',
+      preview_only:        true,
+      extraction_only:     true,
+      no_write_performed:  true,
+      creates_booking:     false,
+      creates_payment:     false,
+      creates_stripe_link: false,
+      sends_whatsapp:      false,
+      calls_n8n:           false,
+      success:             extraction.success === true,
+      intent_detected:     validation.extraction && validation.extraction.intent,
+      handoff_required:    validation.extraction && validation.extraction.handoff_required,
+      dry_run_chained:     validation.can_chain_dry_run === true,
+      staff_user_id:       actorId,
+      auth_mode:           resolvedAuthMode,
+      elapsed_ms:          elapsed,
+    });
+
+    const status = extraction.success === false ? 400 : 200;
+    return sendJSON(res, status, {
+      success:           extraction.success !== false,
+      extraction:        validation.extraction,
+      validation:        {
+        valid:             validation.valid,
+        errors:            validation.errors,
+        warnings:          validation.warnings,
+        can_chain_dry_run: validation.can_chain_dry_run,
+      },
+      dry_run_input:     dryRunInput,
+      dry_run_plan:      dryRunPlan,
+      preview_only:      true,
+      extraction_only:   true,
+      no_write_performed: true,
+      creates_booking:    false,
+      creates_payment:    false,
+      creates_stripe_link: false,
+      sends_whatsapp:     false,
+      calls_n8n:          false,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+  } catch (err) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_message_intake_preview',
+      category:           'bot_message_intake_preview',
+      preview_only:       true,
+      extraction_only:    true,
+      no_write_performed: true,
+      success:            false,
+      error:              err.message,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:            false,
+      preview_only:       true,
+      extraction_only:    true,
+      no_write_performed: true,
+      sends_whatsapp:     false,
+      calls_n8n:          false,
+      error:              err.message,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
     });
   }
 }
@@ -22749,6 +22859,18 @@ async function router(req, res) {
     return handleBotBookingConfirmationPreview(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Phase 15b — Luna message intake preview (read-only) ───────────────────
+  // POST /staff/bot/message-intake-preview
+  if (pathname === '/staff/bot/message-intake-preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/message-intake-preview' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotMessageIntakePreview(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Phase 13c — Luna gated booking write bridge (default-deny) ─────────────
   // POST /staff/bot/booking-create-from-plan
   if (pathname === '/staff/bot/booking-create-from-plan') {
@@ -23082,6 +23204,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-write-eligibility <- 13c.4 Luna write eligibility (read-only, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna confirmation preview (read-only, no send)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/message-intake-preview <- 15b Luna message intake preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);

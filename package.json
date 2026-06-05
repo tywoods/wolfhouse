@@ -173,7 +173,8 @@
     "verify:luna-agent-phase14-confirmation-gates-plan": "node scripts/verify-luna-agent-phase14-confirmation-gates-plan.js",
     "verify:luna-agent-phase14-confirmation-preview": "node scripts/verify-luna-agent-phase14-confirmation-preview.js",
     "verify:luna-agent-phase14-closeout": "node scripts/verify-luna-agent-phase14-closeout.js",
-    "verify:luna-agent-phase15-intake-plan": "node scripts/verify-luna-agent-phase15-intake-plan.js"
+    "verify:luna-agent-phase15-intake-plan": "node scripts/verify-luna-agent-phase15-intake-plan.js",
+    "verify:luna-agent-phase15-message-intake-preview": "node scripts/verify-luna-agent-phase15-message-intake-preview.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

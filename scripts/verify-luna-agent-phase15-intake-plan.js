@@ -133,20 +133,39 @@ if (fs.existsSync(N8NMAIN)) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('C. No intake implementation yet (15a is plan-only)');
+section('C. Phase 15b intake implementation anchors');
 
 const apiSrc = fs.existsSync(API) ? fs.readFileSync(API, 'utf8') : '';
+const intakeHelper = path.join(__dirname, 'lib', 'luna-guest-message-intake.js');
 
-if (!apiSrc.includes('message-intake-preview')
-  && !apiSrc.includes('extractLunaGuestMessageIntake')) {
-  pass('C1', 'no message-intake-preview route yet (15b)');
+if (apiHasRoute("'/staff/bot/message-intake-preview'")) {
+  pass('C1', 'POST /staff/bot/message-intake-preview registered');
 } else {
-  fail('C1', 'intake route already present — update plan/verifier');
+  fail('C1', 'message-intake-preview route missing');
 }
 
-const intakeHelper = path.join(__dirname, 'lib', 'luna-guest-message-intake.js');
-if (!fs.existsSync(intakeHelper)) pass('C2', 'no luna-guest-message-intake.js yet (15b)');
-else fail('C2', 'intake helper already exists — update closeout');
+if (fs.existsSync(intakeHelper)) {
+  pass('C2', 'luna-guest-message-intake.js exists');
+  const intakeSrc = fs.readFileSync(intakeHelper, 'utf8');
+  if (/extractLunaGuestMessageIntake/.test(intakeSrc)) pass('C3', 'extractLunaGuestMessageIntake in helper');
+  else fail('C3', 'extractLunaGuestMessageIntake missing');
+  if (/validateLunaGuestMessageIntake/.test(intakeSrc)) pass('C4', 'validateLunaGuestMessageIntake in helper');
+  else fail('C4', 'validateLunaGuestMessageIntake missing');
+  if (/buildDryRunInputFromIntake/.test(intakeSrc)) pass('C5', 'buildDryRunInputFromIntake in helper');
+  else fail('C5', 'buildDryRunInputFromIntake missing');
+  if (/LUNA_GUEST_INTAKE_AI_ENABLED/.test(intakeSrc)) pass('C6', 'AI env gate documented in helper');
+  else fail('C6', 'AI env gate missing');
+} else {
+  fail('C2', 'luna-guest-message-intake.js missing');
+}
+
+const pkg15 = JSON.parse(fs.readFileSync(PKG, 'utf8'));
+if (pkg15.scripts
+  && pkg15.scripts['verify:luna-agent-phase15-message-intake-preview']) {
+  pass('C7', 'phase15 message-intake-preview verifier registered');
+} else {
+  fail('C7', 'verify:luna-agent-phase15-message-intake-preview npm script missing');
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('D. Pricing catalog anchors (package codes)');
