@@ -7,6 +7,9 @@
  * WhatsApp-style message preview. No writes, no WhatsApp, no n8n, no Stripe.
  */
 
+const fs   = require('fs');
+const path = require('path');
+
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
 const PAID_STATUSES = new Set(['deposit_paid', 'paid']);
@@ -69,6 +72,42 @@ function parseMetadata(raw) {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
+function loadClientConfirmationConfig(clientSlug) {
+  try {
+    const cfgPath = path.join(__dirname, '..', '..', 'config', 'clients', `${clientSlug}.baseline.json`);
+    const cfg     = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    return {
+      include_address: cfg.confirmation?.include_address === true,
+      address:         cfg.confirmation?.address || cfg.property?.address || null,
+      gate_code:       cfg.confirmation?.gate_code || cfg.property?.gate_code || null,
+    };
+  } catch (_) {
+    return { include_address: false, address: null, gate_code: null };
+  }
+}
+
+function resolveConfirmationAddress(draft, clientConfig) {
+  const fromDraft = draft && draft.address ? String(draft.address).trim() : '';
+  if (fromDraft) {
+    return { address: fromDraft, source: 'confirmation_draft' };
+  }
+  const fromConfig = clientConfig && clientConfig.address
+    ? String(clientConfig.address).trim()
+    : '';
+  if (fromConfig) {
+    return { address: fromConfig, source: 'client_config' };
+  }
+  return { address: null, source: null };
+}
+
+function resolveGateCode(draft, clientConfig) {
+  const fromDraft = draft && draft.gate_code ? String(draft.gate_code).trim() : '';
+  if (fromDraft) return fromDraft;
+  return clientConfig && clientConfig.gate_code
+    ? String(clientConfig.gate_code).trim()
+    : null;
+}
+
 function resolveRoomNumbers(draft, primaryRoomCode, extraRoomCodes) {
   const codes = new Set();
   const fromDraft = draft && draft.room_number ? String(draft.room_number).trim() : '';
@@ -83,7 +122,7 @@ function resolveRoomNumbers(draft, primaryRoomCode, extraRoomCodes) {
   return [...codes].filter(Boolean);
 }
 
-function buildMessagePreview(draft, roomNumbers) {
+function buildMessagePreview(draft, roomNumbers, resolvedAddress, gateCode) {
   const lines = [];
   if (draft.guest_name) lines.push(`Hi ${draft.guest_name},`);
   lines.push('Your Wolfhouse booking is confirmed.');
@@ -98,8 +137,8 @@ function buildMessagePreview(draft, roomNumbers) {
     }
     if (parts.length) lines.push(parts.join(' · '));
   }
-  if (draft.address) lines.push(`Address: ${draft.address}`);
-  if (draft.gate_code) lines.push(`Gate code: ${draft.gate_code}`);
+  if (resolvedAddress) lines.push(`Address: ${resolvedAddress}`);
+  if (gateCode) lines.push(`Gate code: ${gateCode}`);
   if (roomNumbers.length) lines.push(`Room: ${roomNumbers.join(', ')}`);
   return lines.join('\n');
 }
@@ -111,13 +150,14 @@ function messagePreviewHasBedLeak(messagePreview) {
 
 /**
  * @param {object} input — booking_id or booking_code, client_slug
- * @param {{ pg: object }} context
+ * @param {{ pg: object, loadClientConfirmationConfig?: Function }} context
  */
 async function getLunaBookingConfirmationPreview(input, context) {
   const clientSlug  = String((input && input.client_slug) || DEFAULT_CLIENT).trim();
   const bookingId   = input && input.booking_id   ? String(input.booking_id).trim()   : null;
   const bookingCode = input && input.booking_code ? String(input.booking_code).trim() : null;
   const pg          = context && context.pg;
+  const loadConfig  = (context && context.loadClientConfirmationConfig) || loadClientConfirmationConfig;
 
   if (!pg || typeof pg.query !== 'function') {
     return { success: false, error: 'pg client required', ...PREVIEW_SAFETY_FLAGS };
@@ -149,6 +189,7 @@ async function getLunaBookingConfirmationPreview(input, context) {
   const metadata          = parseMetadata(row.metadata);
   const confirmationDraft = metadata.confirmation_draft || null;
   const paymentStatus     = String(row.payment_status || '').trim();
+  const clientConfig      = loadConfig(clientSlug);
 
   const base = {
     ...PREVIEW_SAFETY_FLAGS,
@@ -179,6 +220,20 @@ async function getLunaBookingConfirmationPreview(input, context) {
     };
   }
 
+  const addressResolved = resolveConfirmationAddress(confirmationDraft, clientConfig);
+  const gateCode        = resolveGateCode(confirmationDraft, clientConfig);
+
+  if (clientConfig.include_address && !addressResolved.address) {
+    return {
+      success: false,
+      ...base,
+      confirmation_draft: confirmationDraft,
+      message_preview:    null,
+      address_source:     null,
+      blocked_reasons:    ['confirmation_address_missing'],
+    };
+  }
+
   let extraRoomCodes = [];
   try {
     const roomRes = await pg.query(ROOM_CODES_SQL, [clientSlug, row.booking_id]);
@@ -188,7 +243,12 @@ async function getLunaBookingConfirmationPreview(input, context) {
   }
 
   const roomNumbers    = resolveRoomNumbers(confirmationDraft, row.primary_room_code, extraRoomCodes);
-  const messagePreview = buildMessagePreview(confirmationDraft, roomNumbers);
+  const messagePreview = buildMessagePreview(
+    confirmationDraft,
+    roomNumbers,
+    addressResolved.address,
+    gateCode,
+  );
 
   if (messagePreviewHasBedLeak(messagePreview)) {
     return {
@@ -196,6 +256,7 @@ async function getLunaBookingConfirmationPreview(input, context) {
       ...base,
       confirmation_draft: confirmationDraft,
       message_preview:    messagePreview,
+      address_source:     addressResolved.source,
       blocked_reasons:    ['message_preview_bed_leak'],
     };
   }
@@ -205,12 +266,16 @@ async function getLunaBookingConfirmationPreview(input, context) {
     ...base,
     confirmation_draft: confirmationDraft,
     message_preview:    messagePreview,
+    address_source:     addressResolved.source,
     blocked_reasons:    [],
   };
 }
 
 module.exports = {
   getLunaBookingConfirmationPreview,
+  loadClientConfirmationConfig,
+  resolveConfirmationAddress,
+  resolveGateCode,
   BOOKING_BY_CODE_SQL,
   BOOKING_BY_ID_SQL,
   ROOM_CODES_SQL,

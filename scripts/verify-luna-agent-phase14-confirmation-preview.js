@@ -28,9 +28,10 @@ function readOrEmpty(filePath) {
   catch { return ''; }
 }
 
+const CONFIG_PATH         = path.join(ROOT, 'config', 'clients', 'wolfhouse-somo.baseline.json');
 const ANCHOR_BOOKING_ID   = '9073415f-1501-4bdf-b1c8-ce5879c93662';
 const ANCHOR_BOOKING_CODE = 'MB-WOLFHO-20260920-b6f9c7';
-const ANCHOR_ADDRESS      = 'Calle Somo 12, Somo, Cantabria';
+const FALLBACK_ADDRESS    = 'Calle Test 1, Somo, Cantabria';
 const ANCHOR_GATE         = '2684#';
 const ANCHOR_ROOM         = 'DEMO-R1';
 
@@ -42,7 +43,7 @@ function makeConfirmationDraft(overrides) {
     amount_paid_cents:  10000,
     balance_due_cents:  17000,
     room_number:        ANCHOR_ROOM,
-    address:            ANCHOR_ADDRESS,
+    address:            FALLBACK_ADDRESS,
     gate_code:          ANCHOR_GATE,
     sends_whatsapp:     false,
     whatsapp_dry_run:   true,
@@ -116,6 +117,34 @@ if (/module\.exports\s*=\s*\{[^}]*getLunaBookingConfirmationPreview/.test(helper
   pass('A3', 'helper module.exports includes getLunaBookingConfirmationPreview');
 } else {
   fail('A3', 'helper export block missing getLunaBookingConfirmationPreview');
+}
+
+if (/loadClientConfirmationConfig/.test(helperSrc)
+  && /resolveConfirmationAddress/.test(helperSrc)) {
+  pass('A4', 'helper loads client config for address fallback');
+} else {
+  fail('A4', 'config address fallback helpers missing');
+}
+
+if (/confirmation_address_missing/.test(helperSrc)) {
+  pass('A5', 'helper blocks when include_address true and address unavailable');
+} else {
+  fail('A5', 'confirmation_address_missing block missing');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('A0. Wolfhouse config address anchor (no invented address)');
+
+if (fs.existsSync(CONFIG_PATH)) {
+  const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  const stored = cfg.confirmation?.address || cfg.property?.address || null;
+  if (stored) {
+    pass('A0', `wolfhouse config has stored address (${stored})`);
+  } else {
+    pass('A0', 'wolfhouse address owner_required — not in repo/config; preview uses fallback/block logic');
+  }
+} else {
+  fail('A0', 'wolfhouse-somo.baseline.json missing');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,8 +252,80 @@ const { getLunaBookingConfirmationPreview } = require('./lib/luna-booking-confir
   else fail('D8', 'confirmation_sent_at should be null in mock');
 
   const msg = String(paidPreview.message_preview || '');
-  if (msg.includes(ANCHOR_ADDRESS)) pass('D9', 'message_preview includes address');
-  else fail('D9', 'address missing from message_preview');
+  if (/Address:/i.test(msg) && msg.includes(FALLBACK_ADDRESS)) {
+    pass('D9', 'message_preview includes Address line (draft address)');
+  } else {
+    fail('D9', 'address missing from message_preview');
+  }
+
+  const nullDraftRow = makeBookingRow({
+    confirmation_draft: makeConfirmationDraft({ address: null }),
+  });
+  const fallbackPreview = await getLunaBookingConfirmationPreview(
+    { client_slug: 'wolfhouse-somo', booking_code: ANCHOR_BOOKING_CODE },
+    {
+      pg: makeMockPg(nullDraftRow),
+      loadClientConfirmationConfig: () => ({
+        include_address: true,
+        address: FALLBACK_ADDRESS,
+        gate_code: ANCHOR_GATE,
+      }),
+    },
+  );
+  const fallbackMsg = String(fallbackPreview.message_preview || '');
+  if (fallbackPreview.success === true && fallbackPreview.address_source === 'client_config') {
+    pass('D18', 'falls back to config address when draft.address is null');
+  } else {
+    fail('D18', `config fallback failed: ${JSON.stringify(fallbackPreview)}`);
+  }
+  if (/Address:/i.test(fallbackMsg) && fallbackMsg.includes(FALLBACK_ADDRESS)) {
+    pass('D19', 'fallback message_preview includes Address line');
+  } else {
+    fail('D19', 'fallback Address line missing');
+  }
+
+  const missingAddrPreview = await getLunaBookingConfirmationPreview(
+    { client_slug: 'wolfhouse-somo', booking_code: ANCHOR_BOOKING_CODE },
+    {
+      pg: makeMockPg(nullDraftRow),
+      loadClientConfirmationConfig: () => ({
+        include_address: true,
+        address: null,
+        gate_code: ANCHOR_GATE,
+      }),
+    },
+  );
+  if (missingAddrPreview.success === false
+    && (missingAddrPreview.blocked_reasons || []).includes('confirmation_address_missing')) {
+    pass('D20', 'blocks when include_address true and no address anywhere');
+  } else {
+    fail('D20', 'missing address not blocked safely');
+  }
+
+  const stagingLikePreview = await getLunaBookingConfirmationPreview(
+    { client_slug: 'wolfhouse-somo', booking_code: ANCHOR_BOOKING_CODE },
+    { pg: makeMockPg(nullDraftRow) },
+  );
+  const cfg = fs.existsSync(CONFIG_PATH)
+    ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
+    : {};
+  const cfgHasAddress = !!(cfg.confirmation?.address || cfg.property?.address);
+  if (!cfgHasAddress && cfg.confirmation?.include_address === true) {
+    if (stagingLikePreview.success === false
+      && (stagingLikePreview.blocked_reasons || []).includes('confirmation_address_missing')) {
+      pass('D21', 'real wolfhouse config (no address) blocks null-draft preview safely');
+    } else {
+      fail('D21', 'expected confirmation_address_missing for staging-like null draft');
+    }
+  } else if (cfgHasAddress) {
+    if (stagingLikePreview.success === true && /Address:/i.test(String(stagingLikePreview.message_preview || ''))) {
+      pass('D21', 'real wolfhouse config address enables null-draft preview');
+    } else {
+      fail('D21', 'config address present but preview did not succeed');
+    }
+  } else {
+    pass('D21', 'include_address not true — block path not required');
+  }
 
   if (msg.includes(ANCHOR_GATE)) pass('D10', 'message_preview includes gate code 2684#');
   else fail('D10', 'gate code missing from message_preview');
