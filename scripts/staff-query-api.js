@@ -184,6 +184,9 @@ const {
   getLunaBookingConfirmationPreview,
 } = require('./lib/luna-booking-confirmation-preview');
 const {
+  buildLunaGuestReplyDraft,
+} = require('./lib/luna-guest-reply-draft');
+const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
   buildDryRunInputFromIntake,
@@ -10295,6 +10298,87 @@ async function handleBotBookingConfirmationPreview(req, res, user, authMode) {
       error:                        err.message,
       auth_mode:                    resolvedAuthMode,
       elapsed_ms:                   elapsed,
+    });
+  }
+}
+
+// Route: POST /staff/bot/guest-reply-draft  (Phase 18b — draft-only)
+//
+// Guest message → intake → validation → optional dry-run → suggested_reply.
+// No writes, WhatsApp, n8n, Stripe, or confirmation send.
+async function handleBotGuestReplyDraft(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-guest-reply-draft-local';
+
+  try {
+    const draft = await withPgClient((pg) => buildLunaGuestReplyDraft(body, { pg }));
+
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ts:                          new Date().toISOString(),
+      intent:                      'api:bot_guest_reply_draft',
+      category:                    'bot_guest_reply_draft',
+      draft_only:                  true,
+      preview_only:                true,
+      no_write_performed:          true,
+      requires_staff_review:       true,
+      creates_booking:             false,
+      creates_payment:             false,
+      creates_stripe_link:         false,
+      sends_whatsapp:              false,
+      calls_n8n:                   false,
+      updates_confirmation_sent_at: false,
+      success:                     draft.success === true,
+      next_action:                 draft.next_action,
+      handoff_required:            draft.extraction && draft.extraction.handoff_required,
+      dry_run_chained:             draft.validation && draft.validation.can_chain_dry_run === true,
+      staff_user_id:               actorId,
+      auth_mode:                   resolvedAuthMode,
+      elapsed_ms:                  elapsed,
+    });
+
+    const status = draft.success === false ? 400 : 200;
+    return sendJSON(res, status, {
+      ...draft,
+      auth_mode:  resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_guest_reply_draft',
+      category:           'bot_guest_reply_draft',
+      draft_only:         true,
+      preview_only:       true,
+      no_write_performed: true,
+      success:            false,
+      error:              err.message,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:            false,
+      draft_only:         true,
+      preview_only:       true,
+      no_write_performed: true,
+      requires_staff_review: true,
+      sends_whatsapp:     false,
+      calls_n8n:          false,
+      error:              err.message,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
     });
   }
 }
@@ -22859,6 +22943,18 @@ async function router(req, res) {
     return handleBotBookingConfirmationPreview(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Phase 18b — Luna guest reply draft (draft-only) ───────────────────────
+  // POST /staff/bot/guest-reply-draft
+  if (pathname === '/staff/bot/guest-reply-draft') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/guest-reply-draft' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotGuestReplyDraft(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Phase 15b — Luna message intake preview (read-only) ───────────────────
   // POST /staff/bot/message-intake-preview
   if (pathname === '/staff/bot/message-intake-preview') {
@@ -23204,6 +23300,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-write-eligibility <- 13c.4 Luna write eligibility (read-only, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna confirmation preview (read-only, no send)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-reply-draft <- 18b Luna guest reply draft (draft-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/message-intake-preview <- 15b Luna message intake preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
