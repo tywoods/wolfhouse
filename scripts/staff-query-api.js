@@ -187,6 +187,9 @@ const {
   buildLunaGuestReplyDraft,
 } = require('./lib/luna-guest-reply-draft');
 const {
+  planLunaCheckinDayMessage,
+} = require('./lib/luna-guest-checkin-day-message');
+const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
   buildDryRunInputFromIntake,
@@ -10294,6 +10297,125 @@ async function handleBotBookingConfirmationPreview(req, res, user, authMode) {
       no_write_performed:           true,
       sends_whatsapp:               false,
       calls_n8n:                    false,
+      updates_confirmation_sent_at: false,
+      error:                        err.message,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+  }
+}
+
+// Route: POST /staff/bot/checkin-day-preview  (Phase 19c.1 — read-only)
+//
+// Preview check-in day message plan (~10:00 local). No send, scheduler, or writes.
+function buildBotCheckinDayPreviewInput(body) {
+  const src = body || {};
+  const preview = src.preview_context || {};
+  const history = preview.conversation_history || preview.conversation_messages || [];
+
+  return {
+    client_slug:            String(src.client_slug || preview.client_slug || DEFAULT_CLIENT).trim(),
+    booking_id:             src.booking_id || preview.booking_id || null,
+    booking_code:           src.booking_code || preview.booking_code || null,
+    booking_status:         preview.booking_status || 'confirmed',
+    check_in:               preview.check_in,
+    guest_name:             preview.guest_name,
+    language:               preview.language || 'en',
+    payment_status:         preview.payment_status,
+    balance_due_cents:      preview.balance_due_cents,
+    balance_payment_link:   preview.balance_payment_link,
+    address:                preview.address,
+    gate_code:              preview.gate_code,
+    room_number:            preview.room_number,
+    room_assigned:          preview.room_assigned ?? (preview.room_number ? true : undefined),
+    checkin_day_sent_at:    preview.checkin_day_sent_at,
+    conversation_messages:  history,
+    payment_preference_history: preview.payment_preference_history || history,
+  };
+}
+
+async function handleBotCheckinDayPreview(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-checkin-day-preview-local';
+
+  try {
+    const input = buildBotCheckinDayPreviewInput(body);
+    const plan = planLunaCheckinDayMessage(input, {}, process.env);
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ts:                           new Date().toISOString(),
+      intent:                       'api:bot_checkin_day_preview',
+      category:                     'bot_checkin_day_preview',
+      preview_only:                 true,
+      no_write_performed:           true,
+      sends_whatsapp:               false,
+      calls_n8n:                    false,
+      creates_booking:              false,
+      creates_payment:              false,
+      creates_stripe_link:          false,
+      updates_confirmation_sent_at: false,
+      success:                      plan.success === true,
+      booking_id:                   input.booking_id,
+      booking_code:                 input.booking_code,
+      payment_link_included:        plan.payment_link_included === true,
+      staff_user_id:                actorId,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+
+    const status = plan.success === false ? 400 : 200;
+    return sendJSON(res, status, {
+      success:                      plan.success === true,
+      preview_only:                 true,
+      no_write_performed:           true,
+      sends_whatsapp:               false,
+      calls_n8n:                    false,
+      creates_booking:              false,
+      creates_payment:              false,
+      creates_stripe_link:          false,
+      updates_confirmation_sent_at: false,
+      checkin_day_plan:             plan,
+      message_preview:              plan.message_text || null,
+      payment_link_log:             plan.payment_link_log || null,
+      messaging_playbook:           plan.messaging_playbook || null,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+  } catch (err) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                           new Date().toISOString(),
+      intent:                       'api:bot_checkin_day_preview',
+      category:                     'bot_checkin_day_preview',
+      preview_only:                 true,
+      no_write_performed:           true,
+      sends_whatsapp:               false,
+      calls_n8n:                    false,
+      success:                      false,
+      error:                        err.message,
+      staff_user_id:                actorId,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:                      false,
+      preview_only:                 true,
+      no_write_performed:           true,
+      sends_whatsapp:               false,
+      calls_n8n:                    false,
+      creates_booking:              false,
+      creates_payment:              false,
+      creates_stripe_link:          false,
       updates_confirmation_sent_at: false,
       error:                        err.message,
       auth_mode:                    resolvedAuthMode,
@@ -22944,6 +23066,17 @@ async function router(req, res) {
   }
 
   // ── Phase 18b — Luna guest reply draft (draft-only) ───────────────────────
+  // POST /staff/bot/checkin-day-preview
+  if (pathname === '/staff/bot/checkin-day-preview') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/checkin-day-preview' }));
+    }
+    const auth = requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotCheckinDayPreview(req, res, auth.user, auth.auth_mode);
+  }
+
   // POST /staff/bot/guest-reply-draft
   if (pathname === '/staff/bot/guest-reply-draft') {
     if (method !== 'POST') {
@@ -23300,6 +23433,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-write-eligibility <- 13c.4 Luna write eligibility (read-only, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna confirmation preview (read-only, no send)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/checkin-day-preview <- 19c.1 Luna check-in day preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-reply-draft <- 18b Luna guest reply draft (draft-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/message-intake-preview <- 15b Luna message intake preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);

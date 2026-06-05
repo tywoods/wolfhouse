@@ -190,6 +190,7 @@
     "verify:luna-agent-phase19-autosend-gates-plan": "node scripts/verify-luna-agent-phase19-autosend-gates-plan.js",
     "verify:luna-agent-phase19-automation-planner": "node scripts/verify-luna-agent-phase19-automation-planner.js",
     "verify:luna-agent-phase19-checkin-day-message": "node scripts/verify-luna-agent-phase19-checkin-day-message.js",
+    "verify:luna-agent-phase19-checkin-day-preview": "node scripts/verify-luna-agent-phase19-checkin-day-preview.js",
     "verify:luna-agent-phase19-messaging-playbook": "node scripts/verify-luna-agent-phase19-messaging-playbook.js",
     "verify:luna-agent-phase19-playbook-wiring": "node scripts/verify-luna-agent-phase19-playbook-wiring.js"
   },
