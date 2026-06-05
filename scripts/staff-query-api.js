@@ -171,6 +171,10 @@ const {
   calculateWolfhouseQuote,
 } = require('./lib/wolfhouse-quote-calculator');
 const {
+  runLunaGuestBookingDryRun,
+  DRY_RUN_SAFETY_FLAGS,
+} = require('./lib/luna-guest-booking-dry-run');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10024,6 +10028,82 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     auth_mode:         resolvedAuthMode,
     elapsed_ms:        elapsed,
   });
+}
+
+// Route: POST /staff/bot/booking-dry-run  (Phase 12c — Luna guest booking dry-run plan)
+//
+// Chains gate + booking preview + availability + add-on preview via
+// runLunaGuestBookingDryRun(). Read-only SELECT when pg is used; no writes.
+// Auth: requireBotAuth (same as /staff/bot/booking-preview).
+async function handleBotBookingDryRun(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-dry-run-local';
+
+  try {
+    const plan = await withPgClient((pg) => runLunaGuestBookingDryRun(body, { pg }));
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ts:                  new Date().toISOString(),
+      intent:              'api:bot_booking_dry_run',
+      category:            'bot_booking_dry_run',
+      preview_only:        true,
+      no_write_performed:  true,
+      creates_booking:     false,
+      creates_payment:     false,
+      creates_stripe_link: false,
+      sends_whatsapp:      false,
+      calls_n8n:           false,
+      success:             true,
+      client_slug:         body.client_slug || DEFAULT_CLIENT,
+      next_action:         plan.next_action || null,
+      planned_actions:     plan.planned_actions || [],
+      staff_user_id:       actorId,
+      auth_mode:           resolvedAuthMode,
+      elapsed_ms:          elapsed,
+    });
+
+    return sendJSON(res, 200, Object.assign({
+      success:    true,
+      auth_mode:  resolvedAuthMode,
+      elapsed_ms: elapsed,
+    }, plan));
+  } catch (err) {
+    const elapsed     = Date.now() - started;
+    const isForbidden = /dry-run forbids/i.test(String(err.message || ''));
+
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_booking_dry_run',
+      category:           'bot_booking_dry_run',
+      preview_only:       true,
+      no_write_performed: true,
+      success:            false,
+      error:              err.message,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+
+    const errBody = Object.assign({
+      success: false,
+      error:   err.message,
+    }, DRY_RUN_SAFETY_FLAGS, {
+      preview_only:       true,
+      no_write_performed: true,
+    });
+
+    return sendJSON(res, isForbidden ? 400 : 500, errBody);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22321,6 +22401,18 @@ async function router(req, res) {
     return handleBotBookingPreview(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Phase 12c — Luna guest booking dry-run orchestrator (read-only plan) ───
+  // POST /staff/bot/booking-dry-run
+  if (pathname === '/staff/bot/booking-dry-run') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/booking-dry-run' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotBookingDryRun(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.5.8 — Luna bot availability check (read-only, no writes) ────────
   // POST /staff/bot/availability-check
   // Returns available bed_codes for guest_count from Postgres — no writes.
@@ -22639,6 +22731,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/surf-forecast?client=wolfhouse-somo&day=today  <- 11b.1 surf forecast (read-only, Stormglass backend)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);
   if (STAFF_ACTIONS_ENABLED) {
