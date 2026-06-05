@@ -105,6 +105,13 @@ if (handler.includes('withPgClient') && handler.includes('{ pg }')) {
 if (fs.existsSync(LIB)) pass('C4', 'orchestrator lib file exists');
 else fail('C4', 'orchestrator lib missing');
 
+const libSrc = fs.existsSync(LIB) ? fs.readFileSync(LIB, 'utf8') : '';
+if (libSrc.includes('resolveDryRunPhone') && libSrc.includes('s.from')) {
+  pass('C5', 'orchestrator normalizes guest_phone → phone → from (12j)');
+} else {
+  fail('C5', 'orchestrator from phone fallback missing');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 section('D. Dry-run safety flags in response');
 

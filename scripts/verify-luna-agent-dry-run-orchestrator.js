@@ -119,6 +119,12 @@ if (libSrc.includes('getBedCalendarRoomsQuery') && libSrc.includes('getBedCalend
   fail('B9', 'bed calendar queries not referenced');
 }
 
+if (libSrc.includes('resolveDryRunPhone') && libSrc.includes('s.from')) {
+  pass('B10', 'phone fallback order: guest_phone → phone → from');
+} else {
+  fail('B10', 'resolveDryRunPhone / from fallback missing');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 section('C. Static safety scan (no live side effects)');
 
@@ -309,6 +315,71 @@ section('D. Runtime dry-run smoke (no DB)');
     }
   } catch (e) {
     fail('G0', 'sparse smoke threw: ' + e.message);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  section('H. WhatsApp from phone fallback (12j)');
+
+  const completeBase = {
+    client_slug:    'wolfhouse-somo',
+    guest_name:     'Dry Run Guest',
+    check_in:       '2026-09-01',
+    check_out:      '2026-09-08',
+    guest_count:    2,
+    package_code:   'malibu',
+    room_type:      'shared',
+    payment_choice: 'deposit',
+  };
+
+  try {
+    const fromOnly = await lib.runLunaGuestBookingDryRun({ ...completeBase, from: '+15555550123' }, {});
+
+    if (fromOnly.guest_phone === '+15555550123' && fromOnly.phone === '+15555550123') {
+      pass('H1', 'from-only input resolves phone/guest_phone in plan');
+    } else {
+      fail('H1', 'resolved phone not from: ' + fromOnly.guest_phone);
+    }
+
+    if (fromOnly.booking_preview && !fromOnly.booking_preview.missing_fields.includes('phone')) {
+      pass('H2', 'from-only input satisfies phone required field');
+    } else {
+      fail('H2', 'phone still missing with from-only input');
+    }
+
+    const guestWins = await lib.runLunaGuestBookingDryRun({
+      ...completeBase,
+      guest_phone: '+11111111111',
+      phone:       '+22222222222',
+      from:        '+33333333333',
+    }, {});
+    if (guestWins.guest_phone === '+11111111111' && guestWins.phone === '+11111111111') {
+      pass('H3', 'guest_phone wins over phone and from');
+    } else {
+      fail('H3', 'guest_phone priority wrong: ' + guestWins.guest_phone);
+    }
+
+    const phoneWins = await lib.runLunaGuestBookingDryRun({
+      ...completeBase,
+      phone: '+22222222222',
+      from:  '+33333333333',
+    }, {});
+    if (phoneWins.guest_phone === '+22222222222' && phoneWins.phone === '+22222222222') {
+      pass('H4', 'phone wins over from');
+    } else {
+      fail('H4', 'phone priority wrong: ' + phoneWins.guest_phone);
+    }
+
+    if (fromOnly.dry_run === true
+        && fromOnly.creates_booking === false
+        && fromOnly.creates_payment === false
+        && fromOnly.sends_whatsapp === false
+        && fromOnly.calls_n8n === false) {
+      pass('H5', 'dry-run safety flags unchanged with from-only input');
+    } else {
+      fail('H5', 'safety flags changed with from-only input');
+    }
+  } catch (e) {
+    fail('H0', 'from fallback smoke threw: ' + e.message);
   }
 
   console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);

@@ -102,11 +102,24 @@ function assertDryRunContext(context) {
   }
 }
 
+/** guest_phone → phone → from (matches n8n Phase 12f parse node). */
+function resolveDryRunPhone(src) {
+  const s = src || {};
+  const guestPhone = s.guest_phone != null ? String(s.guest_phone).trim() : '';
+  if (guestPhone) return guestPhone;
+  const phone = s.phone != null ? String(s.phone).trim() : '';
+  if (phone) return phone;
+  const from = s.from != null ? String(s.from).trim() : '';
+  if (from) return from;
+  return '';
+}
+
 function normalizeInput(input) {
   const src = input || {};
   const guestCount = src.guest_count != null
     ? Number(src.guest_count)
     : (src.adults != null ? Number(src.adults) : (src.guests != null ? Number(src.guests) : null));
+  const resolvedPhone = resolveDryRunPhone(src);
 
   return {
     client_slug:    String(src.client_slug || DEFAULT_CLIENT).trim(),
@@ -118,12 +131,12 @@ function normalizeInput(input) {
     package_code:   src.package_code != null ? String(src.package_code).trim().toLowerCase() : null,
     room_type:      String(src.room_type || src.room_preference || 'shared').trim(),
     payment_choice: String(src.payment_choice || '').trim(),
-    phone:          String(src.phone || src.guest_phone || '').trim(),
+    phone:          resolvedPhone,
     email:          String(src.email || '').trim(),
     add_ons:        Array.isArray(src.add_ons) ? src.add_ons : [],
     message_text:   src.message_text != null ? String(src.message_text) : null,
     conversation_id: src.conversation_id != null ? String(src.conversation_id).trim() || null : null,
-    guest_phone:    src.guest_phone != null ? String(src.guest_phone).trim() || null : null,
+    guest_phone:    resolvedPhone || null,
     booking_code:   src.booking_code != null ? String(src.booking_code).trim() || null : null,
     addon_request:  src.addon_request && typeof src.addon_request === 'object' ? src.addon_request : null,
     source:         String(src.source || 'luna_dry_run').trim().slice(0, 50),
@@ -644,6 +657,8 @@ async function runLunaGuestBookingDryRun(input, context) {
     client_slug:     fields.client_slug,
     language:        fields.language,
     message_text:    fields.message_text,
+    phone:           fields.phone || null,
+    guest_phone:     fields.guest_phone || null,
     anchor_routes:   DRY_RUN_ANCHOR_ROUTES,
     live_forbidden:  LIVE_FORBIDDEN_ROUTES,
     no_write_performed: true,

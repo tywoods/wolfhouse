@@ -149,6 +149,11 @@ if (fs.existsSync(ORCH)) {
   } else {
     fail('B4', 'orchestrator imports staff-query-api (live dispatch risk)');
   }
+  if (orchSrc.includes('resolveDryRunPhone') && orchSrc.includes('s.from')) {
+    pass('B5', 'orchestrator phone fallback: guest_phone → phone → from (12j)');
+  } else {
+    fail('B5', 'orchestrator from phone fallback missing (12j)');
+  }
 } else {
   fail('B1', 'orchestrator module missing');
 }
