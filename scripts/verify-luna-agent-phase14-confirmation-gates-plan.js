@@ -199,12 +199,14 @@ if (fs.existsSync(CONFIG)) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('E. No send/preview route implemented yet (14a is plan-only)');
+section('E. Confirmation preview route (14b) — send route still deferred (14c)');
 
-if (!apiSrc.includes('/confirmation-preview')) {
-  pass('E1', 'no confirmation-preview route yet (14b)');
+if (apiSrc.includes('/staff/bot/bookings/confirmation-preview')
+  && apiSrc.includes('handleBotBookingConfirmationPreview')
+  && apiSrc.includes('getLunaBookingConfirmationPreview')) {
+  pass('E1', 'confirmation-preview route + handler present (14b)');
 } else {
-  fail('E1', 'confirmation-preview route already present — update plan/verifier');
+  fail('E1', 'confirmation-preview route/handler missing — implement 14b');
 }
 
 if (!apiSrc.includes('/send-confirmation')) {

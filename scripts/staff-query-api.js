@@ -181,6 +181,9 @@ const {
   evaluateLunaBookingWriteEligibility,
 } = require('./lib/luna-guest-booking-write-eligibility');
 const {
+  getLunaBookingConfirmationPreview,
+} = require('./lib/luna-booking-confirmation-preview');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10207,6 +10210,86 @@ async function handleBotBookingWriteEligibility(req, res, user, authMode) {
       error:               err.message,
       auth_mode:           resolvedAuthMode,
       elapsed_ms:          elapsed,
+    });
+  }
+}
+
+// Route: POST /staff/bot/bookings/confirmation-preview  (Phase 14b — read-only)
+//
+// Returns persisted confirmation_draft and message preview. No send, no writes.
+// Auth: requireBotAuth (same as booking-write-eligibility).
+async function handleBotBookingConfirmationPreview(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-confirmation-preview-local';
+
+  try {
+    const preview = await withPgClient((pg) => getLunaBookingConfirmationPreview(body, { pg }));
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ts:                           new Date().toISOString(),
+      intent:                       'api:bot_booking_confirmation_preview',
+      category:                     'bot_booking_confirmation_preview',
+      preview_only:                 true,
+      no_write_performed:           true,
+      sends_whatsapp:               false,
+      calls_n8n:                    false,
+      updates_confirmation_sent_at: false,
+      success:                      preview.success === true,
+      booking_id:                   preview.booking_id || null,
+      booking_code:                 preview.booking_code || null,
+      send_ready:                   false,
+      blocked_reasons:              preview.blocked_reasons || [],
+      staff_user_id:                actorId,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+
+    const status = preview.success === true
+      ? 200
+      : (preview.error === 'booking_not_found' ? 404 : 400);
+
+    return sendJSON(res, status, {
+      ...preview,
+      auth_mode:  resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                           new Date().toISOString(),
+      intent:                       'api:bot_booking_confirmation_preview',
+      category:                     'bot_booking_confirmation_preview',
+      preview_only:                 true,
+      no_write_performed:           true,
+      sends_whatsapp:               false,
+      calls_n8n:                    false,
+      updates_confirmation_sent_at: false,
+      success:                      false,
+      error:                        err.message,
+      staff_user_id:                actorId,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:                      false,
+      preview_only:                 true,
+      no_write_performed:           true,
+      sends_whatsapp:               false,
+      calls_n8n:                    false,
+      updates_confirmation_sent_at: false,
+      error:                        err.message,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
     });
   }
 }
@@ -22654,6 +22737,18 @@ async function router(req, res) {
     return handleBotBookingWriteEligibility(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Phase 14b — Luna confirmation preview (read-only) ───────────────────────
+  // POST /staff/bot/bookings/confirmation-preview
+  if (pathname === '/staff/bot/bookings/confirmation-preview') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/confirmation-preview' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotBookingConfirmationPreview(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Phase 13c — Luna gated booking write bridge (default-deny) ─────────────
   // POST /staff/bot/booking-create-from-plan
   if (pathname === '/staff/bot/booking-create-from-plan') {
@@ -22986,6 +23081,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-write-eligibility <- 13c.4 Luna write eligibility (read-only, no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna confirmation preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);
