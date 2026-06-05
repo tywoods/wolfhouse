@@ -161,7 +161,8 @@
     "verify:staff-bot-guest-automation-gate": "node scripts/verify-staff-bot-guest-automation-gate.js",
     "verify:luna-agent-dry-run-entrypoints": "node scripts/verify-luna-agent-dry-run-entrypoints.js",
     "verify:luna-agent-dry-run-orchestrator": "node scripts/verify-luna-agent-dry-run-orchestrator.js",
-    "verify:luna-agent-booking-dry-run-route": "node scripts/verify-luna-agent-booking-dry-run-route.js"
+    "verify:luna-agent-booking-dry-run-route": "node scripts/verify-luna-agent-booking-dry-run-route.js",
+    "verify:luna-agent-n8n-dry-run-workflow": "node scripts/verify-luna-agent-n8n-dry-run-workflow.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
