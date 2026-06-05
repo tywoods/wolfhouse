@@ -158,7 +158,8 @@
     "verify:booking-service-records-demo-fixture": "node scripts/verify-booking-service-records-demo-fixture.js",
     "verify:bot-pause-states-schema": "node scripts/verify-bot-pause-states-schema.js",
     "verify:staff-bot-pause-api": "node scripts/verify-staff-bot-pause-api.js",
-    "verify:staff-bot-guest-automation-gate": "node scripts/verify-staff-bot-guest-automation-gate.js"
+    "verify:staff-bot-guest-automation-gate": "node scripts/verify-staff-bot-guest-automation-gate.js",
+    "verify:luna-agent-dry-run-entrypoints": "node scripts/verify-luna-agent-dry-run-entrypoints.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
