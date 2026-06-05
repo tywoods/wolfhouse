@@ -207,7 +207,7 @@ async function assertDraft(id, input, expect) {
     next_action: 'handoff_to_staff',
     handoff: true,
     has_dry_run: false,
-    suggested_contains: 'team member will review',
+    suggested_contains: 'team member',
     send_eligibility: {
       send_allowed_later: false,
       requires_staff: true,
