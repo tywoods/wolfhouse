@@ -61,15 +61,15 @@
 
   "payment": {
     "_status": "partially_confirmed",
-    "_note": "3x.2c: bot may auto-send payment link once required details collected, asks deposit-vs-full, hold 1 hour, balance payable at arrival via cash/bank/stripe. 3x.2g (Ale): deposit is TIERED by booking type — standard package €200, custom pack / shorter stays €100. Encoded via the engine-default deposit_rule mechanism (tiered_by_booking_type); values are CONFIRMED by Ale.",
+    "_note": "3x.2c: bot may auto-send payment link once required details collected, asks deposit-vs-full, hold 6 hours, balance payable at arrival via cash/bank/stripe. 3x.2g (Ale): deposit is TIERED by booking type — standard package €200, custom pack / shorter stays €100. Encoded via the engine-default deposit_rule mechanism (tiered_by_booking_type); values are CONFIRMED by Ale.",
     "payment_link_auto_allowed": true,
     "payment_link_options": ["deposit", "full"],
     "ask_deposit_or_full": true,
     "payment_link_requires_name": true,
     "payment_link_requires_email": true,
-    "hold_expiry_minutes": 60,
-    "hold_expiry_hours": 1,
-    "payment_link_expiry_hours": null,
+    "hold_expiry_minutes": 360,
+    "hold_expiry_hours": 6,
+    "payment_link_expiry_hours": 6,
     "payment_reminders_allowed": null,
     "balance_payment_timing": "at_arrival_or_checkin",
     "balance_payment_methods": ["cash", "bank_transfer", "stripe"],
@@ -497,7 +497,7 @@
     ],
     "resolved_in_3x2c": [
       "payment_link_auto_send_approved",
-      "hold_expiry_set_60_minutes",
+      "hold_expiry_set_6_hours",
       "confirmation_auto_after_payment_truth_approved",
       "confirmation_content_address_gate_code_room_number_confirmed_no_bed_number",
       "rooming_auto_assign_approved_when_config_clear",

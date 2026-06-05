@@ -11,9 +11,10 @@ const fs   = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const ROOT   = path.join(__dirname, '..');
-const HELPER = path.join(__dirname, 'lib', 'luna-guest-checkin-day-message.js');
-const PKG    = path.join(ROOT, 'package.json');
+const ROOT     = path.join(__dirname, '..');
+const HELPER   = path.join(__dirname, 'lib', 'luna-guest-checkin-day-message.js');
+const BASELINE = path.join(ROOT, 'config', 'clients', 'wolfhouse-somo.baseline.json');
+const PKG      = path.join(ROOT, 'package.json');
 
 const SAFETY = {
   preview_only: true,
@@ -43,9 +44,11 @@ const {
   buildCheckinDayMessageBody,
   shouldIncludeBalancePaymentLink,
   guestAskedCashOrBankTransfer,
+  resolveCheckinDayTemplates,
   CHECKIN_DAY_TEMPLATES,
   CHECKIN_DAY_MESSAGE_RULES,
 } = require('./lib/luna-guest-checkin-day-message');
+const { buildConfigAlignmentWarnings } = require('./lib/luna-client-messaging-playbook');
 
 console.log('\nverify-luna-agent-phase19-checkin-day-message.js  (Phase 19 check-in day)\n');
 
@@ -89,6 +92,51 @@ if (CHECKIN_DAY_MESSAGE_RULES.suppress_payment_if_cash_bank_preference) {
   fail('A.rules.payment', 'payment suppress rule missing');
 }
 
+if (/luna-client-messaging-playbook/.test(helperSrc)) {
+  pass('A4', 'check-in helper imports playbook loader');
+} else {
+  fail('A4', 'playbook loader import missing');
+}
+
+section('A2. Hold config alignment');
+
+let baseline;
+try {
+  baseline = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
+  pass('A2.h1', 'baseline config parses');
+} catch (e) {
+  fail('A2.h1', 'baseline parse error: ' + e.message);
+  baseline = {};
+}
+
+if (baseline.payment && baseline.payment.hold_expiry_minutes === 360) {
+  pass('A2.h2', 'baseline hold_expiry_minutes is 360');
+} else {
+  fail('A2.h2', 'baseline hold_expiry_minutes must be 360');
+}
+
+if (baseline.payment && baseline.payment.hold_expiry_hours === 6) {
+  pass('A2.h3', 'baseline hold_expiry_hours is 6');
+} else {
+  fail('A2.h3', 'baseline hold_expiry_hours must be 6');
+}
+
+const alignWarnings = buildConfigAlignmentWarnings('wolfhouse-somo');
+if (!alignWarnings.some(w => w.code === 'hold_expiry_mismatch')) {
+  pass('A2.h4', 'no hold_expiry_mismatch for wolfhouse-somo');
+} else {
+  fail('A2.h4', 'hold_expiry_mismatch still present after baseline alignment');
+}
+
+section('A3. Playbook template wiring');
+
+const tplBundle = resolveCheckinDayTemplates('wolfhouse-somo');
+if (tplBundle.playbook_loaded && tplBundle.source === 'messaging_playbook') {
+  pass('A3.1', 'check-in templates loaded from messaging playbook');
+} else {
+  fail('A3.1', 'expected messaging_playbook template source');
+}
+
 section('B. Welcome + logistics content');
 
 const enBase = buildCheckinDayMessageBody({
@@ -98,7 +146,7 @@ const enBase = buildCheckinDayMessageBody({
   balance_due_cents: 0,
 }, {});
 
-for (const phrase of ['Wolfhouse family', 'check-in day', 'surf', 'Somo', 'Address:', 'Gate code:']) {
+for (const phrase of ['Wolfhouse family', 'check-in day', 'surf', 'Somo', 'Address:', 'Gate code:', 'beach']) {
   if (enBase.message_text.includes(phrase)) pass('B.en.' + phrase.replace(/\W+/g, '_'), `EN includes "${phrase}"`);
   else fail('B.en.' + phrase.replace(/\W+/g, '_'), `EN missing "${phrase}"`);
 }
@@ -173,6 +221,18 @@ const confirmedPlan = planLunaCheckinDayMessage({
 
 if (confirmedPlan.success && confirmedPlan.message_text) pass('D.confirmed', 'builds for confirmed booking');
 else fail('D.confirmed', 'confirmed booking plan failed');
+
+if (confirmedPlan.messaging_playbook && confirmedPlan.messaging_playbook.playbook_loaded === true) {
+  pass('D.playbook', 'plan includes messaging_playbook.playbook_loaded true');
+} else {
+  fail('D.playbook', 'messaging_playbook missing from check-in plan');
+}
+
+if (confirmedPlan.templates_source === 'messaging_playbook') {
+  pass('D.tpl_source', 'templates_source is messaging_playbook');
+} else {
+  fail('D.tpl_source', 'templates_source should be messaging_playbook');
+}
 
 const unconfirmed = planLunaCheckinDayMessage({
   booking_status: 'payment_pending',

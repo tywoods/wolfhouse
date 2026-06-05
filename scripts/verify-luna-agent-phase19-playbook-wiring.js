@@ -261,11 +261,11 @@ section('E. Draft runtime — playbook metadata + templates');
     fail('E7', 'skipped — no quote dry-run');
   }
 
-  if (Array.isArray(quoteDraft.config_alignment_warnings)
-    && quoteDraft.config_alignment_warnings.some(w => w.code === 'hold_expiry_mismatch')) {
-    pass('E8', 'hold_expiry_mismatch alignment warning present');
+  if (!quoteDraft.config_alignment_warnings
+    || !quoteDraft.config_alignment_warnings.some(w => w.code === 'hold_expiry_mismatch')) {
+    pass('E8', 'hold expiry aligned — no hold_expiry_mismatch warning');
   } else {
-    fail('E8', 'config_alignment_warnings should include hold_expiry_mismatch');
+    fail('E8', 'hold_expiry_mismatch should be resolved when baseline and playbook both use 6h');
   }
 
   section('F. Automation planner — playbook metadata + guidance');

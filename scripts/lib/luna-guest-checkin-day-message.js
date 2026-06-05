@@ -9,6 +9,11 @@
 
 const fs   = require('fs');
 const path = require('path');
+const {
+  buildPlaybookMetadata,
+  loadLunaMessagingPlaybook,
+  getLunaMessagingPlaybookValue,
+} = require('./luna-client-messaging-playbook');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 const DEFAULT_TIMEZONE = 'Europe/Madrid';
@@ -107,9 +112,40 @@ A prestissimo ☀️`,
 
 const BED_NUMBER_RE = /\bbed\s*(?:number|#|no\.?)?\s*:?\s*\d/i;
 
-function resolveLang(language) {
+function resolveLang(language, templatesByLang) {
   const code = String(language || 'en').trim().toLowerCase().slice(0, 2);
-  return CHECKIN_DAY_TEMPLATES[code] ? code : 'en';
+  const source = templatesByLang || CHECKIN_DAY_TEMPLATES;
+  return source[code] ? code : 'en';
+}
+
+function resolveCheckinDayTemplates(clientSlug) {
+  const loaded = loadLunaMessagingPlaybook(clientSlug);
+  if (!loaded.playbook_loaded) {
+    return { playbook_loaded: false, templates: CHECKIN_DAY_TEMPLATES, source: 'built_in_fallback' };
+  }
+
+  const playbookCheckin = getLunaMessagingPlaybookValue(clientSlug, 'checkin_day_templates', null);
+  if (!playbookCheckin || !playbookCheckin.en) {
+    return { playbook_loaded: true, templates: CHECKIN_DAY_TEMPLATES, source: 'built_in_fallback' };
+  }
+
+  const merged = {
+    en: {
+      ...CHECKIN_DAY_TEMPLATES.en,
+      ...(playbookCheckin.en || {}),
+    },
+    it: {
+      ...CHECKIN_DAY_TEMPLATES.it,
+      ...(playbookCheckin.it || {}),
+    },
+  };
+
+  return {
+    playbook_loaded: true,
+    templates: merged,
+    source: 'messaging_playbook',
+    payment_suppression: playbookCheckin.payment_suppression || null,
+  };
 }
 
 function trimStr(v) {
@@ -193,9 +229,11 @@ function fillTemplate(template, vars) {
 function buildCheckinDayMessageBody(input, context) {
   const src = input || {};
   const ctx = context || {};
-  const lang = resolveLang(src.language || ctx.language);
-  const tpl = CHECKIN_DAY_TEMPLATES[lang];
   const clientSlug = trimStr(src.client_slug || ctx.client_slug) || DEFAULT_CLIENT;
+  const templateBundle = (ctx.resolveCheckinDayTemplates || resolveCheckinDayTemplates)(clientSlug);
+  const templatesByLang = templateBundle.templates;
+  const lang = resolveLang(src.language || ctx.language, templatesByLang);
+  const tpl = templatesByLang[lang];
   const clientCfg = (ctx.loadClientCheckinConfig || loadClientCheckinConfig)(clientSlug);
 
   const address = trimStr(src.address || ctx.address) || trimStr(clientCfg.address);
@@ -206,6 +244,8 @@ function buildCheckinDayMessageBody(input, context) {
   const arrivalKnown = src.arrival_time_known === true || ctx.arrival_time_known === true
     || src.flight_info_known === true || ctx.flight_info_known === true;
 
+  const arrivalAsk = tpl.arrival_ask || CHECKIN_DAY_TEMPLATES[lang].arrival_ask;
+
   let body = paymentDecision.include ? tpl.with_payment : tpl.without_payment;
   body = fillTemplate(body, {
     address: address || '(address on file)',
@@ -213,8 +253,8 @@ function buildCheckinDayMessageBody(input, context) {
     balance_payment_link: balanceLink,
   });
 
-  if (arrivalKnown) {
-    body = body.replace(tpl.arrival_ask, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (arrivalKnown && arrivalAsk) {
+    body = body.replace(arrivalAsk, '').replace(/\n{3,}/g, '\n\n').trim();
   }
 
   const roomNumber = trimStr(src.room_number || ctx.room_number);
@@ -245,6 +285,8 @@ function buildCheckinDayMessageBody(input, context) {
     payment_link_decision_reason: paymentDecision.reason,
     address,
     gate_code: gateCode,
+    templates_source: templateBundle.source,
+    playbook_loaded: templateBundle.playbook_loaded === true,
   };
 }
 
@@ -308,6 +350,10 @@ function planLunaCheckinDayMessage(input, context = {}, env = process.env) {
     };
   }
 
+  const clientSlug = trimStr(src.client_slug || ctx.client_slug) || DEFAULT_CLIENT;
+  const messaging_playbook = buildPlaybookMetadata(clientSlug);
+  const templateBundle = resolveCheckinDayTemplates(clientSlug);
+
   const sendReady = blockedReasons.length === 0 && blockedGates.length === 0;
 
   return {
@@ -315,7 +361,9 @@ function planLunaCheckinDayMessage(input, context = {}, env = process.env) {
     ...CHECKIN_DAY_SAFETY_FLAGS,
     automation_planner: true,
     message_kind: 'checkin_day',
-    client_slug: trimStr(src.client_slug || ctx.client_slug) || DEFAULT_CLIENT,
+    client_slug: clientSlug,
+    messaging_playbook,
+    templates_source: templateBundle.source,
     scheduled_local_time: CHECKIN_DAY_MESSAGE_RULES.scheduled_local_time,
     scheduled_timezone: (ctx.loadClientCheckinConfig || loadClientCheckinConfig)(
       trimStr(src.client_slug || ctx.client_slug) || DEFAULT_CLIENT,
@@ -337,7 +385,7 @@ function planLunaCheckinDayMessage(input, context = {}, env = process.env) {
     send_ready: sendReady,
     action_ready_now: false,
     rules: CHECKIN_DAY_MESSAGE_RULES,
-    templates: CHECKIN_DAY_TEMPLATES,
+    templates: templateBundle.templates,
   };
 }
 
@@ -352,4 +400,5 @@ module.exports = {
   SCHEDULED_LOCAL_HOUR,
   SCHEDULED_LOCAL_MINUTE,
   loadClientCheckinConfig,
+  resolveCheckinDayTemplates,
 };
