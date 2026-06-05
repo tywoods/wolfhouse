@@ -188,7 +188,8 @@
     "verify:luna-agent-phase18-n8n-draft-shadow": "node scripts/verify-luna-agent-phase18-n8n-draft-shadow.js",
     "verify:luna-agent-phase18-closeout": "node scripts/verify-luna-agent-phase18-closeout.js",
     "verify:luna-agent-phase19-autosend-gates-plan": "node scripts/verify-luna-agent-phase19-autosend-gates-plan.js",
-    "verify:luna-agent-phase19-automation-planner": "node scripts/verify-luna-agent-phase19-automation-planner.js"
+    "verify:luna-agent-phase19-automation-planner": "node scripts/verify-luna-agent-phase19-automation-planner.js",
+    "verify:luna-agent-phase19-checkin-day-message": "node scripts/verify-luna-agent-phase19-checkin-day-message.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
