@@ -306,7 +306,7 @@ function extractPaymentChoice(text) {
 function extractAddOns(text) {
   const t = String(text || '').toLowerCase();
   const found = new Set();
-  if (/\b(?:meal|meals|dinner|food|cena|comida|repas)\b/.test(t)) found.add('meal');
+  if (/\b(?:meal|meals|dinner|d[iî]ner|food|cena|comida|repas)\b/.test(t)) found.add('meal');
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
   if (/\b(?:surf\s+lesson|lessons?|lezione|clase\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
   if (/\b(?:wetsuit|muta)\b/.test(t)) found.add('wetsuit');
