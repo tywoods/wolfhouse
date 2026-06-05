@@ -175,7 +175,8 @@
     "verify:luna-agent-phase14-closeout": "node scripts/verify-luna-agent-phase14-closeout.js",
     "verify:luna-agent-phase15-intake-plan": "node scripts/verify-luna-agent-phase15-intake-plan.js",
     "verify:luna-agent-phase15-message-intake-preview": "node scripts/verify-luna-agent-phase15-message-intake-preview.js",
-    "verify:luna-agent-phase15-multilingual-intake-matrix": "node scripts/verify-luna-agent-phase15-multilingual-intake-matrix.js"
+    "verify:luna-agent-phase15-multilingual-intake-matrix": "node scripts/verify-luna-agent-phase15-multilingual-intake-matrix.js",
+    "verify:luna-agent-phase15-closeout": "node scripts/verify-luna-agent-phase15-closeout.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
