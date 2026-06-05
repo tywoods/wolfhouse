@@ -180,7 +180,8 @@
     "verify:luna-agent-phase16-n8n-intake-shadow": "node scripts/verify-luna-agent-phase16-n8n-intake-shadow.js",
     "verify:luna-agent-phase16-closeout": "node scripts/verify-luna-agent-phase16-closeout.js",
     "verify:luna-agent-phase17-shadow-comparison-plan": "node scripts/verify-luna-agent-phase17-shadow-comparison-plan.js",
-    "verify:luna-agent-phase17-shadow-comparison": "node scripts/verify-luna-agent-phase17-shadow-comparison.js"
+    "verify:luna-agent-phase17-shadow-comparison": "node scripts/verify-luna-agent-phase17-shadow-comparison.js",
+    "verify:luna-agent-phase17-closeout": "node scripts/verify-luna-agent-phase17-closeout.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
