@@ -164,27 +164,34 @@ for (const [id, label, pattern] of ambiguities) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('F. 13a design-only — no write bridge yet');
+section('F. Phase 13 write stack (13b/13c)');
 
 const ELIG_LIB = path.join(__dirname, 'lib', 'luna-guest-booking-write-eligibility.js');
+const BRIDGE_LIB = path.join(__dirname, 'lib', 'luna-guest-booking-write-bridge.js');
+
 if (fs.existsSync(ELIG_LIB)) {
   pass('F2', 'write-eligibility lib present (13b)');
 } else {
-  fail('F2', 'write-eligibility lib missing — expected after 13b');
+  fail('F2', 'write-eligibility lib missing');
 }
 
-const notYetImplemented = [
-  ['F1', 'no booking-write-bridge lib', 'luna-guest-booking-write-bridge.js'],
-  ['F3', 'no booking-create-from-plan route', 'booking-create-from-plan'],
-  ['F4', 'no booking-write-eligibility route yet', 'booking-write-eligibility'],
-];
+if (fs.existsSync(BRIDGE_LIB)) {
+  pass('F1', 'write-bridge lib present (13c)');
+} else {
+  fail('F1', 'write-bridge lib missing — expected after 13c');
+}
 
-for (const [id, label, needle] of notYetImplemented) {
-  const inApi = apiSrc.includes(needle);
-  const libPath = path.join(__dirname, 'lib', needle);
-  const libExists = fs.existsSync(libPath);
-  if (!inApi && !libExists) pass(id, label);
-  else fail(id, label + ' already present — write bridge not expected yet');
+if (apiSrc.includes("'/staff/bot/booking-create-from-plan'")
+    && apiSrc.includes('handleBotBookingCreateFromPlan')) {
+  pass('F3', 'booking-create-from-plan route present (13c)');
+} else {
+  fail('F3', 'booking-create-from-plan route missing');
+}
+
+if (!apiSrc.includes('booking-write-eligibility')) {
+  pass('F4', 'no separate booking-write-eligibility route (evaluator is lib-only)');
+} else {
+  fail('F4', 'unexpected booking-write-eligibility route');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,6 +202,7 @@ const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
 const requiredScripts = [
   'verify:luna-agent-phase13-write-gates-plan',
   'verify:luna-agent-phase13-write-eligibility',
+  'verify:luna-agent-phase13-booking-write-bridge',
   'verify:luna-agent-phase12-closeout',
   'verify:staff-ask-luna-phase11-closeout',
   'verify:staff-bot-booking-create-api',

@@ -175,6 +175,9 @@ const {
   DRY_RUN_SAFETY_FLAGS,
 } = require('./lib/luna-guest-booking-dry-run');
 const {
+  runLunaGuestBookingWriteBridge,
+} = require('./lib/luna-guest-booking-write-bridge');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10103,6 +10106,130 @@ async function handleBotBookingDryRun(req, res, user, authMode) {
     });
 
     return sendJSON(res, isForbidden ? 400 : 500, errBody);
+  }
+}
+
+// Phase 13c — in-memory req for delegating pre-built JSON to handleBotBookingCreate.
+function makeInMemoryBotReq(bodyObj) {
+  const payload = JSON.stringify(bodyObj || {});
+  return {
+    method:  'POST',
+    headers: {},
+    on(event, cb) {
+      if (event === 'data') cb(Buffer.from(payload, 'utf8'));
+      if (event === 'end') cb();
+      return this;
+    },
+  };
+}
+
+// Route: POST /staff/bot/booking-create-from-plan  (Phase 13c — gated write bridge)
+//
+// Chains dry-run → write eligibility → existing handleBotBookingCreate.
+// Default-deny: BOT_BOOKING_ENABLED=false, missing confirm/idempotency, or failed
+// eligibility → write_performed:false. No Stripe. No WhatsApp. No n8n.
+async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-write-bridge-local';
+
+  try {
+    const bridgeResult = await withPgClient(async (pg) => runLunaGuestBookingWriteBridge(body, {
+      pg,
+      env: process.env,
+      invokeCreate: async (createPayload) => {
+        const capture = { statusCode: 200, bodyText: null };
+        const fakeRes = {
+          writeHead(code) { capture.statusCode = code; },
+          end(data) { capture.bodyText = data; },
+          setHeader() {},
+        };
+        await handleBotBookingCreate(
+          makeInMemoryBotReq(createPayload),
+          fakeRes,
+          user,
+          resolvedAuthMode
+        );
+        let parsed = {};
+        try {
+          parsed = capture.bodyText ? JSON.parse(capture.bodyText) : {};
+        } catch (_) {
+          parsed = { success: false, error: 'invalid create response JSON' };
+        }
+        const writePerformed = parsed.success === true
+          && (parsed.created === true || parsed.duplicate === true);
+        return {
+          success:         parsed.success === true,
+          write_performed: writePerformed,
+          status_code:     capture.statusCode,
+          create_response: parsed,
+        };
+      },
+    }));
+
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ts:                  new Date().toISOString(),
+      intent:              'api:bot_booking_create_from_plan',
+      category:            'bot_booking_write_bridge',
+      success:             bridgeResult.success === true,
+      write_performed:     !!bridgeResult.write_performed,
+      preview_only:        !bridgeResult.write_performed,
+      no_write_performed:  !bridgeResult.write_performed,
+      creates_booking:     false,
+      creates_payment:     false,
+      creates_stripe_link: false,
+      sends_whatsapp:      false,
+      calls_n8n:           false,
+      client_slug:         body.client_slug || DEFAULT_CLIENT,
+      blocked_reasons:     bridgeResult.blocked_reasons || [],
+      required_approvals:  bridgeResult.required_approvals || [],
+      safe_next_step:      bridgeResult.safe_next_step || null,
+      staff_user_id:       actorId,
+      auth_mode:           resolvedAuthMode,
+      elapsed_ms:          elapsed,
+    });
+
+    const statusCode = bridgeResult.write_performed
+      ? (bridgeResult.create_outcome && bridgeResult.create_outcome.status_code) || 201
+      : 200;
+
+    return sendJSON(res, statusCode, Object.assign({
+      success:    bridgeResult.success === true,
+      auth_mode:  resolvedAuthMode,
+      elapsed_ms: elapsed,
+    }, bridgeResult));
+  } catch (err) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_booking_create_from_plan',
+      category:           'bot_booking_write_bridge',
+      success:            false,
+      write_performed:    false,
+      no_write_performed: true,
+      error:              err.message,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:         false,
+      write_performed: false,
+      error:           err.message,
+      creates_stripe_link: false,
+      sends_whatsapp:      false,
+      calls_n8n:           false,
+    });
   }
 }
 
@@ -22413,6 +22540,18 @@ async function router(req, res) {
     return handleBotBookingDryRun(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Phase 13c — Luna gated booking write bridge (default-deny) ─────────────
+  // POST /staff/bot/booking-create-from-plan
+  if (pathname === '/staff/bot/booking-create-from-plan') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/booking-create-from-plan' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotBookingCreateFromPlan(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.5.8 — Luna bot availability check (read-only, no writes) ────────
   // POST /staff/bot/availability-check
   // Returns available bed_codes for guest_count from Postgres — no writes.
@@ -22732,6 +22871,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/surf-forecast?client=wolfhouse-somo&day=today  <- 11b.1 surf forecast (read-only, Stormglass backend)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);
   if (STAFF_ACTIONS_ENABLED) {
