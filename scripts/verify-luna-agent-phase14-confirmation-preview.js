@@ -31,6 +31,7 @@ function readOrEmpty(filePath) {
 const CONFIG_PATH         = path.join(ROOT, 'config', 'clients', 'wolfhouse-somo.baseline.json');
 const ANCHOR_BOOKING_ID   = '9073415f-1501-4bdf-b1c8-ce5879c93662';
 const ANCHOR_BOOKING_CODE = 'MB-WOLFHO-20260920-b6f9c7';
+const CONFIRMED_ADDRESS   = 'C. Mies de La Ran, 41, 39140 Somo, Cantabria';
 const FALLBACK_ADDRESS    = 'Calle Test 1, Somo, Cantabria';
 const ANCHOR_GATE         = '2684#';
 const ANCHOR_ROOM         = 'DEMO-R1';
@@ -138,10 +139,13 @@ section('A0. Wolfhouse config address anchor (no invented address)');
 if (fs.existsSync(CONFIG_PATH)) {
   const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   const stored = cfg.confirmation?.address || cfg.property?.address || null;
-  if (stored) {
+  const placeholder = !stored || /<FILL>|TODO|TBD/i.test(String(stored));
+  if (stored === CONFIRMED_ADDRESS && !placeholder) {
+    pass('A0', 'wolfhouse config has confirmed confirmation.address');
+  } else if (stored && !placeholder) {
     pass('A0', `wolfhouse config has stored address (${stored})`);
   } else {
-    pass('A0', 'wolfhouse address owner_required — not in repo/config; preview uses fallback/block logic');
+    fail('A0', 'wolfhouse confirmation address missing or placeholder');
   }
 } else {
   fail('A0', 'wolfhouse-somo.baseline.json missing');
@@ -318,10 +322,14 @@ const { getLunaBookingConfirmationPreview } = require('./lib/luna-booking-confir
       fail('D21', 'expected confirmation_address_missing for staging-like null draft');
     }
   } else if (cfgHasAddress) {
-    if (stagingLikePreview.success === true && /Address:/i.test(String(stagingLikePreview.message_preview || ''))) {
+    const stagingMsg = String(stagingLikePreview.message_preview || '');
+    if (stagingLikePreview.success === true
+      && stagingLikePreview.address_source === 'client_config'
+      && /Address:/i.test(stagingMsg)
+      && stagingMsg.includes(CONFIRMED_ADDRESS)) {
       pass('D21', 'real wolfhouse config address enables null-draft preview');
     } else {
-      fail('D21', 'config address present but preview did not succeed');
+      fail('D21', `config address present but preview failed: ${JSON.stringify(stagingLikePreview)}`);
     }
   } else {
     pass('D21', 'include_address not true — block path not required');

@@ -109,6 +109,7 @@
     "real_whatsapp_send_gate": "separate_gate_or_shadow_mode_until_proven",
     "include_address": true,
     "include_gate_code": true,
+    "address": "C. Mies de La Ran, 41, 39140 Somo, Cantabria",
     "gate_code": "2684#",
     "include_room_number": true,
     "include_bed_number": false,
