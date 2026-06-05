@@ -188,10 +188,11 @@ if (apiSrc.includes("'/staff/bot/booking-create-from-plan'")
   fail('F3', 'booking-create-from-plan route missing');
 }
 
-if (!apiSrc.includes('booking-write-eligibility')) {
-  pass('F4', 'no separate booking-write-eligibility route (evaluator is lib-only)');
+if (apiSrc.includes("'/staff/bot/booking-write-eligibility'")
+    && apiSrc.includes('handleBotBookingWriteEligibility')) {
+  pass('F4', 'booking-write-eligibility route present (13c.4)');
 } else {
-  fail('F4', 'unexpected booking-write-eligibility route');
+  fail('F4', 'booking-write-eligibility route missing');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +204,7 @@ const requiredScripts = [
   'verify:luna-agent-phase13-write-gates-plan',
   'verify:luna-agent-phase13-write-eligibility',
   'verify:luna-agent-phase13-booking-write-bridge',
+  'verify:luna-agent-phase13-write-eligibility-route',
   'verify:luna-agent-phase12-closeout',
   'verify:staff-ask-luna-phase11-closeout',
   'verify:staff-bot-booking-create-api',
