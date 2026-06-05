@@ -14,6 +14,7 @@ const { execSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const API  = path.join(__dirname, 'staff-query-api.js');
 const LIB  = path.join(__dirname, 'lib', 'luna-guest-booking-dry-run.js');
+const PROOF = path.join(__dirname, 'proof-luna-booking-dry-run-route.js');
 const PKG  = path.join(ROOT, 'package.json');
 
 let passes   = 0;
@@ -165,13 +166,90 @@ if (!/require\s*\(\s*['"]n8n['"]/i.test(handlerCode)) pass('E11', 'no n8n requir
 else fail('E11', 'n8n require in handler');
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('F. package.json script');
+section('F. Proof script (Phase 12h)');
+
+if (fs.existsSync(PROOF)) pass('F1', 'proof-luna-booking-dry-run-route.js exists');
+else fail('F1', 'proof script missing');
+
+let proofSrc = '';
+if (fs.existsSync(PROOF)) {
+  try {
+    proofSrc = fs.readFileSync(PROOF, 'utf8');
+    execSync(`node --check "${PROOF}"`, { stdio: 'pipe' });
+    pass('F2', 'proof script passes node --check');
+  } catch (e) {
+    fail('F2', 'proof script syntax error');
+  }
+}
+
+if (proofSrc.includes('/staff/bot/booking-dry-run')) {
+  pass('F3', 'proof script targets /staff/bot/booking-dry-run');
+} else {
+  fail('F3', 'proof script missing booking-dry-run route');
+}
+
+const proofAsserts = [
+  'dry_run',
+  'preview_only',
+  'no_write_performed',
+  'creates_booking',
+  'creates_payment',
+  'creates_stripe_link',
+  'sends_whatsapp',
+  'calls_n8n',
+  'planned_actions',
+  'reply_draft',
+  'next_action',
+];
+const missingAssert = proofAsserts.filter((f) => !proofSrc.includes(f));
+if (!missingAssert.length) pass('F4', 'proof script asserts all safety/plan fields');
+else fail('F4', 'proof script missing assertions: ' + missingAssert.join(', '));
+
+const forbiddenProof = [
+  ['/staff/bot/bookings/create', 'booking create'],
+  ['generate-payment-link', 'payment link'],
+  ['create-stripe-link', 'stripe link'],
+  ['api.stripe.com', 'Stripe API'],
+  ['graph.facebook.com', 'WhatsApp'],
+  ['n8n.cloud', 'n8n cloud'],
+];
+for (const [frag, label] of forbiddenProof) {
+  if (!proofSrc.includes(frag)) pass('F5.' + label, 'proof does not call ' + label);
+  else fail('F5.' + label, 'forbidden ' + label + ' in proof script');
+}
+
+if (!/writeFileSync|createWriteStream|appendFileSync/i.test(proofSrc)) {
+  pass('F6', 'proof script does not write files');
+} else {
+  fail('F6', 'proof script writes files');
+}
+
+if (!/console\.(log|error)\s*\([^)]*\bTOKEN\b|console\.(log|error)\s*\([^)]*LUNA_BOT_INTERNAL_TOKEN|console\.(log|error)\s*\([^)]*apiKey/i.test(proofSrc)) {
+  pass('F7', 'proof script does not log token secrets');
+} else {
+  fail('F7', 'proof may log secrets');
+}
+
+if (proofSrc.includes('LUNA_BOT_INTERNAL_TOKEN') && proofSrc.includes('X-Luna-Bot-Token')) {
+  pass('F8', 'proof uses LUNA_BOT_INTERNAL_TOKEN + X-Luna-Bot-Token header');
+} else {
+  fail('F8', 'proof auth env/header wiring unclear');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('G. package.json scripts');
 
 const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
 if (pkg.scripts && pkg.scripts['verify:luna-agent-booking-dry-run-route']) {
-  pass('F1', 'verify:luna-agent-booking-dry-run-route registered');
+  pass('G1', 'verify:luna-agent-booking-dry-run-route registered');
 } else {
-  fail('F1', 'npm script missing');
+  fail('G1', 'verify npm script missing');
+}
+
+if (pkg.scripts && pkg.scripts['proof:luna-booking-dry-run-route']) {
+  pass('G2', 'proof:luna-booking-dry-run-route registered');
+} else {
+  fail('G2', 'proof npm script missing');
 }
 
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
