@@ -367,7 +367,7 @@ const IT_CASES = [
     id: 'it.handoff', lang: 'it', category: 'handoff',
     message: 'Voglio un rimborso, posso parlare con qualcuno?',
     expect: {
-      handoff: true, chain: false,
+      intent: 'cancel_request', handoff: true, chain: false,
     },
   },
   {
@@ -493,7 +493,7 @@ const FR_CASES = [
     id: 'fr.addon_surf', lang: 'fr', category: 'addon',
     message: 'J\'ai besoin d\'un cours de surf et d\'une planche.',
     expect: {
-      addons_includes: ['surf_lesson'], handoff: false, chain: false,
+      addons_includes: ['surf_lesson', 'surfboard'], handoff: false, chain: false,
     },
   },
   {
@@ -553,14 +553,14 @@ const DE_CASES = [
     id: 'de.addon', lang: 'de', category: 'addon',
     message: 'Können wir Yoga und Abendessen hinzufügen?',
     expect: {
-      addons_includes: ['yoga'], handoff: false, chain: false,
+      addons_includes: ['yoga', 'meal'], handoff: false, chain: false,
     },
   },
   {
     id: 'de.addon_surf', lang: 'de', category: 'addon',
     message: 'Ich brauche eine Surfstunde und ein Board.',
     expect: {
-      addons_includes: ['surfboard'], handoff: false, chain: false,
+      addons_includes: ['surf_lesson', 'surfboard'], handoff: false, chain: false,
     },
   },
   {
@@ -628,24 +628,6 @@ const GAP_CASES = [
     gap_note: 'DE native "24. September bis 27. September" not yet parsed',
     message: 'Wir sind drei Personen vom 24. September bis 27. September. Wir möchten Malibu und die Anzahlung zahlen.',
     expect: { guests: 3, package_code: 'malibu', payment_choice: 'deposit', chain: false, ask_dates: true },
-  },
-  {
-    id: 'gap.it.rimborso_intent', lang: 'it', category: 'gap_handoff',
-    gap_note: 'IT rimborso triggers low_confidence handoff not cancel_request',
-    message: 'Voglio un rimborso, posso parlare con qualcuno?',
-    expect: { handoff: true, chain: false },
-  },
-  {
-    id: 'gap.fr.planche', lang: 'fr', category: 'gap_addon',
-    gap_note: 'FR planche not mapped to surfboard yet',
-    message: 'J\'ai besoin d\'un cours de surf et d\'une planche.',
-    expect: { addons_includes: ['surf_lesson'], handoff: false, chain: false },
-  },
-  {
-    id: 'gap.de.abendessen', lang: 'de', category: 'gap_addon',
-    gap_note: 'DE Abendessen not mapped to meal yet',
-    message: 'Können wir Yoga und Abendessen hinzufügen?',
-    expect: { addons_includes: ['yoga'], handoff: false, chain: false },
   },
 ];
 

@@ -69,7 +69,7 @@ const ASK_NEXT_BY_LANG = {
   },
 };
 
-const HANDOFF_RE = /\b(?:talk to (?:a )?(?:human|person|someone)|speak to (?:a )?(?:human|person|someone)|human(?:\s+please)?|refund|cancel(?:led|lation)?(?:\s+(?:paid|my)\s+booking)?|complaint|reclamaci[oó]n|reclamo|remboursement|rückerstattung|stornieren|annullare)\b/i;
+const HANDOFF_RE = /\b(?:talk to (?:a )?(?:human|person|someone)|speak to (?:a )?(?:human|person|someone)|human(?:\s+please)?|refund|rimborso|reembolso|cancel(?:led|lation)?(?:\s+(?:paid|my)\s+booking)?|complaint|reclamaci[oó]n|reclamo|remboursement|rückerstattung|stornieren|annullare|parlare\s+con\s+qualcuno|hablar\s+con\s+alguien|parler\s+(?:à|a)\s+quelqu[\w']+|mit\s+jemandem\s+sprechen)\b/i;
 
 const INTAKE_SAFETY_FLAGS = {
   extraction_only:    true,
@@ -306,11 +306,11 @@ function extractPaymentChoice(text) {
 function extractAddOns(text) {
   const t = String(text || '').toLowerCase();
   const found = new Set();
-  if (/\b(?:meal|meals|dinner|d[iî]ner|food|cena|comida|repas)\b/.test(t)) found.add('meal');
+  if (/\b(?:meal|meals|dinner|d[iî]ner|food|cena|comida|repas|abendessen)\b/.test(t)) found.add('meal');
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
-  if (/\b(?:surf\s+lesson|lessons?|lezione|clase\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
+  if (/\b(?:surf\s+lesson|surfstunde|lessons?|lezione|clase\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
   if (/\b(?:wetsuit|muta)\b/.test(t)) found.add('wetsuit');
-  if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla)\b/.test(t)) found.add('surfboard');
+  if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|planche)\b/.test(t)) found.add('surfboard');
   return [...found];
 }
 
@@ -326,7 +326,7 @@ function detectLanguage(text, inputLang) {
 
 function detectIntent(text, fields) {
   if (HANDOFF_RE.test(text)) {
-    if (/\b(?:refund|rückerstattung|remboursement)\b/i.test(text)) return 'cancel_request';
+    if (/\b(?:refund|rimborso|reembolso|rückerstattung|remboursement)\b/i.test(text)) return 'cancel_request';
     if (/\bcomplaint|reclamaci[oó]n|reclamo\b/i.test(text)) return 'complaint';
     return 'human_request';
   }
