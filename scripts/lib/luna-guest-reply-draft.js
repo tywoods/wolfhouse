@@ -12,6 +12,7 @@ const {
   buildDryRunInputFromIntake,
 } = require('./luna-guest-message-intake');
 const { runLunaGuestBookingDryRun } = require('./luna-guest-booking-dry-run');
+const { evaluateLunaGuestReplySendEligibility } = require('./luna-guest-reply-send-eligibility');
 
 const DRAFT_SAFETY_FLAGS = {
   draft_only:                   true,
@@ -129,7 +130,7 @@ async function buildLunaGuestReplyDraft(input, context = {}) {
 
   const { suggested_reply, next_action } = buildSuggestedReply(ex, validation, dryRunPlan);
 
-  return {
+  const draft = {
     success:           extraction.success !== false,
     ...DRAFT_SAFETY_FLAGS,
     client_slug:         ex.client_slug || body.client_slug || 'wolfhouse-somo',
@@ -147,6 +148,14 @@ async function buildLunaGuestReplyDraft(input, context = {}) {
     next_action,
     blocked_live_actions: BLOCKED_LIVE_ACTIONS,
   };
+
+  draft.send_eligibility = evaluateLunaGuestReplySendEligibility(
+    draft,
+    body,
+    (context && context.env) || process.env,
+  );
+
+  return draft;
 }
 
 module.exports = {

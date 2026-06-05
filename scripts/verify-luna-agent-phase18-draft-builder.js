@@ -14,6 +14,7 @@ const { execSync } = require('child_process');
 const ROOT   = path.join(__dirname, '..');
 const API    = path.join(__dirname, 'staff-query-api.js');
 const HELPER = path.join(__dirname, 'lib', 'luna-guest-reply-draft.js');
+const ELIGIBILITY = path.join(__dirname, 'lib', 'luna-guest-reply-send-eligibility.js');
 const PKG    = path.join(ROOT, 'package.json');
 
 const REF_DATE = '2026-06-05';
@@ -38,6 +39,7 @@ const {
   buildLunaGuestReplyDraft,
   DRAFT_SAFETY_FLAGS,
 } = require('./lib/luna-guest-reply-draft');
+const { ELIGIBILITY_SAFETY_FLAGS } = require('./lib/luna-guest-reply-send-eligibility');
 
 console.log('\nverify-luna-agent-phase18-draft-builder.js  (Phase 18b)\n');
 
@@ -49,6 +51,7 @@ try {
 }
 
 const helperSrc = readOrEmpty(HELPER);
+const eligibilitySrc = readOrEmpty(ELIGIBILITY);
 const apiSrc    = readOrEmpty(API);
 
 const routeIdx   = apiSrc.indexOf("'/staff/bot/guest-reply-draft'");
@@ -75,7 +78,7 @@ if (/function\s+buildLunaGuestReplyDraft\s*\(/.test(helperSrc)
   fail('A2', 'buildLunaGuestReplyDraft missing or not exported');
 }
 
-for (const fn of ['extractLunaGuestMessageIntake', 'validateLunaGuestMessageIntake', 'buildDryRunInputFromIntake', 'runLunaGuestBookingDryRun']) {
+for (const fn of ['extractLunaGuestMessageIntake', 'validateLunaGuestMessageIntake', 'buildDryRunInputFromIntake', 'runLunaGuestBookingDryRun', 'evaluateLunaGuestReplySendEligibility']) {
   if (helperSrc.includes(fn)) pass('A.dep.' + fn, `helper uses ${fn}`);
   else fail('A.dep.' + fn, `${fn} missing from helper`);
 }
@@ -128,6 +131,25 @@ async function assertDraft(id, input, expect) {
   if (expect.has_dry_run === false && draft.dry_run_plan) errs.push('dry_run_plan should be null');
   if (expect.handoff && draft.extraction.handoff_required !== true) errs.push('handoff_required expected');
 
+  if (expect.send_eligibility) {
+    const se = draft.send_eligibility;
+    if (!se || typeof se !== 'object') errs.push('send_eligibility missing');
+    else {
+      for (const [key, val] of Object.entries(expect.send_eligibility)) {
+        if (key === 'blocked_includes') {
+          for (const r of val) {
+            if (!se.blocked_reasons.includes(r)) errs.push(`send_eligibility.blocked_reasons missing "${r}"`);
+          }
+        } else if (se[key] !== val) {
+          errs.push(`send_eligibility.${key}: expected ${val} got ${se[key]}`);
+        }
+      }
+      for (const [flag, val] of Object.entries(ELIGIBILITY_SAFETY_FLAGS)) {
+        if (se[flag] !== val) errs.push(`send_eligibility.${flag}: expected ${val} got ${se[flag]}`);
+      }
+    }
+  }
+
   if (errs.length) fail(id, errs.join('; '));
   else pass(id, expect.label || id);
 }
@@ -145,6 +167,13 @@ async function assertDraft(id, input, expect) {
     next_action: 'show_quote',
     suggested_contains: '€270.00',
     has_dry_run: true,
+    send_eligibility: {
+      send_allowed_later: true,
+      requires_staff: false,
+      auto_send_ready: false,
+      allowed_send_kind: 'show_quote',
+      blocked_includes: ['whatsapp_dry_run_active'],
+    },
   });
 
   await assertDraft('C.it.partial', {
@@ -158,6 +187,13 @@ async function assertDraft(id, input, expect) {
     next_action: 'ask_missing_field',
     suggested_equals: 'In quali date vorresti soggiornare?',
     has_dry_run: false,
+    send_eligibility: {
+      send_allowed_later: true,
+      requires_staff: false,
+      auto_send_ready: false,
+      allowed_send_kind: 'ask_missing_field',
+      blocked_includes: ['whatsapp_dry_run_active'],
+    },
   });
 
   await assertDraft('C.handoff', {
@@ -172,6 +208,13 @@ async function assertDraft(id, input, expect) {
     handoff: true,
     has_dry_run: false,
     suggested_contains: 'team member will review',
+    send_eligibility: {
+      send_allowed_later: false,
+      requires_staff: true,
+      auto_send_ready: false,
+      allowed_send_kind: null,
+      blocked_includes: ['handoff_required'],
+    },
   });
 
   await assertDraft('C.unsupported', {
@@ -185,7 +228,38 @@ async function assertDraft(id, input, expect) {
     next_action: 'unsupported',
     has_dry_run: false,
     suggested_contains: 'team will review',
+    send_eligibility: {
+      send_allowed_later: false,
+      requires_staff: true,
+      auto_send_ready: false,
+      allowed_send_kind: null,
+      blocked_includes: ['unsupported_or_low_confidence'],
+    },
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  section('C2. send_eligibility on draft response');
+
+  const withEligibility = await buildLunaGuestReplyDraft({
+    client_slug: 'wolfhouse-somo',
+    channel: 'whatsapp',
+    from: '+15555550180',
+    guest_name: 'Draft Proof Guest',
+    language: 'en',
+    message_text: 'Hi, we are 2 people and want to come September 24 to September 27. Do you have Malibu? We can pay the deposit.',
+  }, { reference_date: REF_DATE });
+
+  if (withEligibility.send_eligibility && typeof withEligibility.send_eligibility === 'object') {
+    pass('C2.1', 'draft response includes send_eligibility object');
+  } else {
+    fail('C2.1', 'send_eligibility missing from draft response');
+  }
+
+  if (eligibilitySrc.includes('evaluateLunaGuestReplySendEligibility')) {
+    pass('C2.2', 'eligibility helper exists');
+  } else {
+    fail('C2.2', 'eligibility helper missing');
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   section('D. Safety flags pinned');
@@ -213,7 +287,7 @@ async function assertDraft(id, input, expect) {
   // ─────────────────────────────────────────────────────────────────────────
   section('E. Forbidden paths (helper + handler)');
 
-  const combined = helperSrc + handler;
+  const combined = helperSrc + eligibilitySrc + handler;
   const helperOnly = helperSrc.split('\n').filter((l) => !/^\s*\[['"]/.test(l)).join('\n');
 
   for (const [id, re, label] of [
