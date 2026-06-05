@@ -16,6 +16,7 @@ const {
   isDryRunQuoteSafe,
 } = require('./luna-guest-reply-send-eligibility');
 const { evaluateLunaBookingWriteEligibility } = require('./luna-guest-booking-write-eligibility');
+const { buildPlaybookActionGuidance } = require('./luna-client-messaging-playbook');
 
 const PLANNER_SAFETY_FLAGS = Object.freeze({
   automation_planner:         true,
@@ -247,21 +248,33 @@ async function planLunaGuestAutomationAction(input, context = {}, env = process.
     && nextAction !== 'unsupported'
     && nextAction !== 'wait_for_payment';
 
-  return {
+  const clientSlug = body.client_slug || draft.client_slug || 'wolfhouse-somo';
+  const messaging_playbook = draft.messaging_playbook || { playbook_loaded: false };
+  const playbook_action_guidance = buildPlaybookActionGuidance(clientSlug, nextAction);
+
+  const plan = {
     success: true,
     ...PLANNER_SAFETY_FLAGS,
-    client_slug: body.client_slug || draft.client_slug || 'wolfhouse-somo',
+    client_slug: clientSlug,
     next_action: nextAction,
     action_ready_later: actionReadyLater,
     action_ready_now: false,
     blocked_gates: blockedGates,
     requires_staff: requiresStaff,
     suggested_reply: draft.suggested_reply || null,
+    messaging_playbook,
     draft,
     send_eligibility: sendEligibility,
     planned_actions: buildPlannedActions(nextAction, draft),
     forbidden_actions: [...FORBIDDEN_ACTIONS],
   };
+
+  if (playbook_action_guidance) plan.playbook_action_guidance = playbook_action_guidance;
+  if (draft.config_alignment_warnings && draft.config_alignment_warnings.length) {
+    plan.config_alignment_warnings = draft.config_alignment_warnings;
+  }
+
+  return plan;
 }
 
 module.exports = {

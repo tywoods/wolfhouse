@@ -185,7 +185,7 @@ async function assertDraft(id, input, expect) {
   }, {
     label: 'IT partial → localized ask_next as suggested_reply',
     next_action: 'ask_missing_field',
-    suggested_equals: 'In quali date vorresti soggiornare?',
+    suggested_equals: 'Quali date di check-in e check-out avete in mente?',
     has_dry_run: false,
     send_eligibility: {
       send_allowed_later: true,

@@ -195,7 +195,7 @@ async function assertPlan(id, input, context, env, expect) {
     next_action: 'ask_missing_field',
     requires_staff: false,
     action_ready_later: true,
-    suggested_reply: 'In quali date vorresti soggiornare?',
+    suggested_reply: 'Quali date di check-in e check-out avete in mente?',
   });
 
   section('D. Handoff / staff-required');

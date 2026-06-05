@@ -13,6 +13,15 @@ const {
 } = require('./luna-guest-message-intake');
 const { runLunaGuestBookingDryRun } = require('./luna-guest-booking-dry-run');
 const { evaluateLunaGuestReplySendEligibility } = require('./luna-guest-reply-send-eligibility');
+const {
+  buildPlaybookMetadata,
+  buildPlaybookPromptContext,
+  buildConfigAlignmentWarnings,
+  getMissingFieldPrompt,
+  getHandoffTemplate,
+  buildQuoteReplyFromPlaybook,
+  loadLunaMessagingPlaybook,
+} = require('./luna-client-messaging-playbook');
 
 const DRAFT_SAFETY_FLAGS = {
   draft_only:                   true,
@@ -61,25 +70,43 @@ function pickLocalized(map, language) {
   return map[lang] || map.en;
 }
 
-function buildSuggestedReply(extraction, validation, dryRunPlan) {
+function buildSuggestedReply(extraction, validation, dryRunPlan, playbookOpts = {}) {
+  const clientSlug = playbookOpts.clientSlug || extraction.client_slug || 'wolfhouse-somo';
+  const playbookLoaded = playbookOpts.playbookLoaded === true;
+
   if (extraction.handoff_required && extraction.handoff_reason === 'low_confidence') {
+    const playbookReply = playbookLoaded
+      ? getHandoffTemplate(clientSlug, 'low_confidence', extraction.language)
+      : null;
     return {
-      suggested_reply: pickLocalized(UNSUPPORTED_DRAFT_BY_LANG, extraction.language),
+      suggested_reply: playbookReply || pickLocalized(UNSUPPORTED_DRAFT_BY_LANG, extraction.language),
       next_action:     'unsupported',
     };
   }
 
   if (extraction.handoff_required) {
+    const playbookReply = playbookLoaded
+      ? getHandoffTemplate(clientSlug, extraction.handoff_reason, extraction.language)
+      : null;
     return {
-      suggested_reply: pickLocalized(HANDOFF_DRAFT_BY_LANG, extraction.language),
+      suggested_reply: playbookReply || pickLocalized(HANDOFF_DRAFT_BY_LANG, extraction.language),
       next_action:     'handoff_to_staff',
     };
   }
 
   if (extraction.ask_next) {
+    let suggested_reply = extraction.ask_next;
+    if (playbookLoaded && Array.isArray(extraction.missing_fields) && extraction.missing_fields.length) {
+      const playbookPrompt = getMissingFieldPrompt(
+        clientSlug,
+        extraction.missing_fields[0],
+        extraction.language,
+      );
+      if (playbookPrompt) suggested_reply = playbookPrompt;
+    }
     return {
-      suggested_reply: extraction.ask_next,
-      next_action:     'ask_missing_field',
+      suggested_reply,
+      next_action: 'ask_missing_field',
     };
   }
 
@@ -87,9 +114,24 @@ function buildSuggestedReply(extraction, validation, dryRunPlan) {
     const next = dryRunPlan.next_action === 'show_availability_options'
       ? 'show_quote'
       : (dryRunPlan.next_action || 'show_quote');
+    const nextAction = next === 'ask_missing_details' ? 'ask_missing_field' : next;
+
+    let suggested_reply = dryRunPlan.reply_draft;
+    if (playbookLoaded && (nextAction === 'show_quote' || dryRunPlan.next_action === 'show_quote')) {
+      const quote = dryRunPlan.booking_preview && dryRunPlan.booking_preview.quote;
+      const fields = (dryRunPlan.booking_preview && dryRunPlan.booking_preview.fields) || {};
+      const playbookQuote = buildQuoteReplyFromPlaybook(clientSlug, extraction.language, quote, {
+        check_in:      fields.check_in || extraction.check_in,
+        check_out:     fields.check_out || extraction.check_out,
+        guest_count:   fields.guest_count ?? extraction.guests,
+        package_code:  fields.package_code || extraction.package_code,
+      });
+      if (playbookQuote) suggested_reply = playbookQuote;
+    }
+
     return {
-      suggested_reply: dryRunPlan.reply_draft,
-      next_action:     next === 'ask_missing_details' ? 'ask_missing_field' : next,
+      suggested_reply,
+      next_action: nextAction,
     };
   }
 
@@ -128,12 +170,21 @@ async function buildLunaGuestReplyDraft(input, context = {}) {
     }
   }
 
-  const { suggested_reply, next_action } = buildSuggestedReply(ex, validation, dryRunPlan);
+  const clientSlug = ex.client_slug || body.client_slug || 'wolfhouse-somo';
+  const playbookLoad = loadLunaMessagingPlaybook(clientSlug);
+  const messaging_playbook = buildPlaybookMetadata(clientSlug);
+  const playbook_prompt_context = buildPlaybookPromptContext(clientSlug);
+  const config_alignment_warnings = buildConfigAlignmentWarnings(clientSlug);
+
+  const { suggested_reply, next_action } = buildSuggestedReply(ex, validation, dryRunPlan, {
+    clientSlug,
+    playbookLoaded: playbookLoad.playbook_loaded,
+  });
 
   const draft = {
     success:           extraction.success !== false,
     ...DRAFT_SAFETY_FLAGS,
-    client_slug:         ex.client_slug || body.client_slug || 'wolfhouse-somo',
+    client_slug:         clientSlug,
     language:            ex.language || body.language || 'en',
     message_text:        ex.message_text || body.message_text || '',
     extraction:          ex,
@@ -146,8 +197,14 @@ async function buildLunaGuestReplyDraft(input, context = {}) {
     dry_run_plan:        dryRunPlan,
     suggested_reply,
     next_action,
+    messaging_playbook,
+    playbook_prompt_context,
     blocked_live_actions: BLOCKED_LIVE_ACTIONS,
   };
+
+  if (config_alignment_warnings.length) {
+    draft.config_alignment_warnings = config_alignment_warnings;
+  }
 
   draft.send_eligibility = evaluateLunaGuestReplySendEligibility(
     draft,
