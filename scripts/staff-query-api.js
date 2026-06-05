@@ -190,6 +190,10 @@ const {
   planLunaCheckinDayMessage,
 } = require('./lib/luna-guest-checkin-day-message');
 const {
+  resolveCheckinDayPreviewRequest,
+  buildCheckinDayPreviewInputFromBody,
+} = require('./lib/luna-checkin-day-preview-context');
+const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
   buildDryRunInputFromIntake,
@@ -10305,33 +10309,11 @@ async function handleBotBookingConfirmationPreview(req, res, user, authMode) {
   }
 }
 
-// Route: POST /staff/bot/checkin-day-preview  (Phase 19c.1 — read-only)
+// Route: POST /staff/bot/checkin-day-preview  (Phase 19c — read-only)
 //
 // Preview check-in day message plan (~10:00 local). No send, scheduler, or writes.
 function buildBotCheckinDayPreviewInput(body) {
-  const src = body || {};
-  const preview = src.preview_context || {};
-  const history = preview.conversation_history || preview.conversation_messages || [];
-
-  return {
-    client_slug:            String(src.client_slug || preview.client_slug || DEFAULT_CLIENT).trim(),
-    booking_id:             src.booking_id || preview.booking_id || null,
-    booking_code:           src.booking_code || preview.booking_code || null,
-    booking_status:         preview.booking_status || 'confirmed',
-    check_in:               preview.check_in,
-    guest_name:             preview.guest_name,
-    language:               preview.language || 'en',
-    payment_status:         preview.payment_status,
-    balance_due_cents:      preview.balance_due_cents,
-    balance_payment_link:   preview.balance_payment_link,
-    address:                preview.address,
-    gate_code:              preview.gate_code,
-    room_number:            preview.room_number,
-    room_assigned:          preview.room_assigned ?? (preview.room_number ? true : undefined),
-    checkin_day_sent_at:    preview.checkin_day_sent_at,
-    conversation_messages:  history,
-    payment_preference_history: preview.payment_preference_history || history,
-  };
+  return buildCheckinDayPreviewInputFromBody(body);
 }
 
 async function handleBotCheckinDayPreview(req, res, user, authMode) {
@@ -10347,26 +10329,57 @@ async function handleBotCheckinDayPreview(req, res, user, authMode) {
   const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
   const actorId          = user ? user.staff_user_id : 'dev-bot-checkin-day-preview-local';
 
+  const previewSafety = {
+    preview_only:                 true,
+    no_write_performed:           true,
+    sends_whatsapp:               false,
+    calls_n8n:                    false,
+    creates_booking:              false,
+    creates_payment:              false,
+    creates_stripe_link:          false,
+    updates_confirmation_sent_at: false,
+  };
+
   try {
-    const input = buildBotCheckinDayPreviewInput(body);
+    const resolved = await withPgClient((pg) => resolveCheckinDayPreviewRequest(body, pg));
+
+    if (!resolved.ok) {
+      const elapsed = Date.now() - started;
+      appendAuditLog({
+        ts:                           new Date().toISOString(),
+        intent:                       'api:bot_checkin_day_preview',
+        category:                     'bot_checkin_day_preview',
+        ...previewSafety,
+        success:                      false,
+        error:                        resolved.error,
+        staff_user_id:                actorId,
+        auth_mode:                    resolvedAuthMode,
+        elapsed_ms:                   elapsed,
+      });
+      return sendJSON(res, resolved.status || 400, {
+        success: false,
+        error: resolved.error,
+        ...previewSafety,
+        auth_mode:  resolvedAuthMode,
+        elapsed_ms: elapsed,
+      });
+    }
+
+    const input = resolved.input;
     const plan = planLunaCheckinDayMessage(input, {}, process.env);
     const elapsed = Date.now() - started;
+    const blocked = plan.blocked_reasons || [];
+    const responseSuccess = plan.success === true && !blocked.includes('booking_not_confirmed');
 
     appendAuditLog({
       ts:                           new Date().toISOString(),
       intent:                       'api:bot_checkin_day_preview',
       category:                     'bot_checkin_day_preview',
-      preview_only:                 true,
-      no_write_performed:           true,
-      sends_whatsapp:               false,
-      calls_n8n:                    false,
-      creates_booking:              false,
-      creates_payment:              false,
-      creates_stripe_link:          false,
-      updates_confirmation_sent_at: false,
-      success:                      plan.success === true,
-      booking_id:                   input.booking_id,
-      booking_code:                 input.booking_code,
+      ...previewSafety,
+      success:                      responseSuccess,
+      booking_context_loaded:       resolved.booking_context_loaded === true,
+      booking_id:                   resolved.booking_id || input.booking_id || null,
+      booking_code:                 resolved.booking_code || input.booking_code || null,
       payment_link_included:        plan.payment_link_included === true,
       staff_user_id:                actorId,
       auth_mode:                    resolvedAuthMode,
@@ -10375,15 +10388,11 @@ async function handleBotCheckinDayPreview(req, res, user, authMode) {
 
     const status = plan.success === false ? 400 : 200;
     return sendJSON(res, status, {
-      success:                      plan.success === true,
-      preview_only:                 true,
-      no_write_performed:           true,
-      sends_whatsapp:               false,
-      calls_n8n:                    false,
-      creates_booking:              false,
-      creates_payment:              false,
-      creates_stripe_link:          false,
-      updates_confirmation_sent_at: false,
+      success:                      responseSuccess,
+      booking_context_loaded:       resolved.booking_context_loaded === true,
+      booking_id:                   resolved.booking_id || input.booking_id || null,
+      booking_code:                 resolved.booking_code || input.booking_code || null,
+      ...previewSafety,
       checkin_day_plan:             plan,
       message_preview:              plan.message_text || null,
       payment_link_log:             plan.payment_link_log || null,
