@@ -169,7 +169,8 @@
     "verify:luna-agent-phase13-write-eligibility": "node scripts/verify-luna-agent-phase13-write-eligibility.js",
     "verify:luna-agent-phase13-booking-write-bridge": "node scripts/verify-luna-agent-phase13-booking-write-bridge.js",
     "verify:luna-agent-phase13-write-eligibility-route": "node scripts/verify-luna-agent-phase13-write-eligibility-route.js",
-    "verify:luna-agent-phase13-closeout": "node scripts/verify-luna-agent-phase13-closeout.js"
+    "verify:luna-agent-phase13-closeout": "node scripts/verify-luna-agent-phase13-closeout.js",
+    "verify:luna-agent-phase14-confirmation-gates-plan": "node scripts/verify-luna-agent-phase14-confirmation-gates-plan.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
