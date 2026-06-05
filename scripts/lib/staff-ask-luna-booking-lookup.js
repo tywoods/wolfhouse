@@ -10,7 +10,7 @@
 
 const LOOKUP_KEY = 'bookings.lookup';
 
-const BOOKING_CODE_RE = /\b(WH-[A-Z0-9][A-Z0-9-]*)\b/i;
+const BOOKING_CODE_RE = /\b((?:WH|MB)-[A-Z0-9][A-Z0-9-]*)\b/i;
 const ROOM_BED_CODE_RE = /^([A-Za-z0-9]+)-([A-Za-z0-9]+)$/;
 
 function askLunaIsoDateUTC(d) {
@@ -95,7 +95,7 @@ function resolveAskLunaBookingLookupIntentKey(question, registryByKey, refDate =
   if (registryByKey && registryByKey.has(rawLower) && rawLower === LOOKUP_KEY) {
     return {
       intentKey: 'unsupported_intent',
-      intentHint: 'Booking lookup needs a guest name, booking code (WH-…), or room/bed (e.g. R1 or R2-B1).',
+      intentHint: 'Booking lookup needs a guest name, booking code (WH-… or MB-…), or room/bed (e.g. R1 or R2-B1).',
     };
   }
 
@@ -140,7 +140,7 @@ function resolveAskLunaBookingLookupIntentKey(question, registryByKey, refDate =
   if (/\b(?:show|find|lookup|look\s+up)\b/.test(q) && /\bbooking\b/.test(q)) {
     return {
       intentKey: 'unsupported_intent',
-      intentHint: 'Include a guest name or booking code (WH-…) to look up a booking.',
+      intentHint: 'Include a guest name or booking code (WH-… or MB-…) to look up a booking.',
     };
   }
 
