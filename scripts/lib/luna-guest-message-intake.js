@@ -162,11 +162,23 @@ function inferYear(month, day, ref) {
   return y;
 }
 
+function monthFromName(name) {
+  return MONTH_MAP[String(name || '').toLowerCase()] || null;
+}
+
+function dayMonthToIso(day, month, ref) {
+  if (!month || !day) return null;
+  return toIsoDate(inferYear(month, day, ref), month, day);
+}
+
 function parseNamedDate(text, ref) {
   const t = String(text || '').toLowerCase();
   const patterns = [
-    /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-zéûäöü]+)\b/i,
-    /\b([a-zéûäöü]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-zéûäöüáíóúñ]+)\b/i,
+    /\b([a-zéûäöüáíóúñ]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
+    // Phase 15e.2 — ES day de month, DE day. month
+    /\b(\d{1,2})\s+de\s+([a-záéíóúüñ]+)\b/i,
+    /\b(\d{1,2})\.\s*([a-zäöüß]+)\b/i,
   ];
   for (const re of patterns) {
     const m = t.match(re);
@@ -179,10 +191,9 @@ function parseNamedDate(text, ref) {
       monthName = m[1].toLowerCase();
       day = Number(m[2]);
     }
-    const month = MONTH_MAP[monthName];
+    const month = monthFromName(monthName);
     if (!month) continue;
-    const year = inferYear(month, day, ref);
-    return toIsoDate(year, month, day);
+    return dayMonthToIso(day, month, ref);
   }
   return null;
 }
@@ -200,7 +211,32 @@ function extractIsoDates(text) {
 
 function extractNamedDateRange(text, ref) {
   const t = String(text || '');
-  const rangeRe = /([a-zéûäöü]+\s+\d{1,2}|\d{1,2}\s+[a-zéûäöü]+)\s*(?:to|until|through|-|–|—|al|au|bis|hasta)\s*([a-zéûäöü]+\s+\d{1,2}|\d{1,2}\s+[a-zéûäöü]+)/i;
+
+  // Phase 15e.2 — ES native: del/de 24 de septiembre al/a 27 de septiembre
+  const esRange = t.match(
+    /\b(?:del|de)\s+(\d{1,2})\s+de\s+([a-záéíóúüñ]+)\s+(?:al|a)\s+(\d{1,2})\s+de\s+([a-záéíóúüñ]+)\b/i,
+  );
+  if (esRange) {
+    const m1 = monthFromName(esRange[2]);
+    const m2 = monthFromName(esRange[4]);
+    const checkIn  = dayMonthToIso(Number(esRange[1]), m1, ref);
+    const checkOut = dayMonthToIso(Number(esRange[3]), m2, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // Phase 15e.2 — DE native: vom/von 24. September bis 27. September
+  const deRange = t.match(
+    /\b(?:vom|von)\s+(\d{1,2})\.?\s*([a-zäöüß]+)\s+bis\s+(\d{1,2})\.?\s*([a-zäöüß]+)\b/i,
+  );
+  if (deRange) {
+    const m1 = monthFromName(deRange[2]);
+    const m2 = monthFromName(deRange[4]);
+    const checkIn  = dayMonthToIso(Number(deRange[1]), m1, ref);
+    const checkOut = dayMonthToIso(Number(deRange[3]), m2, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  const rangeRe = /([a-zéûäöüáíóúñ]+\s+\d{1,2}|\d{1,2}\s+[a-zéûäöüáíóúñ]+)\s*(?:to|until|through|-|–|—|al|au|bis|hasta)\s*([a-zéûäöüáíóúñ]+\s+\d{1,2}|\d{1,2}\s+[a-zéûäöüáíóúñ]+)/i;
   const rm = t.match(rangeRe);
   if (rm) {
     const checkIn  = parseNamedDate(rm[1], ref);
@@ -208,7 +244,7 @@ function extractNamedDateRange(text, ref) {
     if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
   }
   const singles = [];
-  const namedRe = /\b(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?[a-zéûäöü]+|[a-zéûäöü]+\s+\d{1,2}(?:st|nd|rd|th)?)\b/gi;
+  const namedRe = /\b(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?[a-zéûäöüáíóúñ]+|\d{1,2}\s+de\s+[a-záéíóúüñ]+|\d{1,2}\.\s*[a-zäöüß]+|[a-zéûäöüáíóúñ]+\s+\d{1,2}(?:st|nd|rd|th)?)\b/gi;
   let nm;
   while ((nm = namedRe.exec(t)) !== null) {
     const iso = parseNamedDate(nm[0], ref);

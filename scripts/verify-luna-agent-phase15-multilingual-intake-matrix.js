@@ -395,7 +395,7 @@ const ES_CASES = [
   },
   {
     id: 'es.complete', lang: 'es', category: 'complete',
-    message: 'Somos dos personas del 2026-09-24 al 2026-09-27. Queremos Malibu y pagar el depósito.',
+    message: 'Somos dos personas del 24 de septiembre al 27 de septiembre. Queremos Malibu y pagar el depósito.',
     expect: {
       guests: 2, check_in: '2026-09-24', check_out: '2026-09-27', package_code: 'malibu',
       payment_choice: 'deposit', intent: 'booking_inquiry', handoff: false, chain: true,
@@ -528,7 +528,7 @@ const DE_CASES = [
   },
   {
     id: 'de.complete', lang: 'de', category: 'complete',
-    message: 'Wir sind drei Personen 2026-09-24 bis 2026-09-27. Wir möchten Malibu und die Anzahlung zahlen.',
+    message: 'Wir sind drei Personen vom 24. September bis 27. September. Wir möchten Malibu und die Anzahlung zahlen.',
     expect: {
       guests: 3, check_in: '2026-09-24', check_out: '2026-09-27', package_code: 'malibu',
       payment_choice: 'deposit', intent: 'booking_inquiry', handoff: false, chain: true,
@@ -614,30 +614,15 @@ if (!noGuests.can_chain_dry_run && noGuests.extraction.missing_fields.includes('
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('H. Documented parser gaps (stable behavior)');
+section('H. Documented parser gaps');
 
-const GAP_CASES = [
-  {
-    id: 'gap.es.native_dates', lang: 'es', category: 'gap_dates',
-    gap_note: 'ES native "24 de septiembre" date range not yet parsed',
-    message: 'Somos dos personas del 24 de septiembre al 27 de septiembre. Queremos Malibu y pagar el depósito.',
-    expect: { guests: 2, package_code: 'malibu', payment_choice: 'deposit', chain: false, ask_dates: true },
-  },
-  {
-    id: 'gap.de.native_dates', lang: 'de', category: 'gap_dates',
-    gap_note: 'DE native "24. September bis 27. September" not yet parsed',
-    message: 'Wir sind drei Personen vom 24. September bis 27. September. Wir möchten Malibu und die Anzahlung zahlen.',
-    expect: { guests: 3, package_code: 'malibu', payment_choice: 'deposit', chain: false, ask_dates: true },
-  },
-];
-
-for (const c of GAP_CASES) runCase(c, { gap: true });
+pass('H.gaps', '0 documented gaps — ES/DE native date ranges supported in 15e.2');
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('I. Matrix summary');
 
 const totalCases = EN_CASES.length + IT_CASES.length + ES_CASES.length + FR_CASES.length + DE_CASES.length;
-pass('I.count', `${totalCases} core matrix cases (${EN_CASES.length} per language) + ${GAP_CASES.length} documented gaps`);
+pass('I.count', `${totalCases} core matrix cases (${EN_CASES.length} per language), 0 documented gaps`);
 
 const pkgJson = JSON.parse(fs.readFileSync(PKG, 'utf8'));
 if (pkgJson.scripts && pkgJson.scripts['verify:luna-agent-phase15-multilingual-intake-matrix']) {
@@ -660,5 +645,9 @@ for (const script of DOWNSTREAM) {
   }
 }
 
-console.log(`\n--- ${passes} passed, ${failures} failed, ${gapNotes} documented gaps ---\n`);
+if (gapNotes > 0) {
+  console.log(`\n--- ${passes} passed, ${failures} failed, ${gapNotes} documented gaps ---\n`);
+} else {
+  console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
+}
 process.exit(failures > 0 ? 1 : 0);
