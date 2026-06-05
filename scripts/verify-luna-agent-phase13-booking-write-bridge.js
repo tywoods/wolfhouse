@@ -1,7 +1,8 @@
 /**
- * Phase 13c — Verifier for Luna gated booking write bridge.
+ * Phase 13c / 13c.2 — Verifier for Luna gated booking write bridge.
  *
- * No successful DB writes — uses mocks/stubs for eligible path.
+ * Deny-matrix hardening: every blocked case must not call invokeCreate.
+ * No real DB writes — eligible path uses mock invokeCreate only.
  *
  * Usage:
  *   npm run verify:luna-agent-phase13-booking-write-bridge
@@ -44,6 +45,51 @@ function makeCompleteInput(overrides) {
     confirm:          true,
     idempotency_key:  'phase13c-bridge-key-001',
   }, overrides || {});
+}
+
+function makeEmptyBedPg() {
+  return {
+    query: async (sql) => {
+      const s = String(sql);
+      if (/bot_pause_states/i.test(s)) return { rows: [] };
+      if (/FROM\s+booking_beds/i.test(s)) return { rows: [] };
+      if (/FROM\s+rooms\s+r/i.test(s)) return { rows: [] };
+      return { rows: [] };
+    },
+  };
+}
+
+function makePausedGatePg() {
+  const bedRows = [
+    { bed_code: 'MOCK-B1', room_code: 'R1', room_type: 'shared', bed_active: true, bed_sellable: true, bed_label: 'B1' },
+    { bed_code: 'MOCK-B2', room_code: 'R1', room_type: 'shared', bed_active: true, bed_sellable: true, bed_label: 'B2' },
+  ];
+  const pauseRow = {
+    id: 'pause-test-1',
+    client_slug: 'wolfhouse-somo',
+    guest_phone: '+34000000000',
+    conversation_id: null,
+    booking_id: null,
+    booking_code: null,
+    paused: true,
+    pause_reason: 'deny-matrix-test',
+    paused_by: 'verifier',
+    paused_at: new Date().toISOString(),
+    resumed_by: null,
+    resumed_at: null,
+    metadata: {},
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  return {
+    query: async (sql) => {
+      const s = String(sql);
+      if (/bot_pause_states/i.test(s)) return { rows: [pauseRow] };
+      if (/FROM\s+booking_beds/i.test(s)) return { rows: [] };
+      if (/FROM\s+rooms\s+r/i.test(s) && /bd\.bed_code/i.test(s)) return { rows: bedRows };
+      return { rows: [] };
+    },
+  };
 }
 
 /** Minimal pg mock: pause gate active + two available beds for dry-run availability. */
@@ -168,6 +214,22 @@ if (!bridgeSrc.includes('calculateWolfhouseQuote')) {
 
 if (bridgeSrc.includes('selected_bed_codes')) pass('B6', 'maps selected_bed_codes to create payload');
 else fail('B6', 'selected_bed_codes mapping missing');
+
+const eligCallIdx = bridgeSrc.indexOf('evaluateLunaBookingWriteEligibility');
+const writeReadyGateIdx = bridgeSrc.indexOf('eligibility.write_ready !== true');
+const invokeIdx = bridgeSrc.indexOf('ctx.invokeCreate');
+if (eligCallIdx > -1 && writeReadyGateIdx > -1 && invokeIdx > -1
+    && eligCallIdx < writeReadyGateIdx && writeReadyGateIdx < invokeIdx) {
+  pass('B7', 'eligibility evaluated before invokeCreate gate');
+} else {
+  fail('B7', 'eligibility/invokeCreate order unclear in bridge');
+}
+
+if (bridgeSrc.includes('formatBridgeDenied') && bridgeSrc.includes('BOT_BOOKING_ENABLED')) {
+  pass('B8', 'belt-and-suspenders env/confirm/idempotency checks before invoke');
+} else {
+  fail('B8', 'pre-invoke approval checks missing');
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('C. Static safety — no Stripe/WhatsApp/n8n/webhook/payment-link');
@@ -402,6 +464,153 @@ section('D. Runtime default-deny (no DB write)');
   } catch (e) {
     fail('E0', 'eligible mock path threw: ' + e.message);
   }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  section('F. Deny matrix — invokeCreate blocked (13c.2)');
+
+  const dryRunLib = require('./lib/luna-guest-booking-dry-run');
+  const enabledEnv = { BOT_BOOKING_ENABLED: 'true' };
+
+  async function assertDenyNoInvoke(id, label, input, ctx, assertFn) {
+    let invokeCount = 0;
+    try {
+      const result = await bridge.runLunaGuestBookingWriteBridge(input, Object.assign({
+        env: enabledEnv,
+        invokeCreate: async () => {
+          invokeCount++;
+          return { write_performed: true };
+        },
+      }, ctx));
+      const assertOk = typeof assertFn === 'function' ? assertFn(result) : true;
+      if (invokeCount === 0 && result.write_performed === false && assertOk) {
+        pass(id, label);
+      } else {
+        fail(id, `${label} (invoke=${invokeCount}, write=${result.write_performed})`);
+      }
+    } catch (e) {
+      fail(id, `${label} threw: ${e.message}`);
+    }
+  }
+
+  await assertDenyNoInvoke(
+    'F1',
+    'BOT_BOOKING_ENABLED=false → no invokeCreate',
+    makeCompleteInput(),
+    { pg: makeMockPg(), env: { BOT_BOOKING_ENABLED: 'false' } },
+    (r) => (r.required_approvals || []).includes('BOT_BOOKING_ENABLED'),
+  );
+
+  await assertDenyNoInvoke(
+    'F1b',
+    'BOT_BOOKING_ENABLED missing → no invokeCreate',
+    makeCompleteInput(),
+    { pg: makeMockPg(), env: {} },
+    (r) => (r.required_approvals || []).includes('BOT_BOOKING_ENABLED'),
+  );
+
+  await assertDenyNoInvoke(
+    'F2',
+    'confirm=false → no invokeCreate',
+    makeCompleteInput({ confirm: false }),
+    { pg: makeMockPg() },
+    (r) => (r.required_approvals || []).includes('confirm_true'),
+  );
+
+  await assertDenyNoInvoke(
+    'F2b',
+    'confirm missing → no invokeCreate',
+    makeCompleteInput({ confirm: undefined }),
+    { pg: makeMockPg() },
+    (r) => (r.required_approvals || []).includes('confirm_true'),
+  );
+
+  await assertDenyNoInvoke(
+    'F3',
+    'idempotency_key missing → no invokeCreate',
+    makeCompleteInput({ idempotency_key: '' }),
+    { pg: makeMockPg() },
+    (r) => (r.required_approvals || []).includes('idempotency_key'),
+  );
+
+  await assertDenyNoInvoke(
+    'F4',
+    'payment_choice missing → no invokeCreate',
+    makeCompleteInput({ payment_choice: '' }),
+    { pg: makeMockPg() },
+    (r) => (r.blocked_reasons || []).includes('payment_choice_missing'),
+  );
+
+  await assertDenyNoInvoke(
+    'F5',
+    'availability skipped (no pg) → no invokeCreate',
+    makeCompleteInput(),
+    { pg: null },
+    (r) => (r.blocked_reasons || []).includes('availability_not_checked'),
+  );
+
+  await assertDenyNoInvoke(
+    'F6',
+    'insufficient beds → no invokeCreate',
+    makeCompleteInput(),
+    { pg: makeEmptyBedPg() },
+    (r) => (r.blocked_reasons || []).includes('availability_insufficient_beds'),
+  );
+
+  await assertDenyNoInvoke(
+    'F7',
+    'selected_bed_codes empty → no invokeCreate',
+    makeCompleteInput(),
+    { pg: makeEmptyBedPg() },
+    (r) => (r.blocked_reasons || []).includes('availability_selected_beds_missing'),
+  );
+
+  // F8 — unsafe dry-run flags: reload bridge so stubbed orchestrator is used
+  const DRY_RUN_MOD = path.join(__dirname, 'lib', 'luna-guest-booking-dry-run.js');
+  const BRIDGE_MOD  = path.join(__dirname, 'lib', 'luna-guest-booking-write-bridge.js');
+  let f8Invoke = 0;
+  let f8Restore = null;
+  try {
+    delete require.cache[require.resolve(BRIDGE_MOD)];
+    delete require.cache[require.resolve(DRY_RUN_MOD)];
+    const dryRunFresh = require(DRY_RUN_MOD);
+    const origDryRun = dryRunFresh.runLunaGuestBookingDryRun;
+    dryRunFresh.runLunaGuestBookingDryRun = async (input, ctx) => {
+      const plan = await origDryRun(input, ctx);
+      return Object.assign({}, plan, { dry_run: false, creates_booking: true });
+    };
+    f8Restore = () => {
+      dryRunFresh.runLunaGuestBookingDryRun = origDryRun;
+      delete require.cache[require.resolve(BRIDGE_MOD)];
+      delete require.cache[require.resolve(DRY_RUN_MOD)];
+    };
+    const bridgeUnsafe = require(BRIDGE_MOD);
+    const unsafe = await bridgeUnsafe.runLunaGuestBookingWriteBridge(makeCompleteInput(), {
+      pg: makeMockPg(),
+      env: enabledEnv,
+      invokeCreate: async () => {
+        f8Invoke++;
+        return { write_performed: true };
+      },
+    });
+    if (f8Invoke === 0 && unsafe.write_performed === false
+        && (unsafe.blocked_reasons || []).some((x) => x.startsWith('dry_run_unsafe'))) {
+      pass('F8', 'unsafe dry-run flags → no invokeCreate');
+    } else {
+      fail('F8', `unsafe dry-run (invoke=${f8Invoke})`);
+    }
+  } catch (e) {
+    fail('F8', 'unsafe dry-run threw: ' + e.message);
+  } finally {
+    if (f8Restore) f8Restore();
+  }
+
+  await assertDenyNoInvoke(
+    'F9',
+    'gate paused / cannot continue → no invokeCreate',
+    makeCompleteInput(),
+    { pg: makePausedGatePg() },
+    (r) => (r.blocked_reasons || []).some((x) => x.startsWith('gate_')),
+  );
 
   console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
   process.exit(failures > 0 ? 1 : 0);
