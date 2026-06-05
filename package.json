@@ -163,7 +163,8 @@
     "verify:luna-agent-dry-run-orchestrator": "node scripts/verify-luna-agent-dry-run-orchestrator.js",
     "verify:luna-agent-booking-dry-run-route": "node scripts/verify-luna-agent-booking-dry-run-route.js",
     "verify:luna-agent-n8n-dry-run-workflow": "node scripts/verify-luna-agent-n8n-dry-run-workflow.js",
-    "proof:luna-booking-dry-run-route": "node scripts/proof-luna-booking-dry-run-route.js"
+    "proof:luna-booking-dry-run-route": "node scripts/proof-luna-booking-dry-run-route.js",
+    "verify:luna-agent-phase12-closeout": "node scripts/verify-luna-agent-phase12-closeout.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
