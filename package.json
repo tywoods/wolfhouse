@@ -186,7 +186,8 @@
     "verify:luna-agent-phase18-draft-builder": "node scripts/verify-luna-agent-phase18-draft-builder.js",
     "verify:luna-agent-phase18-send-eligibility": "node scripts/verify-luna-agent-phase18-send-eligibility.js",
     "verify:luna-agent-phase18-n8n-draft-shadow": "node scripts/verify-luna-agent-phase18-n8n-draft-shadow.js",
-    "verify:luna-agent-phase18-closeout": "node scripts/verify-luna-agent-phase18-closeout.js"
+    "verify:luna-agent-phase18-closeout": "node scripts/verify-luna-agent-phase18-closeout.js",
+    "verify:luna-agent-phase19-autosend-gates-plan": "node scripts/verify-luna-agent-phase19-autosend-gates-plan.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
