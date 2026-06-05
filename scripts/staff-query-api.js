@@ -23072,7 +23072,7 @@ async function router(req, res) {
       res.writeHead(405, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/checkin-day-preview' }));
     }
-    const auth = requireBotAuth(req, res);
+    const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotCheckinDayPreview(req, res, auth.user, auth.auth_mode);
   }
