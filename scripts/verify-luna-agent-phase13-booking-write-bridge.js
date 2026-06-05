@@ -1,5 +1,5 @@
 /**
- * Phase 13c / 13c.2 — Verifier for Luna gated booking write bridge.
+ * Phase 13c / 13c.2 / 13e — Verifier for Luna gated booking write bridge.
  *
  * Deny-matrix hardening: every blocked case must not call invokeCreate.
  * No real DB writes — eligible path uses mock invokeCreate only.
@@ -229,6 +229,20 @@ if (bridgeSrc.includes('formatBridgeDenied') && bridgeSrc.includes('BOT_BOOKING_
   pass('B8', 'belt-and-suspenders env/confirm/idempotency checks before invoke');
 } else {
   fail('B8', 'pre-invoke approval checks missing');
+}
+
+const lookupIdx = bridgeSrc.indexOf('lookupIdempotentBookingReplay');
+const dryRunIdx = bridgeSrc.indexOf('runLunaGuestBookingDryRun(src');
+if (lookupIdx > -1 && dryRunIdx > -1 && lookupIdx < dryRunIdx) {
+  pass('B9', 'idempotency lookup before dry-run (13e)');
+} else {
+  fail('B9', 'idempotency-first order missing');
+}
+
+if (bridgeSrc.includes('idempotent_replay') && bridgeSrc.includes('formatIdempotentReplay')) {
+  pass('B10', 'idempotent replay response helper present');
+} else {
+  fail('B10', 'idempotent replay helper missing');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -611,6 +625,138 @@ section('D. Runtime default-deny (no DB write)');
     { pg: makePausedGatePg() },
     (r) => (r.blocked_reasons || []).some((x) => x.startsWith('gate_')),
   );
+
+  // ───────────────────────────────────────────────────────────────────────────
+  section('G. Idempotency-first replay (13e)');
+
+  const EXISTING_BOOKING = {
+    booking_id: 'a1111111-1111-4111-8111-111111111111',
+    booking_code: 'MB-REPLAY-TEST-001',
+    guest_name: 'Bridge Guest',
+    phone: '+34000000000',
+    check_in: '2026-09-01',
+    check_out: '2026-09-08',
+    guest_count: 2,
+    status: 'confirmed',
+    client_slug: 'wolfhouse-somo',
+  };
+  const EXISTING_PAYMENT = {
+    payment_id: 'b2222222-2222-4222-8222-222222222222',
+    status: 'draft',
+    payment_kind: 'deposit_only',
+    amount_due_cents: 10000,
+    checkout_url: null,
+    stripe_checkout_session_id: null,
+  };
+
+  function makePgWithExistingBooking(existing, basePg) {
+    const inner = basePg || makeMockPg();
+    return {
+      query: async (sql, params) => {
+        const s = String(sql);
+        if (/metadata->>'idempotency_key'/.test(s)) {
+          return { rows: [existing.booking] };
+        }
+        if (/FROM payments p/i.test(s)) {
+          return { rows: existing.payments || [] };
+        }
+        return inner.query(sql, params);
+      },
+    };
+  }
+
+  let gDryRunCalls = 0;
+  let gInvokeCalls = 0;
+  const origRunDryRun = dryRunLib.runLunaGuestBookingDryRun;
+  dryRunLib.runLunaGuestBookingDryRun = async (input, ctx) => {
+    gDryRunCalls++;
+    return origRunDryRun(input, ctx);
+  };
+
+  try {
+    const replayInput = makeCompleteInput({
+      idempotency_key: 'phase13e-replay-existing-001',
+      check_in: EXISTING_BOOKING.check_in,
+      check_out: EXISTING_BOOKING.check_out,
+      phone: EXISTING_BOOKING.phone,
+    });
+    const replay = await bridge.runLunaGuestBookingWriteBridge(replayInput, {
+      pg: makePgWithExistingBooking({
+        booking: EXISTING_BOOKING,
+        payments: [EXISTING_PAYMENT],
+      }),
+      env: enabledEnv,
+      invokeCreate: async () => {
+        gInvokeCalls++;
+        return { write_performed: true };
+      },
+    });
+
+    if (replay.idempotent_replay === true) pass('G1', 'existing key returns idempotent_replay true');
+    else fail('G1', 'idempotent_replay missing');
+
+    if (gDryRunCalls === 0) pass('G2', 'replay skips runLunaGuestBookingDryRun');
+    else fail('G2', `dry-run called ${gDryRunCalls} times on replay`);
+
+    if (gInvokeCalls === 0 && replay.write_performed === false) {
+      pass('G3', 'replay does not invoke create');
+    } else {
+      fail('G3', `invoke=${gInvokeCalls} write=${replay.write_performed}`);
+    }
+
+    if (replay.booking_id === EXISTING_BOOKING.booking_id
+        && replay.booking_code === EXISTING_BOOKING.booking_code) {
+      pass('G4', 'replay returns existing booking_id/code');
+    } else {
+      fail('G4', 'booking ids mismatch');
+    }
+
+    if (replay.creates_stripe_link === false && replay.sends_whatsapp === false
+        && replay.calls_n8n === false && replay.write_performed === false) {
+      pass('G5', 'replay safety flags preserved');
+    } else {
+      fail('G5', 'replay unsafe flags');
+    }
+
+    if (replay.payment_summary && replay.payment_summary.status === 'draft') {
+      pass('G6', 'replay includes draft payment summary');
+    } else {
+      fail('G6', 'payment summary missing or not draft');
+    }
+
+    gDryRunCalls = 0;
+    gInvokeCalls = 0;
+    const conflict = await bridge.runLunaGuestBookingWriteBridge(
+      makeCompleteInput({
+        idempotency_key: 'phase13e-replay-existing-001',
+        phone: '+39999999999',
+        check_in: EXISTING_BOOKING.check_in,
+        check_out: EXISTING_BOOKING.check_out,
+      }),
+      {
+        pg: makePgWithExistingBooking({
+          booking: EXISTING_BOOKING,
+          payments: [EXISTING_PAYMENT],
+        }),
+        env: enabledEnv,
+        invokeCreate: async () => {
+          gInvokeCalls++;
+          return { write_performed: true };
+        },
+      },
+    );
+
+    if (gDryRunCalls === 0 && gInvokeCalls === 0 && conflict.success === false
+        && (conflict.blocked_reasons || []).includes('idempotency_phone_mismatch')) {
+      pass('G7', 'idempotency conflict blocks without create');
+    } else {
+      fail('G7', `conflict path unexpected (dry=${gDryRunCalls} invoke=${gInvokeCalls})`);
+    }
+  } catch (e) {
+    fail('G0', 'idempotency replay threw: ' + e.message);
+  } finally {
+    dryRunLib.runLunaGuestBookingDryRun = origRunDryRun;
+  }
 
   console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
   process.exit(failures > 0 ? 1 : 0);

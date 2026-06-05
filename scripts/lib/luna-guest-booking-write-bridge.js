@@ -1,5 +1,5 @@
 /**
- * Phase 13c — Luna guest booking write bridge (dry-run → eligibility → gated create).
+ * Phase 13c / 13e — Luna guest booking write bridge (dry-run → eligibility → gated create).
  *
  * Reuses runLunaGuestBookingDryRun + evaluateLunaBookingWriteEligibility.
  * Delegates to existing POST /staff/bot/bookings/create body shape via context.invokeCreate.
@@ -88,6 +88,136 @@ function formatBridgeDenied(dryRun, eligibility) {
   });
 }
 
+function resolveBridgePhone(input) {
+  const src = input || {};
+  return trimStr(src.guest_phone) || trimStr(src.phone) || trimStr(src.from);
+}
+
+/**
+ * Read-only lookup: bookings.metadata->>'idempotency_key' per client (Stage 8.3f interim).
+ *
+ * @param {object} input
+ * @param {object} pg
+ * @returns {Promise<object|null>}
+ */
+async function lookupIdempotentBookingReplay(input, pg) {
+  if (!pg || typeof pg.query !== 'function') return null;
+
+  const key = trimStr((input || {}).idempotency_key);
+  if (!key) return null;
+
+  const clientSlug = trimStr((input || {}).client_slug) || 'wolfhouse-somo';
+  const phone = resolveBridgePhone(input);
+  const checkIn = trimStr((input || {}).check_in);
+  const checkOut = trimStr((input || {}).check_out);
+
+  const bookingRes = await pg.query(
+    `SELECT b.id::text AS booking_id,
+            b.booking_code,
+            b.guest_name,
+            b.phone,
+            b.check_in::text AS check_in,
+            b.check_out::text AS check_out,
+            b.guest_count,
+            b.status::text AS status,
+            c.slug AS client_slug
+     FROM bookings b
+     INNER JOIN clients c ON c.id = b.client_id
+     WHERE c.slug = $1
+       AND b.metadata->>'idempotency_key' = $2
+       AND b.status::text NOT IN ('cancelled', 'expired')
+     ORDER BY b.created_at DESC
+     LIMIT 1`,
+    [clientSlug, key],
+  );
+
+  if (!bookingRes.rows || bookingRes.rows.length === 0) return null;
+
+  const booking = bookingRes.rows[0];
+  const conflicts = [];
+
+  if (phone && booking.phone && phone !== booking.phone) {
+    conflicts.push('idempotency_phone_mismatch');
+  }
+  if (checkIn && booking.check_in && checkIn !== booking.check_in) {
+    conflicts.push('idempotency_dates_mismatch');
+  }
+  if (checkOut && booking.check_out && checkOut !== booking.check_out) {
+    conflicts.push('idempotency_dates_mismatch');
+  }
+
+  const payRes = await pg.query(
+    `SELECT p.id::text AS payment_id,
+            p.status::text,
+            p.payment_kind::text,
+            p.amount_due_cents,
+            p.checkout_url,
+            p.stripe_checkout_session_id
+     FROM payments p
+     WHERE p.booking_id = $1::uuid
+     ORDER BY p.created_at ASC`,
+    [booking.booking_id],
+  );
+
+  return {
+    booking,
+    payments: payRes.rows || [],
+    conflicts,
+  };
+}
+
+function formatIdempotencyConflict(replay) {
+  const b = replay.booking || {};
+  return Object.assign({}, BRIDGE_SAFETY_FLAGS, {
+    success:               false,
+    write_performed:       false,
+    idempotent_replay:     false,
+    blocked_reasons:       replay.conflicts && replay.conflicts.length
+      ? replay.conflicts.slice()
+      : ['idempotency_context_conflict'],
+    required_approvals:    [],
+    would_call:            [],
+    safe_next_step:        'handoff_to_staff',
+    existing_booking_id:   b.booking_id || null,
+    existing_booking_code: b.booking_code || null,
+    creates_booking:       false,
+    creates_payment:       false,
+    bridge_route:          BRIDGE_ROUTE,
+    target_create_route:   WRITE_ROUTE,
+  });
+}
+
+function formatIdempotentReplay(replay) {
+  const b = replay.booking || {};
+  const pay = (replay.payments && replay.payments[0]) || null;
+
+  return Object.assign({}, BRIDGE_SAFETY_FLAGS, {
+    success:               true,
+    write_performed:       false,
+    idempotent_replay:     true,
+    duplicate:             true,
+    idempotent:            true,
+    booking_id:            b.booking_id || null,
+    booking_code:          b.booking_code || null,
+    payment_id:            pay ? pay.payment_id : null,
+    payment_summary:       pay ? {
+      payment_id:       pay.payment_id,
+      status:           pay.status,
+      payment_kind:     pay.payment_kind,
+      amount_due_cents: pay.amount_due_cents,
+      has_checkout_url: !!(pay.checkout_url || pay.stripe_checkout_session_id),
+    } : null,
+    blocked_reasons:       [],
+    required_approvals:    [],
+    would_call:            [],
+    safe_next_step:        'booking_already_created',
+    creates_booking:       false,
+    creates_payment:       false,
+    bridge_route:          BRIDGE_ROUTE,
+    target_create_route:   WRITE_ROUTE,
+  });
+}
+
 /**
  * Run Luna guest booking write bridge (default-deny).
  *
@@ -99,8 +229,18 @@ async function runLunaGuestBookingWriteBridge(input, context) {
   const ctx = context || {};
   const env = ctx.env || process.env;
   const pg  = ctx.pg != null ? ctx.pg : null;
+  const src = input || {};
 
-  const dryRun = await runLunaGuestBookingDryRun(input || {}, { pg });
+  // Phase 13e — idempotency-first replay before dry-run availability.
+  if (trimStr(src.idempotency_key) && pg) {
+    const replay = await lookupIdempotentBookingReplay(src, pg);
+    if (replay) {
+      if (replay.conflicts.length > 0) return formatIdempotencyConflict(replay);
+      return formatIdempotentReplay(replay);
+    }
+  }
+
+  const dryRun = await runLunaGuestBookingDryRun(src, { pg });
   const eligibility = evaluateLunaBookingWriteEligibility(dryRun, input || {}, env);
 
   if (eligibility.write_ready !== true) {
@@ -177,6 +317,7 @@ async function runLunaGuestBookingWriteBridge(input, context) {
 module.exports = {
   runLunaGuestBookingWriteBridge,
   buildBotBookingCreatePayload,
+  lookupIdempotentBookingReplay,
   BRIDGE_ROUTE,
   BOT_CREATE_ROUTE: WRITE_ROUTE,
   BRIDGE_SAFETY_FLAGS,
