@@ -182,7 +182,40 @@ if (!secretHit) pass('D4', 'no hardcoded secrets in workflow JSON');
 else fail('D4', 'hardcoded secret pattern in workflow');
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('E. Dry-run fields preserved');
+section('E. Parse booking fields — phone/from mapping');
+
+const parseNode = (wf.nodes || []).find((n) =>
+  (n.name || '').includes('Parse Booking Fields')
+);
+const parseCode = (parseNode && parseNode.parameters && parseNode.parameters.jsCode) || '';
+
+if (parseNode) pass('E.parse', 'Code - Parse Booking Fields node present');
+else fail('E.parse', 'Parse Booking Fields node missing');
+
+if (parseCode.includes('body.from')) {
+  pass('E.from', 'parse logic references body.from as phone fallback');
+} else {
+  fail('E.from', 'body.from not used in parse node');
+}
+
+const phoneExpr = parseCode.match(/const phone\s*=\s*String\(([^)]+)\)/);
+if (phoneExpr) {
+  const chain = phoneExpr[1];
+  const gi = chain.indexOf('body.guest_phone');
+  const pi = chain.indexOf('body.phone');
+  const fi = chain.indexOf('body.from');
+  const di = chain.indexOf("'+34999000000'");
+  if (gi >= 0 && pi > gi && fi > pi && (di < 0 || di > fi)) {
+    pass('E.phone_order', 'phone fallback order: guest_phone → phone → from → default');
+  } else {
+    fail('E.phone_order', 'phone fallback order incorrect (got: ' + chain + ')');
+  }
+} else {
+  fail('E.phone_order', 'could not read phone assignment in parse node');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('F. Dry-run fields preserved');
 
 const mapNode = (wf.nodes || []).find((n) =>
   (n.name || '').includes('Map Dry Run') || (n.parameters && n.parameters.jsCode && n.parameters.jsCode.includes('planned_actions'))
@@ -222,7 +255,7 @@ if (wfStr.includes('whatsapp_sent') && wfStr.includes('false')) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('F. No DB writes in code nodes');
+section('G. No DB writes in code nodes');
 const hasDbWrite = codeNodes.some((n) => {
   const code = (n.parameters && n.parameters.jsCode) || '';
   return /\bINSERT\b|\bUPDATE\b|\bDELETE\b|\bpg\.query|pool\.query/i.test(code);
@@ -231,7 +264,7 @@ if (!hasDbWrite) pass('F1', 'no DB writes in code nodes');
 else fail('F1', 'DB write in code node');
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('G. package.json script');
+section('H. package.json script');
 
 const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
 if (pkg.scripts && pkg.scripts['verify:luna-agent-n8n-dry-run-workflow']) {
