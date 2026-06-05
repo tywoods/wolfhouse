@@ -183,7 +183,8 @@
     "verify:luna-agent-phase17-shadow-comparison": "node scripts/verify-luna-agent-phase17-shadow-comparison.js",
     "verify:luna-agent-phase17-closeout": "node scripts/verify-luna-agent-phase17-closeout.js",
     "verify:luna-agent-phase18-live-gates-plan": "node scripts/verify-luna-agent-phase18-live-gates-plan.js",
-    "verify:luna-agent-phase18-draft-builder": "node scripts/verify-luna-agent-phase18-draft-builder.js"
+    "verify:luna-agent-phase18-draft-builder": "node scripts/verify-luna-agent-phase18-draft-builder.js",
+    "verify:luna-agent-phase18-send-eligibility": "node scripts/verify-luna-agent-phase18-send-eligibility.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
