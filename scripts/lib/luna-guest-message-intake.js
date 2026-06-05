@@ -35,6 +35,40 @@ const ASK_NEXT_LABELS = {
   payment_choice: 'whether you prefer to pay a deposit or the full amount',
 };
 
+/** Phase 15d — localized ask_next prompts (deterministic, no AI). */
+const ASK_NEXT_BY_LANG = {
+  en: {
+    dates:        'What dates would you like to stay?',
+    package_code: 'Which package would you like?',
+    guests:       'How many people are coming?',
+    phone:        'What phone number should we use for the booking?',
+  },
+  it: {
+    dates:        'In quali date vorresti soggiornare?',
+    package_code: 'Quale pacchetto vorresti?',
+    guests:       'Quante persone siete?',
+    phone:        'Che numero di telefono possiamo usare per la prenotazione?',
+  },
+  es: {
+    dates:        '¿Qué fechas te gustaría reservar?',
+    package_code: '¿Qué paquete te gustaría?',
+    guests:       '¿Cuántas personas vienen?',
+    phone:        '¿Qué número de teléfono podemos usar para la reserva?',
+  },
+  fr: {
+    dates:        'Quelles dates souhaitez-vous réserver ?',
+    package_code: 'Quel forfait souhaitez-vous ?',
+    guests:       'Combien de personnes viennent ?',
+    phone:        'Quel numéro de téléphone pouvons-nous utiliser pour la réservation ?',
+  },
+  de: {
+    dates:        'Für welche Daten möchtest du buchen?',
+    package_code: 'Welches Paket möchtest du?',
+    guests:       'Wie viele Personen kommen?',
+    phone:        'Welche Telefonnummer sollen wir für die Buchung verwenden?',
+  },
+};
+
 const HANDOFF_RE = /\b(?:talk to (?:a )?(?:human|person|someone)|speak to (?:a )?(?:human|person|someone)|human(?:\s+please)?|refund|cancel(?:led|lation)?(?:\s+(?:paid|my)\s+booking)?|complaint|reclamaci[oó]n|reclamo|remboursement|rückerstattung|stornieren|annullare)\b/i;
 
 const INTAKE_SAFETY_FLAGS = {
@@ -431,11 +465,21 @@ function buildMissingFields(extraction) {
   return missing;
 }
 
-function buildAskNext(missingFields) {
+function resolvePromptLanguage(language) {
+  const code = String(language || 'en').trim().toLowerCase().slice(0, 2);
+  return ASK_NEXT_BY_LANG[code] ? code : 'en';
+}
+
+function buildAskNext(missingFields, language) {
   if (!missingFields || !missingFields.length) return null;
   const field = missingFields[0];
+  const lang = resolvePromptLanguage(language);
+  const prompts = ASK_NEXT_BY_LANG[lang] || ASK_NEXT_BY_LANG.en;
+  if (field === 'check_in' || field === 'check_out') return prompts.dates;
+  if (field === 'package_code') return prompts.package_code;
+  if (field === 'guests') return prompts.guests;
+  if (field === 'phone') return prompts.phone;
   const label = ASK_NEXT_LABELS[field] || field.replace(/_/g, ' ');
-  if (field === 'check_in' || field === 'check_out') return 'What dates would you like to stay?';
   return `Could you share ${label}?`;
 }
 
@@ -509,7 +553,7 @@ function validateLunaGuestMessageIntake(extraction, context = {}) {
   if (!ex.handoff_required) {
     ex.missing_fields = buildMissingFields(ex);
     if (ex.missing_fields.length) {
-      ex.ask_next = buildAskNext(ex.missing_fields);
+      ex.ask_next = buildAskNext(ex.missing_fields, ex.language);
     } else {
       ex.ask_next = null;
     }

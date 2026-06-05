@@ -341,9 +341,10 @@ function assertPartialIntake(id, input, expect) {
   const okIntent = !expect.intents || expect.intents.includes(got.intent);
   const okHandoff = got.handoff_required === false;
   const okAsk = !!got.ask_next;
+  const okAskText = !expect.ask_next || got.ask_next === expect.ask_next;
   const okMissing = Array.isArray(got.missing_fields) && got.missing_fields.length > 0;
   const okChain = val.can_chain_dry_run === false;
-  if (okGuests && okIntent && okHandoff && okAsk && okMissing && okChain) {
+  if (okGuests && okIntent && okHandoff && okAsk && okAskText && okMissing && okChain) {
     pass(id, expect.label);
   } else {
     fail(id, `${expect.label} guests=${got.guests} intent=${got.intent} handoff=${got.handoff_required} ask=${got.ask_next} missing=${JSON.stringify(got.missing_fields)} chain=${val.can_chain_dry_run}`);
@@ -361,6 +362,7 @@ assertPartialIntake('D2.it', {
   label: 'Italian partial: due persone + posto → ask_next',
   guests: 2,
   intents: ['availability_question', 'booking_inquiry'],
+  ask_next: 'In quali date vorresti soggiornare?',
 });
 
 assertPartialIntake('D2.es', {
@@ -373,6 +375,7 @@ assertPartialIntake('D2.es', {
   label: 'Spanish partial: tres personas + disponibilidad',
   guests: 3,
   intents: ['availability_question', 'booking_inquiry'],
+  ask_next: '¿Qué fechas te gustaría reservar?',
 });
 
 assertPartialIntake('D2.fr', {
@@ -385,6 +388,7 @@ assertPartialIntake('D2.fr', {
   label: 'French partial: deux personnes + disponibilité',
   guests: 2,
   intents: ['availability_question', 'booking_inquiry'],
+  ask_next: 'Quelles dates souhaitez-vous réserver ?',
 });
 
 assertPartialIntake('D2.de', {
@@ -397,7 +401,54 @@ assertPartialIntake('D2.de', {
   label: 'German partial: zwei Personen + verfügbar',
   guests: 2,
   intents: ['availability_question', 'booking_inquiry'],
+  ask_next: 'Für welche Daten möchtest du buchen?',
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('D3. Phase 15d — localized ask_next prompts');
+
+const ASK_EN_DATES = 'What dates would you like to stay?';
+const ASK_EN_PHONE = 'What phone number should we use for the booking?';
+
+const unkLang = validateLunaGuestMessageIntake({
+  success: true,
+  client_slug: 'wolfhouse-somo',
+  message_text: 'booking inquiry',
+  language: 'xx',
+  intent: 'booking_inquiry',
+  guests: 2,
+  check_in: '2026-09-01',
+  check_out: '2026-09-05',
+});
+if (unkLang.extraction.ask_next === ASK_EN_PHONE) {
+  pass('D3.fallback', 'unknown language falls back to English phone prompt');
+} else {
+  fail('D3.fallback', `expected English phone prompt got ${unkLang.extraction.ask_next}`);
+}
+
+const itPkg = validateLunaGuestMessageIntake(extractLunaGuestMessageIntake({
+  client_slug: 'wolfhouse-somo',
+  from: '+39333111222',
+  language: 'it',
+  message_text: 'Vorrei venire dal 2026-10-01 al 2026-10-05 per 2 persone.',
+}, ctx));
+if (itPkg.extraction.ask_next === 'Quale pacchetto vorresti?') {
+  pass('D3.it.pkg', 'Italian package missing prompt');
+} else {
+  fail('D3.it.pkg', `got ${itPkg.extraction.ask_next}`);
+}
+
+if (partialVal.extraction.ask_next === ASK_EN_DATES || partialVal.extraction.language === 'it') {
+  // itPartial detected as it — expect Italian dates
+  const itDates = validateLunaGuestMessageIntake(itPartial);
+  if (itDates.extraction.ask_next === 'In quali date vorresti soggiornare?') {
+    pass('D3.it.dates', 'Italian dates prompt via detected language');
+  } else {
+    fail('D3.it.dates', `got ${itDates.extraction.ask_next}`);
+  }
+} else {
+  fail('D3.it.dates', 'itPartial language detection failed');
+}
 
 for (const [id, text] of [
   ['D2.hand.refund', 'I want a refund on my booking'],
