@@ -166,9 +166,15 @@ for (const [id, label, pattern] of ambiguities) {
 // ─────────────────────────────────────────────────────────────────────────────
 section('F. 13a design-only — no write bridge yet');
 
+const ELIG_LIB = path.join(__dirname, 'lib', 'luna-guest-booking-write-eligibility.js');
+if (fs.existsSync(ELIG_LIB)) {
+  pass('F2', 'write-eligibility lib present (13b)');
+} else {
+  fail('F2', 'write-eligibility lib missing — expected after 13b');
+}
+
 const notYetImplemented = [
   ['F1', 'no booking-write-bridge lib', 'luna-guest-booking-write-bridge.js'],
-  ['F2', 'no booking-write-eligibility lib yet (13b)', 'luna-guest-booking-write-eligibility.js'],
   ['F3', 'no booking-create-from-plan route', 'booking-create-from-plan'],
   ['F4', 'no booking-write-eligibility route yet', 'booking-write-eligibility'],
 ];
@@ -178,7 +184,7 @@ for (const [id, label, needle] of notYetImplemented) {
   const libPath = path.join(__dirname, 'lib', needle);
   const libExists = fs.existsSync(libPath);
   if (!inApi && !libExists) pass(id, label);
-  else fail(id, label + ' already present — 13a should be design-only');
+  else fail(id, label + ' already present — write bridge not expected yet');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -188,6 +194,7 @@ const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
 
 const requiredScripts = [
   'verify:luna-agent-phase13-write-gates-plan',
+  'verify:luna-agent-phase13-write-eligibility',
   'verify:luna-agent-phase12-closeout',
   'verify:staff-ask-luna-phase11-closeout',
   'verify:staff-bot-booking-create-api',
