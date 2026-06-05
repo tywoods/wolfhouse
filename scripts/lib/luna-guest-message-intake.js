@@ -72,7 +72,24 @@ const WORD_NUMBERS = {
   nine: 9, ten: 10, eleven: 11, twelve: 12,
   uno: 1, due: 2, tre: 3, cuatro: 4, cinque: 5, sei: 6, zwei: 2, drei: 3,
   vier: 4, fünf: 5, funf: 5, deux: 2, trois: 3, quatre: 4, cinq: 5,
+  // Phase 15c — multilingual guest-count words
+  una: 1, quattro: 4, dos: 2, tres: 3, une: 1, eine: 1,
 };
+
+const AVAILABILITY_KEYWORDS_RE = /\b(?:posto|avete\s+posto|disponibilit[aà]|disponibile|disponibilidad|disponible|hay\s+sitio|disponibilit[eé]|verf[uü]gbar(?:keit)?|platz\s+frei|availability|available|disponib|libre|frei)\b/i;
+
+const BOOKING_HINT_RE = /\b(?:vorremmo\s+venire|voglio\s+venire|want\s+to\s+come|we\s+want\s+to\s+come|quiero\s+venir|voglia\s+di\s+venire|souhaite(?:r|)\s+venir|möchte(?:n)?\s+kommen|moechte(?:n)?\s+kommen|book(?:ing)?|prenotare|reservar|réserver|reservieren)\b/i;
+
+const PARTIAL_INTENTS = new Set(['availability_question', 'booking_inquiry']);
+
+const MULTILINGUAL_GUEST_RE = /\b(?:siamo|somos|nous\s+sommes|wir\s+sind)\s+(una|due|tre|quattro|dos|tres|cuatro|une|deux|trois|quatre|eine|zwei|drei|vier)\s+(?:persone|personas|personnes|personen)\b/i;
+
+const MULTILINGUAL_GUEST_STANDALONE_RES = [
+  /\b(una|due|tre|quattro)\s+persone\b/i,
+  /\b(una|dos|tres|cuatro)\s+personas?\b/i,
+  /\b(une|deux|trois|quatre)\s+personnes\b/i,
+  /\b(eine|zwei|drei|vier)\s+personen\b/i,
+];
 
 function isGuestIntakeAiEnabled(env) {
   const e = env || process.env;
@@ -172,6 +189,33 @@ function extractNamedDateRange(text, ref) {
   return { check_in: null, check_out: null };
 }
 
+function wordToGuestCount(word) {
+  const w = String(word || '').toLowerCase();
+  return WORD_NUMBERS[w] != null ? WORD_NUMBERS[w] : null;
+}
+
+function hasAvailabilityKeywords(text) {
+  return AVAILABILITY_KEYWORDS_RE.test(String(text || ''));
+}
+
+function hasBookingHint(text) {
+  return BOOKING_HINT_RE.test(String(text || ''));
+}
+
+function hasMonthHint(text) {
+  const t = String(text || '').toLowerCase();
+  return Object.keys(MONTH_MAP).some((name) => new RegExp(`\\b${name}\\b`, 'i').test(t));
+}
+
+function hasPartialBookingSignal(fields, text) {
+  const msg = String(text || '');
+  const hasAnchor = !!(fields.phone || fields.guests || fields.check_in || hasMonthHint(msg));
+  if (!hasAnchor) return false;
+  if (hasAvailabilityKeywords(msg) || hasBookingHint(msg)) return true;
+  if (fields.guests && (!fields.check_in || !fields.check_out)) return true;
+  return false;
+}
+
 function extractGuests(text) {
   const t = String(text || '').toLowerCase();
   const patterns = [
@@ -182,6 +226,18 @@ function extractGuests(text) {
   for (const re of patterns) {
     const m = t.match(re);
     if (m) return Number(m[1]);
+  }
+  const ml = t.match(MULTILINGUAL_GUEST_RE);
+  if (ml) {
+    const n = wordToGuestCount(ml[1]);
+    if (n) return n;
+  }
+  for (const re of MULTILINGUAL_GUEST_STANDALONE_RES) {
+    const m = t.match(re);
+    if (m) {
+      const n = wordToGuestCount(m[1]);
+      if (n) return n;
+    }
   }
   for (const re of [
     /\bfor\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:people|guests|persons)\b/i,
@@ -240,8 +296,9 @@ function detectIntent(text, fields) {
     if (/\bcomplaint|reclamaci[oó]n|reclamo\b/i.test(text)) return 'complaint';
     return 'human_request';
   }
-  if (/\b(?:availability|available|disponib|libre|frei|verfügbar|verfugbar)\b/i.test(text)
-    && (!fields.check_in || !fields.check_out)) {
+  const incompleteDates = !fields.check_in || !fields.check_out;
+  const partialAnchor = fields.phone || fields.guests || fields.check_in || hasMonthHint(text);
+  if (hasAvailabilityKeywords(text) && incompleteDates && partialAnchor) {
     return 'availability_question';
   }
   if (fields.add_ons && fields.add_ons.length && !fields.package_code) return 'addon_request';
@@ -249,6 +306,7 @@ function detectIntent(text, fields) {
   if (fields.package_code && !fields.check_in && /\b(?:price|cost|how much|cuánto|quanto|combien|preis)\b/i.test(text)) {
     return 'price_question';
   }
+  if (hasBookingHint(text) && partialAnchor && incompleteDates) return 'booking_inquiry';
   if (fields.check_in || fields.guests || fields.package_code) return 'booking_inquiry';
   return 'unknown';
 }
@@ -426,9 +484,26 @@ function validateLunaGuestMessageIntake(extraction, context = {}) {
   }
 
   const confidenceMin = Number(context.confidence_min) || 0.45;
-  if (!ex.handoff_required && ex.intent === 'unknown' && ex.confidence < confidenceMin) {
+
+  // Phase 15c — partial multilingual inquiries: prefer ask_next over low-confidence handoff.
+  if (!ex.handoff_required && ex.intent === 'unknown' && hasPartialBookingSignal(ex, ex.message_text)) {
+    ex.intent = hasAvailabilityKeywords(ex.message_text) ? 'availability_question' : 'booking_inquiry';
+    ex.confidence = Math.max(Number(ex.confidence) || 0, confidenceMin);
+    ex.handoff_required = false;
+    ex.handoff_reason = null;
+  }
+
+  if (!ex.handoff_required
+    && ex.intent === 'unknown'
+    && ex.confidence < confidenceMin
+    && !hasPartialBookingSignal(ex, ex.message_text)) {
     ex.handoff_required = true;
     ex.handoff_reason = 'low_confidence';
+  }
+
+  if (PARTIAL_INTENTS.has(ex.intent)) {
+    ex.handoff_required = false;
+    ex.handoff_reason = null;
   }
 
   if (!ex.handoff_required) {

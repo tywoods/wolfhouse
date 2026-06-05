@@ -331,6 +331,90 @@ if (!partialChain.can_chain_dry_run) pass('D.nochain', 'partial message does not
 else fail('D.nochain', 'partial should not chain dry-run');
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('D2. Phase 15c — multilingual partial intake (ask_next, no handoff)');
+
+function assertPartialIntake(id, input, expect) {
+  const ex = extractLunaGuestMessageIntake(input, ctx);
+  const val = validateLunaGuestMessageIntake(ex);
+  const got = val.extraction;
+  const okGuests = expect.guests == null || got.guests === expect.guests;
+  const okIntent = !expect.intents || expect.intents.includes(got.intent);
+  const okHandoff = got.handoff_required === false;
+  const okAsk = !!got.ask_next;
+  const okMissing = Array.isArray(got.missing_fields) && got.missing_fields.length > 0;
+  const okChain = val.can_chain_dry_run === false;
+  if (okGuests && okIntent && okHandoff && okAsk && okMissing && okChain) {
+    pass(id, expect.label);
+  } else {
+    fail(id, `${expect.label} guests=${got.guests} intent=${got.intent} handoff=${got.handoff_required} ask=${got.ask_next} missing=${JSON.stringify(got.missing_fields)} chain=${val.can_chain_dry_run}`);
+  }
+}
+
+assertPartialIntake('D2.it', {
+  client_slug: 'wolfhouse-somo',
+  channel: 'whatsapp',
+  from: '+15555550151',
+  guest_name: 'Intake Partial IT',
+  language: 'it',
+  message_text: 'Ciao, siamo due persone e vorremmo venire a settembre. Avete posto?',
+}, {
+  label: 'Italian partial: due persone + posto → ask_next',
+  guests: 2,
+  intents: ['availability_question', 'booking_inquiry'],
+});
+
+assertPartialIntake('D2.es', {
+  client_slug: 'wolfhouse-somo',
+  channel: 'whatsapp',
+  from: '+15555550153',
+  language: 'es',
+  message_text: 'Hola, somos tres personas. Hay disponibilidad?',
+}, {
+  label: 'Spanish partial: tres personas + disponibilidad',
+  guests: 3,
+  intents: ['availability_question', 'booking_inquiry'],
+});
+
+assertPartialIntake('D2.fr', {
+  client_slug: 'wolfhouse-somo',
+  channel: 'whatsapp',
+  from: '+15555550154',
+  language: 'fr',
+  message_text: 'Bonjour, nous sommes deux personnes. Vous avez disponibilité?',
+}, {
+  label: 'French partial: deux personnes + disponibilité',
+  guests: 2,
+  intents: ['availability_question', 'booking_inquiry'],
+});
+
+assertPartialIntake('D2.de', {
+  client_slug: 'wolfhouse-somo',
+  channel: 'whatsapp',
+  from: '+15555550155',
+  language: 'de',
+  message_text: 'Hallo, wir sind zwei Personen. Ist etwas verfügbar?',
+}, {
+  label: 'German partial: zwei Personen + verfügbar',
+  guests: 2,
+  intents: ['availability_question', 'booking_inquiry'],
+});
+
+for (const [id, text] of [
+  ['D2.hand.refund', 'I want a refund on my booking'],
+  ['D2.hand.cancel', 'Please cancel paid booking'],
+  ['D2.hand.human', 'I need to talk to someone please'],
+]) {
+  const ex = extractLunaGuestMessageIntake({ client_slug: 'wolfhouse-somo', message_text: text }, ctx);
+  const val = validateLunaGuestMessageIntake(ex);
+  if (val.extraction.handoff_required === true) pass(id, `handoff preserved: ${text.slice(0, 28)}…`);
+  else fail(id, `expected handoff for "${text}"`);
+}
+
+const enVal15c = validateLunaGuestMessageIntake(enEx);
+if (enVal15c.can_chain_dry_run) pass('D2.chain.en', 'complete English still chains dry-run');
+else fail('D2.chain.en', 'complete English dry-run chain broken');
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('E. Safety flags and read-only proof');
 
 const combinedSrc = helperSrc + handler;
