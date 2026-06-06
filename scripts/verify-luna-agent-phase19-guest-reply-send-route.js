@@ -1,5 +1,5 @@
 /**
- * Phase 19d — Verifier for Luna guest reply send route (default-deny).
+ * Phase 19d — Verifier for Luna guest reply send route (default-deny + readiness simulation).
  *
  * Usage:
  *   npm run verify:luna-agent-phase19-guest-reply-send-route
@@ -60,7 +60,7 @@ const {
   SEND_ROUTE_SAFETY_FLAGS,
 } = require('./lib/luna-guest-reply-send-route');
 
-console.log('\nverify-luna-agent-phase19-guest-reply-send-route.js  (Phase 19d)\n');
+console.log('\nverify-luna-agent-phase19-guest-reply-send-route.js  (Phase 19d.2)\n');
 
 try {
   execSync(`node --check "${__filename}"`, { stdio: 'pipe' });
@@ -104,16 +104,32 @@ else fail('A6', 'send_performed audit pin missing');
 
 section('B. Validation blocks');
 
-function assertSafety(result) {
-  for (const [k, v] of Object.entries(SAFETY)) {
-    if (result[k] !== v) return false;
-  }
-  return true;
+function assertBlockedSafety(result) {
+  return result.send_performed === false
+    && result.sends_whatsapp === false
+    && result.no_write_performed === true
+    && result.creates_booking === false
+    && result.creates_payment === false
+    && result.creates_stripe_link === false
+    && result.calls_n8n === false;
+}
+
+function assertReadyNotImplemented(result) {
+  return result.success === false
+    && result.auto_send_ready === true
+    && result.would_send_whatsapp === true
+    && result.send_performed === false
+    && result.sends_whatsapp === false
+    && Array.isArray(result.blocked_reasons)
+    && result.blocked_reasons.includes('guest_reply_whatsapp_send_not_implemented')
+    && !result.blocked_reasons.includes('luna_auto_send_not_enabled')
+    && !result.blocked_reasons.includes('whatsapp_dry_run_active')
+    && assertBlockedSafety(result);
 }
 
 const missingKey = evaluateGuestReplySendRoute({ ...BASE_BODY, idempotency_key: '' });
 if (missingKey.status === 400 && missingKey.result.error === 'idempotency_key_required'
-  && assertSafety(missingKey.result)) {
+  && assertBlockedSafety(missingKey.result) && missingKey.result.would_send_whatsapp === false) {
   pass('B.idem', 'missing idempotency_key blocks');
 } else {
   fail('B.idem', 'idempotency_key validation failed');
@@ -121,7 +137,7 @@ if (missingKey.status === 400 && missingKey.result.error === 'idempotency_key_re
 
 const missingReply = evaluateGuestReplySendRoute({ ...BASE_BODY, suggested_reply: '' });
 if (missingReply.status === 400 && missingReply.result.error === 'suggested_reply_required'
-  && assertSafety(missingReply.result)) {
+  && assertBlockedSafety(missingReply.result)) {
   pass('B.reply', 'missing suggested_reply blocks');
 } else {
   fail('B.reply', 'suggested_reply validation failed');
@@ -129,7 +145,7 @@ if (missingReply.status === 400 && missingReply.result.error === 'suggested_repl
 
 const badKind = evaluateGuestReplySendRoute({ ...BASE_BODY, send_kind: 'send_confirmation' });
 if (badKind.status === 400 && badKind.result.error === 'unsupported_send_kind'
-  && assertSafety(badKind.result)) {
+  && assertBlockedSafety(badKind.result)) {
   pass('B.kind', 'unsupported send_kind blocks');
 } else {
   fail('B.kind', 'unsupported send_kind validation failed');
@@ -141,7 +157,7 @@ const staffBlock = evaluateGuestReplySendRoute({
 });
 if (staffBlock.result.success === false
   && staffBlock.result.blocked_reasons.includes('requires_staff')
-  && assertSafety(staffBlock.result)) {
+  && assertBlockedSafety(staffBlock.result)) {
   pass('B.staff', 'requires_staff true blocks');
 } else {
   fail('B.staff', 'requires_staff block failed');
@@ -162,7 +178,7 @@ function gatesOffCase(label, sendKind) {
     && blocked.includes('luna_auto_send_not_enabled')
     && blocked.includes('whatsapp_dry_run_active')
     && out.result.safe_next_step === 'keep_draft_or_handoff'
-    && assertSafety(out.result);
+    && assertBlockedSafety(out.result);
   if (ok) pass('C.' + label, `${sendKind} blocked safely while gates off`);
   else fail('C.' + label, `${sendKind} gates-off case failed: ${JSON.stringify(out.result)}`);
 }
@@ -170,6 +186,78 @@ function gatesOffCase(label, sendKind) {
 gatesOffCase('ask', 'ask_missing_field');
 gatesOffCase('quote', 'show_quote');
 gatesOffCase('checkin', 'checkin_day');
+
+section('C2. Mocked gates on — readiness simulation (no provider)');
+
+const gatesOnEnv = {
+  LUNA_AUTO_SEND_ENABLED: 'true',
+  WHATSAPP_DRY_RUN: 'false',
+};
+
+function readyBody(sendKind) {
+  return {
+    ...BASE_BODY,
+    send_kind: sendKind,
+    send_eligibility: {
+      send_allowed_later: true,
+      requires_staff: false,
+      auto_send_ready: true,
+      allowed_send_kind: sendKind,
+    },
+  };
+}
+
+function readyNotImplementedCase(label, sendKind) {
+  const out = evaluateGuestReplySendRoute(readyBody(sendKind), gatesOnEnv);
+  if (assertReadyNotImplemented(out.result)) {
+    pass('C2.' + label, `${sendKind} ready but blocked at provider-not-implemented`);
+  } else {
+    fail('C2.' + label, `${sendKind} readiness case failed: ${JSON.stringify(out.result)}`);
+  }
+}
+
+readyNotImplementedCase('ask', 'ask_missing_field');
+readyNotImplementedCase('quote', 'show_quote');
+readyNotImplementedCase('checkin', 'checkin_day');
+
+const riskyMocked = evaluateGuestReplySendRoute({
+  ...BASE_BODY,
+  send_eligibility: { send_allowed_later: false, requires_staff: true, auto_send_ready: false },
+}, gatesOnEnv);
+if (riskyMocked.result.success === false
+  && riskyMocked.result.blocked_reasons.includes('requires_staff')
+  && !riskyMocked.result.blocked_reasons.includes('guest_reply_whatsapp_send_not_implemented')
+  && assertBlockedSafety(riskyMocked.result)) {
+  pass('C2.risky', 'requires_staff still blocks with mocked gates on');
+} else {
+  fail('C2.risky', 'risky case with mocked gates failed');
+}
+
+const badKindMocked = evaluateGuestReplySendRoute(
+  { ...readyBody('ask_missing_field'), send_kind: 'send_confirmation' },
+  gatesOnEnv,
+);
+if (badKindMocked.status === 400 && badKindMocked.result.error === 'unsupported_send_kind') {
+  pass('C2.bad_kind', 'unsupported send_kind still blocks with mocked gates on');
+} else {
+  fail('C2.bad_kind', 'unsupported send_kind with mocked gates failed');
+}
+
+const missingKeyMocked = evaluateGuestReplySendRoute(
+  { ...readyBody('ask_missing_field'), idempotency_key: '' },
+  gatesOnEnv,
+);
+if (missingKeyMocked.status === 400 && missingKeyMocked.result.error === 'idempotency_key_required') {
+  pass('C2.no_idem', 'missing idempotency_key still blocks with mocked gates on');
+} else {
+  fail('C2.no_idem', 'missing idempotency with mocked gates failed');
+}
+
+if (helperSrc.includes('guest_reply_whatsapp_send_not_implemented')) {
+  pass('C2.impl_flag', 'helper exposes provider-not-implemented block reason');
+} else {
+  fail('C2.impl_flag', 'provider-not-implemented reason missing from helper');
+}
 
 section('D. Safety — no send / write / external calls');
 
@@ -210,7 +298,7 @@ section('F. Downstream verifiers still pass');
 
 for (const script of [
   'verify:luna-agent-phase19-checkin-day-preview',
-  'verify:luna-agent-phase19-checkin-day-message',
+  'verify:luna-agent-phase18-draft-builder',
 ]) {
   try {
     execSync(`npm run ${script}`, { stdio: 'pipe', cwd: ROOT, timeout: 120000 });
@@ -234,12 +322,9 @@ section('G. Pause gate (mock pg)');
       }],
     }),
   };
-  const paused = await evaluateGuestReplySendRouteWithPause(BASE_BODY, {
+  const paused = await evaluateGuestReplySendRouteWithPause(readyBody('ask_missing_field'), {
     pg: mockPg,
-    env: {
-      WHATSAPP_DRY_RUN: 'false',
-      LUNA_AUTO_SEND_ENABLED: 'true',
-    },
+    env: gatesOnEnv,
   });
   if (paused.result.blocked_reasons.includes('gate_bot_paused')
     && paused.result.send_performed === false) {

@@ -159,7 +159,7 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
     };
   }
 
-  // Gates pass — WhatsApp send not implemented in Phase 19d.
+  // Gates pass — WhatsApp send not implemented until Phase 19e provider slice.
   return {
     ok: true,
     status: 200,
@@ -173,6 +173,7 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
       blocked_reasons: ['guest_reply_whatsapp_send_not_implemented'],
       safe_next_step: 'keep_draft_or_handoff',
       ...SEND_ROUTE_SAFETY_FLAGS,
+      would_send_whatsapp: true,
     },
   };
 }
