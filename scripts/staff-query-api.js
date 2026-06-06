@@ -205,6 +205,10 @@ const {
   processMetaWhatsAppWebhookInbound,
 } = require('./lib/luna-meta-whatsapp-inbound-process');
 const {
+  parseMessageEventsQuery,
+  listGuestMessageEvents,
+} = require('./lib/luna-guest-message-events-read');
+const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
   buildDryRunInputFromIntake,
@@ -20972,6 +20976,68 @@ async function handleHandoffQueue(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 19g.9 — Meta inbound message events inbox (read-only)
+//
+// GET /staff/inbox/message-events?client_slug=...&from_phone=...&handoff_required=...
+//   Returns persisted guest_message_events rows for staff review/debug.
+//
+// Safety: SELECT-only on guest_message_events. Staff session auth (viewer+).
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleInboxMessageEvents(query, res, user) {
+  const started = Date.now();
+  const parsed = parseMessageEventsQuery(query);
+  if (!parsed.ok) return send400(res, parsed.error);
+
+  const filters = parsed.filters;
+  if (SQL_INJECT_RE.test(filters.client_slug)) return send400(res, 'invalid client_slug');
+  if (filters.next_action && SQL_INJECT_RE.test(filters.next_action)) {
+    return send400(res, 'invalid next_action');
+  }
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:inbox.message-events',
+    category:      'inbox_message_events_api',
+    client_slug:   filters.client_slug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => listGuestMessageEvents(pg, filters));
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      total_returned: result.events.length,
+      table_missing: result.table_missing === true,
+      elapsed_ms: elapsed,
+    });
+
+    const payload = {
+      success: true,
+      client_slug: filters.client_slug,
+      events: result.events,
+      total_returned: result.events.length,
+      elapsed_ms: elapsed,
+    };
+    if (result.table_missing) {
+      payload.table_missing = true;
+    }
+    return sendJSON(res, 200, payload);
+  } catch (err) {
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase 11b.1 — Surf forecast handler (read-only, Stormglass backend-only)
 //
 // GET /staff/surf-forecast?client=wolfhouse-somo&day=today|tomorrow
@@ -23503,6 +23569,13 @@ async function router(req, res) {
     return handleHandoffQueue(parsed.query, res, auth.user);
   }
 
+  // ── Phase 19g.9 — Meta inbound message events inbox (read-only) ───────────
+  if (pathname === '/staff/inbox/message-events') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleInboxMessageEvents(parsed.query, res, auth.user);
+  }
+
   // ── Phase 10.7a — Tour Operator rooms + blocks (read-only) ────────────────
   if (pathname === '/staff/tour-operator/rooms') {
     const auth = await requireAuth(req, res, 'viewer');
@@ -23640,6 +23713,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/intents`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/query?intent=...`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations  <- inbox (Stage 7.7b)`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/message-events  <- 19g.9 Meta inbound events (read-only)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/messages`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/context`);
