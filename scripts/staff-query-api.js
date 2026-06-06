@@ -209,6 +209,11 @@ const {
   listGuestMessageEvents,
 } = require('./lib/luna-guest-message-events-read');
 const {
+  isStagingResetEnvironment,
+  parseResetLunaPhoneInput,
+  resetLunaPhoneTestRows,
+} = require('./lib/luna-test-reset-phone');
+const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
   buildDryRunInputFromIntake,
@@ -13789,6 +13794,8 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .msg-events-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);background:var(--surface-soft);white-space:nowrap}
 .msg-events-table td.msg-text{max-width:240px;word-break:break-word}
 .msg-events-empty{padding:20px;text-align:center;color:var(--text-3);font-size:12.5px;font-style:italic}
+.me-reset-btn{background:#F5EBE8;color:#8B4A3A;border:1px solid #E0C4BC;font-weight:600}
+.me-reset-btn:hover{background:#EDD8D2}
 /* Preserve helper classes used in detail JS */
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
@@ -14312,9 +14319,10 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <label class="me-filter-label"><input type="checkbox" id="me-filter-send"> Send attempted only</label>
         <input type="text" id="me-filter-phone" class="me-filter-phone" placeholder="from_phone search">
         <button type="button" class="btn btn-primary" id="me-refresh" style="padding:5px 10px;font-size:11px">&#8635; Refresh</button>
+        <button type="button" class="btn me-reset-btn" id="me-reset-phone" style="display:none;padding:5px 10px;font-size:11px">Reset test phone</button>
       </div>
     </div>
-    <div class="msg-events-ro-note">Read-only Meta inbound events &mdash; no send actions.</div>
+    <div class="msg-events-ro-note">Read-only Meta inbound events &mdash; no send actions. Staging reset clears test rows only.</div>
     <div id="me-state" class="state-msg" style="display:none;padding:10px 14px"></div>
     <div id="me-table-wrap"></div>
   </div>
@@ -15075,6 +15083,63 @@ function wireMessageEventsPanel(){
     });
     phoneInput.addEventListener('change', loadMessageEvents);
   }
+  var resetBtn = el('me-reset-phone');
+  if (resetBtn){
+    var host = (window.location && window.location.hostname) || '';
+    if (/staging|localhost|127\.0\.0\.1/.test(host)){
+      resetBtn.style.display = '';
+      resetBtn.addEventListener('click', resetTestPhoneFromPanel);
+    }
+  }
+}
+
+function resetTestPhoneFromPanel(){
+  var stateEl = el('me-state');
+  if (!stateEl) return;
+  var phoneInput = el('me-filter-phone');
+  var phone = phoneInput ? (phoneInput.value || '').trim() : '';
+  if (!phone){
+    stateEl.textContent = 'Enter a phone number first.';
+    stateEl.classList.add('error');
+    stateEl.style.display = 'block';
+    return;
+  }
+  var phoneNorm = phone.replace(/^\+/, '').replace(/[\s\-()]/g, '');
+  if (!window.confirm('Reset test rows for ' + phoneNorm + '?')) return;
+  stateEl.textContent = 'Resetting test rows\u2026';
+  stateEl.classList.remove('error');
+  stateEl.style.display = 'block';
+  fetch('/staff/test/reset-luna-phone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_slug: getClient(), phone: phoneNorm }),
+  })
+    .then(function(r){
+      if (r.status === 401){
+        stateEl.innerHTML = '\u26a0 Authentication required &mdash; <strong>POST /staff/auth/login</strong> first.';
+        stateEl.classList.add('error');
+        stateEl.style.display = 'block';
+        return null;
+      }
+      return r.json().then(function(data){ return { status: r.status, data: data }; });
+    })
+    .then(function(out){
+      if (!out) return;
+      if (!out.data || !out.data.success) {
+        throw new Error((out.data && out.data.error) || ('HTTP ' + out.status));
+      }
+      var d = out.data.deleted || {};
+      stateEl.textContent = 'Reset complete: ' + (d.guest_message_events || 0) + ' events, '
+        + (d.guest_message_sends || 0) + ' sends deleted.';
+      stateEl.classList.remove('error');
+      stateEl.style.display = 'block';
+      loadMessageEvents();
+    })
+    .catch(function(err){
+      stateEl.textContent = 'Reset failed: ' + err.message;
+      stateEl.classList.add('error');
+      stateEl.style.display = 'block';
+    });
 }
 
 /* Priority badge */
@@ -21169,6 +21234,73 @@ async function handleInboxMessageEvents(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 19g.11a — Staging-only Luna test phone reset
+//
+// POST /staff/test/reset-luna-phone
+//   Deletes guest_message_events + guest_message_sends for client_slug + phone.
+//   Staging guard (403 in production). Operator+ session auth.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleTestResetLunaPhone(req, res, user) {
+  const started = Date.now();
+  const hostHeader = String(req.headers.host || '');
+
+  if (!isStagingResetEnvironment(process.env, hostHeader)) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'staging_only',
+      detail: 'Test phone reset is allowed only on staging/test environments.',
+    });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const parsed = parseResetLunaPhoneInput(body);
+  if (!parsed.ok) {
+    if (parsed.status === 403) {
+      return sendJSON(res, 403, { success: false, error: parsed.error });
+    }
+    return send400(res, parsed.error);
+  }
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:test.reset-luna-phone',
+    category:      'test_reset_luna_phone',
+    client_slug:   parsed.input.client_slug,
+    phone:         parsed.input.phone,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => resetLunaPhoneTestRows(pg, parsed.input));
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      deleted: result.deleted,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, { ...result, elapsed_ms: elapsed });
+  } catch (err) {
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'reset failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase 11b.1 — Surf forecast handler (read-only, Stormglass backend-only)
 //
 // GET /staff/surf-forecast?client=wolfhouse-somo&day=today|tomorrow
@@ -23185,6 +23317,16 @@ async function router(req, res) {
   // ── Stage 8.3h — Manual booking preview (read-only, no writes) ───────────
   // POST accepted to carry the JSON payload; this route NEVER writes.
   // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  if (pathname === '/staff/test/reset-luna-phone') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for test/reset-luna-phone' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleTestResetLunaPhone(req, res, auth.user);
+  }
+
   if (pathname === '/staff/manual-bookings/preview') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -23845,6 +23987,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/query?intent=...`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations  <- inbox (Stage 7.7b)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/message-events  <- 19g.9 Meta inbound events (read-only)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/test/reset-luna-phone  <- 19g.11a staging test reset (operator+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/messages`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/context`);
