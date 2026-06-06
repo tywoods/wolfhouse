@@ -13903,7 +13903,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .inbox-left{width:300px;flex-shrink:0;min-height:0;height:100%;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-soft)}
 .inbox-ro-note{flex-shrink:0}
-.inbox-left-rows{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
+.inbox-left-rows{flex:1 1 0;min-height:0;height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;scrollbar-gutter:stable}
 #conv-list.conv-list{min-height:0;overflow:visible}
 .inbox-left-scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #inbox-state{flex-shrink:0}
@@ -15107,6 +15107,7 @@ function switchToTab(tab, subtab){
     loadMessageEvents();
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
+  if (tab === 'conversations') wireInboxLeftListWheel();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
@@ -15513,10 +15514,8 @@ function wireHandoffsQueuePanel(){
   }
 }
 
-/* Priority badge */
+/* Priority badge — Needs human only (no URGENT pill in normal Inbox UI) */
 function priorityPill(conv){
-  if (conv.needs_human && conv.handoff_priority === 'urgent')
-    return '<span class="pill pill-red">URGENT</span>';
   if (conv.needs_human)
     return '<span class="pill pill-orange">NEEDS HUMAN</span>';
   if (conv.handoff_status === 'open')
@@ -15714,16 +15713,25 @@ window.openBookingInCalendar = openBookingInCalendar;
 
 function wireInboxLeftListWheel(){
   var rows = document.querySelector('.inbox-left-rows');
-  if (!rows || rows.dataset.wheelWired === '1') return;
-  rows.dataset.wheelWired = '1';
-  rows.addEventListener('wheel', function(ev){
-    if (rows.scrollHeight <= rows.clientHeight) return;
-    var atTop = rows.scrollTop <= 0;
-    var atBottom = rows.scrollTop + rows.clientHeight >= rows.scrollHeight - 1;
-    if ((ev.deltaY < 0 && atTop) || (ev.deltaY > 0 && atBottom)) return;
-    rows.scrollTop += ev.deltaY;
+  var left = el('inbox-card');
+  if (!rows || !left || left.dataset.wheelWired === '1') return;
+  left.dataset.wheelWired = '1';
+
+  function scrollInboxLeftList(ev){
+    if (ev.target.closest && ev.target.closest('.inbox-left-toolbar')) return;
+    if (!ev.target.closest || !ev.target.closest('.inbox-left')) return;
+    var scroller = rows;
+    if (scroller.scrollHeight <= scroller.clientHeight + 1) return;
+    var max = scroller.scrollHeight - scroller.clientHeight;
+    var next = scroller.scrollTop + ev.deltaY;
+    if (next < 0) next = 0;
+    if (next > max) next = max;
+    if (Math.abs(next - scroller.scrollTop) >= 0.5) scroller.scrollTop = next;
     ev.preventDefault();
-  }, { passive: false });
+    ev.stopPropagation();
+  }
+
+  left.addEventListener('wheel', scrollInboxLeftList, { passive: false, capture: true });
 }
 
 function convDetailHasLayout(targetEl){
@@ -20859,7 +20867,7 @@ function renderBookingContextDrawer(data){
   } else {
     html += '<div class="ctx-none">No linked conversation yet.</div>';
     html += '<div style="margin-top:8px">' +
-      '<button type="button" class="btn btn-bc-create-soft" id="bc-new-conversation-btn" ' +
+      '<button type="button" class="btn btn-success-light" id="bc-new-conversation-btn" ' +
       'data-booking-id="' + escHtml(bk.booking_id||'') + '" ' +
       'data-booking-code="' + escHtml(bk.booking_code||'') + '">New Conversation</button>' +
       '</div>';

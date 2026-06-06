@@ -126,11 +126,34 @@ if (!openCalJs.includes('/staff/bot/guest-reply-send') && !loadDetailJs.includes
 if (!/api\.stripe\.com/.test(htmlSrc) && !/graph\.facebook\.com/.test(htmlSrc)) pass('F2', 'no Stripe/Graph');
 else fail('F2', 'Stripe or Graph found');
 
-section('G. npm script');
+section('G. Inbox card badges');
+
+const priorityPillMatch = src.match(/function priorityPill\([\s\S]*?\n\}/);
+const priorityPillJs = priorityPillMatch ? priorityPillMatch[0] : '';
+if (!/URGENT/.test(priorityPillJs)) pass('G1', 'URGENT badge not rendered in conv cards');
+else fail('G1', 'URGENT still in priorityPill');
+if (/NEEDS HUMAN/.test(priorityPillJs)) pass('G2', 'Needs human badge retained');
+else fail('G2', 'Needs human badge missing');
+if (/needs-human|setInboxFilter\s*\(\s*['"]needs-human['"]/.test(src)) pass('G3', 'Needs human filter retained');
+else fail('G3', 'Needs human filter missing');
+
+section('H. Matching Open/New Conversation buttons');
+
+const convHandoffBlock = src.match(/Conversation \/ Handoff[\s\S]{0,1200}/);
+const convHandoffJs = convHandoffBlock ? convHandoffBlock[0] : '';
+if (/btn-success-light[\s\S]{0,200}bc-open-conv-btn/.test(convHandoffJs)) pass('H1', 'Open Conversation uses btn-success-light');
+else fail('H1', 'Open Conversation style mismatch');
+if (/btn-success-light[\s\S]{0,200}bc-new-conversation-btn/.test(convHandoffJs)) pass('H2', 'New Conversation uses btn-success-light');
+else fail('H2', 'New Conversation style mismatch');
+if (!/btn-bc-create-soft[\s\S]{0,200}bc-new-conversation-btn/.test(convHandoffJs)) {
+  pass('H3', 'legacy btn-bc-create-soft removed from handoff section');
+} else fail('H3', 'New Conversation still uses btn-bc-create-soft');
+
+section('I. npm script');
 
 const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
-if (pkg.scripts && pkg.scripts['verify:staff-inbox-calendar-ui-polish']) pass('G1', 'npm script registered');
-else fail('G1', 'npm script missing');
+if (pkg.scripts && pkg.scripts['verify:staff-inbox-calendar-ui-polish']) pass('I1', 'npm script registered');
+else fail('I1', 'npm script missing');
 
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
 process.exit(failures > 0 ? 1 : 0);
