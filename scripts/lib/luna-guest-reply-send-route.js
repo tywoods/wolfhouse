@@ -1,13 +1,11 @@
 'use strict';
 
 /**
- * Phase 19d — Luna guest reply send route (default-deny; no WhatsApp send in this slice).
- *
- * Validates send requests, re-checks eligibility and env gates, optionally checks bot pause.
- * Does not call WhatsApp, Stripe, n8n, or perform DB writes.
+ * Phase 19d/19e — Luna guest reply send route (gated; WhatsApp provider when gates pass).
  */
 
 const { getPauseState } = require('./staff-bot-pause-sql');
+const { sendLunaWhatsAppMessage } = require('./luna-whatsapp-provider');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -56,9 +54,11 @@ function resolveSafeNextStep(blockedReasons) {
 }
 
 /**
+ * Gate + validation evaluation (sync). Provider invoked separately when provider_pending.
+ *
  * @param {object} body
  * @param {object} [env]
- * @returns {{ ok: boolean, status: number, result: object }}
+ * @returns {{ ok: boolean, status: number, result: object, provider_pending?: boolean }}
  */
 function evaluateGuestReplySendRoute(body, env = process.env) {
   const src = body || {};
@@ -159,10 +159,10 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
     };
   }
 
-  // Gates pass — WhatsApp send not implemented until Phase 19e provider slice.
   return {
     ok: true,
     status: 200,
+    provider_pending: true,
     result: {
       success: false,
       client_slug: clientSlug,
@@ -170,7 +170,7 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
       send_kind: sendKind,
       to,
       auto_send_ready: true,
-      blocked_reasons: ['guest_reply_whatsapp_send_not_implemented'],
+      blocked_reasons: [],
       safe_next_step: 'keep_draft_or_handoff',
       ...SEND_ROUTE_SAFETY_FLAGS,
       would_send_whatsapp: true,
@@ -178,9 +178,44 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
   };
 }
 
+function mergeProviderResult(baseResult, providerResult) {
+  if (providerResult.success === true) {
+    return {
+      ...baseResult,
+      success: true,
+      send_performed: true,
+      sends_whatsapp: true,
+      would_send_whatsapp: true,
+      no_write_performed: true,
+      creates_booking: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      calls_n8n: false,
+      updates_confirmation_sent_at: false,
+      blocked_reasons: [],
+      safe_next_step: null,
+      whatsapp_message_id: providerResult.whatsapp_message_id || null,
+      provider: providerResult.provider || 'whatsapp',
+    };
+  }
+
+  const blockedReason = providerResult.blocked_reason || 'whatsapp_send_failed';
+  return {
+    ...baseResult,
+    success: false,
+    send_performed: false,
+    sends_whatsapp: false,
+    would_send_whatsapp: providerResult.would_send_whatsapp === true,
+    blocked_reasons: [...new Set([...(baseResult.blocked_reasons || []), blockedReason])],
+    safe_next_step: resolveSafeNextStep([blockedReason]),
+    provider: providerResult.provider || null,
+    provider_error: providerResult.provider_error || null,
+  };
+}
+
 /**
  * @param {object} body
- * @param {{ pg?: object, env?: object }} [context]
+ * @param {{ pg?: object, env?: object, sendMessage?: Function, fetch?: Function }} [context]
  */
 async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
   const env = context.env || process.env;
@@ -218,12 +253,26 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
     }
   }
 
-  return evaluated;
+  if (!evaluated.provider_pending) return evaluated;
+
+  const providerResult = await sendLunaWhatsAppMessage({
+    to: evaluated.result.to,
+    message: trimStr(src.suggested_reply),
+    client_slug: evaluated.result.client_slug,
+    idempotency_key: evaluated.result.idempotency_key,
+  }, env, context);
+
+  return {
+    ok: true,
+    status: 200,
+    result: mergeProviderResult(evaluated.result, providerResult),
+  };
 }
 
 module.exports = {
   evaluateGuestReplySendRoute,
   evaluateGuestReplySendRouteWithPause,
+  mergeProviderResult,
   ALLOWED_SEND_KINDS,
   SEND_ROUTE_SAFETY_FLAGS,
   collectEnvGateReasons,

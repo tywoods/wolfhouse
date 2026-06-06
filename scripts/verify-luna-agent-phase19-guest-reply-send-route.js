@@ -114,18 +114,32 @@ function assertBlockedSafety(result) {
     && result.calls_n8n === false;
 }
 
-function assertReadyNotImplemented(result) {
-  return result.success === false
-    && result.auto_send_ready === true
-    && result.would_send_whatsapp === true
-    && result.send_performed === false
-    && result.sends_whatsapp === false
-    && Array.isArray(result.blocked_reasons)
-    && result.blocked_reasons.includes('guest_reply_whatsapp_send_not_implemented')
-    && !result.blocked_reasons.includes('luna_auto_send_not_enabled')
-    && !result.blocked_reasons.includes('whatsapp_dry_run_active')
-    && assertBlockedSafety(result);
+function assertReadyPending(evaluated) {
+  return evaluated.provider_pending === true
+    && evaluated.result.success === false
+    && evaluated.result.auto_send_ready === true
+    && evaluated.result.would_send_whatsapp === true
+    && Array.isArray(evaluated.result.blocked_reasons)
+    && evaluated.result.blocked_reasons.length === 0
+    && assertBlockedSafety(evaluated.result);
 }
+
+async function assertMockSendSuccess(result) {
+  return result.success === true
+    && result.send_performed === true
+    && result.sends_whatsapp === true
+    && result.whatsapp_message_id
+    && result.no_write_performed === true
+    && result.creates_booking === false
+    && result.creates_payment === false
+    && result.creates_stripe_link === false
+    && result.calls_n8n === false;
+}
+
+const mockSendMessage = async () => ({
+  success: true,
+  whatsapp_message_id: 'mock-wamid-send-route',
+});
 
 const missingKey = evaluateGuestReplySendRoute({ ...BASE_BODY, idempotency_key: '' });
 if (missingKey.status === 400 && missingKey.result.error === 'idempotency_key_required'
@@ -187,7 +201,7 @@ gatesOffCase('ask', 'ask_missing_field');
 gatesOffCase('quote', 'show_quote');
 gatesOffCase('checkin', 'checkin_day');
 
-section('C2. Mocked gates on — readiness simulation (no provider)');
+section('C2. Mocked gates on — readiness + provider (mock send)');
 
 const gatesOnEnv = {
   LUNA_AUTO_SEND_ENABLED: 'true',
@@ -207,110 +221,133 @@ function readyBody(sendKind) {
   };
 }
 
-function readyNotImplementedCase(label, sendKind) {
-  const out = evaluateGuestReplySendRoute(readyBody(sendKind), gatesOnEnv);
-  if (assertReadyNotImplemented(out.result)) {
-    pass('C2.' + label, `${sendKind} ready but blocked at provider-not-implemented`);
+async function readyMockSendCase(label, sendKind) {
+  const syncPending = evaluateGuestReplySendRoute(readyBody(sendKind), gatesOnEnv);
+  if (!assertReadyPending(syncPending)) {
+    fail('C2.' + label + '.pending', `${sendKind} sync gate pass pending provider failed`);
+    return;
+  }
+  pass('C2.' + label + '.pending', `${sendKind} passes gates (provider pending)`);
+
+  const out = await evaluateGuestReplySendRouteWithPause(readyBody(sendKind), {
+    env: gatesOnEnv,
+    sendMessage: mockSendMessage,
+  });
+  if (await assertMockSendSuccess(out.result)) {
+    pass('C2.' + label + '.send', `${sendKind} mock provider send_performed true`);
   } else {
-    fail('C2.' + label, `${sendKind} readiness case failed: ${JSON.stringify(out.result)}`);
+    fail('C2.' + label + '.send', `${sendKind} mock send failed: ${JSON.stringify(out.result)}`);
   }
 }
-
-readyNotImplementedCase('ask', 'ask_missing_field');
-readyNotImplementedCase('quote', 'show_quote');
-readyNotImplementedCase('checkin', 'checkin_day');
-
-const riskyMocked = evaluateGuestReplySendRoute({
-  ...BASE_BODY,
-  send_eligibility: { send_allowed_later: false, requires_staff: true, auto_send_ready: false },
-}, gatesOnEnv);
-if (riskyMocked.result.success === false
-  && riskyMocked.result.blocked_reasons.includes('requires_staff')
-  && !riskyMocked.result.blocked_reasons.includes('guest_reply_whatsapp_send_not_implemented')
-  && assertBlockedSafety(riskyMocked.result)) {
-  pass('C2.risky', 'requires_staff still blocks with mocked gates on');
-} else {
-  fail('C2.risky', 'risky case with mocked gates failed');
-}
-
-const badKindMocked = evaluateGuestReplySendRoute(
-  { ...readyBody('ask_missing_field'), send_kind: 'send_confirmation' },
-  gatesOnEnv,
-);
-if (badKindMocked.status === 400 && badKindMocked.result.error === 'unsupported_send_kind') {
-  pass('C2.bad_kind', 'unsupported send_kind still blocks with mocked gates on');
-} else {
-  fail('C2.bad_kind', 'unsupported send_kind with mocked gates failed');
-}
-
-const missingKeyMocked = evaluateGuestReplySendRoute(
-  { ...readyBody('ask_missing_field'), idempotency_key: '' },
-  gatesOnEnv,
-);
-if (missingKeyMocked.status === 400 && missingKeyMocked.result.error === 'idempotency_key_required') {
-  pass('C2.no_idem', 'missing idempotency_key still blocks with mocked gates on');
-} else {
-  fail('C2.no_idem', 'missing idempotency with mocked gates failed');
-}
-
-if (helperSrc.includes('guest_reply_whatsapp_send_not_implemented')) {
-  pass('C2.impl_flag', 'helper exposes provider-not-implemented block reason');
-} else {
-  fail('C2.impl_flag', 'provider-not-implemented reason missing from helper');
-}
-
-section('D. Safety — no send / write / external calls');
-
-for (const [flag, val] of Object.entries(SAFETY)) {
-  if (SEND_ROUTE_SAFETY_FLAGS[flag] === val) pass('D.flag.' + flag, `${flag}=${val}`);
-  else fail('D.flag.' + flag, `expected ${flag}=${val}`);
-}
-
-if (!/\bINSERT\b/i.test(combinedSrc)) pass('D.sql.insert', 'no INSERT SQL');
-else fail('D.sql.insert', 'INSERT SQL found');
-
-if (!/\bUPDATE\b/i.test(combinedSrc)) pass('D.sql.update', 'no UPDATE SQL');
-else fail('D.sql.update', 'UPDATE SQL found');
-
-if (!/\bDELETE\b/i.test(combinedSrc)) pass('D.sql.delete', 'no DELETE SQL');
-else fail('D.sql.delete', 'DELETE SQL found');
-
-for (const [id, re, label] of [
-  ['D.wa', /graph\.facebook\.com|api\.whatsapp/i, 'WhatsApp API'],
-  ['D.stripe', /createStripe\s*\(|api\.stripe\.com|new\s+Stripe\s*\(/i, 'Stripe API'],
-  ['D.n8n', /activateN8n|triggerN8n|fetchN8n\s*\(/i, 'n8n activation'],
-  ['D.booking', /booking-create-from-plan|create-payment-link|stripe.*webhook/i, 'booking/payment/webhook writes'],
-]) {
-  if (!re.test(combinedSrc)) pass(id, `no ${label}`);
-  else fail(id, `${label} detected`);
-}
-
-section('E. npm script');
-
-const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
-if (pkg.scripts && pkg.scripts['verify:luna-agent-phase19-guest-reply-send-route']) {
-  pass('E1', 'npm script registered');
-} else {
-  fail('E1', 'npm script missing');
-}
-
-section('F. Downstream verifiers still pass');
-
-for (const script of [
-  'verify:luna-agent-phase19-checkin-day-preview',
-  'verify:luna-agent-phase18-draft-builder',
-]) {
-  try {
-    execSync(`npm run ${script}`, { stdio: 'pipe', cwd: ROOT, timeout: 120000 });
-    pass('F.' + script, `${script} still passes`);
-  } catch (e) {
-    fail('F.' + script, `${script} failed after send route add`);
-  }
-}
-
-section('G. Pause gate (mock pg)');
 
 (async () => {
+  await readyMockSendCase('ask', 'ask_missing_field');
+  await readyMockSendCase('quote', 'show_quote');
+  await readyMockSendCase('checkin', 'checkin_day');
+
+  const missingCfg = await evaluateGuestReplySendRouteWithPause(readyBody('ask_missing_field'), { env: gatesOnEnv });
+  if (missingCfg.result.blocked_reasons.includes('whatsapp_provider_config_missing')
+    && missingCfg.result.send_performed === false) {
+    pass('C2.no_config', 'missing provider config blocks with gates on');
+  } else {
+    fail('C2.no_config', 'missing provider config case failed');
+  }
+
+  const riskyMocked = evaluateGuestReplySendRoute({
+    ...BASE_BODY,
+    send_eligibility: { send_allowed_later: false, requires_staff: true, auto_send_ready: false },
+  }, gatesOnEnv);
+  if (riskyMocked.result.success === false
+    && riskyMocked.result.blocked_reasons.includes('requires_staff')
+    && !riskyMocked.result.blocked_reasons.includes('whatsapp_provider_config_missing')
+    && assertBlockedSafety(riskyMocked.result)) {
+    pass('C2.risky', 'requires_staff still blocks with mocked gates on');
+  } else {
+    fail('C2.risky', 'risky case with mocked gates failed');
+  }
+
+  const badKindMocked = evaluateGuestReplySendRoute(
+    { ...readyBody('ask_missing_field'), send_kind: 'send_confirmation' },
+    gatesOnEnv,
+  );
+  if (badKindMocked.status === 400 && badKindMocked.result.error === 'unsupported_send_kind') {
+    pass('C2.bad_kind', 'unsupported send_kind still blocks with mocked gates on');
+  } else {
+    fail('C2.bad_kind', 'unsupported send_kind with mocked gates failed');
+  }
+
+  const missingKeyMocked = evaluateGuestReplySendRoute(
+    { ...readyBody('ask_missing_field'), idempotency_key: '' },
+    gatesOnEnv,
+  );
+  if (missingKeyMocked.status === 400 && missingKeyMocked.result.error === 'idempotency_key_required') {
+    pass('C2.no_idem', 'missing idempotency_key still blocks with mocked gates on');
+  } else {
+    fail('C2.no_idem', 'missing idempotency with mocked gates failed');
+  }
+
+  if (readOrEmpty(HELPER).includes('sendLunaWhatsAppMessage')) {
+    pass('C2.provider', 'send route invokes WhatsApp provider helper');
+  } else {
+    fail('C2.provider', 'WhatsApp provider hook missing');
+  }
+
+  section('D. Safety — no send / write / external calls');
+
+  for (const [flag, val] of Object.entries(SAFETY)) {
+    if (SEND_ROUTE_SAFETY_FLAGS[flag] === val) pass('D.flag.' + flag, `${flag}=${val}`);
+    else fail('D.flag.' + flag, `expected ${flag}=${val}`);
+  }
+
+  if (!/\bINSERT\b/i.test(combinedSrc)) pass('D.sql.insert', 'no INSERT SQL');
+  else fail('D.sql.insert', 'INSERT SQL found');
+
+  if (!/\bUPDATE\b/i.test(combinedSrc)) pass('D.sql.update', 'no UPDATE SQL');
+  else fail('D.sql.update', 'UPDATE SQL found');
+
+  if (!/\bDELETE\b/i.test(combinedSrc)) pass('D.sql.delete', 'no DELETE SQL');
+  else fail('D.sql.delete', 'DELETE SQL found');
+
+  for (const [id, re, label] of [
+    ['D.stripe', /createStripe\s*\(|api\.stripe\.com|new\s+Stripe\s*\(/i, 'Stripe API'],
+    ['D.n8n', /activateN8n|triggerN8n|fetchN8n\s*\(/i, 'n8n activation'],
+    ['D.booking', /booking-create-from-plan|create-payment-link|stripe.*webhook/i, 'booking/payment/webhook writes'],
+  ]) {
+    if (!re.test(combinedSrc)) pass(id, `no ${label}`);
+    else fail(id, `${label} detected`);
+  }
+
+  if (/graph\.facebook\.com/.test(providerSrcOnly())) {
+    fail('D.wa', 'graph.facebook.com must stay isolated in provider helper only');
+  } else {
+    pass('D.wa', 'send-route handler has no direct graph.facebook.com');
+  }
+
+  section('E. npm script');
+
+  const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
+  if (pkg.scripts && pkg.scripts['verify:luna-agent-phase19-guest-reply-send-route']) {
+    pass('E1', 'npm script registered');
+  } else {
+    fail('E1', 'npm script missing');
+  }
+
+  section('F. Downstream verifiers still pass');
+
+  for (const script of [
+    'verify:luna-agent-phase19-checkin-day-preview',
+    'verify:luna-agent-phase18-draft-builder',
+  ]) {
+    try {
+      execSync(`npm run ${script}`, { stdio: 'pipe', cwd: ROOT, timeout: 120000 });
+      pass('F.' + script, `${script} still passes`);
+    } catch (e) {
+      fail('F.' + script, `${script} failed after send route add`);
+    }
+  }
+
+  section('G. Pause gate (mock pg)');
+
   const mockPg = {
     query: async () => ({
       rows: [{
@@ -339,3 +376,8 @@ section('G. Pause gate (mock pg)');
   console.error('VERIFIER_ERROR:', err.message);
   process.exit(1);
 });
+
+function providerSrcOnly() {
+  try { return fs.readFileSync(path.join(__dirname, 'lib', 'luna-guest-reply-send-route.js'), 'utf8'); }
+  catch { return ''; }
+}

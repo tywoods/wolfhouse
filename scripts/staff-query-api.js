@@ -10436,7 +10436,7 @@ async function handleBotCheckinDayPreview(req, res, user, authMode) {
   }
 }
 
-// Route: POST /staff/bot/guest-reply-send  (Phase 19d — default-deny; no WhatsApp send yet)
+// Route: POST /staff/bot/guest-reply-send  (Phase 19d/19e — gated WhatsApp provider)
 //
 // Production send path foundation. Validates eligibility + env gates; blocks while live gates off.
 async function handleBotGuestReplySend(req, res, user, authMode) {
@@ -10464,9 +10464,9 @@ async function handleBotGuestReplySend(req, res, user, authMode) {
       ts:                           new Date().toISOString(),
       intent:                       'api:bot_guest_reply_send',
       category:                     'bot_guest_reply_send',
-      send_performed:               false,
-      sends_whatsapp:               false,
-      would_send_whatsapp:          false,
+      send_performed:               result.send_performed === true,
+      sends_whatsapp:               result.sends_whatsapp === true,
+      would_send_whatsapp:          result.would_send_whatsapp === true,
       no_write_performed:           true,
       creates_booking:              false,
       creates_payment:              false,
