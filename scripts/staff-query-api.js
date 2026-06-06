@@ -13181,17 +13181,14 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
     return outcome;
   }
 
-  if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !stripeCheckoutRedirectUrlsConfigured()) {
-    const err = new Error('STRIPE_NOT_CONFIGURED');
-    err.code = 'STRIPE_NOT_CONFIGURED';
-    throw err;
-  }
-
   const amountDueCents = manualBookingAmountDueForStaffChoice(
     staffPaymentChoice, depositCents, totalCents,
   );
   const paymentKind = manualBookingPaymentKindForStaffChoice(staffPaymentChoice);
   const stripeIdemKey = `mb-stripe-${idempotencyKey}-${staffPaymentChoice}`;
+  const stripeConfigured = STRIPE_LINKS_ENABLED
+    && STRIPE_SECRET_KEY
+    && stripeCheckoutRedirectUrlsConfigured();
 
   if (!paymentId) {
     const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
@@ -13228,6 +13225,20 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
         phase: '10.6d',
       }), paymentId],
     );
+  }
+
+  if (!stripeConfigured) {
+    await pg.query(
+      `UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,
+      [bookingId],
+    );
+    outcome.payment_id = paymentId;
+    outcome.amount_due_cents = amountDueCents;
+    outcome.payment_status = 'waiting_payment';
+    outcome.payment_link_skipped = true;
+    outcome.skip_reason = 'stripe_links_disabled';
+    outcome.message = 'Booking created. Stripe payment link skipped — Stripe links are disabled. Generate a link from the booking drawer when enabled.';
+    return outcome;
   }
 
   const existRes = await pg.query(
@@ -13751,6 +13762,8 @@ async function handleManualBookingCreate(req, res, user) {
     payment_status:    payOutcome.payment_status || paymentStatus,
     payment_link_url:  payOutcome.payment_link_url || null,
     checkout_url:      payOutcome.checkout_url || payOutcome.payment_link_url || null,
+    payment_link_skipped: !!payOutcome.payment_link_skipped,
+    skip_reason:       payOutcome.skip_reason || null,
     amount_due_cents:  payOutcome.amount_due_cents || 0,
     amount_paid_cents: payOutcome.amount_paid_cents || 0,
     booking_status:    bookingStatus,

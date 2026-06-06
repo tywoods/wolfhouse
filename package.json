@@ -94,6 +94,7 @@
     "verify:staff-generate-payment-link": "node scripts/verify-staff-generate-payment-link.js",
     "verify:staff-booking-conversation-create": "node scripts/verify-staff-booking-conversation-create.js",
     "verify:staff-manual-booking-payment-choice": "node scripts/verify-staff-manual-booking-payment-choice.js",
+    "verify:staff-manual-booking-no-stripe-required": "node scripts/verify-staff-manual-booking-no-stripe-required.js",
     "verify:staff-booking-field-edit-ui": "node scripts/verify-staff-booking-field-edit-ui.js",
     "verify:staff-booking-edit-preview": "node scripts/verify-staff-booking-edit-preview.js",
     "verify:staff-booking-edit-write-contact": "node scripts/verify-staff-booking-edit-write-contact.js",
