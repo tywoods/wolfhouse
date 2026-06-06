@@ -170,7 +170,7 @@ section('C. Mock pg persist behavior');
 
   section('D. UI thread reload');
 
-  const inboxJs = apiSrc.match(/function wireInboxSendReply\([\s\S]*?function loadConvDetail\(/);
+  const inboxJs = apiSrc.match(/function performInboxSend\([\s\S]*?function wireInboxSendReply\([\s\S]*?function loadConvDetail\(/);
   const js = inboxJs ? inboxJs[0] : '';
   if (js.includes('loadConvDetail(convId, targetEl)')) pass('D1', 'UI reloads conversation after send');
   else fail('D1', 'loadConvDetail reload missing');

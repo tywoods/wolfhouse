@@ -35,7 +35,7 @@ const src = fs.readFileSync(API_FILE, 'utf8');
 const htmlMatch = src.match(/function buildUiHtml\(port\)\s*\{([\s\S]*?)^function handleUI/m);
 const htmlSrc = htmlMatch ? htmlMatch[1] : src;
 
-const inboxJsMatch = src.match(/function wireInboxSendReply\([\s\S]*?function loadConvDetail\(/);
+const inboxJsMatch = src.match(/function performInboxSend\([\s\S]*?function wireInboxSendReply\([\s\S]*?function loadConvDetail\(/);
 const inboxJs = inboxJsMatch ? inboxJsMatch[0] : '';
 
 const loadDetailMatch = src.match(/function loadConvDetail\(convId[\s\S]*?function kv\(/);

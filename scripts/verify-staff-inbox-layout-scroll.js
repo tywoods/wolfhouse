@@ -91,7 +91,7 @@ else fail('D3', 'inbox-two-col min-height missing');
 
 section('E. Send route + debug panels unchanged');
 
-const inboxJsMatch = src.match(/function wireInboxSendReply\([\s\S]*?function loadConvDetail\(/);
+const inboxJsMatch = src.match(/function performInboxSend\([\s\S]*?function wireInboxSendReply\([\s\S]*?function loadConvDetail\(/);
 const inboxJs = inboxJsMatch ? inboxJsMatch[0] : '';
 
 if (inboxJs.includes('/staff/inbox/send-reply')) pass('E1', 'send route unchanged');

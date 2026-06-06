@@ -219,6 +219,7 @@
     "verify:staff-inbox-send-reply-ui": "node scripts/verify-staff-inbox-send-reply-ui.js",
     "verify:staff-inbox-sent-reply-thread": "node scripts/verify-staff-inbox-sent-reply-thread.js",
     "verify:staff-inbox-layout-scroll": "node scripts/verify-staff-inbox-layout-scroll.js",
+    "verify:staff-inbox-ui-controls": "node scripts/verify-staff-inbox-ui-controls.js",
     "verify:staff-portal-ui-product-cleanup": "node scripts/verify-staff-portal-ui-product-cleanup.js"
   },
   "dependencies": {

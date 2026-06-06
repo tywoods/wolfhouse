@@ -13875,6 +13875,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .tab-btn.active{color:var(--primary);border-bottom-color:var(--sage)}
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 #wrap{max-width:1200px;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 118px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
+#tab-conversations.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 118px);overflow:hidden;box-sizing:border-box}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
@@ -13900,8 +13901,8 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .inbox-two-col{display:flex;flex:1;min-height:0;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
 .inbox-left{width:300px;flex-shrink:0;min-height:0;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-soft)}
-.inbox-left-toolbar h2{font-size:14px;font-weight:700;color:var(--text);flex:1;letter-spacing:.01em}
-.conv-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.inbox-left-scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.conv-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 #inbox-state{flex-shrink:0}
 /* ── Conversation cards (left list) ──────────────────────────────────────── */
 .conv-card{padding:13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s;position:relative}
@@ -13939,9 +13940,6 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #detail-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px 20px;box-sizing:border-box}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
 .detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;flex-shrink:0}
-.nh-toggle-wrap{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer;user-select:none;margin-left:4px;padding:4px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-pill);background:var(--surface-soft)}
-.nh-toggle-wrap input{width:15px;height:15px;cursor:pointer;accent-color:var(--sage);margin:0}
-.nh-toggle-wrap.is-off{opacity:.75}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
 .detail-meta{font-size:12px;color:var(--text-2);margin-top:4px}
 .detail-section{margin-top:18px;padding-top:18px;border-top:1px solid var(--border-soft)}
@@ -14015,11 +14013,19 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .luna-auto-status-label{font-size:12.5px;font-weight:700;color:var(--text)}
 .luna-auto-status-paused .luna-auto-status-label{color:#9C5742}
 .luna-auto-status-help{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.45}
-.luna-pause-actions{margin-top:10px}
-.btn-luna-pause,.btn-luna-resume{font-size:12px;padding:7px 12px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-weight:600;color:var(--text)}
-.btn-luna-pause:hover,.btn-luna-resume:hover{border-color:var(--ocean);background:var(--surface-soft)}
-.btn-luna-pause:disabled,.btn-luna-resume:disabled{opacity:.6;cursor:not-allowed}
-.luna-pause-action-status{font-size:11px;margin-top:6px;line-height:1.45}
+.bot-state-switches{margin-top:12px}
+.inbox-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0}
+.inbox-switch-row + .inbox-switch-row{border-top:1px solid var(--border-soft)}
+.inbox-switch-label{font-size:12px;font-weight:600;color:var(--text)}
+.inbox-switch{position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0}
+.inbox-switch input{opacity:0;width:0;height:0;position:absolute}
+.inbox-switch-slider{position:absolute;cursor:pointer;inset:0;background:#C9CFC8;border-radius:999px;transition:background .2s}
+.inbox-switch-slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(68,80,74,.18)}
+.inbox-switch input:checked + .inbox-switch-slider:before{transform:translateX(18px)}
+.inbox-switch-orange input:checked + .inbox-switch-slider{background:#E8A057;border:1px solid #D4883F}
+.inbox-switch-red input:checked + .inbox-switch-slider{background:#C75C5C;border:1px solid #A94444}
+.inbox-switch input:disabled + .inbox-switch-slider{opacity:.55;cursor:not-allowed}
+.luna-pause-action-status{font-size:11px;margin-top:8px;line-height:1.45}
 .luna-pause-action-status.error{color:#9C5742}
 .kv2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .kv2 .kv{font-size:12px}
@@ -14431,18 +14437,19 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <!-- LEFT: conversation list + filters -->
     <div class="inbox-left" id="inbox-card">
       <div class="inbox-left-toolbar">
-        <h2>Inbox</h2>
         <div class="inbox-filters">
           <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all">All conversations</button>
           <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human">Needs human <span class="hq-count" id="hq-badge">0</span></button>
         </div>
-        <span id="inbox-count" style="font-size:11px;color:var(--text-3)"></span>
+        <span id="inbox-count" style="font-size:11px;color:var(--text-3);flex:1"></span>
         <button class="btn btn-primary" id="btn-refresh" style="padding:6px 12px;font-size:11px">&#8635;</button>
         <input id="c-client" value="wolfhouse-somo" title="Company slug" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">
       </div>
       <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
-      <div id="inbox-state" class="state-msg" style="padding:16px;display:none">Loading conversations&hellip;</div>
-      <div id="conv-list"></div>
+      <div class="inbox-left-scroll">
+        <div id="inbox-state" class="state-msg" style="padding:16px;display:none;flex-shrink:0">Loading conversations&hellip;</div>
+        <div id="conv-list"></div>
+      </div>
     </div>
 
     <!-- RIGHT: conversation detail (always visible) -->
@@ -15563,12 +15570,19 @@ function setLunaPauseActionStatus(targetEl, msg, isError){
   statusEl.classList.toggle('error', !!isError);
 }
 
-function wireLunaPauseControlButton(btn, path, body, convId, targetEl){
-  if (!btn) return;
-  btn.addEventListener('click', function(){
-    if (btn.disabled) return;
-    var actionBtns = targetEl.querySelectorAll('#btn-luna-pause, #btn-luna-resume');
-    actionBtns.forEach(function(b){ b.disabled = true; });
+function wireLunaPauseSwitch(convId, targetEl){
+  var sw = targetEl.querySelector('#luna-pause-switch');
+  if (!sw) return;
+  sw.addEventListener('change', function(){
+    if (sw.disabled) return;
+    var wantPaused = sw.checked;
+    var path = wantPaused ? '/staff/bot/pause' : '/staff/bot/resume';
+    var body = {
+      client_slug: getClient(),
+      conversation_id: convId,
+    };
+    if (wantPaused) body.pause_reason = 'Paused from Staff Portal Inbox';
+    sw.disabled = true;
     setLunaPauseActionStatus(targetEl, 'Updating Luna status\u2026', false);
 
     fetch(path, {
@@ -15582,21 +15596,24 @@ function wireLunaPauseControlButton(btn, path, body, convId, targetEl){
       .then(function(res){
         var data = res.data || {};
         if (res.status === 403 && (data.error === 'bot_pause_controls_disabled' || data.enabled === false)){
+          sw.checked = !wantPaused;
           setLunaPauseActionStatus(targetEl, 'Pause controls are disabled.', true);
-          actionBtns.forEach(function(b){ b.disabled = false; });
+          sw.disabled = false;
           return;
         }
         if (!res.ok || !data.success){
+          sw.checked = !wantPaused;
           setLunaPauseActionStatus(targetEl, data.error || 'Could not update Luna status.', true);
-          actionBtns.forEach(function(b){ b.disabled = false; });
+          sw.disabled = false;
           return;
         }
         setLunaPauseActionStatus(targetEl, '', false);
         loadConvDetail(convId, targetEl);
       })
       .catch(function(err){
+        sw.checked = !wantPaused;
         setLunaPauseActionStatus(targetEl, err.message || 'Could not update Luna status.', true);
-        actionBtns.forEach(function(b){ b.disabled = false; });
+        sw.disabled = false;
       });
   });
 }
@@ -15731,64 +15748,83 @@ function showDraftSendStatus(el, kind, message){
   el.textContent = message || '';
 }
 
-function wireInboxSendReply(convId, phone, targetEl){
+function performInboxSend(convId, phone, targetEl){
   var sendBtn = targetEl.querySelector('#btn-send-reply');
   var textaEl = targetEl.querySelector('#draft-textarea');
   var statusEl = targetEl.querySelector('#draft-send-status');
+  if (!sendBtn || !textaEl || sendBtn.disabled) return;
+
+  var messageText = (textaEl.value || '').trim();
+  if (!messageText) return;
+
+  sendBtn.disabled = true;
+  showDraftSendStatus(statusEl, '', 'Sending\u2026');
+
+  var client = getClient();
+  var idemKey = buildStaffReplyIdempotencyKey(client, convId, messageText);
+
+  fetch('/staff/inbox/send-reply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_slug: client,
+      conversation_id: convId,
+      to: phone || '',
+      message_text: messageText,
+      idempotency_key: idemKey,
+    }),
+  })
+    .then(function(r){
+      if (r.status === 401) throw new Error('Authentication required');
+      return r.json().then(function(data){ return { status: r.status, data: data }; });
+    })
+    .then(function(out){
+      var d = out.data || {};
+      if (d.send_performed === true || (d.success === true && d.whatsapp_message_id)){
+        var sentMsg = 'Sent';
+        if (d.whatsapp_message_id) sentMsg += ' (' + d.whatsapp_message_id + ')';
+        showDraftSendStatus(statusEl, 'ok', sentMsg);
+        loadConvDetail(convId, targetEl);
+        return;
+      }
+      if (d.duplicate === true || d.idempotent_replay === true){
+        showDraftSendStatus(statusEl, 'ok', 'Already sent');
+        loadConvDetail(convId, targetEl);
+        return;
+      }
+      if (d.blocked_reasons && d.blocked_reasons.length){
+        showDraftSendStatus(statusEl, 'blocked', 'Send blocked: ' + d.blocked_reasons.join(', '));
+        sendBtn.disabled = false;
+        return;
+      }
+      throw new Error(d.error || ('HTTP ' + out.status));
+    })
+    .catch(function(err){
+      showDraftSendStatus(statusEl, 'error', err.message || 'Send failed');
+      sendBtn.disabled = false;
+    });
+}
+
+function wireInboxSendReply(convId, phone, targetEl){
+  var sendBtn = targetEl.querySelector('#btn-send-reply');
+  var textaEl = targetEl.querySelector('#draft-textarea');
   if (!sendBtn || !textaEl) return;
 
   sendBtn.addEventListener('click', function(){
     var messageText = (textaEl.value || '').trim();
     if (!messageText){
-      showDraftSendStatus(statusEl, 'error', 'Enter a reply before sending.');
+      showDraftSendStatus(targetEl.querySelector('#draft-send-status'), 'error', 'Enter a reply before sending.');
       return;
     }
-    sendBtn.disabled = true;
-    showDraftSendStatus(statusEl, '', 'Sending\u2026');
+    performInboxSend(convId, phone, targetEl);
+  });
 
-    var client = getClient();
-    var idemKey = buildStaffReplyIdempotencyKey(client, convId, messageText);
-
-    fetch('/staff/inbox/send-reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_slug: client,
-        conversation_id: convId,
-        to: phone || '',
-        message_text: messageText,
-        idempotency_key: idemKey,
-      }),
-    })
-      .then(function(r){
-        if (r.status === 401) throw new Error('Authentication required');
-        return r.json().then(function(data){ return { status: r.status, data: data }; });
-      })
-      .then(function(out){
-        var d = out.data || {};
-        if (d.send_performed === true || (d.success === true && d.whatsapp_message_id)){
-          var sentMsg = 'Sent';
-          if (d.whatsapp_message_id) sentMsg += ' (' + d.whatsapp_message_id + ')';
-          showDraftSendStatus(statusEl, 'ok', sentMsg);
-          loadConvDetail(convId, targetEl);
-          return;
-        }
-        if (d.duplicate === true || d.idempotent_replay === true){
-          showDraftSendStatus(statusEl, 'ok', 'Already sent');
-          loadConvDetail(convId, targetEl);
-          return;
-        }
-        if (d.blocked_reasons && d.blocked_reasons.length){
-          showDraftSendStatus(statusEl, 'blocked', 'Send blocked: ' + d.blocked_reasons.join(', '));
-          sendBtn.disabled = false;
-          return;
-        }
-        throw new Error(d.error || ('HTTP ' + out.status));
-      })
-      .catch(function(err){
-        showDraftSendStatus(statusEl, 'error', err.message || 'Send failed');
-        sendBtn.disabled = false;
-      });
+  textaEl.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Enter' || ev.shiftKey) return;
+    ev.preventDefault();
+    if (sendBtn.disabled) return;
+    if (!(textaEl.value || '').trim()) return;
+    performInboxSend(convId, phone, targetEl);
   });
 }
 
@@ -15841,10 +15877,6 @@ function loadConvDetail(convId, targetEl){
     html +=   '<div style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
     html +=     modePill(c.bot_mode);
     if (c.needs_human) html += '<span class="pill pill-orange" id="conv-needs-human-pill">NEEDS HUMAN</span>';
-    html +=     '<label class="nh-toggle-wrap' + (c.needs_human ? '' : ' is-off') + '" id="conv-needs-human-wrap">';
-    html +=       '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>';
-    html +=       '<span>Needs human</span>';
-    html +=     '</label>';
     html +=   '</div>';
     html += '</div>';
 
@@ -15941,14 +15973,23 @@ function loadConvDetail(convId, targetEl){
       ? 'Automated guest replies should stay blocked while paused.'
       : 'Automation status: active.') + '</div>';
     html +=   '</div>';
-    html +=   '<div class="luna-pause-actions">';
-    if (lunaGuestPaused){
-      html += '<button type="button" class="btn-luna-resume" id="btn-luna-resume">Resume Luna</button>';
-    } else {
-      html += '<button type="button" class="btn-luna-pause" id="btn-luna-pause">Pause Luna</button>';
-    }
-    html +=     '<div class="luna-pause-action-status" id="luna-pause-action-status" style="display:none"></div>';
+    html +=   '<div class="bot-state-switches">';
+    html +=     '<div class="inbox-switch-row">';
+    html +=       '<span class="inbox-switch-label">Needs human</span>';
+    html +=       '<label class="inbox-switch inbox-switch-orange">';
+    html +=         '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>';
+    html +=         '<span class="inbox-switch-slider"></span>';
+    html +=       '</label>';
+    html +=     '</div>';
+    html +=     '<div class="inbox-switch-row">';
+    html +=       '<span class="inbox-switch-label">Pause Luna</span>';
+    html +=       '<label class="inbox-switch inbox-switch-red">';
+    html +=         '<input type="checkbox" id="luna-pause-switch"' + (lunaGuestPaused ? ' checked' : '') + '>';
+    html +=         '<span class="inbox-switch-slider"></span>';
+    html +=       '</label>';
+    html +=     '</div>';
     html +=   '</div>';
+    html +=   '<div class="luna-pause-action-status" id="luna-pause-action-status" style="display:none"></div>';
     if (ss.handoff_id){
       html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
       html +=   '<div style="font-size:11px;font-weight:700;color:#e67e22;margin-bottom:6px">OPEN HANDOFF</div>';
@@ -15998,28 +16039,7 @@ function loadConvDetail(convId, targetEl){
 
     wireInboxSendReply(convId, c.phone, targetEl);
     wireNeedsHumanToggle(convId, targetEl);
-
-    wireLunaPauseControlButton(
-      targetEl.querySelector('#btn-luna-pause'),
-      '/staff/bot/pause',
-      {
-        client_slug: getClient(),
-        conversation_id: convId,
-        pause_reason: 'Paused from Staff Portal Inbox',
-      },
-      convId,
-      targetEl,
-    );
-    wireLunaPauseControlButton(
-      targetEl.querySelector('#btn-luna-resume'),
-      '/staff/bot/resume',
-      {
-        client_slug: getClient(),
-        conversation_id: convId,
-      },
-      convId,
-      targetEl,
-    );
+    wireLunaPauseSwitch(convId, targetEl);
 
     /* Scroll thread to bottom */
     var threadEl = targetEl.querySelector('#thread-container');
@@ -16032,7 +16052,6 @@ function loadConvDetail(convId, targetEl){
 
 function wireNeedsHumanToggle(convId, targetEl){
   var toggle = targetEl.querySelector('#conv-needs-human-toggle');
-  var wrap = targetEl.querySelector('#conv-needs-human-wrap');
   var pill = targetEl.querySelector('#conv-needs-human-pill');
   if (!toggle) return;
 
@@ -16051,7 +16070,6 @@ function wireNeedsHumanToggle(convId, targetEl){
       .then(function(out){
         var d = out.data || {};
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
-        if (wrap) wrap.classList.toggle('is-off', !d.needs_human);
         if (pill){
           if (d.needs_human) pill.style.display = '';
           else pill.style.display = 'none';
@@ -16062,7 +16080,7 @@ function wireNeedsHumanToggle(convId, targetEl){
             sp.className = 'pill pill-orange';
             sp.id = 'conv-needs-human-pill';
             sp.textContent = 'NEEDS HUMAN';
-            hdr.insertBefore(sp, wrap || null);
+            hdr.appendChild(sp);
           }
         }
         if (inboxConversationsCache){
