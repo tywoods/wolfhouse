@@ -202,6 +202,7 @@ function gatesOffCase(label, sendKind) {
 gatesOffCase('ask', 'ask_missing_field');
 gatesOffCase('quote', 'show_quote');
 gatesOffCase('checkin', 'checkin_day');
+gatesOffCase('confirm', 'confirmation');
 
 section('C2. Mocked gates on — readiness + provider (mock send)');
 
@@ -246,6 +247,7 @@ async function readyMockSendCase(label, sendKind) {
   await readyMockSendCase('ask', 'ask_missing_field');
   await readyMockSendCase('quote', 'show_quote');
   await readyMockSendCase('checkin', 'checkin_day');
+  await readyMockSendCase('confirm', 'confirmation');
 
   const missingCfg = await evaluateGuestReplySendRouteWithPause(readyBody('ask_missing_field'), { env: gatesOnEnv });
   if (missingCfg.result.blocked_reasons.includes('whatsapp_provider_config_missing')
@@ -326,6 +328,77 @@ async function readyMockSendCase(label, sendKind) {
   await providerDryRunCase('ask', 'ask_missing_field');
   await providerDryRunCase('quote', 'show_quote');
   await providerDryRunCase('checkin', 'checkin_day');
+  await providerDryRunCase('confirm', 'confirmation');
+
+  section('C4. Confirmation send_kind (Phase 20i)');
+
+  if (/ALLOWED_SEND_KINDS[\s\S]*confirmation/.test(helperSrc)) {
+    pass('C4.allowed', 'confirmation in ALLOWED_SEND_KINDS');
+  } else {
+    fail('C4.allowed', 'confirmation missing from ALLOWED_SEND_KINDS');
+  }
+
+  const confirmBody = readyBody('confirmation');
+  confirmBody.suggested_reply = 'Hi Guest ☀️ Payment received — your Wolfhouse booking is confirmed!';
+  confirmBody.source = 'booking_confirmation_preview';
+
+  const confirmNoKey = evaluateGuestReplySendRoute({ ...confirmBody, idempotency_key: '' }, gatesOffEnv);
+  if (confirmNoKey.status === 400 && confirmNoKey.result.error === 'idempotency_key_required') {
+    pass('C4.no_idem', 'confirmation rejected without idempotency_key');
+  } else {
+    fail('C4.no_idem', 'confirmation idempotency validation failed');
+  }
+
+  const confirmNoReply = evaluateGuestReplySendRoute({ ...confirmBody, suggested_reply: '' }, gatesOffEnv);
+  if (confirmNoReply.status === 400 && confirmNoReply.result.error === 'suggested_reply_required') {
+    pass('C4.no_reply', 'confirmation rejected without suggested_reply');
+  } else {
+    fail('C4.no_reply', 'confirmation suggested_reply validation failed');
+  }
+
+  const confirmGatesOff = evaluateGuestReplySendRoute(confirmBody, gatesOffEnv);
+  if (confirmGatesOff.result.success === false
+    && (confirmGatesOff.result.blocked_reasons || []).includes('luna_auto_send_not_enabled')
+    && confirmGatesOff.result.send_performed === false) {
+    pass('C4.gates_off', 'confirmation blocked with env gates off');
+  } else {
+    fail('C4.gates_off', 'confirmation gates-off case failed');
+  }
+
+  const confirmStaff = evaluateGuestReplySendRoute({
+    ...confirmBody,
+    send_eligibility: { send_allowed_later: true, requires_staff: true, auto_send_ready: true },
+  }, gatesOnEnv);
+  if (confirmStaff.result.success === false
+    && (confirmStaff.result.blocked_reasons || []).includes('requires_staff')) {
+    pass('C4.staff', 'confirmation blocked when requires_staff true');
+  } else {
+    fail('C4.staff', 'confirmation requires_staff block failed');
+  }
+
+  const confirmPending = evaluateGuestReplySendRoute(confirmBody, gatesOnEnv);
+  if (assertReadyPending(confirmPending)) {
+    pass('C4.pending', 'confirmation reaches provider pending with gates mocked on');
+  } else {
+    fail('C4.pending', 'confirmation provider pending failed');
+  }
+
+  const confirmSent = await evaluateGuestReplySendRouteWithPause(confirmBody, {
+    env: gatesOnEnv,
+    sendMessage: mockSendMessage,
+  });
+  if (await assertMockSendSuccess(confirmSent.result)
+    && confirmSent.result.updates_confirmation_sent_at === false) {
+    pass('C4.mock_send', 'confirmation mock send succeeds without confirmation_sent_at write');
+  } else {
+    fail('C4.mock_send', `confirmation mock send failed: ${JSON.stringify(confirmSent.result)}`);
+  }
+
+  if (!/confirmation_sent_at\s*=/.test(helperSrc)) {
+    pass('C4.no_sent_at', 'send route does not update confirmation_sent_at');
+  } else {
+    fail('C4.no_sent_at', 'confirmation_sent_at write detected in send route');
+  }
 
   section('D. Safety — no send / write / external calls');
 

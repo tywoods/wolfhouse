@@ -16,7 +16,7 @@ const {
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
-const ALLOWED_SEND_KINDS = new Set(['ask_missing_field', 'show_quote', 'checkin_day']);
+const ALLOWED_SEND_KINDS = new Set(['ask_missing_field', 'show_quote', 'checkin_day', 'confirmation']);
 
 const SEND_ROUTE_SAFETY_FLAGS = Object.freeze({
   send_performed:               false,
