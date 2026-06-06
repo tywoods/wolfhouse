@@ -37,8 +37,12 @@ const htmlSrc = htmlMatch ? htmlMatch[1] : src;
 
 section('A. Left conversation list scroll');
 
-if (/\.conv-list\{[^}]*overflow-y:\s*auto/.test(htmlSrc)) pass('A1', 'conv-list overflow-y auto');
-else fail('A1', 'conv-list scroll missing');
+if (/\.conv-list\{[^}]*overflow-y:\s*auto/.test(htmlSrc) || /#conv-list\.conv-list\{[^}]*overflow-y:\s*auto/.test(htmlSrc)) {
+  pass('A1', 'conv-list overflow-y auto');
+} else fail('A1', 'conv-list scroll missing');
+
+if (/\.inbox-left-rows\{[^}]*overflow-y:\s*auto/.test(htmlSrc)) pass('A1b', 'inbox-left-rows scroll container');
+else fail('A1b', 'inbox-left-rows scroll missing');
 
 if (/\.conv-list\{[^}]*min-height:\s*0/.test(htmlSrc)) pass('A2', 'conv-list min-height 0 for flex scroll');
 else fail('A2', 'conv-list min-height 0 missing');

@@ -13876,6 +13876,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 #wrap{max-width:1200px;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 118px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
 #tab-conversations.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 118px);overflow:hidden;box-sizing:border-box}
+#tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
@@ -13899,10 +13900,13 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .pill-grey{background:#E8E5DE;color:#83897F;border-color:#DDD8CE}      /* cancelled — pale warm gray */
 /* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
 .inbox-two-col{display:flex;flex:1;min-height:0;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
-.inbox-left{width:300px;flex-shrink:0;min-height:0;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
+.inbox-left{width:300px;flex-shrink:0;min-height:0;height:100%;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-soft)}
+.inbox-ro-note{flex-shrink:0}
+.inbox-left-rows{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+#conv-list.conv-list{min-height:0}
 .inbox-left-scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.conv-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.conv-list,#conv-list.conv-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 #inbox-state{flex-shrink:0}
 /* ── Conversation cards (left list) ──────────────────────────────────────── */
 .conv-card{padding:13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s;position:relative}
@@ -14025,6 +14029,8 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .inbox-switch-orange input:checked + .inbox-switch-slider{background:#E8A057;border:1px solid #D4883F}
 .inbox-switch-red input:checked + .inbox-switch-slider{background:#C75C5C;border:1px solid #A94444}
 .inbox-switch input:disabled + .inbox-switch-slider{opacity:.55;cursor:not-allowed}
+.inbox-booking-cal-link{margin-top:10px;padding:0;border:none;background:none;color:var(--primary);font-size:11.5px;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.inbox-booking-cal-link:hover{color:var(--primary-hover)}
 .luna-pause-action-status{font-size:11px;margin-top:8px;line-height:1.45}
 .luna-pause-action-status.error{color:#9C5742}
 .kv2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -14446,9 +14452,9 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <input id="c-client" value="wolfhouse-somo" title="Company slug" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">
       </div>
       <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
-      <div class="inbox-left-scroll">
-        <div id="inbox-state" class="state-msg" style="padding:16px;display:none;flex-shrink:0">Loading conversations&hellip;</div>
-        <div id="conv-list"></div>
+      <div id="inbox-state" class="state-msg" style="padding:8px 14px;display:none;flex-shrink:0">Loading conversations&hellip;</div>
+      <div class="inbox-left-rows">
+        <div id="conv-list" class="conv-list"></div>
       </div>
     </div>
 
@@ -15148,8 +15154,8 @@ function setInboxFilter(mode){
   else loadInbox();
 }
 
-function applyInboxFilter(){
-  renderInbox(filterInboxConversations(inboxConversationsCache || []));
+function applyInboxFilter(opts){
+  renderInbox(filterInboxConversations(inboxConversationsCache || []), opts);
 }
 
 function getClient(){
@@ -15570,6 +15576,131 @@ function setLunaPauseActionStatus(targetEl, msg, isError){
   statusEl.classList.toggle('error', !!isError);
 }
 
+function updateLunaPauseUiInPlace(targetEl, paused){
+  var statusWrap = targetEl.querySelector('.luna-auto-status');
+  var label = targetEl.querySelector('.luna-auto-status-label');
+  var help = targetEl.querySelector('.luna-auto-status-help');
+  var sw = targetEl.querySelector('#luna-pause-switch');
+  if (statusWrap) statusWrap.classList.toggle('luna-auto-status-paused', !!paused);
+  if (label) label.textContent = paused ? 'Luna paused' : 'Luna active';
+  if (help){
+    help.textContent = paused
+      ? 'Automated guest replies should stay blocked while paused.'
+      : 'Automation status: active.';
+  }
+  if (sw) sw.checked = !!paused;
+}
+
+function updateInboxConvCardNeedsHuman(convId, needsHuman){
+  var row = (inboxConversationsCache || []).find(function(c){
+    return (c.conversation_id || c.id) === convId;
+  });
+  if (row) row.needs_human = needsHuman;
+  var card = el('conv-list') && el('conv-list').querySelector('.conv-card[data-id="' + convId + '"]');
+  if (!card) return;
+  var pills = card.querySelector('.conv-card-pills');
+  if (pills && row) pills.innerHTML = priorityPill(row);
+}
+
+function updateNeedsHumanBadgeInPlace(targetEl, needsHuman){
+  var pill = targetEl.querySelector('#conv-needs-human-pill');
+  if (needsHuman){
+    if (pill){
+      pill.style.display = '';
+    } else {
+      var hdr = targetEl.querySelector('.detail-header > div:last-child');
+      if (hdr && !targetEl.querySelector('#conv-needs-human-pill')){
+        var sp = document.createElement('span');
+        sp.className = 'pill pill-orange';
+        sp.id = 'conv-needs-human-pill';
+        sp.textContent = 'NEEDS HUMAN';
+        hdr.appendChild(sp);
+      }
+    }
+  } else if (pill){
+    pill.style.display = 'none';
+  }
+}
+
+function refreshInboxListPreserveDetail(convId){
+  var list = el('conv-list');
+  var scrollEl = list && list.closest('.inbox-left-rows');
+  var scrollTop = scrollEl ? scrollEl.scrollTop : (list ? list.scrollTop : 0);
+  applyInboxFilter({ preserveDetail: true, selectedId: convId || selectedConvId });
+  if (scrollEl) scrollEl.scrollTop = scrollTop;
+  else if (list) list.scrollTop = scrollTop;
+  var nhCount = (inboxConversationsCache || []).filter(conversationNeedsHuman).length;
+  var badge = el('hq-badge');
+  if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
+}
+
+function openBookingInCalendar(booking){
+  booking = booking || {};
+  var code = String(booking.booking_code || '').trim();
+  var id = String(booking.booking_id || '').trim();
+  var checkIn = booking.check_in ? String(booking.check_in).slice(0, 10) : '';
+  var checkOut = booking.check_out ? String(booking.check_out).slice(0, 10) : '';
+  if (!code && !id) return;
+
+  function tryOpenBlock(blocks){
+    if (!blocks || !blocks.length) return false;
+    for (var i = 0; i < blocks.length; i++){
+      var b = blocks[i];
+      if (id && b.booking_id === id){ showBlockDetail(b); return true; }
+      if (code && b.booking_code === code){ showBlockDetail(b); return true; }
+    }
+    return false;
+  }
+
+  function loadAndOpen(start, end){
+    var sEl = el('bc-start');
+    var eEl = el('bc-end');
+    if (sEl) sEl.value = start;
+    if (eEl) eEl.value = end;
+    loadBedCalendar(function(data){
+      if (!tryOpenBlock(data.blocks) && code){
+        showBlockDetail({
+          booking_code: code,
+          booking_id: id || undefined,
+          start_date: checkIn,
+          end_date: checkOut,
+          guest_name: booking.guest_name || booking.booking_guest_name || '',
+        });
+      }
+    });
+  }
+
+  switchToTabOnly('bed-calendar');
+
+  if (checkIn){
+    var rangeStart = bcAddDaysISO(checkIn, -3);
+    var rangeEnd = checkOut ? bcAddDaysISO(checkOut, 3) : bcAddDaysISO(checkIn, 30);
+    loadAndOpen(rangeStart, rangeEnd);
+    return;
+  }
+
+  var sEl = el('bc-start');
+  var eEl = el('bc-end');
+  if (sEl && sEl.value && eEl && eEl.value){
+    loadBedCalendar(function(data){
+      if (!tryOpenBlock(data.blocks) && code){
+        showBlockDetail({ booking_code: code, booking_id: id || undefined, guest_name: booking.guest_name || '' });
+      }
+    });
+  } else {
+    bcOnBedCalendarTabOpen();
+    setTimeout(function(){
+      loadBedCalendar(function(data){
+        if (!tryOpenBlock(data.blocks) && code){
+          showBlockDetail({ booking_code: code, booking_id: id || undefined, guest_name: booking.guest_name || '' });
+        }
+      });
+    }, 0);
+  }
+}
+
+window.openBookingInCalendar = openBookingInCalendar;
+
 function wireLunaPauseSwitch(convId, targetEl){
   var sw = targetEl.querySelector('#luna-pause-switch');
   if (!sw) return;
@@ -15608,7 +15739,8 @@ function wireLunaPauseSwitch(convId, targetEl){
           return;
         }
         setLunaPauseActionStatus(targetEl, '', false);
-        loadConvDetail(convId, targetEl);
+        updateLunaPauseUiInPlace(targetEl, wantPaused);
+        sw.disabled = false;
       })
       .catch(function(err){
         sw.checked = !wantPaused;
@@ -15619,12 +15751,19 @@ function wireLunaPauseSwitch(convId, targetEl){
 }
 
 /* Render inbox conversation cards (left column) */
-function renderInbox(convs){
+function renderInbox(convs, opts){
+  opts = opts || {};
   var list = el('conv-list');
   if (!convs || convs.length === 0){
     var emptyMsg = inboxFilter === 'needs-human'
       ? 'No conversations need staff review right now.'
       : 'No conversations need review right now.';
+    if (opts.preserveDetail && (opts.selectedId || selectedConvId)){
+      el('inbox-state').style.display = 'none';
+      el('inbox-count').textContent = '0 conversations';
+      if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
+      return;
+    }
     el('inbox-state').textContent = emptyMsg;
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
@@ -15659,6 +15798,17 @@ function renderInbox(convs){
         loadConvDetail(this.dataset.id);
       });
     });
+    if (opts.preserveDetail){
+      var keepId = opts.selectedId || selectedConvId;
+      if (keepId){
+        var keepCard = list.querySelector('.conv-card[data-id="' + keepId + '"]');
+        if (keepCard){
+          list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
+          keepCard.classList.add('selected');
+        }
+      }
+      return;
+    }
     /* Auto-select top conversation (or keep current if still in filtered list) */
     var pickId = null;
     if (selectedConvId && convs.some(function(c){ return c.conversation_id === selectedConvId; })){
@@ -15936,7 +16086,7 @@ function loadConvDetail(convId, targetEl){
     var bctx = ctx || {};
     html += '<div class="sidebar-card">';
     html +=   '<h3>Booking</h3>';
-    if (!bctx.booking_code){
+    if (!bctx.booking_code && !bctx.booking_id){
       html += '<div style="color:#9aabb8;font-size:12px;font-style:italic">No booking linked yet.</div>';
     } else {
       html += '<div class="kv2">';
@@ -15950,6 +16100,7 @@ function loadConvDetail(convId, targetEl){
                 kv('Assigned',    (bctx.assigned_room_code || '—') + (bctx.assigned_bed_code ? ' / ' + bctx.assigned_bed_code : '')) +
                 kv('Confirm',     bctx.confirmation_sent_at ? fmtTs(bctx.confirmation_sent_at) : '—');
       html += '</div>';
+      html += '<button type="button" class="inbox-booking-cal-link" id="inbox-open-booking-cal">Open in Booking Calendar</button>';
       if (bctx.payment_amount_due_cents != null){
         html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
         html +=   '<div style="font-size:11px;font-weight:700;color:#5a6a85;margin-bottom:6px">Payment</div>';
@@ -16041,6 +16192,19 @@ function loadConvDetail(convId, targetEl){
     wireNeedsHumanToggle(convId, targetEl);
     wireLunaPauseSwitch(convId, targetEl);
 
+    var calLink = targetEl.querySelector('#inbox-open-booking-cal');
+    if (calLink){
+      calLink.addEventListener('click', function(){
+        openBookingInCalendar({
+          booking_id: bctx.booking_id,
+          booking_code: bctx.booking_code,
+          check_in: bctx.check_in,
+          check_out: bctx.check_out,
+          guest_name: bctx.booking_guest_name || c.guest_name,
+        });
+      });
+    }
+
     /* Scroll thread to bottom */
     var threadEl = targetEl.querySelector('#thread-container');
     if (threadEl) threadEl.scrollTop = threadEl.scrollHeight;
@@ -16052,7 +16216,6 @@ function loadConvDetail(convId, targetEl){
 
 function wireNeedsHumanToggle(convId, targetEl){
   var toggle = targetEl.querySelector('#conv-needs-human-toggle');
-  var pill = targetEl.querySelector('#conv-needs-human-pill');
   if (!toggle) return;
 
   toggle.addEventListener('change', function(){
@@ -16070,28 +16233,21 @@ function wireNeedsHumanToggle(convId, targetEl){
       .then(function(out){
         var d = out.data || {};
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
-        if (pill){
-          if (d.needs_human) pill.style.display = '';
-          else pill.style.display = 'none';
-        } else if (d.needs_human){
-          var hdr = targetEl.querySelector('.detail-header > div:last-child');
-          if (hdr && !targetEl.querySelector('#conv-needs-human-pill')){
-            var sp = document.createElement('span');
-            sp.className = 'pill pill-orange';
-            sp.id = 'conv-needs-human-pill';
-            sp.textContent = 'NEEDS HUMAN';
-            hdr.appendChild(sp);
-          }
-        }
+        updateNeedsHumanBadgeInPlace(targetEl, d.needs_human);
         if (inboxConversationsCache){
           inboxConversationsCache = inboxConversationsCache.map(function(row){
             var id = row.conversation_id || row.id;
             if (id === convId) return Object.assign({}, row, { needs_human: d.needs_human });
             return row;
           });
-          applyInboxFilter();
-        } else {
-          loadInbox(convId);
+          if (inboxFilter === 'needs-human' && !d.needs_human){
+            refreshInboxListPreserveDetail(convId);
+          } else {
+            updateInboxConvCardNeedsHuman(convId, d.needs_human);
+            var nhCount = inboxConversationsCache.filter(conversationNeedsHuman).length;
+            var badge = el('hq-badge');
+            if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
+          }
         }
       })
       .catch(function(err){
