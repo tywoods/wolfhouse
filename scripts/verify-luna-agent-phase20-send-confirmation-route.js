@@ -179,6 +179,23 @@ function createCombinedMockPg(bookingRow, paymentRows) {
   return {
     gmsRows: gms.rows,
     getBooking: () => booking,
+    seedGms: (row) => {
+      const k = `${row.client_slug || 'wolfhouse-somo'}\0${row.idempotency_key}`;
+      gms.rows.set(k, {
+        id: row.id || 'gms-seeded',
+        client_slug: row.client_slug || 'wolfhouse-somo',
+        channel: 'whatsapp',
+        to_phone: row.to_phone || '+491726422307',
+        idempotency_key: row.idempotency_key,
+        send_kind: row.send_kind || 'confirmation',
+        source: row.source || 'booking_confirmation_preview',
+        message_text: row.message_text || 'seeded preview',
+        status: row.status,
+        blocked_reasons: row.blocked_reasons || [],
+        provider_message_id: row.provider_message_id || null,
+        sent_at: row.sent_at || null,
+      });
+    },
     query: async (sql, params = []) => {
       const s = String(sql);
       const norm = s.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -282,6 +299,12 @@ else fail('A9', 'source missing');
 
 if (helperSrc.includes('confirm_send === true')) pass('A10', 'confirm_send required');
 else fail('A10', 'confirm_send guard missing');
+
+if (/idempotent_replay_backfill|isSentAuditReplayBackfill/.test(helperSrc)) {
+  pass('A11', 'sent-audit idempotent replay backfill wired');
+} else {
+  fail('A11', 'sent-audit replay backfill missing');
+}
 
 section('B. Static safety');
 
@@ -450,6 +473,114 @@ const { sendLunaBookingConfirmation } = require('./lib/luna-booking-confirmation
     pass('D.nocreate', 'no booking/payment creation in send path');
   } else {
     fail('D.nocreate', 'booking/payment creation detected');
+  }
+
+  section('E. Sent-audit idempotent replay backfill');
+
+  const backfillPg = createCombinedMockPg(makeBookingRow());
+  backfillPg.seedGms({
+    id: 'gms-backfill-sent',
+    idempotency_key: 'phase20j-backfill-sent',
+    status: 'sent',
+    provider_message_id: 'mock-wamid-backfill-sent',
+    send_kind: 'confirmation',
+  });
+  let backfillProviderCalls = 0;
+  const backfill = await sendLunaBookingConfirmation(sendBody('phase20j-backfill-sent'), {
+    pg: backfillPg,
+    env: AUTO_ON_DRY_ENV,
+    sendMessage: async () => {
+      backfillProviderCalls += 1;
+      return { success: true, whatsapp_message_id: 'should-not-call' };
+    },
+  });
+  const rb = backfill.result;
+  if (rb.idempotent_replay === true
+    && rb.send_performed !== true
+    && rb.sends_whatsapp !== true
+    && rb.updates_confirmation_sent_at === true
+    && backfillPg.getBooking().confirmation_sent_at
+    && rb.confirmation_send_audit
+    && rb.confirmation_send_audit.confirmation_send_id === 'gms-backfill-sent'
+    && rb.confirmation_send_audit.confirmation_provider_message_id === 'mock-wamid-backfill-sent'
+    && rb.confirmation_send_audit.confirmation_sent_source === 'idempotent_replay_backfill'
+    && backfillProviderCalls === 0) {
+    pass('E.backfill', 'sent audit replay backfills confirmation_sent_at without provider');
+  } else {
+    fail('E.backfill', `backfill failed calls=${backfillProviderCalls} body=${JSON.stringify(rb)}`);
+  }
+
+  const blockedReplayPg = createCombinedMockPg(makeBookingRow());
+  const blockedReplay = await sendLunaBookingConfirmation(sendBody('phase20j-backfill-blocked'), {
+    pg: blockedReplayPg,
+    evaluateGuestReplySendRouteWithPause: async () => ({
+      status: 200,
+      result: {
+        success: false,
+        send_performed: false,
+        sends_whatsapp: false,
+        duplicate: true,
+        idempotent_replay: true,
+        guest_message_send_id: 'gms-blocked',
+        guest_message_send_status: 'blocked',
+        blocked_reasons: ['whatsapp_dry_run_active'],
+      },
+    }),
+  });
+  if (blockedReplay.result.updates_confirmation_sent_at !== true
+    && blockedReplayPg.getBooking().confirmation_sent_at == null) {
+    pass('E.blocked', 'blocked audit replay does not set confirmation_sent_at');
+  } else {
+    fail('E.blocked', `blocked replay backfill leak: ${JSON.stringify(blockedReplay.result)}`);
+  }
+
+  const failedReplayPg = createCombinedMockPg(makeBookingRow());
+  const failedReplay = await sendLunaBookingConfirmation(sendBody('phase20j-backfill-failed'), {
+    pg: failedReplayPg,
+    evaluateGuestReplySendRouteWithPause: async () => ({
+      status: 200,
+      result: {
+        success: false,
+        send_performed: false,
+        duplicate: true,
+        idempotent_replay: true,
+        guest_message_send_id: 'gms-failed',
+        guest_message_send_status: 'failed',
+        blocked_reasons: ['provider_error'],
+      },
+    }),
+  });
+  if (failedReplay.result.updates_confirmation_sent_at !== true
+    && failedReplayPg.getBooking().confirmation_sent_at == null) {
+    pass('E.failed', 'failed audit replay does not set confirmation_sent_at');
+  } else {
+    fail('E.failed', `failed replay backfill leak: ${JSON.stringify(failedReplay.result)}`);
+  }
+
+  const alreadyBackfillPg = createCombinedMockPg(makeBookingRow({
+    confirmation_sent_at: '2026-06-01T12:00:00.000Z',
+    metadata: { confirmation_send_id: 'existing-id' },
+  }));
+  alreadyBackfillPg.seedGms({
+    id: 'gms-already',
+    idempotency_key: 'phase20j-backfill-already',
+    status: 'sent',
+    provider_message_id: 'mock-wamid-already',
+  });
+  let alreadyEvaluateCalls = 0;
+  const alreadyBackfill = await sendLunaBookingConfirmation(sendBody('phase20j-backfill-already'), {
+    pg: alreadyBackfillPg,
+    evaluateGuestReplySendRouteWithPause: async () => {
+      alreadyEvaluateCalls += 1;
+      return { status: 200, result: { success: true, send_performed: true } };
+    },
+  });
+  if (alreadyBackfill.result.send_skipped_reason === 'confirmation_sent_at_already_set'
+    && alreadyEvaluateCalls === 0
+    && alreadyBackfill.result.updates_confirmation_sent_at !== true) {
+    pass('E.already', 'confirmation_sent_at already set skips provider and rewrite');
+  } else {
+    fail('E.already', `already-set skip failed evaluate=${alreadyEvaluateCalls} body=${JSON.stringify(alreadyBackfill.result)}`);
   }
 
   section('Summary');

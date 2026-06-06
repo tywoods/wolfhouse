@@ -4,7 +4,7 @@
  * Phase 20j — Gated booking confirmation send (preview + WhatsApp + confirmation_sent_at).
  *
  * Loads Cami confirmation preview, delegates to guest-reply-send idempotency path,
- * sets bookings.confirmation_sent_at only after provider success.
+ * sets bookings.confirmation_sent_at after provider success or sent-audit idempotent replay backfill.
  */
 
 const { getLunaBookingConfirmationPreview } = require('./luna-booking-confirmation-preview');
@@ -47,7 +47,16 @@ function buildConfirmationSendAudit(fields) {
   const audit = { confirmation_sent_via: 'whatsapp' };
   if (fields.guest_message_send_id) audit.confirmation_send_id = fields.guest_message_send_id;
   if (fields.provider_message_id) audit.confirmation_provider_message_id = fields.provider_message_id;
+  if (fields.confirmation_sent_source) audit.confirmation_sent_source = fields.confirmation_sent_source;
   return audit;
+}
+
+function isSentAuditReplayBackfill(sendResult) {
+  if (!sendResult) return false;
+  const isReplay = sendResult.idempotent_replay === true || sendResult.duplicate === true;
+  if (!isReplay || sendResult.send_performed === true) return false;
+  if (sendResult.guest_message_send_status !== 'sent') return false;
+  return !!trimStr(sendResult.whatsapp_message_id);
 }
 
 /**
@@ -262,6 +271,28 @@ async function sendLunaBookingConfirmation(input, context = {}) {
     updates_confirmation_sent_at: false,
   };
 
+  if (isSentAuditReplayBackfill(sendResult)) {
+    const marked = await markBookingConfirmationSent(pg, {
+      client_slug: clientSlug,
+      booking_id: out.booking_id,
+      guest_message_send_id: sendResult.guest_message_send_id || null,
+      provider_message_id: sendResult.whatsapp_message_id || null,
+      confirmation_sent_source: 'idempotent_replay_backfill',
+    });
+
+    out.updates_confirmation_sent_at = marked.updated === true;
+    out.confirmation_sent_at = marked.confirmation_sent_at || out.confirmation_sent_at;
+    out.confirmation_send_audit = marked.audit;
+    out.confirmation_backfilled_from_audit = marked.updated === true;
+
+    if (marked.updated || marked.already_sent) {
+      out.success = true;
+      out.confirmation_already_sent = marked.already_sent === true;
+    }
+
+    return { ok: true, status: evaluated.status || 200, result: out };
+  }
+
   if (sendResult.success !== true || sendResult.send_performed !== true) {
     return { ok: true, status: evaluated.status || 200, result: out };
   }
@@ -291,6 +322,7 @@ module.exports = {
   sendLunaBookingConfirmation,
   markBookingConfirmationSent,
   buildConfirmationSendAudit,
+  isSentAuditReplayBackfill,
   CONFIRMATION_SENT_AUDIT_SQL,
   BOOKING_SENT_AT_SQL,
 };
