@@ -208,7 +208,8 @@
     "verify:luna-agent-phase20-send-confirmation-route": "node scripts/verify-luna-agent-phase20-send-confirmation-route.js",
     "verify:luna-agent-phase20-closeout": "node scripts/verify-luna-agent-phase20-closeout.js",
     "verify:luna-agent-phase21-closeout": "node scripts/verify-luna-agent-phase21-closeout.js",
-    "verify:luna-agent-phase22-inbound-booking-write-preview": "node scripts/verify-luna-agent-phase22-inbound-booking-write-preview.js"
+    "verify:luna-agent-phase22-inbound-booking-write-preview": "node scripts/verify-luna-agent-phase22-inbound-booking-write-preview.js",
+    "verify:luna-agent-phase22-booking-write-result-persistence": "node scripts/verify-luna-agent-phase22-booking-write-result-persistence.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

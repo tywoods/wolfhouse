@@ -178,6 +178,9 @@ const {
   runLunaGuestBookingWriteBridge,
 } = require('./lib/luna-guest-booking-write-bridge');
 const {
+  persistInboundBookingWriteResult,
+} = require('./lib/luna-inbound-booking-write-result');
+const {
   evaluateLunaBookingWriteEligibility,
 } = require('./lib/luna-guest-booking-write-eligibility');
 const {
@@ -10869,38 +10872,45 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
   const actorId          = user ? user.staff_user_id : 'dev-bot-write-bridge-local';
 
   try {
-    const bridgeResult = await withPgClient(async (pg) => runLunaGuestBookingWriteBridge(body, {
-      pg,
-      env: process.env,
-      invokeCreate: async (createPayload) => {
-        const capture = { statusCode: 200, bodyText: null };
-        const fakeRes = {
-          writeHead(code) { capture.statusCode = code; },
-          end(data) { capture.bodyText = data; },
-          setHeader() {},
-        };
-        await handleBotBookingCreate(
-          makeInMemoryBotReq(createPayload),
-          fakeRes,
-          user,
-          resolvedAuthMode
-        );
-        let parsed = {};
-        try {
-          parsed = capture.bodyText ? JSON.parse(capture.bodyText) : {};
-        } catch (_) {
-          parsed = { success: false, error: 'invalid create response JSON' };
-        }
-        const writePerformed = parsed.success === true
-          && (parsed.created === true || parsed.duplicate === true);
-        return {
-          success:         parsed.success === true,
-          write_performed: writePerformed,
-          status_code:     capture.statusCode,
-          create_response: parsed,
-        };
-      },
-    }));
+    const bridgeResult = await withPgClient(async (pg) => {
+      const result = await runLunaGuestBookingWriteBridge(body, {
+        pg,
+        env: process.env,
+        invokeCreate: async (createPayload) => {
+          const capture = { statusCode: 200, bodyText: null };
+          const fakeRes = {
+            writeHead(code) { capture.statusCode = code; },
+            end(data) { capture.bodyText = data; },
+            setHeader() {},
+          };
+          await handleBotBookingCreate(
+            makeInMemoryBotReq(createPayload),
+            fakeRes,
+            user,
+            resolvedAuthMode
+          );
+          let parsed = {};
+          try {
+            parsed = capture.bodyText ? JSON.parse(capture.bodyText) : {};
+          } catch (_) {
+            parsed = { success: false, error: 'invalid create response JSON' };
+          }
+          const writePerformed = parsed.success === true
+            && (parsed.created === true || parsed.duplicate === true);
+          return {
+            success:         parsed.success === true,
+            write_performed: writePerformed,
+            status_code:     capture.statusCode,
+            create_response: parsed,
+          };
+        },
+      });
+      const persistence = await persistInboundBookingWriteResult(pg, body, result);
+      if (persistence.persisted === true) {
+        result.booking_write_result_persistence = persistence;
+      }
+      return result;
+    });
 
     const elapsed = Date.now() - started;
 
