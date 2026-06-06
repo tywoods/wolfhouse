@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Phase 19g.1 — Meta WhatsApp Cloud inbound webhook helpers.
+ * Phase 19g — Meta WhatsApp Cloud inbound webhook helpers.
  *
- * GET hub challenge verification + POST payload normalization.
+ * GET hub challenge verification + POST payload normalization + draft envelope.
  * No Graph API, no guest-reply-send, no DB writes.
  */
 
@@ -14,6 +14,7 @@ const DEFAULT_META_WHATSAPP_VERIFY_TOKEN = 'wolfhouse_verify_token';
 
 const WEBHOOK_SAFETY_FLAGS = {
   preview_only: true,
+  draft_only: true,
   no_write_performed: true,
   sends_whatsapp: false,
   calls_graph_api: false,
@@ -205,16 +206,56 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
 }
 
 /**
- * Build POST webhook JSON response envelope.
+ * Build Luna guest-reply-draft input from normalized Meta webhook fields.
  */
-function buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta = {}) {
-  return {
+function buildDraftInputFromNormalized(normalized) {
+  if (!normalized || normalized.supported !== true || !normalized.message_text) {
+    return null;
+  }
+  const input = {
+    client_slug: normalized.client_slug,
+    channel: 'whatsapp',
+    from: normalized.from,
+    language: null,
+    message_text: normalized.message_text,
+    wa_message_id: normalized.wa_message_id,
+  };
+  if (normalized.profile_name) {
+    input.guest_name = normalized.profile_name;
+  }
+  return input;
+}
+
+/**
+ * Build POST webhook JSON response envelope.
+ * @param {object} [options] - { draft?, draft_called? }
+ */
+function buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta = {}, options = {}) {
+  const draft = options.draft || null;
+  const draftCalled = options.draft_called === true;
+
+  const response = {
     success: true,
     received: true,
     normalized,
+    draft_called: draftCalled,
     signature_verified: signatureMeta.verified === true,
     signature_verification_skipped: signatureMeta.skipped === true,
     ...WEBHOOK_SAFETY_FLAGS,
+  };
+
+  if (!draftCalled || !draft) {
+    return response;
+  }
+
+  return {
+    ...response,
+    suggested_reply: draft.suggested_reply,
+    next_action: draft.next_action,
+    send_eligibility: draft.send_eligibility,
+    messaging_playbook: draft.messaging_playbook,
+    dry_run_plan: draft.dry_run_plan || null,
+    handoff_required: !!(draft.extraction && draft.extraction.handoff_required),
   };
 }
 
@@ -228,6 +269,7 @@ module.exports = {
   verifyMetaHubChallenge,
   verifyMetaHubSignature256,
   normalizeMetaWhatsAppWebhook,
+  buildDraftInputFromNormalized,
   buildMetaWhatsAppWebhookPostResponse,
   buildRawSummary,
   findFirstInboundMessage,

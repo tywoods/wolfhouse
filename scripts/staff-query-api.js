@@ -200,6 +200,7 @@ const {
   verifyMetaHubChallenge,
   verifyMetaHubSignature256,
   normalizeMetaWhatsAppWebhook,
+  buildDraftInputFromNormalized,
   buildMetaWhatsAppWebhookPostResponse,
 } = require('./lib/luna-meta-whatsapp-webhook');
 const {
@@ -10859,7 +10860,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
 //
 // Public Meta WhatsApp Cloud webhook endpoint. No session auth.
 // GET: hub challenge verification for Meta subscription setup.
-// POST: normalize inbound message; preview-only — no reply, no send, no Graph API.
+// POST: normalize inbound message; call Luna draft brain for supported text.
+// Preview/draft-only — no reply send, no Graph API.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function handleMetaWhatsAppWebhookGet(query, res) {
@@ -10905,7 +10907,17 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
   }
 
   const normalized = normalizeMetaWhatsAppWebhook(body);
-  const response = buildMetaWhatsAppWebhookPostResponse(normalized, sigResult);
+  let draftResult = null;
+  let draftCalled = false;
+  if (normalized.supported && normalized.message_text) {
+    const draftInput = buildDraftInputFromNormalized(normalized);
+    draftResult = await withPgClient((pg) => buildLunaGuestReplyDraft(draftInput, { pg, env: process.env }));
+    draftCalled = true;
+  }
+  const response = buildMetaWhatsAppWebhookPostResponse(normalized, sigResult, {
+    draft: draftResult,
+    draft_called: draftCalled,
+  });
 
   appendAuditLog({
     ts:                           new Date().toISOString(),
@@ -10917,9 +10929,12 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     from:                         normalized.from,
     message_type:                 normalized.message_type,
     supported:                    normalized.supported === true,
+    draft_called:                 draftCalled,
+    next_action:                  draftResult ? draftResult.next_action : null,
     signature_verified:           sigResult.verified === true,
     signature_verification_skipped: sigResult.skipped === true,
     preview_only:                 true,
+    draft_only:                   true,
     no_write_performed:           true,
     sends_whatsapp:               false,
     calls_graph_api:              false,
