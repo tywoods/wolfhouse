@@ -234,6 +234,73 @@ function buildQuoteReplyFromPlaybook(clientSlug, language, quote, fields) {
   });
 }
 
+function formatPlaybookEuro(cents) {
+  if (cents == null) return '';
+  return `€${(Number(cents) / 100).toFixed(0)}`;
+}
+
+/**
+ * Build Cami/Wolfhouse confirmation preview text from messaging playbook templates.
+ *
+ * @param {string} clientSlug
+ * @param {string|null} language
+ * @param {object} fields — guest_name, booking_code, amount_paid_cents, balance_due_cents,
+ *   address, gate_code, room_number, balance_payment_link, include_balance_link
+ */
+function buildConfirmationPreviewFromPlaybook(clientSlug, language, fields) {
+  const loaded = loadLunaMessagingPlaybook(clientSlug);
+  const templates = getLunaMessagingPlaybookValue(clientSlug, 'confirmation_templates', null);
+  const template = pickLocalizedPlaybook(templates, language);
+
+  if (!loaded.playbook_loaded || !template) {
+    return { ok: false, source: 'built_in_fallback' };
+  }
+
+  const balanceTemplates = getLunaMessagingPlaybookValue(clientSlug, 'balance_payment_templates', null);
+  const cardOptionTpl = balanceTemplates && balanceTemplates.card_option_in_confirmation
+    ? pickLocalizedPlaybook(balanceTemplates.card_option_in_confirmation, language)
+    : null;
+
+  let balancePaymentSection = '';
+  if (fields && fields.include_balance_link && fields.balance_payment_link) {
+    const sectionTpl = cardOptionTpl
+      || "If you'd like to settle the remaining balance by card before arrival: {balance_payment_link}";
+    balancePaymentSection = fillPlaceholders(sectionTpl, {
+      balance_payment_link: fields.balance_payment_link,
+    });
+  }
+
+  const gateDefault = (templates && templates.gate_code_default) || null;
+  const balanceDueCents = fields && fields.balance_due_cents != null
+    ? Number(fields.balance_due_cents)
+    : 0;
+
+  let message = fillPlaceholders(template, {
+    guest_name:              (fields && fields.guest_name) || '',
+    booking_code:            (fields && fields.booking_code) || '',
+    amount_paid:             formatPlaybookEuro(fields && fields.amount_paid_cents),
+    balance_due:             balanceDueCents > 0 ? formatPlaybookEuro(balanceDueCents) : '',
+    address:                 (fields && fields.address) || '',
+    gate_code:               (fields && fields.gate_code) || gateDefault || '',
+    room_number:             (fields && fields.room_number) || '',
+    balance_payment_section: balancePaymentSection ? balancePaymentSection.trim() : '',
+  });
+
+  message = message
+    .replace(/\.\s*\./g, '.')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+\./g, '.')
+    .trim();
+
+  return {
+    ok:               true,
+    message,
+    source:           'messaging_playbook',
+    template_source:  'confirmation_templates',
+    messaging_playbook: buildPlaybookMetadata(clientSlug),
+  };
+}
+
 function buildPlaybookActionGuidance(clientSlug, nextAction) {
   const loaded = loadLunaMessagingPlaybook(clientSlug);
   if (!loaded.playbook_loaded) return null;
@@ -284,6 +351,8 @@ module.exports = {
   getMissingFieldPrompt,
   getHandoffTemplate,
   buildQuoteReplyFromPlaybook,
+  buildConfirmationPreviewFromPlaybook,
+  formatPlaybookEuro,
   buildPlaybookActionGuidance,
   clearLunaMessagingPlaybookCache,
   MISSING_FIELD_MAP,
