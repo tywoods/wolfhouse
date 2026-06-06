@@ -206,7 +206,8 @@
     "verify:luna-agent-phase19-playbook-wiring": "node scripts/verify-luna-agent-phase19-playbook-wiring.js",
     "verify:luna-agent-phase20-confirmation-preview-playbook": "node scripts/verify-luna-agent-phase20-confirmation-preview-playbook.js",
     "verify:luna-agent-phase20-send-confirmation-route": "node scripts/verify-luna-agent-phase20-send-confirmation-route.js",
-    "verify:luna-agent-phase20-closeout": "node scripts/verify-luna-agent-phase20-closeout.js"
+    "verify:luna-agent-phase20-closeout": "node scripts/verify-luna-agent-phase20-closeout.js",
+    "verify:luna-agent-phase21-closeout": "node scripts/verify-luna-agent-phase21-closeout.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
