@@ -293,6 +293,7 @@ function buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta = {}, op
   const sendAttempted = options.send_attempted === true;
   const sendResult = options.send_result || null;
   const idempotencyKey = options.idempotency_key || null;
+  const bookingWritePreview = options.booking_write_preview || null;
   const eventPersisted = options.event_persisted === true;
 
   const sendPerformed = !!(sendResult && sendResult.send_performed === true);
@@ -338,6 +339,7 @@ function buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta = {}, op
     messaging_playbook: draft.messaging_playbook,
     dry_run_plan: draft.dry_run_plan || null,
     handoff_required: !!(draft.extraction && draft.extraction.handoff_required),
+    booking_write_preview: bookingWritePreview,
   };
 }
 

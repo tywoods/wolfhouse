@@ -22,6 +22,7 @@ const {
   updateGuestMessageEventDecisions,
   isGuestMessageEventProcessed,
 } = require('./luna-guest-message-events-sql');
+const { buildInboundBookingWritePreview } = require('./luna-inbound-booking-write-preview');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -59,12 +60,14 @@ function buildResponseFromStoredEvent(row, signatureMeta, replayMeta = {}) {
   const normalized = row.normalized || {};
   const draft = buildDraftFromStoredEvent(row);
   const sendResult = buildSendResultFromStoredEvent(row);
+  const storedPreview = normalized.booking_write_preview || null;
   const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
     draft: draftCalledDraft(draft, row),
     draft_called: row.draft_called === true,
     send_attempted: row.send_attempted === true,
     send_result: sendResult,
     idempotency_key: row.send_idempotency_key,
+    booking_write_preview: storedPreview,
     event_persisted: true,
   });
   return {
@@ -80,12 +83,15 @@ function draftCalledDraft(draft, row) {
   return draft;
 }
 
-function enrichDraftForStorage(draft) {
-  if (!draft || typeof draft !== 'object') return null;
+function enrichDraftForStorage(draft, bookingWritePreview) {
+  if (!draft || typeof draft !== 'object') {
+    return bookingWritePreview ? { booking_write_preview: bookingWritePreview } : null;
+  }
   return {
     send_eligibility: draft.send_eligibility || null,
     messaging_playbook: draft.messaging_playbook || null,
     dry_run_plan: draft.dry_run_plan || null,
+    booking_write_preview: bookingWritePreview || null,
   };
 }
 
@@ -96,10 +102,13 @@ async function runDraftAndSendGate(pg, env, normalized) {
   let sendResult = null;
   let idempotencyKey = null;
 
+  let bookingWritePreview = null;
+
   if (normalized.supported && normalized.message_text) {
     const draftInput = buildDraftInputFromNormalized(normalized);
     draftResult = await buildLunaGuestReplyDraft(draftInput, { pg, env });
     draftCalled = true;
+    bookingWritePreview = buildInboundBookingWritePreview(draftResult, draftInput, env);
 
     if (shouldAttemptMetaWebhookSend(draftResult, normalized)) {
       const sendKind = resolveMetaWebhookSendKind(draftResult.next_action);
@@ -120,6 +129,7 @@ async function runDraftAndSendGate(pg, env, normalized) {
     sendAttempted,
     sendResult,
     idempotencyKey,
+    bookingWritePreview,
   };
 }
 
@@ -131,6 +141,7 @@ async function processWithoutPersistence(pg, env, normalized, body, signatureMet
     send_attempted: ran.sendAttempted,
     send_result: ran.sendResult,
     idempotency_key: ran.idempotencyKey,
+    booking_write_preview: ran.bookingWritePreview,
     event_persisted: false,
   });
   return {
@@ -228,9 +239,11 @@ async function processMetaWhatsAppWebhookInbound(input) {
     send_result: sendResult,
   });
 
+  const bookingWritePreview = ran.bookingWritePreview;
+
   const normalizedForStorage = {
     ...normalized,
-    ...enrichDraftForStorage(draftResult),
+    ...enrichDraftForStorage(draftResult, bookingWritePreview),
   };
 
   let updatedRow = eventRow;
@@ -261,6 +274,7 @@ async function processMetaWhatsAppWebhookInbound(input) {
     send_attempted: sendAttempted,
     send_result: sendResult,
     idempotency_key: idempotencyKey,
+    booking_write_preview: bookingWritePreview,
     event_persisted: !!updatedRow,
   });
 
