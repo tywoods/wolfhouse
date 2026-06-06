@@ -197,6 +197,7 @@
     "verify:luna-agent-phase19-n8n-cutover-plan": "node scripts/verify-luna-agent-phase19-n8n-cutover-plan.js",
     "verify:luna-agent-phase19-n8n-pipe-shadow": "node scripts/verify-luna-agent-phase19-n8n-pipe-shadow.js",
     "verify:luna-agent-phase19-meta-whatsapp-webhook": "node scripts/verify-luna-agent-phase19-meta-whatsapp-webhook.js",
+    "verify:luna-agent-phase19-meta-inbound-persistence": "node scripts/verify-luna-agent-phase19-meta-inbound-persistence.js",
     "verify:luna-agent-phase19-messaging-playbook": "node scripts/verify-luna-agent-phase19-messaging-playbook.js",
     "verify:luna-agent-phase19-playbook-wiring": "node scripts/verify-luna-agent-phase19-playbook-wiring.js"
   },

@@ -200,12 +200,10 @@ const {
   verifyMetaHubChallenge,
   verifyMetaHubSignature256,
   normalizeMetaWhatsAppWebhook,
-  buildDraftInputFromNormalized,
-  resolveMetaWebhookSendKind,
-  shouldAttemptMetaWebhookSend,
-  buildMetaWebhookSendBody,
-  buildMetaWhatsAppWebhookPostResponse,
 } = require('./lib/luna-meta-whatsapp-webhook');
+const {
+  processMetaWhatsAppWebhookInbound,
+} = require('./lib/luna-meta-whatsapp-inbound-process');
 const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
@@ -10910,37 +10908,14 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
   }
 
   const normalized = normalizeMetaWhatsAppWebhook(body);
-  let draftResult = null;
-  let draftCalled = false;
-  let sendAttempted = false;
-  let sendResult = null;
-  let idempotencyKey = null;
-
-  if (normalized.supported && normalized.message_text) {
-    const draftInput = buildDraftInputFromNormalized(normalized);
-    draftResult = await withPgClient((pg) => buildLunaGuestReplyDraft(draftInput, { pg, env: process.env }));
-    draftCalled = true;
-
-    if (shouldAttemptMetaWebhookSend(draftResult, normalized)) {
-      const sendKind = resolveMetaWebhookSendKind(draftResult.next_action);
-      const sendBody = buildMetaWebhookSendBody(normalized, draftResult, sendKind);
-      idempotencyKey = sendBody.idempotency_key;
-      sendAttempted = true;
-      const evaluated = await withPgClient((pg) => evaluateGuestReplySendRouteWithPause(sendBody, {
-        pg,
-        env: process.env,
-      }));
-      sendResult = evaluated.result;
-    }
-  }
-
-  const response = buildMetaWhatsAppWebhookPostResponse(normalized, sigResult, {
-    draft: draftResult,
-    draft_called: draftCalled,
-    send_attempted: sendAttempted,
-    send_result: sendResult,
-    idempotency_key: idempotencyKey,
-  });
+  const processed = await withPgClient((pg) => processMetaWhatsAppWebhookInbound({
+    pg,
+    env: process.env,
+    body,
+    normalized,
+    signatureMeta: sigResult,
+  }));
+  const response = processed.response;
 
   appendAuditLog({
     ts:                           new Date().toISOString(),
@@ -10952,12 +10927,15 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     from:                         normalized.from,
     message_type:                 normalized.message_type,
     supported:                    normalized.supported === true,
-    draft_called:                 draftCalled,
-    send_attempted:               sendAttempted,
-    idempotency_key:              idempotencyKey,
-    next_action:                  draftResult ? draftResult.next_action : null,
-    send_performed:               sendResult ? sendResult.send_performed === true : false,
-    blocked_reasons:              sendResult ? sendResult.blocked_reasons || [] : [],
+    draft_called:                 response.draft_called === true,
+    send_attempted:               response.send_attempted === true,
+    idempotency_key:              response.idempotency_key || null,
+    next_action:                  response.next_action || null,
+    send_performed:               response.send_result ? response.send_result.send_performed === true : false,
+    blocked_reasons:              response.send_result ? response.send_result.blocked_reasons || [] : [],
+    duplicate:                    response.duplicate === true,
+    idempotent_replay:            response.idempotent_replay === true,
+    guest_message_event_id:       response.guest_message_event_id || null,
     signature_verified:           sigResult.verified === true,
     signature_verification_skipped: sigResult.skipped === true,
     preview_only:                 true,

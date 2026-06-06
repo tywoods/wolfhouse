@@ -89,7 +89,7 @@ function readOrEmpty(filePath) {
   catch { return ''; }
 }
 
-console.log('\nverify-luna-agent-phase19-meta-whatsapp-webhook.js  (Phase 19g.5)\n');
+console.log('\nverify-luna-agent-phase19-meta-whatsapp-webhook.js  (Phase 19g.8)\n');
 
 try {
   execSync(`node --check "${__filename}"`, { stdio: 'pipe' });
@@ -252,29 +252,20 @@ else fail('E3', 'skip path wrong');
 
 section('F. Handler draft + send gate wiring');
 
-if (handlerPost.includes('buildDraftInputFromNormalized')) pass('F1', 'handler uses buildDraftInputFromNormalized');
-else fail('F1', 'buildDraftInputFromNormalized missing from handler');
+if (handlerPost.includes('processMetaWhatsAppWebhookInbound')) {
+  pass('F1', 'handler delegates to processMetaWhatsAppWebhookInbound');
+} else fail('F1', 'processMetaWhatsAppWebhookInbound missing from handler');
 
-if (handlerPost.includes('buildLunaGuestReplyDraft')) pass('F2', 'handler calls buildLunaGuestReplyDraft');
-else fail('F2', 'buildLunaGuestReplyDraft missing from handler');
-
-if (handlerPost.includes('shouldAttemptMetaWebhookSend')) pass('F3', 'handler uses shouldAttemptMetaWebhookSend');
-else fail('F3', 'shouldAttemptMetaWebhookSend missing from handler');
-
-if (handlerPost.includes('evaluateGuestReplySendRouteWithPause')) {
-  pass('F4', 'handler calls evaluateGuestReplySendRouteWithPause');
-} else {
-  fail('F4', 'evaluateGuestReplySendRouteWithPause missing from handler');
-}
-
-if (!handlerPost.includes('/staff/bot/guest-reply-send')) {
-  pass('F5', 'handler avoids HTTP guest-reply-send route');
-} else {
-  fail('F5', 'HTTP guest-reply-send found in POST handler');
-}
+if (!handlerPost.includes('buildLunaGuestReplyDraft')) {
+  pass('F2', 'handler draft brain moved to inbound process module');
+} else fail('F2', 'handler should delegate draft to process module');
 
 if (handlerPost.includes('send_attempted')) pass('F6', 'handler tracks send_attempted');
 else fail('F6', 'send_attempted missing from handler');
+
+if (handlerPost.includes('guest_message_event_id') || handlerPost.includes('idempotent_replay')) {
+  pass('F8', 'handler audit includes persistence replay metadata');
+} else fail('F8', 'persistence replay audit fields missing');
 
 if (!/requireBotAuth|requireStaffAuth/.test(handlerPost)) pass('F7', 'POST handler has no bot auth');
 else fail('F7', 'POST handler should not require bot auth');

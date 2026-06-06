@@ -293,6 +293,7 @@ function buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta = {}, op
   const sendAttempted = options.send_attempted === true;
   const sendResult = options.send_result || null;
   const idempotencyKey = options.idempotency_key || null;
+  const eventPersisted = options.event_persisted === true;
 
   const sendPerformed = !!(sendResult && sendResult.send_performed === true);
   const sendAuditWritten = !!(sendResult && sendResult.no_write_performed === false);
@@ -307,7 +308,8 @@ function buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta = {}, op
     signature_verification_skipped: signatureMeta.skipped === true,
     preview_only: true,
     draft_only: !sendAttempted,
-    no_write_performed: !sendAuditWritten && !sendPerformed,
+    event_persisted: eventPersisted,
+    no_write_performed: !sendAuditWritten && !sendPerformed && !eventPersisted,
     sends_whatsapp: sendPerformed,
     calls_graph_api: false,
     calls_n8n: false,
