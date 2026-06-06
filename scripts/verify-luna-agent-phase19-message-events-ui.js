@@ -48,7 +48,7 @@ const htmlSrc = htmlMatch ? htmlMatch[1] : src;
 const mePanel = htmlSrc.match(/id="msg-events-panel"[\s\S]{0,2200}/);
 const mePanelHtml = mePanel ? mePanel[0] : '';
 
-const meJsMatch = src.match(/function buildMessageEventsUrl\(\)[\s\S]*?function wireMessageEventsPanel\(\)[\s\S]*?\n\}/);
+const meJsMatch = src.match(/function buildMessageEventsUrl\(\)[\s\S]*?function resetTestPhoneFromPanel\(\)[\s\S]*?\n\}/);
 const meJs = meJsMatch ? meJsMatch[0] : '';
 
 section('A. Panel markup');
@@ -140,6 +140,28 @@ if (!(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(meJs + mePanelHtml)))
 
 if (!/\bINSERT\b|\bUPDATE\b|\bDELETE\b/.test(meJs)) pass('E5', 'UI JS has no SQL writes');
 else fail('E5', 'SQL writes in UI JS');
+
+section('E6. UI runtime — tabs + reset phone controls');
+
+if (htmlSrc.includes('window.switchToTab = switchToTab')) {
+  pass('E6a', 'switchToTab exposed on window');
+} else fail('E6a', 'window.switchToTab missing');
+
+if (htmlSrc.includes('window.switchToTabOnly = switchToTabOnly')) {
+  pass('E6b', 'switchToTabOnly exposed on window');
+} else fail('E6b', 'window.switchToTabOnly missing');
+
+if (meJs.includes('normalizeMePhoneInput') && !/phone\.replace\(\/\^\\?\+/.test(meJs)) {
+  pass('E6c', 'reset phone normalize avoids broken /^+/ regex');
+} else fail('E6c', 'broken phone regex in reset UI JS');
+
+if (meJs.includes('isStagingStaffHost') && meJs.includes("indexOf('staging')")) {
+  pass('E6d', 'reset button staging hostname guard');
+} else fail('E6d', 'staging hostname guard missing');
+
+if (meJs.includes('id="me-reset-phone"') || mePanelHtml.includes('id="me-reset-phone"')) {
+  pass('E6e', 'reset button markup present');
+} else fail('E6e', 'reset button missing');
 
 section('F. npm script registration');
 

@@ -15069,6 +15069,17 @@ function loadMessageEvents(){
     });
 }
 
+function isStagingStaffHost(host){
+  host = String(host || '').toLowerCase();
+  return host.indexOf('staging') >= 0 || host.indexOf('localhost') >= 0 || host.indexOf('127.0.0.1') >= 0;
+}
+
+function normalizeMePhoneInput(phone){
+  var s = String(phone || '').trim();
+  if (s.charAt(0) === '+') s = s.slice(1);
+  return s.split(' ').join('').split('-').join('').split('(').join('').split(')').join('');
+}
+
 function wireMessageEventsPanel(){
   var refreshBtn = el('me-refresh');
   if (refreshBtn) refreshBtn.addEventListener('click', loadMessageEvents);
@@ -15086,7 +15097,7 @@ function wireMessageEventsPanel(){
   var resetBtn = el('me-reset-phone');
   if (resetBtn){
     var host = (window.location && window.location.hostname) || '';
-    if (/staging|localhost|127\.0\.0\.1/.test(host)){
+    if (isStagingStaffHost(host)){
       resetBtn.style.display = '';
       resetBtn.addEventListener('click', resetTestPhoneFromPanel);
     }
@@ -15104,7 +15115,7 @@ function resetTestPhoneFromPanel(){
     stateEl.style.display = 'block';
     return;
   }
-  var phoneNorm = phone.replace(/^\+/, '').replace(/[\s\-()]/g, '');
+  var phoneNorm = normalizeMePhoneInput(phone);
   if (!window.confirm('Reset test rows for ' + phoneNorm + '?')) return;
   stateEl.textContent = 'Resetting test rows\u2026';
   stateEl.classList.remove('error');

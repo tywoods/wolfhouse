@@ -221,6 +221,22 @@ section('C. Delete behavior (mock pg)');
     pass('E8', 'no send action in panel');
   } else fail('E8', 'send action found');
 
+  if (meJsSrc.includes('normalizeMePhoneInput') && !/phone\.replace\(\/\^\\?\+/.test(meJsSrc)) {
+    pass('E9', 'phone normalize avoids broken /^+/ template regex');
+  } else fail('E9', 'broken phone regex still in reset UI JS');
+
+  if (meJsSrc.includes('isStagingStaffHost') && meJsSrc.includes("indexOf('staging')")) {
+    pass('E10', 'reset button uses staging hostname helper');
+  } else fail('E10', 'staging hostname helper missing');
+
+  if (htmlSrc.includes('window.switchToTab = switchToTab')) {
+    pass('E11', 'switchToTab exposed on window for inline onclick');
+  } else fail('E11', 'window.switchToTab missing');
+
+  if (htmlSrc.includes('window.switchToTabOnly = switchToTabOnly')) {
+    pass('E12', 'switchToTabOnly exposed on window for inline onclick');
+  } else fail('E12', 'window.switchToTabOnly missing');
+
   section('F. npm script registration');
 
   const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
