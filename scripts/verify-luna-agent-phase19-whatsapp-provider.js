@@ -127,8 +127,10 @@ section('B. Provider unit behavior');
 
   const gatesOff = evaluateGuestReplySendRoute(BASE_BODY, { WHATSAPP_DRY_RUN: 'true', LUNA_AUTO_SEND_ENABLED: '' });
   if (gatesOff.result.blocked_reasons.includes('luna_auto_send_not_enabled')
-    && gatesOff.result.blocked_reasons.includes('whatsapp_dry_run_active')
-    && gatesOff.result.send_performed === false) {
+    && !gatesOff.result.blocked_reasons.includes('whatsapp_dry_run_active')
+    && gatesOff.result.would_send_whatsapp === false
+    && gatesOff.result.send_performed === false
+    && gatesOff.provider_pending !== true) {
     pass('C.off', 'gates-off blocks before provider');
   } else fail('C.off', 'gates-off block failed');
 
@@ -183,14 +185,16 @@ section('B. Provider unit behavior');
   if (noIdem.status === 400 && noIdem.result.error === 'idempotency_key_required') pass('E.idem', 'missing idempotency blocks');
   else fail('E.idem', 'idempotency validation failed');
 
-  const dryRoute = evaluateGuestReplySendRoute(readyBody('ask_missing_field'), {
-    WHATSAPP_DRY_RUN: 'true',
-    LUNA_AUTO_SEND_ENABLED: 'true',
+  const dryRoute = await evaluateGuestReplySendRouteWithPause(readyBody('ask_missing_field'), {
+    env: { WHATSAPP_DRY_RUN: 'true', LUNA_AUTO_SEND_ENABLED: 'true' },
   });
   if (dryRoute.result.blocked_reasons.includes('whatsapp_dry_run_active')
-    && dryRoute.provider_pending !== true) {
-    pass('E.dry_route', 'WHATSAPP_DRY_RUN true blocks before provider');
-  } else fail('E.dry_route', 'route dry-run gate failed');
+    && !dryRoute.result.blocked_reasons.includes('luna_auto_send_not_enabled')
+    && dryRoute.result.would_send_whatsapp === true
+    && dryRoute.result.send_performed === false
+    && dryRoute.result.sends_whatsapp === false) {
+    pass('E.dry_route', 'WHATSAPP_DRY_RUN true blocks at provider after route pass');
+  } else fail('E.dry_route', 'provider dry-run gate failed: ' + JSON.stringify(dryRoute.result));
 
   section('F. Safety — no Stripe/booking/n8n/SQL/live fetch in verifier');
 

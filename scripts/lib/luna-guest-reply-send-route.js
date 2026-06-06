@@ -32,14 +32,9 @@ function isTruthyEnv(env, key) {
   return String((env || {})[key] || '').trim().toLowerCase() === 'true';
 }
 
-function isWhatsappDryRun(env) {
-  return String((env || {}).WHATSAPP_DRY_RUN ?? 'true').trim().toLowerCase() !== 'false';
-}
-
 function collectEnvGateReasons(env) {
   const reasons = [];
   if (!isTruthyEnv(env, 'LUNA_AUTO_SEND_ENABLED')) reasons.push('luna_auto_send_not_enabled');
-  if (isWhatsappDryRun(env)) reasons.push('whatsapp_dry_run_active');
   return reasons;
 }
 
@@ -205,7 +200,7 @@ function mergeProviderResult(baseResult, providerResult) {
     success: false,
     send_performed: false,
     sends_whatsapp: false,
-    would_send_whatsapp: providerResult.would_send_whatsapp === true,
+    would_send_whatsapp: baseResult.would_send_whatsapp === true || providerResult.would_send_whatsapp === true,
     blocked_reasons: [...new Set([...(baseResult.blocked_reasons || []), blockedReason])],
     safe_next_step: resolveSafeNextStep([blockedReason]),
     provider: providerResult.provider || null,

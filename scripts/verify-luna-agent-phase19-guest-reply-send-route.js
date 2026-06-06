@@ -190,7 +190,9 @@ function gatesOffCase(label, sendKind) {
   const ok = out.result.success === false
     && out.result.send_performed === false
     && blocked.includes('luna_auto_send_not_enabled')
-    && blocked.includes('whatsapp_dry_run_active')
+    && !blocked.includes('whatsapp_dry_run_active')
+    && out.result.would_send_whatsapp === false
+    && out.provider_pending !== true
     && out.result.safe_next_step === 'keep_draft_or_handoff'
     && assertBlockedSafety(out.result);
   if (ok) pass('C.' + label, `${sendKind} blocked safely while gates off`);
@@ -291,6 +293,39 @@ async function readyMockSendCase(label, sendKind) {
   } else {
     fail('C2.provider', 'WhatsApp provider hook missing');
   }
+
+  section('C3. Auto-send on + provider dry-run block');
+
+  const autoOnDryEnv = {
+    LUNA_AUTO_SEND_ENABLED: 'true',
+    WHATSAPP_DRY_RUN: 'true',
+  };
+
+  async function providerDryRunCase(label, sendKind) {
+    const sync = evaluateGuestReplySendRoute(readyBody(sendKind), autoOnDryEnv);
+    if (sync.provider_pending !== true || sync.result.would_send_whatsapp !== true) {
+      fail('C3.' + label + '.pending', `${sendKind} route pass pending provider failed`);
+      return;
+    }
+    pass('C3.' + label + '.pending', `${sendKind} passes route gates (provider pending)`);
+
+    const out = await evaluateGuestReplySendRouteWithPause(readyBody(sendKind), { env: autoOnDryEnv });
+    const r = out.result;
+    if (r.success === false
+      && r.send_performed === false
+      && r.sends_whatsapp === false
+      && r.would_send_whatsapp === true
+      && r.blocked_reasons.includes('whatsapp_dry_run_active')
+      && !r.blocked_reasons.includes('luna_auto_send_not_enabled')) {
+      pass('C3.' + label, `${sendKind} blocked at provider dry-run gate`);
+    } else {
+      fail('C3.' + label, `${sendKind} provider dry-run case failed: ${JSON.stringify(r)}`);
+    }
+  }
+
+  await providerDryRunCase('ask', 'ask_missing_field');
+  await providerDryRunCase('quote', 'show_quote');
+  await providerDryRunCase('checkin', 'checkin_day');
 
   section('D. Safety — no send / write / external calls');
 
