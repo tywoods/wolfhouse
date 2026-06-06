@@ -13776,6 +13776,19 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .inbox-empty-right{display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:80px;color:var(--text-3);text-align:center;gap:10px}
 .inbox-empty-right .main-msg{font-size:14px;font-weight:600;color:var(--text-2)}
 .inbox-empty-right .sub-msg{font-size:12.5px}
+/* ── Message Events panel (Phase 19g.10) ─────────────────────────────────── */
+.msg-events-panel{margin-top:14px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.msg-events-toolbar{padding:10px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--surface-soft)}
+.msg-events-toolbar h3{font-size:13px;font-weight:700;margin:0;color:var(--text);flex:1}
+.msg-events-filters{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:11.5px;color:var(--text-2)}
+.me-filter-label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
+.me-filter-phone{font-size:11px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);min-width:140px}
+.msg-events-ro-note{font-size:10.5px;color:var(--text-3);padding:6px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}
+.msg-events-table{width:100%;border-collapse:collapse;font-size:11.5px}
+.msg-events-table th,.msg-events-table td{padding:7px 10px;border-bottom:1px solid var(--border-soft);text-align:left;vertical-align:top}
+.msg-events-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);background:var(--surface-soft);white-space:nowrap}
+.msg-events-table td.msg-text{max-width:240px;word-break:break-word}
+.msg-events-empty{padding:20px;text-align:center;color:var(--text-3);font-size:12.5px;font-style:italic}
 /* Preserve helper classes used in detail JS */
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
@@ -14289,6 +14302,22 @@ textarea.bk-input{resize:vertical;min-height:60px}
     </div>
 
   </div><!-- /inbox-two-col -->
+
+  <!-- Message Events — Meta inbound persistence (Phase 19g.10, read-only) -->
+  <div id="msg-events-panel" class="msg-events-panel">
+    <div class="msg-events-toolbar">
+      <h3>Message Events</h3>
+      <div class="msg-events-filters">
+        <label class="me-filter-label"><input type="checkbox" id="me-filter-handoff"> Handoffs only</label>
+        <label class="me-filter-label"><input type="checkbox" id="me-filter-send"> Send attempted only</label>
+        <input type="text" id="me-filter-phone" class="me-filter-phone" placeholder="from_phone search">
+        <button type="button" class="btn btn-primary" id="me-refresh" style="padding:5px 10px;font-size:11px">&#8635; Refresh</button>
+      </div>
+    </div>
+    <div class="msg-events-ro-note">Read-only Meta inbound events &mdash; no send actions.</div>
+    <div id="me-state" class="state-msg" style="display:none;padding:10px 14px"></div>
+    <div id="me-table-wrap"></div>
+  </div>
 
 </div><!-- /wrap -->
 </div><!-- /tab-conversations -->
@@ -14882,6 +14911,7 @@ function switchToTab(tab, subtab){
   if (tab === 'conversations' && subtab){
     if (subtab === 'handoffs') setInboxFilter('needs-human');
     else if (subtab === 'inbox') setInboxFilter('all');
+    loadMessageEvents();
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
@@ -14901,6 +14931,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     this.classList.add('active');
     el('tab-' + target).classList.add('active');
     if (target === 'today') loadTodaySummary();
+    if (target === 'conversations') loadMessageEvents();
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
@@ -14946,6 +14977,104 @@ function applyInboxFilter(){
 
 function getClient(){
   return (el('c-client').value || 'wolfhouse-somo').trim();
+}
+
+function buildMessageEventsUrl(){
+  var client = getClient();
+  var qs = 'client_slug=' + encodeURIComponent(client) + '&limit=50';
+  if (el('me-filter-handoff') && el('me-filter-handoff').checked) qs += '&handoff_required=true';
+  if (el('me-filter-send') && el('me-filter-send').checked) qs += '&send_attempted=true';
+  var phone = el('me-filter-phone') ? (el('me-filter-phone').value || '').trim() : '';
+  if (phone) qs += '&from_phone=' + encodeURIComponent(phone);
+  return '/staff/inbox/message-events?' + qs;
+}
+
+function renderMessageEventsTable(events, tableMissing){
+  var wrap = el('me-table-wrap');
+  if (!wrap) return;
+  if (tableMissing){
+    wrap.innerHTML = '<div class="msg-events-empty">Message events table is not available yet on this environment.</div>';
+    return;
+  }
+  if (!events || !events.length){
+    wrap.innerHTML = '<div class="msg-events-empty">No message events found for the current filters.</div>';
+    return;
+  }
+  var html = '<table class="msg-events-table"><thead><tr>' +
+    '<th>Time</th><th>From</th><th>Guest</th><th>Message</th><th>Action</th>' +
+    '<th>Handoff</th><th>Send tried</th><th>Status</th><th>Blocked</th>' +
+    '</tr></thead><tbody>';
+  events.forEach(function(ev){
+    var handoffBadge = ev.handoff_required
+      ? '<span class="pill pill-orange">handoff</span>'
+      : '<span class="pill pill-grey">no</span>';
+    var msg = String(ev.message_text || '');
+    var msgShort = msg.length > 120 ? (msg.slice(0, 120) + '\u2026') : msg;
+    var blocked = (ev.send_blocked_reasons && ev.send_blocked_reasons.length)
+      ? ev.send_blocked_reasons.join(', ')
+      : '\u2014';
+    html += '<tr>' +
+      '<td>' + escHtml(fmtTs(ev.created_at)) + '</td>' +
+      '<td>' + escHtml(ev.from_phone || '\u2014') + '</td>' +
+      '<td>' + escHtml(ev.profile_name || '\u2014') + '</td>' +
+      '<td class="msg-text">' + escHtml(msgShort || '\u2014') + '</td>' +
+      '<td>' + escHtml(ev.next_action || '\u2014') + '</td>' +
+      '<td>' + handoffBadge + '</td>' +
+      '<td>' + escHtml(ev.send_attempted ? 'yes' : 'no') + '</td>' +
+      '<td>' + escHtml(ev.send_status || '\u2014') + '</td>' +
+      '<td>' + escHtml(blocked) + '</td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function loadMessageEvents(){
+  var stateEl = el('me-state');
+  if (!stateEl) return;
+  stateEl.textContent = 'Loading message events\u2026';
+  stateEl.classList.remove('error');
+  stateEl.style.display = 'block';
+  if (el('me-table-wrap')) el('me-table-wrap').innerHTML = '';
+
+  fetch(buildMessageEventsUrl())
+    .then(function(r){
+      if (r.status === 401){
+        stateEl.innerHTML = '\u26a0 Authentication required &mdash; <strong>POST /staff/auth/login</strong> first.';
+        stateEl.classList.add('error');
+        stateEl.style.display = 'block';
+        return null;
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      if (!data) return;
+      if (!data.success) throw new Error(data.error || 'API error');
+      stateEl.style.display = 'none';
+      renderMessageEventsTable(data.events || [], data.table_missing === true);
+    })
+    .catch(function(err){
+      stateEl.textContent = 'Error loading message events: ' + err.message;
+      stateEl.classList.add('error');
+      stateEl.style.display = 'block';
+    });
+}
+
+function wireMessageEventsPanel(){
+  var refreshBtn = el('me-refresh');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadMessageEvents);
+  ['me-filter-handoff', 'me-filter-send'].forEach(function(id){
+    var node = el(id);
+    if (node) node.addEventListener('change', loadMessageEvents);
+  });
+  var phoneInput = el('me-filter-phone');
+  if (phoneInput){
+    phoneInput.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') loadMessageEvents();
+    });
+    phoneInput.addEventListener('change', loadMessageEvents);
+  }
 }
 
 /* Priority badge */
@@ -15452,6 +15581,8 @@ updateInboxFilterUI();
 
 /* Auto-load inbox on page load */
 loadInbox();
+wireMessageEventsPanel();
+loadMessageEvents();
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ASK LUNA TAB — Stage 8.6.2
