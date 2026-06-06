@@ -95,6 +95,9 @@ if (inboxJs.includes('sendBtn.disabled = true') && !inboxJs.match(/loadConvDetai
 if (/blocked_reasons/.test(inboxJs)) pass('C5', 'blocked reasons shown in UI');
 else fail('C5', 'blocked status handling missing');
 
+if (inboxJs.includes('loadConvDetail(convId, targetEl)')) pass('C6', 'UI reloads thread after send');
+else fail('C6', 'thread reload missing after send');
+
 section('D. Bottom debug panels hidden');
 
 if (htmlSrc.includes('inbox-bottom-debug-panels')) pass('D1', 'debug panels marked hidden');

@@ -226,6 +226,9 @@ const {
   resolveConversationGuestPhone,
 } = require('./lib/luna-staff-inbox-send-reply');
 const {
+  persistStaffInboxSentThreadMessage,
+} = require('./lib/luna-staff-inbox-thread-message');
+const {
   isStagingResetEnvironment,
   parseResetLunaPhoneInput,
   resetLunaPhoneTestRows,
@@ -15764,10 +15767,12 @@ function wireInboxSendReply(convId, phone, targetEl){
           var sentMsg = 'Sent';
           if (d.whatsapp_message_id) sentMsg += ' (' + d.whatsapp_message_id + ')';
           showDraftSendStatus(statusEl, 'ok', sentMsg);
+          loadConvDetail(convId, targetEl);
           return;
         }
         if (d.duplicate === true || d.idempotent_replay === true){
           showDraftSendStatus(statusEl, 'ok', 'Already sent');
+          loadConvDetail(convId, targetEl);
           return;
         }
         if (d.blocked_reasons && d.blocked_reasons.length){
@@ -15850,7 +15855,7 @@ function loadConvDetail(convId, targetEl){
     } else {
       msgs.forEach(function(m){
         var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
-        var sender = dir === 'inbound' ? 'Guest' : (m.source || 'Luna');
+        var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' ? 'Staff' : (m.source || 'Luna'));
         html += '<div class="msg ' + dir + '">';
         html +=   '<div class="msg-bubble">' + escHtml(m.message_text || '') + '</div>';
         html +=   '<div class="msg-meta">' + escHtml(sender) + ' &bull; ' + escHtml(fmtTs(m.created_at));
@@ -21829,7 +21834,8 @@ async function handleInboxSendReply(req, res, user) {
       }
       const sendBody = buildStaffInboxGuestReplyBody(sendInput);
       const out = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env: process.env });
-      return { sendBody, out };
+      const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
+      return { sendBody, out, thread };
     });
 
     if (evaluated.error) {
@@ -21839,6 +21845,7 @@ async function handleInboxSendReply(req, res, user) {
 
     const elapsed = Date.now() - started;
     const result = evaluated.out.result;
+    const thread = evaluated.thread || {};
 
     appendAuditLog({
       ...auditBase,
@@ -21853,12 +21860,20 @@ async function handleInboxSendReply(req, res, user) {
       idempotent_replay:            result.idempotent_replay === true,
       guest_message_send_id:        result.guest_message_send_id || null,
       guest_message_send_status:    result.guest_message_send_status || null,
+      thread_message_persisted:   thread.persisted === true,
+      thread_message_id:            thread.message_id || null,
       elapsed_ms:                   elapsed,
     });
 
     return sendJSON(res, evaluated.out.status, {
       ...result,
       conversation_id: input.conversation_id,
+      thread_message: thread.persisted || thread.duplicate ? {
+        message_id: thread.message_id || null,
+        persisted: thread.persisted === true,
+        duplicate: thread.duplicate === true,
+        whatsapp_message_id: thread.whatsapp_message_id || result.whatsapp_message_id || null,
+      } : null,
       elapsed_ms: elapsed,
     });
   } catch (err) {
