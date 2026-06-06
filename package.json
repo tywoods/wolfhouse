@@ -204,7 +204,8 @@
     "verify:luna-agent-phase19-phone-origin-autoreply-closeout": "node scripts/verify-luna-agent-phase19-phone-origin-autoreply-closeout.js",
     "verify:luna-agent-phase19-messaging-playbook": "node scripts/verify-luna-agent-phase19-messaging-playbook.js",
     "verify:luna-agent-phase19-playbook-wiring": "node scripts/verify-luna-agent-phase19-playbook-wiring.js",
-    "verify:luna-agent-phase20-confirmation-preview-playbook": "node scripts/verify-luna-agent-phase20-confirmation-preview-playbook.js"
+    "verify:luna-agent-phase20-confirmation-preview-playbook": "node scripts/verify-luna-agent-phase20-confirmation-preview-playbook.js",
+    "verify:luna-agent-phase20-send-confirmation-route": "node scripts/verify-luna-agent-phase20-send-confirmation-route.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

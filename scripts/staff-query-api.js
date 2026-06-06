@@ -184,6 +184,9 @@ const {
   getLunaBookingConfirmationPreview,
 } = require('./lib/luna-booking-confirmation-preview');
 const {
+  sendLunaBookingConfirmation,
+} = require('./lib/luna-booking-confirmation-send');
+const {
   buildLunaGuestReplyDraft,
 } = require('./lib/luna-guest-reply-draft');
 const {
@@ -10329,6 +10332,98 @@ async function handleBotBookingConfirmationPreview(req, res, user, authMode) {
       preview_only:                 true,
       no_write_performed:           true,
       sends_whatsapp:               false,
+      calls_n8n:                    false,
+      updates_confirmation_sent_at: false,
+      error:                        err.message,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+  }
+}
+
+// Route: POST /staff/bot/bookings/send-confirmation  (Phase 20j — gated send + confirmation_sent_at)
+//
+// Loads confirmation preview, sends via guest-reply-send idempotency path, sets confirmation_sent_at on success.
+async function handleBotBookingSendConfirmation(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-booking-send-confirmation-local';
+
+  try {
+    const evaluated = await withPgClient((pg) => sendLunaBookingConfirmation(body, {
+      pg,
+      env: process.env,
+    }));
+    const elapsed = Date.now() - started;
+    const result = evaluated.result || {};
+
+    appendAuditLog({
+      ts:                           new Date().toISOString(),
+      intent:                       'api:bot_booking_send_confirmation',
+      category:                     'bot_booking_send_confirmation',
+      send_performed:               result.send_performed === true,
+      sends_whatsapp:               result.sends_whatsapp === true,
+      would_send_whatsapp:          result.would_send_whatsapp === true,
+      creates_booking:              false,
+      creates_payment:              false,
+      creates_stripe_link:          false,
+      calls_n8n:                    false,
+      updates_confirmation_sent_at: result.updates_confirmation_sent_at === true,
+      success:                      result.success === true,
+      booking_id:                   result.booking_id || null,
+      booking_code:                 result.booking_code || null,
+      send_kind:                    'confirmation',
+      idempotency_key:              result.idempotency_key || body.idempotency_key || null,
+      blocked_reasons:              result.blocked_reasons || [],
+      duplicate:                    result.duplicate === true,
+      idempotent_replay:            result.idempotent_replay === true,
+      confirmation_already_sent:    result.confirmation_already_sent === true,
+      staff_user_id:                actorId,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+
+    return sendJSON(res, evaluated.status || 200, {
+      ...result,
+      auth_mode:  resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                           new Date().toISOString(),
+      intent:                       'api:bot_booking_send_confirmation',
+      category:                     'bot_booking_send_confirmation',
+      send_performed:               false,
+      sends_whatsapp:               false,
+      would_send_whatsapp:          false,
+      creates_booking:              false,
+      creates_payment:              false,
+      creates_stripe_link:          false,
+      calls_n8n:                    false,
+      updates_confirmation_sent_at: false,
+      success:                      false,
+      error:                        err.message,
+      staff_user_id:                actorId,
+      auth_mode:                    resolvedAuthMode,
+      elapsed_ms:                   elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:                      false,
+      send_performed:               false,
+      sends_whatsapp:               false,
+      would_send_whatsapp:          false,
+      creates_booking:              false,
+      creates_payment:              false,
+      creates_stripe_link:          false,
       calls_n8n:                    false,
       updates_confirmation_sent_at: false,
       error:                        err.message,
@@ -23643,6 +23738,18 @@ async function router(req, res) {
     return handleBotBookingConfirmationPreview(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Phase 20j — Luna booking confirmation send (gated + confirmation_sent_at) ─
+  // POST /staff/bot/bookings/send-confirmation
+  if (pathname === '/staff/bot/bookings/send-confirmation') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/send-confirmation' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotBookingSendConfirmation(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Phase 18b — Luna guest reply draft (draft-only) ───────────────────────
   // POST /staff/bot/checkin-day-preview
   if (pathname === '/staff/bot/checkin-day-preview') {
@@ -24031,6 +24138,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-write-eligibility <- 13c.4 Luna write eligibility (read-only, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna confirmation preview (read-only, no send)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/send-confirmation <- 20j Luna booking confirmation send (gated + confirmation_sent_at)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/checkin-day-preview <- 19c.1 Luna check-in day preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-reply-draft <- 18b Luna guest reply draft (draft-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-reply-send <- 19d Luna guest reply send (default-deny, no send yet)`);
