@@ -100,8 +100,11 @@ if (/inbox-switch-orange/.test(loadDetailJs) && /inbox-switch-red/.test(loadDeta
 
 section('D. Booking Calendar deep link');
 
-if (/Open in Booking Calendar/.test(loadDetailJs)) pass('D1', 'booking card link label present');
-else fail('D1', 'Open in Booking Calendar missing');
+if (/Open Booking in Calendar/.test(loadDetailJs)) pass('D1', 'booking card link label present');
+else fail('D1', 'Open Booking in Calendar missing');
+
+if (!/Open in Booking Calendar/.test(loadDetailJs)) pass('D1b', 'old calendar link text removed');
+else fail('D1b', 'old Open in Booking Calendar still present');
 
 if (/id=["']inbox-open-booking-cal["']/.test(loadDetailJs)) pass('D2', 'link button id present');
 else fail('D2', 'inbox-open-booking-cal missing');

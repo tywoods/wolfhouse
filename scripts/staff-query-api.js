@@ -13903,10 +13903,9 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .inbox-left{width:300px;flex-shrink:0;min-height:0;height:100%;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-soft)}
 .inbox-ro-note{flex-shrink:0}
-.inbox-left-rows{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-#conv-list.conv-list{min-height:0}
+.inbox-left-rows{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
+#conv-list.conv-list{min-height:0;overflow:visible}
 .inbox-left-scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.conv-list,#conv-list.conv-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 #inbox-state{flex-shrink:0}
 /* ── Conversation cards (left list) ──────────────────────────────────────── */
 .conv-card{padding:13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s;position:relative}
@@ -13942,6 +13941,13 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
 #conv-detail{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--surface)}
 #detail-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px 20px;box-sizing:border-box}
+#detail-content.is-loading-detail .detail-layout{opacity:.72;pointer-events:none;transition:opacity .15s}
+.conv-detail-load-status{font-size:11px;color:var(--text-3);font-weight:600;white-space:nowrap}
+.conv-detail-load-status.error{color:#9C5742}
+.detail-layout-skeleton .thread-skeleton{min-height:220px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius)}
+.sidebar-card-skeleton{min-height:100px;background:var(--surface-soft);border-radius:var(--radius)}
+.conv-skeleton-line{min-height:14px;background:var(--surface-soft);border-radius:4px}
+.conv-skeleton-line.short{max-width:160px;margin-top:6px}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
 .detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;flex-shrink:0}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
@@ -14148,6 +14154,11 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-none{color:var(--text-3);font-size:12px;font-style:italic}
 .btn-open-conv{background:var(--olive);color:#fff;border:none;border-radius:var(--radius-sm);padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s}
 .btn-open-conv:hover{background:#7C9079}
+.btn-success-light{background:#DCEAD2;color:#45673A;border:1px solid #CADCBE;border-radius:var(--radius-sm);padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-success-light:hover{background:#CFDFC4;border-color:#B5D3AD}
+.btn-success-light:disabled{opacity:.55;cursor:not-allowed}
+.bc-detail-toolbar-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.bc-open-conversation-status{font-size:11px;color:var(--text-3);flex:1 1 100%;text-align:right;min-height:14px}
 /* ── Booking detail drawer extras (Stage 8.3b) ────────────────────────────── */
 .ctx-status-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center}
 .ctx-nights-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:var(--text-2);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-pill);padding:3px 10px}
@@ -15701,6 +15712,99 @@ function openBookingInCalendar(booking){
 
 window.openBookingInCalendar = openBookingInCalendar;
 
+function wireInboxLeftListWheel(){
+  var rows = document.querySelector('.inbox-left-rows');
+  if (!rows || rows.dataset.wheelWired === '1') return;
+  rows.dataset.wheelWired = '1';
+  rows.addEventListener('wheel', function(ev){
+    if (rows.scrollHeight <= rows.clientHeight) return;
+    var atTop = rows.scrollTop <= 0;
+    var atBottom = rows.scrollTop + rows.clientHeight >= rows.scrollHeight - 1;
+    if ((ev.deltaY < 0 && atTop) || (ev.deltaY > 0 && atBottom)) return;
+    rows.scrollTop += ev.deltaY;
+    ev.preventDefault();
+  }, { passive: false });
+}
+
+function convDetailHasLayout(targetEl){
+  return !!(targetEl && targetEl.querySelector('.detail-layout'));
+}
+
+function buildConvDetailSkeleton(){
+  return '<div class="detail-header">' +
+    '<div><div class="detail-name conv-skeleton-line">&nbsp;</div>' +
+    '<div class="detail-meta conv-skeleton-line short">&nbsp;</div></div>' +
+    '<span id="conv-detail-load-status" class="conv-detail-load-status">Loading\u2026</span></div>' +
+    '<div class="detail-layout detail-layout-skeleton">' +
+    '<div class="detail-main">' +
+    '<div class="thread-section"><div class="thread thread-skeleton"></div></div>' +
+    '<div class="draft-panel"><div class="draft-label">' +
+    '<span style="font-size:11px;color:var(--text-3)">Review and send reply</span></div></div></div>' +
+    '<div class="detail-sidebar"><div class="sidebar-card sidebar-card-skeleton"></div></div></div>';
+}
+
+function beginConvDetailLoad(targetEl){
+  if (convDetailHasLayout(targetEl)){
+    targetEl.classList.add('is-loading-detail');
+    var slot = targetEl.querySelector('#conv-detail-load-status');
+    if (!slot){
+      slot = document.createElement('span');
+      slot.id = 'conv-detail-load-status';
+      slot.className = 'conv-detail-load-status';
+      var hdrRight = targetEl.querySelector('.detail-header > div:last-child');
+      if (hdrRight) hdrRight.appendChild(slot);
+    }
+    slot.classList.remove('error');
+    slot.textContent = 'Loading\u2026';
+    slot.style.display = '';
+    return;
+  }
+  targetEl.innerHTML = buildConvDetailSkeleton();
+  targetEl.classList.add('is-loading-detail');
+}
+
+var bcLastBookingContext = null;
+
+function bcResolveConversationId(data){
+  data = data || bcLastBookingContext || {};
+  if (data.conversation && data.conversation.conversation_id) return data.conversation.conversation_id;
+  var phone = data.booking && data.booking.phone;
+  if (phone && inboxConversationsCache && inboxConversationsCache.length){
+    var match = inboxConversationsCache.find(function(c){ return c.phone === phone; });
+    if (match && match.conversation_id) return match.conversation_id;
+  }
+  return null;
+}
+
+function bcShowOpenConversationStatus(msg){
+  var statusEl = el('bc-open-conversation-status');
+  if (statusEl) statusEl.textContent = msg || '';
+}
+
+function bcOpenConversationFromBooking(data){
+  data = data || bcLastBookingContext;
+  var convId = bcResolveConversationId(data);
+  if (convId){
+    bcShowOpenConversationStatus('');
+    openInboxToConversation(convId);
+    return;
+  }
+  bcShowOpenConversationStatus('No conversation found for this booking.');
+}
+
+function bcWireOpenConversationButtons(data){
+  if (data) bcLastBookingContext = data;
+  var handler = function(){ bcOpenConversationFromBooking(data || bcLastBookingContext); };
+  var toolbarBtn = el('bc-open-conversation-toolbar');
+  if (toolbarBtn){
+    toolbarBtn.onclick = handler;
+  }
+  var sectionBtn = el('bc-open-conv-btn');
+  if (sectionBtn){
+    sectionBtn.onclick = handler;
+  }
+}
+
 function wireLunaPauseSwitch(convId, targetEl){
   var sw = targetEl.querySelector('#luna-pause-switch');
   if (!sw) return;
@@ -15984,7 +16088,7 @@ function loadConvDetail(convId, targetEl){
   targetEl = targetEl || el('detail-content');
   selectedConvId = convId;
   if (targetEl === el('detail-content')) el('conv-detail').classList.add('visible');
-  targetEl.innerHTML = '<div class="state-msg">Loading\u2026</div>';
+  beginConvDetailLoad(targetEl);
 
   var base = '/staff/conversations/' + encodeURIComponent(convId);
   var qs   = '?client=' + encodeURIComponent(getClient());
@@ -16061,7 +16165,6 @@ function loadConvDetail(convId, targetEl){
 
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
-    html +=     '<h3>Reply</h3>';
     html +=     '<span style="font-size:11px;color:var(--text-3)">Review and send reply</span>';
     html +=   '</div>';
     if (!draftAvail){
@@ -16100,7 +16203,7 @@ function loadConvDetail(convId, targetEl){
                 kv('Assigned',    (bctx.assigned_room_code || '—') + (bctx.assigned_bed_code ? ' / ' + bctx.assigned_bed_code : '')) +
                 kv('Confirm',     bctx.confirmation_sent_at ? fmtTs(bctx.confirmation_sent_at) : '—');
       html += '</div>';
-      html += '<button type="button" class="inbox-booking-cal-link" id="inbox-open-booking-cal">Open in Booking Calendar</button>';
+      html += '<button type="button" class="inbox-booking-cal-link" id="inbox-open-booking-cal">Open Booking in Calendar</button>';
       if (bctx.payment_amount_due_cents != null){
         html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
         html +=   '<div style="font-size:11px;font-weight:700;color:#5a6a85;margin-bottom:6px">Payment</div>';
@@ -16167,6 +16270,7 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /detail-layout */
 
     targetEl.innerHTML = html;
+    targetEl.classList.remove('is-loading-detail');
 
     /* Wire copy button after DOM update */
     var copyBtn   = targetEl.querySelector('#btn-copy-draft');
@@ -16210,6 +16314,16 @@ function loadConvDetail(convId, targetEl){
     if (threadEl) threadEl.scrollTop = threadEl.scrollHeight;
   })
   .catch(function(err){
+    if (convDetailHasLayout(targetEl)){
+      targetEl.classList.remove('is-loading-detail');
+      var slot = targetEl.querySelector('#conv-detail-load-status');
+      if (slot){
+        slot.textContent = 'Error: ' + (err.message || 'load failed');
+        slot.classList.add('error');
+        return;
+      }
+    }
+    targetEl.classList.remove('is-loading-detail');
     targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
   });
 }
@@ -16292,6 +16406,7 @@ updateInboxFilterUI();
 
 /* Auto-load inbox on page load */
 loadInbox();
+wireInboxLeftListWheel();
 wireMessageEventsPanel();
 wireHandoffsQueuePanel();
 
@@ -18083,10 +18198,15 @@ function showBlockDetail(blk){
   el('bc-detail').innerHTML =
     '<div class="toolbar"><h2 class="bc-detail-title">' + escHtml(blk.booking_code||'\u2014') +
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
-    '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="Refresh booking details">\u21bb Refresh</button></div>' +
+    '<div class="bc-detail-toolbar-actions">' +
+    '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>' +
+    '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">Open Conversation</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="Refresh booking details">\u21bb Refresh</button>' +
+    '</div></div>' +
     '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>';
   el('bc-detail').style.display = 'block';
   el('bc-refresh-detail').addEventListener('click', bcRefreshBlockDetail);
+  bcWireOpenConversationButtons(null);
   if (blk.booking_code) loadBlockDetail(blk.booking_code);
 }
 
@@ -18113,15 +18233,7 @@ function loadBlockDetail(bookingCode){
       bcInitCancelPaymentLinkShell(res.data);
       bcInitBookingCancelShell(res.data);
       bcInitNewConversationShell(res.data);
-      /* Wire "Open conversation" button */
-      var btnConv = document.getElementById('bc-open-conv-btn');
-      if (btnConv){
-        btnConv.addEventListener('click', function(){
-          var convId = this.dataset.convid;
-          if (!convId) return;
-          openInboxToConversation(convId);
-        });
-      }
+      bcWireOpenConversationButtons(res.data);
     })
     .catch(function(e){
       var ctxEl = el('bc-ctx-body');
@@ -20742,9 +20854,7 @@ function renderBookingContextDrawer(data){
     if (conv.last_message_preview)  html += kvBC('Last message', conv.last_message_preview);
     html += '</div>';
     html += '<div style="margin-top:8px">' +
-      '<button class="btn-open-conv" id="bc-open-conv-btn" data-convid="' + escHtml(conv.conversation_id||'') + '">' +
-      '&#128172; Open conversation</button>' +
-      '<span style="font-size:11px;color:var(--text-3);margin-left:8px">Switches to Inbox tab</span>' +
+      '<button type="button" class="btn btn-success-light" id="bc-open-conv-btn">Open Conversation</button>' +
       '</div>';
   } else {
     html += '<div class="ctx-none">No linked conversation yet.</div>';
