@@ -201,6 +201,9 @@ const {
   verifyMetaHubSignature256,
   normalizeMetaWhatsAppWebhook,
   buildDraftInputFromNormalized,
+  resolveMetaWebhookSendKind,
+  shouldAttemptMetaWebhookSend,
+  buildMetaWebhookSendBody,
   buildMetaWhatsAppWebhookPostResponse,
 } = require('./lib/luna-meta-whatsapp-webhook');
 const {
@@ -10860,8 +10863,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
 //
 // Public Meta WhatsApp Cloud webhook endpoint. No session auth.
 // GET: hub challenge verification for Meta subscription setup.
-// POST: normalize inbound message; call Luna draft brain for supported text.
-// Preview/draft-only — no reply send, no Graph API.
+// POST: normalize inbound message; call Luna draft brain + gated send evaluator for eligible text.
+// Default env gates deny live send — no Graph API.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function handleMetaWhatsAppWebhookGet(query, res) {
@@ -10909,14 +10912,34 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
   const normalized = normalizeMetaWhatsAppWebhook(body);
   let draftResult = null;
   let draftCalled = false;
+  let sendAttempted = false;
+  let sendResult = null;
+  let idempotencyKey = null;
+
   if (normalized.supported && normalized.message_text) {
     const draftInput = buildDraftInputFromNormalized(normalized);
     draftResult = await withPgClient((pg) => buildLunaGuestReplyDraft(draftInput, { pg, env: process.env }));
     draftCalled = true;
+
+    if (shouldAttemptMetaWebhookSend(draftResult, normalized)) {
+      const sendKind = resolveMetaWebhookSendKind(draftResult.next_action);
+      const sendBody = buildMetaWebhookSendBody(normalized, draftResult, sendKind);
+      idempotencyKey = sendBody.idempotency_key;
+      sendAttempted = true;
+      const evaluated = await withPgClient((pg) => evaluateGuestReplySendRouteWithPause(sendBody, {
+        pg,
+        env: process.env,
+      }));
+      sendResult = evaluated.result;
+    }
   }
+
   const response = buildMetaWhatsAppWebhookPostResponse(normalized, sigResult, {
     draft: draftResult,
     draft_called: draftCalled,
+    send_attempted: sendAttempted,
+    send_result: sendResult,
+    idempotency_key: idempotencyKey,
   });
 
   appendAuditLog({
@@ -10930,13 +10953,16 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     message_type:                 normalized.message_type,
     supported:                    normalized.supported === true,
     draft_called:                 draftCalled,
+    send_attempted:               sendAttempted,
+    idempotency_key:              idempotencyKey,
     next_action:                  draftResult ? draftResult.next_action : null,
+    send_performed:               sendResult ? sendResult.send_performed === true : false,
+    blocked_reasons:              sendResult ? sendResult.blocked_reasons || [] : [],
     signature_verified:           sigResult.verified === true,
     signature_verification_skipped: sigResult.skipped === true,
     preview_only:                 true,
-    draft_only:                   true,
-    no_write_performed:           true,
-    sends_whatsapp:               false,
+    no_write_performed:           response.no_write_performed === true,
+    sends_whatsapp:               response.sends_whatsapp === true,
     calls_graph_api:              false,
     calls_n8n:                    false,
     elapsed_ms:                   Date.now() - started,

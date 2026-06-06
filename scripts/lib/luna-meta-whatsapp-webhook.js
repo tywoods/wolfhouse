@@ -3,8 +3,8 @@
 /**
  * Phase 19g — Meta WhatsApp Cloud inbound webhook helpers.
  *
- * GET hub challenge verification + POST payload normalization + draft envelope.
- * No Graph API, no guest-reply-send, no DB writes.
+ * GET hub challenge + POST normalization + draft + gated send evaluation.
+ * No Graph API, no HTTP guest-reply-send, no booking/payment writes.
  */
 
 const crypto = require('crypto');
@@ -25,6 +25,11 @@ const WEBHOOK_SAFETY_FLAGS = {
 };
 
 const SUPPORTED_MESSAGE_TYPES = new Set(['text']);
+
+const META_WEBHOOK_SEND_KIND_BY_ACTION = Object.freeze({
+  ask_missing_field: 'ask_missing_field',
+  show_quote: 'show_quote',
+});
 
 function trimStr(v) {
   if (v == null) return '';
@@ -227,22 +232,97 @@ function buildDraftInputFromNormalized(normalized) {
 }
 
 /**
+ * Map draft next_action to a safe guest-reply send_kind (or null).
+ */
+function resolveMetaWebhookSendKind(nextAction) {
+  const action = trimStr(nextAction);
+  return META_WEBHOOK_SEND_KIND_BY_ACTION[action] || null;
+}
+
+/**
+ * Stable idempotency key for Meta inbound → send gate.
+ */
+function buildMetaInboundIdempotencyKey(clientSlug, waMessageId, sendKind) {
+  return `luna:${trimStr(clientSlug) || DEFAULT_CLIENT_SLUG}:${trimStr(waMessageId)}:${sendKind}`;
+}
+
+/**
+ * Whether a draft should flow through the guest-reply send evaluator.
+ */
+function shouldAttemptMetaWebhookSend(draft, normalized) {
+  if (!draft || !normalized || normalized.supported !== true || !normalized.message_text) {
+    return false;
+  }
+  if (!trimStr(draft.suggested_reply)) return false;
+  const se = draft.send_eligibility;
+  if (!se || se.requires_staff === true) return false;
+  if (se.send_allowed_later === false) return false;
+  const sendKind = resolveMetaWebhookSendKind(draft.next_action);
+  if (!sendKind) return false;
+  if (se.allowed_send_kind && se.allowed_send_kind !== sendKind) return false;
+  return true;
+}
+
+/**
+ * Build internal guest-reply-send evaluator input from Meta draft context.
+ */
+function buildMetaWebhookSendBody(normalized, draft, sendKind) {
+  return {
+    client_slug: normalized.client_slug,
+    to: normalized.from,
+    suggested_reply: draft.suggested_reply,
+    send_kind: sendKind,
+    send_eligibility: draft.send_eligibility,
+    idempotency_key: buildMetaInboundIdempotencyKey(
+      normalized.client_slug,
+      normalized.wa_message_id,
+      sendKind,
+    ),
+    source: 'meta_whatsapp_webhook',
+    draft,
+  };
+}
+
+/**
  * Build POST webhook JSON response envelope.
- * @param {object} [options] - { draft?, draft_called? }
+ * @param {object} [options] - { draft?, draft_called?, send_attempted?, send_result?, idempotency_key? }
  */
 function buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta = {}, options = {}) {
   const draft = options.draft || null;
   const draftCalled = options.draft_called === true;
+  const sendAttempted = options.send_attempted === true;
+  const sendResult = options.send_result || null;
+  const idempotencyKey = options.idempotency_key || null;
+
+  const sendPerformed = !!(sendResult && sendResult.send_performed === true);
+  const sendAuditWritten = !!(sendResult && sendResult.no_write_performed === false);
 
   const response = {
     success: true,
     received: true,
     normalized,
     draft_called: draftCalled,
+    send_attempted: sendAttempted,
     signature_verified: signatureMeta.verified === true,
     signature_verification_skipped: signatureMeta.skipped === true,
-    ...WEBHOOK_SAFETY_FLAGS,
+    preview_only: true,
+    draft_only: !sendAttempted,
+    no_write_performed: !sendAuditWritten && !sendPerformed,
+    sends_whatsapp: sendPerformed,
+    calls_graph_api: false,
+    calls_n8n: false,
+    creates_booking: false,
+    creates_payment: false,
+    creates_stripe_link: false,
   };
+
+  if (sendAttempted) {
+    response.idempotency_key = idempotencyKey;
+    response.send_result = sendResult;
+    if (sendResult && Array.isArray(sendResult.blocked_reasons)) {
+      response.blocked_reasons = sendResult.blocked_reasons;
+    }
+  }
 
   if (!draftCalled || !draft) {
     return response;
@@ -270,7 +350,12 @@ module.exports = {
   verifyMetaHubSignature256,
   normalizeMetaWhatsAppWebhook,
   buildDraftInputFromNormalized,
+  resolveMetaWebhookSendKind,
+  buildMetaInboundIdempotencyKey,
+  shouldAttemptMetaWebhookSend,
+  buildMetaWebhookSendBody,
   buildMetaWhatsAppWebhookPostResponse,
+  META_WEBHOOK_SEND_KIND_BY_ACTION,
   buildRawSummary,
   findFirstInboundMessage,
 };

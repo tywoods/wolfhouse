@@ -70,9 +70,10 @@ const META_IMAGE_PAYLOAD = {
   }],
 };
 
-function metaTextPayload(bodyText) {
+function metaTextPayload(bodyText, waMessageId) {
   const payload = JSON.parse(JSON.stringify(META_TEXT_PAYLOAD));
   payload.entry[0].changes[0].value.messages[0].text.body = bodyText;
+  if (waMessageId) payload.entry[0].changes[0].value.messages[0].id = waMessageId;
   return payload;
 }
 
@@ -88,7 +89,7 @@ function readOrEmpty(filePath) {
   catch { return ''; }
 }
 
-console.log('\nverify-luna-agent-phase19-meta-whatsapp-webhook.js  (Phase 19g.3)\n');
+console.log('\nverify-luna-agent-phase19-meta-whatsapp-webhook.js  (Phase 19g.5)\n');
 
 try {
   execSync(`node --check "${__filename}"`, { stdio: 'pipe' });
@@ -103,10 +104,17 @@ const {
   verifyMetaHubSignature256,
   normalizeMetaWhatsAppWebhook,
   buildDraftInputFromNormalized,
+  resolveMetaWebhookSendKind,
+  buildMetaInboundIdempotencyKey,
+  shouldAttemptMetaWebhookSend,
+  buildMetaWebhookSendBody,
   buildMetaWhatsAppWebhookPostResponse,
   WEBHOOK_SAFETY_FLAGS,
 } = require('./lib/luna-meta-whatsapp-webhook');
 const { buildLunaGuestReplyDraft } = require('./lib/luna-guest-reply-draft');
+const { evaluateGuestReplySendRoute } = require('./lib/luna-guest-reply-send-route');
+
+const GATES_OFF_ENV = { WHATSAPP_DRY_RUN: 'true', LUNA_AUTO_SEND_ENABLED: '' };
 
 const apiSrc = readOrEmpty(API);
 const helperSrc = readOrEmpty(HELPER);
@@ -220,9 +228,11 @@ const imageDraftInput = buildDraftInputFromNormalized(imageNorm);
 if (imageDraftInput === null) pass('D4', 'unsupported image skips draft input');
 else fail('D4', 'unsupported should not build draft input');
 
-const imageResp = buildMetaWhatsAppWebhookPostResponse(imageNorm, {}, { draft_called: false });
+const imageResp = buildMetaWhatsAppWebhookPostResponse(imageNorm, {}, { draft_called: false, send_attempted: false });
 if (imageResp.draft_called === false) pass('D5', 'unsupported image draft_called false');
 else fail('D5', 'unsupported image should not call draft');
+if (imageResp.send_attempted === false) pass('D6', 'unsupported image send_attempted false');
+else fail('D6', 'unsupported image should not attempt send');
 
 section('E. Signature verification (mock secret)');
 
@@ -240,7 +250,7 @@ else fail('E2', 'invalid signature should fail');
 if (skipped.skipped === true && skipped.verified === false) pass('E3', 'missing app secret skips verification');
 else fail('E3', 'skip path wrong');
 
-section('F. Handler draft wiring');
+section('F. Handler draft + send gate wiring');
 
 if (handlerPost.includes('buildDraftInputFromNormalized')) pass('F1', 'handler uses buildDraftInputFromNormalized');
 else fail('F1', 'buildDraftInputFromNormalized missing from handler');
@@ -248,17 +258,26 @@ else fail('F1', 'buildDraftInputFromNormalized missing from handler');
 if (handlerPost.includes('buildLunaGuestReplyDraft')) pass('F2', 'handler calls buildLunaGuestReplyDraft');
 else fail('F2', 'buildLunaGuestReplyDraft missing from handler');
 
-if (handlerPost.includes('draft_called')) pass('F3', 'handler tracks draft_called');
-else fail('F3', 'draft_called missing from handler');
+if (handlerPost.includes('shouldAttemptMetaWebhookSend')) pass('F3', 'handler uses shouldAttemptMetaWebhookSend');
+else fail('F3', 'shouldAttemptMetaWebhookSend missing from handler');
 
-if (!handlerPost.includes('guest-reply-send') && !handlerPost.includes('evaluateGuestReplySendRoute')) {
-  pass('F4', 'handler avoids guest-reply-send');
+if (handlerPost.includes('evaluateGuestReplySendRouteWithPause')) {
+  pass('F4', 'handler calls evaluateGuestReplySendRouteWithPause');
 } else {
-  fail('F4', 'guest-reply-send found in POST handler');
+  fail('F4', 'evaluateGuestReplySendRouteWithPause missing from handler');
 }
 
-if (!/requireBotAuth|requireStaffAuth/.test(handlerPost)) pass('F5', 'POST handler has no bot auth');
-else fail('F5', 'POST handler should not require bot auth');
+if (!handlerPost.includes('/staff/bot/guest-reply-send')) {
+  pass('F5', 'handler avoids HTTP guest-reply-send route');
+} else {
+  fail('F5', 'HTTP guest-reply-send found in POST handler');
+}
+
+if (handlerPost.includes('send_attempted')) pass('F6', 'handler tracks send_attempted');
+else fail('F6', 'send_attempted missing from handler');
+
+if (!/requireBotAuth|requireStaffAuth/.test(handlerPost)) pass('F7', 'POST handler has no bot auth');
+else fail('F7', 'POST handler should not require bot auth');
 
 section('G. Safety — no send/write/external calls');
 
@@ -334,6 +353,73 @@ async function assertMetaDraft(id, metaPayload, expect) {
   else pass(id, expect.label || id);
 }
 
+async function assertMetaSendGate(id, metaPayload, expect) {
+  const norm = normalizeMetaWhatsAppWebhook(metaPayload);
+  const input = buildDraftInputFromNormalized(norm);
+  if (!input) {
+    fail(id, 'expected draft input');
+    return;
+  }
+  const draft = await buildLunaGuestReplyDraft(
+    { ...input, reference_date: REF_DATE },
+    { reference_date: REF_DATE },
+  );
+  const shouldSend = shouldAttemptMetaWebhookSend(draft, norm);
+  const errs = [];
+
+  if (expect.send_attempted === false) {
+    if (shouldSend) errs.push('shouldAttemptMetaWebhookSend should be false');
+    const resp = buildMetaWhatsAppWebhookPostResponse(norm, {}, {
+      draft,
+      draft_called: true,
+      send_attempted: false,
+    });
+    if (resp.send_attempted !== false) errs.push('send_attempted should be false');
+    if (resp.send_result) errs.push('send_result should be absent');
+  } else {
+    if (!shouldSend) errs.push('shouldAttemptMetaWebhookSend should be true');
+    const sendKind = resolveMetaWebhookSendKind(draft.next_action);
+    if (expect.send_kind && sendKind !== expect.send_kind) {
+      errs.push(`send_kind: expected ${expect.send_kind} got ${sendKind}`);
+    }
+    const sendBody = buildMetaWebhookSendBody(norm, draft, sendKind);
+    if (!sendBody.idempotency_key.includes(norm.wa_message_id)) {
+      errs.push('idempotency_key missing wa_message_id');
+    }
+    if (expect.idempotency_contains) {
+      for (const part of expect.idempotency_contains) {
+        if (!sendBody.idempotency_key.includes(part)) {
+          errs.push(`idempotency_key missing "${part}"`);
+        }
+      }
+    }
+    const evaluated = evaluateGuestReplySendRoute(sendBody, GATES_OFF_ENV);
+    const sendResult = evaluated.result;
+    const resp = buildMetaWhatsAppWebhookPostResponse(norm, {}, {
+      draft,
+      draft_called: true,
+      send_attempted: true,
+      send_result: sendResult,
+      idempotency_key: sendBody.idempotency_key,
+    });
+
+    if (resp.send_attempted !== true) errs.push('send_attempted should be true');
+    if (sendResult.send_performed !== false) errs.push('send_performed should be false with gates off');
+    if (sendResult.sends_whatsapp !== false) errs.push('sends_whatsapp should be false');
+    if (!sendResult.blocked_reasons.includes('luna_auto_send_not_enabled')) {
+      errs.push('blocked_reasons missing luna_auto_send_not_enabled');
+    }
+    if (resp.sends_whatsapp !== false) errs.push('response sends_whatsapp should be false');
+    if (resp.calls_graph_api !== false) errs.push('response calls_graph_api should be false');
+    if (resp.creates_booking !== false || resp.creates_payment !== false) {
+      errs.push('response must not create booking/payment');
+    }
+  }
+
+  if (errs.length) fail(id, errs.join('; '));
+  else pass(id, expect.label || id);
+}
+
 (async () => {
   await assertMetaDraft('H.it.partial', metaTextPayload(
     'Ciao, siamo due persone e vorremmo venire a settembre. Avete posto?',
@@ -360,23 +446,67 @@ async function assertMetaDraft(id, metaPayload, expect) {
     handoff: true,
   });
 
-  section('I. npm script registration');
+  section('I. Send gate — draft → evaluator (default deny)');
+
+  await assertMetaSendGate('I.it.partial', metaTextPayload(
+    'Ciao, siamo due persone e vorremmo venire a settembre. Avete posto?',
+    'wamid.phase19g5.partial.it.001',
+  ), {
+    label: 'partial IT → ask_missing_field send_kind, gates off block',
+    send_attempted: true,
+    send_kind: 'ask_missing_field',
+    idempotency_contains: ['wolfhouse-somo', 'wamid.phase19g5.partial.it.001', 'ask_missing_field'],
+  });
+
+  await assertMetaSendGate('I.en.complete', metaTextPayload(
+    'Hi, we are 2 people and want to come September 24 to September 27. Do you have Malibu? We can pay the deposit.',
+    'wamid.phase19g5.complete.en.001',
+  ), {
+    label: 'complete EN → show_quote send_kind, gates off block',
+    send_attempted: true,
+    send_kind: 'show_quote',
+    idempotency_contains: ['wamid.phase19g5.complete.en.001', 'show_quote'],
+  });
+
+  await assertMetaSendGate('I.refund', metaTextPayload(
+    'I want a refund and need to talk to someone.',
+    'wamid.phase19g5.refund.001',
+  ), {
+    label: 'refund/handoff → no send attempt',
+    send_attempted: false,
+  });
+
+  const imageNormGate = normalizeMetaWhatsAppWebhook(META_IMAGE_PAYLOAD);
+  if (!shouldAttemptMetaWebhookSend(null, imageNormGate)) {
+    pass('I.image', 'unsupported image does not attempt send');
+  } else {
+    fail('I.image', 'unsupported image should not attempt send');
+  }
+
+  const key = buildMetaInboundIdempotencyKey('wolfhouse-somo', 'wamid.test.001', 'ask_missing_field');
+  if (key === 'luna:wolfhouse-somo:wamid.test.001:ask_missing_field') {
+    pass('I.idem', 'idempotency key format luna:client:wa_message_id:send_kind');
+  } else {
+    fail('I.idem', `unexpected idempotency key: ${key}`);
+  }
+
+  section('J. npm script registration');
 
   const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
   if (pkg.scripts && pkg.scripts['verify:luna-agent-phase19-meta-whatsapp-webhook']) {
-    pass('I1', 'npm script registered');
+    pass('J1', 'npm script registered');
   } else {
-    fail('I1', 'npm script missing');
+    fail('J1', 'npm script missing');
   }
 
-  section('J. Downstream verifiers (limited)');
+  section('K. Downstream verifiers (limited)');
 
   for (const script of DOWNSTREAM) {
     try {
       execSync(`npm run ${script}`, { cwd: ROOT, stdio: 'pipe', encoding: 'utf8', timeout: 300000 });
-      pass('J.' + script, `${script} still passes`);
+      pass('K.' + script, `${script} still passes`);
     } catch (e) {
-      fail('J.' + script, `${script} failed`);
+      fail('K.' + script, `${script} failed`);
       const out = (e.stdout || '') + (e.stderr || '');
       console.error(out.split('\n').slice(-8).join('\n'));
     }
