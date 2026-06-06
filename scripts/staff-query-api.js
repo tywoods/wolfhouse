@@ -221,6 +221,11 @@ const {
   markGuestMessageEventHandoffReviewed,
 } = require('./lib/luna-guest-message-event-review');
 const {
+  parseInboxSendReplyInput,
+  buildStaffInboxGuestReplyBody,
+  resolveConversationGuestPhone,
+} = require('./lib/luna-staff-inbox-send-reply');
+const {
   isStagingResetEnvironment,
   parseResetLunaPhoneInput,
   resetLunaPhoneTestRows,
@@ -13965,7 +13970,15 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .draft-warning{font-size:11px;color:#A2743D;flex:1;min-width:180px}
 .btn-copy{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .18s}
 .btn-copy:hover{background:#7FA3B8}
-.btn-send-disabled{background:#D5D2CA;color:#FBF7F0;border:none;border-radius:var(--radius-sm);padding:9px 16px;font-size:12px;font-weight:600;cursor:not-allowed;opacity:.8;white-space:nowrap}
+.btn-send-reply{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .18s}
+.btn-send-reply:hover{background:var(--primary-hover)}
+.btn-send-reply:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
+.draft-send-status{font-size:12px;margin-top:8px;padding:8px 12px;border-radius:var(--radius-sm);display:none}
+.draft-send-status.is-visible{display:block}
+.draft-send-status.ok{background:#EBF1E5;color:#3D5235;border:1px solid #CFDFC3}
+.draft-send-status.blocked{background:#FBF0E8;color:#9C5742;border:1px solid #EFD9D0}
+.draft-send-status.error{background:#F8E8E8;color:#8B3A3A;border:1px solid #E8C4C4}
+.inbox-bottom-debug-panels{display:none!important}
 .copy-confirm{font-size:11px;color:#5C7350;font-weight:700}
 /* ── Shadow-mode workflow checklist (Stage 7.7j) ─────────────────────────── */
 .shadow-checklist{background:#EBF1E5;border:1px solid #CFDFC3;border-radius:var(--radius-sm);padding:12px 16px;margin-top:12px}
@@ -14436,8 +14449,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
   </div><!-- /inbox-two-col -->
 
-  <!-- Message Events — Meta inbound persistence (Phase 19g.10, read-only) -->
-  <div id="msg-events-panel" class="msg-events-panel">
+  <!-- Message Events / Needs staff — hidden from normal Inbox (Phase 23d; APIs retained) -->
+  <div id="msg-events-panel" class="msg-events-panel inbox-bottom-debug-panels">
     <div class="msg-events-toolbar">
       <h3>Message Events</h3>
       <div class="msg-events-filters">
@@ -14454,7 +14467,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
   </div>
 
   <!-- Needs staff — Meta handoff queue (Phase 23b, read-only) -->
-  <div id="handoff-queue-panel" class="msg-events-panel handoff-queue-panel">
+  <div id="handoff-queue-panel" class="msg-events-panel handoff-queue-panel inbox-bottom-debug-panels">
     <div class="msg-events-toolbar">
       <h3>Needs staff</h3>
       <div class="msg-events-filters">
@@ -15695,6 +15708,82 @@ function loadInbox(selectConvIdAfterLoad){
     });
 }
 
+function simpleDraftHash(text){
+  var s = String(text || '').trim();
+  var h = 0;
+  for (var i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(36);
+}
+
+function buildStaffReplyIdempotencyKey(clientSlug, convId, messageText){
+  return 'staff-reply:' + clientSlug + ':' + convId + ':' + simpleDraftHash(messageText);
+}
+
+function showDraftSendStatus(el, kind, message){
+  if (!el) return;
+  el.className = 'draft-send-status is-visible ' + (kind || '');
+  el.textContent = message || '';
+}
+
+function wireInboxSendReply(convId, phone, targetEl){
+  var sendBtn = targetEl.querySelector('#btn-send-reply');
+  var textaEl = targetEl.querySelector('#draft-textarea');
+  var statusEl = targetEl.querySelector('#draft-send-status');
+  if (!sendBtn || !textaEl) return;
+
+  sendBtn.addEventListener('click', function(){
+    var messageText = (textaEl.value || '').trim();
+    if (!messageText){
+      showDraftSendStatus(statusEl, 'error', 'Enter a reply before sending.');
+      return;
+    }
+    sendBtn.disabled = true;
+    showDraftSendStatus(statusEl, '', 'Sending\u2026');
+
+    var client = getClient();
+    var idemKey = buildStaffReplyIdempotencyKey(client, convId, messageText);
+
+    fetch('/staff/inbox/send-reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_slug: client,
+        conversation_id: convId,
+        to: phone || '',
+        message_text: messageText,
+        idempotency_key: idemKey,
+      }),
+    })
+      .then(function(r){
+        if (r.status === 401) throw new Error('Authentication required');
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        var d = out.data || {};
+        if (d.send_performed === true || (d.success === true && d.whatsapp_message_id)){
+          var sentMsg = 'Sent';
+          if (d.whatsapp_message_id) sentMsg += ' (' + d.whatsapp_message_id + ')';
+          showDraftSendStatus(statusEl, 'ok', sentMsg);
+          return;
+        }
+        if (d.duplicate === true || d.idempotent_replay === true){
+          showDraftSendStatus(statusEl, 'ok', 'Already sent');
+          return;
+        }
+        if (d.blocked_reasons && d.blocked_reasons.length){
+          showDraftSendStatus(statusEl, 'blocked', 'Send blocked: ' + d.blocked_reasons.join(', '));
+          sendBtn.disabled = false;
+          return;
+        }
+        throw new Error(d.error || ('HTTP ' + out.status));
+      })
+      .catch(function(err){
+        showDraftSendStatus(statusEl, 'error', err.message || 'Send failed');
+        sendBtn.disabled = false;
+      });
+  });
+}
+
 /* Load conversation detail — Stage 7.7d: fetches all 5 sub-endpoints.
    targetEl: optional DOM element to render into (defaults to el('detail-content')). */
 function loadConvDetail(convId, targetEl){
@@ -15772,41 +15861,27 @@ function loadConvDetail(convId, targetEl){
     html +=   '</div>'; /* /thread */
     html += '</div>'; /* /thread-section */
 
-    /* Luna draft panel — editable textarea for copy, NOT for saving/sending */
+    /* Reply panel — review, copy, or send via Staff API */
     var draftText = (draft && draft.draft_text) ? draft.draft_text : (c.staff_reply_draft || '');
     var draftAvail = draftText && draftText.trim().length > 0;
 
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
-    html +=     '<h3>Luna draft reply</h3>';
-    html +=     '<span class="draft-not-sent">NOT SENT</span>';
-    html +=     '<span style="font-size:11px;color:#7f8c8d">— copy for manual WhatsApp send (shadow mode)</span>';
+    html +=     '<h3>Reply</h3>';
+    html +=     '<span style="font-size:11px;color:var(--text-3)">Review and send reply</span>';
     html +=   '</div>';
-    html +=   '<div class="draft-instructions">Review and edit the draft below, then copy it and send manually in WhatsApp during shadow mode.</div>';
     if (!draftAvail){
-      html += '<div style="color:#9aabb8;font-size:12px;font-style:italic;margin-bottom:8px">No Luna draft available yet &mdash; type a manual reply below to copy.</div>';
+      html += '<div style="color:#9aabb8;font-size:12px;font-style:italic;margin-bottom:8px">No Luna draft yet &mdash; type a reply below.</div>';
     }
-    html += '<textarea id="draft-textarea" placeholder="No Luna draft \u2014 type a manual reply here to copy">' +
+    html += '<textarea id="draft-textarea" placeholder="Edit reply before sending">' +
             escHtml(draftText) + '</textarea>';
     html += '<div class="draft-actions">';
-    html +=   '<button class="btn-copy" id="btn-copy-draft">Copy to clipboard</button>';
-    html +=   '<span class="copy-confirm" id="copy-confirm" style="display:none">Copied &mdash; send manually in WhatsApp</span>';
-    html +=   '<button class="btn-send-disabled" disabled>Approve &amp; Send &mdash; disabled (live-send gate required)</button>';
-    html +=   '<span class="draft-warning">Shadow mode: copy this reply and send it manually in WhatsApp. No live sends from this dashboard.</span>';
+    html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">Send reply</button>';
+    html +=   '<button type="button" class="btn-copy" id="btn-copy-draft">Copy</button>';
+    html +=   '<span class="copy-confirm" id="copy-confirm" style="display:none">Copied</span>';
     html += '</div>';
+    html += '<div id="draft-send-status" class="draft-send-status"></div>';
     html += '</div>'; /* /draft-panel */
-
-    /* Shadow-mode workflow checklist (Stage 7.7j) */
-    html += '<div class="shadow-checklist">';
-    html +=   '<div class="shadow-checklist-title">Shadow-mode workflow</div>';
-    html +=   '<ol class="shadow-checklist-steps">';
-    html +=     '<li>Read the guest message thread above</li>';
-    html +=     '<li>Review and edit the Luna draft in the text area</li>';
-    html +=     '<li>Click <strong>Copy to clipboard</strong></li>';
-    html +=     '<li>Paste and send manually in WhatsApp</li>';
-    html +=     '<li class="shadow-checklist-gate">Do <strong>not</strong> use this dashboard for live sends yet &mdash; live-send gate required</li>';
-    html +=   '</ol>';
-    html += '</div>';
 
     html += '</div>'; /* /detail-main */
 
@@ -15909,6 +15984,8 @@ function loadConvDetail(convId, targetEl){
       });
     }
 
+    wireInboxSendReply(convId, c.phone, targetEl);
+
     wireLunaPauseControlButton(
       targetEl.querySelector('#btn-luna-pause'),
       '/staff/bot/pause',
@@ -15976,8 +16053,6 @@ updateInboxFilterUI();
 loadInbox();
 wireMessageEventsPanel();
 wireHandoffsQueuePanel();
-loadMessageEvents();
-loadHandoffsQueue();
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ASK LUNA TAB — Stage 8.6.2
@@ -21711,6 +21786,93 @@ async function handleInboxHandoffReview(eventId, req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 23d — Staff Inbox explicit reply send
+//
+// POST /staff/inbox/send-reply
+//   Delegates to evaluateGuestReplySendRouteWithPause (guest_message_sends audit path).
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleInboxSendReply(req, res, user) {
+  const started = Date.now();
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const parsed = parseInboxSendReplyInput(body);
+  if (!parsed.ok) return send400(res, parsed.error);
+
+  const input = parsed.input;
+  if (SQL_INJECT_RE.test(input.client_slug)) return send400(res, 'invalid client_slug');
+
+  const actorId = user ? user.staff_user_id : null;
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'action:api:inbox.send_reply',
+    category:        'inbox_send_reply',
+    client_slug:     input.client_slug,
+    conversation_id: input.conversation_id,
+    staff_user_id:   actorId,
+  };
+
+  try {
+    const evaluated = await withPgClient(async (pg) => {
+      let sendInput = { ...input };
+      if (!sendInput.to) {
+        const phone = await resolveConversationGuestPhone(pg, input.client_slug, input.conversation_id);
+        if (!phone.ok) {
+          return { error: phone.error, status: phone.status || 404 };
+        }
+        sendInput.to = phone.to;
+      }
+      const sendBody = buildStaffInboxGuestReplyBody(sendInput);
+      const out = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env: process.env });
+      return { sendBody, out };
+    });
+
+    if (evaluated.error) {
+      appendAuditLog({ ...auditBase, success: false, error: evaluated.error, elapsed_ms: Date.now() - started });
+      return sendJSON(res, evaluated.status || 404, { success: false, error: evaluated.error });
+    }
+
+    const elapsed = Date.now() - started;
+    const result = evaluated.out.result;
+
+    appendAuditLog({
+      ...auditBase,
+      success:                      result.success === true,
+      send_performed:               result.send_performed === true,
+      sends_whatsapp:               result.sends_whatsapp === true,
+      would_send_whatsapp:          result.would_send_whatsapp === true,
+      send_kind:                    result.send_kind || 'staff_reply',
+      idempotency_key:              result.idempotency_key || input.idempotency_key,
+      blocked_reasons:              result.blocked_reasons || [],
+      duplicate:                    result.duplicate === true,
+      idempotent_replay:            result.idempotent_replay === true,
+      guest_message_send_id:        result.guest_message_send_id || null,
+      guest_message_send_status:    result.guest_message_send_status || null,
+      elapsed_ms:                   elapsed,
+    });
+
+    return sendJSON(res, evaluated.out.status, {
+      ...result,
+      conversation_id: input.conversation_id,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'send failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase 19g.11a — Staging-only Luna test phone reset
 //
 // POST /staff/test/reset-luna-phone
@@ -23815,6 +23977,16 @@ async function router(req, res) {
     return handleInboxHandoffReview(inboxHandoffReviewMatch[1], req, res, auth.user);
   }
 
+  if (pathname === '/staff/inbox/send-reply') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for inbox/send-reply' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleInboxSendReply(req, res, auth.user);
+  }
+
   if (pathname === '/staff/manual-bookings/preview') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -24496,6 +24668,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/message-events  <- 19g.9 Meta inbound events (read-only)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/handoffs       <- 23b Meta handoff queue (read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/handoffs/:id/review <- 23c.1 mark reviewed`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/send-reply       <- 23d Inbox reply send`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/test/reset-luna-phone  <- 19g.11a staging test reset (operator+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/messages`);

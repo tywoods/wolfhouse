@@ -16,7 +16,7 @@ const {
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
-const ALLOWED_SEND_KINDS = new Set(['ask_missing_field', 'show_quote', 'checkin_day', 'confirmation']);
+const ALLOWED_SEND_KINDS = new Set(['ask_missing_field', 'show_quote', 'checkin_day', 'confirmation', 'staff_reply']);
 
 const SEND_ROUTE_SAFETY_FLAGS = Object.freeze({
   send_performed:               false,
@@ -39,9 +39,12 @@ function isTruthyEnv(env, key) {
   return String((env || {})[key] || '').trim().toLowerCase() === 'true';
 }
 
-function collectEnvGateReasons(env) {
+function collectEnvGateReasons(env, sendKind) {
   const reasons = [];
-  if (!isTruthyEnv(env, 'LUNA_AUTO_SEND_ENABLED')) reasons.push('luna_auto_send_not_enabled');
+  // Staff Inbox explicit send bypasses Luna auto-send gate; provider/env gates still apply.
+  if (sendKind !== 'staff_reply' && !isTruthyEnv(env, 'LUNA_AUTO_SEND_ENABLED')) {
+    reasons.push('luna_auto_send_not_enabled');
+  }
   return reasons;
 }
 
@@ -131,10 +134,10 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
   if (draft.creates_stripe_link) blocked.push('draft_creates_stripe_link');
   if (draft.sends_whatsapp) blocked.push('draft_marks_send');
 
-  blocked.push(...collectEnvGateReasons(env));
+  blocked.push(...collectEnvGateReasons(env, sendKind));
 
   const uniqueBlocked = [...new Set(blocked)];
-  const envGatesClear = collectEnvGateReasons(env).length === 0;
+  const envGatesClear = collectEnvGateReasons(env, sendKind).length === 0;
   const eligibilityClear = !uniqueBlocked.includes('requires_staff')
     && !uniqueBlocked.includes('send_not_allowed_later')
     && !uniqueBlocked.includes('auto_send_not_ready')
