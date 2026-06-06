@@ -197,6 +197,12 @@ const {
   evaluateGuestReplySendRouteWithPause,
 } = require('./lib/luna-guest-reply-send-route');
 const {
+  verifyMetaHubChallenge,
+  verifyMetaHubSignature256,
+  normalizeMetaWhatsAppWebhook,
+  buildMetaWhatsAppWebhookPostResponse,
+} = require('./lib/luna-meta-whatsapp-webhook');
+const {
   extractLunaGuestMessageIntake,
   validateLunaGuestMessageIntake,
   buildDryRunInputFromIntake,
@@ -849,6 +855,15 @@ function sendHTML(res, statusCode, html) {
     'X-Powered-By':  'wolfhouse-staff-api/stripe-landing',
   });
   res.end(html);
+}
+
+function sendPlainText(res, statusCode, text) {
+  res.writeHead(statusCode, {
+    'Content-Type':  'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Powered-By':  'wolfhouse-staff-api/meta-whatsapp-webhook',
+  });
+  res.end(String(text));
 }
 
 function escLandingHtml(s) {
@@ -10840,7 +10855,84 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Route: GET/POST /staff/meta/whatsapp/webhook  (Phase 19g.1 — Meta inbound)
+//
+// Public Meta WhatsApp Cloud webhook endpoint. No session auth.
+// GET: hub challenge verification for Meta subscription setup.
+// POST: normalize inbound message; preview-only — no reply, no send, no Graph API.
 // ─────────────────────────────────────────────────────────────────────────────
+
+function handleMetaWhatsAppWebhookGet(query, res) {
+  const result = verifyMetaHubChallenge(query, process.env);
+  if (!result.ok) {
+    return sendJSON(res, result.status, { success: false, error: result.error });
+  }
+  return sendPlainText(res, result.status, result.challenge);
+}
+
+async function handleMetaWhatsAppWebhookPost(req, res) {
+  const started = Date.now();
+  let rawBody;
+  try {
+    rawBody = await readBodyRaw(req, 262144);
+  } catch (e) {
+    return sendJSON(res, 400, { success: false, error: 'Failed to read request body: ' + e.message });
+  }
+
+  const sigHeader = req.headers['x-hub-signature-256'];
+  const sigResult = verifyMetaHubSignature256(rawBody, sigHeader, process.env);
+  if (!sigResult.skipped && !sigResult.verified) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'webhook:meta_whatsapp:signature_rejected',
+      category: 'meta_whatsapp_webhook',
+      signature_verified: false,
+      error: sigResult.error || 'signature_mismatch',
+    });
+    return sendJSON(res, 403, {
+      success: false,
+      error: sigResult.error || 'signature_verification_failed',
+      preview_only: true,
+      no_write_performed: true,
+    });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(rawBody.toString('utf8'));
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'Invalid JSON payload' });
+  }
+
+  const normalized = normalizeMetaWhatsAppWebhook(body);
+  const response = buildMetaWhatsAppWebhookPostResponse(normalized, sigResult);
+
+  appendAuditLog({
+    ts:                           new Date().toISOString(),
+    intent:                       'webhook:meta_whatsapp:received',
+    category:                     'meta_whatsapp_webhook',
+    client_slug:                  normalized.client_slug,
+    phone_number_id:              normalized.phone_number_id,
+    wa_message_id:                normalized.wa_message_id,
+    from:                         normalized.from,
+    message_type:                 normalized.message_type,
+    supported:                    normalized.supported === true,
+    signature_verified:           sigResult.verified === true,
+    signature_verification_skipped: sigResult.skipped === true,
+    preview_only:                 true,
+    no_write_performed:           true,
+    sends_whatsapp:               false,
+    calls_graph_api:              false,
+    calls_n8n:                    false,
+    elapsed_ms:                   Date.now() - started,
+  });
+
+  return sendJSON(res, 200, {
+    ...response,
+    elapsed_ms: Date.now() - started,
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/stripe/webhook  (Stage 8.4.11 — Stripe payment truth)
 //
@@ -23087,6 +23179,18 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for stripe/webhook' }));
     }
     return handleStripeWebhook(req, res);
+  }
+
+  // ── Phase 19g.1 — Meta WhatsApp inbound webhook (public, no session auth) ─
+  if (pathname === '/staff/meta/whatsapp/webhook') {
+    if (method === 'GET') {
+      return handleMetaWhatsAppWebhookGet(parsed.query, res);
+    }
+    if (method === 'POST') {
+      return handleMetaWhatsAppWebhookPost(req, res);
+    }
+    res.writeHead(405, { Allow: 'GET, POST' });
+    return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET or POST for meta/whatsapp/webhook' }));
   }
 
   // ── Stage 8.8.23 — addon_service payment link for service records ───────────
