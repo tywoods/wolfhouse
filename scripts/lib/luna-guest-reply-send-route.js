@@ -6,6 +6,13 @@
 
 const { getPauseState } = require('./staff-bot-pause-sql');
 const { sendLunaWhatsAppMessage } = require('./luna-whatsapp-provider');
+const {
+  findGuestMessageSendByKey,
+  claimGuestMessageSendPending,
+  recordGuestMessageSendBlocked,
+  finalizeGuestMessageSendSent,
+  finalizeGuestMessageSendBlocked,
+} = require('./luna-guest-message-send-sql');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -208,6 +215,98 @@ function mergeProviderResult(baseResult, providerResult) {
   };
 }
 
+function buildSendAuditFields(row, extra = {}) {
+  if (!row) return { ...extra };
+  return {
+    guest_message_send_id: row.id,
+    guest_message_send_status: row.status,
+    guest_message_send_recorded: true,
+    ...extra,
+  };
+}
+
+function buildIdempotentReplayResult(baseResult, row, { duplicate = true } = {}) {
+  const blockedReasons = Array.isArray(row.blocked_reasons) ? row.blocked_reasons : [];
+  const wasSent = row.status === 'sent';
+  return {
+    ...baseResult,
+    success: wasSent,
+    send_performed: false,
+    sends_whatsapp: false,
+    would_send_whatsapp: false,
+    duplicate: duplicate === true,
+    idempotent_replay: true,
+    blocked_reasons: wasSent ? [] : blockedReasons,
+    safe_next_step: wasSent ? null : resolveSafeNextStep(blockedReasons),
+    whatsapp_message_id: row.provider_message_id || null,
+    no_write_performed: false,
+    creates_booking: false,
+    creates_payment: false,
+    creates_stripe_link: false,
+    calls_n8n: false,
+    updates_confirmation_sent_at: false,
+    ...buildSendAuditFields(row),
+  };
+}
+
+function buildBlockedRouteResult(baseResult, row) {
+  return {
+    ...baseResult,
+    no_write_performed: false,
+    ...buildSendAuditFields(row),
+  };
+}
+
+async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempotencyKey) {
+  if (!pg || typeof pg.query !== 'function' || !idempotencyKey) return null;
+  const existing = await findGuestMessageSendByKey(pg, clientSlug, idempotencyKey);
+  if (existing.table_missing || !existing.row) return null;
+  if (existing.row.status === 'sent'
+    || existing.row.status === 'pending'
+    || existing.row.status === 'blocked'
+    || existing.row.status === 'failed') {
+    return buildIdempotentReplayResult(baseResult, existing.row);
+  }
+  return null;
+}
+
+async function persistRouteBlockedSend(pg, body, result) {
+  if (!pg || typeof pg.query !== 'function') return result;
+  const blockedReasons = result.blocked_reasons || [];
+  if (!blockedReasons.length) return result;
+  const recorded = await recordGuestMessageSendBlocked(pg, {
+    client_slug: result.client_slug,
+    to_phone: result.to,
+    idempotency_key: result.idempotency_key,
+    send_kind: result.send_kind,
+    source: trimStr(body.source) || null,
+    message_text: trimStr(body.suggested_reply),
+    blocked_reasons: blockedReasons,
+  });
+  if (!recorded.row) return result;
+  return buildBlockedRouteResult(result, recorded.row);
+}
+
+async function persistProviderOutcome(pg, rowId, providerResult, blockedReasons) {
+  if (!pg || !rowId) return null;
+  if (providerResult.success === true) {
+    const out = await finalizeGuestMessageSendSent(
+      pg,
+      rowId,
+      providerResult.whatsapp_message_id,
+      providerResult,
+    );
+    return out.row;
+  }
+  const out = await finalizeGuestMessageSendBlocked(
+    pg,
+    rowId,
+    blockedReasons,
+    providerResult,
+  );
+  return out.row;
+}
+
 /**
  * @param {object} body
  * @param {{ pg?: object, env?: object, sendMessage?: Function, fetch?: Function }} [context]
@@ -220,7 +319,15 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
   const src = body || {};
   const to = trimStr(src.to);
   const clientSlug = trimStr(src.client_slug) || DEFAULT_CLIENT;
+  const idempotencyKey = trimStr(src.idempotency_key);
   const pg = context.pg;
+
+  if (pg && idempotencyKey) {
+    const replay = await maybeReplayGuestMessageSend(pg, evaluated.result, clientSlug, idempotencyKey);
+    if (replay) {
+      return { ok: true, status: 200, result: replay };
+    }
+  }
 
   if (pg && to && typeof pg.query === 'function') {
     try {
@@ -233,14 +340,14 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
         return {
           ok: true,
           status: 200,
-          result: {
+          result: await persistRouteBlockedSend(pg, body, {
             ...evaluated.result,
             success: false,
             auto_send_ready: false,
             blocked_reasons: blocked,
             safe_next_step: resolveSafeNextStep(blocked),
             ...SEND_ROUTE_SAFETY_FLAGS,
-          },
+          }),
         };
       }
     } catch (_) {
@@ -248,7 +355,33 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
     }
   }
 
-  if (!evaluated.provider_pending) return evaluated;
+  if (!evaluated.provider_pending) {
+    if (pg && idempotencyKey) {
+      const blockedResult = await persistRouteBlockedSend(pg, body, evaluated.result);
+      return { ok: true, status: 200, result: blockedResult };
+    }
+    return evaluated;
+  }
+
+  let pendingRow = null;
+  if (pg && idempotencyKey) {
+    const claim = await claimGuestMessageSendPending(pg, {
+      client_slug: evaluated.result.client_slug,
+      to_phone: evaluated.result.to,
+      idempotency_key: evaluated.result.idempotency_key,
+      send_kind: evaluated.result.send_kind,
+      source: trimStr(src.source) || null,
+      message_text: trimStr(src.suggested_reply),
+    });
+    if (claim.row && !claim.claimed) {
+      return {
+        ok: true,
+        status: 200,
+        result: buildIdempotentReplayResult(evaluated.result, claim.row),
+      };
+    }
+    pendingRow = claim.row;
+  }
 
   const providerResult = await sendLunaWhatsAppMessage({
     to: evaluated.result.to,
@@ -257,10 +390,24 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
     idempotency_key: evaluated.result.idempotency_key,
   }, env, context);
 
+  const merged = mergeProviderResult(evaluated.result, providerResult);
+  if (pg && pendingRow && pendingRow.id) {
+    const auditRow = await persistProviderOutcome(
+      pg,
+      pendingRow.id,
+      providerResult,
+      merged.blocked_reasons,
+    );
+    if (auditRow) {
+      merged.no_write_performed = false;
+      Object.assign(merged, buildSendAuditFields(auditRow));
+    }
+  }
+
   return {
     ok: true,
     status: 200,
-    result: mergeProviderResult(evaluated.result, providerResult),
+    result: merged,
   };
 }
 
@@ -268,6 +415,7 @@ module.exports = {
   evaluateGuestReplySendRoute,
   evaluateGuestReplySendRouteWithPause,
   mergeProviderResult,
+  buildIdempotentReplayResult,
   ALLOWED_SEND_KINDS,
   SEND_ROUTE_SAFETY_FLAGS,
   collectEnvGateReasons,

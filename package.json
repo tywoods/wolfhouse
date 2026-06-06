@@ -193,6 +193,7 @@
     "verify:luna-agent-phase19-checkin-day-preview": "node scripts/verify-luna-agent-phase19-checkin-day-preview.js",
     "verify:luna-agent-phase19-guest-reply-send-route": "node scripts/verify-luna-agent-phase19-guest-reply-send-route.js",
     "verify:luna-agent-phase19-whatsapp-provider": "node scripts/verify-luna-agent-phase19-whatsapp-provider.js",
+    "verify:luna-agent-phase19-guest-reply-send-idempotency": "node scripts/verify-luna-agent-phase19-guest-reply-send-idempotency.js",
     "verify:luna-agent-phase19-messaging-playbook": "node scripts/verify-luna-agent-phase19-messaging-playbook.js",
     "verify:luna-agent-phase19-playbook-wiring": "node scripts/verify-luna-agent-phase19-playbook-wiring.js"
   },

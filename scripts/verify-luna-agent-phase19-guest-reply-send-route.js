@@ -384,15 +384,18 @@ async function readyMockSendCase(label, sendKind) {
   section('G. Pause gate (mock pg)');
 
   const mockPg = {
-    query: async () => ({
-      rows: [{
-        id: 'pause-1',
-        client_slug: 'wolfhouse-somo',
-        guest_phone: '+15555550180',
-        paused: true,
-        pause_reason: 'test',
-      }],
-    }),
+    query: async (sql) => {
+      if (/guest_message_sends/i.test(sql)) return { rows: [] };
+      return {
+        rows: [{
+          id: 'pause-1',
+          client_slug: 'wolfhouse-somo',
+          guest_phone: '+15555550180',
+          paused: true,
+          pause_reason: 'test',
+        }],
+      };
+    },
   };
   const paused = await evaluateGuestReplySendRouteWithPause(readyBody('ask_missing_field'), {
     pg: mockPg,
