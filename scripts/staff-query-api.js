@@ -373,6 +373,7 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
 );
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
+const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
 // Phase 23c.1 — POST /staff/inbox/handoffs/:id/review
 const INBOX_HANDOFF_REVIEW_RE = new RegExp(`^/staff/inbox/handoffs/(${UUID_RE})/review$`, 'i');
 
@@ -13938,6 +13939,9 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #detail-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px 20px;box-sizing:border-box}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
 .detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;flex-shrink:0}
+.nh-toggle-wrap{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer;user-select:none;margin-left:4px;padding:4px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-pill);background:var(--surface-soft)}
+.nh-toggle-wrap input{width:15px;height:15px;cursor:pointer;accent-color:var(--sage);margin:0}
+.nh-toggle-wrap.is-off{opacity:.75}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
 .detail-meta{font-size:12px;color:var(--text-2);margin-top:4px}
 .detail-section{margin-top:18px;padding-top:18px;border-top:1px solid var(--border-soft)}
@@ -13999,8 +14003,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .inbox-filter-btn.active{color:var(--primary);background:var(--teal);border-color:var(--sage)}
 .inbox-filter-btn .hq-count{background:#9C5742;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:var(--radius-pill);margin-left:6px;display:none}
 .inbox-filter-btn .hq-count.visible{display:inline}
-.inbox-ro-note{font-size:11px;color:var(--text-3);padding:6px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface-soft);display:none;line-height:1.45;flex-shrink:0}
-.inbox-ro-note.visible{display:block}
+.inbox-ro-note{display:none!important}
 .inbox-ro-note .hq-ro-label{font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--text-2);background:var(--sand);padding:3px 9px;border-radius:var(--radius-pill);margin-left:6px}
 .since{font-size:11px;color:#A2743D;font-weight:600}
 .since.stale{color:#9C5742}
@@ -14384,16 +14387,15 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
-  <button class="tab-btn active" data-tab="today">Today</button>
+  <button class="tab-btn active" data-tab="bed-calendar">Booking Calendar</button>
   <button class="tab-btn" data-tab="conversations">Inbox</button>
-  <button class="tab-btn" data-tab="bed-calendar">Bed Calendar</button>
   <button class="tab-btn" data-tab="ask-luna">Luna</button>
   <button class="tab-btn" data-tab="tour-operator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
 </div>
 
-<!-- ── Today / Needs Attention tab (Stage 8.2) ────────────────────────────── -->
-<div id="tab-today" class="tab-panel active">
+<!-- ── Today / Needs Attention tab (hidden — legacy tiles; switchToTab still works) ── -->
+<div id="tab-today" class="tab-panel" style="display:none">
 <div id="wrap-today" style="max-width:1100px;margin:0 auto;padding:26px 20px">
 
   <!-- Needs Attention tiles -->
@@ -14411,7 +14413,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
     </div>
     <div class="today-tile" style="cursor:pointer" onclick="switchToTabOnly('bed-calendar')">
       <div class="today-tile-icon">&#128197;</div>
-      <div class="today-tile-label">Bed Calendar</div>
+      <div class="today-tile-label">Booking Calendar</div>
       <div class="today-tile-sub">View room availability and bookings</div>
     </div>
   </div>
@@ -14438,7 +14440,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <button class="btn btn-primary" id="btn-refresh" style="padding:6px 12px;font-size:11px">&#8635;</button>
         <input id="c-client" value="wolfhouse-somo" title="Company slug" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">
       </div>
-      <div id="inbox-ro-note" class="inbox-ro-note">Resolve actions are disabled &mdash; read-only view. <span class="hq-ro-label">READ-ONLY HANDOFF QUEUE</span></div>
+      <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
       <div id="inbox-state" class="state-msg" style="padding:16px;display:none">Loading conversations&hellip;</div>
       <div id="conv-list"></div>
     </div>
@@ -14528,14 +14530,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
 </div>
 </div><!-- /tab-query-tools -->
 
-<!-- ── Bed Calendar tab (Stage 7.7h) ──────────────────────────────────────── -->
-<div id="tab-bed-calendar" class="tab-panel">
+<!-- ── Booking Calendar tab (Stage 7.7h) ──────────────────────────────────── -->
+<div id="tab-bed-calendar" class="tab-panel active">
 <div id="wrap-bc" style="max-width:100%;padding:16px 20px">
 
   <!-- Controls card -->
   <div class="card">
     <div class="toolbar">
-      <h2>Bed Calendar</h2>
+      <h2>Booking Calendar</h2>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
         From&nbsp;<input id="bc-start" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
       </label>
@@ -14561,8 +14563,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <!-- Color legend (Stage 8.3a) -->
     <div class="bc-legend" id="bc-legend">
       <span style="font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Legend:</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-confirmed"></span>Staff / manual</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span>Luna</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Staff</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span>Tour operator</span>
     </div>
 
@@ -14831,7 +14833,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
           <option value="">— select room —</option>
         </select>
       </div>
-      <div class="to-form-hint">Rooms load from the rooms table when you open this tab or after Bed Calendar load.</div>
+      <div class="to-form-hint">Rooms load from the rooms table when you open this tab or after Booking Calendar load.</div>
     </div>
 
     <!-- Section: Notes -->
@@ -15130,8 +15132,6 @@ function updateInboxFilterUI(){
   document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
     btn.classList.toggle('active', btn.dataset.inboxFilter === inboxFilter);
   });
-  var roNote = el('inbox-ro-note');
-  if (roNote) roNote.classList.toggle('visible', inboxFilter === 'needs-human');
 }
 
 function setInboxFilter(mode){
@@ -15838,9 +15838,13 @@ function loadConvDetail(convId, targetEl){
     if (c.handoff_reason) html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
     html +=     '</div>';
     html +=   '</div>';
-    html +=   '<div style="margin-left:auto;display:flex;gap:6px;align-items:flex-start">';
+    html +=   '<div style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
     html +=     modePill(c.bot_mode);
-    if (c.needs_human) html += '<span class="pill pill-orange">NEEDS HUMAN</span>';
+    if (c.needs_human) html += '<span class="pill pill-orange" id="conv-needs-human-pill">NEEDS HUMAN</span>';
+    html +=     '<label class="nh-toggle-wrap' + (c.needs_human ? '' : ' is-off') + '" id="conv-needs-human-wrap">';
+    html +=       '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>';
+    html +=       '<span>Needs human</span>';
+    html +=     '</label>';
     html +=   '</div>';
     html += '</div>';
 
@@ -15993,6 +15997,7 @@ function loadConvDetail(convId, targetEl){
     }
 
     wireInboxSendReply(convId, c.phone, targetEl);
+    wireNeedsHumanToggle(convId, targetEl);
 
     wireLunaPauseControlButton(
       targetEl.querySelector('#btn-luna-pause'),
@@ -16022,6 +16027,60 @@ function loadConvDetail(convId, targetEl){
   })
   .catch(function(err){
     targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
+  });
+}
+
+function wireNeedsHumanToggle(convId, targetEl){
+  var toggle = targetEl.querySelector('#conv-needs-human-toggle');
+  var wrap = targetEl.querySelector('#conv-needs-human-wrap');
+  var pill = targetEl.querySelector('#conv-needs-human-pill');
+  if (!toggle) return;
+
+  toggle.addEventListener('change', function(){
+    var want = toggle.checked;
+    toggle.disabled = true;
+    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/needs-human', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_slug: getClient(), needs_human: want }),
+    })
+      .then(function(r){
+        if (r.status === 401) throw new Error('Authentication required');
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        var d = out.data || {};
+        if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
+        if (wrap) wrap.classList.toggle('is-off', !d.needs_human);
+        if (pill){
+          if (d.needs_human) pill.style.display = '';
+          else pill.style.display = 'none';
+        } else if (d.needs_human){
+          var hdr = targetEl.querySelector('.detail-header > div:last-child');
+          if (hdr && !targetEl.querySelector('#conv-needs-human-pill')){
+            var sp = document.createElement('span');
+            sp.className = 'pill pill-orange';
+            sp.id = 'conv-needs-human-pill';
+            sp.textContent = 'NEEDS HUMAN';
+            hdr.insertBefore(sp, wrap || null);
+          }
+        }
+        if (inboxConversationsCache){
+          inboxConversationsCache = inboxConversationsCache.map(function(row){
+            var id = row.conversation_id || row.id;
+            if (id === convId) return Object.assign({}, row, { needs_human: d.needs_human });
+            return row;
+          });
+          applyInboxFilter();
+        } else {
+          loadInbox(convId);
+        }
+      })
+      .catch(function(err){
+        toggle.checked = !want;
+        alert(err.message || 'Could not update needs human flag');
+      })
+      .finally(function(){ toggle.disabled = false; });
   });
 }
 
@@ -21076,8 +21135,9 @@ function loadTodaySummary(){
     });
 }
 
-/* Load Today summary on initial page load (Today is default tab) */
-loadTodaySummary();
+/* Load inbox badge counts + open Booking Calendar on first paint */
+loadInbox();
+bcOnBedCalendarTabOpen();
 
 // doLogout must be global so onclick="doLogout()" in the banner HTML resolves it
 window.doLogout = function doLogout(){
@@ -21887,6 +21947,73 @@ async function handleInboxSendReply(req, res, user) {
       elapsed_ms: Date.now() - started,
     });
     return sendJSON(res, 500, { success: false, error: 'send failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Staff Portal — conversation needs_human toggle (conversations table only)
+//
+// POST /staff/conversations/:id/needs-human
+//   Body: { client_slug, needs_human: boolean }
+//
+// Safety: updates conversations.needs_human only. No WhatsApp, staff_handoffs,
+// bookings, payments, or Stripe. Operator+ session auth.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleConversationNeedsHuman(convId, req, res, user) {
+  const started = Date.now();
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (typeof body.needs_human !== 'boolean') return send400(res, 'needs_human boolean is required');
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'action:api:conversation.needs_human',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+    needs_human:     body.needs_human,
+  };
+
+  try {
+    const row = await withPgClient(async (pg) => {
+      const r = await pg.query(
+        `UPDATE conversations conv
+            SET needs_human = $3, updated_at = NOW()
+           FROM clients c
+          WHERE conv.client_id = c.id
+            AND c.slug = $1
+            AND conv.id = $2::uuid
+          RETURNING conv.id::text AS conversation_id, conv.needs_human`,
+        [clientSlug, convId, body.needs_human],
+      );
+      return r.rows[0] || null;
+    });
+
+    const elapsed = Date.now() - started;
+    if (!row) {
+      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
+      return send404(res);
+    }
+
+    appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      conversation_id: row.conversation_id,
+      needs_human: row.needs_human,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'update failed' });
   }
 }
 
@@ -24005,6 +24132,17 @@ async function router(req, res) {
     return handleInboxSendReply(req, res, auth.user);
   }
 
+  const convNeedsHumanMatch = CONV_NEEDS_HUMAN_RE.exec(pathname);
+  if (convNeedsHumanMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/needs-human' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
+  }
+
   if (pathname === '/staff/manual-bookings/preview') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -24687,6 +24825,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/handoffs       <- 23b Meta handoff queue (read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/handoffs/:id/review <- 23c.1 mark reviewed`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/send-reply       <- 23d Inbox reply send`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/needs-human <- needs_human toggle`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/test/reset-luna-phone  <- 19g.11a staging test reset (operator+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/messages`);

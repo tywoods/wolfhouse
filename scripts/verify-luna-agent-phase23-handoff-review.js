@@ -51,7 +51,7 @@ const readSrc = readOrEmpty(READ_HELPER);
 
 const handlerStart = apiSrc.indexOf('async function handleInboxHandoffReview(');
 const handlerEnd = handlerStart > -1
-  ? apiSrc.indexOf('async function handleTestResetLunaPhone(', handlerStart)
+  ? apiSrc.indexOf('async function handleInboxSendReply(', handlerStart)
   : -1;
 const handler = handlerStart > -1 && handlerEnd > handlerStart
   ? apiSrc.slice(handlerStart, handlerEnd)

@@ -218,7 +218,8 @@
     "verify:staff-inbox-send-reply-route": "node scripts/verify-staff-inbox-send-reply-route.js",
     "verify:staff-inbox-send-reply-ui": "node scripts/verify-staff-inbox-send-reply-ui.js",
     "verify:staff-inbox-sent-reply-thread": "node scripts/verify-staff-inbox-sent-reply-thread.js",
-    "verify:staff-inbox-layout-scroll": "node scripts/verify-staff-inbox-layout-scroll.js"
+    "verify:staff-inbox-layout-scroll": "node scripts/verify-staff-inbox-layout-scroll.js",
+    "verify:staff-portal-ui-product-cleanup": "node scripts/verify-staff-portal-ui-product-cleanup.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
