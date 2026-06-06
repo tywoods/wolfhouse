@@ -211,7 +211,9 @@
     "verify:luna-agent-phase21-closeout": "node scripts/verify-luna-agent-phase21-closeout.js",
     "verify:luna-agent-phase22-inbound-booking-write-preview": "node scripts/verify-luna-agent-phase22-inbound-booking-write-preview.js",
     "verify:luna-agent-phase22-booking-write-result-persistence": "node scripts/verify-luna-agent-phase22-booking-write-result-persistence.js",
-    "verify:luna-agent-phase22-closeout": "node scripts/verify-luna-agent-phase22-closeout.js"
+    "verify:luna-agent-phase22-closeout": "node scripts/verify-luna-agent-phase22-closeout.js",
+    "verify:luna-agent-phase23-handoff-queue-read": "node scripts/verify-luna-agent-phase23-handoff-queue-read.js",
+    "verify:luna-agent-phase23-handoff-queue-ui": "node scripts/verify-luna-agent-phase23-handoff-queue-ui.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

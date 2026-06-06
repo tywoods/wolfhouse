@@ -213,6 +213,8 @@ const {
 const {
   parseMessageEventsQuery,
   listGuestMessageEvents,
+  parseHandoffQueueQuery,
+  listGuestMessageHandoffQueue,
 } = require('./lib/luna-guest-message-events-read');
 const {
   isStagingResetEnvironment,
@@ -14445,6 +14447,20 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div id="me-table-wrap"></div>
   </div>
 
+  <!-- Needs staff — Meta handoff queue (Phase 23b, read-only) -->
+  <div id="handoff-queue-panel" class="msg-events-panel handoff-queue-panel">
+    <div class="msg-events-toolbar">
+      <h3>Needs staff</h3>
+      <div class="msg-events-filters">
+        <input type="text" id="hq-filter-phone" class="me-filter-phone" placeholder="from_phone filter">
+        <button type="button" class="btn btn-primary" id="hq-refresh" style="padding:5px 10px;font-size:11px">&#8635; Refresh</button>
+      </div>
+    </div>
+    <div class="msg-events-ro-note">Read-only Meta handoff queue &mdash; copy suggested reply only. No send or resolve actions.</div>
+    <div id="hq-state" class="state-msg" style="display:none;padding:10px 14px"></div>
+    <div id="hq-table-wrap"></div>
+  </div>
+
 </div><!-- /wrap -->
 </div><!-- /tab-conversations -->
 
@@ -15057,7 +15073,10 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     this.classList.add('active');
     el('tab-' + target).classList.add('active');
     if (target === 'today') loadTodaySummary();
-    if (target === 'conversations') loadMessageEvents();
+    if (target === 'conversations') {
+      loadMessageEvents();
+      loadHandoffsQueue();
+    }
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
@@ -15263,12 +15282,139 @@ function resetTestPhoneFromPanel(){
       stateEl.classList.remove('error');
       stateEl.style.display = 'block';
       loadMessageEvents();
+      loadHandoffsQueue();
     })
     .catch(function(err){
       stateEl.textContent = 'Reset failed: ' + err.message;
       stateEl.classList.add('error');
       stateEl.style.display = 'block';
     });
+}
+
+function buildHandoffsQueueUrl(){
+  var client = getClient();
+  var qs = 'client_slug=' + encodeURIComponent(client) + '&limit=50';
+  var phone = el('hq-filter-phone') ? (el('hq-filter-phone').value || '').trim() : '';
+  if (phone) qs += '&from_phone=' + encodeURIComponent(phone);
+  return '/staff/inbox/handoffs?' + qs;
+}
+
+function copyTextToClipboard(text, confirmEl){
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      if (confirmEl){
+        confirmEl.style.display = 'inline';
+        setTimeout(function(){ confirmEl.style.display = 'none'; }, 2000);
+      }
+    }).catch(function(){ window.prompt('Copy suggested reply:', text); });
+  } else {
+    window.prompt('Copy suggested reply:', text);
+  }
+}
+
+function renderHandoffsQueueTable(items, tableMissing){
+  var wrap = el('hq-table-wrap');
+  if (!wrap) return;
+  if (tableMissing){
+    wrap.innerHTML = '<div class="msg-events-empty">Handoff queue unavailable &mdash; message events table not present.</div>';
+    return;
+  }
+  if (!items || !items.length){
+    wrap.innerHTML = '<div class="msg-events-empty">No messages currently need staff review for the current filters.</div>';
+    return;
+  }
+  var html = '<table class="msg-events-table hq-table"><thead><tr>' +
+    '<th>Time</th><th>Guest</th><th>Message</th><th>Reason</th><th>Action</th>' +
+    '<th>Suggested reply</th><th>Booking</th><th></th>' +
+    '</tr></thead><tbody>';
+  items.forEach(function(item, idx){
+    var msg = String(item.message_text || '');
+    var msgShort = msg.length > 100 ? (msg.slice(0, 100) + '\u2026') : msg;
+    var reply = String(item.suggested_reply || '');
+    var replyShort = reply.length > 80 ? (reply.slice(0, 80) + '\u2026') : reply;
+    var bookingInfo = '\u2014';
+    if (item.booking_write_result && item.booking_write_result.booking_code){
+      bookingInfo = escHtml(item.booking_write_result.booking_code);
+      if (item.booking_write_result.payment_id){
+        bookingInfo += ' <span class="pill pill-grey">pay</span>';
+      }
+    } else if (item.booking_write_preview && item.booking_write_preview.blocked_reasons &&
+        item.booking_write_preview.blocked_reasons.length){
+      bookingInfo = escHtml(item.booking_write_preview.blocked_reasons.slice(0, 2).join(', '));
+    }
+    var copyId = 'hq-copy-' + idx;
+    html += '<tr>' +
+      '<td>' + escHtml(fmtTs(item.created_at)) + '</td>' +
+      '<td>' + escHtml(item.profile_name || '\u2014') + '<br><span style="font-size:11px;color:var(--text-3)">' +
+        escHtml(item.from_phone || '') + '</span></td>' +
+      '<td class="msg-text">' + escHtml(msgShort || '\u2014') + '</td>' +
+      '<td>' + escHtml(item.queue_reason || '\u2014') + '</td>' +
+      '<td>' + escHtml(item.next_action || '\u2014') + '</td>' +
+      '<td class="msg-text">' + escHtml(replyShort || '\u2014') + '</td>' +
+      '<td>' + bookingInfo + '</td>' +
+      '<td>' +
+        (reply ? '<button type="button" class="btn btn-primary hq-copy-btn" data-reply-idx="' + idx +
+          '" style="padding:4px 8px;font-size:10px">Copy reply</button>' +
+          '<span class="copy-confirm" id="' + copyId + '" style="display:none;font-size:10px;margin-left:4px">Copied</span>'
+          : '\u2014') +
+      '</td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.hq-copy-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var idx = parseInt(btn.getAttribute('data-reply-idx'), 10);
+      var item = items[idx];
+      var confirmEl = el('hq-copy-' + idx);
+      copyTextToClipboard(item && item.suggested_reply ? item.suggested_reply : '', confirmEl);
+    });
+  });
+}
+
+function loadHandoffsQueue(){
+  var stateEl = el('hq-state');
+  if (!stateEl) return;
+  stateEl.textContent = 'Loading handoff queue\u2026';
+  stateEl.classList.remove('error');
+  stateEl.style.display = 'block';
+  if (el('hq-table-wrap')) el('hq-table-wrap').innerHTML = '';
+
+  fetch(buildHandoffsQueueUrl())
+    .then(function(r){
+      if (r.status === 401){
+        stateEl.innerHTML = '\u26a0 Authentication required &mdash; <strong>POST /staff/auth/login</strong> first.';
+        stateEl.classList.add('error');
+        stateEl.style.display = 'block';
+        return null;
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      if (!data) return;
+      if (!data.success) throw new Error(data.error || 'API error');
+      stateEl.style.display = 'none';
+      renderHandoffsQueueTable(data.items || [], data.table_missing === true);
+    })
+    .catch(function(err){
+      stateEl.textContent = 'Error loading handoff queue: ' + err.message;
+      stateEl.classList.add('error');
+      stateEl.style.display = 'block';
+    });
+}
+
+function wireHandoffsQueuePanel(){
+  var refreshBtn = el('hq-refresh');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadHandoffsQueue);
+  var phoneInput = el('hq-filter-phone');
+  if (phoneInput){
+    phoneInput.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') loadHandoffsQueue();
+    });
+    phoneInput.addEventListener('change', loadHandoffsQueue);
+  }
 }
 
 /* Priority badge */
@@ -15776,7 +15922,9 @@ updateInboxFilterUI();
 /* Auto-load inbox on page load */
 loadInbox();
 wireMessageEventsPanel();
+wireHandoffsQueuePanel();
 loadMessageEvents();
+loadHandoffsQueue();
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ASK LUNA TAB — Stage 8.6.2
@@ -21363,6 +21511,66 @@ async function handleInboxMessageEvents(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 23b — Meta-native handoff queue (read-only)
+//
+// GET /staff/inbox/handoffs?client_slug=...&from_phone=...&since=...
+//   Returns guest_message_events rows matching operational handoff queue criteria.
+//
+// Safety: SELECT-only on guest_message_events. Staff session auth (viewer+).
+// Does NOT read staff_handoffs or conversations for v1.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleInboxHandoffs(query, res, user) {
+  const started = Date.now();
+  const parsed = parseHandoffQueueQuery(query);
+  if (!parsed.ok) return send400(res, parsed.error);
+
+  const filters = parsed.filters;
+  if (SQL_INJECT_RE.test(filters.client_slug)) return send400(res, 'invalid client_slug');
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'api:inbox.handoffs',
+    category:      'inbox_handoffs_api',
+    client_slug:   filters.client_slug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => listGuestMessageHandoffQueue(pg, filters));
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      total_returned: result.items.length,
+      table_missing: result.table_missing === true,
+      elapsed_ms: elapsed,
+    });
+
+    const payload = {
+      success: true,
+      client_slug: filters.client_slug,
+      items: result.items,
+      total_returned: result.items.length,
+      elapsed_ms: elapsed,
+    };
+    if (result.table_missing) {
+      payload.table_missing = true;
+    }
+    return sendJSON(res, 200, payload);
+  } catch (err) {
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase 19g.11a — Staging-only Luna test phone reset
 //
 // POST /staff/test/reset-luna-phone
@@ -23990,6 +24198,13 @@ async function router(req, res) {
     return handleInboxMessageEvents(parsed.query, res, auth.user);
   }
 
+  // ── Phase 23b — Meta-native handoff queue (read-only) ────────────────────
+  if (pathname === '/staff/inbox/handoffs') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleInboxHandoffs(parsed.query, res, auth.user);
+  }
+
   // ── Phase 10.7a — Tour Operator rooms + blocks (read-only) ────────────────
   if (pathname === '/staff/tour-operator/rooms') {
     const auth = await requireAuth(req, res, 'viewer');
@@ -24128,6 +24343,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/query?intent=...`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations  <- inbox (Stage 7.7b)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/message-events  <- 19g.9 Meta inbound events (read-only)`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/handoffs       <- 23b Meta handoff queue (read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/test/reset-luna-phone  <- 19g.11a staging test reset (operator+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/messages`);
