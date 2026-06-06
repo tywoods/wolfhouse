@@ -51,7 +51,7 @@ const apiSrc = readOrEmpty(API);
 const readSrc = readOrEmpty(READ_HELPER);
 const handlerStart = apiSrc.indexOf('async function handleInboxHandoffs(');
 const handlerEnd = handlerStart > -1
-  ? apiSrc.indexOf('async function handleTestResetLunaPhone(', handlerStart)
+  ? apiSrc.indexOf('async function handleInboxHandoffReview(', handlerStart)
   : -1;
 const handler = handlerStart > -1 && handlerEnd > handlerStart
   ? apiSrc.slice(handlerStart, handlerEnd)
@@ -78,7 +78,7 @@ else fail('A4', 'should not use bot auth');
 if (apiSrc.includes('listGuestMessageHandoffQueue')) pass('A5', 'handler uses listGuestMessageHandoffQueue');
 else fail('A5', 'list helper wiring missing');
 
-if (!handler.includes('staff_handoffs') && !handler.includes('getOpenHandoffsQuery')) {
+if (!/\bFROM staff_handoffs\b|\bINTO staff_handoffs\b|\bUPDATE staff_handoffs\b|\bgetOpenHandoffsQuery\b/i.test(handler)) {
   pass('A6', 'handler does not read staff_handoffs for v1');
 } else fail('A6', 'handler should not use staff_handoffs');
 

@@ -217,6 +217,10 @@ const {
   listGuestMessageHandoffQueue,
 } = require('./lib/luna-guest-message-events-read');
 const {
+  parseHandoffReviewInput,
+  markGuestMessageEventHandoffReviewed,
+} = require('./lib/luna-guest-message-event-review');
+const {
   isStagingResetEnvironment,
   parseResetLunaPhoneInput,
   resetLunaPhoneTestRows,
@@ -361,6 +365,8 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
 );
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
+// Phase 23c.1 — POST /staff/inbox/handoffs/:id/review
+const INBOX_HANDOFF_REVIEW_RE = new RegExp(`^/staff/inbox/handoffs/(${UUID_RE})/review$`, 'i');
 
 // Stage 7.7k3 — UUID validator for booking_bed_id query param
 const UUID_VALIDATE_RE = new RegExp('^' + UUID_RE + '$', 'i');
@@ -14456,7 +14462,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <button type="button" class="btn btn-primary" id="hq-refresh" style="padding:5px 10px;font-size:11px">&#8635; Refresh</button>
       </div>
     </div>
-    <div class="msg-events-ro-note">Read-only Meta handoff queue &mdash; copy suggested reply only. No send or resolve actions.</div>
+    <div class="msg-events-ro-note">Read-only Meta handoff queue &mdash; copy suggested reply or mark reviewed. No send actions.</div>
     <div id="hq-state" class="state-msg" style="display:none;padding:10px 14px"></div>
     <div id="hq-table-wrap"></div>
   </div>
@@ -15299,6 +15305,45 @@ function buildHandoffsQueueUrl(){
   return '/staff/inbox/handoffs?' + qs;
 }
 
+var handoffsQueueItemsCache = [];
+
+function markHandoffReviewed(eventId, btn){
+  if (!eventId) return;
+  var stateEl = el('hq-state');
+  if (btn) btn.disabled = true;
+  fetch('/staff/inbox/handoffs/' + encodeURIComponent(eventId) + '/review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_slug: getClient() }),
+  })
+    .then(function(r){
+      if (r.status === 401){
+        if (stateEl){
+          stateEl.innerHTML = '\u26a0 Authentication required &mdash; <strong>POST /staff/auth/login</strong> first.';
+          stateEl.classList.add('error');
+          stateEl.style.display = 'block';
+        }
+        return null;
+      }
+      return r.json().then(function(data){ return { status: r.status, data: data }; });
+    })
+    .then(function(out){
+      if (!out) return;
+      if (!out.data || !out.data.success) {
+        throw new Error((out.data && out.data.error) || ('HTTP ' + out.status));
+      }
+      loadHandoffsQueue();
+    })
+    .catch(function(err){
+      if (stateEl){
+        stateEl.textContent = 'Mark reviewed failed: ' + err.message;
+        stateEl.classList.add('error');
+        stateEl.style.display = 'block';
+      }
+      if (btn) btn.disabled = false;
+    });
+}
+
 function copyTextToClipboard(text, confirmEl){
   if (!text) return;
   if (navigator.clipboard && navigator.clipboard.writeText){
@@ -15315,6 +15360,7 @@ function copyTextToClipboard(text, confirmEl){
 
 function renderHandoffsQueueTable(items, tableMissing){
   var wrap = el('hq-table-wrap');
+  handoffsQueueItemsCache = items || [];
   if (!wrap) return;
   if (tableMissing){
     wrap.innerHTML = '<div class="msg-events-empty">Handoff queue unavailable &mdash; message events table not present.</div>';
@@ -15355,9 +15401,11 @@ function renderHandoffsQueueTable(items, tableMissing){
       '<td>' + bookingInfo + '</td>' +
       '<td>' +
         (reply ? '<button type="button" class="btn btn-primary hq-copy-btn" data-reply-idx="' + idx +
-          '" style="padding:4px 8px;font-size:10px">Copy reply</button>' +
-          '<span class="copy-confirm" id="' + copyId + '" style="display:none;font-size:10px;margin-left:4px">Copied</span>'
-          : '\u2014') +
+          '" style="padding:4px 8px;font-size:10px;margin-right:4px">Copy reply</button>' +
+          '<span class="copy-confirm" id="' + copyId + '" style="display:none;font-size:10px;margin-left:4px">Copied</span><br>'
+          : '') +
+        '<button type="button" class="btn hq-review-btn" data-event-id="' + escHtml(item.id || '') +
+          '" style="padding:4px 8px;font-size:10px;margin-top:4px">Mark reviewed</button>' +
       '</td>' +
       '</tr>';
   });
@@ -15366,9 +15414,14 @@ function renderHandoffsQueueTable(items, tableMissing){
   wrap.querySelectorAll('.hq-copy-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
       var idx = parseInt(btn.getAttribute('data-reply-idx'), 10);
-      var item = items[idx];
+      var item = handoffsQueueItemsCache[idx];
       var confirmEl = el('hq-copy-' + idx);
       copyTextToClipboard(item && item.suggested_reply ? item.suggested_reply : '', confirmEl);
+    });
+  });
+  wrap.querySelectorAll('.hq-review-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      markHandoffReviewed(btn.getAttribute('data-event-id'), btn);
     });
   });
 }
@@ -21571,6 +21624,93 @@ async function handleInboxHandoffs(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 23c.1 — Mark Meta handoff queue item reviewed
+//
+// POST /staff/inbox/handoffs/:id/review
+//   Updates guest_message_events.normalized.handoff_review only.
+//
+// Safety: no staff_handoffs, no WhatsApp, no raw_payload mutation. Operator+ auth.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleInboxHandoffReview(eventId, req, res, user) {
+  const started = Date.now();
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const parsed = parseHandoffReviewInput(body);
+  if (!parsed.ok) return send400(res, parsed.error);
+
+  const clientSlug = parsed.input.client_slug;
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+
+  const reviewedBy = user && (user.email || user.staff_user_id)
+    ? String(user.email || user.staff_user_id)
+    : 'unknown';
+
+  const auditBase = {
+    ts:            new Date().toISOString(),
+    intent:        'action:api:inbox.handoff.review',
+    category:      'inbox_handoff_review',
+    client_slug:   clientSlug,
+    event_id:      eventId,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => markGuestMessageEventHandoffReviewed(pg, {
+      client_slug: clientSlug,
+      event_id: eventId,
+      reviewed_by: reviewedBy,
+      review_note: parsed.input.review_note,
+    }));
+
+    const elapsed = Date.now() - started;
+
+    if (!result.ok) {
+      appendAuditLog({
+        ...auditBase,
+        success: false,
+        error: result.error,
+        elapsed_ms: elapsed,
+      });
+      return sendJSON(res, result.status || 500, {
+        success: false,
+        error: result.error || 'review failed',
+      });
+    }
+
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      already_reviewed: result.already_reviewed === true,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      event_id: eventId,
+      already_reviewed: result.already_reviewed === true,
+      handoff_review: result.handoff_review,
+      no_whatsapp: true,
+      no_staff_handoffs_write: true,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'review failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase 19g.11a — Staging-only Luna test phone reset
 //
 // POST /staff/test/reset-luna-phone
@@ -23664,6 +23804,17 @@ async function router(req, res) {
     return handleTestResetLunaPhone(req, res, auth.user);
   }
 
+  const inboxHandoffReviewMatch = INBOX_HANDOFF_REVIEW_RE.exec(pathname);
+  if (inboxHandoffReviewMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for inbox/handoffs/review' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleInboxHandoffReview(inboxHandoffReviewMatch[1], req, res, auth.user);
+  }
+
   if (pathname === '/staff/manual-bookings/preview') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -24344,6 +24495,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations  <- inbox (Stage 7.7b)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/message-events  <- 19g.9 Meta inbound events (read-only)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/inbox/handoffs       <- 23b Meta handoff queue (read-only)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/handoffs/:id/review <- 23c.1 mark reviewed`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/test/reset-luna-phone  <- 19g.11a staging test reset (operator+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/messages`);

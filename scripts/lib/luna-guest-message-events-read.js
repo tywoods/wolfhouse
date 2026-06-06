@@ -8,6 +8,7 @@ const {
   isMissingGuestMessageEventsTable,
   formatGuestMessageEventRow,
 } = require('./luna-guest-message-events-sql');
+const { isHandoffReviewed, formatHandoffReviewSummary } = require('./luna-guest-message-event-review');
 
 const DEFAULT_CLIENT_SLUG = 'wolfhouse-somo';
 const DEFAULT_LIMIT = 50;
@@ -310,6 +311,7 @@ function formatHandoffQueueItem(row) {
   const norm = parseNormalizedField(row.normalized);
   const preview = norm && norm.booking_write_preview;
   const sendBlocked = parseBlockedReasonsField(row.send_blocked_reasons);
+  const handoffReview = formatHandoffReviewSummary(norm && norm.handoff_review);
 
   return {
     id: row.id,
@@ -327,6 +329,7 @@ function formatHandoffQueueItem(row) {
     send_blocked_reasons: sendBlocked,
     booking_write_preview: formatBookingWritePreviewSummary(preview),
     booking_write_result: formatBookingWriteResultSummary(norm && norm.booking_write_result),
+    handoff_review: handoffReview,
   };
 }
 
@@ -342,6 +345,10 @@ function parseHandoffQueueQuery(query) {
     return { ok: false, error: 'since must be a valid ISO timestamp' };
   }
   const fromPhone = trimStr(q.from_phone) || null;
+  const includeReviewed = parseOptionalBoolean(q.include_reviewed);
+  if (includeReviewed.invalid) {
+    return { ok: false, error: 'include_reviewed must be true or false' };
+  }
   return {
     ok: true,
     filters: {
@@ -349,6 +356,7 @@ function parseHandoffQueueQuery(query) {
       from_phone: fromPhone,
       since: since.value,
       limit: clampMessageEventsLimit(q.limit),
+      include_reviewed: includeReviewed.value === true,
     },
   };
 }
@@ -397,10 +405,12 @@ function buildHandoffQueueCandidateQuery(filters) {
 
 async function listGuestMessageHandoffQueue(pg, filters) {
   const { sql, params, outputLimit } = buildHandoffQueueCandidateQuery(filters);
+  const includeReviewed = filters && filters.include_reviewed === true;
   try {
     const r = await pg.query(sql, params);
     const items = (r.rows || [])
       .filter((row) => rowMatchesHandoffQueueCriteria(row))
+      .filter((row) => includeReviewed || !isHandoffReviewed(row.normalized))
       .slice(0, outputLimit)
       .map((row) => formatHandoffQueueItem(row))
       .filter(Boolean);
