@@ -13873,7 +13873,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .tab-btn:hover{color:var(--text)}
 .tab-btn.active{color:var(--primary);border-bottom-color:var(--sage)}
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-#wrap{max-width:1200px;margin:0 auto;padding:26px 20px}
+#wrap{max-width:1200px;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 118px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
@@ -13896,11 +13896,12 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .pill-green{background:#DCEAD2;color:#5C7350;border-color:#CADCBE}     /* confirmed — sage */
 .pill-grey{background:#E8E5DE;color:#83897F;border-color:#DDD8CE}      /* cancelled — pale warm gray */
 /* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
-.inbox-two-col{display:flex;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;min-height:600px;max-height:calc(100vh - 160px)}
-.inbox-left{width:300px;flex-shrink:0;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
+.inbox-two-col{display:flex;flex:1;min-height:0;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.inbox-left{width:300px;flex-shrink:0;min-height:0;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-soft)}
 .inbox-left-toolbar h2{font-size:14px;font-weight:700;color:var(--text);flex:1;letter-spacing:.01em}
-.conv-list{flex:1;overflow-y:auto}
+.conv-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#inbox-state{flex-shrink:0}
 /* ── Conversation cards (left list) ──────────────────────────────────────── */
 .conv-card{padding:13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s;position:relative}
 .conv-card:hover{background:var(--surface-soft)}
@@ -13912,7 +13913,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .conv-list-empty{padding:24px 16px;color:var(--text-3);font-size:13px;text-align:center;font-style:italic}
 /* ── Inbox right panel ───────────────────────────────────────────────────── */
 .inbox-right{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
-.inbox-empty-right{display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:80px;color:var(--text-3);text-align:center;gap:10px}
+.inbox-empty-right{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:var(--text-3);text-align:center;gap:10px;min-height:0}
 .inbox-empty-right .main-msg{font-size:14px;font-weight:600;color:var(--text-2)}
 .inbox-empty-right .sub-msg{font-size:12.5px}
 /* ── Message Events panel (Phase 19g.10) ─────────────────────────────────── */
@@ -13933,9 +13934,10 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* Preserve helper classes used in detail JS */
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
-#conv-detail{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
+#conv-detail{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--surface)}
+#detail-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px 20px;box-sizing:border-box}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
-.detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px}
+.detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;flex-shrink:0}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
 .detail-meta{font-size:12px;color:var(--text-2);margin-top:4px}
 .detail-section{margin-top:18px;padding-top:18px;border-top:1px solid var(--border-soft)}
@@ -13946,13 +13948,14 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .kv .v{font-size:13px;color:var(--text);font-weight:500}
 /* .back-btn removed — inbox is persistent two-column (no back navigation needed) */
 /* ── Detail two-column layout ────────────────────────────────────────────── */
-.detail-layout{display:flex;gap:16px;align-items:flex-start;margin-top:14px}
-.detail-main{flex:1;min-width:0}
-.detail-sidebar{width:280px;flex-shrink:0}
-@media(max-width:860px){.detail-layout{flex-direction:column}.detail-sidebar{width:100%}}
+.detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:stretch;margin-top:14px}
+.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.detail-sidebar{width:280px;flex-shrink:0;align-self:stretch;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+@media(max-width:860px){.detail-layout{flex-direction:column}.detail-sidebar{width:100%;max-height:240px}}
 /* ── Message thread ──────────────────────────────────────────────────────── */
-.thread-section h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
-.thread{display:flex;flex-direction:column;gap:12px;max-height:420px;overflow-y:auto;padding:18px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius)}
+.thread-section{flex:1;min-height:0;display:flex;flex-direction:column}
+.thread-section h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;flex-shrink:0}
+.thread{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:18px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius)}
 .msg{display:flex;flex-direction:column;max-width:78%}
 .msg.inbound{align-self:flex-start}
 .msg.outbound{align-self:flex-end}
@@ -13963,7 +13966,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .msg.outbound .msg-meta{text-align:right}
 .thread-empty{color:var(--text-3);text-align:center;padding:28px;font-size:13px;font-style:italic}
 /* ── Luna draft panel ────────────────────────────────────────────────────── */
-.draft-panel{margin-top:18px;padding-top:16px;border-top:1px solid var(--border-soft)}
+.draft-panel{flex-shrink:0;margin-top:12px;padding-top:16px;border-top:1px solid var(--border-soft)}
 .draft-label{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .draft-label h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin:0}
 .draft-not-sent{background:#EFD9D0;color:#9C5742;font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:3px 9px;border-radius:var(--radius-pill);white-space:nowrap}
@@ -13996,7 +13999,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .inbox-filter-btn.active{color:var(--primary);background:var(--teal);border-color:var(--sage)}
 .inbox-filter-btn .hq-count{background:#9C5742;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:var(--radius-pill);margin-left:6px;display:none}
 .inbox-filter-btn .hq-count.visible{display:inline}
-.inbox-ro-note{font-size:11px;color:var(--text-3);padding:6px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface-soft);display:none;line-height:1.45}
+.inbox-ro-note{font-size:11px;color:var(--text-3);padding:6px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface-soft);display:none;line-height:1.45;flex-shrink:0}
 .inbox-ro-note.visible{display:block}
 .inbox-ro-note .hq-ro-label{font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--text-2);background:var(--sand);padding:3px 9px;border-radius:var(--radius-pill);margin-left:6px}
 .since{font-size:11px;color:#A2743D;font-weight:600}

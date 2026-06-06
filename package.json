@@ -217,7 +217,8 @@
     "verify:luna-agent-phase23-handoff-review": "node scripts/verify-luna-agent-phase23-handoff-review.js",
     "verify:staff-inbox-send-reply-route": "node scripts/verify-staff-inbox-send-reply-route.js",
     "verify:staff-inbox-send-reply-ui": "node scripts/verify-staff-inbox-send-reply-ui.js",
-    "verify:staff-inbox-sent-reply-thread": "node scripts/verify-staff-inbox-sent-reply-thread.js"
+    "verify:staff-inbox-sent-reply-thread": "node scripts/verify-staff-inbox-sent-reply-thread.js",
+    "verify:staff-inbox-layout-scroll": "node scripts/verify-staff-inbox-layout-scroll.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
