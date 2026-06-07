@@ -231,10 +231,24 @@ function mockPg(seed = []) {
   section('E. Guest path + integrations untouched');
 
   for (const f of GUEST_UNTOUCHED) {
+    const base = path.basename(f);
     const src = readOrEmpty(f);
-    if (src && !src.includes('staff-phone-access')) {
-      pass('E.' + path.basename(f), `${path.basename(f)} unchanged`);
-    } else fail('E.' + path.basename(f), `${path.basename(f)} touched or missing`);
+    if (!src) {
+      fail('E.' + base, `${base} missing`);
+      continue;
+    }
+    if (base === 'luna-meta-whatsapp-inbound-process.js') {
+      if (src.includes('lookupStaffPhoneAccess')
+        && src.includes('processOwnerWhatsAppCommandCenterInbound')) {
+        pass('E.' + base, `${base} wired for 25c Command Center routing`);
+      } else {
+        fail('E.' + base, `${base} missing 25c routing wiring`);
+      }
+      continue;
+    }
+    if (!src.includes('staff-phone-access') && !/staff_phone_access/i.test(src)) {
+      pass('E.' + base, `${base} unchanged`);
+    } else fail('E.' + base, `${base} touched unexpectedly`);
   }
   if (GUEST_WEBHOOK) {
     const wh = readOrEmpty(GUEST_WEBHOOK);

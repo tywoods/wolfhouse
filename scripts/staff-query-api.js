@@ -132,9 +132,19 @@ const {
   getConversationDetailQuery,
   getConversationMessagesQuery,
   getConversationContextQuery,
+  getConversationBookingsQuery,
   getConversationDraftQuery,
   getConversationStaffStateQuery,
 } = require('./lib/staff-conversation-queries');
+const {
+  clearConversationMessages,
+  deleteConversationHard,
+} = require('./lib/staff-conversation-writes');
+const {
+  getAccessibleClients,
+  userCanAccessClient,
+  resolveStaffRole,
+} = require('./lib/staff-portal-clients');
 const {
   getOpenHandoffsQuery,
   getNeedsHumanWithoutOpenHandoffQuery,
@@ -375,6 +385,7 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
+const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
 // Phase 23c.1 — POST /staff/inbox/handoffs/:id/review
 const INBOX_HANDOFF_REVIEW_RE = new RegExp(`^/staff/inbox/handoffs/(${UUID_RE})/review$`, 'i');
 
@@ -414,6 +425,18 @@ const STAFF_AUTH_HTTPS    = process.env.STAFF_AUTH_HTTPS === 'true';
 const ROLE_RANK = { viewer: 1, operator: 2, admin: 3, owner: 4 };
 function hasRole(userRole, minRole) {
   return (ROLE_RANK[userRole] || 0) >= (ROLE_RANK[minRole] || 0);
+}
+
+function assertStaffClientAccess(user, clientSlug, res) {
+  if (STAFF_AUTH_REQUIRED && user && !userCanAccessClient(user, clientSlug)) {
+    sendJSON(res, 403, {
+      success: false,
+      error: 'client_access_denied',
+      client_slug: clientSlug,
+    });
+    return false;
+  }
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -556,16 +579,16 @@ async function requireAuth(req, res, minRole) {
     return { ok: false };
   }
 
-  if (minRole && !hasRole(user.role, minRole)) {
+  if (minRole && !hasRole(resolveStaffRole(user), minRole)) {
     sendJSON(res, 403, {
       success:      false,
       error:        `Role '${minRole}' or higher required.`,
-      current_role: user.role,
+      current_role: resolveStaffRole(user),
     });
     return { ok: false };
   }
 
-  return { ok: true, user };
+  return { ok: true, user: { ...user, role: resolveStaffRole(user) } };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1161,871 +1184,10 @@ async function handleQuery(query, res) {
 //   no INSERT / UPDATE / DELETE
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Ask Luna local intents (Stage 8.6.9) — read-only SQL, not in registry yet.
-// Uses structured bookings + booking_beds only (no chat/conversation logs).
-// ─────────────────────────────────────────────────────────────────────────────
-
-function getAskLunaDeparturesTodayQuery() {
-  return `
-SELECT
-  b.id::text                AS booking_id,
-  b.booking_code,
-  b.guest_name,
-  b.guest_count,
-  b.check_in,
-  b.check_out,
-  b.status::text            AS booking_status,
-  bb.room_code,
-  bb.bed_code,
-  bb.planning_row_label
-FROM bookings b
-INNER JOIN clients c ON c.id = b.client_id
-LEFT JOIN booking_beds bb ON bb.booking_id = b.id
-WHERE c.slug = $1
-  AND b.check_out = $2::date
-  AND b.status NOT IN ('cancelled', 'expired', 'hold')
-ORDER BY bb.room_code ASC NULLS LAST, bb.bed_code ASC NULLS LAST, b.booking_code ASC
-`;
-}
-
-function getAskLunaRoomsNeedCleaningQuery() {
-  return `
-SELECT DISTINCT ON (bb.room_code, bb.bed_code)
-  bb.room_code,
-  bb.bed_code,
-  bb.planning_row_label,
-  b.booking_code,
-  b.guest_name,
-  b.check_out
-FROM booking_beds bb
-INNER JOIN bookings b ON b.id = bb.booking_id
-INNER JOIN clients c ON c.id = b.client_id
-WHERE c.slug = $1
-  AND b.check_out = $2::date
-  AND b.status NOT IN ('cancelled', 'expired', 'hold')
-  AND bb.room_code IS NOT NULL
-  AND bb.bed_code IS NOT NULL
-ORDER BY bb.room_code, bb.bed_code, b.booking_code
-`;
-}
-
-/** Stage 8.8.2 — bookings.check_in on a resolved date (one row per booking). */
-function getAskLunaCheckInsOnDateQuery() {
-  return `
-SELECT
-  b.id::text                AS booking_id,
-  b.booking_code,
-  b.guest_name,
-  b.guest_count,
-  b.check_in,
-  b.check_out,
-  b.status::text            AS booking_status,
-  COALESCE(
-    (SELECT STRING_AGG(rm_bed, ', ' ORDER BY rm_bed)
-     FROM (
-       SELECT DISTINCT bb2.room_code || '/' || bb2.bed_code AS rm_bed
-       FROM booking_beds bb2
-       WHERE bb2.booking_id = b.id
-         AND bb2.room_code IS NOT NULL
-         AND bb2.bed_code IS NOT NULL
-     ) beds),
-    ''
-  ) AS bed_summary
-FROM bookings b
-INNER JOIN clients c ON c.id = b.client_id
-WHERE c.slug = $1
-  AND b.check_in = $2::date
-  AND b.status NOT IN ('cancelled', 'expired', 'hold')
-ORDER BY b.booking_code ASC
-`;
-}
-
-/** Stage 8.8.2 — bookings.check_out on a resolved date (one row per booking). */
-function getAskLunaCheckOutsOnDateQuery() {
-  return `
-SELECT
-  b.id::text                AS booking_id,
-  b.booking_code,
-  b.guest_name,
-  b.guest_count,
-  b.check_in,
-  b.check_out,
-  b.status::text            AS booking_status,
-  COALESCE(
-    (SELECT STRING_AGG(rm_bed, ', ' ORDER BY rm_bed)
-     FROM (
-       SELECT DISTINCT bb2.room_code || '/' || bb2.bed_code AS rm_bed
-       FROM booking_beds bb2
-       WHERE bb2.booking_id = b.id
-         AND bb2.room_code IS NOT NULL
-         AND bb2.bed_code IS NOT NULL
-     ) beds),
-    ''
-  ) AS bed_summary
-FROM bookings b
-INNER JOIN clients c ON c.id = b.client_id
-WHERE c.slug = $1
-  AND b.check_out = $2::date
-  AND b.status NOT IN ('cancelled', 'expired', 'hold')
-ORDER BY b.booking_code ASC
-`;
-}
-
-/** Stage 8.8.11 — booking_service_records SELECT columns for Ask Luna service intents. */
-const ASK_LUNA_SERVICE_RECORD_COLUMNS = `
-  guest_name,
-  booking_code,
-  service_type,
-  service_date,
-  quantity,
-  status,
-  payment_status,
-  amount_due_cents,
-  amount_paid_cents`;
-
-function getAskLunaServiceYogaPaidQuery() {
-  return `
-SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
-FROM booking_service_records
-WHERE client_slug = $1
-  AND service_type = 'yoga'
-  AND service_date = $2::date
-  AND payment_status = 'paid'
-ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
-`;
-}
-
-function getAskLunaServiceMealPaidQuery() {
-  return `
-SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
-FROM booking_service_records
-WHERE client_slug = $1
-  AND service_type = 'meal'
-  AND service_date = $2::date
-  AND payment_status = 'paid'
-ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
-`;
-}
-
-function getAskLunaServiceSurfLessonQuery() {
-  return `
-SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
-FROM booking_service_records
-WHERE client_slug = $1
-  AND service_type = 'surf_lesson'
-  AND service_date = $2::date
-  AND status IN ('requested', 'confirmed', 'paid')
-ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
-`;
-}
-
-function getAskLunaServiceWetsuitQuery() {
-  return `
-SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
-FROM booking_service_records
-WHERE client_slug = $1
-  AND service_type = 'wetsuit'
-  AND service_date = $2::date
-  AND status <> 'cancelled'
-ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
-`;
-}
-
-function getAskLunaServiceSurfboardQuery() {
-  return `
-SELECT${ASK_LUNA_SERVICE_RECORD_COLUMNS}
-FROM booking_service_records
-WHERE client_slug = $1
-  AND service_type = 'surfboard'
-  AND service_date = $2::date
-  AND status <> 'cancelled'
-ORDER BY guest_name ASC NULLS LAST, booking_code ASC NULLS LAST
-`;
-}
-
-function getAskLunaServiceWetsuitCountQuery() {
-  return `
-SELECT
-  NULL::text AS guest_name,
-  NULL::text AS booking_code,
-  'wetsuit'::text AS service_type,
-  $2::date AS service_date,
-  COALESCE(SUM(quantity), 0)::int AS quantity,
-  NULL::text AS status,
-  NULL::text AS payment_status,
-  0 AS amount_due_cents,
-  0 AS amount_paid_cents
-FROM booking_service_records
-WHERE client_slug = $1
-  AND service_type = 'wetsuit'
-  AND service_date = $2::date
-  AND status <> 'cancelled'
-`;
-}
-
-function getAskLunaServiceSurfboardCountQuery() {
-  return `
-SELECT
-  NULL::text AS guest_name,
-  NULL::text AS booking_code,
-  'surfboard'::text AS service_type,
-  $2::date AS service_date,
-  COALESCE(SUM(quantity), 0)::int AS quantity,
-  NULL::text AS status,
-  NULL::text AS payment_status,
-  0 AS amount_due_cents,
-  0 AS amount_paid_cents
-FROM booking_service_records
-WHERE client_slug = $1
-  AND service_type = 'surfboard'
-  AND service_date = $2::date
-  AND status <> 'cancelled'
-`;
-}
-
-const ASK_LUNA_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-
-const ASK_LUNA_MONTHS = {
-  january: 0, jan: 0, february: 1, feb: 1, march: 2, mar: 2, april: 3, apr: 3,
-  may: 4, june: 5, jun: 5, july: 6, jul: 6, august: 7, aug: 7,
-  september: 8, sep: 8, sept: 8, october: 9, oct: 9, november: 10, nov: 10,
-  december: 11, dec: 11,
-};
-
-function askLunaIsoDateUTC(d) {
-  return d.toISOString().slice(0, 10);
-}
-
-function askLunaTodayUTC(refDate = new Date()) {
-  return askLunaIsoDateUTC(refDate);
-}
-
-/**
- * Normalize staff Ask Luna question text (Stage 8.8.4).
- * Lowercase, strip accents, collapse punctuation/contractions — deterministic only.
- */
-function normalizeAskLunaQuestion(question) {
-  let q = String(question || '').toLowerCase().trim();
-  q = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  q = q.replace(/[''`´]/g, ' ');
-  q = q.replace(/\bwho\s+s\b/g, 'who');
-  q = q.replace(/\bwhat\s+s\b/g, 'what');
-  q = q.replace(/\bit\s+s\b/g, 'it');
-  q = q.replace(/[?!.,;:()[\]{}""]/g, ' ');
-  q = q.replace(/\s+/g, ' ').trim();
-  return q;
-}
-
-function askLunaHasTodayWord(q) {
-  return /\b(today|tonight|hoy|oggi|heute|aujourdhui|aujourd hui)\b/.test(q);
-}
-
-function askLunaHasTomorrowWord(q) {
-  return /\b(tomorrow|manana|domani|morgen|demain)\b/.test(q);
-}
-
-function askLunaIsCountQuestion(q) {
-  return /\b(how many|cuantos|cuantas|quanti|wie viele|combien)\b/.test(q);
-}
-
-function askLunaMatchesCheckout(q) {
-  return /\b(check(ing)?\s*out|checkout|leav(e|es|ing)|depart(ure|ures|ing)?|departs)\b/.test(q)
-    || /\b(sale|salen|salida)\b/.test(q)
-    || /\b(parte|partono|part|parts|uscita)\b/.test(q)
-    || /\b(abreise|abreisen)\b/.test(q);
-}
-
-function askLunaMatchesCleaning(q) {
-  if (/\b(clean(ed|ing)?|housekeep(ing)?|limpiar|limpieza|pulire|pulizia|reinigen|gereinigt|sauber|nettoyer|menage)\b/.test(q)) {
-    return true;
-  }
-  return /\b(room|rooms|bed|beds|cuarto|cuartos|habitacion|habitaciones|camera|camere|zimmer|chambre|chambres)\b/.test(q)
-    && /\b(clean|limpiar|pulire|reinigen|nettoyer|gereinigt|sauber|menage|needs?\s+to\s+be\s+cleaned)\b/.test(q);
-}
-
-function askLunaMatchesBalanceDue(question) {
-  return matchesBalanceDueQuestion(question);
-}
-
-function askLunaIsDeparturesTodayPhrase(q, dateInfo, today) {
-  const di = dateInfo || (askLunaHasTodayWord(q) ? { date: today, label: 'today' } : null);
-  if (!di || di.date !== today) return false;
-  if (/\b(who leaves|leave.?today|leaving.?today|check.?out.?today|depart.*today)\b/.test(q)) {
-    return true;
-  }
-  if (!askLunaMatchesCheckout(q)) return false;
-  if (!askLunaHasTodayWord(q) && !(dateInfo && dateInfo.label === 'today')) return false;
-  return /\b(quien|chi|qui|wer|who)\b/.test(q) || /\bwho\b/.test(q);
-}
-
-/**
- * Resolve a date phrase from a staff Ask Luna question (Stage 8.8.2 + 8.8.4 i18n).
- * tonight = today; tomorrow; ISO; named month/day; weekday; hoy/oggi/heute/aujourd'hui…
- * @returns {{ date: string, label: string } | null}
- */
-function resolveAskLunaDatePhrase(question, refDate = new Date()) {
-  const q = normalizeAskLunaQuestion(question);
-
-  const isoMatch = q.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
-  if (isoMatch) return { date: isoMatch[1], label: isoMatch[1] };
-
-  let monthIdx = null;
-  let dayNum = null;
-  let m = q.match(/\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
-  if (m) {
-    monthIdx = ASK_LUNA_MONTHS[m[1]];
-    dayNum = parseInt(m[2], 10);
-  } else {
-    m = q.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\b/);
-    if (m) {
-      dayNum = parseInt(m[1], 10);
-      monthIdx = ASK_LUNA_MONTHS[m[2]];
-    }
-  }
-  if (monthIdx != null && dayNum >= 1 && dayNum <= 31) {
-    const y = refDate.getUTCFullYear();
-    const d = new Date(Date.UTC(y, monthIdx, dayNum));
-    return { date: askLunaIsoDateUTC(d), label: askLunaIsoDateUTC(d) };
-  }
-
-  if (/\btonight\b/.test(q) || /\bhoy\b/.test(q) || /\boggi\b/.test(q) || /\bheute\b/.test(q)
-      || /\baujourdhui\b/.test(q) || /\baujourd hui\b/.test(q)) {
-    return { date: askLunaTodayUTC(refDate), label: 'today' };
-  }
-  if (/\btomorrow\b/.test(q) || /\bmanana\b/.test(q) || /\bdomani\b/.test(q)
-      || /\bmorgen\b/.test(q) || /\bdemain\b/.test(q)) {
-    const d = new Date(refDate);
-    d.setUTCDate(d.getUTCDate() + 1);
-    return { date: askLunaIsoDateUTC(d), label: 'tomorrow' };
-  }
-  if (/\btoday\b/.test(q) || /\bhoy\b/.test(q) || /\boggi\b/.test(q) || /\bheute\b/.test(q)
-      || /\baujourdhui\b/.test(q) || /\baujourd hui\b/.test(q)) {
-    return { date: askLunaTodayUTC(refDate), label: 'today' };
-  }
-
-  for (let i = 0; i < ASK_LUNA_WEEKDAYS.length; i++) {
-    const name = ASK_LUNA_WEEKDAYS[i];
-    if (new RegExp(`\\b${name}\\b`).test(q)) {
-      const refDay = refDate.getUTCDay();
-      let delta = i - refDay;
-      if (delta < 0) delta += 7;
-      const d = new Date(refDate);
-      d.setUTCDate(d.getUTCDate() + delta);
-      return { date: askLunaIsoDateUTC(d), label: name };
-    }
-  }
-
-  return null;
-}
-
-function askLunaDatePhraseLabel(ctx) {
-  const label = ctx.dateLabel || 'today';
-  if (label === 'today') return 'today';
-  if (label === 'tomorrow') return 'tomorrow';
-  if (ASK_LUNA_WEEKDAYS.includes(label)) {
-    return `on ${label.charAt(0).toUpperCase() + label.slice(1)}`;
-  }
-  if (/^20\d{2}-\d{2}-\d{2}$/.test(label)) return `on ${label}`;
-  return ctx.date ? `on ${ctx.date}` : 'today';
-}
-
-function askLunaTotalGuestCount(rows) {
-  return rows.reduce((sum, r) => {
-    const gc = Number(r.guest_count);
-    return sum + (gc > 0 ? gc : 1);
-  }, 0);
-}
-
-function isBlockedAddOnServiceQuestion(q) {
-  return /\b(yoga|meal|meals|surf\s*lesson|lessons?|wetsuit|surfboard|surf\s*board|board\s*rental)\b/.test(q);
-}
-
-function askLunaMatchesServiceYogaPaid(q) {
-  return /\byoga\b/.test(q) && /\b(paid|paid for|pay for|who paid)\b/.test(q);
-}
-
-function askLunaMatchesServiceMealPaid(q) {
-  return /\b(meal|meals)\b/.test(q) && /\b(paid|paid for|pay for|who paid)\b/.test(q);
-}
-
-function askLunaMatchesServiceLesson(q) {
-  return /\b(surf\s*lesson|surf\s*lessons)\b/.test(q)
-    || (/\blesson/.test(q) && /\b(surf|has|who|need)\b/.test(q));
-}
-
-function askLunaMatchesServiceWetsuit(q) {
-  return /\bwetsuit/.test(q);
-}
-
-function askLunaMatchesServiceSurfboard(q) {
-  return /\b(surfboard|surf\s*board|surf\s*boards)\b/.test(q)
-    || (/\bboards?\b/.test(q) && /\b(surf|need|many|ready)\b/.test(q));
-}
-
-function askLunaServiceDateParams(question, today) {
-  const dateInfo = resolveAskLunaDatePhrase(question);
-  return dateInfo || { date: today, label: 'today' };
-}
-
-function resolveAskLunaServiceIntent(question, q, today, isCountQ) {
-  const di = askLunaServiceDateParams(question, today);
-  const extraParams = { date: di.date, dateLabel: di.label };
-
-  if (isCountQ && askLunaMatchesServiceWetsuit(q)) {
-    return { intentKey: 'services.wetsuit.count_on_date', extraParams };
-  }
-  if (isCountQ && askLunaMatchesServiceSurfboard(q)) {
-    return { intentKey: 'services.surfboard.count_on_date', extraParams };
-  }
-  if (askLunaMatchesServiceYogaPaid(q)) {
-    return { intentKey: 'services.yoga.paid_on_date', extraParams };
-  }
-  if (askLunaMatchesServiceMealPaid(q)) {
-    return { intentKey: 'services.meal.paid_on_date', extraParams };
-  }
-  if (askLunaMatchesServiceLesson(q)) {
-    return { intentKey: 'services.surf_lesson.on_date', extraParams };
-  }
-  if (askLunaMatchesServiceWetsuit(q)) {
-    return { intentKey: 'services.wetsuit.on_date', extraParams };
-  }
-  if (askLunaMatchesServiceSurfboard(q)) {
-    return { intentKey: 'services.surfboard.on_date', extraParams };
-  }
-  return null;
-}
-
-const ASK_LUNA_LOCAL_QUERY = {
-  departures_today:              getAskLunaDeparturesTodayQuery,
-  rooms_or_beds_need_cleaning:   getAskLunaRoomsNeedCleaningQuery,
-  'check_ins.on_date':           getAskLunaCheckInsOnDateQuery,
-  'check_ins.count':             getAskLunaCheckInsOnDateQuery,
-  'check_outs.on_date':          getAskLunaCheckOutsOnDateQuery,
-  'check_outs.count':            getAskLunaCheckOutsOnDateQuery,
-  'services.yoga.paid_on_date':  getAskLunaServiceYogaPaidQuery,
-  'services.meal.paid_on_date':  getAskLunaServiceMealPaidQuery,
-  'services.surf_lesson.on_date': getAskLunaServiceSurfLessonQuery,
-  'services.wetsuit.on_date':    getAskLunaServiceWetsuitQuery,
-  'services.surfboard.on_date':  getAskLunaServiceSurfboardQuery,
-  'services.wetsuit.count_on_date': getAskLunaServiceWetsuitCountQuery,
-  'services.surfboard.count_on_date': getAskLunaServiceSurfboardCountQuery,
-  'services.lessons_today':    getAskLunaLessonsOnDateQuery,
-  'services.lessons_tomorrow': getAskLunaLessonsOnDateQuery,
-  'services.gear_today':       getAskLunaGearOnDateQuery,
-  'services.gear_tomorrow':    getAskLunaGearOnDateQuery,
-  'services.meals_today':      getAskLunaMealsOnDateQuery,
-  'services.meals_tomorrow':   getAskLunaMealsOnDateQuery,
-  'services.yoga_today':       getAskLunaYogaOnDateQuery,
-  'services.yoga_tomorrow':    getAskLunaYogaOnDateQuery,
-  'services.meals_on_date':    getAskLunaMealsOnDateQuery,
-  'services.yoga_on_date':     getAskLunaYogaOnDateQuery,
-  'bookings.arrivals_today':     getAskLunaArrivalsOnDateQuery,
-  'bookings.arrivals_tomorrow':  getAskLunaArrivalsOnDateQuery,
-  'bookings.arrivals_on_date':   getAskLunaArrivalsOnDateQuery,
-  'bookings.checkouts_today':    getAskLunaCheckoutsOnDateQuery,
-  'bookings.checkouts_tomorrow': getAskLunaCheckoutsOnDateQuery,
-  'bookings.checkouts_on_date':  getAskLunaCheckoutsOnDateQuery,
-  'housekeeping.cleaning_today':    getAskLunaCleaningOnDateQuery,
-  'housekeeping.cleaning_tomorrow': getAskLunaCleaningOnDateQuery,
-  'housekeeping.cleaning_on_date':  getAskLunaCleaningOnDateQuery,
-  'bookings.occupancy_tonight':       getAskLunaOccupancyOnNightQuery,
-  'bookings.occupancy_tomorrow_night': getAskLunaOccupancyOnNightQuery,
-  'inventory.free_beds_tonight':       getAskLunaFreeBedsOnNightQuery,
-  'inventory.free_beds_tomorrow_night': getAskLunaFreeBedsOnNightQuery,
-  'bookings.lookup':               getAskLunaBookingLookupByCodeQuery,
-};
-
-/**
- * Keyword-based natural-language → registry intent resolver.
- * Returns { intentKey, extraParams } or null for unsupported questions.
- */
-function resolveNaturalLanguageIntent(question) {
-  const { REGISTRY_BY_KEY } = require('./lib/staff-query-registry');
-  const refDate = new Date();
-
-  // Surf/wave forecast (Stormglass backend) before lessons/gear to avoid "good for lessons" mis-route
-  const surfForecastIntentEarly = resolveAskLunaSurfForecastIntentKey(question, REGISTRY_BY_KEY);
-  if (surfForecastIntentEarly) return surfForecastIntentEarly;
-
-  // Lessons today/tomorrow before generic registry passthrough (needs date params)
-  const lessonsIntentEarly = resolveAskLunaLessonsIntentKey(question, REGISTRY_BY_KEY, refDate);
-  if (lessonsIntentEarly) return lessonsIntentEarly;
-
-  const gearIntentEarly = resolveAskLunaGearIntentKey(question, REGISTRY_BY_KEY, refDate);
-  if (gearIntentEarly) return gearIntentEarly;
-
-  const mealsYogaIntentEarly = resolveAskLunaMealsYogaIntentKey(question, REGISTRY_BY_KEY, refDate);
-  if (mealsYogaIntentEarly) return mealsYogaIntentEarly;
-
-  const bookingLookupIntentEarly = resolveAskLunaBookingLookupIntentKey(
-    question, REGISTRY_BY_KEY, refDate,
-  );
-  if (bookingLookupIntentEarly) return bookingLookupIntentEarly;
-
-  const handoffsIntentEarly = resolveAskLunaHandoffsIntentKey(question, REGISTRY_BY_KEY);
-  if (handoffsIntentEarly) return handoffsIntentEarly;
-
-  const cleaningIntentEarly = resolveAskLunaCleaningIntentKey(
-    question, REGISTRY_BY_KEY, refDate,
-  );
-  if (cleaningIntentEarly) return cleaningIntentEarly;
-
-  const occupancyIntentEarly = resolveAskLunaOccupancyIntentKey(
-    question, REGISTRY_BY_KEY, refDate,
-  );
-  if (occupancyIntentEarly) return occupancyIntentEarly;
-
-  const freeBedsIntentEarly = resolveAskLunaFreeBedsIntentKey(
-    question, REGISTRY_BY_KEY, refDate,
-  );
-  if (freeBedsIntentEarly) return freeBedsIntentEarly;
-
-  const arrivalsCheckoutsIntentEarly = resolveAskLunaArrivalsCheckoutsIntentKey(
-    question, REGISTRY_BY_KEY, refDate,
-  );
-  if (arrivalsCheckoutsIntentEarly) return arrivalsCheckoutsIntentEarly;
-
-  // Direct registry key passthrough before normalize (keeps dots in keys)
-  const rawQ = String(question || '').trim().toLowerCase();
-  if (REGISTRY_BY_KEY.has(rawQ)) return { intentKey: rawQ, extraParams: {} };
-
-  const q = normalizeAskLunaQuestion(question);
-  const today = askLunaTodayUTC();
-
-  if (REGISTRY_BY_KEY.has(q)) return { intentKey: q, extraParams: {} };
-
-  const dateInfo = resolveAskLunaDatePhrase(question);
-  const isCountQ = askLunaIsCountQuestion(q);
-
-  // ── Cleaning (8.8.4 i18n) — before checkout/payment to avoid false routes ──
-  if (askLunaMatchesCleaning(q)) {
-    const di = dateInfo || (askLunaHasTodayWord(q) ? { date: today, label: 'today' } : { date: today, label: 'today' });
-    return { intentKey: 'rooms_or_beds_need_cleaning', extraParams: { date: di.date, dateLabel: di.label } };
-  }
-
-  // ── Balance due (Phase 11a / 11a.1) — registry key + phrase list ──
-  const balanceDueIntent = resolveBalanceDueIntentKey(question, REGISTRY_BY_KEY);
-  if (balanceDueIntent && !/\bpayment.?link|checkout.?link|pending.?link|waiting.?for.?pay\b/.test(q)) {
-    return { intentKey: balanceDueIntent, extraParams: {} };
-  }
-
-  // ── Check-in / check-out date queries (8.8.2 + 8.8.4) ──
-  if (isCountQ && /\b(check.?in|checking in|arriv|arrival)\b/.test(q)) {
-    const di = dateInfo || { date: today, label: 'today' };
-    return { intentKey: 'check_ins.count', extraParams: { date: di.date, dateLabel: di.label } };
-  }
-  if (isCountQ && askLunaMatchesCheckout(q)) {
-    const di = dateInfo || { date: today, label: 'today' };
-    return { intentKey: 'check_outs.count', extraParams: { date: di.date, dateLabel: di.label } };
-  }
-  if (/\b(check.?in|checking in)\b/.test(q)) {
-    const di = dateInfo || (askLunaHasTodayWord(q) ? { date: today, label: 'today' } : null);
-    if (di) {
-      return { intentKey: 'check_ins.on_date', extraParams: { date: di.date, dateLabel: di.label } };
-    }
-  }
-  if (askLunaMatchesCheckout(q)) {
-    const di = dateInfo || (askLunaHasTodayWord(q) ? { date: today, label: 'today' } : null);
-    if (di) {
-      if (askLunaIsDeparturesTodayPhrase(q, dateInfo, today)) {
-        return { intentKey: 'departures_today', extraParams: { date: today, dateLabel: 'today' } };
-      }
-      return { intentKey: 'check_outs.on_date', extraParams: { date: di.date, dateLabel: di.label } };
-    }
-  }
-
-  // ── Service / add-on records (8.8.11) — booking_service_records only ──
-  const serviceIntent = resolveAskLunaServiceIntent(question, q, today, isCountQ);
-  if (serviceIntent) return serviceIntent;
-
-  // Natural language → intent mapping (English fallbacks)
-  if (/payment.?link|checkout.?link|pending.?link|waiting.?for.?pay/.test(q))   return { intentKey: 'payments.waiting',            extraParams: {} };
-  if (/arriv|check.?in.?today|arriving.?today/.test(q))                         return { intentKey: 'rooming.arrivals',            extraParams: { date: today } };
-  if (/deposit.paid|paid.?deposit/.test(q))                                     return { intentKey: 'payments.deposit',            extraParams: {} };
-  if (/confirm|confirmation.?need/.test(q))                                     return { intentKey: 'payments.confirmation_needed', extraParams: {} };
-  if (/fully.?paid|paid.?in.?full/.test(q))                                     return { intentKey: 'payments.fully_paid',         extraParams: {} };
-  if (/no.?payment.?record|missing.?payment/.test(q))                           return { intentKey: 'payments.no_record',          extraParams: {} };
-  if (/active.?hold|holds?.active/.test(q))                                     return { intentKey: 'holds.active',                extraParams: {} };
-  if (/unassign|no.?bed.?assign/.test(q))                                       return { intentKey: 'rooming.unassigned',          extraParams: {} };
-  if (/addon.?action|add.?on.?action|staff.?action/.test(q))                    return { intentKey: 'addons.action_required',      extraParams: {} };
-
-  if (/depart|check.?out.?today|leaving.?today|leave.?today|who leaves/.test(q)) return { intentKey: 'departures_today',            extraParams: { date: today, dateLabel: 'today' } };
-
-  if (isBlockedAddOnServiceQuestion(q)) {
-    return {
-      intentKey: 'unsupported_intent',
-      intentHint: 'Add-on or service queries (yoga, meals, lessons, wetsuit/board rentals)',
-    };
-  }
-
-  return null;
-}
-
-/**
- * Resolve Ask Luna intent: deterministic phrases/registry first, then optional AI classifier.
- */
-async function resolveAskLunaIntent(question) {
-  const deterministic = resolveNaturalLanguageIntent(question);
-  if (deterministic && deterministic.intentKey !== 'unsupported_intent') {
-    return { ...deterministic, intent_source: 'deterministic' };
-  }
-
-  try {
-    const opsPlan = await resolveOpsPlannerIntent(question);
-    if (opsPlan && opsPlan.intentKey === OPS_MULTI_TOOL_INTENT) {
-      return opsPlan;
-    }
-    if (opsPlan && opsPlan.intentKey === 'unsupported_intent') {
-      return { ...opsPlan, intent_source: 'ops_planner' };
-    }
-  } catch (err) {
-    console.warn('[ask-luna] ops planner error:', err.message);
-  }
-
-  try {
-    const ai = await classifyAskLunaIntentWithAi(question);
-    if (ai && ai.intent) {
-      return {
-        intentKey:     ai.intent,
-        extraParams:   {},
-        intent_source: 'ai',
-        ai_confidence: ai.confidence,
-        ai_reason:     ai.reason,
-      };
-    }
-  } catch (err) {
-    console.warn('[ask-luna] AI intent fallback error:', err.message);
-  }
-
-  if (deterministic) {
-    return { ...deterministic, intent_source: 'deterministic' };
-  }
-  return null;
-}
-
-function askLunaIntentMeta(resolution) {
-  if (!resolution) return { intent_source: 'none' };
-  const meta = { intent_source: resolution.intent_source || 'deterministic' };
-  if (resolution.ai_confidence != null) meta.ai_confidence = resolution.ai_confidence;
-  if (resolution.ai_reason) meta.ai_reason = resolution.ai_reason;
-  return meta;
-}
-
-/**
- * Formats query rows into a concise WhatsApp-friendly answer string.
- */
-function formatAnswer(intentKey, rows, ctx = {}) {
-  const n = rows.length;
-  const when = askLunaDatePhraseLabel(ctx);
-
-  if (n === 0) {
-    const empty = {
-      'payments.balance_due':         'No active bookings currently have a balance due.',
-      'payments.waiting':             'No payment links are pending right now. ✅',
-      'payments.deposit':             'No guests are in deposit-paid state.',
-      'payments.fully_paid':          'No guests have paid in full yet.',
-      'payments.confirmation_needed': 'No paid bookings awaiting confirmation.',
-      'payments.no_record':           'No bookings missing a payment record.',
-      'rooming.arrivals':             'No arriving guests need a bed assignment today. ✅',
-      'rooming.unassigned':           'All bookings have a bed assigned. ✅',
-      'departures_today':             'No guests are checking out today. ✅',
-      'rooms_or_beds_need_cleaning':  'No beds need cleaning after today\'s departures. ✅',
-      'check_ins.on_date':            `No guests are checking in ${when}.`,
-      'check_ins.count':              `0 guests checking in ${when}.`,
-      'check_outs.on_date':           `No guests are checking out ${when}.`,
-      'check_outs.count':             `0 guests checking out ${when}.`,
-      'handoffs.open':                'No conversations are currently waiting for staff.',
-      'handoffs.urgent':              'No urgent handoffs are currently open.',
-      'holds.active':                 'No active holds at the moment.',
-      'addons.action_required':       'No add-ons require staff action.',
-      'addons.lessons':               'No surf lessons found for that date.',
-      'addons.yoga':                  'No yoga sessions found for that date.',
-      'addons.rentals':               'No active rentals found for that date.',
-      'services.yoga.paid_on_date':   `No yoga payments recorded ${when}.`,
-      'services.meal.paid_on_date':   `No meal payments recorded ${when}.`,
-      'services.surf_lesson.on_date': `No surf lessons scheduled ${when}.`,
-      'services.lessons_today':       'No surf lessons are currently booked for today.',
-      'services.lessons_tomorrow':    'No surf lessons are currently booked for tomorrow.',
-      'services.gear_today':          'No surf gear is currently booked for today.',
-      'services.gear_tomorrow':       'No surf gear is currently booked for tomorrow.',
-      'services.meals_today':         'No meals are currently booked for today.',
-      'services.meals_tomorrow':      'No meals are currently booked for tomorrow.',
-      'services.yoga_today':          'No yoga classes are currently booked for today.',
-      'services.yoga_tomorrow':       'No yoga classes are currently booked for tomorrow.',
-      'services.meals_on_date':       'No meals are currently booked for that date.',
-      'services.yoga_on_date':        'No yoga classes are currently booked for that date.',
-      'bookings.arrivals_today':      'No arrivals are currently scheduled for today.',
-      'bookings.arrivals_tomorrow':   'No arrivals are currently scheduled for tomorrow.',
-      'bookings.arrivals_on_date':    'No arrivals are currently scheduled for that date.',
-      'bookings.checkouts_today':     'No checkouts are currently scheduled for today.',
-      'bookings.checkouts_tomorrow':  'No checkouts are currently scheduled for tomorrow.',
-      'bookings.checkouts_on_date':   'No checkouts are currently scheduled for that date.',
-      'bookings.occupancy_tonight':       'No active guests are staying tonight.',
-      'bookings.occupancy_tomorrow_night': 'No active guests are staying tomorrow night.',
-      'inventory.free_beds_tonight':       'No sellable beds appear free tonight.',
-      'inventory.free_beds_tomorrow_night': 'No sellable beds appear free tomorrow night.',
-      'housekeeping.cleaning_today':    'No rooms or beds are currently flagged for checkout cleaning today.',
-      'housekeeping.cleaning_tomorrow': 'No rooms or beds are currently flagged for checkout cleaning tomorrow.',
-      'housekeeping.cleaning_on_date':  `No rooms or beds are currently flagged for checkout cleaning ${when}.`,
-      'bookings.lookup':              'I couldn\'t find an active booking matching that.',
-      'services.wetsuit.on_date':     `No wetsuits needed ${when}.`,
-      'services.surfboard.on_date':   `No surfboards needed ${when}.`,
-    };
-    return empty[intentKey] || `No results for ${intentKey}.`;
-  }
-
-  const MAX_SUMMARY = 5;
-  const extra = n > MAX_SUMMARY ? ` (+${n - MAX_SUMMARY} more)` : '';
-
-  const nameLine = (r) => r.guest_name ? `${r.guest_name} (${r.booking_code || ''})` : (r.booking_code || r.id || '?');
-  const serviceNameLine = (r) => {
-    const qty = Number(r.quantity) > 1 ? ` ×${r.quantity}` : '';
-    return `${nameLine(r)}${qty}`;
-  };
-  const centsStr = (c) => c != null ? `€${(Math.round(c) / 100).toFixed(0)}` : '';
-  const stayLine = (r) => {
-    const beds = r.bed_summary ? ` — ${r.bed_summary}` : (
-      r.room_code && r.bed_code ? ` — ${r.room_code}/${r.bed_code}` : ''
-    );
-    const gc = r.guest_count > 0 ? `, ${r.guest_count} guest${r.guest_count !== 1 ? 's' : ''}` : '';
-    return `${nameLine(r)}${gc}${beds}`;
-  };
-
-  switch (intentKey) {
-    case 'payments.balance_due':
-      return formatAskLunaBalanceDueAnswer(rows);
-    case 'payments.deposit': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r =>
-        `${nameLine(r)} — balance ${centsStr(r.balance_due_cents)}`
-      ).join('; ');
-      return `${n} guest${n !== 1 ? 's' : ''} still owe${n !== 1 ? '' : 's'} a balance: ${list}${extra}`;
-    }
-    case 'payments.waiting': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
-      return `${n} guest${n !== 1 ? 's' : ''} ha${n !== 1 ? 've' : 's'} a payment link pending: ${list}${extra}`;
-    }
-    case 'payments.fully_paid': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
-      return `${n} guest${n !== 1 ? 's' : ''} paid in full: ${list}${extra}`;
-    }
-    case 'payments.confirmation_needed': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
-      return `${n} guest${n !== 1 ? 's' : ''} still need${n !== 1 ? '' : 's'} a confirmation sent: ${list}${extra}`;
-    }
-    case 'payments.no_record': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
-      return `${n} booking${n !== 1 ? 's' : ''} ha${n !== 1 ? 've' : 's'} no payment record: ${list}${extra}`;
-    }
-    case 'rooming.arrivals': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
-      return `${n} arrival${n !== 1 ? 's' : ''} still need${n !== 1 ? '' : 's'} a bed assignment today: ${list}${extra}`;
-    }
-    case 'rooming.unassigned': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
-      return `${n} booking${n !== 1 ? 's' : ''} ha${n !== 1 ? 've' : 's'} no bed assigned yet: ${list}${extra}`;
-    }
-    case 'departures_today': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r => {
-        const bed = r.room_code && r.bed_code ? ` — ${r.room_code}/${r.bed_code}` : '';
-        return `${nameLine(r)}${bed}`;
-      }).join('; ');
-      return `${n} guest${n !== 1 ? 's' : ''} leaving today: ${list}${extra}`;
-    }
-    case 'check_ins.on_date': {
-      const list = rows.slice(0, MAX_SUMMARY).map(stayLine).join('; ');
-      return `${n} guest${n !== 1 ? 's' : ''} checking in ${when}: ${list}${extra}`;
-    }
-    case 'check_ins.count': {
-      const people = askLunaTotalGuestCount(rows);
-      return `${people} guest${people !== 1 ? 's' : ''} checking in ${when}.`;
-    }
-    case 'check_outs.on_date': {
-      const list = rows.slice(0, MAX_SUMMARY).map(stayLine).join('; ');
-      return `${n} guest${n !== 1 ? 's' : ''} checking out ${when}: ${list}${extra}`;
-    }
-    case 'check_outs.count': {
-      const people = askLunaTotalGuestCount(rows);
-      return `${people} guest${people !== 1 ? 's' : ''} checking out ${when}.`;
-    }
-    case 'rooms_or_beds_need_cleaning': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r =>
-        `${r.room_code}/${r.bed_code}${r.guest_name ? ` (${r.guest_name} checked out)` : ''}`
-      ).join('; ');
-      return `${n} bed${n !== 1 ? 's' : ''} need cleaning after today's departures: ${list}${extra}`;
-    }
-    case 'handoffs.open':
-    case 'handoffs.urgent':
-      return formatAskLunaHandoffsAnswer(intentKey, rows, ctx);
-    case 'holds.active': {
-      const list = rows.slice(0, MAX_SUMMARY).map(r => nameLine(r)).join('; ');
-      return `${n} active hold${n !== 1 ? 's' : ''}: ${list}${extra}`;
-    }
-    case 'services.yoga.paid_on_date':
-    case 'services.meal.paid_on_date': {
-      const svc = intentKey.includes('meal') ? 'meal' : 'yoga';
-      const list = rows.slice(0, MAX_SUMMARY).map(serviceNameLine).join('; ');
-      return `${n} paid ${svc}${n !== 1 ? 's' : ''} ${when}: ${list}${extra}`;
-    }
-    case 'services.surf_lesson.on_date': {
-      const list = rows.slice(0, MAX_SUMMARY).map(serviceNameLine).join('; ');
-      return `${n} surf lesson${n !== 1 ? 's' : ''} ${when}: ${list}${extra}`;
-    }
-    case 'services.wetsuit.on_date':
-    case 'services.surfboard.on_date': {
-      const gear = intentKey.includes('wetsuit') ? 'wetsuit' : 'surfboard';
-      const list = rows.slice(0, MAX_SUMMARY).map(serviceNameLine).join('; ');
-      return `${n} guest${n !== 1 ? 's' : ''} need${n !== 1 ? '' : 's'} a ${gear} ${when}: ${list}${extra}`;
-    }
-    case 'services.wetsuit.count_on_date': {
-      const total = Number(rows[0]?.quantity ?? 0);
-      return `${total} wetsuit${total !== 1 ? 's' : ''} needed ${when}.`;
-    }
-    case 'services.surfboard.count_on_date': {
-      const total = Number(rows[0]?.quantity ?? 0);
-      return `${total} surfboard${total !== 1 ? 's' : ''} needed ${when}.`;
-    }
-    case 'services.lessons_today':
-    case 'services.lessons_tomorrow':
-      return formatAskLunaLessonsAnswer(rows, ctx);
-    case 'services.gear_today':
-    case 'services.gear_tomorrow':
-      return formatAskLunaGearAnswer(rows, ctx);
-    case 'services.meals_today':
-    case 'services.meals_tomorrow':
-    case 'services.yoga_today':
-    case 'services.yoga_tomorrow':
-    case 'services.meals_on_date':
-    case 'services.yoga_on_date': {
-      const serviceCategory = intentKey.includes('yoga') ? 'yoga' : 'meals';
-      return formatAskLunaMealsYogaAnswer(rows, { ...ctx, serviceCategory });
-    }
-    case 'bookings.arrivals_today':
-    case 'bookings.arrivals_tomorrow':
-    case 'bookings.arrivals_on_date':
-    case 'bookings.checkouts_today':
-    case 'bookings.checkouts_tomorrow':
-    case 'bookings.checkouts_on_date': {
-      const flow = intentKey.includes('checkout') ? 'checkouts' : 'arrivals';
-      return formatAskLunaArrivalsCheckoutsAnswer(rows, { ...ctx, flow });
-    }
-    case 'housekeeping.cleaning_today':
-    case 'housekeeping.cleaning_tomorrow':
-    case 'housekeeping.cleaning_on_date':
-      return formatAskLunaCleaningAnswer(rows, ctx);
-    case 'bookings.occupancy_tonight':
-    case 'bookings.occupancy_tomorrow_night':
-      return formatAskLunaOccupancyAnswer(rows, ctx);
-    case 'inventory.free_beds_tonight':
-    case 'inventory.free_beds_tomorrow_night':
-      return formatAskLunaFreeBedsAnswer(rows, ctx);
-    case 'bookings.lookup':
-      return formatAskLunaBookingLookupAnswer(rows, ctx);
-    default: {
-      return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
-    }
-  }
-}
+const {
+  executeStaffAskLunaQuestion,
+  resolveAskLunaIntent,
+} = require('./lib/staff-ask-luna-execute');
 
 function handleAskLunaAiStatus(res) {
   const diag = resolveLunaAiDiagnostics(process.env);
@@ -2118,305 +1280,26 @@ async function handleAskLuna(req, res) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
 
   // ── Resolve intent (deterministic → optional AI registry classifier) ───────
-  const resolution = await resolveAskLunaIntent(question);
-
-  if (!resolution || resolution.intentKey === 'unsupported_intent') {
-    const hint = resolution ? resolution.intentHint : null;
-    const supportedList = [
-      'who owes money (payments.balance_due)',
-      'payment links pending (payments.waiting)',
-      'arrivals today (rooming.arrivals)',
-      'who is checking in today/tomorrow/Saturday (check_ins.on_date)',
-      'how many check in tomorrow (check_ins.count)',
-      'departures today (departures_today)',
-      'who is checking out tomorrow/Saturday (check_outs.on_date)',
-      'how many check out tomorrow (check_outs.count)',
-      'rooms/beds needing cleaning (rooms_or_beds_need_cleaning)',
-      'who paid for yoga/meals (services.yoga/meal.paid_on_date)',
-      'surf lessons today or tomorrow (services.lessons_today / services.lessons_tomorrow)',
-      'surf/wave forecast today or tomorrow (forecast.surf_today / forecast.surf_tomorrow)',
-      'surf gear today or tomorrow (services.gear_today / services.gear_tomorrow)',
-      'meals or yoga today/tomorrow/weekday (services.meals_* / services.yoga_*)',
-      'arrivals or checkouts today/tomorrow/weekday (bookings.arrivals_* / bookings.checkouts_*)',
-      'surf lessons / wetsuits / surfboards (services.*)',
-      'who needs human reply (handoffs.open)',
-      'deposit paid (payments.deposit)',
-      'confirmation needed (payments.confirmation_needed)',
-      'active holds (holds.active)',
-      'unassigned beds (rooming.unassigned)',
-    ].join(', ');
-    const answer = hint
-      ? `"${hint}" is not yet in the query registry. You can ask: ${supportedList}`
-      : `I don't know how to answer that yet. You can ask about: ${supportedList}`;
-    return sendJSON(res, 200, {
-      success:           true,
-      client_slug:       clientSlug,
-      source,
-      staff_access:      staffAccess,
-      intent:            'unsupported_intent',
-      intent_hint:       hint || null,
-      answer,
-      rows:              [],
-      row_count:         0,
-      read_only:         true,
-      no_write_performed: true,
-      sends_whatsapp:    false,
-      elapsed_ms:        Date.now() - started,
-    });
-  }
-
-  const { intentKey, extraParams, intent_source, ai_confidence, ai_reason } = resolution;
-
-  if (intentKey === OPS_MULTI_TOOL_INTENT) {
-    const toolIntents = extraParams.tool_intents || [];
-    const planDate = extraParams.date || askLunaTodayUTC();
-    const planCtx = {
-      date: planDate,
-      dateLabel: extraParams.dateLabel || 'today',
-    };
-    let allRows = [];
-    let sections = [];
-    try {
-      await withPgClient(async (pgClient) => {
-        const out = await executeOpsPlannerTools(pgClient, clientSlug, toolIntents, planCtx);
-        sections = out.sections;
-        allRows = out.allRows;
-      });
-    } catch (err) {
-      console.error('[ask-luna] ops planner DB error:', err.message);
-      return sendJSON(res, 500, {
-        success: false, error: 'query_error', detail: err.message,
-      });
-    }
-    const answer = formatCombinedOpsPlannerAnswer(sections, planCtx.dateLabel);
-    return sendJSON(res, 200, {
-      success:            true,
-      client_slug:        clientSlug,
-      source,
-      staff_access:       staffAccess,
-      intent:             OPS_MULTI_TOOL_INTENT,
-      category:           'ops',
-      query_date:         planDate,
-      tool_intents:       toolIntents,
-      answer,
-      rows:               allRows.slice(0, MAX_ROWS),
-      row_count:          allRows.length,
-      read_only:          true,
-      no_write_performed: true,
-      sends_whatsapp:     false,
-      elapsed_ms:         Date.now() - started,
-      ...askLunaIntentMeta(resolution),
-    });
-  }
-
-  if (intentKey === SURF_FORECAST_TODAY_KEY || intentKey === SURF_FORECAST_TOMORROW_KEY) {
-    const day = extraParams.day || (intentKey === SURF_FORECAST_TOMORROW_KEY ? 'tomorrow' : 'today');
-    let surfResult;
-    try {
-      surfResult = await fetchSurfForecastForAskLuna({ clientSlug, day });
-    } catch (err) {
-      console.error('[ask-luna] surf forecast error:', err.message);
-      surfResult = { ok: false, answer: ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER, unavailable: true };
-    }
-    return sendJSON(res, 200, {
-      success:            true,
-      client_slug:        clientSlug,
-      source,
-      staff_access:       staffAccess,
-      intent:             intentKey,
-      category:           'forecast',
-      query_day:          day,
-      answer:             surfResult.answer,
-      rows:               [],
-      row_count:          0,
-      read_only:          true,
-      no_write_performed: true,
-      sends_whatsapp:     false,
-      surf_forecast_unavailable: surfResult.unavailable === true,
-      surf_forecast_source: surfResult.source || (surfResult.unavailable ? null : 'stormglass'),
-      elapsed_ms:         Date.now() - started,
-      ...askLunaIntentMeta(resolution),
-    });
-  }
-
-  if (ASK_LUNA_LOCAL_QUERY[intentKey]) {
-    const today = extraParams.date || askLunaTodayUTC();
-    const fmtCtx = {
-      date: today,
-      dateLabel: extraParams.dateLabel || 'today',
-      serviceCategory: extraParams.serviceCategory,
-      flow: extraParams.flow,
-      nightLabel: extraParams.nightLabel,
-      lookupMode: extraParams.lookupMode,
-      lookupFocus: extraParams.lookupFocus,
-      searchValue: extraParams.searchValue,
-      roomCode: extraParams.roomCode,
-      bedCode: extraParams.bedCode,
-    };
-    let localRows = [];
-    try {
-      let sql;
-      let queryParams;
-      if (intentKey === 'bookings.lookup') {
-        const bundle = buildAskLunaBookingLookupQuery(extraParams, clientSlug);
-        sql = bundle.sql;
-        queryParams = bundle.params;
-      } else {
-        sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
-        queryParams = [clientSlug, today];
-      }
-      localRows = await withPgClient(async (pgClient) => {
-        const result = await pgClient.query(sql, queryParams);
-        return result.rows;
-      });
-    } catch (err) {
-      console.error('[ask-luna] DB error:', err.message);
-      return sendJSON(res, 500, {
-        success: false, error: 'query_error', detail: err.message,
-      });
-    }
-    const answer = formatAnswer(intentKey, localRows, fmtCtx);
-    const category = intentKey.startsWith('services.') ? 'services'
-      : intentKey.startsWith('check_ins') ? 'arrivals'
-      : (intentKey.startsWith('check_outs') || intentKey === 'departures_today') ? 'departures'
-      : 'rooming';
-    return sendJSON(res, 200, {
-      success:            true,
-      client_slug:        clientSlug,
-      source,
-      staff_access:       staffAccess,
-      intent:             intentKey,
-      category,
-      query_date:         today,
-      answer,
-      rows:               localRows.slice(0, MAX_ROWS),
-      row_count:          localRows.length,
-      read_only:          true,
-      no_write_performed: true,
-      sends_whatsapp:     false,
-      elapsed_ms:         Date.now() - started,
-      ...askLunaIntentMeta(resolution),
-    });
-  }
-
-  if (intentKey === 'payments.balance_due') {
-    let balanceRows = [];
-    try {
-      balanceRows = await withPgClient((pgClient) => computeBalanceDueRows(pgClient, clientSlug));
-    } catch (err) {
-      console.error('[ask-luna] DB error:', err.message);
-      return sendJSON(res, 500, {
-        success: false, error: 'query_error', detail: err.message,
-      });
-    }
-    const { answer, answer_format_source } = await formatBalanceDueAnswerNatural(balanceRows);
-    return sendJSON(res, 200, {
-      success:            true,
-      client_slug:        clientSlug,
-      source,
-      staff_access:       staffAccess,
-      intent:             intentKey,
-      category:           'payments',
-      answer,
-      answer_format_source,
-      rows:               balanceRows.slice(0, MAX_ROWS),
-      row_count:          balanceRows.length,
-      read_only:          true,
-      no_write_performed: true,
-      sends_whatsapp:     false,
-      elapsed_ms:         Date.now() - started,
-      ...askLunaIntentMeta(resolution),
-    });
-  }
-
-  if (intentKey === 'handoffs.open' || intentKey === 'handoffs.urgent') {
-    let handoffRows = [];
-    try {
-      handoffRows = await withPgClient((pgClient) =>
-        fetchAskLunaHandoffRows(pgClient, clientSlug, intentKey));
-    } catch (err) {
-      console.error('[ask-luna] DB error:', err.message);
-      return sendJSON(res, 500, {
-        success: false, error: 'query_error', detail: err.message,
-      });
-    }
-    const answer = formatAskLunaHandoffsAnswer(intentKey, handoffRows);
-    return sendJSON(res, 200, {
-      success:            true,
-      client_slug:        clientSlug,
-      source,
-      staff_access:       staffAccess,
-      intent:             intentKey,
-      category:           'handoffs',
-      answer,
-      rows:               handoffRows.slice(0, MAX_ROWS),
-      row_count:          handoffRows.length,
-      read_only:          true,
-      no_write_performed: true,
-      sends_whatsapp:     false,
-      elapsed_ms:         Date.now() - started,
-      ...askLunaIntentMeta(resolution),
-    });
-  }
-
-  const registryEntry = getEntry(intentKey);
-
-  if (!registryEntry || registryEntry.missingHelper === true || typeof registryEntry.helperRef !== 'function') {
-    return sendJSON(res, 200, {
-      success:           true,
-      client_slug:       clientSlug,
-      source,
-      staff_access:      staffAccess,
-      intent:            intentKey,
-      answer:            `The "${intentKey}" query helper is not yet available (migration or implementation pending).`,
-      rows:              [],
-      row_count:         0,
-      read_only:         true,
-      no_write_performed: true,
-      sends_whatsapp:    false,
-      elapsed_ms:        Date.now() - started,
-      ...askLunaIntentMeta(resolution),
-    });
-  }
-
-  // ── Execute (SELECT only, no writes) ──────────────────────────────────────
-  const queryObj   = { client: clientSlug, ...extraParams };
-  const { params } = resolveParams(registryEntry, clientSlug, queryObj);
-
-  let rows = [];
-  try {
-    const sql = registryEntry.helperRef();
-    rows = await withPgClient(async (pgClient) => {
-      const result = await pgClient.query(sql, params);
-      return result.rows;
-    });
-  } catch (err) {
-    console.error('[ask-luna] DB error:', err.message);
-    return sendJSON(res, 500, {
-      success: false, error: 'query_error', detail: err.message,
-    });
-  }
-
-  const answer = formatAnswer(intentKey, rows);
-  const elapsed = Date.now() - started;
-
-  sendJSON(res, 200, {
-    success:            true,
-    client_slug:        clientSlug,
+  const result = await executeStaffAskLunaQuestion({
+    client_slug: clientSlug,
+    question,
     source,
-    staff_access:       staffAccess,
-    intent:             intentKey,
-    category:           registryEntry.category,
-    answer,
-    rows:               rows.slice(0, MAX_ROWS),
-    row_count:          rows.length,
-    read_only:          true,
-    no_write_performed: true,
-    sends_whatsapp:     false,
-    elapsed_ms:         elapsed,
-    ...askLunaIntentMeta(resolution),
+    staff_access: staffAccess,
   });
+
+  if (!result.success) {
+    const status = result.error === 'query_error' ? 500 : 400;
+    return sendJSON(res, status, {
+      success: false,
+      error: result.error,
+      detail: result.detail,
+      sends_whatsapp: false,
+    });
+  }
+
+  return sendJSON(res, 200, result);
 }
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function readBody(req) {
@@ -13252,7 +12135,7 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
           SET payment_kind = $1::payment_kind,
               amount_due_cents = $2,
               amount_paid_cents = 0,
-              metadata = metadata || $3::jsonb
+              metadata = (metadata || $3::jsonb) - 'note'
         WHERE id = $4::uuid`,
       [paymentKind, amountDueCents, JSON.stringify({
         source: 'staff_manual_stripe',
@@ -13339,7 +12222,7 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
             expires_at = $3,
             amount_due_cents = $4,
             amount_paid_cents = 0,
-            metadata = metadata || $5::jsonb
+            metadata = (metadata || $5::jsonb) - 'note'
       WHERE id = $6::uuid`,
     [session.id, session.url, expiresAt, amountDueCents, JSON.stringify({
       stripe_session_id: session.id,
@@ -13493,9 +12376,13 @@ async function handleManualBookingCreate(req, res, user) {
   const paymentLinkAmountCents = manualBookingAmountDueForStaffChoice(
     staffPayChoice, depositCents, totalCents,
   ) || quote.payment_link_amount_cents;
-  const sqlDepositCents = (staffPayChoice === 'no_payment_yet'
+  const sqlDepositCents = (
+    staffPayChoice === 'no_payment_yet'
     || staffPayChoice === 'paid_cash'
-    || staffPayChoice === 'paid_bank_transfer')
+    || staffPayChoice === 'paid_bank_transfer'
+    || staffPayChoice === 'stripe_deposit'
+    || staffPayChoice === 'stripe_full'
+  )
     ? 0
     : depositCents;
   const prePaidCents = (staffPayChoice === 'paid_cash' || staffPayChoice === 'paid_bank_transfer')
@@ -13557,7 +12444,7 @@ async function handleManualBookingCreate(req, res, user) {
           roomPref,          // $15
           bookingStatus,     // $16
           paymentStatus,     // $17
-          sqlDepositCents,   // $18 — 0 skips draft payment for no_payment / paid paths
+          sqlDepositCents,   // $18 — 0 skips legacy SQL draft; payment rows from applyStaffPaymentChoice
           totalCents,        // $19
           source,            // $20
           reason,            // $21
@@ -13618,39 +12505,13 @@ async function handleManualBookingCreate(req, res, user) {
           ]
         );
 
-        if (staffPayChoice === 'stripe_deposit' || staffPayChoice === 'stripe_full') {
-          const pmUpdate = await pg.query(
-            `UPDATE payments
-               SET payment_kind      = $1::payment_kind,
-                   amount_due_cents  = $2,
-                   amount_paid_cents = 0,
-                   metadata          = metadata || $3::jsonb
-             WHERE booking_id = $4
-             RETURNING id AS payment_id`,
-            [
-              paymentKind,
-              paymentLinkAmountCents,
-              JSON.stringify({
-                payment_choice:            staffPayChoice,
-                quote_total_cents:         totalCents,
-                payment_link_amount_cents: paymentLinkAmountCents,
-                source:                    'staff_manual_stage106d',
-              }),
-              result.booking_id,
-            ],
-          );
-          result._payment_id = pmUpdate.rows.length > 0 ? pmUpdate.rows[0].payment_id : null;
-        } else {
-          result._payment_id = null;
-        }
-
         let payOutcome;
         try {
           payOutcome = await manualBookingApplyStaffPaymentChoice(pg, {
             staffPaymentChoice: staffPayChoice,
             paidAmountType,
             paidAmountCustomCents,
-            paymentId: result._payment_id,
+            paymentId: null,
             bookingId: result.booking_id,
             bookingCode: result.booking_code,
             clientSlug,
@@ -13664,7 +12525,7 @@ async function handleManualBookingCreate(req, res, user) {
             checkOut,
           });
           result._pay_outcome = payOutcome;
-          result._payment_id = payOutcome.payment_id || result._payment_id;
+          result._payment_id = payOutcome.payment_id || null;
         } catch (payErr) {
           await pg.query('ROLLBACK');
           result._payment_failed = true;
@@ -13893,9 +12754,9 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .tab-btn:hover{color:var(--text)}
 .tab-btn.active{color:var(--primary);border-bottom-color:var(--sage)}
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-#wrap{max-width:1200px;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 118px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
-#tab-conversations.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 118px);overflow:hidden;box-sizing:border-box}
-#tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden}
+#wrap{max-width:1200px;width:100%;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 118px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
+#tab-conversations.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 118px);overflow:hidden;box-sizing:border-box;width:100%}
+#tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden;width:100%;max-width:1200px;align-self:stretch}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
@@ -13917,19 +12778,30 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .pill-blue{background:#DCE7EE;color:#4E6A7B;border-color:#CBDBE5}      /* neutral — dusty blue */
 .pill-green{background:#DCEAD2;color:#5C7350;border-color:#CADCBE}     /* confirmed — sage */
 .pill-grey{background:#E8E5DE;color:#83897F;border-color:#DDD8CE}      /* cancelled — pale warm gray */
+.pill-luna{background:#D5E5EF;color:#3F6070;border-color:#7AAABB}       /* Luna — calendar blue */
+.pill-staff-source{background:#DCEAD2;color:#5C7350;border:1px solid #CADCBE;border-left:3px solid #B5D3AD} /* Staff — soft sage green */
+.pill-clear-conv{background:#E8DFD0;color:#6B5E4A;border-color:#D4C4AE;cursor:pointer;font-family:inherit}
+.pill-clear-conv:hover{background:#DDD2C0}
 /* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
-.inbox-two-col{display:flex;flex:1;min-height:0;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
-.inbox-left{width:300px;flex-shrink:0;min-height:0;height:100%;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
-.inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0;background:var(--surface-soft)}
+.inbox-two-col{display:flex;flex:1 1 0;width:100%;min-width:0;min-height:0;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;align-self:stretch}
+.inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
+.inbox-left-toolbar{padding:12px 14px;border-bottom:1px solid var(--border-soft);display:flex;flex-direction:column;gap:10px;flex-shrink:0;background:var(--surface-soft)}
+.inbox-toolbar-top{display:flex;align-items:center;gap:8px;width:100%}
+.inbox-client-select{font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);flex:1;min-width:0}
+.inbox-refresh-btn{margin-left:auto;flex-shrink:0;padding:6px 12px;font-size:11px}
 .inbox-ro-note{flex-shrink:0}
 .inbox-left-rows{flex:1 1 0;min-height:0;height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;scrollbar-gutter:stable}
 #conv-list.conv-list{min-height:0;overflow:visible}
 .inbox-left-scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #inbox-state{flex-shrink:0}
 /* ── Conversation cards (left list) ──────────────────────────────────────── */
-.conv-card{padding:13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s;position:relative}
-.conv-card:hover{background:var(--surface-soft)}
+.conv-card{padding:13px 16px 13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s,border-color .14s;position:relative;padding-right:28px}
+.conv-card:hover{background:var(--surface-soft);border-color:var(--tan)}
 .conv-card.selected{background:var(--teal);border-left:3px solid var(--sage)}
+.conv-card-delete{position:absolute;top:8px;right:8px;width:20px;height:20px;border:none;border-radius:50%;background:transparent;color:var(--text-3);font-size:16px;line-height:1;cursor:pointer;padding:0;display:none;align-items:center;justify-content:center}
+.conv-card:hover .conv-card-delete{display:flex}
+.conv-card-delete:hover{background:#EFD9D0;color:#9C5742}
+.thread-section-toolbar{display:none}
 .conv-card-name{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:3px}
 .conv-card-phone{font-size:11.5px;color:var(--text-2);margin-bottom:6px}
 .conv-card-pills{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
@@ -13937,7 +12809,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .conv-list-empty{padding:24px 16px;color:var(--text-3);font-size:13px;text-align:center;font-style:italic}
 /* ── Inbox right panel ───────────────────────────────────────────────────── */
 .inbox-right{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
-.inbox-empty-right{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:var(--text-3);text-align:center;gap:10px;min-height:0}
+.inbox-empty-right{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:var(--text-3);text-align:center;gap:10px;box-sizing:border-box}
 .inbox-empty-right .main-msg{font-size:14px;font-weight:600;color:var(--text-2)}
 .inbox-empty-right .sub-msg{font-size:12.5px}
 /* ── Message Events panel (Phase 19g.10) ─────────────────────────────────── */
@@ -13958,12 +12830,12 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* Preserve helper classes used in detail JS */
 .guest-name{font-weight:600;color:var(--text)}
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
-#conv-detail{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--surface)}
-#detail-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px 20px;box-sizing:border-box}
+#conv-detail{flex:1 1 0%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--surface)}
+#detail-content{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px 20px;box-sizing:border-box}
 #detail-content.is-loading-detail .detail-layout{opacity:.72;pointer-events:none;transition:opacity .15s}
 .conv-detail-load-status{font-size:11px;color:var(--text-3);font-weight:600;white-space:nowrap}
 .conv-detail-load-status.error{color:#9C5742}
-.detail-layout-skeleton .thread-skeleton{min-height:220px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius)}
+.detail-layout-skeleton .thread-skeleton{min-height:180px;background:transparent;border:none;border-radius:0}
 .sidebar-card-skeleton{min-height:100px;background:var(--surface-soft);border-radius:var(--radius)}
 .conv-skeleton-line{min-height:14px;background:var(--surface-soft);border-radius:4px}
 .conv-skeleton-line.short{max-width:160px;margin-top:6px}
@@ -13979,14 +12851,16 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .kv .v{font-size:13px;color:var(--text);font-weight:500}
 /* .back-btn removed — inbox is persistent two-column (no back navigation needed) */
 /* ── Detail two-column layout ────────────────────────────────────────────── */
-.detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:stretch;margin-top:14px}
-.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:stretch;margin-top:0;overflow:visible}
+.detail-main .detail-conv-toolbar{position:absolute;right:0;bottom:100%;margin-bottom:6px;display:flex;justify-content:flex-end;padding:0;z-index:1}
+.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:visible}
 .detail-sidebar{width:280px;flex-shrink:0;align-self:stretch;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 @media(max-width:860px){.detail-layout{flex-direction:column}.detail-sidebar{width:100%;max-height:240px}}
 /* ── Message thread ──────────────────────────────────────────────────────── */
-.thread-section{flex:1;min-height:0;display:flex;flex-direction:column}
+.thread-section{flex:1;min-height:0;display:flex;flex-direction:column;overflow:visible}
 .thread-section h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;flex-shrink:0}
-.thread{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:18px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius)}
+.thread{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px}
+.thread-messages{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .msg{display:flex;flex-direction:column;max-width:78%}
 .msg.inbound{align-self:flex-start}
 .msg.outbound{align-self:flex-end}
@@ -14037,6 +12911,15 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* ── Sidebar cards ───────────────────────────────────────────────────────── */
 .sidebar-card{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:14px}
 .sidebar-card h3{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px}
+.inbox-booking-stack{display:flex;flex-direction:column;gap:10px}
+.inbox-booking-stack-item{border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:12px 14px;background:var(--surface);transition:filter .15s,box-shadow .15s}
+.inbox-booking-stack-item:hover{filter:brightness(.95);box-shadow:0 2px 8px rgba(68,80,74,.12)}
+.inbox-booking-stack-item.inbox-booking-luna{border-color:#7AAABB;background:#D5E5EF}
+.inbox-booking-stack-item.inbox-booking-staff{border-color:#CADCBE;background:#DCEAD2}
+.inbox-booking-stack-item h4{font-size:12px;font-weight:700;color:var(--text-1);margin:0 0 8px}
+.inbox-booking-linked-tag{font-size:10px;font-weight:700;color:#5C7350;background:#DCEAD2;border:1px solid #CADCBE;border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
+.inbox-booking-cal-link{margin-top:10px}
+.inbox-no-bookings{color:var(--text-3);font-size:12px;font-style:italic}
 .luna-auto-status{margin-bottom:12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface)}
 .luna-auto-status-paused{border-color:#E8C9A8;background:#FBF3EA}
 .luna-auto-status-label{font-size:12.5px;font-weight:700;color:var(--text)}
@@ -14097,6 +12980,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-pay-refund{background:#F3DDE8;color:#7A3A52;border:1px solid #D4A8BC}
 .bc-block-pay-link{background:#E8EEF2;color:#4A6270;border:1px solid #C5D5DE}
 .bc-block:hover{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
+.bc-block.bc-block-active,.bc-block-checkout-marker.bc-block-active{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
 .bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C}
 .bc-block-hold{background:#F2E7D3;color:#8A6F4F;border-left:3px solid #DCC8B7}
 .bc-block-payment_pending{background:#D5E5EF;color:#3F6070;border-left:3px solid #7AAABB}
@@ -14105,7 +12989,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-conflict{background:#EFD9D0;color:#9C5742;border-left:3px solid #C98B76}
 .bc-block-operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
-.bc-block-manual{background:#D5EAE3;color:#3A6657;border-left:3px solid #7ABFAD}
+.bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD}
 .bc-day-cell-turnover{position:relative;height:30px;vertical-align:middle;padding:2px 3px}
 .bc-day-cell-turnover .bc-block{position:relative;z-index:2}
 .bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(52px,34%)}
@@ -14115,7 +12999,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-checkout-marker.bc-block-hold{background:linear-gradient(90deg,rgba(217,200,183,.35) 0%,rgba(217,200,183,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-payment_pending{background:linear-gradient(90deg,rgba(122,170,187,.28) 0%,rgba(122,170,187,.08) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-needs_review{background:linear-gradient(90deg,rgba(217,160,87,.28) 0%,rgba(217,160,87,.08) 40%,transparent 75%)}
-.bc-block-checkout-marker.bc-block-manual{background:linear-gradient(90deg,rgba(122,191,173,.28) 0%,rgba(122,191,173,.08) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-manual{background:linear-gradient(90deg,rgba(181,211,173,.32) 0%,rgba(181,211,173,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-tour_operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
@@ -14140,7 +13024,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-legend-sw-operator{background:#E8DDF5;border-left-color:#B39BCB}
 .bc-legend-sw-tour_operator{background:#E8DDF5;border-left-color:#B39BCB}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
-.bc-legend-sw-manual{background:#D5EAE3;border-left-color:#7ABFAD}
+.bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input{font-size:12px;padding:5px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:130px}
@@ -14261,6 +13145,13 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .btn-danger-light:hover{background:#F0D9D2;border-color:#D9A89A}
 .btn-danger-light:disabled{opacity:.55;cursor:not-allowed}
 .ctx-booking-cancel-footer{margin-top:24px;padding-top:16px;border-top:1px solid var(--border-soft)}
+.bc-drawer-footer{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-top:24px;padding-top:16px;border-top:1px solid var(--border-soft)}
+.bc-drawer-footer-left{display:flex;flex-direction:column;align-items:flex-start;gap:6px;flex:1;min-width:0}
+.bc-drawer-footer-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-left:auto;flex-shrink:0}
+.bc-footer-conv-result{font-size:12px;max-width:320px}
+.bc-drawer-footer-wrap{margin-top:8px}
+.bc-drawer-footer-wrap .bc-cancel-confirm-inline{width:100%;margin-top:12px}
+.bc-drawer-footer-wrap #bc-cancel-result{width:100%;text-align:right}
 .bc-cancel-confirm-inline:empty{display:none}
 .bc-cancel-confirm,.bc-cancel-confirm-inline .bc-cancel-confirm{margin-top:12px;padding:12px 14px;background:#FBF7F0;border:1px solid #E6C7BC;border-radius:var(--radius-sm);max-width:440px}
 .bc-cancel-confirm-title{font-size:13px;font-weight:700;color:#9C5742;margin-bottom:8px}
@@ -14473,13 +13364,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <!-- LEFT: conversation list + filters -->
     <div class="inbox-left" id="inbox-card">
       <div class="inbox-left-toolbar">
-        <div class="inbox-filters">
-          <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all">All conversations</button>
-          <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human">Needs human <span class="hq-count" id="hq-badge">0</span></button>
+        <div class="inbox-toolbar-top">
+          <select id="c-client" title="Company" class="inbox-client-select"></select>
+          <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" title="Refresh conversation list">&#8635;</button>
         </div>
-        <span id="inbox-count" style="font-size:11px;color:var(--text-3);flex:1"></span>
-        <button class="btn btn-primary" id="btn-refresh" style="padding:6px 12px;font-size:11px">&#8635;</button>
-        <input id="c-client" value="wolfhouse-somo" title="Company slug" style="width:100%;font-size:11px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">
+        <div class="inbox-filters">
+          <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all">All Conversations</button>
+          <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human">Needs Human <span class="hq-count" id="hq-badge">0</span></button>
+        </div>
       </div>
       <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
       <div id="inbox-state" class="state-msg" style="padding:8px 14px;display:none;flex-shrink:0">Loading conversations&hellip;</div>
@@ -14608,7 +13500,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span style="font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Legend:</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span>Luna</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Staff</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span>Tour operator</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span>Tour</span>
     </div>
 
     <!-- Warnings -->
@@ -14699,45 +13591,6 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
-    <!-- Section: Payment (Stage 8.7.18 — compact left-aligned) -->
-    <div class="bk-form-section">
-      <div class="bk-form-section-title">Payment</div>
-      <div class="bk-compact-grid">
-        <div class="bk-compact-row">
-          <label class="bk-label" for="bk-payment-choice">Payment choice</label>
-          <select id="bk-payment-choice" class="bk-input bk-input-sm">
-            <option value="stripe_deposit">Stripe deposit link</option>
-            <option value="stripe_full">Stripe full payment link</option>
-            <option value="paid_cash">Already paid cash</option>
-            <option value="paid_bank_transfer">Already paid bank transfer</option>
-            <option value="no_payment_yet">No payment yet</option>
-          </select>
-        </div>
-        <div class="bk-compact-row" id="bk-paid-amount-type-row" style="display:none">
-          <label class="bk-label" for="bk-paid-amount-type">Paid amount</label>
-          <select id="bk-paid-amount-type" class="bk-input bk-input-sm">
-            <option value="deposit">Deposit</option>
-            <option value="full">Full invoice total</option>
-            <option value="custom">Custom amount</option>
-          </select>
-        </div>
-        <div class="bk-compact-row" id="bk-paid-amount-custom-row" style="display:none">
-          <label class="bk-label" for="bk-paid-amount-custom">Custom paid amount (&euro;)</label>
-          <input type="number" id="bk-paid-amount-custom" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0.01">
-        </div>
-        <div class="bk-compact-hint" id="bk-payment-choice-hint">Stripe links are created at booking save &mdash; nothing is sent automatically.</div>
-      </div>
-    </div>
-
-    <!-- Section: Notes -->
-    <div class="bk-form-section">
-      <div class="bk-form-section-title">Notes</div>
-      <div class="bk-notes-block">
-        <label class="bk-label" for="bk-notes">Staff notes</label>
-        <textarea id="bk-notes" class="bk-input" rows="3" placeholder="Internal booking notes..."></textarea>
-      </div>
-    </div>
-
     <!-- Section: Add-ons (Stage 8.4.7 — qty &gt; 0 selects add-on; Stage 8.7.15) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Add-ons</div>
@@ -14786,6 +13639,45 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <div class="bk-ao-note">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate. Enter a quantity &gt; 0 to include an add-on.</div>
     </div>
 
+    <!-- Section: Payment (Stage 8.7.18 — compact left-aligned) -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Payment</div>
+      <div class="bk-compact-grid">
+        <div class="bk-compact-row">
+          <label class="bk-label" for="bk-payment-choice">Payment choice</label>
+          <select id="bk-payment-choice" class="bk-input bk-input-sm">
+            <option value="stripe_deposit">Stripe deposit link</option>
+            <option value="stripe_full">Stripe full payment link</option>
+            <option value="paid_cash">Already paid cash</option>
+            <option value="paid_bank_transfer">Already paid bank transfer</option>
+            <option value="no_payment_yet">No payment yet</option>
+          </select>
+        </div>
+        <div class="bk-compact-row" id="bk-paid-amount-type-row" style="display:none">
+          <label class="bk-label" for="bk-paid-amount-type">Paid amount</label>
+          <select id="bk-paid-amount-type" class="bk-input bk-input-sm">
+            <option value="deposit">Deposit</option>
+            <option value="full">Full invoice total</option>
+            <option value="custom">Custom amount</option>
+          </select>
+        </div>
+        <div class="bk-compact-row" id="bk-paid-amount-custom-row" style="display:none">
+          <label class="bk-label" for="bk-paid-amount-custom">Custom paid amount (&euro;)</label>
+          <input type="number" id="bk-paid-amount-custom" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0.01">
+        </div>
+        <div class="bk-compact-hint" id="bk-payment-choice-hint">Stripe links are created at booking save &mdash; nothing is sent automatically.</div>
+      </div>
+    </div>
+
+    <!-- Section: Notes -->
+    <div class="bk-form-section">
+      <div class="bk-form-section-title">Notes</div>
+      <div class="bk-notes-block">
+        <label class="bk-label" for="bk-notes">Staff notes</label>
+        <textarea id="bk-notes" class="bk-input" rows="3" placeholder="Internal booking notes..."></textarea>
+      </div>
+    </div>
+
     <!-- Section: Quote Preview (Stage 8.4.5 — calls /staff/quote-preview, no writes) -->
     <div class="bk-form-section">
       <div class="bk-form-section-title">Quote Preview</div>
@@ -14796,19 +13688,19 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
     <!-- Actions -->
     <div class="bc-sel-actions" style="margin-top:16px">
-      <button class="btn btn-ghost" id="bc-sel-clear">Clear selection</button>
-      <button class="btn btn-bc-create-soft" disabled id="bc-sel-create"
-        title="Calculate Quote first, then fill required fields to create.">
-        Create New Booking
-      </button>
+      <button class="btn btn-ghost" id="bc-sel-clear">Clear Selection</button>
       <button class="btn btn-bc-quote-soft" disabled id="bc-sel-quote"
         title="Select beds, dates, and package to calculate quote">
         Calculate Quote
       </button>
+      <button class="btn btn-bc-create-soft" disabled id="bc-sel-create"
+        title="Calculate Quote first, then fill required fields to create.">
+        Create New Booking
+      </button>
     </div>
     <!-- Stage 8.4.8: Create result panel -->
     <div id="bc-create-result" style="margin-top:12px"></div>
-    <div class="bk-preview-create-note" id="bc-create-note">Set MANUAL_BOOKING_ENABLED=true and STAFF_ACTIONS_ENABLED=true to enable booking creation.</div>
+    <div class="bk-preview-create-note" id="bc-create-note" style="display:none"></div>
   </div>
 
   <!-- Tour Operator Block skeleton (Stage 8.3q — moved to Tour Operator tab in Stage 8.3u) -->
@@ -15190,7 +14082,57 @@ function applyInboxFilter(opts){
 }
 
 function getClient(){
-  return (el('c-client').value || 'wolfhouse-somo').trim();
+  var sel = el('c-client');
+  if (sel && sel.value) return sel.value.trim();
+  return 'wolfhouse-somo';
+}
+
+function syncBcClientFromInbox(){
+  var bc = el('bc-client');
+  if (bc) bc.value = getClient();
+}
+
+var staffPortalSession = { auth_required: false, role: 'owner', clients: [] };
+
+function staffIsAdmin(){
+  if (staffPortalSession.auth_required === false) return true;
+  var r = staffPortalSession.role || '';
+  return r === 'admin' || r === 'owner';
+}
+
+function populateClientSelect(clients, preferredSlug){
+  var sel = el('c-client');
+  if (!sel) return;
+  var list = clients && clients.length ? clients : [{ slug: 'wolfhouse-somo', name: 'wolfhouse-somo' }];
+  var html = list.map(function(c){
+    return '<option value="' + escHtml(c.slug) + '">' + escHtml(c.name || c.slug) + '</option>';
+  }).join('');
+  sel.innerHTML = html;
+  var pick = preferredSlug || localStorage.getItem('staff_portal_client') || list[0].slug;
+  if (!list.some(function(c){ return c.slug === pick; })) pick = list[0].slug;
+  sel.value = pick;
+  syncBcClientFromInbox();
+}
+
+function initStaffPortalSession(){
+  return fetch('/staff/auth/session', { headers: { Accept: 'application/json' } })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || !data.success){
+        populateClientSelect(null);
+        return;
+      }
+      staffPortalSession = {
+        auth_required: data.auth_required !== false,
+        role: data.role || 'viewer',
+        email: data.email || null,
+        clients: data.clients || [],
+      };
+      populateClientSelect(data.clients);
+    })
+    .catch(function(){
+      populateClientSelect(null);
+    });
 }
 
 function buildMessageEventsUrl(){
@@ -15533,16 +14475,42 @@ function wireHandoffsQueuePanel(){
   }
 }
 
-/* Priority badge — Needs human only (no URGENT pill in normal Inbox UI) */
-function priorityPill(conv){
-  if (conv.needs_human)
-    return '<span class="pill pill-orange">NEEDS HUMAN</span>';
-  if (conv.handoff_status === 'open')
-    return '<span class="pill pill-blue">HANDOFF</span>';
-  return '<span class="pill pill-grey">BOT</span>';
+/* Status pebbles — Luna/Staff always; Needs Human optional second pill */
+function convSourcePill(conv){
+  conv = conv || {};
+  var paused = conv.luna_paused === true || conv.luna_paused === 't';
+  if (paused){
+    return '<span class="pill pill-staff-source conv-list-status-pill">Staff</span>';
+  }
+  return '<span class="pill pill-luna conv-list-status-pill">Luna</span>';
 }
 
-/* Mode badge */
+function convListPill(conv){
+  conv = conv || {};
+  var html = convSourcePill(conv);
+  if (conv.needs_human){
+    html += '<span class="pill pill-orange conv-list-status-pill conv-list-needs-human-pill">Needs Human</span>';
+  }
+  return html;
+}
+
+function convHeaderStatusPillsHtml(conv, lunaPaused){
+  var html = inboxLunaStaffPill(lunaPaused);
+  if (conv && conv.needs_human){
+    html += '<span class="pill pill-orange" id="conv-needs-human-pill">Needs Human</span>';
+  }
+  return html;
+}
+
+/* Inbox header — Luna active vs Staff (pause Luna) source pebble */
+function inboxLunaStaffPill(paused){
+  if (paused){
+    return '<span class="pill pill-staff-source" id="conv-luna-staff-pill">Staff</span>';
+  }
+  return '<span class="pill pill-luna" id="conv-luna-staff-pill">Luna</span>';
+}
+
+/* Mode badge (legacy — prefer inboxLunaStaffPill in Inbox detail header) */
 function modePill(mode){
   if (mode === 'staff') return '<span class="pill pill-orange">STAFF</span>';
   if (mode === 'paused') return '<span class="pill pill-grey">PAUSED</span>';
@@ -15618,37 +14586,49 @@ function updateLunaPauseUiInPlace(targetEl, paused){
       : 'Automation status: active.';
   }
   if (sw) sw.checked = !!paused;
+  var nhToggle = targetEl.querySelector('#conv-needs-human-toggle');
+  var needsHuman = nhToggle ? nhToggle.checked : false;
+  var hdrPills = targetEl.querySelector('.detail-header-pills');
+  if (hdrPills){
+    hdrPills.innerHTML = convHeaderStatusPillsHtml({ needs_human: needsHuman }, paused);
+  }
 }
 
-function updateInboxConvCardNeedsHuman(convId, needsHuman){
+function patchInboxConvRow(convId, patch){
+  if (!inboxConversationsCache) return;
+  inboxConversationsCache = inboxConversationsCache.map(function(row){
+    var id = row.conversation_id || row.id;
+    if (id === convId) return Object.assign({}, row, patch);
+    return row;
+  });
+}
+
+function updateInboxConvCardStatusPills(convId){
   var row = (inboxConversationsCache || []).find(function(c){
     return (c.conversation_id || c.id) === convId;
   });
-  if (row) row.needs_human = needsHuman;
   var card = el('conv-list') && el('conv-list').querySelector('.conv-card[data-id="' + convId + '"]');
-  if (!card) return;
+  if (!card || !row) return;
   var pills = card.querySelector('.conv-card-pills');
-  if (pills && row) pills.innerHTML = priorityPill(row);
+  if (pills) pills.innerHTML = convListPill(row);
+}
+
+function updateInboxConvCardNeedsHuman(convId, needsHuman){
+  patchInboxConvRow(convId, { needs_human: needsHuman });
+  updateInboxConvCardStatusPills(convId);
+}
+
+function updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused){
+  var hdrPills = targetEl.querySelector('.detail-header-pills');
+  if (hdrPills){
+    hdrPills.innerHTML = convHeaderStatusPillsHtml({ needs_human: needsHuman }, lunaPaused);
+  }
 }
 
 function updateNeedsHumanBadgeInPlace(targetEl, needsHuman){
-  var pill = targetEl.querySelector('#conv-needs-human-pill');
-  if (needsHuman){
-    if (pill){
-      pill.style.display = '';
-    } else {
-      var hdr = targetEl.querySelector('.detail-header > div:last-child');
-      if (hdr && !targetEl.querySelector('#conv-needs-human-pill')){
-        var sp = document.createElement('span');
-        sp.className = 'pill pill-orange';
-        sp.id = 'conv-needs-human-pill';
-        sp.textContent = 'NEEDS HUMAN';
-        hdr.appendChild(sp);
-      }
-    }
-  } else if (pill){
-    pill.style.display = 'none';
-  }
+  var pauseSw = targetEl.querySelector('#luna-pause-switch');
+  var lunaPaused = pauseSw ? pauseSw.checked : false;
+  updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused);
 }
 
 function refreshInboxListPreserveDetail(convId){
@@ -15764,9 +14744,9 @@ function buildConvDetailSkeleton(){
     '<span id="conv-detail-load-status" class="conv-detail-load-status">Loading\u2026</span></div>' +
     '<div class="detail-layout detail-layout-skeleton">' +
     '<div class="detail-main">' +
-    '<div class="thread-section"><div class="thread thread-skeleton"></div></div>' +
+    '<div class="thread-section"><div class="thread"><div class="thread-messages thread-skeleton"></div></div></div>' +
     '<div class="draft-panel"><div class="draft-label">' +
-    '<span style="font-size:11px;color:var(--text-3)">Review and send reply</span></div></div></div>' +
+    '<span style="font-size:11px;color:var(--text-3)">Reply:</span></div></div></div>' +
     '<div class="detail-sidebar"><div class="sidebar-card sidebar-card-skeleton"></div></div></div>';
 }
 
@@ -15795,12 +14775,11 @@ var bcLastBookingContext = null;
 function bcResolveConversationId(data){
   data = data || bcLastBookingContext || {};
   if (data.conversation && data.conversation.conversation_id) return data.conversation.conversation_id;
-  var phone = data.booking && data.booking.phone;
-  if (phone && inboxConversationsCache && inboxConversationsCache.length){
-    var match = inboxConversationsCache.find(function(c){ return c.phone === phone; });
-    if (match && match.conversation_id) return match.conversation_id;
-  }
   return null;
+}
+
+function bcHasLinkedConversation(data){
+  return !!bcResolveConversationId(data);
 }
 
 function bcShowOpenConversationStatus(msg){
@@ -15808,7 +14787,65 @@ function bcShowOpenConversationStatus(msg){
   if (statusEl) statusEl.textContent = msg || '';
 }
 
-function bcOpenConversationFromBooking(data){
+function bcStartConversationFromBooking(data){
+  data = data || bcLastBookingContext;
+  if (!data || !data.booking) return;
+  var bk = data.booking;
+  var resultEl = el('bc-new-conversation-result');
+  var toolbarBtn = el('bc-open-conversation-toolbar');
+  var footerBtn = el('bc-new-conversation-btn');
+  var openBtn = el('bc-open-conv-btn');
+  var buttons = [toolbarBtn, footerBtn, openBtn].filter(Boolean);
+  if (buttons.some(function(b){ return b.disabled; })) return;
+  buttons.forEach(function(b){ b.disabled = true; });
+  bcShowOpenConversationStatus('Starting conversation\u2026');
+  if (resultEl) resultEl.textContent = 'Starting conversation\u2026';
+  var client = getBcClient() || getClient();
+  var idemKey = 'booking-drawer-conv-' + (bk.booking_id || bk.booking_code || 'unknown');
+  fetch('/staff/bookings/create-conversation?client=' + encodeURIComponent(client), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      client_slug: client,
+      booking_id: bk.booking_id || undefined,
+      booking_code: bk.booking_code || undefined,
+      idempotency_key: idemKey,
+      reason: 'Created from booking drawer',
+    }),
+  })
+    .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
+    .then(function(res){
+      buttons.forEach(function(b){ b.disabled = false; });
+      if (!res.ok || !res.data || !res.data.success){
+        var errMsg = (res.data && res.data.error) || 'Could not start conversation';
+        bcShowOpenConversationStatus(errMsg);
+        if (resultEl){
+          resultEl.innerHTML = '<span class="state-msg error">' + escHtml(errMsg) + '</span>';
+        }
+        return;
+      }
+      bcShowOpenConversationStatus('');
+      if (resultEl) resultEl.textContent = '';
+      var convId = res.data.conversation_id;
+      if (!convId) return;
+      bcLastBookingContext = Object.assign({}, data, {
+        conversation: { conversation_id: convId, phone: bk.phone || null },
+      });
+      bcSyncConversationButtons(bcLastBookingContext);
+      openInboxToConversation(convId);
+    })
+    .catch(function(e){
+      buttons.forEach(function(b){ b.disabled = false; });
+      var errMsg = e.message || 'Network error';
+      bcShowOpenConversationStatus(errMsg);
+      if (resultEl){
+        resultEl.innerHTML = '<span class="state-msg error">' + escHtml(errMsg) + '</span>';
+      }
+    });
+}
+
+function bcOpenOrStartConversationFromBooking(data){
   data = data || bcLastBookingContext;
   var convId = bcResolveConversationId(data);
   if (convId){
@@ -15816,20 +14853,43 @@ function bcOpenConversationFromBooking(data){
     openInboxToConversation(convId);
     return;
   }
-  bcShowOpenConversationStatus('No conversation found for this booking.');
+  bcStartConversationFromBooking(data);
+}
+
+function bcSyncConversationButtons(data){
+  if (data) bcLastBookingContext = data;
+  var ctx = data || bcLastBookingContext;
+  var toolbarBtn = el('bc-open-conversation-toolbar');
+  if (!ctx){
+    if (toolbarBtn){
+      toolbarBtn.textContent = 'Start Conversation';
+      toolbarBtn.disabled = true;
+      toolbarBtn.onclick = null;
+    }
+    return;
+  }
+  var hasConv = bcHasLinkedConversation(ctx);
+  var label = hasConv ? 'Open Conversation' : 'Start Conversation';
+  var handler = function(){ bcOpenOrStartConversationFromBooking(ctx); };
+  if (toolbarBtn){
+    toolbarBtn.textContent = label;
+    toolbarBtn.disabled = false;
+    toolbarBtn.onclick = handler;
+  }
+  var openBtn = el('bc-open-conv-btn');
+  if (openBtn){
+    openBtn.textContent = 'Open Conversation';
+    openBtn.onclick = handler;
+  }
+  var startBtn = el('bc-new-conversation-btn');
+  if (startBtn){
+    startBtn.textContent = 'Start Conversation';
+    startBtn.onclick = handler;
+  }
 }
 
 function bcWireOpenConversationButtons(data){
-  if (data) bcLastBookingContext = data;
-  var handler = function(){ bcOpenConversationFromBooking(data || bcLastBookingContext); };
-  var toolbarBtn = el('bc-open-conversation-toolbar');
-  if (toolbarBtn){
-    toolbarBtn.onclick = handler;
-  }
-  var sectionBtn = el('bc-open-conv-btn');
-  if (sectionBtn){
-    sectionBtn.onclick = handler;
-  }
+  bcSyncConversationButtons(data);
 }
 
 function wireLunaPauseSwitch(convId, targetEl){
@@ -15871,6 +14931,8 @@ function wireLunaPauseSwitch(convId, targetEl){
         }
         setLunaPauseActionStatus(targetEl, '', false);
         updateLunaPauseUiInPlace(targetEl, wantPaused);
+        patchInboxConvRow(convId, { luna_paused: wantPaused });
+        updateInboxConvCardStatusPills(convId);
         sw.disabled = false;
       })
       .catch(function(err){
@@ -15891,7 +14953,6 @@ function renderInbox(convs, opts){
       : 'No conversations need review right now.';
     if (opts.preserveDetail && (opts.selectedId || selectedConvId)){
       el('inbox-state').style.display = 'none';
-      el('inbox-count').textContent = '0 conversations';
       if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
       return;
     }
@@ -15899,7 +14960,6 @@ function renderInbox(convs, opts){
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
     if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
-    el('inbox-count').textContent = '';
     selectedConvId = null;
     el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
       '<p class="main-msg">Select a conversation to review.</p>' +
@@ -15908,21 +14968,29 @@ function renderInbox(convs, opts){
     return;
   }
   el('inbox-state').style.display = 'none';
-  el('inbox-count').textContent = convs.length + ' conversation' + (convs.length===1?'':'s');
 
   var cards = convs.map(function(c){
-    var handoff = c.handoff_reason ? handoffLabel(c.handoff_reason) : '';
+    var delBtn = staffIsAdmin()
+      ? '<button type="button" class="conv-card-delete" title="Delete conversation" aria-label="Delete conversation">&times;</button>'
+      : '';
     return '<div class="conv-card" data-id="' + escHtml(c.conversation_id) + '">' +
+      delBtn +
       '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
       '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' +
-      '<div class="conv-card-pills">' + priorityPill(c) + '</div>' +
-      (handoff ? '<div class="conv-card-handoff">' + escHtml(handoff) + '</div>' : '') +
+      '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
     '</div>';
   }).join('');
 
   if (list) {
     list.innerHTML = cards;
     list.querySelectorAll('.conv-card').forEach(function(card){
+      var del = card.querySelector('.conv-card-delete');
+      if (del){
+        del.addEventListener('click', function(ev){
+          ev.stopPropagation();
+          wireDeleteConversation(card.dataset.id);
+        });
+      }
       card.addEventListener('click', function(){
         list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
         this.classList.add('selected');
@@ -15962,22 +15030,33 @@ function renderInbox(convs, opts){
 function openInboxToConversation(convId){
   if (!convId) return;
   switchToTab('conversations', 'inbox');
+  selectedConvId = convId;
+  var detailEl = el('detail-content');
+  if (detailEl){
+    el('conv-detail').classList.add('visible');
+    beginConvDetailLoad(detailEl);
+  }
   loadInbox(convId);
 }
 
 /* Load inbox — optional selectConvIdAfterLoad opens that conversation after refresh. */
-function loadInbox(selectConvIdAfterLoad){
-  el('inbox-state').textContent = 'Loading conversations\u2026';
-  el('inbox-state').classList.remove('error');
-  el('inbox-state').style.display = 'block';
-  if (el('conv-list')) el('conv-list').innerHTML = '';
-  el('inbox-count').textContent = '';
-  selectedConvId = null;
-  /* Reset right panel to empty state */
-  el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
-    '<p class="main-msg">Select a conversation to review.</p>' +
-    '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
-    '</div>';
+function loadInbox(selectConvIdAfterLoad, opts){
+  opts = opts || {};
+  var silent = !!opts.silent;
+  var preserveDetail = !!opts.preserveDetail;
+  var keepConvId = selectConvIdAfterLoad || (preserveDetail ? selectedConvId : null);
+
+  if (!silent){
+    el('inbox-state').textContent = 'Loading conversations\u2026';
+    el('inbox-state').classList.remove('error');
+    el('inbox-state').style.display = 'block';
+    if (el('conv-list')) el('conv-list').innerHTML = '';
+    selectedConvId = null;
+    el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
+      '<p class="main-msg">Select a conversation to review.</p>' +
+      '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
+      '</div>';
+  }
 
   fetch('/staff/conversations?client=' + encodeURIComponent(getClient()))
     .then(function(r){
@@ -15998,11 +15077,19 @@ function loadInbox(selectConvIdAfterLoad){
       var badge = el('hq-badge');
       if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
       if (selectConvIdAfterLoad) selectedConvId = selectConvIdAfterLoad;
-      applyInboxFilter();
+      else if (keepConvId) selectedConvId = keepConvId;
+      applyInboxFilter({
+        preserveDetail: !!(preserveDetail && !selectConvIdAfterLoad),
+        selectedId: selectedConvId,
+      });
       if (selectConvIdAfterLoad){
         var list = el('conv-list');
         var card = list && list.querySelector('.conv-card[data-id="' + selectConvIdAfterLoad + '"]');
-        if (!card) loadConvDetail(selectConvIdAfterLoad);
+        if (card){
+          list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
+          card.classList.add('selected');
+        }
+        loadConvDetail(selectConvIdAfterLoad);
       }
     })
     .catch(function(err){
@@ -16111,6 +15198,69 @@ function wireInboxSendReply(convId, phone, targetEl){
 
 /* Load conversation detail — Stage 7.7d: fetches all 5 sub-endpoints.
    targetEl: optional DOM element to render into (defaults to el('detail-content')). */
+function inboxBookingIsLunaSource(bctx){
+  bctx = bctx || {};
+  var src = String(bctx.booking_source || '').toLowerCase();
+  var metaSrc = String(bctx.metadata_source || bctx.source || '').toLowerCase();
+  var botSrc = String(bctx.bot_source || '').toLowerCase();
+  var createdBy = String(bctx.metadata_created_by || bctx.created_by || '').toLowerCase();
+  var channel = String(bctx.metadata_channel || bctx.channel || '').toLowerCase();
+  var staffSrc = String(bctx.staff_source || '').toLowerCase();
+  var hay = [src, metaSrc, botSrc, createdBy, channel, staffSrc].join('|');
+  var lunaMarkers = [
+    'luna', 'bot', 'whatsapp', 'guest_bot', 'n8n', 'bot_', 'luna_',
+    'bot_booking', 'bot_stage', 'luna_guest', 'luna_whatsapp',
+  ];
+  if (lunaMarkers.some(function(m){ return hay.indexOf(m) >= 0; })) return true;
+  if (src === 'whatsapp') return true;
+  if (src === 'manual_staff' || src === 'manual' || src === 'staff' ||
+      src === 'staff_manual' || src === 'operator' || src === 'tour_operator' ||
+      src.indexOf('operator') >= 0) return false;
+  return false;
+}
+
+function inboxBookingSourceToneClass(bctx){
+  return inboxBookingIsLunaSource(bctx) ? 'inbox-booking-luna' : 'inbox-booking-staff';
+}
+
+function renderInboxBookingStackItemHtml(bctx, guestName){
+  var linked = !!bctx.is_linked;
+  var toneCls = inboxBookingSourceToneClass(bctx);
+  var html = '<div class="inbox-booking-stack-item ' + toneCls + '">';
+  html += '<h4>' + escHtml(bctx.booking_code || 'Booking');
+  if (linked) html += ' <span class="inbox-booking-linked-tag">Linked</span>';
+  html += '</h4>';
+  html += '<div class="kv2">';
+  html +=   kv('Status',      bctx.booking_status) +
+            kv('Payment',     bctx.booking_payment_status) +
+            kv('Stay',        fmtDateOnly(bctx.check_in) + ' \u2192 ' + fmtDateOnly(bctx.check_out)) +
+            kv('Guests',      bctx.guest_count) +
+            kv('Package',     bctx.package_code) +
+            kv('Room pref',   bctx.room_preference || bctx.requested_room_type || '\u2014') +
+            kv('Assigned',    (bctx.assigned_room_code || '\u2014') + (bctx.assigned_bed_code ? ' / ' + bctx.assigned_bed_code : '')) +
+            kv('Confirm',     bctx.confirmation_sent_at ? fmtTs(bctx.confirmation_sent_at) : '\u2014');
+  html += '</div>';
+  if (bctx.payment_amount_due_cents != null){
+    html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
+    html +=   '<div style="font-size:11px;font-weight:700;color:#5a6a85;margin-bottom:6px">Payment</div>';
+    html +=   '<div class="kv2">';
+    html +=     kv('Due',    '\u20ac' + (bctx.payment_amount_due_cents / 100).toFixed(2)) +
+              kv('Paid',   '\u20ac' + ((bctx.payment_amount_paid_cents || 0) / 100).toFixed(2)) +
+              kv('Status', bctx.payment_record_status || '\u2014');
+    html +=   '</div>';
+    html += '</div>';
+  }
+  html += '<button type="button" class="inbox-booking-cal-link inbox-open-booking-cal" ' +
+    'data-booking-id="' + escHtml(bctx.booking_id || '') + '" ' +
+    'data-booking-code="' + escHtml(bctx.booking_code || '') + '" ' +
+    'data-check-in="' + escHtml(bctx.check_in || '') + '" ' +
+    'data-check-out="' + escHtml(bctx.check_out || '') + '" ' +
+    'data-guest-name="' + escHtml(bctx.booking_guest_name || guestName || '') + '">' +
+    'Open Booking in Calendar</button>';
+  html += '</div>';
+  return html;
+}
+
 function loadConvDetail(convId, targetEl){
   targetEl = targetEl || el('detail-content');
   selectedConvId = convId;
@@ -16143,6 +15293,9 @@ function loadConvDetail(convId, targetEl){
     var c     = detailData.conversation;
     var msgs  = (msgsData.success  && msgsData.messages)  ? msgsData.messages  : [];
     var ctx   = (ctxData.success   && ctxData.context)    ? ctxData.context    : null;
+    var bookingRows = (ctxData.success && ctxData.bookings && ctxData.bookings.length)
+      ? ctxData.bookings
+      : (ctx && (ctx.booking_code || ctx.booking_id) ? [ctx] : []);
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
     var state = (stateData.success && stateData.state)     ? stateData.state    : null;
     var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c, stateData, state]);
@@ -16155,9 +15308,8 @@ function loadConvDetail(convId, targetEl){
     if (c.handoff_reason) html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
     html +=     '</div>';
     html +=   '</div>';
-    html +=   '<div style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
-    html +=     modePill(c.bot_mode);
-    if (c.needs_human) html += '<span class="pill pill-orange" id="conv-needs-human-pill">NEEDS HUMAN</span>';
+    html +=   '<div class="detail-header-pills" style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
+    html +=     convHeaderStatusPillsHtml(c, lunaGuestPaused);
     html +=   '</div>';
     html += '</div>';
 
@@ -16167,9 +15319,13 @@ function loadConvDetail(convId, targetEl){
     /* ═══ LEFT — thread + draft panel ═══ */
     html += '<div class="detail-main">';
 
-    /* Message thread — no title per Stage 8.3y */
+    /* Message thread — Clear floats above box; box top aligns with Bot state */
     html += '<div class="thread-section">';
-    html +=   '<div class="thread" id="thread-container">';
+    html += '<div class="thread">';
+    html += '<div class="detail-conv-toolbar">';
+    html += '<button type="button" class="pill pill-clear-conv" id="btn-clear-conversation">Clear Conversation</button>';
+    html += '</div>';
+    html +=   '<div class="thread-messages" id="thread-container">';
     if (msgs.length === 0){
       html += '<div class="thread-empty">No message history yet &mdash; messages appear here once the guest contacts via WhatsApp.</div>';
     } else {
@@ -16183,20 +15339,17 @@ function loadConvDetail(convId, targetEl){
         html += '</div>';
       });
     }
-    html +=   '</div>'; /* /thread */
+    html +=   '</div>'; /* /thread-messages */
+    html += '</div>'; /* /thread */
     html += '</div>'; /* /thread-section */
 
     /* Reply panel — review, copy, or send via Staff API */
     var draftText = (draft && draft.draft_text) ? draft.draft_text : (c.staff_reply_draft || '');
-    var draftAvail = draftText && draftText.trim().length > 0;
 
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
-    html +=     '<span style="font-size:11px;color:var(--text-3)">Review and send reply</span>';
+    html +=     '<span style="font-size:11px;color:var(--text-3)">Reply:</span>';
     html +=   '</div>';
-    if (!draftAvail){
-      html += '<div style="color:#9aabb8;font-size:12px;font-style:italic;margin-bottom:8px">No Luna draft yet &mdash; type a reply below.</div>';
-    }
     html += '<textarea id="draft-textarea" placeholder="Edit reply before sending">' +
             escHtml(draftText) + '</textarea>';
     html += '<div class="draft-actions">';
@@ -16212,39 +15365,7 @@ function loadConvDetail(convId, targetEl){
     /* ═══ RIGHT — context sidebar ═══ */
     html += '<div class="detail-sidebar">';
 
-    /* ── 1. Booking + payment context card (shown first) ── */
-    var bctx = ctx || {};
-    html += '<div class="sidebar-card">';
-    html +=   '<h3>Booking</h3>';
-    if (!bctx.booking_code && !bctx.booking_id){
-      html += '<div style="color:#9aabb8;font-size:12px;font-style:italic">No booking linked yet.</div>';
-    } else {
-      html += '<div class="kv2">';
-      html +=   kv('Code',        bctx.booking_code) +
-                kv('Status',      bctx.booking_status) +
-                kv('Payment',     bctx.booking_payment_status) +
-                kv('Stay',        fmtDateOnly(bctx.check_in) + ' \u2192 ' + fmtDateOnly(bctx.check_out)) +
-                kv('Guests',      bctx.guest_count) +
-                kv('Package',     bctx.package_code) +
-                kv('Room pref',   bctx.room_preference || bctx.requested_room_type || '—') +
-                kv('Assigned',    (bctx.assigned_room_code || '—') + (bctx.assigned_bed_code ? ' / ' + bctx.assigned_bed_code : '')) +
-                kv('Confirm',     bctx.confirmation_sent_at ? fmtTs(bctx.confirmation_sent_at) : '—');
-      html += '</div>';
-      html += '<button type="button" class="inbox-booking-cal-link" id="inbox-open-booking-cal">Open Booking in Calendar</button>';
-      if (bctx.payment_amount_due_cents != null){
-        html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
-        html +=   '<div style="font-size:11px;font-weight:700;color:#5a6a85;margin-bottom:6px">Payment</div>';
-        html +=   '<div class="kv2">';
-        html +=     kv('Due',    '\u20ac' + (bctx.payment_amount_due_cents/100).toFixed(2)) +
-                    kv('Paid',   '\u20ac' + ((bctx.payment_amount_paid_cents||0)/100).toFixed(2)) +
-                    kv('Status', bctx.payment_record_status || '—');
-        html +=   '</div>';
-        html += '</div>';
-      }
-    }
-    html += '</div>'; /* /sidebar-card */
-
-    /* ── 2. Bot / staff state card (shown second, simplified) ── */
+    /* ── 1. Bot / staff state card ── */
     var ss = state || {};
     html += '<div class="sidebar-card">';
     html +=   '<h3>Bot state</h3>';
@@ -16256,7 +15377,7 @@ function loadConvDetail(convId, targetEl){
     html +=   '</div>';
     html +=   '<div class="bot-state-switches">';
     html +=     '<div class="inbox-switch-row">';
-    html +=       '<span class="inbox-switch-label">Needs human</span>';
+    html +=       '<span class="inbox-switch-label">Needs Human</span>';
     html +=       '<label class="inbox-switch inbox-switch-orange">';
     html +=         '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>';
     html +=         '<span class="inbox-switch-slider"></span>';
@@ -16277,9 +15398,23 @@ function loadConvDetail(convId, targetEl){
       html +=   '<div class="kv2">';
       html +=     kv('Reason',   ss.handoff_reason) +
                   kv('Priority', ss.handoff_priority) +
-                  kv('Assigned', ss.assigned_staff || '—') +
+                  kv('Assigned', ss.assigned_staff || '\u2014') +
                   kv('Opened',   fmtTs(ss.handoff_opened_at));
       html +=   '</div>';
+      html += '</div>';
+    }
+    html += '</div>'; /* /sidebar-card */
+
+    /* ── 2. Guest bookings (stacked) ── */
+    html += '<div class="sidebar-card">';
+    html +=   '<h3>Bookings</h3>';
+    if (!bookingRows.length){
+      html += '<div class="inbox-no-bookings">No bookings for this guest yet.</div>';
+    } else {
+      html += '<div class="inbox-booking-stack">';
+      bookingRows.forEach(function(bctx){
+        html += renderInboxBookingStackItemHtml(bctx, c.guest_name);
+      });
       html += '</div>';
     }
     html += '</div>'; /* /sidebar-card */
@@ -16322,19 +15457,20 @@ function loadConvDetail(convId, targetEl){
     wireInboxSendReply(convId, c.phone, targetEl);
     wireNeedsHumanToggle(convId, targetEl);
     wireLunaPauseSwitch(convId, targetEl);
+    wireClearConversation(convId, targetEl);
 
-    var calLink = targetEl.querySelector('#inbox-open-booking-cal');
-    if (calLink){
+    var calLinks = targetEl.querySelectorAll('.inbox-open-booking-cal');
+    calLinks.forEach(function(calLink){
       calLink.addEventListener('click', function(){
         openBookingInCalendar({
-          booking_id: bctx.booking_id,
-          booking_code: bctx.booking_code,
-          check_in: bctx.check_in,
-          check_out: bctx.check_out,
-          guest_name: bctx.booking_guest_name || c.guest_name,
+          booking_id: calLink.dataset.bookingId || null,
+          booking_code: calLink.dataset.bookingCode || null,
+          check_in: calLink.dataset.checkIn || null,
+          check_out: calLink.dataset.checkOut || null,
+          guest_name: calLink.dataset.guestName || c.guest_name,
         });
       });
-    }
+    });
 
     /* Scroll thread to bottom */
     var threadEl = targetEl.querySelector('#thread-container');
@@ -16399,6 +15535,69 @@ function wireNeedsHumanToggle(convId, targetEl){
   });
 }
 
+function wireClearConversation(convId, targetEl){
+  var btn = targetEl.querySelector('#btn-clear-conversation');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    if (!window.confirm('Clear the contents of this conversation?')) return;
+    btn.disabled = true;
+    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/clear-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_slug: getClient() }),
+    })
+      .then(function(r){
+        if (r.status === 401) throw new Error('Authentication required');
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        var d = out.data || {};
+        if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
+        patchInboxConvRow(convId, { last_message_preview: null });
+        loadConvDetail(convId, targetEl);
+      })
+      .catch(function(err){
+        alert(err.message || 'Could not clear conversation');
+      })
+      .finally(function(){ btn.disabled = false; });
+  });
+}
+
+function wireDeleteConversation(convId){
+  if (!convId) return;
+  if (!window.confirm('Delete this conversation permanently? This cannot be undone.')) return;
+  fetch('/staff/conversations/' + encodeURIComponent(convId) + '?client=' + encodeURIComponent(getClient()), {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  })
+    .then(function(r){
+      if (r.status === 401) throw new Error('Authentication required');
+      if (r.status === 403) throw new Error('Admin access required');
+      return r.json().then(function(data){ return { status: r.status, data: data }; });
+    })
+    .then(function(out){
+      var d = out.data || {};
+      if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
+      if (selectedConvId === convId){
+        selectedConvId = null;
+        el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
+          '<p class="main-msg">Select a conversation to review.</p>' +
+          '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
+          '</div>';
+      }
+      inboxConversationsCache = (inboxConversationsCache || []).filter(function(c){
+        return (c.conversation_id || c.id) !== convId;
+      });
+      applyInboxFilter({ preserveDetail: true, selectedId: selectedConvId });
+      var nhCount = (inboxConversationsCache || []).filter(conversationNeedsHuman).length;
+      var badge = el('hq-badge');
+      if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
+    })
+    .catch(function(err){
+      alert(err.message || 'Could not delete conversation');
+    });
+}
+
 function kv(label, val){
   return '<div class="kv"><span class="k">' + escHtml(label) + '</span><span class="v">' + escHtml(val==null?'—':String(val)) + '</span></div>';
 }
@@ -16417,11 +15616,19 @@ if (btnBack) {
   });
 }
 
-/* Refresh button */
+/* Refresh button — silent list refresh; keep open conversation */
 el('btn-refresh').addEventListener('click', function(){
-  inboxConversationsCache = null;
-  loadInbox();
+  loadInbox(selectedConvId, { silent: true, preserveDetail: true });
 });
+
+var clientSelectEl = el('c-client');
+if (clientSelectEl){
+  clientSelectEl.addEventListener('change', function(){
+    localStorage.setItem('staff_portal_client', getClient());
+    syncBcClientFromInbox();
+    loadInbox(null, { silent: true, preserveDetail: false });
+  });
+}
 
 /* Inbox filter chips (Stage 8.7.13) */
 document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
@@ -16431,8 +15638,9 @@ document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
 });
 updateInboxFilterUI();
 
-/* Auto-load inbox on page load */
-loadInbox();
+initStaffPortalSession().then(function(){
+  loadInbox();
+});
 wireInboxLeftListWheel();
 wireMessageEventsPanel();
 wireHandoffsQueuePanel();
@@ -16742,6 +15950,7 @@ var bcLastQuoteResp = null;
 var bcLastPaymentId = null;
 var bcManualCreateInFlight = false;
 var bcLastOpenedBlock = null;
+var bcCalendarBlocks = [];
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
 
@@ -17061,11 +16270,11 @@ function bcUpdateCreateButton(){
   var btn = el('bc-sel-create');
   if (!btn) return;
   var note = el('bc-create-note');
-  /* Flags must both be true (server-interpolated at page render) */
-  if (!BC_STAFF_ACTIONS || !BC_MANUAL_BOOKING){
+  /* Server gates manual create on MANUAL_BOOKING_ENABLED only (not STAFF_ACTIONS_ENABLED). */
+  if (!BC_MANUAL_BOOKING){
     btn.disabled = true;
-    btn.title    = 'Manual booking creation disabled. Set MANUAL_BOOKING_ENABLED=true and STAFF_ACTIONS_ENABLED=true.';
-    if (note) note.textContent = 'Manual booking creation disabled in this environment.';
+    btn.title    = 'Manual booking creation disabled. Set MANUAL_BOOKING_ENABLED=true.';
+    if (note){ note.textContent = ''; note.style.display = 'none'; }
     return;
   }
   var hasSelection = bcSelectedBeds.length > 0;
@@ -17076,15 +16285,21 @@ function bcUpdateCreateButton(){
   var pc           = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
   var gname        = el('bk-guest-name')     ? (el('bk-guest-name').value||'').trim() : '';
   var quoteOk      = !!bcLastQuote;
-  var ready        = hasSelection && cin && cout && gc >= 1 && pkg && pc && gname && quoteOk;
+  var missing = [];
+  if (!hasSelection) missing.push('bed selection');
+  if (!cin || !cout) missing.push('dates');
+  if (gc < 1) missing.push('guest count');
+  if (!pkg) missing.push('package');
+  if (!pc) missing.push('payment choice');
+  if (!gname) missing.push('guest name');
+  if (!quoteOk) missing.push('quote (click Calculate Quote)');
+  var ready = missing.length === 0;
   btn.disabled = !ready;
   btn.title    = ready
     ? 'Create manual booking (availability checked on click)'
-    : (!quoteOk ? 'Calculate Quote first' : 'Fill required fields: beds, dates, package, guest name, payment choice');
+    : ('Still needed: ' + missing.join(', '));
   if (note){
-    note.textContent = ready
-      ? ''
-      : (!quoteOk ? 'Calculate Quote first.' : 'Complete required fields to enable Create.');
+    note.textContent = ready ? '' : ('Still needed: ' + missing.join(', ') + '.');
     note.style.display = note.textContent ? '' : 'none';
   }
 }
@@ -17160,7 +16375,7 @@ function runManualBookingCreate(){
   var cr = el('bc-create-result');
   if (!cr) return;
   if (bcManualCreateInFlight) return;
-  if (!BC_STAFF_ACTIONS || !BC_MANUAL_BOOKING){
+  if (!BC_MANUAL_BOOKING){
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Disabled</div>Manual booking creation is disabled in this environment.</div>';
     return;
   }
@@ -17814,11 +17029,36 @@ function bcColorClass(ct){
   return 'bc-block-' + (valid.indexOf(c) >= 0 ? c : 'hold');
 }
 
+function bcMatchOpenedBlock(blk){
+  if (!bcLastOpenedBlock || !blk) return false;
+  var openId = bcLastOpenedBlock.booking_id;
+  var openCode = bcLastOpenedBlock.booking_code;
+  if (openId && blk.booking_id && String(openId) === String(blk.booking_id)) return true;
+  if (openCode && blk.booking_code && String(openCode) === String(blk.booking_code)) return true;
+  return false;
+}
+
+function bcHighlightActiveBlock(){
+  var wrap = el('bc-grid-wrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.bc-block-active').forEach(function(node){
+    node.classList.remove('bc-block-active');
+  });
+  if (!bcLastOpenedBlock) return;
+  wrap.querySelectorAll('.bc-block[data-bidx], .bc-block-checkout-marker[data-bidx]').forEach(function(node){
+    var idx = parseInt(node.dataset.bidx, 10);
+    if (!isNaN(idx) && bcCalendarBlocks[idx] && bcMatchOpenedBlock(bcCalendarBlocks[idx])){
+      node.classList.add('bc-block-active');
+    }
+  });
+}
+
 function renderBedCalendar(data){
   bcData = data;
   var days   = data.days   || [];
   var rooms  = data.rooms  || [];
   var blocks = data.blocks || [];
+  bcCalendarBlocks = blocks;
 
   /* Natural numeric room sort: R1, R2, R3 … R10 (not R1, R10, R2) */
   rooms = rooms.slice().sort(function(a, b){
@@ -17974,14 +17214,17 @@ function renderBedCalendar(data){
   /* Wire form field listeners for quote + create button enable/disable */
   ['bk-package','bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-guest-name','bk-phone'].forEach(function(fId){
     var fEl = el(fId);
-    if (fEl) fEl.onchange = function(){
+    if (!fEl) return;
+    function syncBookingFormState(){
       if (fId === 'bk-payment-choice' || fId === 'bk-paid-amount-type') {
         bcUpdateManualBookingPaidFields();
         bcRefreshQuotePreviewDisplay();
       }
       bcUpdateQuoteButton();
       bcUpdateCreateButton();
-    };
+    }
+    fEl.onchange = syncBookingFormState;
+    if (fId === 'bk-guest-name' || fId === 'bk-phone') fEl.oninput = syncBookingFormState;
   });
   var pacEl = el('bk-paid-amount-custom');
   if (pacEl) pacEl.oninput = function(){
@@ -17991,6 +17234,7 @@ function renderBedCalendar(data){
   bcUpdateManualBookingPaidFields();
   bcUpdateCreateButton();
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
+  bcHighlightActiveBlock();
 }
 
 function bcBlockVisibleOnDay(blk, dayDate){
@@ -18134,6 +17378,12 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
     bcCalendarBlockInnerHtml(blk, label) + '</div></td>';
 }
 
+function bcDrawerConvModeRowHtml(conv){
+  conv = conv || {};
+  var paused = isLunaGuestAutomationPaused([conv]);
+  return '<div class="kv"><span class="k">Bot mode</span><span class="v">' + inboxLunaStaffPill(paused) + '</span></div>';
+}
+
 function kvBC(k, v){
   return '<div class="kv"><span class="k">' + escHtml(k) + '</span>' +
          '<span class="v">' + escHtml(String(v == null ? '\u2014' : v)) + '</span></div>';
@@ -18222,18 +17472,20 @@ function showBlockDetail(blk){
   bcInitDetailCopyDelegation();
   bcClearSelection();
   bcLastOpenedBlock = blk;
+  bcLastBookingContext = null;
   el('bc-detail').innerHTML =
     '<div class="toolbar"><h2 class="bc-detail-title">' + escHtml(blk.booking_code||'\u2014') +
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
     '<div class="bc-detail-toolbar-actions">' +
     '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>' +
-    '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">Open Conversation</button>' +
+    '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">Start Conversation</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="Refresh booking details">\u21bb Refresh</button>' +
     '</div></div>' +
     '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>';
   el('bc-detail').style.display = 'block';
   el('bc-refresh-detail').addEventListener('click', bcRefreshBlockDetail);
   bcWireOpenConversationButtons(null);
+  bcHighlightActiveBlock();
   if (blk.booking_code) loadBlockDetail(blk.booking_code);
 }
 
@@ -19899,7 +19151,8 @@ function bcFieldEditFormatContactLine(obj){
   return parts.join(' \u00b7 ');
 }
 
-function bcRenderFieldEditSectionsHtml(data){
+function bcRenderFieldEditSectionsHtml(data, mode){
+  mode = mode || 'all';
   var bk = (data && data.booking) || {};
   var guestCount = Math.max(1, parseInt(bk.guest_count, 10) || 1);
   var nights = bcStayNightsFromCheckInOut(bk.check_in, bk.check_out);
@@ -19907,6 +19160,7 @@ function bcRenderFieldEditSectionsHtml(data){
   var roomPref = bk.requested_room_type || bk.room_preference;
   var html = '';
 
+  if (mode === 'all' || mode === 'before-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
   var contactKv = kvBC('Name', bk.guest_name) + kvBC('Phone', bk.phone) + kvBC('Email', bk.email);
   html += bcRenderFieldEditReadRow('contact', 'Edit contact', contactKv, 3);
@@ -19951,7 +19205,9 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
   html += bcRenderFieldEditActionsHtml('guests');
   html += '</div></div>';
+  }
 
+  if (mode === 'all' || mode === 'after-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   var packageKv = kvBC('Package', bk.package_code || '\u2014');
   if (roomPref) packageKv += kvBC('Room pref', roomPref);
@@ -19966,6 +19222,7 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '</select>';
   html += bcRenderFieldEditActionsHtml('package');
   html += '</div></div>';
+  }
 
   return html;
 }
@@ -20550,14 +19807,35 @@ function bcCloseCancelConfirm(){
   if (host) host.innerHTML = '';
 }
 
+function bcRenderBookingDrawerFooterHtml(data){
+  data = data || {};
+  var bk = data.booking || {};
+  var html = '<div class="bc-drawer-footer-wrap" id="bc-drawer-footer-wrap">';
+  html += '<div class="bc-drawer-footer" id="bc-drawer-footer">';
+  html += '<div class="bc-drawer-footer-left">';
+  if (data.conversation){
+    html += '<button type="button" class="btn btn-success-light" id="bc-open-conv-btn">Open Conversation</button>';
+  } else {
+    html += '<button type="button" class="btn btn-success-light" id="bc-new-conversation-btn" ' +
+      'data-booking-id="' + escHtml(bk.booking_id || '') + '" ' +
+      'data-booking-code="' + escHtml(bk.booking_code || '') + '">Start Conversation</button>';
+    html += '<div id="bc-new-conversation-result" class="bc-footer-conv-result"></div>';
+  }
+  html += '</div>';
+  html += '<div class="bc-drawer-footer-right">';
+  if (!bcBookingStatusIsCancelled(bk.status)){
+    html += '<button type="button" class="btn btn-danger-light" id="bc-cancel-reservation-btn">Cancel Booking</button>';
+  }
+  html += '</div>';
+  html += '</div>';
+  html += '<div id="bc-cancel-confirm-inline" class="bc-cancel-confirm-inline"></div>';
+  html += '<div id="bc-cancel-result" aria-live="polite"></div>';
+  html += '</div>';
+  return html;
+}
+
 function bcRenderBookingCancelFooterHtml(data){
-  var bk = (data && data.booking) || {};
-  if (bcBookingStatusIsCancelled(bk.status)) return '';
-  return '<div class="ctx-section ctx-booking-cancel-footer" id="bc-booking-cancel">' +
-    '<button type="button" class="btn btn-danger-light" id="bc-cancel-reservation-btn">Cancel reservation</button>' +
-    '<div id="bc-cancel-confirm-inline" class="bc-cancel-confirm-inline"></div>' +
-    '<div id="bc-cancel-result" aria-live="polite"></div>' +
-    '</div>';
+  return bcRenderBookingDrawerFooterHtml(data);
 }
 
 function bcRenderCancelConfirmPanel(data){
@@ -20566,7 +19844,7 @@ function bcRenderCancelConfirmPanel(data){
   if (!host) return;
   host.innerHTML =
     '<div class="bc-cancel-confirm" id="bc-cancel-confirm" role="dialog" aria-labelledby="bc-cancel-confirm-title">' +
-    '<div class="bc-cancel-confirm-title" id="bc-cancel-confirm-title">Cancel reservation?</div>' +
+    '<div class="bc-cancel-confirm-title" id="bc-cancel-confirm-title">Cancel booking?</div>' +
     '<div class="bc-cancel-confirm-meta">' +
     '<div><strong>Booking:</strong> ' + escHtml(bk.booking_code || bcCancelCtx.bookingCode || '\u2014') + '</div>' +
     '<div><strong>Guest:</strong> ' + escHtml(bk.guest_name || bcCancelCtx.guestName || '\u2014') + '</div>' +
@@ -20648,49 +19926,8 @@ function bcRunCancelReservation(){
 }
 
 function bcInitNewConversationShell(data){
-  var btn = el('bc-new-conversation-btn');
-  var resultEl = el('bc-new-conversation-result');
-  if (!btn || !data || !data.booking) return;
-  var bk = data.booking;
-  btn.addEventListener('click', function(){
-    if (btn.disabled) return;
-    btn.disabled = true;
-    if (resultEl) resultEl.textContent = 'Creating conversation\u2026';
-    var client = getClient();
-    var idemKey = 'booking-drawer-conv-' + (bk.booking_id || bk.booking_code || 'unknown');
-    fetch('/staff/bookings/create-conversation?client=' + encodeURIComponent(client), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({
-        client_slug: client,
-        booking_id: bk.booking_id || undefined,
-        booking_code: bk.booking_code || undefined,
-        idempotency_key: idemKey,
-        reason: 'Created from booking drawer',
-      }),
-    })
-      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
-      .then(function(res){
-        btn.disabled = false;
-        if (!res.ok || !res.data || !res.data.success){
-          if (resultEl){
-            resultEl.innerHTML = '<span class="state-msg error">' +
-              escHtml((res.data && res.data.error) || 'Could not create conversation') + '</span>';
-          }
-          return;
-        }
-        if (resultEl) resultEl.textContent = '';
-        var convId = res.data.conversation_id;
-        if (convId) openInboxToConversation(convId);
-      })
-      .catch(function(e){
-        btn.disabled = false;
-        if (resultEl){
-          resultEl.innerHTML = '<span class="state-msg error">' + escHtml(e.message || 'Network error') + '</span>';
-        }
-      });
-  });
+  if (!data || !data.booking) return;
+  bcSyncConversationButtons(data);
 }
 
 function bcInitBookingCancelShell(data){
@@ -20836,13 +20073,11 @@ function renderBookingContextDrawer(data){
     return m[s] || (s ? s.replace(/_/g, ' ') : '\u2014');
   };
 
-  /* ── Phase 10.4e — field edit UI shell (contact / dates / guests / package) ─ */
-  html += bcRenderFieldEditSectionsHtml(data);
+  /* ── Phase 10.4e — contact / dates / guests / package ─────────────────── */
+  html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
+  html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
 
-  /* ── Phase 10.6a / 10.6b — Add-ons directly under package fields ─────────── */
-  html += bcRenderAddServicePanelHtml(bk);
-
-  /* ── Phase 10.3e / 10.3h — Move bed (below Add-ons, above Payment) ───────── */
+  /* ── Phase 10.3e / 10.3h — Move bed ───────── */
   var rmMove = data.rooming || {};
   var moveAssigns = rmMove.assignments || [];
   var moveNoBeds = moveAssigns.length === 0;
@@ -20863,6 +20098,9 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move Bed</button>';
   html += '</div></div>';
 
+  /* ── Phase 10.6a / 10.6b — Add-ons (above Payment) ─────────────────────── */
+  html += bcRenderAddServicePanelHtml(bk);
+
   /* ── Payment / running invoice (Phase 10.4d / 10.6b ledger) ──────────────── */
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
@@ -20876,21 +20114,12 @@ function renderBookingContextDrawer(data){
     var conv = data.conversation;
     if (conv.needs_human) html += '<div class="ctx-status-row"><span class="pill pill-orange">NEEDS HUMAN REVIEW</span></div>';
     html += '<div class="kv-grid">';
-    html += kvBC('Bot mode', conv.bot_mode);
+    html += bcDrawerConvModeRowHtml(conv);
     if (conv.pending_action)        html += kvBC('Pending', conv.pending_action);
     if (conv.last_message_preview)  html += kvBC('Last message', conv.last_message_preview);
     html += '</div>';
-    html += '<div style="margin-top:8px">' +
-      '<button type="button" class="btn btn-success-light" id="bc-open-conv-btn">Open Conversation</button>' +
-      '</div>';
   } else {
     html += '<div class="ctx-none">No linked conversation yet.</div>';
-    html += '<div style="margin-top:8px">' +
-      '<button type="button" class="btn btn-success-light" id="bc-new-conversation-btn" ' +
-      'data-booking-id="' + escHtml(bk.booking_id||'') + '" ' +
-      'data-booking-code="' + escHtml(bk.booking_code||'') + '">New Conversation</button>' +
-      '</div>';
-    html += '<div id="bc-new-conversation-result" style="margin-top:6px;font-size:12px"></div>';
   }
   if (data.handoff){
       var hf = data.handoff;
@@ -20910,8 +20139,8 @@ function renderBookingContextDrawer(data){
       data.warnings.map(function(w){ return escHtml(w); }).join('<br>') + '</div></div>';
   }
 
-  /* ── Phase 10.5f.1 — Cancel reservation at drawer bottom (confirm inline below button) ─ */
-  html += bcRenderBookingCancelFooterHtml(data);
+  /* ── Drawer footer — conversation left, cancel booking right ───────────── */
+  html += bcRenderBookingDrawerFooterHtml(data);
 
   return html;
 }
@@ -21446,8 +20675,7 @@ function loadTodaySummary(){
     });
 }
 
-/* Load inbox badge counts + open Booking Calendar on first paint */
-loadInbox();
+/* Open Booking Calendar on first paint */
 bcOnBedCalendarTabOpen();
 
 // doLogout must be global so onclick="doLogout()" in the banner HTML resolves it
@@ -21573,16 +20801,6 @@ body{
 }
 .msg.error{background:#FEF1EC;border:1px solid #F2C4AC;color:#9B4020;}
 .msg.ok{background:#EFF5EE;border:1px solid #BACEA4;color:#3A6035;}
-.safety-strip{
-  margin-top:22px;padding-top:16px;border-top:1px solid var(--sand);
-  display:flex;gap:8px;flex-wrap:wrap;
-}
-.safety-badge{
-  font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
-  padding:3px 9px;border-radius:10px;
-}
-.safety-badge.staging{background:#EBF0F5;color:#5C7A90;border:1px solid #C5D6E3;}
-.safety-badge.disabled{background:#F3F6F1;color:#6B8469;border:1px solid #BFCFB9;}
 </style>
 </head>
 <body>
@@ -21609,11 +20827,6 @@ body{
     <button class="btn-signin" id="btn-signin" type="button">Sign in</button>
     <div class="msg" id="msg"></div>
   </form>
-
-  <div class="safety-strip">
-    <span class="safety-badge staging">Staging / shadow mode</span>
-    <span class="safety-badge disabled">Staff actions disabled</span>
-  </div>
 </div>
 
 <script>
@@ -21703,6 +20916,7 @@ async function handleConversationInbox(query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const auditBase = {
     ts:            new Date().toISOString(),
@@ -21732,6 +20946,7 @@ async function handleConversationDetail(convId, query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const auditBase = {
     ts:              new Date().toISOString(),
@@ -21767,6 +20982,7 @@ async function handleConversationMessages(convId, query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const auditBase = {
     ts:              new Date().toISOString(),
@@ -21797,6 +21013,7 @@ async function handleConversationContext(convId, query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const auditBase = {
     ts:              new Date().toISOString(),
@@ -21807,31 +21024,44 @@ async function handleConversationContext(convId, query, res, user) {
     staff_user_id:   user ? user.staff_user_id : null,
   };
 
-  let rows;
+  let contextRow;
+  let bookingRows;
   try {
-    rows = await withPgClient(async (pg) => {
-      const r = await pg.query(getConversationContextQuery(), [clientSlug, convId]);
-      return r.rows;
-    });
+    ({ contextRow, bookingRows } = await withPgClient(async (pg) => {
+      const ctx = await pg.query(getConversationContextQuery(), [clientSlug, convId]);
+      const bk = await pg.query(getConversationBookingsQuery(), [clientSlug, convId]);
+      return { contextRow: ctx.rows[0] || null, bookingRows: bk.rows || [] };
+    }));
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'query failed' });
   }
 
   const elapsed = Date.now() - started;
-  if (!rows.length) {
+  if (!contextRow) {
     appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
     return send404(res);
   }
 
-  appendAuditLog({ ...auditBase, success: true, row_count: 1, elapsed_ms: elapsed });
-  return sendJSON(res, 200, { success: true, context: rows[0], elapsed_ms: elapsed });
+  appendAuditLog({
+    ...auditBase,
+    success: true,
+    row_count: bookingRows.length || 1,
+    elapsed_ms: elapsed,
+  });
+  return sendJSON(res, 200, {
+    success: true,
+    context: contextRow,
+    bookings: bookingRows,
+    elapsed_ms: elapsed,
+  });
 }
 
 async function handleConversationDraft(convId, query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const auditBase = {
     ts:              new Date().toISOString(),
@@ -21867,6 +21097,7 @@ async function handleConversationStaffState(convId, query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const auditBase = {
     ts:              new Date().toISOString(),
@@ -22283,6 +21514,7 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
   if (typeof body.needs_human !== 'boolean') return send400(res, 'needs_human boolean is required');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const auditBase = {
     ts:              new Date().toISOString(),
@@ -22326,6 +21558,143 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'update failed' });
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Staff Portal — clear conversation thread (messages delete + field reset)
+//
+// POST /staff/conversations/:id/clear-messages
+//   Body: { client_slug }
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleConversationClearMessages(convId, req, res, user) {
+  const started = Date.now();
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'action:api:conversation.clear_messages',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => clearConversationMessages(pg, clientSlug, convId));
+    const elapsed = Date.now() - started;
+    if (!result.found) {
+      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
+      return send404(res);
+    }
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      messages_deleted: result.messages_deleted,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      conversation_id: convId,
+      messages_deleted: result.messages_deleted,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'clear failed' });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Staff Portal — hard delete conversation (admin+ only; no env gate)
+//
+// DELETE /staff/conversations/:id?client=<slug>
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleConversationDelete(convId, query, res, user) {
+  const started    = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'action:api:conversation.delete',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => deleteConversationHard(pg, clientSlug, convId));
+    const elapsed = Date.now() - started;
+    if (!result.found) {
+      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
+      return send404(res);
+    }
+    appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      conversation_id: result.conversation_id,
+      deleted: true,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'delete failed' });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /staff/auth/session — role + accessible clients for Staff Portal UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleAuthSession(req, res) {
+  if (!STAFF_AUTH_REQUIRED) {
+    return sendJSON(res, 200, {
+      success: true,
+      auth_required: false,
+      role: 'owner',
+      email: null,
+      display_name: null,
+      clients: getAccessibleClients(null),
+    });
+  }
+
+  let user;
+  try {
+    user = await loadAuthSession(req);
+  } catch (_) {
+    return sendJSON(res, 500, { success: false, error: 'auth session lookup failed' });
+  }
+
+  if (!user) {
+    return sendJSON(res, 401, {
+      success: false,
+      error: 'Authentication required. POST /staff/auth/login first.',
+      auth_url: '/staff/auth/login',
+    });
+  }
+
+  return sendJSON(res, 200, {
+    success: true,
+    auth_required: true,
+    role: resolveStaffRole(user),
+    db_role: user.role,
+    email: user.email,
+    display_name: user.display_name || null,
+    clients: getAccessibleClients(user),
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24262,6 +23631,30 @@ async function handleBookingContext(bookingCode, query, res, user) {
     elapsed_ms:       elapsed,
   });
 
+  let conversationPayload = null;
+  if (convRows.length > 0) {
+    const convRow = convRows[0];
+    let lunaPaused = false;
+    try {
+      const gate = await withPgClient((pg) => checkGuestAutomationPauseState(pg, {
+        client_slug:     clientSlug,
+        conversation_id: convRow.conversation_id,
+        guest_phone:     convRow.phone || bk.phone,
+        booking_code:    bookingCode,
+      }));
+      lunaPaused = gate.bot_paused === true;
+    } catch (_) { /* non-fatal — default active */ }
+    conversationPayload = {
+      conversation_id:      convRow.conversation_id,
+      needs_human:          convRow.needs_human,
+      bot_mode:             convRow.bot_mode,
+      luna_paused:          lunaPaused,
+      pending_action:       convRow.pending_action,
+      conversation_status:  convRow.conversation_status,
+      last_message_preview: convRow.last_message_preview,
+    };
+  }
+
   return sendJSON(res, 200, {
     success:      true,
     client_slug:  clientSlug,
@@ -24305,14 +23698,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
       assigned_bed_codes:  assignedBeds,
       notes:             bk.rooming_notes || null,
     },
-    conversation: convRows.length > 0 ? {
-      conversation_id:     convRows[0].conversation_id,
-      needs_human:         convRows[0].needs_human,
-      bot_mode:            convRows[0].bot_mode,
-      pending_action:      convRows[0].pending_action,
-      conversation_status: convRows[0].conversation_status,
-      last_message_preview:convRows[0].last_message_preview,
-    } : null,
+    conversation: conversationPayload,
     handoff: handoffRows.length > 0 ? {
       handoff_id:    handoffRows[0].handoff_id,
       reason_code:   handoffRows[0].reason_code,
@@ -24390,6 +23776,15 @@ async function router(req, res) {
     return handleLogout(req, res);
   }
 
+  // ── GET /staff/auth/session — Staff Portal session + client access ───────
+  if (pathname === '/staff/auth/session') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleAuthSession(req, res);
+  }
+
   // ── POST /staff/handoff/:id/resolve (Stage 6.9 — write endpoint) ──────────
   const writeMatch = WRITE_HANDOFF_RE.exec(pathname);
   if (writeMatch) {
@@ -24452,6 +23847,24 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
+  }
+
+  const convClearMatch = CONV_CLEAR_RE.exec(pathname);
+  if (convClearMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/clear-messages' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleConversationClearMessages(convClearMatch[1], req, res, auth.user);
+  }
+
+  const convDeleteMatch = CONV_ID_RE.exec(pathname);
+  if (convDeleteMatch && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleConversationDelete(convDeleteMatch[1], parsed.query, res, auth.user);
   }
 
   if (pathname === '/staff/manual-bookings/preview') {
@@ -25147,6 +24560,9 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/handoffs/:id/review <- 23c.1 mark reviewed`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/send-reply       <- 23d Inbox reply send`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/needs-human <- needs_human toggle`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-messages <- clear thread (operator+)`);
+  console.log(`    DELETE http://127.0.0.1:${PORT}/staff/conversations/:id?client=... <- hard delete (admin+)`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/auth/session <- role + client access list`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/test/reset-luna-phone  <- 19g.11a staging test reset (operator+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id/messages`);

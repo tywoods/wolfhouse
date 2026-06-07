@@ -23,6 +23,13 @@ const {
   isGuestMessageEventProcessed,
 } = require('./luna-guest-message-events-sql');
 const { buildInboundBookingWritePreview } = require('./luna-inbound-booking-write-preview');
+const { lookupStaffPhoneAccess } = require('./staff-phone-access');
+const {
+  isOwnerLunaStoredEvent,
+  buildOwnerResponseFromStoredEvent,
+  processOwnerWhatsAppCommandCenterInbound,
+  processOwnerWhatsAppCommandCenterWithoutPersistence,
+} = require('./luna-owner-whatsapp-inbound');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -134,6 +141,24 @@ async function runDraftAndSendGate(pg, env, normalized) {
 }
 
 async function processWithoutPersistence(pg, env, normalized, body, signatureMeta) {
+  const staffPhoneAccess = pg
+    ? await lookupStaffPhoneAccess(pg, {
+      client_slug: normalized.client_slug,
+      phone: normalized.from,
+      channel: 'whatsapp',
+    })
+    : { found: false, active: false };
+
+  if (staffPhoneAccess.found && staffPhoneAccess.active) {
+    return processOwnerWhatsAppCommandCenterWithoutPersistence({
+      pg,
+      env,
+      normalized,
+      signatureMeta,
+      staff_access: staffPhoneAccess,
+    });
+  }
+
   const ran = await runDraftAndSendGate(pg, env, normalized);
   const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
     draft: ran.draftResult,
@@ -188,8 +213,11 @@ async function processMetaWhatsAppWebhookInbound(input) {
   }
 
   if (existing.row && isGuestMessageEventProcessed(existing.row)) {
+    const buildReplay = isOwnerLunaStoredEvent(existing.row)
+      ? buildOwnerResponseFromStoredEvent
+      : buildResponseFromStoredEvent;
     return {
-      response: buildResponseFromStoredEvent(existing.row, signatureMeta, {
+      response: buildReplay(existing.row, signatureMeta, {
         duplicate: true,
         idempotent_replay: true,
       }),
@@ -208,14 +236,36 @@ async function processMetaWhatsAppWebhookInbound(input) {
   const eventRow = inserted.row;
 
   if (inserted.row && isGuestMessageEventProcessed(inserted.row)) {
+    const buildReplay = isOwnerLunaStoredEvent(inserted.row)
+      ? buildOwnerResponseFromStoredEvent
+      : buildResponseFromStoredEvent;
     return {
-      response: buildResponseFromStoredEvent(inserted.row, signatureMeta, {
+      response: buildReplay(inserted.row, signatureMeta, {
         duplicate: true,
         idempotent_replay: true,
       }),
       event_row: inserted.row,
       replay: true,
     };
+  }
+
+  const staffPhoneAccess = pg
+    ? await lookupStaffPhoneAccess(pg, {
+      client_slug: normalized.client_slug,
+      phone: normalized.from,
+      channel: 'whatsapp',
+    })
+    : { found: false, active: false };
+
+  if (staffPhoneAccess.found && staffPhoneAccess.active) {
+    return processOwnerWhatsAppCommandCenterInbound({
+      pg,
+      env,
+      normalized,
+      signatureMeta,
+      staff_access: staffPhoneAccess,
+      event_row: eventRow,
+    });
   }
 
   let draftResult = null;
