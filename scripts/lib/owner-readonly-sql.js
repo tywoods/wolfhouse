@@ -8,25 +8,20 @@
  * @module owner-readonly-sql
  */
 
+const {
+  getOwnerAllowedTables,
+  getOwnerClientScopedTables,
+} = require('./owner-data-catalog');
+
 const DEFAULT_MAX_LIMIT = 100;
 const DEFAULT_MAX_ROWS = 100;
 const DEFAULT_TIMEOUT_MS = 3000;
 
-/** Tables owner BI queries may reference (Stage 25d foundation; 25e adds catalog). */
-const DEFAULT_ALLOWED_TABLES = Object.freeze([
-  'bookings',
-  'payments',
-  'booking_beds',
-  'booking_service_records',
-  'rooms',
-  'beds',
-  'conversations',
-  'messages',
-  'guest_message_events',
-]);
+/** Tables owner BI queries may reference (Stage 25e catalog is source of truth). */
+const DEFAULT_ALLOWED_TABLES = Object.freeze(getOwnerAllowedTables());
 
 /** Tables that require an explicit client_slug filter in the query text. */
-const CLIENT_SCOPED_TABLES = new Set(DEFAULT_ALLOWED_TABLES);
+const CLIENT_SCOPED_TABLES = new Set(getOwnerClientScopedTables());
 
 const BLOCKED_KEYWORD_RE = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|COPY|GRANT|REVOKE|VACUUM|ANALYZE|CALL|DO|EXECUTE|INTO)\b/i;
 
