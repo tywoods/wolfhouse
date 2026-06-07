@@ -1,11 +1,11 @@
 /**
- * Phase 11a.2 — Staff Ask Luna AI intent classifier (registry-only).
+ * Phase 11a.2 / 24a — Staff Ask Luna AI intent classifier (registry-only).
  *
  * Classifies staff questions into existing read-only registry intent keys only.
  * Does not generate SQL, answers, or use conversation/chat logs.
  *
- * Enable: STAFF_ASK_LUNA_AI_ENABLED=true plus OPENAI_API_KEY or ANTHROPIC_API_KEY.
- * Default: disabled (deterministic routing only).
+ * Enable: API key present (OpenAI or Anthropic), or STAFF_ASK_LUNA_AI_ENABLED=true.
+ * Explicit STAFF_ASK_LUNA_AI_ENABLED=false disables even when keys exist.
  *
  * @module staff-ask-luna-ai-intent
  */
@@ -13,16 +13,21 @@
 'use strict';
 
 const { getEntry, INTENT_KEYS } = require('./staff-query-registry');
+const {
+  resolveLunaAiProvider,
+  callLunaAiJsonChat,
+} = require('./luna-ai-provider');
 
 const DEFAULT_CONFIDENCE_MIN = 0.75;
-const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
-const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-haiku-20241022';
 
 const SQL_OR_TOOL_RE = /\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE)\b|```|`{3,}|tool_use|tool_call|"tool"\s*:|function_call/i;
 
-function isAskLunaAiEnabled() {
-  const v = String(process.env.STAFF_ASK_LUNA_AI_ENABLED || '').trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
+function isAskLunaAiEnabled(env) {
+  const e = env || process.env;
+  const v = String(e.STAFF_ASK_LUNA_AI_ENABLED || '').trim().toLowerCase();
+  if (v === 'false' || v === '0' || v === 'no') return false;
+  if (v === '1' || v === 'true' || v === 'yes') return true;
+  return resolveLunaAiProvider(e).enabled;
 }
 
 function getConfidenceMin() {
@@ -119,77 +124,18 @@ function parseAndValidateClassifierOutput(rawText, allowedIntents, opts = {}) {
   };
 }
 
-async function callOpenAiClassifier(question, allowedIntents, apiKey) {
-  const model = process.env.STAFF_ASK_LUNA_AI_MODEL || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
-  const system = buildClassifierSystemPrompt(allowedIntents);
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: String(question || '') },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`OpenAI classifier HTTP ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  return content != null ? String(content) : '';
-}
-
-async function callAnthropicClassifier(question, allowedIntents, apiKey) {
-  const model = process.env.STAFF_ASK_LUNA_AI_MODEL || process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL;
-  const system = buildClassifierSystemPrompt(allowedIntents);
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 256,
-      temperature: 0,
-      system,
-      messages: [{ role: 'user', content: String(question || '') }],
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Anthropic classifier HTTP ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const block = (data?.content || []).find((b) => b.type === 'text');
-  return block && block.text != null ? String(block.text) : '';
-}
-
 async function defaultClassifierProvider(question, allowedIntentList) {
-  const openaiKey = process.env.OPENAI_API_KEY || process.env.STAFF_ASK_LUNA_OPENAI_API_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.STAFF_ASK_LUNA_ANTHROPIC_API_KEY;
-  const provider = String(process.env.STAFF_ASK_LUNA_AI_PROVIDER || '').trim().toLowerCase();
-
-  if (provider === 'anthropic' || (!provider && anthropicKey && !openaiKey)) {
-    if (!anthropicKey) return null;
-    return callAnthropicClassifier(question, allowedIntentList, anthropicKey);
-  }
-  if (openaiKey) {
-    return callOpenAiClassifier(question, allowedIntentList, openaiKey);
-  }
-  if (anthropicKey) {
-    return callAnthropicClassifier(question, allowedIntentList, anthropicKey);
-  }
-  return null;
+  const system = buildClassifierSystemPrompt(allowedIntentList);
+  const content = await callLunaAiJsonChat({
+    env: process.env,
+    system,
+    user: String(question || ''),
+    maxTokens: 256,
+    temperature: 0,
+    jsonObject: true,
+  });
+  if (content == null) return null;
+  return content;
 }
 
 /**
@@ -206,10 +152,10 @@ async function classifyAskLunaIntentWithAi(question, opts = {}) {
   const allowedSet = new Set(allowedList);
   if (allowedSet.size === 0) return null;
 
-  const provider = opts.provider || defaultClassifierProvider;
+  const providerFn = opts.provider || defaultClassifierProvider;
   let rawText;
   try {
-    rawText = await provider(question, allowedList);
+    rawText = await providerFn(question, allowedList);
   } catch (err) {
     console.warn('[ask-luna-ai] classifier provider error:', err.message);
     return null;
