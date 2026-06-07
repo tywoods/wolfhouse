@@ -133,6 +133,7 @@ async function defaultClassifierProvider(question, allowedIntentList) {
     maxTokens: 256,
     temperature: 0,
     jsonObject: true,
+    call_label: 'classifier',
   });
   if (content == null) return null;
   return content;

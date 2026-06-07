@@ -61,6 +61,7 @@ const {
   resolveBalanceDueIntentKey,
 } = require('./lib/staff-ask-luna-balance-due');
 const { classifyAskLunaIntentWithAi } = require('./lib/staff-ask-luna-ai-intent');
+const { resolveLunaAiDiagnostics } = require('./lib/luna-ai-provider');
 const { formatBalanceDueAnswerNatural } = require('./lib/staff-ask-luna-ai-answer-format');
 const {
   resolveAskLunaLessonsIntentKey,
@@ -2024,6 +2025,24 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       return `${n} result${n !== 1 ? 's' : ''} for ${intentKey}${extra}.`;
     }
   }
+}
+
+function handleAskLunaAiStatus(res) {
+  const diag = resolveLunaAiDiagnostics(process.env);
+  return sendJSON(res, 200, {
+    success:            true,
+    configured:         diag.enabled,
+    provider:           diag.provider,
+    model:              diag.model,
+    key_present:        diag.key_present,
+    key_source:         diag.key_source,
+    key_length:         diag.key_length,
+    key_fingerprint:    diag.key_fingerprint,
+    provider_source:    diag.provider_source,
+    model_source:       diag.model_source,
+    read_only:          true,
+    no_write_performed: true,
+  });
 }
 
 async function handleAskLuna(req, res) {
@@ -24940,6 +24959,15 @@ async function router(req, res) {
 
   // ── Stage 8.6.1 — Staff Ask Luna (read-only operational query via text) ───
   // POST with JSON body — must be before the GET-only guard below.
+  if (pathname === '/staff/ask-luna/ai-status') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for ask-luna ai-status' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleAskLunaAiStatus(res);
+  }
   if (pathname === '/staff/ask-luna') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -25145,6 +25173,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/pause                  <- 9.4b Luna guest pause write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/resume                 <- 9.4b Luna guest resume write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/check-guest-automation-gate <- 9.6 Luna guest automation dry-run pause gate (read-only; no send)`);
+  console.log(`    GET  http://127.0.0.1:${PORT}/staff/ask-luna/ai-status         <- 24d Ask Luna AI provider status (session viewer+, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/surf-forecast?client=wolfhouse-somo&day=today  <- 11b.1 surf forecast (read-only, Stormglass backend)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);

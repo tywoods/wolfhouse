@@ -135,6 +135,7 @@ async function defaultFormatterProvider(summaryJson) {
     user: summaryJson,
     maxTokens: 512,
     temperature: 0.2,
+    call_label: 'answer_formatter',
   });
   if (content == null) return null;
   return content;

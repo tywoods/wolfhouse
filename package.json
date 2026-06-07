@@ -137,6 +137,7 @@
     "verify:staff-ask-luna-balance-due": "node scripts/verify-staff-ask-luna-balance-due.js",
     "verify:staff-ask-luna-ai-intent-fallback": "node scripts/verify-staff-ask-luna-ai-intent-fallback.js",
     "verify:luna-ai-provider": "node scripts/verify-luna-ai-provider.js",
+    "verify:luna-ai-provider-diagnostics": "node scripts/verify-luna-ai-provider-diagnostics.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
     "verify:staff-ask-luna-surf-forecast": "node scripts/verify-staff-ask-luna-surf-forecast.js",

@@ -230,6 +230,7 @@ async function defaultPlannerProvider(question, allowedList, when) {
     maxTokens: 512,
     temperature: 0,
     jsonObject: true,
+    call_label: 'multi_tool_planner',
   });
   if (content == null) return null;
   return content;

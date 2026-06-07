@@ -61,6 +61,7 @@ console.log('\nA. Intent wiring');
 
 check(intentSrc.includes("require('./luna-ai-provider')"), 'staff-ask-luna-ai-intent imports luna-ai-provider');
 check(intentSrc.includes('callLunaAiJsonChat'), 'intent uses callLunaAiJsonChat');
+check(intentSrc.includes("call_label: 'classifier'"), 'intent passes call_label=classifier');
 check(!intentSrc.includes('api.openai.com/v1/chat/completions'), 'intent no longer inlines OpenAI URL');
 check(!intentSrc.includes('api.anthropic.com/v1/messages'), 'intent no longer inlines Anthropic URL');
 
@@ -68,6 +69,7 @@ console.log('\nA2. Answer formatter wiring (24b)');
 
 check(fmtSrc.includes("require('./luna-ai-provider')"), 'answer formatter imports luna-ai-provider');
 check(fmtSrc.includes('callLunaAiJsonChat'), 'answer formatter uses callLunaAiJsonChat');
+check(fmtSrc.includes("call_label: 'answer_formatter'"), 'formatter passes call_label=answer_formatter');
 check(!fmtSrc.includes('callOpenAiFormatter'), 'callOpenAiFormatter removed');
 check(!fmtSrc.includes('callAnthropicFormatter'), 'callAnthropicFormatter removed');
 check(!fmtSrc.includes('api.openai.com/v1/chat/completions'), 'formatter no longer inlines OpenAI URL');
@@ -79,6 +81,7 @@ console.log('\nA3. Multi-tool planner wiring (24b)');
 
 check(plSrc.includes("require('./luna-ai-provider')"), 'multi-tool planner imports luna-ai-provider');
 check(plSrc.includes('callLunaAiJsonChat'), 'multi-tool planner uses callLunaAiJsonChat');
+check(plSrc.includes("call_label: 'multi_tool_planner'"), 'planner passes call_label=multi_tool_planner');
 check(!plSrc.includes('callOpenAiPlanner'), 'callOpenAiPlanner removed');
 check(!plSrc.includes('callAnthropicPlanner'), 'callAnthropicPlanner removed');
 check(!plSrc.includes('api.openai.com/v1/chat/completions'), 'planner no longer inlines OpenAI URL');
@@ -94,13 +97,17 @@ for (const f of GUEST_UNTOUCHED) {
 }
 
 const apiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
-check(!apiSrc.includes('luna-ai-provider'), 'staff-query-api.js does not import luna-ai-provider directly');
+check(
+  apiSrc.includes('resolveLunaAiDiagnostics') && !apiSrc.includes('callLunaAiJsonChat'),
+  'staff-query-api imports Luna AI diagnostics only (no direct AI calls)',
+);
 check(!/luna-guest-reply-draft[\s\S]{0,200}luna-ai-provider/.test(apiSrc), 'guest reply path unchanged');
 
 console.log('\nC. Provider resolution');
 
 const {
   resolveLunaAiProvider,
+  resolveLunaAiDiagnostics,
   callLunaAiJsonChat,
   DEFAULT_OPENAI_MODEL,
   DEFAULT_ANTHROPIC_MODEL,
@@ -151,6 +158,13 @@ const staffModel = resolveLunaAiProvider(env({
   STAFF_ASK_LUNA_AI_MODEL: 'gpt-test-staff',
 }));
 check(staffModel.model === 'gpt-test-staff', 'STAFF_ASK_LUNA_AI_MODEL fallback works');
+
+const lunaModelWins = resolveLunaAiProvider(env({
+  OPENAI_API_KEY: 'sk-test',
+  LUNA_AI_MODEL: 'gpt-luna',
+  STAFF_ASK_LUNA_AI_MODEL: 'gpt-test-staff',
+}));
+check(lunaModelWins.model === 'gpt-luna', 'LUNA_AI_MODEL wins over STAFF_ASK_LUNA_AI_MODEL');
 
 const openaiModelEnv = resolveLunaAiProvider(env({
   OPENAI_API_KEY: 'sk-test',
