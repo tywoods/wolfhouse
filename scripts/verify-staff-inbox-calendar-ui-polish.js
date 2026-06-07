@@ -149,40 +149,11 @@ if (!/btn-bc-create-soft[\s\S]{0,200}bc-new-conversation-btn/.test(convHandoffJs
   pass('H3', 'legacy btn-bc-create-soft removed from handoff section');
 } else fail('H3', 'New Conversation still uses btn-bc-create-soft');
 
-section('J. Booking detail horizontal rows + source pebbles');
-
-const fieldEditJs = src.match(/function bcRenderFieldEditSectionsHtml\([\s\S]*?^function bcFieldEditClearPreviewResults/m)?.[0] || '';
-if (/\.bc-detail-kv-row\{[^}]*repeat\(auto-fit,\s*minmax/.test(htmlSrc)) {
-  pass('J1', 'booking detail uses responsive horizontal kv row grid');
-} else fail('J1', 'bc-detail-kv-row auto-fit grid missing');
-if (!/ctx-field-kv-grid--3/.test(fieldEditJs)) {
-  pass('J2', 'no forced 3-column-only field read layout');
-} else fail('J2', 'ctx-field-kv-grid--3 still used');
-if (/function bcRenderBookingSourcePebble/.test(src) && /bc-source-pebble-bot/.test(htmlSrc) && /bc-source-pebble-staff/.test(htmlSrc)) {
-  pass('J3', 'Bot/Staff source pebble styles present');
-} else fail('J3', 'source pebble helper/styles missing');
-const pebbleJs = src.match(/function bcRenderBookingSourcePebble\([\s\S]*?\n\}/)?.[0] || '';
-if (/bc-source-pebble-bot[\s\S]{0,80}>Bot</.test(pebbleJs) && /bc-source-pebble-staff[\s\S]{0,80}>Staff</.test(pebbleJs)) {
-  pass('J4', 'Bot and Staff pebble labels');
-} else fail('J4', 'Bot/Staff pebble labels missing');
-const legendBlock = htmlSrc.match(/id=["']bc-legend["'][\s\S]{0,480}/)?.[0] || '';
-const legendLuna = legendBlock.indexOf('bc-legend-sw-payment');
-const legendStaff = legendBlock.indexOf('bc-legend-sw-manual');
-const legendTour = legendBlock.indexOf('bc-legend-sw-tour_operator');
-if (legendLuna >= 0 && legendStaff > legendLuna && legendTour > legendStaff) {
-  pass('J5', 'legend order Luna, Staff, Tour operator');
-} else fail('J5', 'legend order incorrect');
-if (!/Staff \/ manual/.test(htmlSrc)) pass('J6', 'Staff / manual label not visible');
-else fail('J6', 'Staff / manual still visible');
-if (/bc-detail-stay-block/.test(fieldEditJs) && /kvBC\('Assigned'/.test(fieldEditJs)) {
-  pass('J7', 'stay and package rows include horizontal detail fields');
-} else fail('J7', 'horizontal detail rows incomplete');
-
-section('K. npm script');
+section('I. npm script');
 
 const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
-if (pkg.scripts && pkg.scripts['verify:staff-inbox-calendar-ui-polish']) pass('K1', 'npm script registered');
-else fail('K1', 'npm script missing');
+if (pkg.scripts && pkg.scripts['verify:staff-inbox-calendar-ui-polish']) pass('I1', 'npm script registered');
+else fail('I1', 'npm script missing');
 
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
 process.exit(failures > 0 ? 1 : 0);

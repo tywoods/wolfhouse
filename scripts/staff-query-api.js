@@ -14206,23 +14206,18 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-inv-subtitle{font-size:10.5px;font-weight:600;color:var(--text-2);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.04em}
 .ctx-inv-payment-records{margin-top:4px}
 /* Phase 10.4e / 10.6a — field-level edit UI shell (compact horizontal read rows) */
-.bc-detail-fields{margin-bottom:2px}
-.bc-detail-kv-row{flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px 14px;align-items:start;min-width:0;width:100%}
-.bc-detail-kv-row .kv{min-width:0}
-.bc-detail-kv-row .kv .v{overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
-.bc-detail-stay-block{padding:6px 0 0;border-top:1px solid var(--border-soft)}
-.kv-source-pebble .v{display:flex;align-items:center;min-height:22px}
-.bc-source-pebble{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:var(--radius-pill);letter-spacing:.03em;border-left:2px solid transparent;white-space:nowrap}
-.bc-source-pebble-bot{background:#D5E5EF;color:#3F6070;border-left-color:#7AAABB}
-.bc-source-pebble-staff{background:#D5EAE3;color:#3A6657;border-left-color:#7ABFAD}
-.bc-source-pebble-tour{background:#E8DDF5;color:#6B5088;border-left-color:#B39BCB}
 .ctx-field-edit-group{margin:0;padding:6px 0 0;border-top:1px solid var(--border-soft)}
-.bc-detail-fields > .ctx-field-edit-group:first-child{padding-top:0;border-top:none}
-.bc-detail-stay-block > .ctx-field-edit-group{border-top:none;padding-top:0}
+.ctx-field-edit-group:first-child{padding-top:0;border-top:none}
 .ctx-field-read-row{display:flex;align-items:flex-start;gap:8px}
-.ctx-field-read-row .kv{min-width:0}
+.ctx-field-read-row .kv-grid.ctx-field-kv-grid{flex:1;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,0.92fr) minmax(0,1.08fr);column-gap:12px;row-gap:6px;align-items:start;min-width:0;width:100%}
+.ctx-field-read-row .kv{min-width:0;grid-column:auto}
+.ctx-field-read-row .kv:nth-child(1){grid-column:1}
+.ctx-field-read-row .kv:nth-child(2){grid-column:2}
+.ctx-field-read-row .kv:nth-child(3){grid-column:3}
+.ctx-field-read-row .kv .v{overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
 .ctx-field-read-row .ctx-field-header{flex-shrink:0;width:28px;display:flex;align-items:center;justify-content:flex-end;margin:0}
-.ctx-field-header--multi{flex-direction:column;gap:4px;align-items:flex-end}
+.ctx-field-read-row--sub .ctx-field-header--spacer{visibility:hidden;pointer-events:none}
+.ctx-field-read-row--sub{padding-top:2px}
 .btn-bc-field-edit{font-size:14px;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .btn-bc-field-edit:hover{background:var(--surface-soft);color:var(--accent)}
 .ctx-field-edit-group.is-editing .btn-bc-field-edit{font-weight:600;border-color:var(--accent);color:var(--accent)}
@@ -19839,84 +19834,22 @@ function bcRenderFieldEditPencilBtn(group, ariaLabel){
   return '<button type="button" class="btn-bc-field-edit" data-bc-field-group="' + escHtml(group) + '" aria-label="' + escHtml(ariaLabel) + '" title="' + escHtml(ariaLabel) + '">\u270E</button>';
 }
 
-function bcRenderFieldEditReadRow(group, pencilLabel, kvInnerHtml){
+function bcRenderFieldEditReadRow(group, pencilLabel, kvInnerHtml, colTemplate){
+  var gridCls = 'kv-grid ctx-field-kv-grid ctx-field-kv-grid--3';
+  if (colTemplate !== 3) gridCls = 'kv-grid ctx-field-kv-grid';
   return '<div class="ctx-field-read" id="bc-field-' + escHtml(group) + '-read">' +
     '<div class="ctx-field-read-row">' +
-    '<div class="bc-detail-kv-row" id="bc-field-' + escHtml(group) + '-kv">' + kvInnerHtml + '</div>' +
+    '<div class="' + gridCls + '" id="bc-field-' + escHtml(group) + '-kv">' + kvInnerHtml + '</div>' +
     '<div class="ctx-field-header">' + bcRenderFieldEditPencilBtn(group, pencilLabel) + '</div>' +
     '</div></div>';
 }
 
-function bcDetailPayStatusLabel(status){
-  var m = {
-    not_requested: 'Not requested', waiting_payment: 'Waiting for payment',
-    payment_link_sent: 'Payment link sent', deposit_paid: 'Deposit paid',
-    paid: 'Paid in full', refunded: 'Refunded', failed: 'Failed', expired: 'Expired',
-  };
-  var s = status ? String(status).toLowerCase() : '';
-  return m[s] || (s ? s.replace(/_/g, ' ') : '\u2014');
-}
-
-function bcFormatAssignedBedsLabel(data){
-  var assigns = bcFieldEditOrderedAssignments(((data && data.rooming) || {}).assignments || []);
-  if (!assigns.length) return '\u2014';
-  return assigns.map(function(a){
-    var bed = a.bed_code || '\u2014';
-    var room = a.room_code ? String(a.room_code).trim() : '';
-    return room ? room + ' / ' + bed : bed;
-  }).join(', ');
-}
-
-function bcBookingDetailIsBotSource(bk){
-  bk = bk || {};
-  var src = String(bk.booking_source || '').toLowerCase();
-  var metaSrc = String(bk.metadata_source || bk.source || '').toLowerCase();
-  var botSrc = String(bk.bot_source || '').toLowerCase();
-  var createdBy = String(bk.metadata_created_by || bk.created_by || '').toLowerCase();
-  var channel = String(bk.channel || '').toLowerCase();
-  var staffSrc = String(bk.staff_source || '').toLowerCase();
-  var hay = [src, metaSrc, botSrc, createdBy, channel, staffSrc].join('|');
-  var lunaMarkers = [
-    'luna', 'bot', 'whatsapp', 'guest_bot', 'n8n', 'bot_', 'luna_',
-    'bot_booking', 'bot_stage', 'luna_guest', 'luna_whatsapp',
-  ];
-  var i;
-  for (i = 0; i < lunaMarkers.length; i++){
-    if (hay.indexOf(lunaMarkers[i]) >= 0) return true;
-  }
-  var staffSources = { manual_staff: 1, manual: 1, staff: 1, staff_manual: 1, operator: 1, tour_operator: 1 };
-  if (staffSources[src] || src.indexOf('operator') >= 0) return false;
-  return false;
-}
-
-function bcBookingDetailIsTourOperator(bk){
-  bk = bk || {};
-  var src = String(bk.booking_source || '').toLowerCase();
-  if (src === 'operator' || src === 'tour_operator') return true;
-  if (bk.is_operator_block) return true;
-  return false;
-}
-
-function bcRenderBookingSourcePebble(bk){
-  if (bcBookingDetailIsTourOperator(bk)){
-    return '<span class="bc-source-pebble bc-source-pebble-tour">Tour operator</span>';
-  }
-  if (bcBookingDetailIsBotSource(bk)){
-    return '<span class="bc-source-pebble bc-source-pebble-bot">Bot</span>';
-  }
-  return '<span class="bc-source-pebble bc-source-pebble-staff">Staff</span>';
-}
-
-function bcBookingDetailSourceKvCell(bk){
-  return '<div class="kv kv-source-pebble"><div class="l">Source</div><div class="v">' +
-    bcRenderBookingSourcePebble(bk) + '</div></div>';
-}
-
-function bcFieldEditSyncStayReadVisibility(){
-  var stayRead = el('bc-field-stay-read');
-  if (!stayRead) return;
-  var g = bcFieldEditState.activeGroup;
-  stayRead.style.display = (g === 'dates' || g === 'guests') ? 'none' : '';
+function bcRenderFieldEditReadRowSub(kvInnerHtml, colTemplate){
+  var gridCls = 'kv-grid ctx-field-kv-grid ctx-field-kv-grid--3';
+  if (colTemplate !== 3) gridCls = 'kv-grid ctx-field-kv-grid';
+  return '<div class="ctx-field-read-row ctx-field-read-row--sub">' +
+    '<div class="' + gridCls + '">' + kvInnerHtml + '</div>' +
+    '<div class="ctx-field-header ctx-field-header--spacer" aria-hidden="true"></div></div>';
 }
 
 function bcRenderFieldEditActionsHtml(group){
@@ -19953,17 +19886,15 @@ function bcRenderFieldEditSectionsHtml(data){
   var nights = bcStayNightsFromCheckInOut(bk.check_in, bk.check_out);
   var pkgOpts = bcFieldEditPackageOptions(bk.package_code);
   var roomPref = bk.requested_room_type || bk.room_preference;
-  var assigned = bcFormatAssignedBedsLabel(data);
-  var payLabel = bcDetailPayStatusLabel(bk.payment_status);
   var html = '';
 
-  html += '<div class="bc-detail-fields">';
-
   html += '<div class="ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
-  var contactKv = kvBC('Name', bk.guest_name) + kvBC('Phone', bk.phone) + kvBC('Email', bk.email) +
-    bcBookingDetailSourceKvCell(bk);
-  if (bk.language) contactKv += kvBC('Language', bk.language);
-  html += bcRenderFieldEditReadRow('contact', 'Edit contact', contactKv);
+  var contactKv = kvBC('Name', bk.guest_name) + kvBC('Phone', bk.phone) + kvBC('Email', bk.email);
+  html += bcRenderFieldEditReadRow('contact', 'Edit contact', contactKv, 3);
+  var contactExtraKv = '';
+  if (bk.language) contactExtraKv += kvBC('Language', bk.language);
+  if (bk.booking_source && bk.booking_source !== 'manual_staff') contactExtraKv += kvBC('Source', bk.booking_source);
+  if (contactExtraKv) html += bcRenderFieldEditReadRowSub(contactExtraKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-contact-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-contact-name">Name</label>';
   html += '<input type="text" id="bc-field-contact-name" class="bk-input bk-input-sm" value="' + escHtml(bk.guest_name || '') + '">';
@@ -19974,20 +19905,10 @@ function bcRenderFieldEditSectionsHtml(data){
   html += bcRenderFieldEditActionsHtml('contact');
   html += '</div></div>';
 
-  html += '<div class="bc-detail-stay-block">';
-  html += '<div class="ctx-field-read" id="bc-field-stay-read">';
-  html += '<div class="ctx-field-read-row">';
-  html += '<div class="bc-detail-kv-row">';
-  html += kvBC('Check-in', bk.check_in) + kvBC('Check-out', bk.check_out);
-  if (nights > 0) html += kvBC('Nights', nights);
-  html += kvBC('Guests', guestCount);
-  html += '</div>';
-  html += '<div class="ctx-field-header ctx-field-header--multi">';
-  html += bcRenderFieldEditPencilBtn('dates', 'Edit dates');
-  html += bcRenderFieldEditPencilBtn('guests', 'Edit guests');
-  html += '</div></div></div>';
-
   html += '<div class="ctx-field-edit-group" id="bc-field-group-dates" data-bc-field-group="dates">';
+  var datesKv = kvBC('Check-in', bk.check_in) + kvBC('Check-out', bk.check_out);
+  if (nights > 0) datesKv += kvBC('Nights', nights);
+  html += bcRenderFieldEditReadRow('dates', 'Edit dates', datesKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-dates-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-dates-check-in">Check-in</label>';
   html += '<input type="date" id="bc-field-dates-check-in" class="bk-input bk-input-sm" value="' + escHtml(bk.check_in || '') + '">';
@@ -20000,6 +19921,7 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '</div></div>';
 
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
+  html += bcRenderFieldEditReadRow('guests', 'Edit guests', kvBC('Guests', guestCount), 3);
   html += '<div class="ctx-field-edit" id="bc-field-guests-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-guests-select">Guest count</label>';
   html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
@@ -20010,13 +19932,11 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
   html += bcRenderFieldEditActionsHtml('guests');
   html += '</div></div>';
-  html += '</div>';
 
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   var packageKv = kvBC('Package', bk.package_code || '\u2014');
   if (roomPref) packageKv += kvBC('Room pref', roomPref);
-  packageKv += kvBC('Assigned', assigned) + kvBC('Payment', payLabel);
-  html += bcRenderFieldEditReadRow('package', 'Edit package', packageKv);
+  html += bcRenderFieldEditReadRow('package', 'Edit package', packageKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-package-select">Package</label>';
   html += '<select id="bc-field-package-select" class="bk-input bk-input-sm">';
@@ -20027,8 +19947,6 @@ function bcRenderFieldEditSectionsHtml(data){
   html += '</select>';
   html += bcRenderFieldEditActionsHtml('package');
   html += '</div></div>';
-
-  html += '</div>';
 
   return html;
 }
@@ -20216,7 +20134,6 @@ function bcFieldEditCloseAll(){
   }
   bcFieldEditClearPreviewResults();
   bcFieldEditRestoreForms();
-  bcFieldEditSyncStayReadVisibility();
 }
 
 function bcFieldEditActivate(group){
@@ -20239,7 +20156,6 @@ function bcFieldEditActivate(group){
   if (group === 'contact') bcFieldEditUpdateContactSaveState();
   if (group === 'package') bcFieldEditUpdatePackageSaveState();
   if (group === 'dates') bcFieldEditUpdateDatesSaveState();
-  bcFieldEditSyncStayReadVisibility();
 }
 
 function bcFieldEditUpdateDatesPreview(){
