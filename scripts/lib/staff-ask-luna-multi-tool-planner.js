@@ -29,6 +29,7 @@ const {
   buildCleaningGroups,
 } = require('./staff-ask-luna-cleaning');
 const { computeBalanceDueRows, formatAskLunaBalanceDueAnswer } = require('./staff-ask-luna-balance-due');
+const { callLunaAiJsonChat } = require('./luna-ai-provider');
 
 const OPS_MULTI_TOOL_INTENT = 'ops.multi_tool_summary';
 const MAX_PLANNER_TOOLS = 8;
@@ -220,72 +221,18 @@ function parseAndValidatePlannerOutput(rawText, allowed, opts = {}) {
   };
 }
 
-async function callOpenAiPlanner(question, allowedList, when, apiKey) {
-  const model = process.env.STAFF_ASK_LUNA_AI_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
-  const system = buildPlannerSystemPrompt(allowedList, when);
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: String(question || '') },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`OpenAI planner HTTP ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content != null ? String(data.choices[0].message.content) : '';
-}
-
-async function callAnthropicPlanner(question, allowedList, when, apiKey) {
-  const model = process.env.STAFF_ASK_LUNA_AI_MODEL || process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-20241022';
-  const system = buildPlannerSystemPrompt(allowedList, when);
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 512,
-      temperature: 0,
-      system,
-      messages: [{ role: 'user', content: String(question || '') }],
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Anthropic planner HTTP ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const block = (data?.content || []).find((b) => b.type === 'text');
-  return block && block.text != null ? String(block.text) : '';
-}
-
 async function defaultPlannerProvider(question, allowedList, when) {
-  const openaiKey = process.env.OPENAI_API_KEY || process.env.STAFF_ASK_LUNA_OPENAI_API_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.STAFF_ASK_LUNA_ANTHROPIC_API_KEY;
-  const provider = String(process.env.STAFF_ASK_LUNA_AI_PROVIDER || '').trim().toLowerCase();
-
-  if (provider === 'anthropic' || (!provider && anthropicKey && !openaiKey)) {
-    if (!anthropicKey) return null;
-    return callAnthropicPlanner(question, allowedList, when, anthropicKey);
-  }
-  if (openaiKey) return callOpenAiPlanner(question, allowedList, when, openaiKey);
-  if (anthropicKey) return callAnthropicPlanner(question, allowedList, when, anthropicKey);
-  return null;
+  const system = buildPlannerSystemPrompt(allowedList, when);
+  const content = await callLunaAiJsonChat({
+    env: process.env,
+    system,
+    user: String(question || ''),
+    maxTokens: 512,
+    temperature: 0,
+    jsonObject: true,
+  });
+  if (content == null) return null;
+  return content;
 }
 
 /**

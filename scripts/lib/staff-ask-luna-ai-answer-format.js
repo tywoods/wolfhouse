@@ -1,5 +1,5 @@
 /**
- * Phase 11a.3 — Staff Ask Luna AI answer formatter (presentation only).
+ * Phase 11a.3 / 24b — Staff Ask Luna AI answer formatter (presentation only).
  *
  * Formats structured balance-due query rows into natural language for staff.
  * Uses the same AI enablement as intent classification (STAFF_ASK_LUNA_AI_ENABLED + API key).
@@ -12,9 +12,8 @@
 
 const { isAskLunaAiEnabled, SQL_OR_TOOL_RE } = require('./staff-ask-luna-ai-intent');
 const { formatAskLunaBalanceDueAnswer } = require('./staff-ask-luna-balance-due');
+const { callLunaAiJsonChat } = require('./luna-ai-provider');
 
-const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
-const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-haiku-20241022';
 const BALANCE_DUE_EMPTY_ANSWER = 'No active bookings currently have a balance due.';
 const TABLE_LIKE_RE = /(\|.+\|){2,}|\+[-+]+\+/;
 
@@ -129,71 +128,16 @@ function validateBalanceDueFormatterOutput(text, summary) {
   return out.slice(0, 4000);
 }
 
-async function callOpenAiFormatter(summaryJson, apiKey) {
-  const model = process.env.STAFF_ASK_LUNA_AI_MODEL || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: buildBalanceDueFormatterSystemPrompt() },
-        { role: 'user', content: summaryJson },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`OpenAI formatter HTTP ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content != null
-    ? String(data.choices[0].message.content)
-    : '';
-}
-
-async function callAnthropicFormatter(summaryJson, apiKey) {
-  const model = process.env.STAFF_ASK_LUNA_AI_MODEL || process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL;
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 512,
-      temperature: 0.2,
-      system: buildBalanceDueFormatterSystemPrompt(),
-      messages: [{ role: 'user', content: summaryJson }],
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Anthropic formatter HTTP ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const block = (data?.content || []).find((b) => b.type === 'text');
-  return block && block.text != null ? String(block.text) : '';
-}
-
 async function defaultFormatterProvider(summaryJson) {
-  const openaiKey = process.env.OPENAI_API_KEY || process.env.STAFF_ASK_LUNA_OPENAI_API_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.STAFF_ASK_LUNA_ANTHROPIC_API_KEY;
-  const provider = String(process.env.STAFF_ASK_LUNA_AI_PROVIDER || '').trim().toLowerCase();
-
-  if (provider === 'anthropic' || (!provider && anthropicKey && !openaiKey)) {
-    if (!anthropicKey) return null;
-    return callAnthropicFormatter(summaryJson, anthropicKey);
-  }
-  if (openaiKey) return callOpenAiFormatter(summaryJson, openaiKey);
-  if (anthropicKey) return callAnthropicFormatter(summaryJson, anthropicKey);
-  return null;
+  const content = await callLunaAiJsonChat({
+    env: process.env,
+    system: buildBalanceDueFormatterSystemPrompt(),
+    user: summaryJson,
+    maxTokens: 512,
+    temperature: 0.2,
+  });
+  if (content == null) return null;
+  return content;
 }
 
 /**
