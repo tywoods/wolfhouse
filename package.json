@@ -141,6 +141,7 @@
     "verify:luna-ai-health-status": "node scripts/verify-luna-ai-health-status.js",
     "verify:luna-agent-phase24-closeout": "node scripts/verify-luna-agent-phase24-closeout.js",
     "verify:luna-agent-phase25-owner-design": "node scripts/verify-luna-agent-phase25-owner-design.js",
+    "verify:luna-agent-phase25-staff-phone-access": "node scripts/verify-luna-agent-phase25-staff-phone-access.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
     "verify:staff-ask-luna-surf-forecast": "node scripts/verify-staff-ask-luna-surf-forecast.js",
