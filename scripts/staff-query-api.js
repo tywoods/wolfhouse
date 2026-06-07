@@ -1188,6 +1188,10 @@ const {
   executeStaffAskLunaQuestion,
   resolveAskLunaIntent,
 } = require('./lib/staff-ask-luna-execute');
+const {
+  validateOwnerReadOnlySql,
+  executeOwnerReadOnlySql,
+} = require('./lib/owner-readonly-sql');
 
 function handleAskLunaAiStatus(res) {
   const diag = resolveLunaAiDiagnostics(process.env);
@@ -1298,6 +1302,83 @@ async function handleAskLuna(req, res) {
   }
 
   return sendJSON(res, 200, result);
+}
+
+// ── Stage 25d — Owner read-only SQL validate/execute (testing foundation) ───
+// TODO(25f): tighten to owner/admin-only once Owner Portal auth is wired.
+
+async function handleOwnerSqlValidate(req, res, user) {
+  let body = {};
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const sql = String(body.sql || '').trim();
+  if (!sql) return send400(res, 'sql is required');
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const maxLimit = body.max_limit != null ? Number(body.max_limit) : undefined;
+  const validation = validateOwnerReadOnlySql({
+    sql,
+    client_slug: clientSlug,
+    maxLimit: Number.isFinite(maxLimit) && maxLimit > 0 ? maxLimit : undefined,
+  });
+
+  return sendJSON(res, validation.ok ? 200 : 400, {
+    success: validation.ok,
+    client_slug: clientSlug,
+    validation,
+    read_only: true,
+    no_write_performed: true,
+  });
+}
+
+async function handleOwnerSqlExecute(req, res, user) {
+  let body = {};
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const sql = String(body.sql || '').trim();
+  if (!sql) return send400(res, 'sql is required');
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const params = Array.isArray(body.params) ? body.params : [];
+  const maxRows = body.max_rows != null ? Number(body.max_rows) : undefined;
+  const maxLimit = body.max_limit != null ? Number(body.max_limit) : undefined;
+  const timeoutMs = body.timeout_ms != null ? Number(body.timeout_ms) : undefined;
+
+  try {
+    const result = await withPgClient((pg) => executeOwnerReadOnlySql(pg, {
+      client_slug: clientSlug,
+      sql,
+      params,
+      maxRows: Number.isFinite(maxRows) && maxRows > 0 ? maxRows : undefined,
+      maxLimit: Number.isFinite(maxLimit) && maxLimit > 0 ? maxLimit : undefined,
+      timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : undefined,
+    }));
+    const status = result.success ? 200 : 400;
+    return sendJSON(res, status, {
+      ...result,
+      client_slug: clientSlug,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'query_error',
+      detail: err.message,
+      read_only: true,
+      no_write_performed: true,
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24389,7 +24470,25 @@ async function router(req, res) {
     return handleAskLuna(req, res);
   }
 
-  // ── All other routes: GET only ────────────────────────────────────────────
+  // ── Stage 25d — Owner read-only SQL foundation (validate / execute) ─────
+  if (pathname === '/staff/owner/sql/validate') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleOwnerSqlValidate(req, res, auth.user);
+  }
+  if (pathname === '/staff/owner/sql/execute') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleOwnerSqlExecute(req, res, auth.user);
+  }
 
   // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
@@ -24592,6 +24691,8 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/check-guest-automation-gate <- 9.6 Luna guest automation dry-run pause gate (read-only; no send)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/ask-luna/ai-status         <- 24d Ask Luna AI provider status (session viewer+, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/validate       <- 25d Owner SQL validator (operator+, read-only)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/execute        <- 25d Owner SQL executor (operator+, read-only)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/surf-forecast?client=wolfhouse-somo&day=today  <- 11b.1 surf forecast (read-only, Stormglass backend)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
