@@ -132,6 +132,31 @@ function resolveLunaAiDiagnostics(env = process.env) {
 }
 
 /**
+ * Safe public health summary (no key length, no secrets).
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{
+ *   configured: boolean,
+ *   provider: 'openai'|'anthropic'|null,
+ *   model: string|null,
+ *   key_present: boolean,
+ *   key_source: string|null,
+ *   key_fingerprint: string|null,
+ * }}
+ */
+function resolveLunaAiHealthSummary(env = process.env) {
+  const diag = resolveLunaAiDiagnostics(env);
+  return {
+    configured: diag.enabled,
+    provider: diag.provider,
+    model: diag.model,
+    key_present: diag.key_present,
+    key_source: diag.key_source,
+    key_fingerprint: diag.key_fingerprint,
+  };
+}
+
+/**
  * Resolve provider, model, and API key from env (no network).
  *
  * @param {NodeJS.ProcessEnv} [env]
@@ -383,6 +408,7 @@ module.exports = {
   hashKeyFingerprint,
   resolveLunaAiProvider,
   resolveLunaAiDiagnostics,
+  resolveLunaAiHealthSummary,
   resolveLunaAiModel,
   callLunaAiJsonChat,
   buildLunaAiHttpError,

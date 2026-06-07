@@ -61,7 +61,7 @@ const {
   resolveBalanceDueIntentKey,
 } = require('./lib/staff-ask-luna-balance-due');
 const { classifyAskLunaIntentWithAi } = require('./lib/staff-ask-luna-ai-intent');
-const { resolveLunaAiDiagnostics } = require('./lib/luna-ai-provider');
+const { resolveLunaAiDiagnostics, resolveLunaAiHealthSummary } = require('./lib/luna-ai-provider');
 const { formatBalanceDueAnswerNatural } = require('./lib/staff-ask-luna-ai-answer-format');
 const {
   resolveAskLunaLessonsIntentKey,
@@ -25108,6 +25108,7 @@ async function router(req, res) {
       stage:        '7.7b',
       auth_enabled: STAFF_AUTH_REQUIRED,
       stormglass:   getStormglassConfigStatus(),
+      luna_ai:      resolveLunaAiHealthSummary(process.env),
       note:         'read-only staff API + UI + conversation endpoints (shadow-mode review)',
     });
   }
