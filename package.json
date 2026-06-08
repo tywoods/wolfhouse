@@ -177,6 +177,7 @@
     "verify:luna-agent-phase26-closeout": "node scripts/verify-luna-agent-phase26-closeout.js",
     "verify:stage27a-guest-intake-design": "node scripts/verify-stage27a-guest-intake-design.js",
     "verify:stage27b-guest-message-router": "node scripts/verify-stage27b-guest-message-router.js",
+    "verify:stage27c-guest-intake-endpoint": "node scripts/verify-stage27c-guest-intake-endpoint.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
     "verify:staff-ask-luna-surf-forecast": "node scripts/verify-staff-ask-luna-surf-forecast.js",

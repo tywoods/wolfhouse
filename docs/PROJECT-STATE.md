@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27b — Guest message router dry-run**): **PASS**. Deterministic lane classifier + first-slice booking extraction (`new_booking_inquiry` only) + proposed Luna reply + handoff flags. Module: `scripts/lib/luna-guest-message-router.js` · verifier **`verify:stage27b-guest-message-router`** **116/116 PASS**. **No DB · no deploy · no Stripe · no WhatsApp · no Meta · no n8n · no payment links · no live guest automation.** Doc: [STAGE-27B-GUEST-MESSAGE-ROUTER.md](STAGE-27B-GUEST-MESSAGE-ROUTER.md). **Next:** **Stage 27c** — HTTP dry-run endpoint harness.
+**Last updated:** 2026-06-08 (**Stage 27c — Guest intake dry-run HTTP endpoint**): **PASS**. `POST /staff/bot/guest-intake-dry-run` → `runLunaGuestMessageRouterDryRun` (Stage 27b router) · bot auth · `{ success, dry_run, result }` · no DB/Stripe/WhatsApp/Meta/n8n. Verifier: `verify:stage27c-guest-intake-endpoint`. Doc: [STAGE-27C-GUEST-INTAKE-ENDPOINT.md](STAGE-27C-GUEST-INTAKE-ENDPOINT.md). **Next:** **Stage 27d** — hosted staging harness.
+
+**Prior — Stage 27b (2026-06-08):** Guest message router dry-run library — **PASS**. Doc: [STAGE-27B-GUEST-MESSAGE-ROUTER.md](STAGE-27B-GUEST-MESSAGE-ROUTER.md).
 
 **Prior — Stage 27a (2026-06-08):** Guest intake design lock — **PASS** (docs only). Doc: [STAGE-27A-GUEST-INTAKE-DESIGN.md](STAGE-27A-GUEST-INTAKE-DESIGN.md).
 
