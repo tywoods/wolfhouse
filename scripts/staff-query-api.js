@@ -1192,6 +1192,7 @@ const {
   validateOwnerReadOnlySql,
   executeOwnerReadOnlySql,
 } = require('./lib/owner-readonly-sql');
+const { planOwnerSqlQuestion } = require('./lib/owner-sql-planner');
 
 function handleAskLunaAiStatus(res) {
   const diag = resolveLunaAiDiagnostics(process.env);
@@ -1305,7 +1306,32 @@ async function handleAskLuna(req, res) {
 }
 
 // ── Stage 25d — Owner read-only SQL validate/execute (testing foundation) ───
-// TODO(25f): tighten to owner/admin-only once Owner Portal auth is wired.
+// TODO(25g): wire execute from planner when execute_ready is true.
+
+async function handleOwnerSqlPlan(req, res, user) {
+  let body = {};
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const question = String(body.question || '').trim();
+  if (!question) return send400(res, 'question is required');
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const result = await planOwnerSqlQuestion({
+    client_slug: clientSlug,
+    question,
+    role: String(body.role || 'owner').trim() || 'owner',
+    env: process.env,
+  });
+
+  const status = result.success ? 200 : 400;
+  return sendJSON(res, status, result);
+}
 
 async function handleOwnerSqlValidate(req, res, user) {
   let body = {};
@@ -24489,6 +24515,15 @@ async function router(req, res) {
     if (!auth.ok) return;
     return handleOwnerSqlExecute(req, res, auth.user);
   }
+  if (pathname === '/staff/owner/sql/plan') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleOwnerSqlPlan(req, res, auth.user);
+  }
 
   // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
@@ -24693,6 +24728,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/validate       <- 25d Owner SQL validator (operator+, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/execute        <- 25d Owner SQL executor (operator+, read-only)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/plan           <- 25f Owner SQL planner dry-run (operator+, no execute)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/surf-forecast?client=wolfhouse-somo&day=today  <- 11b.1 surf forecast (read-only, Stormglass backend)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);
