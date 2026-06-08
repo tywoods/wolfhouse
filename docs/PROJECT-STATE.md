@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27p — Stripe payment truth for guest draft**): **PASS**. `runGuestStripePaymentTruthApplyApproved` in `scripts/lib/luna-guest-stripe-payment-truth-apply.js`. **Reuses:** `handleStripeWebhook` (8.4.11) checkout.session.completed → paid + booking amounts. **Gate:** `confirm_payment_truth` + non-production + Stripe test mode + session/amount/currency match. **No confirmation send/WhatsApp/Meta/n8n.** Verifier: `verify:stage27p-stripe-payment-truth`. Doc: [STAGE-27P-STRIPE-PAYMENT-TRUTH.md](STAGE-27P-STRIPE-PAYMENT-TRUTH.md). **Next:** confirmation dry-run (no live WhatsApp).
+**Last updated:** 2026-06-08 (**Stage 27q — Confirmation preview dry-run**): **PASS**. `runGuestConfirmationPreviewDryRun` in `scripts/lib/luna-guest-confirmation-preview-dry-run.js`. **Reuses:** `getLunaBookingConfirmationPreview` (14b) + `confirmation_draft` from 27p. **Gate:** payment truth (`deposit_paid`/`paid`) only. **Output:** `proposed_confirmation_message` for staff review. **No send/WhatsApp/Stripe/writes.** Verifier: `verify:stage27q-confirmation-preview`. Doc: [STAGE-27Q-CONFIRMATION-PREVIEW.md](STAGE-27Q-CONFIRMATION-PREVIEW.md). **Next:** confirmation send go/no-go.
+
+**Prior — Stage 27p (2026-06-08):** Stripe payment truth — **PASS**. Doc: [STAGE-27P-STRIPE-PAYMENT-TRUTH.md](STAGE-27P-STRIPE-PAYMENT-TRUTH.md).
 
 **Prior — Stage 27o (2026-06-08):** Stripe test Checkout link — **PASS**. Doc: [STAGE-27O-STRIPE-TEST-LINK.md](STAGE-27O-STRIPE-TEST-LINK.md).
 
