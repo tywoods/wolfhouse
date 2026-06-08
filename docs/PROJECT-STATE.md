@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27c — Guest intake dry-run HTTP endpoint**): **PASS**. `POST /staff/bot/guest-intake-dry-run` → `runLunaGuestMessageRouterDryRun` (Stage 27b router) · bot auth · `{ success, dry_run, result }` · no DB/Stripe/WhatsApp/Meta/n8n. Verifier: `verify:stage27c-guest-intake-endpoint`. Doc: [STAGE-27C-GUEST-INTAKE-ENDPOINT.md](STAGE-27C-GUEST-INTAKE-ENDPOINT.md). **Next:** **Stage 27d** — hosted staging harness.
+**Last updated:** 2026-06-08 (**Stage 27d — Guest intake dry-run test harness**): **PASS**. Manual harness `scripts/run-guest-intake-dry-run.js` · `npm run guest:intake:dry-run` · POST `/staff/bot/guest-intake-dry-run` · `--base-url` / `--message` / `--fixture` · 9 built-in fixtures · summary + safety flags · `LUNA_BOT_INTERNAL_TOKEN` → `X-Luna-Bot-Token`. Verifier: `verify:stage27d-guest-intake-harness`. Doc: [STAGE-27D-GUEST-INTAKE-HARNESS.md](STAGE-27D-GUEST-INTAKE-HARNESS.md). **No deploy · no DB · no live send.** **Next:** **Stage 27e** — optional hosted staging proof.
+
+**Prior — Stage 27c (2026-06-08):** Guest intake dry-run HTTP endpoint — **PASS**. Doc: [STAGE-27C-GUEST-INTAKE-ENDPOINT.md](STAGE-27C-GUEST-INTAKE-ENDPOINT.md).
 
 **Prior — Stage 27b (2026-06-08):** Guest message router dry-run library — **PASS**. Doc: [STAGE-27B-GUEST-MESSAGE-ROUTER.md](STAGE-27B-GUEST-MESSAGE-ROUTER.md).
 
