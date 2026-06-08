@@ -157,7 +157,8 @@ section('E. Safety — no Stripe/payment/WhatsApp/guest AI/Aviationstack');
 if (!apiSrc.match(/handleBedCalendar[\s\S]{0,2500}INSERT INTO payments/i)) {
   pass('E1', 'bed-calendar handler has no payment writes');
 } else fail('E1', 'payment writes in bed-calendar');
-if (!/aviationstack/i.test(apiSrc) && !/aviationstack/i.test(helperSrc)) {
+const bedCalSlice = (apiSrc.match(/async function handleBedCalendar[\s\S]{0,5000}/) || [''])[0];
+if (!/aviationstack/i.test(bedCalSlice) && !/aviationstack/i.test(helperSrc)) {
   pass('E2', 'no Aviationstack in phase26d slice');
 } else fail('E2', 'Aviationstack touched');
 if (!/INSERT INTO payments|payment_intent|stripe\./i.test(helperSrc.slice(helperSrc.indexOf('buildTransferSummariesByBookingId')))) {

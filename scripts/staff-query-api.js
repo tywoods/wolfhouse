@@ -170,6 +170,7 @@ const {
   buildTransferSummariesByBookingId,
   emptyTransferSummary,
 } = require('./lib/booking-transfers');
+const { getAviationstackStatus } = require('./lib/aviationstack-flight-lookup');
 const {
   reassignBookingBedSql,
 } = require('./lib/staff-bed-reassignment-sql');
@@ -25052,6 +25053,13 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     if (await dispatchBookingTransfersRoute(req, res, pathname, parsed.query)) return;
+  }
+
+  // ── Phase 26e — Aviationstack flight lookup status (config only, no live call) ─
+  if (pathname === '/staff/transfers/flight-lookup/status') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return sendJSON(res, 200, { success: true, ...getAviationstackStatus() });
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────
