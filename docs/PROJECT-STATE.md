@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27m — Hold/payment draft planner dry-run**): **PASS**. `runGuestHoldPaymentDraftPlannerDryRun` in `scripts/lib/luna-guest-hold-payment-draft-planner.js`. **No writes.** **Gate:** full 27 chain through `payment_choice_ready` + `ready_for_hold_payment_draft`. **Output:** `plan_status` · `would_create_hold/snapshot/draft` · `payment_amount_cents` · `balance_due_after_payment_cents` · `idempotency_key_preview` · `planned_records`. **Stripe link always false.** Verifier: `verify:stage27m-hold-payment-draft-planner`. Doc: [STAGE-27M-HOLD-PAYMENT-DRAFT-PLANNER.md](STAGE-27M-HOLD-PAYMENT-DRAFT-PLANNER.md). **Next:** **Stage 27n** — gated staging write for hold + payment draft.
+**Last updated:** 2026-06-08 (**Stage 27n — Gated hold/payment draft write**): **PASS**. `runGuestHoldPaymentDraftWriteDryRunApproved` in `scripts/lib/luna-guest-hold-payment-draft-write.js`. **Gate:** `confirm_write:true` + non-production env + 27m planner ready. **Writes:** `upsertBookingHold` + `payments` draft + quote snapshot metadata. **No Stripe/WhatsApp/Meta/n8n.** Verifier: `verify:stage27n-hold-payment-draft-write`. Doc: [STAGE-27N-HOLD-PAYMENT-DRAFT-WRITE.md](STAGE-27N-HOLD-PAYMENT-DRAFT-WRITE.md). **Next:** **Stage 27o** — Stripe test link (no live send).
+
+**Prior — Stage 27m (2026-06-08):** Hold/payment draft planner dry-run — **PASS**. Doc: [STAGE-27M-HOLD-PAYMENT-DRAFT-PLANNER.md](STAGE-27M-HOLD-PAYMENT-DRAFT-PLANNER.md).
 
 **Prior — Stage 27l (2026-06-08):** Hold + payment draft design lock — **PASS** (docs only). Doc: [STAGE-27L-HOLD-PAYMENT-DRAFT-DESIGN.md](STAGE-27L-HOLD-PAYMENT-DRAFT-DESIGN.md).
 
