@@ -13046,6 +13046,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .pill-grey{background:#E8E5DE;color:#83897F;border-color:#DDD8CE}      /* cancelled — pale warm gray */
 .pill-luna{background:#D5E5EF;color:#3F6070;border-color:#7AAABB}       /* Luna — calendar blue */
 .pill-staff-source{background:#DCEAD2;color:#5C7350;border:1px solid #CADCBE;border-left:3px solid #B5D3AD} /* Staff — soft sage green */
+.pill-purple{background:#E8DEEF;color:#6B5080;border-color:#D4C4E0} /* transfer scheduled — soft purple */
 .pill-clear-conv{background:#E8DFD0;color:#6B5E4A;border-color:#D4C4AE;cursor:pointer;font-family:inherit}
 .pill-clear-conv:hover{background:#DDD2C0}
 /* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
@@ -13404,7 +13405,8 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-transfer-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:860px){.bc-transfer-cards{grid-template-columns:1fr}}
 .bc-transfer-card{margin:0;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);box-shadow:var(--shadow-soft)}
-.bc-transfer-card h4{margin:0 0 8px;font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
+.bc-transfer-card h4{margin:0 0 8px;font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bc-transfer-scheduled-pebble{text-transform:none;letter-spacing:0;font-weight:600;font-size:10px}
 .bc-transfer-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin-top:4px}
 @media (max-width:640px){.bc-transfer-grid{grid-template-columns:1fr}}
 .bc-transfer-col{display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -13415,9 +13417,9 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-transfer-card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px}
 .bc-transfer-override-toggle{align-self:flex-start;margin-top:4px;font-size:10px;font-weight:500;padding:2px 8px;line-height:1.35;color:var(--text-2);border-color:var(--border-soft);background:transparent}
 .bc-transfer-override-toggle:hover{background:var(--surface-soft);color:var(--text)}
-.bc-transfer-override-wrap{margin-top:4px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);max-width:160px}
-.bc-transfer-override-wrap .bk-input-sm{max-width:96px;min-width:72px;padding:3px 6px;font-size:12px}
-.bc-transfer-override-amount{max-width:96px;width:100%}
+.bc-transfer-override-wrap{margin-top:4px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);display:inline-block;width:100%;max-width:120px;box-sizing:border-box}
+.bc-transfer-override-wrap .bk-input-sm{max-width:100%;width:100%;min-width:0;padding:3px 6px;font-size:12px;box-sizing:border-box}
+.bc-transfer-override-amount{max-width:100%;width:100%;box-sizing:border-box}
 .bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap}
 .bc-transfer-remove{margin-left:auto;font-size:11px;color:#9C5742;border-color:rgba(156,87,66,.35);padding:4px 10px}
 .bc-transfer-remove:hover{background:rgba(156,87,66,.06)}
@@ -20208,7 +20210,7 @@ function bcRenderAddServicePanelHtml(bk){
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-cancel-btn">Cancel</button>' +
     '</div></div>' +
     '<div id="bc-add-ons-form-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
-    '<label class="ctx-field-label" for="bc-add-ons-type">Add-on type</label>' +
+    '<label class="ctx-field-label" for="bc-add-ons-type">Service Type</label>' +
     '<select id="bc-add-ons-type" class="bk-input bk-input-sm">' +
     '<option value="wetsuit">Wetsuit</option>' +
     '<option value="soft_board">Soft board</option>' +
@@ -20217,7 +20219,7 @@ function bcRenderAddServicePanelHtml(bk){
     '<option value="yoga">Yoga</option>' +
     '<option value="meals">Meal</option>' +
     '</select>' +
-    '<label class="ctx-field-label" for="bc-add-ons-qty" id="bc-add-ons-qty-label">Quantity / days</label>' +
+    '<label class="ctx-field-label" for="bc-add-ons-qty" id="bc-add-ons-qty-label">Quantity / Days</label>' +
     '<input type="number" id="bc-add-ons-qty" class="bk-input bk-input-sm" min="1" value="1">' +
     '<div id="bc-add-ons-date-wrap">' +
     '<label class="ctx-field-label" for="bc-add-ons-date" id="bc-add-ons-date-label">Service Date</label>' +
@@ -20229,7 +20231,7 @@ function bcRenderAddServicePanelHtml(bk){
     '<label class="ctx-field-label" for="bc-add-ons-note">Note (optional)</label>' +
     '<input type="text" id="bc-add-ons-note" class="bk-input bk-input-sm" maxlength="500">' +
     '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
-    '<button type="button" class="btn btn-primary" id="bc-add-ons-save-btn">Save add-on</button>' +
+    '<button type="button" class="btn btn-primary" id="bc-add-ons-save-btn">Add Service</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-cancel-btn">Cancel</button>' +
     '</div></div>' +
     '<div id="bc-add-ons-result" aria-live="polite"></div>' +
@@ -20268,7 +20270,7 @@ function bcAddServiceUpdateQtyLabel(){
   if (t === 'surf_lesson') lbl.textContent = 'Quantity / lessons';
   else if (t === 'yoga') lbl.textContent = 'Quantity / classes';
   else if (t === 'meals') lbl.textContent = 'Quantity / meals';
-  else lbl.textContent = 'Quantity / days';
+  else lbl.textContent = 'Quantity / Days';
 }
 
 function bcCloseAddServiceForm(){
@@ -20884,6 +20886,34 @@ function bcTransferHasManualOverride(transfer){
   return /manual transfer override/i.test(note);
 }
 
+function bcTransferIsScheduled(transfer){
+  if (!transfer || !transfer.id) return false;
+  var s = String(transfer.status || '').toLowerCase();
+  return s === 'requested' || s === 'confirmed';
+}
+
+function bcTransferSaveButtonLabel(direction){
+  return direction === 'arrival' ? 'Save Arrival Transfer' : 'Save Departure Transfer';
+}
+
+function bcTransferScheduledPebbleHtml(){
+  return ' <span class="pill pill-purple bc-transfer-scheduled-pebble">Transfer Scheduled</span>';
+}
+
+function bcTransferUpdateScheduledUi(direction, transfer){
+  var card = el('bc-transfer-card-' + direction);
+  if (!card) return;
+  var scheduled = bcTransferIsScheduled(transfer);
+  var title = direction === 'arrival' ? 'Arrival Transfer' : 'Departure Transfer';
+  var h4 = card.querySelector('h4');
+  if (h4) h4.innerHTML = escHtml(title) + (scheduled ? bcTransferScheduledPebbleHtml() : '');
+  var saveBtn = card.querySelector('.bc-transfer-save[data-direction="' + direction + '"]');
+  if (saveBtn){
+    saveBtn.textContent = bcTransferSaveButtonLabel(direction);
+    saveBtn.disabled = scheduled;
+  }
+}
+
 function bcTransferOverrideEurosFromTransfer(transfer){
   if (!transfer) return '';
   var cents = transfer.price_cents;
@@ -20905,9 +20935,11 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   var removable = bcTransferHasRemovableTransfer(t);
   var hasOverride = bcTransferHasManualOverride(t);
   var overrideEuros = hasOverride ? bcTransferOverrideEurosFromTransfer(t) : '';
+  var scheduled = bcTransferIsScheduled(t);
   var removeLabel = direction === 'arrival' ? 'Remove Arrival Transfer' : 'Remove Departure Transfer';
+  var title = label + ' Transfer';
   var html = '<div class="bc-transfer-card bc-drawer-overview-card" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
-  html += '<h4>' + escHtml(label) + ' transfer</h4>';
+  html += '<h4>' + escHtml(title) + (scheduled ? bcTransferScheduledPebbleHtml() : '') + '</h4>';
   html += '<div class="bc-transfer-grid">';
   html += '<div class="bc-transfer-col bc-transfer-col-left">';
   html += '<div><label class="ctx-field-label">Airport</label>';
@@ -20935,7 +20967,8 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<div class="bc-transfer-card-footer">';
   html += '<div class="bc-transfer-actions">';
   html += '<button type="button" class="btn btn-ghost bc-transfer-lookup" data-direction="' + direction + '" disabled>Lookup flight</button>';
-  html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '">Save ' + escHtml(label.toLowerCase()) + ' transfer</button>';
+  html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '"' +
+    (scheduled ? ' disabled' : '') + '>' + escHtml(bcTransferSaveButtonLabel(direction)) + '</button>';
   html += '</div>';
   if (removable) {
     html += '<button type="button" class="btn btn-ghost bc-transfer-remove" data-direction="' + direction + '">' +
@@ -21204,13 +21237,13 @@ function bcClearTransferForm(direction){
   bcTransferUpdateLookupButtonState(direction);
   var removeBtn = document.querySelector('.bc-transfer-remove[data-direction="' + direction + '"]');
   if (removeBtn) removeBtn.remove();
+  bcTransferUpdateScheduledUi(direction, null);
 }
 
 function bcRefreshTransferPebbleSummary(){
   if (!bcLastOpenedBlock) return;
   bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(bcTransferLocalActiveRows());
   updateBcDetailHeader({ booking: (bcTransferCtx.data && bcTransferCtx.data.booking) || {} });
-  bcRestoreActiveDrawerTab('transfers');
 }
 
 function bcRemoveTransfer(direction){
@@ -21232,6 +21265,7 @@ function bcRemoveTransfer(direction){
       bcClearTransferForm(direction);
       var resultEl = el('bc-transfer-' + direction + '-result');
       if (resultEl){ resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
+      bcTransferUpdateScheduledUi(direction, null);
       bcRefreshTransferPebbleSummary();
     })
     .catch(function(e){
@@ -21257,8 +21291,8 @@ function bcSaveTransfer(direction){
   })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
-      if (btn) btn.disabled = false;
       if (!res.ok || !res.data.success){
+        if (btn) btn.disabled = false;
         bcTransferShowResult(direction, escHtml((res.data && res.data.message) || (res.data && res.data.error) || 'Save failed'), true);
         return;
       }
@@ -21270,6 +21304,7 @@ function bcSaveTransfer(direction){
       bcTransferCtx.existingStatus = bcTransferCtx.existingStatus || { arrival: null, departure: null };
       bcTransferCtx.existingStatus[direction] = t.status || 'requested';
       bcTransferEnsureRemoveButton(direction, t);
+      bcTransferUpdateScheduledUi(direction, t);
       bcRefreshTransferPebbleSummary();
     })
     .catch(function(e){
@@ -21307,7 +21342,6 @@ function bcInitTransferShell(contextData){
         bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(res.data.transfers);
         updateBcDetailHeader(contextData);
       }
-      bcRestoreActiveDrawerTab('transfers');
       document.querySelectorAll('.bc-transfer-save').forEach(function(btn){
         btn.addEventListener('click', function(){
           bcSaveTransfer(btn.getAttribute('data-direction'));

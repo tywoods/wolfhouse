@@ -121,9 +121,14 @@ if (/bcTransferEnsureRemoveButton/.test(saveTransferSlice) && /bcRefreshTransfer
 if (/bcRefreshTransferPebbleSummary/.test(removeTransferSlice) && !/loadBlockDetail/.test(removeTransferSlice)) {
   pass('D2', 'remove transfer updates pebble in place');
 } else fail('D2', 'remove transfer reload');
-if (/bcRestoreActiveDrawerTab\('transfers'\)/.test(apiSrc)) {
-  pass('D3', 'transfer actions restore Transfers tab');
-} else fail('D3', 'transfers tab restore');
+if (!/bcRestoreActiveDrawerTab\('transfers'\)/.test(
+  apiSrc.match(/function bcInitTransferShell[\s\S]{0,2200}/)?.[0] || ''
+)) {
+  pass('D3', 'transfer init does not force Transfers tab on async load');
+} else fail('D3', 'transfer init forces Transfers tab');
+if (/bcTransferUpdateScheduledUi/.test(apiSrc) && /Transfer Scheduled/.test(apiSrc)) {
+  pass('D4', 'scheduled transfer pebble + save button state helper');
+} else fail('D4', 'scheduled transfer UI helper');
 
 section('E. No package option');
 
