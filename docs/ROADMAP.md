@@ -1,4 +1,6 @@
-**Stage 27q CONFIRMATION PREVIEW DRY-RUN — PASS (2026-06-08):** `runGuestConfirmationPreviewDryRun` in `scripts/lib/luna-guest-confirmation-preview-dry-run.js`. **Reuses:** `getLunaBookingConfirmationPreview` (14b). **Gate:** payment truth only. **Output:** Luna confirmation copy preview, `ready_for_confirmation_send_go_no_go`. **No send/WhatsApp/Stripe.** Verifier: `verify:stage27q-confirmation-preview`. Doc: [STAGE-27Q-CONFIRMATION-PREVIEW.md](STAGE-27Q-CONFIRMATION-PREVIEW.md). **Next:** confirmation send go/no-go.
+**Stage 27r CONFIRMATION SEND GO/NO-GO — PASS (2026-06-08):** `runGuestConfirmationSendGoNoGo`. **Reuses:** `sendLunaBookingConfirmation` (20j) + injected 27q message. **Gate:** `confirm_send:true` + preview ready. **Dry-run:** `WHATSAPP_DRY_RUN=true` → audit only. Verifier: `verify:stage27r-confirmation-send-go-no-go`. Doc: [STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md](STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md). **Next:** live send approval slice.
+
+**Stage 27q CONFIRMATION PREVIEW DRY-RUN — PASS (2026-06-08):** `runGuestConfirmationPreviewDryRun`. Verifier: `verify:stage27q-confirmation-preview`. Doc: [STAGE-27Q-CONFIRMATION-PREVIEW.md](STAGE-27Q-CONFIRMATION-PREVIEW.md). **Next:** confirmation send go/no-go.
 
 **Stage 27p STRIPE PAYMENT TRUTH — PASS (2026-06-08):** `runGuestStripePaymentTruthApplyApproved`. Verifier: `verify:stage27p-stripe-payment-truth`. Doc: [STAGE-27P-STRIPE-PAYMENT-TRUTH.md](STAGE-27P-STRIPE-PAYMENT-TRUTH.md). **Next:** confirmation dry-run.
 

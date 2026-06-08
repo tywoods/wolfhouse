@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27q — Confirmation preview dry-run**): **PASS**. `runGuestConfirmationPreviewDryRun` in `scripts/lib/luna-guest-confirmation-preview-dry-run.js`. **Reuses:** `getLunaBookingConfirmationPreview` (14b) + `confirmation_draft` from 27p. **Gate:** payment truth (`deposit_paid`/`paid`) only. **Output:** `proposed_confirmation_message` for staff review. **No send/WhatsApp/Stripe/writes.** Verifier: `verify:stage27q-confirmation-preview`. Doc: [STAGE-27Q-CONFIRMATION-PREVIEW.md](STAGE-27Q-CONFIRMATION-PREVIEW.md). **Next:** confirmation send go/no-go.
+**Last updated:** 2026-06-08 (**Stage 27r — Confirmation send go/no-go**): **PASS**. `runGuestConfirmationSendGoNoGo` in `scripts/lib/luna-guest-confirmation-send-go-no-go.js`. **Reuses:** `sendLunaBookingConfirmation` (20j) with injected 27q message. **Gate:** explicit `confirm_send:true` + 27q preview ready. **WHATSAPP_DRY_RUN** → `blocked_dry_run` audit only. Verifier: `verify:stage27r-confirmation-send-go-no-go`. Doc: [STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md](STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md). **Next:** live send approval (separate).
+
+**Prior — Stage 27q (2026-06-08):** Confirmation preview dry-run — **PASS**. Doc: [STAGE-27Q-CONFIRMATION-PREVIEW.md](STAGE-27Q-CONFIRMATION-PREVIEW.md).
 
 **Prior — Stage 27p (2026-06-08):** Stripe payment truth — **PASS**. Doc: [STAGE-27P-STRIPE-PAYMENT-TRUTH.md](STAGE-27P-STRIPE-PAYMENT-TRUTH.md).
 
