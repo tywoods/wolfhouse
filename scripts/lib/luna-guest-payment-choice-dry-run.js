@@ -40,6 +40,20 @@ const VALID_NEXT_SAFE_STEPS = Object.freeze([
   'not_ready',
 ]);
 
+/** Internal terms that must never appear in guest-facing proposed_luna_reply. */
+const BANNED_INTERNAL_GUEST_COPY_RES = [
+  /\bconfirmed quote\b/i,
+  /\bpayment choice\b/i,
+  /\bpayment_choice\b/i,
+  /\bquote_status\b/i,
+  /\bguest_context\b/i,
+  /\bintake_state\b/i,
+  /\breadiness_state\b/i,
+  /\bautomation gate\b/i,
+  /\bnext_safe_step\b/i,
+  /\bdry run\b/i,
+];
+
 const REPLY_TEMPLATES = {
   en: {
     intro: "Hi! I'm Luna from Wolfhouse",
@@ -48,7 +62,11 @@ const REPLY_TEMPLATES = {
     arrival: 'The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?',
     link_request: 'I cannot send a payment link automatically yet. Would you prefer to pay the deposit or the full amount? I am not confirming the booking yet.',
     unclear: 'Thanks! Would you prefer to pay the deposit or the full amount for your stay?',
-    not_ready: 'Thanks for your message — I need a confirmed quote before I can take your payment choice.',
+    not_ready_deposit: 'Perfect, deposit is fine 😊 First I just need to confirm the stay details so I can check the right option for you.',
+    not_ready_general: 'Perfect 😊 I can help with that. First I’ll just confirm the stay details so I can check the right option for you.',
+    ask_dates: 'What dates would you like to stay?',
+    ask_guests: 'How many guests will be staying?',
+    ask_package: 'Would you like one of our surf packages, or accommodation only?',
     non_booking: 'For payment or balance questions I need your booking code — our team will confirm the right next step.',
     staff_handoff: 'Thanks — I am handing this to our team so they can help with the next payment step.',
   },
@@ -59,7 +77,11 @@ const REPLY_TEMPLATES = {
     arrival: 'Il saldo restante si può pagare in contanti, bonifico o Stripe all\'arrivo o al check-in. Per ora preferisci il deposito o l\'importo intero?',
     link_request: 'Non posso inviare un link di pagamento automaticamente. Preferisci il deposito o l\'importo intero?',
     unclear: 'Grazie! Preferisci pagare il deposito o l\'importo intero?',
-    not_ready: 'Grazie — serve un preventivo confermato prima di registrare la scelta di pagamento.',
+    not_ready_deposit: 'Perfetto, il deposito va bene 😊 Prima devo solo confermare i dettagli del soggiorno per verificare l\'opzione giusta per te.',
+    not_ready_general: 'Perfetto 😊 Posso aiutarti. Prima confermo i dettagli del soggiorno per verificare l\'opzione giusta.',
+    ask_dates: 'Quali date vorresti soggiornare?',
+    ask_guests: 'Quanti ospiti sarete?',
+    ask_package: 'Preferisci uno dei nostri pacchetti surf o solo alloggio?',
     non_booking: 'Per pagamenti o saldo mi serve il codice prenotazione — il team confermerà i prossimi passi.',
     staff_handoff: 'Grazie — passo al team per il prossimo passo di pagamento.',
   },
@@ -70,7 +92,11 @@ const REPLY_TEMPLATES = {
     arrival: 'El saldo restante se puede pagar en efectivo, transferencia o Stripe a la llegada o en el check-in. ¿Prefieres el depósito o el importe completo ahora?',
     link_request: 'No puedo enviar un enlace de pago automáticamente. ¿Prefieres el depósito o el importe completo?',
     unclear: '¡Gracias! ¿Prefieres pagar el depósito o el importe completo?',
-    not_ready: 'Gracias — necesito un presupuesto confirmado antes de registrar tu elección de pago.',
+    not_ready_deposit: 'Perfecto, el depósito está bien 😊 Primero solo necesito confirmar los detalles de la estancia para revisar la opción adecuada.',
+    not_ready_general: 'Perfecto 😊 Puedo ayudarte. Primero confirmaré los detalles de la estancia para revisar la opción adecuada.',
+    ask_dates: '¿Qué fechas te gustaría quedarte?',
+    ask_guests: '¿Cuántos huéspedes serán?',
+    ask_package: '¿Te gustaría uno de nuestros paquetes de surf o solo alojamiento?',
     non_booking: 'Para pagos o saldo necesito tu código de reserva — el equipo confirmará el siguiente paso.',
     staff_handoff: 'Gracias — paso esto al equipo para el siguiente paso de pago.',
   },
@@ -81,7 +107,11 @@ const REPLY_TEMPLATES = {
     arrival: 'Der Restbetrag kann bar, per Überweisung oder Stripe bei Ankunft oder Check-in gezahlt werden. Möchtet ihr jetzt die Anzahlung oder den vollen Betrag?',
     link_request: 'Ich kann noch keinen Zahlungslink automatisch senden. Anzahlung oder voller Betrag?',
     unclear: 'Danke! Möchtet ihr die Anzahlung oder den vollen Betrag zahlen?',
-    not_ready: 'Danke — ich brauche ein bestätigtes Angebot, bevor ich eure Zahlungswahl aufnehmen kann.',
+    not_ready_deposit: 'Perfekt, Anzahlung ist in Ordnung 😊 Zuerst bestätige ich nur die Aufenthaltsdetails, damit ich die passende Option prüfen kann.',
+    not_ready_general: 'Perfekt 😊 Ich helfe euch gern. Zuerst bestätige ich die Aufenthaltsdetails, damit ich die passende Option prüfen kann.',
+    ask_dates: 'Welche Daten möchtet ihr übernachten?',
+    ask_guests: 'Wie viele Gäste seid ihr?',
+    ask_package: 'Möchtet ihr eines unserer Surf-Pakete oder nur Unterkunft?',
     non_booking: 'Für Zahlung oder Restbetrag brauche ich eure Buchungsnummer — das Team bestätigt die nächsten Schritte.',
     staff_handoff: 'Danke — ich gebe das an unser Team für den nächsten Zahlungsschritt weiter.',
   },
@@ -92,7 +122,11 @@ const REPLY_TEMPLATES = {
     arrival: 'Le solde restant peut être réglé en espèces, virement ou Stripe à l\'arrivée ou au check-in. Préférez-vous l\'acompte ou le montant complet maintenant ?',
     link_request: 'Je ne peux pas encore envoyer de lien de paiement automatiquement. Acompte ou montant complet ?',
     unclear: 'Merci ! Préférez-vous payer l\'acompte ou le montant complet ?',
-    not_ready: 'Merci — il me faut un devis confirmé avant d\'enregistrer votre choix de paiement.',
+    not_ready_deposit: 'Parfait, l\'acompte convient 😊 D\'abord je dois confirmer les détails du séjour pour vérifier la bonne option.',
+    not_ready_general: 'Parfait 😊 Je peux vous aider. D\'abord je confirme les détails du séjour pour vérifier la bonne option.',
+    ask_dates: 'Quelles dates souhaitez-vous séjourner ?',
+    ask_guests: 'Combien de personnes serez-vous ?',
+    ask_package: 'Souhaitez-vous l\'un de nos forfaits surf ou l\'hébergement seul ?',
     non_booking: 'Pour le paiement ou le solde, j\'ai besoin de votre code de réservation — l\'équipe confirmera la suite.',
     staff_handoff: 'Merci — je transmets à l\'équipe pour la prochaine étape de paiement.',
   },
@@ -219,6 +253,64 @@ function buildReply(lang, key) {
   return `${L.intro} 🌊 — ${L[key]}`;
 }
 
+function containsBannedInternalGuestCopy(text) {
+  const s = String(text || '');
+  return BANNED_INTERNAL_GUEST_COPY_RES.some((re) => re.test(s));
+}
+
+function extractMissingStayDetails(guestContext) {
+  const ctx = guestContext || {};
+  const extracted = ctx.extracted_fields
+    || (ctx.result && ctx.result.extracted_fields)
+    || {};
+  const missing = ctx.missing_required_fields
+    || (ctx.result && ctx.result.missing_required_fields)
+    || [];
+
+  const needsDates = !extracted.check_in || !extracted.check_out
+    || missing.includes('check_in')
+    || missing.includes('check_out')
+    || missing.includes('dates');
+  const needsGuests = extracted.guest_count == null
+    || missing.includes('guest_count');
+  const needsPackage = (extracted.package_interest == null && extracted.accommodation_only !== true)
+    || missing.includes('package_interest');
+
+  return { needsDates, needsGuests, needsPackage };
+}
+
+/**
+ * Guest-facing reply when payment preference is detected but quote context is not ready.
+ */
+function buildPaymentChoiceNotReadyReply(lang, guestContext, detected) {
+  const L = tpl(lang);
+  const intro = `${L.intro} 🌊 — `;
+  const { needsDates, needsGuests, needsPackage } = extractMissingStayDetails(guestContext);
+  const paymentPrefDetected = detected === 'deposit' || detected === 'full_payment';
+
+  if (needsDates) return intro + L.ask_dates;
+  if (needsGuests) return intro + L.ask_guests;
+  if (needsPackage) return intro + L.ask_package;
+  if (paymentPrefDetected) return intro + L.not_ready_deposit;
+  return intro + L.not_ready_general;
+}
+
+function sanitizeLunaGuestReply(text, fallback) {
+  const s = String(text || '').trim();
+  if (!s || containsBannedInternalGuestCopy(s)) {
+    return fallback || `${tpl('en').intro} 🌊 — ${tpl('en').not_ready_general}`;
+  }
+  return s;
+}
+
+function finalizeProposedLunaReply(lang, guestContext, outcome, detected) {
+  const fallback = buildPaymentChoiceNotReadyReply(lang, guestContext, detected);
+  const raw = outcome.replyKey === 'not_ready'
+    ? fallback
+    : buildReply(lang, outcome.replyKey);
+  return sanitizeLunaGuestReply(raw, fallback);
+}
+
 function buildOutcome(detected, guestContext) {
   const ctx = guestContext || {};
   const lane = ctx.message_lane || (ctx.result && ctx.result.message_lane);
@@ -306,6 +398,7 @@ function buildOutcome(detected, guestContext) {
 function buildGuestPaymentChoiceSkippedResponse(guestContext, detected) {
   const outcome = buildOutcome(detected ?? null, guestContext);
   const lang = resolveLanguage(null, guestContext);
+  const ctx = guestContext || {};
   return {
     success: true,
     ...PAYMENT_CHOICE_SAFETY,
@@ -317,7 +410,7 @@ function buildGuestPaymentChoiceSkippedResponse(guestContext, detected) {
       ? outcome.payment_choice_reasons
       : ['payment_choice_gate_not_met'],
     next_safe_step: outcome.next_safe_step,
-    proposed_luna_reply: buildReply(lang, outcome.replyKey),
+    proposed_luna_reply: finalizeProposedLunaReply(lang, ctx, outcome, detected ?? null),
   };
 }
 
@@ -349,7 +442,7 @@ function runGuestPaymentChoiceDryRun(input, guestContext) {
     payment_choice_ready: outcome.payment_choice_ready,
     payment_choice_reasons: outcome.payment_choice_reasons,
     next_safe_step: outcome.next_safe_step,
-    proposed_luna_reply: buildReply(lang, outcome.replyKey),
+    proposed_luna_reply: finalizeProposedLunaReply(lang, ctx, outcome, detected),
   };
 }
 
@@ -362,6 +455,10 @@ module.exports = {
   buildGuestPaymentChoiceWireSkippedResponse,
   detectPaymentChoiceFromMessage,
   quoteContextReady,
+  containsBannedInternalGuestCopy,
+  sanitizeLunaGuestReply,
+  buildPaymentChoiceNotReadyReply,
+  BANNED_INTERNAL_GUEST_COPY_RES,
   VALID_PAYMENT_CHOICES,
   VALID_NEXT_SAFE_STEPS,
   PAYMENT_CHOICE_SAFETY,

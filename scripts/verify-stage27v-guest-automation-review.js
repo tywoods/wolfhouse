@@ -214,5 +214,56 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
 if (pkg.scripts && pkg.scripts[SCRIPT] === `node ${REL}`) pass('H5', `${SCRIPT} registered`);
 else fail('H5', `${SCRIPT} missing in package.json`);
 
-console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
-process.exit(failures > 0 ? 1 : 0);
+const BANNED_INTERNAL_COPY_RE = /\b(?:confirmed quote|payment choice|payment_choice|quote_status|guest_context|intake_state|readiness_state|automation gate|next_safe_step|dry run)\b/i;
+const PARTIAL_BOOKING_MSG = 'Hi, we are 2 people interested in the Malibu package';
+
+(async () => {
+  section('I. Review reply — partial intake before payment choice');
+
+  const { runGuestAutomationOrchestratorDryRun } = require('./lib/luna-guest-automation-orchestrator-dry-run');
+  const orchOut = await runGuestAutomationOrchestratorDryRun({
+    client_slug: 'wolfhouse-somo',
+    channel: 'staff_review',
+    message_text: PARTIAL_BOOKING_MSG,
+    dry_run: true,
+    reference_date: '2026-06-08',
+    automation_gate_context: { public_guest_automation_enabled: false },
+  }, {});
+
+  const review = {
+    automation_gate: orchOut.automation_gate,
+    proposed_next_action: orchOut.proposed_next_action,
+    proposed_luna_reply: orchOut.proposed_luna_reply,
+    result: orchOut.result,
+    quote: orchOut.quote,
+    payment_choice: orchOut.payment_choice,
+  };
+
+  if (review.result && review.result.booking_intake_ready === false) pass('I1', 'booking_intake_ready false');
+  else fail('I1', 'expected booking_intake_ready false');
+
+  if (review.quote && review.quote.quote_status === 'not_ready') pass('I2', 'quote_status not_ready');
+  else fail('I2', 'expected quote_status not_ready');
+
+  if (review.payment_choice && review.payment_choice.payment_choice_capture_attempted === false) {
+    pass('I3', 'payment_choice_capture_attempted false');
+  } else fail('I3', 'payment choice capture should not run');
+
+  if (review.proposed_luna_reply === review.result.proposed_luna_reply) {
+    pass('I4', 'review.proposed_luna_reply prefers router reply');
+  } else fail('I4', 'review reply must not use payment_choice during intake collection');
+
+  if (/dates|guests|package|stay|details/i.test(review.proposed_luna_reply || '')) {
+    pass('I5', 'review reply asks for missing stay details');
+  } else fail('I5', `review reply: ${review.proposed_luna_reply}`);
+
+  if (!BANNED_INTERNAL_COPY_RE.test(review.proposed_luna_reply || '')) {
+    pass('I6', 'review reply avoids banned internal copy');
+  } else fail('I6', `internal copy in review reply: ${review.proposed_luna_reply}`);
+
+  console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
+  process.exit(failures > 0 ? 1 : 0);
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

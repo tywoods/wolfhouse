@@ -38,6 +38,31 @@ function section(t) { console.log(`\n── ${t} ──`); }
 
 const FORBIDDEN_REPLY_RE = /\b(?:payment link is ready|link is ready|sent you (?:a )?link|checkout link|booking is confirmed|confirmed your booking|pay here|booking is held|payment has been received|payment received)\b/i;
 
+const BANNED_INTERNAL_COPY_RES = [
+  /\bconfirmed quote\b/i,
+  /\bpayment choice\b/i,
+  /\bpayment_choice\b/i,
+  /\bquote_status\b/i,
+  /\bguest_context\b/i,
+  /\bintake_state\b/i,
+  /\breadiness_state\b/i,
+  /\bautomation gate\b/i,
+  /\bnext_safe_step\b/i,
+  /\bdry run\b/i,
+];
+
+function replyAvoidsInternalCopy(reply, id) {
+  const text = String(reply || '');
+  for (const re of BANNED_INTERNAL_COPY_RES) {
+    if (re.test(text)) {
+      fail(id, `internal copy leaked: ${re}`);
+      return false;
+    }
+  }
+  pass(id, 'reply avoids banned internal copy');
+  return true;
+}
+
 const READY_MSG = "Hi, we're 2 people looking to stay from June 15 to June 22, interested in the Malibu package";
 
 const availableAvailability = {
@@ -255,6 +280,30 @@ if (depositNoQuote.payment_choice === 'deposit' || depositNoQuote.payment_choice
   fail('I2', 'should still detect deposit from message');
 }
 
+replyAvoidsInternalCopy(depositNoQuote.proposed_luna_reply, 'I3');
+
+if (/What dates would you like to stay\?|How many guests will be staying\?|surf packages|deposit is fine|stay details/i.test(depositNoQuote.proposed_luna_reply)) {
+  pass('I4', 'natural Luna copy for deposit without quote context');
+} else {
+  fail('I4', `unnatural copy: ${depositNoQuote.proposed_luna_reply}`);
+}
+
+const depositDetailsNoQuote = runGuestPaymentChoiceDryRun(
+  { message_text: 'Deposit is fine' },
+  {
+    message_lane: 'new_booking_inquiry',
+    extracted_fields: { check_in: '2026-07-10', check_out: '2026-07-17', guest_count: 2, package_interest: 'malibu' },
+  },
+);
+if (depositDetailsNoQuote.payment_choice_ready === false) pass('I5', 'deposit with details but no quote not ready');
+else fail('I5', 'must not be ready without quote');
+if (/deposit is fine|stay details|confirm the stay/i.test(depositDetailsNoQuote.proposed_luna_reply)) {
+  pass('I6', 'deposit ack when stay details present but quote missing');
+} else {
+  fail('I6', depositDetailsNoQuote.proposed_luna_reply);
+}
+replyAvoidsInternalCopy(depositDetailsNoQuote.proposed_luna_reply, 'I7');
+
 section('J. Fixture — non-booking payment/balance question');
 
 const balanceLane = runGuestPaymentChoiceDryRun(
@@ -328,6 +377,7 @@ for (const [i, fx] of allFixtures.entries()) {
   } else {
     fail(`N.${i}`, `forbidden phrase in: ${fx.proposed_luna_reply.slice(0, 80)}`);
   }
+  replyAvoidsInternalCopy(fx.proposed_luna_reply, `N.internal.${i}`);
   if (fx.dry_run === true && fx.sends_whatsapp === false && fx.live_send_blocked === true) {
     pass(`N.safe.${i}`, 'dry_run safety flags');
   } else {

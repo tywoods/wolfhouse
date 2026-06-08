@@ -17,6 +17,8 @@ const {
   shouldAttemptGuestPaymentChoiceWire,
   buildPaymentChoiceWireContext,
   buildGuestPaymentChoiceSkippedResponse,
+  sanitizeLunaGuestReply,
+  buildPaymentChoiceNotReadyReply,
 } = require('./luna-guest-payment-choice-dry-run');
 const {
   runGuestHoldPaymentDraftPlannerDryRun,
@@ -234,6 +236,38 @@ function resolveProposedNextAction(payload) {
   return 'ask_missing_details';
 }
 
+function sanitizeReply(text, fallbackCtx, detected) {
+  const lang = (fallbackCtx && fallbackCtx.result && fallbackCtx.result.detected_language) || 'en';
+  const fallback = buildPaymentChoiceNotReadyReply(lang, fallbackCtx || {}, detected ?? null);
+  return sanitizeLunaGuestReply(text, fallback);
+}
+
+function shouldPreferRouterReply(result) {
+  if (!result) return false;
+  if (result.booking_intake_ready === false) return true;
+  if (result.readiness_state === 'collecting_required_details') return true;
+  return false;
+}
+
+function shouldUsePaymentChoiceReply(pc, quote) {
+  if (!pc || !pc.proposed_luna_reply) return false;
+  if (pc.payment_choice_capture_attempted === true) return true;
+  if (pc.payment_choice_detected === true) return true;
+  if (pc.payment_choice_ready === true) return true;
+  const quoteReadyForChoice = quote
+    && quote.quote_status === 'ready'
+    && quote.payment_choice_needed === true;
+  if (quoteReadyForChoice) {
+    const relevantAfterQuote = new Set([
+      'collect_payment_choice',
+      'ready_for_hold_payment_draft',
+      'answer_arrival_payment_question',
+    ]);
+    if (relevantAfterQuote.has(pc.next_safe_step)) return true;
+  }
+  return false;
+}
+
 function resolveProposedReply(payload) {
   const {
     hold_payment_draft_plan: plan,
@@ -248,11 +282,45 @@ function resolveProposedReply(payload) {
     return buildGateBlockedReply(gate);
   }
 
-  if (plan && plan.proposed_luna_reply) return plan.proposed_luna_reply;
-  if (pc && pc.proposed_luna_reply) return pc.proposed_luna_reply;
-  if (quote && quote.proposed_luna_reply) return quote.proposed_luna_reply;
-  if (availability && availability.proposed_luna_reply) return availability.proposed_luna_reply;
-  if (result && result.proposed_luna_reply) return result.proposed_luna_reply;
+  const fallbackCtx = { result, quote, availability };
+
+  if (plan && plan.plan_status === 'ready' && plan.proposed_luna_reply) {
+    return sanitizeReply(plan.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+
+  if (shouldPreferRouterReply(result) && result.proposed_luna_reply) {
+    return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+
+  if (availability && availability.availability_status === 'not_ready' && result && result.proposed_luna_reply) {
+    return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+
+  if (quote && quote.quote_status === 'not_ready') {
+    if (availability && availability.proposed_luna_reply) {
+      return sanitizeReply(availability.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+    }
+    if (result && result.proposed_luna_reply) {
+      return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+    }
+  }
+
+  if (shouldUsePaymentChoiceReply(pc, quote)) {
+    return sanitizeReply(pc.proposed_luna_reply, fallbackCtx, pc.payment_choice);
+  }
+
+  if (plan && plan.proposed_luna_reply) {
+    return sanitizeReply(plan.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+  if (quote && quote.proposed_luna_reply) {
+    return sanitizeReply(quote.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+  if (availability && availability.proposed_luna_reply) {
+    return sanitizeReply(availability.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+  if (result && result.proposed_luna_reply) {
+    return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
   return "Hi! I'm Luna from Wolfhouse 🌊 — thanks for your message.";
 }
 
@@ -415,6 +483,8 @@ module.exports = {
   evaluateAutomationGate,
   resolveProposedNextAction,
   resolveProposedReply,
+  shouldPreferRouterReply,
+  shouldUsePaymentChoiceReply,
   SUPPORTED_CLIENT_SLUGS,
   SUPPORTED_CHANNELS,
   VALID_PROPOSED_NEXT_ACTIONS,

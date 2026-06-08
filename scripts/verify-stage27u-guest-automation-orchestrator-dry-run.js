@@ -35,7 +35,10 @@ function section(t) { console.log(`\n── ${t} ──`); }
 
 const FORBIDDEN_REPLY_RE = /\b(?:payment link is ready|link is ready|sent you (?:a )?link|checkout link|booking is confirmed|confirmed your booking|pay here|booking is held|payment has been received)\b/i;
 
+const BANNED_INTERNAL_COPY_RE = /\b(?:confirmed quote|payment choice|payment_choice|quote_status|guest_context|intake_state|readiness_state|automation gate|next_safe_step|dry run)\b/i;
+
 const READY_MSG = "Hi, we're 2 people looking to stay from June 15 to June 22, interested in the Malibu package";
+const PARTIAL_BOOKING_MSG = 'Hi, we are 2 people interested in the Malibu package';
 const SERVICE_MSG = 'Can I rent a wetsuit?';
 
 function baseInput(overrides) {
@@ -302,6 +305,40 @@ section('C. Gate blocks');
 
   if (blocked.result == null) pass('L2', 'paused does not run chain');
   else fail('L2', 'chain should not run when gate blocked');
+
+  section('P. Reply priority — partial intake before payment choice');
+
+  const partial = await runGuestAutomationOrchestratorDryRun(baseInput({
+    message_text: PARTIAL_BOOKING_MSG,
+  }), {});
+
+  if (partial.result && partial.result.booking_intake_ready === false) {
+    pass('P1', 'partial booking → booking_intake_ready false');
+  } else fail('P1', 'expected booking_intake_ready false');
+
+  if (partial.result && partial.result.readiness_state === 'collecting_required_details') {
+    pass('P2', 'readiness_state collecting_required_details');
+  } else fail('P2', `readiness_state ${partial.result && partial.result.readiness_state}`);
+
+  if (partial.quote && partial.quote.quote_status === 'not_ready') {
+    pass('P3', 'quote_status not_ready');
+  } else fail('P3', `quote_status ${partial.quote && partial.quote.quote_status}`);
+
+  if (partial.payment_choice && partial.payment_choice.payment_choice_capture_attempted === false) {
+    pass('P4', 'payment_choice_capture_attempted false');
+  } else fail('P4', 'payment choice capture should not run yet');
+
+  if (partial.result && partial.proposed_luna_reply === partial.result.proposed_luna_reply) {
+    pass('P5', 'top-level reply prefers result.proposed_luna_reply');
+  } else fail('P5', 'should not prefer payment_choice reply during intake collection');
+
+  if (/dates|guests|package|stay|details/i.test(partial.proposed_luna_reply || '')) {
+    pass('P6', 'reply asks for missing stay details');
+  } else fail('P6', `reply missing detail ask: ${partial.proposed_luna_reply}`);
+
+  if (!BANNED_INTERNAL_COPY_RE.test(partial.proposed_luna_reply || '')) {
+    pass('P7', 'reply avoids banned internal copy');
+  } else fail('P7', `internal copy leaked: ${partial.proposed_luna_reply}`);
 
   section('M. Doc files');
 
