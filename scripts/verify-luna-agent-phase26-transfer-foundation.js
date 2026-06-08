@@ -140,6 +140,7 @@ if (!helperSrcEarly.includes("'SDR'") && !helperSrcEarly.includes("'BIO'")) {
 section('C. Helper — normalization + lookup date');
 
 const {
+  normalizeBookingDateOnly,
   normalizeTransferDirection,
   normalizeTransferStatus,
   normalizeFlightNumber,
@@ -166,6 +167,41 @@ try {
   if (defaultTransferLookupDate({ direction: 'departure', booking }) === '2026-07-08') {
     pass('C5', 'lookup date default check-out for departure');
   } else fail('C5', 'departure lookup date');
+
+  if (normalizeBookingDateOnly('2029-10-01') === '2029-10-01') {
+    pass('C6', 'string check_in returns YYYY-MM-DD unchanged');
+  } else fail('C6', 'string date normalization');
+
+  const madridCheckIn = new Date('2029-09-30T22:00:00.000Z');
+  if (normalizeBookingDateOnly(madridCheckIn, { timezone: 'Europe/Madrid' }) === '2029-10-01') {
+    pass('C7', 'UTC-shifted Date → 2029-10-01 in Europe/Madrid');
+  } else fail('C7', 'Madrid check-in Date shift');
+
+  const madridCheckOut = new Date('2029-10-03T22:00:00.000Z');
+  if (normalizeBookingDateOnly(madridCheckOut, { timezone: 'Europe/Madrid' }) === '2029-10-04') {
+    pass('C8', 'UTC-shifted Date → 2029-10-04 in Europe/Madrid');
+  } else fail('C8', 'Madrid check-out Date shift');
+
+  const pgBooking = {
+    check_in: madridCheckIn,
+    check_out: madridCheckOut,
+    guest_count: 1,
+    package_code: 'malibu',
+  };
+  if (defaultTransferLookupDate({ direction: 'arrival', booking: pgBooking }) === '2029-10-01') {
+    pass('C9', 'arrival default uses normalized check_in');
+  } else fail('C9', 'arrival pg Date default');
+  if (defaultTransferLookupDate({ direction: 'departure', booking: pgBooking }) === '2029-10-04') {
+    pass('C10', 'departure default uses normalized check_out');
+  } else fail('C10', 'departure pg Date default');
+
+  const helperSrcDate = readOrEmpty(HELPER);
+  if (/function defaultTransferLookupDate[\s\S]*normalizeBookingDateOnly/.test(helperSrcDate)) {
+    pass('C11', 'defaultTransferLookupDate uses normalizeBookingDateOnly');
+  } else fail('C11', 'defaultTransferLookupDate path');
+  if (!/function normalizeBookingDateOnly[\s\S]*toISOString\(\)\.slice\(0,\s*10\)/.test(helperSrcDate)) {
+    pass('C12', 'normalizeBookingDateOnly avoids UTC ISO date-only shift');
+  } else fail('C12', 'toISOString date-only shift still present');
 } catch (e) {
   fail('C.norm', e.message);
 }

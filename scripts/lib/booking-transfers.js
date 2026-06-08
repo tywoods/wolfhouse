@@ -24,16 +24,37 @@ function trimStr(v) {
   return String(v).trim();
 }
 
-function toDateOnly(value) {
+/**
+ * Preserve SQL DATE semantics when pg returns UTC-shifted JS Date values.
+ *
+ * @param {string|Date|null|undefined} value
+ * @param {{ timezone?: string }} [opts]
+ * @returns {string|null} YYYY-MM-DD
+ */
+function normalizeBookingDateOnly(value, { timezone = 'Europe/Madrid' } = {}) {
   if (value == null || value === '') return null;
+
+  const formatInTimezone = (instant) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(instant);
+
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    return formatInTimezone(value);
   }
+
   const s = trimStr(value);
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  return formatInTimezone(d);
+}
+
+function toDateOnly(value, timezone = 'Europe/Madrid') {
+  return normalizeBookingDateOnly(value, { timezone });
 }
 
 /**
@@ -70,14 +91,15 @@ function normalizeFlightNumber(flightNumber) {
 }
 
 /**
- * @param {{ direction: string, booking: object }} opts
+ * @param {{ direction: string, booking: object, timezone?: string }} opts
  * @returns {string|null}
  */
-function defaultTransferLookupDate({ direction, booking }) {
+function defaultTransferLookupDate({ direction, booking, timezone }) {
   const dir = normalizeTransferDirection(direction);
   const b = booking || {};
-  if (dir === 'arrival') return toDateOnly(b.check_in);
-  return toDateOnly(b.check_out);
+  const tz = timezone || b.timezone || 'Europe/Madrid';
+  if (dir === 'arrival') return normalizeBookingDateOnly(b.check_in, { timezone: tz });
+  return normalizeBookingDateOnly(b.check_out, { timezone: tz });
 }
 
 /**
@@ -217,7 +239,7 @@ function buildBookingTransferUpsertPayload({ client_slug, booking, transferInput
     : null;
   const airport = airportCode ? getClientAirportOption(clientSlug, airportCode) : null;
   const lookupDate = input.lookup_date != null
-    ? toDateOnly(input.lookup_date)
+    ? normalizeBookingDateOnly(input.lookup_date)
     : defaultTransferLookupDate({ direction, booking });
   const guestCount = input.guest_count != null
     ? resolveGuestCount(booking, { guest_count: input.guest_count })
@@ -405,6 +427,7 @@ module.exports = {
   VALID_DIRECTIONS,
   VALID_STATUSES,
   VALID_SOURCES,
+  normalizeBookingDateOnly,
   normalizeTransferDirection,
   normalizeTransferStatus,
   normalizeFlightNumber,
