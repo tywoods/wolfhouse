@@ -423,6 +423,63 @@ async function listBookingTransfersForCalendarRange(pg, opts = {}) {
   return res.rows.map(mapTransferRow);
 }
 
+/** Statuses that show the calendar Transfer pebble (not cancelled / not_needed). */
+const ACTIVE_TRANSFER_PEBBLE_STATUSES = new Set(['requested', 'confirmed']);
+
+function emptyTransferSummary() {
+  return {
+    has_transfer: false,
+    transfer_count: 0,
+    directions: [],
+    statuses: [],
+    airports: [],
+  };
+}
+
+/**
+ * Build pebble summary from transfer rows (requested/confirmed only).
+ *
+ * @param {object[]} rows
+ * @returns {{ has_transfer: boolean, transfer_count: number, directions: string[], statuses: string[], airports: string[] }}
+ */
+function buildTransferSummaryFromRows(rows) {
+  const active = (rows || []).filter((r) =>
+    ACTIVE_TRANSFER_PEBBLE_STATUSES.has(String(r.status || '').toLowerCase()),
+  );
+  if (active.length === 0) return emptyTransferSummary();
+  const directions = [...new Set(active.map((r) => r.direction).filter(Boolean))].sort();
+  const statuses = [...new Set(active.map((r) => r.status).filter(Boolean))];
+  const airports = [...new Set(active.map((r) => r.airport_code).filter(Boolean))];
+  return {
+    has_transfer: true,
+    transfer_count: active.length,
+    directions,
+    statuses,
+    airports,
+  };
+}
+
+/**
+ * Group calendar-range transfer rows into per-booking summaries.
+ *
+ * @param {object[]} transferRows
+ * @returns {Record<string, object>}
+ */
+function buildTransferSummariesByBookingId(transferRows) {
+  const grouped = {};
+  for (const row of transferRows || []) {
+    const bid = trimStr(row.booking_id);
+    if (!bid) continue;
+    if (!grouped[bid]) grouped[bid] = [];
+    grouped[bid].push(row);
+  }
+  const out = {};
+  for (const [bid, rows] of Object.entries(grouped)) {
+    out[bid] = buildTransferSummaryFromRows(rows);
+  }
+  return out;
+}
+
 module.exports = {
   VALID_DIRECTIONS,
   VALID_STATUSES,
@@ -438,4 +495,8 @@ module.exports = {
   upsertBookingTransfer,
   listBookingTransfersForBooking,
   listBookingTransfersForCalendarRange,
+  ACTIVE_TRANSFER_PEBBLE_STATUSES,
+  emptyTransferSummary,
+  buildTransferSummaryFromRows,
+  buildTransferSummariesByBookingId,
 };

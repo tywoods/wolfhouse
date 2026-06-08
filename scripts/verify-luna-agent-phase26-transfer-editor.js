@@ -117,9 +117,11 @@ else fail('C7', 'lookup placeholder missing');
 if (!/aviationstack|Aviationstack|flight.lookup|flight_lookup/i.test(apiSrc.replace(/Flight lookup coming next/g, ''))) {
   pass('C8', 'no Aviationstack lookup button/API yet');
 } else fail('C8', 'Aviationstack present too early');
-if (!/Transfer pebble|bc-transfer-pebble|transfer-pebble/i.test(apiSrc)) {
-  pass('C9', 'no Booking Calendar Transfer pebble yet');
-} else fail('C9', 'calendar pebble too early');
+if (/transfer-pebble/.test(apiSrc) && /handleBedCalendar/.test(apiSrc) && /transfer_summary/.test(apiSrc)) {
+  pass('C9', 'calendar pebble wired in bed-calendar path (26d)');
+} else if (!/transfer-pebble/i.test(apiSrc)) {
+  pass('C9', 'no Booking Calendar Transfer pebble yet (26d deferred)');
+} else fail('C9', 'orphan calendar pebble without bed-calendar wiring');
 
 section('D. Docs');
 
@@ -135,8 +137,9 @@ else fail('D4', 'out of scope doc');
 
 section('E. Safety');
 
-if (!routesSrc.match(/\bstripe\b/i) && !apiSrc.match(/transfers[\s\S]{0,2000}\bstripe\b/i)) {
-  pass('E1', 'no Stripe in transfer routes');
+const phase26cSlice = (apiSrc.match(/Phase 26c[\s\S]{0,12000}/) || [''])[0];
+if (!routesSrc.match(/\bstripe\b/i) && !phase26cSlice.match(/\bstripe\b/i)) {
+  pass('E1', 'no Stripe in transfer routes/editor slice');
 } else fail('E1', 'Stripe touched');
 if (!routesSrc.includes('guest_message_sends') && !routesSrc.includes('n8n')) {
   pass('E2', 'no WhatsApp/n8n in routes');

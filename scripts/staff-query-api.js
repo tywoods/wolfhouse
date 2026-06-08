@@ -166,6 +166,11 @@ const {
 } = require('./lib/staff-booking-detail-queries');
 const { dispatchBookingTransfersRoute, BOOKING_TRANSFERS_RE } = require('./lib/staff-booking-transfers-routes');
 const {
+  listBookingTransfersForCalendarRange,
+  buildTransferSummariesByBookingId,
+  emptyTransferSummary,
+} = require('./lib/booking-transfers');
+const {
   reassignBookingBedSql,
 } = require('./lib/staff-bed-reassignment-sql');
 const {
@@ -13158,6 +13163,8 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-block-pay-paid{background:#DCEAD2;color:#3d6130;border:1px solid #B5D3AD}
 .bc-block-pay-refund{background:#F3DDE8;color:#7A3A52;border:1px solid #D4A8BC}
 .bc-block-pay-link{background:#E8EEF2;color:#4A6270;border:1px solid #C5D5DE}
+.transfer-pebble{font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;line-height:1.25;white-space:nowrap;background:#EDE7F6;color:#5E35B1;border:1px solid #D1C4E9;flex-shrink:0}
+.transfer-pebble-drawer{font-size:11px;padding:2px 8px;border-radius:999px}
 .bc-block:hover{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
 .bc-block.bc-block-active,.bc-block-checkout-marker.bc-block-active{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
 .bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C}
@@ -17386,8 +17393,55 @@ function bcCalendarPaymentBadgesHtml(blk){
   return html;
 }
 
+function bcTransferPebbleHtml(blk){
+  var ts = blk && blk.transfer_summary;
+  if (!ts || !ts.has_transfer) return '';
+  return '<span class="transfer-pebble">Transfer</span>';
+}
+
+function bcBuildTransferSummaryFromTransfers(transfers){
+  var active = (transfers || []).filter(function(t){
+    var s = String(t.status || '').toLowerCase();
+    return s === 'requested' || s === 'confirmed';
+  });
+  if (active.length === 0){
+    return { has_transfer: false, transfer_count: 0, directions: [], statuses: [], airports: [] };
+  }
+  var dirs = [];
+  var statuses = [];
+  var airports = [];
+  active.forEach(function(t){
+    if (t.direction && dirs.indexOf(t.direction) < 0) dirs.push(t.direction);
+    if (t.status && statuses.indexOf(t.status) < 0) statuses.push(t.status);
+    if (t.airport_code && airports.indexOf(t.airport_code) < 0) airports.push(t.airport_code);
+  });
+  dirs.sort();
+  return {
+    has_transfer: true,
+    transfer_count: active.length,
+    directions: dirs,
+    statuses: statuses,
+    airports: airports,
+  };
+}
+
+function bcFormatTransferSummaryLabel(summary){
+  if (!summary || !summary.has_transfer) return '';
+  var dirs = summary.directions || [];
+  var airports = summary.airports || [];
+  var statuses = summary.statuses || [];
+  if (dirs.length === 1){
+    var dirLabel = dirs[0] === 'arrival' ? 'Arrival' : 'Departure';
+    var ap = airports[0] || '';
+    var st = String(statuses[0] || 'requested').replace(/_/g, ' ');
+    return 'Transfer: ' + dirLabel + (ap ? ' ' + ap : '') + ' ' + st;
+  }
+  if (dirs.length >= 2) return 'Transfer: Arrival + Departure';
+  return 'Transfer';
+}
+
 function bcCalendarBlockInnerHtml(blk, labelHtml){
-  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcCalendarPaymentBadgesHtml(blk);
+  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcTransferPebbleHtml(blk) + bcCalendarPaymentBadgesHtml(blk);
 }
 
 function bcColorClass(ct){
@@ -17816,6 +17870,10 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
     html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(String(blk.color_type).replace(/_/g,' ')) + '</span>';
   }
   if (bk.needs_rooming_review) html += '<span class="pill pill-orange">Rooming review</span>';
+  var transferLabel = bcFormatTransferSummaryLabel(blk.transfer_summary);
+  if (transferLabel){
+    html += '<span class="transfer-pebble transfer-pebble-drawer">' + escHtml(transferLabel) + '</span>';
+  }
   return html;
 }
 function updateBcDetailHeader(data){
@@ -20586,6 +20644,10 @@ function bcInitTransferShell(contextData){
       bcTransferCtx.data = res.data;
       cardsEl.innerHTML = bcRenderTransferCards(res.data);
       cardsEl.classList.remove('ctx-loading');
+      if (bcLastOpenedBlock){
+        bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(res.data.transfers);
+        updateBcDetailHeader(contextData);
+      }
       document.querySelectorAll('.bc-transfer-save').forEach(function(btn){
         btn.addEventListener('click', function(){
           bcSaveTransfer(btn.getAttribute('data-direction'));
@@ -22687,13 +22749,18 @@ async function handleBedCalendar(query, res, user) {
     staff_user_id: user ? user.staff_user_id : null,
   };
 
-  let roomRows = [], blockRows = [], summaryRows = [];
+  let roomRows = [], blockRows = [], summaryRows = [], transferRows = [];
   try {
-    [roomRows, blockRows, summaryRows] = await withPgClient(async (pg) => {
-      const [rr, br, sr] = await Promise.all([
+    [roomRows, blockRows, summaryRows, transferRows] = await withPgClient(async (pg) => {
+      const [rr, br, sr, tr] = await Promise.all([
         pg.query(getBedCalendarRoomsQuery(),   [clientSlug]),
         pg.query(getBedCalendarBlocksQuery(),  [clientSlug, startISO, endISO]),
         pg.query(getBedCalendarSummaryQuery(), [clientSlug, startISO, endISO]),
+        listBookingTransfersForCalendarRange(pg, {
+          client_slug: clientSlug,
+          start_date: startISO,
+          end_date: endISO,
+        }),
       ]);
       const rows = br.rows;
       const bookingIds = [...new Set(rows.map((r) => r.booking_id).filter(Boolean))];
@@ -22728,7 +22795,7 @@ async function handleBedCalendar(query, res, user) {
           }
         }
       }
-      return [rr.rows, rows, sr.rows];
+      return [rr.rows, rows, sr.rows, tr];
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -22737,7 +22804,11 @@ async function handleBedCalendar(query, res, user) {
 
   const rooms  = buildRoomHierarchy(roomRows);
   const days   = generateCalendarDays(startDate, endDate);
-  const blocks = buildCalendarBlocks(blockRows, startDate, endDate);
+  const transfersByBookingId = buildTransferSummariesByBookingId(transferRows);
+  const blocks = buildCalendarBlocks(blockRows, startDate, endDate).map((b) => ({
+    ...b,
+    transfer_summary: transfersByBookingId[b.booking_id] || emptyTransferSummary(),
+  }));
 
   const elapsed = Date.now() - started;
   appendAuditLog({
