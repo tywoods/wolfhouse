@@ -94,6 +94,7 @@ section('C. Service color classes');
 
 const colorClasses = [
   'bc-svc-color-board',
+  'bc-svc-color-softboard',
   'bc-svc-color-wetsuit',
   'bc-svc-color-yoga',
   'bc-svc-color-meal',
@@ -177,8 +178,10 @@ const {
 
 if (serviceColorClass('yoga', 'Yoga') === 'bc-svc-color-yoga') pass('H1', 'yoga color');
 else fail('H1', 'yoga color');
-if (serviceColorClass('surfboard', 'Soft board') === 'bc-svc-color-board') pass('H2', 'board color');
-else fail('H2', 'board color');
+if (serviceColorClass('surfboard', 'Soft board') === 'bc-svc-color-softboard') pass('H2', 'soft board teal color');
+else fail('H2', 'soft board color');
+if (serviceColorClass('surfboard', 'Hard board') === 'bc-svc-color-board') pass('H2b', 'hard board blue color');
+else fail('H2b', 'hard board color');
 if (!formatPaidServiceSummaryLine({ service_name: 'Yoga', quantity: 1, payment_status: 'not_requested', status: 'requested' }).includes('requested')) {
   pass('H3', 'summary line excludes status text');
 } else fail('H3', 'summary status leak');

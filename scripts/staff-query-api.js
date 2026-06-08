@@ -178,6 +178,7 @@ const {
   BOOKING_SERVICES_RE,
   BOOKING_SERVICE_DATE_RE,
 } = require('./lib/staff-booking-services-routes');
+const { distributeSpanScheduleDates } = require('./lib/staff-booking-services-schedule');
 const {
   listBookingTransfersForCalendarRange,
   buildTransferSummariesByBookingId,
@@ -6835,8 +6836,8 @@ function staffAddonUiTypeLabel(uiType) {
     hard_board: 'Hard board',
     surf_lesson: 'Surf lesson',
     yoga: 'Yoga',
-    meals: 'Meals',
-    meal: 'Meals',
+    meals: 'Meal',
+    meal: 'Meal',
   };
   return m[uiType] || uiType;
 }
@@ -6998,7 +6999,14 @@ async function handleBookingAddService(req, res, user) {
   const uiServiceType  = String(body.service_type || '').trim().toLowerCase();
   const idempotencyKey = String(body.idempotency_key || '').trim();
   const note           = body.note != null ? String(body.note).trim().slice(0, 500) : null;
-  const serviceDateIn  = String(body.service_date || '').trim();
+  const scheduleMode = String(body.schedule_mode || 'specific_date').trim().toLowerCase();
+  const VALID_SCHEDULE_MODES = new Set(['specific_date', 'schedule_later', 'span_across_booking']);
+  if (!VALID_SCHEDULE_MODES.has(scheduleMode)) {
+    return send400(res, 'schedule_mode must be specific_date, schedule_later, or span_across_booking');
+  }
+  const serviceDateIn  = body.service_date != null && body.service_date !== ''
+    ? String(body.service_date).trim()
+    : '';
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!clientSlug) return send400(res, 'client_slug is required');
@@ -7060,15 +7068,40 @@ async function handleBookingAddService(req, res, user) {
     });
   }
 
-  let serviceDate = serviceDateIn;
-  if (!serviceDate || !DATE_RE.test(serviceDate) || !parseCalendarDate(serviceDate)) {
-    serviceDate = bookingRow.check_in || null;
+  let unitDates;
+  const unitQty = Math.max(1, Number(pricing.quantity) || 1);
+
+  if (scheduleMode === 'schedule_later') {
+    unitDates = Array(unitQty).fill(null);
+  } else if (scheduleMode === 'span_across_booking') {
+    const startDate = serviceDateIn || bookingRow.check_in || null;
+    const dist = distributeSpanScheduleDates({
+      quantity: unitQty,
+      guestCount: Number(bookingRow.guest_count) || 1,
+      checkIn: bookingRow.check_in,
+      checkOut: bookingRow.check_out,
+      startDate,
+    });
+    if (dist.error) {
+      return send400(res, dist.error);
+    }
+    if (!dist.dates || dist.dates.length !== unitQty) {
+      return send400(res, 'Could not distribute services across stay dates.');
+    }
+    unitDates = dist.dates;
+  } else {
+    let serviceDate = serviceDateIn;
+    if (!serviceDate || !DATE_RE.test(serviceDate) || !parseCalendarDate(serviceDate)) {
+      serviceDate = bookingRow.check_in || null;
+    }
+    if (!serviceDate) return send400(res, 'service_date is required (YYYY-MM-DD) or booking must have check_in');
+    unitDates = Array(unitQty).fill(serviceDate);
   }
-  if (!serviceDate) return send400(res, 'service_date is required (YYYY-MM-DD) or booking must have check_in');
 
   const serviceMeta = {
     staff_portal: true,
     staff_ui_service_type: uiServiceType,
+    schedule_mode: scheduleMode,
     pricing_addon_code: pricing.pricing_addon_code,
     pricing_unit: pricing.pricing_unit,
     unit_cents: pricing.unit_cents,
@@ -7106,6 +7139,7 @@ async function handleBookingAddService(req, res, user) {
             unit_index: u + 1,
             unit_total: unitQty,
           };
+          const unitServiceDate = unitDates[u];
           const ins = await pg.query(
             `INSERT INTO booking_service_records (
                client_slug, booking_id, booking_code, guest_name,
@@ -7135,7 +7169,7 @@ async function handleBookingAddService(req, res, user) {
               bookingRow.booking_code,
               bookingRow.guest_name,
               pricing.db_service_type,
-              serviceDate,
+              unitServiceDate,
               unitCents,
               note,
               JSON.stringify(unitMeta),
@@ -7161,6 +7195,12 @@ async function handleBookingAddService(req, res, user) {
       elapsed_ms: elapsed,
     });
 
+    const scheduleMsg = scheduleMode === 'schedule_later'
+      ? ' Added as unscheduled service units.'
+      : (scheduleMode === 'span_across_booking'
+        ? ' Spread across stay dates as schedulable units.'
+        : '');
+
     return sendJSON(res, 200, {
       success: true,
       created: !result.idempotent,
@@ -7168,6 +7208,7 @@ async function handleBookingAddService(req, res, user) {
       service_record: result.row,
       service_records: result.rows || [result.row],
       units_created: result.idempotent ? (result.rows || [result.row]).length : (result.rows || []).length,
+      schedule_mode: scheduleMode,
       pricing: {
         service_type: uiServiceType,
         db_service_type: pricing.db_service_type,
@@ -7181,8 +7222,8 @@ async function handleBookingAddService(req, res, user) {
       message: result.idempotent
         ? 'Service record already exists for this idempotency key.'
         : (pricing.quantity > 1
-          ? `${pricing.quantity} schedulable service units added. Running invoice will include the new add-ons. No Stripe link or payment was created.`
-          : 'Service record added. Running invoice will include the new add-on. No Stripe link or payment was created.'),
+          ? `${pricing.quantity} schedulable service units added.${scheduleMsg} Running invoice will include the new add-ons. No Stripe link or payment was created.`
+          : `Service record added.${scheduleMsg} Running invoice will include the new add-on. No Stripe link or payment was created.`),
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -13410,6 +13451,8 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-svc-paid-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
 .bc-svc-paid-list{display:flex;flex-direction:column;gap:4px;font-size:12px;line-height:1.45}
 .bc-svc-paid-item{color:var(--text-1)}
+.bc-svc-paid-sep{height:1px;background:var(--border-soft);margin:8px 0 6px}
+.bc-svc-paid-total{font-size:12px;font-weight:600;color:var(--text-1)}
 .bc-svc-schedule-section{margin-bottom:10px}
 .bc-svc-schedule-section.bc-drawer-overview-card{padding:14px 16px}
 .bc-svc-schedule-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
@@ -13423,6 +13466,10 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-svc-schedule-remove-btn:disabled{opacity:.4;cursor:default}
 .bc-svc-add-remove-panel{margin:0 0 10px;padding:0;border:none;background:transparent}
 .bc-svc-add-remove-panel .bc-add-ons-actions{display:flex;gap:8px;flex-wrap:wrap}
+.bc-add-ons-sched-mode-links{display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;font-size:11px}
+.bc-add-ons-sched-link{background:none;border:none;padding:0;color:#5C7350;cursor:pointer;text-decoration:underline;font-size:11px}
+.bc-add-ons-sched-link:hover{color:#3d5235}
+.bc-add-ons-sched-link.is-active{font-weight:700;color:var(--text-1);text-decoration:none}
 .bc-svc-schedule-picker{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-soft);display:none}
 .bc-svc-schedule-picker.is-open{display:block}
 .bc-svc-unschedule-picker{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-soft);display:none}
@@ -13434,6 +13481,7 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-svc-unschedule-option{display:block;width:100%;text-align:left;padding:6px 8px;font-size:11px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);cursor:pointer;line-height:1.35}
 .bc-svc-chip{display:inline-block;margin:2px 6px 2px 0;padding:3px 8px;font-size:11px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border-soft);line-height:1.35}
 .bc-svc-color-board{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#1e40af}
+.bc-svc-color-softboard{background:rgba(20,184,166,.12);border-color:rgba(20,184,166,.35);color:#0f766e}
 .bc-svc-color-wetsuit{background:rgba(100,116,139,.14);border-color:rgba(100,116,139,.35);color:#334155}
 .bc-svc-color-yoga{background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.35);color:#6b21a8}
 .bc-svc-color-meal{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.35);color:#166534}
@@ -18468,8 +18516,8 @@ function staffAddonUiTypeLabel(uiType){
     hard_board: 'Hard board',
     surf_lesson: 'Surf lesson',
     yoga: 'Yoga',
-    meals: 'Meals',
-    meal: 'Meals',
+    meals: 'Meal',
+    meal: 'Meal',
   };
   return m[uiType] || uiType;
 }
@@ -20117,6 +20165,7 @@ var bcAddServiceCtx = {
   bookingId: null,
   bookingCode: null,
   checkIn: null,
+  scheduleMode: 'specific_date',
   addInFlight: false,
   removeInFlight: false,
 };
@@ -20147,12 +20196,17 @@ function bcRenderAddServicePanelHtml(bk){
     '<option value="hard_board">Hard board</option>' +
     '<option value="surf_lesson">Surf lesson</option>' +
     '<option value="yoga">Yoga</option>' +
-    '<option value="meals">Meals</option>' +
+    '<option value="meals">Meal</option>' +
     '</select>' +
     '<label class="ctx-field-label" for="bc-add-ons-qty" id="bc-add-ons-qty-label">Quantity / days</label>' +
     '<input type="number" id="bc-add-ons-qty" class="bk-input bk-input-sm" min="1" value="1">' +
-    '<label class="ctx-field-label" for="bc-add-ons-date">Add-on date</label>' +
+    '<div id="bc-add-ons-date-wrap">' +
+    '<label class="ctx-field-label" for="bc-add-ons-date" id="bc-add-ons-date-label">Service Date</label>' +
     '<input type="date" id="bc-add-ons-date" class="bk-input bk-input-sm">' +
+    '<div class="bc-add-ons-sched-mode-links" id="bc-add-ons-sched-mode-links">' +
+    '<button type="button" class="bc-add-ons-sched-link" data-mode="span_across_booking">Span Across Booking</button>' +
+    '<button type="button" class="bc-add-ons-sched-link" data-mode="schedule_later">Schedule Later</button>' +
+    '</div></div>' +
     '<label class="ctx-field-label" for="bc-add-ons-note">Note (optional)</label>' +
     '<input type="text" id="bc-add-ons-note" class="bk-input bk-input-sm" maxlength="500">' +
     '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
@@ -20165,6 +20219,26 @@ function bcRenderAddServicePanelHtml(bk){
 
 function bcNewAddServiceIdempotencyKey(){
   return 'bc-add-svc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcAddServiceApplyScheduleMode(mode){
+  mode = mode || 'specific_date';
+  bcAddServiceCtx.scheduleMode = mode;
+  var wrap = el('bc-add-ons-date-wrap');
+  var lbl = el('bc-add-ons-date-label');
+  var dateEl = el('bc-add-ons-date');
+  document.querySelectorAll('.bc-add-ons-sched-link').forEach(function(btn){
+    var active = btn.getAttribute('data-mode') === mode;
+    btn.classList.toggle('is-active', active);
+  });
+  if (mode === 'schedule_later') {
+    if (wrap) wrap.style.display = 'none';
+    if (dateEl) dateEl.value = '';
+    return;
+  }
+  if (wrap) wrap.style.display = '';
+  if (lbl) lbl.textContent = mode === 'span_across_booking' ? 'Start Date' : 'Service Date';
+  if (dateEl && !dateEl.value && bcAddServiceCtx.checkIn) dateEl.value = bcAddServiceCtx.checkIn;
 }
 
 function bcAddServiceUpdateQtyLabel(){
@@ -20225,6 +20299,8 @@ function bcOpenAddServiceForm(data){
   var wrap = el('bc-add-ons-form-wrap');
   if (!wrap) return;
   var bk = (data && data.booking) || {};
+  bcAddServiceCtx.checkIn = bk.check_in || null;
+  bcAddServiceApplyScheduleMode('specific_date');
   var dateEl = el('bc-add-ons-date');
   if (dateEl && bk.check_in) dateEl.value = bk.check_in;
   var noteEl = el('bc-add-ons-note');
@@ -20332,6 +20408,11 @@ function bcRunAddServiceSave(){
   var saveBtn = el('bc-add-ons-save-btn');
   if (saveBtn) saveBtn.disabled = true;
   bcRenderAddServiceResult({ success: true, message: 'Saving add-on\u2026' }, false);
+  var scheduleMode = bcAddServiceCtx.scheduleMode || 'specific_date';
+  var serviceDate = null;
+  if (scheduleMode !== 'schedule_later' && dateEl && dateEl.value) {
+    serviceDate = dateEl.value;
+  }
   fetch('/staff/bookings/add-service', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -20341,7 +20422,8 @@ function bcRunAddServiceSave(){
       booking_code: bcAddServiceCtx.bookingCode,
       service_type: typeEl ? typeEl.value : '',
       quantity: qty,
-      service_date: dateEl ? dateEl.value : null,
+      schedule_mode: scheduleMode,
+      service_date: serviceDate,
       note: noteEl && noteEl.value ? noteEl.value : null,
       idempotency_key: bcNewAddServiceIdempotencyKey(),
     }),
@@ -20430,6 +20512,18 @@ function bcInitAddServiceShell(data){
   }
   var typeSel = el('bc-add-ons-type');
   if (typeSel) typeSel.onchange = bcAddServiceUpdateQtyLabel;
+  document.querySelectorAll('.bc-add-ons-sched-link').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      var mode = btn.getAttribute('data-mode');
+      if (!mode) return;
+      if (mode === bcAddServiceCtx.scheduleMode) {
+        bcAddServiceApplyScheduleMode('specific_date');
+      } else {
+        bcAddServiceApplyScheduleMode(mode);
+      }
+    });
+  });
   var cancelBtn = el('bc-add-ons-cancel-btn');
   if (cancelBtn) cancelBtn.onclick = function(){ bcCloseAddServiceForm(); };
   var saveBtn = el('bc-add-ons-save-btn');
@@ -21353,7 +21447,7 @@ function bcRenderServicesSummarySection(data){
   html += '<div class="bc-svc-summary-headline">' +
     escHtml(pkg.headline || ((pkg.package_name || 'No Package') + ' \u00b7 ' + (pkg.nights != null ? pkg.nights : 0) + ' nights')) +
     '</div>';
-  html += '<div class="bc-svc-paid-title">Paid / requested services</div>';
+  html += '<div class="bc-svc-paid-title">Paid / Requested services</div>';
   var paidList = data.paid_requested_services || [];
   if (!paidList.length) {
     html += '<div class="ctx-none">No services recorded yet.</div>';
@@ -21363,6 +21457,15 @@ function bcRenderServicesSummarySection(data){
       html += '<div class="bc-svc-paid-item">' + escHtml(s.summary_line || bcFormatServiceSummaryLine(s)) + '</div>';
     });
     html += '</div>';
+    var totalCents = data.total_services_cents;
+    if (totalCents == null) {
+      totalCents = paidList.reduce(function(sum, s){
+        return sum + (Number(s.total_price_cents) || 0);
+      }, 0);
+    }
+    html += '<div class="bc-svc-paid-sep"></div>';
+    html += '<div class="bc-svc-paid-total">Total services \u20ac' +
+      (Number(totalCents) / 100).toFixed(2) + '</div>';
   }
   html += '</div>';
   return html;

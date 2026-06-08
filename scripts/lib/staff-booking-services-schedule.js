@@ -11,7 +11,7 @@ const { normalizeBookingDateOnly } = require('./booking-transfers');
 const SERVICE_TYPE_LABELS = {
   yoga: 'Yoga',
   meal: 'Meal',
-  meals: 'Meals',
+  meals: 'Meal',
   surf_lesson: 'Surf lesson',
   wetsuit: 'Wetsuit',
   soft_board: 'Soft board',
@@ -135,9 +135,8 @@ function formatPaidServiceSummaryLine(svc) {
 function serviceColorClass(serviceType, serviceName) {
   const t = trimStr(serviceType).toLowerCase();
   const name = trimStr(serviceName).toLowerCase();
-  if (/surfboard|soft_board|hard_board|soft top|hard board/.test(t) || /\bboard\b/.test(name)) {
-    return 'bc-svc-color-board';
-  }
+  if (t === 'soft_board' || /soft board|soft top/.test(name)) return 'bc-svc-color-softboard';
+  if (t === 'hard_board' || t === 'surfboard' || /hard board/.test(name)) return 'bc-svc-color-board';
   if (t === 'wetsuit' || /wetsuit/.test(name)) return 'bc-svc-color-wetsuit';
   if (t === 'yoga' || /yoga/.test(name)) return 'bc-svc-color-yoga';
   if (/^meal|meals|dinner|breakfast/.test(t) || /\bmeal/.test(name)) return 'bc-svc-color-meal';
@@ -254,6 +253,71 @@ async function splitMultiQuantityServiceRecords(pg, clientSlug, bookingId) {
   }
 }
 
+function computeServicesTotalCents(allServices) {
+  return (allServices || []).reduce(
+    (sum, svc) => sum + (Number(svc.total_price_cents) || 0),
+    0,
+  );
+}
+
+/**
+ * Distribute quantity across stay dates starting at startDate (Span Across Booking).
+ *
+ * @param {{ quantity: number, guestCount: number, checkIn: string, checkOut: string, startDate: string, timezone?: string }} opts
+ * @returns {{ dates?: string[], error?: string }}
+ */
+function distributeSpanScheduleDates(opts = {}) {
+  const quantity = Math.max(1, Number(opts.quantity) || 1);
+  const guestCount = Math.max(1, Number(opts.guestCount) || 1);
+  const timezone = opts.timezone || 'Europe/Madrid';
+  const checkIn = normalizeBookingDateOnly(opts.checkIn, { timezone });
+  const checkOut = normalizeBookingDateOnly(opts.checkOut, { timezone });
+  const startDate = normalizeBookingDateOnly(opts.startDate, { timezone });
+  const spanBlockMsg = 'Not enough stay dates from this start date. Choose an earlier start date or Schedule Later.';
+
+  if (!startDate) {
+    return { error: 'Start Date is required for Span Across Booking.' };
+  }
+
+  const stayDates = buildStayDates(checkIn, checkOut, timezone);
+  const startIdx = stayDates.indexOf(startDate);
+  if (startIdx < 0) {
+    return { error: 'Start Date must be within the booking stay.' };
+  }
+
+  const availableDates = stayDates.slice(startIdx);
+  const numDays = availableDates.length;
+  if (numDays === 0) {
+    return { error: spanBlockMsg };
+  }
+
+  const capacity = numDays * guestCount;
+  if (quantity > capacity) {
+    return { error: spanBlockMsg };
+  }
+
+  const perDay = new Array(numDays).fill(0);
+  if (quantity === numDays * guestCount) {
+    perDay.fill(guestCount);
+  } else if (quantity < numDays) {
+    for (let i = 0; i < quantity; i++) perDay[i] = 1;
+  } else {
+    const even = Math.floor(quantity / numDays);
+    const rem = quantity % numDays;
+    for (let i = 0; i < numDays; i++) {
+      perDay[i] = even + (i < rem ? 1 : 0);
+    }
+  }
+
+  const dates = [];
+  for (let i = 0; i < numDays; i++) {
+    for (let j = 0; j < perDay[i]; j++) {
+      dates.push(availableDates[i]);
+    }
+  }
+  return { dates };
+}
+
 /**
  * @param {object} row
  * @param {{ timezone?: string }} [opts]
@@ -349,6 +413,7 @@ function buildBookingServicesSchedule(opts = {}) {
   const nights = stayDates.length;
   const allServices = rows.map((row) => formatServiceRecordForSchedule(row, { timezone }));
   const paid_requested_services = buildPaidRequestedSummaryLines(allServices);
+  const total_services_cents = computeServicesTotalCents(allServices);
 
   return {
     package_summary: {
@@ -358,6 +423,7 @@ function buildBookingServicesSchedule(opts = {}) {
       nights,
     },
     paid_requested_services,
+    total_services_cents,
     stay_dates: stayDates,
     check_in: checkIn,
     check_out: checkOut,
@@ -375,6 +441,8 @@ module.exports = {
   buildStayDates,
   buildBookingServicesSchedule,
   buildPaidRequestedSummaryLines,
+  computeServicesTotalCents,
+  distributeSpanScheduleDates,
   formatServiceRecordForSchedule,
   formatPaidServiceSummaryLine,
   formatDateLabel,
