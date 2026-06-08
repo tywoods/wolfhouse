@@ -161,7 +161,8 @@ if (spanOverflow.error && /Not enough stay dates/.test(spanOverflow.error)) {
 
 section('E. Naming + colors');
 
-if (/meals: 'Meal'/.test(scheduleSrc) && />Meal</.test(addPanelSlice)) {
+const entryRowSlice = (apiSrc.match(/function bcAddServiceEntryRowHtml[\s\S]{0,1200}/) || [''])[0];
+if (/meals: 'Meal'/.test(scheduleSrc) && (/>Meal</.test(addPanelSlice) || />Meal</.test(entryRowSlice))) {
   pass('E1', 'Meal singular visible label');
 } else fail('E1', 'Meal label');
 if (serviceColorClass('soft_board', 'Soft board') === 'bc-svc-color-softboard') {

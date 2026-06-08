@@ -181,9 +181,14 @@ const {
 const { distributeSpanScheduleDates } = require('./lib/staff-booking-services-schedule');
 const {
   listBookingTransfersForCalendarRange,
+  listBookingTransfersForBooking,
   buildTransferSummariesByBookingId,
   emptyTransferSummary,
 } = require('./lib/booking-transfers');
+const {
+  sumActiveTransferChargesCents,
+  transferInvoiceLineItems,
+} = require('./lib/booking-invoice-totals');
 const { getAeroDataBoxStatus } = require('./lib/aerodatabox-flight-lookup');
 const {
   reassignBookingBedSql,
@@ -3394,7 +3399,10 @@ async function handleBookingDateChangePreview(req, res, user) {
 
 const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
 const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests']);
-const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({ package: true, package_proration: true, room_supplement: true });
+const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({
+  package: true, package_proration: true, room_supplement: true,
+  accommodation_only: true, manual_accommodation: true,
+});
 const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
 
 const EDIT_PREVIEW_BOOKING_BY_ID_SQL = `
@@ -3484,13 +3492,14 @@ function bookingLedgerAccommodationCents(bookingRow, svcDueCents, quoteSnap) {
   return null;
 }
 
-function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCents) {
+function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCents, transferDueCents) {
   const bk = bookingRow || {};
   const md = bookingLedgerParseMetadata(bk.metadata);
   const quoteSnap = md.quote_snapshot || null;
   const svcSum = Number(svcDueCents || 0);
+  const transferSum = Number(transferDueCents || 0);
   const accCents = bookingLedgerAccommodationCents(bk, svcSum, quoteSnap);
-  const invoiceTotal = accCents != null ? accCents + svcSum : null;
+  const invoiceTotal = accCents != null ? accCents + svcSum + transferSum : null;
   const paidTotal = ledgerPaidCents != null ? Number(ledgerPaidCents) : 0;
   const depositRequired = bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0;
   let balanceDue = null;
@@ -3659,10 +3668,11 @@ function ledgerActivePaymentLinkRow(rows, ledgerCtxOrBalance, bookingRow) {
   return null;
 }
 
-function bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows) {
+function bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows, transferRows) {
   const svcDue = editPreviewSvcSum(svcRows);
   const paidCents = paymentLedgerPaidTotalCents(paymentRows);
-  const totals = bookingLedgerInvoicePaidBalance(bookingRow, svcDue, paidCents);
+  const transferDue = sumActiveTransferChargesCents(transferRows);
+  const totals = bookingLedgerInvoicePaidBalance(bookingRow, svcDue, paidCents, transferDue);
   const line_items = editPreviewBuildLineItems(
     bookingLedgerAccommodationCents(
       bookingRow,
@@ -6356,6 +6366,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
   let bookingRow;
   let svcRows = [];
   let paymentRows = [];
+  let transferRows = [];
   try {
     const loaded = await withPgClient(async (pg) => {
       const bookingRes = await pg.query(
@@ -6363,14 +6374,19 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
         [clientSlug, bookingId || bookingCode],
       );
       const bk = bookingRes.rows[0] || null;
-      if (!bk) return { booking: null, svc: [], payments: [] };
+      if (!bk) return { booking: null, svc: [], payments: [], transfers: [] };
       const svc = await loadBookingServiceRecords(pg, clientSlug, bk.booking_code);
       const pm = await pg.query(BOOKING_PAYMENTS_LEDGER_SQL, [clientSlug, bk.booking_code]);
-      return { booking: bk, svc: svc.rows, payments: pm.rows };
+      const transfers = await listBookingTransfersForBooking(pg, {
+        client_slug: clientSlug,
+        booking_id: bk.booking_id,
+      });
+      return { booking: bk, svc: svc.rows, payments: pm.rows, transfers };
     });
     bookingRow = loaded.booking;
     svcRows = loaded.svc;
     paymentRows = loaded.payments;
+    transferRows = loaded.transfers || [];
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'booking lookup failed', detail: err.message });
@@ -6388,7 +6404,7 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     });
   }
 
-  const ledger = bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows);
+  const ledger = bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows, transferRows);
   const amountDueCents = ledger.balance_due_cents;
 
   if (ledger.needs_refund) {
@@ -7260,6 +7276,12 @@ async function handleBookingRemoveService(req, res, user) {
   const bookingId      = String(body.booking_id   || '').trim();
   const bookingCode    = String(body.booking_code || '').trim();
   const recordId       = String(body.booking_service_record_id || '').trim();
+  let recordIds = [];
+  if (Array.isArray(body.booking_service_record_ids)) {
+    recordIds = body.booking_service_record_ids.map((id) => String(id || '').trim()).filter(Boolean);
+  } else if (recordId) {
+    recordIds = [recordId];
+  }
   const idempotencyKey = String(body.idempotency_key || '').trim();
   const reason         = body.reason != null ? String(body.reason).trim().slice(0, 500) : null;
 
@@ -7267,8 +7289,13 @@ async function handleBookingRemoveService(req, res, user) {
   if (!clientSlug) return send400(res, 'client_slug is required');
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
-  if (!recordId || !UUID_VALIDATE_RE.test(recordId)) {
-    return send400(res, 'booking_service_record_id must be a valid UUID');
+  if (recordIds.length === 0) {
+    return send400(res, 'booking_service_record_id or booking_service_record_ids is required');
+  }
+  for (const rid of recordIds) {
+    if (!UUID_VALIDATE_RE.test(rid)) {
+      return send400(res, 'each booking_service_record_id must be a valid UUID');
+    }
   }
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
 
@@ -7319,31 +7346,38 @@ async function handleBookingRemoveService(req, res, user) {
 
   try {
     const result = await withPgClient(async (pg) => {
-      const existing = await pg.query(
-        `SELECT sr.id::text AS id, sr.booking_id::text AS booking_id, sr.service_type,
-                sr.quantity, sr.amount_due_cents
-         FROM booking_service_records sr
-         WHERE sr.id = $1::uuid AND sr.client_slug = $2
-         LIMIT 1`,
-        [recordId, clientSlug]
-      );
-      const row = existing.rows[0];
-      if (!row) {
-        return { idempotent: true, removed: false, row: null };
+      const removedRows = [];
+      let anyRemoved = false;
+      for (const rid of recordIds) {
+        const existing = await pg.query(
+          `SELECT sr.id::text AS id, sr.booking_id::text AS booking_id, sr.service_type,
+                  sr.quantity, sr.amount_due_cents
+           FROM booking_service_records sr
+           WHERE sr.id = $1::uuid AND sr.client_slug = $2
+           LIMIT 1`,
+          [rid, clientSlug],
+        );
+        const row = existing.rows[0];
+        if (!row) continue;
+        if (row.booking_id !== bookingRow.booking_id) {
+          return { not_owned: true };
+        }
+        const del = await pg.query(
+          `DELETE FROM booking_service_records
+           WHERE id = $1::uuid AND client_slug = $2 AND booking_id = $3::uuid
+           RETURNING id::text AS service_record_id, service_type, quantity, amount_due_cents`,
+          [rid, clientSlug, bookingRow.booking_id],
+        );
+        if (del.rows.length > 0) {
+          anyRemoved = true;
+          removedRows.push(del.rows[0]);
+        }
       }
-      if (row.booking_id !== bookingRow.booking_id) {
-        return { not_owned: true };
-      }
-      const del = await pg.query(
-        `DELETE FROM booking_service_records
-         WHERE id = $1::uuid AND client_slug = $2 AND booking_id = $3::uuid
-         RETURNING id::text AS service_record_id, service_type, quantity, amount_due_cents`,
-        [recordId, clientSlug, bookingRow.booking_id]
-      );
       return {
-        idempotent: false,
-        removed: del.rows.length > 0,
-        row: del.rows[0] || null,
+        idempotent: !anyRemoved,
+        removed: anyRemoved,
+        removed_rows: removedRows,
+        removed_count: removedRows.length,
         reason,
       };
     });
@@ -7362,6 +7396,7 @@ async function handleBookingRemoveService(req, res, user) {
       ...auditBase,
       success: true,
       removed: result.removed,
+      removed_count: result.removed_count,
       idempotent: result.idempotent,
       elapsed_ms: elapsed,
     });
@@ -7369,13 +7404,16 @@ async function handleBookingRemoveService(req, res, user) {
     return sendJSON(res, 200, {
       success: true,
       removed: result.removed,
+      removed_count: result.removed_count || 0,
       idempotent: result.idempotent,
-      service_record_id: recordId,
-      removed_record: result.row,
+      service_record_ids: recordIds,
+      removed_records: result.removed_rows || [],
       audit: { actor: actorLabel, idempotency_key: idempotencyKey, reason: reason || null },
       message: result.idempotent
-        ? 'Add-on record was already removed.'
-        : 'Add-on removed. Running invoice will no longer include this line. No payment or Stripe changes were made.',
+        ? 'Selected service records were already removed.'
+        : (result.removed_count > 1
+          ? `${result.removed_count} services removed. Running invoice updated. No payment or Stripe changes were made.`
+          : 'Add-on removed. Running invoice will no longer include this line. No payment or Stripe changes were made.'),
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -7423,6 +7461,11 @@ async function handleQuotePreview(req, res, user) {
     ? manualBookingQuotePaymentChoice(staffNorm)
     : paymentChoiceRaw;
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
+  const manualPricePerNightCents = body.manual_price_per_night_cents != null
+    ? Math.round(Number(body.manual_price_per_night_cents))
+    : (body.manual_price_per_night_euros != null
+      ? Math.round(Number(body.manual_price_per_night_euros) * 100)
+      : null);
 
   if (!checkIn || !checkOut) {
     return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
@@ -7445,6 +7488,7 @@ async function handleQuotePreview(req, res, user) {
       room_type:      roomType,
       payment_choice: paymentChoice,
       add_ons:        addOns,
+      manual_price_per_night_cents: manualPricePerNightCents,
     });
   } catch (err) {
     appendAuditLog({
@@ -12557,6 +12601,11 @@ async function handleManualBookingCreate(req, res, user) {
   const packageCode   = String(body.package_code || body.package_or_stay_type || '').trim().slice(0, 50) || null;
   const roomType      = String(body.room_type || 'shared').trim().slice(0, 20) || 'shared';
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
+  const manualPricePerNightCents = body.manual_price_per_night_cents != null
+    ? Math.round(Number(body.manual_price_per_night_cents))
+    : (body.manual_price_per_night_euros != null
+      ? Math.round(Number(body.manual_price_per_night_euros) * 100)
+      : null);
   const staffPayChoice = normalizeManualBookingStaffPaymentChoice(body.payment_choice);
   if (!staffPayChoice) {
     return send400(res, 'payment_choice must be one of: stripe_deposit, stripe_full, paid_cash, paid_bank_transfer, no_payment_yet');
@@ -12619,10 +12668,9 @@ async function handleManualBookingCreate(req, res, user) {
     return sendJSON(res, 403, { success: false, error: `Role '${actorRole}' may not create manual bookings.` });
 
   // ── 5b. Server-side quote calculation (Stage 8.4.8) ──────────────────────────
-  // Amounts are never trusted from the client. calculateWolfhouseQuote() is the
-  // single source of truth for total, deposit, and payment_link amounts.
-  if (!packageCode || packageCode === 'manual_override')
-    return send400(res, 'package_code is required for quote-driven booking (manual_override not supported here)');
+  if (!packageCode) {
+    return send400(res, 'package_code is required for quote-driven booking');
+  }
   const quote = calculateWolfhouseQuote({
     client_slug:    clientSlug,
     check_in:       checkIn,
@@ -12632,6 +12680,7 @@ async function handleManualBookingCreate(req, res, user) {
     room_type:      roomType,
     payment_choice: quotePaymentChoice,
     add_ons:        addOns,
+    manual_price_per_night_cents: manualPricePerNightCents,
   });
   if (!quote.success || quote.blockers.length > 0) {
     return send400(res, 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
@@ -12657,6 +12706,9 @@ async function handleManualBookingCreate(req, res, user) {
   const paymentStatus = manualBookingBookingPaymentStatusForCreate(
     staffPayChoice, prePaidCents, totalCents,
   );
+  const storagePackageCode = (!packageCode || packageCode === 'package_none' || packageCode === 'no_package')
+    ? null
+    : packageCode;
 
   // ── 6. Idempotency key ───────────────────────────────────────────────────────
   // Accept caller-provided key; otherwise build a deterministic key from the
@@ -12706,7 +12758,7 @@ async function handleManualBookingCreate(req, res, user) {
           checkOut,          // $11
           guestCount,        // $12
           selectedBedCodes,  // $13 text[]
-          packageCode,       // $14  (Stage 8.4.8: from quote, not package_or_stay_type)
+          storagePackageCode, // $14
           roomPref,          // $15
           bookingStatus,     // $16
           paymentStatus,     // $17
@@ -13964,8 +14016,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
             <option value="uluwatu">Uluwatu</option>
             <option value="waimea">Waimea</option>
             <option value="package_none">No package / accommodation only</option>
-            <option value="manual_override">Manual price override</option>
+            <option value="manual_override">Manual Price Override</option>
           </select>
+        </div>
+        <div class="bk-compact-row" id="bk-manual-price-row" style="display:none">
+          <label class="bk-label" for="bk-manual-price-night">Price per night</label>
+          <input type="number" id="bk-manual-price-night" class="bk-input bk-input-sm" placeholder="40.00" step="0.01" min="0.01" aria-label="Price per night EUR">
         </div>
         <div class="bk-compact-row">
           <label class="bk-label" for="bk-source">Source / channel</label>
@@ -13981,9 +14037,9 @@ textarea.bk-input{resize:vertical;min-height:60px}
       </div>
     </div>
 
-    <!-- Section: Add-ons (Stage 8.4.7 — qty &gt; 0 selects add-on; Stage 8.7.15) -->
+    <!-- Section: Add Services (Stage 8.4.7 — qty &gt; 0 selects add-on; Stage 8.7.15) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Add-ons</div>
+      <div class="bk-form-section-title">Add Services</div>
       <div class="bk-ao-grid">
         <div class="bk-ao-row">
           <span class="bk-ao-label">Wetsuit + Soft top combo</span>
@@ -14021,8 +14077,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
           <span class="bk-ao-unit">classes</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Meals</span>
-          <input type="number" id="bk-ao-meals" class="bk-input bk-ao-qty" value="0" min="0" max="60" aria-label="Meals quantity">
+          <span class="bk-ao-label">Meal</span>
+          <input type="number" id="bk-ao-meals" class="bk-input bk-ao-qty" value="0" min="0" max="60" aria-label="Meal quantity">
           <span class="bk-ao-unit">meals</span>
         </div>
       </div>
@@ -16502,6 +16558,23 @@ var BC_BOOKING_MOVE_WRITE = true;
 /* Last successful quote (required for create) */
 var bcLastQuote = null;
 var bcLastQuoteResp = null;
+var bcPackageUserSelected = false;
+
+function bcUpdateManualPriceOverrideVisibility(){
+  var pkgEl = el('bk-package');
+  var row = el('bk-manual-price-row');
+  if (!pkgEl || !row) return;
+  row.style.display = pkgEl.value === 'manual_override' ? '' : 'none';
+}
+
+function bcApplyDefaultPackageForStay(nights){
+  if (bcPackageUserSelected) return;
+  var pkgEl = el('bk-package');
+  if (!pkgEl) return;
+  if (!Number.isFinite(nights) || nights <= 0) return;
+  pkgEl.value = nights < 7 ? 'package_none' : 'malibu';
+  bcUpdateManualPriceOverrideVisibility();
+}
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
 var bcLastPaymentId = null;
 var bcManualCreateInFlight = false;
@@ -16637,6 +16710,7 @@ function bcApplySelectionHighlight(){
   bcLastQuoteResp = null;
   var _qrSel = el('bc-quote-result');
   if (_qrSel) _qrSel.innerHTML = '<div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>';
+  bcApplyDefaultPackageForStay(formNights);
   bcUpdateQuoteButton();
   bcUpdateCreateButton();
 }
@@ -16976,6 +17050,11 @@ function runManualBookingCreate(){
   if (paidAmtType === 'custom' && !isNaN(paidCustomEuros) && paidCustomEuros > 0) {
     payload.paid_amount_cents = Math.round(paidCustomEuros * 100);
   }
+  if (packageCode === 'manual_override') {
+    var mpEl = el('bk-manual-price-night');
+    var mpEuros = mpEl ? parseFloat(mpEl.value) : NaN;
+    if (!isNaN(mpEuros) && mpEuros > 0) payload.manual_price_per_night_cents = Math.round(mpEuros * 100);
+  }
   if (!checkIn || !checkOut || bcSelectedBeds.length === 0) {
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing input</div>Select beds and dates on the calendar.</div>';
     return;
@@ -17307,6 +17386,11 @@ function runQuotePreview(){
   };
   /* add_ons overwritten below by buildAddOns() */
   if (packageCode) payload.package_code = packageCode;
+  if (packageCode === 'manual_override') {
+    var mpInput = el('bk-manual-price-night');
+    var mpEuros = mpInput ? parseFloat(mpInput.value) : NaN;
+    if (!isNaN(mpEuros) && mpEuros > 0) payload.manual_price_per_night_cents = Math.round(mpEuros * 100);
+  }
   payload.selected_bed_codes = bcSelectedBeds.map(function(b){ return b.bed_code; });
   payload.add_ons = buildAddOns();
   qr.innerHTML = '<div class="bk-preview-loading">Calculating quote\u2026</div>';
@@ -17819,6 +17903,10 @@ function renderBedCalendar(data){
         bcUpdateManualBookingPaidFields();
         bcRefreshQuotePreviewDisplay();
       }
+      if (fId === 'bk-package') {
+        bcPackageUserSelected = true;
+        bcUpdateManualPriceOverrideVisibility();
+      }
       bcUpdateQuoteButton();
       bcUpdateCreateButton();
     }
@@ -17830,6 +17918,12 @@ function renderBedCalendar(data){
     bcRefreshQuotePreviewDisplay();
     bcUpdateCreateButton();
   };
+  var mpEl = el('bk-manual-price-night');
+  if (mpEl) mpEl.oninput = function(){
+    bcUpdateQuoteButton();
+    bcUpdateCreateButton();
+  };
+  bcUpdateManualPriceOverrideVisibility();
   bcUpdateManualBookingPaidFields();
   bcUpdateCreateButton();
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
@@ -18075,8 +18169,114 @@ function updateBcDetailHeader(data){
   var meta = el('bc-detail-meta');
   if (!meta) return;
   var bk = (data && data.booking) || {};
-  var ledger = bcBookingLedgerBalance(bk, (data && data.service_records) || [], (data && data.payments && data.payments.rows) || []);
-  meta.innerHTML = bcDetailHeaderMetaHtml(bcLastOpenedBlock, bk, ledger);
+  var transferRows = (data && data.transfers) || [];
+  var ledger = bcBookingLedgerBalance(
+    bk,
+    (data && data.service_records) || [],
+    (data && data.payments && data.payments.rows) || [],
+    transferRows,
+  );
+  var hasActiveLink = bcPaymentLedgerHasActiveValidLinkClient(
+    (data && data.payments && data.payments.rows) || [],
+    ledger,
+  );
+  if (bcLastOpenedBlock) {
+    bcLastOpenedBlock.invoice_total_cents = ledger.invoice_total_cents;
+    bcLastOpenedBlock.ledger_paid_cents = ledger.paid_total_cents;
+    bcLastOpenedBlock.balance_due_cents = ledger.balance_due_cents;
+    bcLastOpenedBlock.has_active_payment_link = hasActiveLink;
+    bcApplyCalendarPaymentFieldsFromLedger(bcLastOpenedBlock, ledger, hasActiveLink);
+  }
+  meta.innerHTML = bcDetailHeaderMetaHtml(bcLastOpenedBlock, bk, Object.assign({}, ledger, {
+    has_active_payment_link: hasActiveLink,
+    calendar_payment_primary: (bcLastOpenedBlock && bcLastOpenedBlock.calendar_payment_primary) || null,
+    calendar_payment_amount_cents: (bcLastOpenedBlock && bcLastOpenedBlock.calendar_payment_amount_cents) != null
+      ? bcLastOpenedBlock.calendar_payment_amount_cents
+      : ledger.balance_due_cents,
+    calendar_show_deposit_paid: !!(bcLastOpenedBlock && bcLastOpenedBlock.calendar_show_deposit_paid),
+  }));
+  bcRefreshCalendarBlockPaymentPebbles(bk.booking_code, ledger, hasActiveLink);
+}
+
+function bcPaymentLedgerHasActiveValidLinkClient(rows, ledgerCtx){
+  rows = rows || [];
+  ledgerCtx = ledgerCtx || {};
+  var balanceDue = ledgerCtx.balance_due_cents;
+  if (balanceDue == null || balanceDue <= 0) return false;
+  for (var i = 0; i < rows.length; i++){
+    var pr = rows[i];
+    if (bcPaymentLedgerIsActiveUnpaidLinkRow(pr) && !bcPaymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function bcApplyCalendarPaymentFieldsFromLedger(blk, ledger, hasActiveLink){
+  if (!blk || !ledger) return;
+  var payState = bcCalendarBlockPaymentState({
+    invoice_total_cents: ledger.invoice_total_cents,
+    ledger_paid_cents: ledger.paid_total_cents,
+    balance_due_cents: ledger.balance_due_cents,
+    deposit_required_cents: ledger.deposit_required_cents,
+    has_active_payment_link: !!hasActiveLink,
+  });
+  blk.invoice_total_cents = ledger.invoice_total_cents;
+  blk.ledger_paid_cents = ledger.paid_total_cents;
+  blk.balance_due_cents = ledger.balance_due_cents;
+  blk.deposit_required_cents = ledger.deposit_required_cents;
+  blk.has_active_payment_link = !!hasActiveLink;
+  blk.calendar_payment_primary = payState ? payState.kind : null;
+  blk.calendar_payment_amount_cents = payState ? payState.amount_cents : null;
+  blk.calendar_show_deposit_paid = payState ? !!payState.show_deposit_paid : false;
+}
+
+function bcRefreshCalendarBlockPaymentPebbles(bookingCode, ledger, hasActiveLink){
+  if (!bookingCode) return;
+  bcCalendarBlocks.forEach(function(blk, idx){
+    if (String(blk.booking_code || '') !== String(bookingCode)) return;
+    bcApplyCalendarPaymentFieldsFromLedger(blk, ledger, hasActiveLink);
+    document.querySelectorAll('.bc-block[data-bidx="' + idx + '"]').forEach(function(blockEl){
+      var labelEl = blockEl.querySelector('.bc-block-label');
+      var labelText = labelEl ? labelEl.textContent : bcBlockLabel(blk, blk.span_days || 1, 'checkin');
+      blockEl.innerHTML = bcCalendarBlockInnerHtml(blk, labelText);
+    });
+  });
+}
+
+function bcRefreshBookingFinancialSummary(opts){
+  opts = opts || {};
+  var code = opts.booking_code || (opts.booking && opts.booking.booking_code);
+  if (!code) return Promise.resolve(null);
+  var preserveTab = opts.preserveTab !== false ? (opts.activeTab || bcActiveDrawerTab || 'overview') : (opts.activeTab || null);
+  var client = getBcClient();
+  var url = '/staff/bookings/' + encodeURIComponent(code) + '/context?client=' + encodeURIComponent(client);
+  return fetch(url)
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data || !res.data.success) return null;
+      var data = res.data;
+      bcLastBookingContext = data;
+      updateBcDetailHeader(data);
+      bcUpdateOverviewPaymentSummary(data);
+      if (opts.refreshPayments) {
+        var panel = el('bc-drawer-tab-payments');
+        if (panel) {
+          panel.innerHTML = bcRenderRunningInvoiceHtml(
+            data.booking,
+            data.service_records || [],
+            data.payments || {},
+            data.transfers || [],
+          );
+          bcInitCashPaymentShell(data);
+          bcInitPaymentLinkShell(data);
+          bcInitCancelPaymentLinkShell(data);
+        }
+      }
+      if (preserveTab) bcRestoreActiveDrawerTab(preserveTab);
+      return data;
+    })
+    .catch(function(){ return null; });
 }
 
 function bcRefreshBlockDetail(){
@@ -18498,7 +18698,10 @@ function bcInitMovePanel(data){
 }
 
 /* Phase 10.4d — running invoice helpers (read-only drawer display) */
-var BC_RUNNING_INVOICE_ACCOMM_CODES = { package: true, package_proration: true, room_supplement: true };
+var BC_RUNNING_INVOICE_ACCOMM_CODES = {
+  package: true, package_proration: true, room_supplement: true,
+  accommodation_only: true, manual_accommodation: true,
+};
 
 function bcRunningInvoicePackageLabel(code){
   if (!code) return null;
@@ -18608,17 +18811,19 @@ function bcPaymentLedgerCanCancelLinkRow(pr){
   return true;
 }
 
-function bcBookingLedgerBalance(bk, svcRows, paymentRows){
+function bcBookingLedgerBalance(bk, svcRows, paymentRows, transferRows){
   bk = bk || {};
   svcRows = svcRows || [];
   paymentRows = paymentRows || [];
+  transferRows = transferRows || [];
   var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
+  var transferSum = sumActiveTransferChargesCents(transferRows);
   var paidCents = bcPaymentLedgerPaidTotalCents(paymentRows);
   var md = bk.metadata || {};
   if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_) { md = {}; } }
   var quoteSnap = md.quote_snapshot || null;
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
-  var invoiceTotal = accCents != null ? accCents + svcSum : null;
+  var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : null;
   var depositRequired = bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0;
   var balanceDue = null;
   var needsRefund = false;
@@ -18765,7 +18970,7 @@ function bcRunningInvoiceSvcLineText(sr){
   return label + ' \u2014 ' + eur(totalCents);
 }
 
-function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
+function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows){
   var html = '';
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
@@ -18783,13 +18988,16 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   bk = bk || {};
   svcRows = svcRows || [];
   pmt = pmt || {};
+  transferRows = transferRows || [];
   var md = bk.metadata || {};
   var quoteSnap = md.quote_snapshot || null;
   var nights = bcStayNightsFromCheckInOut(bk.check_in, bk.check_out);
   var pkgLabel = bcRunningInvoicePackageLabel(bk.package_code);
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
   var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
-  var invoiceTotal = accCents != null ? accCents + svcSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
+  var transferSum = sumActiveTransferChargesCents(transferRows);
+  var transferLines = transferInvoiceLineItems(transferRows);
+  var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
   var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
     : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
@@ -18827,6 +19035,19 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
     svcRows.forEach(function(sr){
       html += '<div class="ctx-inv-line ctx-inv-addon-line" data-service-type="' + escHtml(sr.service_type || '') + '">' +
         escHtml(bcRunningInvoiceSvcLineText(sr)) + '</div>';
+    });
+  }
+  html += '</div>';
+
+  /* Transfers — booking_transfers charge lines */
+  html += '<div class="ctx-inv-group" id="bc-inv-transfers">';
+  html += '<div class="ctx-inv-group-title">Transfers</div>';
+  if (transferLines.length === 0){
+    html += '<div class="ctx-inv-line ctx-none">No transfer charges.</div>';
+  } else {
+    transferLines.forEach(function(line){
+      html += '<div class="ctx-inv-line ctx-inv-transfer-line">' +
+        escHtml(line.label + ' \u2014 ' + eur(line.price_cents)) + '</div>';
     });
   }
   html += '</div>';
@@ -19082,7 +19303,7 @@ function bcInitPaymentLinkShell(data){
           resultEl.classList.add('is-visible');
           resultEl.style.display = 'block';
         }
-        if (bk.booking_code) bcRefreshPaymentsTab(bk);
+        bcRefreshPaymentsTab(bk);
       })
       .catch(function(err){
         genBtn.disabled = false;
@@ -19101,7 +19322,8 @@ function bcUpdateOverviewPaymentSummary(data){
   var bk = data.booking || {};
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
-  brief.outerHTML = bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt);
+  var transferRows = data.transfers || [];
+  brief.outerHTML = bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows);
 }
 
 function bcRefreshPaymentsTab(bk){
@@ -19113,11 +19335,17 @@ function bcRefreshPaymentsTab(bk){
     .then(function(res){
       if (!res.ok || !res.data || !res.data.success) return;
       var panel = el('bc-drawer-tab-payments');
-      if (panel) panel.innerHTML = bcRenderRunningInvoiceHtml(res.data.booking, res.data.service_records, res.data.payments);
+      if (panel) panel.innerHTML = bcRenderRunningInvoiceHtml(
+        res.data.booking,
+        res.data.service_records,
+        res.data.payments,
+        res.data.transfers || [],
+      );
       bcInitCashPaymentShell(res.data);
       bcInitPaymentLinkShell(res.data);
       bcInitCancelPaymentLinkShell(res.data);
       bcUpdateOverviewPaymentSummary(res.data);
+      updateBcDetailHeader(res.data);
       bcRestoreActiveDrawerTab('payments');
     })
     .catch(function(){ /* tab refresh best-effort */ });
@@ -19179,7 +19407,11 @@ function bcInitCancelPaymentLinkShell(data){
           btn.disabled = false;
           if (!res.ok || !res.data.success) return;
           hideAllConfirmPanels();
-          bcRefreshPaymentsTab(bk);
+          bcRefreshBookingFinancialSummary({
+            booking_code: bk.booking_code,
+            activeTab: 'payments',
+            refreshPayments: true,
+          });
         })
         .catch(function(){ btn.disabled = false; });
     });
@@ -20203,24 +20435,16 @@ function bcRenderAddServicePanelHtml(bk){
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-btn" style="display:none">Remove</button>' +
     '</div>' +
     '<div id="bc-add-ons-remove-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
-    '<label class="ctx-field-label" for="bc-add-ons-remove-select">Remove add-on</label>' +
-    '<select id="bc-add-ons-remove-select" class="bk-input bk-input-sm"></select>' +
+    '<label class="ctx-field-label" for="bc-add-ons-remove-select">Select services to remove</label>' +
+    '<select id="bc-add-ons-remove-select" class="bk-input bk-input-sm" multiple size="6"></select>' +
+    '<div class="ctx-field-hint" id="bc-add-ons-remove-empty" style="display:none">No services to remove.</div>' +
     '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
     '<button type="button" class="btn btn-primary" id="bc-add-ons-remove-confirm-btn">Confirm remove</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-cancel-btn">Cancel</button>' +
     '</div></div>' +
     '<div id="bc-add-ons-form-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
-    '<label class="ctx-field-label" for="bc-add-ons-type">Service Type</label>' +
-    '<select id="bc-add-ons-type" class="bk-input bk-input-sm">' +
-    '<option value="wetsuit">Wetsuit</option>' +
-    '<option value="soft_board">Soft board</option>' +
-    '<option value="hard_board">Hard board</option>' +
-    '<option value="surf_lesson">Surf lesson</option>' +
-    '<option value="yoga">Yoga</option>' +
-    '<option value="meals">Meal</option>' +
-    '</select>' +
-    '<label class="ctx-field-label" for="bc-add-ons-qty" id="bc-add-ons-qty-label">Quantity / Days</label>' +
-    '<input type="number" id="bc-add-ons-qty" class="bk-input bk-input-sm" min="1" value="1">' +
+    '<div id="bc-add-ons-entry-rows"></div>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-add-row-btn" style="margin:8px 0">Add another service</button>' +
     '<div id="bc-add-ons-date-wrap">' +
     '<label class="ctx-field-label" for="bc-add-ons-date" id="bc-add-ons-date-label">Service Date</label>' +
     '<input type="date" id="bc-add-ons-date" class="bk-input bk-input-sm">' +
@@ -20231,7 +20455,7 @@ function bcRenderAddServicePanelHtml(bk){
     '<label class="ctx-field-label" for="bc-add-ons-note">Note (optional)</label>' +
     '<input type="text" id="bc-add-ons-note" class="bk-input bk-input-sm" maxlength="500">' +
     '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
-    '<button type="button" class="btn btn-primary" id="bc-add-ons-save-btn">Add Service</button>' +
+    '<button type="button" class="btn btn-primary" id="bc-add-ons-save-btn">Confirm Add</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-cancel-btn">Cancel</button>' +
     '</div></div>' +
     '<div id="bc-add-ons-result" aria-live="polite"></div>' +
@@ -20282,11 +20506,73 @@ function bcCloseAddServiceForm(){
   if (saveBtn) saveBtn.disabled = false;
 }
 
+function bcAddServiceEntryRowHtml(rowId){
+  return '<div class="bc-add-ons-entry-row" data-row-id="' + escHtml(rowId) + '">' +
+    '<label class="ctx-field-label">Service Type</label>' +
+    '<select class="bk-input bk-input-sm bc-add-ons-entry-type">' +
+    '<option value="wetsuit">Wetsuit</option>' +
+    '<option value="soft_board">Soft board</option>' +
+    '<option value="hard_board">Hard board</option>' +
+    '<option value="surf_lesson">Surf lesson</option>' +
+    '<option value="yoga">Yoga</option>' +
+    '<option value="meals">Meal</option>' +
+    '</select>' +
+    '<label class="ctx-field-label bc-add-ons-entry-qty-label">Quantity / Days</label>' +
+    '<input type="number" class="bk-input bk-input-sm bc-add-ons-entry-qty" min="1" value="1">' +
+    '</div>';
+}
+
+function bcAddServiceResetEntryRows(){
+  var wrap = el('bc-add-ons-entry-rows');
+  if (!wrap) return;
+  wrap.innerHTML = bcAddServiceEntryRowHtml('0');
+  bcAddServiceUpdateEntryQtyLabels(wrap);
+}
+
+function bcAddServiceUpdateEntryQtyLabels(scope){
+  (scope || document).querySelectorAll('.bc-add-ons-entry-row').forEach(function(row){
+    var sel = row.querySelector('.bc-add-ons-entry-type');
+    var lbl = row.querySelector('.bc-add-ons-entry-qty-label');
+    if (!sel || !lbl) return;
+    var t = sel.value;
+    if (t === 'surf_lesson') lbl.textContent = 'Quantity / lessons';
+    else if (t === 'yoga') lbl.textContent = 'Quantity / classes';
+    else if (t === 'meals') lbl.textContent = 'Quantity / meals';
+    else lbl.textContent = 'Quantity / Days';
+  });
+}
+
+function bcAddServiceCollectEntryRows(){
+  var rows = [];
+  document.querySelectorAll('.bc-add-ons-entry-row').forEach(function(row){
+    var typeEl = row.querySelector('.bc-add-ons-entry-type');
+    var qtyEl = row.querySelector('.bc-add-ons-entry-qty');
+    var qty = qtyEl ? parseInt(qtyEl.value, 10) : 1;
+    if (!typeEl || !typeEl.value || !Number.isFinite(qty) || qty < 1) return;
+    rows.push({ service_type: typeEl.value, quantity: qty });
+  });
+  return rows;
+}
+
+function bcAddServiceUpdateRemoveConfirmState(){
+  var sel = el('bc-add-ons-remove-select');
+  var btn = el('bc-add-ons-remove-confirm-btn');
+  var empty = el('bc-add-ons-remove-empty');
+  if (!sel || !btn) return;
+  var count = sel.selectedOptions ? sel.selectedOptions.length : 0;
+  var hasOptions = sel.options && sel.options.length > 0;
+  btn.disabled = count === 0 || !hasOptions;
+  if (empty) empty.style.display = hasOptions ? 'none' : '';
+}
+
 function bcCloseRemoveServiceForm(){
   var wrap = el('bc-add-ons-remove-wrap');
   if (wrap) wrap.style.display = 'none';
   var btn = el('bc-add-ons-remove-btn');
   if (btn) btn.disabled = false;
+  var confirmBtn = el('bc-add-ons-remove-confirm-btn');
+  if (confirmBtn) confirmBtn.disabled = false;
+  bcAddServiceCtx.removeInFlight = false;
 }
 
 function bcPopulateRemoveSelect(svcRows){
@@ -20301,6 +20587,7 @@ function bcPopulateRemoveSelect(svcRows){
     opt.textContent = bcRunningInvoiceSvcLineText(sr);
     sel.appendChild(opt);
   });
+  bcAddServiceUpdateRemoveConfirmState();
 }
 
 function bcUpdateRemoveButton(svcRows, cancelled){
@@ -20324,13 +20611,11 @@ function bcOpenAddServiceForm(data){
   var bk = (data && data.booking) || {};
   bcAddServiceCtx.checkIn = bk.check_in || null;
   bcAddServiceApplyScheduleMode('specific_date');
+  bcAddServiceResetEntryRows();
   var dateEl = el('bc-add-ons-date');
   if (dateEl && bk.check_in) dateEl.value = bk.check_in;
   var noteEl = el('bc-add-ons-note');
   if (noteEl) noteEl.value = '';
-  var qtyEl = el('bc-add-ons-qty');
-  if (qtyEl) qtyEl.value = '1';
-  bcAddServiceUpdateQtyLabel();
   wrap.style.display = '';
   var btn = el('bc-add-ons-btn');
   if (btn) btn.disabled = true;
@@ -20350,6 +20635,9 @@ function bcOpenRemoveServiceForm(data){
   wrap.style.display = '';
   var btn = el('bc-add-ons-remove-btn');
   if (btn) btn.disabled = true;
+  var confirmBtn = el('bc-add-ons-remove-confirm-btn');
+  if (confirmBtn) confirmBtn.disabled = false;
+  bcAddServiceUpdateRemoveConfirmState();
   var resBox = el('bc-add-ons-result');
   if (resBox) resBox.innerHTML = '';
 }
@@ -20370,16 +20658,38 @@ function bcRunRemoveServiceSave(){
   if (bcAddServiceCtx.removeInFlight) return;
   var code = bcAddServiceCtx.bookingCode;
   if (!code) return;
+  function bcFinishRemoveServiceMutation(ctxRes){
+    if (ctxRes && ctxRes.ok && ctxRes.data && ctxRes.data.success) {
+      var svcRows = ctxRes.data.service_records || [];
+      bcUpdateRemoveButton(svcRows, bcBookingStatusIsCancelled((ctxRes.data.booking || {}).status));
+      if (svcRows.length) {
+        bcOpenRemoveServiceForm(ctxRes.data);
+      } else {
+        bcCloseRemoveServiceForm();
+      }
+    } else {
+      bcCloseRemoveServiceForm();
+    }
+    bcRefreshServicesTabAfterMutation({ booking_id: bcAddServiceCtx.bookingId, booking_code: code });
+  }
   var sel = el('bc-add-ons-remove-select');
-  var recordId = sel ? sel.value : '';
-  if (!recordId){
-    bcRenderAddServiceResult({ success: false, error: 'Select an add-on to remove.' }, true);
+  var recordIds = [];
+  if (sel && sel.selectedOptions) {
+    for (var i = 0; i < sel.selectedOptions.length; i++) {
+      recordIds.push(sel.selectedOptions[i].value);
+    }
+  } else if (sel && sel.value) {
+    recordIds.push(sel.value);
+  }
+  if (!recordIds.length){
+    bcRenderAddServiceResult({ success: false, error: 'Select one or more services to remove.' }, true);
+    bcAddServiceUpdateRemoveConfirmState();
     return;
   }
   bcAddServiceCtx.removeInFlight = true;
   var confirmBtn = el('bc-add-ons-remove-confirm-btn');
   if (confirmBtn) confirmBtn.disabled = true;
-  bcRenderAddServiceResult({ success: true, message: 'Removing add-on\u2026' }, false);
+  bcRenderAddServiceResult({ success: true, message: 'Removing selected services\u2026' }, false);
   fetch('/staff/bookings/remove-service', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -20387,7 +20697,7 @@ function bcRunRemoveServiceSave(){
       client_slug: getBcClient(),
       booking_id: bcAddServiceCtx.bookingId,
       booking_code: bcAddServiceCtx.bookingCode,
-      booking_service_record_id: recordId,
+      booking_service_record_ids: recordIds,
       idempotency_key: bcNewRemoveServiceIdempotencyKey(),
       reason: 'Removed from Staff Portal',
     }),
@@ -20402,17 +20712,20 @@ function bcRunRemoveServiceSave(){
           error: data.error || ('Remove failed (HTTP ' + res.status + ')'),
           message: data.message,
         }, true);
-        if (confirmBtn) confirmBtn.disabled = false;
+        bcAddServiceUpdateRemoveConfirmState();
         return;
       }
-      bcCloseRemoveServiceForm();
       bcRenderAddServiceResult(data, false);
-      bcRefreshServicesTabAfterMutation({ booking_id: bcAddServiceCtx.bookingId, booking_code: code });
+      var client = getBcClient();
+      fetch('/staff/bookings/' + encodeURIComponent(code) + '/context?client=' + encodeURIComponent(client))
+        .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+        .then(bcFinishRemoveServiceMutation)
+        .catch(function(){ bcFinishRemoveServiceMutation(null); });
     })
     .catch(function(e){
       bcAddServiceCtx.removeInFlight = false;
       bcRenderAddServiceResult({ success: false, error: e.message || 'Network error' }, true);
-      if (confirmBtn) confirmBtn.disabled = false;
+      bcAddServiceUpdateRemoveConfirmState();
     });
 }
 
@@ -20420,60 +20733,66 @@ function bcRunAddServiceSave(){
   if (bcAddServiceCtx.addInFlight) return;
   var code = bcAddServiceCtx.bookingCode;
   if (!code) return;
-  var typeEl = el('bc-add-ons-type');
-  var qtyEl = el('bc-add-ons-qty');
-  var dateEl = el('bc-add-ons-date');
-  var noteEl = el('bc-add-ons-note');
-  var qty = qtyEl ? parseInt(qtyEl.value, 10) : 1;
-  if (!Number.isFinite(qty) || qty < 1){
-    bcRenderAddServiceResult({ success: false, error: 'Quantity must be at least 1.' }, true);
+  function bcFinishAddServiceMutation(message){
+    bcCloseAddServiceForm();
+    bcRenderAddServiceResult({ success: true, message: message }, false);
+    bcRefreshServicesTabAfterMutation({ booking_id: bcAddServiceCtx.bookingId, booking_code: code });
+  }
+  var entries = bcAddServiceCollectEntryRows();
+  if (!entries.length){
+    bcRenderAddServiceResult({ success: false, error: 'Add at least one service with quantity.' }, true);
     return;
   }
   bcAddServiceCtx.addInFlight = true;
   var saveBtn = el('bc-add-ons-save-btn');
   if (saveBtn) saveBtn.disabled = true;
-  bcRenderAddServiceResult({ success: true, message: 'Saving add-on\u2026' }, false);
+  bcRenderAddServiceResult({ success: true, message: 'Adding selected services\u2026' }, false);
   var scheduleMode = bcAddServiceCtx.scheduleMode || 'specific_date';
+  var dateEl = el('bc-add-ons-date');
+  var noteEl = el('bc-add-ons-note');
   var serviceDate = null;
-  if (scheduleMode !== 'schedule_later' && dateEl && dateEl.value) {
-    serviceDate = dateEl.value;
-  }
-  fetch('/staff/bookings/add-service', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_slug: getBcClient(),
-      booking_id: bcAddServiceCtx.bookingId,
-      booking_code: bcAddServiceCtx.bookingCode,
-      service_type: typeEl ? typeEl.value : '',
-      quantity: qty,
-      schedule_mode: scheduleMode,
-      service_date: serviceDate,
-      note: noteEl && noteEl.value ? noteEl.value : null,
-      idempotency_key: bcNewAddServiceIdempotencyKey(),
-    }),
-  })
-    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
-    .then(function(res){
+  if (scheduleMode !== 'schedule_later' && dateEl && dateEl.value) serviceDate = dateEl.value;
+  var note = noteEl && noteEl.value ? noteEl.value : null;
+  var client = getBcClient();
+  var chain = Promise.resolve();
+  entries.forEach(function(entry){
+    chain = chain.then(function(){
+      return fetch('/staff/bookings/add-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_slug: client,
+          booking_id: bcAddServiceCtx.bookingId,
+          booking_code: bcAddServiceCtx.bookingCode,
+          service_type: entry.service_type,
+          quantity: entry.quantity,
+          schedule_mode: scheduleMode,
+          service_date: serviceDate,
+          note: note,
+          idempotency_key: bcNewAddServiceIdempotencyKey(),
+        }),
+      }).then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); });
+    });
+  });
+  chain
+    .then(function(lastRes){
       bcAddServiceCtx.addInFlight = false;
-      var data = res.data || {};
-      if (!res.ok || !data.success){
+      if (saveBtn) saveBtn.disabled = false;
+      if (!lastRes || !lastRes.ok || !lastRes.data || !lastRes.data.success){
         bcRenderAddServiceResult({
           success: false,
-          error: data.error || ('Save failed (HTTP ' + res.status + ')'),
-          message: data.message,
+          error: (lastRes && lastRes.data && lastRes.data.error) || 'One or more services failed to add.',
         }, true);
-        if (saveBtn) saveBtn.disabled = false;
         return;
       }
-      bcCloseAddServiceForm();
-      bcRenderAddServiceResult(data, false);
-      bcRefreshServicesTabAfterMutation({ booking_id: bcAddServiceCtx.bookingId, booking_code: code });
+      bcFinishAddServiceMutation(
+        entries.length > 1 ? (entries.length + ' services added.') : (lastRes.data.message || 'Service added.'),
+      );
     })
     .catch(function(e){
       bcAddServiceCtx.addInFlight = false;
-      bcRenderAddServiceResult({ success: false, error: e.message || 'Network error' }, true);
       if (saveBtn) saveBtn.disabled = false;
+      bcRenderAddServiceResult({ success: false, error: e.message || 'Network error' }, true);
     });
 }
 
@@ -20500,6 +20819,12 @@ function bcRefreshServicesTabAfterMutation(bk){
   bcRefreshServicesSchedule(bk, bodyEl);
   bcRefreshServicesAddonControls(bk);
   bcRestoreActiveDrawerTab('services');
+  if (bk.booking_code) {
+    bcRefreshBookingFinancialSummary({
+      booking_code: bk.booking_code,
+      activeTab: 'services',
+    });
+  }
 }
 
 function bcInitAddServiceShell(data){
@@ -20531,12 +20856,36 @@ function bcInitAddServiceShell(data){
   if (removeBtn && !cancelled){
     removeBtn.onclick = function(){
       if (bcAddServiceCtx.addInFlight || bcAddServiceCtx.removeInFlight) return;
-      if (!svcRows.length) return;
-      bcOpenRemoveServiceForm(data);
+      var client = getBcClient();
+      fetch('/staff/bookings/' + encodeURIComponent(bcAddServiceCtx.bookingCode) + '/context?client=' + encodeURIComponent(client))
+        .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+        .then(function(res){
+          if (!res.ok || !res.data || !res.data.success) return;
+          if (!(res.data.service_records || []).length) return;
+          bcOpenRemoveServiceForm(res.data);
+        });
     };
   }
-  var typeSel = el('bc-add-ons-type');
-  if (typeSel) typeSel.onchange = bcAddServiceUpdateQtyLabel;
+  var removeSel = el('bc-add-ons-remove-select');
+  if (removeSel) removeSel.onchange = bcAddServiceUpdateRemoveConfirmState;
+  var addRowBtn = el('bc-add-ons-add-row-btn');
+  if (addRowBtn){
+    addRowBtn.onclick = function(){
+      var wrap = el('bc-add-ons-entry-rows');
+      if (!wrap) return;
+      var rowId = String(Date.now()) + Math.random().toString(36).slice(2, 6);
+      wrap.insertAdjacentHTML('beforeend', bcAddServiceEntryRowHtml(rowId));
+      bcAddServiceUpdateEntryQtyLabels(wrap);
+    };
+  }
+  var entryWrap = el('bc-add-ons-entry-rows');
+  if (entryWrap){
+    entryWrap.addEventListener('change', function(ev){
+      if (ev.target && ev.target.classList && ev.target.classList.contains('bc-add-ons-entry-type')) {
+        bcAddServiceUpdateEntryQtyLabels(entryWrap);
+      }
+    });
+  }
   document.querySelectorAll('.bc-add-ons-sched-link').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.preventDefault();
@@ -21267,6 +21616,15 @@ function bcRemoveTransfer(direction){
       if (resultEl){ resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
       bcTransferUpdateScheduledUi(direction, null);
       bcRefreshTransferPebbleSummary();
+      if (bcTransferCtx.bookingId) {
+        var finCode = (bcLastOpenedBlock && bcLastOpenedBlock.booking_code) || bcAddServiceCtx.bookingCode;
+        if (finCode) {
+          bcRefreshBookingFinancialSummary({
+            booking_code: finCode,
+            activeTab: 'transfers',
+          });
+        }
+      }
     })
     .catch(function(e){
       if (btn) btn.disabled = false;
@@ -21306,6 +21664,15 @@ function bcSaveTransfer(direction){
       bcTransferEnsureRemoveButton(direction, t);
       bcTransferUpdateScheduledUi(direction, t);
       bcRefreshTransferPebbleSummary();
+      if (bcTransferCtx.bookingId) {
+        var finCode = (bcLastOpenedBlock && bcLastOpenedBlock.booking_code) || bcAddServiceCtx.bookingCode;
+        if (finCode) {
+          bcRefreshBookingFinancialSummary({
+            booking_code: finCode,
+            activeTab: 'transfers',
+          });
+        }
+      }
     })
     .catch(function(e){
       if (btn) btn.disabled = false;
@@ -21426,10 +21793,11 @@ function bcRenderRoomingBriefHtml(data){
   return html;
 }
 
-function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt){
+function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows){
   bk = bk || {};
   svcRows = svcRows || [];
   pmt = pmt || {};
+  transferRows = transferRows || [];
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
     return '\u20ac' + (Number(cents) / 100).toFixed(2);
@@ -21438,7 +21806,8 @@ function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt){
   var quoteSnap = md.quote_snapshot || null;
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
   var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
-  var invoiceTotal = accCents != null ? accCents + svcSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
+  var transferSum = sumActiveTransferChargesCents(transferRows);
+  var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
   var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
     : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
@@ -21812,7 +22181,7 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move Bed</button>';
   html += '</div></div>';
 
-  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt);
+  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || []);
 
   html += '<div class="bc-drawer-overview-card ctx-section" id="bc-drawer-card-conversation">';
   html += '<h3 class="bc-drawer-card-title">Conversation / Handoff</h3>';
@@ -21863,7 +22232,7 @@ function renderBookingContextDrawer(data){
   /* ── Payments tab ─────────────────────────────────────────────────────── */
   html += '<div class="bc-drawer-tab-panel' + (activeTab === 'payments' ? ' is-active' : '') +
     '" id="bc-drawer-tab-payments" data-tab="payments" role="tabpanel">';
-  html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
+  html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt, data.transfers || []);
   html += '</div>';
 
   html += '</div></div>';
@@ -23731,9 +24100,21 @@ SELECT p.booking_id::text AS booking_id,
    AND p.checkout_url IS NOT NULL
 `;
 
-function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows) {
+const BED_CALENDAR_TRANSFER_CHARGES_SQL = `
+SELECT booking_id::text AS booking_id,
+       COALESCE(SUM(price_cents), 0)::bigint AS transfer_due_cents
+  FROM booking_transfers
+ WHERE booking_id = ANY($1::uuid[])
+   AND status IN ('requested', 'confirmed')
+   AND COALESCE(price_cents, 0) > 0
+ GROUP BY booking_id
+`;
+
+function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows, transferRows) {
   const ledgerById = {};
   for (const r of ledgerRows || []) ledgerById[r.booking_id] = r;
+  const transferById = {};
+  for (const r of transferRows || []) transferById[r.booking_id] = Number(r.transfer_due_cents || 0);
   const linksById = {};
   for (const pr of linkRows || []) {
     if (!linksById[pr.booking_id]) linksById[pr.booking_id] = [];
@@ -23750,6 +24131,7 @@ function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows) {
       bookingRow,
       snap.svc_due_cents,
       snap.ledger_paid_cents,
+      transferById[row.booking_id] || 0,
     );
     const ledgerCtx = {
       balance_due_cents: totals.balance_due_cents,
@@ -23883,11 +24265,12 @@ async function handleBedCalendar(query, res, user) {
       const rows = br.rows;
       const bookingIds = [...new Set(rows.map((r) => r.booking_id).filter(Boolean))];
       if (bookingIds.length > 0) {
-        const [ledgerSnap, linkRows] = await Promise.all([
+        const [ledgerSnap, linkRows, transferSnap] = await Promise.all([
           pg.query(BED_CALENDAR_BOOKING_LEDGER_SQL, [bookingIds]),
           pg.query(BED_CALENDAR_UNPAID_LINK_SQL, [bookingIds]),
+          pg.query(BED_CALENDAR_TRANSFER_CHARGES_SQL, [bookingIds]),
         ]);
-        mergeBedCalendarPaymentSnapshots(rows, ledgerSnap.rows, linkRows.rows);
+        mergeBedCalendarPaymentSnapshots(rows, ledgerSnap.rows, linkRows.rows, transferSnap.rows);
         const srcRes = await pg.query(
           `SELECT id::text AS booking_id,
                   booking_source::text,
@@ -25311,8 +25694,9 @@ async function handleBookingContext(bookingCode, query, res, user) {
   let bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows;
   let serviceRecordRows = [];
   let serviceRecordsAvailable = false;
+  let transferRecordRows = [];
   try {
-    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows, serviceRecordRows, serviceRecordsAvailable] =
+    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows, serviceRecordRows, serviceRecordsAvailable, transferRecordRows] =
       await withPgClient(async (pg) => {
         const [b, p, r, c, h, a, m, svc] = await Promise.all([
           pg.query(getBookingDetailQuery(),             [clientSlug, bookingCode]),
@@ -25331,7 +25715,15 @@ async function handleBookingContext(bookingCode, query, res, user) {
           ),
           loadBookingServiceRecords(pg, clientSlug, bookingCode),
         ]);
-        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows, m.rows, svc.rows, svc.available];
+        const bkRow = b.rows[0] || null;
+        let transfers = [];
+        if (bkRow && bkRow.booking_id) {
+          transfers = await listBookingTransfersForBooking(pg, {
+            client_slug: clientSlug,
+            booking_id: bkRow.booking_id,
+          });
+        }
+        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows, m.rows, svc.rows, svc.available, transfers];
       });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -25453,6 +25845,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
     },
     service_records: serviceRecordRows,
     service_records_available: serviceRecordsAvailable,
+    transfers: transferRecordRows,
     warnings: [],
     elapsed_ms: elapsed,
   });
