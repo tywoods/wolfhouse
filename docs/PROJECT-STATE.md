@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27k — Payment choice wire**): **PASS**. Wired `runGuestPaymentChoiceDryRun` into `POST /staff/bot/guest-intake-dry-run` and `guest:intake:dry-run` harness. **Response:** `{ success, dry_run, result, availability, quote, payment_choice }`. **Gate:** `guest_context` with quote `ready` + `payment_choice_needed`; second-turn deposit/full → `ready_for_hold_payment_draft`. **Harness:** `--guest-context-json`, fixtures `en-deposit-after-quote`, etc. **Safety:** no hold/payment draft/Stripe/link/booking write/WhatsApp/Meta/n8n. Verifier: `verify:stage27k-payment-choice-wire`. Doc: [STAGE-27K-PAYMENT-CHOICE-WIRE.md](STAGE-27K-PAYMENT-CHOICE-WIRE.md). **Next:** **Stage 27l** — hold/payment draft dry-run or hosted proof.
+**Last updated:** 2026-06-08 (**Stage 27l — Hold + payment draft design lock**): **PASS** (docs only). Design lock for first state-changing guest slice after `payment_choice_ready`. **Covers:** entry gate · hold (6h expiry, no proactive expiry copy) · payment draft (€200/€100 deposit tiers) · Stripe link policy · handoff/idempotency · Staff Portal visibility · plan 27m→27p. **No runtime/DB/writes.** Verifier: `verify:stage27l-hold-payment-draft-design`. Doc: [STAGE-27L-HOLD-PAYMENT-DRAFT-DESIGN.md](STAGE-27L-HOLD-PAYMENT-DRAFT-DESIGN.md). **Next:** **Stage 27m** — dry-run hold/payment-draft planner (no writes).
+
+**Prior — Stage 27k (2026-06-08):** Payment choice wire — **PASS**. Doc: [STAGE-27K-PAYMENT-CHOICE-WIRE.md](STAGE-27K-PAYMENT-CHOICE-WIRE.md).
 
 **Prior — Stage 27j (2026-06-08):** Payment choice capture dry-run adapter — **PASS**. Doc: [STAGE-27J-PAYMENT-CHOICE-DRY-RUN.md](STAGE-27J-PAYMENT-CHOICE-DRY-RUN.md).
 
