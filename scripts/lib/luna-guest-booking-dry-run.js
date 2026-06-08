@@ -668,6 +668,7 @@ async function runLunaGuestBookingDryRun(input, context) {
 
 module.exports = {
   runLunaGuestBookingDryRun,
+  runAvailabilityCheckDryRun,
   DRY_RUN_ANCHOR_ROUTES,
   LIVE_FORBIDDEN_ROUTES,
   DRY_RUN_SAFETY_FLAGS,
