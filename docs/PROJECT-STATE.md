@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27n — Gated hold/payment draft write**): **PASS**. `runGuestHoldPaymentDraftWriteDryRunApproved` in `scripts/lib/luna-guest-hold-payment-draft-write.js`. **Gate:** `confirm_write:true` + non-production env + 27m planner ready. **Writes:** `upsertBookingHold` + `payments` draft + quote snapshot metadata. **No Stripe/WhatsApp/Meta/n8n.** Verifier: `verify:stage27n-hold-payment-draft-write`. Doc: [STAGE-27N-HOLD-PAYMENT-DRAFT-WRITE.md](STAGE-27N-HOLD-PAYMENT-DRAFT-WRITE.md). **Next:** **Stage 27o** — Stripe test link (no live send).
+**Last updated:** 2026-06-08 (**Stage 27o — Stripe test Checkout link**): **PASS**. `runGuestStripeTestLinkCreateApproved` in `scripts/lib/luna-guest-stripe-test-link-create.js`. **Reuses:** `handlePaymentCreateStripeLink` (8.4.9) Checkout session + `checkout_created` payment update. **Gate:** `confirm_stripe_test_link` + non-production + `STAFF_ACTIONS_ENABLED` + `STRIPE_LINKS_ENABLED` + `WHATSAPP_DRY_RUN` + `sk_test_` key. **No guest send/booking confirm/payment truth/webhook.** Verifier: `verify:stage27o-stripe-test-link`. Doc: [STAGE-27O-STRIPE-TEST-LINK.md](STAGE-27O-STRIPE-TEST-LINK.md). **Next:** **Stage 27p** — webhook/payment truth.
+
+**Prior — Stage 27n (2026-06-08):** Gated hold/payment draft write — **PASS**. Doc: [STAGE-27N-HOLD-PAYMENT-DRAFT-WRITE.md](STAGE-27N-HOLD-PAYMENT-DRAFT-WRITE.md).
 
 **Prior — Stage 27m (2026-06-08):** Hold/payment draft planner dry-run — **PASS**. Doc: [STAGE-27M-HOLD-PAYMENT-DRAFT-PLANNER.md](STAGE-27M-HOLD-PAYMENT-DRAFT-PLANNER.md).
 
