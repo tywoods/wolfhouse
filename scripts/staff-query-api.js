@@ -144,6 +144,7 @@ const {
   getAccessibleClients,
   userCanAccessClient,
   resolveStaffRole,
+  canUseOwnerInsights,
 } = require('./lib/staff-portal-clients');
 const {
   getOpenHandoffsQuery,
@@ -589,6 +590,36 @@ async function requireAuth(req, res, minRole) {
   }
 
   return { ok: true, user: { ...user, role: resolveStaffRole(user) } };
+}
+
+/** Stage 25j — Owner Insights API gate: owner/admin only (not operator/viewer). */
+async function requireOwnerInsightsAuth(req, res) {
+  if (!STAFF_AUTH_REQUIRED) return { ok: true, user: null };
+
+  let user;
+  try {
+    user = await loadAuthSession(req);
+  } catch (_) {
+    sendJSON(res, 500, { success: false, error: 'auth session lookup failed' });
+    return { ok: false };
+  }
+
+  if (!user) {
+    sendJSON(res, 401, {
+      success:  false,
+      error:    'Authentication required. POST /staff/auth/login first.',
+      auth_url: '/staff/auth/login',
+    });
+    return { ok: false };
+  }
+
+  const resolved = { ...user, role: resolveStaffRole(user) };
+  if (!canUseOwnerInsights(resolved)) {
+    sendJSON(res, 403, { success: false, error: 'owner_insights_forbidden' });
+    return { ok: false };
+  }
+
+  return { ok: true, user: resolved };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -14091,7 +14122,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
   <div class="card cc-section" id="cc-owner-insights">
     <div class="cc-section-hdr">Owner Insights</div>
     <div class="cc-section-sub">Business intelligence from approved owner SQL templates (read-only plan-and-execute).</div>
-    <div class="cc-role-note">Visible to operator+ in staging. TODO(owner-role): restrict to owner/admin when role auth lands.</div>
+    <div id="cc-owner-insights-denied" class="cc-role-note" style="display:none">Owner Insights requires owner access.</div>
+    <div id="cc-owner-insights-active">
     <div class="oi-form-row">
       <input id="oi-input" type="text" placeholder="How much revenue this month?"
              autocomplete="off" spellcheck="false"
@@ -14108,6 +14140,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div id="oi-error"></div>
     <div id="oi-status"></div>
     <div id="oi-result"></div>
+    </div>
   </div>
 
 </div>
@@ -14287,12 +14320,32 @@ function syncBcClientFromInbox(){
   if (bc) bc.value = getClient();
 }
 
-var staffPortalSession = { auth_required: false, role: 'owner', clients: [] };
+var staffPortalSession = { auth_required: false, role: 'owner', clients: [], can_use_owner_insights: true };
 
 function staffIsAdmin(){
   if (staffPortalSession.auth_required === false) return true;
   var r = staffPortalSession.role || '';
   return r === 'admin' || r === 'owner';
+}
+
+function canUseOwnerInsightsPortal(){
+  if (staffPortalSession.auth_required === false) return true;
+  if (staffPortalSession.can_use_owner_insights === true) return true;
+  var r = staffPortalSession.role || '';
+  return r === 'owner' || r === 'admin';
+}
+
+function applyOwnerInsightsGate(){
+  var active = el('cc-owner-insights-active');
+  var denied = el('cc-owner-insights-denied');
+  if (!active || !denied) return;
+  if (canUseOwnerInsightsPortal()){
+    active.style.display = '';
+    denied.style.display = 'none';
+  } else {
+    active.style.display = 'none';
+    denied.style.display = 'block';
+  }
 }
 
 function populateClientSelect(clients, preferredSlug){
@@ -14322,8 +14375,10 @@ function initStaffPortalSession(){
         role: data.role || 'viewer',
         email: data.email || null,
         clients: data.clients || [],
+        can_use_owner_insights: data.can_use_owner_insights === true,
       };
       populateClientSelect(data.clients);
+      applyOwnerInsightsGate();
     })
     .catch(function(){
       populateClientSelect(null);
@@ -16059,6 +16114,10 @@ function oiRenderResult(data){
 }
 
 function oiAsk(){
+  if (!canUseOwnerInsightsPortal()){
+    oiShowError('Owner Insights requires owner access.');
+    return;
+  }
   oiClearState();
   var question = (el('oi-input').value || '').trim();
   if (!question){ oiShowError('Please type an owner insights question first.'); return; }
@@ -16073,9 +16132,14 @@ function oiAsk(){
       timeout_ms: 3000
     })
   })
-  .then(function(r){ return r.json(); })
-  .then(function(data){
+  .then(function(r){ return r.json().then(function(data){ return { status: r.status, data: data }; }); })
+  .then(function(res){
     oiSetLoading(false);
+    var data = res.data;
+    if (res.status === 403 && data && data.error === 'owner_insights_forbidden'){
+      oiShowError('Owner Insights requires owner access.');
+      return;
+    }
     if (!data || (data.error && !data.answer)){
       oiShowError((data && data.error ? data.error : 'Query failed') + (data && data.detail ? ' \u2014 ' + data.detail : ''));
       return;
@@ -21970,6 +22034,7 @@ async function handleAuthSession(req, res) {
       email: null,
       display_name: null,
       clients: getAccessibleClients(null),
+      can_use_owner_insights: true,
     });
   }
 
@@ -21988,14 +22053,16 @@ async function handleAuthSession(req, res) {
     });
   }
 
+  const resolvedRole = resolveStaffRole(user);
   return sendJSON(res, 200, {
     success: true,
     auth_required: true,
-    role: resolveStaffRole(user),
+    role: resolvedRole,
     db_role: user.role,
     email: user.email,
     display_name: user.display_name || null,
     clients: getAccessibleClients(user),
+    can_use_owner_insights: canUseOwnerInsights(user),
   });
 }
 
@@ -24715,7 +24782,7 @@ async function router(req, res) {
       res.writeHead(405, { Allow: 'POST' });
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
     }
-    const auth = await requireAuth(req, res, 'operator');
+    const auth = await requireOwnerInsightsAuth(req, res);
     if (!auth.ok) return;
     return handleOwnerSqlPlan(req, res, auth.user);
   }
@@ -24724,7 +24791,7 @@ async function router(req, res) {
       res.writeHead(405, { Allow: 'POST' });
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST' }));
     }
-    const auth = await requireAuth(req, res, 'operator');
+    const auth = await requireOwnerInsightsAuth(req, res);
     if (!auth.ok) return;
     return handleOwnerSqlPlanAndExecute(req, res, auth.user);
   }
@@ -24932,8 +24999,8 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/validate       <- 25d Owner SQL validator (operator+, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/execute        <- 25d Owner SQL executor (operator+, read-only)`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/plan           <- 25f Owner SQL planner dry-run (operator+, no execute)`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/plan-and-execute <- 25g Owner plan + read-only execute (operator+)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/plan           <- 25f Owner SQL planner dry-run (owner/admin, no execute)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/owner/sql/plan-and-execute <- 25g Owner plan + read-only execute (owner/admin)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/surf-forecast?client=wolfhouse-somo&day=today  <- 11b.1 surf forecast (read-only, Stormglass backend)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-preview      <- 8.5.2 Luna bot booking preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-dry-run     <- 12c Luna booking dry-run plan (read-only SELECT, no writes)`);

@@ -34,7 +34,7 @@
 
 ## 4. Role visibility
 
-Owner Insights shown for **operator+** in staging with code TODO for owner/admin-only when role auth lands.
+Owner Insights requires **owner** or **admin** portal role (Phase 25j). Operators see a denial message; Operations remains operator+.
 
 ---
 
@@ -60,8 +60,6 @@ npm run verify:luna-agent-phase25-command-center-ui
 
 ---
 
-## 8. Next — 25j
+## 8. Next — 25j (done)
 
-- Owner/admin role gate for Owner Insights panel
-- Optional audit log for owner BI queries
-- Richer row preview in UI (top N rows table)
+See `docs/PHASE-25j-OWNER-INSIGHTS-PERMISSIONS.md` — owner/admin gate for Owner Insights.

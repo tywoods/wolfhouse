@@ -139,9 +139,9 @@ if (guestDraft && !guestDraft.includes('oiAsk') && !guestDraft.includes('Owner I
   pass('E2', 'guest reply draft untouched');
 } else fail('E2', 'guest draft touched');
 
-if (ccPanel.includes('TODO(owner-role)')) {
-  pass('E3', 'owner-only role TODO documented in UI');
-} else fail('E3', 'role TODO comment missing');
+if (src.includes('function applyOwnerInsightsGate') && src.includes('can_use_owner_insights')) {
+  pass('E3', 'owner insights permission gate wired in UI');
+} else fail('E3', 'owner insights gate missing');
 
 section('F. Docs + npm script');
 

@@ -131,8 +131,8 @@ const peRouter = apiSrc.slice(
   apiSrc.indexOf("if (pathname === '/staff/owner/sql/plan-and-execute')"),
   apiSrc.indexOf("if (pathname === '/staff/owner/sql/plan-and-execute')") + 500,
 );
-if (/requireAuth\(req, res, 'operator'\)/.test(peRouter)) {
-  pass('C3', 'plan-and-execute requires operator+ auth');
+if (/requireOwnerInsightsAuth\(req, res\)/.test(peRouter)) {
+  pass('C3', 'plan-and-execute requires owner/admin auth (25j)');
 } else fail('C3', 'auth missing on plan-and-execute');
 
 section('D. Blocked plans do not execute');
