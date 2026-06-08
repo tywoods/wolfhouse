@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27t — Guest automation gate design lock**): **DESIGN LOCK** (docs only). Entry gates, automation states, required fields, handoff cases, source-of-truth, send policy, and 27u–27x sequence before public guest intake wiring. **No public guest automation wired.** Proven chain: 27q/27r/27s/27s.1. Doc: [STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md](STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md). Verifier: `verify:stage27t-guest-automation-gate-design`.
+**Last updated:** 2026-06-08 (**Stage 27u — Guest automation orchestrator dry-run**): **PASS**. `runGuestAutomationOrchestratorDryRun` applies 27t gate + chains 27b–27m helpers. **No public wiring, no live send, no writes.** Doc: [STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md](STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md). Verifier: `verify:stage27u-guest-automation-orchestrator-dry-run`.
+
+**Prior — Stage 27t (2026-06-08):** Guest automation gate design lock — **DESIGN LOCK**. Doc: [STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md](STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md).
 
 **Prior — Stage 27s.1 (2026-06-08):** Hosted confirmation live-send proof — **PASS**. Doc: [STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md](STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md) §9.
 
