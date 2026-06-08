@@ -90,13 +90,13 @@ if (/bcRenderRunningInvoiceHtml/.test(drawerSlice) && /bc-drawer-tab-payments/.t
   pass('B4', 'full Payment section in Payments tab');
 } else fail('B4', 'payments tab content');
 if (/bc-drawer-tab-transfers[\s\S]{0,500}bcRenderTransferDetailsShell/.test(drawerSlice)) {
-  pass('B5', 'Flight / Transfer Details in Transfers tab');
+  pass('B5', 'transfer editor in Transfers tab (26g.2 file-tab layout)');
 } else fail('B5', 'transfers tab content');
 if (/bcRenderServicesTabHtml/.test(apiSrc) && /bc-add-ons-btn/.test(apiSrc)) {
   pass('B6', 'Services tab retains add/remove service controls');
 } else fail('B6', 'services controls');
-if (/bc-add-ons-title">Services/.test(apiSrc) && !/bc-add-ons-title">Add-ons/.test(apiSrc)) {
-  pass('B7', 'visible Add-ons label replaced by Services in drawer');
+if (!/bc-add-ons-title">Add-ons/.test(apiSrc) && /bcDrawerTabBtn\('services', 'Services'/.test(apiSrc)) {
+  pass('B7', 'Services tab label; add-ons panel not labeled Add-ons');
 } else fail('B7', 'services label');
 if (/bc-svc-schedule-section|bcRenderServicesScheduleBody/.test(apiSrc)
   && /Service schedule|Unscheduled services/.test(apiSrc)) {

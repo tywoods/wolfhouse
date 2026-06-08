@@ -13331,22 +13331,26 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
 .bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
-.bc-drawer-tabs{display:flex;gap:6px;margin:0 0 14px;padding:5px;background:#F5EDE3;border:1px solid var(--border-soft);border-radius:var(--radius-pill);flex-wrap:wrap}
-.bc-drawer-tab{padding:9px 16px;font-size:14px;font-weight:500;border:1px solid transparent;background:#EDE4D8;color:var(--text-2);cursor:pointer;border-radius:var(--radius-pill);line-height:1.25;transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
-.bc-drawer-tab:hover{background:#F8F3EB;border-color:var(--tan);color:var(--text)}
+.bc-drawer-file-tabs{margin-top:4px}
+.bc-drawer-tabs{display:flex;gap:0;align-items:flex-end;margin:0;padding:0 0 0 4px;border:none;background:transparent;flex-wrap:wrap}
+.bc-drawer-tab{position:relative;padding:10px 18px;font-size:14px;font-weight:500;border:1px solid var(--border-soft);border-bottom:none;background:#F3EBE0;color:var(--text-2);cursor:pointer;border-radius:10px 10px 0 0;line-height:1.25;margin-right:2px;transition:background .15s,color .15s,box-shadow .15s;z-index:1}
+.bc-drawer-tab:hover{background:#FAF6EF;color:var(--text)}
 .bc-drawer-tab:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
-.bc-drawer-tab.is-active{background:var(--surface);color:var(--text);font-weight:600;border-color:var(--tan);box-shadow:0 1px 3px rgba(68,80,74,.08)}
+.bc-drawer-tab.is-active{background:var(--surface-soft);color:var(--text);font-weight:600;border-color:var(--border-soft);box-shadow:none;z-index:3;margin-bottom:-1px;padding-bottom:11px}
+.bc-drawer-tab-content-panel{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:0 var(--radius-sm) var(--radius-sm) var(--radius-sm);padding:14px 16px 16px;min-height:680px}
 .bc-drawer-tab-panel{display:none}
 .bc-drawer-tab-panel.is-active{display:block}
+.bc-drawer-tab-panel[data-tab="transfers"].is-active{min-height:640px}
 .bc-drawer-overview-panel{display:flex;flex-direction:column;gap:12px}
-.bc-drawer-overview-card{padding:14px 16px;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm)}
-.bc-drawer-card-title{font-size:11px;font-weight:700;color:#8A7358;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px}
+.bc-drawer-overview-card{padding:14px 16px;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow-soft)}
+.bc-drawer-card-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px}
 .bc-drawer-card-subtitle{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px}
-.bc-drawer-overview-card .ctx-section{margin-top:12px;padding-top:12px;border-top:1px solid #E8DFD0}
+.bc-drawer-overview-card .ctx-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)}
 .bc-drawer-overview-card .ctx-section:first-child,.bc-drawer-overview-card>.ctx-field-edit-group:first-child{margin-top:0;padding-top:0;border-top:none}
-.bc-drawer-overview-card .ctx-field-edit-group{border-top-color:#E8DFD0}
+.bc-drawer-overview-card .ctx-field-edit-group{border-top-color:var(--border-soft)}
 .bc-drawer-overview-card .ctx-field-edit-group:first-child{padding-top:0;border-top:none}
-.bc-drawer-footer-wrap{margin-top:4px;padding-top:12px;background:var(--surface)}
+.bc-drawer-footer-wrap{margin-top:12px;padding-top:12px;background:transparent}
+.bc-transfer-tab-spacer{height:280px;background:transparent;pointer-events:none}
 .bc-services-groups{display:grid;gap:8px;margin-bottom:10px}
 .bc-services-group{padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .bc-services-group-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
@@ -18626,8 +18630,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
     : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
 
-  html += '<div class="ctx-section"><h3>Payment</h3>';
-  html += '<div class="ctx-pay-box ctx-running-invoice" id="bc-running-invoice">';
+  html += '<div class="ctx-section ctx-running-invoice-wrap"><div class="ctx-pay-box ctx-running-invoice" id="bc-running-invoice">';
 
   /* Accommodation */
   html += '<div class="ctx-inv-group" id="bc-inv-accommodation">';
@@ -19966,7 +19969,7 @@ function bcRenderAddServicePanelHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) return '';
   return '<div class="ctx-section ctx-add-ons-panel" id="bc-add-ons-panel">' +
     '<div class="bc-add-ons-header">' +
-    '<span class="bc-add-ons-title">Services</span>' +
+    '<span class="bc-add-ons-title">Add or remove</span>' +
     '<div class="bc-add-ons-actions">' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-btn">Add</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-btn" style="display:none">Remove</button>' +
@@ -20543,9 +20546,8 @@ var bcTransferCtx = {
 
 function bcRenderTransferDetailsShell(){
   return '<div class="ctx-section ctx-transfer-details" id="bc-transfer-details">' +
-    '<h3>Flight / Transfer Details</h3>' +
-    '<p class="ctx-none" style="margin-bottom:8px;font-size:11px">Lookup uses booking check-in/check-out dates. Edit fields, then Save.</p>' +
     '<div id="bc-transfer-cards" class="bc-transfer-cards ctx-loading">Loading transfers\u2026</div>' +
+    '<div class="bc-transfer-tab-spacer" aria-hidden="true"></div>' +
     '</div>';
 }
 
@@ -21030,11 +21032,10 @@ function bcInitServicesScheduleShell(data){
 
 function bcRenderServicesTabHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) {
-    return '<div class="ctx-section ctx-services-tab" id="bc-services-tab"><h3>Services</h3>' +
+    return '<div class="ctx-section ctx-services-tab" id="bc-services-tab">' +
       '<div class="ctx-none">Not available for cancelled bookings.</div></div>';
   }
   var html = '<div class="ctx-section ctx-services-tab" id="bc-services-tab">';
-  html += '<h3>Services</h3>';
   html += '<div id="bc-services-schedule-body" class="ctx-loading">Loading service schedule\u2026</div>';
   html += bcRenderAddServicePanelHtml(bk);
   html += '</div>';
@@ -21048,12 +21049,14 @@ function renderBookingContextDrawer(data){
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
 
+  html += '<div class="bc-drawer-file-tabs" id="bc-drawer-file-tabs">';
   html += '<div class="bc-drawer-tabs" id="bc-drawer-tabs" role="tablist">';
   html += bcDrawerTabBtn('overview', 'Overview', true);
   html += bcDrawerTabBtn('services', 'Services', false);
   html += bcDrawerTabBtn('transfers', 'Transfers', false);
   html += bcDrawerTabBtn('payments', 'Payments', false);
   html += '</div>';
+  html += '<div class="bc-drawer-tab-content-panel" id="bc-drawer-tab-content-panel">';
 
   /* ── Overview tab ─────────────────────────────────────────────────────── */
   html += '<div class="bc-drawer-tab-panel is-active" id="bc-drawer-tab-overview" data-tab="overview" role="tabpanel">';
@@ -21136,6 +21139,8 @@ function renderBookingContextDrawer(data){
   html += '<div class="bc-drawer-tab-panel" id="bc-drawer-tab-payments" data-tab="payments" role="tabpanel">';
   html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
   html += '</div>';
+
+  html += '</div></div>';
 
   return html;
 }

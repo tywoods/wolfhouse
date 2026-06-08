@@ -77,10 +77,14 @@ section('B. Tab styling');
 if (/\.bc-drawer-tab[\s\S]{0,180}font-size:14px/.test(apiSrc)) {
   pass('B1', 'larger tab label styling (~14px)');
 } else fail('B1', 'tab font size');
-if (/\.bc-drawer-tab[\s\S]{0,220}padding:9px 16px/.test(apiSrc)) {
+if (/\.bc-drawer-tab[\s\S]{0,220}padding:10px 18px/.test(apiSrc)
+  || /\.bc-drawer-tab[\s\S]{0,220}padding:9px 16px/.test(apiSrc)) {
   pass('B2', 'increased tab padding');
 } else fail('B2', 'tab padding');
-if (/\.bc-drawer-tab\.is-active[\s\S]{0,220}border-color:var\(--tan\)/.test(apiSrc)) {
+if (/\.bc-drawer-tab[\s\S]{0,220}border-radius:10px 10px 0 0/.test(apiSrc)
+  || /\.bc-drawer-tab\.is-active[\s\S]{0,260}var\(--surface-soft\)/.test(apiSrc)) {
+  pass('B3', 'active tab connects to content panel (26g.2 file tabs)');
+} else if (/\.bc-drawer-tab\.is-active[\s\S]{0,220}border-color:var\(--tan\)/.test(apiSrc)) {
   pass('B3', 'active tab accent styling');
 } else fail('B3', 'active tab styling');
 if (/\.bc-drawer-tab:hover/.test(apiSrc)) pass('B4', 'tab hover state');
@@ -113,8 +117,10 @@ for (const [id, elId, title, slice] of cards) {
   if (slice.includes(elId) && slice.includes(title)) pass(id, `${title} card`);
   else fail(id, `${title} card missing`);
 }
-if (/bc-drawer-overview-card/.test(apiSrc) && /#F8F0E2|#ECDCC4/.test(apiSrc)) {
-  pass('D5', 'beige/tan overview card styling');
+if (/bc-drawer-overview-card/.test(apiSrc)
+  && (/bc-drawer-tab-content-panel|var\(--surface-soft\)/.test(apiSrc)
+    || /#F8F0E2|#ECDCC4/.test(apiSrc))) {
+  pass('D5', 'overview / panel cream styling');
 } else fail('D5', 'card styling');
 if (/Full payment history is in the Payments tab/.test(apiSrc)) {
   pass('D6', 'payment summary note in Overview');
@@ -131,8 +137,9 @@ if (/bcRenderPaymentSummaryBriefHtml/.test(drawerSlice) && /bc-drawer-tab-overvi
 if (/bcRenderRunningInvoiceHtml/.test(drawerSlice) && /bc-drawer-tab-payments/.test(drawerSlice)) {
   pass('E2', 'full payment section in Payments tab');
 } else fail('E2', 'payments tab');
-if (/bc-drawer-tab-transfers[\s\S]{0,500}bcRenderTransferDetailsShell/.test(drawerSlice)) {
-  pass('E3', 'Flight / Transfer Details in Transfers tab');
+if (/bc-drawer-tab-transfers[\s\S]{0,500}bcRenderTransferDetailsShell/.test(drawerSlice)
+  && (/bc-transfer-cards/.test(apiSrc) || /Arrival transfer/.test(apiSrc))) {
+  pass('E3', 'Transfers tab transfer editor (26g.2: no duplicate header)');
 } else fail('E3', 'transfers tab');
 if (/bcRenderServicesTabHtml/.test(drawerSlice) && /bc-svc-schedule-section|bcInitServicesScheduleShell/.test(apiSrc)) {
   pass('E4', 'Services tab retains 26g schedule sections');

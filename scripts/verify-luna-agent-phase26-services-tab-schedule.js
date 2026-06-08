@@ -123,8 +123,9 @@ if (/bcRenderPaymentSummaryBriefHtml/.test(apiSrc) && /bc-drawer-tab-overview/.t
 if (/bcRenderRunningInvoiceHtml/.test(drawerSlice) && /bc-drawer-tab-payments/.test(drawerSlice)) {
   pass('D2', 'Payments tab full payment section');
 } else fail('D2', 'payments tab');
-if (/bc-drawer-tab-transfers[\s\S]{0,500}bcRenderTransferDetailsShell/.test(drawerSlice)) {
-  pass('D3', 'Transfers tab Flight / Transfer Details');
+if (/bc-drawer-tab-transfers[\s\S]{0,500}bcRenderTransferDetailsShell/.test(drawerSlice)
+  && /bc-transfer-cards|Arrival transfer/.test(apiSrc)) {
+  pass('D3', 'Transfers tab editor in place (26g.2)');
 } else fail('D3', 'transfers tab');
 
 section('E. Schedule helper unit checks');
