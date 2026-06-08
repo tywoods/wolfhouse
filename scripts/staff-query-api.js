@@ -303,6 +303,12 @@ const {
   runGuestAutomationOrchestratorDryRun,
 } = require('./lib/luna-guest-automation-orchestrator-dry-run');
 const {
+  runGuestHoldPaymentDraftWriteDryRunApproved,
+} = require('./lib/luna-guest-hold-payment-draft-write');
+const {
+  runGuestStripeTestLinkCreateApproved,
+} = require('./lib/luna-guest-stripe-test-link-create');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10449,6 +10455,202 @@ async function handleBotGuestAutomationReviewDryRun(req, res, user, authMode) {
   }
 }
 
+function parseGuestSimulatorChain(body) {
+  const src = body || {};
+  const chain = src.chain || {};
+  const review = src.review || chain;
+  return {
+    result: chain.result || review.result || null,
+    availability: chain.availability || review.availability || null,
+    quote: chain.quote || review.quote || null,
+    payment_choice: chain.payment_choice || review.payment_choice || null,
+  };
+}
+
+function guestSimulatorProductionBlocked() {
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+}
+
+// Route: POST /staff/bot/guest-simulator-create-hold-draft  (Stage 27w)
+async function handleBotGuestSimulatorCreateHoldDraft(req, res, user, authMode) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  if (guestSimulatorProductionBlocked()) {
+    return sendJSON(res, 403, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      error: 'Luna Guest Simulator writes are disabled in production',
+    });
+  }
+
+  if (body.confirm_simulator_write !== true && body.source !== 'luna_guest_simulator') {
+    return sendJSON(res, 400, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      error: 'confirm_simulator_write:true required for simulator hold/draft write',
+    });
+  }
+
+  const chain = parseGuestSimulatorChain(body);
+  if (!chain.result || !chain.payment_choice) {
+    return sendJSON(res, 400, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      error: 'chain with result and payment_choice is required',
+    });
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId = user ? user.staff_user_id : 'dev-bot-guest-simulator-local';
+  const hostHeader = String(req.headers.host || '');
+
+  try {
+    const writeOut = await runGuestHoldPaymentDraftWriteDryRunApproved(chain, {
+      confirm_write: true,
+      client_slug: String(body.client_slug || DEFAULT_CLIENT).trim(),
+      guest_name: body.guest_name,
+      guest_email: body.guest_email,
+      guest_phone: body.guest_phone,
+      env: process.env,
+      host_header: hostHeader,
+      source: 'luna_guest_simulator_27w',
+    });
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot_guest_simulator_create_hold_draft',
+      category: 'bot_guest_simulator',
+      simulator: true,
+      no_write_performed: writeOut.write_status !== 'created' && writeOut.write_status !== 'reused_existing',
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      success: writeOut.success === true,
+      write_status: writeOut.write_status || null,
+      staff_user_id: actorId,
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, writeOut.success ? 200 : 400, {
+      ...writeOut,
+      simulator: true,
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+  } catch (_) {
+    const elapsed = Date.now() - started;
+    return sendJSON(res, 500, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      simulator: true,
+      error: 'guest simulator hold/draft write failed',
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+  }
+}
+
+// Route: POST /staff/bot/guest-simulator-create-stripe-test-link  (Stage 27w)
+async function handleBotGuestSimulatorCreateStripeTestLink(req, res, user, authMode) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  if (guestSimulatorProductionBlocked()) {
+    return sendJSON(res, 403, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      error: 'Luna Guest Simulator Stripe links are disabled in production',
+    });
+  }
+
+  if (body.confirm_simulator_stripe !== true && body.source !== 'luna_guest_simulator') {
+    return sendJSON(res, 400, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      error: 'confirm_simulator_stripe:true required for simulator Stripe test link',
+    });
+  }
+
+  const paymentDraftId = body.payment_draft_id != null ? String(body.payment_draft_id).trim() : '';
+  if (!paymentDraftId) {
+    return sendJSON(res, 400, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      error: 'payment_draft_id is required',
+    });
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId = user ? user.staff_user_id : 'dev-bot-guest-simulator-local';
+  const hostHeader = String(req.headers.host || '');
+
+  try {
+    const linkOut = await runGuestStripeTestLinkCreateApproved({
+      payment_draft_id: paymentDraftId,
+      booking_id: body.booking_id,
+      booking_code: body.booking_code,
+      staff_operator: actorId,
+      source: 'luna_guest_simulator_27w',
+    }, {
+      confirm_stripe_test_link: true,
+      env: process.env,
+      host_header: hostHeader,
+    });
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot_guest_simulator_create_stripe_test_link',
+      category: 'bot_guest_simulator',
+      simulator: true,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      stripe_link_created: linkOut.stripe_link_created === true,
+      success: linkOut.success === true,
+      staff_user_id: actorId,
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, linkOut.success ? 200 : 400, {
+      ...linkOut,
+      simulator: true,
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+  } catch (_) {
+    const elapsed = Date.now() - started;
+    return sendJSON(res, 500, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      simulator: true,
+      error: 'guest simulator Stripe test link failed',
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+  }
+}
+
 // Phase 13c — in-memory req for delegating pre-built JSON to handleBotBookingCreate.
 function makeInMemoryBotReq(bodyObj) {
   const payload = JSON.stringify(bodyObj || {});
@@ -13591,6 +13793,13 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .tab-btn.dev-tab:hover{color:var(--text-2)}
 .tab-btn.dev-tab.active{color:var(--text-2);border-bottom-color:var(--tan)}
 .dev-panel-note{font-size:11.5px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:11px 16px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.lgs-safety{margin-bottom:14px;padding:10px 14px;background:#FFF3F3;border:1px solid #F5C6C6;border-radius:8px;font-size:12px;color:#7a3030;line-height:1.5}
+.lgs-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lgs-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;color:var(--text-3)}
+.lgs-grid input,.lgs-grid textarea,.lgs-grid select{font-size:13px;padding:7px 9px;border:1px solid var(--border-soft);border-radius:6px}
+.lgs-actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.lgs-out{font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-word;background:#FBF7F0;border:1px solid #EFE8DC;border-radius:8px;padding:10px 12px;max-height:320px;overflow:auto}
+.lgs-stripe-url{font-size:13px;word-break:break-all;color:#1a5276;margin-top:6px}
 /* ── Booking context drawer (Stage 7.7i) ─────────────────────────────────── */
 .ctx-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft)}
 .ctx-section:first-of-type{margin-top:4px;padding-top:0;border-top:none}
@@ -13986,6 +14195,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
   <button class="tab-btn" data-tab="ask-luna">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
+  <button class="tab-btn dev-tab" data-tab="luna-guest-simulator">Luna Guest Simulator</button>
 </div>
 
 <!-- ── Today / Needs Attention tab (hidden — legacy tiles; switchToTab still works) ── -->
@@ -14125,6 +14335,48 @@ textarea.bk-input{resize:vertical;min-height:60px}
   </div>
 </div>
 </div><!-- /tab-query-tools -->
+
+<!-- ── Luna Guest Simulator (Stage 27w) ───────────────────────────────────── -->
+<div id="tab-luna-guest-simulator" class="tab-panel">
+<div id="wrap-lgs" style="max-width:1100px;margin:0 auto;padding:20px 16px">
+  <div class="lgs-safety">
+    <b>Luna Guest Simulator</b> &mdash; hardcore staging/local testing only.<br>
+    Simulator writes to <b>staging/local test data</b>. <b>No WhatsApp sent.</b> <b>Stripe TEST links only.</b> Not public automation.
+  </div>
+  <div class="card">
+    <h3 style="margin:0 0 12px;font-size:15px">Simulated guest</h3>
+    <div class="lgs-grid">
+      <label>Guest phone<input id="lgs-phone" value="+34600999999"></label>
+      <label>Guest name<input id="lgs-name" value="Staging Test Guest"></label>
+      <label>Guest email<input id="lgs-email" value="staging-test@wolfhouse.test"></label>
+      <label>Client slug<input id="lgs-client" value="wolfhouse-somo"></label>
+      <label>Channel<input id="lgs-channel" value="whatsapp"></label>
+      <label>Reference date (YYYY-MM-DD)<input id="lgs-ref-date" placeholder="2026-06-08"></label>
+      <label>Language hint<input id="lgs-lang" placeholder="en"></label>
+    </div>
+    <label style="display:block;margin-top:12px;font-size:11px;font-weight:600;color:var(--text-3)">Message text
+      <textarea id="lgs-message" rows="3" style="width:100%;margin-top:4px;font-size:13px;padding:8px;border:1px solid var(--border-soft);border-radius:6px">Hi, we are 2 people and want to stay July 10-17</textarea>
+    </label>
+    <label style="display:block;margin-top:12px;font-size:11px;font-weight:600;color:var(--text-3)">guest_context JSON (optional)
+      <textarea id="lgs-guest-context" rows="4" style="width:100%;margin-top:4px;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--border-soft);border-radius:6px" placeholder="{}"></textarea>
+    </label>
+    <div class="lgs-actions">
+      <button type="button" class="btn btn-primary" id="lgs-btn-review">Run Luna Review</button>
+      <button type="button" class="btn" id="lgs-btn-use-context">Use review result as guest_context</button>
+      <button type="button" class="btn" id="lgs-btn-hold" disabled>Create Test Hold + Draft Payment</button>
+      <button type="button" class="btn" id="lgs-btn-stripe" disabled>Create Stripe TEST Link</button>
+    </div>
+    <div id="lgs-status" style="font-size:12px;color:var(--text-3);margin-bottom:8px"></div>
+  </div>
+  <div class="card">
+    <h3 style="margin:0 0 10px;font-size:14px">Review output</h3>
+    <div id="lgs-review-summary" class="lgs-out">Run Luna Review to preview gate, chain, and proposed reply.</div>
+    <div id="lgs-stripe-url" class="lgs-stripe-url"></div>
+    <h3 style="margin:16px 0 8px;font-size:13px;color:var(--text-3)">Raw JSON</h3>
+    <pre id="lgs-json" style="font-size:11px;max-height:360px;overflow:auto;background:#f4f6f8;padding:10px;border-radius:8px"></pre>
+  </div>
+</div>
+</div><!-- /tab-luna-guest-simulator -->
 
 <!-- ── Booking Calendar tab (Stage 7.7h) ──────────────────────────────────── -->
 <div id="tab-bed-calendar" class="tab-panel active">
@@ -23055,6 +23307,215 @@ window.doLogout = function doLogout(){
   x.send();
 };
 
+/* ── Luna Guest Simulator (Stage 27w) ─────────────────────────────────────── */
+var LGS_STAFF_ACTIONS = ${STAFF_ACTIONS_ENABLED};
+var LGS_STRIPE_LINKS = ${STRIPE_LINKS_ENABLED};
+var LGS_WHATSAPP_DRY_RUN = ${process.env.WHATSAPP_DRY_RUN === 'true'};
+var lgsLastReview = null;
+var lgsLastWrite = null;
+
+function lgsEl(id){ return document.getElementById(id); }
+
+function lgsParseGuestContext(){
+  var raw = (lgsEl('lgs-guest-context') && lgsEl('lgs-guest-context').value || '').trim();
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { throw new Error('guest_context JSON invalid: ' + e.message); }
+}
+
+function lgsReviewPayload(){
+  return {
+    client_slug: (lgsEl('lgs-client').value || 'wolfhouse-somo').trim(),
+    channel: (lgsEl('lgs-channel').value || 'whatsapp').trim(),
+    message_text: (lgsEl('lgs-message').value || '').trim(),
+    guest_phone: (lgsEl('lgs-phone').value || '').trim(),
+    language_hint: (lgsEl('lgs-lang').value || '').trim() || undefined,
+    reference_date: (lgsEl('lgs-ref-date').value || '').trim() || undefined,
+    guest_context: lgsParseGuestContext(),
+    automation_gate_context: {
+      public_guest_automation_enabled: false,
+      whatsapp_dry_run: true,
+    },
+    dry_run: true,
+  };
+}
+
+function lgsSetStatus(msg, isErr){
+  var st = lgsEl('lgs-status');
+  if (!st) return;
+  st.textContent = msg || '';
+  st.style.color = isErr ? '#b42318' : 'var(--text-3)';
+}
+
+function lgsRenderReviewSummary(data){
+  var box = lgsEl('lgs-review-summary');
+  if (!box || !data || !data.review) return;
+  var r = data.review;
+  var lines = [];
+  lines.push('Gate: ' + (r.automation_gate && r.automation_gate.gate_status || '—'));
+  if (r.automation_gate && r.automation_gate.gate_reasons && r.automation_gate.gate_reasons.length) {
+    lines.push('Gate reasons: ' + r.automation_gate.gate_reasons.join(', '));
+  }
+  lines.push('Next action: ' + (r.proposed_next_action || '—'));
+  lines.push('Proposed reply: ' + (r.proposed_luna_reply || '—'));
+  if (r.result) {
+    lines.push('Lane: ' + (r.result.message_lane || '—') + ' | intake: ' + (r.result.intake_state || '—'));
+  }
+  if (r.availability) lines.push('Availability: ' + (r.availability.availability_status || '—'));
+  if (r.quote) lines.push('Quote: ' + (r.quote.quote_status || '—') + ' total_cents=' + (r.quote.quote_total_cents != null ? r.quote.quote_total_cents : '—'));
+  if (r.payment_choice) {
+    lines.push('Payment choice: ready=' + r.payment_choice.payment_choice_ready + ' choice=' + (r.payment_choice.payment_choice || '—') + ' step=' + (r.payment_choice.next_safe_step || '—'));
+  }
+  if (r.hold_payment_draft_plan) {
+    lines.push('Hold plan: ' + (r.hold_payment_draft_plan.plan_status || '—'));
+  }
+  if (r.handoff_reasons && r.handoff_reasons.length) lines.push('Handoff: ' + r.handoff_reasons.join(', '));
+  box.textContent = lines.join('\n');
+}
+
+function lgsUpdateButtons(){
+  var holdBtn = lgsEl('lgs-btn-hold');
+  var stripeBtn = lgsEl('lgs-btn-stripe');
+  var review = lgsLastReview && lgsLastReview.review;
+  var holdReady = review
+    && review.hold_payment_draft_plan
+    && review.hold_payment_draft_plan.plan_status === 'ready'
+    && review.payment_choice
+    && review.payment_choice.next_safe_step === 'ready_for_hold_payment_draft';
+  if (holdBtn) holdBtn.disabled = !holdReady;
+  var stripeReady = lgsLastWrite
+    && lgsLastWrite.success === true
+    && lgsLastWrite.payment_draft_id
+    && LGS_STAFF_ACTIONS
+    && LGS_STRIPE_LINKS
+    && LGS_WHATSAPP_DRY_RUN;
+  if (stripeBtn) stripeBtn.disabled = !stripeReady;
+}
+
+function lgsPostJson(path, body){
+  return fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  }).then(function(resp){
+    return resp.json().then(function(data){ return { ok: resp.ok, status: resp.status, data: data }; });
+  });
+}
+
+function lgsRunReview(){
+  lgsSetStatus('Running Luna Review…');
+  var payload;
+  try { payload = lgsReviewPayload(); } catch (e) { lgsSetStatus(e.message, true); return; }
+  if (!payload.message_text) { lgsSetStatus('message_text is required', true); return; }
+  lgsPostJson('/staff/bot/guest-automation-review-dry-run', payload)
+    .then(function(res){
+      lgsLastReview = res.data;
+      lgsLastWrite = null;
+      lgsEl('lgs-json').textContent = JSON.stringify(res.data, null, 2);
+      lgsEl('lgs-stripe-url').textContent = '';
+      if (!res.ok || !res.data.success) {
+        lgsSetStatus((res.data && res.data.error) || ('Review failed HTTP ' + res.status), true);
+      } else {
+        lgsSetStatus('Review complete (dry-run, no WhatsApp sent).');
+      }
+      lgsRenderReviewSummary(res.data);
+      lgsUpdateButtons();
+    })
+    .catch(function(){ lgsSetStatus('Review request failed', true); });
+}
+
+function lgsUseReviewAsContext(){
+  if (!lgsLastReview || !lgsLastReview.review) {
+    lgsSetStatus('Run Luna Review first', true);
+    return;
+  }
+  var r = lgsLastReview.review;
+  var ctx = {
+    message_lane: r.result && r.result.message_lane,
+    quote: r.quote,
+    payment_choice_needed: r.quote && r.quote.payment_choice_needed,
+    detected_language: r.result && r.result.detected_language,
+    availability: r.availability,
+    payment_choice: r.payment_choice,
+  };
+  lgsEl('lgs-guest-context').value = JSON.stringify(ctx, null, 2);
+  lgsSetStatus('guest_context populated from last review.');
+}
+
+function lgsCreateHoldDraft(){
+  if (!lgsLastReview || !lgsLastReview.review) {
+    lgsSetStatus('Run Luna Review first', true);
+    return;
+  }
+  lgsSetStatus('Creating test hold + draft payment…');
+  var r = lgsLastReview.review;
+  lgsPostJson('/staff/bot/guest-simulator-create-hold-draft', {
+    source: 'luna_guest_simulator',
+    confirm_simulator_write: true,
+    confirm_write: true,
+    client_slug: (lgsEl('lgs-client').value || 'wolfhouse-somo').trim(),
+    guest_name: (lgsEl('lgs-name').value || '').trim(),
+    guest_email: (lgsEl('lgs-email').value || '').trim(),
+    guest_phone: (lgsEl('lgs-phone').value || '').trim(),
+    chain: {
+      result: r.result,
+      availability: r.availability,
+      quote: r.quote,
+      payment_choice: r.payment_choice,
+    },
+  }).then(function(res){
+    lgsLastWrite = res.data;
+    lgsEl('lgs-json').textContent = JSON.stringify(res.data, null, 2);
+    if (!res.ok || !res.data.success) {
+      lgsSetStatus((res.data && (res.data.error || res.data.write_block_reasons && res.data.write_block_reasons.join(', '))) || 'Hold/draft write failed', true);
+    } else {
+      lgsSetStatus('Hold + draft payment: ' + (res.data.write_status || 'ok') + ' booking=' + (res.data.booking_code || '—'));
+    }
+    lgsUpdateButtons();
+  }).catch(function(){ lgsSetStatus('Hold/draft request failed', true); });
+}
+
+function lgsCreateStripeLink(){
+  if (!lgsLastWrite || !lgsLastWrite.payment_draft_id) {
+    lgsSetStatus('Create Test Hold + Draft Payment first', true);
+    return;
+  }
+  lgsSetStatus('Creating Stripe TEST checkout link…');
+  lgsPostJson('/staff/bot/guest-simulator-create-stripe-test-link', {
+    source: 'luna_guest_simulator',
+    confirm_simulator_stripe: true,
+    confirm_stripe_test_link: true,
+    payment_draft_id: lgsLastWrite.payment_draft_id,
+    booking_id: lgsLastWrite.booking_id,
+    booking_code: lgsLastWrite.booking_code,
+  }).then(function(res){
+    lgsEl('lgs-json').textContent = JSON.stringify(res.data, null, 2);
+    var urlEl = lgsEl('lgs-stripe-url');
+    if (res.data && res.data.stripe_checkout_url) {
+      urlEl.innerHTML = 'Stripe TEST checkout URL: <a href="' + res.data.stripe_checkout_url + '" target="_blank" rel="noopener">' + res.data.stripe_checkout_url + '</a>';
+    } else {
+      urlEl.textContent = '';
+    }
+    if (!res.ok || !res.data.success) {
+      lgsSetStatus((res.data && (res.data.error || res.data.block_reasons && res.data.block_reasons.join(', '))) || 'Stripe link failed', true);
+    } else {
+      lgsSetStatus('Stripe TEST link created (not sent to guest). Open URL manually to pay in test mode.');
+    }
+  }).catch(function(){ lgsSetStatus('Stripe link request failed', true); });
+}
+
+(function lgsBind(){
+  var b1 = lgsEl('lgs-btn-review');
+  var b2 = lgsEl('lgs-btn-use-context');
+  var b3 = lgsEl('lgs-btn-hold');
+  var b4 = lgsEl('lgs-btn-stripe');
+  if (b1) b1.addEventListener('click', lgsRunReview);
+  if (b2) b2.addEventListener('click', lgsUseReviewAsContext);
+  if (b3) b3.addEventListener('click', lgsCreateHoldDraft);
+  if (b4) b4.addEventListener('click', lgsCreateStripeLink);
+  lgsUpdateButtons();
+})();
+
 })();
 </script>
 </body>
@@ -26657,6 +27118,29 @@ async function router(req, res) {
     return handleBotGuestAutomationReviewDryRun(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Stage 27w — Luna Guest Simulator hold/draft write (staff-only) ─────────
+  // POST /staff/bot/guest-simulator-create-hold-draft
+  if (pathname === '/staff/bot/guest-simulator-create-hold-draft') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/guest-simulator-create-hold-draft' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotGuestSimulatorCreateHoldDraft(req, res, auth.user, auth.auth_mode);
+  }
+
+  // POST /staff/bot/guest-simulator-create-stripe-test-link
+  if (pathname === '/staff/bot/guest-simulator-create-stripe-test-link') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/guest-simulator-create-stripe-test-link' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotGuestSimulatorCreateStripeTestLink(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Phase 13c — Luna gated booking write bridge (default-deny) ─────────────
   // POST /staff/bot/booking-create-from-plan
   if (pathname === '/staff/bot/booking-create-from-plan') {
@@ -27105,6 +27589,8 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/message-intake-preview <- 15b Luna message intake preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-intake-dry-run <- 27c Luna guest intake dry-run (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-automation-review-dry-run <- 27v Luna guest automation review (staff-only, no send)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-hold-draft <- 27w Luna guest simulator hold/draft (staging/local only)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-stripe-test-link <- 27w Luna guest simulator Stripe TEST link`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);

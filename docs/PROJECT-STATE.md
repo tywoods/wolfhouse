@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27v — Guest automation review endpoint**): **PASS**. `POST /staff/bot/guest-automation-review-dry-run` · staff/bot auth · wraps 27u orchestrator in `review` payload. **No public wiring, no live send, no writes.** Doc: [STAGE-27V-GUEST-AUTOMATION-REVIEW.md](STAGE-27V-GUEST-AUTOMATION-REVIEW.md). Verifier: `verify:stage27v-guest-automation-review`.
+**Last updated:** 2026-06-08 (**Stage 27w — Luna Guest Simulator**): **PASS**. Staff Portal dev tab + `guest-simulator-create-hold-draft` / `guest-simulator-create-stripe-test-link` (27n/27o, staging/local only). **No WhatsApp, Stripe TEST only.** Doc: [STAGE-27W-LUNA-GUEST-SIMULATOR.md](STAGE-27W-LUNA-GUEST-SIMULATOR.md). Verifier: `verify:stage27w-luna-guest-simulator`.
+
+**Prior — Stage 27v (2026-06-08):** Guest automation review endpoint — **PASS**. Doc: [STAGE-27V-GUEST-AUTOMATION-REVIEW.md](STAGE-27V-GUEST-AUTOMATION-REVIEW.md).
 
 **Prior — Stage 27u (2026-06-08):** Guest automation orchestrator dry-run — **PASS**. Doc: [STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md](STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md).
 

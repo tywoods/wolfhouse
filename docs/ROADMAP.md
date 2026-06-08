@@ -1,4 +1,6 @@
-**Stage 27v GUEST AUTOMATION REVIEW ENDPOINT — PASS (2026-06-08):** `POST /staff/bot/guest-automation-review-dry-run` · `requireBotAuth` · 27u orchestrator → `review` object. Verifier: `verify:stage27v-guest-automation-review`. Doc: [STAGE-27V-GUEST-AUTOMATION-REVIEW.md](STAGE-27V-GUEST-AUTOMATION-REVIEW.md). **Next:** Staff Portal review panel or 27w allowlisted proof (explicit GO).
+**Stage 27w LUNA GUEST SIMULATOR — PASS (2026-06-08):** Staff Portal tab · review (27v) + staging hold/draft (27n) + Stripe TEST link (27o). Verifier: `verify:stage27w-luna-guest-simulator`. Doc: [STAGE-27W-LUNA-GUEST-SIMULATOR.md](STAGE-27W-LUNA-GUEST-SIMULATOR.md). **Next:** 27x limited staging automation (explicit GO) or Inbox review panel.
+
+**Stage 27v GUEST AUTOMATION REVIEW ENDPOINT — PASS (2026-06-08):** `POST /staff/bot/guest-automation-review-dry-run`. Verifier: `verify:stage27v-guest-automation-review`. Doc: [STAGE-27V-GUEST-AUTOMATION-REVIEW.md](STAGE-27V-GUEST-AUTOMATION-REVIEW.md). **Next:** 27w Luna Guest Simulator.
 
 **Stage 27u GUEST AUTOMATION ORCHESTRATOR DRY-RUN — PASS (2026-06-08):** `runGuestAutomationOrchestratorDryRun`. Verifier: `verify:stage27u-guest-automation-orchestrator-dry-run`. Doc: [STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md](STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md). **Next:** 27v staff review endpoint.
 
