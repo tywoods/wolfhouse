@@ -13331,11 +13331,22 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
 .bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
-.bc-drawer-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border-soft);margin:0 0 10px;flex-wrap:wrap}
-.bc-drawer-tab{padding:6px 11px;font-size:12px;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;color:var(--text-2);border-radius:var(--radius-sm) var(--radius-sm) 0 0}
-.bc-drawer-tab.is-active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600;background:var(--surface-soft)}
+.bc-drawer-tabs{display:flex;gap:6px;margin:0 0 14px;padding:5px;background:#F5EDE3;border:1px solid var(--border-soft);border-radius:var(--radius-pill);flex-wrap:wrap}
+.bc-drawer-tab{padding:9px 16px;font-size:14px;font-weight:500;border:1px solid transparent;background:#EDE4D8;color:var(--text-2);cursor:pointer;border-radius:var(--radius-pill);line-height:1.25;transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
+.bc-drawer-tab:hover{background:#F8F3EB;border-color:var(--tan);color:var(--text)}
+.bc-drawer-tab:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.bc-drawer-tab.is-active{background:var(--surface);color:var(--text);font-weight:600;border-color:var(--tan);box-shadow:0 1px 3px rgba(68,80,74,.08)}
 .bc-drawer-tab-panel{display:none}
 .bc-drawer-tab-panel.is-active{display:block}
+.bc-drawer-overview-panel{display:flex;flex-direction:column;gap:12px}
+.bc-drawer-overview-card{padding:14px 16px;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm)}
+.bc-drawer-card-title{font-size:11px;font-weight:700;color:#8A7358;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px}
+.bc-drawer-card-subtitle{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px}
+.bc-drawer-overview-card .ctx-section{margin-top:12px;padding-top:12px;border-top:1px solid #E8DFD0}
+.bc-drawer-overview-card .ctx-section:first-child,.bc-drawer-overview-card>.ctx-field-edit-group:first-child{margin-top:0;padding-top:0;border-top:none}
+.bc-drawer-overview-card .ctx-field-edit-group{border-top-color:#E8DFD0}
+.bc-drawer-overview-card .ctx-field-edit-group:first-child{padding-top:0;border-top:none}
+.bc-drawer-footer-wrap{margin-top:4px;padding-top:12px;background:var(--surface)}
 .bc-services-groups{display:grid;gap:8px;margin-bottom:10px}
 .bc-services-group{padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .bc-services-group-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
@@ -13375,7 +13386,6 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-drawer-footer-left{display:flex;flex-direction:column;align-items:flex-start;gap:6px;flex:1;min-width:0}
 .bc-drawer-footer-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-left:auto;flex-shrink:0}
 .bc-footer-conv-result{font-size:12px;max-width:320px}
-.bc-drawer-footer-wrap{margin-top:8px}
 .bc-drawer-footer-wrap .bc-cancel-confirm-inline{width:100%;margin-top:12px}
 .bc-drawer-footer-wrap #bc-cancel-result{width:100%;text-align:right}
 .bc-cancel-confirm-inline:empty{display:none}
@@ -20833,9 +20843,18 @@ function bcInitDrawerTabs(){
   var bar = el('bc-drawer-tabs');
   if (!bar) return;
   bar.querySelectorAll('.bc-drawer-tab').forEach(function(btn){
-    btn.addEventListener('click', function(){
+    btn.addEventListener('mousedown', function(e){
+      e.preventDefault();
+    });
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
       var tab = btn.getAttribute('data-tab');
       if (!tab) return;
+      var winY = window.scrollY || window.pageYOffset || 0;
+      var docEl = document.documentElement;
+      var bodyY = docEl ? docEl.scrollTop : 0;
+      var ctxEl = el('bc-ctx-body');
+      var ctxScroll = ctxEl ? ctxEl.scrollTop : 0;
       bar.querySelectorAll('.bc-drawer-tab').forEach(function(b){
         b.classList.remove('is-active');
         b.setAttribute('aria-selected', 'false');
@@ -20845,6 +20864,12 @@ function bcInitDrawerTabs(){
       document.querySelectorAll('.bc-drawer-tab-panel').forEach(function(panel){
         panel.classList.toggle('is-active', panel.getAttribute('data-tab') === tab);
       });
+      btn.blur();
+      requestAnimationFrame(function(){
+        window.scrollTo(0, winY);
+        if (docEl) docEl.scrollTop = bodyY;
+        if (ctxEl) ctxEl.scrollTop = ctxScroll;
+      });
     });
   });
 }
@@ -20853,7 +20878,7 @@ function bcRenderRoomingBriefHtml(data){
   var rm = (data && data.rooming) || {};
   var assigns = rm.assignments || [];
   if (!assigns.length) return '';
-  var html = '<div class="ctx-section ctx-rooming-brief" id="bc-rooming-brief"><h3>Room / bed</h3><div class="kv-grid">';
+  var html = '<div class="ctx-section ctx-rooming-brief" id="bc-rooming-brief"><h3 class="bc-drawer-card-subtitle">Room / bed</h3><div class="kv-grid">';
   assigns.forEach(function(a, idx){
     var room = a.room_code ? String(a.room_code) : '';
     var bed = a.bed_code ? String(a.bed_code) : '\u2014';
@@ -20881,8 +20906,8 @@ function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt){
   var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
     : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
   var payStatus = bk.payment_status || pmt.latest_status || null;
-  var html = '<div class="ctx-section ctx-payment-summary-brief" id="bc-payment-summary-brief">';
-  html += '<h3>Payment summary</h3><div class="kv-grid">';
+  var html = '<div class="ctx-section ctx-payment-summary-brief bc-drawer-overview-card" id="bc-payment-summary-brief">';
+  html += '<h3 class="bc-drawer-card-title">Payment summary</h3><div class="kv-grid">';
   if (invoiceTotal != null) html += kvBC('Invoice total', eur(invoiceTotal));
   if (paidCents != null) html += kvBC('Paid', eur(paidCents));
   if (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents) {
@@ -21032,16 +21057,22 @@ function renderBookingContextDrawer(data){
 
   /* ── Overview tab ─────────────────────────────────────────────────────── */
   html += '<div class="bc-drawer-tab-panel is-active" id="bc-drawer-tab-overview" data-tab="overview" role="tabpanel">';
+  html += '<div class="bc-drawer-overview-panel">';
+
+  html += '<div class="bc-drawer-overview-card" id="bc-drawer-card-booking">';
+  html += '<h3 class="bc-drawer-card-title">Booking details</h3>';
   html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
   html += bcRenderRoomingBriefHtml(data);
+  html += '</div>';
+
   html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt);
 
   var rmMove = data.rooming || {};
   var moveAssigns = rmMove.assignments || [];
   var moveNoBeds = moveAssigns.length === 0;
-  html += '<div class="ctx-section ctx-move-bed" id="bc-move-bed">';
-  html += '<h3>Move bed</h3>';
+  html += '<div class="bc-drawer-overview-card ctx-section ctx-move-bed" id="bc-move-bed">';
+  html += '<h3 class="bc-drawer-card-title">Move bed</h3>';
   if (moveNoBeds){
     html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">This booking has no bed assignments and requires manual review.</div>';
   } else {
@@ -21057,7 +21088,8 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move Bed</button>';
   html += '</div></div>';
 
-  html += '<div class="ctx-section"><h3>Conversation / Handoff</h3>';
+  html += '<div class="bc-drawer-overview-card ctx-section" id="bc-drawer-card-conversation">';
+  html += '<h3 class="bc-drawer-card-title">Conversation / Handoff</h3>';
   if (data.conversation){
     var conv = data.conversation;
     if (conv.needs_human) html += '<div class="ctx-status-row"><span class="pill pill-orange">NEEDS HUMAN REVIEW</span></div>';
@@ -21079,6 +21111,8 @@ function renderBookingContextDrawer(data){
       if (hf.opened_at)      html += kvBC('Opened', new Date(hf.opened_at).toLocaleString());
       html += '</div>';
   }
+  html += '</div>';
+
   html += '</div>';
 
   if (data.warnings && data.warnings.length > 0){

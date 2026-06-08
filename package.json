@@ -160,6 +160,7 @@
     "verify:luna-agent-phase26-transfer-ui-cleanup": "node scripts/verify-luna-agent-phase26-transfer-ui-cleanup.js",
     "verify:luna-agent-phase26-booking-drawer-tabs-diagnostics": "node scripts/verify-luna-agent-phase26-booking-drawer-tabs-diagnostics.js",
     "verify:luna-agent-phase26-services-tab-schedule": "node scripts/verify-luna-agent-phase26-services-tab-schedule.js",
+    "verify:luna-agent-phase26-drawer-ui-polish": "node scripts/verify-luna-agent-phase26-drawer-ui-polish.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
     "verify:staff-ask-luna-surf-forecast": "node scripts/verify-staff-ask-luna-surf-forecast.js",
