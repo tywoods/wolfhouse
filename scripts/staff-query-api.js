@@ -20276,6 +20276,8 @@ function bcCloseAddServiceForm(){
   if (wrap) wrap.style.display = 'none';
   var btn = el('bc-add-ons-btn');
   if (btn) btn.disabled = false;
+  var saveBtn = el('bc-add-ons-save-btn');
+  if (saveBtn) saveBtn.disabled = false;
 }
 
 function bcCloseRemoveServiceForm(){
@@ -20330,6 +20332,8 @@ function bcOpenAddServiceForm(data){
   wrap.style.display = '';
   var btn = el('bc-add-ons-btn');
   if (btn) btn.disabled = true;
+  var saveBtn = el('bc-add-ons-save-btn');
+  if (saveBtn) saveBtn.disabled = false;
   var resBox = el('bc-add-ons-result');
   if (resBox) resBox.innerHTML = '';
 }
@@ -21578,7 +21582,6 @@ function bcApplyServicesScheduleData(bk, data){
       bodyEl.innerHTML = bcRenderServicesScheduleSections(data);
       bcInitServicesSchedulePickers(bk, bodyEl);
     }
-    bcRestoreActiveDrawerTab('services');
   } else {
     var err = '<div class="state-msg error">' + escHtml((data && data.error) || 'Failed to load services') + '</div>';
     if (summaryEl) summaryEl.innerHTML = '';

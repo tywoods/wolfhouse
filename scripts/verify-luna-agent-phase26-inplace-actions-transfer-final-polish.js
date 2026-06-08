@@ -92,11 +92,11 @@ if (/bcRefreshServicesTabAfterMutation/.test(addSvcSlice) && !/loadBlockDetail/.
 if (/bcRefreshServicesTabAfterMutation/.test(removeSvcSlice) && !/loadBlockDetail/.test(removeSvcSlice)) {
   pass('B2', 'remove service prefers tab-only refresh');
 } else fail('B2', 'remove service reload');
-if (/bcApplyServicesScheduleData/.test(apiSrc) && /bcRestoreActiveDrawerTab\('services'\)/.test(
+if (/bcApplyServicesScheduleData/.test(apiSrc) && !/bcRestoreActiveDrawerTab\('services'\)/.test(
   apiSrc.match(/function bcApplyServicesScheduleData[\s\S]{0,800}/)?.[0] || ''
 )) {
-  pass('B3', 'schedule apply preserves Services tab');
-} else fail('B3', 'schedule tab preserve');
+  pass('B3', 'schedule apply does not force Services tab on async load');
+} else fail('B3', 'schedule apply forces Services tab');
 if (/bcRestoreActiveDrawerTab\('services'\)/.test(
   apiSrc.match(/function bcRefreshServicesTabAfterMutation[\s\S]{0,400}/)?.[0] || ''
 )) {
