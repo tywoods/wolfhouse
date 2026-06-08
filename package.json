@@ -191,6 +191,7 @@
     "verify:stage27m-hold-payment-draft-planner": "node scripts/verify-stage27m-hold-payment-draft-planner.js",
     "verify:stage27n-hold-payment-draft-write": "node scripts/verify-stage27n-hold-payment-draft-write.js",
     "verify:stage27o-stripe-test-link": "node scripts/verify-stage27o-stripe-test-link.js",
+    "verify:stage27p-stripe-payment-truth": "node scripts/verify-stage27p-stripe-payment-truth.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
