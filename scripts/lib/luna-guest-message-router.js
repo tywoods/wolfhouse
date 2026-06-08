@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Stage 27b — Guest message router + first-slice booking intake (dry-run only).
+ * Stage 27b/27e — Guest message router + booking intake readiness gate (dry-run only).
  *
  * Classifies inbound guest messages into lanes; extracts booking fields only for
  * new_booking_inquiry. No writes, Stripe, WhatsApp, Meta, n8n, or live automation.
@@ -26,6 +26,13 @@ const VALID_LANES = new Set([
 const VALID_INTAKE_STATES = new Set([
   'inquiry_received',
   'collecting_required_details',
+  'ready_for_availability_check',
+  'staff_handoff_required',
+]);
+
+const VALID_READINESS_STATES = new Set([
+  'collecting_required_details',
+  'ready_for_availability_check',
   'staff_handoff_required',
 ]);
 
@@ -74,6 +81,7 @@ const REPLY_TEMPLATES = {
     pay_now: "I can't send a payment link automatically yet — our team will confirm your booking and payment status and follow up with you.",
     general: "Thanks for reaching out to Wolfhouse! I'll flag this for our team so they can answer you properly.",
     cancel: "Changes or cancellations after payment need our team — I'm handing this over so they can help you directly.",
+    ready_next_check: 'Thanks — I have your stay details. Next I can look into the best option for your dates and let you know. I am not confirming availability yet.',
   },
   it: {
     intro: 'Ciao! Sono Luna di Wolfhouse',
@@ -89,6 +97,7 @@ const REPLY_TEMPLATES = {
     pay_now: 'Non posso inviare un link di pagamento in automatico — il team confermerà prenotazione e pagamento e ti scriverà.',
     general: 'Grazie per aver scritto a Wolfhouse! Segnalo al team così possono risponderti.',
     cancel: 'Modifiche o cancellazioni dopo il pagamento richiedono il team — passo la conversazione a loro.',
+    ready_next_check: 'Grazie — ho i dettagli del soggiorno. Prossimo passo: posso valutare la migliore opzione per le tue date e farti sapere. Non sto ancora confermando disponibilità.',
   },
   es: {
     intro: '¡Hola! Soy Luna de Wolfhouse',
@@ -104,6 +113,7 @@ const REPLY_TEMPLATES = {
     pay_now: 'No puedo enviar un enlace de pago automáticamente — el equipo confirmará reserva y pago y te escribirá.',
     general: '¡Gracias por escribir a Wolfhouse! Lo señalo al equipo para que te respondan.',
     cancel: 'Cambios o cancelaciones después del pago necesitan al equipo — les paso la conversación.',
+    ready_next_check: 'Gracias — tengo los detalles de la estancia. El siguiente paso es revisar la mejor opción para tus fechas y avisarte. Aún no confirmo disponibilidad.',
   },
   de: {
     intro: 'Hallo! Ich bin Luna von Wolfhouse',
@@ -119,6 +129,7 @@ const REPLY_TEMPLATES = {
     pay_now: 'Ich kann noch keinen Zahlungslink automatisch senden — das Team klärt Buchung und Zahlung und meldet sich.',
     general: 'Danke für deine Nachricht an Wolfhouse! Ich leite das an unser Team weiter.',
     cancel: 'Änderungen oder Stornos nach Zahlung brauchen unser Team — ich gebe das weiter.',
+    ready_next_check: 'Danke — ich habe eure Aufenthaltsdetails. Als Nächstes kann ich die beste Option für eure Daten prüfen und Bescheid geben. Ich bestätige noch keine Verfügbarkeit.',
   },
   fr: {
     intro: 'Bonjour ! Je suis Luna de Wolfhouse',
@@ -134,6 +145,7 @@ const REPLY_TEMPLATES = {
     pay_now: 'Je ne peux pas envoyer de lien de paiement automatiquement — l’équipe confirmera réservation et paiement.',
     general: 'Merci d’avoir contacté Wolfhouse ! Je signale cela à l’équipe pour qu’ils vous répondent.',
     cancel: 'Les changements ou annulations après paiement passent par l’équipe — je leur transmets la conversation.',
+    ready_next_check: 'Merci — j’ai les détails du séjour. Prochaine étape : je peux regarder la meilleure option pour vos dates et vous revenir. Je ne confirme pas encore la disponibilité.',
   },
 };
 
@@ -165,9 +177,12 @@ function tpl(lang, key) {
 }
 
 function hasExplicitDates(text) {
+  const monthDay = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|f[eé]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[eé]cembre|januar|februar|m[aä]rz|april|mai|juni|juli|august|september|oktober|november|dezember)\s+\d{1,2}(?:st|nd|rd|th)?\b/i;
   return /\b\d{4}-\d{2}-\d{2}\b/.test(text)
     || /\b\d{1,2}\s+(?:de\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|januar|februar|märz|maerz|april|mai|juni|juli|august|september|oktober|november|dezember)/i.test(text)
-    || /\b(?:from|dal|del|vom|from)\s+\d{1,2}/i.test(text);
+    || monthDay.test(text)
+    || /\b(?:from|dal|del|vom|from)\s+\d{1,2}/i.test(text)
+    || /\b(?:from|to)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i.test(text);
 }
 
 function hasBookingCode(text) {
@@ -192,6 +207,20 @@ function detectTransferInterest(text) {
 
 function detectNoPackageIntent(text) {
   return /\b(?:no package|not booking a package|sin paquete|sans forfait|ohne paket|custom stay|without a package)\b/i.test(String(text || ''));
+}
+
+function detectAccommodationOnlyIntent(text) {
+  return /\b(?:accommodation only|room only|just accommodation|solo alojamiento|nur unterkunft|logement seulement|solo pernottamento|bed only)\b/i.test(String(text || ''));
+}
+
+function hasPackageOrStayIntent(extracted) {
+  const pi = extracted && extracted.package_interest;
+  if (!pi || typeof pi !== 'string') return false;
+  const normalized = pi.trim().toLowerCase();
+  return normalized === 'no_package'
+    || normalized === 'accommodation_only'
+    || normalized === 'custom'
+    || ['malibu', 'uluwatu', 'waimea'].includes(normalized);
 }
 
 function classifyMessageLane(text, guestContext) {
@@ -325,11 +354,72 @@ function extractBookingFields(messageText, context, priorFields) {
     payment_preference: intake.payment_choice || prior.payment_preference || null,
   };
 
-  if (!extracted.package_interest && detectNoPackageIntent(messageText)) {
+  if (detectNoPackageIntent(messageText)) {
     extracted.package_interest = 'no_package';
+  } else if (!extracted.package_interest && detectAccommodationOnlyIntent(messageText)) {
+    extracted.package_interest = 'accommodation_only';
   }
 
   return extracted;
+}
+
+function computeReadinessMissingFields(extracted) {
+  const missing = [];
+  if (!extracted.check_in) missing.push('check_in');
+  if (!extracted.check_out) missing.push('check_out');
+  if (extracted.guest_count == null || extracted.guest_count < 1) missing.push('guest_count');
+  if (!hasPackageOrStayIntent(extracted)) missing.push('package_interest');
+  return missing;
+}
+
+/**
+ * Stage 27e — booking intake readiness gate (new_booking_inquiry only).
+ */
+function computeBookingIntakeReadiness(lane, extracted, safeHandoffRequired, handoffReasons) {
+  const reasons = [];
+  const handoffList = handoffReasons || [];
+
+  if (lane !== 'new_booking_inquiry') {
+    return {
+      booking_intake_ready: false,
+      readiness_state: 'collecting_required_details',
+      readiness_missing_fields: [],
+      readiness_reasons: ['not_booking_inquiry_lane'],
+    };
+  }
+
+  if (handoffList.includes('uncertain_package_or_pricing')) {
+    reasons.push('price_before_required_details');
+  }
+  if (handoffList.includes('unclear_availability')) {
+    reasons.push('availability_before_required_details');
+  }
+
+  if (safeHandoffRequired) {
+    return {
+      booking_intake_ready: false,
+      readiness_state: 'staff_handoff_required',
+      readiness_missing_fields: computeReadinessMissingFields(extracted || {}),
+      readiness_reasons: reasons.length ? reasons : [...handoffList],
+    };
+  }
+
+  const missing = computeReadinessMissingFields(extracted || {});
+  if (missing.length === 0) {
+    return {
+      booking_intake_ready: true,
+      readiness_state: 'ready_for_availability_check',
+      readiness_missing_fields: [],
+      readiness_reasons: reasons,
+    };
+  }
+
+  return {
+    booking_intake_ready: false,
+    readiness_state: 'collecting_required_details',
+    readiness_missing_fields: missing,
+    readiness_reasons: reasons.length ? reasons : ['missing_required_fields'],
+  };
 }
 
 function computeMissingRequired(extracted) {
@@ -340,18 +430,27 @@ function computeMissingRequired(extracted) {
   return missing;
 }
 
-function resolveIntakeState(lane, missing, handoff, priorState, hasPriorFields) {
-  if (handoff) return 'staff_handoff_required';
+function resolveIntakeState(lane, missing, handoff, priorState, hasPriorFields, readiness) {
+  if (handoff || (readiness && readiness.readiness_state === 'staff_handoff_required')) {
+    return 'staff_handoff_required';
+  }
   if (lane !== 'new_booking_inquiry') return priorState || 'inquiry_received';
+  if (readiness && readiness.readiness_state === 'ready_for_availability_check') {
+    return 'ready_for_availability_check';
+  }
   if (missing.length === BOOKING_FIELD_PRIORITY.length && !hasPriorFields) return 'inquiry_received';
-  if (missing.length > 0) return 'collecting_required_details';
   return 'collecting_required_details';
 }
 
-function buildBookingReply(lang, missing, extracted) {
+function buildBookingReply(lang, readiness, extracted) {
   const parts = [tpl(lang, 'intro') + ' 🌊'];
+  if (readiness.readiness_state === 'ready_for_availability_check') {
+    parts.push(tpl(lang, 'ready_next_check'));
+    return parts.join(' ');
+  }
+  const missing = readiness.readiness_missing_fields || [];
   const next = missing[0];
-  if (next === 'dates') parts.push(tpl(lang, 'ask_dates'));
+  if (next === 'check_in' || next === 'check_out') parts.push(tpl(lang, 'ask_dates'));
   else if (next === 'guest_count') parts.push(tpl(lang, 'ask_guests'));
   else if (next === 'package_interest') parts.push(tpl(lang, 'ask_package'));
   else if (extracted.transfer_interest) {
@@ -391,16 +490,25 @@ function buildLaneReply(lane, lang, handoff, reasons) {
   }
 }
 
-function buildAllowedNextActions(lane, intakeState, missing, handoff) {
+function buildAllowedNextActions(lane, intakeState, missing, handoff, readiness) {
   const actions = ['await_guest_reply'];
   if (handoff || intakeState === 'staff_handoff_required') {
     return ['staff_handoff', 'await_staff_review'];
   }
   if (lane === 'new_booking_inquiry') {
-    if (missing.includes('dates')) actions.unshift('ask_dates');
-    else if (missing.includes('guest_count')) actions.unshift('ask_guest_count');
-    else if (missing.includes('package_interest')) actions.unshift('ask_package_interest');
-    else actions.unshift('collect_complete_await_stage27c');
+    if (readiness && readiness.readiness_state === 'ready_for_availability_check') {
+      return ['ready_for_availability_check_deferred', 'await_guest_reply', 'classify_only'];
+    }
+    const readinessMissing = (readiness && readiness.readiness_missing_fields) || [];
+    if (readinessMissing.includes('check_in') || readinessMissing.includes('check_out') || missing.includes('dates')) {
+      actions.unshift('ask_dates');
+    } else if (readinessMissing.includes('guest_count') || missing.includes('guest_count')) {
+      actions.unshift('ask_guest_count');
+    } else if (readinessMissing.includes('package_interest') || missing.includes('package_interest')) {
+      actions.unshift('ask_package_interest');
+    } else {
+      actions.unshift('collect_complete_await_stage27c');
+    }
     actions.push('classify_only');
   } else {
     actions.unshift('classify_only', 'request_booking_identification');
@@ -471,6 +579,13 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     || handoff
     || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r));
 
+  const readiness = computeBookingIntakeReadiness(
+    lane,
+    extractedFields,
+    safeHandoffRequired,
+    reasons,
+  );
+
   const hasPriorFields = Object.keys(priorExtracted).some((k) => priorExtracted[k] != null
     && (Array.isArray(priorExtracted[k]) ? priorExtracted[k].length : true));
 
@@ -480,6 +595,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     safeHandoffRequired,
     guestContext.intake_state,
     hasPriorFields,
+    readiness,
   );
 
   if (reasons.includes('needs_booking_identification') && !safeHandoffRequired) {
@@ -496,12 +612,32 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       reasons,
     );
   } else if (lane === 'new_booking_inquiry') {
-    proposedReply = buildBookingReply(detectedLanguage, missingRequired, extractedFields);
+    proposedReply = buildBookingReply(detectedLanguage, readiness, extractedFields);
   } else {
     proposedReply = buildLaneReply(lane, detectedLanguage, false, reasons);
   }
 
-  const allowedNextActions = buildAllowedNextActions(lane, intakeState, missingRequired, safeHandoffRequired);
+  const allowedNextActions = buildAllowedNextActions(
+    lane,
+    intakeState,
+    missingRequired,
+    safeHandoffRequired,
+    readiness,
+  );
+
+  const readinessOutput = lane === 'new_booking_inquiry'
+    ? {
+      booking_intake_ready: readiness.booking_intake_ready,
+      readiness_state: readiness.readiness_state,
+      readiness_missing_fields: readiness.readiness_missing_fields,
+      readiness_reasons: readiness.readiness_reasons,
+    }
+    : {
+      booking_intake_ready: false,
+      readiness_state: safeHandoffRequired ? 'staff_handoff_required' : 'collecting_required_details',
+      readiness_missing_fields: [],
+      readiness_reasons: ['not_booking_inquiry_lane'],
+    };
 
   return {
     success: true,
@@ -512,6 +648,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     confidence,
     extracted_fields: lane === 'new_booking_inquiry' ? extractedFields : {},
     missing_required_fields: lane === 'new_booking_inquiry' ? missingRequired : [],
+    ...readinessOutput,
     safe_handoff_required: safeHandoffRequired,
     handoff_reasons: [...reasons],
     proposed_luna_reply: proposedReply,
@@ -524,8 +661,12 @@ module.exports = {
   classifyMessageLane,
   detectLanguage,
   computeMissingRequired,
+  computeReadinessMissingFields,
+  computeBookingIntakeReadiness,
+  hasPackageOrStayIntent,
   VALID_LANES,
   VALID_INTAKE_STATES,
+  VALID_READINESS_STATES,
   ROUTER_SAFETY,
   REPLY_TEMPLATES,
 };

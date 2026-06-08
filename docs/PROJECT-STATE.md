@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27d — Guest intake dry-run test harness**): **PASS**. Manual harness `scripts/run-guest-intake-dry-run.js` · `npm run guest:intake:dry-run` · POST `/staff/bot/guest-intake-dry-run` · `--base-url` / `--message` / `--fixture` · 9 built-in fixtures · summary + safety flags · `LUNA_BOT_INTERNAL_TOKEN` → `X-Luna-Bot-Token`. Verifier: `verify:stage27d-guest-intake-harness`. Doc: [STAGE-27D-GUEST-INTAKE-HARNESS.md](STAGE-27D-GUEST-INTAKE-HARNESS.md). **No deploy · no DB · no live send.** **Next:** **Stage 27e** — optional hosted staging proof.
+**Last updated:** 2026-06-08 (**Stage 27e — Booking intake readiness gate**): **PASS**. Readiness fields on `new_booking_inquiry`: `booking_intake_ready` · `readiness_state` · `readiness_missing_fields` · `readiness_reasons`. Required before ready: check-in/out, guest count, package or no-package/accommodation-only intent. No availability/quote/hold/payment. Verifier: `verify:stage27e-booking-intake-readiness`. Doc: [STAGE-27E-BOOKING-INTAKE-READINESS.md](STAGE-27E-BOOKING-INTAKE-READINESS.md). **No deploy · no DB · no live send.** **Next:** **Stage 27f** — availability check integration (gated).
+
+**Prior — Stage 27d (2026-06-08):** Guest intake dry-run test harness — **PASS**. Doc: [STAGE-27D-GUEST-INTAKE-HARNESS.md](STAGE-27D-GUEST-INTAKE-HARNESS.md).
 
 **Prior — Stage 27c (2026-06-08):** Guest intake dry-run HTTP endpoint — **PASS**. Doc: [STAGE-27C-GUEST-INTAKE-ENDPOINT.md](STAGE-27C-GUEST-INTAKE-ENDPOINT.md).
 
