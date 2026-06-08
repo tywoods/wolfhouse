@@ -166,8 +166,10 @@ const {
 } = require('./lib/staff-booking-detail-queries');
 const {
   dispatchBookingTransfersRoute,
+  dispatchBookingTransferDirectionRoute,
   dispatchBookingTransferLookupRoute,
   BOOKING_TRANSFERS_RE,
+  BOOKING_TRANSFER_DIRECTION_RE,
   BOOKING_TRANSFER_LOOKUP_RE,
 } = require('./lib/staff-booking-transfers-routes');
 const {
@@ -13265,6 +13267,13 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-nights-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:var(--text-2);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-pill);padding:3px 10px}
 .ctx-pay-block{margin:8px 0}
 .ctx-pay-box{max-width:340px;width:100%;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-top:2px;box-sizing:border-box}
+#bc-drawer-tab-payments .ctx-pay-box{max-width:none;background:var(--surface);box-shadow:var(--shadow-soft);padding:14px 16px}
+.ctx-payments-tab-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+@media (max-width:860px){.ctx-payments-tab-layout{grid-template-columns:1fr}}
+.ctx-payments-col-main,.ctx-payments-col-history{min-width:0}
+.ctx-payment-history-card .ctx-inv-subtitle{margin:0 0 8px}
+.ctx-payment-history-card .ctx-inv-payment-records{margin-top:0}
+.bc-payments-tab-spacer{height:280px;background:transparent;pointer-events:none}
 .ctx-pay-record{margin-top:8px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:6px;font-size:12px;background:var(--bg-1,#f8f9fa)}
 .ctx-pay-record-paid{background:#F3FAF1;border-color:#B5D3AD}
 .ctx-pay-record-checkout{border-color:#B5C7D3}
@@ -13324,14 +13333,17 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-field-edit-group.is-editing .btn-bc-field-edit{font-weight:600;border-color:var(--accent);color:var(--accent)}
 .bc-transfer-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:860px){.bc-transfer-cards{grid-template-columns:1fr}}
-.bc-transfer-card{margin:0;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
-.bc-transfer-card h4{margin:0 0 6px;font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
+.bc-transfer-card{margin:0;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);box-shadow:var(--shadow-soft)}
+.bc-transfer-card h4{margin:0 0 8px;font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
 .bc-transfer-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-top:4px}
 @media (max-width:640px){.bc-transfer-grid{grid-template-columns:1fr}}
 .bc-transfer-grid .ctx-field-label{margin:0 0 2px;font-size:10px}
 .bc-transfer-grid .bk-input-sm{padding:4px 7px;font-size:12px}
 .bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
-.bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.bc-transfer-card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px}
+.bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap}
+.bc-transfer-remove{margin-left:auto;font-size:11px;color:#9C5742;border-color:rgba(156,87,66,.35);padding:4px 10px}
+.bc-transfer-remove:hover{background:rgba(156,87,66,.06)}
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
 .bc-drawer-file-tabs{margin-top:4px}
 .bc-drawer-tabs{display:flex;gap:0;align-items:flex-end;margin:0;padding:0 0 0 4px;border:none;background:transparent;flex-wrap:wrap}
@@ -18646,7 +18658,9 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
     : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
 
-  html += '<div class="ctx-section ctx-running-invoice-wrap"><div class="ctx-pay-box ctx-running-invoice" id="bc-running-invoice">';
+  html += '<div class="ctx-section ctx-payments-tab-layout">';
+  html += '<div class="ctx-payments-col-main">';
+  html += '<div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-running-invoice">';
 
   /* Accommodation */
   html += '<div class="ctx-inv-group" id="bc-inv-accommodation">';
@@ -18668,11 +18682,11 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   html += '<div class="ctx-inv-line">' + escHtml(accLine || 'Not available') + '</div>';
   html += '</div>';
 
-  /* Add-ons / services — booking_service_records only */
-  html += '<div class="ctx-inv-group" id="bc-inv-addons">';
-  html += '<div class="ctx-inv-group-title">Add-ons</div>';
+  /* Services — booking_service_records only */
+  html += '<div class="ctx-inv-group" id="bc-inv-services">';
+  html += '<div class="ctx-inv-group-title">Services</div>';
   if (svcRows.length === 0){
-    html += '<div class="ctx-inv-line ctx-none">No add-ons recorded.</div>';
+    html += '<div class="ctx-inv-line ctx-none">No services recorded.</div>';
   } else {
     svcRows.forEach(function(sr){
       html += '<div class="ctx-inv-line ctx-inv-addon-line" data-service-type="' + escHtml(sr.service_type || '') + '">' +
@@ -18713,6 +18727,14 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
     invoice_total_cents: invoiceTotal,
   };
   var sortedLedgerRows = bcPaymentLedgerSortRows(ledgerRows, balanceDue);
+
+  html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
+  html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
+
+  html += '</div></div>';
+
+  html += '<div class="ctx-payments-col-history">';
+  html += '<div class="ctx-pay-box ctx-payment-history-card bc-drawer-overview-card" id="bc-payment-history-card">';
 
   /* Payment history ledger */
   html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
@@ -18810,10 +18832,8 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   }
   html += '</div>';
 
-  html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
-  html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
-
-  html += '</div></div>';
+  html += '</div></div></div>';
+  html += '<div class="bc-payments-tab-spacer" aria-hidden="true"></div>';
   return html;
 }
 
@@ -20588,12 +20608,19 @@ function bcTransferPricingHtml(pricing){
     escHtml(pricing.pricing_note || ('\u20ac' + (Number(pricing.price_cents || 0) / 100).toFixed(2))) + '</div>';
 }
 
+function bcTransferHasRemovableTransfer(transfer){
+  if (!transfer || !transfer.id) return false;
+  var s = String(transfer.status || '').toLowerCase();
+  return s === 'requested' || s === 'confirmed' || s === 'cancelled';
+}
+
 function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   var t = transfer || {};
   var prefix = 'bc-transfer-' + direction;
   var airportCode = t.airport_code || (defaults && defaults.default_airport_code) || 'SDR';
   var scheduledLocal = t.scheduled_at_local || '';
-  var html = '<div class="bc-transfer-card" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
+  var removable = bcTransferHasRemovableTransfer(t);
+  var html = '<div class="bc-transfer-card bc-drawer-overview-card" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
   html += '<h4>' + escHtml(label) + ' transfer</h4>';
   html += '<div class="bc-transfer-grid">';
   html += '<div><label class="ctx-field-label">Airport</label>';
@@ -20608,9 +20635,15 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(t.pricing) + '</div>';
   html += '<div id="' + prefix + '-lookup-note" class="ctx-none" style="margin-top:6px;font-size:11px"></div>';
   html += '<div id="' + prefix + '-result" style="margin-top:6px;display:none;font-size:11px"></div>';
+  html += '<div class="bc-transfer-card-footer">';
   html += '<div class="bc-transfer-actions">';
   html += '<button type="button" class="btn btn-ghost bc-transfer-lookup" data-direction="' + direction + '" disabled>Lookup flight</button>';
   html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '">Save ' + escHtml(label.toLowerCase()) + ' transfer</button>';
+  html += '</div>';
+  if (removable) {
+    html += '<button type="button" class="btn btn-ghost bc-transfer-remove" data-direction="' + direction + '">Remove ' +
+      escHtml(label.toLowerCase()) + ' transfer</button>';
+  }
   html += '</div></div>';
   return html;
 }
@@ -20782,6 +20815,74 @@ function bcTransferShowResult(direction, html, isErr){
   box.innerHTML = html;
 }
 
+function bcClearTransferForm(direction){
+  var prefix = 'bc-transfer-' + direction;
+  var defaults = (bcTransferCtx.data && bcTransferCtx.data.defaults) || {};
+  var airportEl = el(prefix + '-airport');
+  if (airportEl) airportEl.value = defaults.default_airport_code || 'SDR';
+  var flightEl = el(prefix + '-flight');
+  if (flightEl) flightEl.value = '';
+  var schedEl = el(prefix + '-scheduled');
+  if (schedEl) schedEl.value = '';
+  var notesEl = el(prefix + '-notes');
+  if (notesEl) notesEl.value = '';
+  var pricingEl = el(prefix + '-pricing');
+  if (pricingEl) pricingEl.innerHTML = '';
+  var noteEl = el(prefix + '-lookup-note');
+  if (noteEl){ noteEl.style.display = 'none'; noteEl.textContent = ''; }
+  var resultEl = el(prefix + '-result');
+  if (resultEl){ resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
+  bcTransferCtx.lookupMeta = bcTransferCtx.lookupMeta || { arrival: null, departure: null };
+  bcTransferCtx.lookupMeta[direction] = null;
+  bcTransferCtx.existingStatus = bcTransferCtx.existingStatus || { arrival: null, departure: null };
+  bcTransferCtx.existingStatus[direction] = null;
+  bcTransferUpdateLookupButtonState(direction);
+  var removeBtn = document.querySelector('.bc-transfer-remove[data-direction="' + direction + '"]');
+  if (removeBtn) removeBtn.remove();
+}
+
+function bcRefreshTransferPebbleSummary(contextData){
+  if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
+  var url = '/staff/bookings/' + encodeURIComponent(bcTransferCtx.bookingId) + '/transfers?client_slug=' +
+    encodeURIComponent(bcTransferCtx.clientSlug);
+  fetch(url)
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.success) return;
+      if (bcLastOpenedBlock){
+        bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(res.data.transfers);
+        updateBcDetailHeader(contextData);
+      }
+    })
+    .catch(function(){ /* pebble refresh best-effort */ });
+}
+
+function bcRemoveTransfer(direction){
+  if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
+  if (!window.confirm('Remove this transfer from the booking?')) return;
+  var btn = document.querySelector('.bc-transfer-remove[data-direction="' + direction + '"]');
+  if (btn) btn.disabled = true;
+  bcTransferShowResult(direction, 'Removing\u2026', false);
+  var url = '/staff/bookings/' + encodeURIComponent(bcTransferCtx.bookingId) + '/transfers/' +
+    encodeURIComponent(direction) + '?client_slug=' + encodeURIComponent(bcTransferCtx.clientSlug);
+  fetch(url, { method: 'DELETE' })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.success){
+        if (btn) btn.disabled = false;
+        bcTransferShowResult(direction, escHtml((res.data && res.data.error) || 'Remove failed'), true);
+        return;
+      }
+      bcClearTransferForm(direction);
+      bcTransferShowResult(direction, 'Transfer removed.', false);
+      bcRefreshTransferPebbleSummary({ booking: { booking_id: bcTransferCtx.bookingId } });
+    })
+    .catch(function(e){
+      if (btn) btn.disabled = false;
+      bcTransferShowResult(direction, escHtml(e.message || 'Network error'), true);
+    });
+}
+
 function bcSaveTransfer(direction){
   if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
   var btn = document.querySelector('.bc-transfer-save[data-direction="' + direction + '"]');
@@ -20842,6 +20943,11 @@ function bcInitTransferShell(contextData){
       document.querySelectorAll('.bc-transfer-save').forEach(function(btn){
         btn.addEventListener('click', function(){
           bcSaveTransfer(btn.getAttribute('data-direction'));
+        });
+      });
+      document.querySelectorAll('.bc-transfer-remove').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          bcRemoveTransfer(btn.getAttribute('data-direction'));
         });
       });
       bcTransferWireLookupControls();
@@ -25560,6 +25666,11 @@ async function router(req, res) {
   }
 
   // ── Phase 26c/26f — Booking airport transfers + flight lookup ─────────────
+  if (BOOKING_TRANSFER_DIRECTION_RE.test(pathname)) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    if (await dispatchBookingTransferDirectionRoute(req, res, pathname, parsed.query)) return;
+  }
   if (BOOKING_TRANSFER_LOOKUP_RE.test(pathname)) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;

@@ -397,6 +397,37 @@ async function listBookingTransfersForBooking(pg, opts = {}) {
 }
 
 /**
+ * Delete one booking_transfers row for booking + direction. No payment writes.
+ *
+ * @param {import('pg').Client} pg
+ * @param {{ client_slug: string, booking_id: string, direction: string }} opts
+ * @returns {Promise<{ deleted: boolean, direction: string|null }>}
+ */
+async function deleteBookingTransfer(pg, opts = {}) {
+  const clientSlug = trimStr(opts.client_slug);
+  const bookingId = trimStr(opts.booking_id);
+  const direction = normalizeTransferDirection(opts.direction);
+
+  if (!clientSlug || !bookingId) {
+    throw new Error('client_slug and booking_id are required');
+  }
+
+  const res = await pg.query(
+    `DELETE FROM booking_transfers
+      WHERE client_slug = $1
+        AND booking_id = $2
+        AND direction = $3
+      RETURNING direction`,
+    [clientSlug, bookingId, direction],
+  );
+
+  return {
+    deleted: res.rowCount > 0,
+    direction: res.rows[0] ? res.rows[0].direction : direction,
+  };
+}
+
+/**
  * @param {import('pg').Client} pg
  * @param {{ client_slug: string, start_date: string, end_date: string }} opts
  * @returns {Promise<object[]>}
@@ -493,6 +524,7 @@ module.exports = {
   priceBookingTransfer,
   buildBookingTransferUpsertPayload,
   upsertBookingTransfer,
+  deleteBookingTransfer,
   listBookingTransfersForBooking,
   listBookingTransfersForCalendarRange,
   ACTIVE_TRANSFER_PEBBLE_STATUSES,

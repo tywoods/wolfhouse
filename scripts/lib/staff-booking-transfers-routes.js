@@ -2,6 +2,7 @@
  * Phase 26c — Staff API routes for booking airport transfers.
  *
  * GET/POST /staff/bookings/:booking_id/transfers — no payment writes.
+ * DELETE /staff/bookings/:booking_id/transfers/:direction — remove one direction.
  *
  * @module staff-booking-transfers-routes
  */
@@ -16,6 +17,7 @@ const {
   defaultTransferLookupDate,
   priceBookingTransfer,
   upsertBookingTransfer,
+  deleteBookingTransfer,
   listBookingTransfersForBooking,
 } = require('./booking-transfers');
 const {
@@ -25,6 +27,8 @@ const {
 } = require('./aviationstack-flight-lookup');
 
 const BOOKING_TRANSFERS_RE = /^\/staff\/bookings\/([0-9a-f-]{36})\/transfers$/i;
+const BOOKING_TRANSFER_DIRECTION_RE =
+  /^\/staff\/bookings\/([0-9a-f-]{36})\/transfers\/(arrival|departure)$/i;
 const BOOKING_TRANSFER_LOOKUP_RE = /^\/staff\/bookings\/([0-9a-f-]{36})\/transfers\/lookup-flight$/i;
 
 const BOOKING_BY_ID_SQL = `
@@ -681,6 +685,94 @@ async function handlePostBookingTransferLookupFlight(bookingId, req, res) {
   });
 }
 
+async function handleDeleteBookingTransfer(bookingId, direction, query, res) {
+  const clientSlug = trimStr(query.client_slug || query.client);
+  if (!clientSlug) {
+    return res.status(400).json({ success: false, error: 'client_slug is required' });
+  }
+
+  let normalizedDirection;
+  try {
+    normalizedDirection = normalizeTransferDirection(direction);
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      const booking = await loadBooking(pg, clientSlug, bookingId);
+      if (!booking) return { notFound: true };
+
+      const del = await deleteBookingTransfer(pg, {
+        client_slug: clientSlug,
+        booking_id: bookingId,
+        direction: normalizedDirection,
+      });
+
+      return {
+        notFound: false,
+        payload: {
+          success: true,
+          client_slug: clientSlug,
+          booking_id: bookingId,
+          direction: del.direction,
+          deleted: del.deleted,
+          no_payment_write: true,
+        },
+      };
+    });
+
+    if (result.notFound) {
+      return res.status(404).json({ success: false, error: 'booking not found' });
+    }
+    return res.status(200).json(result.payload);
+  } catch (err) {
+    if (isMissingBookingTransfersTable(err)) {
+      return res.status(503).json({
+        success: false,
+        error: 'booking_transfers table not available — apply migration 017',
+      });
+    }
+    return res.status(500).json({ success: false, error: 'delete failed', detail: err.message });
+  }
+}
+
+/**
+ * Express-style adapter for staff-query-api http.ServerResponse.
+ * @param {import('http').IncomingMessage} req
+ * @param {import('http').ServerResponse} res
+ * @param {string} pathname
+ * @param {object} query
+ * @returns {Promise<boolean>} true if route handled
+ */
+async function dispatchBookingTransferDirectionRoute(req, res, pathname, query) {
+  const match = BOOKING_TRANSFER_DIRECTION_RE.exec(pathname);
+  if (!match) return false;
+
+  const bookingId = match[1];
+  const direction = match[2];
+  const jsonRes = {
+    status(code) {
+      res.statusCode = code;
+      return jsonRes;
+    },
+    json(obj) {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(obj));
+      return jsonRes;
+    },
+  };
+
+  if (req.method === 'DELETE') {
+    await handleDeleteBookingTransfer(bookingId, direction, query, jsonRes);
+    return true;
+  }
+
+  res.writeHead(405, { Allow: 'DELETE' });
+  res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+  return true;
+}
+
 /**
  * Express-style adapter for staff-query-api http.ServerResponse.
  * @param {import('http').IncomingMessage} req
@@ -749,11 +841,14 @@ async function dispatchBookingTransfersRoute(req, res, pathname, query) {
 
 module.exports = {
   BOOKING_TRANSFERS_RE,
+  BOOKING_TRANSFER_DIRECTION_RE,
   BOOKING_TRANSFER_LOOKUP_RE,
   dispatchBookingTransfersRoute,
+  dispatchBookingTransferDirectionRoute,
   dispatchBookingTransferLookupRoute,
   handleGetBookingTransfers,
   handlePostBookingTransfer,
+  handleDeleteBookingTransfer,
   handlePostBookingTransferLookupFlight,
   buildSuggestedTransferPatch,
   sanitizeFlightLookupSummaryForStorage,
