@@ -210,14 +210,54 @@ else fail('I1', 'service_date should be null on create');
 
 section('J. Invoice / balance consistency (amount_due on rows)');
 
+function quoteAddonTotalCents(q, codes) {
+  return codes.reduce((s, code) => {
+    const li = q.line_items.find((l) => l.code === code);
+    return s + (li ? li.total_cents : 0);
+  }, 0);
+}
+
 const svcDueSum = rowsCombo.reduce((s, r) => s + (Number(r.amount_due_cents) || 0), 0)
   + mealRows.reduce((s, r) => s + (Number(r.amount_due_cents) || 0), 0);
-const quoteAddonSum = ['soft_top_rental', 'hard_board_rental'].reduce((s, code) => {
-  const li = qCombo.line_items.find((l) => l.code === code);
-  return s + (li ? li.total_cents : 0);
-}, 0) + (mealLi ? mealLi.total_cents : 0);
-if (svcDueSum === quoteAddonSum) pass('J1', 'service row amounts match quoted individual line totals');
+const quoteAddonSum = quoteAddonTotalCents(qCombo, [
+  'wetsuit_soft_top_combo',
+  'wetsuit_hard_board_combo',
+  'soft_top_rental',
+  'hard_board_rental',
+]) + (mealLi ? mealLi.total_cents : 0);
+if (svcDueSum === quoteAddonSum) pass('J1', 'service row amounts match quoted add-on line totals');
 else fail('J1', `amount mismatch svc=${svcDueSum} quote=${quoteAddonSum}`);
+
+const comboOnly = [
+  { code: 'wetsuit_soft_top_combo', days: 2 },
+  { code: 'wetsuit_hard_board_combo', days: 1 },
+];
+const qComboOnly = calculateWolfhouseQuote({ ...BASE_QUOTE, add_ons: comboOnly });
+const rowsComboOnly = buildManualBookingServiceRecordRows({
+  ...BASE_ROW_CTX,
+  addOns: comboOnly,
+  quote: qComboOnly,
+});
+const softComboBoard = rowsComboOnly.find(
+  (r) => r.metadata && r.metadata.source_addon_code === 'wetsuit_soft_top_combo'
+    && r.metadata.combo_part === 'surfboard',
+);
+const hardComboBoard = rowsComboOnly.find(
+  (r) => r.metadata && r.metadata.source_addon_code === 'wetsuit_hard_board_combo'
+    && r.metadata.combo_part === 'surfboard',
+);
+if (softComboBoard && softComboBoard.amount_due_cents === 3000) {
+  pass('J1b', 'combo soft board row carries quoted amount');
+} else fail('J1b', `combo soft board amount=${softComboBoard && softComboBoard.amount_due_cents}`);
+if (hardComboBoard && hardComboBoard.amount_due_cents === 2000) {
+  pass('J1c', 'combo hard board row carries quoted amount');
+} else fail('J1c', `combo hard board amount=${hardComboBoard && hardComboBoard.amount_due_cents}`);
+
+const { formatServiceRecordForSchedule } = require('./lib/staff-booking-services-schedule');
+const softDisplay = formatServiceRecordForSchedule({ ...softComboBoard, id: '1' });
+if (softDisplay.total_price_cents === 3000 && softDisplay.unit_price_cents === 1500) {
+  pass('J1d', 'combo soft board displays non-zero price in schedule formatter');
+} else fail('J1d', 'combo soft board display price zero');
 
 if (/amount_due_cents/.test(apiSrc) && /bcRunningInvoiceSvcTypeLabel/.test(apiSrc)) {
   pass('J2', 'drawer invoice uses service amount_due_cents + labels');
@@ -227,6 +267,31 @@ section('K. No payment rows from service builder');
 
 if (!/INSERT INTO payments/.test(libSrc)) pass('K1', 'service builder lib no payment insert');
 else fail('K1', 'payment insert in service lib');
+
+section('K2. Payments tab billable amount helper');
+
+if (/function bcServiceRecordBillableCents/.test(apiSrc)) {
+  pass('K2a', 'Payments tab uses billable cents helper');
+} else fail('K2a', 'bcServiceRecordBillableCents missing');
+if (/bcServiceRecordBillableCents\(sr\)/.test(apiSrc) && /bcRunningInvoiceSvcLineText/.test(apiSrc)) {
+  pass('K2b', 'running invoice service lines use billable cents');
+} else fail('K2b', 'invoice lines still raw amount_due only');
+
+const { serviceRecordBillableCents } = require('./lib/staff-booking-services-schedule');
+const legacyRow = {
+  amount_due_cents: 0,
+  quantity: 2,
+  service_type: 'surfboard',
+  metadata: {
+    combo_part: 'surfboard',
+    combo_line_total_cents: 3000,
+    staff_ui_service_type: 'soft_board',
+    rental_days: 2,
+  },
+};
+if (serviceRecordBillableCents(legacyRow) === 3000) {
+  pass('K2c', 'legacy combo metadata billable fallback for invoice');
+} else fail('K2c', 'legacy billable fallback failed');
 
 section('L. Safety — no Stripe / WhatsApp / Meta / n8n / guest intake');
 

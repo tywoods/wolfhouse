@@ -10,6 +10,7 @@
 3. **`calculateWolfhouseQuote()`** skipped add-ons listed in combo `replaces` config — quote and records diverged from form selections.
 4. **Meals** were explicitly excluded from service record creation (`/meal/i.test` skip).
 5. **New booking services** used `service_date = check_in` instead of `null` (unscheduled default).
+6. **Combo board rows** stored `amount_due_cents: 0` while the quote amount lived only in metadata — Services tab showed €0.00 for Soft/Hard board from combos (26j.2b).
 
 ## Fixes
 
@@ -19,7 +20,7 @@
 | Labels | `Soft board rental`; combo `Wetsuit + Soft board combo`; pricing name `Soft board rental` |
 | Form payload | Combos + individual rentals sent independently when qty > 0 |
 | Quote engine | Removed combo `replaces` dedupe — each selected line bills |
-| Service records | New lib `manual-booking-service-records.js`; meals → `meal`; `service_date: null`; board_variant metadata |
+| Service records | New lib `manual-booking-service-records.js`; meals → `meal`; `service_date: null`; board_variant metadata; **combo board rows carry full quote line amount on `amount_due_cents`** (26j.2b) |
 | Pricing config | Removed `replaces` arrays; meal name singular `Meal` |
 
 ## Safety

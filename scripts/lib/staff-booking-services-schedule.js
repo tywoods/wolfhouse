@@ -30,6 +30,18 @@ function parseMetadata(raw) {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
+/** Billable cents for display/totals (handles legacy combo rows with amount 0 in DB). */
+function serviceRecordBillableCents(row) {
+  const meta = parseMetadata(row && row.metadata);
+  let due = row && row.amount_due_cents != null ? Number(row.amount_due_cents) : 0;
+  if (due > 0) return due;
+  if (meta.combo_line_total_cents != null
+    && (meta.combo_part === 'surfboard' || meta.quote_amount_unsplit === true)) {
+    return Number(meta.combo_line_total_cents) || 0;
+  }
+  return due;
+}
+
 function addDaysToDateOnly(dateStr, deltaDays) {
   const s = trimStr(dateStr);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
@@ -255,7 +267,7 @@ async function splitMultiQuantityServiceRecords(pg, clientSlug, bookingId) {
 
 function computeServicesTotalCents(allServices) {
   return (allServices || []).reduce(
-    (sum, svc) => sum + (Number(svc.total_price_cents) || 0),
+    (sum, svc) => sum + (Number(svc.total_price_cents ?? svc.amount_due_cents) || 0),
     0,
   );
 }
@@ -326,7 +338,8 @@ function distributeSpanScheduleDates(opts = {}) {
 function formatServiceRecordForSchedule(row, opts = {}) {
   const timezone = opts.timezone || 'Europe/Madrid';
   const qty = Math.max(1, Number(row.quantity) || 1);
-  const total = row.amount_due_cents != null ? Number(row.amount_due_cents) : null;
+  const billable = serviceRecordBillableCents(row);
+  const total = billable > 0 || (row && row.amount_due_cents != null) ? billable : null;
   const unit = total != null && qty > 0 ? Math.round(total / qty) : null;
   const meta = parseMetadata(row.metadata);
   const serviceDate = row.service_date
@@ -453,4 +466,5 @@ module.exports = {
   isServiceDateInStay,
   addDaysToDateOnly,
   splitMultiQuantityServiceRecords,
+  serviceRecordBillableCents,
 };

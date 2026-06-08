@@ -178,7 +178,10 @@ const {
   BOOKING_SERVICES_RE,
   BOOKING_SERVICE_DATE_RE,
 } = require('./lib/staff-booking-services-routes');
-const { distributeSpanScheduleDates } = require('./lib/staff-booking-services-schedule');
+const {
+  distributeSpanScheduleDates,
+  serviceRecordBillableCents,
+} = require('./lib/staff-booking-services-schedule');
 const { buildManualBookingServiceRecordRows } = require('./lib/manual-booking-service-records');
 const {
   listBookingTransfersForCalendarRange,
@@ -4011,7 +4014,7 @@ function editPreviewBookingSummary(row) {
 }
 
 function editPreviewSvcSum(svcRows) {
-  return (svcRows || []).reduce((s, r) => s + (Number(r.amount_due_cents) || 0), 0);
+  return (svcRows || []).reduce((s, r) => s + serviceRecordBillableCents(r), 0);
 }
 
 function editPreviewAccommodationCents(bk, svcRows, quoteSnap) {
@@ -18688,6 +18691,20 @@ function bcInitMovePanel(data){
 }
 
 /* Phase 10.4d — running invoice helpers (read-only drawer display) */
+function bcServiceRecordBillableCents(sr){
+  var meta = sr.metadata || {};
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch (_) { meta = {}; }
+  }
+  var due = sr.amount_due_cents != null ? Number(sr.amount_due_cents) : 0;
+  if (due > 0) return due;
+  if (meta.combo_line_total_cents != null
+    && (meta.combo_part === 'surfboard' || meta.quote_amount_unsplit === true)) {
+    return Number(meta.combo_line_total_cents) || 0;
+  }
+  return due;
+}
+
 var BC_RUNNING_INVOICE_ACCOMM_CODES = {
   package: true, package_proration: true, room_supplement: true,
   accommodation_only: true, manual_accommodation: true,
@@ -18713,7 +18730,7 @@ function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
     if (any) return sum;
   }
   var svcSum = (svcRows || []).reduce(function(s, r){
-    return s + (Number(r.amount_due_cents) || 0);
+    return s + bcServiceRecordBillableCents(r);
   }, 0);
   if (bk && bk.total_amount_cents != null){
     var total = Number(bk.total_amount_cents);
@@ -18845,7 +18862,7 @@ function bcBookingLedgerBalance(bk, svcRows, paymentRows, transferRows){
   svcRows = svcRows || [];
   paymentRows = paymentRows || [];
   transferRows = transferRows || [];
-  var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
+  var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
   var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var paidCents = bcPaymentLedgerPaidTotalCents(paymentRows);
   var md = bk.metadata || {};
@@ -18983,12 +19000,14 @@ function bcRunningInvoiceSvcLineText(sr){
   if ((sr.service_type === 'wetsuit' || sr.service_type === 'surfboard') && meta.rental_days != null){
     qty = Number(meta.rental_days);
   }
-  var totalCents = sr.amount_due_cents != null ? Number(sr.amount_due_cents) : null;
+  var totalCents = bcServiceRecordBillableCents(sr);
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return null;
     return '\u20ac' + (Number(cents) / 100).toFixed(2);
   };
-  if (totalCents == null) return label + ' \u2014 Not available';
+  if (totalCents == null || (totalCents === 0 && sr.amount_due_cents == null)) {
+    return label + ' \u2014 Not available';
+  }
   var unitLabel = bcRunningInvoiceSvcUnitLabel(sr.service_type);
   if (qty != null && qty > 0 && totalCents >= 0){
     if (unitLabel && totalCents % qty === 0){
@@ -19023,7 +19042,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows){
   var nights = bcStayNightsFromCheckInOut(bk.check_in, bk.check_out);
   var pkgLabel = bcRunningInvoicePackageLabel(bk.package_code);
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
-  var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
+  var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
   var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var transferLines = bcTransferInvoiceLineItems(transferRows);
   var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
@@ -21834,7 +21853,7 @@ function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows){
   var md = bk.metadata || {};
   var quoteSnap = md.quote_snapshot || null;
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
-  var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
+  var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
   var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
@@ -21866,7 +21885,8 @@ function bcServicesFormatEuro(cents){
 
 function bcRenderServiceChipHtml(svc){
   var parts = [escHtml(svc.service_name || svc.service_type || 'Service')];
-  var priceCents = svc.unit_price_cents != null ? svc.unit_price_cents : svc.total_price_cents;
+  var priceCents = svc.total_price_cents != null ? svc.total_price_cents
+    : (svc.unit_price_cents != null ? svc.unit_price_cents : null);
   if (priceCents != null) parts.push(bcServicesFormatEuro(priceCents));
   var colorCls = svc.color_class || 'bc-svc-color-neutral';
   return '<span class="bc-svc-chip ' + escHtml(colorCls) + '">' + parts.join(' · ') + '</span>';
@@ -21874,7 +21894,8 @@ function bcRenderServiceChipHtml(svc){
 
 function bcFormatServiceSummaryLine(svc){
   var parts = [svc.service_name || svc.service_type || 'Service'];
-  var priceCents = svc.unit_price_cents != null ? svc.unit_price_cents : svc.total_price_cents;
+  var priceCents = svc.total_price_cents != null ? svc.total_price_cents
+    : (svc.unit_price_cents != null ? svc.unit_price_cents : null);
   if (priceCents != null) parts.push(bcServicesFormatEuro(priceCents));
   return parts.join(' \u00b7 ');
 }

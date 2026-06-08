@@ -45,6 +45,7 @@ function buildManualBookingServiceRecordRows({
   addOns, quote, clientSlug, bookingId, bookingCode, guestName, checkIn, guestCount,
 }) {
   void checkIn;
+  void guestCount;
   const rows = [];
   const addOnList = Array.isArray(addOns) ? addOns : [];
   if (addOnList.length === 0) return rows;
@@ -88,26 +89,25 @@ function buildManualBookingServiceRecordRows({
     const comboMeta = {
       rental_days: days,
       source_quote_line_code: addon.code,
-      combo_line_total_cents: liAmt,
-      quote_amount_unsplit: true,
       board_variant: boardVariant,
     };
     pushRow({
       serviceType: 'wetsuit',
-      quantity: guestCount,
+      quantity: days,
       amountDueCents: 0,
       sourceAddonCode: addon.code,
       metadataExtra: { ...comboMeta, combo_part: 'wetsuit' },
     });
     pushRow({
       serviceType: 'surfboard',
-      quantity: guestCount,
-      amountDueCents: 0,
+      quantity: days,
+      amountDueCents: liAmt != null ? liAmt : 0,
       sourceAddonCode: addon.code,
       metadataExtra: {
         ...comboMeta,
         combo_part: 'surfboard',
         staff_ui_service_type: boardVariant === 'soft' ? 'soft_board' : 'hard_board',
+        ...(liAmt == null ? { quote_line_not_matched: true } : {}),
       },
     });
   }
@@ -128,7 +128,7 @@ function buildManualBookingServiceRecordRows({
     const staffUi = staffUiTypeForAddonCode(addon.code);
     pushRow({
       serviceType,
-      quantity: guestCount,
+      quantity: days,
       amountDueCents: liAmt != null ? liAmt : 0,
       sourceAddonCode: addon.code,
       metadataExtra: {
