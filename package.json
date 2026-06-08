@@ -186,6 +186,7 @@
     "verify:stage27h-guest-quote-proposal-dry-run": "node scripts/verify-stage27h-guest-quote-proposal-dry-run.js",
     "verify:stage27i-guest-intake-quote-wire": "node scripts/verify-stage27i-guest-intake-quote-wire.js",
     "verify:stage27j-payment-choice-dry-run": "node scripts/verify-stage27j-payment-choice-dry-run.js",
+    "verify:stage27k-payment-choice-wire": "node scripts/verify-stage27k-payment-choice-wire.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",

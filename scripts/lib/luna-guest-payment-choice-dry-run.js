@@ -37,6 +37,7 @@ const VALID_NEXT_SAFE_STEPS = Object.freeze([
   'ready_for_hold_payment_draft',
   'answer_arrival_payment_question',
   'staff_handoff_required',
+  'not_ready',
 ]);
 
 const REPLY_TEMPLATES = {
@@ -118,6 +119,60 @@ function quoteContextReady(guestContext) {
 
 function shouldAttemptGuestPaymentChoiceCapture(guestContext) {
   return quoteContextReady(guestContext);
+}
+
+/**
+ * Stage 27k wire gate — prior guest_context from request body (second-turn payment choice).
+ * Does not require current router lane; quote must be ready when quote object is present.
+ */
+function shouldAttemptGuestPaymentChoiceWire(guestContext) {
+  const ctx = guestContext || {};
+  const quote = ctx.quote;
+  const paymentChoiceNeeded = (quote && quote.payment_choice_needed === true)
+    || ctx.payment_choice_needed === true;
+  if (!paymentChoiceNeeded) return false;
+  if (quote && quote.quote_status != null && quote.quote_status !== 'ready') return false;
+  const quoteStatus = (quote && quote.quote_status) || ctx.quote_status;
+  if (quoteStatus != null && quoteStatus !== 'ready') return false;
+  return true;
+}
+
+/**
+ * Merge request guest_context with current handler chain for payment choice evaluation.
+ * Preserves prior booking lane so second-turn payment_question messages still count.
+ */
+function buildPaymentChoiceWireContext(bodyGuestContext, result, availability, quote) {
+  const prior = bodyGuestContext || {};
+  const priorQuote = prior.quote && typeof prior.quote === 'object' ? prior.quote : {};
+  const useCurrentQuote = quote && quote.quote_status === 'ready' && !Object.keys(priorQuote).length;
+  const mergedQuote = Object.keys(priorQuote).length ? priorQuote : (useCurrentQuote ? quote : priorQuote);
+  return {
+    ...prior,
+    message_lane: prior.message_lane || 'new_booking_inquiry',
+    result: prior.result || result,
+    availability: prior.availability || availability,
+    quote: mergedQuote,
+    quote_status: priorQuote.quote_status || prior.quote_status || (quote && quote.quote_status),
+    payment_choice_needed: priorQuote.payment_choice_needed === true
+      || prior.payment_choice_needed === true
+      || (quote && quote.payment_choice_needed === true),
+    detected_language: prior.detected_language || (result && result.detected_language),
+  };
+}
+
+function buildGuestPaymentChoiceWireSkippedResponse(guestContext) {
+  const ctx = guestContext || {};
+  const hasQuoteHints = !!(ctx.quote || ctx.payment_choice_needed != null || ctx.quote_status);
+  return {
+    success: true,
+    ...PAYMENT_CHOICE_SAFETY,
+    payment_choice_capture_attempted: false,
+    payment_choice_detected: false,
+    payment_choice: null,
+    payment_choice_ready: false,
+    payment_choice_reasons: hasQuoteHints ? ['payment_choice_gate_not_met'] : ['not_ready'],
+    next_safe_step: hasQuoteHints ? 'collect_payment_choice' : 'not_ready',
+  };
 }
 
 /**
@@ -301,8 +356,11 @@ function runGuestPaymentChoiceDryRun(input, guestContext) {
 module.exports = {
   runGuestPaymentChoiceDryRun,
   shouldAttemptGuestPaymentChoiceCapture,
-  detectPaymentChoiceFromMessage,
+  shouldAttemptGuestPaymentChoiceWire,
+  buildPaymentChoiceWireContext,
   buildGuestPaymentChoiceSkippedResponse,
+  buildGuestPaymentChoiceWireSkippedResponse,
+  detectPaymentChoiceFromMessage,
   quoteContextReady,
   VALID_PAYMENT_CHOICES,
   VALID_NEXT_SAFE_STEPS,

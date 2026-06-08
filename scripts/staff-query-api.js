@@ -294,6 +294,12 @@ const {
   buildGuestQuoteSkippedResponse,
 } = require('./lib/luna-guest-quote-proposal-dry-run');
 const {
+  runGuestPaymentChoiceDryRun,
+  shouldAttemptGuestPaymentChoiceWire,
+  buildPaymentChoiceWireContext,
+  buildGuestPaymentChoiceWireSkippedResponse,
+} = require('./lib/luna-guest-payment-choice-dry-run');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10085,9 +10091,10 @@ async function handleBotMessageIntakePreview(req, res, user, authMode) {
   }
 }
 
-// Route: POST /staff/bot/guest-intake-dry-run  (Stage 27c/27g/27i — read-only)
+// Route: POST /staff/bot/guest-intake-dry-run  (Stage 27c/27g/27i/27k — read-only)
 //
-// Guest message → Stage 27b lane router → optional Stage 27f availability → optional Stage 27h quote.
+// Guest message → Stage 27b lane router → optional Stage 27f availability → optional Stage 27h quote
+// → optional Stage 27j payment choice (when guest_context carries prior quote).
 // No writes, WhatsApp, Meta, n8n, Stripe, or payment links.
 async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
   const started = Date.now();
@@ -10186,6 +10193,22 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       quote = buildGuestQuoteSkippedResponse(result, availability);
     }
 
+    let payment_choice;
+    if (shouldAttemptGuestPaymentChoiceWire(body.guest_context)) {
+      const paymentChoiceContext = buildPaymentChoiceWireContext(
+        body.guest_context,
+        result,
+        availability,
+        quote,
+      );
+      payment_choice = runGuestPaymentChoiceDryRun(
+        { message_text: messageText, language_hint: body.language_hint },
+        paymentChoiceContext,
+      );
+    } else {
+      payment_choice = buildGuestPaymentChoiceWireSkippedResponse(body.guest_context);
+    }
+
     const elapsed = Date.now() - started;
 
     appendAuditLog({
@@ -10209,6 +10232,8 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       availability_status: availability.availability_status || null,
       quote_proposal_attempted: quote.quote_proposal_attempted === true,
       quote_status: quote.quote_status || null,
+      payment_choice_capture_attempted: payment_choice.payment_choice_capture_attempted === true,
+      payment_choice_ready: payment_choice.payment_choice_ready === true,
       staff_user_id:      actorId,
       auth_mode:          resolvedAuthMode,
       elapsed_ms:         elapsed,
@@ -10235,6 +10260,7 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       result,
       availability,
       quote,
+      payment_choice,
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     });

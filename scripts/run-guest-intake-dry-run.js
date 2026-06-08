@@ -1,5 +1,5 @@
 /**
- * Stage 27d/27g/27i — Manual harness for POST /staff/bot/guest-intake-dry-run.
+ * Stage 27d/27g/27i/27k — Manual harness for POST /staff/bot/guest-intake-dry-run.
  *
  * Usage:
  *   npm run guest:intake:dry-run -- --message "Hi, we are 2 people..."
@@ -73,6 +73,55 @@ const FIXTURES = {
     message: 'Do you allow pets at Wolfhouse?',
     language_hint: 'en',
   },
+  'en-deposit-after-quote': {
+    label: 'Deposit choice after quote (27k)',
+    message: 'Deposit is fine',
+    language_hint: 'en',
+    guest_context: {
+      message_lane: 'new_booking_inquiry',
+      quote: {
+        quote_status: 'ready',
+        payment_choice_needed: true,
+        quote_total_cents: 123456,
+        deposit_options: { deposit_required_cents: 20000 },
+      },
+      payment_choice_needed: true,
+    },
+  },
+  'en-full-after-quote': {
+    label: 'Full payment choice after quote (27k)',
+    message: "I'll pay the full amount",
+    language_hint: 'en',
+    guest_context: {
+      message_lane: 'new_booking_inquiry',
+      quote: {
+        quote_status: 'ready',
+        payment_choice_needed: true,
+        quote_total_cents: 123456,
+      },
+      payment_choice_needed: true,
+    },
+  },
+  'en-send-link-after-quote': {
+    label: 'Send link after quote (27k)',
+    message: 'Send me the link',
+    language_hint: 'en',
+    guest_context: {
+      message_lane: 'new_booking_inquiry',
+      quote: { quote_status: 'ready', payment_choice_needed: true },
+      payment_choice_needed: true,
+    },
+  },
+  'en-cash-arrival-after-quote': {
+    label: 'Cash on arrival after quote (27k)',
+    message: 'Can I pay cash when I arrive?',
+    language_hint: 'en',
+    guest_context: {
+      message_lane: 'new_booking_inquiry',
+      quote: { quote_status: 'ready', payment_choice_needed: true },
+      payment_choice_needed: true,
+    },
+  },
 };
 
 function usage() {
@@ -88,6 +137,7 @@ Options:
   --language-hint <code> Optional en|it|es|de|fr
   --reference-date <iso> Optional YYYY-MM-DD for date parsing
   --guest-phone <e164>   Optional guest phone for context
+  --guest-context-json <json>  Optional prior guest_context JSON (27k payment choice)
   --fixture <name>       Built-in example message (see list below)
   --json                 Print full JSON response
   --help                 Show this help
@@ -101,7 +151,8 @@ Auth:
 
 Examples:
   npm run guest:intake:dry-run -- --base-url http://127.0.0.1:3036 --fixture en-booking
-  npm run guest:intake:dry-run -- --message "How much does it cost?"
+  npm run guest:intake:dry-run -- --fixture en-deposit-after-quote
+  npm run guest:intake:dry-run -- --message "Deposit is fine" --guest-context-json '{"quote":{"quote_status":"ready","payment_choice_needed":true},"payment_choice_needed":true}'
 `);
 }
 
@@ -112,6 +163,7 @@ function parseArgs(argv) {
     languageHint: null,
     referenceDate: null,
     guestPhone: null,
+    guestContextJson: null,
     json: false,
     fixture: null,
     help: false,
@@ -138,6 +190,9 @@ function parseArgs(argv) {
         break;
       case '--guest-phone':
         opts.guestPhone = argv[++i];
+        break;
+      case '--guest-context-json':
+        opts.guestContextJson = argv[++i];
         break;
       case '--fixture':
         opts.fixture = argv[++i];
@@ -228,6 +283,15 @@ function printSummary(apiBody) {
     console.log(`quote_handoff_required:    ${q.quote_handoff_required === true}`);
     console.log(`quote_handoff_reasons:     ${JSON.stringify(q.quote_handoff_reasons || [])}`);
   }
+  const pc = (apiBody && apiBody.payment_choice) || {};
+  if (apiBody.payment_choice != null) {
+    console.log('\n── payment choice dry-run (27k) ──');
+    console.log(`payment_choice_detected:   ${pc.payment_choice_detected === true}`);
+    console.log(`payment_choice:            ${pc.payment_choice ?? '(n/a)'}`);
+    console.log(`payment_choice_ready:      ${pc.payment_choice_ready === true}`);
+    console.log(`next_safe_step:            ${pc.next_safe_step ?? '(n/a)'}`);
+    console.log(`payment_choice_reasons:    ${JSON.stringify(pc.payment_choice_reasons || [])}`);
+  }
   console.log('\n── safety flags ──');
   console.log(`dry_run:              ${apiBody.dry_run === true || r.dry_run === true}`);
   console.log(`sends_whatsapp:       ${apiBody.sends_whatsapp === false && (r.sends_whatsapp == null || r.sends_whatsapp === false)}`);
@@ -246,7 +310,17 @@ async function main() {
 
   let message = opts.message;
   let languageHint = opts.languageHint;
+  let guestContext = null;
   let fixtureLabel = null;
+
+  if (opts.guestContextJson) {
+    try {
+      guestContext = JSON.parse(opts.guestContextJson);
+    } catch (e) {
+      console.error(`Error: invalid --guest-context-json: ${e.message}`);
+      process.exit(1);
+    }
+  }
 
   if (opts.fixture) {
     const fx = FIXTURES[opts.fixture];
@@ -258,6 +332,7 @@ async function main() {
     fixtureLabel = `${opts.fixture} (${fx.label})`;
     message = message || fx.message;
     languageHint = languageHint || fx.language_hint;
+    if (fx.guest_context && !guestContext) guestContext = fx.guest_context;
   }
 
   if (!message || !String(message).trim()) {
@@ -272,6 +347,7 @@ async function main() {
   if (languageHint) payload.language_hint = languageHint;
   if (opts.referenceDate) payload.reference_date = opts.referenceDate;
   if (opts.guestPhone) payload.guest_phone = opts.guestPhone;
+  if (guestContext) payload.guest_context = guestContext;
 
   const target = `${opts.baseUrl}${ROUTE}`;
   const headers = {};

@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27j — Payment choice capture dry-run**): **PASS**. `runGuestPaymentChoiceDryRun` in `scripts/lib/luna-guest-payment-choice-dry-run.js`. **Detects:** deposit · full_payment · arrival_payment_question · payment_link_request · unclear after quote proposal. **Gate:** `new_booking_inquiry` + quote `ready` + `payment_choice_needed`; deposit/full → `payment_choice_ready` + `ready_for_hold_payment_draft`. **Safety:** dry-run only · no hold/payment draft/Stripe/link/booking write/WhatsApp/Meta/n8n. Verifier: `verify:stage27j-payment-choice-dry-run`. Doc: [STAGE-27J-PAYMENT-CHOICE-DRY-RUN.md](STAGE-27J-PAYMENT-CHOICE-DRY-RUN.md). **Next:** **Stage 27k** — wire payment choice into intake endpoint/harness.
+**Last updated:** 2026-06-08 (**Stage 27k — Payment choice wire**): **PASS**. Wired `runGuestPaymentChoiceDryRun` into `POST /staff/bot/guest-intake-dry-run` and `guest:intake:dry-run` harness. **Response:** `{ success, dry_run, result, availability, quote, payment_choice }`. **Gate:** `guest_context` with quote `ready` + `payment_choice_needed`; second-turn deposit/full → `ready_for_hold_payment_draft`. **Harness:** `--guest-context-json`, fixtures `en-deposit-after-quote`, etc. **Safety:** no hold/payment draft/Stripe/link/booking write/WhatsApp/Meta/n8n. Verifier: `verify:stage27k-payment-choice-wire`. Doc: [STAGE-27K-PAYMENT-CHOICE-WIRE.md](STAGE-27K-PAYMENT-CHOICE-WIRE.md). **Next:** **Stage 27l** — hold/payment draft dry-run or hosted proof.
+
+**Prior — Stage 27j (2026-06-08):** Payment choice capture dry-run adapter — **PASS**. Doc: [STAGE-27J-PAYMENT-CHOICE-DRY-RUN.md](STAGE-27J-PAYMENT-CHOICE-DRY-RUN.md).
 
 **Prior — Stage 27i (2026-06-08):** Guest intake quote wire — **PASS**. Doc: [STAGE-27I-GUEST-INTAKE-QUOTE-WIRE.md](STAGE-27I-GUEST-INTAKE-QUOTE-WIRE.md).
 
