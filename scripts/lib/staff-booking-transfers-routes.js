@@ -540,6 +540,9 @@ async function handlePostBookingTransfer(bookingId, req, res) {
         flight_lookup_provider: body.flight_lookup_provider,
         flight_lookup_status: body.flight_lookup_status,
         flight_lookup_summary: sanitizeFlightLookupSummaryForStorage(body.flight_lookup_summary),
+        manual_override_euros: body.manual_override_euros,
+        exception_override_euros: body.exception_override_euros,
+        manual_override_enabled: body.manual_override_enabled,
       };
 
       const saved = await upsertBookingTransfer(pg, {
@@ -575,6 +578,9 @@ async function handlePostBookingTransfer(bookingId, req, res) {
         success: false,
         error: 'booking_transfers table not available — apply migration 017',
       });
+    }
+    if (err && err.code === 'invalid_override_amount') {
+      return res.status(400).json({ success: false, error: err.message });
     }
     return res.status(500).json({ success: false, error: 'save failed', detail: err.message });
   }

@@ -13209,12 +13209,13 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-detail-meta{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;font-weight:400}
 .bc-detail-note{font-size:11px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:9px 14px;margin-top:14px}
 /* ── Bed calendar shortcut chips (Stage 8.3a) ────────────────────────────── */
-.bc-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+.bc-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:0;flex:1 1 auto;min-width:0}
 .bc-chip{font-size:11px;font-weight:600;padding:4px 12px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text-2);cursor:pointer;transition:background .12s,color .12s,border-color .12s;white-space:nowrap}
 .bc-chip:hover{background:var(--sage);color:#fff;border-color:var(--sage)}
 .bc-chip.bc-chip-active{background:var(--primary);color:#fff;border-color:var(--primary)}
-/* ── Bed calendar legend (Stage 8.3a) ─────────────────────────────────────── */
-.bc-legend{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;font-size:11px;color:var(--text-2);padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:14px}
+.bc-controls-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+/* ── Bed calendar legend (Stage 8.3a / 26h.5 compact right) ─────────────── */
+.bc-legend{display:inline-flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%}
 .bc-legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .bc-legend-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;border-left:2px solid transparent;flex-shrink:0}
 .bc-legend-sw-confirmed{background:#CEDFBF;border-left-color:#87A87C}
@@ -13226,6 +13227,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
+@media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend{align-self:flex-end}}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input{font-size:12px;padding:5px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:130px}
 input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
@@ -13341,6 +13343,8 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-transfer-grid .bk-input-sm{padding:4px 7px;font-size:12px}
 .bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
 .bc-transfer-card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px}
+.bc-transfer-override-toggle{margin-top:6px;font-size:11px;padding:4px 10px}
+.bc-transfer-override-wrap{margin-top:8px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);max-width:220px}
 .bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap}
 .bc-transfer-remove{margin-left:auto;font-size:11px;color:#9C5742;border-color:rgba(156,87,66,.35);padding:4px 10px}
 .bc-transfer-remove:hover{background:rgba(156,87,66,.06)}
@@ -13782,7 +13786,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <button class="btn btn-primary" id="bc-load">&#128197; Load</button>
     </div>
 
-    <!-- Date shortcut chips (Stage 8.3a / 10.6a.4) -->
+    <!-- Date shortcut chips + compact legend (Stage 26h.5) -->
+    <div class="bc-controls-row">
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days">Next 30 days</span>
@@ -13794,12 +13799,11 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span class="bc-chip" data-chip="sep-oct">Sep - Oct</span>
     </div>
 
-    <!-- Color legend (Stage 8.3a) -->
     <div class="bc-legend" id="bc-legend">
-      <span style="font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Legend:</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span>Luna</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Staff</span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span>Tour</span>
+    </div>
     </div>
 
     <!-- Warnings -->
@@ -17517,16 +17521,8 @@ function bcBuildTransferSummaryFromTransfers(transfers){
 function bcFormatTransferSummaryLabel(summary){
   if (!summary || !summary.has_transfer) return '';
   var dirs = summary.directions || [];
-  var airports = summary.airports || [];
-  var statuses = summary.statuses || [];
-  if (dirs.length === 1){
-    var dirLabel = dirs[0] === 'arrival' ? 'Arrival' : 'Departure';
-    var ap = airports[0] || '';
-    var st = String(statuses[0] || 'requested').replace(/_/g, ' ');
-    return 'Transfer: ' + dirLabel + (ap ? ' ' + ap : '') + ' ' + st;
-  }
   if (dirs.length >= 2) return 'Transfer: Arrival + Departure';
-  return 'Transfer';
+  return 'Transfer Required';
 }
 
 function bcCalendarBlockInnerHtml(blk, labelHtml){
@@ -20619,12 +20615,28 @@ function bcTransferHasRemovableTransfer(transfer){
   return s === 'requested' || s === 'confirmed' || s === 'cancelled';
 }
 
+function bcTransferHasManualOverride(transfer){
+  if (!transfer) return false;
+  var note = String(transfer.pricing_note || (transfer.pricing && transfer.pricing.pricing_note) || '');
+  return /manual transfer override/i.test(note);
+}
+
+function bcTransferOverrideEurosFromTransfer(transfer){
+  if (!transfer) return '';
+  var cents = transfer.price_cents;
+  if (cents == null && transfer.pricing) cents = transfer.pricing.price_cents;
+  if (cents == null) return '';
+  return String(Number(cents) / 100);
+}
+
 function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   var t = transfer || {};
   var prefix = 'bc-transfer-' + direction;
   var airportCode = t.airport_code || (defaults && defaults.default_airport_code) || 'SDR';
   var scheduledLocal = t.scheduled_at_local || '';
   var removable = bcTransferHasRemovableTransfer(t);
+  var hasOverride = bcTransferHasManualOverride(t);
+  var overrideEuros = hasOverride ? bcTransferOverrideEurosFromTransfer(t) : '';
   var html = '<div class="bc-transfer-card bc-drawer-overview-card" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
   html += '<h4>' + escHtml(label) + ' transfer</h4>';
   html += '<div class="bc-transfer-grid">';
@@ -20634,6 +20646,14 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<input type="text" id="' + prefix + '-flight" class="bk-input bk-input-sm" value="' + escHtml(t.flight_number || '') + '" placeholder="e.g. FR1234"></div>';
   html += '<div><label class="ctx-field-label">Transfer date/time</label>';
   html += '<input type="datetime-local" id="' + prefix + '-scheduled" class="bk-input bk-input-sm" value="' + escHtml(scheduledLocal) + '"></div>';
+  html += '<button type="button" class="btn btn-ghost bc-transfer-override-toggle" data-direction="' + direction + '" aria-expanded="' +
+    (hasOverride ? 'true' : 'false') + '">Exception Override</button>';
+  html += '<div id="' + prefix + '-override-wrap" class="bc-transfer-override-wrap" style="display:' +
+    (hasOverride ? 'block' : 'none') + '">';
+  html += '<label class="ctx-field-label" for="' + prefix + '-override-amount">Transfer charge</label>';
+  html += '<input type="number" id="' + prefix + '-override-amount" class="bk-input bk-input-sm" min="0" step="0.01" placeholder="25" value="' +
+    escHtml(overrideEuros) + '">';
+  html += '</div>';
   html += '<div><label class="ctx-field-label">Notes</label>';
   html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(t.notes || '') + '</textarea></div>';
   html += '</div>';
@@ -20687,10 +20707,30 @@ function bcTransferCollectPayload(direction){
     notes: notes,
     source: 'staff',
   };
+  var overrideWrap = el(prefix + '-override-wrap');
+  var overrideAmt = el(prefix + '-override-amount');
+  if (overrideWrap && overrideWrap.style.display !== 'none') {
+    payload.manual_override_enabled = true;
+    if (overrideAmt && overrideAmt.value.trim() !== '') {
+      payload.manual_override_euros = parseFloat(overrideAmt.value.trim());
+    }
+  }
   if (meta.flight_lookup_provider) payload.flight_lookup_provider = meta.flight_lookup_provider;
   if (meta.flight_lookup_status) payload.flight_lookup_status = meta.flight_lookup_status;
   if (meta.flight_lookup_summary) payload.flight_lookup_summary = meta.flight_lookup_summary;
   return payload;
+}
+
+function bcTransferValidateOverrideAmount(direction){
+  var prefix = 'bc-transfer-' + direction;
+  var wrap = el(prefix + '-override-wrap');
+  if (!wrap || wrap.style.display === 'none') return null;
+  var amtEl = el(prefix + '-override-amount');
+  var raw = amtEl && amtEl.value.trim();
+  if (!raw) return null;
+  var euros = parseFloat(raw);
+  if (!Number.isFinite(euros) || euros < 0) return 'Transfer charge must be zero or greater.';
+  return null;
 }
 
 function bcTransferLookupErrorLabel(code, message, diagnostic){
@@ -20891,6 +20931,11 @@ function bcRemoveTransfer(direction){
 
 function bcSaveTransfer(direction){
   if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
+  var overrideErr = bcTransferValidateOverrideAmount(direction);
+  if (overrideErr){
+    bcTransferShowResult(direction, escHtml(overrideErr), true);
+    return;
+  }
   var btn = document.querySelector('.bc-transfer-save[data-direction="' + direction + '"]');
   if (btn) btn.disabled = true;
   bcTransferShowResult(direction, 'Saving\u2026', false);
@@ -20909,7 +20954,10 @@ function bcSaveTransfer(direction){
       var t = res.data.transfer || {};
       var pricingEl = el('bc-transfer-' + direction + '-pricing');
       if (pricingEl) pricingEl.innerHTML = bcTransferPricingHtml(t.pricing || res.data.pricing);
-      bcTransferShowResult(direction, 'Transfer saved.', false);
+      var resultEl = el('bc-transfer-' + direction + '-result');
+      if (resultEl){ resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
+      if (bcTransferCtx.existingStatus) bcTransferCtx.existingStatus[direction] = t.status || 'requested';
+      bcRefreshTransferPebbleSummary({ booking: { booking_id: bcTransferCtx.bookingId } });
     })
     .catch(function(e){
       if (btn) btn.disabled = false;
@@ -20954,6 +21002,16 @@ function bcInitTransferShell(contextData){
       document.querySelectorAll('.bc-transfer-remove').forEach(function(btn){
         btn.addEventListener('click', function(){
           bcRemoveTransfer(btn.getAttribute('data-direction'));
+        });
+      });
+      document.querySelectorAll('.bc-transfer-override-toggle').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var dir = btn.getAttribute('data-direction');
+          var wrap = el('bc-transfer-' + dir + '-override-wrap');
+          if (!wrap) return;
+          var open = wrap.style.display !== 'none';
+          wrap.style.display = open ? 'none' : 'block';
+          btn.setAttribute('aria-expanded', open ? 'false' : 'true');
         });
       });
       bcTransferWireLookupControls();
@@ -21404,6 +21462,8 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move Bed</button>';
   html += '</div></div>';
 
+  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt);
+
   html += '<div class="bc-drawer-overview-card ctx-section" id="bc-drawer-card-conversation">';
   html += '<h3 class="bc-drawer-card-title">Conversation / Handoff</h3>';
   if (data.conversation){
@@ -21428,8 +21488,6 @@ function renderBookingContextDrawer(data){
       html += '</div>';
   }
   html += '</div>';
-
-  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt);
 
   html += '</div>';
 

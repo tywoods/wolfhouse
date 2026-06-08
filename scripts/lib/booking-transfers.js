@@ -220,6 +220,42 @@ function priceBookingTransfer({ client_slug, booking, transfer }) {
   };
 }
 
+const MANUAL_TRANSFER_OVERRIDE_NOTE = 'Manual transfer override';
+
+/**
+ * Apply staff exception override when manual_override_euros is provided.
+ *
+ * @param {{ client_slug: string, transferInput: object }} opts
+ * @returns {object|null}
+ */
+function resolveManualTransferOverride({ client_slug, transferInput }) {
+  const input = transferInput || {};
+  const cfg = getClientTransferConfig(client_slug);
+  const wrapOpen = input.manual_override_enabled === true;
+  const raw = input.manual_override_euros != null
+    ? input.manual_override_euros
+    : input.exception_override_euros;
+  if (raw == null || raw === '') {
+    if (!wrapOpen) return null;
+    return null;
+  }
+  const euros = Number(raw);
+  if (!Number.isFinite(euros) || euros < 0) {
+    const err = new Error('manual_override_euros must be a number >= 0');
+    err.code = 'invalid_override_amount';
+    throw err;
+  }
+  const cents = Math.round(euros * 100);
+  return {
+    available: true,
+    error_code: null,
+    included_in_package: false,
+    price_cents: cents,
+    currency: cfg.currency,
+    pricing_note: MANUAL_TRANSFER_OVERRIDE_NOTE,
+  };
+}
+
 /**
  * @param {{ client_slug: string, booking: object, transferInput: object, source?: string }} opts
  * @returns {object}
@@ -245,11 +281,14 @@ function buildBookingTransferUpsertPayload({ client_slug, booking, transferInput
     ? resolveGuestCount(booking, { guest_count: input.guest_count })
     : resolveGuestCount(booking, input);
 
-  const pricing = priceBookingTransfer({
+  let pricing = priceBookingTransfer({
     client_slug: clientSlug,
     booking,
     transfer: { airport_code: airportCode || input.airport_code, guest_count: guestCount },
   });
+
+  const manualOverride = resolveManualTransferOverride({ client_slug: clientSlug, transferInput: input });
+  if (manualOverride) pricing = { ...pricing, ...manualOverride };
 
   return {
     client_slug: clientSlug,
@@ -522,6 +561,8 @@ module.exports = {
   defaultTransferLookupDate,
   isPackageBooking,
   priceBookingTransfer,
+  resolveManualTransferOverride,
+  MANUAL_TRANSFER_OVERRIDE_NOTE,
   buildBookingTransferUpsertPayload,
   upsertBookingTransfer,
   deleteBookingTransfer,

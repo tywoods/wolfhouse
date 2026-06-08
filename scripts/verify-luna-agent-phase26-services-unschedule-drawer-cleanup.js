@@ -131,8 +131,8 @@ if (!/bcRenderRoomingBriefHtml\(data\)/.test(drawerSlice)) {
 const convIdx = drawerSlice.indexOf('bc-drawer-card-conversation');
 const payIdx = drawerSlice.indexOf('bcRenderPaymentSummaryBriefHtml');
 const moveIdx = drawerSlice.indexOf('bc-move-bed');
-if (moveIdx >= 0 && convIdx > moveIdx && payIdx > convIdx) {
-  pass('F2', 'Payment Summary below Conversation / Handoff');
+if (moveIdx >= 0 && payIdx > moveIdx && convIdx > payIdx) {
+  pass('F2', 'Payment Summary above Conversation / Handoff');
 } else fail('F2', 'payment summary order');
 if (/bcRenderPaymentSummaryBriefHtml/.test(drawerSlice)) pass('F3', 'payment summary brief retained');
 else fail('F3', 'payment summary');

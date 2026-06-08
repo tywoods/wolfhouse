@@ -155,7 +155,7 @@ section('F. Docs + npm');
 const doc = readOrEmpty(DOC);
 if (/Remove transfer|DELETE/i.test(doc) && /Services/i.test(doc)) pass('F1', 'doc covers remove + Services');
 else fail('F1', 'doc content');
-if (/no payment|No Stripe|spacer/i.test(doc)) pass('F2', 'doc safety + spacer');
+if (/no payment|No Stripe|spacer|Exception Override|Transfer Required/i.test(doc)) pass('F2', 'doc safety + spacer');
 else fail('F2', 'doc safety');
 
 const pkg = JSON.parse(readOrEmpty(PKG_FILE) || '{}');

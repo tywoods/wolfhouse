@@ -104,8 +104,9 @@ if (/bcTransferUpdateLookupButtonState/.test(uiSlice) && !/lookupDate/.test(uiSl
 if (/bcTransferApplyLookupPatch/.test(uiSlice) && !/lookupEl/.test(uiSlice)) {
   pass('C4', 'autofill does not set lookup_date field');
 } else fail('C4', 'autofill still sets lookup date input');
-if (/review and Save when ready/.test(uiSlice)) pass('C5', 'lookup does not autosave');
-else fail('C5', 'save-after-lookup messaging missing');
+if (/review and Save when ready/.test(apiSrc.match(/function bcLookupFlight[\s\S]{0,2000}/)?.[0] || '')) {
+  pass('C5', 'lookup does not autosave');
+} else fail('C5', 'save-after-lookup messaging missing');
 
 section('D. Backend lookup defaults + retry');
 
