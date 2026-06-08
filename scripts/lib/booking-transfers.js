@@ -223,6 +223,39 @@ function priceBookingTransfer({ client_slug, booking, transfer }) {
 const MANUAL_TRANSFER_OVERRIDE_NOTE = 'Manual transfer override';
 
 /**
+ * Block under-min-group saves unless staff Exception Override includes an amount.
+ *
+ * @param {{ client_slug: string, booking: object, transferInput: object, pricing: object, manualOverride: object|null }} opts
+ */
+function assertTransferGroupOverrideAllowed(opts = {}) {
+  const clientSlug = trimStr(opts.client_slug);
+  const input = opts.transferInput || {};
+  const booking = opts.booking || {};
+  const pricing = opts.pricing || {};
+  const manualOverride = opts.manualOverride || null;
+  const airportCode = normalizeAirportCode(clientSlug, input.airport_code);
+  if (!airportCode) return;
+
+  const rule = getTransferRuleForAirport(clientSlug, airportCode);
+  if (!rule || rule.min_guest_count == null) return;
+
+  const guestCount = resolveGuestCount(booking, input);
+  if (guestCount >= rule.min_guest_count) return;
+
+  if (manualOverride && manualOverride.price_cents != null) return;
+
+  const baseMsg = rule.unavailable_below_min_group_message
+    || 'Bilbao transfer is normally available for groups of 4 or more. Use Exception Override to save a manual exception.';
+  const err = new Error(
+    input.manual_override_enabled === true
+      ? 'Transfer Charge amount is required for Exception Override.'
+      : baseMsg,
+  );
+  err.code = 'bilbao_min_group_override_required';
+  throw err;
+}
+
+/**
  * Apply staff exception override when manual_override_euros is provided.
  *
  * @param {{ client_slug: string, transferInput: object }} opts
@@ -289,6 +322,16 @@ function buildBookingTransferUpsertPayload({ client_slug, booking, transferInput
 
   const manualOverride = resolveManualTransferOverride({ client_slug: clientSlug, transferInput: input });
   if (manualOverride) pricing = { ...pricing, ...manualOverride };
+
+  if (status !== 'not_needed') {
+    assertTransferGroupOverrideAllowed({
+      client_slug: clientSlug,
+      booking,
+      transferInput: input,
+      pricing,
+      manualOverride,
+    });
+  }
 
   return {
     client_slug: clientSlug,
@@ -562,6 +605,7 @@ module.exports = {
   isPackageBooking,
   priceBookingTransfer,
   resolveManualTransferOverride,
+  assertTransferGroupOverrideAllowed,
   MANUAL_TRANSFER_OVERRIDE_NOTE,
   buildBookingTransferUpsertPayload,
   upsertBookingTransfer,

@@ -104,7 +104,7 @@ section('D. Transfer Exception Override');
 if (/Exception Override/.test(transferCardSlice) && /bc-transfer-override-toggle/.test(transferCardSlice)) {
   pass('D1', 'Exception Override button on transfer cards');
 } else fail('D1', 'override button');
-if (/Transfer charge/.test(apiSrc) && /'-override-amount'/.test(apiSrc)) {
+if (/Transfer Charge/.test(apiSrc) && /'-override-amount'/.test(apiSrc)) {
   pass('D2', 'override amount input');
 } else fail('D2', 'override input');
 if (/resolveManualTransferOverride/.test(helperSrc) && /Manual transfer override/.test(helperSrc)) {
@@ -122,8 +122,9 @@ if (/priceBookingTransfer/.test(helperSrc) && /resolveManualTransferOverride/.te
 
 section('E. Transfer pebble live update');
 
-if (/Transfer Required/.test(apiSrc) && !/Transfer saved/.test(saveSlice)) {
-  pass('E1', 'Transfer Required wording; no Transfer saved on save');
+if (/Transfer: Arrival \+ Departure/.test(apiSrc) && /Transfer: Arrival/.test(apiSrc) &&
+    /Transfer: Departure/.test(apiSrc) && !/Transfer saved/.test(saveSlice)) {
+  pass('E1', 'header pebble Transfer: Arrival/Departure wording; no Transfer saved on save');
 } else fail('E1', 'pebble wording / saved text');
 if (/bcRefreshTransferPebbleSummary/.test(saveSlice)) {
   pass('E2', 'save updates header pebble without full refresh');

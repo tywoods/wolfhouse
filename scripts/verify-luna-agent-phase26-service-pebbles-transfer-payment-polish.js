@@ -134,7 +134,7 @@ if (/bc-transfer-col-left/.test(transferSlice) && /bc-transfer-col-right/.test(t
 if (dateIdx >= 0 && overrideIdx > dateIdx && /bc-transfer-override-block/.test(transferSlice)) {
   pass('E2', 'Exception Override under Transfer date/time');
 } else fail('E2', 'override position');
-if (/bc-transfer-override-wrap/.test(transferSlice) && /Transfer charge/.test(transferSlice) && /placeholder="25"/.test(transferSlice)) {
+if (/bc-transfer-override-wrap/.test(transferSlice) && /Transfer Charge/.test(transferSlice) && /placeholder="25"/.test(transferSlice)) {
   pass('E3', 'amount input under override button');
 } else fail('E3', 'override amount input');
 const rightColSlice = transferSlice.match(/bc-transfer-col-right[\s\S]{0,900}/)?.[0] || '';

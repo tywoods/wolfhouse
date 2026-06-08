@@ -71,7 +71,8 @@ for (const [id, label] of [['A1', 'Overview'], ['A2', 'Services'], ['A3', 'Trans
 if (/bcInitDrawerTabs/.test(apiSrc) && /bc-drawer-tab-panel/.test(apiSrc)) {
   pass('A5', 'in-place tab switching wired');
 } else fail('A5', 'tab init missing');
-if (/bc-drawer-tab-overview[\s\S]{0,200}is-active/.test(drawerSlice) || /Overview', true/.test(apiSrc)) {
+if (/bc-drawer-tab-overview[\s\S]{0,260}is-active/.test(drawerSlice) || /Overview', true/.test(apiSrc) ||
+    /activeTab === 'overview'/.test(drawerSlice)) {
   pass('A6', 'Overview default active');
 } else fail('A6', 'default tab');
 

@@ -47,7 +47,7 @@ const CLIENT_TRANSFER_CONFIGS = Object.freeze({
         unavailable_no_package_message:
           'Bilbao transfer is only available for package bookings. We recommend the bus from Bilbao.',
         unavailable_below_min_group_message:
-          'Bilbao transfer is normally available for groups of 4 or more. Contact staff for exceptions.',
+          'Bilbao transfer is normally available for groups of 4 or more. Use Exception Override to save a manual exception.',
       }),
     ]),
   }),

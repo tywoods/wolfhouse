@@ -395,6 +395,8 @@ function inferTransferStatusFromInput(transferInput, existingStatus) {
 
 function buildDefaults(booking, timezone) {
   const bookingObj = bookingForPricing(booking);
+  const checkIn = normalizeBookingDateOnly(booking.check_in, { timezone });
+  const checkOut = normalizeBookingDateOnly(booking.check_out, { timezone });
   return {
     arrival_lookup_date: defaultTransferLookupDate({
       direction: 'arrival',
@@ -407,8 +409,10 @@ function buildDefaults(booking, timezone) {
       timezone,
     }),
     guest_count: Math.max(1, Number(booking.guest_count) || 1),
-    check_in: normalizeBookingDateOnly(booking.check_in, { timezone }),
-    check_out: normalizeBookingDateOnly(booking.check_out, { timezone }),
+    check_in: checkIn,
+    check_out: checkOut,
+    arrival_scheduled_at_local: checkIn ? `${checkIn}T09:00` : '',
+    departure_scheduled_at_local: checkOut ? `${checkOut}T12:00` : '',
     default_airport_code: 'SDR',
   };
 }
@@ -580,6 +584,9 @@ async function handlePostBookingTransfer(bookingId, req, res) {
       });
     }
     if (err && err.code === 'invalid_override_amount') {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    if (err && err.code === 'bilbao_min_group_override_required') {
       return res.status(400).json({ success: false, error: err.message });
     }
     return res.status(500).json({ success: false, error: 'save failed', detail: err.message });
