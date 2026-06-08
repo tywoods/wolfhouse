@@ -173,6 +173,25 @@ function resolveAvailabilityOutcome(availResult) {
   };
 }
 
+function buildGuestAvailabilitySkippedResponse(routerResult) {
+  const lang = (routerResult && routerResult.detected_language) || 'en';
+  return {
+    success: true,
+    ...AVAILABILITY_SAFETY,
+    availability_check_attempted: false,
+    availability_status: 'not_ready',
+    availability_result_summary: buildAvailabilitySummary('not_ready'),
+    availability_handoff_required: !!routerResult?.safe_handoff_required,
+    availability_handoff_reasons: routerResult?.safe_handoff_required
+      ? [...(routerResult.handoff_reasons || [])]
+      : ['booking_intake_not_ready'],
+    proposed_luna_reply: routerResult?.proposed_luna_reply || `${tpl(lang, 'intro')} 🌊`,
+    reused_helper: 'runAvailabilityCheckDryRun',
+    anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
+    availability_detail: null,
+  };
+}
+
 /**
  * Stage 27f guest availability dry-run adapter.
  *
@@ -184,21 +203,7 @@ async function runGuestAvailabilityDryRun(routerResult, context) {
   const lang = (routerResult && routerResult.detected_language) || 'en';
 
   if (!shouldAttemptGuestAvailability(routerResult)) {
-    return {
-      success: true,
-      ...AVAILABILITY_SAFETY,
-      availability_check_attempted: false,
-      availability_status: 'not_ready',
-      availability_result_summary: buildAvailabilitySummary('not_ready'),
-      availability_handoff_required: !!routerResult?.safe_handoff_required,
-      availability_handoff_reasons: routerResult?.safe_handoff_required
-        ? [...(routerResult.handoff_reasons || [])]
-        : ['booking_intake_not_ready'],
-      proposed_luna_reply: routerResult?.proposed_luna_reply || `${tpl(lang, 'intro')} 🌊`,
-      reused_helper: 'runAvailabilityCheckDryRun',
-      anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
-      availability_detail: null,
-    };
+    return buildGuestAvailabilitySkippedResponse(routerResult);
   }
 
   const fields = mapRouterFieldsToAvailabilityInput(routerResult, ctx);
@@ -240,6 +245,7 @@ async function runGuestAvailabilityDryRun(routerResult, context) {
 module.exports = {
   runGuestAvailabilityDryRun,
   shouldAttemptGuestAvailability,
+  buildGuestAvailabilitySkippedResponse,
   mapRouterFieldsToAvailabilityInput,
   VALID_AVAILABILITY_STATUSES,
   AVAILABILITY_SAFETY,

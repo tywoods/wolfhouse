@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27f — Guest availability dry-run adapter**): **PASS**. `runGuestAvailabilityDryRun(routerResult, context)` gates on 27e readiness, delegates to `runAvailabilityCheckDryRun` (same engine as `POST /staff/bot/availability-check` / `getBedCalendar*` queries). Read-only SELECT when `pg` provided; no booking/hold/quote/Stripe/WhatsApp. Verifier: `verify:stage27f-guest-availability-dry-run`. Doc: [STAGE-27F-GUEST-AVAILABILITY-DRY-RUN.md](STAGE-27F-GUEST-AVAILABILITY-DRY-RUN.md). **No deploy · no live send.** **Next:** **Stage 27g** — wire adapter into intake dry-run path (gated).
+**Last updated:** 2026-06-08 (**Stage 27g — Guest intake availability wire**): **PASS**. `POST /staff/bot/guest-intake-dry-run` returns `{ result, availability }`; availability runs only when 27e gate passes (`booking_intake_ready` + `ready_for_availability_check`); skipped path uses `buildGuestAvailabilitySkippedResponse`. Harness prints availability summary. Verifier: `verify:stage27g-guest-intake-availability-wire`. Doc: [STAGE-27G-GUEST-INTAKE-AVAILABILITY-WIRE.md](STAGE-27G-GUEST-INTAKE-AVAILABILITY-WIRE.md). **No deploy · no live send.** **Next:** **Stage 27h** — optional hosted staging proof.
+
+**Prior — Stage 27f (2026-06-08):** Guest availability dry-run adapter — **PASS**. Doc: [STAGE-27F-GUEST-AVAILABILITY-DRY-RUN.md](STAGE-27F-GUEST-AVAILABILITY-DRY-RUN.md).
 
 **Prior — Stage 27e (2026-06-08):** Booking intake readiness gate — **PASS**. Doc: [STAGE-27E-BOOKING-INTAKE-READINESS.md](STAGE-27E-BOOKING-INTAKE-READINESS.md).
 

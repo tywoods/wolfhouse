@@ -1,5 +1,5 @@
 /**
- * Stage 27d — Manual harness for POST /staff/bot/guest-intake-dry-run.
+ * Stage 27d/27g — Manual harness for POST /staff/bot/guest-intake-dry-run.
  *
  * Usage:
  *   npm run guest:intake:dry-run -- --message "Hi, we are 2 people..."
@@ -208,6 +208,15 @@ function printSummary(apiBody) {
   console.log(`handoff_reasons:      ${JSON.stringify(r.handoff_reasons || [])}`);
   console.log(`allowed_next_actions: ${JSON.stringify(r.allowed_next_actions || [])}`);
   console.log(`proposed_luna_reply:  ${r.proposed_luna_reply ?? '(n/a)'}`);
+  const a = (apiBody && apiBody.availability) || {};
+  if (apiBody.availability != null) {
+    console.log('\n── availability dry-run (27g) ──');
+    console.log(`availability_check_attempted: ${a.availability_check_attempted === true}`);
+    console.log(`availability_status:         ${a.availability_status ?? '(n/a)'}`);
+    console.log(`availability_result_summary: ${a.availability_result_summary ?? '(n/a)'}`);
+    console.log(`availability_handoff_required: ${a.availability_handoff_required === true}`);
+    console.log(`availability_handoff_reasons: ${JSON.stringify(a.availability_handoff_reasons || [])}`);
+  }
   console.log('\n── safety flags ──');
   console.log(`dry_run:              ${apiBody.dry_run === true || r.dry_run === true}`);
   console.log(`sends_whatsapp:       ${apiBody.sends_whatsapp === false && (r.sends_whatsapp == null || r.sends_whatsapp === false)}`);

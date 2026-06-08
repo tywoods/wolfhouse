@@ -280,6 +280,11 @@ const {
   runLunaGuestMessageRouterDryRun,
 } = require('./lib/luna-guest-message-router');
 const {
+  runGuestAvailabilityDryRun,
+  shouldAttemptGuestAvailability,
+  buildGuestAvailabilitySkippedResponse,
+} = require('./lib/luna-guest-availability-dry-run');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10071,9 +10076,9 @@ async function handleBotMessageIntakePreview(req, res, user, authMode) {
   }
 }
 
-// Route: POST /staff/bot/guest-intake-dry-run  (Stage 27c — read-only)
+// Route: POST /staff/bot/guest-intake-dry-run  (Stage 27c/27g — read-only)
 //
-// Guest message → Stage 27b lane router → proposed Luna reply.
+// Guest message → Stage 27b lane router → optional Stage 27f availability dry-run.
 // No writes, WhatsApp, Meta, n8n, Stripe, or payment links.
 async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
   const started = Date.now();
@@ -10113,6 +10118,34 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
     };
 
     const result = runLunaGuestMessageRouterDryRun(input, context);
+
+    let availability;
+    if (shouldAttemptGuestAvailability(result)) {
+      try {
+        availability = await withPgClient((pg) => runGuestAvailabilityDryRun(result, {
+          pg,
+          client_slug: body.client_slug || DEFAULT_CLIENT,
+          room_type: body.room_type,
+        }));
+      } catch (_) {
+        availability = {
+          success: true,
+          dry_run: true,
+          preview_only: true,
+          no_write_performed: true,
+          live_send_blocked: true,
+          sends_whatsapp: false,
+          availability_check_attempted: true,
+          availability_status: 'error',
+          availability_result_summary: 'Availability check failed.',
+          availability_handoff_required: true,
+          availability_handoff_reasons: ['availability_check_error'],
+        };
+      }
+    } else {
+      availability = buildGuestAvailabilitySkippedResponse(result);
+    }
+
     const elapsed = Date.now() - started;
 
     appendAuditLog({
@@ -10132,6 +10165,8 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       message_lane:       result.message_lane,
       intake_state:       result.intake_state,
       safe_handoff_required: result.safe_handoff_required,
+      availability_check_attempted: availability.availability_check_attempted === true,
+      availability_status: availability.availability_status || null,
       staff_user_id:      actorId,
       auth_mode:          resolvedAuthMode,
       elapsed_ms:         elapsed,
@@ -10156,6 +10191,7 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       live_send_blocked: true,
       no_write_performed: true,
       result,
+      availability,
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     });
