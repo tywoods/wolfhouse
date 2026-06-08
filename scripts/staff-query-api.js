@@ -23369,7 +23369,7 @@ function lgsRenderReviewSummary(data){
     lines.push('Hold plan: ' + (r.hold_payment_draft_plan.plan_status || '—'));
   }
   if (r.handoff_reasons && r.handoff_reasons.length) lines.push('Handoff: ' + r.handoff_reasons.join(', '));
-  box.textContent = lines.join('\n');
+  box.textContent = lines.join(String.fromCharCode(10));
 }
 
 function lgsUpdateButtons(){
