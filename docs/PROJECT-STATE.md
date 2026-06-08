@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27s.1 — Hosted confirmation live-send proof**): **PASS**. Staging proof on `b23f446` image `b23f446-stage27s1-live-send-allowlist`. **One live WhatsApp** to allowlisted `+491726422307`; non-allowlisted blocked; dry-run restored. Doc: [STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md](STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md) §9. Verifier: `verify:stage27s1-hosted-proof-doc`.
+**Last updated:** 2026-06-08 (**Stage 27t — Guest automation gate design lock**): **DESIGN LOCK** (docs only). Entry gates, automation states, required fields, handoff cases, source-of-truth, send policy, and 27u–27x sequence before public guest intake wiring. **No public guest automation wired.** Proven chain: 27q/27r/27s/27s.1. Doc: [STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md](STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md). Verifier: `verify:stage27t-guest-automation-gate-design`.
+
+**Prior — Stage 27s.1 (2026-06-08):** Hosted confirmation live-send proof — **PASS**. Doc: [STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md](STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md) §9.
 
 **Prior — Stage 27s (2026-06-08):** Confirmation live-send allowlist — **PASS** (local). `LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST` gate. Verifier: `verify:stage27s-confirmation-live-send-allowlist`.
 
