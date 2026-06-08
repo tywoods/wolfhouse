@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27s — Confirmation live-send allowlist**): **PASS**. `LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST` gate in go/no-go path. **Live send:** only when `WHATSAPP_DRY_RUN=false` + allowlisted recipient + `confirm_send:true` + 27q ready. **Block:** `recipient_not_allowlisted`. Module: `luna-guest-confirmation-live-send-allowlist.js`. Verifier: `verify:stage27s-confirmation-live-send-allowlist`. Doc: [STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md](STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md).
+**Last updated:** 2026-06-08 (**Stage 27s.1 — Hosted confirmation live-send proof**): **PASS**. Staging proof on `b23f446` image `b23f446-stage27s1-live-send-allowlist`. **One live WhatsApp** to allowlisted `+491726422307`; non-allowlisted blocked; dry-run restored. Doc: [STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md](STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md) §9. Verifier: `verify:stage27s1-hosted-proof-doc`.
+
+**Prior — Stage 27s (2026-06-08):** Confirmation live-send allowlist — **PASS** (local). `LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST` gate. Verifier: `verify:stage27s-confirmation-live-send-allowlist`.
 
 **Prior — Stage 27r (2026-06-08):** Confirmation send go/no-go — **PASS**. Doc: [STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md](STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md).
 
