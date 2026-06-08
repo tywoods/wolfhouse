@@ -1,0 +1,17 @@
+{
+  "_note": "Staff Portal client access until admin portal exists. all_clients_emails get every *.baseline.json client.",
+  "all_clients_emails": [
+    "tywoods@gmail.com"
+  ],
+  "portal_admin_emails": [
+    "tywoods@gmail.com"
+  ],
+  "client_access": {
+    "operator.stage72c@example.test": [
+      "wolfhouse-somo"
+    ],
+    "admin.stage72c@example.test": [
+      "wolfhouse-somo"
+    ]
+  }
+}
