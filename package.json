@@ -182,6 +182,7 @@
     "verify:stage27e-booking-intake-readiness": "node scripts/verify-stage27e-booking-intake-readiness.js",
     "verify:stage27f-guest-availability-dry-run": "node scripts/verify-stage27f-guest-availability-dry-run.js",
     "verify:stage27g-guest-intake-availability-wire": "node scripts/verify-stage27g-guest-intake-availability-wire.js",
+    "verify:stage27h-guest-quote-proposal-dry-run": "node scripts/verify-stage27h-guest-quote-proposal-dry-run.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",

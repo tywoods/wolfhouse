@@ -1,8 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27g — Guest intake availability wire**): **PASS**. `POST /staff/bot/guest-intake-dry-run` returns `{ result, availability }`; availability runs only when 27e gate passes (`booking_intake_ready` + `ready_for_availability_check`); skipped path uses `buildGuestAvailabilitySkippedResponse`. Harness prints availability summary. Verifier: `verify:stage27g-guest-intake-availability-wire`. Doc: [STAGE-27G-GUEST-INTAKE-AVAILABILITY-WIRE.md](STAGE-27G-GUEST-INTAKE-AVAILABILITY-WIRE.md). **No deploy · no live send.** **Next:** **Stage 27h** — optional hosted staging proof.
+**Last updated:** 2026-06-08 (**Stage 27h — Guest quote proposal dry-run adapter**): **PASS**. `runGuestQuoteProposalDryRun(routerResult, availabilityResult, context)` gates on 27e ready + 27f `availability_status:available`; delegates to `runBookingPreviewDryRun` → `calculateWolfhouseQuote`. Deposit tiers €200/€100; asks deposit vs full when ready; no payment link/booking confirm. Verifier: `verify:stage27h-guest-quote-proposal-dry-run`. Doc: [STAGE-27H-GUEST-QUOTE-PROPOSAL-DRY-RUN.md](STAGE-27H-GUEST-QUOTE-PROPOSAL-DRY-RUN.md). **Next:** **Stage 27i** — wire quote into intake endpoint/harness.
 
-**Prior — Stage 27f (2026-06-08):** Guest availability dry-run adapter — **PASS**. Doc: [STAGE-27F-GUEST-AVAILABILITY-DRY-RUN.md](STAGE-27F-GUEST-AVAILABILITY-DRY-RUN.md).
+**Prior — Stage 27g (2026-06-08):** Guest intake availability wire — **PASS**. Doc: [STAGE-27G-GUEST-INTAKE-AVAILABILITY-WIRE.md](STAGE-27G-GUEST-INTAKE-AVAILABILITY-WIRE.md).
 
 **Prior — Stage 27e (2026-06-08):** Booking intake readiness gate — **PASS**. Doc: [STAGE-27E-BOOKING-INTAKE-READINESS.md](STAGE-27E-BOOKING-INTAKE-READINESS.md).
 
