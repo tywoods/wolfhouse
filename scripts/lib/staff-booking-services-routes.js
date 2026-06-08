@@ -56,7 +56,7 @@ SELECT sr.id::text AS service_record_id,
 
 const UPDATE_SERVICE_DATE_SQL = `
 UPDATE booking_service_records
-   SET service_date = $1::date,
+   SET service_date = $1,
        updated_at = NOW()
  WHERE id = $2::uuid
    AND client_slug = $3
@@ -169,16 +169,21 @@ async function handlePatchBookingServiceDate(bookingId, serviceRecordId, req, re
   }
 
   const clientSlug = trimStr(body.client_slug || body.client);
-  const serviceDate = trimStr(body.service_date);
-
   if (!clientSlug) {
     return res.status(400).json({ success: false, error: 'client_slug is required' });
   }
-  if (!serviceDate) {
-    return res.status(400).json({ success: false, error: 'service_date is required' });
+
+  const clearing = body.service_date === null;
+  if (!clearing && (body.service_date === undefined || body.service_date === '')) {
+    return res.status(400).json({ success: false, error: 'service_date is required or null' });
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
-    return res.status(400).json({ success: false, error: 'service_date must be YYYY-MM-DD' });
+
+  let serviceDate = null;
+  if (!clearing) {
+    serviceDate = trimStr(body.service_date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
+      return res.status(400).json({ success: false, error: 'service_date must be YYYY-MM-DD or null' });
+    }
   }
 
   const timezone = clientTimezone(clientSlug);
@@ -189,7 +194,7 @@ async function handlePatchBookingServiceDate(bookingId, serviceRecordId, req, re
       const booking = bkRes.rows[0];
       if (!booking) return { notFound: true };
 
-      if (!isServiceDateInStay(serviceDate, booking.check_in, booking.check_out, timezone)) {
+      if (!clearing && !isServiceDateInStay(serviceDate, booking.check_in, booking.check_out, timezone)) {
         return {
           invalidDate: true,
           message: 'service_date must fall within stay nights (check-in through day before checkout)',
@@ -204,7 +209,7 @@ async function handlePatchBookingServiceDate(bookingId, serviceRecordId, req, re
       if (!existing.rows[0]) return { recordNotFound: true };
 
       const upd = await pg.query(UPDATE_SERVICE_DATE_SQL, [
-        serviceDate,
+        clearing ? null : serviceDate,
         serviceRecordId,
         clientSlug,
         bookingId,

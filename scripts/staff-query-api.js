@@ -13381,14 +13381,21 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-svc-schedule-day:last-child{margin-bottom:0}
 .bc-svc-schedule-day-header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:4px}
 .bc-svc-schedule-day-label{font-size:11px;font-weight:600;color:var(--text-2);flex:1}
-.bc-svc-schedule-add-btn{flex-shrink:0;width:22px;height:22px;padding:0;border:1px solid var(--border-soft);border-radius:999px;background:var(--surface-soft);color:var(--text-2);font-size:14px;line-height:1;cursor:pointer;font-weight:600}
-.bc-svc-schedule-add-btn:hover{background:var(--surface);border-color:var(--text-3)}
+.bc-svc-schedule-day-actions{display:flex;gap:4px;flex-shrink:0;align-items:center}
+.bc-svc-schedule-add-btn,.bc-svc-schedule-remove-btn{flex-shrink:0;width:22px;height:22px;padding:0;border:1px solid var(--border-soft);border-radius:999px;background:var(--surface-soft);color:var(--text-2);font-size:14px;line-height:1;cursor:pointer;font-weight:600}
+.bc-svc-schedule-add-btn:hover,.bc-svc-schedule-remove-btn:hover:not(:disabled){background:var(--surface);border-color:var(--text-3)}
+.bc-svc-schedule-remove-btn:disabled{opacity:.4;cursor:default}
+.bc-svc-add-remove-panel{margin:0 0 10px;padding:0;border:none;background:transparent}
+.bc-svc-add-remove-panel .bc-add-ons-actions{display:flex;gap:8px;flex-wrap:wrap}
 .bc-svc-schedule-picker{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-soft);display:none}
 .bc-svc-schedule-picker.is-open{display:block}
+.bc-svc-unschedule-picker{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-soft);display:none}
+.bc-svc-unschedule-picker.is-open{display:block}
 .bc-svc-picker-list{display:flex;flex-direction:column;gap:4px}
 .bc-svc-picker-option{display:block;width:100%;text-align:left;padding:6px 8px;font-size:11px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);cursor:pointer;line-height:1.35}
-.bc-svc-picker-option:hover{background:var(--surface)}
-.bc-svc-picker-option:disabled{opacity:.55;cursor:wait}
+.bc-svc-picker-option:hover,.bc-svc-unschedule-option:hover{background:var(--surface)}
+.bc-svc-picker-option:disabled,.bc-svc-unschedule-option:disabled{opacity:.55;cursor:wait}
+.bc-svc-unschedule-option{display:block;width:100%;text-align:left;padding:6px 8px;font-size:11px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);cursor:pointer;line-height:1.35}
 .bc-svc-chip{display:inline-block;margin:2px 6px 2px 0;padding:3px 8px;font-size:11px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border-soft);line-height:1.35}
 .bc-svc-chip-meta{font-size:10px;color:var(--text-2)}
 .bc-svc-unscheduled-list{display:flex;flex-direction:column;gap:6px}
@@ -18728,8 +18735,8 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){
   };
   var sortedLedgerRows = bcPaymentLedgerSortRows(ledgerRows, balanceDue);
 
-  html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
   html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
+  html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
 
   html += '</div></div>';
 
@@ -18848,7 +18855,7 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
   var paidInFull = invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal;
   if (paidInFull || balanceDue == null || balanceDue <= 0) return '';
 
-  var html = '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">';
+  var html = '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:8px">';
   html += '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn">Generate Payment Link</button>';
   html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite"></div>';
   html += '</div>';
@@ -19012,7 +19019,7 @@ function bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund){
   if (invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal) return '';
   var today = new Date().toISOString().slice(0, 10);
   return '<div class="ctx-cash-payment" id="bc-cash-payment" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">' +
-    '<button type="button" class="btn btn-ghost" id="bc-record-cash-btn">Record cash payment</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-record-cash-btn">Record Cash Payment</button>' +
     '<div class="bc-cash-payment-form-wrap ctx-field-edit" id="bc-cash-payment-form-wrap" style="display:none;margin-top:10px">' +
     '<label class="ctx-field-label" for="bc-cash-payment-amount">Amount (\u20ac)</label>' +
     '<input type="number" id="bc-cash-payment-amount" class="bk-input bk-input-sm" min="0.01" step="0.01" placeholder="0.00">' +
@@ -20003,13 +20010,11 @@ function bcNewRemoveServiceIdempotencyKey(){
 
 function bcRenderAddServicePanelHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) return '';
-  return '<div class="ctx-section ctx-add-ons-panel" id="bc-add-ons-panel">' +
-    '<div class="bc-add-ons-header">' +
-    '<span class="bc-add-ons-title">Add or remove</span>' +
+  return '<div class="ctx-section ctx-add-ons-panel bc-svc-add-remove-panel" id="bc-add-ons-panel">' +
     '<div class="bc-add-ons-actions">' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-btn">Add</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-btn" style="display:none">Remove</button>' +
-    '</div></div>' +
+    '</div>' +
     '<div id="bc-add-ons-remove-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
     '<label class="ctx-field-label" for="bc-add-ons-remove-select">Remove add-on</label>' +
     '<select id="bc-add-ons-remove-select" class="bk-input bk-input-sm"></select>' +
@@ -20874,7 +20879,8 @@ function bcRemoveTransfer(direction){
         return;
       }
       bcClearTransferForm(direction);
-      bcTransferShowResult(direction, 'Transfer removed.', false);
+      var resultEl = el('bc-transfer-' + direction + '-result');
+      if (resultEl){ resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
       bcRefreshTransferPebbleSummary({ booking: { booking_id: bcTransferCtx.bookingId } });
     })
     .catch(function(e){
@@ -21093,13 +21099,10 @@ function bcRenderSchedulePickerHtml(unsched, targetDate){
   return html;
 }
 
-function bcRenderServicesScheduleBody(data){
-  if (!data || !data.success) {
-    return '<div class="state-msg error">' + escHtml((data && data.error) || 'Failed to load services') + '</div>';
-  }
+function bcRenderServicesSummarySection(data){
+  if (!data || !data.success) return '';
   var html = '';
   var pkg = data.package_summary || {};
-  var unsched = data.unscheduled_services || [];
   html += '<div class="bc-drawer-overview-card bc-svc-summary-card" id="bc-svc-summary-card">';
   html += '<div class="bc-svc-summary-headline">' +
     escHtml(pkg.headline || ((pkg.package_name || 'No Package') + ' \u00b7 ' + (pkg.nights != null ? pkg.nights : 0) + ' nights')) +
@@ -21116,6 +21119,29 @@ function bcRenderServicesScheduleBody(data){
     html += '</div>';
   }
   html += '</div>';
+  return html;
+}
+
+function bcRenderUnschedulePickerHtml(services){
+  if (!services || !services.length) {
+    return '<div class="ctx-none" style="font-size:11px">No scheduled services to remove.</div>';
+  }
+  var html = '<div class="bc-svc-picker-list">';
+  services.forEach(function(s){
+    var rid = s.service_record_id || '';
+    html += '<button type="button" class="bc-svc-unschedule-option" data-record-id="' + escHtml(rid) + '">' +
+      escHtml(s.summary_line || bcFormatServiceSummaryLine(s)) + '</button>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function bcRenderServicesScheduleSections(data){
+  if (!data || !data.success) {
+    return '<div class="state-msg error">' + escHtml((data && data.error) || 'Failed to load services') + '</div>';
+  }
+  var html = '';
+  var unsched = data.unscheduled_services || [];
 
   html += '<div class="bc-drawer-overview-card bc-svc-schedule-section" id="bc-svc-schedule-section">';
   html += '<div class="bc-svc-schedule-title">Service schedule</div>';
@@ -21124,19 +21150,28 @@ function bcRenderServicesScheduleBody(data){
     html += '<div class="ctx-none">No stay dates for this booking.</div>';
   } else {
     groups.forEach(function(g){
+      var dayServices = g.services || [];
+      var hasScheduled = dayServices.length > 0;
       html += '<div class="bc-svc-schedule-day" data-date="' + escHtml(g.date || '') + '">';
       html += '<div class="bc-svc-schedule-day-header">';
       html += '<div class="bc-svc-schedule-day-label">' + escHtml(g.label || g.date || '\u2014') + '</div>';
+      html += '<div class="bc-svc-schedule-day-actions">';
       html += '<button type="button" class="bc-svc-schedule-add-btn" data-date="' + escHtml(g.date || '') +
         '" title="Schedule service" aria-label="Schedule service for ' + escHtml(g.label || g.date || '') + '">+</button>';
-      html += '</div>';
-      if (!g.services || !g.services.length) {
+      html += '<button type="button" class="bc-svc-schedule-remove-btn" data-date="' + escHtml(g.date || '') +
+        '" title="Unschedule service" aria-label="Unschedule service for ' + escHtml(g.label || g.date || '') + '"' +
+        (hasScheduled ? '' : ' disabled') + '>\u2212</button>';
+      html += '</div></div>';
+      if (!hasScheduled) {
         html += '<div class="ctx-none" style="font-size:11px">No services scheduled</div>';
       } else {
-        g.services.forEach(function(s){ html += bcRenderServiceChipHtml(s); });
+        dayServices.forEach(function(s){ html += bcRenderServiceChipHtml(s); });
       }
       html += '<div class="bc-svc-schedule-picker" data-date="' + escHtml(g.date || '') + '">';
       html += bcRenderSchedulePickerHtml(unsched, g.date);
+      html += '</div>';
+      html += '<div class="bc-svc-unschedule-picker" data-date="' + escHtml(g.date || '') + '">';
+      html += bcRenderUnschedulePickerHtml(dayServices);
       html += '</div>';
       html += '</div>';
     });
@@ -21161,9 +21196,40 @@ function bcRenderServicesScheduleBody(data){
   return html;
 }
 
+function bcRenderServicesScheduleBody(data){
+  return bcRenderServicesSummarySection(data) + bcRenderServicesScheduleSections(data);
+}
+
+function bcApplyServicesScheduleData(bk, data){
+  var summaryEl = el('bc-services-summary-section');
+  var bodyEl = el('bc-services-schedule-body');
+  if (data && data.success) {
+    if (summaryEl) summaryEl.innerHTML = bcRenderServicesSummarySection(data);
+    if (bodyEl) {
+      bodyEl.classList.remove('ctx-loading');
+      bodyEl.innerHTML = bcRenderServicesScheduleSections(data);
+      bcInitServicesSchedulePickers(bk, bodyEl);
+    }
+  } else {
+    var err = '<div class="state-msg error">' + escHtml((data && data.error) || 'Failed to load services') + '</div>';
+    if (summaryEl) summaryEl.innerHTML = '';
+    if (bodyEl) {
+      bodyEl.classList.remove('ctx-loading');
+      bodyEl.innerHTML = err;
+    }
+  }
+}
+
 function bcInitServicesSchedulePickers(bk, bodyEl){
   if (!bodyEl || !bk || !bk.booking_id) return;
   var client = getBcClient();
+
+  function closeAllPickers(except){
+    bodyEl.querySelectorAll('.bc-svc-schedule-picker.is-open, .bc-svc-unschedule-picker.is-open').forEach(function(p){
+      if (p !== except) p.classList.remove('is-open');
+    });
+  }
+
   bodyEl.querySelectorAll('.bc-svc-schedule-add-btn').forEach(function(btn){
     btn.addEventListener('click', function(ev){
       ev.stopPropagation();
@@ -21172,53 +21238,78 @@ function bcInitServicesSchedulePickers(bk, bodyEl){
       var picker = dayEl.querySelector('.bc-svc-schedule-picker');
       if (!picker) return;
       var wasOpen = picker.classList.contains('is-open');
-      bodyEl.querySelectorAll('.bc-svc-schedule-picker.is-open').forEach(function(p){
-        p.classList.remove('is-open');
-      });
+      closeAllPickers();
       if (!wasOpen) picker.classList.add('is-open');
     });
   });
+
+  bodyEl.querySelectorAll('.bc-svc-schedule-remove-btn').forEach(function(btn){
+    btn.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      if (btn.disabled) return;
+      var dayEl = btn.closest('.bc-svc-schedule-day');
+      if (!dayEl) return;
+      var picker = dayEl.querySelector('.bc-svc-unschedule-picker');
+      if (!picker) return;
+      var wasOpen = picker.classList.contains('is-open');
+      closeAllPickers();
+      if (!wasOpen) picker.classList.add('is-open');
+    });
+  });
+
+  function patchServiceDate(recordId, serviceDate, optBtn){
+    if (!recordId) return;
+    if (optBtn) optBtn.disabled = true;
+    var url = '/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/services/' +
+      encodeURIComponent(recordId) + '/date';
+    fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_slug: client, service_date: serviceDate }),
+    })
+      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+      .then(function(res){
+        if (!bodyEl) return;
+        if (!res.ok || !res.data || !res.data.success) {
+          var errMsg = (res.data && res.data.error) || 'Failed to update service schedule';
+          bodyEl.insertAdjacentHTML('afterbegin',
+            '<div class="state-msg error bc-svc-schedule-flash">' + escHtml(errMsg) + '</div>');
+          setTimeout(function(){
+            var flash = bodyEl.querySelector('.bc-svc-schedule-flash');
+            if (flash) flash.remove();
+          }, 4000);
+          if (optBtn) optBtn.disabled = false;
+          return;
+        }
+        bcApplyServicesScheduleData(bk, res.data);
+      })
+      .catch(function(e){
+        if (bodyEl) {
+          bodyEl.insertAdjacentHTML('afterbegin',
+            '<div class="state-msg error bc-svc-schedule-flash">' + escHtml(e.message || 'Network error') + '</div>');
+          setTimeout(function(){
+            var flash = bodyEl.querySelector('.bc-svc-schedule-flash');
+            if (flash) flash.remove();
+          }, 4000);
+        }
+        if (optBtn) optBtn.disabled = false;
+      });
+  }
+
   bodyEl.querySelectorAll('.bc-svc-picker-option').forEach(function(optBtn){
     optBtn.addEventListener('click', function(){
       var recordId = optBtn.getAttribute('data-record-id');
       var serviceDate = optBtn.getAttribute('data-date');
       if (!recordId || !serviceDate) return;
-      optBtn.disabled = true;
-      var url = '/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/services/' +
-        encodeURIComponent(recordId) + '/date';
-      fetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_slug: client, service_date: serviceDate }),
-      })
-        .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
-        .then(function(res){
-          if (!bodyEl) return;
-          if (!res.ok || !res.data || !res.data.success) {
-            var errMsg = (res.data && res.data.error) || 'Failed to schedule service';
-            bodyEl.insertAdjacentHTML('afterbegin',
-              '<div class="state-msg error bc-svc-schedule-flash">' + escHtml(errMsg) + '</div>');
-            setTimeout(function(){
-              var flash = bodyEl.querySelector('.bc-svc-schedule-flash');
-              if (flash) flash.remove();
-            }, 4000);
-            optBtn.disabled = false;
-            return;
-          }
-          bodyEl.innerHTML = bcRenderServicesScheduleBody(res.data);
-          bcInitServicesSchedulePickers(bk, bodyEl);
-        })
-        .catch(function(e){
-          if (bodyEl) {
-            bodyEl.insertAdjacentHTML('afterbegin',
-              '<div class="state-msg error bc-svc-schedule-flash">' + escHtml(e.message || 'Network error') + '</div>');
-            setTimeout(function(){
-              var flash = bodyEl.querySelector('.bc-svc-schedule-flash');
-              if (flash) flash.remove();
-            }, 4000);
-          }
-          optBtn.disabled = false;
-        });
+      patchServiceDate(recordId, serviceDate, optBtn);
+    });
+  });
+
+  bodyEl.querySelectorAll('.bc-svc-unschedule-option').forEach(function(optBtn){
+    optBtn.addEventListener('click', function(){
+      var recordId = optBtn.getAttribute('data-record-id');
+      if (!recordId) return;
+      patchServiceDate(recordId, null, optBtn);
     });
   });
 }
@@ -21232,9 +21323,7 @@ function bcRefreshServicesSchedule(bk, bodyEl){
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
       if (!bodyEl) return;
-      bodyEl.classList.remove('ctx-loading');
-      bodyEl.innerHTML = bcRenderServicesScheduleBody(res.ok ? res.data : res.data);
-      bcInitServicesSchedulePickers(bk, bodyEl);
+      bcApplyServicesScheduleData(bk, res.ok ? res.data : res.data);
     })
     .catch(function(e){
       if (bodyEl) {
@@ -21262,8 +21351,9 @@ function bcRenderServicesTabHtml(bk){
       '<div class="ctx-none">Not available for cancelled bookings.</div></div>';
   }
   var html = '<div class="ctx-section ctx-services-tab" id="bc-services-tab">';
-  html += '<div id="bc-services-schedule-body" class="ctx-loading">Loading service schedule\u2026</div>';
+  html += '<div id="bc-services-summary-section"></div>';
   html += bcRenderAddServicePanelHtml(bk);
+  html += '<div id="bc-services-schedule-body" class="ctx-loading">Loading service schedule\u2026</div>';
   html += '</div>';
   return html;
 }
@@ -21292,10 +21382,7 @@ function renderBookingContextDrawer(data){
   html += '<h3 class="bc-drawer-card-title">Booking details</h3>';
   html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
-  html += bcRenderRoomingBriefHtml(data);
   html += '</div>';
-
-  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt);
 
   var rmMove = data.rooming || {};
   var moveAssigns = rmMove.assignments || [];
@@ -21341,6 +21428,8 @@ function renderBookingContextDrawer(data){
       html += '</div>';
   }
   html += '</div>';
+
+  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt);
 
   html += '</div>';
 

@@ -122,9 +122,12 @@ if (/ctx-payment-history-card/.test(invoiceSlice) && /Payment history/.test(invo
 if (/ctx-pay-record/.test(invoiceSlice) && /ctx-payments-col-history/.test(invoiceSlice)) {
   pass('C6', 'receipts in Payment History column');
 } else fail('C6', 'receipt stack');
-if (/bc-generate-payment-link-btn/.test(apiSrc) && /Record cash payment|bc-cash-payment/.test(apiSrc)) {
-  pass('C7', 'Generate Payment Link + Record cash payment retained');
+if (/bc-generate-payment-link-btn/.test(apiSrc) && /Record Cash Payment|bc-cash-payment/.test(apiSrc)) {
+  pass('C7', 'Generate Payment Link + Record Cash Payment retained');
 } else fail('C7', 'payment actions');
+if (/bcRenderCashPaymentFormHtml[\s\S]{0,800}bcRenderPaymentLinkSectionHtml/.test(invoiceSlice)) {
+  pass('C8', 'Record Cash Payment before Generate Payment Link');
+} else fail('C8', 'payment button order');
 
 section('D. Payments bottom spacer');
 

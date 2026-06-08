@@ -50,7 +50,10 @@ try {
 const scheduleSrc = readOrEmpty(SCHEDULE);
 const routesSrc = readOrEmpty(ROUTES);
 const apiSrc = readOrEmpty(API);
-const servicesUiSlice = (apiSrc.match(/function bcRenderServicesScheduleBody[\s\S]{0,4500}/) || [''])[0];
+const servicesUiSlice = (
+  (apiSrc.match(/function bcRenderServicesSummarySection[\s\S]{0,2000}/) || [''])[0]
+  + (apiSrc.match(/function bcRenderServicesScheduleSections[\s\S]{0,4500}/) || [''])[0]
+);
 
 section('A. Schedule helper polish');
 
@@ -119,7 +122,7 @@ if (/No unscheduled services to schedule/.test(apiSrc)) pass('D6', 'empty picker
 else fail('D6', 'empty picker');
 if (/Unscheduled services/.test(servicesUiSlice)) pass('D7', 'unscheduled section');
 else fail('D7', 'unscheduled');
-if (/bcRenderAddServicePanelHtml/.test(apiSrc) && /Add or remove/.test(apiSrc)) {
+if (/bcRenderAddServicePanelHtml/.test(apiSrc) && /id="bc-add-ons-btn">Add</.test(apiSrc)) {
   pass('D8', 'existing add/remove controls');
 } else fail('D8', 'add/remove');
 
@@ -131,7 +134,7 @@ if (/method:\s*'PATCH'/.test(apiSrc) && /\/services\/[\s\S]{0,80}\/date/.test(ap
 if (/bcInitServicesSchedulePickers|bcRefreshServicesSchedule/.test(apiSrc)) {
   pass('E2', 'schedule refresh without full drawer reload');
 } else fail('E2', 'tab-only refresh');
-if (/bcRenderServicesScheduleBody\(res\.data\)/.test(apiSrc)) {
+if (/bcApplyServicesScheduleData\(bk, res\.data\)/.test(apiSrc)) {
   pass('E3', 're-render Services tab body after schedule');
 } else fail('E3', 'post-PATCH render');
 
