@@ -1,5 +1,5 @@
 /**
- * Stage 27d/27g — Manual harness for POST /staff/bot/guest-intake-dry-run.
+ * Stage 27d/27g/27i — Manual harness for POST /staff/bot/guest-intake-dry-run.
  *
  * Usage:
  *   npm run guest:intake:dry-run -- --message "Hi, we are 2 people..."
@@ -216,6 +216,17 @@ function printSummary(apiBody) {
     console.log(`availability_result_summary: ${a.availability_result_summary ?? '(n/a)'}`);
     console.log(`availability_handoff_required: ${a.availability_handoff_required === true}`);
     console.log(`availability_handoff_reasons: ${JSON.stringify(a.availability_handoff_reasons || [])}`);
+  }
+  const q = (apiBody && apiBody.quote) || {};
+  if (apiBody.quote != null) {
+    console.log('\n── quote proposal dry-run (27i) ──');
+    console.log(`quote_proposal_attempted: ${q.quote_proposal_attempted === true}`);
+    console.log(`quote_status:              ${q.quote_status ?? '(n/a)'}`);
+    console.log(`quote_total_cents:         ${q.quote_total_cents ?? '(n/a)'}`);
+    console.log(`deposit_options:           ${q.deposit_options != null ? JSON.stringify(q.deposit_options) : '(n/a)'}`);
+    console.log(`payment_choice_needed:     ${q.payment_choice_needed === true}`);
+    console.log(`quote_handoff_required:    ${q.quote_handoff_required === true}`);
+    console.log(`quote_handoff_reasons:     ${JSON.stringify(q.quote_handoff_reasons || [])}`);
   }
   console.log('\n── safety flags ──');
   console.log(`dry_run:              ${apiBody.dry_run === true || r.dry_run === true}`);

@@ -289,6 +289,11 @@ const {
   buildGuestAvailabilitySkippedResponse,
 } = require('./lib/luna-guest-availability-dry-run');
 const {
+  runGuestQuoteProposalDryRun,
+  shouldAttemptGuestQuoteProposal,
+  buildGuestQuoteSkippedResponse,
+} = require('./lib/luna-guest-quote-proposal-dry-run');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10080,9 +10085,9 @@ async function handleBotMessageIntakePreview(req, res, user, authMode) {
   }
 }
 
-// Route: POST /staff/bot/guest-intake-dry-run  (Stage 27c/27g — read-only)
+// Route: POST /staff/bot/guest-intake-dry-run  (Stage 27c/27g/27i — read-only)
 //
-// Guest message → Stage 27b lane router → optional Stage 27f availability dry-run.
+// Guest message → Stage 27b lane router → optional Stage 27f availability → optional Stage 27h quote.
 // No writes, WhatsApp, Meta, n8n, Stripe, or payment links.
 async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
   const started = Date.now();
@@ -10150,6 +10155,37 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       availability = buildGuestAvailabilitySkippedResponse(result);
     }
 
+    const quoteContext = {
+      client_slug: body.client_slug || DEFAULT_CLIENT,
+      room_type: body.room_type,
+    };
+    let quote;
+    if (shouldAttemptGuestQuoteProposal(result, availability)) {
+      try {
+        quote = runGuestQuoteProposalDryRun(result, availability, quoteContext);
+      } catch (_) {
+        quote = {
+          success: true,
+          dry_run: true,
+          preview_only: true,
+          no_write_performed: true,
+          live_send_blocked: true,
+          sends_whatsapp: false,
+          quote_proposal_attempted: true,
+          quote_status: 'error',
+          quote_result_summary: 'Quote calculation failed.',
+          quote_total_cents: null,
+          deposit_options: null,
+          payment_choice_needed: false,
+          quote_handoff_required: true,
+          quote_handoff_reasons: ['quote_calculation_error'],
+          proposed_luna_reply: availability.proposed_luna_reply || result.proposed_luna_reply,
+        };
+      }
+    } else {
+      quote = buildGuestQuoteSkippedResponse(result, availability);
+    }
+
     const elapsed = Date.now() - started;
 
     appendAuditLog({
@@ -10171,6 +10207,8 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       safe_handoff_required: result.safe_handoff_required,
       availability_check_attempted: availability.availability_check_attempted === true,
       availability_status: availability.availability_status || null,
+      quote_proposal_attempted: quote.quote_proposal_attempted === true,
+      quote_status: quote.quote_status || null,
       staff_user_id:      actorId,
       auth_mode:          resolvedAuthMode,
       elapsed_ms:         elapsed,
@@ -10196,6 +10234,7 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       no_write_performed: true,
       result,
       availability,
+      quote,
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     });

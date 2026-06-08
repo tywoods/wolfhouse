@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27h — Guest quote proposal dry-run adapter**): **PASS**. `runGuestQuoteProposalDryRun(routerResult, availabilityResult, context)` gates on 27e ready + 27f `availability_status:available`; delegates to `runBookingPreviewDryRun` → `calculateWolfhouseQuote`. Deposit tiers €200/€100; asks deposit vs full when ready; no payment link/booking confirm. Verifier: `verify:stage27h-guest-quote-proposal-dry-run`. Doc: [STAGE-27H-GUEST-QUOTE-PROPOSAL-DRY-RUN.md](STAGE-27H-GUEST-QUOTE-PROPOSAL-DRY-RUN.md). **Next:** **Stage 27i** — wire quote into intake endpoint/harness.
+**Last updated:** 2026-06-08 (**Stage 27i — Guest intake quote wire**): **PASS**. Wired `runGuestQuoteProposalDryRun` into `POST /staff/bot/guest-intake-dry-run` and `guest:intake:dry-run` harness. **Response:** `{ success, dry_run, result, availability, quote }`. **Gate:** quote only when 27e ready + 27f `availability_status:available`; else `quote_proposal_attempted:false` / `quote_status:not_ready`. **Safety:** no booking/hold/payment draft/Stripe/WhatsApp/Meta/n8n. Verifier: `verify:stage27i-guest-intake-quote-wire`. Doc: [STAGE-27I-GUEST-INTAKE-QUOTE-WIRE.md](STAGE-27I-GUEST-INTAKE-QUOTE-WIRE.md). **Next:** **Stage 27j** — hosted staging proof.
+
+**Prior — Stage 27h (2026-06-08):** Guest quote proposal dry-run adapter — **PASS**. Doc: [STAGE-27H-GUEST-QUOTE-PROPOSAL-DRY-RUN.md](STAGE-27H-GUEST-QUOTE-PROPOSAL-DRY-RUN.md).
 
 **Prior — Stage 27g (2026-06-08):** Guest intake availability wire — **PASS**. Doc: [STAGE-27G-GUEST-INTAKE-AVAILABILITY-WIRE.md](STAGE-27G-GUEST-INTAKE-AVAILABILITY-WIRE.md).
 
