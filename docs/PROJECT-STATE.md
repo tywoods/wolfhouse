@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27u — Guest automation orchestrator dry-run**): **PASS**. `runGuestAutomationOrchestratorDryRun` applies 27t gate + chains 27b–27m helpers. **No public wiring, no live send, no writes.** Doc: [STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md](STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md). Verifier: `verify:stage27u-guest-automation-orchestrator-dry-run`.
+**Last updated:** 2026-06-08 (**Stage 27v — Guest automation review endpoint**): **PASS**. `POST /staff/bot/guest-automation-review-dry-run` · staff/bot auth · wraps 27u orchestrator in `review` payload. **No public wiring, no live send, no writes.** Doc: [STAGE-27V-GUEST-AUTOMATION-REVIEW.md](STAGE-27V-GUEST-AUTOMATION-REVIEW.md). Verifier: `verify:stage27v-guest-automation-review`.
+
+**Prior — Stage 27u (2026-06-08):** Guest automation orchestrator dry-run — **PASS**. Doc: [STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md](STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md).
 
 **Prior — Stage 27t (2026-06-08):** Guest automation gate design lock — **DESIGN LOCK**. Doc: [STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md](STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md).
 

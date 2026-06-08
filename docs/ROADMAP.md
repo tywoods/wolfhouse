@@ -1,4 +1,6 @@
-**Stage 27u GUEST AUTOMATION ORCHESTRATOR DRY-RUN — PASS (2026-06-08):** `runGuestAutomationOrchestratorDryRun` · 27t gate + 27b–27m chain · no writes/send/Stripe. Verifier: `verify:stage27u-guest-automation-orchestrator-dry-run`. Doc: [STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md](STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md). **Next:** 27v Staff Portal review surface.
+**Stage 27v GUEST AUTOMATION REVIEW ENDPOINT — PASS (2026-06-08):** `POST /staff/bot/guest-automation-review-dry-run` · `requireBotAuth` · 27u orchestrator → `review` object. Verifier: `verify:stage27v-guest-automation-review`. Doc: [STAGE-27V-GUEST-AUTOMATION-REVIEW.md](STAGE-27V-GUEST-AUTOMATION-REVIEW.md). **Next:** Staff Portal review panel or 27w allowlisted proof (explicit GO).
+
+**Stage 27u GUEST AUTOMATION ORCHESTRATOR DRY-RUN — PASS (2026-06-08):** `runGuestAutomationOrchestratorDryRun`. Verifier: `verify:stage27u-guest-automation-orchestrator-dry-run`. Doc: [STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md](STAGE-27U-GUEST-AUTOMATION-ORCHESTRATOR-DRY-RUN.md). **Next:** 27v staff review endpoint.
 
 **Stage 27t GUEST AUTOMATION GATE DESIGN — DESIGN LOCK (2026-06-08):** Docs-only gate design. Verifier: `verify:stage27t-guest-automation-gate-design`. Doc: [STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md](STAGE-27T-GUEST-AUTOMATION-GATE-DESIGN.md). **Next:** 27u orchestrator dry-run.
 

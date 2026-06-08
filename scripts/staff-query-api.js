@@ -300,6 +300,9 @@ const {
   buildGuestPaymentChoiceWireSkippedResponse,
 } = require('./lib/luna-guest-payment-choice-dry-run');
 const {
+  runGuestAutomationOrchestratorDryRun,
+} = require('./lib/luna-guest-automation-orchestrator-dry-run');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -10286,6 +10289,160 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       sends_whatsapp:    false,
       live_send_blocked: true,
       error:             'guest intake dry-run failed',
+      auth_mode:         resolvedAuthMode,
+      elapsed_ms:        elapsed,
+    });
+  }
+}
+
+function collectGuestAutomationReviewHandoffReasons(orchOut) {
+  const reasons = [];
+  const push = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const r of arr) {
+      if (r != null && String(r).trim()) reasons.push(String(r).trim());
+    }
+  };
+  if (orchOut && orchOut.automation_gate) push(orchOut.automation_gate.gate_reasons);
+  if (orchOut && orchOut.result) {
+    push(orchOut.result.handoff_reasons);
+    if (orchOut.result.safe_handoff_required) reasons.push('staff_handoff_required');
+  }
+  if (orchOut && orchOut.availability) push(orchOut.availability.availability_handoff_reasons);
+  if (orchOut && orchOut.quote) push(orchOut.quote.quote_handoff_reasons);
+  if (orchOut && orchOut.payment_choice) push(orchOut.payment_choice.payment_choice_reasons);
+  if (orchOut && orchOut.hold_payment_draft_plan) {
+    push(orchOut.hold_payment_draft_plan.plan_handoff_reasons);
+  }
+  return [...new Set(reasons)];
+}
+
+// Route: POST /staff/bot/guest-automation-review-dry-run  (Stage 27v — staff review)
+//
+// Staff-only preview of Stage 27u orchestrator: gate, chain state, proposed reply.
+// No writes, WhatsApp, Meta, n8n, Stripe, or public inbound wiring.
+async function handleBotGuestAutomationReviewDryRun(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = body.client_slug != null ? String(body.client_slug).trim() : '';
+  const channel = body.channel != null ? String(body.channel).trim() : '';
+  const messageText = body.message_text != null ? String(body.message_text).trim() : '';
+
+  const missing = [];
+  if (!clientSlug) missing.push('client_slug');
+  if (!channel) missing.push('channel');
+  if (!messageText) missing.push('message_text');
+  if (missing.length > 0) {
+    return sendJSON(res, 400, {
+      success:           false,
+      dry_run:           true,
+      sends_whatsapp:    false,
+      live_send_blocked: true,
+      error:             `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} required`,
+    });
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-guest-automation-review-local';
+
+  try {
+    const input = {
+      client_slug:             clientSlug,
+      channel,
+      message_text:            messageText,
+      guest_phone:             body.guest_phone,
+      conversation_id:         body.conversation_id,
+      language_hint:           body.language_hint,
+      guest_context:           body.guest_context,
+      reference_date:          body.reference_date,
+      automation_gate_context: body.automation_gate_context,
+      dry_run:                 true,
+    };
+    const context = {
+      reference_date: body.reference_date || undefined,
+      guest_phone:    body.guest_phone
+        || (body.guest_context && body.guest_context.guest_phone)
+        || undefined,
+      dry_run:        true,
+    };
+
+    const orchOut = await withPgClient((pg) => runGuestAutomationOrchestratorDryRun(input, {
+      ...context,
+      pg,
+    }));
+
+    const elapsed = Date.now() - started;
+
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_guest_automation_review_dry_run',
+      category:           'bot_guest_automation_review_dry_run',
+      dry_run:            true,
+      preview_only:       true,
+      no_write_performed: true,
+      creates_booking:    false,
+      creates_payment:    false,
+      creates_stripe_link: false,
+      sends_whatsapp:     false,
+      live_send_blocked:  true,
+      calls_n8n:          false,
+      success:            orchOut.success === true,
+      gate_status:        orchOut.automation_gate && orchOut.automation_gate.gate_status,
+      proposed_next_action: orchOut.proposed_next_action || null,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      success:           true,
+      dry_run:           true,
+      sends_whatsapp:    false,
+      live_send_blocked: true,
+      no_write_performed: true,
+      review: {
+        automation_gate:         orchOut.automation_gate,
+        proposed_next_action:    orchOut.proposed_next_action,
+        proposed_luna_reply:     orchOut.proposed_luna_reply,
+        result:                  orchOut.result,
+        availability:            orchOut.availability,
+        quote:                   orchOut.quote,
+        payment_choice:          orchOut.payment_choice,
+        hold_payment_draft_plan: orchOut.hold_payment_draft_plan,
+        handoff_reasons:         collectGuestAutomationReviewHandoffReasons(orchOut),
+      },
+      auth_mode:         resolvedAuthMode,
+      elapsed_ms:        elapsed,
+    });
+  } catch (_) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_guest_automation_review_dry_run',
+      category:           'bot_guest_automation_review_dry_run',
+      dry_run:            true,
+      preview_only:       true,
+      no_write_performed: true,
+      sends_whatsapp:     false,
+      live_send_blocked:  true,
+      success:            false,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:           false,
+      dry_run:           true,
+      sends_whatsapp:    false,
+      live_send_blocked: true,
+      error:             'guest automation review dry-run failed',
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     });
@@ -26488,6 +26645,18 @@ async function router(req, res) {
     return handleBotGuestIntakeDryRun(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Stage 27v — Luna guest automation review dry-run (staff-only) ─────────
+  // POST /staff/bot/guest-automation-review-dry-run
+  if (pathname === '/staff/bot/guest-automation-review-dry-run') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/guest-automation-review-dry-run' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotGuestAutomationReviewDryRun(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Phase 13c — Luna gated booking write bridge (default-deny) ─────────────
   // POST /staff/bot/booking-create-from-plan
   if (pathname === '/staff/bot/booking-create-from-plan') {
@@ -26935,6 +27104,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-reply-send <- 19d Luna guest reply send (default-deny, no send yet)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/message-intake-preview <- 15b Luna message intake preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-intake-dry-run <- 27c Luna guest intake dry-run (read-only, no send)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-automation-review-dry-run <- 27v Luna guest automation review (staff-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);
