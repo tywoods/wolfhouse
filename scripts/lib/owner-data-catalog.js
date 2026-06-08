@@ -352,7 +352,7 @@ WHERE b.id IN (
   SELECT DISTINCT booking_id FROM booking_service_records
   WHERE client_slug = $1 AND booking_id IS NOT NULL
 )
-AND b.status NOT IN ('cancelled', 'canceled', 'expired', 'hold')
+AND b.status NOT IN ('cancelled', 'expired', 'hold')
 AND COALESCE(b.balance_due_cents, 0) > 0
 ORDER BY b.check_in ASC
 LIMIT 100`,
@@ -377,7 +377,7 @@ FROM payments p
 INNER JOIN booking_service_records bsr
   ON bsr.booking_id = p.booking_id AND bsr.client_slug = $1
 WHERE p.paid_at IS NOT NULL
-  AND p.status IN ('paid', 'succeeded')
+  AND p.status = 'paid'
 GROUP BY 1
 ORDER BY 1 DESC
 LIMIT 100`,
@@ -401,7 +401,7 @@ WHERE b.id IN (
   WHERE client_slug = $1 AND booking_id IS NOT NULL
 )
 AND b.check_in = $2::date
-AND b.status NOT IN ('cancelled', 'canceled', 'expired')
+AND b.status NOT IN ('cancelled', 'expired')
 ORDER BY b.booking_code
 LIMIT 100`,
     expected_row_shape: {
@@ -425,7 +425,7 @@ WHERE b.id IN (
   WHERE client_slug = $1 AND booking_id IS NOT NULL
 )
 AND b.check_in = CURRENT_DATE + INTERVAL '1 day'
-AND b.status NOT IN ('cancelled', 'canceled', 'expired')
+AND b.status NOT IN ('cancelled', 'expired')
 ORDER BY b.booking_code
 LIMIT 100`,
     expected_row_shape: {
@@ -448,7 +448,7 @@ WHERE b.id IN (
   WHERE client_slug = $1 AND booking_id IS NOT NULL
 )
 AND b.check_out = $2::date
-AND b.status NOT IN ('cancelled', 'canceled', 'expired')
+AND b.status NOT IN ('cancelled', 'expired')
 ORDER BY b.booking_code
 LIMIT 100`,
     expected_row_shape: {
@@ -495,7 +495,7 @@ WHERE b.id IN (
   SELECT DISTINCT booking_id FROM booking_service_records
   WHERE client_slug = $1 AND booking_id IS NOT NULL
 )
-AND b.status NOT IN ('cancelled', 'canceled', 'expired', 'hold')
+AND b.status NOT IN ('cancelled', 'expired', 'hold')
 AND b.package_code IS NOT NULL
 GROUP BY b.package_code
 ORDER BY booking_count DESC
@@ -538,7 +538,7 @@ WHERE b.id IN (
   SELECT DISTINCT booking_id FROM booking_service_records
   WHERE client_slug = $1 AND booking_id IS NOT NULL
 )
-AND b.status NOT IN ('cancelled', 'canceled', 'expired', 'hold')
+AND b.status NOT IN ('cancelled', 'expired', 'hold')
 GROUP BY b.booking_source
 ORDER BY booking_count DESC
 LIMIT 100`,
@@ -649,6 +649,7 @@ function getOwnerTablePolicy(table) {
     recommended_joins: (entry.recommended_joins || []).map((j) => ({ ...j })),
     allowed_columns: [...entry.allowed_columns],
     sensitive_columns: [...entry.sensitive_columns],
+    allow_select_star: entry.allow_select_star === true,
     diagnostics_only: entry.diagnostics_only === true,
     sql_allowlisted: entry.sql_allowlisted !== false,
     notes: entry.notes,
@@ -670,7 +671,7 @@ function describeOwnerCatalogForAi(opts = {}) {
   const slug = trimStr(opts.client_slug) || '<client_slug>';
   const lines = [
     'Owner Command Center data catalog (Phase 25e).',
-    'All SQL must pass validateOwnerReadOnlySql: SELECT-only, client_slug = $1 in text, allowlisted tables, LIMIT <= 100.',
+    'All SQL must pass validateOwnerReadOnlySql: SELECT-only, client_slug = $1 in text, allowlisted tables, catalog column allowlist, no SELECT *, LIMIT <= 100.',
     '',
     'Table scoping:',
   ];
@@ -693,6 +694,36 @@ function describeOwnerCatalogForAi(opts = {}) {
   return lines.join('\n');
 }
 
+/**
+ * Column allow/deny sets for owner SQL validation (Stage 25e.2).
+ *
+ * @param {string} table
+ * @returns {{ allowed: Set<string>, sensitive: Set<string>, allow_select_star: boolean }|null}
+ */
+function getOwnerTableColumnPolicy(table) {
+  const policy = getOwnerTablePolicy(table);
+  if (!policy) return null;
+  return {
+    allowed: new Set(policy.allowed_columns.map((c) => c.toLowerCase())),
+    sensitive: new Set(policy.sensitive_columns.map((c) => c.toLowerCase())),
+    allow_select_star: policy.allow_select_star === true,
+  };
+}
+
+/**
+ * Union of sensitive column names across SQL-allowlisted catalog tables.
+ *
+ * @returns {Set<string>}
+ */
+function getOwnerSensitiveColumnUnion() {
+  const out = new Set(GLOBAL_SENSITIVE_COLUMNS.map((c) => c.toLowerCase()));
+  for (const entry of Object.values(TABLE_CATALOG)) {
+    if (entry.sql_allowlisted === false) continue;
+    for (const col of entry.sensitive_columns) out.add(col.toLowerCase());
+  }
+  return out;
+}
+
 module.exports = {
   SCOPE_MODES,
   GLOBAL_SENSITIVE_COLUMNS,
@@ -702,6 +733,8 @@ module.exports = {
   getOwnerClientScopedTables,
   getOwnerAllowedColumns,
   getOwnerTablePolicy,
+  getOwnerTableColumnPolicy,
+  getOwnerSensitiveColumnUnion,
   getOwnerApprovedQueryTemplates,
   describeOwnerCatalogForAi,
 };

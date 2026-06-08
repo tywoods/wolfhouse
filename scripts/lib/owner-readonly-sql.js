@@ -3,7 +3,7 @@
 /**
  * Phase 25d — Owner Command Center read-only SQL validator and executor.
  *
- * Safety layer before AI SQL planning (25e+). SELECT-only, client-scoped, allowlisted tables.
+ * Safety layer before AI SQL planning (25e+). SELECT-only, client-scoped, allowlisted tables/columns.
  *
  * @module owner-readonly-sql
  */
@@ -11,6 +11,8 @@
 const {
   getOwnerAllowedTables,
   getOwnerClientScopedTables,
+  getOwnerTableColumnPolicy,
+  getOwnerSensitiveColumnUnion,
 } = require('./owner-data-catalog');
 
 const DEFAULT_MAX_LIMIT = 100;
@@ -207,6 +209,188 @@ function validateAllowedTables(normalizedSql, allowedTables) {
   return { ok: true, referenced_tables: refs };
 }
 
+function stripStringLiterals(sql) {
+  return String(sql || '').replace(/'(?:''|[^'])*'/g, " '' ");
+}
+
+function extractTableAliasMap(normalizedSql) {
+  const cteNames = extractCteNames(normalizedSql);
+  const map = {};
+  const re = /\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)(?:\s+(?:AS\s+)?([a-z_][a-z0-9_]*))?/gi;
+  let m;
+  while ((m = re.exec(normalizedSql)) !== null) {
+    const table = m[1].toLowerCase();
+    if (cteNames.has(table)) continue;
+    const alias = (m[2] || m[1]).toLowerCase();
+    map[alias] = table;
+  }
+  return map;
+}
+
+function isScopingFilterColumn(column) {
+  return column === 'client_slug';
+}
+
+const SQL_KEYWORDS = new Set([
+  'select', 'from', 'where', 'as', 'and', 'or', 'not', 'in', 'is', 'null', 'true', 'false',
+  'case', 'when', 'then', 'else', 'end', 'distinct', 'over', 'by', 'asc', 'desc', 'limit',
+  'offset', 'inner', 'left', 'right', 'join', 'on', 'with', 'group', 'having', 'order', 'union',
+  'all', 'interval', 'day', 'days', 'current_date', 'date', 'text', 'integer', 'month', 'year',
+  'paid', 'cancelled', 'expired', 'hold', 'requested', 'confirmed', 'cancelled', 'not', 'between',
+  'like', 'ilike', 'exists', 'any', 'some', 'coalesce', 'sum', 'count', 'min', 'max', 'avg',
+  'date_trunc', 'generate_series', 'cast', 'nullif', 'filter', 'within', 'without', 'using',
+]);
+
+function splitSelectList(selectList) {
+  const items = [];
+  let depth = 0;
+  let cur = '';
+  for (let i = 0; i < selectList.length; i += 1) {
+    const ch = selectList[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth -= 1;
+    else if (ch === ',' && depth === 0) {
+      if (cur.trim()) items.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) items.push(cur.trim());
+  return items;
+}
+
+function isAggregateOrFunctionExpression(expr) {
+  const e = trimStr(expr);
+  return /^(COUNT|SUM|MIN|MAX|AVG|DATE_TRUNC|COALESCE|CAST|NULLIF|CASE|GROUP\s+BY)\b/i.test(e)
+    || /^\(\s*SELECT\b/i.test(e);
+}
+
+function hasForbiddenSelectStar(sqlNoStrings, referencedTables, aliasMap) {
+  const starRe = /\bSELECT\s+(?:DISTINCT\s+)?(?:([a-z_][a-z0-9_]*)\s*\.\s*)?\*(?=\s|,|$)/gi;
+  let m;
+  while ((m = starRe.exec(sqlNoStrings)) !== null) {
+    const alias = m[1] ? m[1].toLowerCase() : null;
+    if (!alias) return true;
+    const table = aliasMap[alias] || (referencedTables.includes(alias) ? alias : null);
+    if (!table) return true;
+    const policy = getOwnerTableColumnPolicy(table);
+    if (!policy || !policy.allow_select_star) return true;
+  }
+  if (/\B,\s*(?:([a-z_][a-z0-9_]*)\s*\.\s*)?\*(?=\s|,|$)/i.test(sqlNoStrings)) {
+    return true;
+  }
+  return false;
+}
+
+function resolveQualifiedRef(alias, column, aliasMap, referencedTables) {
+  const a = alias.toLowerCase();
+  const c = column.toLowerCase();
+  const table = aliasMap[a] || (referencedTables.includes(a) ? a : null);
+  return table ? { table, column: c } : null;
+}
+
+function validateOwnerColumnPolicy(normalizedSql, referencedTables) {
+  const sqlNoStrings = stripStringLiterals(normalizedSql);
+  const aliasMap = extractTableAliasMap(normalizedSql);
+  const tables = referencedTables || [];
+
+  if (hasForbiddenSelectStar(sqlNoStrings, tables, aliasMap)) {
+    return {
+      ok: false,
+      error: 'select_star_blocked',
+      detail: 'SELECT * is blocked; list explicit catalog-allowed columns',
+    };
+  }
+
+  const tablePolicies = {};
+  for (const table of tables) {
+    const policy = getOwnerTableColumnPolicy(table);
+    if (policy) tablePolicies[table] = policy;
+  }
+
+  const qualRe = /\b([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\b/gi;
+  let qm;
+  while ((qm = qualRe.exec(sqlNoStrings)) !== null) {
+    const resolved = resolveQualifiedRef(qm[1], qm[2], aliasMap, tables);
+    if (!resolved) continue;
+    const { table, column } = resolved;
+    const policy = tablePolicies[table];
+    if (!policy) continue;
+
+    if (policy.sensitive.has(column)) {
+      return {
+        ok: false,
+        error: 'sensitive_column_blocked',
+        detail: `Column '${table}.${column}' is sensitive/hidden by owner catalog`,
+        table,
+        column,
+      };
+    }
+    if (!policy.allowed.has(column) && !isScopingFilterColumn(column)) {
+      return {
+        ok: false,
+        error: 'column_not_allowed',
+        detail: `Column '${table}.${column}' is not in owner catalog allowlist`,
+        table,
+        column,
+      };
+    }
+  }
+
+  const sensitiveUnion = getOwnerSensitiveColumnUnion();
+  for (const col of sensitiveUnion) {
+    const unqualRe = new RegExp(`(?<![a-z0-9_]\\.)\\b${col}\\b`, 'i');
+    if (unqualRe.test(sqlNoStrings)) {
+      return {
+        ok: false,
+        error: 'sensitive_column_blocked',
+        detail: `Column '${col}' is sensitive/hidden by owner catalog`,
+        column: col,
+      };
+    }
+  }
+
+  const upper = sqlNoStrings.toUpperCase();
+  const lastSel = upper.lastIndexOf('SELECT');
+  const fromIdx = upper.indexOf(' FROM ', lastSel);
+  if (lastSel >= 0 && fromIdx > lastSel) {
+    const selectList = sqlNoStrings.slice(lastSel + 6, fromIdx);
+    for (const item of splitSelectList(selectList)) {
+      if (isAggregateOrFunctionExpression(item)) continue;
+      const expr = item.replace(/\s+AS\s+[a-z_][a-z0-9_]*\s*$/i, '').trim();
+      const tokens = expr.match(/\b([a-z_][a-z0-9_]*)\b/gi) || [];
+      for (let i = 0; i < tokens.length; i += 1) {
+        const col = tokens[i].toLowerCase();
+        if (SQL_KEYWORDS.has(col)) continue;
+        if (aliasMap[col]) continue;
+        const rest = expr.slice(expr.toLowerCase().indexOf(col) + col.length);
+        if (rest.trimStart().startsWith('(')) continue;
+        if (isScopingFilterColumn(col)) continue;
+        if (sensitiveUnion.has(col)) {
+          return {
+            ok: false,
+            error: 'sensitive_column_blocked',
+            detail: `Column '${col}' is sensitive/hidden by owner catalog`,
+            column: col,
+          };
+        }
+        const allowedOn = tables.filter((t) => tablePolicies[t]?.allowed.has(col));
+        if (allowedOn.length === 0) {
+          return {
+            ok: false,
+            error: 'column_not_allowed',
+            detail: `Column '${col}' is not in owner catalog allowlist`,
+            column: col,
+          };
+        }
+      }
+    }
+  }
+
+  return { ok: true };
+}
+
 function validateClientScopedTablesPresent(normalizedSql) {
   const refs = extractReferencedTables(normalizedSql);
   const scopedUsed = refs.filter((t) => CLIENT_SCOPED_TABLES.has(t));
@@ -298,6 +482,12 @@ function validateOwnerReadOnlySql(opts = {}) {
   if (!tableCheck.ok) {
     reasons.push(tableCheck.error);
     return { ...tableCheck, ok: false, reasons, normalized_sql: normalized };
+  }
+
+  const columnCheck = validateOwnerColumnPolicy(normalized, tableCheck.referenced_tables);
+  if (!columnCheck.ok) {
+    reasons.push(columnCheck.error);
+    return { ...columnCheck, ok: false, reasons, normalized_sql: normalized };
   }
 
   const scopedCheck = validateClientScopedTablesPresent(normalized);
@@ -428,4 +618,6 @@ module.exports = {
   validateOwnerReadOnlySql,
   executeOwnerReadOnlySql,
   extractReferencedTables,
+  validateOwnerColumnPolicy,
+  stripStringLiterals,
 };

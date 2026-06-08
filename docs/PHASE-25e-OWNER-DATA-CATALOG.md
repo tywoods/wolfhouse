@@ -1,6 +1,6 @@
 # Phase 25e — Owner data catalog + approved query patterns
 
-**Status:** IMPLEMENTED (catalog + templates; no AI planner)  
+**Status:** IMPLEMENTED (catalog + templates + column enforcement; no AI planner)  
 **Date:** 2026-06-07  
 **Scope:** Curated owner BI table/column policies and safe SQL templates for Stage **25f** AI planning
 
@@ -29,6 +29,8 @@ Stage **25d** added a read-only SQL validator/executor. Stage **25e** adds the *
 | `getOwnerAllowedTables()` | SQL allowlist (feeds 25d validator) |
 | `getOwnerAllowedColumns(table)` | Per-table column allowlist |
 | `getOwnerTablePolicy(table)` | Scope mode, joins, sensitive columns |
+| `getOwnerTableColumnPolicy(table)` | Allowed/sensitive column sets for validator |
+| `getOwnerSensitiveColumnUnion()` | Union of sensitive columns across tables |
 | `getOwnerApprovedQueryTemplates()` | Curated owner BI SQL templates |
 | `describeOwnerCatalogForAi({ client_slug? })` | Text summary for 25f planner prompt |
 
@@ -89,6 +91,29 @@ Blocked or hidden from owner projections unless explicitly allowlisted:
 
 ---
 
+## 5.1 Stage 25e.2 — Column allowlist enforcement
+
+`validateOwnerReadOnlySql` (in `owner-readonly-sql.js`) enforces catalog column policy:
+
+| Rule | Behavior |
+|------|----------|
+| **SELECT \*** | Blocked by default on all catalog tables (`allow_select_star: false`) |
+| **Sensitive columns** | Blocked when referenced (qualified or unqualified): `raw_payload`, `metadata`, `normalized`, `session_state`, Stripe IDs, WhatsApp message IDs, etc. |
+| **Non-allowlisted columns** | Qualified refs must be in `allowed_columns` for that table |
+| **Aggregates** | `COUNT(*)`, `SUM(allowed_col)`, `DATE_TRUNC`, `COALESCE`, `CASE` expressions used by approved templates still pass |
+| **Scoping filter** | `client_slug = $1` in WHERE is always allowed (validator requirement) |
+
+Stage **25f** AI SQL planner must produce SQL that passes this validator before `/staff/owner/sql/execute`.
+
+### Staging enum alignment (25e.1 / 25e.2)
+
+Approved templates use Postgres enum values present on staging:
+
+- Booking status filter: **`cancelled`** (not US `canceled`)
+- Payment paid filter: **`paid`** (not Stripe-style `succeeded`)
+
+---
+
 ## 6. Approved query templates
 
 Templates are **data** in the catalog. Each includes `id`, `description`, `required_params`, SQL (`$1` = `client_slug`), `expected_row_shape`, `allowed_role: owner`, and `validation_status`.
@@ -110,9 +135,11 @@ All approved templates include `client_slug = $1` and `LIMIT` or safe aggregatio
 
 ---
 
-## 7. Validator integration (25d)
+## 7. Validator integration (25d + 25e.2)
 
-`scripts/lib/owner-readonly-sql.js` reads **`getOwnerAllowedTables()`** from this catalog. Existing 25d validation behavior is unchanged.
+`scripts/lib/owner-readonly-sql.js` reads **`getOwnerAllowedTables()`** and **`getOwnerTableColumnPolicy()`** from this catalog.
+
+25d behavior (SELECT-only, client_slug, LIMIT, write blocking) is unchanged. Stage **25e.2** adds column allowlist and sensitive-column rejection.
 
 ---
 
@@ -121,7 +148,7 @@ All approved templates include `client_slug = $1` and `LIMIT` or safe aggregatio
 | Stage | Scope |
 |-------|--------|
 | **25f** | AI SQL planner bound to catalog + templates; all generated SQL must pass `validateOwnerReadOnlySql` |
-| **25e.1** (optional) | Hosted proof: deploy, run templates via `/staff/owner/sql/validate` or `/execute`, confirm read-only |
+| **25e.1** | Hosted proof: deploy, run templates via `/staff/owner/sql/validate` or `/execute`, confirm read-only |
 
 ---
 

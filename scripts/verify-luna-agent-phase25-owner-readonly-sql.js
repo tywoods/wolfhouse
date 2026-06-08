@@ -175,6 +175,33 @@ const writeCte = validateOwnerReadOnlySql({
 if (!writeCte.ok) pass('C15', 'write CTE blocked');
 else fail('C15', 'write CTE should be blocked');
 
+section('C2. Column allowlist enforcement (25e.2)');
+
+function expectColumnBlock(id, label, sql, err) {
+  const v = validateOwnerReadOnlySql({ sql, client_slug: CLIENT });
+  if (!v.ok && v.error === err) pass(id, label);
+  else fail(id, `${label} — got ok=${v.ok} error=${v.error}`);
+}
+
+expectColumnBlock('C16', 'raw_payload blocked',
+  'SELECT id, raw_payload FROM guest_message_events WHERE client_slug = $1 LIMIT 5',
+  'sensitive_column_blocked');
+expectColumnBlock('C17', 'SELECT * blocked',
+  'SELECT * FROM guest_message_events WHERE client_slug = $1 LIMIT 5',
+  'select_star_blocked');
+expectColumnBlock('C18', 'metadata blocked on bookings',
+  `SELECT b.metadata FROM bookings b WHERE b.id IN (
+    SELECT booking_id FROM booking_service_records WHERE client_slug = $1
+  ) LIMIT 5`,
+  'sensitive_column_blocked');
+
+const safeCols = validateOwnerReadOnlySql({
+  sql: 'SELECT id, message_text FROM guest_message_events WHERE client_slug = $1 LIMIT 5',
+  client_slug: CLIENT,
+});
+if (safeCols.ok) pass('C19', 'allowed columns still pass');
+else fail('C19', `allowed columns blocked: ${safeCols.error}`);
+
 section('D. Executor (mock pg)');
 
 function createMockPg() {

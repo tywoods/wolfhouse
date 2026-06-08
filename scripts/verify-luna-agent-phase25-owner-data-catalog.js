@@ -179,44 +179,94 @@ if (aiDesc.includes('bookings') && aiDesc.includes('join_required') && aiDesc.in
   pass('E1', 'describeOwnerCatalogForAi includes scoping + templates');
 } else fail('E1', 'AI catalog description incomplete');
 
-section('F. Untouched integrations');
+section('F. Stage 25e.2 — enum alignment + column blocking');
+
+const obSql = byId.outstanding_balances?.sql || '';
+const revSql = byId.revenue_summary_by_month?.sql || '';
+if (obSql.includes("'cancelled'") && !obSql.includes("'canceled'")) {
+  pass('F1', 'outstanding_balances uses staging-compatible cancelled enum');
+} else fail('F1', 'outstanding_balances enum literals wrong');
+if (revSql.includes("p.status = 'paid'") && !revSql.includes('succeeded')) {
+  pass('F2', 'revenue_summary_by_month uses staging-compatible paid status');
+} else fail('F2', 'revenue_summary_by_month payment status literal wrong');
+
+function expectColumnBlock(id, label, sql, err) {
+  const v = validateOwnerReadOnlySql({ sql, client_slug: CLIENT });
+  if (!v.ok && v.error === err) pass(id, label);
+  else fail(id, `${label} — got ok=${v.ok} error=${v.error}`);
+}
+
+expectColumnBlock('F3', 'raw_payload with id blocked',
+  'SELECT id, raw_payload FROM guest_message_events WHERE client_slug = $1 LIMIT 5',
+  'sensitive_column_blocked');
+expectColumnBlock('F4', 'raw_payload alone blocked',
+  'SELECT raw_payload FROM guest_message_events WHERE client_slug = $1 LIMIT 5',
+  'sensitive_column_blocked');
+expectColumnBlock('F5', 'SELECT * blocked',
+  'SELECT * FROM guest_message_events WHERE client_slug = $1 LIMIT 5',
+  'select_star_blocked');
+expectColumnBlock('F6', 'bookings.metadata blocked',
+  `SELECT b.metadata FROM bookings b WHERE b.id IN (
+    SELECT booking_id FROM booking_service_records WHERE client_slug = $1 AND booking_id IS NOT NULL
+  ) LIMIT 5`,
+  'sensitive_column_blocked');
+
+const safeGme = validateOwnerReadOnlySql({
+  sql: 'SELECT id, message_text, client_slug FROM guest_message_events WHERE client_slug = $1 LIMIT 5',
+  client_slug: CLIENT,
+});
+if (safeGme.ok) pass('F7', 'safe guest_message_events columns pass');
+else fail('F7', `safe columns rejected: ${safeGme.error}`);
+
+const safeBsr = validateOwnerReadOnlySql({
+  sql: 'SELECT service_type, amount_paid_cents FROM booking_service_records WHERE client_slug = $1 LIMIT 5',
+  client_slug: CLIENT,
+});
+if (safeBsr.ok) pass('F8', 'safe booking_service_records columns pass');
+else fail('F8', `safe bsr columns rejected: ${safeBsr.error}`);
+
+section('G. Untouched integrations');
 
 for (const f of UNTOUCHED) {
   const base = path.basename(f);
   const src = readOrEmpty(f);
   if (src && !src.includes('owner-data-catalog')) {
-    pass(`F.${base}`, `${base} unchanged by 25e`);
+    pass(`G.${base}`, `${base} unchanged by 25e`);
   } else if (!src) {
-    pass(`F.${base}`, `${base} not present (skip)`);
+    pass(`G.${base}`, `${base} not present (skip)`);
   } else {
-    fail(`F.${base}`, `${base} touched unexpectedly`);
+    fail(`G.${base}`, `${base} touched unexpectedly`);
   }
 }
 
 if (!readonlySrc.includes('owner-data-catalog')) {
-  fail('F.readonly', 'owner-readonly-sql should import catalog for allowlist');
-} else pass('F.readonly', 'owner-readonly-sql integrated with catalog');
+  fail('G.readonly', 'owner-readonly-sql should import catalog for allowlist');
+} else pass('G.readonly', 'owner-readonly-sql integrated with catalog');
 
-section('G. Docs + npm script');
+if (readonlySrc.includes('validateOwnerColumnPolicy')) {
+  pass('G.columns', 'owner-readonly-sql enforces column policy (25e.2)');
+} else fail('G.columns', 'validateOwnerColumnPolicy missing');
 
-if (fs.existsSync(DOC)) pass('G1', 'PHASE-25e-OWNER-DATA-CATALOG.md exists');
-else fail('G1', 'doc missing');
+section('H. Docs + npm script');
+
+if (fs.existsSync(DOC)) pass('H1', 'PHASE-25e-OWNER-DATA-CATALOG.md exists');
+else fail('H1', 'doc missing');
 
 const doc = readOrEmpty(DOC);
-if (/join_required|bookings.*client_slug|25f|no WhatsApp/i.test(doc)) {
-  pass('G2', 'doc covers scoping caveat, 25f, no WhatsApp');
-} else fail('G2', 'doc incomplete');
+if (/join_required|bookings.*client_slug|25f|no WhatsApp|25e\.2|raw_payload|SELECT \*/i.test(doc)) {
+  pass('H2', 'doc covers scoping, column enforcement, 25f, no WhatsApp');
+} else fail('H2', 'doc incomplete');
 
 const pkg = JSON.parse(readOrEmpty(PKG) || '{}');
 if (pkg.scripts && pkg.scripts['verify:luna-agent-phase25-owner-data-catalog']) {
-  pass('G3', 'npm script registered');
-} else fail('G3', 'npm script missing');
+  pass('H3', 'npm script registered');
+} else fail('H3', 'npm script missing');
 
-section('H. Downstream scripts listed (not run)');
+section('I. Downstream scripts listed (not run)');
 
 for (const s of DOWNSTREAM) {
-  if (pkg.scripts && pkg.scripts[s]) pass('H', `downstream registered: ${s}`);
-  else fail('H', `downstream missing: ${s}`);
+  if (pkg.scripts && pkg.scripts[s]) pass('I', `downstream registered: ${s}`);
+  else fail('I', `downstream missing: ${s}`);
 }
 
 console.log(`\n${'─'.repeat(60)}`);
