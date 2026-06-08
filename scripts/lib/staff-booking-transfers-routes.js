@@ -288,11 +288,70 @@ function addDaysToDateOnly(dateStr, deltaDays) {
 
 const FLIGHT_NOT_FOUND_MESSAGE = "Couldn't find that flight. Enter the flight details manually.";
 
+function logSafeFlightLookupFailure(info) {
+  console.warn('[flight-lookup]', JSON.stringify({
+    provider: AVIATIONSTACK_PROVIDER,
+    error: info.error || null,
+    http_status: info.http_status != null ? info.http_status : null,
+    flight_number: info.flight_number || null,
+    lookup_dates_tried: info.lookup_dates_tried || [],
+  }));
+}
+
+/**
+ * @param {string} error
+ * @param {{ flight_number?: string, direction?: string, airport_code?: string|null, lookup_dates_tried?: string[] }} ctx
+ * @returns {string}
+ */
+function lookupFailureMessage(error, ctx = {}) {
+  const fn = trimStr(ctx.flight_number) || 'flight';
+  const dates = (ctx.lookup_dates_tried || []).filter(Boolean);
+  const datePhrase = dates.length > 1
+    ? dates.join(' or ')
+    : (dates[0] || '');
+  const airportCode = trimStr(ctx.airport_code).toUpperCase();
+  const airportLabel = airportCode === 'SDR' ? 'Santander' : (airportCode || 'selected airport');
+
+  switch (trimStr(error)) {
+    case 'flight_not_found':
+      if (datePhrase) {
+        return `No matching flight found for ${fn} on ${datePhrase}. Enter details manually.`;
+      }
+      return FLIGHT_NOT_FOUND_MESSAGE;
+    case 'airport_mismatch':
+      return `Flight found, but airport did not match ${airportLabel}. Enter manually or change airport.`;
+    case 'aviationstack_auth_error':
+    case 'aviationstack_quota_or_plan_error':
+      return 'Aviationstack auth/quota issue. Check API key or plan.';
+    case 'aviationstack_rate_limited':
+      return 'Aviationstack rate limit reached. Try again shortly.';
+    case 'aviationstack_bad_request':
+      return 'Flight lookup request was rejected. Check flight number and try again.';
+    case 'aviationstack_not_configured':
+      return 'Flight lookup is not configured.';
+    default:
+      return 'Flight lookup failed. Enter the flight details manually.';
+  }
+}
+
+function buildLookupDiagnostic(ctx = {}) {
+  return {
+    provider: AVIATIONSTACK_PROVIDER,
+    http_status: ctx.http_status != null ? ctx.http_status : null,
+    lookup_dates_tried: ctx.lookup_dates_tried || [],
+    flight_number: ctx.flight_number || null,
+    direction: ctx.direction || null,
+    airport_code: ctx.airport_code || null,
+    provider_error_code: ctx.provider_error_code || null,
+    provider_error_type: ctx.provider_error_type || null,
+  };
+}
+
 /**
  * Try booking default lookup date, then one day earlier on flight_not_found.
  *
  * @param {{ flight_number: string, direction: string, airport_code?: string|null, lookupDate: string, env?: NodeJS.ProcessEnv }} opts
- * @returns {Promise<{ lookup: object, lookup_date_used: string|null }>}
+ * @returns {Promise<{ lookup: object, lookup_date_used: string|null, lookup_dates_tried: string[] }>}
  */
 async function lookupAviationstackFlightWithDateRetry(opts = {}) {
   const lookupDate = trimStr(opts.lookupDate);
@@ -301,17 +360,20 @@ async function lookupAviationstackFlightWithDateRetry(opts = {}) {
     direction: opts.direction,
     airport_code: opts.airport_code,
     env: opts.env || process.env,
+    fetchImpl: opts.fetchImpl,
   };
+  const datesTried = [lookupDate];
   let lookup = await lookupAviationstackFlight({ ...baseArgs, flight_date: lookupDate });
   if (lookup.success || lookup.error !== 'flight_not_found') {
-    return { lookup, lookup_date_used: lookupDate };
+    return { lookup, lookup_date_used: lookupDate, lookup_dates_tried: datesTried };
   }
   const prevDate = addDaysToDateOnly(lookupDate, -1);
   if (!prevDate || prevDate === lookupDate) {
-    return { lookup, lookup_date_used: lookupDate };
+    return { lookup, lookup_date_used: lookupDate, lookup_dates_tried: datesTried };
   }
+  datesTried.push(prevDate);
   const retry = await lookupAviationstackFlight({ ...baseArgs, flight_date: prevDate });
-  return { lookup: retry, lookup_date_used: prevDate };
+  return { lookup: retry, lookup_date_used: prevDate, lookup_dates_tried: datesTried };
 }
 
 function inferTransferStatusFromInput(transferInput, existingStatus) {
@@ -562,26 +624,41 @@ async function handlePostBookingTransferLookupFlight(bookingId, req, res) {
     return res.status(400).json({ success: false, error: 'missing_lookup_date', no_transfer_write: true });
   }
 
-  const { lookup, lookup_date_used: lookupDateUsed } = await lookupAviationstackFlightWithDateRetry({
-    flight_number: flightNumber,
-    direction,
-    airport_code: body.airport_code,
-    lookupDate,
-    env: process.env,
-  });
+  const { lookup, lookup_date_used: lookupDateUsed, lookup_dates_tried: lookupDatesTried } =
+    await lookupAviationstackFlightWithDateRetry({
+      flight_number: flightNumber,
+      direction,
+      airport_code: body.airport_code,
+      lookupDate,
+      env: process.env,
+    });
 
   if (!lookup.success) {
     const errCode = lookup.error || 'flight_lookup_failed';
     const status = errCode === 'aviationstack_not_configured' ? 503 : 404;
+    const msgCtx = {
+      flight_number: flightNumber,
+      direction,
+      airport_code: body.airport_code,
+      lookup_dates_tried: lookupDatesTried || [lookupDate],
+      http_status: lookup.http_status,
+      provider_error_code: lookup.provider_error_code,
+      provider_error_type: lookup.provider_error_type,
+    };
     const payload = {
       success: false,
       error: errCode,
+      message: lookupFailureMessage(errCode, msgCtx),
+      diagnostic: buildLookupDiagnostic(msgCtx),
       no_transfer_write: true,
       no_payment_write: true,
     };
-    if (errCode === 'flight_not_found') {
-      payload.message = FLIGHT_NOT_FOUND_MESSAGE;
-    }
+    logSafeFlightLookupFailure({
+      error: errCode,
+      http_status: lookup.http_status,
+      flight_number: flightNumber,
+      lookup_dates_tried: lookupDatesTried || [lookupDate],
+    });
     return res.status(status).json(payload);
   }
 
@@ -684,6 +761,9 @@ module.exports = {
   addDaysToDateOnly,
   inferTransferStatusFromInput,
   FLIGHT_NOT_FOUND_MESSAGE,
+  lookupFailureMessage,
+  buildLookupDiagnostic,
+  logSafeFlightLookupFailure,
   formatTimestamptzAsDatetimeLocal,
   parseDatetimeLocalInTimezone,
   normalizeBookingDateOnly,

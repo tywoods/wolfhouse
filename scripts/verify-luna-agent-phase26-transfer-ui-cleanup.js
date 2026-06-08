@@ -116,8 +116,8 @@ if (/defaultTransferLookupDate/.test(lookupHandler) && /body\.lookup_date/.test(
 } else fail('D2', 'booking date default missing');
 if (/addDaysToDateOnly\(lookupDate,\s*-1\)/.test(routesSrc)) pass('D3', 'retries one day before on flight_not_found');
 else fail('D3', 'one-day retry missing');
-if (/FLIGHT_NOT_FOUND_MESSAGE/.test(routesSrc) && /payload\.message = FLIGHT_NOT_FOUND_MESSAGE/.test(lookupHandler)) {
-  pass('D4', 'flight_not_found returns safe manual-entry message');
+if (/lookupFailureMessage/.test(routesSrc) && /case 'flight_not_found'/.test(routesSrc)) {
+  pass('D4', 'flight_not_found returns safe message via lookupFailureMessage');
 } else fail('D4', 'safe error message missing');
 if (!/upsertBookingTransfer/.test(lookupHandler)) pass('D5', 'lookup route still no DB write');
 else fail('D5', 'lookup writes DB');
@@ -138,10 +138,10 @@ else fail('E5', 'payment writes');
 
 section('F. Layout + safety');
 
-if (/bcRenderTransferDetailsShell[\s\S]{0,800}Move bed|ctx-move-bed/.test(apiSrc)
-  && /ctx-move-bed[\s\S]{0,800}bcRenderAddServicePanelHtml|Add-ons/.test(apiSrc)) {
-  pass('F1', 'Add-ons remains below Move Bed');
-} else fail('F1', 'Add-ons placement broken');
+if (/bc-drawer-tab-overview/.test(apiSrc) && /ctx-move-bed/.test(apiSrc)
+  && /bc-drawer-tab-services/.test(apiSrc) && /bcRenderServicesTabHtml/.test(apiSrc)) {
+  pass('F1', 'drawer tabs: Move bed in Overview, Services in Services tab (26f.2)');
+} else fail('F1', 'drawer tab placement');
 if (!routesSrc.match(/\bstripe\b/i) && !routesSrc.includes('guest_message_sends')) {
   pass('F2', 'routes have no Stripe/WhatsApp writes');
 } else fail('F2', 'Stripe/WhatsApp in routes');

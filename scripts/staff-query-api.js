@@ -13327,6 +13327,15 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
 .bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
+.bc-drawer-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border-soft);margin:0 0 10px;flex-wrap:wrap}
+.bc-drawer-tab{padding:6px 11px;font-size:12px;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;color:var(--text-2);border-radius:var(--radius-sm) var(--radius-sm) 0 0}
+.bc-drawer-tab.is-active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600;background:var(--surface-soft)}
+.bc-drawer-tab-panel{display:none}
+.bc-drawer-tab-panel.is-active{display:block}
+.bc-services-groups{display:grid;gap:8px;margin-bottom:10px}
+.bc-services-group{padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
+.bc-services-group-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.ctx-payment-summary-brief .kv-grid{margin-top:4px}
 .ctx-field-edit{margin-top:8px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
 .ctx-field-label{display:block;font-size:11px;color:var(--text-2);margin:8px 0 4px}
 .ctx-field-label:first-child{margin-top:0}
@@ -17946,6 +17955,7 @@ function loadBlockDetail(bookingCode){
       }
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
       updateBcDetailHeader(res.data);
+      bcInitDrawerTabs();
       bcInitFieldEditShell(res.data);
       bcInitTransferShell(res.data);
       bcInitAddServiceShell(res.data);
@@ -19931,7 +19941,7 @@ function bcRenderAddServicePanelHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) return '';
   return '<div class="ctx-section ctx-add-ons-panel" id="bc-add-ons-panel">' +
     '<div class="bc-add-ons-header">' +
-    '<span class="bc-add-ons-title">Add-ons</span>' +
+    '<span class="bc-add-ons-title">Services</span>' +
     '<div class="bc-add-ons-actions">' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-btn">Add</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-btn" style="display:none">Remove</button>' +
@@ -20602,15 +20612,24 @@ function bcTransferCollectPayload(direction){
   return payload;
 }
 
-function bcTransferLookupErrorLabel(code, message){
+function bcTransferLookupErrorLabel(code, message, diagnostic){
   if (message) return message;
   var m = {
     aviationstack_not_configured: 'Flight lookup is not configured.',
+    aviationstack_auth_error: 'Aviationstack auth/quota issue. Check API key or plan.',
+    aviationstack_quota_or_plan_error: 'Aviationstack auth/quota issue. Check API key or plan.',
+    aviationstack_rate_limited: 'Aviationstack rate limit reached. Try again shortly.',
+    aviationstack_bad_request: 'Flight lookup request was rejected. Check flight number and try again.',
     flight_not_found: 'Couldn\u2019t find that flight. Enter the flight details manually.',
-    aviationstack_api_error: 'Flight lookup provider error.',
+    airport_mismatch: 'Flight found, but airport did not match. Enter manually or change airport.',
+    aviationstack_api_error: 'Flight lookup failed. Enter the flight details manually.',
     aviationstack_request_failed: 'Flight lookup request failed.',
     missing_flight_number: 'Flight number is required for lookup.',
   };
+  if (code === 'flight_not_found' && diagnostic && diagnostic.lookup_dates_tried && diagnostic.lookup_dates_tried.length) {
+    var fn = diagnostic.flight_number || 'flight';
+    return 'No matching flight found for ' + fn + ' on ' + diagnostic.lookup_dates_tried.join(' or ') + '. Enter details manually.';
+  }
   return m[code] || (code ? String(code).replace(/_/g, ' ') : 'Flight lookup failed.');
 }
 
@@ -20680,7 +20699,11 @@ function bcLookupFlight(direction){
     .then(function(res){
       bcTransferUpdateLookupButtonState(direction);
       if (!res.ok || !res.data.success){
-        bcTransferShowResult(direction, escHtml(bcTransferLookupErrorLabel(res.data && res.data.error, res.data && res.data.message)), true);
+        bcTransferShowResult(direction, escHtml(bcTransferLookupErrorLabel(
+          res.data && res.data.error,
+          res.data && res.data.message,
+          res.data && res.data.diagnostic
+        )), true);
         return;
       }
       bcTransferApplyLookupPatch(direction, res.data.suggested_transfer_patch);
@@ -20785,33 +20808,123 @@ function bcInitTransferShell(contextData){
     });
 }
 
-/* Render the enriched booking context drawer sections (Stage 8.3b) */
-function renderBookingContextDrawer(data){
-  var html = '';
-  var bk = data.booking || {};
+function bcDrawerTabBtn(id, label, active){
+  var cls = 'bc-drawer-tab' + (active ? ' is-active' : '');
+  return '<button type="button" class="' + cls + '" data-tab="' + id + '" role="tab" aria-selected="' +
+    (active ? 'true' : 'false') + '" id="bc-drawer-tab-btn-' + id + '">' + escHtml(label) + '</button>';
+}
 
-  /* ── Local helpers ─────────────────────────────────────────────────────── */
+function bcInitDrawerTabs(){
+  var bar = el('bc-drawer-tabs');
+  if (!bar) return;
+  bar.querySelectorAll('.bc-drawer-tab').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var tab = btn.getAttribute('data-tab');
+      if (!tab) return;
+      bar.querySelectorAll('.bc-drawer-tab').forEach(function(b){
+        b.classList.remove('is-active');
+        b.setAttribute('aria-selected', 'false');
+      });
+      btn.classList.add('is-active');
+      btn.setAttribute('aria-selected', 'true');
+      document.querySelectorAll('.bc-drawer-tab-panel').forEach(function(panel){
+        panel.classList.toggle('is-active', panel.getAttribute('data-tab') === tab);
+      });
+    });
+  });
+}
+
+function bcRenderRoomingBriefHtml(data){
+  var rm = (data && data.rooming) || {};
+  var assigns = rm.assignments || [];
+  if (!assigns.length) return '';
+  var html = '<div class="ctx-section ctx-rooming-brief" id="bc-rooming-brief"><h3>Room / bed</h3><div class="kv-grid">';
+  assigns.forEach(function(a, idx){
+    var room = a.room_code ? String(a.room_code) : '';
+    var bed = a.bed_code ? String(a.bed_code) : '\u2014';
+    var label = room ? room + ' / ' + bed : bed;
+    html += kvBC(assigns.length > 1 ? 'Bed ' + (idx + 1) : 'Assignment', label);
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt){
+  bk = bk || {};
+  svcRows = svcRows || [];
+  pmt = pmt || {};
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
     return '\u20ac' + (Number(cents) / 100).toFixed(2);
   };
-  var bkPayLabel = function(s){
-    var m = {
-      not_requested: 'Not requested', waiting_payment: 'Waiting for payment',
-      payment_link_sent: 'Payment link sent', deposit_paid: 'Deposit paid \u2713',
-      paid: 'Paid in full \u2713', refunded: 'Refunded', failed: 'Failed', expired: 'Expired',
-    };
-    return m[s] || (s ? s.replace(/_/g, ' ') : '\u2014');
-  };
+  var md = bk.metadata || {};
+  var quoteSnap = md.quote_snapshot || null;
+  var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+  var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
+  var invoiceTotal = accCents != null ? accCents + svcSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
+  var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
+  var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
+    : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
+  var payStatus = bk.payment_status || pmt.latest_status || null;
+  var html = '<div class="ctx-section ctx-payment-summary-brief" id="bc-payment-summary-brief">';
+  html += '<h3>Payment summary</h3><div class="kv-grid">';
+  if (invoiceTotal != null) html += kvBC('Invoice total', eur(invoiceTotal));
+  if (paidCents != null) html += kvBC('Paid', eur(paidCents));
+  if (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents) {
+    html += kvBC('Balance due', eur(invoiceTotal - paidCents));
+  } else if (invoiceTotal != null && paidCents != null && invoiceTotal === paidCents) {
+    html += kvBC('Balance due', eur(0));
+  } else if (bk.balance_due_cents != null) {
+    html += kvBC('Balance due', eur(bk.balance_due_cents));
+  }
+  if (payStatus) html += kvBC('Payment status', String(payStatus).replace(/_/g, ' '));
+  html += '</div>';
+  html += '<p class="ctx-none" style="margin-top:6px;font-size:11px">Full payment history is in the Payments tab.</p>';
+  html += '</div>';
+  return html;
+}
 
-  /* ── Phase 10.4e — contact / dates / guests / package ─────────────────── */
+function bcRenderServicesTabHtml(bk){
+  if (bcBookingStatusIsCancelled(bk && bk.status)) {
+    return '<div class="ctx-section ctx-services-tab" id="bc-services-tab"><h3>Services</h3>' +
+      '<div class="ctx-none">Not available for cancelled bookings.</div></div>';
+  }
+  var html = '<div class="ctx-section ctx-services-tab" id="bc-services-tab">';
+  html += '<h3>Services</h3>';
+  html += '<div class="bc-services-groups">';
+  html += '<div class="bc-services-group"><div class="bc-services-group-title">Package services</div>';
+  html += '<div class="ctx-none">Included with package — full schedule coming soon.</div></div>';
+  html += '<div class="bc-services-group"><div class="bc-services-group-title">Service schedule</div>';
+  html += '<div class="ctx-none">Dated services will appear here.</div></div>';
+  html += '<div class="bc-services-group"><div class="bc-services-group-title">Unscheduled services</div>';
+  html += '<div class="ctx-none">Paid or requested services without a scheduled date.</div></div>';
+  html += '</div>';
+  html += bcRenderAddServicePanelHtml(bk);
+  html += '</div>';
+  return html;
+}
+
+/* Render the enriched booking context drawer sections (Stage 8.3b) */
+function renderBookingContextDrawer(data){
+  var html = '';
+  var bk = data.booking || {};
+  var svcRows = data.service_records || [];
+  var pmt = data.payments || {};
+
+  html += '<div class="bc-drawer-tabs" id="bc-drawer-tabs" role="tablist">';
+  html += bcDrawerTabBtn('overview', 'Overview', true);
+  html += bcDrawerTabBtn('services', 'Services', false);
+  html += bcDrawerTabBtn('transfers', 'Transfers', false);
+  html += bcDrawerTabBtn('payments', 'Payments', false);
+  html += '</div>';
+
+  /* ── Overview tab ─────────────────────────────────────────────────────── */
+  html += '<div class="bc-drawer-tab-panel is-active" id="bc-drawer-tab-overview" data-tab="overview" role="tabpanel">';
   html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
+  html += bcRenderRoomingBriefHtml(data);
+  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt);
 
-  /* ── Phase 26c — Flight / Transfer Details (under Package) ─────────────── */
-  html += bcRenderTransferDetailsShell();
-
-  /* ── Phase 10.3e / 10.3h — Move bed ───────── */
   var rmMove = data.rooming || {};
   var moveAssigns = rmMove.assignments || [];
   var moveNoBeds = moveAssigns.length === 0;
@@ -20832,17 +20945,6 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move Bed</button>';
   html += '</div></div>';
 
-  /* ── Phase 10.6a / 10.6b — Add-ons (above Payment) ─────────────────────── */
-  html += bcRenderAddServicePanelHtml(bk);
-
-  /* ── Payment / running invoice (Phase 10.4d / 10.6b ledger) ──────────────── */
-  var svcRows = data.service_records || [];
-  var pmt = data.payments || {};
-  html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
-
-  /* Luna confirmation draft: kept in booking context API; hidden from normal drawer (10.6g.5). */
-
-  /* ── 6. Conversation / Handoff ─────────────────────────────────────────── */
   html += '<div class="ctx-section"><h3>Conversation / Handoff</h3>';
   if (data.conversation){
     var conv = data.conversation;
@@ -20867,14 +20969,27 @@ function renderBookingContextDrawer(data){
   }
   html += '</div>';
 
-  /* ── Warnings ──────────────────────────────────────────────────────────── */
   if (data.warnings && data.warnings.length > 0){
     html += '<div class="ctx-section"><h3>Warnings</h3><div class="state-msg error">' +
       data.warnings.map(function(w){ return escHtml(w); }).join('<br>') + '</div></div>';
   }
-
-  /* ── Drawer footer — conversation left, cancel booking right ───────────── */
   html += bcRenderBookingDrawerFooterHtml(data);
+  html += '</div>';
+
+  /* ── Services tab ─────────────────────────────────────────────────────── */
+  html += '<div class="bc-drawer-tab-panel" id="bc-drawer-tab-services" data-tab="services" role="tabpanel">';
+  html += bcRenderServicesTabHtml(bk);
+  html += '</div>';
+
+  /* ── Transfers tab ────────────────────────────────────────────────────── */
+  html += '<div class="bc-drawer-tab-panel" id="bc-drawer-tab-transfers" data-tab="transfers" role="tabpanel">';
+  html += bcRenderTransferDetailsShell();
+  html += '</div>';
+
+  /* ── Payments tab ─────────────────────────────────────────────────────── */
+  html += '<div class="bc-drawer-tab-panel" id="bc-drawer-tab-payments" data-tab="payments" role="tabpanel">';
+  html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt);
+  html += '</div>';
 
   return html;
 }

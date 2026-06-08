@@ -77,6 +77,9 @@ if (/missing_flight_number/.test(lookupHandler) && /defaultTransferLookupDate/.t
 } else fail('A6', 'validation/default missing');
 if (/lookupAviationstackFlightWithDateRetry/.test(routesSrc)) pass('A8', 'lookup uses date retry helper');
 else fail('A8', 'date retry helper missing');
+if (/diagnostic:/.test(lookupHandler) && /lookup_dates_tried/.test(lookupHandler)) {
+  pass('A9', 'lookup failure returns diagnostic + lookup_dates_tried');
+} else fail('A9', 'lookup diagnostic payload');
 
 if (/dispatchBookingTransferLookupRoute/.test(routesSrc) && /BOOKING_TRANSFER_LOOKUP_RE/.test(apiSrc)) {
   pass('A7', 'staff-query-api wires lookup route before GET-only gate');

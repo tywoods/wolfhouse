@@ -89,13 +89,13 @@ section('C. UI — Flight / Transfer Details');
 
 if (/Flight \/ Transfer Details/.test(apiSrc)) pass('C1', 'UI contains Flight / Transfer Details');
 else fail('C1', 'section title missing');
-if (/bcRenderTransferDetailsShell/.test(apiSrc) && /bcRenderFieldEditSectionsHtml\(data, 'after-addons'\)[\s\S]{0,400}bcRenderTransferDetailsShell/.test(apiSrc)) {
-  pass('C2', 'transfer section after Package (after-addons)');
-} else fail('C2', 'section placement under Package');
-if (/bcRenderTransferDetailsShell[\s\S]{0,800}Move bed|ctx-move-bed/.test(apiSrc)
-  && /ctx-move-bed[\s\S]{0,800}bcRenderAddServicePanelHtml|Add-ons/.test(apiSrc)) {
-  pass('C3', 'Add-ons section after Move Bed');
-} else fail('C3', 'Add-ons below Move Bed');
+if (/bc-drawer-tab-transfers[\s\S]{0,500}bcRenderTransferDetailsShell/.test(apiSrc)) {
+  pass('C2', 'transfer editor in Transfers tab (26f.2)');
+} else fail('C2', 'transfer not in Transfers tab');
+if (/bc-drawer-tab-overview/.test(apiSrc) && /ctx-move-bed/.test(apiSrc)
+  && /bc-drawer-tab-services/.test(apiSrc) && /bcRenderServicesTabHtml/.test(apiSrc)) {
+  pass('C3', 'Move bed in Overview; Services in Services tab (26f.2)');
+} else fail('C3', 'tab placement');
 if (/bcRenderTransferCard\('arrival'/.test(apiSrc) && /bcRenderTransferCard\('departure'/.test(apiSrc)) {
   pass('C4', 'arrival and departure forms exist');
 } else fail('C4', 'direction forms missing');

@@ -131,6 +131,56 @@ function sanitizeFlightCandidate(row) {
   };
 }
 
+function sanitizeProviderError(body) {
+  if (!body || !body.error) return { provider_error_code: null, provider_error_type: null };
+  const err = body.error;
+  if (typeof err === 'string') {
+    const s = trimStr(err).slice(0, 64);
+    return { provider_error_code: s || null, provider_error_type: null };
+  }
+  if (typeof err === 'object') {
+    return {
+      provider_error_code: trimStr(err.code || err.message || '').slice(0, 64) || null,
+      provider_error_type: trimStr(err.type || '').slice(0, 64) || null,
+    };
+  }
+  return { provider_error_code: null, provider_error_type: null };
+}
+
+/**
+ * Map Aviationstack HTTP/body failures to safe staff-facing categories.
+ *
+ * @param {number|null} httpStatus
+ * @param {object|null|undefined} body
+ * @returns {{ error: string, http_status: number|null, provider_error_code: string|null, provider_error_type: string|null }}
+ */
+function classifyAviationstackFailure(httpStatus, body) {
+  const safe = sanitizeProviderError(body);
+  const status = httpStatus != null ? Number(httpStatus) : null;
+  const blob = JSON.stringify(body || {}).toLowerCase();
+
+  if (status === 401) {
+    return { error: 'aviationstack_auth_error', http_status: status, ...safe };
+  }
+  if (status === 429) {
+    return { error: 'aviationstack_rate_limited', http_status: status, ...safe };
+  }
+  if (status === 403) {
+    return { error: 'aviationstack_quota_or_plan_error', http_status: status, ...safe };
+  }
+  if (status === 400 || (body && body.error)) {
+    if (/quota|subscription|plan|limit|usage|inactive|disabled|function_access_restricted/.test(blob)) {
+      return { error: 'aviationstack_quota_or_plan_error', http_status: status || 200, ...safe };
+    }
+    if (/invalid.*key|access_key|authentication|unauthorized|invalid_access_key/.test(blob)
+      || safe.provider_error_code === 'invalid_access_key') {
+      return { error: 'aviationstack_auth_error', http_status: status || 200, ...safe };
+    }
+    return { error: 'aviationstack_bad_request', http_status: status || 200, ...safe };
+  }
+  return { error: 'aviationstack_api_error', http_status: status, ...safe };
+}
+
 /**
  * @param {object[]} candidates
  * @param {{ direction?: string, airport_code?: string|null }} opts
@@ -150,6 +200,7 @@ function pickBestFlightMatch(candidates, opts = {}) {
       const match = list.find((c) => c.departure_iata === airport);
       if (match) return match;
     }
+    return null;
   }
   return list[0];
 }
@@ -186,7 +237,13 @@ async function lookupAviationstackFlight(opts = {}) {
 
   const cfg = resolveAviationstackConfig(opts.env || process.env);
   if (!cfg.access_key) {
-    return { success: false, error: 'aviationstack_not_configured' };
+    return {
+      success: false,
+      error: 'aviationstack_not_configured',
+      http_status: null,
+      provider_error_code: null,
+      provider_error_type: null,
+    };
   }
 
   const fetchFn = opts.fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
@@ -233,7 +290,8 @@ async function lookupAviationstackFlight(opts = {}) {
   }
 
   if (!response.ok || (body && body.error)) {
-    return { success: false, error: 'aviationstack_api_error' };
+    const classified = classifyAviationstackFailure(response.status, body);
+    return { success: false, ...classified, raw_payload_stored: false };
   }
 
   const sanitized = extractFlightRows(body)
@@ -241,13 +299,32 @@ async function lookupAviationstackFlight(opts = {}) {
     .filter(Boolean);
 
   if (sanitized.length === 0) {
-    return { success: false, error: 'flight_not_found' };
+    return {
+      success: false,
+      error: 'flight_not_found',
+      http_status: response.status,
+      provider_error_code: null,
+      provider_error_type: null,
+      raw_payload_stored: false,
+    };
   }
 
   const best_match = pickBestFlightMatch(sanitized, {
     direction: opts.direction,
     airport_code: opts.airport_code,
   });
+
+  if (!best_match && trimStr(opts.airport_code)) {
+    return {
+      success: false,
+      error: 'airport_mismatch',
+      http_status: response.status,
+      provider_error_code: null,
+      provider_error_type: null,
+      match_count: sanitized.length,
+      raw_payload_stored: false,
+    };
+  }
 
   return {
     success: true,
@@ -273,4 +350,6 @@ module.exports = {
   sanitizeFlightCandidate,
   pickBestFlightMatch,
   hashKeyFingerprint,
+  classifyAviationstackFailure,
+  sanitizeProviderError,
 };
