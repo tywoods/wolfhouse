@@ -122,13 +122,136 @@ function formatPaidServiceSummaryLine(svc) {
   if (svc.total_price_cents != null) {
     parts.push(`€${(Number(svc.total_price_cents) / 100).toFixed(2)}`);
   }
-  const statusParts = [];
-  if (svc.payment_status) statusParts.push(String(svc.payment_status).replace(/_/g, ' '));
-  if (svc.status && svc.status !== svc.payment_status) {
-    statusParts.push(String(svc.status).replace(/_/g, ' '));
-  }
-  if (statusParts.length) parts.push(statusParts.join('/'));
   return parts.join(' · ');
+}
+
+/**
+ * CSS class for color-coded service pebbles (Staff drawer).
+ *
+ * @param {string|null} serviceType
+ * @param {string|null} serviceName
+ * @returns {string}
+ */
+function serviceColorClass(serviceType, serviceName) {
+  const t = trimStr(serviceType).toLowerCase();
+  const name = trimStr(serviceName).toLowerCase();
+  if (/surfboard|soft_board|hard_board|soft top|hard board/.test(t) || /\bboard\b/.test(name)) {
+    return 'bc-svc-color-board';
+  }
+  if (t === 'wetsuit' || /wetsuit/.test(name)) return 'bc-svc-color-wetsuit';
+  if (t === 'yoga' || /yoga/.test(name)) return 'bc-svc-color-yoga';
+  if (/^meal|meals|dinner|breakfast/.test(t) || /\bmeal/.test(name)) return 'bc-svc-color-meal';
+  if (/surf_lesson|lesson/.test(t) || /lesson/.test(name)) return 'bc-svc-color-lesson';
+  return 'bc-svc-color-neutral';
+}
+
+/**
+ * Aggregate unit-level rows into summary lines (e.g. Yoga ×3 · €45).
+ *
+ * @param {object[]} allServices
+ * @returns {object[]}
+ */
+function buildPaidRequestedSummaryLines(allServices) {
+  const groups = new Map();
+  (allServices || []).forEach((svc) => {
+    const key = `${svc.service_type || ''}|${svc.service_name || ''}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        service_type: svc.service_type,
+        service_name: svc.service_name,
+        quantity: 0,
+        total_price_cents: 0,
+        color_class: svc.color_class,
+      });
+    }
+    const g = groups.get(key);
+    g.quantity += Math.max(1, Number(svc.quantity) || 1);
+    g.total_price_cents += Number(svc.total_price_cents) || 0;
+  });
+  return Array.from(groups.values()).map((g) => ({
+    ...g,
+    summary_line: formatPaidServiceSummaryLine(g),
+  }));
+}
+
+/**
+ * Split quantity>1 service rows into individual schedulable units (qty=1 each).
+ * Skips rows with amount_paid_cents > 0 to avoid invoice/payment drift.
+ *
+ * @param {import('pg').PoolClient} pg
+ * @param {string} clientSlug
+ * @param {string} bookingId
+ * @returns {Promise<number>} number of rows split
+ */
+async function splitMultiQuantityServiceRecords(pg, clientSlug, bookingId) {
+  const r = await pg.query(
+    `SELECT id::text AS id, client_slug, booking_id::text AS booking_id, booking_code, guest_name,
+            service_type, service_date, quantity, status, payment_status,
+            amount_due_cents, amount_paid_cents, source, notes, metadata
+     FROM booking_service_records
+     WHERE client_slug = $1 AND booking_id = $2::uuid AND quantity > 1
+       AND COALESCE(amount_paid_cents, 0) = 0`,
+    [clientSlug, bookingId],
+  );
+  if (!r.rows.length) return 0;
+
+  await pg.query('BEGIN');
+  try {
+    let splitCount = 0;
+    for (const row of r.rows) {
+    const qty = Math.max(1, Number(row.quantity) || 1);
+    if (qty <= 1) continue;
+    const total = Number(row.amount_due_cents) || 0;
+    const unitCents = Math.floor(total / qty);
+    const firstUnitCents = total - unitCents * (qty - 1);
+    let meta = parseMetadata(row.metadata);
+    meta = { ...meta, split_from: row.id, split_at: new Date().toISOString() };
+
+    await pg.query(
+      `UPDATE booking_service_records
+       SET quantity = 1, amount_due_cents = $1, metadata = $2::jsonb, updated_at = NOW()
+       WHERE id = $3::uuid`,
+      [firstUnitCents, JSON.stringify({ ...meta, split_unit: 1 }), row.id],
+    );
+
+    for (let i = 1; i < qty; i++) {
+      const unitMeta = { ...meta, split_unit: i + 1 };
+      await pg.query(
+        `INSERT INTO booking_service_records (
+           client_slug, booking_id, booking_code, guest_name,
+           service_type, service_date, quantity, status,
+           amount_due_cents, amount_paid_cents, payment_status,
+           source, notes, metadata
+         ) VALUES (
+           $1, $2::uuid, $3, $4,
+           $5, $6::date, 1, $7,
+           $8, 0, $9,
+           $10, $11, $12::jsonb
+         )`,
+        [
+          row.client_slug || clientSlug,
+          row.booking_id || bookingId,
+          row.booking_code,
+          row.guest_name,
+          row.service_type,
+          row.service_date,
+          row.status || 'requested',
+          unitCents,
+          row.payment_status || 'not_requested',
+          row.source || 'staff_manual',
+          row.notes,
+          JSON.stringify(unitMeta),
+        ],
+      );
+    }
+    splitCount += 1;
+    }
+    await pg.query('COMMIT');
+    return splitCount;
+  } catch (err) {
+    try { await pg.query('ROLLBACK'); } catch (_) {}
+    throw err;
+  }
 }
 
 /**
@@ -145,10 +268,11 @@ function formatServiceRecordForSchedule(row, opts = {}) {
   const serviceDate = row.service_date
     ? normalizeBookingDateOnly(row.service_date, { timezone })
     : null;
+  const serviceName = serviceTypeLabel(row);
   return {
     service_record_id: row.service_record_id || row.id || null,
     service_type: row.service_type || null,
-    service_name: serviceTypeLabel(row),
+    service_name: serviceName,
     service_date: serviceDate,
     quantity: qty,
     unit_price_cents: unit,
@@ -158,6 +282,7 @@ function formatServiceRecordForSchedule(row, opts = {}) {
     payment_status: row.payment_status || null,
     included_in_package: meta.included_in_package === true,
     notes: row.notes || null,
+    color_class: serviceColorClass(row.service_type, serviceName),
   };
 }
 
@@ -223,10 +348,7 @@ function buildBookingServicesSchedule(opts = {}) {
 
   const nights = stayDates.length;
   const allServices = rows.map((row) => formatServiceRecordForSchedule(row, { timezone }));
-  const paid_requested_services = allServices.map((svc) => ({
-    ...svc,
-    summary_line: formatPaidServiceSummaryLine(svc),
-  }));
+  const paid_requested_services = buildPaidRequestedSummaryLines(allServices);
 
   return {
     package_summary: {
@@ -252,12 +374,15 @@ function buildBookingServicesSchedule(opts = {}) {
 module.exports = {
   buildStayDates,
   buildBookingServicesSchedule,
+  buildPaidRequestedSummaryLines,
   formatServiceRecordForSchedule,
   formatPaidServiceSummaryLine,
   formatDateLabel,
   serviceTypeLabel,
+  serviceColorClass,
   packageSummaryHeadline,
   packageSummaryLabel,
   isServiceDateInStay,
   addDaysToDateOnly,
+  splitMultiQuantityServiceRecords,
 };

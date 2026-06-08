@@ -16,6 +16,7 @@ const {
   buildBookingServicesSchedule,
   formatServiceRecordForSchedule,
   isServiceDateInStay,
+  splitMultiQuantityServiceRecords,
 } = require('./staff-booking-services-schedule');
 
 const BOOKING_SERVICES_RE = /^\/staff\/bookings\/([0-9a-f-]{36})\/services$/i;
@@ -129,6 +130,7 @@ async function handleGetBookingServices(bookingId, query, res) {
       const booking = bkRes.rows[0];
       if (!booking) return { notFound: true };
 
+      await splitMultiQuantityServiceRecords(pg, clientSlug, bookingId);
       const svc = await loadServiceRecords(pg, clientSlug, booking.booking_code);
       const schedule = buildBookingServicesSchedule({
         booking,

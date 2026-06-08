@@ -7074,54 +7074,69 @@ async function handleBookingAddService(req, res, user) {
       const idem = await pg.query(
         `SELECT id::text AS id, service_type, quantity, amount_due_cents, service_date::text AS service_date
          FROM booking_service_records
-         WHERE booking_id = $1::uuid AND metadata->>'idempotency_key' = $2
-         LIMIT 1`,
-        [bookingRow.booking_id, idempotencyKey]
+         WHERE booking_id = $1::uuid
+           AND (metadata->>'idempotency_key' = $2
+                OR metadata->>'idempotency_key' LIKE $3)
+         ORDER BY metadata->>'idempotency_key'`,
+        [bookingRow.booking_id, idempotencyKey, `${idempotencyKey}-unit-%`]
       );
-      if (idem.rows[0]) {
-        return { idempotent: true, row: idem.rows[0] };
+      if (idem.rows.length > 0) {
+        return { idempotent: true, row: idem.rows[0], rows: idem.rows };
       }
+
+      const unitQty = Math.max(1, Number(pricing.quantity) || 1);
+      const unitCents = pricing.unit_cents;
 
       await pg.query('BEGIN');
       try {
-        const ins = await pg.query(
-          `INSERT INTO booking_service_records (
-             client_slug, booking_id, booking_code, guest_name,
-             service_type, service_date, quantity, status,
-             amount_due_cents, amount_paid_cents, payment_status,
-             source, notes, metadata
-           ) VALUES (
-             $1, $2::uuid, $3, $4,
-             $5, $6::date, $7, 'requested',
-             $8, 0, 'not_requested',
-             'staff_manual', $9, $10::jsonb
-           )
-           RETURNING
-             id::text AS service_record_id,
-             service_type,
-             service_date::text AS service_date,
-             quantity,
-             status,
-             payment_status,
-             amount_due_cents,
-             amount_paid_cents,
-             notes,
-             metadata`,
-          [
-            clientSlug,
-            bookingRow.booking_id,
-            bookingRow.booking_code,
-            bookingRow.guest_name,
-            pricing.db_service_type,
-            serviceDate,
-            pricing.quantity,
-            pricing.amount_due_cents,
-            note,
-            JSON.stringify(serviceMeta),
-          ]
-        );
+        const insertedRows = [];
+        for (let u = 0; u < unitQty; u++) {
+          const unitKey = unitQty === 1 ? idempotencyKey : `${idempotencyKey}-unit-${u + 1}`;
+          const unitMeta = {
+            ...serviceMeta,
+            idempotency_key: unitKey,
+            unit_index: u + 1,
+            unit_total: unitQty,
+          };
+          const ins = await pg.query(
+            `INSERT INTO booking_service_records (
+               client_slug, booking_id, booking_code, guest_name,
+               service_type, service_date, quantity, status,
+               amount_due_cents, amount_paid_cents, payment_status,
+               source, notes, metadata
+             ) VALUES (
+               $1, $2::uuid, $3, $4,
+               $5, $6::date, 1, 'requested',
+               $7, 0, 'not_requested',
+               'staff_manual', $8, $9::jsonb
+             )
+             RETURNING
+               id::text AS service_record_id,
+               service_type,
+               service_date::text AS service_date,
+               quantity,
+               status,
+               payment_status,
+               amount_due_cents,
+               amount_paid_cents,
+               notes,
+               metadata`,
+            [
+              clientSlug,
+              bookingRow.booking_id,
+              bookingRow.booking_code,
+              bookingRow.guest_name,
+              pricing.db_service_type,
+              serviceDate,
+              unitCents,
+              note,
+              JSON.stringify(unitMeta),
+            ]
+          );
+          insertedRows.push(ins.rows[0]);
+        }
         await pg.query('COMMIT');
-        return { idempotent: false, row: ins.rows[0] };
+        return { idempotent: false, row: insertedRows[0], rows: insertedRows };
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
         throw e;
@@ -7143,6 +7158,8 @@ async function handleBookingAddService(req, res, user) {
       created: !result.idempotent,
       idempotent: result.idempotent,
       service_record: result.row,
+      service_records: result.rows || [result.row],
+      units_created: result.idempotent ? (result.rows || [result.row]).length : (result.rows || []).length,
       pricing: {
         service_type: uiServiceType,
         db_service_type: pricing.db_service_type,
@@ -7155,7 +7172,9 @@ async function handleBookingAddService(req, res, user) {
       audit: { actor: actorLabel, idempotency_key: idempotencyKey },
       message: result.idempotent
         ? 'Service record already exists for this idempotency key.'
-        : 'Service record added. Running invoice will include the new add-on. No Stripe link or payment was created.',
+        : (pricing.quantity > 1
+          ? `${pricing.quantity} schedulable service units added. Running invoice will include the new add-ons. No Stripe link or payment was created.`
+          : 'Service record added. Running invoice will include the new add-on. No Stripe link or payment was created.'),
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -13337,14 +13356,18 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 @media (max-width:860px){.bc-transfer-cards{grid-template-columns:1fr}}
 .bc-transfer-card{margin:0;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);box-shadow:var(--shadow-soft)}
 .bc-transfer-card h4{margin:0 0 8px;font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
-.bc-transfer-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-top:4px}
+.bc-transfer-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin-top:4px}
 @media (max-width:640px){.bc-transfer-grid{grid-template-columns:1fr}}
+.bc-transfer-col{display:flex;flex-direction:column;gap:6px;min-width:0}
+.bc-transfer-col-left .bc-transfer-override-block{margin-top:2px}
 .bc-transfer-grid .ctx-field-label{margin:0 0 2px;font-size:10px}
 .bc-transfer-grid .bk-input-sm{padding:4px 7px;font-size:12px}
 .bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
 .bc-transfer-card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px}
-.bc-transfer-override-toggle{margin-top:6px;font-size:11px;padding:4px 10px}
-.bc-transfer-override-wrap{margin-top:8px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);max-width:220px}
+.bc-transfer-override-toggle{align-self:flex-start;margin-top:4px;font-size:10px;font-weight:500;padding:2px 8px;line-height:1.35;color:var(--text-2);border-color:var(--border-soft);background:transparent}
+.bc-transfer-override-toggle:hover{background:var(--surface-soft);color:var(--text)}
+.bc-transfer-override-wrap{margin-top:4px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);max-width:160px}
+.bc-transfer-override-wrap .bk-input-sm{max-width:120px}
 .bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap}
 .bc-transfer-remove{margin-left:auto;font-size:11px;color:#9C5742;border-color:rgba(156,87,66,.35);padding:4px 10px}
 .bc-transfer-remove:hover{background:rgba(156,87,66,.06)}
@@ -13401,7 +13424,12 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-svc-picker-option:disabled,.bc-svc-unschedule-option:disabled{opacity:.55;cursor:wait}
 .bc-svc-unschedule-option{display:block;width:100%;text-align:left;padding:6px 8px;font-size:11px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);cursor:pointer;line-height:1.35}
 .bc-svc-chip{display:inline-block;margin:2px 6px 2px 0;padding:3px 8px;font-size:11px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border-soft);line-height:1.35}
-.bc-svc-chip-meta{font-size:10px;color:var(--text-2)}
+.bc-svc-color-board{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35);color:#1e40af}
+.bc-svc-color-wetsuit{background:rgba(100,116,139,.14);border-color:rgba(100,116,139,.35);color:#334155}
+.bc-svc-color-yoga{background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.35);color:#6b21a8}
+.bc-svc-color-meal{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.35);color:#166534}
+.bc-svc-color-lesson{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.4);color:#92400e}
+.bc-svc-color-neutral{background:var(--surface-soft);border-color:var(--border-soft);color:var(--text-1)}
 .bc-svc-unscheduled-list{display:flex;flex-direction:column;gap:6px}
 .bc-svc-unscheduled-item{padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);font-size:11px;background:var(--surface)}
 .ctx-field-edit{margin-top:8px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
@@ -18901,6 +18929,23 @@ function bcInitPaymentLinkShell(data){
   if (!genBtn) return;
   var resultEl = el('bc-payment-link-result');
 
+  if (!BC_STAFF_ACTIONS || !BC_STRIPE_LINKS) {
+    genBtn.disabled = true;
+    genBtn.setAttribute('title', 'Set STAFF_ACTIONS_ENABLED=true and STRIPE_LINKS_ENABLED=true to enable');
+    if (resultEl) {
+      resultEl.innerHTML = '<div class="state-msg" style="font-size:11px;margin-top:6px">Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.</div>';
+      resultEl.style.display = 'block';
+    }
+    return;
+  }
+
+  genBtn.disabled = false;
+  if (resultEl) {
+    resultEl.innerHTML = '';
+    resultEl.style.display = 'none';
+    resultEl.classList.remove('is-visible', 'is-blocked');
+  }
+
   genBtn.addEventListener('click', function(){
     genBtn.disabled = true;
     if (resultEl){ resultEl.classList.remove('is-visible', 'is-blocked'); resultEl.innerHTML = ''; resultEl.style.display = 'none'; }
@@ -20640,12 +20685,12 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   var html = '<div class="bc-transfer-card bc-drawer-overview-card" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
   html += '<h4>' + escHtml(label) + ' transfer</h4>';
   html += '<div class="bc-transfer-grid">';
+  html += '<div class="bc-transfer-col bc-transfer-col-left">';
   html += '<div><label class="ctx-field-label">Airport</label>';
   html += '<select id="' + prefix + '-airport" class="bk-input bk-input-sm">' + bcTransferAirportOptions(airports, airportCode) + '</select></div>';
-  html += '<div><label class="ctx-field-label">Flight number (optional)</label>';
-  html += '<input type="text" id="' + prefix + '-flight" class="bk-input bk-input-sm" value="' + escHtml(t.flight_number || '') + '" placeholder="e.g. FR1234"></div>';
   html += '<div><label class="ctx-field-label">Transfer date/time</label>';
   html += '<input type="datetime-local" id="' + prefix + '-scheduled" class="bk-input bk-input-sm" value="' + escHtml(scheduledLocal) + '"></div>';
+  html += '<div class="bc-transfer-override-block">';
   html += '<button type="button" class="btn btn-ghost bc-transfer-override-toggle" data-direction="' + direction + '" aria-expanded="' +
     (hasOverride ? 'true' : 'false') + '">Exception Override</button>';
   html += '<div id="' + prefix + '-override-wrap" class="bc-transfer-override-wrap" style="display:' +
@@ -20653,10 +20698,13 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<label class="ctx-field-label" for="' + prefix + '-override-amount">Transfer charge</label>';
   html += '<input type="number" id="' + prefix + '-override-amount" class="bk-input bk-input-sm" min="0" step="0.01" placeholder="25" value="' +
     escHtml(overrideEuros) + '">';
-  html += '</div>';
+  html += '</div></div></div>';
+  html += '<div class="bc-transfer-col bc-transfer-col-right">';
+  html += '<div><label class="ctx-field-label">Flight number (optional)</label>';
+  html += '<input type="text" id="' + prefix + '-flight" class="bk-input bk-input-sm" value="' + escHtml(t.flight_number || '') + '" placeholder="e.g. FR1234"></div>';
   html += '<div><label class="ctx-field-label">Notes</label>';
   html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(t.notes || '') + '</textarea></div>';
-  html += '</div>';
+  html += '</div></div>';
   html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(t.pricing) + '</div>';
   html += '<div id="' + prefix + '-lookup-note" class="ctx-none" style="margin-top:6px;font-size:11px"></div>';
   html += '<div id="' + prefix + '-result" style="margin-top:6px;display:none;font-size:11px"></div>';
@@ -21119,26 +21167,16 @@ function bcServicesFormatEuro(cents){
 
 function bcRenderServiceChipHtml(svc){
   var parts = [escHtml(svc.service_name || svc.service_type || 'Service')];
-  if (svc.quantity != null && svc.quantity > 1) parts.push('×' + svc.quantity);
-  if (svc.total_price_cents != null) parts.push(bcServicesFormatEuro(svc.total_price_cents));
-  var meta = [];
-  if (svc.payment_status) meta.push(String(svc.payment_status).replace(/_/g, ' '));
-  if (svc.status && svc.status !== svc.payment_status) meta.push(String(svc.status).replace(/_/g, ' '));
-  var html = '<span class="bc-svc-chip">' + parts.join(' · ');
-  if (meta.length) html += ' <span class="bc-svc-chip-meta">(' + escHtml(meta.join(', ')) + ')</span>';
-  html += '</span>';
-  return html;
+  var priceCents = svc.unit_price_cents != null ? svc.unit_price_cents : svc.total_price_cents;
+  if (priceCents != null) parts.push(bcServicesFormatEuro(priceCents));
+  var colorCls = svc.color_class || 'bc-svc-color-neutral';
+  return '<span class="bc-svc-chip ' + escHtml(colorCls) + '">' + parts.join(' · ') + '</span>';
 }
 
 function bcFormatServiceSummaryLine(svc){
   var parts = [svc.service_name || svc.service_type || 'Service'];
-  var qty = svc.quantity != null ? Number(svc.quantity) : 1;
-  if (qty > 1) parts.push('\u00d7' + qty);
-  if (svc.total_price_cents != null) parts.push(bcServicesFormatEuro(svc.total_price_cents));
-  var meta = [];
-  if (svc.payment_status) meta.push(String(svc.payment_status).replace(/_/g, ' '));
-  if (svc.status && svc.status !== svc.payment_status) meta.push(String(svc.status).replace(/_/g, ' '));
-  if (meta.length) parts.push(meta.join('/'));
+  var priceCents = svc.unit_price_cents != null ? svc.unit_price_cents : svc.total_price_cents;
+  if (priceCents != null) parts.push(bcServicesFormatEuro(priceCents));
   return parts.join(' \u00b7 ');
 }
 
