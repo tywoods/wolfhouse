@@ -164,6 +164,7 @@ const {
   getBookingAddOnSummaryQuery,
   getBookingServiceRecordsQuery,
 } = require('./lib/staff-booking-detail-queries');
+const { dispatchBookingTransfersRoute, BOOKING_TRANSFERS_RE } = require('./lib/staff-booking-transfers-routes');
 const {
   reassignBookingBedSql,
 } = require('./lib/staff-bed-reassignment-sql');
@@ -17871,6 +17872,7 @@ function loadBlockDetail(bookingCode){
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
       updateBcDetailHeader(res.data);
       bcInitFieldEditShell(res.data);
+      bcInitTransferShell(res.data);
       bcInitAddServiceShell(res.data);
       bcInitMovePanel(res.data);
       bcInitCashPaymentShell(res.data);
@@ -20420,6 +20422,181 @@ function bcInitFieldEditShell(data){
   }
 }
 
+/* ── Phase 26c — Flight / Transfer Details editor ─────────────────────────── */
+var bcTransferCtx = { bookingId: null, clientSlug: null, data: null };
+
+function bcRenderTransferDetailsShell(){
+  return '<div class="ctx-section ctx-transfer-details" id="bc-transfer-details">' +
+    '<h3>Flight / Transfer Details</h3>' +
+    '<p class="ctx-none" style="margin-bottom:10px;font-size:12px">Flight lookup coming next.</p>' +
+    '<div id="bc-transfer-cards" class="ctx-loading">Loading transfers\u2026</div>' +
+    '</div>';
+}
+
+function bcTransferStatusOptions(selected){
+  return ['requested', 'confirmed', 'cancelled', 'not_needed'].map(function(s){
+    var sel = (selected || 'requested') === s ? ' selected' : '';
+    return '<option value="' + s + '"' + sel + '>' + s.replace(/_/g, ' ') + '</option>';
+  }).join('');
+}
+
+function bcTransferAirportOptions(airports, selected){
+  var html = '<option value="">\u2014 select airport \u2014</option>';
+  (airports || []).forEach(function(a){
+    var sel = selected === a.code ? ' selected' : '';
+    html += '<option value="' + escHtml(a.code) + '"' + sel + '>' + escHtml(a.label) + '</option>';
+  });
+  return html;
+}
+
+function bcTransferPricingHtml(pricing){
+  if (!pricing) return '<div class="bc-transfer-pricing ctx-none">\u2014</div>';
+  if (!pricing.available){
+    return '<div class="bc-transfer-pricing state-msg error" style="margin-top:8px;font-size:12px">' +
+      escHtml(pricing.pricing_note || pricing.error_code || 'Unavailable') + '</div>';
+  }
+  if (pricing.included_in_package){
+    return '<div class="bc-transfer-pricing" style="margin-top:8px;font-size:12px">Included in package</div>';
+  }
+  return '<div class="bc-transfer-pricing" style="margin-top:8px;font-size:12px">' +
+    escHtml(pricing.pricing_note || ('\u20ac' + (Number(pricing.price_cents || 0) / 100).toFixed(2))) + '</div>';
+}
+
+function bcRenderTransferCard(direction, label, transfer, airports, defaults){
+  var t = transfer || {};
+  var prefix = 'bc-transfer-' + direction;
+  var lookupDefault = direction === 'arrival' ? defaults.arrival_lookup_date : defaults.departure_lookup_date;
+  var lookup = t.lookup_date || lookupDefault || '';
+  var guestCount = t.guest_count != null ? t.guest_count : defaults.guest_count;
+  var scheduledLocal = t.scheduled_at_local || '';
+  var html = '<div class="bc-transfer-card ctx-field-edit-group" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
+  html += '<h4 style="margin:0 0 10px;font-size:13px">' + escHtml(label) + ' transfer</h4>';
+  html += '<label class="ctx-field-label">Status</label>';
+  html += '<select id="' + prefix + '-status" class="bk-input bk-input-sm">' + bcTransferStatusOptions(t.status) + '</select>';
+  html += '<label class="ctx-field-label">Airport</label>';
+  html += '<select id="' + prefix + '-airport" class="bk-input bk-input-sm">' + bcTransferAirportOptions(airports, t.airport_code || '') + '</select>';
+  html += '<label class="ctx-field-label">Flight number (optional)</label>';
+  html += '<input type="text" id="' + prefix + '-flight" class="bk-input bk-input-sm" value="' + escHtml(t.flight_number || '') + '" placeholder="e.g. FR1234">';
+  html += '<label class="ctx-field-label">Lookup date</label>';
+  html += '<input type="date" id="' + prefix + '-lookup-date" class="bk-input bk-input-sm" value="' + escHtml(lookup) + '">';
+  html += '<label class="ctx-field-label">Transfer date/time</label>';
+  html += '<input type="datetime-local" id="' + prefix + '-scheduled" class="bk-input bk-input-sm" value="' + escHtml(scheduledLocal) + '">';
+  if (direction === 'arrival'){
+    html += '<label class="ctx-field-label">Pickup location</label>';
+    html += '<input type="text" id="' + prefix + '-pickup" class="bk-input bk-input-sm" value="' + escHtml(t.pickup_location || '') + '">';
+  } else {
+    html += '<label class="ctx-field-label">Dropoff location</label>';
+    html += '<input type="text" id="' + prefix + '-dropoff" class="bk-input bk-input-sm" value="' + escHtml(t.dropoff_location || '') + '">';
+  }
+  html += '<label class="ctx-field-label">Guest count</label>';
+  html += '<input type="number" min="1" id="' + prefix + '-guest-count" class="bk-input bk-input-sm" value="' + escHtml(String(guestCount)) + '">';
+  html += '<label class="ctx-field-label">Notes</label>';
+  html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(t.notes || '') + '</textarea>';
+  html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(t.pricing) + '</div>';
+  html += '<div id="' + prefix + '-result" style="margin-top:8px;display:none"></div>';
+  html += '<div style="margin-top:10px"><button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '">Save ' + escHtml(label.toLowerCase()) + ' transfer</button></div>';
+  html += '</div>';
+  return html;
+}
+
+function bcRenderTransferCards(data){
+  var transfers = data.transfers || [];
+  var arrival = null;
+  var departure = null;
+  transfers.forEach(function(t){
+    if (t.direction === 'arrival') arrival = t;
+    if (t.direction === 'departure') departure = t;
+  });
+  return bcRenderTransferCard('arrival', 'Arrival', arrival, data.airports, data.defaults) +
+    bcRenderTransferCard('departure', 'Departure', departure, data.airports, data.defaults);
+}
+
+function bcTransferCollectPayload(direction){
+  var prefix = 'bc-transfer-' + direction;
+  var pickupEl = el(prefix + '-pickup');
+  var dropoffEl = el(prefix + '-dropoff');
+  return {
+    client_slug: bcTransferCtx.clientSlug,
+    direction: direction,
+    status: (el(prefix + '-status') && el(prefix + '-status').value) || 'requested',
+    airport_code: (el(prefix + '-airport') && el(prefix + '-airport').value) || null,
+    flight_number: (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || null,
+    lookup_date: (el(prefix + '-lookup-date') && el(prefix + '-lookup-date').value) || null,
+    scheduled_at: (el(prefix + '-scheduled') && el(prefix + '-scheduled').value) || null,
+    pickup_location: pickupEl ? (pickupEl.value.trim() || null) : null,
+    dropoff_location: dropoffEl ? (dropoffEl.value.trim() || null) : null,
+    guest_count: parseInt((el(prefix + '-guest-count') && el(prefix + '-guest-count').value) || '', 10) || null,
+    notes: (el(prefix + '-notes') && el(prefix + '-notes').value.trim()) || null,
+    source: 'staff',
+  };
+}
+
+function bcTransferShowResult(direction, html, isErr){
+  var box = el('bc-transfer-' + direction + '-result');
+  if (!box) return;
+  box.style.display = 'block';
+  box.className = isErr ? 'state-msg error' : 'state-msg';
+  box.innerHTML = html;
+}
+
+function bcSaveTransfer(direction){
+  if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
+  var btn = document.querySelector('.bc-transfer-save[data-direction="' + direction + '"]');
+  if (btn) btn.disabled = true;
+  bcTransferShowResult(direction, 'Saving\u2026', false);
+  fetch('/staff/bookings/' + encodeURIComponent(bcTransferCtx.bookingId) + '/transfers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bcTransferCollectPayload(direction)),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (btn) btn.disabled = false;
+      if (!res.ok || !res.data.success){
+        bcTransferShowResult(direction, escHtml((res.data && res.data.error) || 'Save failed'), true);
+        return;
+      }
+      var t = res.data.transfer || {};
+      var pricingEl = el('bc-transfer-' + direction + '-pricing');
+      if (pricingEl) pricingEl.innerHTML = bcTransferPricingHtml(t.pricing || res.data.pricing);
+      bcTransferShowResult(direction, 'Transfer saved.', false);
+    })
+    .catch(function(e){
+      if (btn) btn.disabled = false;
+      bcTransferShowResult(direction, escHtml(e.message || 'Network error'), true);
+    });
+}
+
+function bcInitTransferShell(contextData){
+  var bk = (contextData && contextData.booking) || {};
+  if (!bk.booking_id) return;
+  bcTransferCtx.bookingId = bk.booking_id;
+  bcTransferCtx.clientSlug = getBcClient();
+  var cardsEl = el('bc-transfer-cards');
+  if (!cardsEl) return;
+  var url = '/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/transfers?client_slug=' +
+    encodeURIComponent(bcTransferCtx.clientSlug);
+  fetch(url)
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data.success){
+        cardsEl.innerHTML = '<div class="state-msg error">' + escHtml((res.data && res.data.error) || 'Failed to load transfers') + '</div>';
+        return;
+      }
+      bcTransferCtx.data = res.data;
+      cardsEl.innerHTML = bcRenderTransferCards(res.data);
+      cardsEl.classList.remove('ctx-loading');
+      document.querySelectorAll('.bc-transfer-save').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          bcSaveTransfer(btn.getAttribute('data-direction'));
+        });
+      });
+    })
+    .catch(function(e){
+      cardsEl.innerHTML = '<div class="state-msg error">' + escHtml(e.message) + '</div>';
+    });
+}
+
 /* Render the enriched booking context drawer sections (Stage 8.3b) */
 function renderBookingContextDrawer(data){
   var html = '';
@@ -20442,6 +20619,9 @@ function renderBookingContextDrawer(data){
   /* ── Phase 10.4e — contact / dates / guests / package ─────────────────── */
   html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
+
+  /* ── Phase 26c — Flight / Transfer Details (under Package) ─────────────── */
+  html += bcRenderTransferDetailsShell();
 
   /* ── Phase 10.3e / 10.3h — Move bed ───────── */
   var rmMove = data.rooming || {};
@@ -24794,6 +24974,13 @@ async function router(req, res) {
     const auth = await requireOwnerInsightsAuth(req, res);
     if (!auth.ok) return;
     return handleOwnerSqlPlanAndExecute(req, res, auth.user);
+  }
+
+  // ── Phase 26c — Booking airport transfers (GET list / POST upsert) ─────────
+  if (BOOKING_TRANSFERS_RE.test(pathname)) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    if (await dispatchBookingTransfersRoute(req, res, pathname, parsed.query)) return;
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────
