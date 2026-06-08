@@ -192,7 +192,7 @@
     },
     "soft_top_rental": {
       "code": "soft_top_rental",
-      "name": "Soft-top surfboard rental",
+      "name": "Soft board rental",
       "pricing_unit": "per_day",
       "price_cents": 1500,
       "_eur": 15,
@@ -210,14 +210,13 @@
     },
     "wetsuit_soft_top_combo": {
       "code": "wetsuit_soft_top_combo",
-      "name": "Wetsuit + soft-top combo",
+      "name": "Wetsuit + Soft board combo",
       "pricing_unit": "per_day",
       "price_cents": 1500,
       "_eur": 15,
       "pricing_status": "confirmed",
-      "replaces": ["wetsuit_rental", "soft_top_rental"],
       "charge_timing": "REQUIRED_FROM_STAFF",
-      "_note": "Promo: same price as soft-top alone — wetsuit free. Replaces separate wetsuit + soft-top line items."
+      "_note": "Promo: same price as soft board alone — wetsuit free. Combos and individual rentals bill independently when both selected (26j.2)."
     },
     "wetsuit_hard_board_combo": {
       "code": "wetsuit_hard_board_combo",
@@ -226,9 +225,8 @@
       "price_cents": 2000,
       "_eur": 20,
       "pricing_status": "confirmed",
-      "replaces": ["wetsuit_rental", "hard_board_rental"],
       "charge_timing": "REQUIRED_FROM_STAFF",
-      "_note": "Promo: same price as hard board alone — wetsuit free. Replaces separate wetsuit + hard-board line items."
+      "_note": "Promo: same price as hard board alone — wetsuit free. Combos and individual rentals bill independently when both selected (26j.2)."
     },
     "surf_lesson_single": {
       "code": "surf_lesson_single",
@@ -261,7 +259,7 @@
     },
     "meals": {
       "code": "meals",
-      "name": "Meals",
+      "name": "Meal",
       "pricing_unit": "per_meal",
       "price_cents": 1500,
       "_eur": 15,

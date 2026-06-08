@@ -179,6 +179,7 @@ const {
   BOOKING_SERVICE_DATE_RE,
 } = require('./lib/staff-booking-services-routes');
 const { distributeSpanScheduleDates } = require('./lib/staff-booking-services-schedule');
+const { buildManualBookingServiceRecordRows } = require('./lib/manual-booking-service-records');
 const {
   listBookingTransfersForCalendarRange,
   listBookingTransfersForBooking,
@@ -12135,170 +12136,8 @@ async function handleBotBookingCreate(req, res, user, authMode) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stage 8.8.16 — Manual booking create → booking_service_records
+// (buildManualBookingServiceRecordRows in lib/manual-booking-service-records.js)
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Map priced add-on codes to operational service_type values (meals excluded). */
-const MANUAL_BOOKING_ADDON_SERVICE_MAP = {
-  wetsuit_rental:            'wetsuit',
-  soft_top_rental:           'surfboard',
-  hard_board_rental:         'surfboard',
-  wetsuit_soft_top_combo:    null, // expands to wetsuit + surfboard
-  wetsuit_hard_board_combo:  null,
-  surf_lesson_single:        'surf_lesson',
-  surf_lesson_multi:         'surf_lesson',
-  yoga_class:                'yoga',
-};
-
-const MANUAL_BOOKING_COMBO_REPLACES = {
-  wetsuit_soft_top_combo:   ['wetsuit_rental', 'soft_top_rental'],
-  wetsuit_hard_board_combo: ['wetsuit_rental', 'hard_board_rental'],
-};
-
-function quoteLineItemAmount(quote, code) {
-  const items = (quote && Array.isArray(quote.line_items)) ? quote.line_items : [];
-  const li = items.find((x) => x.code === code);
-  if (!li || li.total_cents == null) return null;
-  return Number(li.total_cents);
-}
-
-/**
- * Build booking_service_records rows for manual booking create.
- * Amounts come from quote line_items when safely matchable; otherwise 0 + metadata.
- */
-function buildManualBookingServiceRecordRows({
-  addOns, quote, clientSlug, bookingId, bookingCode, guestName, checkIn, guestCount,
-}) {
-  const rows = [];
-  const addOnList = Array.isArray(addOns) ? addOns : [];
-  if (addOnList.length === 0) return rows;
-
-  const replaced = new Set();
-  for (const addon of addOnList) {
-    const reps = MANUAL_BOOKING_COMBO_REPLACES[addon.code];
-    if (reps) for (const r of reps) replaced.add(r);
-  }
-
-  function servicePaymentStatus(amountDueCents) {
-    return Number(amountDueCents) > 0 ? 'pending' : 'not_requested';
-  }
-
-  function pushRow({
-    serviceType, quantity, amountDueCents, sourceAddonCode, metadataExtra, needsScheduling,
-  }) {
-    const meta = {
-      source_addon_code: sourceAddonCode,
-      ...(metadataExtra || {}),
-    };
-    if (needsScheduling) meta.needs_scheduling = true;
-    const amt = Math.max(0, Number(amountDueCents) || 0);
-    rows.push({
-      client_slug:        clientSlug,
-      booking_id:         bookingId,
-      booking_code:       bookingCode,
-      guest_name:         guestName,
-      service_type:       serviceType,
-      service_date:       checkIn,
-      quantity:           Math.max(1, Number(quantity) || 1),
-      status:             'confirmed',
-      amount_due_cents:   amt,
-      amount_paid_cents:  0,
-      payment_status:     servicePaymentStatus(amt),
-      source:             'staff_manual',
-      notes:              null,
-      metadata:           meta,
-    });
-  }
-
-  // Combo add-ons → wetsuit + surfboard (amount not split across rows)
-  for (const addon of addOnList) {
-    if (addon.code !== 'wetsuit_soft_top_combo' && addon.code !== 'wetsuit_hard_board_combo') continue;
-    const days = Math.max(1, parseInt(addon.days, 10) || 1);
-    const liAmt = quoteLineItemAmount(quote, addon.code);
-    const comboMeta = {
-      rental_days: days,
-      source_quote_line_code: addon.code,
-      combo_line_total_cents: liAmt,
-      quote_amount_unsplit: true,
-    };
-    pushRow({
-      serviceType: 'wetsuit', quantity: guestCount, amountDueCents: 0,
-      sourceAddonCode: addon.code, metadataExtra: { ...comboMeta, combo_part: 'wetsuit' },
-    });
-    pushRow({
-      serviceType: 'surfboard', quantity: guestCount, amountDueCents: 0,
-      sourceAddonCode: addon.code, metadataExtra: { ...comboMeta, combo_part: 'surfboard' },
-    });
-  }
-
-  // Individual rental add-ons
-  for (const addon of addOnList) {
-    if (replaced.has(addon.code)) continue;
-    if (addon.code === 'wetsuit_soft_top_combo' || addon.code === 'wetsuit_hard_board_combo') continue;
-    if (addon.code === 'surf_lesson_single' || addon.code === 'surf_lesson_multi') continue;
-    if (addon.code === 'yoga_class') continue;
-    if (/meal/i.test(addon.code)) continue;
-
-    const serviceType = MANUAL_BOOKING_ADDON_SERVICE_MAP[addon.code];
-    if (!serviceType) continue;
-
-    const days = Math.max(1, parseInt(addon.days, 10) || 1);
-    const liAmt = quoteLineItemAmount(quote, addon.code);
-    pushRow({
-      serviceType,
-      quantity: guestCount,
-      amountDueCents: liAmt != null ? liAmt : 0,
-      sourceAddonCode: addon.code,
-      metadataExtra: {
-        rental_days: days,
-        source_quote_line_code: addon.code,
-        ...(liAmt == null ? { quote_line_not_matched: true } : {}),
-      },
-    });
-  }
-
-  // Surf lessons — pooled quantity (matches quote calculator)
-  let totalLessons = 0;
-  for (const addon of addOnList) {
-    if (addon.code === 'surf_lesson_single' || addon.code === 'surf_lesson_multi') {
-      totalLessons += Math.max(1, parseInt(addon.quantity, 10) || 1);
-    }
-  }
-  if (totalLessons > 0) {
-    const lessonCode = totalLessons === 1 ? 'surf_lesson_single' : 'surf_lesson_multi';
-    const liAmt = quoteLineItemAmount(quote, lessonCode);
-    pushRow({
-      serviceType: 'surf_lesson',
-      quantity: totalLessons,
-      amountDueCents: liAmt != null ? liAmt : 0,
-      sourceAddonCode: lessonCode,
-      needsScheduling: true,
-      metadataExtra: {
-        source_quote_line_code: lessonCode,
-        ...(liAmt == null ? { quote_line_not_matched: true } : {}),
-      },
-    });
-  }
-
-  // Yoga classes
-  for (const addon of addOnList) {
-    if (addon.code !== 'yoga_class') continue;
-    const qty = Math.max(1, parseInt(addon.quantity, 10) || 1);
-    const liAmt = quoteLineItemAmount(quote, 'yoga_class');
-    pushRow({
-      serviceType: 'yoga',
-      quantity: qty,
-      amountDueCents: liAmt != null ? liAmt : 0,
-      sourceAddonCode: 'yoga_class',
-      needsScheduling: true,
-      metadataExtra: {
-        source_quote_line_code: 'yoga_class',
-        ...(liAmt == null ? { quote_line_not_matched: true } : {}),
-      },
-    });
-  }
-
-  return rows;
-}
 
 async function insertManualBookingServiceRecords(pg, rows) {
   if (!rows.length) return { created: 0, available: true, warning: null };
@@ -14113,8 +13952,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
   <!-- Manual booking preview skeleton (Stage 8.3d / 8.4.5, read-only) -->
   <div class="card" id="bc-sel-panel" style="display:none;margin-top:16px">
     <div class="bc-sel-title">
-      &#128203; New Booking Preview
-      <span class="hq-ro-label">PREVIEW ONLY &mdash; NO BOOKING CREATED</span>
+      &#128203; Create New Booking
     </div>
 
     <div id="bc-sel-warn" class="bc-sel-warn" style="display:none"></div>
@@ -14197,8 +14035,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <div class="bk-form-section-title">Add Services</div>
       <div class="bk-ao-grid">
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Wetsuit + Soft top combo</span>
-          <input type="number" id="bk-ao-ws-combo-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Wetsuit + Soft top combo days">
+          <span class="bk-ao-label">Wetsuit + Soft board combo</span>
+          <input type="number" id="bk-ao-ws-combo-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Wetsuit + Soft board combo days">
           <span class="bk-ao-unit">days</span>
         </div>
         <div class="bk-ao-row">
@@ -14212,8 +14050,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
           <span class="bk-ao-unit">days</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Soft top rental</span>
-          <input type="number" id="bk-ao-softtop-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Soft top rental days">
+          <span class="bk-ao-label">Soft board rental</span>
+          <input type="number" id="bk-ao-softtop-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Soft board rental days">
           <span class="bk-ao-unit">days</span>
         </div>
         <div class="bk-ao-row">
@@ -17015,17 +16853,14 @@ function buildAddOns(){
   var result = [];
   var wsComboDays = aoQtyInput('bk-ao-ws-combo-days');
   var wbComboDays = aoQtyInput('bk-ao-wb-combo-days');
-  /* Combos first — they replace individual rentals */
   if (wsComboDays > 0) result.push({ code: 'wetsuit_soft_top_combo', days: wsComboDays });
   if (wbComboDays > 0) result.push({ code: 'wetsuit_hard_board_combo', days: wbComboDays });
-  var wsActive = wsComboDays > 0;
-  var wbActive = wbComboDays > 0;
   var wetDays  = aoQtyInput('bk-ao-wetsuit-days');
   var stDays   = aoQtyInput('bk-ao-softtop-days');
   var hbDays   = aoQtyInput('bk-ao-hardboard-days');
-  if (wetDays > 0 && !wsActive && !wbActive) result.push({ code: 'wetsuit_rental', days: wetDays });
-  if (stDays > 0 && !wsActive) result.push({ code: 'soft_top_rental', days: stDays });
-  if (hbDays > 0 && !wbActive) result.push({ code: 'hard_board_rental', days: hbDays });
+  if (wetDays > 0) result.push({ code: 'wetsuit_rental', days: wetDays });
+  if (stDays > 0) result.push({ code: 'soft_top_rental', days: stDays });
+  if (hbDays > 0) result.push({ code: 'hard_board_rental', days: hbDays });
   /* Surf lessons — send as surf_lesson_single; calculator auto-selects single vs multi */
   var slQty = aoQtyInput('bk-ao-surf-lessons');
   if (slQty > 0) result.push({ code: 'surf_lesson_single', quantity: slQty });

@@ -339,15 +339,6 @@ function calculateWolfhouseQuote(input, config) {
   let addons_cents = 0;
   const addOnList = Array.isArray(add_ons) ? add_ons : [];
 
-  // Determine which individual codes are superseded by a combo
-  const replaced = new Set();
-  for (const addon of addOnList) {
-    const cfgA = config.add_ons[addon.code];
-    if (cfgA && Array.isArray(cfgA.replaces)) {
-      for (const r of cfgA.replaces) replaced.add(r);
-    }
-  }
-
   // Tally surf-lesson quantity across all lesson add-on codes
   let totalLessons = 0;
   for (const addon of addOnList) {
@@ -357,12 +348,6 @@ function calculateWolfhouseQuote(input, config) {
   }
 
   for (const addon of addOnList) {
-    // Skip if superseded by a combo
-    if (replaced.has(addon.code)) {
-      warnings.push(`${addon.code} is replaced by a combo add-on — skipped as standalone`);
-      continue;
-    }
-
     // Surf lessons are pooled and handled after the loop
     if (addon.code === 'surf_lesson_single' || addon.code === 'surf_lesson_multi') continue;
 
