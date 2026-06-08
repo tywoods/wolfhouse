@@ -277,6 +277,56 @@ function formatTransferForApi(row, booking, clientSlug, timezone) {
   };
 }
 
+function addDaysToDateOnly(dateStr, deltaDays) {
+  const s = trimStr(dateStr);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
+}
+
+const FLIGHT_NOT_FOUND_MESSAGE = "Couldn't find that flight. Enter the flight details manually.";
+
+/**
+ * Try booking default lookup date, then one day earlier on flight_not_found.
+ *
+ * @param {{ flight_number: string, direction: string, airport_code?: string|null, lookupDate: string, env?: NodeJS.ProcessEnv }} opts
+ * @returns {Promise<{ lookup: object, lookup_date_used: string|null }>}
+ */
+async function lookupAviationstackFlightWithDateRetry(opts = {}) {
+  const lookupDate = trimStr(opts.lookupDate);
+  const baseArgs = {
+    flight_number: opts.flight_number,
+    direction: opts.direction,
+    airport_code: opts.airport_code,
+    env: opts.env || process.env,
+  };
+  let lookup = await lookupAviationstackFlight({ ...baseArgs, flight_date: lookupDate });
+  if (lookup.success || lookup.error !== 'flight_not_found') {
+    return { lookup, lookup_date_used: lookupDate };
+  }
+  const prevDate = addDaysToDateOnly(lookupDate, -1);
+  if (!prevDate || prevDate === lookupDate) {
+    return { lookup, lookup_date_used: lookupDate };
+  }
+  const retry = await lookupAviationstackFlight({ ...baseArgs, flight_date: prevDate });
+  return { lookup: retry, lookup_date_used: prevDate };
+}
+
+function inferTransferStatusFromInput(transferInput, existingStatus) {
+  const hasContent = !!(
+    trimStr(transferInput.flight_number)
+    || trimStr(transferInput.scheduled_at)
+    || trimStr(transferInput.airport_code)
+    || trimStr(transferInput.notes)
+  );
+  const existing = trimStr(existingStatus).toLowerCase();
+  if (existing === 'confirmed' || existing === 'cancelled') return existing;
+  if (!hasContent) return 'not_needed';
+  return 'requested';
+}
+
 function buildDefaults(booking, timezone) {
   const bookingObj = bookingForPricing(booking);
   return {
@@ -293,6 +343,7 @@ function buildDefaults(booking, timezone) {
     guest_count: Math.max(1, Number(booking.guest_count) || 1),
     check_in: normalizeBookingDateOnly(booking.check_in, { timezone }),
     check_out: normalizeBookingDateOnly(booking.check_out, { timezone }),
+    default_airport_code: 'SDR',
   };
 }
 
@@ -383,27 +434,47 @@ async function handlePostBookingTransfer(bookingId, req, res) {
     ? parseDatetimeLocalInTimezone(body.scheduled_at, timezone)
     : (body.scheduled_at ? trimStr(body.scheduled_at) || null : null);
 
-  const transferInput = {
-    direction,
-    status: body.status,
-    airport_code: body.airport_code,
-    airport_label: body.airport_label,
-    flight_number: body.flight_number,
-    lookup_date: body.lookup_date,
-    scheduled_at: scheduledAt,
-    pickup_location: body.pickup_location,
-    dropoff_location: body.dropoff_location,
-    guest_count: body.guest_count,
-    notes: body.notes,
-    flight_lookup_provider: body.flight_lookup_provider,
-    flight_lookup_status: body.flight_lookup_status,
-    flight_lookup_summary: sanitizeFlightLookupSummaryForStorage(body.flight_lookup_summary),
-  };
-
   try {
     const result = await withPgClient(async (pg) => {
       const booking = await loadBooking(pg, clientSlug, bookingId);
       if (!booking) return { notFound: true };
+
+      let existingStatus = null;
+      try {
+        const rows = await listBookingTransfersForBooking(pg, {
+          client_slug: clientSlug,
+          booking_id: bookingId,
+        });
+        const row = rows.find((r) => r.direction === direction);
+        existingStatus = row ? row.status : null;
+      } catch (err) {
+        if (!isMissingBookingTransfersTable(err)) throw err;
+      }
+
+      const resolvedStatus = body.status != null && trimStr(body.status)
+        ? trimStr(body.status)
+        : inferTransferStatusFromInput(body, existingStatus);
+
+      const transferInput = {
+        direction,
+        status: resolvedStatus,
+        airport_code: body.airport_code || buildDefaults(booking, timezone).default_airport_code,
+        airport_label: body.airport_label,
+        flight_number: body.flight_number,
+        lookup_date: body.lookup_date || defaultTransferLookupDate({
+          direction,
+          booking: bookingForPricing(booking),
+          timezone,
+        }),
+        scheduled_at: scheduledAt,
+        pickup_location: null,
+        dropoff_location: null,
+        guest_count: body.guest_count != null ? body.guest_count : Math.max(1, Number(booking.guest_count) || 1),
+        notes: body.notes,
+        flight_lookup_provider: body.flight_lookup_provider,
+        flight_lookup_status: body.flight_lookup_status,
+        flight_lookup_summary: sanitizeFlightLookupSummaryForStorage(body.flight_lookup_summary),
+      };
 
       const saved = await upsertBookingTransfer(pg, {
         client_slug: clientSlug,
@@ -469,48 +540,52 @@ async function handlePostBookingTransferLookupFlight(bookingId, req, res) {
   }
 
   const timezone = clientTimezone(clientSlug);
-  let lookupDate = body.lookup_date != null
+  let bookingRow;
+  try {
+    bookingRow = await withPgClient(async (pg) => loadBooking(pg, clientSlug, bookingId));
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'query failed', detail: err.message });
+  }
+  if (!bookingRow) {
+    return res.status(404).json({ success: false, error: 'booking not found' });
+  }
+
+  const lookupDate = body.lookup_date != null
     ? normalizeBookingDateOnly(body.lookup_date, { timezone })
-    : null;
+    : defaultTransferLookupDate({
+      direction,
+      booking: bookingForPricing(bookingRow),
+      timezone,
+    });
 
   if (!lookupDate) {
-    try {
-      const bookingRow = await withPgClient(async (pg) => loadBooking(pg, clientSlug, bookingId));
-      if (!bookingRow) {
-        return res.status(404).json({ success: false, error: 'booking not found' });
-      }
-      lookupDate = defaultTransferLookupDate({
-        direction,
-        booking: bookingForPricing(bookingRow),
-        timezone,
-      });
-    } catch (err) {
-      return res.status(500).json({ success: false, error: 'query failed', detail: err.message });
-    }
+    return res.status(400).json({ success: false, error: 'missing_lookup_date', no_transfer_write: true });
   }
 
-  if (!lookupDate) {
-    return res.status(400).json({ success: false, error: 'missing_lookup_date' });
-  }
-
-  const lookup = await lookupAviationstackFlight({
+  const { lookup, lookup_date_used: lookupDateUsed } = await lookupAviationstackFlightWithDateRetry({
     flight_number: flightNumber,
-    flight_date: lookupDate,
     direction,
     airport_code: body.airport_code,
+    lookupDate,
     env: process.env,
   });
 
   if (!lookup.success) {
     const errCode = lookup.error || 'flight_lookup_failed';
     const status = errCode === 'aviationstack_not_configured' ? 503 : 404;
-    return res.status(status).json({
+    const payload = {
       success: false,
       error: errCode,
       no_transfer_write: true,
       no_payment_write: true,
-    });
+    };
+    if (errCode === 'flight_not_found') {
+      payload.message = FLIGHT_NOT_FOUND_MESSAGE;
+    }
+    return res.status(status).json(payload);
   }
+
+  lookup.flight_date = lookupDateUsed || lookup.flight_date;
 
   const suggested_transfer_patch = buildSuggestedTransferPatch({
     clientSlug,
@@ -605,6 +680,10 @@ module.exports = {
   handlePostBookingTransferLookupFlight,
   buildSuggestedTransferPatch,
   sanitizeFlightLookupSummaryForStorage,
+  lookupAviationstackFlightWithDateRetry,
+  addDaysToDateOnly,
+  inferTransferStatusFromInput,
+  FLIGHT_NOT_FOUND_MESSAGE,
   formatTimestamptzAsDatetimeLocal,
   parseDatetimeLocalInTimezone,
   normalizeBookingDateOnly,

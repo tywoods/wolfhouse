@@ -72,9 +72,11 @@ if (lookupHandler && !/upsertBookingTransfer/.test(lookupHandler)) {
 } else fail('A4', 'lookup route writes transfers');
 if (/no_transfer_write:\s*true/.test(lookupHandler)) pass('A5', 'returns no_transfer_write true');
 else fail('A5', 'no_transfer_write flag');
-if (/missing_flight_number/.test(lookupHandler) && /missing_lookup_date/.test(lookupHandler)) {
-  pass('A6', 'validates flight_number and lookup_date');
-} else fail('A6', 'validation missing');
+if (/missing_flight_number/.test(lookupHandler) && /defaultTransferLookupDate/.test(lookupHandler)) {
+  pass('A6', 'validates flight_number; defaults lookup_date from booking');
+} else fail('A6', 'validation/default missing');
+if (/lookupAviationstackFlightWithDateRetry/.test(routesSrc)) pass('A8', 'lookup uses date retry helper');
+else fail('A8', 'date retry helper missing');
 
 if (/dispatchBookingTransferLookupRoute/.test(routesSrc) && /BOOKING_TRANSFER_LOOKUP_RE/.test(apiSrc)) {
   pass('A7', 'staff-query-api wires lookup route before GET-only gate');
@@ -184,6 +186,12 @@ if (/\/transfers\/lookup-flight/.test(apiSrc) && /bcLookupFlight/.test(apiSrc)) 
 if (/bcTransferApplyLookupPatch/.test(apiSrc) && /scheduled_at_local/.test(apiSrc)) {
   pass('D3', 'UI autofills airport/scheduled from suggested_transfer_patch');
 } else fail('D3', 'autofill');
+const uiSlice = (apiSrc.match(/Phase 26c\/26f[\s\S]{0,12000}/) || [''])[0];
+if (uiSlice && !/lookup_date:/.test(uiSlice)) pass('D6', 'UI lookup POST omits lookup_date');
+else fail('D6', 'UI still sends lookup_date');
+if (/Couldn\\u2019t find that flight|Enter the flight details manually/.test(apiSrc)) {
+  pass('D7', 'UI shows safe manual-entry message on lookup failure');
+} else fail('D7', 'safe lookup error message missing');
 if (/bcTransferCollectPayload/.test(apiSrc) && /flight_lookup_summary/.test(apiSrc) && /bc-transfer-save/.test(apiSrc)) {
   pass('D4', 'save still uses existing transfer POST with lookup metadata');
 } else fail('D4', 'save wiring');
@@ -236,8 +244,11 @@ section('E. Mocked lookup route behavior');
   section('F. Docs + npm');
 
   const doc = readOrEmpty(DOC);
-  if (/lookup-flight/.test(doc) && /flight_number.*lookup_date/i.test(doc)) pass('F1', 'doc route + date requirement');
-  else fail('F1', 'doc route');
+  const doc261 = readOrEmpty(path.join(ROOT, 'docs', 'PHASE-26f-1-TRANSFER-UI-CLEANUP.md'));
+  if ((/lookup-flight/.test(doc) || /lookup-flight/.test(doc261))
+    && (/check-in|check-out|booking date/i.test(doc) || /check-in|check-out/i.test(doc261))) {
+    pass('F1', 'doc route + booking-date lookup default');
+  } else fail('F1', 'doc route/dates');
   if (/no.*DB write|no_transfer_write|does not write/i.test(doc)) pass('F2', 'doc no lookup write');
   else fail('F2', 'doc write safety');
   if (/Lookup flight|autofill/i.test(doc)) pass('F3', 'doc UI autofill');

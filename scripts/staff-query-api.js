@@ -13316,6 +13316,17 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .btn-bc-field-edit{font-size:14px;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .btn-bc-field-edit:hover{background:var(--surface-soft);color:var(--accent)}
 .ctx-field-edit-group.is-editing .btn-bc-field-edit{font-weight:600;border-color:var(--accent);color:var(--accent)}
+.bc-transfer-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:860px){.bc-transfer-cards{grid-template-columns:1fr}}
+.bc-transfer-card{margin:0;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
+.bc-transfer-card h4{margin:0 0 6px;font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
+.bc-transfer-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-top:4px}
+@media (max-width:640px){.bc-transfer-grid{grid-template-columns:1fr}}
+.bc-transfer-grid .ctx-field-label{margin:0 0 2px;font-size:10px}
+.bc-transfer-grid .bk-input-sm{padding:4px 7px;font-size:12px}
+.bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
+.bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
 .ctx-field-edit{margin-top:8px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
 .ctx-field-label{display:block;font-size:11px;color:var(--text-2);margin:8px 0 4px}
 .ctx-field-label:first-child{margin-top:0}
@@ -20486,80 +20497,65 @@ function bcInitFieldEditShell(data){
   }
 }
 
-/* ── Phase 26c/26f — Flight / Transfer Details editor ─────────────────────── */
-var bcTransferCtx = { bookingId: null, clientSlug: null, data: null, lookupMeta: { arrival: null, departure: null } };
+/* ── Phase 26c/26f/26f.1 — Flight / Transfer Details editor ───────────────── */
+var bcTransferCtx = {
+  bookingId: null,
+  clientSlug: null,
+  data: null,
+  lookupMeta: { arrival: null, departure: null },
+  existingStatus: { arrival: null, departure: null },
+};
 
 function bcRenderTransferDetailsShell(){
   return '<div class="ctx-section ctx-transfer-details" id="bc-transfer-details">' +
     '<h3>Flight / Transfer Details</h3>' +
-    '<p class="ctx-none" style="margin-bottom:10px;font-size:12px">Enter flight number and lookup date, then click Lookup flight. Fields remain editable until you Save.</p>' +
-    '<div id="bc-transfer-cards" class="ctx-loading">Loading transfers\u2026</div>' +
+    '<p class="ctx-none" style="margin-bottom:8px;font-size:11px">Lookup uses booking check-in/check-out dates. Edit fields, then Save.</p>' +
+    '<div id="bc-transfer-cards" class="bc-transfer-cards ctx-loading">Loading transfers\u2026</div>' +
     '</div>';
 }
 
-function bcTransferStatusOptions(selected){
-  return ['requested', 'confirmed', 'cancelled', 'not_needed'].map(function(s){
-    var sel = (selected || 'requested') === s ? ' selected' : '';
-    return '<option value="' + s + '"' + sel + '>' + s.replace(/_/g, ' ') + '</option>';
-  }).join('');
-}
-
 function bcTransferAirportOptions(airports, selected){
-  var html = '<option value="">\u2014 select airport \u2014</option>';
+  var pick = selected || 'SDR';
+  var html = '';
   (airports || []).forEach(function(a){
-    var sel = selected === a.code ? ' selected' : '';
+    var sel = pick === a.code ? ' selected' : '';
     html += '<option value="' + escHtml(a.code) + '"' + sel + '>' + escHtml(a.label) + '</option>';
   });
   return html;
 }
 
 function bcTransferPricingHtml(pricing){
-  if (!pricing) return '<div class="bc-transfer-pricing ctx-none">\u2014</div>';
+  if (!pricing) return '';
   if (!pricing.available){
-    return '<div class="bc-transfer-pricing state-msg error" style="margin-top:8px;font-size:12px">' +
+    return '<div class="bc-transfer-pricing">' +
       escHtml(pricing.pricing_note || pricing.error_code || 'Unavailable') + '</div>';
   }
-  if (pricing.included_in_package){
-    return '<div class="bc-transfer-pricing" style="margin-top:8px;font-size:12px">Included in package</div>';
-  }
-  return '<div class="bc-transfer-pricing" style="margin-top:8px;font-size:12px">' +
+  if (pricing.included_in_package) return '<div class="bc-transfer-pricing">Included in package</div>';
+  return '<div class="bc-transfer-pricing">' +
     escHtml(pricing.pricing_note || ('\u20ac' + (Number(pricing.price_cents || 0) / 100).toFixed(2))) + '</div>';
 }
 
 function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   var t = transfer || {};
   var prefix = 'bc-transfer-' + direction;
-  var lookupDefault = direction === 'arrival' ? defaults.arrival_lookup_date : defaults.departure_lookup_date;
-  var lookup = t.lookup_date || lookupDefault || '';
-  var guestCount = t.guest_count != null ? t.guest_count : defaults.guest_count;
+  var airportCode = t.airport_code || (defaults && defaults.default_airport_code) || 'SDR';
   var scheduledLocal = t.scheduled_at_local || '';
-  var html = '<div class="bc-transfer-card ctx-field-edit-group" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
-  html += '<h4 style="margin:0 0 10px;font-size:13px">' + escHtml(label) + ' transfer</h4>';
-  html += '<label class="ctx-field-label">Status</label>';
-  html += '<select id="' + prefix + '-status" class="bk-input bk-input-sm">' + bcTransferStatusOptions(t.status) + '</select>';
-  html += '<label class="ctx-field-label">Airport</label>';
-  html += '<select id="' + prefix + '-airport" class="bk-input bk-input-sm">' + bcTransferAirportOptions(airports, t.airport_code || '') + '</select>';
-  html += '<label class="ctx-field-label">Flight number (optional)</label>';
-  html += '<input type="text" id="' + prefix + '-flight" class="bk-input bk-input-sm" value="' + escHtml(t.flight_number || '') + '" placeholder="e.g. FR1234">';
-  html += '<label class="ctx-field-label">Lookup date</label>';
-  html += '<input type="date" id="' + prefix + '-lookup-date" class="bk-input bk-input-sm" value="' + escHtml(lookup) + '">';
-  html += '<label class="ctx-field-label">Transfer date/time</label>';
-  html += '<input type="datetime-local" id="' + prefix + '-scheduled" class="bk-input bk-input-sm" value="' + escHtml(scheduledLocal) + '">';
-  if (direction === 'arrival'){
-    html += '<label class="ctx-field-label">Pickup location</label>';
-    html += '<input type="text" id="' + prefix + '-pickup" class="bk-input bk-input-sm" value="' + escHtml(t.pickup_location || '') + '">';
-  } else {
-    html += '<label class="ctx-field-label">Dropoff location</label>';
-    html += '<input type="text" id="' + prefix + '-dropoff" class="bk-input bk-input-sm" value="' + escHtml(t.dropoff_location || '') + '">';
-  }
-  html += '<label class="ctx-field-label">Guest count</label>';
-  html += '<input type="number" min="1" id="' + prefix + '-guest-count" class="bk-input bk-input-sm" value="' + escHtml(String(guestCount)) + '">';
-  html += '<label class="ctx-field-label">Notes</label>';
-  html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(t.notes || '') + '</textarea>';
+  var html = '<div class="bc-transfer-card" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
+  html += '<h4>' + escHtml(label) + ' transfer</h4>';
+  html += '<div class="bc-transfer-grid">';
+  html += '<div><label class="ctx-field-label">Airport</label>';
+  html += '<select id="' + prefix + '-airport" class="bk-input bk-input-sm">' + bcTransferAirportOptions(airports, airportCode) + '</select></div>';
+  html += '<div><label class="ctx-field-label">Flight number (optional)</label>';
+  html += '<input type="text" id="' + prefix + '-flight" class="bk-input bk-input-sm" value="' + escHtml(t.flight_number || '') + '" placeholder="e.g. FR1234"></div>';
+  html += '<div><label class="ctx-field-label">Transfer date/time</label>';
+  html += '<input type="datetime-local" id="' + prefix + '-scheduled" class="bk-input bk-input-sm" value="' + escHtml(scheduledLocal) + '"></div>';
+  html += '<div><label class="ctx-field-label">Notes</label>';
+  html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(t.notes || '') + '</textarea></div>';
+  html += '</div>';
   html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(t.pricing) + '</div>';
-  html += '<div id="' + prefix + '-lookup-note" class="ctx-none" style="margin-top:8px;font-size:12px"></div>';
-  html += '<div id="' + prefix + '-result" style="margin-top:8px;display:none"></div>';
-  html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
+  html += '<div id="' + prefix + '-lookup-note" class="ctx-none" style="margin-top:6px;font-size:11px"></div>';
+  html += '<div id="' + prefix + '-result" style="margin-top:6px;display:none;font-size:11px"></div>';
+  html += '<div class="bc-transfer-actions">';
   html += '<button type="button" class="btn btn-ghost bc-transfer-lookup" data-direction="' + direction + '" disabled>Lookup flight</button>';
   html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '">Save ' + escHtml(label.toLowerCase()) + ' transfer</button>';
   html += '</div></div>';
@@ -20580,21 +20576,24 @@ function bcRenderTransferCards(data){
 
 function bcTransferCollectPayload(direction){
   var prefix = 'bc-transfer-' + direction;
-  var pickupEl = el(prefix + '-pickup');
-  var dropoffEl = el(prefix + '-dropoff');
   var meta = (bcTransferCtx.lookupMeta && bcTransferCtx.lookupMeta[direction]) || {};
+  var airport = (el(prefix + '-airport') && el(prefix + '-airport').value) || 'SDR';
+  var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || null;
+  var scheduled = (el(prefix + '-scheduled') && el(prefix + '-scheduled').value) || null;
+  var notes = (el(prefix + '-notes') && el(prefix + '-notes').value.trim()) || null;
+  var existingStatus = (bcTransferCtx.existingStatus && bcTransferCtx.existingStatus[direction]) || null;
+  var hasContent = !!(airport || flight || scheduled || notes);
+  var status = 'requested';
+  if (existingStatus === 'confirmed' || existingStatus === 'cancelled') status = existingStatus;
+  else if (!hasContent) status = 'not_needed';
   var payload = {
     client_slug: bcTransferCtx.clientSlug,
     direction: direction,
-    status: (el(prefix + '-status') && el(prefix + '-status').value) || 'requested',
-    airport_code: (el(prefix + '-airport') && el(prefix + '-airport').value) || null,
-    flight_number: (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || null,
-    lookup_date: (el(prefix + '-lookup-date') && el(prefix + '-lookup-date').value) || null,
-    scheduled_at: (el(prefix + '-scheduled') && el(prefix + '-scheduled').value) || null,
-    pickup_location: pickupEl ? (pickupEl.value.trim() || null) : null,
-    dropoff_location: dropoffEl ? (dropoffEl.value.trim() || null) : null,
-    guest_count: parseInt((el(prefix + '-guest-count') && el(prefix + '-guest-count').value) || '', 10) || null,
-    notes: (el(prefix + '-notes') && el(prefix + '-notes').value.trim()) || null,
+    status: status,
+    airport_code: airport || null,
+    flight_number: flight,
+    scheduled_at: scheduled,
+    notes: notes,
     source: 'staff',
   };
   if (meta.flight_lookup_provider) payload.flight_lookup_provider = meta.flight_lookup_provider;
@@ -20603,14 +20602,14 @@ function bcTransferCollectPayload(direction){
   return payload;
 }
 
-function bcTransferLookupErrorLabel(code){
+function bcTransferLookupErrorLabel(code, message){
+  if (message) return message;
   var m = {
     aviationstack_not_configured: 'Flight lookup is not configured.',
-    flight_not_found: 'No flight found for that number and date.',
+    flight_not_found: 'Couldn\u2019t find that flight. Enter the flight details manually.',
     aviationstack_api_error: 'Flight lookup provider error.',
     aviationstack_request_failed: 'Flight lookup request failed.',
-    missing_flight_number: 'Flight number is required.',
-    missing_lookup_date: 'Lookup date is required.',
+    missing_flight_number: 'Flight number is required for lookup.',
   };
   return m[code] || (code ? String(code).replace(/_/g, ' ') : 'Flight lookup failed.');
 }
@@ -20628,9 +20627,8 @@ function bcTransferFormatLookupNote(patch, direction){
 function bcTransferUpdateLookupButtonState(direction){
   var prefix = 'bc-transfer-' + direction;
   var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || '';
-  var lookupDate = (el(prefix + '-lookup-date') && el(prefix + '-lookup-date').value) || '';
   var btn = document.querySelector('.bc-transfer-lookup[data-direction="' + direction + '"]');
-  if (btn) btn.disabled = !(flight && lookupDate);
+  if (btn) btn.disabled = !flight;
 }
 
 function bcTransferApplyLookupPatch(direction, patch){
@@ -20640,8 +20638,6 @@ function bcTransferApplyLookupPatch(direction, patch){
   if (airportEl && patch.airport_code) airportEl.value = patch.airport_code;
   var flightEl = el(prefix + '-flight');
   if (flightEl && patch.flight_number) flightEl.value = patch.flight_number;
-  var lookupEl = el(prefix + '-lookup-date');
-  if (lookupEl && patch.lookup_date) lookupEl.value = patch.lookup_date;
   var schedEl = el(prefix + '-scheduled');
   if (schedEl && patch.scheduled_at_local) schedEl.value = patch.scheduled_at_local;
   bcTransferCtx.lookupMeta = bcTransferCtx.lookupMeta || { arrival: null, departure: null };
@@ -20662,10 +20658,9 @@ function bcLookupFlight(direction){
   if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
   var prefix = 'bc-transfer-' + direction;
   var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || '';
-  var lookupDate = (el(prefix + '-lookup-date') && el(prefix + '-lookup-date').value) || '';
-  var airport = (el(prefix + '-airport') && el(prefix + '-airport').value) || null;
-  if (!flight || !lookupDate){
-    bcTransferShowResult(direction, 'Flight number and lookup date are required.', true);
+  var airport = (el(prefix + '-airport') && el(prefix + '-airport').value) || 'SDR';
+  if (!flight){
+    bcTransferShowResult(direction, 'Flight number is required for lookup.', true);
     return;
   }
   var btn = document.querySelector('.bc-transfer-lookup[data-direction="' + direction + '"]');
@@ -20678,7 +20673,6 @@ function bcLookupFlight(direction){
       client_slug: bcTransferCtx.clientSlug,
       direction: direction,
       flight_number: flight,
-      lookup_date: lookupDate,
       airport_code: airport,
     }),
   })
@@ -20686,7 +20680,7 @@ function bcLookupFlight(direction){
     .then(function(res){
       bcTransferUpdateLookupButtonState(direction);
       if (!res.ok || !res.data.success){
-        bcTransferShowResult(direction, escHtml(bcTransferLookupErrorLabel(res.data && res.data.error)), true);
+        bcTransferShowResult(direction, escHtml(bcTransferLookupErrorLabel(res.data && res.data.error, res.data && res.data.message)), true);
         return;
       }
       bcTransferApplyLookupPatch(direction, res.data.suggested_transfer_patch);
@@ -20701,13 +20695,11 @@ function bcLookupFlight(direction){
 function bcTransferWireLookupControls(){
   ['arrival', 'departure'].forEach(function(direction){
     bcTransferUpdateLookupButtonState(direction);
-    ['flight', 'lookup-date'].forEach(function(field){
-      var input = el('bc-transfer-' + direction + '-' + field);
-      if (!input) return;
-      var handler = function(){ bcTransferUpdateLookupButtonState(direction); };
-      input.oninput = handler;
-      input.onchange = handler;
-    });
+    var input = el('bc-transfer-' + direction + '-flight');
+    if (!input) return;
+    var handler = function(){ bcTransferUpdateLookupButtonState(direction); };
+    input.oninput = handler;
+    input.onchange = handler;
   });
   document.querySelectorAll('.bc-transfer-lookup').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -20770,6 +20762,11 @@ function bcInitTransferShell(contextData){
       }
       bcTransferCtx.data = res.data;
       bcTransferCtx.lookupMeta = { arrival: null, departure: null };
+      bcTransferCtx.existingStatus = { arrival: null, departure: null };
+      (res.data.transfers || []).forEach(function(t){
+        if (t.direction === 'arrival') bcTransferCtx.existingStatus.arrival = t.status;
+        if (t.direction === 'departure') bcTransferCtx.existingStatus.departure = t.status;
+      });
       cardsEl.innerHTML = bcRenderTransferCards(res.data);
       cardsEl.classList.remove('ctx-loading');
       if (bcLastOpenedBlock){

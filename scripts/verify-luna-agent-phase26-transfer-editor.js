@@ -101,15 +101,26 @@ if (/bcRenderTransferCard\('arrival'/.test(apiSrc) && /bcRenderTransferCard\('de
 } else fail('C4', 'direction forms missing');
 if (/bcTransferAirportOptions/.test(apiSrc)) pass('C5', 'airport dropdown from API airports');
 else fail('C5', 'airport dropdown missing');
-for (const field of ['status', 'airport', 'flight', 'lookup-date', 'scheduled', 'guest-count', 'notes']) {
-  if (new RegExp(`bc-transfer-.*${field}|prefix \\+ '-${field}'`).test(apiSrc)) {
-    pass('C.f.' + field, `field ${field} present`);
-  } else if (apiSrc.includes(field)) {
+const transferSlice = (apiSrc.match(/Phase 26c\/26f[\s\S]{0,12000}/) || [''])[0];
+for (const field of ['airport', 'flight', 'scheduled', 'notes']) {
+  if (new RegExp(`prefix \\+ '-${field}'`).test(transferSlice)) {
     pass('C.f.' + field, `field ${field} present`);
   } else {
     fail('C.f.' + field, `field ${field} missing`);
   }
 }
+for (const [id, re, label] of [
+  ['C.r.status', /prefix \\+ '-status'|bcTransferStatusOptions/, 'status dropdown'],
+  ['C.r.guest', /prefix \\+ '-guest-count'/, 'guest count'],
+  ['C.r.lookup', /prefix \\+ '-lookup-date'/, 'lookup date'],
+  ['C.r.pickup', /prefix \\+ '-pickup'|Pickup location/, 'pickup'],
+  ['C.r.dropoff', /prefix \\+ '-dropoff'|Dropoff location/, 'dropoff'],
+]) {
+  if (!re.test(transferSlice)) pass(id, `removed ${label} from transfer UI (26f.1)`);
+  else fail(id, `${label} still in transfer UI`);
+}
+if (/bc-transfer-grid/.test(apiSrc)) pass('C10', 'compact grid layout (26f.1)');
+else fail('C10', 'grid layout missing');
 if (/bcTransferPricingHtml/.test(apiSrc)) pass('C6', 'pricing note displayed');
 else fail('C6', 'pricing display missing');
 if (/Lookup flight/.test(apiSrc) && /bc-transfer-lookup/.test(apiSrc)) {
