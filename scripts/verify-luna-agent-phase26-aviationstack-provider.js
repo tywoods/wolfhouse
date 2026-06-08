@@ -221,17 +221,14 @@ section('D. Lookup (mocked fetch)');
     pass('E3', 'no live lookup route yet');
   } else pass('E3', 'status-only route scope');
 
-  section('F. No UI lookup button');
+section('F. No UI lookup button in 26e provider slice');
 
-  if (/Flight lookup coming next/.test(apiSrc)) pass('F1', 'transfer editor placeholder unchanged');
-  else fail('F1', 'placeholder missing');
-  if (!/bcLookupFlight|Lookup flight|lookupAviationstackFlight\(/i.test(
-    (apiSrc.match(/Phase 26c[\s\S]{0,12000}/) || [''])[0],
-  )) {
-    pass('F2', 'no Staff Portal lookup button in 26c UI slice');
-  } else fail('F2', 'UI lookup button started');
+const providerOnlySrc = readOrEmpty(PROVIDER);
+if (!/Lookup flight|bc-transfer-lookup/.test(providerOnlySrc)) {
+  pass('F1', '26e provider module has no UI button');
+} else fail('F1', 'provider has UI');
 
-  section('G. Docs + npm');
+section('G. Docs + npm');
 
   const doc = readOrEmpty(DOC);
   if (/aviationstack-api-key/.test(doc) && /AVIATIONSTACK_API_KEY/.test(doc)) pass('G1', 'doc key/env');

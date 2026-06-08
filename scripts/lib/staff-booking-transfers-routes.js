@@ -9,7 +9,7 @@
 'use strict';
 
 const { withPgClient } = require('./pg-connect');
-const { getClientTransferConfig, getClientAirports } = require('./client-transfer-config');
+const { getClientTransferConfig, getClientAirports, getClientAirportOption } = require('./client-transfer-config');
 const {
   normalizeBookingDateOnly,
   normalizeTransferDirection,
@@ -18,8 +18,14 @@ const {
   upsertBookingTransfer,
   listBookingTransfersForBooking,
 } = require('./booking-transfers');
+const {
+  lookupAviationstackFlight,
+  normalizeFlightNumberForLookup,
+  PROVIDER: AVIATIONSTACK_PROVIDER,
+} = require('./aviationstack-flight-lookup');
 
 const BOOKING_TRANSFERS_RE = /^\/staff\/bookings\/([0-9a-f-]{36})\/transfers$/i;
+const BOOKING_TRANSFER_LOOKUP_RE = /^\/staff\/bookings\/([0-9a-f-]{36})\/transfers\/lookup-flight$/i;
 
 const BOOKING_BY_ID_SQL = `
 SELECT b.id::text AS booking_id,
@@ -143,10 +149,106 @@ function formatTransferPricing(clientSlug, booking, transferRow) {
   });
 }
 
+function sanitizeFlightLookupSummaryForStorage(summary) {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return null;
+  const allowed = [
+    'flight_iata', 'airline_name', 'flight_status', 'direction',
+    'airport_iata', 'airport_name', 'scheduled', 'terminal', 'gate',
+  ];
+  const out = {};
+  for (const k of allowed) {
+    if (summary[k] != null && summary[k] !== '') {
+      out[k] = String(summary[k]).slice(0, 500);
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function buildFlightLookupSummary(bestMatch, direction) {
+  if (!bestMatch) return null;
+  const dir = normalizeTransferDirection(direction);
+  if (dir === 'arrival') {
+    return sanitizeFlightLookupSummaryForStorage({
+      flight_iata: bestMatch.flight_iata,
+      airline_name: bestMatch.airline_name,
+      flight_status: bestMatch.flight_status,
+      direction: dir,
+      airport_iata: bestMatch.arrival_iata,
+      airport_name: bestMatch.arrival_airport,
+      scheduled: bestMatch.arrival_estimated || bestMatch.arrival_scheduled,
+      terminal: bestMatch.arrival_terminal,
+      gate: bestMatch.arrival_gate,
+    });
+  }
+  return sanitizeFlightLookupSummaryForStorage({
+    flight_iata: bestMatch.flight_iata,
+    airline_name: bestMatch.airline_name,
+    flight_status: bestMatch.flight_status,
+    direction: dir,
+    airport_iata: bestMatch.departure_iata,
+    airport_name: bestMatch.departure_airport,
+    scheduled: bestMatch.departure_estimated || bestMatch.departure_scheduled,
+  });
+}
+
+function resolveAirportFromLookup(clientSlug, bestMatch, direction, requestedAirport) {
+  const dir = normalizeTransferDirection(direction);
+  const airports = getClientAirports(clientSlug);
+  const codes = new Set(airports.map((a) => a.code));
+  const lookupIata = dir === 'arrival'
+    ? trimStr(bestMatch && bestMatch.arrival_iata).toUpperCase()
+    : trimStr(bestMatch && bestMatch.departure_iata).toUpperCase();
+  const req = trimStr(requestedAirport).toUpperCase();
+  if (lookupIata && codes.has(lookupIata)) {
+    const opt = getClientAirportOption(clientSlug, lookupIata);
+    return { code: lookupIata, label: opt ? opt.label : null };
+  }
+  if (req && codes.has(req)) {
+    const opt = getClientAirportOption(clientSlug, req);
+    return { code: req, label: opt ? opt.label : null };
+  }
+  return { code: lookupIata || req || null, label: null };
+}
+
+/**
+ * @param {{ clientSlug: string, direction: string, lookupResult: object, timezone: string, requestedAirport?: string|null }} opts
+ */
+function buildSuggestedTransferPatch(opts = {}) {
+  const { clientSlug, direction, lookupResult, timezone, requestedAirport } = opts;
+  const best = lookupResult && lookupResult.best_match;
+  if (!best) return null;
+  const dir = normalizeTransferDirection(direction);
+  const airport = resolveAirportFromLookup(clientSlug, best, dir, requestedAirport);
+  const scheduledRaw = dir === 'arrival'
+    ? (best.arrival_estimated || best.arrival_scheduled)
+    : (best.departure_estimated || best.departure_scheduled);
+  let scheduledAt = null;
+  if (scheduledRaw) {
+    const d = new Date(scheduledRaw);
+    if (!Number.isNaN(d.getTime())) scheduledAt = d.toISOString();
+  }
+  return {
+    airport_code: airport.code,
+    airport_label: airport.label,
+    flight_number: lookupResult.flight_number,
+    lookup_date: lookupResult.flight_date,
+    scheduled_at: scheduledAt,
+    scheduled_at_local: scheduledAt ? formatTimestamptzAsDatetimeLocal(scheduledAt, timezone) : null,
+    flight_lookup_provider: AVIATIONSTACK_PROVIDER,
+    flight_lookup_status: best.flight_status || 'found',
+    flight_lookup_summary: buildFlightLookupSummary(best, dir),
+  };
+}
+
 function formatTransferForApi(row, booking, clientSlug, timezone) {
   if (!row) return null;
   const bookingObj = bookingForPricing(booking);
   const pricing = formatTransferPricing(clientSlug, bookingObj, row);
+  let flightLookupSummary = row.flight_lookup_summary;
+  if (flightLookupSummary && typeof flightLookupSummary === 'string') {
+    try { flightLookupSummary = JSON.parse(flightLookupSummary); } catch { flightLookupSummary = null; }
+  }
+  flightLookupSummary = sanitizeFlightLookupSummaryForStorage(flightLookupSummary);
   return {
     id: row.id,
     client_slug: row.client_slug,
@@ -168,6 +270,9 @@ function formatTransferForApi(row, booking, clientSlug, timezone) {
     pricing_note: row.pricing_note,
     notes: row.notes,
     source: row.source,
+    flight_lookup_provider: row.flight_lookup_provider || null,
+    flight_lookup_status: row.flight_lookup_status || null,
+    flight_lookup_summary: flightLookupSummary,
     pricing,
   };
 }
@@ -282,6 +387,7 @@ async function handlePostBookingTransfer(bookingId, req, res) {
     direction,
     status: body.status,
     airport_code: body.airport_code,
+    airport_label: body.airport_label,
     flight_number: body.flight_number,
     lookup_date: body.lookup_date,
     scheduled_at: scheduledAt,
@@ -289,6 +395,9 @@ async function handlePostBookingTransfer(bookingId, req, res) {
     dropoff_location: body.dropoff_location,
     guest_count: body.guest_count,
     notes: body.notes,
+    flight_lookup_provider: body.flight_lookup_provider,
+    flight_lookup_status: body.flight_lookup_status,
+    flight_lookup_summary: sanitizeFlightLookupSummaryForStorage(body.flight_lookup_summary),
   };
 
   try {
@@ -334,6 +443,92 @@ async function handlePostBookingTransfer(bookingId, req, res) {
   }
 }
 
+async function handlePostBookingTransferLookupFlight(bookingId, req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    return res.status(400).json({ success: false, error: 'invalid JSON body' });
+  }
+
+  const clientSlug = trimStr(body.client_slug);
+  if (!clientSlug) {
+    return res.status(400).json({ success: false, error: 'client_slug is required' });
+  }
+
+  let direction;
+  try {
+    direction = normalizeTransferDirection(body.direction);
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+
+  const flightNumber = normalizeFlightNumberForLookup(body.flight_number);
+  if (!flightNumber) {
+    return res.status(400).json({ success: false, error: 'missing_flight_number' });
+  }
+
+  const timezone = clientTimezone(clientSlug);
+  let lookupDate = body.lookup_date != null
+    ? normalizeBookingDateOnly(body.lookup_date, { timezone })
+    : null;
+
+  if (!lookupDate) {
+    try {
+      const bookingRow = await withPgClient(async (pg) => loadBooking(pg, clientSlug, bookingId));
+      if (!bookingRow) {
+        return res.status(404).json({ success: false, error: 'booking not found' });
+      }
+      lookupDate = defaultTransferLookupDate({
+        direction,
+        booking: bookingForPricing(bookingRow),
+        timezone,
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: 'query failed', detail: err.message });
+    }
+  }
+
+  if (!lookupDate) {
+    return res.status(400).json({ success: false, error: 'missing_lookup_date' });
+  }
+
+  const lookup = await lookupAviationstackFlight({
+    flight_number: flightNumber,
+    flight_date: lookupDate,
+    direction,
+    airport_code: body.airport_code,
+    env: process.env,
+  });
+
+  if (!lookup.success) {
+    const errCode = lookup.error || 'flight_lookup_failed';
+    const status = errCode === 'aviationstack_not_configured' ? 503 : 404;
+    return res.status(status).json({
+      success: false,
+      error: errCode,
+      no_transfer_write: true,
+      no_payment_write: true,
+    });
+  }
+
+  const suggested_transfer_patch = buildSuggestedTransferPatch({
+    clientSlug,
+    direction,
+    lookupResult: lookup,
+    timezone,
+    requestedAirport: body.airport_code,
+  });
+
+  return res.status(200).json({
+    success: true,
+    lookup,
+    suggested_transfer_patch,
+    no_transfer_write: true,
+    no_payment_write: true,
+  });
+}
+
 /**
  * Express-style adapter for staff-query-api http.ServerResponse.
  * @param {import('http').IncomingMessage} req
@@ -342,6 +537,33 @@ async function handlePostBookingTransfer(bookingId, req, res) {
  * @param {object} query
  * @returns {Promise<boolean>} true if route handled
  */
+async function dispatchBookingTransferLookupRoute(req, res, pathname) {
+  const match = BOOKING_TRANSFER_LOOKUP_RE.exec(pathname);
+  if (!match) return false;
+
+  const bookingId = match[1];
+  const jsonRes = {
+    status(code) {
+      res.statusCode = code;
+      return jsonRes;
+    },
+    json(obj) {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(obj));
+      return jsonRes;
+    },
+  };
+
+  if (req.method === 'POST') {
+    await handlePostBookingTransferLookupFlight(bookingId, req, jsonRes);
+    return true;
+  }
+
+  res.writeHead(405, { Allow: 'POST' });
+  res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+  return true;
+}
+
 async function dispatchBookingTransfersRoute(req, res, pathname, query) {
   const match = BOOKING_TRANSFERS_RE.exec(pathname);
   if (!match) return false;
@@ -375,9 +597,14 @@ async function dispatchBookingTransfersRoute(req, res, pathname, query) {
 
 module.exports = {
   BOOKING_TRANSFERS_RE,
+  BOOKING_TRANSFER_LOOKUP_RE,
   dispatchBookingTransfersRoute,
+  dispatchBookingTransferLookupRoute,
   handleGetBookingTransfers,
   handlePostBookingTransfer,
+  handlePostBookingTransferLookupFlight,
+  buildSuggestedTransferPatch,
+  sanitizeFlightLookupSummaryForStorage,
   formatTimestamptzAsDatetimeLocal,
   parseDatetimeLocalInTimezone,
   normalizeBookingDateOnly,

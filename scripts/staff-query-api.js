@@ -164,7 +164,12 @@ const {
   getBookingAddOnSummaryQuery,
   getBookingServiceRecordsQuery,
 } = require('./lib/staff-booking-detail-queries');
-const { dispatchBookingTransfersRoute, BOOKING_TRANSFERS_RE } = require('./lib/staff-booking-transfers-routes');
+const {
+  dispatchBookingTransfersRoute,
+  dispatchBookingTransferLookupRoute,
+  BOOKING_TRANSFERS_RE,
+  BOOKING_TRANSFER_LOOKUP_RE,
+} = require('./lib/staff-booking-transfers-routes');
 const {
   listBookingTransfersForCalendarRange,
   buildTransferSummariesByBookingId,
@@ -20481,13 +20486,13 @@ function bcInitFieldEditShell(data){
   }
 }
 
-/* ── Phase 26c — Flight / Transfer Details editor ─────────────────────────── */
-var bcTransferCtx = { bookingId: null, clientSlug: null, data: null };
+/* ── Phase 26c/26f — Flight / Transfer Details editor ─────────────────────── */
+var bcTransferCtx = { bookingId: null, clientSlug: null, data: null, lookupMeta: { arrival: null, departure: null } };
 
 function bcRenderTransferDetailsShell(){
   return '<div class="ctx-section ctx-transfer-details" id="bc-transfer-details">' +
     '<h3>Flight / Transfer Details</h3>' +
-    '<p class="ctx-none" style="margin-bottom:10px;font-size:12px">Flight lookup coming next.</p>' +
+    '<p class="ctx-none" style="margin-bottom:10px;font-size:12px">Enter flight number and lookup date, then click Lookup flight. Fields remain editable until you Save.</p>' +
     '<div id="bc-transfer-cards" class="ctx-loading">Loading transfers\u2026</div>' +
     '</div>';
 }
@@ -20552,9 +20557,12 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<label class="ctx-field-label">Notes</label>';
   html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(t.notes || '') + '</textarea>';
   html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(t.pricing) + '</div>';
+  html += '<div id="' + prefix + '-lookup-note" class="ctx-none" style="margin-top:8px;font-size:12px"></div>';
   html += '<div id="' + prefix + '-result" style="margin-top:8px;display:none"></div>';
-  html += '<div style="margin-top:10px"><button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '">Save ' + escHtml(label.toLowerCase()) + ' transfer</button></div>';
-  html += '</div>';
+  html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
+  html += '<button type="button" class="btn btn-ghost bc-transfer-lookup" data-direction="' + direction + '" disabled>Lookup flight</button>';
+  html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '">Save ' + escHtml(label.toLowerCase()) + ' transfer</button>';
+  html += '</div></div>';
   return html;
 }
 
@@ -20574,7 +20582,8 @@ function bcTransferCollectPayload(direction){
   var prefix = 'bc-transfer-' + direction;
   var pickupEl = el(prefix + '-pickup');
   var dropoffEl = el(prefix + '-dropoff');
-  return {
+  var meta = (bcTransferCtx.lookupMeta && bcTransferCtx.lookupMeta[direction]) || {};
+  var payload = {
     client_slug: bcTransferCtx.clientSlug,
     direction: direction,
     status: (el(prefix + '-status') && el(prefix + '-status').value) || 'requested',
@@ -20588,6 +20597,123 @@ function bcTransferCollectPayload(direction){
     notes: (el(prefix + '-notes') && el(prefix + '-notes').value.trim()) || null,
     source: 'staff',
   };
+  if (meta.flight_lookup_provider) payload.flight_lookup_provider = meta.flight_lookup_provider;
+  if (meta.flight_lookup_status) payload.flight_lookup_status = meta.flight_lookup_status;
+  if (meta.flight_lookup_summary) payload.flight_lookup_summary = meta.flight_lookup_summary;
+  return payload;
+}
+
+function bcTransferLookupErrorLabel(code){
+  var m = {
+    aviationstack_not_configured: 'Flight lookup is not configured.',
+    flight_not_found: 'No flight found for that number and date.',
+    aviationstack_api_error: 'Flight lookup provider error.',
+    aviationstack_request_failed: 'Flight lookup request failed.',
+    missing_flight_number: 'Flight number is required.',
+    missing_lookup_date: 'Lookup date is required.',
+  };
+  return m[code] || (code ? String(code).replace(/_/g, ' ') : 'Flight lookup failed.');
+}
+
+function bcTransferFormatLookupNote(patch, direction){
+  if (!patch) return '';
+  var fn = patch.flight_number || '\u2014';
+  var ap = patch.airport_code || '\u2014';
+  var local = patch.scheduled_at_local || '';
+  var timePart = local ? local.slice(11, 16) : '';
+  var verb = direction === 'arrival' ? 'arriving' : 'departing';
+  return 'Flight found: ' + fn + ' ' + verb + ' ' + ap + (timePart ? ' at ' + timePart : '');
+}
+
+function bcTransferUpdateLookupButtonState(direction){
+  var prefix = 'bc-transfer-' + direction;
+  var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || '';
+  var lookupDate = (el(prefix + '-lookup-date') && el(prefix + '-lookup-date').value) || '';
+  var btn = document.querySelector('.bc-transfer-lookup[data-direction="' + direction + '"]');
+  if (btn) btn.disabled = !(flight && lookupDate);
+}
+
+function bcTransferApplyLookupPatch(direction, patch){
+  if (!patch) return;
+  var prefix = 'bc-transfer-' + direction;
+  var airportEl = el(prefix + '-airport');
+  if (airportEl && patch.airport_code) airportEl.value = patch.airport_code;
+  var flightEl = el(prefix + '-flight');
+  if (flightEl && patch.flight_number) flightEl.value = patch.flight_number;
+  var lookupEl = el(prefix + '-lookup-date');
+  if (lookupEl && patch.lookup_date) lookupEl.value = patch.lookup_date;
+  var schedEl = el(prefix + '-scheduled');
+  if (schedEl && patch.scheduled_at_local) schedEl.value = patch.scheduled_at_local;
+  bcTransferCtx.lookupMeta = bcTransferCtx.lookupMeta || { arrival: null, departure: null };
+  bcTransferCtx.lookupMeta[direction] = {
+    flight_lookup_provider: patch.flight_lookup_provider || null,
+    flight_lookup_status: patch.flight_lookup_status || null,
+    flight_lookup_summary: patch.flight_lookup_summary || null,
+  };
+  var noteEl = el(prefix + '-lookup-note');
+  if (noteEl){
+    noteEl.style.display = 'block';
+    noteEl.className = 'state-msg';
+    noteEl.textContent = bcTransferFormatLookupNote(patch, direction);
+  }
+}
+
+function bcLookupFlight(direction){
+  if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
+  var prefix = 'bc-transfer-' + direction;
+  var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || '';
+  var lookupDate = (el(prefix + '-lookup-date') && el(prefix + '-lookup-date').value) || '';
+  var airport = (el(prefix + '-airport') && el(prefix + '-airport').value) || null;
+  if (!flight || !lookupDate){
+    bcTransferShowResult(direction, 'Flight number and lookup date are required.', true);
+    return;
+  }
+  var btn = document.querySelector('.bc-transfer-lookup[data-direction="' + direction + '"]');
+  if (btn) btn.disabled = true;
+  bcTransferShowResult(direction, 'Looking up flight\u2026', false);
+  fetch('/staff/bookings/' + encodeURIComponent(bcTransferCtx.bookingId) + '/transfers/lookup-flight', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_slug: bcTransferCtx.clientSlug,
+      direction: direction,
+      flight_number: flight,
+      lookup_date: lookupDate,
+      airport_code: airport,
+    }),
+  })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      bcTransferUpdateLookupButtonState(direction);
+      if (!res.ok || !res.data.success){
+        bcTransferShowResult(direction, escHtml(bcTransferLookupErrorLabel(res.data && res.data.error)), true);
+        return;
+      }
+      bcTransferApplyLookupPatch(direction, res.data.suggested_transfer_patch);
+      bcTransferShowResult(direction, 'Flight details applied \u2014 review and Save when ready.', false);
+    })
+    .catch(function(e){
+      bcTransferUpdateLookupButtonState(direction);
+      bcTransferShowResult(direction, escHtml(e.message || 'Network error'), true);
+    });
+}
+
+function bcTransferWireLookupControls(){
+  ['arrival', 'departure'].forEach(function(direction){
+    bcTransferUpdateLookupButtonState(direction);
+    ['flight', 'lookup-date'].forEach(function(field){
+      var input = el('bc-transfer-' + direction + '-' + field);
+      if (!input) return;
+      var handler = function(){ bcTransferUpdateLookupButtonState(direction); };
+      input.oninput = handler;
+      input.onchange = handler;
+    });
+  });
+  document.querySelectorAll('.bc-transfer-lookup').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      bcLookupFlight(btn.getAttribute('data-direction'));
+    });
+  });
 }
 
 function bcTransferShowResult(direction, html, isErr){
@@ -20643,6 +20769,7 @@ function bcInitTransferShell(contextData){
         return;
       }
       bcTransferCtx.data = res.data;
+      bcTransferCtx.lookupMeta = { arrival: null, departure: null };
       cardsEl.innerHTML = bcRenderTransferCards(res.data);
       cardsEl.classList.remove('ctx-loading');
       if (bcLastOpenedBlock){
@@ -20654,6 +20781,7 @@ function bcInitTransferShell(contextData){
           bcSaveTransfer(btn.getAttribute('data-direction'));
         });
       });
+      bcTransferWireLookupControls();
     })
     .catch(function(e){
       cardsEl.innerHTML = '<div class="state-msg error">' + escHtml(e.message) + '</div>';
@@ -25048,7 +25176,12 @@ async function router(req, res) {
     return handleOwnerSqlPlanAndExecute(req, res, auth.user);
   }
 
-  // ── Phase 26c — Booking airport transfers (GET list / POST upsert) ─────────
+  // ── Phase 26c/26f — Booking airport transfers + flight lookup ─────────────
+  if (BOOKING_TRANSFER_LOOKUP_RE.test(pathname)) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    if (await dispatchBookingTransferLookupRoute(req, res, pathname)) return;
+  }
   if (BOOKING_TRANSFERS_RE.test(pathname)) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;

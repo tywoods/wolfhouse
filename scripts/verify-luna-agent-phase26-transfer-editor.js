@@ -81,7 +81,7 @@ if (/requireAuth\(req, res, 'operator'\)[\s\S]{0,120}dispatchBookingTransfersRou
   || /BOOKING_TRANSFERS_RE[\s\S]{0,200}requireAuth\(req, res, 'operator'\)/.test(apiSrc)) {
   pass('B3', 'transfer routes require operator auth');
 } else fail('B3', 'operator auth missing');
-if (/Phase 26c[\s\S]{0,800}BOOKING_TRANSFERS_RE[\s\S]{0,1200}All other routes: GET only/.test(apiSrc)) {
+if (/BOOKING_TRANSFER_LOOKUP_RE/.test(apiSrc) && /BOOKING_TRANSFERS_RE[\s\S]{0,1200}All other routes: GET only/.test(apiSrc)) {
   pass('B4', 'transfer routes registered before GET-only gate');
 } else fail('B4', 'transfer routes after GET-only gate (POST would 405)');
 
@@ -112,12 +112,12 @@ for (const field of ['status', 'airport', 'flight', 'lookup-date', 'scheduled', 
 }
 if (/bcTransferPricingHtml/.test(apiSrc)) pass('C6', 'pricing note displayed');
 else fail('C6', 'pricing display missing');
-if (/Flight lookup coming next/.test(apiSrc)) pass('C7', 'flight lookup deferred placeholder');
-else fail('C7', 'lookup placeholder missing');
-const ui26cSlice = (apiSrc.match(/Phase 26c[\s\S]{0,12000}/) || [''])[0];
-if (!/bcLookupFlight|Lookup flight|lookupAviationstackFlight\(/i.test(ui26cSlice)) {
-  pass('C8', 'no UI Aviationstack lookup button yet (26e provider only)');
-} else fail('C8', 'UI lookup button too early');
+if (/Lookup flight/.test(apiSrc) && /bc-transfer-lookup/.test(apiSrc)) {
+  pass('C7', 'Lookup flight button present (26f)');
+} else fail('C7', 'lookup button missing');
+if (/\/transfers\/lookup-flight/.test(apiSrc) && /bcLookupFlight/.test(apiSrc)) {
+  pass('C8', 'UI wired to lookup-flight route (26f)');
+} else fail('C8', 'lookup route UI wiring missing');
 if (/transfer-pebble/.test(apiSrc) && /handleBedCalendar/.test(apiSrc) && /transfer_summary/.test(apiSrc)) {
   pass('C9', 'calendar pebble wired in bed-calendar path (26d)');
 } else if (!/transfer-pebble/i.test(apiSrc)) {
