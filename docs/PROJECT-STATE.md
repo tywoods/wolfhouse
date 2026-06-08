@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27l — Hold + payment draft design lock**): **PASS** (docs only). Design lock for first state-changing guest slice after `payment_choice_ready`. **Covers:** entry gate · hold (6h expiry, no proactive expiry copy) · payment draft (€200/€100 deposit tiers) · Stripe link policy · handoff/idempotency · Staff Portal visibility · plan 27m→27p. **No runtime/DB/writes.** Verifier: `verify:stage27l-hold-payment-draft-design`. Doc: [STAGE-27L-HOLD-PAYMENT-DRAFT-DESIGN.md](STAGE-27L-HOLD-PAYMENT-DRAFT-DESIGN.md). **Next:** **Stage 27m** — dry-run hold/payment-draft planner (no writes).
+**Last updated:** 2026-06-08 (**Stage 27m — Hold/payment draft planner dry-run**): **PASS**. `runGuestHoldPaymentDraftPlannerDryRun` in `scripts/lib/luna-guest-hold-payment-draft-planner.js`. **No writes.** **Gate:** full 27 chain through `payment_choice_ready` + `ready_for_hold_payment_draft`. **Output:** `plan_status` · `would_create_hold/snapshot/draft` · `payment_amount_cents` · `balance_due_after_payment_cents` · `idempotency_key_preview` · `planned_records`. **Stripe link always false.** Verifier: `verify:stage27m-hold-payment-draft-planner`. Doc: [STAGE-27M-HOLD-PAYMENT-DRAFT-PLANNER.md](STAGE-27M-HOLD-PAYMENT-DRAFT-PLANNER.md). **Next:** **Stage 27n** — gated staging write for hold + payment draft.
+
+**Prior — Stage 27l (2026-06-08):** Hold + payment draft design lock — **PASS** (docs only). Doc: [STAGE-27L-HOLD-PAYMENT-DRAFT-DESIGN.md](STAGE-27L-HOLD-PAYMENT-DRAFT-DESIGN.md).
 
 **Prior — Stage 27k (2026-06-08):** Payment choice wire — **PASS**. Doc: [STAGE-27K-PAYMENT-CHOICE-WIRE.md](STAGE-27K-PAYMENT-CHOICE-WIRE.md).
 
