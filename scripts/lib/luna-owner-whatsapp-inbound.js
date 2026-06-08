@@ -8,6 +8,7 @@
 
 const { lookupStaffPhoneAccess } = require('./staff-phone-access');
 const { executeStaffAskLunaQuestion } = require('./staff-ask-luna-execute');
+const { planAndExecuteOwnerSqlQuestion } = require('./owner-sql-plan-execute');
 const { evaluateGuestReplySendRouteWithPause } = require('./luna-guest-reply-send-route');
 const {
   buildMetaWhatsAppWebhookPostResponse,
@@ -60,6 +61,9 @@ function buildOwnerDraftFromAskLuna(askResult) {
       category: askResult ? askResult.category : null,
       row_count: askResult ? askResult.row_count : 0,
       read_only: true,
+      owner_sql: askResult ? askResult.owner_sql === true : false,
+      planner_source: askResult ? askResult.planner_source || null : null,
+      answer_format_source: askResult ? askResult.answer_format_source || null : null,
     },
   };
 }
@@ -169,7 +173,42 @@ function isOwnerLunaStoredEvent(row) {
   return !!(norm && norm.owner_luna_route === true);
 }
 
-async function runOwnerCommandCenterCore(pg, env, normalized, staffAccess) {
+function buildAskLunaFromOwnerPlanExecute(peResult) {
+  const templateId = peResult.plan && peResult.plan.template_id;
+  const intent = templateId ? `owner_sql.${templateId}` : 'owner_sql.custom';
+  return {
+    success: true,
+    intent,
+    category: 'owner_bi',
+    answer: trimStr(peResult.answer),
+    row_count: peResult.row_count ?? peResult.execution?.row_count ?? 0,
+    read_only: true,
+    no_write_performed: true,
+    answer_format_source: peResult.answer_format_source || 'deterministic',
+    planner_source: peResult.planner_source || null,
+    owner_sql: true,
+  };
+}
+
+async function tryOwnerSqlPlanExecuteRoute(pg, env, normalized, question, aiCaller) {
+  const peResult = await planAndExecuteOwnerSqlQuestion(pg, {
+    client_slug: normalized.client_slug,
+    question,
+    role: 'owner',
+    maxRows: 50,
+    timeoutMs: 3000,
+    env,
+    aiCaller,
+  });
+
+  if (peResult.success === true && trimStr(peResult.answer)) {
+    return { used: true, askResult: buildAskLunaFromOwnerPlanExecute(peResult), peResult };
+  }
+
+  return { used: false, peResult };
+}
+
+async function runOwnerCommandCenterCore(pg, env, normalized, staffAccess, opts = {}) {
   const question = trimStr(normalized.message_text);
   let askResult;
   if (!normalized.supported || !question) {
@@ -182,21 +221,26 @@ async function runOwnerCommandCenterCore(pg, env, normalized, staffAccess) {
       no_write_performed: true,
     };
   } else {
-    askResult = await executeStaffAskLunaQuestion({
-      client_slug: normalized.client_slug,
-      question,
-      source: 'owner_whatsapp',
-      staff_access: `staff_phone_access:${staffAccess.role}`,
-    }, { pg, env });
-    if (!askResult.success) {
-      askResult = {
-        success: true,
-        intent: 'query_error',
-        answer: 'Command Center could not run that query right now. Please try again shortly.',
-        row_count: 0,
-        read_only: true,
-        no_write_performed: true,
-      };
+    const planRoute = await tryOwnerSqlPlanExecuteRoute(pg, env, normalized, question, opts.aiCaller);
+    if (planRoute.used) {
+      askResult = planRoute.askResult;
+    } else {
+      askResult = await executeStaffAskLunaQuestion({
+        client_slug: normalized.client_slug,
+        question,
+        source: 'owner_whatsapp',
+        staff_access: `staff_phone_access:${staffAccess.role}`,
+      }, { pg, env });
+      if (!askResult.success) {
+        askResult = {
+          success: true,
+          intent: 'query_error',
+          answer: 'Command Center could not run that query right now. Please try again shortly.',
+          row_count: 0,
+          read_only: true,
+          no_write_performed: true,
+        };
+      }
     }
   }
 
@@ -342,6 +386,9 @@ module.exports = {
   buildOwnerResponseFromStoredEvent,
   processOwnerWhatsAppCommandCenterInbound,
   processOwnerWhatsAppCommandCenterWithoutPersistence,
+  tryOwnerSqlPlanExecuteRoute,
+  buildAskLunaFromOwnerPlanExecute,
+  runOwnerCommandCenterCore,
   OWNER_SEND_KIND,
   OWNER_NEXT_ACTION,
 };

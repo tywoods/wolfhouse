@@ -286,7 +286,9 @@ section('D. Blocked plans do not execute');
   for (const f of UNTOUCHED) {
     const base = path.basename(f);
     const src = readOrEmpty(f);
-    if (src && !src.includes('owner-sql-plan-execute') && !src.includes('plan-and-execute')) {
+    if (base === 'luna-owner-whatsapp-inbound.js' && src.includes('planAndExecuteOwnerSqlQuestion')) {
+      pass(`H.${base}`, `${base} plan-execute wiring present (25h; not 25g regression)`);
+    } else if (src && !src.includes('owner-sql-plan-execute') && !src.includes('plan-and-execute')) {
       pass(`H.${base}`, `${base} unchanged by 25g`);
     } else if (!src) {
       pass(`H.${base}`, `${base} not present (skip)`);

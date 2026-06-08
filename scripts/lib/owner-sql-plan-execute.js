@@ -11,6 +11,7 @@
 
 const { planOwnerSqlQuestion } = require('./owner-sql-planner');
 const { executeOwnerReadOnlySql } = require('./owner-readonly-sql');
+const { formatOwnerCommandCenterAnswer } = require('./owner-command-center-answer');
 
 function trimStr(v) {
   if (v == null) return '';
@@ -55,6 +56,23 @@ function buildBlockedResponse(planResult) {
   };
 }
 
+async function attachOwnerAnswer(result, env, aiCaller) {
+  const formatted = await formatOwnerCommandCenterAnswer({
+    question: result.question,
+    planResult: result,
+    executionResult: result.execution,
+    client_slug: result.client_slug,
+    env,
+    aiCaller,
+  });
+  return {
+    ...result,
+    answer: formatted.answer,
+    answer_format_source: formatted.answer_format_source,
+    row_count: formatted.row_count ?? result.execution?.row_count ?? 0,
+  };
+}
+
 /**
  * Plan an owner question and execute read-only SQL when validation passes.
  *
@@ -77,7 +95,7 @@ async function planAndExecuteOwnerSqlQuestion(pg, opts = {}) {
   });
 
   if (!planResult.execute_ready || planResult.validation?.valid !== true) {
-    return buildBlockedResponse(planResult);
+    return attachOwnerAnswer(buildBlockedResponse(planResult), opts.env || process.env, opts.aiCaller);
   }
 
   const execResult = await executeOwnerReadOnlySql(pg, {
@@ -89,7 +107,7 @@ async function planAndExecuteOwnerSqlQuestion(pg, opts = {}) {
     timeoutMs,
   });
 
-  return {
+  const base = {
     success: execResult.success === true,
     question: planResult.question,
     client_slug: planResult.client_slug,
@@ -113,6 +131,8 @@ async function planAndExecuteOwnerSqlQuestion(pg, opts = {}) {
     read_only: true,
     no_write_performed: true,
   };
+
+  return attachOwnerAnswer(base, opts.env || process.env, opts.aiCaller);
 }
 
 module.exports = {

@@ -110,9 +110,9 @@ if (ownerBranchIdx > 0 && guestGateIdx > ownerBranchIdx) {
   pass('A4', 'owner route branch precedes guest draft/preview gate');
 } else fail('A4', 'owner route should run before guest booking preview');
 
-if (ownerSrc.includes('executeStaffAskLunaQuestion')) {
-  pass('A5', 'owner handler uses Staff Ask Luna / Command Center execute path');
-} else fail('A5', 'executeStaffAskLunaQuestion missing from owner handler');
+if (ownerSrc.includes('planAndExecuteOwnerSqlQuestion') && ownerSrc.includes('executeStaffAskLunaQuestion')) {
+  pass('A5', 'owner handler uses plan-execute + registry fallback');
+} else fail('A5', 'owner handler wiring incomplete');
 
 if (ownerSrc.includes('buildInboundBookingWritePreview')) {
   fail('A6', 'owner handler must not import booking_write_preview');
@@ -297,6 +297,33 @@ function createRouterMockPg(staffSeed = []) {
       }
 
       if (/bot_pause_states/i.test(sql)) return { rows: [] };
+
+      if (norm === 'begin read only' || norm.startsWith('set local statement_timeout')
+        || norm === 'commit' || norm === 'rollback') {
+        return { rows: [] };
+      }
+
+      if (/^select/i.test(String(sql || '').trim()) || /select b\.booking_code/i.test(norm)) {
+        if (/balance_due_cents/i.test(norm)) {
+          return { rows: [{
+            booking_code: 'WH-TEST-01',
+            guest_name: 'Sofia Test',
+            phone: '+34999000001',
+            check_in: '2026-09-01',
+            check_out: '2026-09-05',
+            total_amount_cents: 40000,
+            amount_paid_cents: 25000,
+            balance_due_cents: 15000,
+            payment_status: 'partial',
+            status: 'confirmed',
+          }] };
+        }
+        if (/revenue_month|paid_cents/i.test(norm)) {
+          return { rows: [{ revenue_month: '2026-06-01', paid_cents: 50000, payment_count: 3 }] };
+        }
+        return { rows: [] };
+      }
+
       return { rows: [] };
     },
   };
@@ -362,9 +389,10 @@ section('D. Runtime routing (mock pg)');
     pass('D5', 'owner route performs no booking/payment/handoff writes');
   } else fail('D5', 'owner route wrote booking/payment/handoff');
 
-  if (ownerResp.command_center && ownerResp.command_center.intent === 'payments.balance_due') {
-    pass('D6', 'balance question resolves via Command Center payments.balance_due');
-  } else fail('D6', `expected payments.balance_due got ${ownerResp.command_center && ownerResp.command_center.intent}`);
+  const ownerIntent = ownerResp.command_center && ownerResp.command_center.intent;
+  if (ownerIntent === 'owner_sql.outstanding_balances' || ownerIntent === 'payments.balance_due') {
+    pass('D6', 'balance question resolves via owner SQL plan-execute or registry fallback');
+  } else fail('D6', `expected owner_sql.outstanding_balances or payments.balance_due got ${ownerIntent}`);
 
   if (typeof ownerResp.command_center.answer === 'string' && ownerResp.command_center.answer.length > 0) {
     pass('D7', 'owner route returns Command Center answer text');
