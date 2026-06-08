@@ -1,5 +1,6 @@
 {
   "_note": "Staff Portal client access until admin portal exists. all_clients_emails get every *.baseline.json client.",
+  "_version": "25j-admin-access",
   "all_clients_emails": [
     "tywoods@gmail.com"
   ],
