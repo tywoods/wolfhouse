@@ -92,7 +92,8 @@ else fail('B9', 'pricing missing');
 
 section('C. UI lookup request');
 
-if (/bcLookupFlight/.test(uiSlice) && !/lookup_date:/.test(uiSlice)) {
+const lookupFnBody = apiSrc.match(/function bcLookupFlight\(direction\)[\s\S]{0,1800}/)?.[0] || '';
+if (/bcLookupFlight/.test(apiSrc) && lookupFnBody && !/lookup_date:/.test(lookupFnBody)) {
   pass('C1', 'lookup POST omits lookup_date from UI body');
 } else fail('C1', 'UI still sends lookup_date');
 if (/flight_number:\s*flight/.test(uiSlice) && /airport_code:\s*airport/.test(uiSlice)) {
@@ -110,7 +111,7 @@ if (/review and Save when ready/.test(apiSrc.match(/function bcLookupFlight[\s\S
 
 section('D. Backend lookup defaults + retry');
 
-if (/lookupAviationstackFlightWithDateRetry/.test(routesSrc)) pass('D1', 'date retry helper exists');
+if (/lookupAeroDataBoxFlightWithDateRetry/.test(routesSrc)) pass('D1', 'date retry helper exists');
 else fail('D1', 'date retry missing');
 if (/defaultTransferLookupDate/.test(lookupHandler) && /body\.lookup_date/.test(lookupHandler)) {
   pass('D2', 'lookup_date optional; defaults from booking');

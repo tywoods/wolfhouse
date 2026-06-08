@@ -184,7 +184,7 @@ const {
   buildTransferSummariesByBookingId,
   emptyTransferSummary,
 } = require('./lib/booking-transfers');
-const { getAviationstackStatus } = require('./lib/aviationstack-flight-lookup');
+const { getAeroDataBoxStatus } = require('./lib/aerodatabox-flight-lookup');
 const {
   reassignBookingBedSql,
 } = require('./lib/staff-bed-reassignment-sql');
@@ -21041,15 +21041,15 @@ function bcTransferValidateOverrideAmount(direction){
 function bcTransferLookupErrorLabel(code, message, diagnostic){
   if (message) return message;
   var m = {
-    aviationstack_not_configured: 'Flight lookup is not configured.',
-    aviationstack_auth_error: 'Aviationstack auth/quota issue. Check API key or plan.',
-    aviationstack_quota_or_plan_error: 'Aviationstack auth/quota issue. Check API key or plan.',
-    aviationstack_rate_limited: 'Aviationstack rate limit reached. Try again shortly.',
-    aviationstack_bad_request: 'Flight lookup request was rejected. Check flight number and try again.',
+    aerodatabox_not_configured: 'Flight lookup is not configured.',
+    aerodatabox_auth_error: 'AeroDataBox auth/quota issue. Check API key or plan.',
+    aerodatabox_quota_or_plan_error: 'AeroDataBox auth/quota issue. Check API key or plan.',
+    aerodatabox_rate_limited: 'AeroDataBox rate limit reached. Try again shortly.',
+    aerodatabox_bad_request: 'Flight lookup request was rejected. Check flight number and try again.',
     flight_not_found: 'Couldn\u2019t find that flight. Enter the flight details manually.',
     airport_mismatch: 'Flight found, but airport did not match. Enter manually or change airport.',
-    aviationstack_api_error: 'Flight lookup failed. Enter the flight details manually.',
-    aviationstack_request_failed: 'Flight lookup request failed.',
+    aerodatabox_api_error: 'Flight lookup failed. Enter the flight details manually.',
+    aerodatabox_request_failed: 'Flight lookup request failed.',
     missing_flight_number: 'Flight number is required for lookup.',
   };
   if (code === 'flight_not_found' && diagnostic && diagnostic.lookup_dates_tried && diagnostic.lookup_dates_tried.length) {
@@ -26196,7 +26196,7 @@ async function router(req, res) {
   if (pathname === '/staff/transfers/flight-lookup/status') {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
-    return sendJSON(res, 200, { success: true, ...getAviationstackStatus() });
+    return sendJSON(res, 200, { success: true, ...getAeroDataBoxStatus() });
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────

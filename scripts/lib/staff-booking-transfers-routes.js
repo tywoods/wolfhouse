@@ -21,10 +21,10 @@ const {
   listBookingTransfersForBooking,
 } = require('./booking-transfers');
 const {
-  lookupAviationstackFlight,
+  lookupAeroDataBoxFlight,
   normalizeFlightNumberForLookup,
-  PROVIDER: AVIATIONSTACK_PROVIDER,
-} = require('./aviationstack-flight-lookup');
+  PROVIDER: AERODATABOX_PROVIDER,
+} = require('./aerodatabox-flight-lookup');
 
 const BOOKING_TRANSFERS_RE = /^\/staff\/bookings\/([0-9a-f-]{36})\/transfers$/i;
 const BOOKING_TRANSFER_DIRECTION_RE =
@@ -238,7 +238,7 @@ function buildSuggestedTransferPatch(opts = {}) {
     lookup_date: lookupResult.flight_date,
     scheduled_at: scheduledAt,
     scheduled_at_local: scheduledAt ? formatTimestamptzAsDatetimeLocal(scheduledAt, timezone) : null,
-    flight_lookup_provider: AVIATIONSTACK_PROVIDER,
+    flight_lookup_provider: AERODATABOX_PROVIDER,
     flight_lookup_status: best.flight_status || 'found',
     flight_lookup_summary: buildFlightLookupSummary(best, dir),
   };
@@ -294,7 +294,7 @@ const FLIGHT_NOT_FOUND_MESSAGE = "Couldn't find that flight. Enter the flight de
 
 function logSafeFlightLookupFailure(info) {
   console.warn('[flight-lookup]', JSON.stringify({
-    provider: AVIATIONSTACK_PROVIDER,
+    provider: AERODATABOX_PROVIDER,
     error: info.error || null,
     http_status: info.http_status != null ? info.http_status : null,
     flight_number: info.flight_number || null,
@@ -324,14 +324,14 @@ function lookupFailureMessage(error, ctx = {}) {
       return FLIGHT_NOT_FOUND_MESSAGE;
     case 'airport_mismatch':
       return `Flight found, but airport did not match ${airportLabel}. Enter manually or change airport.`;
-    case 'aviationstack_auth_error':
-    case 'aviationstack_quota_or_plan_error':
-      return 'Aviationstack auth/quota issue. Check API key or plan.';
-    case 'aviationstack_rate_limited':
-      return 'Aviationstack rate limit reached. Try again shortly.';
-    case 'aviationstack_bad_request':
+    case 'aerodatabox_auth_error':
+    case 'aerodatabox_quota_or_plan_error':
+      return 'AeroDataBox auth/quota issue. Check API key or plan.';
+    case 'aerodatabox_rate_limited':
+      return 'AeroDataBox rate limit reached. Try again shortly.';
+    case 'aerodatabox_bad_request':
       return 'Flight lookup request was rejected. Check flight number and try again.';
-    case 'aviationstack_not_configured':
+    case 'aerodatabox_not_configured':
       return 'Flight lookup is not configured.';
     default:
       return 'Flight lookup failed. Enter the flight details manually.';
@@ -340,7 +340,7 @@ function lookupFailureMessage(error, ctx = {}) {
 
 function buildLookupDiagnostic(ctx = {}) {
   return {
-    provider: AVIATIONSTACK_PROVIDER,
+    provider: AERODATABOX_PROVIDER,
     http_status: ctx.http_status != null ? ctx.http_status : null,
     lookup_dates_tried: ctx.lookup_dates_tried || [],
     flight_number: ctx.flight_number || null,
@@ -357,7 +357,7 @@ function buildLookupDiagnostic(ctx = {}) {
  * @param {{ flight_number: string, direction: string, airport_code?: string|null, lookupDate: string, env?: NodeJS.ProcessEnv }} opts
  * @returns {Promise<{ lookup: object, lookup_date_used: string|null, lookup_dates_tried: string[] }>}
  */
-async function lookupAviationstackFlightWithDateRetry(opts = {}) {
+async function lookupAeroDataBoxFlightWithDateRetry(opts = {}) {
   const lookupDate = trimStr(opts.lookupDate);
   const baseArgs = {
     flight_number: opts.flight_number,
@@ -367,7 +367,7 @@ async function lookupAviationstackFlightWithDateRetry(opts = {}) {
     fetchImpl: opts.fetchImpl,
   };
   const datesTried = [lookupDate];
-  let lookup = await lookupAviationstackFlight({ ...baseArgs, flight_date: lookupDate });
+  let lookup = await lookupAeroDataBoxFlight({ ...baseArgs, flight_date: lookupDate });
   if (lookup.success || lookup.error !== 'flight_not_found') {
     return { lookup, lookup_date_used: lookupDate, lookup_dates_tried: datesTried };
   }
@@ -376,7 +376,7 @@ async function lookupAviationstackFlightWithDateRetry(opts = {}) {
     return { lookup, lookup_date_used: lookupDate, lookup_dates_tried: datesTried };
   }
   datesTried.push(prevDate);
-  const retry = await lookupAviationstackFlight({ ...baseArgs, flight_date: prevDate });
+  const retry = await lookupAeroDataBoxFlight({ ...baseArgs, flight_date: prevDate });
   return { lookup: retry, lookup_date_used: prevDate, lookup_dates_tried: datesTried };
 }
 
@@ -642,7 +642,7 @@ async function handlePostBookingTransferLookupFlight(bookingId, req, res) {
   }
 
   const { lookup, lookup_date_used: lookupDateUsed, lookup_dates_tried: lookupDatesTried } =
-    await lookupAviationstackFlightWithDateRetry({
+    await lookupAeroDataBoxFlightWithDateRetry({
       flight_number: flightNumber,
       direction,
       airport_code: body.airport_code,
@@ -652,7 +652,7 @@ async function handlePostBookingTransferLookupFlight(bookingId, req, res) {
 
   if (!lookup.success) {
     const errCode = lookup.error || 'flight_lookup_failed';
-    const status = errCode === 'aviationstack_not_configured' ? 503 : 404;
+    const status = errCode === 'aerodatabox_not_configured' ? 503 : 404;
     const msgCtx = {
       flight_number: flightNumber,
       direction,
@@ -865,7 +865,7 @@ module.exports = {
   handlePostBookingTransferLookupFlight,
   buildSuggestedTransferPatch,
   sanitizeFlightLookupSummaryForStorage,
-  lookupAviationstackFlightWithDateRetry,
+  lookupAeroDataBoxFlightWithDateRetry,
   addDaysToDateOnly,
   inferTransferStatusFromInput,
   FLIGHT_NOT_FOUND_MESSAGE,

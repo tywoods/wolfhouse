@@ -25,7 +25,7 @@ const GUEST_UNTOUCHED = [
 ];
 
 const DOWNSTREAM = [
-  'verify:luna-agent-phase26-aviationstack-provider',
+  'verify:luna-agent-phase26-aerodatabox-provider',
   'verify:luna-agent-phase26-transfer-editor',
   'verify:luna-agent-phase26-transfer-calendar-pebble',
   'verify:luna-agent-phase26-transfer-foundation',
@@ -63,7 +63,7 @@ else fail('A1', 'handler missing');
 if (/BOOKING_TRANSFER_LOOKUP_RE/.test(routesSrc) && /lookup-flight/.test(routesSrc)) {
   pass('A2', 'lookup-flight route regex');
 } else fail('A2', 'route regex');
-if (/lookupAviationstackFlight/.test(routesSrc)) pass('A3', 'imports lookupAviationstackFlight');
+if (/lookupAeroDataBoxFlight/.test(routesSrc)) pass('A3', 'imports lookupAeroDataBoxFlight');
 else fail('A3', 'provider import missing');
 
 const lookupHandler = (routesSrc.match(/async function handlePostBookingTransferLookupFlight[\s\S]*?(?=async function dispatchBookingTransferLookupRoute)/) || [''])[0];
@@ -75,7 +75,7 @@ else fail('A5', 'no_transfer_write flag');
 if (/missing_flight_number/.test(lookupHandler) && /defaultTransferLookupDate/.test(lookupHandler)) {
   pass('A6', 'validates flight_number; defaults lookup_date from booking');
 } else fail('A6', 'validation/default missing');
-if (/lookupAviationstackFlightWithDateRetry/.test(routesSrc)) pass('A8', 'lookup uses date retry helper');
+if (/lookupAeroDataBoxFlightWithDateRetry/.test(routesSrc)) pass('A8', 'lookup uses date retry helper');
 else fail('A8', 'date retry helper missing');
 if (/diagnostic:/.test(lookupHandler) && /lookup_dates_tried/.test(lookupHandler)) {
   pass('A9', 'lookup failure returns diagnostic + lookup_dates_tried');
@@ -115,7 +115,7 @@ const arrivalPatch = buildSuggestedTransferPatch({
 if (arrivalPatch && arrivalPatch.airport_code === 'SDR' && arrivalPatch.scheduled_at) {
   pass('B1', 'arrival maps arrival_iata + estimated/scheduled');
 } else fail('B1', 'arrival mapping');
-if (arrivalPatch.flight_lookup_provider === 'aviationstack' && arrivalPatch.flight_lookup_summary) {
+if (arrivalPatch.flight_lookup_provider === 'aerodatabox' && arrivalPatch.flight_lookup_summary) {
   pass('B2', 'arrival includes sanitized flight_lookup_summary');
 } else fail('B2', 'arrival summary');
 
@@ -189,9 +189,10 @@ if (/\/transfers\/lookup-flight/.test(apiSrc) && /bcLookupFlight/.test(apiSrc)) 
 if (/bcTransferApplyLookupPatch/.test(apiSrc) && /scheduled_at_local/.test(apiSrc)) {
   pass('D3', 'UI autofills airport/scheduled from suggested_transfer_patch');
 } else fail('D3', 'autofill');
-const uiSlice = (apiSrc.match(/Phase 26c\/26f[\s\S]{0,12000}/) || [''])[0];
-if (uiSlice && !/lookup_date:/.test(uiSlice)) pass('D6', 'UI lookup POST omits lookup_date');
-else fail('D6', 'UI still sends lookup_date');
+const lookupFnBody = apiSrc.match(/function bcLookupFlight\(direction\)[\s\S]{0,1800}/)?.[0] || '';
+if (/bcLookupFlight/.test(apiSrc) && lookupFnBody && !/lookup_date:/.test(lookupFnBody)) {
+  pass('D6', 'UI lookup POST omits lookup_date');
+} else fail('D6', 'UI still sends lookup_date');
 if (/Couldn\\u2019t find that flight|Enter the flight details manually/.test(apiSrc)) {
   pass('D7', 'UI shows safe manual-entry message on lookup failure');
 } else fail('D7', 'safe lookup error message missing');
@@ -218,30 +219,46 @@ section('E. Mocked lookup route behavior');
     }),
   });
 
-  process.env.AVIATIONSTACK_API_KEY = 'mock-key-26f';
+  process.env.AERODATABOX_API_KEY = 'mock-key-26f';
 
-  const { lookupAviationstackFlight } = require('./lib/aviationstack-flight-lookup');
-  const ok = await lookupAviationstackFlight({
+  const { lookupAeroDataBoxFlight } = require('./lib/aerodatabox-flight-lookup');
+  const ok = await lookupAeroDataBoxFlight({
     flight_number: 'ib1234',
     flight_date: '2029-10-01',
     direction: 'arrival',
     airport_code: 'SDR',
     env: process.env,
-    fetchImpl: global.fetch,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify([{
+        number: 'IB1234',
+        status: 'Expected',
+        airline: { name: 'Iberia' },
+        departure: {
+          airport: { name: 'Madrid', iata: 'MAD' },
+          scheduledTime: { utc: '2029-10-01T14:00:00Z' },
+        },
+        arrival: {
+          airport: { name: 'Santander', iata: 'SDR' },
+          scheduledTime: { utc: '2029-10-01T15:30:00Z' },
+        },
+      }]),
+    }),
   });
   if (ok.success && ok.raw_payload_stored === false) pass('E1', 'mocked provider returns sanitized result');
   else fail('E1', 'mocked lookup');
 
-  const bad = await lookupAviationstackFlight({
+  const bad = await lookupAeroDataBoxFlight({
     flight_number: 'ZZ999',
     flight_date: '2029-10-01',
     env: process.env,
-    fetchImpl: async () => ({ ok: true, json: async () => ({ data: [] }) }),
+    fetchImpl: async () => ({ ok: true, status: 204, text: async () => '' }),
   });
   if (bad.success === false && bad.error === 'flight_not_found') pass('E2', 'no result returns flight_not_found');
   else fail('E2', 'flight_not_found');
 
-  delete process.env.AVIATIONSTACK_API_KEY;
+  delete process.env.AERODATABOX_API_KEY;
   global.fetch = originalFetch;
 
   section('F. Docs + npm');

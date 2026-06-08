@@ -29,7 +29,7 @@ const DOWNSTREAM = [
   'verify:luna-agent-phase26-flight-lookup-editor',
   'verify:luna-agent-phase26-transfer-editor',
   'verify:luna-agent-phase26-transfer-calendar-pebble',
-  'verify:luna-agent-phase26-aviationstack-provider',
+  'verify:luna-agent-phase26-aerodatabox-provider',
 ];
 
 let passes = 0;
@@ -141,7 +141,7 @@ if (!/access_key|AVIATIONSTACK_API_KEY/.test(lookupHandler.replace(/secretRef/g,
 
 section('E. UI lookup messages');
 
-if (/aviationstack_auth_error|aviationstack_quota_or_plan_error|airport_mismatch/.test(apiSrc)) {
+if (/aerodatabox_auth_error|aerodatabox_quota_or_plan_error|airport_mismatch/.test(apiSrc)) {
   pass('E1', 'UI maps specific lookup error categories');
 } else fail('E1', 'UI error map');
 if (/res\.data\.message/.test(apiSrc) && /res\.data\.diagnostic/.test(apiSrc)) {
@@ -182,42 +182,47 @@ for (const f of GUEST_UNTOUCHED) {
 section('H. Mocked lookup behaviors');
 
 (async function runAsync() {
+  const { lookupAeroDataBoxFlight } = require('./lib/aerodatabox-flight-lookup');
   const {
-    lookupAviationstackFlightWithDateRetry,
+    lookupAeroDataBoxFlightWithDateRetry,
     lookupFailureMessage,
     buildLookupDiagnostic,
   } = require('./lib/staff-booking-transfers-routes');
 
-  const mismatch = await lookupAviationstackFlight({
+  const mismatch = await lookupAeroDataBoxFlight({
     flight_number: 'FR1',
     flight_date: '2026-06-08',
     direction: 'arrival',
     airport_code: 'SDR',
-    env: { AVIATIONSTACK_API_KEY: 'mock' },
+    env: { AERODATABOX_API_KEY: 'mock' },
     fetchImpl: async () => ({
       ok: true,
       status: 200,
-      json: async () => ({
-        data: [{
-          flight_status: 'scheduled',
-          flight: { iata: 'FR1' },
-          airline: { name: 'Test' },
-          departure: { iata: 'MAD', scheduled: '2026-06-08T10:00:00+00:00' },
-          arrival: { iata: 'MAD', scheduled: '2026-06-08T12:00:00+00:00' },
-        }],
-      }),
+      text: async () => JSON.stringify([{
+        number: 'FR1',
+        status: 'Expected',
+        airline: { name: 'Test' },
+        departure: {
+          airport: { name: 'Madrid', iata: 'MAD' },
+          scheduledTime: { utc: '2026-06-08T10:00:00Z' },
+        },
+        arrival: {
+          airport: { name: 'Madrid', iata: 'MAD' },
+          scheduledTime: { utc: '2026-06-08T12:00:00Z' },
+        },
+      }]),
     }),
   });
   if (mismatch.success === false && mismatch.error === 'airport_mismatch') {
     pass('H1', 'airport mismatch when flight airport differs');
   } else fail('H1', 'airport mismatch');
 
-  const { lookup_dates_tried } = await lookupAviationstackFlightWithDateRetry({
+  const { lookup_dates_tried } = await lookupAeroDataBoxFlightWithDateRetry({
     flight_number: 'XX1',
     direction: 'arrival',
     lookupDate: '2026-06-08',
-    env: { AVIATIONSTACK_API_KEY: 'mock' },
-    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ data: [] }) }),
+    env: { AERODATABOX_API_KEY: 'mock' },
+    fetchImpl: async () => ({ ok: true, status: 204, text: async () => '' }),
   });
   if (Array.isArray(lookup_dates_tried) && lookup_dates_tried.length >= 2) {
     pass('H2', 'date retry lists lookup_dates_tried');
