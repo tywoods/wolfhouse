@@ -13709,8 +13709,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
   <button class="tab-btn active" data-tab="bed-calendar">Booking Calendar</button>
-  <button class="tab-btn" data-tab="conversations">Inbox</button>
-  <button class="tab-btn" data-tab="ask-luna">Command Center</button>
+  <button class="tab-btn" data-tab="conversations">WhatsApp</button>
+  <button class="tab-btn" data-tab="ask-luna">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
 </div>
@@ -14268,7 +14268,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
   <div class="al-hero">
     <div>
-      <div class="al-hero-title">Command Center</div>
+      <div class="al-hero-title">Luna Staff</div>
       <div class="al-hero-sub">Operations questions and owner business insights from structured data. Read-only &mdash; no writes, no WhatsApp sends.</div>
     </div>
   </div>
@@ -14978,6 +14978,7 @@ function isLunaGuestAutomationPaused(sources){
   for (var i = 0; i < list.length; i++){
     var o = list[i];
     if (!o || typeof o !== 'object') continue;
+    if (o.luna_paused === true || o.luna_paused === 't') return true;
     if (o.bot_paused === true) return true;
     if (o.paused === true) return true;
     if (o.pause_state && o.pause_state.paused === true) return true;
@@ -15369,6 +15370,7 @@ function wireLunaPauseSwitch(convId, targetEl){
         updateLunaPauseUiInPlace(targetEl, wantPaused);
         patchInboxConvRow(convId, { luna_paused: wantPaused });
         updateInboxConvCardStatusPills(convId);
+        bcUpdateDrawerConvBotModePebble(convId, wantPaused);
         sw.disabled = false;
       })
       .catch(function(err){
@@ -17976,7 +17978,24 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
 function bcDrawerConvModeRowHtml(conv){
   conv = conv || {};
   var paused = isLunaGuestAutomationPaused([conv]);
-  return '<div class="kv"><span class="k">Bot mode</span><span class="v">' + inboxLunaStaffPill(paused) + '</span></div>';
+  return '<div class="kv" id="bc-drawer-conv-bot-mode-row"><span class="k">Bot mode</span>' +
+    '<span class="v" id="bc-drawer-conv-bot-mode-v">' + inboxLunaStaffPill(paused) + '</span></div>';
+}
+
+function bcUpdateDrawerConvBotModePebble(convId, paused){
+  if (bcLastBookingContext && bcLastBookingContext.conversation){
+    var cid = bcLastBookingContext.conversation.conversation_id;
+    if (cid && convId && String(cid) === String(convId)){
+      bcLastBookingContext.conversation.luna_paused = !!paused;
+      bcLastBookingContext.conversation.bot_paused = !!paused;
+    }
+  }
+  var vEl = el('bc-drawer-conv-bot-mode-v');
+  if (!vEl) return;
+  var drawerConvId = bcLastBookingContext && bcLastBookingContext.conversation
+    ? bcLastBookingContext.conversation.conversation_id : null;
+  if (convId && drawerConvId && String(drawerConvId) !== String(convId)) return;
+  vEl.innerHTML = inboxLunaStaffPill(!!paused);
 }
 
 function kvBC(k, v){

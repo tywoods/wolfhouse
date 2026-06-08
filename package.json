@@ -170,6 +170,7 @@
     "verify:luna-agent-phase26-service-pebbles-transfer-payment-polish": "node scripts/verify-luna-agent-phase26-service-pebbles-transfer-payment-polish.js",
     "verify:luna-agent-phase26-inplace-actions-transfer-final-polish": "node scripts/verify-luna-agent-phase26-inplace-actions-transfer-final-polish.js",
     "verify:luna-agent-phase26-service-add-schedule-modes": "node scripts/verify-luna-agent-phase26-service-add-schedule-modes.js",
+    "verify:luna-agent-phase26-nav-botmode-polish": "node scripts/verify-luna-agent-phase26-nav-botmode-polish.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
     "verify:staff-ask-luna-surf-forecast": "node scripts/verify-staff-ask-luna-surf-forecast.js",
