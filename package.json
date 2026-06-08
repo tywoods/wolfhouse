@@ -158,6 +158,7 @@
     "verify:luna-agent-phase26-aviationstack-provider": "node scripts/verify-luna-agent-phase26-aviationstack-provider.js",
     "verify:luna-agent-phase26-aerodatabox-provider": "node scripts/verify-luna-agent-phase26-aerodatabox-provider.js",
     "verify:luna-agent-phase26-manual-booking-quote-fixes": "node scripts/verify-luna-agent-phase26-manual-booking-quote-fixes.js",
+    "verify:luna-agent-phase26-transfer-total-runtime": "node scripts/verify-luna-agent-phase26-transfer-total-runtime.js",
     "verify:luna-agent-phase26-flight-lookup-editor": "node scripts/verify-luna-agent-phase26-flight-lookup-editor.js",
     "verify:luna-agent-phase26-transfer-ui-cleanup": "node scripts/verify-luna-agent-phase26-transfer-ui-cleanup.js",
     "verify:luna-agent-phase26-booking-drawer-tabs-diagnostics": "node scripts/verify-luna-agent-phase26-booking-drawer-tabs-diagnostics.js",

@@ -18811,13 +18811,52 @@ function bcPaymentLedgerCanCancelLinkRow(pr){
   return true;
 }
 
+function bcIsActiveTransferForInvoice(row){
+  if (!row) return false;
+  var status = String(row.status || '').toLowerCase();
+  if (status !== 'requested' && status !== 'confirmed') return false;
+  var cents = Number(row.price_cents);
+  return isFinite(cents) && cents > 0;
+}
+
+function bcSumActiveTransferChargesCents(transferRows){
+  return (transferRows || []).reduce(function(sum, row){
+    if (!bcIsActiveTransferForInvoice(row)) return sum;
+    return sum + Number(row.price_cents || 0);
+  }, 0);
+}
+
+function bcTransferDirectionLabel(direction){
+  var d = String(direction || '').toLowerCase();
+  if (d === 'arrival') return 'Arrival transfer';
+  if (d === 'departure') return 'Departure transfer';
+  return 'Transfer';
+}
+
+function bcTransferInvoiceLineItems(transferRows){
+  var items = [];
+  (transferRows || []).forEach(function(row){
+    if (!bcIsActiveTransferForInvoice(row)) return;
+    items.push({
+      direction: row.direction,
+      label: bcTransferDirectionLabel(row.direction),
+      price_cents: Number(row.price_cents || 0),
+    });
+  });
+  items.sort(function(a, b){
+    var order = { arrival: 0, departure: 1 };
+    return (order[a.direction] != null ? order[a.direction] : 9) - (order[b.direction] != null ? order[b.direction] : 9);
+  });
+  return items;
+}
+
 function bcBookingLedgerBalance(bk, svcRows, paymentRows, transferRows){
   bk = bk || {};
   svcRows = svcRows || [];
   paymentRows = paymentRows || [];
   transferRows = transferRows || [];
   var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
-  var transferSum = sumActiveTransferChargesCents(transferRows);
+  var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var paidCents = bcPaymentLedgerPaidTotalCents(paymentRows);
   var md = bk.metadata || {};
   if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_) { md = {}; } }
@@ -18995,8 +19034,8 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows){
   var pkgLabel = bcRunningInvoicePackageLabel(bk.package_code);
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
   var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
-  var transferSum = sumActiveTransferChargesCents(transferRows);
-  var transferLines = transferInvoiceLineItems(transferRows);
+  var transferSum = bcSumActiveTransferChargesCents(transferRows);
+  var transferLines = bcTransferInvoiceLineItems(transferRows);
   var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
   var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
@@ -21806,7 +21845,7 @@ function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows){
   var quoteSnap = md.quote_snapshot || null;
   var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
   var svcSum = svcRows.reduce(function(s, r){ return s + (Number(r.amount_due_cents) || 0); }, 0);
-  var transferSum = sumActiveTransferChargesCents(transferRows);
+  var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
   var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
