@@ -172,7 +172,9 @@ const {
 } = require('./lib/staff-booking-transfers-routes');
 const {
   dispatchBookingServicesRoute,
+  dispatchBookingServiceDateRoute,
   BOOKING_SERVICES_RE,
+  BOOKING_SERVICE_DATE_RE,
 } = require('./lib/staff-booking-services-routes');
 const {
   listBookingTransfersForCalendarRange,
@@ -13355,16 +13357,30 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-services-group{padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .bc-services-group-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
 .ctx-payment-summary-brief .kv-grid{margin-top:4px}
-.bc-svc-package-card{margin-bottom:10px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
-.bc-svc-package-title{font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:4px}
+.bc-svc-summary-card{margin-bottom:10px}
+.bc-svc-summary-headline{font-size:14px;font-weight:700;color:var(--text-1);margin-bottom:8px}
+.bc-svc-paid-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.bc-svc-paid-list{display:flex;flex-direction:column;gap:4px;font-size:12px;line-height:1.45}
+.bc-svc-paid-item{color:var(--text-1)}
 .bc-svc-schedule-section{margin-bottom:10px}
-.bc-svc-schedule-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
-.bc-svc-schedule-day{margin-bottom:6px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
-.bc-svc-schedule-day-label{font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:4px}
-.bc-svc-chip{display:inline-block;margin:2px 6px 2px 0;padding:3px 8px;font-size:11px;border-radius:999px;background:var(--surface);border:1px solid var(--border-soft);line-height:1.35}
+.bc-svc-schedule-section.bc-drawer-overview-card{padding:14px 16px}
+.bc-svc-schedule-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+.bc-svc-schedule-day{margin-bottom:8px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);box-shadow:var(--shadow-soft)}
+.bc-svc-schedule-day:last-child{margin-bottom:0}
+.bc-svc-schedule-day-header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:4px}
+.bc-svc-schedule-day-label{font-size:11px;font-weight:600;color:var(--text-2);flex:1}
+.bc-svc-schedule-add-btn{flex-shrink:0;width:22px;height:22px;padding:0;border:1px solid var(--border-soft);border-radius:999px;background:var(--surface-soft);color:var(--text-2);font-size:14px;line-height:1;cursor:pointer;font-weight:600}
+.bc-svc-schedule-add-btn:hover{background:var(--surface);border-color:var(--text-3)}
+.bc-svc-schedule-picker{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-soft);display:none}
+.bc-svc-schedule-picker.is-open{display:block}
+.bc-svc-picker-list{display:flex;flex-direction:column;gap:4px}
+.bc-svc-picker-option{display:block;width:100%;text-align:left;padding:6px 8px;font-size:11px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);cursor:pointer;line-height:1.35}
+.bc-svc-picker-option:hover{background:var(--surface)}
+.bc-svc-picker-option:disabled{opacity:.55;cursor:wait}
+.bc-svc-chip{display:inline-block;margin:2px 6px 2px 0;padding:3px 8px;font-size:11px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border-soft);line-height:1.35}
 .bc-svc-chip-meta{font-size:10px;color:var(--text-2)}
 .bc-svc-unscheduled-list{display:flex;flex-direction:column;gap:6px}
-.bc-svc-unscheduled-item{padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);font-size:11px}
+.bc-svc-unscheduled-item{padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);font-size:11px;background:var(--surface)}
 .ctx-field-edit{margin-top:8px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
 .ctx-field-label{display:block;font-size:11px;color:var(--text-2);margin:8px 0 4px}
 .ctx-field-label:first-child{margin-top:0}
@@ -20944,46 +20960,85 @@ function bcRenderServiceChipHtml(svc){
   return html;
 }
 
+function bcFormatServiceSummaryLine(svc){
+  var parts = [svc.service_name || svc.service_type || 'Service'];
+  var qty = svc.quantity != null ? Number(svc.quantity) : 1;
+  if (qty > 1) parts.push('\u00d7' + qty);
+  if (svc.total_price_cents != null) parts.push(bcServicesFormatEuro(svc.total_price_cents));
+  var meta = [];
+  if (svc.payment_status) meta.push(String(svc.payment_status).replace(/_/g, ' '));
+  if (svc.status && svc.status !== svc.payment_status) meta.push(String(svc.status).replace(/_/g, ' '));
+  if (meta.length) parts.push(meta.join('/'));
+  return parts.join(' \u00b7 ');
+}
+
+function bcRenderSchedulePickerHtml(unsched, targetDate){
+  if (!unsched || !unsched.length) {
+    return '<div class="ctx-none" style="font-size:11px">No unscheduled services to schedule.</div>';
+  }
+  var html = '<div class="bc-svc-picker-list">';
+  unsched.forEach(function(s){
+    var rid = s.service_record_id || '';
+    html += '<button type="button" class="bc-svc-picker-option" data-record-id="' + escHtml(rid) +
+      '" data-date="' + escHtml(targetDate || '') + '">' +
+      escHtml(s.summary_line || bcFormatServiceSummaryLine(s)) + '</button>';
+  });
+  html += '</div>';
+  return html;
+}
+
 function bcRenderServicesScheduleBody(data){
   if (!data || !data.success) {
     return '<div class="state-msg error">' + escHtml((data && data.error) || 'Failed to load services') + '</div>';
   }
   var html = '';
   var pkg = data.package_summary || {};
-  html += '<div class="bc-svc-package-card" id="bc-svc-package-card">';
-  html += '<div class="bc-svc-package-title">Package</div>';
-  html += '<div class="kv-grid">';
-  if (pkg.package_name || pkg.package_code) {
-    html += kvBC('Package', pkg.package_name || pkg.package_code);
+  var unsched = data.unscheduled_services || [];
+  html += '<div class="bc-drawer-overview-card bc-svc-summary-card" id="bc-svc-summary-card">';
+  html += '<div class="bc-svc-summary-headline">' +
+    escHtml(pkg.headline || ((pkg.package_name || 'No Package') + ' \u00b7 ' + (pkg.nights != null ? pkg.nights : 0) + ' nights')) +
+    '</div>';
+  html += '<div class="bc-svc-paid-title">Paid / requested services</div>';
+  var paidList = data.paid_requested_services || [];
+  if (!paidList.length) {
+    html += '<div class="ctx-none">No services recorded yet.</div>';
+  } else {
+    html += '<div class="bc-svc-paid-list">';
+    paidList.forEach(function(s){
+      html += '<div class="bc-svc-paid-item">' + escHtml(s.summary_line || bcFormatServiceSummaryLine(s)) + '</div>';
+    });
+    html += '</div>';
   }
-  if (pkg.nights != null) html += kvBC('Nights', pkg.nights);
-  html += '</div>';
-  html += '<p class="ctx-none" style="margin-top:6px;font-size:11px">' +
-    escHtml(pkg.included_note || 'Package services shown below when scheduled.') + '</p>';
   html += '</div>';
 
-  html += '<div class="bc-svc-schedule-section" id="bc-svc-schedule-section">';
+  html += '<div class="bc-drawer-overview-card bc-svc-schedule-section" id="bc-svc-schedule-section">';
   html += '<div class="bc-svc-schedule-title">Service schedule</div>';
   var groups = data.services_by_date || [];
   if (!groups.length) {
-    html += '<div class="ctx-none">No services recorded yet.</div>';
+    html += '<div class="ctx-none">No stay dates for this booking.</div>';
   } else {
     groups.forEach(function(g){
       html += '<div class="bc-svc-schedule-day" data-date="' + escHtml(g.date || '') + '">';
+      html += '<div class="bc-svc-schedule-day-header">';
       html += '<div class="bc-svc-schedule-day-label">' + escHtml(g.label || g.date || '\u2014') + '</div>';
+      html += '<button type="button" class="bc-svc-schedule-add-btn" data-date="' + escHtml(g.date || '') +
+        '" title="Schedule service" aria-label="Schedule service for ' + escHtml(g.label || g.date || '') + '">+</button>';
+      html += '</div>';
       if (!g.services || !g.services.length) {
         html += '<div class="ctx-none" style="font-size:11px">No services scheduled</div>';
       } else {
         g.services.forEach(function(s){ html += bcRenderServiceChipHtml(s); });
       }
+      html += '<div class="bc-svc-schedule-picker" data-date="' + escHtml(g.date || '') + '">';
+      html += bcRenderSchedulePickerHtml(unsched, g.date);
+      html += '</div>';
       html += '</div>';
     });
   }
   html += '</div>';
 
-  html += '<div class="bc-svc-schedule-section" id="bc-svc-unscheduled-section">';
+  html += '<div class="bc-drawer-overview-card bc-svc-schedule-section" id="bc-svc-unscheduled-section">';
   html += '<div class="bc-svc-schedule-title">Unscheduled services</div>';
-  var unsched = data.unscheduled_services || [];
   if (!unsched.length) {
     html += '<div class="ctx-none">No unscheduled services.</div>';
   } else {
@@ -20997,10 +21052,90 @@ function bcRenderServicesScheduleBody(data){
   }
   html += '</div>';
 
-  if (data.totals && data.totals.record_count === 0) {
-    html = '<div class="ctx-none" style="margin-bottom:8px">No services recorded yet.</div>' + html;
-  }
   return html;
+}
+
+function bcInitServicesSchedulePickers(bk, bodyEl){
+  if (!bodyEl || !bk || !bk.booking_id) return;
+  var client = getBcClient();
+  bodyEl.querySelectorAll('.bc-svc-schedule-add-btn').forEach(function(btn){
+    btn.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      var dayEl = btn.closest('.bc-svc-schedule-day');
+      if (!dayEl) return;
+      var picker = dayEl.querySelector('.bc-svc-schedule-picker');
+      if (!picker) return;
+      var wasOpen = picker.classList.contains('is-open');
+      bodyEl.querySelectorAll('.bc-svc-schedule-picker.is-open').forEach(function(p){
+        p.classList.remove('is-open');
+      });
+      if (!wasOpen) picker.classList.add('is-open');
+    });
+  });
+  bodyEl.querySelectorAll('.bc-svc-picker-option').forEach(function(optBtn){
+    optBtn.addEventListener('click', function(){
+      var recordId = optBtn.getAttribute('data-record-id');
+      var serviceDate = optBtn.getAttribute('data-date');
+      if (!recordId || !serviceDate) return;
+      optBtn.disabled = true;
+      var url = '/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/services/' +
+        encodeURIComponent(recordId) + '/date';
+      fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_slug: client, service_date: serviceDate }),
+      })
+        .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+        .then(function(res){
+          if (!bodyEl) return;
+          if (!res.ok || !res.data || !res.data.success) {
+            var errMsg = (res.data && res.data.error) || 'Failed to schedule service';
+            bodyEl.insertAdjacentHTML('afterbegin',
+              '<div class="state-msg error bc-svc-schedule-flash">' + escHtml(errMsg) + '</div>');
+            setTimeout(function(){
+              var flash = bodyEl.querySelector('.bc-svc-schedule-flash');
+              if (flash) flash.remove();
+            }, 4000);
+            optBtn.disabled = false;
+            return;
+          }
+          bodyEl.innerHTML = bcRenderServicesScheduleBody(res.data);
+          bcInitServicesSchedulePickers(bk, bodyEl);
+        })
+        .catch(function(e){
+          if (bodyEl) {
+            bodyEl.insertAdjacentHTML('afterbegin',
+              '<div class="state-msg error bc-svc-schedule-flash">' + escHtml(e.message || 'Network error') + '</div>');
+            setTimeout(function(){
+              var flash = bodyEl.querySelector('.bc-svc-schedule-flash');
+              if (flash) flash.remove();
+            }, 4000);
+          }
+          optBtn.disabled = false;
+        });
+    });
+  });
+}
+
+function bcRefreshServicesSchedule(bk, bodyEl){
+  if (!bodyEl || !bk || !bk.booking_id) return;
+  var client = getBcClient();
+  var url = '/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/services?client_slug=' +
+    encodeURIComponent(client);
+  fetch(url)
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (!bodyEl) return;
+      bodyEl.classList.remove('ctx-loading');
+      bodyEl.innerHTML = bcRenderServicesScheduleBody(res.ok ? res.data : res.data);
+      bcInitServicesSchedulePickers(bk, bodyEl);
+    })
+    .catch(function(e){
+      if (bodyEl) {
+        bodyEl.classList.remove('ctx-loading');
+        bodyEl.innerHTML = '<div class="state-msg error">' + escHtml(e.message || 'Network error') + '</div>';
+      }
+    });
 }
 
 function bcInitServicesScheduleShell(data){
@@ -21012,22 +21147,7 @@ function bcInitServicesScheduleShell(data){
     bodyEl.innerHTML = '<div class="state-msg error">Booking id missing</div>';
     return;
   }
-  var client = getBcClient();
-  var url = '/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/services?client_slug=' +
-    encodeURIComponent(client);
-  fetch(url)
-    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
-    .then(function(res){
-      if (!bodyEl) return;
-      bodyEl.classList.remove('ctx-loading');
-      bodyEl.innerHTML = bcRenderServicesScheduleBody(res.ok ? res.data : res.data);
-    })
-    .catch(function(e){
-      if (bodyEl) {
-        bodyEl.classList.remove('ctx-loading');
-        bodyEl.innerHTML = '<div class="state-msg error">' + escHtml(e.message || 'Network error') + '</div>';
-      }
-    });
+  bcRefreshServicesSchedule(bk, bodyEl);
 }
 
 function bcRenderServicesTabHtml(bk){
@@ -25449,6 +25569,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     if (await dispatchBookingTransfersRoute(req, res, pathname, parsed.query)) return;
+  }
+  if (BOOKING_SERVICE_DATE_RE.test(pathname)) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    if (await dispatchBookingServiceDateRoute(req, res, pathname)) return;
   }
   if (BOOKING_SERVICES_RE.test(pathname)) {
     const auth = await requireAuth(req, res, 'operator');

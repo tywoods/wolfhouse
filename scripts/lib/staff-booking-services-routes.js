@@ -1,7 +1,8 @@
 /**
- * Phase 26g — Staff API route for booking services schedule (read-only).
+ * Phase 26g/26h — Staff API routes for booking services schedule.
  *
- * GET /staff/bookings/:booking_id/services — no payment writes.
+ * GET  /staff/bookings/:booking_id/services — read schedule (no payment writes).
+ * PATCH /staff/bookings/:booking_id/services/:service_record_id/date — service_date only.
  *
  * @module staff-booking-services-routes
  */
@@ -11,9 +12,15 @@
 const { withPgClient } = require('./pg-connect');
 const { getClientTransferConfig } = require('./client-transfer-config');
 const { getBookingServiceRecordsQuery } = require('./staff-booking-detail-queries');
-const { buildBookingServicesSchedule } = require('./staff-booking-services-schedule');
+const {
+  buildBookingServicesSchedule,
+  formatServiceRecordForSchedule,
+  isServiceDateInStay,
+} = require('./staff-booking-services-schedule');
 
 const BOOKING_SERVICES_RE = /^\/staff\/bookings\/([0-9a-f-]{36})\/services$/i;
+const BOOKING_SERVICE_DATE_RE =
+  /^\/staff\/bookings\/([0-9a-f-]{36})\/services\/([0-9a-f-]{36})\/date$/i;
 
 const BOOKING_BY_ID_SQL = `
 SELECT b.id::text AS booking_id,
@@ -29,9 +36,54 @@ SELECT b.id::text AS booking_id,
  LIMIT 1
 `;
 
+const SERVICE_RECORD_BY_ID_SQL = `
+SELECT sr.id::text AS service_record_id,
+       sr.booking_id::text AS booking_id,
+       sr.service_type,
+       sr.service_date::text AS service_date,
+       sr.quantity,
+       sr.status,
+       sr.payment_status,
+       sr.amount_due_cents,
+       sr.notes,
+       sr.metadata
+  FROM booking_service_records sr
+ WHERE sr.id = $1::uuid
+   AND sr.client_slug = $2
+   AND sr.booking_id = $3::uuid
+ LIMIT 1
+`;
+
+const UPDATE_SERVICE_DATE_SQL = `
+UPDATE booking_service_records
+   SET service_date = $1::date,
+       updated_at = NOW()
+ WHERE id = $2::uuid
+   AND client_slug = $3
+   AND booking_id = $4::uuid
+ RETURNING id::text AS service_record_id,
+           service_type,
+           service_date::text AS service_date,
+           quantity,
+           status,
+           payment_status,
+           amount_due_cents,
+           notes,
+           metadata
+`;
+
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
 }
 
 function clientTimezone(clientSlug) {
@@ -107,6 +159,131 @@ async function handleGetBookingServices(bookingId, query, res) {
   }
 }
 
+async function handlePatchBookingServiceDate(bookingId, serviceRecordId, req, res) {
+  let body = {};
+  try {
+    const raw = await readRequestBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch {
+    return res.status(400).json({ success: false, error: 'invalid or missing JSON body' });
+  }
+
+  const clientSlug = trimStr(body.client_slug || body.client);
+  const serviceDate = trimStr(body.service_date);
+
+  if (!clientSlug) {
+    return res.status(400).json({ success: false, error: 'client_slug is required' });
+  }
+  if (!serviceDate) {
+    return res.status(400).json({ success: false, error: 'service_date is required' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
+    return res.status(400).json({ success: false, error: 'service_date must be YYYY-MM-DD' });
+  }
+
+  const timezone = clientTimezone(clientSlug);
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      const bkRes = await pg.query(BOOKING_BY_ID_SQL, [clientSlug, bookingId]);
+      const booking = bkRes.rows[0];
+      if (!booking) return { notFound: true };
+
+      if (!isServiceDateInStay(serviceDate, booking.check_in, booking.check_out, timezone)) {
+        return {
+          invalidDate: true,
+          message: 'service_date must fall within stay nights (check-in through day before checkout)',
+        };
+      }
+
+      const existing = await pg.query(SERVICE_RECORD_BY_ID_SQL, [
+        serviceRecordId,
+        clientSlug,
+        bookingId,
+      ]);
+      if (!existing.rows[0]) return { recordNotFound: true };
+
+      const upd = await pg.query(UPDATE_SERVICE_DATE_SQL, [
+        serviceDate,
+        serviceRecordId,
+        clientSlug,
+        bookingId,
+      ]);
+      const updatedRow = upd.rows[0];
+      if (!updatedRow) return { updateFailed: true };
+
+      const svc = await loadServiceRecords(pg, clientSlug, booking.booking_code);
+      const schedule = buildBookingServicesSchedule({
+        booking,
+        serviceRecords: svc.rows,
+        timezone,
+      });
+
+      return {
+        notFound: false,
+        payload: {
+          success: true,
+          client_slug: clientSlug,
+          booking_id: bookingId,
+          service_record: formatServiceRecordForSchedule(updatedRow, { timezone }),
+          ...schedule,
+          no_payment_write: true,
+        },
+      };
+    });
+
+    if (result.notFound) {
+      return res.status(404).json({ success: false, error: 'booking not found' });
+    }
+    if (result.recordNotFound) {
+      return res.status(404).json({ success: false, error: 'service record not found' });
+    }
+    if (result.invalidDate) {
+      return res.status(400).json({ success: false, error: result.message });
+    }
+    if (result.updateFailed) {
+      return res.status(500).json({ success: false, error: 'update failed' });
+    }
+    return res.status(200).json(result.payload);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'update failed', detail: err.message });
+  }
+}
+
+/**
+ * @param {import('http').IncomingMessage} req
+ * @param {import('http').ServerResponse} res
+ * @param {string} pathname
+ * @returns {Promise<boolean>}
+ */
+async function dispatchBookingServiceDateRoute(req, res, pathname) {
+  const match = BOOKING_SERVICE_DATE_RE.exec(pathname);
+  if (!match) return false;
+
+  const bookingId = match[1];
+  const serviceRecordId = match[2];
+  const jsonRes = {
+    status(code) {
+      res.statusCode = code;
+      return jsonRes;
+    },
+    json(obj) {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(obj));
+      return jsonRes;
+    },
+  };
+
+  if (req.method === 'PATCH') {
+    await handlePatchBookingServiceDate(bookingId, serviceRecordId, req, jsonRes);
+    return true;
+  }
+
+  res.writeHead(405, { Allow: 'PATCH' });
+  res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+  return true;
+}
+
 /**
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
@@ -143,8 +320,12 @@ async function dispatchBookingServicesRoute(req, res, pathname, query) {
 
 module.exports = {
   BOOKING_SERVICES_RE,
+  BOOKING_SERVICE_DATE_RE,
   dispatchBookingServicesRoute,
+  dispatchBookingServiceDateRoute,
   handleGetBookingServices,
+  handlePatchBookingServiceDate,
   buildBookingServicesSchedule,
   loadServiceRecords,
+  isServiceDateInStay,
 };

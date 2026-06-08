@@ -76,10 +76,59 @@ function serviceTypeLabel(row) {
   return SERVICE_TYPE_LABELS[t] || (t ? t.replace(/_/g, ' ') : '\u2014');
 }
 
+const PACKAGE_LABELS = {
+  uluwatu: 'Uluwatu',
+  malibu: 'Malibu',
+  waimea: 'Waimea',
+};
+
+function packageSummaryLabel(packageCode) {
+  const c = trimStr(packageCode).toLowerCase();
+  if (!c) return 'No Package';
+  if (PACKAGE_LABELS[c]) return PACKAGE_LABELS[c];
+  return c.charAt(0).toUpperCase() + c.slice(1).replace(/_/g, ' ');
+}
+
+function packageSummaryHeadline(packageCode, nights) {
+  const n = nights != null ? Number(nights) : 0;
+  const label = packageSummaryLabel(packageCode);
+  return `${label} · ${n} night${n === 1 ? '' : 's'}`;
+}
+
 function packageDisplayName(packageCode) {
-  const c = trimStr(packageCode);
-  if (!c) return null;
-  return c.charAt(0).toUpperCase() + c.slice(1).replace(/_/g, ' ') + ' package';
+  const label = packageSummaryLabel(packageCode);
+  if (label === 'No Package') return null;
+  return label;
+}
+
+/**
+ * @param {string|null} serviceDate
+ * @param {string|null} checkIn
+ * @param {string|null} checkOut
+ * @param {string} [timezone]
+ * @returns {boolean}
+ */
+function isServiceDateInStay(serviceDate, checkIn, checkOut, timezone = 'Europe/Madrid') {
+  const d = normalizeBookingDateOnly(serviceDate, { timezone });
+  if (!d) return false;
+  const stayDates = buildStayDates(checkIn, checkOut, timezone);
+  return stayDates.includes(d);
+}
+
+function formatPaidServiceSummaryLine(svc) {
+  const parts = [svc.service_name || svc.service_type || 'Service'];
+  const qty = Math.max(1, Number(svc.quantity) || 1);
+  if (qty > 1) parts.push(`×${qty}`);
+  if (svc.total_price_cents != null) {
+    parts.push(`€${(Number(svc.total_price_cents) / 100).toFixed(2)}`);
+  }
+  const statusParts = [];
+  if (svc.payment_status) statusParts.push(String(svc.payment_status).replace(/_/g, ' '));
+  if (svc.status && svc.status !== svc.payment_status) {
+    statusParts.push(String(svc.status).replace(/_/g, ' '));
+  }
+  if (statusParts.length) parts.push(statusParts.join('/'));
+  return parts.join(' · ');
 }
 
 /**
@@ -173,14 +222,20 @@ function buildBookingServicesSchedule(opts = {}) {
   services_by_date.forEach((g) => { scheduledCount += g.services.length; });
 
   const nights = stayDates.length;
+  const allServices = rows.map((row) => formatServiceRecordForSchedule(row, { timezone }));
+  const paid_requested_services = allServices.map((svc) => ({
+    ...svc,
+    summary_line: formatPaidServiceSummaryLine(svc),
+  }));
 
   return {
     package_summary: {
       package_code: booking.package_code || null,
       package_name: packageDisplayName(booking.package_code),
+      headline: packageSummaryHeadline(booking.package_code, nights),
       nights,
-      included_note: 'Package services shown below when scheduled.',
     },
+    paid_requested_services,
     stay_dates: stayDates,
     check_in: checkIn,
     check_out: checkOut,
@@ -198,7 +253,11 @@ module.exports = {
   buildStayDates,
   buildBookingServicesSchedule,
   formatServiceRecordForSchedule,
+  formatPaidServiceSummaryLine,
   formatDateLabel,
   serviceTypeLabel,
+  packageSummaryHeadline,
+  packageSummaryLabel,
+  isServiceDateInStay,
   addDaysToDateOnly,
 };

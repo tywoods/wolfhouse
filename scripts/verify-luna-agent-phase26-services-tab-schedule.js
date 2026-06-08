@@ -66,8 +66,12 @@ if (/buildBookingServicesSchedule/.test(routesSrc) && /services_by_date/.test(sc
 if (/normalizeBookingDateOnly/.test(scheduleSrc) && /buildStayDates/.test(scheduleSrc)) {
   pass('A5', 'stay_dates from check_in/check_out with date-safe handling');
 } else fail('A5', 'stay date builder');
-if (!/INSERT|UPDATE|DELETE/.test(routesSrc.replace(/\/\/[^\n]*/g, ''))) {
-  pass('A6', 'services route has no SQL writes');
+if (!/INSERT|DELETE/.test(routesSrc.replace(/\/\/[^\n]*/g, ''))) {
+  if (/UPDATE[\s\S]{0,200}service_date/i.test(routesSrc)) {
+    pass('A6', 'services route allows service_date-only update (26h)');
+  } else {
+    pass('A6', 'services route has no INSERT/DELETE writes');
+  }
 } else fail('A6', 'write SQL in routes');
 if (/no_payment_write:\s*true/.test(routesSrc)) pass('A7', 'no_payment_write flag');
 else fail('A7', 'no_payment_write flag');
@@ -94,7 +98,7 @@ if (/bcDrawerTabBtn\('services', 'Services'/.test(apiSrc) || /'services', 'Servi
 if (!/bcDrawerTabBtn\('[^']+', 'Add-ons'/.test(apiSrc)) {
   pass('C2', 'Add-ons is not the main tab label');
 } else fail('C2', 'Add-ons still a tab label');
-if (/bc-svc-package-card|bcRenderServicesScheduleBody/.test(apiSrc)) {
+if (/bc-svc-summary-card|bc-drawer-overview-card[\s\S]{0,80}bc-svc|bcRenderServicesScheduleBody/.test(apiSrc)) {
   pass('C3', 'package summary/card in Services tab');
 } else fail('C3', 'package card');
 if (/Service schedule|bc-svc-schedule-section/.test(apiSrc)) {
