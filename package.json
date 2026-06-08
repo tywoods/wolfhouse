@@ -148,6 +148,7 @@
     "verify:luna-agent-phase25-owner-sql-planner": "node scripts/verify-luna-agent-phase25-owner-sql-planner.js",
     "verify:luna-agent-phase25-owner-plan-execute": "node scripts/verify-luna-agent-phase25-owner-plan-execute.js",
     "verify:luna-agent-phase25-owner-command-center-answer": "node scripts/verify-luna-agent-phase25-owner-command-center-answer.js",
+    "verify:luna-agent-phase25-command-center-ui": "node scripts/verify-luna-agent-phase25-command-center-ui.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
     "verify:staff-ask-luna-surf-forecast": "node scripts/verify-staff-ask-luna-surf-forecast.js",

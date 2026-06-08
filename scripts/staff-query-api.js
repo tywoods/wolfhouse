@@ -13455,6 +13455,30 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .al-rows-table td{padding:5px 8px;border-bottom:1px solid #F2EDE4;vertical-align:top;color:var(--text)}
 .al-rows-table tr:last-child td{border-bottom:none}
 .al-suggestions{font-size:12px;color:var(--text-2);margin-top:8px;line-height:1.6;background:var(--surface-soft);border-radius:var(--radius-sm);padding:10px 14px}
+/* Stage 25i — Command Center Operations + Owner Insights */
+.cc-section{margin-bottom:22px}
+.cc-section-hdr{font-size:14px;font-weight:700;color:var(--text);margin:0 0 4px}
+.cc-section-sub{font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.45;max-width:640px}
+.cc-role-note{font-size:10.5px;color:var(--text-3);font-style:italic;margin:-6px 0 10px}
+.oi-form-row{display:flex;gap:8px;align-items:flex-end;margin-bottom:4px}
+#oi-input{flex:1;font-size:13.5px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);min-width:0}
+#oi-input:focus{outline:2px solid #7AAB6E;outline-offset:1px}
+#oi-btn{flex-shrink:0;padding:10px 18px;font-size:13px;font-weight:700}
+#oi-btn:disabled{opacity:.5;cursor:default}
+.oi-examples{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px}
+#oi-error{font-size:12.5px;color:#A0392A;background:#FDF4F2;border:1px solid #F0C9C1;border-radius:var(--radius-sm);padding:10px 14px;margin:8px 0;display:none}
+#oi-status{font-size:12px;color:var(--text-2);padding:4px 0;min-height:20px}
+.oi-answer-box{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:16px 18px;margin:10px 0 0}
+.oi-answer-text{font-size:14px;font-weight:500;color:var(--text);line-height:1.65;white-space:pre-wrap;margin:0 0 10px}
+.oi-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.oi-badge{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:999px;background:#EBF1E5;color:#3D5A34;border:1px solid #C9D9BE}
+.oi-badge-warn{background:#FDF4F2;color:#8A3A2A;border-color:#F0C9C1}
+.oi-details{margin-top:10px;border-top:1px solid var(--border-soft);padding-top:8px}
+.oi-details summary{font-size:11.5px;font-weight:600;color:var(--text-2);cursor:pointer;user-select:none}
+.oi-details-body{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.55}
+.oi-details-body dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.oi-details-body dt{font-weight:600;color:var(--text-3)}
+.oi-details-body dd{margin:0}
 </style>
 </head>
 <body>
@@ -13469,7 +13493,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 <div id="tabs">
   <button class="tab-btn active" data-tab="bed-calendar">Booking Calendar</button>
   <button class="tab-btn" data-tab="conversations">Inbox</button>
-  <button class="tab-btn" data-tab="ask-luna">Luna</button>
+  <button class="tab-btn" data-tab="ask-luna">Command Center</button>
   <button class="tab-btn" data-tab="tour-operator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
 </div>
@@ -14021,18 +14045,20 @@ textarea.bk-input{resize:vertical;min-height:60px}
 </div>
 </div><!-- /tab-tour-operator -->
 
-<!-- ── Ask Luna tab (Stage 8.6.2) ─────────────────────────────────────────── -->
+<!-- ── Command Center tab (Stage 8.6.2 / 25i) ─────────────────────────────── -->
 <div id="tab-ask-luna" class="tab-panel">
 <div id="al-wrap">
 
   <div class="al-hero">
     <div>
-      <div class="al-hero-title">Luna</div>
-      <div class="al-hero-sub">Ask operational questions answered from structured booking and payment data. Read-only &mdash; no writes, no WhatsApp sends.</div>
+      <div class="al-hero-title">Command Center</div>
+      <div class="al-hero-sub">Operations questions and owner business insights from structured data. Read-only &mdash; no writes, no WhatsApp sends.</div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card cc-section">
+    <div class="cc-section-hdr">Operations</div>
+    <div class="cc-section-sub">Arrivals, checkouts, cleaning, occupancy, lessons, gear, meals, and payment follow-up.</div>
     <div class="al-form-row">
       <input id="al-input" type="text" placeholder="What&rsquo;s happening today?"
              autocomplete="off" spellcheck="false"
@@ -14060,6 +14086,28 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div id="al-error"></div>
     <div id="al-status"></div>
     <div id="al-result"></div>
+  </div>
+
+  <div class="card cc-section" id="cc-owner-insights">
+    <div class="cc-section-hdr">Owner Insights</div>
+    <div class="cc-section-sub">Business intelligence from approved owner SQL templates (read-only plan-and-execute).</div>
+    <div class="cc-role-note">Visible to operator+ in staging. TODO(owner-role): restrict to owner/admin when role auth lands.</div>
+    <div class="oi-form-row">
+      <input id="oi-input" type="text" placeholder="How much revenue this month?"
+             autocomplete="off" spellcheck="false"
+             onkeydown="if(event.key==='Enter')oiAsk()">
+      <button class="btn btn-primary" id="oi-btn" onclick="oiAsk()">Ask Owner Insights</button>
+    </div>
+    <div class="al-hint">Example owner questions:</div>
+    <div class="oi-examples" id="oi-examples">
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Who hasn't settled up?">Who hasn&rsquo;t settled up?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="How much revenue this month?">How much revenue this month?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Which package is most popular?">Which package is most popular?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="List recent guest messages for Wolfhouse">List recent guest messages</button>
+    </div>
+    <div id="oi-error"></div>
+    <div id="oi-status"></div>
+    <div id="oi-result"></div>
   </div>
 
 </div>
@@ -15793,8 +15841,9 @@ wireMessageEventsPanel();
 wireHandoffsQueuePanel();
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ASK LUNA TAB — Stage 8.6.2
-   Calls POST /staff/ask-luna (session auth, source=staff_portal).
+   COMMAND CENTER TAB — Operations (Stage 8.6.2) + Owner Insights (25i)
+   Operations: POST /staff/ask-luna
+   Owner Insights: POST /staff/owner/sql/plan-and-execute
    Read-only: no writes, no WhatsApp, no n8n, no Stripe.
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -15812,7 +15861,7 @@ function alShowError(msg){
 
 function alSetLoading(on){
   el('al-btn').disabled       = on;
-  el('al-status').textContent = on ? 'Asking Luna\u2026' : '';
+  el('al-status').textContent = on ? 'Loading\u2026' : '';
 }
 
 function alFormatAnswerHtml(text){
@@ -15904,7 +15953,7 @@ function alAsk(){
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({
-      client_slug: 'wolfhouse-somo',
+      client_slug: getClient(),
       question:    question,
       source:      'staff_portal'
     })
@@ -15947,8 +15996,114 @@ function alPickExample(btn){
   });
 })();
 
-// alAsk must be global so onclick/onkeydown in Ask Luna HTML resolve it (Stage 8.7.4)
+// alAsk must be global so onclick/onkeydown in Command Center HTML resolve it (Stage 8.7.4)
 window.alAsk = alAsk;
+
+function oiClearState(){
+  el('oi-error').style.display = 'none';
+  el('oi-error').textContent   = '';
+  el('oi-status').textContent  = '';
+  el('oi-result').innerHTML    = '';
+}
+
+function oiShowError(msg){
+  el('oi-error').textContent  = msg;
+  el('oi-error').style.display = 'block';
+}
+
+function oiSetLoading(on){
+  el('oi-btn').disabled       = on;
+  el('oi-status').textContent = on ? 'Running owner insights\u2026' : '';
+}
+
+function oiRenderResult(data){
+  var html = '<div class="oi-answer-box">';
+  var blocked = data.execution && data.execution.skipped === true;
+  var ok = data.success === true && !blocked;
+  html += '<div class="oi-answer-text">' + alFormatAnswerHtml(data.answer || (blocked ? "I can't answer that from the allowed owner data." : 'No answer returned.')) + '</div>';
+  html += '<div class="oi-meta">';
+  if (data.read_only === true || (data.execution && data.execution.read_only)){
+    html += '<span class="oi-badge">Read-only</span>';
+  }
+  if (data.no_write_performed === true || (data.execution && data.execution.no_write_performed)){
+    html += '<span class="oi-badge">No writes</span>';
+  }
+  if (ok){
+    html += '<span class="oi-badge">' + escHtml(String(data.row_count != null ? data.row_count : (data.execution ? data.execution.row_count : 0))) + ' rows</span>';
+    if (data.planner_source) html += '<span class="oi-badge">' + escHtml(data.planner_source) + '</span>';
+    if (data.plan && data.plan.template_id) html += '<span class="oi-badge">' + escHtml(data.plan.template_id) + '</span>';
+    if (data.answer_format_source) html += '<span class="oi-badge">' + escHtml(data.answer_format_source) + '</span>';
+  } else {
+    html += '<span class="oi-badge oi-badge-warn">Blocked</span>';
+  }
+  html += '</div>';
+  html += '<details class="oi-details"><summary>Details</summary><div class="oi-details-body"><dl>';
+  html += '<dt>Validation</dt><dd>' + escHtml(data.validation && data.validation.valid ? 'passed' : 'blocked') + '</dd>';
+  if (data.validation && data.validation.blocked_reason){
+    html += '<dt>Reason</dt><dd>' + escHtml(data.validation.blocked_reason) + '</dd>';
+  }
+  if (data.plan && data.plan.template_id){
+    html += '<dt>Template</dt><dd>' + escHtml(data.plan.template_id) + '</dd>';
+  }
+  if (data.execution){
+    html += '<dt>Row count</dt><dd>' + escHtml(String(data.execution.row_count != null ? data.execution.row_count : 0)) + '</dd>';
+    html += '<dt>Limited</dt><dd>' + escHtml(data.execution.limited === true ? 'yes' : 'no') + '</dd>';
+    if (data.execution.sql_summary){
+      html += '<dt>SQL summary</dt><dd>' + escHtml(data.execution.sql_summary) + '</dd>';
+    }
+  }
+  html += '<dt>Query executed</dt><dd>' + escHtml(data.no_query_executed === false ? 'yes (read-only)' : 'no') + '</dd>';
+  html += '</dl></div></details>';
+  html += '</div>';
+  el('oi-result').innerHTML = html;
+}
+
+function oiAsk(){
+  oiClearState();
+  var question = (el('oi-input').value || '').trim();
+  if (!question){ oiShowError('Please type an owner insights question first.'); return; }
+  oiSetLoading(true);
+  fetch('/staff/owner/sql/plan-and-execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_slug: getClient(),
+      question: question,
+      max_rows: 50,
+      timeout_ms: 3000
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    oiSetLoading(false);
+    if (!data || (data.error && !data.answer)){
+      oiShowError((data && data.error ? data.error : 'Query failed') + (data && data.detail ? ' \u2014 ' + data.detail : ''));
+      return;
+    }
+    oiRenderResult(data);
+  })
+  .catch(function(e){
+    oiSetLoading(false);
+    oiShowError('Network error: ' + e.message);
+  });
+}
+
+function oiPickExample(btn){
+  var q = btn && btn.getAttribute('data-oi-q');
+  if (!q) return;
+  var inp = el('oi-input');
+  if (inp){ inp.value = q; inp.focus(); }
+}
+(function(){
+  var wrap = el('oi-examples');
+  if (!wrap) return;
+  wrap.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest('.oi-example-chip');
+    if (btn) oiPickExample(btn);
+  });
+})();
+
+window.oiAsk = oiAsk;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    QUERY TOOLS TAB — existing staff query interface (unchanged)

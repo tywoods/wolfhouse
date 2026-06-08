@@ -34,7 +34,7 @@ check(
   'package.json script registered',
 );
 
-const alStart = src.indexOf('<!-- ── Ask Luna tab');
+const alStart = src.indexOf('<!-- ── Command Center tab');
 const alEnd   = src.indexOf('</div><!-- /tab-ask-luna -->', alStart);
 check(alStart >= 0 && alEnd > alStart, 'Ask Luna panel slice found');
 const alPanel = alStart >= 0 && alEnd > alStart ? src.slice(alStart, alEnd) : '';

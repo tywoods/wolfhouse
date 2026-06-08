@@ -33,6 +33,13 @@ function formatEuro(cents) {
   return `€${(Math.round(Number(cents) || 0) / 100).toFixed(0)}`;
 }
 
+function guardEuroCurrency(text) {
+  const out = trimStr(text);
+  if (!out) return out;
+  if (/\$\s*\d/.test(out)) return null;
+  return out;
+}
+
 function formatMonthLabel(value) {
   if (!value) return 'this period';
   const d = value instanceof Date ? value : new Date(String(value).slice(0, 10) + 'T12:00:00Z');
@@ -59,6 +66,8 @@ function buildOwnerAnswerSummary(question, planResult, executionResult) {
     explanation: trimStr(planResult?.plan?.explanation) || null,
     expected_result: trimStr(planResult?.plan?.expected_result) || null,
     row_count: execution.row_count ?? rows.length,
+    currency: 'EUR',
+    currency_symbol: '€',
     rows,
   };
 }
@@ -74,6 +83,7 @@ function buildOwnerAnswerSystemPrompt() {
     'Do not include raw_payload or internal provider IDs.',
     'Keep the answer concise (WhatsApp-friendly): short paragraphs or bullet lines.',
     'If many rows, summarize totals and show at most 5–8 notable items.',
+    'Use EUR only — format amounts with the € symbol. Never use $ or USD.',
     'Return plain text only — no markdown fences, no JSON wrapper.',
   ].join('\n');
 }
@@ -83,6 +93,7 @@ function validateAiOwnerAnswer(text, summary) {
   if (!out || out.length < 8) return null;
   if (SQL_DUMP_RE.test(out) && /\bFROM\b/i.test(out)) return null;
   if (/raw_payload|stripe_|wa_message_id/i.test(out)) return null;
+  if (guardEuroCurrency(out) === null) return null;
 
   if ((summary.row_count || 0) === 0) {
     return /no matching|didn't find|none found|no records/i.test(out) ? out : null;
@@ -267,6 +278,7 @@ module.exports = {
   EMPTY_ANSWER,
   MAX_PREVIEW_ROWS,
   formatEuro,
+  guardEuroCurrency,
   buildOwnerAnswerSummary,
   buildOwnerAnswerSystemPrompt,
   validateAiOwnerAnswer,

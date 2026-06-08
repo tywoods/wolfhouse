@@ -128,8 +128,8 @@ if (peHandler.includes('planAndExecuteOwnerSqlQuestion') && peHandler.includes('
 } else fail('C2', 'handler wiring incorrect');
 
 const peRouter = apiSrc.slice(
-  apiSrc.indexOf('/staff/owner/sql/plan-and-execute'),
-  apiSrc.indexOf('/staff/owner/sql/plan-and-execute') + 500,
+  apiSrc.indexOf("if (pathname === '/staff/owner/sql/plan-and-execute')"),
+  apiSrc.indexOf("if (pathname === '/staff/owner/sql/plan-and-execute')") + 500,
 );
 if (/requireAuth\(req, res, 'operator'\)/.test(peRouter)) {
   pass('C3', 'plan-and-execute requires operator+ auth');
