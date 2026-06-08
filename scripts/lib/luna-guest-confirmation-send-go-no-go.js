@@ -7,10 +7,17 @@
  * no message regeneration.
  *
  * No automatic send · explicit confirm_send required · respects WHATSAPP_DRY_RUN.
+ * Stage 27s: live send requires LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST match when dry-run off.
  */
 
 const { sendLunaBookingConfirmation } = require('./luna-booking-confirmation-send');
 const { messageHasBedLeak } = require('./luna-guest-confirmation-preview-dry-run');
+const {
+  evaluateConfirmationLiveSendAllowlist,
+  isConfirmationLiveSendRecipientAllowlisted,
+  parseConfirmationLiveSendAllowlist,
+  ALLOWLIST_ENV_KEY,
+} = require('./luna-guest-confirmation-live-send-allowlist');
 
 const REUSED_SEND_PATH = 'sendLunaBookingConfirmation (Phase 20j)';
 
@@ -110,6 +117,9 @@ function normalizeSendStatus(sendResult, env) {
   if (reasons.includes('whatsapp_dry_run_active') || sendResult.dry_run === true) {
     return 'blocked_dry_run';
   }
+  if (reasons.includes('recipient_not_allowlisted')) {
+    return 'recipient_not_allowlisted';
+  }
   if (sendResult.error) return 'send_error';
   if (reasons.length) return 'send_gate_blocked';
   return 'send_error';
@@ -118,6 +128,7 @@ function normalizeSendStatus(sendResult, env) {
 function resolveNextSafeStep(sendStatus, previewReady) {
   if (sendStatus === 'sent') return 'confirmation_sent';
   if (sendStatus === 'blocked_dry_run') return 'confirmation_send_audit_only';
+  if (sendStatus === 'recipient_not_allowlisted') return 'awaiting_confirmation_send_go_no_go';
   if (sendStatus === 'not_approved') return 'awaiting_confirmation_send_go_no_go';
   if (sendStatus === 'staff_review_required') return 'staff_review_confirmation';
   if (sendStatus === 'not_ready') return previewReady ? 'awaiting_confirmation_send_go_no_go' : 'staff_review_confirmation';
@@ -222,6 +233,26 @@ async function runGuestConfirmationSendGoNoGo(input, context) {
     });
   }
 
+  if (!dryRun) {
+    const allowEval = evaluateConfirmationLiveSendAllowlist(to, env);
+    if (!allowEval.allowed) {
+      const notListed = allowEval.reasons.includes('recipient_not_allowlisted');
+      return buildBlockedSendResponse({
+        ...baseOut,
+        send_attempted: true,
+        send_status: notListed ? 'recipient_not_allowlisted' : 'send_gate_blocked',
+        next_safe_step: 'awaiting_confirmation_send_go_no_go',
+        block_reasons: allowEval.reasons,
+        live_send_allowlist: allowEval.allowlist,
+        recipient_normalized: allowEval.normalized_to,
+        whatsapp_dry_run: false,
+        staff_notice: notListed
+          ? 'Live confirmation send blocked — recipient not on staging allowlist.'
+          : 'Live confirmation send blocked — allowlist not configured for staging proof.',
+      });
+    }
+  }
+
   const sendFn = ctx.sendLunaBookingConfirmation || sendLunaBookingConfirmation;
   const injectedPreview = buildPreviewLoaderFrom27q(preview);
 
@@ -263,6 +294,7 @@ async function runGuestConfirmationSendGoNoGo(input, context) {
   const sendStatus = normalizeSendStatus(sendResult, env);
   const sendsWhatsapp = sendResult.sends_whatsapp === true;
   const liveSendBlocked = dryRun || !sendsWhatsapp;
+  const recipientAllowlisted = dryRun ? null : isConfirmationLiveSendRecipientAllowlisted(to, env);
 
   return {
     success: sendStatus === 'sent' || sendStatus === 'blocked_dry_run',
@@ -273,6 +305,9 @@ async function runGuestConfirmationSendGoNoGo(input, context) {
     sends_whatsapp: sendsWhatsapp,
     live_send_blocked: liveSendBlocked,
     whatsapp_dry_run: dryRun,
+    live_send_allowlist_checked: !dryRun,
+    recipient_allowlisted: recipientAllowlisted,
+    live_send_allowlist: dryRun ? null : parseConfirmationLiveSendAllowlist(env),
     confirmation_sent: sendStatus === 'sent',
     send_performed: sendResult.send_performed === true,
     would_send_whatsapp: sendResult.would_send_whatsapp === true,
@@ -286,13 +321,21 @@ async function runGuestConfirmationSendGoNoGo(input, context) {
     staff_notice: sendStatus === 'blocked_dry_run'
       ? 'Send gate exercised under WHATSAPP_DRY_RUN — audit only, no live WhatsApp.'
       : (sendStatus === 'sent'
-        ? 'Confirmation sent via gated path.'
-        : 'Confirmation send blocked by gate — review blocked_reasons.'),
+        ? 'Confirmation sent via gated allowlisted path.'
+        : (sendStatus === 'recipient_not_allowlisted'
+          ? 'Live send blocked — recipient not on staging allowlist.'
+          : 'Confirmation send blocked by gate — review blocked_reasons.')),
   };
+}
+
+/** Stage 27s alias — same path with live-send allowlist enforced when dry-run off. */
+async function runGuestConfirmationLiveSendAllowlisted(input, context) {
+  return runGuestConfirmationSendGoNoGo(input, context);
 }
 
 module.exports = {
   runGuestConfirmationSendGoNoGo,
+  runGuestConfirmationLiveSendAllowlisted,
   buildPreviewLoaderFrom27q,
   classifyPreviewBlock,
   normalizeSendStatus,
@@ -300,4 +343,5 @@ module.exports = {
   REUSED_SEND_PATH,
   SEND_SAFETY,
   STAFF_REVIEW_REASONS,
+  ALLOWLIST_ENV_KEY,
 };

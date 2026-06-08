@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27r — Confirmation send go/no-go**): **PASS**. `runGuestConfirmationSendGoNoGo` in `scripts/lib/luna-guest-confirmation-send-go-no-go.js`. **Reuses:** `sendLunaBookingConfirmation` (20j) with injected 27q message. **Gate:** explicit `confirm_send:true` + 27q preview ready. **WHATSAPP_DRY_RUN** → `blocked_dry_run` audit only. Verifier: `verify:stage27r-confirmation-send-go-no-go`. Doc: [STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md](STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md). **Next:** live send approval (separate).
+**Last updated:** 2026-06-08 (**Stage 27s — Confirmation live-send allowlist**): **PASS**. `LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST` gate in go/no-go path. **Live send:** only when `WHATSAPP_DRY_RUN=false` + allowlisted recipient + `confirm_send:true` + 27q ready. **Block:** `recipient_not_allowlisted`. Module: `luna-guest-confirmation-live-send-allowlist.js`. Verifier: `verify:stage27s-confirmation-live-send-allowlist`. Doc: [STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md](STAGE-27S-CONFIRMATION-LIVE-SEND-ALLOWLIST.md).
+
+**Prior — Stage 27r (2026-06-08):** Confirmation send go/no-go — **PASS**. Doc: [STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md](STAGE-27R-CONFIRMATION-SEND-GO-NO-GO.md).
 
 **Prior — Stage 27q (2026-06-08):** Confirmation preview dry-run — **PASS**. Doc: [STAGE-27Q-CONFIRMATION-PREVIEW.md](STAGE-27Q-CONFIRMATION-PREVIEW.md).
 
