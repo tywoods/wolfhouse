@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-04 (**Phase 10.7 — Staff Portal operations checkpoint**, docs closeout): **COMPLETE ENOUGH / PASS**. **Hosted (latest):** commit **`5011975`** → image `whstagingacr.azurecr.io/wh-staff-api:5011975-stage107d-tour-operator-purple` (ACR `cb2t`) → revision **`wh-staging-staff-api--0000109`** (Healthy, **100% traffic**). **10.7 span:** `753d101` operator A/B release through `5011975` calendar/copy/refresh polish. **Next:** **Phase 11**. **Safety (this task):** docs only · no code · no DB · no deploy · no Stripe · no WhatsApp · no n8n · no migrations.
+**Last updated:** 2026-06-08 (**Stage 27a — Guest intake design lock**, docs only): **PASS**. First client-facing Luna / guest intake design doc — intake states, required-field gates, safe handoff cases, dry-run reply path, shared-engine rule, language/tone, transfer/service capture, payment-link policy, no-live-send gates, staging proof plan. **No runtime · no DB · no deploy · no Stripe · no WhatsApp · no Meta · no n8n · no live guest AI path.** Verifier: `verify:stage27a-guest-intake-design`. Doc: [STAGE-27A-GUEST-INTAKE-DESIGN.md](STAGE-27A-GUEST-INTAKE-DESIGN.md). **Next:** **Stage 27b** — read-only intake extractor + dry-run fixture harness.
+
+**Prior — Phase 10.7 (2026-06-04):** Staff Portal operations checkpoint — **COMPLETE ENOUGH / PASS**. **Hosted (latest):** commit **`5011975`** → image `whstagingacr.azurecr.io/wh-staff-api:5011975-stage107d-tour-operator-purple` (ACR `cb2t`) → revision **`wh-staging-staff-api--0000109`** (Healthy, **100% traffic**). **10.7 span:** `753d101` operator A/B release through `5011975` calendar/copy/refresh polish. **Next:** **Phase 11**. **Safety (this task):** docs only · no code · no DB · no deploy · no Stripe · no WhatsApp · no n8n · no migrations.
 
 ### Phase 10.7 — Staff Portal operations (staging closeout)
 
