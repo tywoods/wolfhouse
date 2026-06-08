@@ -98,9 +98,10 @@ if (/bcRenderServicesTabHtml/.test(apiSrc) && /bc-add-ons-btn/.test(apiSrc)) {
 if (/bc-add-ons-title">Services/.test(apiSrc) && !/bc-add-ons-title">Add-ons/.test(apiSrc)) {
   pass('B7', 'visible Add-ons label replaced by Services in drawer');
 } else fail('B7', 'services label');
-if (/Package services|Service schedule|Unscheduled services/.test(apiSrc)) {
-  pass('B8', 'Services tab placeholder groups');
-} else fail('B8', 'services placeholders');
+if (/bc-svc-schedule-section|bcRenderServicesScheduleBody/.test(apiSrc)
+  && /Service schedule|Unscheduled services/.test(apiSrc)) {
+  pass('B8', 'Services tab schedule MVP (26g)');
+} else fail('B8', 'services schedule MVP');
 
 section('C. Lookup diagnostics — provider');
 

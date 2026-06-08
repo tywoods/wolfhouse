@@ -171,6 +171,10 @@ const {
   BOOKING_TRANSFER_LOOKUP_RE,
 } = require('./lib/staff-booking-transfers-routes');
 const {
+  dispatchBookingServicesRoute,
+  BOOKING_SERVICES_RE,
+} = require('./lib/staff-booking-services-routes');
+const {
   listBookingTransfersForCalendarRange,
   buildTransferSummariesByBookingId,
   emptyTransferSummary,
@@ -13336,6 +13340,16 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .bc-services-group{padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .bc-services-group-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
 .ctx-payment-summary-brief .kv-grid{margin-top:4px}
+.bc-svc-package-card{margin-bottom:10px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
+.bc-svc-package-title{font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:4px}
+.bc-svc-schedule-section{margin-bottom:10px}
+.bc-svc-schedule-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.bc-svc-schedule-day{margin-bottom:6px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
+.bc-svc-schedule-day-label{font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:4px}
+.bc-svc-chip{display:inline-block;margin:2px 6px 2px 0;padding:3px 8px;font-size:11px;border-radius:999px;background:var(--surface);border:1px solid var(--border-soft);line-height:1.35}
+.bc-svc-chip-meta{font-size:10px;color:var(--text-2)}
+.bc-svc-unscheduled-list{display:flex;flex-direction:column;gap:6px}
+.bc-svc-unscheduled-item{padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);font-size:11px}
 .ctx-field-edit{margin-top:8px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);max-width:440px}
 .ctx-field-label{display:block;font-size:11px;color:var(--text-2);margin:8px 0 4px}
 .ctx-field-label:first-child{margin-top:0}
@@ -17957,6 +17971,7 @@ function loadBlockDetail(bookingCode){
       updateBcDetailHeader(res.data);
       bcInitDrawerTabs();
       bcInitFieldEditShell(res.data);
+      bcInitServicesScheduleShell(res.data);
       bcInitTransferShell(res.data);
       bcInitAddServiceShell(res.data);
       bcInitMovePanel(res.data);
@@ -20884,6 +20899,110 @@ function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt){
   return html;
 }
 
+function bcServicesFormatEuro(cents){
+  if (cents == null || isNaN(Number(cents))) return '\u2014';
+  return '\u20ac' + (Number(cents) / 100).toFixed(2);
+}
+
+function bcRenderServiceChipHtml(svc){
+  var parts = [escHtml(svc.service_name || svc.service_type || 'Service')];
+  if (svc.quantity != null && svc.quantity > 1) parts.push('×' + svc.quantity);
+  if (svc.total_price_cents != null) parts.push(bcServicesFormatEuro(svc.total_price_cents));
+  var meta = [];
+  if (svc.payment_status) meta.push(String(svc.payment_status).replace(/_/g, ' '));
+  if (svc.status && svc.status !== svc.payment_status) meta.push(String(svc.status).replace(/_/g, ' '));
+  var html = '<span class="bc-svc-chip">' + parts.join(' · ');
+  if (meta.length) html += ' <span class="bc-svc-chip-meta">(' + escHtml(meta.join(', ')) + ')</span>';
+  html += '</span>';
+  return html;
+}
+
+function bcRenderServicesScheduleBody(data){
+  if (!data || !data.success) {
+    return '<div class="state-msg error">' + escHtml((data && data.error) || 'Failed to load services') + '</div>';
+  }
+  var html = '';
+  var pkg = data.package_summary || {};
+  html += '<div class="bc-svc-package-card" id="bc-svc-package-card">';
+  html += '<div class="bc-svc-package-title">Package</div>';
+  html += '<div class="kv-grid">';
+  if (pkg.package_name || pkg.package_code) {
+    html += kvBC('Package', pkg.package_name || pkg.package_code);
+  }
+  if (pkg.nights != null) html += kvBC('Nights', pkg.nights);
+  html += '</div>';
+  html += '<p class="ctx-none" style="margin-top:6px;font-size:11px">' +
+    escHtml(pkg.included_note || 'Package services shown below when scheduled.') + '</p>';
+  html += '</div>';
+
+  html += '<div class="bc-svc-schedule-section" id="bc-svc-schedule-section">';
+  html += '<div class="bc-svc-schedule-title">Service schedule</div>';
+  var groups = data.services_by_date || [];
+  if (!groups.length) {
+    html += '<div class="ctx-none">No services recorded yet.</div>';
+  } else {
+    groups.forEach(function(g){
+      html += '<div class="bc-svc-schedule-day" data-date="' + escHtml(g.date || '') + '">';
+      html += '<div class="bc-svc-schedule-day-label">' + escHtml(g.label || g.date || '\u2014') + '</div>';
+      if (!g.services || !g.services.length) {
+        html += '<div class="ctx-none" style="font-size:11px">No services scheduled</div>';
+      } else {
+        g.services.forEach(function(s){ html += bcRenderServiceChipHtml(s); });
+      }
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+
+  html += '<div class="bc-svc-schedule-section" id="bc-svc-unscheduled-section">';
+  html += '<div class="bc-svc-schedule-title">Unscheduled services</div>';
+  var unsched = data.unscheduled_services || [];
+  if (!unsched.length) {
+    html += '<div class="ctx-none">No unscheduled services.</div>';
+  } else {
+    html += '<div class="bc-svc-unscheduled-list">';
+    unsched.forEach(function(s){
+      html += '<div class="bc-svc-unscheduled-item">' + bcRenderServiceChipHtml(s);
+      if (s.notes) html += '<div class="ctx-none" style="margin-top:2px">' + escHtml(s.notes) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
+  if (data.totals && data.totals.record_count === 0) {
+    html = '<div class="ctx-none" style="margin-bottom:8px">No services recorded yet.</div>' + html;
+  }
+  return html;
+}
+
+function bcInitServicesScheduleShell(data){
+  var bodyEl = el('bc-services-schedule-body');
+  if (!bodyEl) return;
+  var bk = (data && data.booking) || {};
+  if (bcBookingStatusIsCancelled(bk.status)) return;
+  if (!bk.booking_id) {
+    bodyEl.innerHTML = '<div class="state-msg error">Booking id missing</div>';
+    return;
+  }
+  var client = getBcClient();
+  var url = '/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/services?client_slug=' +
+    encodeURIComponent(client);
+  fetch(url)
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if (!bodyEl) return;
+      bodyEl.classList.remove('ctx-loading');
+      bodyEl.innerHTML = bcRenderServicesScheduleBody(res.ok ? res.data : res.data);
+    })
+    .catch(function(e){
+      if (bodyEl) {
+        bodyEl.classList.remove('ctx-loading');
+        bodyEl.innerHTML = '<div class="state-msg error">' + escHtml(e.message || 'Network error') + '</div>';
+      }
+    });
+}
+
 function bcRenderServicesTabHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) {
     return '<div class="ctx-section ctx-services-tab" id="bc-services-tab"><h3>Services</h3>' +
@@ -20891,14 +21010,7 @@ function bcRenderServicesTabHtml(bk){
   }
   var html = '<div class="ctx-section ctx-services-tab" id="bc-services-tab">';
   html += '<h3>Services</h3>';
-  html += '<div class="bc-services-groups">';
-  html += '<div class="bc-services-group"><div class="bc-services-group-title">Package services</div>';
-  html += '<div class="ctx-none">Included with package — full schedule coming soon.</div></div>';
-  html += '<div class="bc-services-group"><div class="bc-services-group-title">Service schedule</div>';
-  html += '<div class="ctx-none">Dated services will appear here.</div></div>';
-  html += '<div class="bc-services-group"><div class="bc-services-group-title">Unscheduled services</div>';
-  html += '<div class="ctx-none">Paid or requested services without a scheduled date.</div></div>';
-  html += '</div>';
+  html += '<div id="bc-services-schedule-body" class="ctx-loading">Loading service schedule\u2026</div>';
   html += bcRenderAddServicePanelHtml(bk);
   html += '</div>';
   return html;
@@ -25298,6 +25410,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     if (await dispatchBookingTransfersRoute(req, res, pathname, parsed.query)) return;
+  }
+  if (BOOKING_SERVICES_RE.test(pathname)) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    if (await dispatchBookingServicesRoute(req, res, pathname, parsed.query)) return;
   }
 
   // ── Phase 26e — Aviationstack flight lookup status (config only, no live call) ─
