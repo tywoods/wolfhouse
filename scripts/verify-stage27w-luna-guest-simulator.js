@@ -99,7 +99,7 @@ if (src.includes('stripe_checkout_url') && src.includes('lgs-stripe-url')) {
 }
 
 if (src.includes('lgs-btn-use-context') && src.includes('Use review result as guest_context')
-    && /extracted_fields:\s*r\.result/.test(src) && /result:\s*r\.result/.test(src)) {
+    && /lgsTextareaContextFromReview/.test(src) && /extracted_fields:\s*r\.result/.test(src)) {
   pass('A7', 'multi-turn guest_context helper preserves extracted_fields');
 } else {
   fail('A7', 'guest_context merge fields missing in simulator');
@@ -444,6 +444,58 @@ if (!/api\.stripe\.com|sendWhatsApp|graph\.facebook|n8n/i.test(
   pass('H4', 'holdMeta block excludes Stripe/WhatsApp/n8n');
 } else {
   fail('H4', 'holdMeta must not include outbound send/link data');
+}
+
+section('J. Auto-chain guest_context (27w.9)');
+
+const lgsRunReviewBlock = src.slice(src.indexOf('function lgsRunReview'), src.indexOf('function lgsTextareaContextFromReview'));
+
+if (/lgsApplyReviewToGuestContext\(review\)/.test(lgsRunReviewBlock)) {
+  pass('J1', 'successful review auto-updates guest_context textarea');
+} else {
+  fail('J1', 'lgsRunReview does not auto-chain guest_context');
+}
+
+if (src.includes('lgs-btn-use-context') && src.includes('function lgsUseReviewAsContext')) {
+  pass('J2', 'manual Use review result as guest_context button retained');
+} else {
+  fail('J2', 'manual context button missing');
+}
+
+if (/lgsIsPaymentChoiceReviewTurn/.test(src)
+    && /!lgsIsPaymentChoiceReviewTurn\(review\)/.test(lgsRunReviewBlock)) {
+  pass('J3', 'readyBookingContextForWrite preserved on payment-choice turn');
+} else {
+  fail('J3', 'payment-choice turn may overwrite ready booking context');
+}
+
+if (src.includes('lgsTextareaContextFromReview') && src.includes('function lgsApplyReviewToGuestContext')) {
+  pass('J4', 'shared helper builds textarea context from review');
+} else {
+  fail('J4', 'shared textarea context helper missing');
+}
+
+if (/lgsBuildHoldDraftWritePayload\(lgsReadyBookingContextForWrite/.test(lgsHoldUiBlock)) {
+  pass('J5', 'hold write still uses slim lgsReadyBookingContextForWrite');
+} else {
+  fail('J5', 'hold write no longer uses ready booking context');
+}
+
+const lgsAutoChainBlock = src.slice(src.indexOf('function lgsApplyReviewToGuestContext'), src.indexOf('function lgsCreateHoldDraft'));
+const autoChainForbidden = [
+  ['J6.stripe', /api\.stripe\.com/i],
+  ['J6.whatsapp', /sendWhatsApp|graph\.facebook/i],
+  ['J6.n8n', /fetch\s*\([^)]*n8n|n8n\.io/i],
+];
+for (const [id, re] of autoChainForbidden) {
+  if (!re.test(lgsAutoChainBlock)) pass(id, 'auto-chain block clean');
+  else fail(id, 'forbidden pattern in auto-chain block');
+}
+
+if (!/PUBLIC_GUEST_AUTOMATION|public_guest_automation_enabled:\s*true/.test(lgsRunReviewBlock)) {
+  pass('J7', 'review auto-chain does not enable public automation');
+} else {
+  fail('J7', 'public automation flag changed in review path');
 }
 
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);

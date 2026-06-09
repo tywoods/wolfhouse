@@ -23440,14 +23440,15 @@ function lgsRunReview(){
       lgsLastWrite = null;
       lgsEl('lgs-json').textContent = JSON.stringify(res.data, null, 2);
       lgsEl('lgs-stripe-url').textContent = '';
+      lgsRenderReviewSummary(res.data);
+      var review = res.data.review;
       if (!res.ok || !res.data.success) {
         lgsSetStatus((res.data && res.data.error) || ('Review failed HTTP ' + res.status), true);
       } else {
-        lgsSetStatus('Review complete (dry-run, no WhatsApp sent).');
+        lgsApplyReviewToGuestContext(review);
+        lgsSetStatus('Review complete (dry-run, no WhatsApp sent). guest_context updated from last review.');
       }
-      lgsRenderReviewSummary(res.data);
-      var review = res.data.review;
-      if (lgsIsReadyBookingContextForWrite(review)) {
+      if (lgsIsReadyBookingContextForWrite(review) && !lgsIsPaymentChoiceReviewTurn(review)) {
         lgsReadyBookingContextForWrite = lgsGuestContextFromReview(review);
       }
       lgsUpdateButtons();
@@ -23455,13 +23456,9 @@ function lgsRunReview(){
     .catch(function(){ lgsSetStatus('Review request failed', true); });
 }
 
-function lgsUseReviewAsContext(){
-  if (!lgsLastReview || !lgsLastReview.review) {
-    lgsSetStatus('Run Luna Review first', true);
-    return;
-  }
-  var r = lgsLastReview.review;
-  var ctx = {
+function lgsTextareaContextFromReview(r){
+  if (!r) return null;
+  return {
     message_lane: r.result && r.result.message_lane,
     intake_state: r.result && r.result.intake_state,
     readiness_state: r.result && r.result.readiness_state,
@@ -23475,7 +23472,27 @@ function lgsUseReviewAsContext(){
     hold_payment_draft_plan: r.hold_payment_draft_plan,
     detected_language: r.result && r.result.detected_language,
   };
+}
+
+function lgsApplyReviewToGuestContext(review){
+  var ctx = lgsTextareaContextFromReview(review);
+  if (!ctx) return;
   lgsEl('lgs-guest-context').value = JSON.stringify(ctx, null, 2);
+}
+
+function lgsIsPaymentChoiceReviewTurn(review){
+  var pc = review && review.payment_choice;
+  return !!(pc
+    && (pc.payment_choice_detected === true
+      || pc.next_safe_step === 'ready_for_hold_payment_draft'));
+}
+
+function lgsUseReviewAsContext(){
+  if (!lgsLastReview || !lgsLastReview.review) {
+    lgsSetStatus('Run Luna Review first', true);
+    return;
+  }
+  lgsApplyReviewToGuestContext(lgsLastReview.review);
   lgsSetStatus('guest_context populated from last review.');
 }
 
