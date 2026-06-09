@@ -136,6 +136,41 @@ function wantsCreateDemoHoldDraftConfirmed(body) {
     || b.create_demo_hold_draft_confirmed === 'true';
 }
 
+function wantsAssignDemoBedConfirmed(body) {
+  const b = body || {};
+  return b.assign_demo_bed_confirmed === true
+    || b.assign_demo_bed_confirmed === 'true';
+}
+
+function evaluateOpenDemoBedAssignmentWriteReady(bookingWrite) {
+  const bw = bookingWrite || {};
+  const ws = bw.write_status;
+  if (ws !== 'created' && ws !== 'reused_existing') {
+    return { ok: false, missing: ['booking_write_not_ready'] };
+  }
+  if (!bw.booking_id && !bw.booking_code) {
+    return { ok: false, missing: ['missing_booking_reference'] };
+  }
+  return { ok: true, missing: [] };
+}
+
+function buildOpenDemoBedAssignmentBlockedResponse(reasons, gateResult) {
+  const blocked = gateResult || {};
+  return {
+    demo_bed_assignment_blocked:      true,
+    demo_bed_assignment_gate_code:    blocked.code || 'blocked',
+    demo_bed_assignment_error:        blocked.error || null,
+    assignment_write_attempted:       false,
+    assignment_write_status:          'blocked',
+    assignment_block_reasons:         reasons || [],
+    calendar_visible_expected:        false,
+    stripe_link_created:              false,
+    payment_link_sent:                false,
+    sends_whatsapp:                   false,
+    live_send_blocked:                true,
+  };
+}
+
 function isOpenDemoBookingWritesEnabled(env) {
   const e = env || process.env;
   return e.OPEN_DEMO_BOOKING_WRITES_ENABLED === 'true';
@@ -330,14 +365,17 @@ module.exports = {
   configuredWhatsappPhoneNumberId,
   wantsSendLiveReplyConfirmed,
   wantsCreateDemoHoldDraftConfirmed,
+  wantsAssignDemoBedConfirmed,
   evaluateOpenDemoWhatsAppGate,
   evaluateOpenDemoWhatsAppLiveReplyGate,
   evaluateOpenDemoBookingWriteGate,
   evaluateOpenDemoHoldDraftWriteReady,
+  evaluateOpenDemoBedAssignmentWriteReady,
   buildOpenDemoWriteChainFromReview,
   buildOpenDemoLiveReplySendBody,
   buildOpenDemoLiveReplyBlockedResponse,
   buildOpenDemoBookingWriteBlockedResponse,
+  buildOpenDemoBedAssignmentBlockedResponse,
   resolveInboundMessageId,
   validateOpenDemoInboundBody,
   buildOpenDemoBlockedResponse,

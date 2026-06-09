@@ -213,6 +213,7 @@
     "verify:stage27demo-b-open-demo-inbound": "node scripts/verify-stage27demo-b-open-demo-inbound.js",
     "verify:stage27demo-c-open-demo-live-reply": "node scripts/verify-stage27demo-c-open-demo-live-reply.js",
     "verify:stage27demo-d-open-demo-booking-write": "node scripts/verify-stage27demo-d-open-demo-booking-write.js",
+    "verify:stage27demo-d1-open-demo-calendar-assignment": "node scripts/verify-stage27demo-d1-open-demo-calendar-assignment.js",
     "open-demo:whatsapp-inbound": "node scripts/run-open-demo-whatsapp-inbound-dry-run.js",
     "luna:guest-torture:generate": "node scripts/generate-luna-guest-torture-fixtures.js",
     "luna:guest-torture": "node scripts/run-luna-guest-torture-tests.js",

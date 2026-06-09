@@ -316,15 +316,21 @@ const {
   evaluateOpenDemoWhatsAppLiveReplyGate,
   evaluateOpenDemoBookingWriteGate,
   evaluateOpenDemoHoldDraftWriteReady,
+  evaluateOpenDemoBedAssignmentWriteReady,
   buildOpenDemoWriteChainFromReview,
   wantsSendLiveReplyConfirmed,
   wantsCreateDemoHoldDraftConfirmed,
+  wantsAssignDemoBedConfirmed,
   buildOpenDemoLiveReplySendBody,
   buildOpenDemoLiveReplyBlockedResponse,
   buildOpenDemoBookingWriteBlockedResponse,
+  buildOpenDemoBedAssignmentBlockedResponse,
   validateOpenDemoInboundBody,
   buildOpenDemoBlockedResponse,
 } = require('./lib/open-demo-whatsapp-gate');
+const {
+  runOpenDemoBookingBedAssignApproved,
+} = require('./lib/open-demo-booking-bed-assign');
 const {
   runGuestHoldPaymentDraftWriteDryRunApproved,
 } = require('./lib/luna-guest-hold-payment-draft-write');
@@ -10662,17 +10668,19 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
   const inboundBody = validation.normalized;
   const sendLiveConfirmed = wantsSendLiveReplyConfirmed(body);
   const createHoldDraftConfirmed = wantsCreateDemoHoldDraftConfirmed(body);
+  const assignDemoBedConfirmed = wantsAssignDemoBedConfirmed(body);
   const hostHeader = String(req.headers.host || '');
 
   try {
     const outcome = await withPgClient(async (pg) => {
       const reviewOutcome = await runGuestInboundReviewDryRun(inboundBody, { pg });
       if (!reviewOutcome.ok) {
-        return { reviewOutcome, liveReply: null, bookingWrite: null };
+        return { reviewOutcome, liveReply: null, bookingWrite: null, bedAssignment: null };
       }
 
       let liveReply = null;
       let bookingWrite = null;
+      let bedAssignment = null;
 
       if (sendLiveConfirmed) {
         const proposedReply = reviewOutcome.body.review
@@ -10779,7 +10787,62 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
         }
       }
 
-      return { reviewOutcome, liveReply, bookingWrite };
+      if (assignDemoBedConfirmed) {
+        if (!createHoldDraftConfirmed) {
+          bedAssignment = {
+            assign_demo_bed_confirmed: true,
+            ...buildOpenDemoBedAssignmentBlockedResponse(['create_demo_hold_draft_confirmed_required']),
+          };
+        } else {
+          const assignGate = evaluateOpenDemoBookingWriteGate(body);
+          if (!assignGate.ok) {
+            bedAssignment = {
+              assign_demo_bed_confirmed: true,
+              ...buildOpenDemoBedAssignmentBlockedResponse([], assignGate),
+            };
+          } else if (!bookingWrite) {
+            bedAssignment = {
+              assign_demo_bed_confirmed: true,
+              assignment_write_attempted: false,
+              assignment_write_status:     'blocked',
+              assignment_block_reasons:    ['booking_write_not_attempted'],
+              calendar_visible_expected:   false,
+            };
+          } else {
+            const assignReady = evaluateOpenDemoBedAssignmentWriteReady(bookingWrite);
+            if (!assignReady.ok) {
+              bedAssignment = {
+                assign_demo_bed_confirmed: true,
+                assignment_write_attempted: false,
+                assignment_write_status:     'blocked',
+                assignment_block_reasons:    assignReady.missing,
+                calendar_visible_expected:   false,
+                stripe_link_created:         false,
+                payment_link_sent:           false,
+                sends_whatsapp:              false,
+                live_send_blocked:           true,
+              };
+            } else {
+              const assignOut = await runOpenDemoBookingBedAssignApproved(pg, {
+                client_slug:   inboundBody.client_slug,
+                booking_id:    bookingWrite.booking_id,
+                booking_code:  bookingWrite.booking_code,
+                review:        reviewOutcome.body.review || {},
+                env:           process.env,
+                host_header:   hostHeader,
+              });
+              bedAssignment = {
+                assign_demo_bed_confirmed: true,
+                demo_bed_assignment:       true,
+                reused_assignment_path:  'runOpenDemoBookingBedAssignApproved',
+                ...assignOut,
+              };
+            }
+          }
+        }
+      }
+
+      return { reviewOutcome, liveReply, bookingWrite, bedAssignment };
     });
     const elapsed = Date.now() - started;
     const reviewOutcome = outcome.reviewOutcome;
@@ -10812,9 +10875,13 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
 
     const liveReply = outcome.liveReply;
     const bookingWrite = outcome.bookingWrite;
+    const bedAssignment = outcome.bedAssignment;
     const sent = liveReply && liveReply.whatsapp_sent === true;
     const writeCreated = bookingWrite
       && (bookingWrite.write_status === 'created' || bookingWrite.write_status === 'reused_existing');
+    const bedAssigned = bedAssignment
+      && (bedAssignment.assignment_write_status === 'created'
+        || bedAssignment.assignment_write_status === 'reused_existing');
 
     const responseBody = {
       ...reviewOutcome.body,
@@ -10825,15 +10892,16 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       sends_whatsapp:    sent,
       live_send_blocked: !sent,
       whatsapp_sent:     sent === true,
-      send_live_reply_confirmed: sendLiveConfirmed,
+      send_live_reply_confirmed: sendLiveReplyConfirmed,
       create_demo_hold_draft_confirmed: createHoldDraftConfirmed,
+      assign_demo_bed_confirmed: assignDemoBedConfirmed,
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     };
 
     if (liveReply) {
       Object.assign(responseBody, liveReply);
-    } else if (!writeCreated) {
+    } else if (!writeCreated && !bedAssigned) {
       responseBody.sends_whatsapp = false;
       responseBody.live_send_blocked = true;
       responseBody.whatsapp_sent = false;
@@ -10843,16 +10911,21 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       Object.assign(responseBody, bookingWrite);
     }
 
+    if (bedAssignment) {
+      Object.assign(responseBody, bedAssignment);
+    }
+
     let auditIntent = 'api:bot_open_demo_whatsapp_inbound_dry_run';
     if (sent) auditIntent = 'api:bot_open_demo_whatsapp_inbound_live_reply';
+    else if (bedAssigned) auditIntent = 'api:bot_open_demo_whatsapp_bed_assignment';
     else if (writeCreated) auditIntent = 'api:bot_open_demo_whatsapp_booking_write';
 
     appendAuditLog({
       ts:                 new Date().toISOString(),
       intent:             auditIntent,
       category:           'open_demo_whatsapp_inbound',
-      dry_run:            !sent && !writeCreated,
-      preview_only:       !sent && !writeCreated,
+      dry_run:            !sent && !writeCreated && !bedAssigned,
+      preview_only:       !sent && !writeCreated && !bedAssigned,
       sends_whatsapp:     sent,
       live_send_blocked:  !sent,
       creates_booking:    writeCreated,
@@ -10865,6 +10938,7 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       write_status:       bookingWrite && bookingWrite.write_status,
       booking_code:       bookingWrite && bookingWrite.booking_code,
       payment_draft_id:   bookingWrite && bookingWrite.payment_draft_id,
+      assignment_write_status: bedAssignment && bedAssignment.assignment_write_status,
       whatsapp_message_id: liveReply && liveReply.whatsapp_message_id,
       staff_user_id:      actorId,
       auth_mode:          resolvedAuthMode,

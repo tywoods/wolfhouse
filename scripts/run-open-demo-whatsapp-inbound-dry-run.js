@@ -65,6 +65,7 @@ Options:
   --reference-date DATE     Default 2026-06-08
   --send-live-reply-confirmed  Request gated live WhatsApp send (27demo-c; default off)
   --create-demo-hold-draft-confirmed  Request gated hold/draft write on final turn (27demo-d)
+  --assign-demo-bed-confirmed  Request demo bed assignment after hold write (27demo-d.1)
   --guest-email EMAIL       Optional guest email (required for hold/draft write)
   --json                    Print full JSON response only
   --help                    Show this help
@@ -87,6 +88,7 @@ function parseArgs(argv) {
     contactName: null,
     sendLiveReplyConfirmed: false,
     createDemoHoldDraftConfirmed: false,
+    assignDemoBedConfirmed: false,
     guestEmail: 'open-demo+34600995555@example.test',
     json: false,
     help: false,
@@ -98,6 +100,7 @@ function parseArgs(argv) {
     else if (a === '--json') opts.json = true;
     else if (a === '--send-live-reply-confirmed') opts.sendLiveReplyConfirmed = true;
     else if (a === '--create-demo-hold-draft-confirmed') opts.createDemoHoldDraftConfirmed = true;
+    else if (a === '--assign-demo-bed-confirmed') opts.assignDemoBedConfirmed = true;
     else if (a === '--guest-email') opts.guestEmail = argv[++i];
     else if (a === '--base-url') opts.baseUrl = argv[++i];
     else if (a === '--client-slug') opts.clientSlug = argv[++i];
@@ -189,6 +192,9 @@ function buildPayload(opts, messageText, guestContext, turnIndex, isLastTurn) {
   if (opts.createDemoHoldDraftConfirmed && isLastTurn) {
     payload.create_demo_hold_draft_confirmed = true;
   }
+  if (opts.assignDemoBedConfirmed && isLastTurn) {
+    payload.assign_demo_bed_confirmed = true;
+  }
   return payload;
 }
 
@@ -206,6 +212,11 @@ function summarizeResponse(body) {
     whatsapp_sent: body.whatsapp_sent === true,
     send_live_reply_confirmed: body.send_live_reply_confirmed === true,
     create_demo_hold_draft_confirmed: body.create_demo_hold_draft_confirmed === true,
+    assign_demo_bed_confirmed: body.assign_demo_bed_confirmed === true,
+    assignment_write_status: body.assignment_write_status || null,
+    assigned_bed_label: body.assigned_bed_label || null,
+    assigned_room_label: body.assigned_room_label || null,
+    calendar_visible_expected: body.calendar_visible_expected === true,
     live_reply_gate_code: body.live_reply_gate_code || null,
     demo_booking_write_gate_code: body.demo_booking_write_gate_code || null,
     write_status: body.write_status || null,
@@ -241,6 +252,9 @@ async function runTurn(opts, headers, messageText, guestContext, turnIndex, labe
   console.log(`message: ${messageText}`);
   if (payload.create_demo_hold_draft_confirmed) {
     console.log('create_demo_hold_draft_confirmed: true');
+  }
+  if (payload.assign_demo_bed_confirmed) {
+    console.log('assign_demo_bed_confirmed: true');
   }
   console.log(JSON.stringify(summarizeResponse(body), null, 2));
   if (res.status !== 200) console.log(`HTTP ${res.status}`, body.error || '');

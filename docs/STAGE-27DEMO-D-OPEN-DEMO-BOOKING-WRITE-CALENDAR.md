@@ -2,8 +2,8 @@
 
 **Status:** RUNTIME SLICE — gated staging hold/draft write only.  
 **Parent:** [STAGE-27DEMO-C-OPEN-DEMO-LIVE-WHATSAPP-REPLY.md](STAGE-27DEMO-C-OPEN-DEMO-LIVE-WHATSAPP-REPLY.md)  
-**Verifier:** `npm run verify:stage27demo-d-open-demo-booking-write`  
-**Hosted proof baseline:** `514d6a3-stage27demo-c-live-reply`
+**Verifier:** `npm run verify:stage27demo-d-open-demo-booking-write` (+ `verify:stage27demo-d1-open-demo-calendar-assignment` for bed assignment)  
+**Hosted proof baseline:** `85f2d99-stage27demo-d-booking-write` (fix `b5a9013` guest_email)
 
 ---
 
@@ -17,9 +17,11 @@
 | Staff Portal Booking Calendar proof | Live Stripe |
 | Staging/test data only | n8n workflow activation |
 | Works with `WHATSAPP_DRY_RUN=true` (no WhatsApp from write path) | Production |
+| **27demo-d.1:** optional `assign_demo_bed_confirmed` → calendar block | Overwriting staff/manual assignments |
 
 **Endpoint:** same as 27demo-b/c — `POST /staff/bot/open-demo-whatsapp-inbound-dry-run`  
-Add `"create_demo_hold_draft_confirmed": true` on the turn where the guest confirms deposit (typically turn 3).
+Add `"create_demo_hold_draft_confirmed": true` on the turn where the guest confirms deposit (typically turn 3).  
+For calendar grid visibility, also add `"assign_demo_bed_confirmed": true` (27demo-d.1).
 
 ---
 
@@ -153,6 +155,44 @@ After successful write:
 | `payment_link_sent` | `false` |
 | `booking_confirmed` | `false` |
 | WhatsApp outbound from write | None |
+
+---
+
+## 5a. Hosted proof note (27demo-d)
+
+Staging proof created booking **`WH-G27-0BB996236D`** (`2026-07-10` → `2026-07-17`, hold + draft payment). Write/idempotency/safety **PASS**. The booking did **not** appear on the bed-calendar grid because hold-only writes create `bookings` + `payments` but no `booking_beds` row. Staff context API confirmed hold + draft; grid requires assignment (27demo-d.1).
+
+---
+
+## 5b. Stage 27demo-d.1 — demo bed assignment (calendar visibility)
+
+After a successful hold/draft write (`write_status: created` or `reused_existing`), optional **`assign_demo_bed_confirmed: true`** assigns demo-safe beds using existing **`loadAssignPlan`** + **`booking_beds` INSERT** (same pattern as `assign-booking-beds-postgres.js` 3b.2b).
+
+| Gate / rule | Behavior |
+|-------------|----------|
+| `OPEN_DEMO_BOOKING_WRITES_ENABLED=true` | Required (same as write) |
+| `create_demo_hold_draft_confirmed:true` | Required on same request |
+| Production | Hard block |
+| Existing `booking_beds` | `assignment_write_status: reused_existing` |
+| Bed conflict / unknown bed | `skipped_no_safe_bed` — no overwrite |
+| Bed source | `review.availability.selected_bed_codes` or availability rerun |
+
+**Harness:**
+
+```bash
+node scripts/run-open-demo-whatsapp-inbound-dry-run.js \
+  --base-url https://staff-staging.lunafrontdesk.com \
+  --phone-number-id 1152900101233109 \
+  --guest-phone +34600995555 \
+  --guest-email open-demo+34600995555@example.test \
+  --fixture booking-deposit-write \
+  --create-demo-hold-draft-confirmed \
+  --assign-demo-bed-confirmed
+```
+
+**Response fields:** `assignment_write_attempted`, `assignment_write_status`, `assigned_bed_label`, `assigned_room_label`, `calendar_visible_expected: true` when assigned.
+
+**Expected calendar proof:** After assignment, `GET /staff/bed-calendar` for July includes the booking block on assigned bed/dates.
 
 ---
 
