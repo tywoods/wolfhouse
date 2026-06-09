@@ -149,6 +149,24 @@ try {
   fail('B9', 'staff-query-api.js syntax error');
 }
 
+if (handler.includes('const sendLiveReplyConfirmed = wantsSendLiveReplyConfirmed(body)')) {
+  pass('B10', 'sendLiveReplyConfirmed bound from wantsSendLiveReplyConfirmed');
+} else {
+  fail('B10', 'sendLiveReplyConfirmed variable missing or misnamed');
+}
+
+if (handler.includes('send_live_reply_confirmed: sendLiveReplyConfirmed')) {
+  pass('B11', 'response send_live_reply_confirmed uses sendLiveReplyConfirmed');
+} else {
+  fail('B11', 'send_live_reply_confirmed must map sendLiveReplyConfirmed (typo guard)');
+}
+
+if (handler.includes('send_live_reply_confirmed: sendLiveConfirmed')) {
+  fail('B12', 'stale sendLiveConfirmed identifier in response body');
+} else {
+  pass('B12', 'no sendLiveConfirmed typo in response mapping');
+}
+
 section('C. Harness and docs');
 
 if (harnessSrc.includes('--assign-demo-bed-confirmed')) pass('C1', 'harness supports --assign-demo-bed-confirmed');
@@ -156,6 +174,18 @@ else fail('C1', 'harness assign flag missing');
 
 if (harnessSrc.includes('assign_demo_bed_confirmed')) pass('C2', 'harness sends assign flag on final turn');
 else fail('C2', 'harness payload flag missing');
+
+if (harnessSrc.includes('booking-deposit-write-clean') && harnessSrc.includes('34600995556')) {
+  pass('C5', 'clean hosted proof fixture with alternate demo phone');
+} else {
+  fail('C5', 'booking-deposit-write-clean fixture or phone default missing');
+}
+
+if (harnessSrc.includes('August 18 to August 25')) {
+  pass('C6', 'clean fixture uses non-Jul-10–17 date window');
+} else {
+  fail('C6', 'clean fixture date window missing');
+}
 
 if (/27demo-d\.1|assign_demo_bed|booking_beds|bed grid|hold-only/i.test(doc)) {
   pass('C3', 'docs explain hold-only vs grid + d.1 assignment');

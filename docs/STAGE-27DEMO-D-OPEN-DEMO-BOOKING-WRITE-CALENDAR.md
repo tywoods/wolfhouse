@@ -194,6 +194,28 @@ node scripts/run-open-demo-whatsapp-inbound-dry-run.js \
 
 **Expected calendar proof:** After assignment, `GET /staff/bed-calendar` for July includes the booking block on assigned bed/dates.
 
+### Clean hosted proof (27demo-d.1 repeat)
+
+Jul 10–17 may be unavailable after prior demo proofs occupy demo beds. Use fixture **`booking-deposit-write-clean`**:
+
+| Default | Value |
+|---------|--------|
+| Guest phone | `+34600995556` |
+| Guest email | `open-demo+34600995556@example.test` |
+| Dates (turn 2) | Aug 18 → Aug 25 |
+
+```bash
+node scripts/run-open-demo-whatsapp-inbound-dry-run.js \
+  --base-url https://staff-staging.lunafrontdesk.com \
+  --phone-number-id 1152900101233109 \
+  --fixture booking-deposit-write-clean \
+  --create-demo-hold-draft-confirmed \
+  --assign-demo-bed-confirmed \
+  --json
+```
+
+Override phone/email with `--guest-phone` / `--guest-email` if needed.
+
 ---
 
 ## 6. Staff Portal Booking Calendar proof

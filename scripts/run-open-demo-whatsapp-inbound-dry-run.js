@@ -6,7 +6,7 @@
  *
  * Usage:
  *   node scripts/run-open-demo-whatsapp-inbound-dry-run.js --fixture booking-turn-1
- *   node scripts/run-open-demo-whatsapp-inbound-dry-run.js --fixture booking-deposit-write --create-demo-hold-draft-confirmed
+ *   node scripts/run-open-demo-whatsapp-inbound-dry-run.js --fixture booking-deposit-write-clean --create-demo-hold-draft-confirmed --assign-demo-bed-confirmed
  *   node scripts/run-open-demo-whatsapp-inbound-dry-run.js --base-url https://staff-staging.lunafrontdesk.com --fixture package-question
  */
 
@@ -23,6 +23,25 @@ const { OPEN_DEMO_WHATSAPP_ROUTE } = require('./lib/open-demo-whatsapp-gate');
 
 const TOKEN = process.env.LUNA_BOT_INTERNAL_TOKEN || '';
 
+const CLEAN_PROOF_GUEST_PHONE = '+34600995556';
+
+function guestEmailFromPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  return `open-demo+${digits}@example.test`;
+}
+
+function applyCleanProofDefaults(opts) {
+  const usesClean = opts.fixtures.some((name) => {
+    const fx = FIXTURES[name];
+    return fx && (fx.cleanProof === true || name === 'booking-deposit-write-clean');
+  });
+  if (!usesClean) return;
+  if (opts.guestPhone === '+34600995555') opts.guestPhone = CLEAN_PROOF_GUEST_PHONE;
+  if (opts.guestEmail === 'open-demo+34600995555@example.test') {
+    opts.guestEmail = guestEmailFromPhone(opts.guestPhone);
+  }
+}
+
 const FIXTURES = {
   'booking-turn-1': {
     label: 'Turn 1 — package interest',
@@ -35,6 +54,19 @@ const FIXTURES = {
   'booking-deposit-write': {
     label: '3-turn booking to deposit (composite)',
     composite: ['booking-turn-1', 'booking-turn-2', 'deposit-choice'],
+  },
+  'booking-turn-1-clean': {
+    label: 'Turn 1 — package interest (clean proof)',
+    message: 'Hi, we are 2 people interested in the Malibu package',
+  },
+  'booking-turn-2-clean': {
+    label: 'Turn 2 — clean hosted proof dates',
+    message: 'August 18 to August 25',
+  },
+  'booking-deposit-write-clean': {
+    label: '3-turn booking to deposit — clean hosted proof window',
+    composite: ['booking-turn-1-clean', 'booking-turn-2-clean', 'deposit-choice'],
+    cleanProof: true,
   },
   'deposit-choice': {
     label: 'Turn 3 — deposit choice',
@@ -60,6 +92,7 @@ Options:
   --guest-phone PHONE       Default +34600995555
   --message TEXT            Inbound message (required unless --fixture)
   --fixture NAME            ${Object.keys(FIXTURES).join(', ')}
+  booking-deposit-write-clean uses +34600995556 and Aug 18–25 by default (hosted d.1 proof)
   --wamid ID                Optional Meta wamid (generated if omitted)
   --contact-name NAME       Optional WhatsApp profile name
   --reference-date DATE     Default 2026-06-08
@@ -273,6 +306,8 @@ async function main() {
     process.exit(0);
   }
 
+  applyCleanProofDefaults(opts);
+
   const headers = {};
   if (TOKEN) headers['X-Luna-Bot-Token'] = TOKEN;
 
@@ -318,4 +353,4 @@ main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { FIXTURES, buildPayload, expandFixtures };
+module.exports = { FIXTURES, buildPayload, expandFixtures, guestEmailFromPhone, applyCleanProofDefaults };

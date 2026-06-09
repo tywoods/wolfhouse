@@ -10666,7 +10666,7 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
   }
 
   const inboundBody = validation.normalized;
-  const sendLiveConfirmed = wantsSendLiveReplyConfirmed(body);
+  const sendLiveReplyConfirmed = wantsSendLiveReplyConfirmed(body);
   const createHoldDraftConfirmed = wantsCreateDemoHoldDraftConfirmed(body);
   const assignDemoBedConfirmed = wantsAssignDemoBedConfirmed(body);
   const hostHeader = String(req.headers.host || '');
@@ -10682,7 +10682,7 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       let bookingWrite = null;
       let bedAssignment = null;
 
-      if (sendLiveConfirmed) {
+      if (sendLiveReplyConfirmed) {
         const proposedReply = reviewOutcome.body.review
           && reviewOutcome.body.review.proposed_luna_reply != null
           ? String(reviewOutcome.body.review.proposed_luna_reply).trim()
