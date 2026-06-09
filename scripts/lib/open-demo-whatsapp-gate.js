@@ -1,10 +1,15 @@
 'use strict';
 
 /**
- * Stage 27demo-b — Open demo WhatsApp inbound gate (no live send, no guest phone allowlist).
+ * Stage 27demo-b/c — Open demo WhatsApp inbound gate + live reply gate (no guest phone allowlist).
  */
 
 const OPEN_DEMO_WHATSAPP_ROUTE = '/staff/bot/open-demo-whatsapp-inbound-dry-run';
+
+function trimEnv(v) {
+  if (v == null) return '';
+  return String(v).trim();
+}
 
 function isProductionEnvironment(env) {
   const e = env || process.env;
@@ -16,10 +21,31 @@ function isOpenDemoWhatsAppEnabled(env) {
   return e.OPEN_DEMO_WHATSAPP_ENABLED === 'true';
 }
 
+function isOpenDemoLiveRepliesEnabled(env) {
+  const e = env || process.env;
+  return e.OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED === 'true';
+}
+
+function isWhatsappDryRun(env) {
+  const e = env || process.env;
+  return trimEnv(e.WHATSAPP_DRY_RUN).toLowerCase() !== 'false';
+}
+
 function configuredDemoPhoneNumberId(env) {
   const e = env || process.env;
   const v = e.OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID;
-  return v != null && String(v).trim() ? String(v).trim() : null;
+  return v != null && trimEnv(v) ? trimEnv(v) : null;
+}
+
+function configuredWhatsappPhoneNumberId(env) {
+  const e = env || process.env;
+  const v = e.WHATSAPP_PHONE_NUMBER_ID;
+  return v != null && trimEnv(v) ? trimEnv(v) : null;
+}
+
+function wantsSendLiveReplyConfirmed(body) {
+  const b = body || {};
+  return b.send_live_reply_confirmed === true || b.send_live_reply_confirmed === 'true';
 }
 
 /**
@@ -45,7 +71,7 @@ function evaluateOpenDemoWhatsAppGate(body, env) {
   const expectedPhoneNumberId = configuredDemoPhoneNumberId(env);
   if (expectedPhoneNumberId) {
     const incoming = body && body.phone_number_id != null
-      ? String(body.phone_number_id).trim()
+      ? trimEnv(body.phone_number_id)
       : '';
     if (!incoming || incoming !== expectedPhoneNumberId) {
       return {
@@ -57,6 +83,90 @@ function evaluateOpenDemoWhatsAppGate(body, env) {
     }
   }
   return { ok: true };
+}
+
+/**
+ * Live reply gate — requires inbound demo gate + explicit env + WHATSAPP_DRY_RUN=false.
+ * @returns {{ ok: boolean, status?: number, error?: string, code?: string }}
+ */
+function evaluateOpenDemoWhatsAppLiveReplyGate(body, env) {
+  const inboundGate = evaluateOpenDemoWhatsAppGate(body, env);
+  if (!inboundGate.ok) return inboundGate;
+
+  if (isProductionEnvironment(env)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'production_blocked',
+      error: 'open demo WhatsApp live replies are disabled in production',
+    };
+  }
+  if (!isOpenDemoLiveRepliesEnabled(env)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'live_replies_disabled',
+      error: 'open demo live replies disabled (set OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED=true)',
+    };
+  }
+  if (isWhatsappDryRun(env)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'whatsapp_dry_run_active',
+      error: 'WHATSAPP_DRY_RUN=true blocks live WhatsApp send',
+    };
+  }
+  const demoPhoneId = configuredDemoPhoneNumberId(env);
+  const waPhoneId = configuredWhatsappPhoneNumberId(env);
+  if (demoPhoneId && waPhoneId && demoPhoneId !== waPhoneId) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'whatsapp_phone_number_id_mismatch',
+      error: 'WHATSAPP_PHONE_NUMBER_ID does not match OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID',
+    };
+  }
+  return { ok: true };
+}
+
+function buildOpenDemoLiveReplySendBody(normalized, proposedReply) {
+  const n = normalized || {};
+  const reply = trimEnv(proposedReply);
+  const sendKind = 'staff_reply';
+  const idempotencyKey = `open-demo:${n.client_slug}:whatsapp:${n.inbound_message_id}:live-reply`;
+  return {
+    client_slug: n.client_slug,
+    to: n.guest_phone,
+    suggested_reply: reply,
+    send_kind: sendKind,
+    idempotency_key: idempotencyKey,
+    source: 'open_demo_whatsapp_live_reply',
+    draft: {
+      creates_booking: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+    },
+    send_eligibility: {
+      send_allowed_later: true,
+      requires_staff: false,
+      auto_send_ready: true,
+    },
+  };
+}
+
+function buildOpenDemoLiveReplyBlockedResponse(gateResult) {
+  return {
+    live_send_blocked:     true,
+    sends_whatsapp:        false,
+    whatsapp_sent:         false,
+    send_performed:        false,
+    live_reply_attempted:  false,
+    live_reply_gate_blocked: true,
+    live_reply_gate_code:  gateResult.code || 'blocked',
+    live_reply_error:      gateResult.error || 'open demo live reply blocked',
+  };
 }
 
 function resolveInboundMessageId(body) {
@@ -138,8 +248,15 @@ module.exports = {
   OPEN_DEMO_WHATSAPP_ROUTE,
   isProductionEnvironment,
   isOpenDemoWhatsAppEnabled,
+  isOpenDemoLiveRepliesEnabled,
+  isWhatsappDryRun,
   configuredDemoPhoneNumberId,
+  configuredWhatsappPhoneNumberId,
+  wantsSendLiveReplyConfirmed,
   evaluateOpenDemoWhatsAppGate,
+  evaluateOpenDemoWhatsAppLiveReplyGate,
+  buildOpenDemoLiveReplySendBody,
+  buildOpenDemoLiveReplyBlockedResponse,
   resolveInboundMessageId,
   validateOpenDemoInboundBody,
   buildOpenDemoBlockedResponse,

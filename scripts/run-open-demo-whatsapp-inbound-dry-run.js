@@ -54,6 +54,7 @@ Options:
   --wamid ID                Optional Meta wamid (generated if omitted)
   --contact-name NAME       Optional WhatsApp profile name
   --reference-date DATE     Default 2026-06-08
+  --send-live-reply-confirmed  Request gated live WhatsApp send (27demo-c; default off)
   --json                    Print full JSON response only
   --help                    Show this help
 
@@ -72,6 +73,7 @@ function parseArgs(argv) {
     message: null,
     wamid: null,
     contactName: null,
+    sendLiveReplyConfirmed: false,
     json: false,
     help: false,
   };
@@ -80,6 +82,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--json') opts.json = true;
+    else if (a === '--send-live-reply-confirmed') opts.sendLiveReplyConfirmed = true;
     else if (a === '--base-url') opts.baseUrl = argv[++i];
     else if (a === '--client-slug') opts.clientSlug = argv[++i];
     else if (a === '--phone-number-id') opts.phoneNumberId = argv[++i];
@@ -147,6 +150,7 @@ function buildPayload(opts, messageText, guestContext, turnIndex) {
   };
   if (opts.contactName) payload.contact_name = opts.contactName;
   if (guestContext) payload.guest_context = guestContext;
+  if (opts.sendLiveReplyConfirmed) payload.send_live_reply_confirmed = true;
   return payload;
 }
 
@@ -159,6 +163,9 @@ function summarizeResponse(body) {
     dry_run: body.dry_run === true,
     sends_whatsapp: body.sends_whatsapp === false,
     live_send_blocked: body.live_send_blocked === true,
+    whatsapp_sent: body.whatsapp_sent === true,
+    send_live_reply_confirmed: body.send_live_reply_confirmed === true,
+    live_reply_gate_code: body.live_reply_gate_code || null,
     demo_gate_blocked: body.demo_gate_blocked === true,
     review_persistence_performed: body.review_persistence_performed === true,
     conversation_id: body.conversation_id || null,
