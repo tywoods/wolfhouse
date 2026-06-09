@@ -33,6 +33,12 @@ const {
 } = require('./run-luna-guest-golden-tests.js');
 
 const { checkFlowExpectations } = require('./run-luna-guest-flow-batch.js');
+const {
+  executeWithHttp500Retry,
+  buildTortureCorrelationHeaders,
+  enrichTorturePayload,
+  trackHttp500RetryMeta,
+} = require('./lib/luna-torture-endpoint-retry.js');
 
 const DEFAULT_FIXTURE = path.join(__dirname, 'fixtures', 'generated-luna-guest-torture.json');
 const INBOUND_ROUTE = '/staff/bot/guest-inbound-review-dry-run';
@@ -88,6 +94,7 @@ Options:
   --fail-fast          Stop on first failure
   --phone-prefix PREFIX  Default +34600997
   --run-id ID          Default auto (endpoint isolation)
+  --retry-500 N        Retry HTTP 500/network errors up to N times (default 0)
   --help               Show this help
 
 Default: review-only — no hold/draft, Stripe, WhatsApp, Meta, or n8n.`);
@@ -106,6 +113,7 @@ function parseArgs(argv) {
     failFast: false,
     phonePrefix: '+34600997',
     runId: 'auto',
+    retry500: 0,
     help: false,
   };
   for (let i = 2; i < argv.length; i++) {
@@ -122,6 +130,7 @@ function parseArgs(argv) {
     else if (a === '--language') opts.language = argv[++i];
     else if (a === '--phone-prefix') opts.phonePrefix = argv[++i];
     else if (a === '--run-id') opts.runId = argv[++i];
+    else if (a === '--retry-500') opts.retry500 = parseInt(argv[++i], 10);
     else {
       console.error(`Unknown argument: ${a}`);
       usage();
@@ -284,10 +293,38 @@ async function runSingleLocal(payload) {
   };
 }
 
-async function runSingleEndpoint(opts, payload, headers) {
+async function runSingleEndpoint(opts, payload, headers, report) {
   const target = `${opts.baseUrl.replace(/\/$/, '')}${INBOUND_ROUTE}`;
-  const res = await postJson(target, payload, headers);
-  return { http_status: res.status, body: res.body };
+  const mergedHeaders = { ...headers };
+  const enriched = enrichTorturePayload(payload, opts, payload.fixture_id || payload.id);
+  const runOnce = () => postJson(target, enriched, mergedHeaders).then((res) => ({
+    http_status: res.status,
+    body: res.body,
+  }));
+  if (opts.retry500 > 0) {
+    const out = await executeWithHttp500Retry(runOnce, opts.retry500);
+    trackHttp500RetryMeta(report, out.retry_meta);
+    return { http_status: out.http_status, body: out.body, retry_meta: out.retry_meta };
+  }
+  const res = await runOnce();
+  return { http_status: res.http_status, body: res.body };
+}
+
+async function runSimulatorEndpoint(opts, payload, headers, report) {
+  const target = `${opts.baseUrl.replace(/\/$/, '')}${SIM_ROUTE}`;
+  const mergedHeaders = { ...headers };
+  const enriched = enrichTorturePayload(payload, opts, payload.fixture_id || payload.id);
+  const runOnce = () => postJson(target, enriched, mergedHeaders).then((res) => ({
+    http_status: res.status,
+    body: res.body,
+  }));
+  if (opts.retry500 > 0) {
+    const out = await executeWithHttp500Retry(runOnce, opts.retry500);
+    trackHttp500RetryMeta(report, out.retry_meta);
+    return { http_status: out.http_status, body: out.body, retry_meta: out.retry_meta };
+  }
+  const res = await runOnce();
+  return { http_status: res.http_status, body: res.body };
 }
 
 async function runSimulatorLocal(payload, referenceDate) {
@@ -310,13 +347,7 @@ async function runSimulatorLocal(payload, referenceDate) {
   return { http_status: 200, body: wrapOrchBody(orchOut) };
 }
 
-async function runSimulatorEndpoint(opts, payload, headers) {
-  const target = `${opts.baseUrl.replace(/\/$/, '')}${SIM_ROUTE}`;
-  const res = await postJson(target, payload, headers);
-  return { http_status: res.status, body: res.body };
-}
-
-async function runFlowCase(fixture, opts, mode, headers, index, meta) {
+async function runFlowCase(fixture, opts, mode, baseHeaders, index, meta, report) {
   const phone = mode === 'endpoint'
     ? buildGuestPhoneForCase('endpoint', { resolvedRunId: opts.resolvedRunId, phonePrefix: opts.phonePrefix }, index + 9000)
     : `${opts.phonePrefix}${String(index + 1).padStart(3, '0')}`;
@@ -327,7 +358,7 @@ async function runFlowCase(fixture, opts, mode, headers, index, meta) {
 
   for (let ti = 0; ti < fixture.turns.length; ti++) {
     const turn = fixture.turns[ti];
-    const payload = {
+    const payload = enrichTorturePayload({
       client_slug: meta.default_client_slug || 'wolfhouse-somo',
       channel: 'staff_review',
       message_text: turn.message,
@@ -341,9 +372,12 @@ async function runFlowCase(fixture, opts, mode, headers, index, meta) {
         whatsapp_dry_run: true,
         live_send_allowed: false,
       },
-    };
+    }, opts, fixture.id);
+    const turnHeaders = mode === 'endpoint'
+      ? { ...baseHeaders, ...buildTortureCorrelationHeaders(opts, fixture.id, ti) }
+      : baseHeaders;
     const runRes = mode === 'endpoint'
-      ? await runSimulatorEndpoint(opts, payload, headers)
+      ? await runSimulatorEndpoint(opts, payload, turnHeaders, report)
       : await runSimulatorLocal(payload, payload.reference_date);
     lastBody = runRes.body || {};
     if (runRes.http_status !== 200) failures.push(`turn ${ti + 1}: HTTP ${runRes.http_status}`);
@@ -413,10 +447,14 @@ async function main() {
     review_only: true,
     fixture_file: opts.fixtureFile,
     run_id: opts.resolvedRunId,
+    retry_500: opts.retry500,
     total: cases.length,
     passed: 0,
     failed: 0,
     pass_rate_pct: 0,
+    initial_http_500_count: 0,
+    recovered_http_500_count: 0,
+    unrecovered_http_500_count: 0,
     failures_by_category: {},
     failures_by_language: {},
     failure_reasons: {},
@@ -433,7 +471,7 @@ async function main() {
 
     try {
       if (fixture.kind === 'flow') {
-        const flowOut = await runFlowCase(fixture, opts, mode, headers, i, meta);
+        const flowOut = await runFlowCase(fixture, opts, mode, headers, i, meta, report);
         failures = flowOut.failures;
         body = flowOut.lastBody || {};
       } else {
@@ -445,8 +483,12 @@ async function main() {
           opts,
         );
         if (fixture.guest_context) payload.guest_context = fixture.guest_context;
+        enrichTorturePayload(payload, opts, fixture.id);
+        const caseHeaders = mode === 'endpoint'
+          ? { ...headers, ...buildTortureCorrelationHeaders(opts, fixture.id) }
+          : headers;
         const runRes = mode === 'endpoint'
-          ? await runSingleEndpoint(opts, payload, headers)
+          ? await runSingleEndpoint(opts, payload, caseHeaders, report)
           : await runSingleLocal(payload);
         body = runRes.body || {};
         if (runRes.http_status !== 200) failures.push(`HTTP ${runRes.http_status}`);
@@ -492,6 +534,9 @@ async function main() {
     console.log(`Passed:     ${report.passed}`);
     console.log(`Failed:     ${report.failed}`);
     console.log(`Pass rate:  ${report.pass_rate_pct}%`);
+    if (mode === 'endpoint' && (report.initial_http_500_count || report.retry_500 > 0)) {
+      console.log(`HTTP 500:   initial=${report.initial_http_500_count} recovered=${report.recovered_http_500_count} unrecovered=${report.unrecovered_http_500_count}`);
+    }
     if (report.failed > 0) {
       console.log('\nPass rate by category:');
       const catTotals = {};
@@ -532,4 +577,5 @@ module.exports = {
   findHallucinationHits,
   checkTortureExpectations,
   filterCases,
+  parseArgs,
 };

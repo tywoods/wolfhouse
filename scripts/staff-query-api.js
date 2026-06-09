@@ -306,6 +306,11 @@ const {
   runGuestInboundReviewDryRun,
 } = require('./lib/luna-guest-inbound-review-dry-run');
 const {
+  extractReviewDryRunCorrelation,
+  logReviewDryRunError,
+  buildSafeReviewDryRun500Body,
+} = require('./lib/luna-review-dry-run-error-log');
+const {
   runGuestHoldPaymentDraftWriteDryRunApproved,
 } = require('./lib/luna-guest-hold-payment-draft-write');
 const {
@@ -10433,8 +10438,19 @@ async function handleBotGuestAutomationReviewDryRun(req, res, user, authMode) {
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     });
-  } catch (_) {
+  } catch (err) {
     const elapsed = Date.now() - started;
+    const corr = extractReviewDryRunCorrelation(req, body);
+    logReviewDryRunError({
+      endpoint: 'guest-automation-review-dry-run',
+      ...corr,
+      client_slug: clientSlug,
+      channel,
+      guest_phone: body.guest_phone,
+      message_length: messageText.length,
+      error: err,
+      elapsed_ms: elapsed,
+    });
     appendAuditLog({
       ts:                 new Date().toISOString(),
       intent:             'api:bot_guest_automation_review_dry_run',
@@ -10449,15 +10465,11 @@ async function handleBotGuestAutomationReviewDryRun(req, res, user, authMode) {
       auth_mode:          resolvedAuthMode,
       elapsed_ms:         elapsed,
     });
-    return sendJSON(res, 500, {
-      success:           false,
-      dry_run:           true,
-      sends_whatsapp:    false,
-      live_send_blocked: true,
-      error:             'guest automation review dry-run failed',
-      auth_mode:         resolvedAuthMode,
-      elapsed_ms:        elapsed,
-    });
+    return sendJSON(res, 500, buildSafeReviewDryRun500Body({
+      error: 'guest automation review dry-run failed',
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    }));
   }
 }
 
@@ -10541,8 +10553,19 @@ async function handleBotGuestInboundReviewDryRun(req, res, user, authMode) {
     });
 
     return sendJSON(res, outcome.status || 200, responseBody);
-  } catch (_) {
+  } catch (err) {
     const elapsed = Date.now() - started;
+    const corr = extractReviewDryRunCorrelation(req, body);
+    logReviewDryRunError({
+      endpoint: 'guest-inbound-review-dry-run',
+      ...corr,
+      client_slug: body.client_slug,
+      channel: body.channel,
+      guest_phone: body.guest_phone,
+      message_length: body.message_text != null ? String(body.message_text).length : null,
+      error: err,
+      elapsed_ms: elapsed,
+    });
     appendAuditLog({
       ts:                 new Date().toISOString(),
       intent:             'api:bot_guest_inbound_review_dry_run',
@@ -10557,15 +10580,11 @@ async function handleBotGuestInboundReviewDryRun(req, res, user, authMode) {
       auth_mode:          resolvedAuthMode,
       elapsed_ms:         elapsed,
     });
-    return sendJSON(res, 500, {
-      success:           false,
-      dry_run:           true,
-      sends_whatsapp:    false,
-      live_send_blocked: true,
-      error:             'guest inbound review dry-run failed',
-      auth_mode:         resolvedAuthMode,
-      elapsed_ms:        elapsed,
-    });
+    return sendJSON(res, 500, buildSafeReviewDryRun500Body({
+      error: 'guest inbound review dry-run failed',
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    }));
   }
 }
 
