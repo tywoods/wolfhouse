@@ -45,9 +45,13 @@ function filterRealHandoffReasons(review) {
   const availability = review.availability || {};
   const quote = review.quote || {};
   const action = review && review.proposed_next_action;
+  const safeHandoff = review && review.result && review.result.safe_handoff_required === true;
   return reasons.filter((r) => {
     if (TECHNICAL_HANDOFF_REASONS.has(r)) return false;
     if (r === 'no_payment_choice_detected' && action === 'collect_payment_choice') return false;
+    if (r === 'arrival_balance_question'
+      && action === 'collect_payment_choice'
+      && !safeHandoff) return false;
     if (r === 'availability_not_available' && availability.availability_check_attempted !== true) return false;
     if (r === 'quote_not_ready' && quote.quote_proposal_attempted !== true) return false;
     return true;

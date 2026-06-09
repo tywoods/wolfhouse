@@ -262,6 +262,18 @@ try {
   } else {
     fail('C7b', 'golden runner counts payment-choice reason as staff handoff');
   }
+
+  const arrivalReview = {
+    proposed_next_action: 'collect_payment_choice',
+    handoff_reasons: ['arrival_balance_question'],
+    quote: { quote_status: 'ready', quote_proposal_attempted: true, payment_choice_needed: true },
+    result: { message_lane: 'payment_question', safe_handoff_required: false },
+  };
+  if (isStaffHandoffRequired(arrivalReview, arrivalReview.result) === false) {
+    pass('C7c', 'arrival_balance_question ignored during collect_payment_choice');
+  } else {
+    fail('C7c', 'golden runner counts arrival_balance_question as staff handoff');
+  }
 } catch (e) {
   fail('C7b', `payment-choice handoff self-test failed: ${e.message}`);
 }

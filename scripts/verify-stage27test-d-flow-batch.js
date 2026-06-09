@@ -331,6 +331,12 @@ if (runnerSrc.includes('no_payment_choice_detected') && runnerSrc.includes('coll
   fail('H1', 'payment-choice technical handoff filter missing');
 }
 
+if (runnerSrc.includes('arrival_balance_question') && runnerSrc.includes('collect_payment_choice')) {
+  pass('H1b', 'runner filters arrival_balance_question during collect_payment_choice');
+} else {
+  fail('H1b', 'arrival_balance_question technical handoff filter missing');
+}
+
 try {
   const { isStaffHandoffRequired, checkFlowExpectations } = require('./run-luna-guest-flow-batch.js');
   const collectBody = {
@@ -378,6 +384,50 @@ try {
     pass('H3', 'staff_handoff_required with bed conflict still counts as handoff');
   } else {
     fail('H3', 'real staff handoff not detected');
+  }
+
+  const arrivalBody = {
+    success: true,
+    dry_run: true,
+    sends_whatsapp: false,
+    live_send_blocked: true,
+    no_write_performed: true,
+    review: {
+      proposed_next_action: 'collect_payment_choice',
+      handoff_reasons: ['arrival_balance_question'],
+      quote: { quote_status: 'ready', quote_proposal_attempted: true, payment_choice_needed: true },
+      payment_choice: { payment_choice_ready: false },
+      result: { message_lane: 'payment_question', safe_handoff_required: false },
+    },
+  };
+  const arrivalFails = checkFlowExpectations({
+    handoff_required: false,
+    quote_status: 'ready',
+    banned_reply_terms_absent: true,
+  }, arrivalBody);
+  if (isStaffHandoffRequired(arrivalBody.review, arrivalBody.review.result) === false
+      && !arrivalFails.some((f) => f.startsWith('handoff_required'))) {
+    pass('H4', 'collect_payment_choice + arrival_balance_question is not staff handoff');
+  } else {
+    fail('H4', `arrival_balance handoff false-positive: ${arrivalFails.join('; ')}`);
+  }
+
+  const arrivalHandoffBody = {
+    success: true,
+    dry_run: true,
+    sends_whatsapp: false,
+    live_send_blocked: true,
+    no_write_performed: true,
+    review: {
+      proposed_next_action: 'staff_handoff_required',
+      handoff_reasons: ['arrival_balance_question', 'payment_state_mismatch'],
+      result: { message_lane: 'payment_question', safe_handoff_required: true },
+    },
+  };
+  if (isStaffHandoffRequired(arrivalHandoffBody.review, arrivalHandoffBody.review.result) === true) {
+    pass('H5', 'staff_handoff_required + arrival_balance_question still counts as handoff');
+  } else {
+    fail('H5', 'arrival_balance with staff handoff not detected');
   }
 } catch (e) {
   fail('H2', `payment-choice handoff self-test failed: ${e.message}`);
