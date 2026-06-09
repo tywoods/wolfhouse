@@ -1,6 +1,10 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27test-a — Luna guest golden message runner**): **PASS** (verifier). Bulk runner `run-luna-guest-golden-tests.js` + 128-case fixture file against 27x.1 inbound review (review-only). Verifier: `verify:stage27test-a-golden-runner`. Harness: `luna:guest-golden`. Doc: [STAGE-27TEST-A-GOLDEN-RUNNER.md](STAGE-27TEST-A-GOLDEN-RUNNER.md).
+**Last updated:** 2026-06-09 (**Stage 27test-d — Luna guest flow batch runner**): **PASS** (verifier). Multi-turn batch runner `run-luna-guest-flow-batch.js` + 26-flow `booking-core` fixture set through simulator/inbound review (default review-only). Verifier: `verify:stage27test-d-flow-batch`. Harness: `luna:guest-flow-batch`. Doc: [STAGE-27TEST-D-FLOW-BATCH.md](STAGE-27TEST-D-FLOW-BATCH.md).
+
+**Prior — Stage 27test-c (2026-06-08):** Package explainer replies — **PASS** (local 139/139 golden; staging deploy proof). Doc: package explainer in `luna-guest-package-explainer.js`.
+
+**Prior — Stage 27test-a (2026-06-08):** Luna guest golden message runner — **PASS** (verifier). Bulk runner `run-luna-guest-golden-tests.js` + fixture file against 27x.1 inbound review (review-only). Verifier: `verify:stage27test-a-golden-runner`. Harness: `luna:guest-golden`. Doc: [STAGE-27TEST-A-GOLDEN-RUNNER.md](STAGE-27TEST-A-GOLDEN-RUNNER.md).
 
 **Prior — Stage 27x.1 (2026-06-08):** Inbound guest review dry-run — **PASS** (verifier). Doc: [STAGE-27X1-GUEST-INBOUND-REVIEW.md](STAGE-27X1-GUEST-INBOUND-REVIEW.md). Verifier: `verify:stage27x1-guest-inbound-review`. Harness: `luna:guest-inbound:review`.
 

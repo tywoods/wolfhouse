@@ -1,4 +1,8 @@
-**Stage 27test-a LUNA GUEST GOLDEN MESSAGE RUNNER — PASS (2026-06-08):** 128-case fixture · `run-luna-guest-golden-tests.js` · bulk 27x.1 inbound review tests (review-only). Verifier: `verify:stage27test-a-golden-runner`. Doc: [STAGE-27TEST-A-GOLDEN-RUNNER.md](STAGE-27TEST-A-GOLDEN-RUNNER.md). **Next:** tune golden expectations + CI smoke before 27x.2 n8n wiring.
+**Stage 27test-d LUNA GUEST FLOW BATCH RUNNER — PASS (2026-06-09):** 26-flow `booking-core` fixture set · `run-luna-guest-flow-batch.js` · multi-turn simulator/inbound review batch (default review-only · explicit hold/Stripe flags). Verifier: `verify:stage27test-d-flow-batch`. Doc: [STAGE-27TEST-D-FLOW-BATCH.md](STAGE-27TEST-D-FLOW-BATCH.md). **Next:** staging batch smoke + 27x.2 n8n pipe wiring (disabled/dry-run).
+
+**Stage 27test-c PACKAGE EXPLAINER — PASS (2026-06-08):** `luna-guest-package-explainer.js` · 139 golden cases · staging deploy proof on `0f637fa`. **Next:** 27test-d flow batch (this entry).
+
+**Stage 27test-a LUNA GUEST GOLDEN MESSAGE RUNNER — PASS (2026-06-08):** 128-case fixture · `run-luna-guest-golden-tests.js` · bulk 27x.1 inbound review tests (review-only). Verifier: `verify:stage27test-a-golden-runner`. Doc: [STAGE-27TEST-A-GOLDEN-RUNNER.md](STAGE-27TEST-A-GOLDEN-RUNNER.md). **Next:** 27test-b router tuning (done) → 27test-c package explainer.
 
 **Stage 27x.1 INBOUND GUEST REVIEW DRY-RUN — PASS (2026-06-08):** `POST /staff/bot/guest-inbound-review-dry-run` · n8n-shaped payload → 27u orchestrator · slim guest_context on `conversations.metadata` · harness `luna:guest-inbound:review`. Verifier: `verify:stage27x1-guest-inbound-review`. Doc: [STAGE-27X1-GUEST-INBOUND-REVIEW.md](STAGE-27X1-GUEST-INBOUND-REVIEW.md). **Next:** 27x.2 n8n pipe wiring (disabled/dry-run, no live send).
 
