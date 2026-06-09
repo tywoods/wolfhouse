@@ -23,7 +23,7 @@ const {
 const {
   runGuestHoldPaymentDraftPlannerDryRun,
 } = require('./luna-guest-hold-payment-draft-planner');
-const { normalizeGuestContextForChain } = require('./luna-guest-context-merge');
+const { normalizeGuestContextForChain, buildHoldPaymentDraftPlannerChain } = require('./luna-guest-context-merge');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -450,8 +450,14 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
 
   let hold_payment_draft_plan = null;
   if (payment_choice && payment_choice.payment_choice_ready === true) {
+    const plannerChain = buildHoldPaymentDraftPlannerChain(chainGuestContext, {
+      result,
+      availability,
+      quote,
+      payment_choice,
+    });
     hold_payment_draft_plan = runGuestHoldPaymentDraftPlannerDryRun(
-      { result, availability, quote, payment_choice },
+      plannerChain,
       {
         client_slug: chainCtx.client_slug,
         guest_phone: inp.guest_phone || null,

@@ -108,14 +108,19 @@ const FIXTURES = {
           if (pc.next_safe_step !== 'ready_for_hold_payment_draft') {
             failures.push(`next_safe_step expected ready_for_hold_payment_draft got ${pc.next_safe_step}`);
           }
-          return failures;
-        },
-        partial: (ctx) => {
-          const plan = (ctx.review && ctx.review.hold_payment_draft_plan) || {};
           if (plan.plan_status != null && plan.plan_status !== 'ready') {
-            return [`hold_payment_draft_plan.plan_status expected ready got ${plan.plan_status}`];
+            failures.push(`hold_payment_draft_plan.plan_status expected ready got ${plan.plan_status}`);
           }
-          return [];
+          if (plan.would_create_hold === false) {
+            failures.push('would_create_hold expected true');
+          }
+          if (plan.would_create_payment_draft === false) {
+            failures.push('would_create_payment_draft expected true');
+          }
+          if (plan.would_create_stripe_link === true) {
+            failures.push('would_create_stripe_link must be false');
+          }
+          return failures;
         },
       },
     ],
@@ -354,10 +359,6 @@ function printTurnSummary(turn) {
   if (!turn.expect_pass) {
     for (const f of turn.expect_failures) console.log(`  - ${f}`);
   }
-  if (turn.partial_notes && turn.partial_notes.length > 0) {
-    console.log('partial:');
-    for (const n of turn.partial_notes) console.log(`  - ${n}`);
-  }
 }
 
 async function runReviewTurn(opts, headers, message, guestContext) {
@@ -493,8 +494,6 @@ async function main() {
       priorReview: lastReviewForPayment,
     };
     const expectFailures = turnDef.expect(expectCtx);
-    const partialNotes = turnDef.partial ? turnDef.partial(expectCtx) : [];
-    if (partialNotes.length > 0) anyPartial = true;
     if (expectFailures.length > 0) {
       anyRequiredFail = true;
       if (!result.first_failure) {
@@ -513,7 +512,6 @@ async function main() {
     }
 
     const summary = summarizeTurn(turnDef.step, turnDef.message, apiBody, expectFailures);
-    if (partialNotes.length > 0) summary.partial_notes = partialNotes;
     result.turns.push(summary);
     if (!opts.json) printTurnSummary(summary);
 

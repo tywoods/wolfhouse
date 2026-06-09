@@ -98,6 +98,25 @@ if (src.includes('extracted_fields')) {
   fail('C2', 'extracted_fields not forwarded');
 }
 
+const mergeSrc = fs.existsSync(path.join(__dirname, 'lib', 'luna-guest-context-merge.js'))
+  ? fs.readFileSync(path.join(__dirname, 'lib', 'luna-guest-context-merge.js'), 'utf8')
+  : '';
+const orchSrc = fs.existsSync(path.join(__dirname, 'lib', 'luna-guest-automation-orchestrator-dry-run.js'))
+  ? fs.readFileSync(path.join(__dirname, 'lib', 'luna-guest-automation-orchestrator-dry-run.js'), 'utf8')
+  : '';
+
+if (mergeSrc.includes('buildHoldPaymentDraftPlannerChain')) {
+  pass('C3', 'buildHoldPaymentDraftPlannerChain helper exists');
+} else {
+  fail('C3', 'planner chain merge helper missing');
+}
+
+if (orchSrc.includes('buildHoldPaymentDraftPlannerChain')) {
+  pass('C4', 'orchestrator wires planner chain merge');
+} else {
+  fail('C4', 'orchestrator planner chain merge missing');
+}
+
 section('D. booking-deposit fixture');
 
 if (src.includes("'booking-deposit'") || src.includes('"booking-deposit"')) {
@@ -118,6 +137,9 @@ const fixtureChecks = [
   ['D10', 'how many guests will be staying', 'must-not re-ask guests'],
   ['D11', 'payment_choice_needed', 'conditional payment choice'],
   ['D12', 'ready_for_hold_payment_draft', 'deposit next step'],
+  ['D13', 'would_create_hold', 'hold plan would_create_hold'],
+  ['D14', 'would_create_payment_draft', 'hold plan would_create_payment_draft'],
+  ['D15', 'would_create_stripe_link', 'hold plan no stripe link'],
 ];
 for (const [id, needle, label] of fixtureChecks) {
   if (src.includes(needle)) pass(id, label);

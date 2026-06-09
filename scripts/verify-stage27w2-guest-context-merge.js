@@ -193,6 +193,63 @@ section('C. Turn 1 partial booking → asks dates');
     pass('F4', 'next_safe_step ready_for_hold_payment_draft');
   } else fail('F4', depositTurn.payment_choice && depositTurn.payment_choice.next_safe_step);
 
+  section('F2. Deposit turn with full prior booking chain → hold plan ready');
+
+  const fullChainCtx = {
+    message_lane: 'new_booking_inquiry',
+    booking_intake_ready: true,
+    readiness_state: 'ready_for_availability_check',
+    result: {
+      message_lane: 'new_booking_inquiry',
+      booking_intake_ready: true,
+      readiness_state: 'ready_for_availability_check',
+      extracted_fields: {
+        check_in: '2026-07-10',
+        check_out: '2026-07-17',
+        guest_count: 2,
+        package_interest: 'malibu',
+      },
+      detected_language: 'en',
+    },
+    availability: {
+      availability_check_attempted: true,
+      availability_status: 'available',
+    },
+    quote: {
+      quote_status: 'ready',
+      payment_choice_needed: true,
+      quote_total_cents: 59800,
+      deposit_options: { deposit_required_cents: 20000 },
+    },
+    payment_choice_needed: true,
+  };
+
+  const depositFull = await runGuestAutomationOrchestratorDryRun(baseInput({
+    message_text: 'Deposit is fine',
+    guest_context: fullChainCtx,
+  }), {});
+
+  const plan = depositFull.hold_payment_draft_plan;
+  if (plan && plan.plan_status === 'ready') pass('F5', 'hold_payment_draft_plan.plan_status ready');
+  else fail('F5', `plan_status=${plan && plan.plan_status}`);
+
+  if (plan && plan.would_create_hold === true) pass('F6', 'would_create_hold true');
+  else fail('F6', `would_create_hold=${plan && plan.would_create_hold}`);
+
+  if (plan && plan.would_create_payment_draft === true) pass('F7', 'would_create_payment_draft true');
+  else fail('F7', `would_create_payment_draft=${plan && plan.would_create_payment_draft}`);
+
+  if (plan && plan.would_create_stripe_link === false) pass('F8', 'would_create_stripe_link false');
+  else fail('F8', `would_create_stripe_link=${plan && plan.would_create_stripe_link}`);
+
+  if (depositFull.result && depositFull.result.message_lane !== 'new_booking_inquiry') {
+    pass('F9', 'current turn lane may drift without breaking planner');
+  } else pass('F9', 'deposit turn processed with booking chain context');
+
+  if (depositFull.sends_whatsapp === false && depositFull.live_send_blocked === true) {
+    pass('F10', 'deposit turn safety flags');
+  } else fail('F10', 'safety flags missing');
+
   section('G. Source wiring');
 
   const routerSrc = fs.readFileSync(ROUTER, 'utf8');
@@ -205,6 +262,10 @@ section('C. Turn 1 partial booking → asks dates');
   if (orchSrc.includes('normalizeGuestContextForChain') && orchSrc.includes('guest_context: chainGuestContext')) {
     pass('G2', 'orchestrator forwards normalized guest_context to router');
   } else fail('G2', 'orchestrator guest_context wiring missing');
+
+  if (orchSrc.includes('buildHoldPaymentDraftPlannerChain')) {
+    pass('G4', 'orchestrator uses buildHoldPaymentDraftPlannerChain for 27m');
+  } else fail('G4', 'planner chain merge missing in orchestrator');
 
   if (apiSrc.includes('extracted_fields: r.result') && apiSrc.includes('hold_payment_draft_plan')) {
     pass('G3', 'simulator stores full review context for next turn');

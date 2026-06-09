@@ -275,6 +275,57 @@ section('C. Gate blocks');
     pass('J3', 'next action prepare_hold_payment_draft_plan');
   } else fail('J3', `unexpected next action: ${payTurn.proposed_next_action}`);
 
+  section('J2. Deposit turn with full prior booking chain');
+
+  const fullChainDeposit = await runGuestAutomationOrchestratorDryRun(baseInput({
+    message_text: 'Deposit is fine',
+    guest_context: {
+      message_lane: 'new_booking_inquiry',
+      booking_intake_ready: true,
+      readiness_state: 'ready_for_availability_check',
+      result: {
+        message_lane: 'new_booking_inquiry',
+        booking_intake_ready: true,
+        readiness_state: 'ready_for_availability_check',
+        extracted_fields: {
+          check_in: '2026-07-10',
+          check_out: '2026-07-17',
+          guest_count: 2,
+          package_interest: 'malibu',
+        },
+        detected_language: 'en',
+      },
+      availability: {
+        availability_check_attempted: true,
+        availability_status: 'available',
+      },
+      quote: {
+        quote_status: 'ready',
+        payment_choice_needed: true,
+        quote_total_cents: 59800,
+        deposit_options: { deposit_required_cents: 20000 },
+      },
+      payment_choice_needed: true,
+    },
+  }), {});
+
+  const fullPlan = fullChainDeposit.hold_payment_draft_plan;
+  if (fullPlan && fullPlan.plan_status === 'ready') pass('J5', 'full chain hold plan ready');
+  else fail('J5', `plan_status=${fullPlan && fullPlan.plan_status}`);
+
+  if (fullPlan && fullPlan.would_create_hold === true) pass('J6', 'would_create_hold true');
+  else fail('J6', `would_create_hold=${fullPlan && fullPlan.would_create_hold}`);
+
+  if (fullPlan && fullPlan.would_create_payment_draft === true) pass('J7', 'would_create_payment_draft true');
+  else fail('J7', `would_create_payment_draft=${fullPlan && fullPlan.would_create_payment_draft}`);
+
+  if (fullPlan && fullPlan.would_create_stripe_link === false) pass('J8', 'would_create_stripe_link false');
+  else fail('J8', `would_create_stripe_link=${fullPlan && fullPlan.would_create_stripe_link}`);
+
+  if (fullChainDeposit.sends_whatsapp === false && fullChainDeposit.live_send_blocked === true) {
+    pass('J9', 'full chain deposit safety flags');
+  } else fail('J9', 'safety flags');
+
   section('K. Non-booking lane');
 
   const svc = await runGuestAutomationOrchestratorDryRun(baseInput({

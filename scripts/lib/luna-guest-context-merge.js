@@ -111,10 +111,52 @@ function normalizeGuestContextForChain(guestContext) {
   return out;
 }
 
+/**
+ * Build chain for 27m hold/payment draft planner when payment choice is ready on a
+ * continuation turn (e.g. "Deposit is fine" classified as general_question).
+ * Uses prior booking result/availability/quote from guest_context; current payment_choice.
+ */
+function buildHoldPaymentDraftPlannerChain(guestContext, currentChain) {
+  const chain = currentChain || {};
+  const pc = chain.payment_choice;
+  if (!pc || pc.payment_choice_ready !== true) return chain;
+  if (pc.next_safe_step !== 'ready_for_hold_payment_draft') return chain;
+
+  const prior = normalizeGuestContextForChain(guestContext);
+  const priorResult = prior.result;
+  const priorAvailability = prior.availability;
+  const priorQuote = prior.quote;
+
+  const priorBookingReady = priorResult
+    && priorResult.message_lane === 'new_booking_inquiry'
+    && priorResult.booking_intake_ready === true
+    && priorResult.readiness_state === 'ready_for_availability_check';
+  const priorAvailReady = priorAvailability
+    && priorAvailability.availability_status === 'available';
+  const priorQuoteReady = priorQuote && priorQuote.quote_status === 'ready';
+
+  if (!priorBookingReady || !priorAvailReady || !priorQuoteReady) return chain;
+
+  const mergedFields = collectPriorExtractedFields(prior);
+  return {
+    result: {
+      ...priorResult,
+      message_lane: 'new_booking_inquiry',
+      booking_intake_ready: true,
+      readiness_state: 'ready_for_availability_check',
+      extracted_fields: mergedFields,
+    },
+    availability: priorAvailability,
+    quote: priorQuote,
+    payment_choice: pc,
+  };
+}
+
 module.exports = {
   mergeGuestExtractedFields,
   collectPriorExtractedFields,
   normalizeGuestContextForChain,
+  buildHoldPaymentDraftPlannerChain,
   mergeServiceInterest,
   EXTRACTED_FIELD_KEYS,
 };
