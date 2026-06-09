@@ -97,10 +97,11 @@ if (src.includes('stripe_checkout_url') && src.includes('lgs-stripe-url')) {
   fail('A6', 'stripe URL display missing');
 }
 
-if (src.includes('lgs-btn-use-context') && src.includes('Use review result as guest_context')) {
-  pass('A7', 'multi-turn guest_context helper');
+if (src.includes('lgs-btn-use-context') && src.includes('Use review result as guest_context')
+    && /extracted_fields:\s*r\.result/.test(src) && /result:\s*r\.result/.test(src)) {
+  pass('A7', 'multi-turn guest_context helper preserves extracted_fields');
 } else {
-  fail('A7', 'guest_context button missing');
+  fail('A7', 'guest_context merge fields missing in simulator');
 }
 
 if (/No WhatsApp sent/i.test(src) && /Stripe TEST/i.test(src)) {

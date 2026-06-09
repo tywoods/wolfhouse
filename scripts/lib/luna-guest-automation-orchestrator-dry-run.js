@@ -23,6 +23,7 @@ const {
 const {
   runGuestHoldPaymentDraftPlannerDryRun,
 } = require('./luna-guest-hold-payment-draft-planner');
+const { normalizeGuestContextForChain } = require('./luna-guest-context-merge');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -393,10 +394,11 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     });
   }
 
+  const chainGuestContext = normalizeGuestContextForChain(inp.guest_context);
+
   const routerContext = {
     reference_date: inp.reference_date || ctx.reference_date,
     language_hint: inp.language_hint,
-    prior_fields: (inp.guest_context && inp.guest_context.prior_fields) || undefined,
     client_slug: trimStr(inp.client_slug) || DEFAULT_CLIENT,
   };
 
@@ -404,11 +406,12 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     {
       message_text: trimStr(inp.message_text),
       language_hint: inp.language_hint,
+      guest_context: chainGuestContext,
     },
     routerContext,
   );
 
-  const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(inp.guest_context);
+  const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext);
 
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
     return buildNonBookingLaneResponse(result, gate);
@@ -429,14 +432,14 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   const quote = runGuestQuoteProposalDryRun(result, availability, chainCtx);
 
   const wireCtx = buildPaymentChoiceWireContext(
-    inp.guest_context,
+    chainGuestContext,
     result,
     availability,
     quote,
   );
 
   let payment_choice;
-  if (shouldAttemptGuestPaymentChoiceWire(inp.guest_context)) {
+  if (shouldAttemptGuestPaymentChoiceWire(chainGuestContext)) {
     payment_choice = runGuestPaymentChoiceDryRun(
       { message_text: trimStr(inp.message_text), language_hint: inp.language_hint },
       wireCtx,

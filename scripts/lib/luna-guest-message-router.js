@@ -8,6 +8,10 @@
  */
 
 const { extractLunaGuestMessageIntake } = require('./luna-guest-message-intake');
+const {
+  mergeGuestExtractedFields,
+  collectPriorExtractedFields,
+} = require('./luna-guest-context-merge');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -228,6 +232,18 @@ function classifyMessageLane(text, guestContext) {
   const ctx = guestContext || {};
   const hasCode = hasBookingCode(t) || !!(ctx.booking_code || ctx.booking_id);
 
+  if (ctx.message_lane === 'new_booking_inquiry'
+    && (ctx.readiness_state === 'collecting_required_details' || ctx.booking_intake_ready === false)
+    && !hasCode
+    && !/\b(?:cancel|refund|reschedule|change my dates)\b/i.test(t)) {
+    if (hasExplicitDates(t)
+      || /\b(?:malibu|uluwatu|waimea|package|paquete|forfait|paket|pacchetto)\b/i.test(t)
+      || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen)\b/i.test(t)
+      || /\b(?:deposit|full amount|pay the|anzahlung|depósito|acompte)\b/i.test(t)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.84 };
+    }
+  }
+
   if (/\b(?:cancel|refund|rimborso|reembolso|stornier|annull|rembours|rückerstattung|ruckerstattung|reschedule|change my dates|cambiar fechas|modifier mes dates)\b/i.test(t)) {
     return {
       lane: 'cancel_or_change_request',
@@ -342,25 +358,23 @@ function extractBookingFields(messageText, context, priorFields) {
     { reference_date: context.reference_date },
   );
 
-  const extracted = {
-    check_in: intake.check_in || prior.check_in || null,
-    check_out: intake.check_out || prior.check_out || null,
-    guest_count: intake.guests != null ? intake.guests : (prior.guest_count != null ? prior.guest_count : null),
-    package_interest: intake.package_code || prior.package_interest || null,
-    transfer_interest: detectTransferInterest(messageText) || prior.transfer_interest || null,
-    service_interest: (intake.add_ons && intake.add_ons.length)
-      ? intake.add_ons
-      : (prior.service_interest || []),
-    payment_preference: intake.payment_choice || prior.payment_preference || null,
+  const current = {
+    check_in: intake.check_in || null,
+    check_out: intake.check_out || null,
+    guest_count: intake.guests != null ? intake.guests : null,
+    package_interest: intake.package_code || null,
+    transfer_interest: detectTransferInterest(messageText) || null,
+    service_interest: (intake.add_ons && intake.add_ons.length) ? intake.add_ons : [],
+    payment_preference: intake.payment_choice || null,
   };
 
   if (detectNoPackageIntent(messageText)) {
-    extracted.package_interest = 'no_package';
-  } else if (!extracted.package_interest && detectAccommodationOnlyIntent(messageText)) {
-    extracted.package_interest = 'accommodation_only';
+    current.package_interest = 'no_package';
+  } else if (!current.package_interest && detectAccommodationOnlyIntent(messageText)) {
+    current.package_interest = 'accommodation_only';
   }
 
-  return extracted;
+  return mergeGuestExtractedFields(prior, current);
 }
 
 function computeReadinessMissingFields(extracted) {
@@ -527,7 +541,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   const ctx = context || {};
   const messageText = src.message_text != null ? String(src.message_text).trim() : '';
   const guestContext = src.guest_context || {};
-  const priorExtracted = guestContext.extracted_fields || {};
+  const priorExtracted = collectPriorExtractedFields(guestContext);
 
   if (!messageText) {
     return {

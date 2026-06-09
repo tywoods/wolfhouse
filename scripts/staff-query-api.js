@@ -23432,11 +23432,17 @@ function lgsUseReviewAsContext(){
   var r = lgsLastReview.review;
   var ctx = {
     message_lane: r.result && r.result.message_lane,
+    intake_state: r.result && r.result.intake_state,
+    readiness_state: r.result && r.result.readiness_state,
+    booking_intake_ready: r.result && r.result.booking_intake_ready,
+    extracted_fields: r.result && r.result.extracted_fields,
+    result: r.result,
+    availability: r.availability,
     quote: r.quote,
     payment_choice_needed: r.quote && r.quote.payment_choice_needed,
-    detected_language: r.result && r.result.detected_language,
-    availability: r.availability,
     payment_choice: r.payment_choice,
+    hold_payment_draft_plan: r.hold_payment_draft_plan,
+    detected_language: r.result && r.result.detected_language,
   };
   lgsEl('lgs-guest-context').value = JSON.stringify(ctx, null, 2);
   lgsSetStatus('guest_context populated from last review.');
