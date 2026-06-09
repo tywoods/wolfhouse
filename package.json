@@ -218,6 +218,7 @@
     "verify:stage27demo-g-confirmation-preview": "node scripts/verify-stage27demo-g-confirmation-preview.js",
     "verify:stage27demo-i-confirmation-send": "node scripts/verify-stage27demo-i-confirmation-send.js",
     "verify:stage27demo-j-n8n-review-pipe": "node scripts/verify-stage27demo-j-n8n-review-pipe.js",
+    "verify:stage27demo-k-n8n-live-reply-pipe": "node scripts/verify-stage27demo-k-n8n-live-reply-pipe.js",
     "open-demo:whatsapp-inbound": "node scripts/run-open-demo-whatsapp-inbound-dry-run.js",
     "luna:guest-torture:generate": "node scripts/generate-luna-guest-torture-fixtures.js",
     "luna:guest-torture": "node scripts/run-luna-guest-torture-tests.js",
