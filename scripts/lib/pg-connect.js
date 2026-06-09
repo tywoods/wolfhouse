@@ -1,7 +1,10 @@
 const path = require('path');
-const { Client } = require('pg');
+const { Pool } = require('pg');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '..', 'infra', '.env') });
+
+/** @type {import('pg').Pool | null} */
+let pool = null;
 
 function getConnectionString() {
   return (
@@ -10,13 +13,24 @@ function getConnectionString() {
   );
 }
 
+function getPool() {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: getConnectionString(),
+      max: Number(process.env.PG_POOL_MAX || 8),
+      connectionTimeoutMillis: Number(process.env.PG_CONNECTION_TIMEOUT_MS || 10000),
+      idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 30000),
+    });
+  }
+  return pool;
+}
+
 async function withPgClient(fn) {
-  const client = new Client({ connectionString: getConnectionString() });
-  await client.connect();
+  const client = await getPool().connect();
   try {
     return await fn(client);
   } finally {
-    await client.end();
+    client.release();
   }
 }
 

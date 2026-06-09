@@ -615,8 +615,7 @@ async function loadAuthSession(req) {
     );
     if (!result.rows[0]) return null;
     const row = result.rows[0];
-    // Slide last_seen_at (fire and forget — no await to avoid blocking response)
-    pgClient.query(
+    await pgClient.query(
       'UPDATE auth_sessions SET last_seen_at = NOW() WHERE id = $1::uuid',
       [row.session_id]
     ).catch(() => {});
