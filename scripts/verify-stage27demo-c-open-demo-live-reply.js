@@ -134,7 +134,9 @@ if (handler.includes('whatsapp_sent')) {
   fail('B6', 'whatsapp_sent flag missing');
 }
 
-if (!handler.includes('runGuestStripeTestLinkCreateApproved')) {
+if (handler.includes('createStripeTestLinkConfirmed') && handler.includes('runGuestStripeTestLinkCreateApproved')) {
+  pass('B7', 'Stripe link helper gated behind create_stripe_test_link_confirmed (27demo-e)');
+} else if (!handler.includes('runGuestStripeTestLinkCreateApproved')) {
   if (handler.includes('runGuestHoldPaymentDraftWriteDryRunApproved')
     && handler.includes('createHoldDraftConfirmed')
     && handler.includes('evaluateOpenDemoBookingWriteGate')) {
@@ -145,7 +147,7 @@ if (!handler.includes('runGuestStripeTestLinkCreateApproved')) {
     fail('B7', 'hold write not properly gated');
   }
 } else {
-  fail('B7', 'forbidden Stripe write helper in handler');
+  fail('B7', 'Stripe link helper called without explicit flag gate');
 }
 
 try {
@@ -157,7 +159,7 @@ try {
 
 section('C. Default dry-run unchanged');
 
-if (handler.includes('if (!sendLiveConfirmed)') || handler.includes('sendLiveConfirmed')) {
+if (handler.includes('if (!sendLiveReplyConfirmed)') || handler.includes('sendLiveReplyConfirmed')) {
   pass('C1', 'default path skips live send when confirm flag absent');
 } else {
   fail('C1', 'dry-run default path unclear');

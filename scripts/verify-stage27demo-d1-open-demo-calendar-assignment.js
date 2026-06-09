@@ -130,10 +130,12 @@ if (handler.includes('calendar_visible_expected') || assignSrc.includes('calenda
   fail('B6', 'calendar_visible_expected missing');
 }
 
-if (!handler.includes('runGuestStripeTestLinkCreateApproved')) {
+if (handler.includes('createStripeTestLinkConfirmed') && handler.includes('runGuestStripeTestLinkCreateApproved')) {
+  pass('B7', 'Stripe link helper gated behind create_stripe_test_link_confirmed');
+} else if (!handler.includes('runGuestStripeTestLinkCreateApproved')) {
   pass('B7', 'handler does not call Stripe link helper');
 } else {
-  fail('B7', 'Stripe link helper called');
+  fail('B7', 'Stripe link helper called without explicit flag gate');
 }
 
 if (!assignBlock.includes('evaluateGuestReplySendRouteWithPause')) {

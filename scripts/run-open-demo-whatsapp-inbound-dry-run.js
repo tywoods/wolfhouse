@@ -99,6 +99,8 @@ Options:
   --send-live-reply-confirmed  Request gated live WhatsApp send (27demo-c; default off)
   --create-demo-hold-draft-confirmed  Request gated hold/draft write on final turn (27demo-d)
   --assign-demo-bed-confirmed  Request demo bed assignment after hold write (27demo-d.1)
+  --create-stripe-test-link-confirmed  Request Stripe TEST checkout link (27demo-e)
+  --send-payment-link-whatsapp-confirmed  Send payment link over WhatsApp when live gates allow (27demo-e)
   --guest-email EMAIL       Optional guest email (required for hold/draft write)
   --json                    Print full JSON response only
   --help                    Show this help
@@ -122,6 +124,8 @@ function parseArgs(argv) {
     sendLiveReplyConfirmed: false,
     createDemoHoldDraftConfirmed: false,
     assignDemoBedConfirmed: false,
+    createStripeTestLinkConfirmed: false,
+    sendPaymentLinkWhatsAppConfirmed: false,
     guestEmail: 'open-demo+34600995555@example.test',
     json: false,
     help: false,
@@ -134,6 +138,8 @@ function parseArgs(argv) {
     else if (a === '--send-live-reply-confirmed') opts.sendLiveReplyConfirmed = true;
     else if (a === '--create-demo-hold-draft-confirmed') opts.createDemoHoldDraftConfirmed = true;
     else if (a === '--assign-demo-bed-confirmed') opts.assignDemoBedConfirmed = true;
+    else if (a === '--create-stripe-test-link-confirmed') opts.createStripeTestLinkConfirmed = true;
+    else if (a === '--send-payment-link-whatsapp-confirmed') opts.sendPaymentLinkWhatsAppConfirmed = true;
     else if (a === '--guest-email') opts.guestEmail = argv[++i];
     else if (a === '--base-url') opts.baseUrl = argv[++i];
     else if (a === '--client-slug') opts.clientSlug = argv[++i];
@@ -228,6 +234,12 @@ function buildPayload(opts, messageText, guestContext, turnIndex, isLastTurn) {
   if (opts.assignDemoBedConfirmed && isLastTurn) {
     payload.assign_demo_bed_confirmed = true;
   }
+  if (opts.createStripeTestLinkConfirmed && isLastTurn) {
+    payload.create_stripe_test_link_confirmed = true;
+  }
+  if (opts.sendPaymentLinkWhatsAppConfirmed && isLastTurn) {
+    payload.send_payment_link_whatsapp_confirmed = true;
+  }
   return payload;
 }
 
@@ -246,6 +258,12 @@ function summarizeResponse(body) {
     send_live_reply_confirmed: body.send_live_reply_confirmed === true,
     create_demo_hold_draft_confirmed: body.create_demo_hold_draft_confirmed === true,
     assign_demo_bed_confirmed: body.assign_demo_bed_confirmed === true,
+    create_stripe_test_link_confirmed: body.create_stripe_test_link_confirmed === true,
+    send_payment_link_whatsapp_confirmed: body.send_payment_link_whatsapp_confirmed === true,
+    stripe_link_created: body.stripe_link_created === true,
+    stripe_link_reused: body.stripe_link_reused === true,
+    stripe_checkout_url: body.stripe_checkout_url || null,
+    payment_link_sent: body.payment_link_sent === true,
     assignment_write_status: body.assignment_write_status || null,
     assigned_bed_label: body.assigned_bed_label || null,
     assigned_room_label: body.assigned_room_label || null,
@@ -288,6 +306,12 @@ async function runTurn(opts, headers, messageText, guestContext, turnIndex, labe
   }
   if (payload.assign_demo_bed_confirmed) {
     console.log('assign_demo_bed_confirmed: true');
+  }
+  if (payload.create_stripe_test_link_confirmed) {
+    console.log('create_stripe_test_link_confirmed: true');
+  }
+  if (payload.send_payment_link_whatsapp_confirmed) {
+    console.log('send_payment_link_whatsapp_confirmed: true');
   }
   console.log(JSON.stringify(summarizeResponse(body), null, 2));
   if (res.status !== 200) console.log(`HTTP ${res.status}`, body.error || '');

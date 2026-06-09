@@ -321,6 +321,15 @@ const {
   wantsSendLiveReplyConfirmed,
   wantsCreateDemoHoldDraftConfirmed,
   wantsAssignDemoBedConfirmed,
+  wantsCreateStripeTestLinkConfirmed,
+  wantsSendPaymentLinkWhatsAppConfirmed,
+  evaluateOpenDemoStripeTestLinkGate,
+  evaluateOpenDemoStripeLinkWriteReady,
+  resolveOpenDemoPaymentDraftRef,
+  buildOpenDemoPaymentLinkSendBody,
+  formatOpenDemoStripeLinkResponse,
+  buildOpenDemoStripeLinkBlockedResponse,
+  buildOpenDemoPaymentLinkSendBlockedResponse,
   buildOpenDemoLiveReplySendBody,
   buildOpenDemoLiveReplyBlockedResponse,
   buildOpenDemoBookingWriteBlockedResponse,
@@ -10669,6 +10678,8 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
   const sendLiveReplyConfirmed = wantsSendLiveReplyConfirmed(body);
   const createHoldDraftConfirmed = wantsCreateDemoHoldDraftConfirmed(body);
   const assignDemoBedConfirmed = wantsAssignDemoBedConfirmed(body);
+  const createStripeTestLinkConfirmed = wantsCreateStripeTestLinkConfirmed(body);
+  const sendPaymentLinkWhatsAppConfirmed = wantsSendPaymentLinkWhatsAppConfirmed(body);
   const hostHeader = String(req.headers.host || '');
 
   try {
@@ -10681,6 +10692,8 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       let liveReply = null;
       let bookingWrite = null;
       let bedAssignment = null;
+      let stripeLink = null;
+      let paymentLinkSend = null;
 
       if (sendLiveReplyConfirmed) {
         const proposedReply = reviewOutcome.body.review
@@ -10842,7 +10855,120 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
         }
       }
 
-      return { reviewOutcome, liveReply, bookingWrite, bedAssignment };
+      if (createStripeTestLinkConfirmed) {
+        const stripeGate = evaluateOpenDemoStripeTestLinkGate(body, process.env);
+        if (!stripeGate.ok) {
+          stripeLink = buildOpenDemoStripeLinkBlockedResponse(stripeGate);
+        } else {
+          let linkReady = evaluateOpenDemoStripeLinkWriteReady(bookingWrite, body);
+          if (!linkReady.ok) {
+            const resolved = await resolveOpenDemoPaymentDraftRef(
+              pg,
+              inboundBody.client_slug,
+              inboundBody.guest_phone,
+            );
+            if (resolved && resolved.payment_draft_id) {
+              linkReady = {
+                ok: true,
+                payment_draft_id: resolved.payment_draft_id,
+                booking_id: resolved.booking_id,
+                booking_code: resolved.booking_code,
+                next_safe_step: 'ready_for_stripe_test_link',
+              };
+            }
+          }
+          if (!linkReady.ok) {
+            stripeLink = {
+              create_stripe_test_link_confirmed: true,
+              stripe_link_attempted: false,
+              stripe_link_created: false,
+              stripe_link_reused: false,
+              stripe_link_status: 'not_ready',
+              stripe_link_block_reasons: linkReady.missing,
+              stripe_checkout_url: null,
+              payment_link_sent: false,
+              sends_whatsapp: false,
+              live_send_blocked: true,
+              confirmation_sent: false,
+            };
+          } else {
+            const linkOut = await runGuestStripeTestLinkCreateApproved({
+              payment_draft_id: linkReady.payment_draft_id,
+              booking_id: linkReady.booking_id,
+              booking_code: linkReady.booking_code,
+              staff_operator: actorId,
+              source: 'open_demo_whatsapp_stripe_test_link_27demo-e',
+            }, {
+              confirm_stripe_test_link: true,
+              env: process.env,
+              host_header: hostHeader,
+              pg,
+            });
+            stripeLink = {
+              create_stripe_test_link_confirmed: true,
+              demo_stripe_test_link: true,
+              reused_stripe_path: 'runGuestStripeTestLinkCreateApproved',
+              ...formatOpenDemoStripeLinkResponse(linkOut),
+              payment_link_sent: false,
+              confirmation_sent: false,
+            };
+          }
+        }
+      }
+
+      if (sendPaymentLinkWhatsAppConfirmed) {
+        if (!createStripeTestLinkConfirmed) {
+          paymentLinkSend = buildOpenDemoPaymentLinkSendBlockedResponse(
+            ['create_stripe_test_link_confirmed_required'],
+          );
+        } else if (!stripeLink || stripeLink.demo_stripe_link_blocked || stripeLink.stripe_link_status === 'not_ready') {
+          paymentLinkSend = buildOpenDemoPaymentLinkSendBlockedResponse(
+            ['stripe_test_link_not_ready'],
+          );
+        } else {
+          const checkoutUrl = stripeLink.stripe_checkout_url || null;
+          if (!checkoutUrl) {
+            paymentLinkSend = buildOpenDemoPaymentLinkSendBlockedResponse(
+              ['missing_stripe_checkout_url'],
+            );
+          } else {
+            const sendGate = evaluateOpenDemoWhatsAppLiveReplyGate(body, process.env);
+            if (!sendGate.ok) {
+              paymentLinkSend = {
+                send_payment_link_whatsapp_confirmed: true,
+                ...buildOpenDemoPaymentLinkSendBlockedResponse([], sendGate),
+              };
+            } else {
+              const sendBody = buildOpenDemoPaymentLinkSendBody(inboundBody, checkoutUrl);
+              const evaluated = await evaluateGuestReplySendRouteWithPause(sendBody, {
+                pg,
+                env: process.env,
+              });
+              const sendResult = evaluated.result || {};
+              const sent = sendResult.send_performed === true && sendResult.sends_whatsapp === true;
+              paymentLinkSend = {
+                send_payment_link_whatsapp_confirmed: true,
+                payment_link_send_attempted: true,
+                payment_link_sent: sent,
+                sends_whatsapp: sent,
+                whatsapp_sent: sent,
+                live_send_blocked: !sent,
+                payment_link_send_gate_blocked: !sent,
+                payment_link_send_gate_code: sent ? null : ((sendResult.blocked_reasons || [])[0] || 'send_blocked'),
+                payment_link_send_error: sent ? null : (sendResult.provider_error || null),
+                reused_send_path: 'evaluateGuestReplySendRouteWithPause',
+                guest_message_send_id: sendResult.guest_message_send_id || null,
+                guest_message_send_status: sendResult.guest_message_send_status || null,
+                whatsapp_message_id: sendResult.whatsapp_message_id || null,
+                idempotency_key: sendBody.idempotency_key,
+                confirmation_sent: false,
+              };
+            }
+          }
+        }
+      }
+
+      return { reviewOutcome, liveReply, bookingWrite, bedAssignment, stripeLink, paymentLinkSend };
     });
     const elapsed = Date.now() - started;
     const reviewOutcome = outcome.reviewOutcome;
@@ -10876,12 +11002,17 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
     const liveReply = outcome.liveReply;
     const bookingWrite = outcome.bookingWrite;
     const bedAssignment = outcome.bedAssignment;
-    const sent = liveReply && liveReply.whatsapp_sent === true;
+    const stripeLink = outcome.stripeLink;
+    const paymentLinkSend = outcome.paymentLinkSend;
+    const paymentLinkSent = paymentLinkSend && paymentLinkSend.payment_link_sent === true;
+    const sent = (liveReply && liveReply.whatsapp_sent === true) || paymentLinkSent === true;
     const writeCreated = bookingWrite
       && (bookingWrite.write_status === 'created' || bookingWrite.write_status === 'reused_existing');
     const bedAssigned = bedAssignment
       && (bedAssignment.assignment_write_status === 'created'
         || bedAssignment.assignment_write_status === 'reused_existing');
+    const stripeLinked = stripeLink
+      && (stripeLink.stripe_link_created === true || stripeLink.stripe_link_reused === true);
 
     const responseBody = {
       ...reviewOutcome.body,
@@ -10895,13 +11026,15 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       send_live_reply_confirmed: sendLiveReplyConfirmed,
       create_demo_hold_draft_confirmed: createHoldDraftConfirmed,
       assign_demo_bed_confirmed: assignDemoBedConfirmed,
+      create_stripe_test_link_confirmed: createStripeTestLinkConfirmed,
+      send_payment_link_whatsapp_confirmed: sendPaymentLinkWhatsAppConfirmed,
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     };
 
     if (liveReply) {
       Object.assign(responseBody, liveReply);
-    } else if (!writeCreated && !bedAssigned) {
+    } else if (!writeCreated && !bedAssigned && !stripeLinked && !paymentLinkSent) {
       responseBody.sends_whatsapp = false;
       responseBody.live_send_blocked = true;
       responseBody.whatsapp_sent = false;
@@ -10915,8 +11048,24 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       Object.assign(responseBody, bedAssignment);
     }
 
+    if (stripeLink) {
+      Object.assign(responseBody, stripeLink);
+    }
+
+    if (paymentLinkSend) {
+      Object.assign(responseBody, paymentLinkSend);
+    }
+
+    if (paymentLinkSent) {
+      responseBody.sends_whatsapp = true;
+      responseBody.whatsapp_sent = true;
+      responseBody.live_send_blocked = false;
+    }
+
     let auditIntent = 'api:bot_open_demo_whatsapp_inbound_dry_run';
-    if (sent) auditIntent = 'api:bot_open_demo_whatsapp_inbound_live_reply';
+    if (paymentLinkSent) auditIntent = 'api:bot_open_demo_whatsapp_payment_link_send';
+    else if (sent) auditIntent = 'api:bot_open_demo_whatsapp_inbound_live_reply';
+    else if (stripeLinked) auditIntent = 'api:bot_open_demo_whatsapp_stripe_test_link';
     else if (bedAssigned) auditIntent = 'api:bot_open_demo_whatsapp_bed_assignment';
     else if (writeCreated) auditIntent = 'api:bot_open_demo_whatsapp_booking_write';
 
@@ -10924,22 +11073,27 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       ts:                 new Date().toISOString(),
       intent:             auditIntent,
       category:           'open_demo_whatsapp_inbound',
-      dry_run:            !sent && !writeCreated && !bedAssigned,
-      preview_only:       !sent && !writeCreated && !bedAssigned,
+      dry_run:            !sent && !writeCreated && !bedAssigned && !stripeLinked,
+      preview_only:       !sent && !writeCreated && !bedAssigned && !stripeLinked,
       sends_whatsapp:     sent,
       live_send_blocked:  !sent,
       creates_booking:    writeCreated,
       creates_payment:    writeCreated,
-      creates_stripe_link: false,
+      creates_stripe_link: stripeLinked,
       review_persistence_performed: responseBody.review_persistence_performed === true,
       idempotent_replay:  responseBody.idempotent_replay === true,
       success:            responseBody.success === true,
       proposed_next_action: responseBody.review && responseBody.review.proposed_next_action,
       write_status:       bookingWrite && bookingWrite.write_status,
-      booking_code:       bookingWrite && bookingWrite.booking_code,
-      payment_draft_id:   bookingWrite && bookingWrite.payment_draft_id,
+      booking_code:       (bookingWrite && bookingWrite.booking_code)
+        || (stripeLink && stripeLink.booking_code),
+      payment_draft_id:   (bookingWrite && bookingWrite.payment_draft_id)
+        || (stripeLink && stripeLink.payment_draft_id),
       assignment_write_status: bedAssignment && bedAssignment.assignment_write_status,
-      whatsapp_message_id: liveReply && liveReply.whatsapp_message_id,
+      stripe_checkout_url: stripeLink && stripeLink.stripe_checkout_url,
+      payment_link_sent:  paymentLinkSent,
+      whatsapp_message_id: (liveReply && liveReply.whatsapp_message_id)
+        || (paymentLinkSend && paymentLinkSend.whatsapp_message_id),
       staff_user_id:      actorId,
       auth_mode:          resolvedAuthMode,
       elapsed_ms:         elapsed,

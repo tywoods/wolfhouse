@@ -164,10 +164,12 @@ if (handler.includes('stripe_link_created:              false')) {
   fail('B7', 'stripe_link_created safety overlay missing');
 }
 
-if (!handler.includes('runGuestStripeTestLinkCreateApproved')) {
+if (handler.includes('createStripeTestLinkConfirmed') && handler.includes('runGuestStripeTestLinkCreateApproved')) {
+  pass('B8', 'Stripe link helper gated behind create_stripe_test_link_confirmed');
+} else if (!handler.includes('runGuestStripeTestLinkCreateApproved')) {
   pass('B8', 'handler does not call Stripe link helper');
 } else {
-  fail('B8', 'Stripe link helper called from handler');
+  fail('B8', 'Stripe link helper called without explicit flag gate');
 }
 
 if (!handler.includes('sendConfirmation') && !/confirmation.*send/i.test(handlerCode)) {

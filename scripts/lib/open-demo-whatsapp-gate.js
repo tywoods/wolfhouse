@@ -142,6 +142,228 @@ function wantsAssignDemoBedConfirmed(body) {
     || b.assign_demo_bed_confirmed === 'true';
 }
 
+function wantsCreateStripeTestLinkConfirmed(body) {
+  const b = body || {};
+  return b.create_stripe_test_link_confirmed === true
+    || b.create_stripe_test_link_confirmed === 'true';
+}
+
+function wantsSendPaymentLinkWhatsAppConfirmed(body) {
+  const b = body || {};
+  return b.send_payment_link_whatsapp_confirmed === true
+    || b.send_payment_link_whatsapp_confirmed === 'true';
+}
+
+function isOpenDemoStripeTestLinksEnabled(env) {
+  const e = env || process.env;
+  return e.OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED === 'true';
+}
+
+function isStripeTestSecretKey(env) {
+  const key = trimEnv((env || process.env).STRIPE_SECRET_KEY);
+  return key.startsWith('sk_test_');
+}
+
+function isStripeLiveSecretKey(env) {
+  const key = trimEnv((env || process.env).STRIPE_SECRET_KEY);
+  return key.startsWith('sk_live_');
+}
+
+/**
+ * Open demo Stripe TEST link gate — staging only, explicit env, test key required.
+ * @returns {{ ok: boolean, status?: number, error?: string, code?: string }}
+ */
+function evaluateOpenDemoStripeTestLinkGate(body, env) {
+  const inboundGate = evaluateOpenDemoWhatsAppGate(body, env);
+  if (!inboundGate.ok) return inboundGate;
+
+  const e = env || process.env;
+  if (isProductionEnvironment(e)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'production_blocked',
+      error: 'open demo Stripe test links are disabled in production',
+    };
+  }
+  if (!isOpenDemoStripeTestLinksEnabled(e)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'stripe_test_links_disabled',
+      error: 'open demo Stripe test links disabled (set OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED=true)',
+    };
+  }
+  if (!isOpenDemoBookingWritesEnabled(e)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'booking_writes_disabled',
+      error: 'open demo Stripe test links require OPEN_DEMO_BOOKING_WRITES_ENABLED=true',
+    };
+  }
+  if (e.STRIPE_LINKS_ENABLED !== 'true') {
+    return {
+      ok: false,
+      status: 403,
+      code: 'stripe_links_disabled',
+      error: 'STRIPE_LINKS_ENABLED=true required for open demo Stripe test links',
+    };
+  }
+  if (isStripeLiveSecretKey(e)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'stripe_live_key_blocked',
+      error: 'sk_live_ keys are forbidden for open demo Stripe test links',
+    };
+  }
+  if (!trimEnv(e.STRIPE_SECRET_KEY)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'stripe_secret_missing',
+      error: 'STRIPE_SECRET_KEY is required',
+    };
+  }
+  if (!isStripeTestSecretKey(e)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'stripe_test_mode_required',
+      error: 'Stripe test mode (sk_test_) required for open demo links',
+    };
+  }
+  if (e.STAFF_ACTIONS_ENABLED !== 'true') {
+    return {
+      ok: false,
+      status: 403,
+      code: 'staff_actions_disabled',
+      error: 'STAFF_ACTIONS_ENABLED=true required for Stripe test link creation',
+    };
+  }
+  return { ok: true };
+}
+
+function evaluateOpenDemoStripeLinkWriteReady(bookingWrite, body) {
+  const bw = bookingWrite || {};
+  const b = body || {};
+  const draftId = trimEnv(bw.payment_draft_id) || trimEnv(b.payment_draft_id);
+  const writeOk = bw.write_status === 'created' || bw.write_status === 'reused_existing';
+  if (draftId && (writeOk || trimEnv(b.payment_draft_id))) {
+    return {
+      ok: true,
+      payment_draft_id: draftId,
+      booking_id: trimEnv(bw.booking_id) || trimEnv(b.booking_id) || null,
+      booking_code: trimEnv(bw.booking_code) || trimEnv(b.booking_code) || null,
+      next_safe_step: bw.next_safe_step || 'ready_for_stripe_test_link',
+    };
+  }
+  return { ok: false, missing: ['payment_draft_not_ready'] };
+}
+
+async function resolveOpenDemoPaymentDraftRef(pg, clientSlug, guestPhone) {
+  if (!pg || !trimEnv(clientSlug) || !trimEnv(guestPhone)) return null;
+  const { rows } = await pg.query(
+    `SELECT b.booking_code,
+            b.id::text AS booking_id,
+            p.id::text AS payment_draft_id,
+            p.status::text AS payment_status,
+            p.checkout_url
+       FROM bookings b
+       INNER JOIN clients c ON c.id = b.client_id
+       INNER JOIN payments p ON p.booking_id = b.id
+      WHERE c.slug = $1
+        AND b.phone = $2
+        AND p.status IN ('draft', 'checkout_created', 'pending')
+      ORDER BY b.created_at DESC
+      LIMIT 1`,
+    [clientSlug, guestPhone],
+  );
+  return rows[0] || null;
+}
+
+function buildOpenDemoPaymentLinkMessage(checkoutUrl) {
+  const url = trimEnv(checkoutUrl);
+  if (!url) return '';
+  return `Perfect, here's the secure test payment link for your deposit: ${url}`;
+}
+
+function buildOpenDemoPaymentLinkSendBody(normalized, checkoutUrl) {
+  const n = normalized || {};
+  const message = buildOpenDemoPaymentLinkMessage(checkoutUrl);
+  const idempotencyKey = `open-demo:${n.client_slug}:whatsapp:${n.inbound_message_id}:payment-link`;
+  return {
+    client_slug: n.client_slug,
+    to: n.guest_phone,
+    suggested_reply: message,
+    send_kind: 'staff_reply',
+    idempotency_key: idempotencyKey,
+    source: 'open_demo_whatsapp_payment_link',
+    draft: {
+      creates_booking: false,
+      creates_payment: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+    },
+    send_eligibility: {
+      send_allowed_later: true,
+      requires_staff: false,
+      auto_send_ready: true,
+    },
+  };
+}
+
+function formatOpenDemoStripeLinkResponse(linkOut) {
+  const out = { ...(linkOut || {}) };
+  out.confirmation_sent = false;
+  if (out.idempotent === true && out.stripe_link_created) {
+    out.stripe_link_reused = true;
+  } else if (out.stripe_link_created) {
+    out.stripe_link_reused = false;
+  }
+  if (!out.next_safe_step && out.stripe_checkout_url) {
+    out.next_safe_step = 'awaiting_payment_truth';
+  }
+  return out;
+}
+
+function buildOpenDemoStripeLinkBlockedResponse(gateResult, extra) {
+  const blocked = gateResult || {};
+  return {
+    create_stripe_test_link_confirmed: true,
+    demo_stripe_link_blocked: true,
+    demo_stripe_link_gate_code: blocked.code || 'blocked',
+    demo_stripe_link_error: blocked.error || null,
+    stripe_link_attempted: false,
+    stripe_link_created: false,
+    stripe_link_reused: false,
+    stripe_checkout_url: null,
+    payment_link_sent: false,
+    sends_whatsapp: false,
+    live_send_blocked: true,
+    confirmation_sent: false,
+    ...(extra || {}),
+  };
+}
+
+function buildOpenDemoPaymentLinkSendBlockedResponse(reasons, gateResult) {
+  const blocked = gateResult || {};
+  return {
+    send_payment_link_whatsapp_confirmed: true,
+    payment_link_send_attempted: true,
+    payment_link_sent: false,
+    sends_whatsapp: false,
+    whatsapp_sent: false,
+    live_send_blocked: true,
+    payment_link_send_gate_blocked: true,
+    payment_link_send_gate_code: blocked.code || 'blocked',
+    payment_link_send_error: blocked.error || null,
+    payment_link_send_block_reasons: reasons || [],
+    confirmation_sent: false,
+  };
+}
+
 function evaluateOpenDemoBedAssignmentWriteReady(bookingWrite) {
   const bw = bookingWrite || {};
   const ws = bw.write_status;
@@ -366,6 +588,19 @@ module.exports = {
   wantsSendLiveReplyConfirmed,
   wantsCreateDemoHoldDraftConfirmed,
   wantsAssignDemoBedConfirmed,
+  wantsCreateStripeTestLinkConfirmed,
+  wantsSendPaymentLinkWhatsAppConfirmed,
+  isOpenDemoStripeTestLinksEnabled,
+  isStripeTestSecretKey,
+  isStripeLiveSecretKey,
+  evaluateOpenDemoStripeTestLinkGate,
+  evaluateOpenDemoStripeLinkWriteReady,
+  resolveOpenDemoPaymentDraftRef,
+  buildOpenDemoPaymentLinkMessage,
+  buildOpenDemoPaymentLinkSendBody,
+  formatOpenDemoStripeLinkResponse,
+  buildOpenDemoStripeLinkBlockedResponse,
+  buildOpenDemoPaymentLinkSendBlockedResponse,
   evaluateOpenDemoWhatsAppGate,
   evaluateOpenDemoWhatsAppLiveReplyGate,
   evaluateOpenDemoBookingWriteGate,
