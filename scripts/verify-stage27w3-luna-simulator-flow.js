@@ -261,5 +261,26 @@ if (fs.existsSync(DOC)) {
   fail('I3', 'flow tests doc missing');
 }
 
+section('J. Hold/draft write holdMeta (27w.6)');
+
+const WRITE_MOD = path.join(__dirname, 'lib', 'luna-guest-hold-payment-draft-write.js');
+const writeSrc = fs.readFileSync(WRITE_MOD, 'utf8');
+const holdMetaIdx = writeSrc.indexOf('const holdMeta =');
+
+if (holdMetaIdx > -1) pass('J1', 'write module defines holdMeta');
+else fail('J1', 'write module missing holdMeta definition');
+
+if (holdMetaIdx > -1 && writeSrc.indexOf('metadata: holdMeta') > holdMetaIdx) {
+  pass('J2', 'holdMeta defined before upsert metadata use');
+} else {
+  fail('J2', 'holdMeta used before definition');
+}
+
+if (src.includes('guest-simulator-create-hold-draft')) {
+  pass('J3', 'harness targets hold/draft write route');
+} else {
+  fail('J3', 'hold/draft route missing from harness');
+}
+
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
 process.exit(failures > 0 ? 1 : 0);

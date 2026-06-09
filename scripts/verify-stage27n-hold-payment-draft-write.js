@@ -204,7 +204,39 @@ section('D. Write blocked without confirm_write');
     fail('G2', 'planner idempotency key missing');
   }
 
-  section('H. Reused path representation (mock pg)');
+  section('H. holdMeta defined before upsert');
+
+  const holdMetaIdx = writeSrc.indexOf('const holdMeta =');
+  const upsertIdx = writeSrc.indexOf('upsertBookingHold(pg, clientRes.client_id, holdInput');
+  if (holdMetaIdx > -1 && upsertIdx > holdMetaIdx) {
+    pass('H0a', 'holdMeta const defined before upsertBookingHold');
+  } else {
+    fail('H0a', 'holdMeta must be defined before upsertBookingHold');
+  }
+
+  if (!/metadata:\s*holdMeta/.test(writeSrc) || holdMetaIdx > -1) {
+    pass('H0b', 'no undefined holdMeta reference at upsert metadata');
+  } else {
+    fail('H0b', 'holdMeta used without definition');
+  }
+
+  for (const field of ['idempotency_key', 'payment_kind', 'source', 'stage']) {
+    if (new RegExp(`holdMeta[\\s\\S]{0,400}${field}`).test(writeSrc)) {
+      pass(`H0c.${field}`, `holdMeta includes ${field}`);
+    } else {
+      fail(`H0c.${field}`, `holdMeta missing ${field}`);
+    }
+  }
+
+  if (!/checkout_url|stripe_checkout|whatsapp|n8n/i.test(
+    writeSrc.slice(holdMetaIdx, holdMetaIdx > -1 ? holdMetaIdx + 600 : 0),
+  )) {
+    pass('H0d', 'holdMeta excludes Stripe/WhatsApp/n8n fields');
+  } else {
+    fail('H0d', 'holdMeta must not include send/link secrets');
+  }
+
+  section('I. Reused path representation (mock pg)');
 
   const mockPg = {
     queries: [],
@@ -250,29 +282,115 @@ section('D. Write blocked without confirm_write');
     guest_phone: '+34600111222',
   });
 
-  if (reused.write_status === 'reused_existing') pass('H1', 'mock pg reuse path');
-  else fail('H1', `expected reused_existing got ${reused.write_status}`);
+  if (reused.write_status === 'reused_existing') pass('I1', 'mock pg reuse path');
+  else fail('I1', `expected reused_existing got ${reused.write_status}`);
 
   if (reused.booking_id === 'bk-mock-1' && reused.payment_draft_id === 'pay-mock-1') {
-    pass('H2', 'reused ids returned');
+    pass('I2', 'reused ids returned');
   } else {
-    fail('H2', 'reused booking/payment ids missing');
+    fail('I2', 'reused booking/payment ids missing');
   }
 
   if (reused.next_safe_step === 'ready_for_stripe_test_link') {
-    pass('H3', 'next_safe_step ready_for_stripe_test_link');
+    pass('I3', 'next_safe_step ready_for_stripe_test_link');
   } else {
-    fail('H3', `unexpected next_safe_step ${reused.next_safe_step}`);
+    fail('I3', `unexpected next_safe_step ${reused.next_safe_step}`);
   }
 
-  section('I. Source — no forbidden side effects');
+  section('J. Created path (mock pg)');
+
+  const createMockPg = {
+    queries: [],
+    async query(sql, params) {
+      this.queries.push({ sql, params });
+      const s = String(sql);
+      if (/FROM bookings b/.test(s) && /idempotency_key/.test(s)) {
+        return { rows: [] };
+      }
+      if (/FROM clients WHERE slug/.test(s)) {
+        return { rows: [{ id: 'client-mock-create', slug: 'wolfhouse-somo' }] };
+      }
+      if (/FROM bookings/.test(s) && /phone = \$2/.test(s) && /status::text = ANY/.test(s)) {
+        return { rows: [] };
+      }
+      if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') {
+        return { rows: [] };
+      }
+      if (/SELECT id::text AS booking_id FROM bookings WHERE client_id/.test(s)) {
+        return { rows: [] };
+      }
+      if (/INSERT INTO bookings/.test(s)) {
+        return {
+          rows: [{
+            booking_id: 'bk-created-mock',
+            booking_code: params[1] || 'WH-G27-CREATE',
+            status: 'hold',
+            payment_status: 'waiting_payment',
+            assignment_status: 'unassigned',
+            availability_check_status: 'checked',
+            airtable_record_id: null,
+            primary_room_code: null,
+          }],
+        };
+      }
+      if (/UPDATE bookings[\s\S]*metadata = COALESCE/.test(s)) {
+        return { rows: [] };
+      }
+      if (/INSERT INTO payments/.test(s)) {
+        return {
+          rows: [{
+            payment_draft_id: 'pay-created-mock',
+            amount_due_cents: planner.payment_amount_cents,
+          }],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const created = await runGuestHoldPaymentDraftWriteDryRunApproved(chain, {
+    env: stagingEnv,
+    confirm_write: true,
+    planner,
+    pg: createMockPg,
+    guest_name: 'Test Guest',
+    guest_email: 'test@example.com',
+    guest_phone: '+34600111222',
+    source: 'luna_guest_simulator',
+  });
+
+  if (created.write_status === 'created') {
+    pass('J1', 'mock pg create path reaches created');
+  } else {
+    fail('J1', `expected created got ${created.write_status} reasons=${JSON.stringify(created.write_block_reasons)}`);
+  }
+
+  if (created.booking_id === 'bk-created-mock' && created.payment_draft_id === 'pay-created-mock') {
+    pass('J2', 'created booking and payment draft ids returned');
+  } else {
+    fail('J2', 'created ids missing');
+  }
+
+  if (!created.write_block_reasons.includes('holdMeta is not defined')) {
+    pass('J3', 'create path does not hit holdMeta ReferenceError');
+  } else {
+    fail('J3', 'holdMeta still undefined at runtime');
+  }
+
+  if (created.next_safe_step === 'ready_for_stripe_test_link' && created.stripe_link_created === false) {
+    pass('J4', 'created path ready for stripe test link without creating link');
+  } else {
+    fail('J4', 'created safety/next step wrong');
+  }
+
+  section('K. Source — no forbidden side effects');
 
   const forbidden = [
-    ['I.stripe', /api\.stripe\.com|createStripe|checkout\.sessions|require\(['"]stripe['"]\)/i],
-    ['I.whatsapp', /graph\.facebook\.com|sendWhatsApp/i],
-    ['I.n8n', /fetch\s*\([^)]*n8n|activateWorkflow/i],
-    ['I.payment_link', /create-stripe-link|createPaymentLink|payment_link_sent:\s*true/i],
-    ['I.live_send', /live_send:\s*true|sends_whatsapp:\s*true/i],
+    ['K.stripe', /api\.stripe\.com|createStripe|checkout\.sessions|require\(['"]stripe['"]\)/i],
+    ['K.whatsapp', /graph\.facebook\.com|sendWhatsApp/i],
+    ['K.n8n', /fetch\s*\([^)]*n8n|activateWorkflow/i],
+    ['K.payment_link', /create-stripe-link|createPaymentLink|payment_link_sent:\s*true/i],
+    ['K.live_send', /live_send:\s*true|sends_whatsapp:\s*true/i],
   ];
   for (const [id, re] of forbidden) {
     if (!re.test(writeSrc)) pass(id, 'write source clean');
@@ -280,51 +398,51 @@ section('D. Write blocked without confirm_write');
   }
 
   if (/upsertBookingHold/.test(writeSrc) && /main-booking-hold-pg-sql/.test(writeSrc)) {
-    pass('I.hold', 'reuses upsertBookingHold from main-booking-hold-pg-sql');
+    pass('K.hold', 'reuses upsertBookingHold from main-booking-hold-pg-sql');
   } else {
-    fail('I.hold', 'must reuse upsertBookingHold');
+    fail('K.hold', 'must reuse upsertBookingHold');
   }
 
   if (/INSERT INTO payments/.test(writeSrc) && /'draft'::payment_record_status/.test(writeSrc)) {
-    pass('I.payment', 'draft payment insert uses payments table draft status');
+    pass('K.payment', 'draft payment insert uses payments table draft status');
   } else {
-    fail('I.payment', 'draft payment insert pattern missing');
+    fail('K.payment', 'draft payment insert pattern missing');
   }
 
   if (!/would_create_stripe_link:\s*true/.test(writeSrc)) {
-    pass('I.no_stripe_flag', 'never sets would_create_stripe_link true');
+    pass('K.no_stripe_flag', 'never sets would_create_stripe_link true');
   } else {
-    fail('I.no_stripe_flag', 'must not enable stripe link creation');
+    fail('K.no_stripe_flag', 'must not enable stripe link creation');
   }
 
-  section('J. Reply safety');
+  section('L. Reply safety');
 
   const replies = [blocked, prodBlocked, reused];
   for (const [i, r] of replies.entries()) {
     if (!FORBIDDEN_REPLY_RE.test(r.proposed_luna_reply || '')) {
-      pass(`J.${i}`, 'reply avoids forbidden phrases');
+      pass(`L.${i}`, 'reply avoids forbidden phrases');
     } else {
-      fail(`J.${i}`, `forbidden phrase: ${(r.proposed_luna_reply || '').slice(0, 80)}`);
+      fail(`L.${i}`, `forbidden phrase: ${(r.proposed_luna_reply || '').slice(0, 80)}`);
     }
   }
 
-  section('K. Write status enum');
+  section('M. Write status enum');
 
   for (const status of VALID_WRITE_STATUSES) {
-    pass(`K.${status}`, `valid write_status: ${status}`);
+    pass(`M.${status}`, `valid write_status: ${status}`);
   }
 
   for (const [flag, val] of Object.entries(WRITE_SAFETY)) {
     if (blocked[flag] === val || prodBlocked[flag] === val) {
-      pass(`K.safe.${flag}`, `${flag}=${val} on blocked responses`);
+      pass(`M.safe.${flag}`, `${flag}=${val} on blocked responses`);
     } else if (flag === 'dry_run' && blocked.dry_run === false) {
-      pass(`K.safe.${flag}`, 'write path sets dry_run false (actual write module)');
+      pass(`M.safe.${flag}`, 'write path sets dry_run false (actual write module)');
     } else {
-      pass(`K.safe.${flag}`, `${flag} present on responses`);
+      pass(`M.safe.${flag}`, `${flag} present on responses`);
     }
   }
 
-  section('L. Doc files');
+  section('N. Doc files');
 
   if (fs.existsSync(DOC)) pass('L1', 'STAGE-27N doc exists');
   else fail('L1', 'missing STAGE-27N doc');

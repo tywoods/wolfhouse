@@ -321,6 +321,25 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
     captured_at: new Date().toISOString(),
   };
 
+  const holdMeta = {
+    source: WRITE_SOURCE,
+    stage: '27n_guest_simulator',
+    write_source: trimStr(ctx.source) || 'luna_guest_hold_payment_draft',
+    idempotency_key: idempotencyKey,
+    payment_kind: planner.payment_kind,
+    payment_choice: chain.payment_choice?.payment_choice || planner.payment_kind,
+    quote_snapshot_ref: {
+      quote_total_cents: quote.quote_total_cents,
+      quote_status: quote.quote_status,
+      payment_kind: planner.payment_kind,
+    },
+    guest: {
+      name: guestName,
+      phone: guestPhone,
+      email: guestEmail,
+    },
+  };
+
   await pg.query('BEGIN');
   try {
     const holdOutcome = await upsertBookingHold(pg, clientRes.client_id, holdInput, {

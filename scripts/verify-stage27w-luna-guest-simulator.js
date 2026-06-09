@@ -352,5 +352,38 @@ if (fs.existsSync(MERGE) && fs.readFileSync(MERGE, 'utf8').includes('buildGuestS
   fail('G6', 'buildGuestSimulatorWriteChain missing');
 }
 
+section('H. Write module holdMeta (27w.6)');
+
+const WRITE_MOD = path.join(__dirname, 'lib', 'luna-guest-hold-payment-draft-write.js');
+const writeSrc = fs.readFileSync(WRITE_MOD, 'utf8');
+const holdMetaDef = writeSrc.indexOf('const holdMeta =');
+const upsertUse = writeSrc.indexOf('metadata: holdMeta');
+
+if (holdMetaDef > -1 && upsertUse > holdMetaDef) {
+  pass('H1', 'holdMeta defined before upsert metadata reference');
+} else {
+  fail('H1', 'holdMeta must be defined before use in write module');
+}
+
+if (/idempotency_key/.test(writeSrc.slice(holdMetaDef, holdMetaDef + 500))) {
+  pass('H2', 'holdMeta carries idempotency_key');
+} else {
+  fail('H2', 'holdMeta missing idempotency_key');
+}
+
+if (!/holdMeta is not defined/.test(writeSrc) && holdMetaDef > -1) {
+  pass('H3', 'write module has no bare undefined holdMeta');
+} else {
+  fail('H3', 'holdMeta reference still broken');
+}
+
+if (!/api\.stripe\.com|sendWhatsApp|graph\.facebook|n8n/i.test(
+  writeSrc.slice(holdMetaDef, holdMetaDef > -1 ? holdMetaDef + 700 : 0),
+)) {
+  pass('H4', 'holdMeta block excludes Stripe/WhatsApp/n8n');
+} else {
+  fail('H4', 'holdMeta must not include outbound send/link data');
+}
+
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
 process.exit(failures > 0 ? 1 : 0);
