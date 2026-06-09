@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-09 (**Stage 27demo-a — Open WhatsApp booking + Stripe TEST demo design**): **DESIGN LOCK** (docs only). Open demo on staging WhatsApp number — no guest phone allowlist; n8n pipe + Staff API brain; Stripe TEST only. Stability baseline **`51977c6-stage27test-t1-pg-pool`**. Verifier: `verify:stage27demo-a-open-whatsapp-stripe-design`. Doc: [STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md](STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md). **Next:** 27demo-b n8n inbound pipe (no live send).
+**Last updated:** 2026-06-09 (**Stage 27demo — Open WhatsApp demo closeout**): **PASS** full chain **27demo-a → 27demo-i** on staging. Anchor booking **`WH-G27-850FDAFDB9`** — deposit paid, confirmation sent once, idempotency normalized. Final image **`2d4dfde-stage27demo-i-confirmation-send`**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md). Verifier: `verify:stage27demo-i-confirmation-send`. **Next:** production cutover planning (not open-demo repeat).
+
+**Prior — Stage 27demo-a (2026-06-09):** **DESIGN LOCK** (docs only). Open demo on staging WhatsApp number — no guest phone allowlist; n8n pipe + Staff API brain; Stripe TEST only. Stability baseline **`51977c6-stage27test-t1-pg-pool`**. Verifier: `verify:stage27demo-a-open-whatsapp-stripe-design`. Doc: [STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md](STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md).
 
 **Prior — Stage 27test-t.1 (2026-06-09):** Shared Postgres pool — **PASS** hosted proof. Commit **`51977c6`** → `51977c6-stage27test-t1-pg-pool`. Hosted torture **565/565** · ETIMEDOUT eliminated · portal responsive.
 

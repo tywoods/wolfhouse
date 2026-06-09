@@ -216,6 +216,7 @@
     "verify:stage27demo-d1-open-demo-calendar-assignment": "node scripts/verify-stage27demo-d1-open-demo-calendar-assignment.js",
     "verify:stage27demo-e-stripe-test-link-whatsapp": "node scripts/verify-stage27demo-e-stripe-test-link-whatsapp.js",
     "verify:stage27demo-g-confirmation-preview": "node scripts/verify-stage27demo-g-confirmation-preview.js",
+    "verify:stage27demo-i-confirmation-send": "node scripts/verify-stage27demo-i-confirmation-send.js",
     "open-demo:whatsapp-inbound": "node scripts/run-open-demo-whatsapp-inbound-dry-run.js",
     "luna:guest-torture:generate": "node scripts/generate-luna-guest-torture-fixtures.js",
     "luna:guest-torture": "node scripts/run-luna-guest-torture-tests.js",

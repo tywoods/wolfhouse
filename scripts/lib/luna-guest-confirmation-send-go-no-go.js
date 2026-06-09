@@ -109,10 +109,21 @@ function buildBlockedSendResponse(partial) {
   };
 }
 
+function isConfirmationSendIdempotentReplay(sendResult) {
+  if (!sendResult || typeof sendResult !== 'object') return false;
+  if (sendResult.idempotent_replay === true || sendResult.duplicate === true) return true;
+  if (sendResult.confirmation_already_sent === true) return true;
+  if (sendResult.send_skipped_reason === 'confirmation_sent_at_already_set') return true;
+  return false;
+}
+
 function normalizeSendStatus(sendResult, env) {
   const reasons = sendResult.blocked_reasons || [];
   if (sendResult.send_performed === true && sendResult.sends_whatsapp === true) {
     return 'sent';
+  }
+  if (isConfirmationSendIdempotentReplay(sendResult)) {
+    return 'idempotent_replay';
   }
   if (reasons.includes('whatsapp_dry_run_active') || sendResult.dry_run === true) {
     return 'blocked_dry_run';
@@ -126,7 +137,7 @@ function normalizeSendStatus(sendResult, env) {
 }
 
 function resolveNextSafeStep(sendStatus, previewReady) {
-  if (sendStatus === 'sent') return 'confirmation_sent';
+  if (sendStatus === 'sent' || sendStatus === 'idempotent_replay') return 'confirmation_sent';
   if (sendStatus === 'blocked_dry_run') return 'confirmation_send_audit_only';
   if (sendStatus === 'recipient_not_allowlisted') return 'awaiting_confirmation_send_go_no_go';
   if (sendStatus === 'not_approved') return 'awaiting_confirmation_send_go_no_go';
@@ -292,12 +303,19 @@ async function runGuestConfirmationSendGoNoGo(input, context) {
 
   const sendResult = (evaluated && evaluated.result) || {};
   const sendStatus = normalizeSendStatus(sendResult, env);
-  const sendsWhatsapp = sendResult.sends_whatsapp === true;
+  const isIdempotentReplay = sendStatus === 'idempotent_replay';
+  const sendsWhatsapp = sendResult.sends_whatsapp === true && !isIdempotentReplay;
   const liveSendBlocked = dryRun || !sendsWhatsapp;
   const recipientAllowlisted = dryRun ? null : isConfirmationLiveSendRecipientAllowlisted(to, env);
+  const confirmationSent = sendStatus === 'sent'
+    || (isIdempotentReplay && (
+      sendResult.confirmation_already_sent === true
+      || !!sendResult.confirmation_sent_at
+      || sendResult.guest_message_send_status === 'sent'
+    ));
 
   return {
-    success: sendStatus === 'sent' || sendStatus === 'blocked_dry_run',
+    success: sendStatus === 'sent' || sendStatus === 'blocked_dry_run' || isIdempotentReplay,
     ...SEND_SAFETY,
     ...baseOut,
     send_attempted: true,
@@ -308,23 +326,28 @@ async function runGuestConfirmationSendGoNoGo(input, context) {
     live_send_allowlist_checked: !dryRun,
     recipient_allowlisted: recipientAllowlisted,
     live_send_allowlist: dryRun ? null : parseConfirmationLiveSendAllowlist(env),
-    confirmation_sent: sendStatus === 'sent',
+    confirmation_sent: confirmationSent,
+    idempotent_replay: isIdempotentReplay,
+    duplicate_send_blocked: isIdempotentReplay,
     send_performed: sendResult.send_performed === true,
     would_send_whatsapp: sendResult.would_send_whatsapp === true,
     guest_message_send_id: sendResult.guest_message_send_id || null,
     guest_message_send_status: sendResult.guest_message_send_status || null,
     whatsapp_message_id: sendResult.whatsapp_message_id || null,
+    confirmation_sent_at: sendResult.confirmation_sent_at || null,
     updates_confirmation_sent_at: sendResult.updates_confirmation_sent_at === true,
     blocked_reasons: sendResult.blocked_reasons || [],
     next_safe_step: resolveNextSafeStep(sendStatus, true),
     message_sent: sendResult.message_preview || message,
-    staff_notice: sendStatus === 'blocked_dry_run'
-      ? 'Send gate exercised under WHATSAPP_DRY_RUN — audit only, no live WhatsApp.'
-      : (sendStatus === 'sent'
-        ? 'Confirmation sent via gated allowlisted path.'
-        : (sendStatus === 'recipient_not_allowlisted'
-          ? 'Live send blocked — recipient not on staging allowlist.'
-          : 'Confirmation send blocked by gate — review blocked_reasons.')),
+    staff_notice: isIdempotentReplay
+      ? 'Confirmation already sent or idempotent replay — duplicate send blocked, no second WhatsApp.'
+      : (sendStatus === 'blocked_dry_run'
+        ? 'Send gate exercised under WHATSAPP_DRY_RUN — audit only, no live WhatsApp.'
+        : (sendStatus === 'sent'
+          ? 'Confirmation sent via gated allowlisted path.'
+          : (sendStatus === 'recipient_not_allowlisted'
+            ? 'Live send blocked — recipient not on staging allowlist.'
+            : 'Confirmation send blocked by gate — review blocked_reasons.'))),
   };
 }
 
@@ -339,6 +362,7 @@ module.exports = {
   buildPreviewLoaderFrom27q,
   classifyPreviewBlock,
   normalizeSendStatus,
+  isConfirmationSendIdempotentReplay,
   isWhatsappDryRun,
   REUSED_SEND_PATH,
   SEND_SAFETY,
