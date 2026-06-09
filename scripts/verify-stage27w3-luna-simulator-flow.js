@@ -282,5 +282,86 @@ if (src.includes('guest-simulator-create-hold-draft')) {
   fail('J3', 'hold/draft route missing from harness');
 }
 
+section('K. Hold-write payload slimming (27w.7)');
+
+if (src.includes('readyBookingContextForWrite')) {
+  pass('K1', 'stores ready booking context separately for hold write');
+} else {
+  fail('K1', 'readyBookingContextForWrite missing');
+}
+
+if (src.includes('isReadyBookingContextForWrite')) {
+  pass('K2', 'detects ready booking context before payment-choice turn');
+} else {
+  fail('K2', 'isReadyBookingContextForWrite helper missing');
+}
+
+if (/booking_intake_ready === true[\s\S]{0,80}quote_status === 'ready'/.test(src)) {
+  pass('K3', 'ready context gate checks intake + quote ready');
+} else {
+  fail('K3', 'ready booking context gate incomplete');
+}
+
+if (src.includes('slimHoldPaymentDraftPlan') && src.includes('buildHoldDraftWritePayload')) {
+  pass('K4', 'slim hold planner + hold payload builder');
+} else {
+  fail('K4', 'slim hold payload helpers missing');
+}
+
+if (src.includes('slimGuestContextForWrite') && src.includes('slimPaymentChoiceForWrite')) {
+  pass('K4b', 'slims guest_context and payment_choice for hold write');
+} else {
+  fail('K4b', 'hold write context slimming missing');
+}
+
+const holdBlock = src.slice(src.indexOf('if (opts.createHoldDraft && lastReviewBody'));
+if (/buildHoldDraftWritePayload\(opts,\s*readyBookingContextForWrite/.test(src)) {
+  pass('K5', 'hold write builder receives readyBookingContextForWrite');
+} else {
+  fail('K5', 'hold write still chains Turn 3 guest_context');
+}
+
+if (/hold_payment_draft_plan:\s*slimPlan|slimHoldPaymentDraftPlan\(/.test(src)) {
+  pass('K6', 'hold write sends slim hold_payment_draft_plan');
+} else {
+  fail('K6', 'full hold_payment_draft_plan still sent on write');
+}
+
+const buildHoldPayloadBlock = src.slice(src.indexOf('function buildHoldDraftWritePayload'), src.indexOf('function buildHoldDraftWritePayload') + 1200);
+if (/hold_payment_draft_plan:\s*slimPlan/.test(buildHoldPayloadBlock)
+    && !/hold_payment_draft_plan:\s*r\.hold_payment_draft_plan/.test(buildHoldPayloadBlock)) {
+  pass('K7', 'does not send raw full Turn 3 hold_payment_draft_plan');
+} else {
+  fail('K7', 'raw full hold_payment_draft_plan still referenced in hold payload');
+}
+
+if (!/chain:[\s\S]{0,400}hold_payment_draft_plan:\s*r\.hold_payment_draft_plan/.test(src)) {
+  pass('K8', 'chain omits bulky nested hold_payment_draft_plan');
+} else {
+  fail('K8', 'chain still embeds full hold_payment_draft_plan');
+}
+
+if (/idempotency_key_preview/.test(src) && /plan_status/.test(src.slice(src.indexOf('function slimHoldPaymentDraftPlan'), src.indexOf('function slimHoldPaymentDraftPlan') + 900))) {
+  pass('K9', 'slim planner retains write-critical fields');
+} else {
+  fail('K9', 'slim planner missing critical fields');
+}
+
+const holdForbidden = [
+  ['K10.stripe', /api\.stripe\.com/i],
+  ['K10.whatsapp', /sendWhatsApp|graph\.facebook/i],
+  ['K10.n8n', /fetch\s*\([^)]*n8n|n8n\.io/i],
+];
+for (const [id, re] of holdForbidden) {
+  if (!re.test(holdBlock)) pass(id, 'hold-write block clean');
+  else fail(id, 'forbidden pattern in hold-write block');
+}
+
+if (src.includes('createHoldDraft') && src.includes('--create-hold-draft')) {
+  pass('K11', 'create-hold-draft still requires explicit flag');
+} else {
+  fail('K11', 'hold write flag gating weakened');
+}
+
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
 process.exit(failures > 0 ? 1 : 0);

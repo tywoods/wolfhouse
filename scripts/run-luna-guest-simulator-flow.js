@@ -285,6 +285,122 @@ function guestContextFromReview(apiBody) {
   };
 }
 
+function isReadyBookingContextForWrite(review) {
+  const r = review || {};
+  const res = r.result || {};
+  const q = r.quote || {};
+  return res.message_lane === 'new_booking_inquiry'
+    && res.booking_intake_ready === true
+    && q.quote_status === 'ready';
+}
+
+function slimResultForWrite(result) {
+  if (!result || typeof result !== 'object') return result;
+  return {
+    message_lane: result.message_lane,
+    intake_state: result.intake_state,
+    readiness_state: result.readiness_state,
+    booking_intake_ready: result.booking_intake_ready,
+    extracted_fields: result.extracted_fields,
+    detected_language: result.detected_language,
+  };
+}
+
+function slimAvailabilityForWrite(availability) {
+  if (!availability || typeof availability !== 'object') return availability;
+  return {
+    availability_check_attempted: availability.availability_check_attempted,
+    availability_status: availability.availability_status,
+  };
+}
+
+function slimQuoteForWrite(quote) {
+  if (!quote || typeof quote !== 'object') return quote;
+  const slim = {
+    quote_status: quote.quote_status,
+    quote_total_cents: quote.quote_total_cents,
+    payment_choice_needed: quote.payment_choice_needed,
+  };
+  if (quote.deposit_options) {
+    slim.deposit_options = {
+      deposit_required_cents: quote.deposit_options.deposit_required_cents,
+      full_payment_cents: quote.deposit_options.full_payment_cents,
+    };
+  }
+  return slim;
+}
+
+function slimPaymentChoiceForWrite(paymentChoice) {
+  if (!paymentChoice || typeof paymentChoice !== 'object') return paymentChoice;
+  return {
+    payment_choice_detected: paymentChoice.payment_choice_detected,
+    payment_choice: paymentChoice.payment_choice,
+    payment_choice_ready: paymentChoice.payment_choice_ready,
+    next_safe_step: paymentChoice.next_safe_step,
+  };
+}
+
+function slimGuestContextForWrite(ctx) {
+  if (!ctx || typeof ctx !== 'object') return ctx;
+  return {
+    message_lane: ctx.message_lane,
+    booking_intake_ready: ctx.booking_intake_ready,
+    readiness_state: ctx.readiness_state,
+    extracted_fields: ctx.extracted_fields,
+    result: slimResultForWrite(ctx.result),
+    availability: slimAvailabilityForWrite(ctx.availability),
+    quote: slimQuoteForWrite(ctx.quote),
+  };
+}
+
+function slimHoldPaymentDraftPlan(plan) {
+  if (!plan || typeof plan !== 'object') return plan;
+  const slim = {
+    plan_status: plan.plan_status,
+    hold_payment_draft_plan_attempted: plan.hold_payment_draft_plan_attempted,
+    would_create_hold: plan.would_create_hold,
+    would_create_quote_snapshot: plan.would_create_quote_snapshot,
+    would_create_payment_draft: plan.would_create_payment_draft,
+    would_create_stripe_link: plan.would_create_stripe_link,
+    hold_expires_in_hours: plan.hold_expires_in_hours,
+    payment_amount_cents: plan.payment_amount_cents,
+    payment_kind: plan.payment_kind,
+    balance_due_after_payment_cents: plan.balance_due_after_payment_cents,
+    idempotency_key_preview: plan.idempotency_key_preview,
+    plan_handoff_required: plan.plan_handoff_required,
+    plan_handoff_reasons: plan.plan_handoff_reasons,
+  };
+  for (const k of ['dry_run', 'preview_only', 'no_write_performed', 'live_send_blocked', 'sends_whatsapp']) {
+    if (plan[k] !== undefined) slim[k] = plan[k];
+  }
+  return slim;
+}
+
+function buildHoldDraftWritePayload(opts, readyBookingContextForWrite, turn3Review) {
+  const r = turn3Review || {};
+  const writeGuestContext = slimGuestContextForWrite(
+    readyBookingContextForWrite || guestContextFromReview({ review: r }),
+  );
+  const slimPlan = slimHoldPaymentDraftPlan(r.hold_payment_draft_plan);
+  return {
+    source: 'luna_guest_simulator',
+    confirm_simulator_write: true,
+    confirm_write: true,
+    client_slug: CLIENT_SLUG,
+    guest_name: opts.name,
+    guest_email: opts.email,
+    guest_phone: opts.phone,
+    guest_context: writeGuestContext,
+    hold_payment_draft_plan: slimPlan,
+    chain: {
+      result: writeGuestContext.result,
+      availability: writeGuestContext.availability,
+      quote: writeGuestContext.quote,
+      payment_choice: slimPaymentChoiceForWrite(r.payment_choice),
+    },
+  };
+}
+
 function reviewPayload(opts, messageText, guestContext) {
   const payload = {
     client_slug: CLIENT_SLUG,
@@ -423,6 +539,7 @@ async function main() {
   };
 
   let guestContext = null;
+  let readyBookingContextForWrite = null;
   let lastReviewBody = null;
   let lastReviewForPayment = null;
   let anyRequiredFail = false;
@@ -516,30 +633,16 @@ async function main() {
     if (!opts.json) printTurnSummary(summary);
 
     guestContext = guestContextFromReview(apiBody);
+    if (isReadyBookingContextForWrite(apiBody.review)) {
+      readyBookingContextForWrite = guestContext;
+    }
     lastReviewBody = apiBody;
     lastReviewForPayment = apiBody.review;
   }
 
   if (opts.createHoldDraft && lastReviewBody && lastReviewBody.review) {
     const r = lastReviewBody.review;
-    const holdPayload = {
-      source: 'luna_guest_simulator',
-      confirm_simulator_write: true,
-      confirm_write: true,
-      client_slug: CLIENT_SLUG,
-      guest_name: opts.name,
-      guest_email: opts.email,
-      guest_phone: opts.phone,
-      guest_context: guestContext || undefined,
-      hold_payment_draft_plan: r.hold_payment_draft_plan,
-      chain: {
-        result: r.result,
-        availability: r.availability,
-        quote: r.quote,
-        payment_choice: r.payment_choice,
-        hold_payment_draft_plan: r.hold_payment_draft_plan,
-      },
-    };
+    const holdPayload = buildHoldDraftWritePayload(opts, readyBookingContextForWrite, r);
     try {
       const hres = await postJson(`${opts.baseUrl}${HOLD_ROUTE}`, holdPayload, headers);
       const hbody = typeof hres.body === 'object' ? hres.body : { success: false, error: hres.raw };
@@ -550,6 +653,8 @@ async function main() {
         booking_id: hbody.booking_id ?? null,
         booking_code: hbody.booking_code ?? null,
         payment_draft_id: hbody.payment_draft_id ?? null,
+        next_safe_step: hbody.next_safe_step ?? null,
+        stripe_link_created: hbody.stripe_link_created === false,
         sends_whatsapp: hbody.sends_whatsapp === false,
         live_send_blocked: hbody.live_send_blocked === true,
       };
@@ -558,10 +663,16 @@ async function main() {
         console.log(`write_status:      ${result.hold_draft.write_status ?? '(n/a)'}`);
         console.log(`booking_code:      ${result.hold_draft.booking_code ?? '(n/a)'}`);
         console.log(`payment_draft_id:  ${result.hold_draft.payment_draft_id ?? '(n/a)'}`);
+        console.log(`next_safe_step:    ${result.hold_draft.next_safe_step ?? '(n/a)'}`);
       }
       const holdOk = hres.status === 200 && hbody.success === true
         && (hbody.write_status === 'created' || hbody.write_status === 'reused_existing')
-        && hbody.booking_id && hbody.payment_draft_id;
+        && (hbody.booking_id || hbody.booking_code)
+        && hbody.payment_draft_id
+        && hbody.next_safe_step === 'ready_for_stripe_test_link'
+        && hbody.stripe_link_created === false
+        && hbody.sends_whatsapp === false
+        && hbody.live_send_blocked === true;
       if (!holdOk) {
         anyRequiredFail = true;
         if (!result.first_failure) {
