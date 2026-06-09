@@ -24,6 +24,37 @@ function trimStr(v) {
   return String(v).trim();
 }
 
+/**
+ * Response-only room label: keep DB value when present, else derive from bed code.
+ * DEMO-R1-B1 → DEMO-R1; also delegates to roomCodeFromBedCode for R1-B1 style.
+ */
+function resolveAssignedRoomLabel(bedLabel, roomLabel) {
+  const room = trimStr(roomLabel);
+  if (room) return room;
+  const bed = trimStr(bedLabel);
+  if (!bed) return null;
+  const fromPlan = roomCodeFromBedCode(bed);
+  if (fromPlan) return fromPlan;
+  const demoMatch = bed.match(/^(DEMO-R\d+)-B\d+$/i);
+  if (demoMatch) return demoMatch[1].toUpperCase();
+  const genericMatch = bed.match(/^(.+)-B\d+$/i);
+  if (genericMatch) return genericMatch[1].toUpperCase();
+  return null;
+}
+
+function formatAssignmentResponse(base) {
+  const roomLabel = resolveAssignedRoomLabel(base.assigned_bed_label, base.assigned_room_label);
+  return {
+    ...ASSIGN_SAFETY,
+    assignment_write_attempted: true,
+    calendar_visible_expected: base.assignment_write_status === 'created'
+      || base.assignment_write_status === 'reused_existing',
+    ...base,
+    assigned_room_label: roomLabel,
+    assigned_room_id: roomLabel || base.assigned_room_id || null,
+  };
+}
+
 async function loadBookingRow(pg, clientSlug, bookingRef) {
   const code = trimStr(bookingRef.booking_code);
   const id = trimStr(bookingRef.booking_id);
@@ -92,16 +123,6 @@ async function resolveDemoBedCodes(pg, review, bookingRow) {
     source: 'availability_rerun',
     availability_status: availCheck.availability_status || null,
     blockers: availCheck.blockers || [],
-  };
-}
-
-function formatAssignmentResponse(base) {
-  return {
-    ...ASSIGN_SAFETY,
-    assignment_write_attempted: true,
-    calendar_visible_expected: base.assignment_write_status === 'created'
-      || base.assignment_write_status === 'reused_existing',
-    ...base,
   };
 }
 
@@ -333,5 +354,6 @@ async function runOpenDemoBookingBedAssignApproved(pg, context) {
 module.exports = {
   runOpenDemoBookingBedAssignApproved,
   resolveDemoBedCodes,
+  resolveAssignedRoomLabel,
   ASSIGN_SAFETY,
 };

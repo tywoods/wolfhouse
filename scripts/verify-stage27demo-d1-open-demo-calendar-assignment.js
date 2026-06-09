@@ -227,5 +227,40 @@ try {
   fail('E0', `gate smoke threw: ${err.message}`);
 }
 
+section('F. Room label fallback (27demo-d.2)');
+
+if (assignSrc.includes('resolveAssignedRoomLabel')) {
+  pass('F1', 'assignment module defines room label fallback helper');
+} else {
+  fail('F1', 'resolveAssignedRoomLabel missing');
+}
+
+if (assignSrc.includes('formatAssignmentResponse') && assignSrc.includes('resolveAssignedRoomLabel(base.assigned_bed_label')) {
+  pass('F2', 'formatAssignmentResponse applies room label fallback');
+} else {
+  fail('F2', 'formatAssignmentResponse does not apply fallback');
+}
+
+try {
+  const { resolveAssignedRoomLabel } = require('./lib/open-demo-booking-bed-assign');
+  if (resolveAssignedRoomLabel('DEMO-R1-B1', null) === 'DEMO-R1') {
+    pass('F3', 'DEMO-R1-B1 derives DEMO-R1');
+  } else {
+    fail('F3', 'DEMO-R1-B1 should derive DEMO-R1');
+  }
+  if (resolveAssignedRoomLabel('DEMO-R2-B2', null) === 'DEMO-R2') {
+    pass('F4', 'DEMO-R2-B2 derives DEMO-R2');
+  } else {
+    fail('F4', 'DEMO-R2-B2 should derive DEMO-R2');
+  }
+  if (resolveAssignedRoomLabel('DEMO-R1-B1', 'DEMO-R1-KEPT') === 'DEMO-R1-KEPT') {
+    pass('F5', 'existing room label preserved when present');
+  } else {
+    fail('F5', 'existing room label should be preserved');
+  }
+} catch (err) {
+  fail('F0', `room label fallback smoke threw: ${err.message}`);
+}
+
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} — ${passes} passed, ${failures} failed\n`);
 process.exit(failures === 0 ? 0 : 1);
