@@ -229,7 +229,7 @@ function detectPaymentChoiceFromMessage(messageText) {
     return 'full_payment';
   }
 
-  if (/\b(?:deposit\s+is\s+fine|pay\s+(?:the\s+)?deposit|just\s+(?:the\s+)?deposit|deposit\s+please|(?:a|the)\s+deposit|anzahlung|dep[oó]sito|acompte|acconto)\b/i.test(t)) {
+  if (/\b(?:deposit\s+is\s+fine|pay\s+(?:the\s+)?deposit|just\s+(?:the\s+)?deposit|deposit\s+please|(?:a|the)\s+deposit|anzahlung|dep[oó]sito|deposito|l'?acompte|acompte|acconto|va\s+bene\s+(?:il\s+)?deposito|dep[oó]sito\s+est[aá]\s+bien|anzahlung\s+ist\s+ok|l'?acompte\s+me\s+convient)\b/i.test(t)) {
     return 'deposit';
   }
 

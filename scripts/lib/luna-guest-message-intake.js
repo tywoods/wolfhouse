@@ -171,8 +171,20 @@ function dayMonthToIso(day, month, ref) {
   return toIsoDate(inferYear(month, day, ref), month, day);
 }
 
+function parseYearFromText(text) {
+  const m = String(text || '').match(/\b(20\d{2})\b/);
+  return m ? Number(m[1]) : null;
+}
+
+function dayMonthYearToIso(day, month, year, ref) {
+  if (!month || !day) return null;
+  const y = year || inferYear(month, day, ref);
+  return toIsoDate(y, month, day);
+}
+
 function parseNamedDate(text, ref) {
   const t = String(text || '').toLowerCase();
+  const explicitYear = parseYearFromText(t);
   const patterns = [
     /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-zéûäöüáíóúñ]+)\b/i,
     /\b([a-zéûäöüáíóúñ]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
@@ -193,7 +205,7 @@ function parseNamedDate(text, ref) {
     }
     const month = monthFromName(monthName);
     if (!month) continue;
-    return dayMonthToIso(day, month, ref);
+    return dayMonthYearToIso(day, month, explicitYear, ref);
   }
   return null;
 }
@@ -211,6 +223,31 @@ function extractIsoDates(text) {
 
 function extractNamedDateRange(text, ref) {
   const t = String(text || '');
+  const explicitYear = parseYearFromText(t);
+
+  // IT — dal 10 al 17 luglio 2026
+  const itRange = t.match(
+    /\b(?:dal|da)\s+(\d{1,2})\s+al\s+(\d{1,2})\s+([a-zàèéìòù]+)(?:\s+(20\d{2}))?\b/i,
+  );
+  if (itRange) {
+    const month = monthFromName(itRange[3]);
+    const year = itRange[4] ? Number(itRange[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(itRange[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(itRange[2]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // ES — del 10 al 17 de julio de 2026
+  const esRangeSingleMonth = t.match(
+    /\b(?:del|de)\s+(\d{1,2})\s+al\s+(\d{1,2})\s+de\s+([a-záéíóúüñ]+)(?:\s+de\s+(20\d{2}))?\b/i,
+  );
+  if (esRangeSingleMonth) {
+    const month = monthFromName(esRangeSingleMonth[3]);
+    const year = esRangeSingleMonth[4] ? Number(esRangeSingleMonth[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(esRangeSingleMonth[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(esRangeSingleMonth[2]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
 
   // Phase 15e.2 — ES native: del/de 24 de septiembre al/a 27 de septiembre
   const esRange = t.match(
@@ -219,8 +256,44 @@ function extractNamedDateRange(text, ref) {
   if (esRange) {
     const m1 = monthFromName(esRange[2]);
     const m2 = monthFromName(esRange[4]);
-    const checkIn  = dayMonthToIso(Number(esRange[1]), m1, ref);
-    const checkOut = dayMonthToIso(Number(esRange[3]), m2, ref);
+    const checkIn  = dayMonthYearToIso(Number(esRange[1]), m1, explicitYear, ref);
+    const checkOut = dayMonthYearToIso(Number(esRange[3]), m2, explicitYear, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // FR — du 10 au 17 juillet 2026
+  const frRange = t.match(
+    /\bdu\s+(\d{1,2})\s+au\s+(\d{1,2})\s+([a-zàâäéèêëïîôùûüç]+)(?:\s+(20\d{2}))?\b/i,
+  );
+  if (frRange) {
+    const month = monthFromName(frRange[3]);
+    const year = frRange[4] ? Number(frRange[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(frRange[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(frRange[2]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // DE — 10. bis 17. Juli 2026
+  const deRangeCompact = t.match(
+    /\b(\d{1,2})\.\s*bis\s+(\d{1,2})\.\s*([a-zäöüß]+)(?:\s+(20\d{2}))?\b/i,
+  );
+  if (deRangeCompact) {
+    const month = monthFromName(deRangeCompact[3]);
+    const year = deRangeCompact[4] ? Number(deRangeCompact[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(deRangeCompact[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(deRangeCompact[2]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // DE — vom 10. bis 17. Juli 2026
+  const deRangeVom = t.match(
+    /\b(?:vom|von)\s+(\d{1,2})\.\s*bis\s+(\d{1,2})\.\s*([a-zäöüß]+)(?:\s+(20\d{2}))?\b/i,
+  );
+  if (deRangeVom) {
+    const month = monthFromName(deRangeVom[3]);
+    const year = deRangeVom[4] ? Number(deRangeVom[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(deRangeVom[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(deRangeVom[2]), month, year, ref);
     if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
   }
 
@@ -231,12 +304,12 @@ function extractNamedDateRange(text, ref) {
   if (deRange) {
     const m1 = monthFromName(deRange[2]);
     const m2 = monthFromName(deRange[4]);
-    const checkIn  = dayMonthToIso(Number(deRange[1]), m1, ref);
-    const checkOut = dayMonthToIso(Number(deRange[3]), m2, ref);
+    const checkIn  = dayMonthYearToIso(Number(deRange[1]), m1, explicitYear, ref);
+    const checkOut = dayMonthYearToIso(Number(deRange[3]), m2, explicitYear, ref);
     if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
   }
 
-  const rangeRe = /([a-zéûäöüáíóúñ]+\s+\d{1,2}|\d{1,2}\s+[a-zéûäöüáíóúñ]+)\s*(?:to|until|through|-|–|—|al|au|bis|hasta)\s*([a-zéûäöüáíóúñ]+\s+\d{1,2}|\d{1,2}\s+[a-zéûäöüáíóúñ]+)/i;
+  const rangeRe = /([a-zéûäöüáíóúñ]+\s+\d{1,2}|\d{1,2}\s+[a-zéûäöüáíóúñ]+|\d{1,2}\.\s*[a-zäöüß]+)\s*(?:to|until|through|-|–|—|al|au|bis|hasta)\s*([a-zéûäöüáíóúñ]+\s+\d{1,2}|\d{1,2}\s+[a-zéûäöüáíóúñ]+|\d{1,2}\.\s*[a-zäöüß]+)/i;
   const rm = t.match(rangeRe);
   if (rm) {
     const checkIn  = parseNamedDate(rm[1], ref);
@@ -291,11 +364,17 @@ function extractGuests(text) {
   const patterns = [
     /\b(\d{1,2})\s*(?:people|persons|guests|pax|persone|personas|personnes|gäste|gaste)\b/i,
     /\b(?:for|we are|we're|somos|siamo|nous sommes|wir sind)\s+(\d{1,2})\b/i,
+    /\b(?:siamo|somos|nous sommes|wir sind)\s+in\s+(\d{1,2})\b/i,
     /\b(\d{1,2})\s*(?:persone|personas|personnes)\b/i,
   ];
   for (const re of patterns) {
     const m = t.match(re);
     if (m) return Number(m[1]);
+  }
+  const zuCount = t.match(/\bwir\s+sind\s+zu\s+(zweit|dritt|viert|fünft|funft)\b/i);
+  if (zuCount) {
+    const map = { zweit: 2, dritt: 3, viert: 4, fünft: 5, funft: 5 };
+    return map[zuCount[1].toLowerCase()] || null;
   }
   const ml = t.match(MULTILINGUAL_GUEST_RE);
   if (ml) {
@@ -322,6 +401,9 @@ function extractGuests(text) {
 function extractPackageCode(text) {
   const t = String(text || '').toLowerCase();
   if (/\b(?:custom\s+pack(?:age)?|custom)\b/.test(t)) return 'custom';
+  if (/\b(?:malibu(?:\s*[-–]?\s*paket)?|paket\s+malibu)\b/.test(t)) return 'malibu';
+  if (/\b(?:uluwatu(?:\s*[-–]?\s*paket)?|paket\s+uluwatu)\b/.test(t)) return 'uluwatu';
+  if (/\b(?:waimea(?:\s*[-–]?\s*paket)?|paket\s+waimea)\b/.test(t)) return 'waimea';
   if (/\bmalibu\b/.test(t)) return 'malibu';
   if (/\buluwatu\b/.test(t)) return 'uluwatu';
   if (/\bwaimea\b/.test(t)) return 'waimea';
@@ -330,7 +412,7 @@ function extractPackageCode(text) {
 
 function extractPaymentChoice(text) {
   const t = String(text || '').toLowerCase();
-  if (/\b(?:pay(?:\s+the)?\s+deposit|deposit|dep[oó]sito|acconto|anzahlung|acompte)\b/.test(t)) {
+  if (/\b(?:pay(?:\s+the)?\s+deposit|deposit|dep[oó]sito|deposito|acconto|anzahlung|l'?acompte|acompte)\b/.test(t)) {
     return 'deposit';
   }
   if (/\b(?:pay\s+in\s+full|full(?:\s+amount)?|pago\s+completo|pagare\s+tutto|voll(?:ständig)?|paiement\s+complet)\b/.test(t)) {
