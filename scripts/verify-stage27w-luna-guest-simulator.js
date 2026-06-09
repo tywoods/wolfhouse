@@ -13,6 +13,7 @@ const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const API = path.join(__dirname, 'staff-query-api.js');
+const MERGE = path.join(__dirname, 'lib', 'luna-guest-context-merge.js');
 const PKG_FILE = path.join(ROOT, 'package.json');
 const DOC = path.join(ROOT, 'docs', 'STAGE-27W-LUNA-GUEST-SIMULATOR.md');
 const SCRIPT = 'verify:stage27w-luna-guest-simulator';
@@ -139,6 +140,30 @@ if (holdHandler.includes('confirm_write: true') && holdHandler.includes('confirm
 if (holdHandler.includes('guestSimulatorProductionBlocked')) pass('B5', 'non-production gate');
 else fail('B5', 'production block missing');
 
+if (holdHandler.includes('buildGuestSimulatorWriteChain')) {
+  pass('B6', 'hold handler normalizes write chain via buildGuestSimulatorWriteChain');
+} else {
+  fail('B6', 'buildGuestSimulatorWriteChain missing in hold handler');
+}
+
+if (holdHandler.includes('planner: planner || undefined')) {
+  pass('B7', 'hold handler forwards ready planner to 27n write');
+} else {
+  fail('B7', 'ready planner forward missing');
+}
+
+if (holdHandler.includes('ready_for_hold_payment_draft')) {
+  pass('B8', 'hold handler gates payment_choice next_safe_step');
+} else {
+  fail('B8', 'payment_choice write gate missing');
+}
+
+if (src.includes('guest_context: guestCtx') && src.includes('hold_payment_draft_plan: r.hold_payment_draft_plan')) {
+  pass('B9', 'UI hold payload sends guest_context + hold_payment_draft_plan');
+} else {
+  fail('B9', 'UI hold payload missing preserved context');
+}
+
 section('C. Stripe TEST API route');
 
 if (stripeRouteIdx > -1) pass('C1', 'Stripe route registered');
@@ -217,6 +242,115 @@ try {
 const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
 if (pkg.scripts && pkg.scripts[SCRIPT] === `node ${REL}`) pass('F6', `${SCRIPT} registered`);
 else fail('F6', `${SCRIPT} missing`);
+
+section('G. Simulator write chain normalization (27w.5)');
+
+const {
+  buildGuestSimulatorWriteChain,
+} = require('./lib/luna-guest-context-merge');
+const {
+  runGuestHoldPaymentDraftPlannerDryRun,
+} = require('./lib/luna-guest-hold-payment-draft-planner');
+
+const priorBookingCtx = {
+  message_lane: 'new_booking_inquiry',
+  booking_intake_ready: true,
+  readiness_state: 'ready_for_availability_check',
+  result: {
+    message_lane: 'new_booking_inquiry',
+    booking_intake_ready: true,
+    readiness_state: 'ready_for_availability_check',
+    extracted_fields: {
+      check_in: '2026-07-10',
+      check_out: '2026-07-17',
+      guest_count: 2,
+      package_interest: 'malibu',
+    },
+    detected_language: 'en',
+  },
+  availability: {
+    availability_check_attempted: true,
+    availability_status: 'available',
+  },
+  quote: {
+    quote_status: 'ready',
+    payment_choice_needed: true,
+    quote_total_cents: 59800,
+    deposit_options: { deposit_required_cents: 20000 },
+  },
+};
+
+const readyPlan = {
+  plan_status: 'ready',
+  would_create_hold: true,
+  would_create_payment_draft: true,
+  would_create_stripe_link: false,
+  payment_kind: 'deposit',
+  payment_amount_cents: 20000,
+};
+
+const writeBody = {
+  guest_context: priorBookingCtx,
+  hold_payment_draft_plan: readyPlan,
+  chain: {
+    result: {
+      message_lane: 'general_question',
+      booking_intake_ready: false,
+      readiness_state: 'staff_handoff_required',
+      extracted_fields: {},
+    },
+    availability: { availability_status: 'not_ready' },
+    quote: { quote_status: 'not_ready' },
+    payment_choice: {
+      payment_choice_detected: true,
+      payment_choice: 'deposit',
+      payment_choice_ready: true,
+      next_safe_step: 'ready_for_hold_payment_draft',
+    },
+  },
+};
+
+const normalized = buildGuestSimulatorWriteChain(writeBody);
+
+if (normalized.chain.result && normalized.chain.result.message_lane === 'new_booking_inquiry') {
+  pass('G1', 'write chain preserves prior new_booking_inquiry lane');
+} else {
+  fail('G1', `lane=${normalized.chain.result && normalized.chain.result.message_lane}`);
+}
+
+if (normalized.chain.availability && normalized.chain.availability.availability_status === 'available') {
+  pass('G2', 'write chain preserves prior availability');
+} else {
+  fail('G2', 'availability not preserved');
+}
+
+if (normalized.chain.quote && normalized.chain.quote.quote_status === 'ready') {
+  pass('G3', 'write chain preserves prior quote');
+} else {
+  fail('G3', 'quote not preserved');
+}
+
+if (normalized.planner && normalized.planner.plan_status === 'ready') {
+  pass('G4', 'write body forwards ready hold_payment_draft_plan');
+} else {
+  fail('G4', 'ready planner not resolved');
+}
+
+const replanned = runGuestHoldPaymentDraftPlannerDryRun(normalized.chain, {});
+if (replanned.plan_status === 'ready'
+  && replanned.would_create_hold === true
+  && replanned.would_create_payment_draft === true
+  && replanned.would_create_stripe_link === false) {
+  pass('G5', 'normalized chain passes planner gate (not planner_not_ready_for_write)');
+} else {
+  fail('G5', `replanned plan_status=${replanned.plan_status}`);
+}
+
+if (fs.existsSync(MERGE) && fs.readFileSync(MERGE, 'utf8').includes('buildGuestSimulatorWriteChain')) {
+  pass('G6', 'buildGuestSimulatorWriteChain exported from context-merge');
+} else {
+  fail('G6', 'buildGuestSimulatorWriteChain missing');
+}
 
 console.log(`\n--- ${passes} passed, ${failures} failed ---\n`);
 process.exit(failures > 0 ? 1 : 0);

@@ -152,11 +152,55 @@ function buildHoldPaymentDraftPlannerChain(guestContext, currentChain) {
   };
 }
 
+function parseSimulatorChainFromBody(body) {
+  const src = body || {};
+  const chain = src.chain || {};
+  const review = src.review || {};
+  return {
+    result: chain.result || review.result || null,
+    availability: chain.availability || review.availability || null,
+    quote: chain.quote || review.quote || null,
+    payment_choice: chain.payment_choice || review.payment_choice || null,
+  };
+}
+
+function resolveGuestContextFromSimulatorBody(body) {
+  const src = body || {};
+  if (src.guest_context && typeof src.guest_context === 'object') {
+    return src.guest_context;
+  }
+  return null;
+}
+
+function resolveSimulatorPlannerFromBody(body) {
+  const src = body || {};
+  const plan = src.hold_payment_draft_plan
+    || (src.review && src.review.hold_payment_draft_plan)
+    || (src.chain && src.chain.hold_payment_draft_plan);
+  if (plan && plan.plan_status === 'ready') return plan;
+  return null;
+}
+
+/**
+ * Normalize simulator hold/draft write input to planner-ready booking chain (27w.5).
+ */
+function buildGuestSimulatorWriteChain(body) {
+  const rawChain = parseSimulatorChainFromBody(body);
+  const guestContext = resolveGuestContextFromSimulatorBody(body);
+  const chain = buildHoldPaymentDraftPlannerChain(guestContext, rawChain);
+  const planner = resolveSimulatorPlannerFromBody(body);
+  return { chain, planner, guestContext };
+}
+
 module.exports = {
   mergeGuestExtractedFields,
   collectPriorExtractedFields,
   normalizeGuestContextForChain,
   buildHoldPaymentDraftPlannerChain,
+  buildGuestSimulatorWriteChain,
+  parseSimulatorChainFromBody,
+  resolveGuestContextFromSimulatorBody,
+  resolveSimulatorPlannerFromBody,
   mergeServiceInterest,
   EXTRACTED_FIELD_KEYS,
 };

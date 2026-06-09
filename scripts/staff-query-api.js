@@ -306,6 +306,9 @@ const {
   runGuestHoldPaymentDraftWriteDryRunApproved,
 } = require('./lib/luna-guest-hold-payment-draft-write');
 const {
+  buildGuestSimulatorWriteChain,
+} = require('./lib/luna-guest-context-merge');
+const {
   runGuestStripeTestLinkCreateApproved,
 } = require('./lib/luna-guest-stripe-test-link-create');
 const {
@@ -10499,13 +10502,35 @@ async function handleBotGuestSimulatorCreateHoldDraft(req, res, user, authMode) 
     });
   }
 
-  const chain = parseGuestSimulatorChain(body);
+  const { chain, planner } = buildGuestSimulatorWriteChain(body);
   if (!chain.result || !chain.payment_choice) {
     return sendJSON(res, 400, {
       success: false,
       sends_whatsapp: false,
       live_send_blocked: true,
       error: 'chain with result and payment_choice is required',
+    });
+  }
+
+  const pc = chain.payment_choice || {};
+  if (pc.payment_choice_ready !== true
+    || pc.next_safe_step !== 'ready_for_hold_payment_draft') {
+    return sendJSON(res, 400, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      error: 'payment_choice must be ready_for_hold_payment_draft before simulator write',
+      write_block_reasons: ['payment_choice_not_ready_for_hold_payment_draft'],
+    });
+  }
+
+  if (planner && planner.plan_status !== 'ready') {
+    return sendJSON(res, 400, {
+      success: false,
+      sends_whatsapp: false,
+      live_send_blocked: true,
+      error: 'hold_payment_draft_plan must be ready before simulator write',
+      write_block_reasons: ['planner_not_ready_for_write'],
     });
   }
 
@@ -10523,6 +10548,7 @@ async function handleBotGuestSimulatorCreateHoldDraft(req, res, user, authMode) 
       env: process.env,
       host_header: hostHeader,
       source: 'luna_guest_simulator_27w',
+      planner: planner || undefined,
     });
 
     const elapsed = Date.now() - started;
@@ -23455,6 +23481,11 @@ function lgsCreateHoldDraft(){
   }
   lgsSetStatus('Creating test hold + draft payment…');
   var r = lgsLastReview.review;
+  var guestCtx = null;
+  try { guestCtx = lgsParseGuestContext(); } catch (e) {
+    lgsSetStatus(e.message, true);
+    return;
+  }
   lgsPostJson('/staff/bot/guest-simulator-create-hold-draft', {
     source: 'luna_guest_simulator',
     confirm_simulator_write: true,
@@ -23463,11 +23494,14 @@ function lgsCreateHoldDraft(){
     guest_name: (lgsEl('lgs-name').value || '').trim(),
     guest_email: (lgsEl('lgs-email').value || '').trim(),
     guest_phone: (lgsEl('lgs-phone').value || '').trim(),
+    guest_context: guestCtx || undefined,
+    hold_payment_draft_plan: r.hold_payment_draft_plan,
     chain: {
       result: r.result,
       availability: r.availability,
       quote: r.quote,
       payment_choice: r.payment_choice,
+      hold_payment_draft_plan: r.hold_payment_draft_plan,
     },
   }).then(function(res){
     lgsLastWrite = res.data;

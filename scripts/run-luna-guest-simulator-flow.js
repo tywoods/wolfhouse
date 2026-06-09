@@ -530,11 +530,14 @@ async function main() {
       guest_name: opts.name,
       guest_email: opts.email,
       guest_phone: opts.phone,
+      guest_context: guestContext || undefined,
+      hold_payment_draft_plan: r.hold_payment_draft_plan,
       chain: {
         result: r.result,
         availability: r.availability,
         quote: r.quote,
         payment_choice: r.payment_choice,
+        hold_payment_draft_plan: r.hold_payment_draft_plan,
       },
     };
     try {
