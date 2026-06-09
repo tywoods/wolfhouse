@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27w.3 — Luna Guest Simulator flow harness**): **PASS**. Multi-turn automated test harness `run-luna-guest-simulator-flow.js` · `guest-automation-review-dry-run` chaining · default review-only · optional `--create-hold-draft` / `--create-stripe-test-link`. Doc: [STAGE-27W3-LUNA-SIMULATOR-FLOW-TESTS.md](STAGE-27W3-LUNA-SIMULATOR-FLOW-TESTS.md). Verifier: `verify:stage27w3-luna-simulator-flow`.
+**Last updated:** 2026-06-08 (**Stage 27x-lite — Inbound Luna review-only wiring design**): **DESIGN LOCK**. Docs-only design for n8n pipe → Staff API orchestrator → Staff Portal review (no auto-send). Doc: [STAGE-27X-LITE-INBOUND-REVIEW-WIRING-DESIGN.md](STAGE-27X-LITE-INBOUND-REVIEW-WIRING-DESIGN.md). Verifier: `verify:stage27x-lite-inbound-review-design`.
+
+**Prior — Stage 27w.3 (2026-06-08):** Luna Guest Simulator flow harness — **PASS**. Multi-turn automated test harness `run-luna-guest-simulator-flow.js` · `guest-automation-review-dry-run` chaining · default review-only · optional `--create-hold-draft` / `--create-stripe-test-link`. Doc: [STAGE-27W3-LUNA-SIMULATOR-FLOW-TESTS.md](STAGE-27W3-LUNA-SIMULATOR-FLOW-TESTS.md). Verifier: `verify:stage27w3-luna-simulator-flow`.
 
 **Prior — Stage 27w (2026-06-08):** Luna Guest Simulator — **PASS**. Staff Portal dev tab + `guest-simulator-create-hold-draft` / `guest-simulator-create-stripe-test-link` (27n/27o, staging/local only). **No WhatsApp, Stripe TEST only.** Doc: [STAGE-27W-LUNA-GUEST-SIMULATOR.md](STAGE-27W-LUNA-GUEST-SIMULATOR.md). Verifier: `verify:stage27w-luna-guest-simulator`.
 
