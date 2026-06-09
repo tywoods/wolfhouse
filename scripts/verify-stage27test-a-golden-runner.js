@@ -153,6 +153,36 @@ if (runnerSrc.includes('failures_by_category') && runnerSrc.includes('failures_b
   fail('C4', 'failure aggregation missing');
 }
 
+if (runnerSrc.includes('isStaffHandoffRequired') && runnerSrc.includes('TECHNICAL_HANDOFF_REASONS')) {
+  pass('C5', 'runner filters technical skipped-chain handoff reasons');
+} else {
+  fail('C5', 'technical handoff filter missing');
+}
+
+if (runnerSrc.includes('booking_intake_not_ready') && runnerSrc.includes('quote_not_ready')) {
+  pass('C6', 'runner excludes booking_intake_not_ready / quote_not_ready from handoff');
+} else {
+  fail('C6', 'technical handoff reason list incomplete');
+}
+
+try {
+  const { isStaffHandoffRequired } = require('./run-luna-guest-golden-tests.js');
+  const mockReview = {
+    proposed_next_action: 'ask_missing_details',
+    handoff_reasons: ['booking_intake_not_ready', 'availability_not_available', 'quote_not_ready'],
+    availability: { availability_check_attempted: false },
+    quote: { quote_proposal_attempted: false },
+  };
+  const mockResult = { safe_handoff_required: false };
+  if (isStaffHandoffRequired(mockReview, mockResult) === false) {
+    pass('C7', 'en-book-01 style technical handoff reasons do not count as staff handoff');
+  } else {
+    fail('C7', 'technical handoff reasons still counted as staff handoff');
+  }
+} catch (e) {
+  fail('C7', `handoff self-test failed: ${e.message}`);
+}
+
 section('D. No live side effects in runner');
 
 const forbidden = [

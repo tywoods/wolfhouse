@@ -318,7 +318,7 @@
       "expected": {
         "banned_reply_terms_absent": true,
         "message_lane": "new_booking_inquiry",
-        "booking_intake_ready": true
+        "required_missing_fields": ["dates"]
       }
     },
     {
@@ -445,7 +445,7 @@
       "expected": {
         "banned_reply_terms_absent": true,
         "message_lane": "new_booking_inquiry",
-        "booking_intake_ready": true
+        "required_missing_fields": ["dates"]
       }
     },
     {
@@ -572,7 +572,7 @@
       "expected": {
         "banned_reply_terms_absent": true,
         "message_lane": "new_booking_inquiry",
-        "booking_intake_ready": true
+        "required_missing_fields": ["dates"]
       }
     },
     {
@@ -699,7 +699,7 @@
       "expected": {
         "banned_reply_terms_absent": true,
         "message_lane": "new_booking_inquiry",
-        "booking_intake_ready": true
+        "required_missing_fields": ["dates"]
       }
     },
     {

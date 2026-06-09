@@ -191,6 +191,36 @@ async function runCaseEndpoint(opts, payload, headers) {
   return { http_status: res.status, body: res.body, error: null };
 }
 
+const TECHNICAL_HANDOFF_REASONS = new Set([
+  'booking_intake_not_ready',
+  'availability_not_available',
+  'quote_not_ready',
+  'quote_payment_choice_not_needed',
+]);
+
+function filterRealHandoffReasons(review) {
+  const reasons = Array.isArray(review.handoff_reasons) ? review.handoff_reasons : [];
+  const availability = review.availability || {};
+  const quote = review.quote || {};
+  return reasons.filter((r) => {
+    if (TECHNICAL_HANDOFF_REASONS.has(r)) return false;
+    if (r === 'availability_not_available' && availability.availability_check_attempted !== true) return false;
+    if (r === 'quote_not_ready' && quote.quote_proposal_attempted !== true) return false;
+    return true;
+  });
+}
+
+/**
+ * Real staff handoff — excludes skipped-chain technical reasons on ask_missing_details turns.
+ */
+function isStaffHandoffRequired(review, result) {
+  if (result && result.safe_handoff_required === true) return true;
+  if (review && review.proposed_next_action === 'staff_handoff_required') return true;
+  const gate = (review && review.automation_gate) || {};
+  if (gate.gate_status === 'blocked' || gate.gate_status === 'staff_handoff') return true;
+  return filterRealHandoffReasons(review || {}).length > 0;
+}
+
 function findBannedTerms(reply) {
   const text = String(reply || '').toLowerCase();
   const found = [];
@@ -234,8 +264,7 @@ function checkExpectations(fixture, body) {
   }
 
   if (expected.handoff_required != null) {
-    const actualHandoff = result.safe_handoff_required === true
-      || (Array.isArray(review.handoff_reasons) && review.handoff_reasons.length > 0);
+    const actualHandoff = isStaffHandoffRequired(review, result);
     if (actualHandoff !== expected.handoff_required) {
       failures.push(`handoff_required expected ${expected.handoff_required} got ${actualHandoff}`);
     }
@@ -281,7 +310,7 @@ function summarizeFailure(fixture, failures, body) {
       missing_required_fields: result.missing_required_fields,
       proposed_next_action: review.proposed_next_action,
       proposed_luna_reply: review.proposed_luna_reply,
-      handoff_required: result.safe_handoff_required,
+      handoff_required: isStaffHandoffRequired(review, result),
       banned_terms: findBannedTerms(review.proposed_luna_reply),
     },
   };
@@ -398,7 +427,10 @@ main().catch((err) => {
 
 module.exports = {
   BANNED_REPLY_TERMS,
+  TECHNICAL_HANDOFF_REASONS,
   findBannedTerms,
+  filterRealHandoffReasons,
+  isStaffHandoffRequired,
   checkExpectations,
   checkSafetyFlags,
   filterCases,

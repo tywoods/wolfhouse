@@ -191,7 +191,45 @@ function hasExplicitDates(text) {
 
 function hasBookingCode(text) {
   return /\bMB-WOLFHO[-\w]+\b/i.test(text)
-    || /\b(?:my booking|my reservation|ma réservation|mi reserva|meine buchung|codice prenotazione| código de reserva)\b/i.test(text);
+    || /\bWH-G27-[A-Z0-9]+\b/i.test(text)
+    || /\bWH-[A-Z0-9-]{8,}\b/i.test(text)
+    || /\b(?:my booking|my reservation|ma réservation|mi reserva|meine buchung|codice prenotazione|código de reserva)\b/i.test(text);
+}
+
+function detectNewStayBookingIntent(text) {
+  return /\b(?:want to book|would like to book|book(?:\s+(?:malibu|uluwatu|waimea|a room|accommodation))|looking to stay|vorremmo venire|voglio venire|quiero reservar|souhaite.*venir|möchte.*buchen|moechte.*buchen|nous\s+voulons\s+r[eé]server|nous\s+voulons\s+reserver)\b/i.test(String(text || ''));
+}
+
+function detectPackageGuestBookingIntent(text) {
+  const t = String(text || '');
+  const hasPackage = /\b(?:malibu|uluwatu|waimea)\b/i.test(t);
+  const hasGuestCount = /\b(?:for|para|für|pour)\s*\d+\b/i.test(t)
+    || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti)\b/i.test(t)
+    || /\b(?:group of|grupo de|gruppe von)\s*\d+\b/i.test(t)
+    || /\bsiamo in \d+\b/i.test(t)
+    || /\bsiamo \d+\b/i.test(t)
+    || /\b(?:interessati|interessati al|interested in|intéressés|interessiert)\b/i.test(t);
+  const hasPackageWord = /\b(?:package|paquete|pacchetto|paket|forfait)\b/i.test(t);
+  return (hasPackage && hasGuestCount)
+    || (hasPackageWord && hasGuestCount && hasPackage)
+    || (/\binteressati a\b/i.test(t) && hasPackage);
+}
+
+function detectCheckinHouseInfoQuestion(text) {
+  const t = String(text || '');
+  const bookingDateCheckin = /\bcheck[- ]?in\b/i.test(t)
+    && /\b(?:check[- ]?out|package|malibu|uluwatu|waimea|guests|gäste|gaste|ospiti|huéspedes|huespedes|prenot|buchen|reserv|invités|invitados)\b/i.test(t)
+    && (hasExplicitDates(t) || /\bcheck[- ]?out\b/i.test(t));
+  if (bookingDateCheckin) return false;
+
+  if (/\b(?:check[- ]?in(?:\s+time)?|check in time|what time.*check|when.*check[- ]?in|a che ora.*check|hora de entrada|check-in uhrzeit|wann ist check)\b/i.test(t)) {
+    return true;
+  }
+  return /\b(?:gate code|wifi|wi-fi|password|house rules|luggage|baggage|breakfast|what to bring|where is the house|house address|address|location|heure d'arrivée|heure d arrivee)\b/i.test(t);
+}
+
+function detectBookingAvailabilityIntent(text) {
+  return /\b(?:room available|have a room|any availability|disponibilidad|hay sitio|posto libre|chambre libre|zimmer frei|place pour|c['']?è posto|posto per \d+|y a-t-il de la place)\b/i.test(String(text || ''));
 }
 
 function detectTransferInterest(text) {
@@ -244,7 +282,7 @@ function classifyMessageLane(text, guestContext) {
     }
   }
 
-  if (/\b(?:cancel|refund|rimborso|reembolso|stornier|annull|rembours|rückerstattung|ruckerstattung|reschedule|change my dates|cambiar fechas|modifier mes dates)\b/i.test(t)) {
+  if (/\b(?:cancel(?:ar|led|lation)?|refund|rimborso|reembolso|stornier(?:en|ung)?|annul(?:er|are)?|cancell(?:are|azione)?|rembours|rückerstattung|ruckerstattung|reschedule|change my dates|cambiar fechas|modifier mes dates)\b/i.test(t)) {
     return {
       lane: 'cancel_or_change_request',
       handoff: true,
@@ -264,7 +302,7 @@ function classifyMessageLane(text, guestContext) {
     }
   }
 
-  if (/\b(?:check[- ]?in time|check in time|what time.*check|gate code|wifi|house rules|luggage storage|hora de entrada|ora di check|heure d'arrivée|heure d arrivee|check-in uhrzeit)\b/i.test(t)) {
+  if (detectCheckinHouseInfoQuestion(t)) {
     return { lane: 'checkin_house_info_question', handoff: false, reasons: [], confidence: 0.9 };
   }
 
@@ -277,7 +315,7 @@ function classifyMessageLane(text, guestContext) {
     };
   }
 
-  if (/\b(?:remaining balance|balance due|still owe|how much.*owe|cuánto debo|saldo restante|reste à payer|reste a payer|noch zu zahlen|saldo rimanente)\b/i.test(t)) {
+  if (/\b(?:remaining balance|balance due|still owe|how much.*owe|how much do i owe|cuánto debo|saldo restante|reste à payer|reste a payer|noch zu zahlen|saldo rimanente|quanto devo|was muss ich|noch zahlen)\b/i.test(t)) {
     return {
       lane: 'payment_question',
       handoff: !hasCode,
@@ -286,19 +324,21 @@ function classifyMessageLane(text, guestContext) {
     };
   }
 
-  if (hasCode && !/\b(?:book|reserve|stay from|vorremmo venire|quiero reservar|nous aimerions)\b/i.test(t)) {
+  if (hasCode && !detectNewStayBookingIntent(t)) {
     return { lane: 'existing_booking_question', handoff: false, reasons: [], confidence: 0.85 };
   }
 
-  const serviceOnly = /\b(?:wetsuit|surfboard|surf board|surfbrett|muta|tabla de surf|planche|surf lesson|surfstunde|clase de surf|cours de surf|yoga)\b/i.test(t);
-  const bookingMix = /\b(?:book|stay|nights|check.in|package|vorremmo|venir|reserv|giugno|june|juni|malibu)\b/i.test(t);
-  if (serviceOnly && !bookingMix) {
+  const serviceOnly = /\b(?:wetsuit|surfboard|surf board|surfbrett|muta|tabla de surf|planche|surf lesson|surfstunde|surfbrett|clase de surf|cours de surf|lezione di surf|yoga)\b/i.test(t)
+    || /\b(?:kann ich|can i|posso|puis-je|¿puedo|puedo)\b.*\b(?:surfbrett|wetsuit|surfstunde|lezione|clase|cours|yoga)\b/i.test(t);
+  const bookingMix = /\b(?:book|stay|nights|check.in|package|vorremmo|venir|reserv|giugno|june|juni|malibu|prenot|interessati|interested)\b/i.test(t)
+    || (/\bbuchen\b/i.test(t) && !/\b(?:dazu buchen|surfbrett|wetsuit|surfstunde|lezione|clase|cours)\b/i.test(t));
+  if (serviceOnly && !bookingMix && !hasCode) {
     return { lane: 'add_service_request', handoff: false, reasons: [], confidence: 0.87 };
   }
 
   const transferOnly = /\b(?:airport transfer|transfer from|pick.?up from|flight number|aeropuerto de|aeroporto di|flughafen|transfert aéroport|transfer vom)\b/i.test(t)
     || (/\b(?:Santander|Bilbao|SDR|BIO)\b/i.test(t) && /\b(?:transfer|aeropuerto|airport|flughafen)\b/i.test(t));
-  if (transferOnly && !bookingMix) {
+  if (transferOnly && !bookingMix && !hasCode) {
     return { lane: 'transfer_request', handoff: false, reasons: [], confidence: 0.86 };
   }
 
@@ -313,7 +353,7 @@ function classifyMessageLane(text, guestContext) {
     };
   }
 
-  if (/\b(?:room available|have a room|any availability|disponibilidad|hay sitio|posto libre|chambre libre|zimmer frei)\b/i.test(t)) {
+  if (detectBookingAvailabilityIntent(t)) {
     const unclear = !hasExplicitDates(t);
     return {
       lane: 'new_booking_inquiry',
@@ -323,9 +363,13 @@ function classifyMessageLane(text, guestContext) {
     };
   }
 
-  if (/\b(?:book|booking|reserve|reservation|stay|want to come|looking to stay|vorremmo venire|voglio venire|quiero reservar|souhaite.*venir|möchte.*kommen|moechte.*kommen|möchten\s+buchen|moechten\s+buchen|wir\s+möchten\s+buchen|wir\s+moechten\s+buchen|nous\s+aimerions\s+venir|nous\s+voulons\s+réserver|nous\s+voulons\s+reserver|estancia)\b/i.test(t)
+  if (detectPackageGuestBookingIntent(t)) {
+    return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.84 };
+  }
+
+  if (/\b(?:book|booking|reserve|reservation|reservar|reservieren|prenot(?:are|azione)?|stay|want to come|looking to stay|vorremmo venire|voglio venire|quiero reservar|souhaite.*venir|möchte.*kommen|moechte.*kommen|möchten\s+buchen|moechten\s+buchen|wir\s+möchten\s+buchen|wir\s+moechten\s+buchen|nous\s+aimerions\s+venir|nous\s+voulons\s+r[eé]server|nous\s+voulons\s+reserver|estancia|interessati al|siamo in \d+|siamo \d+|group of \d+)\b/i.test(t)
     || hasExplicitDates(t)
-    || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen)\b/i.test(t)) {
+    || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti)\b/i.test(t)) {
     return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.82 };
   }
 
