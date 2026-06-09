@@ -1554,6 +1554,138 @@
         "banned_reply_terms_absent": true,
         "message_lane": "existing_booking_question"
       }
+    },
+    {
+      "id": "pkg-en-01",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What are the packages?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "€349", "€499", "7 nights", "Uluwatu", "Waimea", "lessons"]
+      }
+    },
+    {
+      "id": "pkg-en-02",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What is included in Malibu?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "7 nights", "shared kitchen", "T-shirt", "airport shuttle"]
+      }
+    },
+    {
+      "id": "pkg-en-03",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What is Uluwatu?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€349", "surfboard", "wetsuit", "6 full days"]
+      }
+    },
+    {
+      "id": "pkg-en-04",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What is Waimea?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€499", "6 morning", "12 hours", "surfboard", "wetsuit"]
+      }
+    },
+    {
+      "id": "pkg-en-05",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "I'm a beginner, which package should I choose?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["beginner", "Waimea", "lessons", "Uluwatu"]
+      }
+    },
+    {
+      "id": "pkg-en-06",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "I already know how to surf, do I need lessons?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["Uluwatu", "Malibu", "lessons"]
+      }
+    },
+    {
+      "id": "pkg-en-07",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What should I bring?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["swimwear", "towel", "sunscreen", "Uluwatu", "Waimea"]
+      }
+    },
+    {
+      "id": "pkg-it-01",
+      "category": "package_explainer",
+      "language": "it",
+      "message_text": "Quali sono i pacchetti?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "Malibu", "Uluwatu", "Waimea", "7 notti"]
+      }
+    },
+    {
+      "id": "pkg-es-01",
+      "category": "package_explainer",
+      "language": "es",
+      "message_text": "¿Qué paquetes tenéis?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "Malibu", "Uluwatu", "7 noches"]
+      }
+    },
+    {
+      "id": "pkg-de-01",
+      "category": "package_explainer",
+      "language": "de",
+      "message_text": "Was sind die Pakete?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "Malibu", "Uluwatu", "7 Nächte"]
+      }
+    },
+    {
+      "id": "pkg-fr-01",
+      "category": "package_explainer",
+      "language": "fr",
+      "message_text": "Quels sont les forfaits?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["249", "Malibu", "Uluwatu", "7 nuits"]
+      }
     }
   ]
 }

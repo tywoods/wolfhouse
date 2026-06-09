@@ -12,6 +12,11 @@ const {
   mergeGuestExtractedFields,
   collectPriorExtractedFields,
 } = require('./luna-guest-context-merge');
+const {
+  detectPackageExplainerIntent,
+  buildPackageExplainerReply,
+  isBookingExplainerContext,
+} = require('./luna-guest-package-explainer');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -168,10 +173,10 @@ function detectLanguage(text, hint) {
     if (REPLY_TEMPLATES[h]) return h;
   }
   const t = String(text || '').toLowerCase();
-  if (/\b(?:hola|gracias|quiero|personas|septiembre|aeropuerto|necesito)\b/.test(t)) return 'es';
-  if (/\b(?:ciao|grazie|vorrei|persone|settembre|giugno|siamo)\b/.test(t)) return 'it';
-  if (/\b(?:bonjour|merci|personnes|septembre|août|aout|aimerions|voulons|réserver|reserver)\b/.test(t)) return 'fr';
-  if (/\b(?:hallo|danke|gäste|gaste|september|surfbrett|wetsuit|mieten|möchten|moechten|buchen)\b/.test(t)) return 'de';
+  if (/\b(?:hola|gracias|quiero|personas|septiembre|aeropuerto|necesito|qué|que paquetes|paquetes|tenéis|teneis|principiante)\b/.test(t)) return 'es';
+  if (/\b(?:ciao|grazie|vorrei|persone|settembre|giugno|siamo|quali|pacchetto|pacchetti|principiante)\b/.test(t)) return 'it';
+  if (/\b(?:bonjour|merci|personnes|septembre|août|aout|aimerions|voulons|r[eé]server|reserver|forfaits|quels)\b/.test(t)) return 'fr';
+  if (/\b(?:hallo|danke|gäste|gaste|september|surfbrett|wetsuit|mieten|möchten|moechten|buchen|paket|pakete|anfänger|anfanger|mitbringen)\b/.test(t)) return 'de';
   return 'en';
 }
 
@@ -371,6 +376,10 @@ function classifyMessageLane(text, guestContext) {
     || hasExplicitDates(t)
     || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti)\b/i.test(t)) {
     return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.82 };
+  }
+
+  if (detectPackageExplainerIntent(t)) {
+    return { lane: 'general_question', handoff: false, reasons: [], confidence: 0.88 };
   }
 
   if (/\b(?:pets|parking|dogs|cats|allowed to bring)\b/i.test(t)) {
@@ -596,8 +605,16 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   }
 
   const detectedLanguage = detectLanguage(messageText, src.language_hint || guestContext.language);
+  const packageExplainerIntent = detectPackageExplainerIntent(messageText);
   const classification = classifyMessageLane(messageText, guestContext);
   let { lane, handoff, reasons, confidence } = classification;
+
+  if (packageExplainerIntent) {
+    lane = 'general_question';
+    handoff = false;
+    reasons = [];
+    confidence = 0.88;
+  }
 
   let extractedFields = {};
   let missingRequired = [];
@@ -662,7 +679,11 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   }
 
   let proposedReply;
-  if (safeHandoffRequired) {
+  if (packageExplainerIntent && !safeHandoffRequired) {
+    proposedReply = buildPackageExplainerReply(detectedLanguage, packageExplainerIntent, {
+      bookingInProgress: isBookingExplainerContext(guestContext),
+    });
+  } else if (safeHandoffRequired) {
     proposedReply = buildLaneReply(
       lane === 'cancel_or_change_request' ? lane : 'staff_handoff_required',
       detectedLanguage,
@@ -718,6 +739,8 @@ module.exports = {
   runLunaGuestMessageRouterDryRun,
   classifyMessageLane,
   detectLanguage,
+  detectPackageExplainerIntent,
+  buildPackageExplainerReply,
   computeMissingRequired,
   computeReadinessMissingFields,
   computeBookingIntakeReadiness,

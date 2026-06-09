@@ -14,6 +14,8 @@ const { execSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const API = path.join(__dirname, 'staff-query-api.js');
 const RUNNER = path.join(__dirname, 'run-luna-guest-golden-tests.js');
+const ROUTER = path.join(__dirname, 'lib', 'luna-guest-message-router.js');
+const PKG_EXPLAINER = path.join(__dirname, 'lib', 'luna-guest-package-explainer.js');
 const FIXTURE = path.join(__dirname, 'fixtures', 'luna-guest-golden-messages.json');
 const PKG_FILE = path.join(ROOT, 'package.json');
 const DOC = path.join(ROOT, 'docs', 'STAGE-27TEST-A-GOLDEN-RUNNER.md');
@@ -87,6 +89,10 @@ if (!fs.existsSync(FIXTURE)) {
     } else {
       fail('A6', 'some cases missing expected.message_lane');
     }
+
+    const pkgCases = data.cases.filter((c) => c.category === 'package_explainer');
+    if (pkgCases.length >= 10) pass('A8', `includes ${pkgCases.length} package_explainer cases`);
+    else fail('A8', `package_explainer cases ${pkgCases.length} < 10`);
   }
 }
 
@@ -121,6 +127,22 @@ if (runnerSrc.includes('--fail-fast') && runnerSrc.includes('--json')) {
   pass('B6', 'runner supports --json and --fail-fast');
 } else {
   fail('B6', 'runner output/control flags missing');
+}
+
+if (runnerSrc.includes('expected_reply_contains')) {
+  pass('B7', 'runner checks expected_reply_contains');
+} else {
+  fail('B7', 'expected_reply_contains check missing');
+}
+
+if (fs.existsSync(PKG_EXPLAINER)) pass('B8', 'luna-guest-package-explainer.js exists');
+else fail('B8', 'package explainer module missing');
+
+const routerSrc = fs.existsSync(ROUTER) ? fs.readFileSync(ROUTER, 'utf8') : '';
+if (routerSrc.includes('luna-guest-package-explainer')) {
+  pass('B9', 'router imports package explainer');
+} else {
+  fail('B9', 'router missing package explainer import');
 }
 
 section('C. Banned terms and safety checks');

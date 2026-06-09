@@ -281,6 +281,15 @@ function checkExpectations(fixture, body) {
     }
   }
 
+  if (Array.isArray(expected.expected_reply_contains) && expected.expected_reply_contains.length > 0) {
+    const replyLower = String(reply || '').toLowerCase();
+    for (const term of expected.expected_reply_contains) {
+      if (!replyLower.includes(String(term).toLowerCase())) {
+        failures.push(`expected_reply_contains missing "${term}"`);
+      }
+    }
+  }
+
   failures.push(...checkSafetyFlags(body));
 
   if (body.success !== true) {
