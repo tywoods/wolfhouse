@@ -252,7 +252,11 @@ function mapPreviewSuccess(preview, mergedDraft, language) {
   );
   const gateCode = resolveGateCode(draft, clientConfig);
   const addressResolved = resolveConfirmationAddress(draft, clientConfig);
-  const roomNumbers = resolveRoomNumbers(draft, preview.primary_room_code || null, []);
+  const roomNumbers = resolveRoomNumbers(
+    draft,
+    preview.primary_room_code || null,
+    preview.room_numbers || [],
+  );
   const roomFields = resolveRoomLabel(roomNumbers, draft);
 
   const proposed = sanitizePreviewMessage(

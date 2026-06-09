@@ -61,13 +61,16 @@ SELECT b.id AS booking_id,
  LIMIT 1`;
 
 const ROOM_CODES_SQL = `
-SELECT DISTINCT bb.room_code
+SELECT DISTINCT COALESCE(
+         NULLIF(TRIM(bb.room_code), ''),
+         NULLIF(regexp_replace(bb.bed_code, '-B[0-9]+$', ''), '')
+       ) AS room_code
   FROM booking_beds bb
  INNER JOIN bookings b ON b.id = bb.booking_id
  INNER JOIN clients c ON c.id = b.client_id
  WHERE c.slug = $1 AND b.id = $2::uuid
-   AND bb.room_code IS NOT NULL
- ORDER BY bb.room_code`;
+   AND COALESCE(NULLIF(TRIM(bb.room_code), ''), NULLIF(TRIM(bb.bed_code), '')) IS NOT NULL
+ ORDER BY 1`;
 
 const PAYMENTS_BY_BOOKING_SQL = `
 SELECT p.status::text            AS payment_status,
@@ -465,6 +468,8 @@ async function getLunaBookingConfirmationPreview(input, context) {
   return {
     success: true,
     ...base,
+    primary_room_code: row.primary_room_code || null,
+    room_numbers: roomNumbers,
     confirmation_draft: confirmationDraft,
     message_preview:    messagePreview,
     address_source:     addressResolved.source,
