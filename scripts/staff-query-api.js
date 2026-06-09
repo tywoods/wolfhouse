@@ -10900,7 +10900,8 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
               source: 'open_demo_whatsapp_stripe_test_link_27demo-e',
             }, {
               confirm_stripe_test_link: true,
-              env: process.env,
+              // 27o requires WHATSAPP_DRY_RUN=true for link create; live send uses process.env separately.
+              env: { ...process.env, WHATSAPP_DRY_RUN: 'true' },
               host_header: hostHeader,
               pg,
             });
