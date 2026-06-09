@@ -210,6 +210,8 @@
     "verify:stage27test-s-review-stability": "node scripts/verify-stage27test-s-review-stability.js",
     "verify:stage27test-t-pg-pool": "node scripts/verify-stage27test-t-pg-pool.js",
     "verify:stage27demo-a-open-whatsapp-stripe-design": "node scripts/verify-stage27demo-a-open-whatsapp-stripe-design.js",
+    "verify:stage27demo-b-open-demo-inbound": "node scripts/verify-stage27demo-b-open-demo-inbound.js",
+    "open-demo:whatsapp-inbound": "node scripts/run-open-demo-whatsapp-inbound-dry-run.js",
     "luna:guest-torture:generate": "node scripts/generate-luna-guest-torture-fixtures.js",
     "luna:guest-torture": "node scripts/run-luna-guest-torture-tests.js",
     "luna:guest-sim:flow": "node scripts/run-luna-guest-simulator-flow.js",

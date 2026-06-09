@@ -311,6 +311,12 @@ const {
   buildSafeReviewDryRun500Body,
 } = require('./lib/luna-review-dry-run-error-log');
 const {
+  OPEN_DEMO_WHATSAPP_ROUTE,
+  evaluateOpenDemoWhatsAppGate,
+  validateOpenDemoInboundBody,
+  buildOpenDemoBlockedResponse,
+} = require('./lib/open-demo-whatsapp-gate');
+const {
   runGuestHoldPaymentDraftWriteDryRunApproved,
 } = require('./lib/luna-guest-hold-payment-draft-write');
 const {
@@ -10584,6 +10590,164 @@ async function handleBotGuestInboundReviewDryRun(req, res, user, authMode) {
       auth_mode: resolvedAuthMode,
       elapsed_ms: elapsed,
     }));
+  }
+}
+
+// Route: POST /staff/bot/open-demo-whatsapp-inbound-dry-run  (Stage 27demo-b)
+//
+// n8n open demo WhatsApp pipe → 27x.1 inbound review → inbox/draft persistence.
+// No live WhatsApp send, Stripe, hold/payment writes, or booking creation.
+async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-open-demo-whatsapp-local';
+
+  const gate = evaluateOpenDemoWhatsAppGate(body);
+  if (!gate.ok) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_open_demo_whatsapp_inbound_dry_run',
+      category:           'open_demo_whatsapp_inbound',
+      dry_run:            true,
+      preview_only:       true,
+      sends_whatsapp:     false,
+      live_send_blocked:  true,
+      success:            false,
+      demo_gate_code:     gate.code,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+    return sendJSON(res, gate.status || 403, {
+      ...buildOpenDemoBlockedResponse(gate),
+      auth_mode:  resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const validation = validateOpenDemoInboundBody(body);
+  if (!validation.ok) {
+    const elapsed = Date.now() - started;
+    return sendJSON(res, 400, {
+      success:           false,
+      dry_run:           true,
+      open_demo:         true,
+      sends_whatsapp:    false,
+      live_send_blocked: true,
+      error:             `${validation.missing.join(', ')} ${validation.missing.length === 1 ? 'is' : 'are'} required`,
+      auth_mode:         resolvedAuthMode,
+      elapsed_ms:        elapsed,
+    });
+  }
+
+  const inboundBody = validation.normalized;
+
+  try {
+    const outcome = await withPgClient((pg) => runGuestInboundReviewDryRun(inboundBody, { pg }));
+    const elapsed = Date.now() - started;
+
+    if (!outcome.ok) {
+      appendAuditLog({
+        ts:                 new Date().toISOString(),
+        intent:             'api:bot_open_demo_whatsapp_inbound_dry_run',
+        category:           'open_demo_whatsapp_inbound',
+        dry_run:            true,
+        preview_only:       true,
+        sends_whatsapp:     false,
+        live_send_blocked:  true,
+        success:            false,
+        staff_user_id:      actorId,
+        auth_mode:          resolvedAuthMode,
+        elapsed_ms:         elapsed,
+      });
+      return sendJSON(res, outcome.status || 400, {
+        success:           false,
+        dry_run:           true,
+        open_demo:         true,
+        sends_whatsapp:    false,
+        live_send_blocked: true,
+        error:             outcome.error || 'open demo inbound review failed',
+        auth_mode:         resolvedAuthMode,
+        elapsed_ms:        elapsed,
+      });
+    }
+
+    const responseBody = {
+      ...outcome.body,
+      open_demo:         true,
+      demo_gate:         'open_demo_whatsapp_enabled',
+      phone_number_id:   inboundBody.phone_number_id || null,
+      contact_name:      inboundBody.contact_name || null,
+      sends_whatsapp:    false,
+      live_send_blocked: true,
+      auth_mode:         resolvedAuthMode,
+      elapsed_ms:        elapsed,
+    };
+
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_open_demo_whatsapp_inbound_dry_run',
+      category:           'open_demo_whatsapp_inbound',
+      dry_run:            true,
+      preview_only:       true,
+      sends_whatsapp:     false,
+      live_send_blocked:  true,
+      creates_booking:    false,
+      creates_payment:    false,
+      creates_stripe_link: false,
+      review_persistence_performed: responseBody.review_persistence_performed === true,
+      idempotent_replay:  responseBody.idempotent_replay === true,
+      success:            responseBody.success === true,
+      proposed_next_action: responseBody.review && responseBody.review.proposed_next_action,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+
+    return sendJSON(res, outcome.status || 200, responseBody);
+  } catch (err) {
+    const elapsed = Date.now() - started;
+    const corr = extractReviewDryRunCorrelation(req, body);
+    logReviewDryRunError({
+      endpoint: 'open-demo-whatsapp-inbound-dry-run',
+      ...corr,
+      client_slug: inboundBody.client_slug,
+      channel: inboundBody.channel,
+      guest_phone: inboundBody.guest_phone,
+      message_length: inboundBody.message_text.length,
+      error: err,
+      elapsed_ms: elapsed,
+    });
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_open_demo_whatsapp_inbound_dry_run',
+      category:           'open_demo_whatsapp_inbound',
+      dry_run:            true,
+      preview_only:       true,
+      sends_whatsapp:     false,
+      live_send_blocked:  true,
+      success:            false,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+    return sendJSON(res, 500, {
+      ...buildSafeReviewDryRun500Body({
+        error: 'open demo WhatsApp inbound dry-run failed',
+        auth_mode: resolvedAuthMode,
+        elapsed_ms: elapsed,
+      }),
+      open_demo: true,
+    });
   }
 }
 
@@ -27409,6 +27573,18 @@ async function router(req, res) {
     return handleBotGuestIntakeDryRun(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Stage 27demo-b — Open demo WhatsApp inbound dry-run (staff/bot only) ───
+  // POST /staff/bot/open-demo-whatsapp-inbound-dry-run
+  if (pathname === OPEN_DEMO_WHATSAPP_ROUTE) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/open-demo-whatsapp-inbound-dry-run' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotOpenDemoWhatsAppInboundDryRun(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 27x.1 — Inbound guest review dry-run (staff/bot only) ────────────
   // POST /staff/bot/guest-inbound-review-dry-run
   if (pathname === '/staff/bot/guest-inbound-review-dry-run') {
@@ -27903,6 +28079,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-reply-send <- 19d Luna guest reply send (default-deny, no send yet)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/message-intake-preview <- 15b Luna message intake preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-intake-dry-run <- 27c Luna guest intake dry-run (read-only, no send)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/open-demo-whatsapp-inbound-dry-run <- 27demo-b open demo WhatsApp inbound (no live send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-inbound-review-dry-run <- 27x.1 inbound guest review (staff/bot, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-automation-review-dry-run <- 27v Luna guest automation review (staff-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-hold-draft <- 27w Luna guest simulator hold/draft (staging/local only)`);
