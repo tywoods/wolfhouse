@@ -65,6 +65,7 @@ Options:
   --reference-date DATE     Default 2026-06-08
   --send-live-reply-confirmed  Request gated live WhatsApp send (27demo-c; default off)
   --create-demo-hold-draft-confirmed  Request gated hold/draft write on final turn (27demo-d)
+  --guest-email EMAIL       Optional guest email (required for hold/draft write)
   --json                    Print full JSON response only
   --help                    Show this help
 
@@ -86,6 +87,7 @@ function parseArgs(argv) {
     contactName: null,
     sendLiveReplyConfirmed: false,
     createDemoHoldDraftConfirmed: false,
+    guestEmail: 'open-demo+34600995555@example.test',
     json: false,
     help: false,
   };
@@ -96,6 +98,7 @@ function parseArgs(argv) {
     else if (a === '--json') opts.json = true;
     else if (a === '--send-live-reply-confirmed') opts.sendLiveReplyConfirmed = true;
     else if (a === '--create-demo-hold-draft-confirmed') opts.createDemoHoldDraftConfirmed = true;
+    else if (a === '--guest-email') opts.guestEmail = argv[++i];
     else if (a === '--base-url') opts.baseUrl = argv[++i];
     else if (a === '--client-slug') opts.clientSlug = argv[++i];
     else if (a === '--phone-number-id') opts.phoneNumberId = argv[++i];
@@ -180,6 +183,7 @@ function buildPayload(opts, messageText, guestContext, turnIndex, isLastTurn) {
     reference_date: opts.referenceDate,
   };
   if (opts.contactName) payload.contact_name = opts.contactName;
+  if (opts.guestEmail) payload.guest_email = opts.guestEmail;
   if (guestContext) payload.guest_context = guestContext;
   if (opts.sendLiveReplyConfirmed) payload.send_live_reply_confirmed = true;
   if (opts.createDemoHoldDraftConfirmed && isLastTurn) {

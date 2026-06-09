@@ -10758,6 +10758,7 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
               client_slug:   inboundBody.client_slug,
               guest_phone:   inboundBody.guest_phone,
               guest_name:    body.guest_name || inboundBody.contact_name || null,
+              guest_email:   body.guest_email || null,
               env:           process.env,
               host_header:   hostHeader,
               source:        'open_demo_whatsapp_booking_write_27demo-d',

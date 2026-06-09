@@ -65,6 +65,7 @@ node scripts/run-open-demo-whatsapp-inbound-dry-run.js \
   --base-url https://staff-staging.lunafrontdesk.com \
   --phone-number-id 1152900101233109 \
   --guest-phone +34600995555 \
+  --guest-email open-demo+34600995555@example.test \
   --fixture booking-deposit-write \
   --create-demo-hold-draft-confirmed
 ```
@@ -97,6 +98,7 @@ Guest context carries forward automatically via `slim_guest_context_for_next_tur
   "received_at": "2026-06-09T20:00:00.000Z",
   "reference_date": "2026-06-08",
   "guest_context": { "...": "from prior turns" },
+  "guest_email": "open-demo+34600995555@example.test",
   "create_demo_hold_draft_confirmed": true
 }
 ```
@@ -161,6 +163,9 @@ After successful write:
 3. Note `booking_code` from turn 3 response.
 4. Open Staff Portal → **Booking Calendar**.
 5. Confirm booking appears for guest phone / dates with hold status.
+
+   **Grid note:** The calendar grid lists `booking_beds` assignments. A fresh hold write creates the booking + draft payment without a bed row, so it may not appear on the grid until staff assigns a bed. Use booking code lookup (`GET /staff/bookings/{booking_code}/context`) to verify hold + payment draft.
+
 6. Open booking detail (if available) and verify:
    - Payment draft row exists
    - No Stripe checkout URL
