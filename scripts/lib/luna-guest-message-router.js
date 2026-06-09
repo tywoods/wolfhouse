@@ -7,7 +7,7 @@
  * new_booking_inquiry. No writes, Stripe, WhatsApp, Meta, n8n, or live automation.
  */
 
-const { extractLunaGuestMessageIntake } = require('./luna-guest-message-intake');
+const { extractLunaGuestMessageIntake, detectPackageMutationIntent } = require('./luna-guest-message-intake');
 const {
   mergeGuestExtractedFields,
   collectPriorExtractedFields,
@@ -270,6 +270,15 @@ function hasPackageOrStayIntent(extracted) {
     || normalized === 'accommodation_only'
     || normalized === 'custom'
     || ['malibu', 'uluwatu', 'waimea'].includes(normalized);
+}
+
+function hasPriorBookingChain(guestContext) {
+  const prior = collectPriorExtractedFields(guestContext);
+  const quoteReady = guestContext
+    && guestContext.quote
+    && guestContext.quote.quote_status === 'ready';
+  return !!(prior.check_in && prior.check_out && prior.guest_count != null
+    && (prior.package_interest || quoteReady));
 }
 
 function classifyMessageLane(text, guestContext) {
@@ -608,6 +617,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
 
   const detectedLanguage = detectLanguage(messageText, src.language_hint || guestContext.language);
   const packageExplainerIntent = detectPackageExplainerIntent(messageText);
+  const packageMutation = detectPackageMutationIntent(messageText);
   const classification = classifyMessageLane(messageText, guestContext);
   let { lane, handoff, reasons, confidence } = classification;
 
@@ -616,6 +626,11 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     handoff = false;
     reasons = [];
     confidence = 0.88;
+  } else if (packageMutation && hasPriorBookingChain(guestContext)) {
+    lane = 'new_booking_inquiry';
+    handoff = false;
+    reasons = [];
+    confidence = 0.9;
   }
 
   let extractedFields = {};
@@ -627,6 +642,12 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       reference_date: ctx.reference_date,
       guest_phone: ctx.guest_phone || guestContext.guest_phone,
     }, priorExtracted);
+    if (packageMutation) {
+      extractedFields = {
+        ...extractedFields,
+        package_interest: packageMutation,
+      };
+    }
     missingRequired = computeMissingRequired(extractedFields);
 
     if (reasons.includes('unclear_availability')) handoff = true;

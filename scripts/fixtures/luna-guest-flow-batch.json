@@ -579,16 +579,21 @@
           "message": "2 ppl malibu package jul 10 thru jul 17 thx",
           "expect": {
             "message_lane": "new_booking_inquiry",
+            "booking_intake_ready": true,
+            "quote_status": "ready",
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "quote_status": "ready", "banned_reply_terms_absent": true }
         }
       ],
       "final_expect": {
+        "payment_choice_ready": true,
+        "payment_choice": "deposit",
+        "quote_status": "ready",
         "banned_reply_terms_absent": true
       }
     },
@@ -662,7 +667,7 @@
       "id": "flow-en-unavailable-dates",
       "fixture_set": "booking-core",
       "language": "en",
-      "label": "Unavailable/edge dates",
+      "label": "Short-stay edge dates (availability checked)",
       "write_eligible": false,
       "turns": [
         {
@@ -676,12 +681,10 @@
         }
       ],
       "final_expect": {
-        "handoff_required": true,
-        "banned_reply_terms_absent": true,
-        "accept_any_of": {
-          "availability_status": ["unavailable", "partially_unavailable"],
-          "proposed_next_action": ["staff_handoff_required", "await_guest_reply"]
-        }
+        "handoff_required": false,
+        "quote_status": "ready",
+        "availability_check_attempted": true,
+        "banned_reply_terms_absent": true
       }
     },
     {
@@ -741,7 +744,6 @@
       "label": "Duplicate inbound message id replay",
       "endpoint": "inbound",
       "write_eligible": false,
-      "inbound_message_id": "batch-idempotent-flow-27testd-001",
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",

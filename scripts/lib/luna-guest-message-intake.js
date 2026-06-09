@@ -225,6 +225,32 @@ function extractNamedDateRange(text, ref) {
   const t = String(text || '');
   const explicitYear = parseYearFromText(t);
 
+  // EN compact — jul 10 thru jul 17 / july 10 - july 17
+  const enCompactMonthFirst = t.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})\s*(?:thru|through|to|–|-)\s*(?:(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+)?(\d{1,2})\b/i,
+  );
+  if (enCompactMonthFirst) {
+    const month = monthFromName(enCompactMonthFirst[1]);
+    const year = explicitYear;
+    const checkIn = dayMonthYearToIso(Number(enCompactMonthFirst[2]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(enCompactMonthFirst[4]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // EN compact — 10 jul to 17 jul
+  const enCompactDayFirst = t.match(
+    /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:to|thru|through|–|-)\s*(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i,
+  );
+  if (enCompactDayFirst) {
+    const m1 = monthFromName(enCompactDayFirst[2]);
+    const m2 = monthFromName(enCompactDayFirst[4]);
+    const month = m2 || m1;
+    const year = explicitYear;
+    const checkIn = dayMonthYearToIso(Number(enCompactDayFirst[1]), m1 || month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(enCompactDayFirst[3]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
   // IT — dal 10 al 17 luglio 2026
   const itRange = t.match(
     /\b(?:dal|da)\s+(\d{1,2})\s+al\s+(\d{1,2})\s+([a-zàèéìòù]+)(?:\s+(20\d{2}))?\b/i,
@@ -362,6 +388,7 @@ function hasPartialBookingSignal(fields, text) {
 function extractGuests(text) {
   const t = String(text || '').toLowerCase();
   const patterns = [
+    /\b(\d{1,2})\s+ppl\b/i,
     /\b(\d{1,2})\s*(?:people|persons|guests|pax|persone|personas|personnes|gäste|gaste)\b/i,
     /\b(?:for|we are|we're|somos|siamo|nous sommes|wir sind)\s+(\d{1,2})\b/i,
     /\b(?:siamo|somos|nous sommes|wir sind)\s+in\s+(\d{1,2})\b/i,
@@ -407,6 +434,16 @@ function extractPackageCode(text) {
   if (/\bmalibu\b/.test(t)) return 'malibu';
   if (/\buluwatu\b/.test(t)) return 'uluwatu';
   if (/\bwaimea\b/.test(t)) return 'waimea';
+  return null;
+}
+
+function detectPackageMutationIntent(text) {
+  const t = String(text || '');
+  if (!/\b(?:switch|change|make it|instead|rather|actually)\b/i.test(t)) return null;
+  const pkg = extractPackageCode(t);
+  if (!pkg) return null;
+  if (/\b(?:switch|change|make it|instead)\b/i.test(t)) return pkg;
+  if (/\bactually\b/i.test(t) && pkg) return pkg;
   return null;
 }
 
@@ -727,6 +764,7 @@ module.exports = {
   buildDryRunInputFromIntake,
   hasEnoughFieldsForDryRun,
   isGuestIntakeAiEnabled,
+  detectPackageMutationIntent,
   INTAKE_SAFETY_FLAGS,
   KNOWN_PACKAGE_CODES,
   KNOWN_ADDON_TYPES,

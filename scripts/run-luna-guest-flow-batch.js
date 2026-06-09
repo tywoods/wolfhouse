@@ -292,6 +292,7 @@ function buildInboundPayload(opts, flow, turn, message, guestContext, phone, inb
     language_hint: flow.language,
     received_at: new Date().toISOString(),
     inbound_message_id: inboundMessageId,
+    idempotency_key: `${CLIENT_SLUG}:whatsapp:${inboundMessageId}`,
     guest_context: guestContext || undefined,
     automation_gate_context: {
       public_guest_automation_enabled: false,
@@ -330,7 +331,7 @@ async function runSimulatorEndpoint(opts, payload, headers) {
 }
 
 async function runInboundLocal(payload) {
-  const outcome = await runGuestInboundReviewDryRun(payload, {});
+  const outcome = await withPgClient((pg) => runGuestInboundReviewDryRun(payload, { pg }));
   return {
     http_status: outcome.status || (outcome.ok ? 200 : 400),
     body: outcome.body || outcome,
@@ -574,7 +575,11 @@ async function runFlow(flow, opts, mode, headers, flowIndex) {
   let priorReview = null;
   let lastBody = null;
   let readyContext = null;
-  const inboundId = flow.inbound_message_id || `batch-${flow.id}`;
+  const isIdempotentReplayFlow = endpoint === 'inbound'
+    && flow.turns.some((t) => t.reuse_inbound_message_id);
+  const inboundId = isIdempotentReplayFlow
+    ? `batch-${flow.id}-${opts.inboundNonce || Date.now()}-f${flowIndex}`
+    : (flow.inbound_message_id || `batch-${flow.id}-f${flowIndex}`);
 
   for (let ti = 0; ti < flow.turns.length; ti++) {
     const turn = flow.turns[ti];
@@ -593,7 +598,9 @@ async function runFlow(flow, opts, mode, headers, flowIndex) {
 
     let runRes;
     if (endpoint === 'inbound') {
-      const msgId = turn.reuse_inbound_message_id ? inboundId : `${inboundId}-turn${ti + 1}`;
+      const msgId = (isIdempotentReplayFlow || turn.reuse_inbound_message_id)
+        ? inboundId
+        : `${inboundId}-turn${ti + 1}`;
       const payload = buildInboundPayload(opts, flow, turn, turn.message, guestContext, phone, msgId);
       if (mode === 'local') runRes = await runInboundLocal(payload);
       else runRes = await runInboundEndpoint(opts, payload, headers);
@@ -702,6 +709,7 @@ async function runFlow(flow, opts, mode, headers, flowIndex) {
 
 async function main() {
   const opts = parseArgs(process.argv);
+  opts.inboundNonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   if (opts.help) {
     usage();
     process.exit(0);
