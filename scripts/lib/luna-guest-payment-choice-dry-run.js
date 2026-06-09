@@ -217,15 +217,19 @@ function detectPaymentChoiceFromMessage(messageText) {
   const t = normalizeText(messageText);
   if (!t) return null;
 
-  if (/\b(?:send(?:\s+me)?\s+(?:the\s+)?(?:payment\s+)?link|payment\s+link|checkout\s+link|pay(?:ment)?\s+link|link\s+to\s+pay|invia(?:mi)?\s+(?:il\s+)?link|link\s+de\s+pago|lien\s+de\s+paiement|zahlungslink)\b/i.test(t)) {
+  if (/\b(?:send(?:\s+me)?\s+(?:the\s+)?(?:payment\s+)?link|send\s+link|payment\s+link|checkout\s+link|pay(?:ment)?\s+link|link\s+to\s+pay|link\s+after\s+quote|invia(?:mi)?\s+(?:il\s+)?link|link\s+de\s+pago|lien\s+de\s+paiement|zahlungslink)\b/i.test(t)) {
     return 'payment_link_request';
   }
 
-  if (/\b(?:pay\s+cash|cash\s+(?:on\s+)?(?:arrival|when\s+i\s+arrive|at\s+check[\s-]?in)|bank\s+transfer|wire\s+transfer|transferencia|bonifico|virement|überweisung|efectivo|all'arrivo|à\s+l'arrivée|bei\s+ankunft|pay\s+when\s+i\s+arrive|on\s+arrival|at\s+check[\s-]?in)\b/i.test(t)) {
+  if (/\b(?:pay\s+cash|cash\s+(?:on\s+)?(?:arrival|when\s+i\s+arrive|at\s+check[\s-]?in)|bank\s+transfer|wire\s+transfer|transferencia|bonifico|virement|überweisung|ueberweisung|efectivo|all'arrivo|à\s+l'arrivée|a\s+l'arrivee|bei\s+ankunft|pay\s+when\s+i\s+arrive|on\s+arrival|at\s+check[\s-]?in|(?:do you )?accept\s+bank\s+transfer|accept\s+bank\s+transfer)\b/i.test(t)) {
     return 'arrival_payment_question';
   }
 
-  if (/\b(?:full\s+amount|pay\s+in\s+full|pay\s+the\s+full|entire\s+amount|whole\s+amount|total\s+amount|importo\s+intero|pago\s+completo|montant\s+complet|voller\s+betrag|alles\s+bezahlen|i(?:'|’)?ll\s+pay\s+(?:the\s+)?full)\b/i.test(t)) {
+  if (/\b(?:can i )?pay later|pagar m[aá]s tarde|pagar depois|payer plus tard|sp[aä]ter bezahlen\b/i.test(t)) {
+    return 'arrival_payment_question';
+  }
+
+  if (/\b(?:full\s+amount|pay\s+in\s+full|pay\s+the\s+full|will pay the full|want to pay (?:the )?full|entire\s+amount|whole\s+amount|total\s+amount|importo\s+intero|pago\s+completo|montant\s+complet|voller\s+betrag|alles\s+bezahlen|i(?:'|’)?ll\s+pay\s+(?:the\s+)?full)\b/i.test(t)) {
     return 'full_payment';
   }
 

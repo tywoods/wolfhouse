@@ -17,6 +17,7 @@ const {
   buildPackageExplainerReply,
   isBookingExplainerContext,
 } = require('./luna-guest-package-explainer');
+const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -88,7 +89,13 @@ const REPLY_TEMPLATES = {
     service_no_booking: 'I can note wetsuit, board, lesson, or yoga interest — could you share your booking code or reservation name first?',
     checkin_info: "Check-in details depend on your booking — I'll ask our team to confirm the exact time and house info for you.",
     payment_help: "For payment or balance questions I'll need your booking code — could you send that, and our team will confirm the right next step?",
-    pay_now: "I can't send a payment link automatically yet — our team will confirm your booking and payment status and follow up with you.",
+    pay_now: "I can't process payment automatically yet — our team will confirm your booking and payment status and follow up with you.",
+    pay_arrival_balance: 'The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. To secure the booking, we still need a deposit or full payment once your quote is ready.',
+    pay_link_need_quote: "I can't send a pay link yet — I'll need your stay details and a quote first. Once that's ready, you can choose deposit or full payment.",
+    pay_already_paid_check: "Thanks for letting me know — I can't confirm payment from chat alone. Our team will check your payment status in the system and follow up with you.",
+    pay_failed_safe: "Sorry the payment didn't go through — I'm not able to retry or refund from here. Our team can check what happened and help with the next step.",
+    pay_later_safe: 'For now, to hold a booking we need a deposit or full payment once your quote is ready. The remaining balance can usually be paid on arrival by cash, bank transfer, or Stripe.',
+    pay_deposit_explainer: 'Once your stay quote is ready, you can pay a deposit or the full amount to secure the booking. The remaining balance can be paid on arrival or at check-in.',
     general: "Thanks for reaching out to Wolfhouse! I'll flag this for our team so they can answer you properly.",
     cancel: "Changes or cancellations after payment need our team — I'm handing this over so they can help you directly.",
     ready_next_check: 'Thanks — I have your stay details. Next I can look into the best option for your dates and let you know. I am not confirming availability yet.',
@@ -286,6 +293,117 @@ function hasPackageOrStayIntent(extracted) {
     || ['malibu', 'uluwatu', 'waimea'].includes(normalized);
 }
 
+function hasActivePaymentChoiceContext(ctx) {
+  const guestCtx = ctx || {};
+  const quote = guestCtx.quote && typeof guestCtx.quote === 'object' ? guestCtx.quote : {};
+  return quote.quote_status === 'ready'
+    && (quote.payment_choice_needed === true || guestCtx.payment_choice_needed === true);
+}
+
+function detectPaymentQuestionKind(text) {
+  const t = String(text || '');
+  const choice = detectPaymentChoiceFromMessage(t);
+  if (choice) return choice;
+
+  if (/\b(?:already paid|i(?:'|’)?ve paid|have paid|i paid|ya pagu[eé]|gi[aà] pagato|j'ai d[eé]j[aà] pay[eé]|bereits bezahlt|schon bezahlt)\b/i.test(t)) {
+    return 'already_paid_claim';
+  }
+  if (/\b(?:payment failed|payment didn't go through|card declined|transaction failed|pago fallido|pagamento fallito|paiement [eé]chou[eé]|zahlung fehlgeschlagen)\b/i.test(t)) {
+    return 'payment_failed';
+  }
+  if (/\b(?:do i need to pay (?:a )?deposit|need to pay (?:a )?deposit|deposit required)\b/i.test(t)) {
+    return 'deposit_question';
+  }
+  if (/\b(?:how much do i owe|what is the remaining balance|what(?:'s| is) (?:my )?remaining balance|pay (?:the )?balance by card)\b/i.test(t)) {
+    return 'balance_question';
+  }
+  if (/\b(?:pay now|paying now|pagar ahora|payer maintenant|jetzt bezahlen)\b/i.test(t)) {
+    return 'pay_now_request';
+  }
+  return null;
+}
+
+function classifyPaymentQuestionLane(text, ctx) {
+  const t = String(text || '');
+  const guestCtx = ctx || {};
+  let kind = detectPaymentQuestionKind(t);
+  const balanceSignal = /\b(?:remaining balance|balance due|still owe|how much.*owe|how much balance|how much do i owe|cuánto debo|saldo restante|reste à payer|reste a payer|noch zu zahlen|saldo rimanente|quanto devo|was muss ich|noch zahlen)\b/i.test(t);
+  if (!kind && balanceSignal) kind = 'balance_question';
+  if (!kind) return null;
+
+  const hasCode = hasBookingCode(t) || !!(guestCtx.booking_code || guestCtx.booking_id);
+  const activeQuote = hasActivePaymentChoiceContext(guestCtx);
+
+  if (activeQuote && (kind === 'deposit' || kind === 'full_payment')) {
+    return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9, paymentKind: kind };
+  }
+
+  if (kind === 'pay_now_request') {
+    return {
+      lane: 'payment_question',
+      handoff: true,
+      reasons: ['payment_state_mismatch'],
+      confidence: 0.9,
+      paymentKind: kind,
+    };
+  }
+
+  if (kind === 'payment_link_request') {
+    return {
+      lane: 'payment_question',
+      handoff: !activeQuote,
+      reasons: activeQuote ? [] : ['payment_state_mismatch'],
+      confidence: 0.9,
+      paymentKind: kind,
+    };
+  }
+
+  if (kind === 'balance_question' || balanceSignal) {
+    return {
+      lane: 'payment_question',
+      handoff: false,
+      reasons: hasCode ? [] : ['needs_booking_identification'],
+      confidence: 0.88,
+      paymentKind: 'balance_question',
+    };
+  }
+
+  return {
+    lane: 'payment_question',
+    handoff: false,
+    reasons: [],
+    confidence: 0.86,
+    paymentKind: kind,
+  };
+}
+
+function buildPaymentQuestionReply(lang, paymentKind, activeQuote, reasons) {
+  const intro = `${tpl(lang, 'intro')} 🌊 — `;
+  const kind = paymentKind || 'unknown';
+  if (kind === 'arrival_payment_question' || kind === 'pay_later') {
+    return intro + tpl(lang, 'pay_arrival_balance');
+  }
+  if (kind === 'payment_link_request') {
+    return intro + (activeQuote ? tpl(lang, 'pay_now') : tpl(lang, 'pay_link_need_quote'));
+  }
+  if (kind === 'already_paid_claim') {
+    return intro + tpl(lang, 'pay_already_paid_check');
+  }
+  if (kind === 'payment_failed') {
+    return intro + tpl(lang, 'pay_failed_safe');
+  }
+  if (kind === 'deposit_question') {
+    return intro + tpl(lang, 'pay_deposit_explainer');
+  }
+  if (kind === 'balance_question' || (reasons && reasons.includes('needs_booking_identification'))) {
+    return intro + tpl(lang, 'payment_help');
+  }
+  if (reasons && reasons.includes('payment_state_mismatch')) {
+    return intro + tpl(lang, 'pay_now');
+  }
+  return intro + tpl(lang, 'payment_help');
+}
+
 function hasPriorBookingChain(guestContext) {
   const prior = collectPriorExtractedFields(guestContext);
   const quoteReady = guestContext
@@ -299,6 +417,13 @@ function classifyMessageLane(text, guestContext) {
   const t = String(text || '');
   const ctx = guestContext || {};
   const hasCode = hasBookingCode(t) || !!(ctx.booking_code || ctx.booking_id);
+
+  if (hasActivePaymentChoiceContext(ctx)) {
+    const pc = detectPaymentChoiceFromMessage(t);
+    if (pc === 'deposit' || pc === 'full_payment') {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9, paymentKind: pc };
+    }
+  }
 
   if (ctx.message_lane === 'new_booking_inquiry'
     && (ctx.readiness_state === 'collecting_required_details' || ctx.booking_intake_ready === false)
@@ -336,23 +461,8 @@ function classifyMessageLane(text, guestContext) {
     return { lane: 'checkin_house_info_question', handoff: false, reasons: [], confidence: 0.9 };
   }
 
-  if (/\b(?:pay now|payment link|checkout link|paying now|pagar ahora|payer maintenant|jetzt bezahlen|link de pago|lien de paiement)\b/i.test(t)) {
-    return {
-      lane: 'payment_question',
-      handoff: true,
-      reasons: ['payment_state_mismatch'],
-      confidence: 0.9,
-    };
-  }
-
-  if (/\b(?:remaining balance|balance due|still owe|how much.*owe|how much do i owe|cuánto debo|saldo restante|reste à payer|reste a payer|noch zu zahlen|saldo rimanente|quanto devo|was muss ich|noch zahlen)\b/i.test(t)) {
-    return {
-      lane: 'payment_question',
-      handoff: !hasCode,
-      reasons: hasCode ? [] : ['needs_booking_identification'],
-      confidence: 0.88,
-    };
-  }
+  const paymentLane = classifyPaymentQuestionLane(t, ctx);
+  if (paymentLane) return paymentLane;
 
   if (hasCode && !detectNewStayBookingIntent(t)) {
     return { lane: 'existing_booking_question', handoff: false, reasons: [], confidence: 0.85 };
@@ -638,7 +748,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   const packageExplainerIntent = detectPackageExplainerIntent(messageText);
   const packageMutation = detectPackageMutationIntent(messageText);
   const classification = classifyMessageLane(messageText, guestContext);
-  let { lane, handoff, reasons, confidence } = classification;
+  let { lane, handoff, reasons, confidence, paymentKind } = classification;
 
   if (packageExplainerIntent) {
     lane = 'general_question';
@@ -692,7 +802,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     missingRequired = [];
   }
 
-  const safeHandoffRequired = packageExplainerIntent
+  let safeHandoffRequired = packageExplainerIntent
     ? false
     : (lane === 'staff_handoff_required'
       || handoff
@@ -727,11 +837,23 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     handoff = false;
   }
 
+  if (reasons.includes('needs_booking_identification') && lane === 'payment_question') {
+    handoff = false;
+    safeHandoffRequired = false;
+  }
+
   let proposedReply;
   if (packageExplainerIntent) {
     proposedReply = buildPackageExplainerReply(detectedLanguage, packageExplainerIntent, {
       bookingInProgress: isBookingExplainerContext(guestContext),
     });
+  } else if (lane === 'payment_question') {
+    proposedReply = buildPaymentQuestionReply(
+      detectedLanguage,
+      paymentKind,
+      hasActivePaymentChoiceContext(guestContext),
+      reasons,
+    );
   } else if (safeHandoffRequired) {
     proposedReply = buildLaneReply(
       lane === 'cancel_or_change_request' ? lane : 'staff_handoff_required',

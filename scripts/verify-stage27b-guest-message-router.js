@@ -346,6 +346,90 @@ const FIXTURES = [
       replyNotForbidden: true,
     },
   },
+  {
+    id: 'F25',
+    label: 'Stage 27test-o — pay cash on arrival',
+    message: 'Can I pay cash when I arrive?',
+    expect: {
+      lane: 'payment_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['cash', 'bank transfer', 'Stripe'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F26',
+    label: 'Stage 27test-o — bank transfer',
+    message: 'Can I pay by bank transfer?',
+    expect: {
+      lane: 'payment_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['bank transfer'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F27',
+    label: 'Stage 27test-o — send payment link',
+    message: 'Send me the payment link',
+    expect: {
+      lane: 'payment_question',
+      handoff: true,
+      handoffReason: 'payment_state_mismatch',
+      noBookingExtract: true,
+      replyContains: ['stay details', 'quote'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F28',
+    label: 'Stage 27test-o — already paid claim',
+    message: 'I already paid',
+    expect: {
+      lane: 'payment_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ["can't confirm payment"],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F29',
+    label: 'Stage 27test-o — payment failed',
+    message: 'Payment failed',
+    expect: {
+      lane: 'payment_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F30',
+    label: 'Stage 27test-o — how much owe',
+    message: 'How much do I owe?',
+    expect: {
+      lane: 'payment_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['booking code'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F31',
+    label: 'Stage 27test-o — remaining balance',
+    message: 'What is the remaining balance?',
+    expect: {
+      lane: 'payment_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['booking'],
+      replyNotForbidden: true,
+    },
+  },
 ];
 
 console.log('\nverify-stage27b-guest-message-router.js  (Stage 27b)\n');

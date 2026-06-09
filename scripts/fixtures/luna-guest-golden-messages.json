@@ -834,7 +834,7 @@
       "message_text": "Deposit is fine",
       "expected": {
         "banned_reply_terms_absent": true,
-        "message_lane": "general_question"
+        "message_lane": "new_booking_inquiry"
       },
       "guest_context": {
         "message_lane": "new_booking_inquiry",
@@ -1327,7 +1327,7 @@
       "message_text": "I will pay the deposit",
       "expected": {
         "banned_reply_terms_absent": true,
-        "message_lane": "general_question"
+        "message_lane": "new_booking_inquiry"
       },
       "guest_context": {
         "message_lane": "new_booking_inquiry",
@@ -1366,7 +1366,7 @@
       "message_text": "Pago completo",
       "expected": {
         "banned_reply_terms_absent": true,
-        "message_lane": "general_question"
+        "message_lane": "new_booking_inquiry"
       },
       "guest_context": {
         "message_lane": "new_booking_inquiry",
@@ -1405,7 +1405,7 @@
       "message_text": "Acompte s'il vous plaît",
       "expected": {
         "banned_reply_terms_absent": true,
-        "message_lane": "general_question"
+        "message_lane": "new_booking_inquiry"
       },
       "guest_context": {
         "message_lane": "new_booking_inquiry",
@@ -1444,7 +1444,7 @@
       "message_text": "Anzahlung ist ok",
       "expected": {
         "banned_reply_terms_absent": true,
-        "message_lane": "general_question"
+        "message_lane": "new_booking_inquiry"
       },
       "guest_context": {
         "message_lane": "new_booking_inquiry",
@@ -1483,7 +1483,7 @@
       "message_text": "Deposito va bene",
       "expected": {
         "banned_reply_terms_absent": true,
-        "message_lane": "general_question"
+        "message_lane": "new_booking_inquiry"
       },
       "guest_context": {
         "message_lane": "new_booking_inquiry",
