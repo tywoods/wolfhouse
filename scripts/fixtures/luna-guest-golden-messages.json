@@ -963,8 +963,8 @@
       "message_text": "Transfer from Bilbao airport no package",
       "expected": {
         "banned_reply_terms_absent": true,
-        "message_lane": "staff_handoff_required",
-        "handoff_required": true
+        "message_lane": "transfer_request",
+        "handoff_required": false
       }
     },
     {

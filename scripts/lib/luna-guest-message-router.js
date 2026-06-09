@@ -18,6 +18,7 @@ const {
   isBookingExplainerContext,
 } = require('./luna-guest-package-explainer');
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
+const { buildTransferSideQuestionReply } = require('./luna-guest-service-transfer-explainer');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -98,6 +99,7 @@ const REPLY_TEMPLATES = {
     pay_deposit_explainer: 'Once your stay quote is ready, you can pay a deposit or the full amount to secure the booking. The remaining balance can be paid on arrival or at check-in.',
     general: "Thanks for reaching out to Wolfhouse! I'll flag this for our team so they can answer you properly.",
     cancel: "Changes or cancellations after payment need our team — I'm handing this over so they can help you directly.",
+    cancel_change_intake: 'Happy to help with a date change — could you share your booking code, your current dates, and the new dates you’re thinking of?',
     ready_next_check: 'Thanks — I have your stay details. Next I can look into the best option for your dates and let you know. I am not confirming availability yet.',
   },
   it: {
@@ -115,6 +117,7 @@ const REPLY_TEMPLATES = {
     pay_now: 'Non posso inviare un link di pagamento in automatico — il team confermerà prenotazione e pagamento e ti scriverà.',
     general: 'Grazie per aver scritto a Wolfhouse! Segnalo al team così possono risponderti.',
     cancel: 'Modifiche o cancellazioni dopo il pagamento richiedono il team — passo la conversazione a loro.',
+    cancel_change_intake: 'Volentieri per un cambio date — puoi condividere codice prenotazione, date attuali e le nuove date che hai in mente?',
     ready_next_check: 'Grazie — ho i dettagli del soggiorno. Prossimo passo: posso valutare la migliore opzione per le tue date e farti sapere. Non sto ancora confermando disponibilità.',
   },
   es: {
@@ -132,6 +135,7 @@ const REPLY_TEMPLATES = {
     pay_now: 'No puedo enviar un enlace de pago automáticamente — el equipo confirmará reserva y pago y te escribirá.',
     general: '¡Gracias por escribir a Wolfhouse! Lo señalo al equipo para que te respondan.',
     cancel: 'Cambios o cancelaciones después del pago necesitan al equipo — les paso la conversación.',
+    cancel_change_intake: 'Con gusto ayudo con un cambio de fechas — ¿puedes compartir tu código de reserva, las fechas actuales y las nuevas que tienes en mente?',
     ready_next_check: 'Gracias — tengo los detalles de la estancia. El siguiente paso es revisar la mejor opción para tus fechas y avisarte. Aún no confirmo disponibilidad.',
   },
   de: {
@@ -149,6 +153,7 @@ const REPLY_TEMPLATES = {
     pay_now: 'Ich kann noch keinen Zahlungslink automatisch senden — das Team klärt Buchung und Zahlung und meldet sich.',
     general: 'Danke für deine Nachricht an Wolfhouse! Ich leite das an unser Team weiter.',
     cancel: 'Änderungen oder Stornos nach Zahlung brauchen unser Team — ich gebe das weiter.',
+    cancel_change_intake: 'Gern helfe ich bei einer Datumsänderung — kannst du Buchungsnummer, aktuelle Daten und die neuen Daten senden?',
     ready_next_check: 'Danke — ich habe eure Aufenthaltsdetails. Als Nächstes kann ich die beste Option für eure Daten prüfen und Bescheid geben. Ich bestätige noch keine Verfügbarkeit.',
   },
   fr: {
@@ -166,6 +171,7 @@ const REPLY_TEMPLATES = {
     pay_now: 'Je ne peux pas envoyer de lien de paiement automatiquement — l’équipe confirmera réservation et paiement.',
     general: 'Merci d’avoir contacté Wolfhouse ! Je signale cela à l’équipe pour qu’ils vous répondent.',
     cancel: 'Les changements ou annulations après paiement passent par l’équipe — je leur transmets la conversation.',
+    cancel_change_intake: 'Volontiers pour un changement de dates — pouvez-vous partager votre code de réservation, vos dates actuelles et les nouvelles dates envisagées ?',
     ready_next_check: 'Merci — j’ai les détails du séjour. Prochaine étape : je peux regarder la meilleure option pour vos dates et vous revenir. Je ne confirme pas encore la disponibilité.',
   },
 };
@@ -413,6 +419,55 @@ function hasPriorBookingChain(guestContext) {
     && (prior.package_interest || quoteReady));
 }
 
+function hasPaidBookingContext(ctx) {
+  const guestCtx = ctx || {};
+  if (guestCtx.payment_status === 'paid' || guestCtx.payment_status === 'deposit_paid' || guestCtx.deposit_paid === true) {
+    return true;
+  }
+  const quote = guestCtx.quote && typeof guestCtx.quote === 'object' ? guestCtx.quote : {};
+  return quote.payment_status === 'paid'
+    || quote.payment_status === 'deposit_paid'
+    || quote.deposit_paid === true
+    || quote.full_paid === true;
+}
+
+function isStandaloneDateChangeQuestion(text) {
+  return /^(?:can i|could i|is it possible to|may i)\s+change my dates\??\s*$/i.test(String(text || '').trim());
+}
+
+function classifyCancelChangeLane(text, ctx) {
+  const t = String(text || '');
+  if (!/\b(?:cancel(?:ar|led|lation)?|refund|rimborso|reembolso|stornier(?:en|ung)?|annul(?:er|are)?|cancell(?:are|azione)?|rembours|rückerstattung|ruckerstattung|reschedule|change my dates|cambiar fechas|modifier mes dates)\b/i.test(t)) {
+    return null;
+  }
+
+  const standaloneDateChange = isStandaloneDateChangeQuestion(t);
+  const hasPaidSignal = /\b(?:refund|paid|already paid|deposit paid|i paid|ya pagu[eé]|gi[aà] pagato|bereits bezahlt|schon bezahlt)\b/i.test(t);
+  const hasExplicitCancel = /\b(?:cancel(?:ar|led|lation|led)?|cancell(?:are|azione)?|stornier|annul|quiero cancelar|voglio cancell|ich möchte stornieren|je veux annuler|want to cancel|need to cancel)\b/i.test(t);
+  const hasBookingId = hasBookingCode(t) || !!(ctx.booking_code || ctx.booking_id);
+  const hasPaidCtx = hasPaidBookingContext(ctx);
+
+  let handoff = true;
+  if (standaloneDateChange && !hasPaidSignal && !hasExplicitCancel && !hasBookingId && !hasPaidCtx) {
+    handoff = false;
+  }
+
+  return {
+    lane: 'cancel_or_change_request',
+    handoff,
+    reasons: hasPaidSignal
+      ? ['paid_cancellation_or_reschedule']
+      : (handoff ? ['cancel_or_change_request'] : []),
+    confidence: 0.92,
+  };
+}
+
+function isTransferRequestMessage(text) {
+  const t = String(text || '');
+  return /\b(?:airport transfer|bilbao airport transfer|transfer from|pick.?up from|flight number|aeropuerto de|aeroporto di|flughafen|transfert aéroport|transfer vom|transfer von|transfer desde|transfert depuis)\b/i.test(t)
+    || (/\b(?:Santander|Bilbao|SDR|BIO)\b/i.test(t) && /\b(?:transfer|aeropuerto|airport|flughafen|pickup|pick.?up|shuttle|aéroport|aeroport)\b/i.test(t));
+}
+
 function classifyMessageLane(text, guestContext) {
   const t = String(text || '');
   const ctx = guestContext || {};
@@ -437,25 +492,8 @@ function classifyMessageLane(text, guestContext) {
     }
   }
 
-  if (/\b(?:cancel(?:ar|led|lation)?|refund|rimborso|reembolso|stornier(?:en|ung)?|annul(?:er|are)?|cancell(?:are|azione)?|rembours|rückerstattung|ruckerstattung|reschedule|change my dates|cambiar fechas|modifier mes dates)\b/i.test(t)) {
-    return {
-      lane: 'cancel_or_change_request',
-      handoff: true,
-      reasons: [/\b(?:refund|paid|already paid|deposit paid)\b/i.test(t) ? 'paid_cancellation_or_reschedule' : 'cancel_or_change_request'],
-      confidence: 0.92,
-    };
-  }
-
-  if (/\bbilbao\b|\bBIO\b/i.test(t) && /\b(?:transfer|airport|pickup|recogida|aeropuerto|aéroport|aeroport)\b/i.test(t)) {
-    if (detectNoPackageIntent(t) || !/\b(?:malibu|uluwatu|waimea|package|paquete|forfait|paket|pacchetto)\b/i.test(t)) {
-      return {
-        lane: 'staff_handoff_required',
-        handoff: true,
-        reasons: ['bilbao_no_package_request'],
-        confidence: 0.88,
-      };
-    }
-  }
+  const cancelLane = classifyCancelChangeLane(t, ctx);
+  if (cancelLane) return cancelLane;
 
   if (detectCheckinHouseInfoQuestion(t)) {
     return { lane: 'checkin_house_info_question', handoff: false, reasons: [], confidence: 0.9 };
@@ -470,14 +508,14 @@ function classifyMessageLane(text, guestContext) {
 
   const serviceOnly = /\b(?:wetsuit|surfboard|surf board|surfbrett|muta|tabla de surf|planche|surf lesson|surfstunde|surfbrett|clase de surf|cours de surf|lezione di surf|yoga)\b/i.test(t)
     || /\b(?:kann ich|can i|posso|puis-je|¿puedo|puedo)\b.*\b(?:surfbrett|wetsuit|surfstunde|lezione|clase|cours|yoga)\b/i.test(t);
-  const bookingMix = /\b(?:book|stay|nights|check.in|package|vorremmo|venir|reserv|giugno|june|juni|malibu|prenot|interessati|interested)\b/i.test(t)
-    || (/\bbuchen\b/i.test(t) && !/\b(?:dazu buchen|surfbrett|wetsuit|surfstunde|lezione|clase|cours)\b/i.test(t));
+  const negatedStayBooking = /\b(?:not booking|no package|without a package|sin paquete|ohne paket|sans forfait)\b/i.test(t);
+  const bookingMix = !negatedStayBooking && (/\b(?:book|stay|nights|check.in|package|vorremmo|venir|reserv|giugno|june|juni|malibu|prenot|interessati|interested)\b/i.test(t)
+    || (/\bbuchen\b/i.test(t) && !/\b(?:dazu buchen|surfbrett|wetsuit|surfstunde|lezione|clase|cours)\b/i.test(t)));
   if (serviceOnly && !bookingMix && !hasCode) {
     return { lane: 'add_service_request', handoff: false, reasons: [], confidence: 0.87 };
   }
 
-  const transferOnly = /\b(?:airport transfer|transfer from|pick.?up from|flight number|aeropuerto de|aeroporto di|flughafen|transfert aéroport|transfer vom)\b/i.test(t)
-    || (/\b(?:Santander|Bilbao|SDR|BIO)\b/i.test(t) && /\b(?:transfer|aeropuerto|airport|flughafen)\b/i.test(t));
+  const transferOnly = isTransferRequestMessage(t);
   if (transferOnly && !bookingMix && !hasCode) {
     return { lane: 'transfer_request', handoff: false, reasons: [], confidence: 0.86 };
   }
@@ -671,7 +709,7 @@ function buildBookingReply(lang, readiness, extracted) {
 function buildLaneReply(lane, lang, handoff, reasons) {
   const intro = `${tpl(lang, 'intro')} 🌊`;
   if (handoff || lane === 'staff_handoff_required') {
-    if (reasons.includes('paid_cancellation_or_reschedule') || lane === 'cancel_or_change_request') {
+    if (reasons.includes('paid_cancellation_or_reschedule') || (lane === 'cancel_or_change_request' && handoff)) {
       return `${intro} — ${tpl(lang, 'cancel')}`;
     }
     return `${intro} — ${tpl(lang, 'handoff')}`;
@@ -689,7 +727,7 @@ function buildLaneReply(lane, lang, handoff, reasons) {
     case 'checkin_house_info_question':
       return `${intro} — ${tpl(lang, 'checkin_info')}`;
     case 'cancel_or_change_request':
-      return `${intro} — ${tpl(lang, 'cancel')}`;
+      return `${intro} — ${tpl(lang, 'cancel_change_intake')}`;
     case 'general_question':
       return `${intro} — ${tpl(lang, 'general')}`;
     default:
@@ -861,6 +899,11 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       true,
       reasons,
     );
+  } else if (lane === 'transfer_request') {
+    proposedReply = `${tpl(detectedLanguage, 'intro')} 🌊 — ${buildTransferSideQuestionReply(detectedLanguage, messageText, {
+      packageInterest: priorExtracted.package_interest,
+      guestCount: priorExtracted.guest_count,
+    })}`;
   } else if (lane === 'new_booking_inquiry') {
     proposedReply = buildBookingReply(detectedLanguage, readiness, extractedFields);
   } else {
