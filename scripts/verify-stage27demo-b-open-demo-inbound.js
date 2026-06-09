@@ -158,7 +158,6 @@ if (/no_write_performed:\s*true/.test(reviewLibSrc)) {
 section('D. No live side effects');
 
 const forbiddenInHandler = [
-  ['D1', 'runGuestHoldPaymentDraftWriteDryRunApproved', 'hold/payment write'],
   ['D2', 'runGuestStripeTestLinkCreateApproved', 'Stripe link create'],
   ['D3', 'handleBotGuestReplySend', 'guest reply send'],
   ['D4', 'sendWhatsApp', 'WhatsApp send helper'],
@@ -166,6 +165,17 @@ const forbiddenInHandler = [
 for (const [id, sym, label] of forbiddenInHandler) {
   if (!handler.includes(sym)) pass(id, `handler does not call ${label}`);
   else fail(id, `handler calls ${label}`);
+}
+
+if (handler.includes('runGuestHoldPaymentDraftWriteDryRunApproved')) {
+  if (/if\s*\(\s*createHoldDraftConfirmed\s*\)/.test(handler)
+    && handler.includes('evaluateOpenDemoBookingWriteGate')) {
+    pass('D1', 'hold/payment write gated by create_demo_hold_draft_confirmed + booking write gate');
+  } else {
+    fail('D1', 'hold/payment write not properly gated');
+  }
+} else {
+  pass('D1', 'handler does not call hold/payment write');
 }
 
 if (!/api\.stripe\.com|graph\.facebook\.com/i.test(handlerCode)) {

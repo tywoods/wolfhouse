@@ -1,11 +1,12 @@
 /**
- * Stage 27demo-b — Open demo WhatsApp inbound dry-run harness.
+ * Stage 27demo-b/c/d — Open demo WhatsApp inbound dry-run harness.
  *
  * Exercises POST /staff/bot/open-demo-whatsapp-inbound-dry-run with n8n-shaped payloads.
- * Review-only: no live WhatsApp send, no hold/draft, no Stripe.
+ * Review-only by default; optional live reply (27demo-c) or hold/draft write (27demo-d).
  *
  * Usage:
  *   node scripts/run-open-demo-whatsapp-inbound-dry-run.js --fixture booking-turn-1
+ *   node scripts/run-open-demo-whatsapp-inbound-dry-run.js --fixture booking-deposit-write --create-demo-hold-draft-confirmed
  *   node scripts/run-open-demo-whatsapp-inbound-dry-run.js --base-url https://staff-staging.lunafrontdesk.com --fixture package-question
  */
 
@@ -31,6 +32,14 @@ const FIXTURES = {
     label: 'Turn 2 — dates',
     message: 'July 10 to July 17',
   },
+  'booking-deposit-write': {
+    label: '3-turn booking to deposit (composite)',
+    composite: ['booking-turn-1', 'booking-turn-2', 'deposit-choice'],
+  },
+  'deposit-choice': {
+    label: 'Turn 3 — deposit choice',
+    message: 'Deposit is fine',
+  },
   'package-question': {
     label: 'Package explainer',
     message: 'What are the packages?',
@@ -55,11 +64,13 @@ Options:
   --contact-name NAME       Optional WhatsApp profile name
   --reference-date DATE     Default 2026-06-08
   --send-live-reply-confirmed  Request gated live WhatsApp send (27demo-c; default off)
+  --create-demo-hold-draft-confirmed  Request gated hold/draft write on final turn (27demo-d)
   --json                    Print full JSON response only
   --help                    Show this help
 
 Requires OPEN_DEMO_WHATSAPP_ENABLED=true on the target Staff API.
-Review-only — no live send / hold / Stripe.`);
+Hold/draft write additionally requires OPEN_DEMO_BOOKING_WRITES_ENABLED=true (staging only).
+Review-only by default — no live send / Stripe link / confirmation.`);
 }
 
 function parseArgs(argv) {
@@ -74,6 +85,7 @@ function parseArgs(argv) {
     wamid: null,
     contactName: null,
     sendLiveReplyConfirmed: false,
+    createDemoHoldDraftConfirmed: false,
     json: false,
     help: false,
   };
@@ -83,6 +95,7 @@ function parseArgs(argv) {
     if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--json') opts.json = true;
     else if (a === '--send-live-reply-confirmed') opts.sendLiveReplyConfirmed = true;
+    else if (a === '--create-demo-hold-draft-confirmed') opts.createDemoHoldDraftConfirmed = true;
     else if (a === '--base-url') opts.baseUrl = argv[++i];
     else if (a === '--client-slug') opts.clientSlug = argv[++i];
     else if (a === '--phone-number-id') opts.phoneNumberId = argv[++i];
@@ -100,6 +113,24 @@ function parseArgs(argv) {
   }
 
   return opts;
+}
+
+function expandFixtures(names) {
+  const turns = [];
+  for (const name of names) {
+    const fx = FIXTURES[name];
+    if (!fx) return { error: name };
+    if (fx.composite) {
+      for (const sub of fx.composite) {
+        const subFx = FIXTURES[sub];
+        if (!subFx) return { error: sub };
+        turns.push({ message: subFx.message, label: `${sub}: ${subFx.label}`, fixtureName: sub });
+      }
+    } else {
+      turns.push({ message: fx.message, label: `${name}: ${fx.label}`, fixtureName: name });
+    }
+  }
+  return { turns };
 }
 
 function postJson(urlStr, payload, headers) {
@@ -132,7 +163,7 @@ function postJson(urlStr, payload, headers) {
   });
 }
 
-function buildPayload(opts, messageText, guestContext, turnIndex) {
+function buildPayload(opts, messageText, guestContext, turnIndex, isLastTurn) {
   const wamid = opts.wamid && turnIndex === 0
     ? opts.wamid
     : `wamid.demo-${Date.now()}-turn${turnIndex + 1}`;
@@ -151,12 +182,17 @@ function buildPayload(opts, messageText, guestContext, turnIndex) {
   if (opts.contactName) payload.contact_name = opts.contactName;
   if (guestContext) payload.guest_context = guestContext;
   if (opts.sendLiveReplyConfirmed) payload.send_live_reply_confirmed = true;
+  if (opts.createDemoHoldDraftConfirmed && isLastTurn) {
+    payload.create_demo_hold_draft_confirmed = true;
+  }
   return payload;
 }
 
 function summarizeResponse(body) {
   const r = (body && body.review) || {};
   const res = r.result || {};
+  const pc = r.payment_choice || {};
+  const plan = r.hold_payment_draft_plan || {};
   return {
     http_ok: body.success === true,
     open_demo: body.open_demo === true,
@@ -165,7 +201,17 @@ function summarizeResponse(body) {
     live_send_blocked: body.live_send_blocked === true,
     whatsapp_sent: body.whatsapp_sent === true,
     send_live_reply_confirmed: body.send_live_reply_confirmed === true,
+    create_demo_hold_draft_confirmed: body.create_demo_hold_draft_confirmed === true,
     live_reply_gate_code: body.live_reply_gate_code || null,
+    demo_booking_write_gate_code: body.demo_booking_write_gate_code || null,
+    write_status: body.write_status || null,
+    booking_code: body.booking_code || null,
+    booking_id: body.booking_id || null,
+    payment_draft_id: body.payment_draft_id || null,
+    next_safe_step: body.next_safe_step || pc.next_safe_step || null,
+    payment_choice_ready: pc.payment_choice_ready === true,
+    hold_plan_status: plan.plan_status || null,
+    stripe_link_created: body.stripe_link_created === false,
     demo_gate_blocked: body.demo_gate_blocked === true,
     review_persistence_performed: body.review_persistence_performed === true,
     conversation_id: body.conversation_id || null,
@@ -175,9 +221,9 @@ function summarizeResponse(body) {
   };
 }
 
-async function runTurn(opts, headers, messageText, guestContext, turnIndex, label) {
+async function runTurn(opts, headers, messageText, guestContext, turnIndex, label, isLastTurn) {
   const target = `${opts.baseUrl.replace(/\/$/, '')}${OPEN_DEMO_WHATSAPP_ROUTE}`;
-  const payload = buildPayload(opts, messageText, guestContext, turnIndex);
+  const payload = buildPayload(opts, messageText, guestContext, turnIndex, isLastTurn);
   const res = await postJson(target, payload, headers);
   const body = typeof res.body === 'object' ? res.body : { success: false, error: res.raw };
 
@@ -189,6 +235,9 @@ async function runTurn(opts, headers, messageText, guestContext, turnIndex, labe
   console.log(`\n── ${label || `Turn ${turnIndex + 1}`} ──`);
   console.log(`POST ${target}`);
   console.log(`message: ${messageText}`);
+  if (payload.create_demo_hold_draft_confirmed) {
+    console.log('create_demo_hold_draft_confirmed: true');
+  }
   console.log(JSON.stringify(summarizeResponse(body), null, 2));
   if (res.status !== 200) console.log(`HTTP ${res.status}`, body.error || '');
 
@@ -209,16 +258,14 @@ async function main() {
   const headers = {};
   if (TOKEN) headers['X-Luna-Bot-Token'] = TOKEN;
 
-  const turns = [];
+  let turns = [];
   if (opts.fixtures.length > 0) {
-    for (const fxName of opts.fixtures) {
-      const fx = FIXTURES[fxName];
-      if (!fx) {
-        console.error(`Unknown fixture: ${fxName}`);
-        process.exit(1);
-      }
-      turns.push({ message: fx.message, label: `${fxName}: ${fx.label}` });
+    const expanded = expandFixtures(opts.fixtures);
+    if (expanded.error) {
+      console.error(`Unknown fixture: ${expanded.error}`);
+      process.exit(1);
     }
+    turns = expanded.turns;
   } else if (opts.message) {
     turns.push({ message: opts.message, label: 'Single message' });
   } else {
@@ -236,7 +283,8 @@ async function main() {
 
   for (let i = 0; i < turns.length; i++) {
     const turn = turns[i];
-    const result = await runTurn(opts, headers, turn.message, guestContext, i, turn.label);
+    const isLastTurn = i === turns.length - 1;
+    const result = await runTurn(opts, headers, turn.message, guestContext, i, turn.label, isLastTurn);
     if (!result.ok) allOk = false;
     guestContext = result.nextContext || guestContext;
   }
@@ -252,4 +300,4 @@ main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { FIXTURES, buildPayload };
+module.exports = { FIXTURES, buildPayload, expandFixtures };

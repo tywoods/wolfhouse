@@ -134,11 +134,18 @@ if (handler.includes('whatsapp_sent')) {
   fail('B6', 'whatsapp_sent flag missing');
 }
 
-if (!handler.includes('runGuestHoldPaymentDraftWriteDryRunApproved')
-  && !handler.includes('runGuestStripeTestLinkCreateApproved')) {
-  pass('B7', 'handler avoids hold/Stripe write helpers');
+if (!handler.includes('runGuestStripeTestLinkCreateApproved')) {
+  if (handler.includes('runGuestHoldPaymentDraftWriteDryRunApproved')
+    && handler.includes('createHoldDraftConfirmed')
+    && handler.includes('evaluateOpenDemoBookingWriteGate')) {
+    pass('B7', 'hold write gated (27demo-d); no Stripe link helper');
+  } else if (!handler.includes('runGuestHoldPaymentDraftWriteDryRunApproved')) {
+    pass('B7', 'handler avoids hold/Stripe write helpers');
+  } else {
+    fail('B7', 'hold write not properly gated');
+  }
 } else {
-  fail('B7', 'forbidden write helpers in handler');
+  fail('B7', 'forbidden Stripe write helper in handler');
 }
 
 try {

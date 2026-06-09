@@ -314,9 +314,14 @@ const {
   OPEN_DEMO_WHATSAPP_ROUTE,
   evaluateOpenDemoWhatsAppGate,
   evaluateOpenDemoWhatsAppLiveReplyGate,
+  evaluateOpenDemoBookingWriteGate,
+  evaluateOpenDemoHoldDraftWriteReady,
+  buildOpenDemoWriteChainFromReview,
   wantsSendLiveReplyConfirmed,
+  wantsCreateDemoHoldDraftConfirmed,
   buildOpenDemoLiveReplySendBody,
   buildOpenDemoLiveReplyBlockedResponse,
+  buildOpenDemoBookingWriteBlockedResponse,
   validateOpenDemoInboundBody,
   buildOpenDemoBlockedResponse,
 } = require('./lib/open-demo-whatsapp-gate');
@@ -10597,11 +10602,11 @@ async function handleBotGuestInboundReviewDryRun(req, res, user, authMode) {
   }
 }
 
-// Route: POST /staff/bot/open-demo-whatsapp-inbound-dry-run  (Stage 27demo-b/c)
+// Route: POST /staff/bot/open-demo-whatsapp-inbound-dry-run  (Stage 27demo-b/c/d)
 //
 // n8n open demo WhatsApp pipe → 27x.1 inbound review → inbox/draft persistence.
-// Optional send_live_reply_confirmed:true → gated live WhatsApp reply (27demo-c).
-// No booking/hold/payment writes, Stripe, or confirmation send.
+// Optional send_live_reply_confirmed (27demo-c) or create_demo_hold_draft_confirmed (27demo-d).
+// No Stripe link, payment link send, or confirmation send.
 async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) {
   const started = Date.now();
 
@@ -10656,27 +10661,27 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
 
   const inboundBody = validation.normalized;
   const sendLiveConfirmed = wantsSendLiveReplyConfirmed(body);
+  const createHoldDraftConfirmed = wantsCreateDemoHoldDraftConfirmed(body);
+  const hostHeader = String(req.headers.host || '');
 
   try {
     const outcome = await withPgClient(async (pg) => {
       const reviewOutcome = await runGuestInboundReviewDryRun(inboundBody, { pg });
       if (!reviewOutcome.ok) {
-        return { reviewOutcome, liveReply: null };
+        return { reviewOutcome, liveReply: null, bookingWrite: null };
       }
 
-      if (!sendLiveConfirmed) {
-        return { reviewOutcome, liveReply: null };
-      }
+      let liveReply = null;
+      let bookingWrite = null;
 
-      const proposedReply = reviewOutcome.body.review
-        && reviewOutcome.body.review.proposed_luna_reply != null
-        ? String(reviewOutcome.body.review.proposed_luna_reply).trim()
-        : '';
+      if (sendLiveConfirmed) {
+        const proposedReply = reviewOutcome.body.review
+          && reviewOutcome.body.review.proposed_luna_reply != null
+          ? String(reviewOutcome.body.review.proposed_luna_reply).trim()
+          : '';
 
-      if (!proposedReply) {
-        return {
-          reviewOutcome,
-          liveReply: {
+        if (!proposedReply) {
+          liveReply = {
             send_live_reply_confirmed: true,
             live_reply_attempted:      true,
             live_send_blocked:         true,
@@ -10686,50 +10691,94 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
             live_reply_gate_blocked:   true,
             live_reply_gate_code:      'missing_proposed_reply',
             live_reply_error:          'proposed_luna_reply is required for live send',
-          },
-        };
+          };
+        } else {
+          const liveGate = evaluateOpenDemoWhatsAppLiveReplyGate(body);
+          if (!liveGate.ok) {
+            liveReply = {
+              send_live_reply_confirmed: true,
+              live_reply_attempted:      true,
+              ...buildOpenDemoLiveReplyBlockedResponse(liveGate),
+            };
+          } else {
+            const sendBody = buildOpenDemoLiveReplySendBody(inboundBody, proposedReply);
+            const evaluated = await evaluateGuestReplySendRouteWithPause(sendBody, {
+              pg,
+              env: process.env,
+            });
+            const sendResult = evaluated.result || {};
+            const sent = sendResult.send_performed === true && sendResult.sends_whatsapp === true;
+            liveReply = {
+              send_live_reply_confirmed:   true,
+              live_reply_attempted:        true,
+              live_send_blocked:           !sent,
+              sends_whatsapp:              sent,
+              whatsapp_sent:               sent,
+              send_performed:              sent,
+              live_reply_gate_blocked:     !sent,
+              live_reply_gate_code:        sent ? null : ((sendResult.blocked_reasons || [])[0] || 'send_blocked'),
+              live_reply_error:            sent ? null : (sendResult.provider_error || null),
+              reused_send_path:            'evaluateGuestReplySendRouteWithPause',
+              guest_message_send_id:       sendResult.guest_message_send_id || null,
+              guest_message_send_status:   sendResult.guest_message_send_status || null,
+              whatsapp_message_id:         sendResult.whatsapp_message_id || null,
+              idempotency_key:             sendBody.idempotency_key,
+              send_result:                 sendResult,
+            };
+          }
+        }
       }
 
-      const liveGate = evaluateOpenDemoWhatsAppLiveReplyGate(body);
-      if (!liveGate.ok) {
-        return {
-          reviewOutcome,
-          liveReply: {
-            send_live_reply_confirmed: true,
-            live_reply_attempted:      true,
-            ...buildOpenDemoLiveReplyBlockedResponse(liveGate),
-          },
-        };
+      if (createHoldDraftConfirmed) {
+        const writeGate = evaluateOpenDemoBookingWriteGate(body);
+        if (!writeGate.ok) {
+          bookingWrite = {
+            create_demo_hold_draft_confirmed: true,
+            ...buildOpenDemoBookingWriteBlockedResponse(writeGate),
+          };
+        } else {
+          const review = reviewOutcome.body.review || {};
+          const ready = evaluateOpenDemoHoldDraftWriteReady(review);
+          if (!ready.ok) {
+            bookingWrite = {
+              create_demo_hold_draft_confirmed: true,
+              demo_booking_write:               true,
+              write_attempted:                  false,
+              write_status:                     'not_ready',
+              write_block_reasons:              ready.missing,
+              stripe_link_created:              false,
+              payment_link_sent:                false,
+              sends_whatsapp:                     false,
+              live_send_blocked:                true,
+            };
+          } else {
+            const chain = buildOpenDemoWriteChainFromReview(review);
+            const writeOut = await runGuestHoldPaymentDraftWriteDryRunApproved(chain, {
+              confirm_write: true,
+              client_slug:   inboundBody.client_slug,
+              guest_phone:   inboundBody.guest_phone,
+              guest_name:    body.guest_name || inboundBody.contact_name || null,
+              env:           process.env,
+              host_header:   hostHeader,
+              source:        'open_demo_whatsapp_booking_write_27demo-d',
+              pg,
+              planner:       review.hold_payment_draft_plan,
+            });
+            bookingWrite = {
+              create_demo_hold_draft_confirmed: true,
+              demo_booking_write:               true,
+              reused_write_path:                'runGuestHoldPaymentDraftWriteDryRunApproved',
+              ...writeOut,
+              stripe_link_created:              false,
+              payment_link_sent:                false,
+              sends_whatsapp:                   false,
+              live_send_blocked:                true,
+            };
+          }
+        }
       }
 
-      const sendBody = buildOpenDemoLiveReplySendBody(inboundBody, proposedReply);
-      const evaluated = await evaluateGuestReplySendRouteWithPause(sendBody, {
-        pg,
-        env: process.env,
-      });
-      const sendResult = evaluated.result || {};
-      const sent = sendResult.send_performed === true && sendResult.sends_whatsapp === true;
-
-      return {
-        reviewOutcome,
-        liveReply: {
-          send_live_reply_confirmed:   true,
-          live_reply_attempted:        true,
-          live_send_blocked:           !sent,
-          sends_whatsapp:              sent,
-          whatsapp_sent:               sent,
-          send_performed:              sent,
-          live_reply_gate_blocked:     !sent,
-          live_reply_gate_code:        sent ? null : ((sendResult.blocked_reasons || [])[0] || 'send_blocked'),
-          live_reply_error:            sent ? null : (sendResult.provider_error || null),
-          reused_send_path:            'evaluateGuestReplySendRouteWithPause',
-          guest_message_send_id:       sendResult.guest_message_send_id || null,
-          guest_message_send_status:   sendResult.guest_message_send_status || null,
-          whatsapp_message_id:         sendResult.whatsapp_message_id || null,
-          idempotency_key:             sendBody.idempotency_key,
-          send_result:                 sendResult,
-        },
-      };
+      return { reviewOutcome, liveReply, bookingWrite };
     });
     const elapsed = Date.now() - started;
     const reviewOutcome = outcome.reviewOutcome;
@@ -10761,7 +10810,10 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
     }
 
     const liveReply = outcome.liveReply;
+    const bookingWrite = outcome.bookingWrite;
     const sent = liveReply && liveReply.whatsapp_sent === true;
+    const writeCreated = bookingWrite
+      && (bookingWrite.write_status === 'created' || bookingWrite.write_status === 'reused_existing');
 
     const responseBody = {
       ...reviewOutcome.body,
@@ -10773,35 +10825,45 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       live_send_blocked: !sent,
       whatsapp_sent:     sent === true,
       send_live_reply_confirmed: sendLiveConfirmed,
+      create_demo_hold_draft_confirmed: createHoldDraftConfirmed,
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     };
 
     if (liveReply) {
       Object.assign(responseBody, liveReply);
-    } else {
+    } else if (!writeCreated) {
       responseBody.sends_whatsapp = false;
       responseBody.live_send_blocked = true;
       responseBody.whatsapp_sent = false;
     }
 
+    if (bookingWrite) {
+      Object.assign(responseBody, bookingWrite);
+    }
+
+    let auditIntent = 'api:bot_open_demo_whatsapp_inbound_dry_run';
+    if (sent) auditIntent = 'api:bot_open_demo_whatsapp_inbound_live_reply';
+    else if (writeCreated) auditIntent = 'api:bot_open_demo_whatsapp_booking_write';
+
     appendAuditLog({
       ts:                 new Date().toISOString(),
-      intent:             sent
-        ? 'api:bot_open_demo_whatsapp_inbound_live_reply'
-        : 'api:bot_open_demo_whatsapp_inbound_dry_run',
+      intent:             auditIntent,
       category:           'open_demo_whatsapp_inbound',
-      dry_run:            !sent,
-      preview_only:       !sent,
+      dry_run:            !sent && !writeCreated,
+      preview_only:       !sent && !writeCreated,
       sends_whatsapp:     sent,
       live_send_blocked:  !sent,
-      creates_booking:    false,
-      creates_payment:    false,
+      creates_booking:    writeCreated,
+      creates_payment:    writeCreated,
       creates_stripe_link: false,
       review_persistence_performed: responseBody.review_persistence_performed === true,
       idempotent_replay:  responseBody.idempotent_replay === true,
       success:            responseBody.success === true,
       proposed_next_action: responseBody.review && responseBody.review.proposed_next_action,
+      write_status:       bookingWrite && bookingWrite.write_status,
+      booking_code:       bookingWrite && bookingWrite.booking_code,
+      payment_draft_id:   bookingWrite && bookingWrite.payment_draft_id,
       whatsapp_message_id: liveReply && liveReply.whatsapp_message_id,
       staff_user_id:      actorId,
       auth_mode:          resolvedAuthMode,
@@ -28174,7 +28236,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-reply-send <- 19d Luna guest reply send (default-deny, no send yet)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/message-intake-preview <- 15b Luna message intake preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-intake-dry-run <- 27c Luna guest intake dry-run (read-only, no send)`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/open-demo-whatsapp-inbound-dry-run <- 27demo-b/c open demo WhatsApp inbound (optional live reply)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/open-demo-whatsapp-inbound-dry-run <- 27demo-b/c/d open demo WhatsApp inbound`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-inbound-review-dry-run <- 27x.1 inbound guest review (staff/bot, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-automation-review-dry-run <- 27v Luna guest automation review (staff-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-hold-draft <- 27w Luna guest simulator hold/draft (staging/local only)`);

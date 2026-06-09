@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Stage 27demo-b/c — Open demo WhatsApp inbound gate + live reply gate (no guest phone allowlist).
+ * Stage 27demo-b/c/d — Open demo WhatsApp inbound gate + live reply + booking write gates.
  */
 
 const OPEN_DEMO_WHATSAPP_ROUTE = '/staff/bot/open-demo-whatsapp-inbound-dry-run';
@@ -130,6 +130,81 @@ function evaluateOpenDemoWhatsAppLiveReplyGate(body, env) {
   return { ok: true };
 }
 
+function wantsCreateDemoHoldDraftConfirmed(body) {
+  const b = body || {};
+  return b.create_demo_hold_draft_confirmed === true
+    || b.create_demo_hold_draft_confirmed === 'true';
+}
+
+function isOpenDemoBookingWritesEnabled(env) {
+  const e = env || process.env;
+  return e.OPEN_DEMO_BOOKING_WRITES_ENABLED === 'true';
+}
+
+/**
+ * Booking hold/draft write gate — staging open demo only; WHATSAPP_DRY_RUN does not block writes.
+ * @returns {{ ok: boolean, status?: number, error?: string, code?: string }}
+ */
+function evaluateOpenDemoBookingWriteGate(body, env) {
+  const inboundGate = evaluateOpenDemoWhatsAppGate(body, env);
+  if (!inboundGate.ok) return inboundGate;
+
+  if (isProductionEnvironment(env)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'production_blocked',
+      error: 'open demo booking writes are disabled in production',
+    };
+  }
+  if (!isOpenDemoBookingWritesEnabled(env)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'booking_writes_disabled',
+      error: 'open demo booking writes disabled (set OPEN_DEMO_BOOKING_WRITES_ENABLED=true)',
+    };
+  }
+  return { ok: true };
+}
+
+function evaluateOpenDemoHoldDraftWriteReady(review) {
+  const r = review || {};
+  const pc = r.payment_choice || {};
+  const plan = r.hold_payment_draft_plan || {};
+  const missing = [];
+  if (pc.payment_choice_ready !== true) missing.push('payment_choice_not_ready');
+  if (pc.next_safe_step !== 'ready_for_hold_payment_draft') {
+    missing.push('next_safe_step_not_ready_for_hold_payment_draft');
+  }
+  if (plan.plan_status !== 'ready') missing.push('hold_payment_draft_plan_not_ready');
+  return { ok: missing.length === 0, missing };
+}
+
+function buildOpenDemoWriteChainFromReview(review) {
+  const r = review || {};
+  return {
+    result: r.result || {},
+    availability: r.availability || {},
+    quote: r.quote || {},
+    payment_choice: r.payment_choice || {},
+  };
+}
+
+function buildOpenDemoBookingWriteBlockedResponse(gateResult) {
+  return {
+    demo_booking_write_blocked:     true,
+    demo_booking_write_gate_code:   gateResult.code || 'blocked',
+    demo_booking_write_error:       gateResult.error || 'open demo booking write blocked',
+    write_attempted:                false,
+    write_status:                   'blocked',
+    stripe_link_created:            false,
+    payment_link_sent:              false,
+    sends_whatsapp:                 false,
+    live_send_blocked:              true,
+  };
+}
+
 function buildOpenDemoLiveReplySendBody(normalized, proposedReply) {
   const n = normalized || {};
   const reply = trimEnv(proposedReply);
@@ -249,14 +324,20 @@ module.exports = {
   isProductionEnvironment,
   isOpenDemoWhatsAppEnabled,
   isOpenDemoLiveRepliesEnabled,
+  isOpenDemoBookingWritesEnabled,
   isWhatsappDryRun,
   configuredDemoPhoneNumberId,
   configuredWhatsappPhoneNumberId,
   wantsSendLiveReplyConfirmed,
+  wantsCreateDemoHoldDraftConfirmed,
   evaluateOpenDemoWhatsAppGate,
   evaluateOpenDemoWhatsAppLiveReplyGate,
+  evaluateOpenDemoBookingWriteGate,
+  evaluateOpenDemoHoldDraftWriteReady,
+  buildOpenDemoWriteChainFromReview,
   buildOpenDemoLiveReplySendBody,
   buildOpenDemoLiveReplyBlockedResponse,
+  buildOpenDemoBookingWriteBlockedResponse,
   resolveInboundMessageId,
   validateOpenDemoInboundBody,
   buildOpenDemoBlockedResponse,
