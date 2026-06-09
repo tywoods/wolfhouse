@@ -273,6 +273,79 @@ const FIXTURES = [
       replyNotForbidden: true,
     },
   },
+  {
+    id: 'F19',
+    label: 'Stage 27test-n — compare Uluwatu and Waimea',
+    message: 'Difference between Uluwatu and Waimea?',
+    expect: {
+      lane: 'general_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['€349', '€499', 'Uluwatu', 'Waimea'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F20',
+    label: 'Stage 27test-n — explain Malibu vs Uluwatu',
+    message: 'Explain Malibu vs Uluwatu please',
+    expect: {
+      lane: 'general_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['€249', '€349', 'Malibu', 'Uluwatu'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F21',
+    label: 'Stage 27test-n — qué incluye Malibu',
+    message: '¿Qué incluye Malibu?',
+    expect: {
+      lane: 'general_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['€249', 'Malibu'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F22',
+    label: 'Stage 27test-n — Waimea package details',
+    message: 'Waimea package details',
+    expect: {
+      lane: 'general_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['€499', 'Waimea', 'lessons'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F23',
+    label: 'Stage 27test-n — experienced gear only',
+    message: 'I am experienced — gear only option?',
+    expect: {
+      lane: 'general_question',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['Uluwatu'],
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F24',
+    label: 'Stage 27test-n — quale pacchetto consigli',
+    message: 'Quale pacchetto consigli?',
+    expect: {
+      lane: 'general_question',
+      lang: 'it',
+      handoff: false,
+      noBookingExtract: true,
+      replyContains: ['€249', 'Waimea'],
+      replyNotForbidden: true,
+    },
+  },
 ];
 
 console.log('\nverify-stage27b-guest-message-router.js  (Stage 27b)\n');

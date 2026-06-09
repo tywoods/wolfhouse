@@ -29,19 +29,49 @@ function normalizeLang(lang) {
 function detectPackageExplainerIntent(text) {
   const t = String(text || '');
   const tl = t.toLowerCase();
+  const hasPkgName = /\b(?:malibu|uluwatu|waimea)\b/i.test(t);
+  const pkgNameCount = (tl.match(/\b(?:malibu|uluwatu|waimea)\b/g) || []).length;
 
   if (/\b(?:what should i bring|what to bring|what do i need to bring|cosa devo portare|cosa portare|qué debo llevar|qué llevar|que debo llevar|was soll ich mitbringen|was mitbringen|quoi apporter|que dois-je apporter)\b/i.test(t)) {
     return 'what_to_bring';
   }
 
-  if (/\b(?:already know how to surf|already surf|experienced surfer|so già surfare|so gia surfare|ya sé surfear|ya se surfear|je sais déjà surfer|je sais deja surfer|kann schon surfen|ich kann schon surfen)\b/i.test(t)
-    && /\b(?:lesson|lessons|lezioni|clases|cours|unterricht|need)\b/i.test(t)) {
+  if (/\b(?:experienced|gear[\s-]?only|just (?:need |want )?gear|solo gear|solo equipment|nur equipment|nur ausr[uü]stung|solo el material|solo material)\b/i.test(t)
+    || (/\b(?:i am|i'm|soy|sono|je suis|ich bin)\b/i.test(t) && /\b(?:experienced|experimentad[oa]|espert[oa]|exp[eé]riment[eé]|erfahren)\b/i.test(t))) {
     return 'choice_experienced';
   }
 
-  if (/\b(?:beginner|beginners|principiante|principianti|débutant|debutant|anfänger|anfanger|never surfed|new to surf|nunca he surfeado|non ho mai surfato)\b/i.test(t)
+  if (/\b(?:already know how to surf|already surf|experienced surfer|so già surfare|so gia surfare|ya sé surfear|ya se surfear|je sais déjà surfer|je sais deja surfer|kann schon surfen|ich kann schon surfen)\b/i.test(t)
+    && /\b(?:lesson|lessons|lezioni|clases|cours|unterricht|need|gear|equipment)\b/i.test(t)) {
+    return 'choice_experienced';
+  }
+
+  if (/\b(?:beginner|beginners|principiante|principianti|débutant|debutant|anfänger|anfanger|never surfed|new to surf|nunca he surfeado|non ho mai surfato|für anfänger|fuer anfanger|pour débutant|pour debutant)\b/i.test(t)
     && /\b(?:package|pacchetto|paquete|paket|forfait|malibu|uluwatu|waimea|which|quale|cuál|cual|welche|quel|choose|scegliere|elegir|wählen|choisir)\b/i.test(t)) {
     return 'choice_beginner';
+  }
+
+  const hasCompareSignal = /\b(?:vs\.?|versus)\b/i.test(t)
+    || /\b(?:difference between|differenza tra|diferencia entre|unterschied zwischen|diff[eé]rence entre)\b/i.test(t)
+    || /\b(?:explain|compare)\b/i.test(t);
+  if (hasPkgName && hasCompareSignal && (pkgNameCount >= 2 || /\b(?:vs\.?|versus|difference between|differenza tra|diferencia entre|unterschied zwischen|diff[eé]rence entre|explain)\b/i.test(t))) {
+    return 'compare';
+  }
+
+  if (/\b(?:which package (?:do you )?recommend|what package (?:do you )?recommend|quale pacchetto consigli|qu[eé] paquete recomiendas|welches paket empfiehl|quel forfait (?:tu )?recommandes)\b/i.test(t)) {
+    return 'recommend';
+  }
+
+  if (hasPkgName && /\b(?:what (?:does|is) (?:included|include)|what(?:'s| is) included(?: in)?|included in|qu[eé] incluye|cosa include|was ist in|was ist enthalten|qu['']est[- ]ce qui est inclus|quest-ce qui est inclus)\b/i.test(t)) {
+    if (/\bwaimea\b/i.test(t)) return 'waimea';
+    if (/\buluwatu\b/i.test(t)) return 'uluwatu';
+    if (/\bmalibu\b/i.test(t)) return 'malibu';
+  }
+
+  if (hasPkgName && /\b(?:package details|pacchetto dettagli|detalles del paquete|paketdetails|d[eé]tails (?:du )?forfait)\b/i.test(t)) {
+    if (/\bwaimea\b/i.test(t)) return 'waimea';
+    if (/\buluwatu\b/i.test(t)) return 'uluwatu';
+    return 'malibu';
   }
 
   if (/\bwaimea\b/i.test(t) && /\b(?:what is|what's|what’s|included|include|cos'è|cos e|qué es|que es|was ist|qu'est-ce|quest-ce)\b/i.test(t)) {
@@ -238,6 +268,9 @@ function buildPackageExplainerReply(lang, intent, opts) {
       return buildChoiceExperiencedReply(lang, options);
     case 'what_to_bring':
       return buildWhatToBringReply(lang);
+    case 'compare':
+    case 'recommend':
+      return buildOverviewReply(lang, options);
     default:
       return buildOverviewReply(lang, options);
   }

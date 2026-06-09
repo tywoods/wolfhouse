@@ -692,9 +692,16 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     missingRequired = [];
   }
 
-  const safeHandoffRequired = lane === 'staff_handoff_required'
-    || handoff
-    || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r));
+  const safeHandoffRequired = packageExplainerIntent
+    ? false
+    : (lane === 'staff_handoff_required'
+      || handoff
+      || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r)));
+
+  if (packageExplainerIntent) {
+    handoff = false;
+    reasons = [];
+  }
 
   const readiness = computeBookingIntakeReadiness(
     lane,
@@ -721,7 +728,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   }
 
   let proposedReply;
-  if (packageExplainerIntent && !safeHandoffRequired) {
+  if (packageExplainerIntent) {
     proposedReply = buildPackageExplainerReply(detectedLanguage, packageExplainerIntent, {
       bookingInProgress: isBookingExplainerContext(guestContext),
     });
