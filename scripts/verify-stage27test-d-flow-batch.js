@@ -323,6 +323,66 @@ try {
   fail('G7', `flow batch hygiene self-test failed: ${e.message}`);
 }
 
+section('H. Payment-choice handoff evaluator');
+
+if (runnerSrc.includes('no_payment_choice_detected') && runnerSrc.includes('collect_payment_choice')) {
+  pass('H1', 'runner filters no_payment_choice_detected during collect_payment_choice');
+} else {
+  fail('H1', 'payment-choice technical handoff filter missing');
+}
+
+try {
+  const { isStaffHandoffRequired, checkFlowExpectations } = require('./run-luna-guest-flow-batch.js');
+  const collectBody = {
+    success: true,
+    dry_run: true,
+    sends_whatsapp: false,
+    live_send_blocked: true,
+    no_write_performed: true,
+    review: {
+      proposed_next_action: 'collect_payment_choice',
+      handoff_reasons: ['no_payment_choice_detected'],
+      quote: { quote_status: 'ready', quote_proposal_attempted: true },
+      availability: { availability_status: 'available', availability_check_attempted: true },
+      result: { message_lane: 'new_booking_inquiry', safe_handoff_required: false },
+    },
+  };
+  const collectFails = checkFlowExpectations({
+    handoff_required: false,
+    quote_status: 'ready',
+    availability_check_attempted: true,
+    banned_reply_terms_absent: true,
+  }, collectBody);
+  if (isStaffHandoffRequired(collectBody.review, collectBody.review.result) === false
+      && !collectFails.some((f) => f.startsWith('handoff_required'))) {
+    pass('H2', 'collect_payment_choice + no_payment_choice_detected is not staff handoff');
+  } else {
+    fail('H2', `payment-choice handoff false-positive: ${collectFails.join('; ')}`);
+  }
+
+  const handoffBody = {
+    success: true,
+    dry_run: true,
+    sends_whatsapp: false,
+    live_send_blocked: true,
+    no_write_performed: true,
+    review: {
+      proposed_next_action: 'staff_handoff_required',
+      handoff_reasons: ['not_enough_available_beds', 'availability_not_available'],
+      quote: { quote_status: 'not_ready', quote_proposal_attempted: true },
+      availability: { availability_status: 'not_available', availability_check_attempted: true },
+      result: { message_lane: 'new_booking_inquiry', safe_handoff_required: true },
+    },
+  };
+  if (isStaffHandoffRequired(handoffBody.review, handoffBody.review.result) === true) {
+    pass('H3', 'staff_handoff_required with bed conflict still counts as handoff');
+  } else {
+    fail('H3', 'real staff handoff not detected');
+  }
+} catch (e) {
+  fail('H2', `payment-choice handoff self-test failed: ${e.message}`);
+}
+
 section('Summary');
 
 console.log(`\nResults: ${passes} passed, ${failures} failed\n`);

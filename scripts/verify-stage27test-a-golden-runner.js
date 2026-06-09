@@ -249,6 +249,23 @@ try {
   fail('C7', `handoff self-test failed: ${e.message}`);
 }
 
+try {
+  const { isStaffHandoffRequired } = require('./run-luna-guest-golden-tests.js');
+  const collectReview = {
+    proposed_next_action: 'collect_payment_choice',
+    handoff_reasons: ['no_payment_choice_detected'],
+    quote: { quote_status: 'ready', quote_proposal_attempted: true },
+    availability: { availability_status: 'available', availability_check_attempted: true },
+  };
+  if (isStaffHandoffRequired(collectReview, { safe_handoff_required: false }) === false) {
+    pass('C7b', 'no_payment_choice_detected ignored during collect_payment_choice');
+  } else {
+    fail('C7b', 'golden runner counts payment-choice reason as staff handoff');
+  }
+} catch (e) {
+  fail('C7b', `payment-choice handoff self-test failed: ${e.message}`);
+}
+
 section('D. No live side effects in runner');
 
 const forbidden = [

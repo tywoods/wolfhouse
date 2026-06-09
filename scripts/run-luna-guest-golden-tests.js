@@ -243,8 +243,10 @@ function filterRealHandoffReasons(review) {
   const reasons = Array.isArray(review.handoff_reasons) ? review.handoff_reasons : [];
   const availability = review.availability || {};
   const quote = review.quote || {};
+  const action = review && review.proposed_next_action;
   return reasons.filter((r) => {
     if (TECHNICAL_HANDOFF_REASONS.has(r)) return false;
+    if (r === 'no_payment_choice_detected' && action === 'collect_payment_choice') return false;
     if (r === 'availability_not_available' && availability.availability_check_attempted !== true) return false;
     if (r === 'quote_not_ready' && quote.quote_proposal_attempted !== true) return false;
     return true;
