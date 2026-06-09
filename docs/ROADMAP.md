@@ -1,3 +1,7 @@
+**Stage 27test-l LUNA GUEST TORTURE GENERATOR — PASS (2026-06-09):** 565 deterministic torture cases · `generate-luna-guest-torture-fixtures.js` · `run-luna-guest-torture-tests.js` (review-only · scoring report). Verifier: `verify:stage27test-l-torture-generator`. Doc: [STAGE-27TEST-L-TORTURE-GENERATOR.md](STAGE-27TEST-L-TORTURE-GENERATOR.md). **Next:** torture baselines local/hosted → 27x.2 n8n pipe wiring (disabled/dry-run).
+
+**Stage 27test-k HANDOFF EVALUATOR — PASS (2026-06-09):** Hosted booking-core **26/26** · golden **50/50** on `ab2e658`. **Next:** 27test-l torture generator (this entry).
+
 **Stage 27test-d LUNA GUEST FLOW BATCH RUNNER — PASS (2026-06-09):** 26-flow `booking-core` fixture set · `run-luna-guest-flow-batch.js` · multi-turn simulator/inbound review batch (default review-only · explicit hold/Stripe flags). Verifier: `verify:stage27test-d-flow-batch`. Doc: [STAGE-27TEST-D-FLOW-BATCH.md](STAGE-27TEST-D-FLOW-BATCH.md). **Next:** staging batch smoke + 27x.2 n8n pipe wiring (disabled/dry-run).
 
 **Stage 27test-c PACKAGE EXPLAINER — PASS (2026-06-08):** `luna-guest-package-explainer.js` · 139 golden cases · staging deploy proof on `0f637fa`. **Next:** 27test-d flow batch (this entry).

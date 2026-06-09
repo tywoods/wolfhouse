@@ -474,10 +474,12 @@ async function main() {
   process.exit(report.failed > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
 
 module.exports = {
   BANNED_REPLY_TERMS,

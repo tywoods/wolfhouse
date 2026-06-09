@@ -1,6 +1,12 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-09 (**Stage 27test-d — Luna guest flow batch runner**): **PASS** (verifier). Multi-turn batch runner `run-luna-guest-flow-batch.js` + 26-flow `booking-core` fixture set through simulator/inbound review (default review-only). Verifier: `verify:stage27test-d-flow-batch`. Harness: `luna:guest-flow-batch`. Doc: [STAGE-27TEST-D-FLOW-BATCH.md](STAGE-27TEST-D-FLOW-BATCH.md).
+**Last updated:** 2026-06-09 (**Stage 27test-l — Luna guest torture test generator**): **PASS** (verifier). Deterministic 565-case generator + review-only torture runner reusing golden/flow helpers. Verifier: `verify:stage27test-l-torture-generator`. Harness: `luna:guest-torture` · `luna:guest-torture:generate`. Doc: [STAGE-27TEST-L-TORTURE-GENERATOR.md](STAGE-27TEST-L-TORTURE-GENERATOR.md).
+
+**Prior — Stage 27test-k (2026-06-09):** Handoff evaluator fix — `no_payment_choice_detected` technical during `collect_payment_choice`. Hosted booking-core **26/26 PASS** · golden **50/50 PASS** on `ab2e658`.
+
+**Prior — Stage 27test-j (2026-06-09):** Hosted proof hygiene — unique endpoint phones/idempotency keys · staging-aligned date fixtures. Local golden **139/139** · booking-core **26/26**.
+
+**Prior — Stage 27test-d (2026-06-09):** Luna guest flow batch runner — **PASS** (verifier). Multi-turn batch runner `run-luna-guest-flow-batch.js` + 26-flow `booking-core` fixture set through simulator/inbound review (default review-only). Verifier: `verify:stage27test-d-flow-batch`. Harness: `luna:guest-flow-batch`. Doc: [STAGE-27TEST-D-FLOW-BATCH.md](STAGE-27TEST-D-FLOW-BATCH.md).
 
 **Prior — Stage 27test-c (2026-06-08):** Package explainer replies — **PASS** (local 139/139 golden; staging deploy proof). Doc: package explainer in `luna-guest-package-explainer.js`.
 
