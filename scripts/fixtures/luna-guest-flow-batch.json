@@ -6,7 +6,7 @@
   "default_channel": "staff_review",
   "fixture_sets": {
     "booking-core": {
-      "description": "Core multi-turn booking flows for batch regression before n8n wiring"
+      "description": "Core multi-turn booking flows for batch regression before n8n wiring. Date windows are chosen for beds free on local and staging inventory (reference_date 2026-06-08); re-check flow-en-unavailable-dates and flow-en-change-dates if staging bed calendar drifts."
     }
   },
   "flows": [
@@ -647,7 +647,7 @@
           "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
         },
         {
-          "message": "Can we change dates to August 1 to August 8?",
+          "message": "Can we change dates to July 18 to July 25?",
           "expect": {
             "message_lane": "new_booking_inquiry",
             "banned_reply_terms_absent": true
@@ -667,11 +667,11 @@
       "id": "flow-en-unavailable-dates",
       "fixture_set": "booking-core",
       "language": "en",
-      "label": "Short-stay edge dates (availability checked)",
+      "label": "Short-stay availability check (July window — staging-inventory aligned)",
       "write_eligible": false,
       "turns": [
         {
-          "message": "2 people Malibu package June 11 to June 14",
+          "message": "2 people Malibu package July 10 to July 13",
           "expect": {
             "message_lane": "new_booking_inquiry",
             "booking_intake_ready": true,

@@ -187,6 +187,50 @@ if (runnerSrc.includes('booking_intake_not_ready') && runnerSrc.includes('quote_
   fail('C6', 'technical handoff reason list incomplete');
 }
 
+if (runnerSrc.includes('--phone-prefix') && runnerSrc.includes('--run-id')) {
+  pass('C6b', 'runner supports --phone-prefix and --run-id for endpoint isolation');
+} else {
+  fail('C6b', 'endpoint isolation CLI flags missing');
+}
+
+if (runnerSrc.includes('buildGuestPhoneForCase') && runnerSrc.includes('resolvedRunId')) {
+  pass('C6c', 'runner builds per-case endpoint phones with run id');
+} else {
+  fail('C6c', 'per-case endpoint phone builder missing');
+}
+
+if (!runnerSrc.includes("guest_phone: '+34600999997'")
+    || runnerSrc.includes('buildGuestPhoneForCase')) {
+  pass('C6d', 'endpoint mode does not hard-code one shared phone for all cases');
+} else {
+  fail('C6d', 'runner still uses fixed shared guest_phone for all cases');
+}
+
+try {
+  const { buildPayload, buildGuestPhoneForCase, resolveRunId } = require('./run-luna-guest-golden-tests.js');
+  const runId = resolveRunId('test-run-abc');
+  const opts = { resolvedRunId: runId, phonePrefix: '+34600997' };
+  const p0 = buildPayload({ id: 'en-book-01', message_text: 'hi', language: 'en' }, { reference_date: '2026-06-08' }, 0, 'endpoint', opts);
+  const p1 = buildPayload({ id: 'en-book-02', message_text: 'hi', language: 'en' }, { reference_date: '2026-06-08' }, 1, 'endpoint', opts);
+  const localP = buildPayload({ id: 'en-book-01', message_text: 'hi', language: 'en' }, { reference_date: '2026-06-08' }, 0, 'local', opts);
+  if (p0.guest_phone !== p1.guest_phone
+      && p0.inbound_message_id !== p1.inbound_message_id
+      && p0.idempotency_key !== p1.idempotency_key
+      && p0.inbound_message_id.includes(runId)
+      && localP.guest_phone === '+34600999997') {
+    pass('C6e', 'endpoint payloads use unique phone/idempotency per case; local stays deterministic');
+  } else {
+    fail('C6e', 'endpoint/local payload id hygiene incorrect');
+  }
+  if (buildGuestPhoneForCase('endpoint', opts, 0) !== buildGuestPhoneForCase('endpoint', { ...opts, resolvedRunId: 'other-run' }, 0)) {
+    pass('C6f', 'endpoint phones vary by run id');
+  } else {
+    fail('C6f', 'endpoint phones do not vary by run id');
+  }
+} catch (e) {
+  fail('C6e', `payload hygiene self-test failed: ${e.message}`);
+}
+
 try {
   const { isStaffHandoffRequired } = require('./run-luna-guest-golden-tests.js');
   const mockReview = {

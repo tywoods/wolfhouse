@@ -99,8 +99,11 @@ npm run luna:guest-golden -- --local --limit 10 --json
 export LUNA_BOT_INTERNAL_TOKEN=...
 npm run luna:guest-golden -- \
   --base-url https://staff-staging.lunafrontdesk.com \
+  --endpoint \
   --limit 50
 ```
+
+**Endpoint hygiene (27test-j):** Each case gets a unique `guest_phone`, `inbound_message_id`, and `idempotency_key` scoped by `--run-id` (default `auto`). This avoids stale staging inbound cache from reusing one shared phone. Local mode keeps a fixed deterministic phone. Override with `--phone-prefix +34600997` and `--run-id my-smoke-1` if needed. Fixtures may set explicit `guest_phone` / `inbound_message_id` only for idempotency replay tests.
 
 Staging runs may persist review artifacts via existing **27x.1** conversation metadata (review-only). No booking/hold/payment writes.
 

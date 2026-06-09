@@ -124,7 +124,7 @@ else fail('B5', 'local mode missing');
 
 const cliFlags = [
   '--base-url', '--local', '--count', '--fixture-set', '--json', '--fail-fast',
-  '--create-hold-draft', '--create-stripe-test-link', '--phone-prefix', '--reference-date',
+  '--create-hold-draft', '--create-stripe-test-link', '--phone-prefix', '--run-id', '--reference-date',
 ];
 for (const flag of cliFlags) {
   if (runnerSrc.includes(flag)) pass(`B6.${flag}`, `supports ${flag}`);
@@ -254,6 +254,73 @@ try {
   else fail('F1', `checkFlowExpectations unexpected failures: ${fails.join('; ')}`);
 } catch (e) {
   fail('F1', `helper self-test failed: ${e.message}`);
+}
+
+section('G. Hosted proof hygiene');
+
+if (runnerSrc.includes('buildFlowPhone') && runnerSrc.includes('resolvedRunId')) {
+  pass('G1', 'runner builds endpoint phones with run id');
+} else {
+  fail('G1', 'endpoint phone run-id builder missing');
+}
+
+if (runnerSrc.includes('buildInboundMessageId')) {
+  pass('G2', 'inbound message ids derived from run id (no hard-coded staging ids)');
+} else {
+  fail('G2', 'run-scoped inbound id builder missing');
+}
+
+if (fixtureData) {
+  const raw = fs.readFileSync(FIXTURE, 'utf8');
+  if (!raw.includes('batch-idempotent-flow-27testd-001')) {
+    pass('G3', 'fixture has no hard-coded staging inbound id');
+  } else {
+    fail('G3', 'fixture still contains hard-coded staging inbound id');
+  }
+
+  const unavailable = fixtureData.flows.find((f) => f.id === 'flow-en-unavailable-dates');
+  if (unavailable
+      && unavailable.final_expect
+      && unavailable.final_expect.quote_status === 'ready'
+      && unavailable.final_expect.handoff_required === false
+      && unavailable.final_expect.availability_check_attempted === true) {
+    pass('G4', 'flow-en-unavailable-dates expects quote-ready with availability checked');
+  } else {
+    fail('G4', 'flow-en-unavailable-dates expectations inconsistent');
+  }
+
+  const changeDates = fixtureData.flows.find((f) => f.id === 'flow-en-change-dates');
+  const changeTurn = changeDates && changeDates.turns && changeDates.turns.find((t) => /change dates/i.test(t.message || ''));
+  if (changeTurn && !/august/i.test(changeTurn.message || '')) {
+    pass('G5', 'flow-en-change-dates uses staging-aligned alternate date window');
+  } else {
+    fail('G5', 'flow-en-change-dates still uses August window known unavailable on staging');
+  }
+
+  const idem = fixtureData.flows.find((f) => f.id === 'flow-inbound-idempotent');
+  if (idem && idem.turns.some((t) => t.reuse_inbound_message_id)) {
+    pass('G6', 'flow-inbound-idempotent explicitly tests replay via reuse_inbound_message_id');
+  } else {
+    fail('G6', 'inbound idempotency fixture missing replay flag');
+  }
+}
+
+try {
+  const { buildFlowPhone, buildInboundMessageId, resolveRunId } = require('./run-luna-guest-flow-batch.js');
+  const runId = resolveRunId('batch-test');
+  const opts = { resolvedRunId: runId, phonePrefix: '+34600998' };
+  const p0 = buildFlowPhone('endpoint', opts, 0);
+  const p1 = buildFlowPhone('endpoint', opts, 1);
+  const idemFlow = { id: 'flow-inbound-idempotent', turns: [{ reuse_inbound_message_id: true }] };
+  const id1 = buildInboundMessageId(idemFlow, opts, 2, 0, true);
+  const id2 = buildInboundMessageId(idemFlow, opts, 2, 1, true);
+  if (p0 !== p1 && id1 === id2 && id1.includes(runId)) {
+    pass('G7', 'endpoint phones unique per flow; idempotent fixture reuses inbound id within run');
+  } else {
+    fail('G7', 'endpoint phone/inbound id hygiene incorrect');
+  }
+} catch (e) {
+  fail('G7', `flow batch hygiene self-test failed: ${e.message}`);
 }
 
 section('Summary');

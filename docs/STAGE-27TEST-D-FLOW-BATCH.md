@@ -45,8 +45,13 @@ npm run luna:guest-flow-batch -- --fixture-set booking-core --count 10
 npm run luna:guest-flow-batch -- --fixture flow-en-malibu-deposit
 
 # Staging review-only
-npm run luna:guest-flow-batch -- --base-url https://staff-staging.lunafrontdesk.com --count 5 --endpoint
+npm run luna:guest-flow-batch -- \
+  --base-url https://staff-staging.lunafrontdesk.com \
+  --endpoint \
+  --fixture-set booking-core
 ```
+
+**Endpoint hygiene (27test-j):** `--run-id auto` (default) scopes unique phones and inbound ids per run. `flow-inbound-idempotent` reuses the inbound id only within that run (first turn `idempotent_replay:false`, second `true`). Date fixtures in `booking-core` use windows aligned to staging bed inventory (see fixture set description); re-check if staging calendar drifts.
 
 ---
 
@@ -64,7 +69,8 @@ npm run luna:guest-flow-batch -- --base-url https://staff-staging.lunafrontdesk.
 | `--fail-fast` | off | Stop on first flow failure |
 | `--create-hold-draft` | off | Hold/draft write for `write_eligible:true` flows only |
 | `--create-stripe-test-link` | off | Stripe TEST link (requires hold flag; does not pay checkout) |
-| `--phone-prefix PREFIX` | `+34600998` | Unique phone per flow (index appended) |
+| `--phone-prefix PREFIX` | `+34600998` / golden `+34600997` | Unique phone per flow/case (endpoint adds run tag) |
+| `--run-id ID` | `auto` | Run-scoped tag for endpoint phone/inbound ids |
 | `--reference-date DATE` | `2026-06-08` | Date anchor |
 
 ---
@@ -80,7 +86,7 @@ npm run luna:guest-flow-batch -- --base-url https://staff-staging.lunafrontdesk.
 - Service / transfer mid-flow
 - IT / ES / DE / FR booking flows
 - Typo/slang dates · package/date change before payment
-- Unavailable dates · cancel/refund handoff · off-topic mid-flow
+- Short-stay availability check (July window) · cancel/refund handoff · off-topic mid-flow
 - Inbound idempotent replay · one-message full booking
 
 Each flow defines `turns[]` with per-turn `expect` and optional `final_expect`.

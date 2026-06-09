@@ -55,10 +55,14 @@ Options:
   --endpoint           Force HTTP endpoint mode
   --json               Print JSON report only
   --fail-fast          Stop on first failure
+  --phone-prefix PREFIX  Default +34600997 (endpoint mode: per-case phone suffix)
+  --run-id ID          Default auto — unique run tag for endpoint idempotency isolation
   --help               Show this help
 
 Mode: uses HTTP when LUNA_BOT_INTERNAL_TOKEN is set and --local not passed;
-      otherwise runs runGuestInboundReviewDryRun locally without DB writes.`);
+      otherwise runs runGuestInboundReviewDryRun locally without DB writes.
+Endpoint mode assigns a unique guest_phone and idempotency_key per case (plus --run-id)
+to avoid stale staging inbound cache; local mode stays deterministic.`);
 }
 
 function parseArgs(argv) {
@@ -72,6 +76,8 @@ function parseArgs(argv) {
     endpoint: false,
     json: false,
     failFast: false,
+    phonePrefix: '+34600997',
+    runId: 'auto',
     help: false,
   };
 
@@ -87,6 +93,8 @@ function parseArgs(argv) {
     else if (a === '--limit') opts.limit = parseInt(argv[++i], 10);
     else if (a === '--language') opts.language = argv[++i];
     else if (a === '--category') opts.category = argv[++i];
+    else if (a === '--phone-prefix') opts.phonePrefix = argv[++i];
+    else if (a === '--run-id') opts.runId = argv[++i];
     else {
       console.error(`Unknown argument: ${a}`);
       usage();
@@ -155,18 +163,45 @@ function postJson(urlStr, payload, headers) {
   });
 }
 
-function buildPayload(fixture, fixtureFile, index) {
+function simpleRunHash(value) {
+  let h = 0;
+  const s = String(value || '');
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h) + s.charCodeAt(i);
+  return Math.abs(h);
+}
+
+function resolveRunId(raw) {
+  if (raw && raw !== 'auto') {
+    return String(raw).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 16);
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Endpoint: unique phone per case/run; local: fixed deterministic phone. */
+function buildGuestPhoneForCase(mode, opts, index) {
+  if (mode === 'local') return '+34600999997';
+  const caseSuffix = String(index + 1).padStart(4, '0');
+  const runTag = String(simpleRunHash(opts.resolvedRunId)).slice(-5).padStart(5, '0');
+  return `${opts.phonePrefix}${runTag}${caseSuffix}`;
+}
+
+function buildPayload(fixture, fixtureFile, index, mode, opts) {
   const meta = fixtureFile;
-  return {
+  const runId = opts.resolvedRunId;
+  const payload = {
     source: 'golden_test_runner',
     client_slug: meta.default_client_slug || 'wolfhouse-somo',
     channel: meta.default_channel || 'whatsapp',
-    guest_phone: '+34600999997',
+    guest_phone: buildGuestPhoneForCase(mode, opts, index),
     message_text: fixture.message_text,
     reference_date: meta.reference_date || '2026-06-08',
     language_hint: fixture.language,
-    inbound_message_id: `golden-${fixture.id}-${index}`,
-    idempotency_key: `golden:${fixture.id}:${index}`,
+    inbound_message_id: mode === 'endpoint'
+      ? `golden-${runId}-${fixture.id}`
+      : `golden-${fixture.id}-${index}`,
+    idempotency_key: mode === 'endpoint'
+      ? `golden:${runId}:${fixture.id}`
+      : `golden:${fixture.id}:${index}`,
     guest_context: fixture.guest_context,
     automation_gate_context: {
       public_guest_automation_enabled: false,
@@ -174,6 +209,12 @@ function buildPayload(fixture, fixtureFile, index) {
       live_send_allowed: false,
     },
   };
+
+  if (fixture.guest_phone) payload.guest_phone = fixture.guest_phone;
+  if (fixture.inbound_message_id) payload.inbound_message_id = fixture.inbound_message_id;
+  if (fixture.idempotency_key) payload.idempotency_key = fixture.idempotency_key;
+
+  return payload;
 }
 
 async function runCaseLocal(payload) {
@@ -335,6 +376,7 @@ async function main() {
   const fixtureFile = loadFixtures(path.resolve(opts.fixtureFile));
   const cases = filterCases(fixtureFile.cases, opts);
   const mode = resolveMode(opts);
+  opts.resolvedRunId = resolveRunId(opts.runId);
   const headers = TOKEN ? { 'X-Luna-Bot-Token': TOKEN } : {};
 
   if (cases.length === 0) {
@@ -344,6 +386,7 @@ async function main() {
 
   const report = {
     mode,
+    run_id: opts.resolvedRunId,
     fixture_file: opts.fixtureFile,
     reference_date: fixtureFile.reference_date,
     total: cases.length,
@@ -356,7 +399,7 @@ async function main() {
 
   for (let i = 0; i < cases.length; i++) {
     const fixture = cases[i];
-    const payload = buildPayload(fixture, fixtureFile, i);
+    const payload = buildPayload(fixture, fixtureFile, i, mode, opts);
 
     let runResult;
     try {
@@ -443,4 +486,7 @@ module.exports = {
   checkExpectations,
   checkSafetyFlags,
   filterCases,
+  resolveRunId,
+  buildGuestPhoneForCase,
+  buildPayload,
 };

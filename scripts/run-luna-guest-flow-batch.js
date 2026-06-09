@@ -102,7 +102,8 @@ Options:
   --fail-fast              Stop on first flow failure
   --create-hold-draft      Run hold/draft write for write_eligible flows only
   --create-stripe-test-link  Also create Stripe TEST link (requires --create-hold-draft)
-  --phone-prefix PREFIX    Default +34600998 (flow index appended)
+  --phone-prefix PREFIX    Default +34600998 (flow index appended; endpoint adds run tag)
+  --run-id ID              Default auto — unique tag per endpoint run for phone/inbound ids
   --reference-date DATE    Default 2026-06-08
   --help                   Show this help
 
@@ -122,6 +123,7 @@ function parseArgs(argv) {
     createHoldDraft: false,
     createStripeTestLink: false,
     phonePrefix: '+34600998',
+    runId: 'auto',
     referenceDate: '2026-06-08',
     help: false,
   };
@@ -140,6 +142,7 @@ function parseArgs(argv) {
     else if (a === '--fixture-set') opts.fixtureSet = argv[++i];
     else if (a === '--fixture') opts.fixtureId = argv[++i];
     else if (a === '--phone-prefix') opts.phonePrefix = argv[++i];
+    else if (a === '--run-id') opts.runId = argv[++i];
     else if (a === '--reference-date') opts.referenceDate = argv[++i];
     else {
       console.error(`Unknown argument: ${a}`);
@@ -555,8 +558,40 @@ async function runStripeTestLink(opts, headers, holdBody) {
   return { http_status: res.status, body };
 }
 
+function resolveRunId(raw) {
+  if (raw && raw !== 'auto') {
+    return String(raw).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 16);
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function simpleRunHash(value) {
+  let h = 0;
+  const s = String(value || '');
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h) + s.charCodeAt(i);
+  return Math.abs(h);
+}
+
+function buildFlowPhone(mode, opts, flowIndex) {
+  const suffix = String(flowIndex + 1).padStart(3, '0');
+  if (mode === 'endpoint') {
+    const runTag = String(simpleRunHash(opts.resolvedRunId)).slice(-5).padStart(5, '0');
+    return `${opts.phonePrefix}${runTag}${suffix}`;
+  }
+  return `${opts.phonePrefix}${suffix}`;
+}
+
+function buildInboundMessageId(flow, opts, flowIndex, turnIndex, isIdempotentReplayFlow) {
+  const runId = opts.resolvedRunId;
+  if (isIdempotentReplayFlow) {
+    return `batch-${runId}-${flow.id}-f${flowIndex}`;
+  }
+  if (flow.inbound_message_id) return flow.inbound_message_id;
+  return `batch-${runId}-${flow.id}-f${flowIndex}-t${turnIndex + 1}`;
+}
+
 async function runFlow(flow, opts, mode, headers, flowIndex) {
-  const phone = `${opts.phonePrefix}${String(flowIndex + 1).padStart(3, '0')}`;
+  const phone = buildFlowPhone(mode, opts, flowIndex);
   const endpoint = flow.endpoint === 'inbound' ? 'inbound' : 'simulator';
   const flowResult = {
     id: flow.id,
@@ -577,9 +612,7 @@ async function runFlow(flow, opts, mode, headers, flowIndex) {
   let readyContext = null;
   const isIdempotentReplayFlow = endpoint === 'inbound'
     && flow.turns.some((t) => t.reuse_inbound_message_id);
-  const inboundId = isIdempotentReplayFlow
-    ? `batch-${flow.id}-${opts.inboundNonce || Date.now()}-f${flowIndex}`
-    : (flow.inbound_message_id || `batch-${flow.id}-f${flowIndex}`);
+  const inboundId = buildInboundMessageId(flow, opts, flowIndex, 0, isIdempotentReplayFlow);
 
   for (let ti = 0; ti < flow.turns.length; ti++) {
     const turn = flow.turns[ti];
@@ -709,7 +742,7 @@ async function runFlow(flow, opts, mode, headers, flowIndex) {
 
 async function main() {
   const opts = parseArgs(process.argv);
-  opts.inboundNonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  opts.resolvedRunId = resolveRunId(opts.runId);
   if (opts.help) {
     usage();
     process.exit(0);
@@ -747,6 +780,7 @@ async function main() {
     review_only: !opts.createHoldDraft && !opts.createStripeTestLink,
     fixture_set: opts.fixtureSet,
     reference_date: opts.referenceDate,
+    run_id: opts.resolvedRunId,
     base_url: opts.baseUrl,
     total: flows.length,
     passed: 0,
@@ -830,4 +864,7 @@ module.exports = {
   findBannedTerms,
   isStaffHandoffRequired,
   checkSafetyFlags,
+  resolveRunId,
+  buildFlowPhone,
+  buildInboundMessageId,
 };
