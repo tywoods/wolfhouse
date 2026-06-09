@@ -6,6 +6,10 @@
 
 const { shouldAttemptGuestPaymentChoiceWire, detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
+const {
+  detectServiceSideQuestionIntent,
+  detectTransferSideQuestionIntent,
+} = require('./luna-guest-service-transfer-explainer');
 
 const EXTRACTED_FIELD_KEYS = [
   'check_in',
@@ -168,7 +172,11 @@ function isActiveBookingSideQuestion(priorGuestContext, currentResult, messageTe
   if (detectPackageExplainerIntent(text)) return true;
   const pc = detectPaymentChoiceFromMessage(text);
   if (pc === 'arrival_payment_question' || pc === 'payment_link_request') return true;
-  return currentResult.message_lane != null;
+  if (detectServiceSideQuestionIntent(text)) return true;
+  if (detectTransferSideQuestionIntent(text)) return true;
+  if (currentResult.message_lane === 'add_service_request') return true;
+  if (currentResult.message_lane === 'transfer_request') return true;
+  return false;
 }
 
 /**

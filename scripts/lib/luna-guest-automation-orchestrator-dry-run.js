@@ -23,8 +23,19 @@ const {
 const {
   runGuestHoldPaymentDraftPlannerDryRun,
 } = require('./luna-guest-hold-payment-draft-planner');
-const { normalizeGuestContextForChain, buildHoldPaymentDraftPlannerChain, mergeActiveBookingChainOutput } = require('./luna-guest-context-merge');
+const {
+  normalizeGuestContextForChain,
+  buildHoldPaymentDraftPlannerChain,
+  mergeActiveBookingChainOutput,
+  collectPriorExtractedFields,
+} = require('./luna-guest-context-merge');
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
+const {
+  detectServiceSideQuestionIntent,
+  detectTransferSideQuestionIntent,
+  buildServiceSideQuestionReply,
+  buildTransferSideQuestionReply,
+} = require('./luna-guest-service-transfer-explainer');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -270,7 +281,7 @@ function shouldUsePaymentChoiceReply(pc, quote) {
   return false;
 }
 
-function resolveProposedReply(payload, messageText) {
+function resolveProposedReply(payload, messageText, priorGuestContext) {
   const {
     hold_payment_draft_plan: plan,
     payment_choice: pc,
@@ -286,9 +297,37 @@ function resolveProposedReply(payload, messageText) {
 
   const fallbackCtx = { result, quote, availability };
   const sideQuestionText = messageText != null ? String(messageText).trim() : '';
+  const priorFields = collectPriorExtractedFields(priorGuestContext);
+  const sideQuestionLang = (result && result.detected_language) || 'en';
+  const quoteReadyForSideQuestion = quote && quote.quote_status === 'ready' && quote.payment_choice_needed === true;
 
   if (sideQuestionText && detectPackageExplainerIntent(sideQuestionText) && result && result.proposed_luna_reply) {
     return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+
+  if (sideQuestionText && quoteReadyForSideQuestion) {
+    const transferIntent = detectTransferSideQuestionIntent(sideQuestionText)
+      || (result && result.message_lane === 'transfer_request' ? 'transfer_general' : null);
+    if (transferIntent) {
+      return sanitizeReply(
+        buildTransferSideQuestionReply(sideQuestionLang, sideQuestionText, {
+          packageInterest: priorFields.package_interest,
+          guestCount: priorFields.guest_count,
+        }),
+        fallbackCtx,
+        pc && pc.payment_choice,
+      );
+    }
+
+    const serviceIntent = detectServiceSideQuestionIntent(sideQuestionText)
+      || (result && result.message_lane === 'add_service_request' ? 'services_general' : null);
+    if (serviceIntent) {
+      return sanitizeReply(
+        buildServiceSideQuestionReply(sideQuestionLang, serviceIntent, sideQuestionText),
+        fallbackCtx,
+        pc && pc.payment_choice,
+      );
+    }
   }
 
   if (plan && plan.plan_status === 'ready' && plan.proposed_luna_reply) {
@@ -372,7 +411,7 @@ function buildNonBookingLaneResponse(result, gate) {
     payment_choice: null,
     hold_payment_draft_plan: null,
     proposed_next_action: resolveProposedNextAction(payload),
-    proposed_luna_reply: resolveProposedReply(payload, null),
+    proposed_luna_reply: resolveProposedReply(payload, null, null),
   });
 }
 
@@ -489,7 +528,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     payment_choice: payload.payment_choice,
     hold_payment_draft_plan: payload.hold_payment_draft_plan,
     proposed_next_action: resolveProposedNextAction(payload),
-    proposed_luna_reply: resolveProposedReply(payload, trimStr(inp.message_text)),
+    proposed_luna_reply: resolveProposedReply(payload, trimStr(inp.message_text), chainGuestContext),
   });
 }
 

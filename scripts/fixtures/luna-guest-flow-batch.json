@@ -400,17 +400,22 @@
         {
           "message": "Can we add surf lessons?",
           "expect": {
-            "message_lane": "new_booking_inquiry",
+            "message_lane": "general_question",
+            "reply_contains": ["lesson"],
+            "quote_status": "ready",
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "quote_status": "ready", "banned_reply_terms_absent": true }
         }
       ],
       "final_expect": {
+        "payment_choice_ready": true,
+        "payment_choice": "deposit",
+        "quote_status": "ready",
         "banned_reply_terms_absent": true
       }
     },
@@ -432,12 +437,22 @@
         {
           "message": "Do you include airport transfer from Santander?",
           "expect": {
-            "banned_reply_terms_absent": true,
-            "reply_contains": ["transfer"]
+            "message_lane": "transfer_request",
+            "reply_contains": ["transfer"],
+            "quote_status": "ready",
+            "banned_reply_terms_absent": true
           }
+        },
+        {
+          "message": "Deposit is fine",
+          "conditional": "quote_payment_choice_needed",
+          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "quote_status": "ready", "banned_reply_terms_absent": true }
         }
       ],
       "final_expect": {
+        "payment_choice_ready": true,
+        "payment_choice": "deposit",
+        "quote_status": "ready",
         "banned_reply_terms_absent": true
       }
     },
