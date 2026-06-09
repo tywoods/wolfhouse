@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27w — Luna Guest Simulator**): **PASS**. Staff Portal dev tab + `guest-simulator-create-hold-draft` / `guest-simulator-create-stripe-test-link` (27n/27o, staging/local only). **No WhatsApp, Stripe TEST only.** Doc: [STAGE-27W-LUNA-GUEST-SIMULATOR.md](STAGE-27W-LUNA-GUEST-SIMULATOR.md). Verifier: `verify:stage27w-luna-guest-simulator`.
+**Last updated:** 2026-06-08 (**Stage 27w.3 — Luna Guest Simulator flow harness**): **PASS**. Multi-turn automated test harness `run-luna-guest-simulator-flow.js` · `guest-automation-review-dry-run` chaining · default review-only · optional `--create-hold-draft` / `--create-stripe-test-link`. Doc: [STAGE-27W3-LUNA-SIMULATOR-FLOW-TESTS.md](STAGE-27W3-LUNA-SIMULATOR-FLOW-TESTS.md). Verifier: `verify:stage27w3-luna-simulator-flow`.
+
+**Prior — Stage 27w (2026-06-08):** Luna Guest Simulator — **PASS**. Staff Portal dev tab + `guest-simulator-create-hold-draft` / `guest-simulator-create-stripe-test-link` (27n/27o, staging/local only). **No WhatsApp, Stripe TEST only.** Doc: [STAGE-27W-LUNA-GUEST-SIMULATOR.md](STAGE-27W-LUNA-GUEST-SIMULATOR.md). Verifier: `verify:stage27w-luna-guest-simulator`.
 
 **Prior — Stage 27v (2026-06-08):** Guest automation review endpoint — **PASS**. Doc: [STAGE-27V-GUEST-AUTOMATION-REVIEW.md](STAGE-27V-GUEST-AUTOMATION-REVIEW.md).
 

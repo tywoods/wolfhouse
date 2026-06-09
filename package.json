@@ -201,6 +201,8 @@
     "verify:stage27v-guest-automation-review": "node scripts/verify-stage27v-guest-automation-review.js",
     "verify:stage27w-luna-guest-simulator": "node scripts/verify-stage27w-luna-guest-simulator.js",
     "verify:stage27w2-guest-context-merge": "node scripts/verify-stage27w2-guest-context-merge.js",
+    "verify:stage27w3-luna-simulator-flow": "node scripts/verify-stage27w3-luna-simulator-flow.js",
+    "luna:guest-sim:flow": "node scripts/run-luna-guest-simulator-flow.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
