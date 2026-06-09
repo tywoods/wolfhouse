@@ -1,4 +1,8 @@
-**Stage 27test-l LUNA GUEST TORTURE GENERATOR — PASS (2026-06-09):** 565 deterministic torture cases · `generate-luna-guest-torture-fixtures.js` · `run-luna-guest-torture-tests.js` (review-only · scoring report). Verifier: `verify:stage27test-l-torture-generator`. Doc: [STAGE-27TEST-L-TORTURE-GENERATOR.md](STAGE-27TEST-L-TORTURE-GENERATOR.md). **Next:** torture baselines local/hosted → 27x.2 n8n pipe wiring (disabled/dry-run).
+**Stage 27demo-a OPEN WHATSAPP BOOKING + STRIPE TEST DEMO — DESIGN LOCK (2026-06-09):** Docs-only design for **open demo** on staging WhatsApp number — **no guest phone allowlist**; anyone with demo number → n8n pipe → Staff API brain → hold/draft → Stripe TEST link → calendar proof. Stability baseline **`51977c6-stage27test-t1-pg-pool`**. Verifier: `verify:stage27demo-a-open-whatsapp-stripe-design`. Doc: [STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md](STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md). **Next:** **27demo-b** n8n inbound demo pipe (no live replies).
+
+**Stage 27test-t.1 SHARED POSTGRES POOL — PASS (2026-06-09):** Singleton `pg.Pool` in `pg-connect.js`. Hosted torture **565/565** in ~94s · 0 ETIMEDOUT · portal <1s. Image: `51977c6-stage27test-t1-pg-pool`. **Next:** 27demo-a (this entry).
+
+**Stage 27test-l LUNA GUEST TORTURE GENERATOR — PASS (2026-06-09):** 565 deterministic torture cases · `generate-luna-guest-torture-fixtures.js` · `run-luna-guest-torture-tests.js` (review-only · scoring report). Verifier: `verify:stage27test-l-torture-generator`. Doc: [STAGE-27TEST-L-TORTURE-GENERATOR.md](STAGE-27TEST-L-TORTURE-GENERATOR.md). **Next:** torture baselines local/hosted → 27demo-b.
 
 **Stage 27test-k HANDOFF EVALUATOR — PASS (2026-06-09):** Hosted booking-core **26/26** · golden **50/50** on `ab2e658`. **Next:** 27test-l torture generator (this entry).
 

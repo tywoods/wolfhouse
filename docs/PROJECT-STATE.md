@@ -1,6 +1,12 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-09 (**Stage 27test-l — Luna guest torture test generator**): **PASS** (verifier). Deterministic 565-case generator + review-only torture runner reusing golden/flow helpers. Verifier: `verify:stage27test-l-torture-generator`. Harness: `luna:guest-torture` · `luna:guest-torture:generate`. Doc: [STAGE-27TEST-L-TORTURE-GENERATOR.md](STAGE-27TEST-L-TORTURE-GENERATOR.md).
+**Last updated:** 2026-06-09 (**Stage 27demo-a — Open WhatsApp booking + Stripe TEST demo design**): **DESIGN LOCK** (docs only). Open demo on staging WhatsApp number — no guest phone allowlist; n8n pipe + Staff API brain; Stripe TEST only. Stability baseline **`51977c6-stage27test-t1-pg-pool`**. Verifier: `verify:stage27demo-a-open-whatsapp-stripe-design`. Doc: [STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md](STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md). **Next:** 27demo-b n8n inbound pipe (no live send).
+
+**Prior — Stage 27test-t.1 (2026-06-09):** Shared Postgres pool — **PASS** hosted proof. Commit **`51977c6`** → `51977c6-stage27test-t1-pg-pool`. Hosted torture **565/565** · ETIMEDOUT eliminated · portal responsive.
+
+**Prior — Stage 27test-s (2026-06-09):** Review dry-run stability diagnostics — structured `LUNA_REVIEW_DRY_RUN_ERROR` logging + torture `--retry-500`. Commit **`c5f5efb`**.
+
+**Prior — Stage 27test-l (2026-06-09):** **PASS** (verifier). Deterministic 565-case generator + review-only torture runner reusing golden/flow helpers. Verifier: `verify:stage27test-l-torture-generator`. Harness: `luna:guest-torture` · `luna:guest-torture:generate`. Doc: [STAGE-27TEST-L-TORTURE-GENERATOR.md](STAGE-27TEST-L-TORTURE-GENERATOR.md).
 
 **Prior — Stage 27test-k (2026-06-09):** Handoff evaluator fix — `no_payment_choice_detected` technical during `collect_payment_choice`. Hosted booking-core **26/26 PASS** · golden **50/50 PASS** on `ab2e658`.
 
