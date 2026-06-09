@@ -221,9 +221,48 @@ function extractIsoDates(text) {
   return found;
 }
 
+/**
+ * Slash date ranges — Wolfhouse/Europe default: DD/MM when ambiguous (Stage 27test-m).
+ * e.g. 10/7 to 17/7 → 10 Jul–17 Jul; 7/10 to 7/17 → shared-month M/D (Jul 10–17).
+ */
+function extractSlashDateRange(text, ref) {
+  const t = String(text || '');
+  const explicitYear = parseYearFromText(t);
+  const patterns = [
+    /\b(\d{1,2})\/(\d{1,2})\s*(?:to|thru|through|–|-)\s*(\d{1,2})\/(\d{1,2})\b/i,
+    /\b(\d{1,2})\/(\d{1,2})\s*-\s*(\d{1,2})\/(\d{1,2})\b/i,
+  ];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (!m) continue;
+    const a1 = Number(m[1]);
+    const b1 = Number(m[2]);
+    const a2 = Number(m[3]);
+    const b2 = Number(m[4]);
+    let dayIn; let monthIn; let dayOut; let monthOut;
+    if (b1 === b2 && b1 >= 1 && b1 <= 12) {
+      dayIn = a1; monthIn = b1;
+      dayOut = a2; monthOut = b2;
+    } else if (a1 === a2 && a1 >= 1 && a1 <= 12) {
+      monthIn = a1; dayIn = b1;
+      monthOut = a2; dayOut = b2;
+    } else {
+      dayIn = a1; monthIn = b1;
+      dayOut = a2; monthOut = b2;
+    }
+    const checkIn = dayMonthYearToIso(dayIn, monthIn, explicitYear, ref);
+    const checkOut = dayMonthYearToIso(dayOut, monthOut, explicitYear, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+  return null;
+}
+
 function extractNamedDateRange(text, ref) {
   const t = String(text || '');
   const explicitYear = parseYearFromText(t);
+
+  const slashRange = extractSlashDateRange(t, ref);
+  if (slashRange) return slashRange;
 
   // EN compact — jul 10 thru jul 17 / july 10 - july 17
   const enCompactMonthFirst = t.match(
@@ -387,6 +426,11 @@ function hasPartialBookingSignal(fields, text) {
 
 function extractGuests(text) {
   const t = String(text || '').toLowerCase();
+  if (/\b(?:just me|only me|solo(?:\s+travell(?:er|er))?|one person|1 person)\b/i.test(t)) return 1;
+  if (/\bcouple\b/i.test(t)) return 2;
+  if (/\bme and my (?:partner|girlfriend|boyfriend|friend|wife|husband)\b/i.test(t)) return 2;
+  const familyOf = t.match(/\bfamily of (\d{1,2})\b/i);
+  if (familyOf) return Number(familyOf[1]);
   const patterns = [
     /\b(\d{1,2})\s+ppl\b/i,
     /\b(\d{1,2})\s*(?:people|persons|guests|pax|persone|personas|personnes|gäste|gaste)\b/i,

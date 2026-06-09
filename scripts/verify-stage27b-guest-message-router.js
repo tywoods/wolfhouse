@@ -208,6 +208,71 @@ const FIXTURES = [
       replyNotForbidden: true,
     },
   },
+  {
+    id: 'F14',
+    label: 'Stage 27test-m — just me Malibu July 10-17',
+    message: 'just me for Malibu July 10-17',
+    expect: {
+      lane: 'new_booking_inquiry',
+      handoff: false,
+      guest_count: 1,
+      package_interest: 'malibu',
+      booking_intake_ready: true,
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F15',
+    label: 'Stage 27test-m — solo slash dates Uluwatu',
+    message: 'solo traveller Uluwatu 10/7 to 17/7',
+    expect: {
+      lane: 'new_booking_inquiry',
+      handoff: false,
+      guest_count: 1,
+      package_interest: 'uluwatu',
+      booking_intake_ready: true,
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F16',
+    label: 'Stage 27test-m — partner slash dates Waimea',
+    message: 'me and my partner Waimea 10/07-17/07',
+    expect: {
+      lane: 'new_booking_inquiry',
+      handoff: false,
+      guest_count: 2,
+      package_interest: 'waimea',
+      booking_intake_ready: true,
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F17',
+    label: 'Stage 27test-m — couple compact dates Malibu',
+    message: 'couple Malibu jul 10 thru jul 17',
+    expect: {
+      lane: 'new_booking_inquiry',
+      handoff: false,
+      guest_count: 2,
+      package_interest: 'malibu',
+      booking_intake_ready: true,
+      replyNotForbidden: true,
+    },
+  },
+  {
+    id: 'F18',
+    label: 'Stage 27test-m — single date only asks checkout',
+    message: 'July 10',
+    expect: {
+      lane: 'new_booking_inquiry',
+      handoff: false,
+      booking_intake_ready: false,
+      readiness_missing: ['check_out'],
+      replyContains: ['check-out'],
+      replyNotForbidden: true,
+    },
+  },
 ];
 
 console.log('\nverify-stage27b-guest-message-router.js  (Stage 27b)\n');
@@ -338,6 +403,20 @@ for (const fx of FIXTURES) {
       pass(`${id}.pkg`, `${fx.label}: package_interest=${exp.package_interest}`);
     } else if (exp.package_interest) {
       fail(`${id}.pkg`, `${fx.label}: expected package ${exp.package_interest} got ${out.extracted_fields.package_interest}`);
+    }
+    if (exp.booking_intake_ready != null && out.booking_intake_ready === exp.booking_intake_ready) {
+      pass(`${id}.ready`, `${fx.label}: booking_intake_ready=${exp.booking_intake_ready}`);
+    } else if (exp.booking_intake_ready != null) {
+      fail(`${id}.ready`, `${fx.label}: expected booking_intake_ready ${exp.booking_intake_ready} got ${out.booking_intake_ready}`);
+    }
+    if (exp.readiness_missing) {
+      for (const field of exp.readiness_missing) {
+        if ((out.readiness_missing_fields || []).includes(field)) {
+          pass(`${id}.missing.${field}`, `${fx.label}: readiness missing ${field}`);
+        } else {
+          fail(`${id}.missing.${field}`, `${fx.label}: expected readiness_missing_fields to include ${field}, got ${JSON.stringify(out.readiness_missing_fields)}`);
+        }
+      }
     }
   }
 

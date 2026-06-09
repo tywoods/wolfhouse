@@ -79,6 +79,7 @@ const REPLY_TEMPLATES = {
   en: {
     intro: "Hi! I'm Luna from Wolfhouse",
     ask_dates: 'What check-in and check-out dates are you thinking of?',
+    ask_checkout: 'What check-out date are you thinking of?',
     ask_guests: 'How many guests will be staying?',
     ask_package: 'Are you interested in one of our packages (Malibu, Uluwatu, Waimea) or a custom stay without a package?',
     handoff: "Thanks for your message — I'm passing this to our team so they can help you properly. Someone from Wolfhouse will follow up soon.",
@@ -95,6 +96,7 @@ const REPLY_TEMPLATES = {
   it: {
     intro: 'Ciao! Sono Luna di Wolfhouse',
     ask_dates: 'Per quali date di check-in e check-out stai pensando di venire?',
+    ask_checkout: 'Per quale data di check-out stai pensando?',
     ask_guests: 'Quante persone sarete?',
     ask_package: 'Ti interessa un pacchetto (Malibu, Uluwatu, Waimea) o un soggiorno custom senza pacchetto?',
     handoff: 'Grazie per il messaggio — passo la richiesta al team così possiamo aiutarti al meglio. Qualcuno di Wolfhouse ti risponderà presto.',
@@ -111,6 +113,7 @@ const REPLY_TEMPLATES = {
   es: {
     intro: '¡Hola! Soy Luna de Wolfhouse',
     ask_dates: '¿Qué fechas de entrada y salida tienes en mente?',
+    ask_checkout: '¿Qué fecha de salida tienes en mente?',
     ask_guests: '¿Cuántas personas serán?',
     ask_package: '¿Te interesa un paquete (Malibu, Uluwatu, Waimea) o una estancia custom sin paquete?',
     handoff: 'Gracias por tu mensaje — lo paso al equipo para ayudarte bien. Alguien de Wolfhouse te responderá pronto.',
@@ -127,6 +130,7 @@ const REPLY_TEMPLATES = {
   de: {
     intro: 'Hallo! Ich bin Luna von Wolfhouse',
     ask_dates: 'Welche Check-in- und Check-out-Daten schweben dir vor?',
+    ask_checkout: 'Welches Check-out-Datum schwebt dir vor?',
     ask_guests: 'Wie viele Gäste seid ihr?',
     ask_package: 'Interessiert dich ein Paket (Malibu, Uluwatu, Waimea) oder ein Custom-Aufenthalt ohne Paket?',
     handoff: 'Danke für deine Nachricht — ich gebe das an unser Team weiter. Jemand von Wolfhouse meldet sich bald.',
@@ -143,6 +147,7 @@ const REPLY_TEMPLATES = {
   fr: {
     intro: 'Bonjour ! Je suis Luna de Wolfhouse',
     ask_dates: 'Quelles dates d’arrivée et de départ envisagez-vous ?',
+    ask_checkout: 'Quelle date de départ envisagez-vous ?',
     ask_guests: 'Combien de personnes serez-vous ?',
     ask_package: 'Souhaitez-vous un forfait (Malibu, Uluwatu, Waimea) ou un séjour custom sans forfait ?',
     handoff: 'Merci pour votre message — je transmets à l’équipe pour vous aider au mieux. Quelqu’un de Wolfhouse vous répondra bientôt.',
@@ -188,12 +193,24 @@ function tpl(lang, key) {
 function hasExplicitDates(text) {
   const monthDay = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|f[eé]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[eé]cembre|januar|februar|m[aä]rz|april|mai|juni|juli|august|september|oktober|november|dezember)\s+\d{1,2}(?:st|nd|rd|th)?\b/i;
   return /\b\d{4}-\d{2}-\d{2}\b/.test(text)
+    || /\b\d{1,2}\/\d{1,2}\s*(?:to|thru|through|–|-)\s*\d{1,2}\/\d{1,2}\b/i.test(text)
+    || /\b\d{1,2}\/\d{1,2}\s*-\s*\d{1,2}\/\d{1,2}\b/i.test(text)
     || /\b\d{1,2}\s+(?:de\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|januar|februar|märz|maerz|april|mai|juni|juli|august|september|oktober|november|dezember)/i.test(text)
     || /\b\d{1,2}\.\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|januar|februar|märz|maerz|april|mai|juni|juli|august|september|oktober|november|dezember)\b/i.test(text)
     || monthDay.test(text)
     || /\b(?:from|dal|del|du|vom|von)\s+\d{1,2}/i.test(text)
     || /\b\d{1,2}\.\s*bis\s+\d{1,2}\./i.test(text)
     || /\b(?:from|to)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i.test(text);
+}
+
+function hasGuestCountSignal(text) {
+  const t = String(text || '');
+  return /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti|ppl|persons)\b/i.test(t)
+    || /\b(?:couple|family of \d+|just me|only me|solo|one person|1 person|me and my (?:partner|girlfriend|boyfriend|friend|wife|husband))\b/i.test(t)
+    || /\b(?:for|para|für|pour)\s*\d+\b/i.test(t)
+    || /\b(?:we are|we're|somos|siamo|nous sommes|wir sind)\s+\d+\b/i.test(t)
+    || /\b(?:group of|grupo de|gruppe von)\s*\d+\b/i.test(t)
+    || /\bsiamo in \d+\b/i.test(t);
 }
 
 function hasBookingCode(text) {
@@ -210,16 +227,13 @@ function detectNewStayBookingIntent(text) {
 function detectPackageGuestBookingIntent(text) {
   const t = String(text || '');
   const hasPackage = /\b(?:malibu|uluwatu|waimea)\b/i.test(t);
-  const hasGuestCount = /\b(?:for|para|für|pour)\s*\d+\b/i.test(t)
-    || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti)\b/i.test(t)
-    || /\b(?:group of|grupo de|gruppe von)\s*\d+\b/i.test(t)
-    || /\bsiamo in \d+\b/i.test(t)
-    || /\bsiamo \d+\b/i.test(t)
-    || /\b(?:interessati|interessati al|interested in|intéressés|interessiert)\b/i.test(t);
   const hasPackageWord = /\b(?:package|paquete|pacchetto|paket|forfait)\b/i.test(t);
-  return (hasPackage && hasGuestCount)
+  const hasGuestCount = hasGuestCountSignal(t);
+  const hasDates = hasExplicitDates(t);
+  return (hasPackage && (hasGuestCount || hasDates))
     || (hasPackageWord && hasGuestCount && hasPackage)
-    || (/\binteressati a\b/i.test(t) && hasPackage);
+    || (/\binteressati a\b/i.test(t) && hasPackage)
+    || (hasPackage && hasGuestCount && hasDates);
 }
 
 function detectCheckinHouseInfoQuestion(text) {
@@ -292,7 +306,7 @@ function classifyMessageLane(text, guestContext) {
     && !/\b(?:cancel|refund|reschedule|change my dates)\b/i.test(t)) {
     if (hasExplicitDates(t)
       || /\b(?:malibu|uluwatu|waimea|package|paquete|forfait|paket|pacchetto)\b/i.test(t)
-      || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen)\b/i.test(t)
+      || hasGuestCountSignal(t)
       || /\b(?:deposit|full amount|pay the|anzahlung|depósito|acompte)\b/i.test(t)) {
       return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.84 };
     }
@@ -383,9 +397,13 @@ function classifyMessageLane(text, guestContext) {
     return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.84 };
   }
 
-  if (/\b(?:book|booking|reserve|reservation|reservar|reservieren|prenot(?:are|azione)?|stay|want to come|looking to stay|vorremmo venire|voglio venire|quiero reservar|souhaite.*venir|möchte.*kommen|moechte.*kommen|möchten\s+buchen|moechten\s+buchen|wir\s+möchten\s+buchen|wir\s+moechten\s+buchen|nous\s+aimerions\s+venir|nous\s+voulons\s+r[eé]server|nous\s+voulons\s+reserver|estancia|interessati al|siamo in \d+|siamo \d+|group of \d+)\b/i.test(t)
+  if (/\b(?:malibu|uluwatu|waimea)\b/i.test(t) && (hasExplicitDates(t) || hasGuestCountSignal(t))) {
+    return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.83 };
+  }
+
+  if (/\b(?:book|booking|reserve|reservation|reservar|reservieren|prenot(?:are|azione)?|stay|want to come|looking to stay|vorremmo venire|voglio venire|quiero reservar|souhaite.*venir|möchte.*kommen|moechte.*kommen|möchten\s+buchen|moechten\s+buchen|wir\s+möchten\s+buchen|wir\s+moechten\s+buchen|nous\s+aimerions\s+venir|nous\s+voulons\s+r[eé]server|nous\s+voulons\s+reserver|estancia|interessati al|siamo in \d+|siamo \d+|group of \d+|couple|family of \d+|just me|only me|solo)\b/i.test(t)
     || hasExplicitDates(t)
-    || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti)\b/i.test(t)) {
+    || hasGuestCountSignal(t)) {
     return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.82 };
   }
 
@@ -528,7 +546,8 @@ function buildBookingReply(lang, readiness, extracted) {
   }
   const missing = readiness.readiness_missing_fields || [];
   const next = missing[0];
-  if (next === 'check_in' || next === 'check_out') parts.push(tpl(lang, 'ask_dates'));
+  if (next === 'check_out' && extracted.check_in) parts.push(tpl(lang, 'ask_checkout'));
+  else if (next === 'check_in' || next === 'check_out') parts.push(tpl(lang, 'ask_dates'));
   else if (next === 'guest_count') parts.push(tpl(lang, 'ask_guests'));
   else if (next === 'package_interest') parts.push(tpl(lang, 'ask_package'));
   else if (extracted.transfer_interest) {

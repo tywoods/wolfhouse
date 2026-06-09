@@ -57,6 +57,17 @@ const GUEST_VARIANTS = {
   fr: ['nous sommes 2', '2 personnes', 'couple', 'famille de 4'],
 };
 
+function hasFullDateRange(msg) {
+  return /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\s+\d{1,2}\s*(?:to|thru|through|–|-)\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\s+)?\d{1,2}\b/i.test(msg)
+    || /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\s+(?:to|thru|through|–|-)\s*\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i.test(msg)
+    || /\b\d{1,2}\/\d{1,2}\s*(?:to|thru|through|–|-)\s*\d{1,2}\/\d{1,2}\b/i.test(msg)
+    || /\b\d{1,2}\/\d{1,2}\s*-\s*\d{1,2}\/\d{1,2}\b/i.test(msg);
+}
+
+function hasGuestCount(msg) {
+  return /\b(?:\d+\s*(?:people|ppl|guests|persons)|couple|family of \d+|just me|only me|solo|one person|1 person|we are \d+|we're \d+|me and my (?:partner|girlfriend|boyfriend|friend))\b/i.test(msg);
+}
+
 function bookingIntakeSingleCases(rng, count) {
   const cases = [];
   for (let i = 0; i < count; i++) {
@@ -71,8 +82,8 @@ function bookingIntakeSingleCases(rng, count) {
       `${guests} ${dates} ${pkg}`,
     ];
     const msg = pick(rng, templates);
-    const hasDates = /july|jul|\d+\/\d|10 July|17/i.test(msg);
-    const hasGuests = /2|3|4|couple|family|people|ppl|guests|me/i.test(msg);
+    const fullRange = hasFullDateRange(msg);
+    const guestOk = hasGuestCount(msg);
     cases.push({
       id: `torture-book-intake-${String(i + 1).padStart(3, '0')}`,
       category: 'booking_intake_single',
@@ -82,8 +93,8 @@ function bookingIntakeSingleCases(rng, count) {
       expected: {
         ...baseSafety(),
         message_lane: 'new_booking_inquiry',
-        ...(hasDates && hasGuests ? { booking_intake_ready: true } : {}),
-        ...(!hasDates ? { handoff_required: false } : {}),
+        ...(fullRange && guestOk ? { booking_intake_ready: true } : {}),
+        ...(!fullRange ? { handoff_required: false } : {}),
       },
     });
   }
