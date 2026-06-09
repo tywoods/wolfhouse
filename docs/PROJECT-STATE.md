@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-08 (**Stage 27x-lite — Inbound Luna review-only wiring design**): **DESIGN LOCK**. Docs-only design for n8n pipe → Staff API orchestrator → Staff Portal review (no auto-send). Doc: [STAGE-27X-LITE-INBOUND-REVIEW-WIRING-DESIGN.md](STAGE-27X-LITE-INBOUND-REVIEW-WIRING-DESIGN.md). Verifier: `verify:stage27x-lite-inbound-review-design`.
+**Last updated:** 2026-06-08 (**Stage 27x.1 — Inbound guest review dry-run**): **PASS** (verifier). `POST /staff/bot/guest-inbound-review-dry-run` — n8n-shaped inbound payload → 27u orchestrator → review artifact + slim guest_context persistence on `conversations.metadata`. No public webhook, no live send. Doc: [STAGE-27X1-GUEST-INBOUND-REVIEW.md](STAGE-27X1-GUEST-INBOUND-REVIEW.md). Verifier: `verify:stage27x1-guest-inbound-review`. Harness: `luna:guest-inbound:review`.
+
+**Prior — Stage 27x-lite (2026-06-08):** Inbound Luna review-only wiring design — **DESIGN LOCK**. Doc: [STAGE-27X-LITE-INBOUND-REVIEW-WIRING-DESIGN.md](STAGE-27X-LITE-INBOUND-REVIEW-WIRING-DESIGN.md). Verifier: `verify:stage27x-lite-inbound-review-design`.
 
 **Prior — Stage 27w.3 (2026-06-08):** Luna Guest Simulator flow harness — **PASS**. Multi-turn automated test harness `run-luna-guest-simulator-flow.js` · `guest-automation-review-dry-run` chaining · default review-only · optional `--create-hold-draft` / `--create-stripe-test-link`. Doc: [STAGE-27W3-LUNA-SIMULATOR-FLOW-TESTS.md](STAGE-27W3-LUNA-SIMULATOR-FLOW-TESTS.md). Verifier: `verify:stage27w3-luna-simulator-flow`.
 

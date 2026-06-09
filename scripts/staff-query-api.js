@@ -303,6 +303,9 @@ const {
   runGuestAutomationOrchestratorDryRun,
 } = require('./lib/luna-guest-automation-orchestrator-dry-run');
 const {
+  runGuestInboundReviewDryRun,
+} = require('./lib/luna-guest-inbound-review-dry-run');
+const {
   runGuestHoldPaymentDraftWriteDryRunApproved,
 } = require('./lib/luna-guest-hold-payment-draft-write');
 const {
@@ -10452,6 +10455,114 @@ async function handleBotGuestAutomationReviewDryRun(req, res, user, authMode) {
       sends_whatsapp:    false,
       live_send_blocked: true,
       error:             'guest automation review dry-run failed',
+      auth_mode:         resolvedAuthMode,
+      elapsed_ms:        elapsed,
+    });
+  }
+}
+
+// Route: POST /staff/bot/guest-inbound-review-dry-run  (Stage 27x.1 — inbound review)
+//
+// n8n-shaped inbound WhatsApp payload → 27u orchestrator → review artifact.
+// No public webhook, WhatsApp send, Meta/n8n activation, Stripe, or booking/hold writes.
+async function handleBotGuestInboundReviewDryRun(req, res, user, authMode) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const actorId          = user ? user.staff_user_id : 'dev-bot-guest-inbound-review-local';
+
+  try {
+    const outcome = await withPgClient((pg) => runGuestInboundReviewDryRun(body, { pg }));
+
+    const elapsed = Date.now() - started;
+
+    if (!outcome.ok) {
+      appendAuditLog({
+        ts:                 new Date().toISOString(),
+        intent:             'api:bot_guest_inbound_review_dry_run',
+        category:           'bot_guest_inbound_review_dry_run',
+        dry_run:            true,
+        preview_only:       true,
+        no_write_performed: true,
+        sends_whatsapp:     false,
+        live_send_blocked:  true,
+        calls_n8n:          false,
+        success:            false,
+        staff_user_id:      actorId,
+        auth_mode:          resolvedAuthMode,
+        elapsed_ms:         elapsed,
+      });
+      return sendJSON(res, outcome.status || 400, {
+        success:           false,
+        dry_run:           true,
+        sends_whatsapp:    false,
+        live_send_blocked: true,
+        error:             outcome.error || 'guest inbound review dry-run failed',
+        auth_mode:         resolvedAuthMode,
+        elapsed_ms:        elapsed,
+      });
+    }
+
+    const responseBody = {
+      ...outcome.body,
+      auth_mode:  resolvedAuthMode,
+      elapsed_ms: elapsed,
+    };
+
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_guest_inbound_review_dry_run',
+      category:           'bot_guest_inbound_review_dry_run',
+      dry_run:            true,
+      preview_only:       true,
+      no_write_performed: true,
+      creates_booking:    false,
+      creates_payment:    false,
+      creates_stripe_link: false,
+      sends_whatsapp:     false,
+      live_send_blocked:  true,
+      calls_n8n:          false,
+      review_persistence_performed: responseBody.review_persistence_performed === true,
+      idempotent_replay:  responseBody.idempotent_replay === true,
+      success:            responseBody.success === true,
+      gate_status:        responseBody.review && responseBody.review.automation_gate
+        && responseBody.review.automation_gate.gate_status,
+      proposed_next_action: responseBody.review && responseBody.review.proposed_next_action,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+
+    return sendJSON(res, outcome.status || 200, responseBody);
+  } catch (_) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ts:                 new Date().toISOString(),
+      intent:             'api:bot_guest_inbound_review_dry_run',
+      category:           'bot_guest_inbound_review_dry_run',
+      dry_run:            true,
+      preview_only:       true,
+      no_write_performed: true,
+      sends_whatsapp:     false,
+      live_send_blocked:  true,
+      success:            false,
+      staff_user_id:      actorId,
+      auth_mode:          resolvedAuthMode,
+      elapsed_ms:         elapsed,
+    });
+    return sendJSON(res, 500, {
+      success:           false,
+      dry_run:           true,
+      sends_whatsapp:    false,
+      live_send_blocked: true,
+      error:             'guest inbound review dry-run failed',
       auth_mode:         resolvedAuthMode,
       elapsed_ms:        elapsed,
     });
@@ -27280,6 +27391,18 @@ async function router(req, res) {
     return handleBotGuestIntakeDryRun(req, res, auth.user, auth.auth_mode);
   }
 
+  // ── Stage 27x.1 — Inbound guest review dry-run (staff/bot only) ────────────
+  // POST /staff/bot/guest-inbound-review-dry-run
+  if (pathname === '/staff/bot/guest-inbound-review-dry-run') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/guest-inbound-review-dry-run' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotGuestInboundReviewDryRun(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 27v — Luna guest automation review dry-run (staff-only) ─────────
   // POST /staff/bot/guest-automation-review-dry-run
   if (pathname === '/staff/bot/guest-automation-review-dry-run') {
@@ -27762,6 +27885,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-reply-send <- 19d Luna guest reply send (default-deny, no send yet)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/message-intake-preview <- 15b Luna message intake preview (read-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-intake-dry-run <- 27c Luna guest intake dry-run (read-only, no send)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-inbound-review-dry-run <- 27x.1 inbound guest review (staff/bot, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-automation-review-dry-run <- 27v Luna guest automation review (staff-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-hold-draft <- 27w Luna guest simulator hold/draft (staging/local only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-stripe-test-link <- 27w Luna guest simulator Stripe TEST link`);
