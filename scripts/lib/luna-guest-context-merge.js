@@ -4,6 +4,9 @@
  * Stage 27w.2 — Deterministic guest_context / extracted_fields merge for multi-turn dry-run.
  */
 
+const { shouldAttemptGuestPaymentChoiceWire, detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
+const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
+
 const EXTRACTED_FIELD_KEYS = [
   'check_in',
   'check_out',
@@ -108,7 +111,103 @@ function normalizeGuestContextForChain(guestContext) {
   if (out.intake_state == null && out.result && out.result.intake_state) {
     out.intake_state = out.result.intake_state;
   }
+  return restoreBookingLaneForActiveQuote(out);
+}
+
+/**
+ * When quote is ready and payment choice is pending, restore booking lane on guest_context
+ * so side-question turns (package explainer, cash-on-arrival) do not break the chain.
+ */
+function restoreBookingLaneForActiveQuote(ctx) {
+  const out = { ...(ctx || {}) };
+  const quote = out.quote && typeof out.quote === 'object' ? out.quote : {};
+  const paymentNeeded = quote.payment_choice_needed === true || out.payment_choice_needed === true;
+  if (quote.quote_status !== 'ready' || !paymentNeeded) return out;
+
+  out.message_lane = 'new_booking_inquiry';
+  out.payment_choice_needed = true;
+  out.quote_status = quote.quote_status;
+
+  const mergedFields = collectPriorExtractedFields(out);
+  if (Object.keys(mergedFields).some((k) => isPresent(mergedFields[k]))) {
+    out.extracted_fields = mergedFields;
+  }
+
+  if (out.booking_intake_ready == null) {
+    out.booking_intake_ready = out.result && out.result.booking_intake_ready;
+  }
+  if (out.readiness_state == null || out.readiness_state === 'collecting_required_details') {
+    const priorReady = out.result && out.result.readiness_state === 'ready_for_availability_check';
+    if (priorReady || out.booking_intake_ready === true) {
+      out.readiness_state = 'ready_for_availability_check';
+    }
+  }
+
+  if (out.result && typeof out.result === 'object') {
+    out.result = {
+      ...out.result,
+      message_lane: 'new_booking_inquiry',
+      extracted_fields: out.extracted_fields || out.result.extracted_fields,
+      booking_intake_ready: out.booking_intake_ready !== false
+        ? (out.booking_intake_ready ?? out.result.booking_intake_ready ?? true)
+        : out.result.booking_intake_ready,
+      readiness_state: out.readiness_state || out.result.readiness_state,
+      readiness_reasons: Array.isArray(out.result.readiness_reasons)
+        ? out.result.readiness_reasons.filter((r) => r !== 'not_booking_inquiry_lane')
+        : out.result.readiness_reasons,
+    };
+  }
+
   return out;
+}
+
+function isActiveBookingSideQuestion(priorGuestContext, currentResult, messageText) {
+  if (!shouldAttemptGuestPaymentChoiceWire(priorGuestContext)) return false;
+  if (!currentResult || currentResult.message_lane === 'new_booking_inquiry') return false;
+  const text = String(messageText || '');
+  if (detectPackageExplainerIntent(text)) return true;
+  const pc = detectPaymentChoiceFromMessage(text);
+  if (pc === 'arrival_payment_question' || pc === 'payment_link_request') return true;
+  return currentResult.message_lane != null;
+}
+
+/**
+ * Preserve prior ready quote/availability/booking fields when guest asks a side question
+ * during an active booking quote/payment-choice flow.
+ */
+function mergeActiveBookingChainOutput(priorGuestContext, parts, messageText) {
+  if (!parts || !isActiveBookingSideQuestion(priorGuestContext, parts.result, messageText)) {
+    return parts;
+  }
+
+  const prior = normalizeGuestContextForChain(priorGuestContext);
+  const priorResult = prior.result || {};
+  const priorQuote = prior.quote;
+  const priorAvail = prior.availability;
+  const mergedFields = collectPriorExtractedFields(prior);
+
+  const mergedResult = {
+    ...parts.result,
+    booking_intake_ready: priorResult.booking_intake_ready ?? parts.result.booking_intake_ready,
+    readiness_state: priorResult.readiness_state || parts.result.readiness_state,
+    intake_state: priorResult.intake_state || parts.result.intake_state,
+    extracted_fields: mergedFields,
+    safe_handoff_required: parts.result.message_lane === 'staff_handoff_required'
+      ? parts.result.safe_handoff_required
+      : false,
+    handoff_reasons: parts.result.message_lane === 'staff_handoff_required'
+      ? (parts.result.handoff_reasons || [])
+      : [],
+  };
+
+  return {
+    ...parts,
+    result: mergedResult,
+    quote: (priorQuote && priorQuote.quote_status === 'ready') ? priorQuote : parts.quote,
+    availability: (priorAvail && priorAvail.availability_check_attempted === true)
+      ? priorAvail
+      : parts.availability,
+  };
 }
 
 /**
@@ -196,6 +295,9 @@ module.exports = {
   mergeGuestExtractedFields,
   collectPriorExtractedFields,
   normalizeGuestContextForChain,
+  restoreBookingLaneForActiveQuote,
+  isActiveBookingSideQuestion,
+  mergeActiveBookingChainOutput,
   buildHoldPaymentDraftPlannerChain,
   buildGuestSimulatorWriteChain,
   parseSimulatorChainFromBody,

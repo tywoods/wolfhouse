@@ -25,6 +25,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 const { runGuestAutomationOrchestratorDryRun } = require('./lib/luna-guest-automation-orchestrator-dry-run');
 const { runGuestInboundReviewDryRun } = require('./lib/luna-guest-inbound-review-dry-run');
 const { withPgClient } = require('./lib/pg-connect');
+const { normalizeGuestContextForChain } = require('./lib/luna-guest-context-merge');
 
 const BANNED_REPLY_TERMS = [
   'confirmed quote', 'payment choice', 'payment_choice', 'quote_status',
@@ -225,7 +226,7 @@ function postJson(urlStr, body, headers) {
 
 function guestContextFromReview(apiBody) {
   const r = (apiBody && apiBody.review) || {};
-  return {
+  return normalizeGuestContextForChain({
     message_lane: r.result && r.result.message_lane,
     intake_state: r.result && r.result.intake_state,
     readiness_state: r.result && r.result.readiness_state,
@@ -238,7 +239,7 @@ function guestContextFromReview(apiBody) {
     payment_choice: r.payment_choice,
     hold_payment_draft_plan: r.hold_payment_draft_plan,
     detected_language: r.result && r.result.detected_language,
-  };
+  });
 }
 
 function wrapOrchestratorAsReviewBody(orchOut) {

@@ -305,6 +305,7 @@
           "expect": {
             "message_lane": "general_question",
             "reply_contains": ["Malibu", "Uluwatu", "Waimea"],
+            "quote_status": "ready",
             "banned_reply_terms_absent": true
           }
         },
@@ -316,10 +317,10 @@
       ],
       "final_expect": {
         "handoff_required": false,
-        "banned_reply_terms_absent": true,
-        "accept_any_of": {
-          "proposed_next_action": ["collect_payment_choice", "prepare_hold_payment_draft_plan", "ask_missing_details"]
-        }
+        "payment_choice_ready": true,
+        "payment_choice": "deposit",
+        "quote_status": "ready",
+        "banned_reply_terms_absent": true
       }
     },
     {
@@ -341,6 +342,9 @@
           "message": "Can we pay cash on arrival?",
           "conditional": "quote_payment_choice_needed",
           "expect": {
+            "handoff_required": false,
+            "reply_contains": ["cash", "arrival"],
+            "quote_status": "ready",
             "banned_reply_terms_absent": true
           }
         },
@@ -351,10 +355,11 @@
         }
       ],
       "final_expect": {
-        "banned_reply_terms_absent": true,
-        "accept_any_of": {
-          "proposed_next_action": ["collect_payment_choice", "prepare_hold_payment_draft_plan", "ask_missing_details", "staff_handoff_required"]
-        }
+        "handoff_required": false,
+        "payment_choice_ready": true,
+        "payment_choice": "deposit",
+        "quote_status": "ready",
+        "banned_reply_terms_absent": true
       }
     },
     {

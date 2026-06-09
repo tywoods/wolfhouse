@@ -23,7 +23,8 @@ const {
 const {
   runGuestHoldPaymentDraftPlannerDryRun,
 } = require('./luna-guest-hold-payment-draft-planner');
-const { normalizeGuestContextForChain, buildHoldPaymentDraftPlannerChain } = require('./luna-guest-context-merge');
+const { normalizeGuestContextForChain, buildHoldPaymentDraftPlannerChain, mergeActiveBookingChainOutput } = require('./luna-guest-context-merge');
+const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -269,7 +270,7 @@ function shouldUsePaymentChoiceReply(pc, quote) {
   return false;
 }
 
-function resolveProposedReply(payload) {
+function resolveProposedReply(payload, messageText) {
   const {
     hold_payment_draft_plan: plan,
     payment_choice: pc,
@@ -284,6 +285,11 @@ function resolveProposedReply(payload) {
   }
 
   const fallbackCtx = { result, quote, availability };
+  const sideQuestionText = messageText != null ? String(messageText).trim() : '';
+
+  if (sideQuestionText && detectPackageExplainerIntent(sideQuestionText) && result && result.proposed_luna_reply) {
+    return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
 
   if (plan && plan.plan_status === 'ready' && plan.proposed_luna_reply) {
     return sanitizeReply(plan.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
@@ -366,7 +372,7 @@ function buildNonBookingLaneResponse(result, gate) {
     payment_choice: null,
     hold_payment_draft_plan: null,
     proposed_next_action: resolveProposedNextAction(payload),
-    proposed_luna_reply: resolveProposedReply(payload),
+    proposed_luna_reply: resolveProposedReply(payload, null),
   });
 }
 
@@ -466,24 +472,24 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     );
   }
 
-  const payload = {
+  const payload = mergeActiveBookingChainOutput(chainGuestContext, {
     gate,
     result,
     availability,
     quote,
     payment_choice,
     hold_payment_draft_plan,
-  };
+  }, trimStr(inp.message_text));
 
   return buildOrchestratorResponse({
     automation_gate: gate,
-    result,
-    availability,
-    quote,
-    payment_choice,
-    hold_payment_draft_plan,
+    result: payload.result,
+    availability: payload.availability,
+    quote: payload.quote,
+    payment_choice: payload.payment_choice,
+    hold_payment_draft_plan: payload.hold_payment_draft_plan,
     proposed_next_action: resolveProposedNextAction(payload),
-    proposed_luna_reply: resolveProposedReply(payload),
+    proposed_luna_reply: resolveProposedReply(payload, trimStr(inp.message_text)),
   });
 }
 
