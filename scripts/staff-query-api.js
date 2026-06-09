@@ -23339,6 +23339,7 @@ var LGS_STRIPE_LINKS = ${STRIPE_LINKS_ENABLED};
 var LGS_WHATSAPP_DRY_RUN = ${process.env.WHATSAPP_DRY_RUN === 'true'};
 var lgsLastReview = null;
 var lgsLastWrite = null;
+var lgsReadyBookingContextForWrite = null;
 
 function lgsEl(id){ return document.getElementById(id); }
 
@@ -23445,6 +23446,10 @@ function lgsRunReview(){
         lgsSetStatus('Review complete (dry-run, no WhatsApp sent).');
       }
       lgsRenderReviewSummary(res.data);
+      var review = res.data.review;
+      if (lgsIsReadyBookingContextForWrite(review)) {
+        lgsReadyBookingContextForWrite = lgsGuestContextFromReview(review);
+      }
       lgsUpdateButtons();
     })
     .catch(function(){ lgsSetStatus('Review request failed', true); });
@@ -23474,19 +23479,118 @@ function lgsUseReviewAsContext(){
   lgsSetStatus('guest_context populated from last review.');
 }
 
-function lgsCreateHoldDraft(){
-  if (!lgsLastReview || !lgsLastReview.review) {
-    lgsSetStatus('Run Luna Review first', true);
-    return;
+function lgsGuestContextFromReview(r){
+  if (!r) return null;
+  return {
+    message_lane: r.result && r.result.message_lane,
+    intake_state: r.result && r.result.intake_state,
+    readiness_state: r.result && r.result.readiness_state,
+    booking_intake_ready: r.result && r.result.booking_intake_ready,
+    extracted_fields: r.result && r.result.extracted_fields,
+    result: r.result,
+    availability: r.availability,
+    quote: r.quote,
+    payment_choice_needed: r.quote && r.quote.payment_choice_needed,
+    payment_choice: r.payment_choice,
+    detected_language: r.result && r.result.detected_language,
+  };
+}
+
+function lgsIsReadyBookingContextForWrite(review){
+  var res = review && review.result;
+  var q = review && review.quote;
+  return !!(res
+    && res.message_lane === 'new_booking_inquiry'
+    && res.booking_intake_ready === true
+    && q && q.quote_status === 'ready');
+}
+
+function lgsSlimResultForWrite(result){
+  if (!result || typeof result !== 'object') return result;
+  return {
+    message_lane: result.message_lane,
+    intake_state: result.intake_state,
+    readiness_state: result.readiness_state,
+    booking_intake_ready: result.booking_intake_ready,
+    extracted_fields: result.extracted_fields,
+    detected_language: result.detected_language,
+  };
+}
+
+function lgsSlimAvailabilityForWrite(availability){
+  if (!availability || typeof availability !== 'object') return availability;
+  return {
+    availability_check_attempted: availability.availability_check_attempted,
+    availability_status: availability.availability_status,
+  };
+}
+
+function lgsSlimQuoteForWrite(quote){
+  if (!quote || typeof quote !== 'object') return quote;
+  var slim = {
+    quote_status: quote.quote_status,
+    quote_total_cents: quote.quote_total_cents,
+    payment_choice_needed: quote.payment_choice_needed,
+  };
+  if (quote.deposit_options) {
+    slim.deposit_options = {
+      deposit_required_cents: quote.deposit_options.deposit_required_cents,
+      full_payment_cents: quote.deposit_options.full_payment_cents,
+    };
   }
-  lgsSetStatus('Creating test hold + draft payment…');
-  var r = lgsLastReview.review;
-  var guestCtx = null;
-  try { guestCtx = lgsParseGuestContext(); } catch (e) {
-    lgsSetStatus(e.message, true);
-    return;
-  }
-  lgsPostJson('/staff/bot/guest-simulator-create-hold-draft', {
+  return slim;
+}
+
+function lgsSlimPaymentChoiceForWrite(paymentChoice){
+  if (!paymentChoice || typeof paymentChoice !== 'object') return paymentChoice;
+  return {
+    payment_choice_detected: paymentChoice.payment_choice_detected,
+    payment_choice: paymentChoice.payment_choice,
+    payment_choice_ready: paymentChoice.payment_choice_ready,
+    next_safe_step: paymentChoice.next_safe_step,
+  };
+}
+
+function lgsSlimGuestContextForWrite(ctx){
+  if (!ctx || typeof ctx !== 'object') return ctx;
+  return {
+    message_lane: ctx.message_lane,
+    booking_intake_ready: ctx.booking_intake_ready,
+    readiness_state: ctx.readiness_state,
+    extracted_fields: ctx.extracted_fields,
+    result: lgsSlimResultForWrite(ctx.result),
+    availability: lgsSlimAvailabilityForWrite(ctx.availability),
+    quote: lgsSlimQuoteForWrite(ctx.quote),
+  };
+}
+
+function lgsSlimHoldPaymentDraftPlan(plan){
+  if (!plan || typeof plan !== 'object') return plan;
+  var slim = {
+    plan_status: plan.plan_status,
+    hold_payment_draft_plan_attempted: plan.hold_payment_draft_plan_attempted,
+    would_create_hold: plan.would_create_hold,
+    would_create_quote_snapshot: plan.would_create_quote_snapshot,
+    would_create_payment_draft: plan.would_create_payment_draft,
+    would_create_stripe_link: plan.would_create_stripe_link,
+    hold_expires_in_hours: plan.hold_expires_in_hours,
+    payment_amount_cents: plan.payment_amount_cents,
+    payment_kind: plan.payment_kind,
+    balance_due_after_payment_cents: plan.balance_due_after_payment_cents,
+    idempotency_key_preview: plan.idempotency_key_preview,
+    plan_handoff_required: plan.plan_handoff_required,
+    plan_handoff_reasons: plan.plan_handoff_reasons,
+  };
+  ['dry_run', 'preview_only', 'no_write_performed', 'live_send_blocked', 'sends_whatsapp'].forEach(function(k){
+    if (plan[k] !== undefined) slim[k] = plan[k];
+  });
+  return slim;
+}
+
+function lgsBuildHoldDraftWritePayload(readyBookingContextForWrite, turn3Review){
+  var r = turn3Review || {};
+  var writeGuestContext = lgsSlimGuestContextForWrite(readyBookingContextForWrite);
+  return {
     source: 'luna_guest_simulator',
     confirm_simulator_write: true,
     confirm_write: true,
@@ -23494,16 +23598,29 @@ function lgsCreateHoldDraft(){
     guest_name: (lgsEl('lgs-name').value || '').trim(),
     guest_email: (lgsEl('lgs-email').value || '').trim(),
     guest_phone: (lgsEl('lgs-phone').value || '').trim(),
-    guest_context: guestCtx || undefined,
-    hold_payment_draft_plan: r.hold_payment_draft_plan,
+    guest_context: writeGuestContext,
+    hold_payment_draft_plan: lgsSlimHoldPaymentDraftPlan(r.hold_payment_draft_plan),
     chain: {
-      result: r.result,
-      availability: r.availability,
-      quote: r.quote,
-      payment_choice: r.payment_choice,
-      hold_payment_draft_plan: r.hold_payment_draft_plan,
+      result: writeGuestContext.result,
+      availability: writeGuestContext.availability,
+      quote: writeGuestContext.quote,
+      payment_choice: lgsSlimPaymentChoiceForWrite(r.payment_choice),
     },
-  }).then(function(res){
+  };
+}
+
+function lgsCreateHoldDraft(){
+  if (!lgsLastReview || !lgsLastReview.review) {
+    lgsSetStatus('Run Luna Review first', true);
+    return;
+  }
+  if (!lgsReadyBookingContextForWrite) {
+    lgsSetStatus('Ready booking context missing — run a review turn with quote ready before hold/draft write', true);
+    return;
+  }
+  lgsSetStatus('Creating test hold + draft payment…');
+  var payload = lgsBuildHoldDraftWritePayload(lgsReadyBookingContextForWrite, lgsLastReview.review);
+  lgsPostJson('/staff/bot/guest-simulator-create-hold-draft', payload).then(function(res){
     lgsLastWrite = res.data;
     lgsEl('lgs-json').textContent = JSON.stringify(res.data, null, 2);
     if (!res.ok || !res.data.success) {

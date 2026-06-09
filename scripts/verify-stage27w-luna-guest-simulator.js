@@ -158,10 +158,10 @@ if (holdHandler.includes('ready_for_hold_payment_draft')) {
   fail('B8', 'payment_choice write gate missing');
 }
 
-if (src.includes('guest_context: guestCtx') && src.includes('hold_payment_draft_plan: r.hold_payment_draft_plan')) {
-  pass('B9', 'UI hold payload sends guest_context + hold_payment_draft_plan');
+if (/lgsBuildHoldDraftWritePayload/.test(src) && /lgsReadyBookingContextForWrite/.test(src)) {
+  pass('B9', 'UI hold payload uses ready booking context builder');
 } else {
-  fail('B9', 'UI hold payload missing preserved context');
+  fail('B9', 'UI hold payload missing ready booking context builder');
 }
 
 section('C. Stripe TEST API route');
@@ -350,6 +350,67 @@ if (fs.existsSync(MERGE) && fs.readFileSync(MERGE, 'utf8').includes('buildGuestS
   pass('G6', 'buildGuestSimulatorWriteChain exported from context-merge');
 } else {
   fail('G6', 'buildGuestSimulatorWriteChain missing');
+}
+
+section('I. Browser hold-write payload (27w.8)');
+
+const lgsHoldUiBlock = src.slice(src.indexOf('function lgsCreateHoldDraft'), src.indexOf('function lgsCreateStripeLink'));
+const lgsHoldPayloadBlock = src.slice(src.indexOf('function lgsBuildHoldDraftWritePayload'), src.indexOf('function lgsCreateHoldDraft'));
+
+if (src.includes('lgsReadyBookingContextForWrite')) {
+  pass('I1', 'UI stores lgsReadyBookingContextForWrite');
+} else {
+  fail('I1', 'lgsReadyBookingContextForWrite missing');
+}
+
+if (/lgsIsReadyBookingContextForWrite/.test(src)
+    && /booking_intake_ready === true/.test(src)
+    && /quote_status === 'ready'/.test(src)) {
+  pass('I2', 'UI detects ready booking context before payment-choice turn');
+} else {
+  fail('I2', 'ready booking context gate missing in UI');
+}
+
+if (/lgsBuildHoldDraftWritePayload\(lgsReadyBookingContextForWrite/.test(lgsHoldUiBlock)) {
+  pass('I3', 'Create Hold/Draft uses ready booking context, not textarea Turn 3 context');
+} else {
+  fail('I3', 'hold button still uses raw guest_context from textarea');
+}
+
+if (/lgsSlimHoldPaymentDraftPlan/.test(src) && /hold_payment_draft_plan:\s*lgsSlimHoldPaymentDraftPlan/.test(src)) {
+  pass('I4', 'UI sends slim hold_payment_draft_plan');
+} else {
+  fail('I4', 'UI still sends full hold_payment_draft_plan');
+}
+
+if (!/hold_payment_draft_plan:\s*r\.hold_payment_draft_plan/.test(lgsHoldUiBlock)
+    && !/guest_context:\s*guestCtx/.test(lgsHoldUiBlock)) {
+  pass('I5', 'UI hold payload omits bulky raw review blobs');
+} else {
+  fail('I5', 'UI still sends bulky full review payload on hold write');
+}
+
+if (!/chain:[\s\S]{0,500}hold_payment_draft_plan:/.test(lgsHoldUiBlock)) {
+  pass('I6', 'UI chain omits nested hold_payment_draft_plan');
+} else {
+  fail('I6', 'UI chain still embeds full hold plan');
+}
+
+if (lgsHoldUiBlock.includes("lgsPostJson('/staff/bot/guest-simulator-create-hold-draft'")
+    && lgsHoldPayloadBlock.includes('confirm_simulator_write: true')) {
+  pass('I7', 'hold button still calls create-hold-draft with confirm_simulator_write');
+} else {
+  fail('I7', 'hold route or confirm gate missing in UI');
+}
+
+const uiHoldForbidden = [
+  ['I8.stripe', /api\.stripe\.com/i],
+  ['I8.whatsapp', /sendWhatsApp|graph\.facebook/i],
+  ['I8.n8n', /fetch\s*\([^)]*n8n|n8n\.io/i],
+];
+for (const [id, re] of uiHoldForbidden) {
+  if (!re.test(lgsHoldUiBlock)) pass(id, 'UI hold block clean');
+  else fail(id, 'forbidden pattern in UI hold block');
 }
 
 section('H. Write module holdMeta (27w.6)');
