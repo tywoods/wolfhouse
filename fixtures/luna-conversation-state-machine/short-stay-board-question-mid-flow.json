@@ -1,0 +1,54 @@
+{
+  "id": "short-stay-board-question-mid-flow",
+  "label": "Short-stay board side-question mid-flow",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "hi" },
+    { "message": "book a stay" },
+    { "message": "July 6-10 for 1 guest" },
+    { "message": "Marco", "expect": { "expected_quote_ready": true, "expected_no_handoff": true } },
+    {
+      "message": "Do you rent boards?",
+      "expect": {
+        "reply_contains": ["board", "July"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_service_addon",
+        "expected_fields": {
+          "check_in": "2026-07-06",
+          "check_out": "2026-07-10",
+          "guest_count": 1
+        },
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "just the stay",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_quote_ready": true
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
+    "no_handoff": true,
+    "expected_fields": {
+      "guest_count": 1,
+      "check_in": "2026-07-06",
+      "check_out": "2026-07-10"
+    },
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true
+  }
+}

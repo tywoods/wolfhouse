@@ -29,8 +29,13 @@ const {
   normalizeOutOfOrderBookingInfo,
   shouldDeferGuestCount,
   guestDeclinedAddons,
+  extractTransferInfo,
   hasCollectedGuestName: policyHasCollectedGuestName,
 } = require('./luna-booking-intake-policy');
+const {
+  extractAddOnSelections,
+  quoteAwaitingAddonsDecision,
+} = require('./luna-booking-addons-policy');
 const {
   evaluatePackageNightContext,
   packageNightRuleBlocksQuote,
@@ -727,6 +732,11 @@ function classifyMessageLane(text, guestContext) {
   const paymentLane = classifyPaymentQuestionLane(t, ctx);
   if (paymentLane) return paymentLane;
 
+  const priorQuote = (guestContext && guestContext.quote) || {};
+  if (priorQuote.quote_status === 'ready' && extractTransferInfo(t)) {
+    return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9 };
+  }
+
   if (hasCode && !detectNewStayBookingIntent(t)) {
     return { lane: 'existing_booking_question', handoff: false, reasons: [], confidence: 0.85 };
   }
@@ -737,11 +747,21 @@ function classifyMessageLane(text, guestContext) {
   const bookingMix = !negatedStayBooking && (/\b(?:book|stay|nights|check.in|package|vorremmo|venir|reserv|giugno|june|juni|malibu|prenot|interessati|interested)\b/i.test(t)
     || (/\bbuchen\b/i.test(t) && !/\b(?:dazu buchen|surfbrett|wetsuit|surfstunde|lezione|clase|cours)\b/i.test(t)));
   if (serviceOnly && !bookingMix && !hasCode) {
+    const priorQuote = (guestContext && guestContext.quote) || {};
+    const addonAnswer = guestDeclinedAddons(t) || extractAddOnSelections(t).length > 0;
+    if (addonAnswer && priorQuote.quote_status === 'ready'
+      && (quoteAwaitingAddonsDecision(priorQuote) || priorQuote.payment_choice_needed === true)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.92 };
+    }
     return { lane: 'add_service_request', handoff: false, reasons: [], confidence: 0.87 };
   }
 
   const transferOnly = isTransferRequestMessage(t);
   if (transferOnly && !bookingMix && !hasCode) {
+    const priorQuote = (guestContext && guestContext.quote) || {};
+    if (priorQuote.quote_status === 'ready') {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.88 };
+    }
     return { lane: 'transfer_request', handoff: false, reasons: [], confidence: 0.86 };
   }
 
@@ -1268,7 +1288,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       extractedFields = { ...extractedFields, package_interest: 'accommodation_only' };
     }
     if (guestDeclinedAddons(messageText)) {
-      extractedFields = { ...extractedFields, addons_skipped: true };
+      extractedFields = { ...extractedFields, addons_skipped: true, service_interest: [] };
     }
     if (brainPatch.check_in && brainPatch.check_out
       && !extractedFields.check_in && !extractedFields.check_out) {

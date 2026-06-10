@@ -1,0 +1,36 @@
+{
+  "id": "add-on-correction-before-payment",
+  "label": "Add-on correction before payment",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "hi" },
+    { "message": "book a stay" },
+    { "message": "July 6-10 for 1 guest" },
+    { "message": "Marco", "expect": { "expected_quote_ready": true } },
+    { "message": "just the stay", "expect": { "expected_no_handoff": true } },
+    {
+      "message": "actually add a wetsuit too",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_quote_ready": true,
+        "reply_contains": ["€"]
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "no_handoff": true,
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true
+  }
+}

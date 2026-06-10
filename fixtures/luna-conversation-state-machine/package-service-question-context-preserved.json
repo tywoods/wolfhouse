@@ -1,0 +1,55 @@
+{
+  "id": "package-service-question-context-preserved",
+  "label": "Package service question preserves context",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "hi" },
+    { "message": "book a stay" },
+    { "message": "July 10-17 for 1 guest" },
+    { "message": "Malibu", "expect": { "expected_quote_ready": true } },
+    {
+      "message": "Do you offer lessons?",
+      "expect": {
+        "reply_contains": ["lesson", "July"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_service_addon",
+        "expected_fields": {
+          "package_interest": "malibu",
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17",
+          "guest_count": 1
+        },
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "no thanks",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_quote_ready": true
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "no_handoff": true,
+    "expected_fields": {
+      "package_interest": "malibu",
+      "guest_count": 1,
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17"
+    },
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true
+  }
+}

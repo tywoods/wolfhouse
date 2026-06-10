@@ -12,6 +12,12 @@ const {
   extractLunaGuestMessageIntake,
   parseGuestNameAnswer,
 } = require('./luna-guest-message-intake');
+const {
+  guestDeclinedAddons,
+  extractAddOnSelections,
+  quoteAwaitingAddonsDecision,
+  resolveAddOnsStatus,
+} = require('./luna-booking-addons-policy');
 
 const INTAKE_FIELD_ORDER = Object.freeze([
   'dates',
@@ -47,7 +53,7 @@ const LIKELY_FEMALE_NAMES = new Set([
   'giulia', 'francesca', 'marie', 'camille', 'lea', 'charlotte', 'amelie',
 ]);
 
-const NO_ADDONS_RE = /\b(?:no\s+thanks?|just\s+the\s+stay|accommodation\s+only|i\s+have\s+my\s+own(?:\s+stuff)?|no\s+add(?:\s+|-)?nothing|nothing\s+extra|no\s+extras?|no\s+wetsuit|no\s+board|no\s+lesson)\b/i;
+const NO_ADDONS_RE = /\b(?:no\s+thanks?|just\s+the\s+stay|accommodation\s+only|i\s+have\s+my\s+own(?:\s+stuff)?|no\s+add(?:\s+|-)?nothing|nothing\s+else|nothing\s+extra|no\s+extras?|no\s+wetsuit|no\s+board|no\s+lesson)\b/i;
 
 function trimStr(v) {
   if (v == null) return '';
@@ -163,12 +169,13 @@ function extractNameFromText(text) {
 function mergeTransferInfo(prior, next) {
   if (!next) return prior || null;
   const p = prior && typeof prior === 'object' ? { ...prior } : {};
-  return { ...p, ...next, interested: true };
+  const merged = { ...p, ...next, interested: true };
+  if (next.direction === 'departure' && next.arrival_time && !merged.departure_time) {
+    merged.departure_time = next.arrival_time;
+  }
+  return merged;
 }
 
-function guestDeclinedAddons(text) {
-  return NO_ADDONS_RE.test(String(text || ''));
-}
 
 /** Guest count can be stored without a collected name when the message already carries booking context. */
 function shouldDeferGuestCount(prior, patch, text, channelName) {
@@ -350,7 +357,7 @@ function determineRequiredBookingFields(state, context) {
 
   const quoteReady = ctx.quote && ctx.quote.quote_status === 'ready';
   if (quoteReady) {
-    if (!addonsResolved(state) && ctx.quote.short_stay_addons_pending !== false) {
+    if (!addonsResolved(state) && quoteAwaitingAddonsDecision(ctx.quote)) {
       missing.push('add_ons');
     }
     const roomNeed = inferRoomPreferenceNeed(state, ctx);
@@ -487,8 +494,13 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   if (Array.isArray(intake.add_ons) && intake.add_ons.length) {
     patch.service_interest = intake.add_ons;
   }
+  const addonSelections = extractAddOnSelections(text);
+  if (addonSelections.length) {
+    patch.service_interest = addonSelections;
+  }
   if (guestDeclinedAddons(text)) {
     patch.addons_skipped = true;
+    patch.service_interest = [];
   }
 
   const transfer = extractTransferInfo(text);
@@ -508,15 +520,10 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   };
 }
 
-function resolveAddOnsStatus(state, context) {
+function resolveAddOnsStatusLocal(state, context) {
   const fields = (state && state.extracted_fields) || {};
   const quote = (context && context.quote) || (state && state.quote) || {};
-  if (quote.quote_status !== 'ready') return 'not_asked';
-  if (fields.addons_skipped === true) return 'declined';
-  if (Array.isArray(fields.service_interest) && fields.service_interest.length) return 'collected';
-  if (quote.short_stay_addons_pending === true) return 'pending';
-  if (addonsResolved(state)) return 'declined';
-  return 'not_asked';
+  return resolveAddOnsStatus(fields, quote);
 }
 
 function resolveBookingFlowStage(state, context) {
@@ -573,7 +580,7 @@ function buildBookingIntakePolicySnapshot(state, context) {
     room_preference_rule_applied: roomNeed.rule_applied,
     room_preference_block_booking: roomNeed.block_booking === true,
     transfer_info_status: resolveTransferInfoStatus(state, ctx),
-    add_ons_status: resolveAddOnsStatus(state, ctx),
+    add_ons_status: resolveAddOnsStatusLocal(state, ctx),
     intake_field_order: [...INTAKE_FIELD_ORDER],
     post_quote_field_order: [...POST_QUOTE_FIELD_ORDER],
   };

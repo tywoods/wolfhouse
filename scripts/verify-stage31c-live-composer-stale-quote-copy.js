@@ -145,6 +145,7 @@ section('B–H. Orchestrator correction flows');
   checkObs(t2, 'B8');
 
   let t3;
+  ({ ctx } = await turn(ctx, 'just the stay'));
   ({ out: t3, ctx } = await turn(ctx, 'deposit'));
   check('B9', !/\bmalibu\b/i.test(replyOf(t3)), 'deposit reply does not contain Malibu');
   check('B10', t3.payment_choice && t3.payment_choice.payment_choice_ready === true, 'deposit choice ready');
@@ -162,13 +163,16 @@ section('B–H. Orchestrator correction flows');
   check('C4', dateCorr.quote.check_in === '2026-07-11', 'quote check_in is July 11');
   check('C5', dateCorr.quote.check_out === '2026-07-18', 'quote check_out is July 18');
 
-  const dateDep = (await turn(ctxFrom(dateCorr), 'deposit')).out;
-  check('C6', dateDep.hold_payment_draft_plan && dateDep.hold_payment_draft_plan.plan_status === 'ready',
+  const dateDep = (await turn(ctxFrom(dateCorr), 'just the stay')).out;
+  const dateDep2 = (await turn(ctxFrom(dateDep), 'deposit')).out;
+  check('C6', dateDep2.hold_payment_draft_plan && dateDep2.hold_payment_draft_plan.plan_status === 'ready',
     'deposit plan ready after date correction');
-  const holdRec = dateDep.hold_payment_draft_plan.planned_records.booking_hold;
-  check('C7', holdRec.check_in === '2026-07-11' && holdRec.check_out === '2026-07-18',
+  const holdRec = dateDep2.hold_payment_draft_plan && dateDep2.hold_payment_draft_plan.planned_records
+    ? dateDep2.hold_payment_draft_plan.planned_records.booking_hold
+    : null;
+  check('C7', holdRec && holdRec.check_in === '2026-07-11' && holdRec.check_out === '2026-07-18',
     'hold uses corrected dates');
-  assertFactsMatch(dateDep, 'C8');
+  assertFactsMatch(dateDep2, 'C8');
 
   // 3. Guest count correction
   section('D. Guest count correction 1 → 2');
@@ -180,11 +184,13 @@ section('B–H. Orchestrator correction flows');
   check('D3', gcCorr.quote.guest_count === 2, 'quote guest_count is 2');
   check('D4', gcCorr.quote.quote_total_cents !== t1.quote.quote_total_cents, 'quote total changed for 2 guests');
 
-  const gcDep = (await turn(ctxFrom(gcCorr), 'deposit')).out;
-  check('D5', !/how many guests/i.test(replyOf(gcDep)), 'no guest-count loop on deposit');
-  check('D6', gcDep.hold_payment_draft_plan.planned_records.booking_hold.guest_count === 2,
+  const gcDep = (await turn(ctxFrom(gcCorr), 'just the stay')).out;
+  const gcDep2 = (await turn(ctxFrom(gcDep), 'deposit')).out;
+  check('D5', !/how many guests/i.test(replyOf(gcDep2)), 'no guest-count loop on deposit');
+  check('D6', gcDep2.hold_payment_draft_plan && gcDep2.hold_payment_draft_plan.planned_records
+    && gcDep2.hold_payment_draft_plan.planned_records.booking_hold.guest_count === 2,
     'hold uses 2 guests');
-  assertFactsMatch(gcDep, 'D7');
+  assertFactsMatch(gcDep2, 'D7');
 
   // 4. Reset after quote
   section('E. Reset after quote');

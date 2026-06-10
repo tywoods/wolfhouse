@@ -125,6 +125,16 @@ function slimResultForChain(result) {
     correction_applied: result.correction_applied,
     quote_facts_used_by_composer: result.quote_facts_used_by_composer,
     quote_facts_used_by_hold_writer: result.quote_facts_used_by_hold_writer,
+    addons_status: result.addons_status || null,
+    addons_requested: result.addons_requested || null,
+    addons_priced: result.addons_priced || null,
+    addons_pending_manual: result.addons_pending_manual || null,
+    transfer_info_status: result.transfer_info_status || null,
+    transfer_airport: result.transfer_airport || null,
+    transfer_arrival_time: result.transfer_arrival_time || null,
+    transfer_departure_time: result.transfer_departure_time || null,
+    transfer_flight_number: result.transfer_flight_number || null,
+    add_on_quote_stale_reason: result.add_on_quote_stale_reason || null,
   };
 }
 
@@ -150,6 +160,8 @@ function slimQuoteForChain(quote) {
     stale_quote_reason: quote.stale_quote_reason || null,
     previous_quote_invalidated: quote.previous_quote_invalidated === true,
     corrected_fields: Array.isArray(quote.corrected_fields) ? quote.corrected_fields : null,
+    short_stay_addons_pending: quote.short_stay_addons_pending === true,
+    addons_pending_after_quote: quote.addons_pending_after_quote === true,
   };
   if (quote.deposit_options) {
     slim.deposit_options = {

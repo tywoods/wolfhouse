@@ -1,0 +1,45 @@
+{
+  "id": "package-transfer-info-later",
+  "label": "Package transfer info deferred",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "hi" },
+    { "message": "book a stay" },
+    { "message": "July 10-17 for 1 guest" },
+    { "message": "Malibu", "expect": { "expected_quote_ready": true } },
+    { "message": "just the stay", "expect": { "expected_no_handoff": true } },
+    {
+      "message": "I'll send flight times later",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_fields": {
+          "package_interest": "malibu",
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
+        }
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "no_handoff": true,
+    "expected_fields": {
+      "package_interest": "malibu",
+      "guest_count": 1,
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17"
+    },
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true
+  }
+}

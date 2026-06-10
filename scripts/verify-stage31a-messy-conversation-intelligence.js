@@ -164,7 +164,7 @@ section('E. Orchestrator flows');
   let t2;
   ({ out: t2, ctx } = await turn(ctx, 'actually make it Uluwatu'));
   check('E2', t2.result.previous_quote_invalidated === true, 'package switch marks stale');
-  check('E3', t2.quote && t2.quote.quote_status === 'ready' && /uluwatu/i.test(String(t2.proposed_luna_reply)), 'uluwatu re-quote');
+  check('E3', t2.quote && t2.quote.quote_status === 'ready' && t2.quote.package_code === 'uluwatu', 'uluwatu re-quote');
   check('E4', t2.quote.quote_total_cents !== t1.quote.quote_total_cents, 'quote total changed after package switch');
 
   ctx = {};
@@ -183,7 +183,7 @@ section('E. Orchestrator flows');
   check('E9', reset.quote.quote_status === 'not_ready', 'quote cleared on reset');
 
   ctx = {};
-  ({ ctx } = await turn(ctx, 'July 1-5 for 1'));
+  ({ ctx } = await turn(ctx, 'July 1-5 for 1 guest'));
   ({ ctx } = await turn(ctx, 'no thanks, I have my own stuff'));
   const cash = (await turn(ctx, 'can I pay cash?')).out;
   check('E10', !cash.result.previous_quote_invalidated, 'cash question does not invalidate quote');

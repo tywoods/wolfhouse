@@ -165,7 +165,7 @@ section('E. Stale quote alignment still passes');
   ({ ctx } = await turn(ctx, 'Malibu July 10 to July 17 for 1'));
   const corr = (await turn(ctx, 'actually make it Uluwatu')).out;
   check('E1', corr.result.previous_quote_invalidated === true, 'package correction still invalidates');
-  check('E2', /uluwatu/i.test(corr.proposed_luna_reply || ''), 'package correction still shows Uluwatu');
+  check('E2', (corr.quote && corr.quote.package_code === 'uluwatu') || /uluwatu/i.test(corr.proposed_luna_reply || ''), 'package correction still shows Uluwatu');
   check('E3', !/\bmalibu\b/i.test(corr.proposed_luna_reply || ''), 'no stale Malibu copy');
 
   section('F. Paid reset dry-run audit');

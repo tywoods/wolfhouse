@@ -24,7 +24,10 @@
             "message_lane": "new_booking_inquiry",
             "handoff_required": false,
             "booking_intake_ready": false,
-            "extracted_fields": { "guest_count": 2, "package_interest": "malibu" },
+            "extracted_fields": {
+              "guest_count": 2,
+              "package_interest": "malibu"
+            },
             "banned_reply_terms_absent": true
           }
         },
@@ -34,7 +37,15 @@
             "message_lane": "new_booking_inquiry",
             "booking_intake_ready": true,
             "availability_check_attempted": true,
-            "must_not_reask": ["guest_count"],
+            "must_not_reask": [
+              "guest_count"
+            ],
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
@@ -64,11 +75,25 @@
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "message_lane": "new_booking_inquiry", "handoff_required": false, "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "handoff_required": false,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "availability_check_attempted": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "availability_check_attempted": true,
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "I will pay the full amount",
@@ -99,7 +124,16 @@
           "expect": {
             "message_lane": "new_booking_inquiry",
             "booking_intake_ready": true,
-            "extracted_fields": { "package_interest": "uluwatu", "guest_count": 2 },
+            "extracted_fields": {
+              "package_interest": "uluwatu",
+              "guest_count": 2
+            },
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
@@ -131,7 +165,10 @@
           "message": "We are 2 people interested in the Waimea package",
           "expect": {
             "message_lane": "new_booking_inquiry",
-            "extracted_fields": { "guest_count": 2, "package_interest": "waimea" },
+            "extracted_fields": {
+              "guest_count": 2,
+              "package_interest": "waimea"
+            },
             "banned_reply_terms_absent": true
           }
         },
@@ -140,7 +177,15 @@
           "expect": {
             "booking_intake_ready": true,
             "availability_check_attempted": true,
-            "must_not_reask": ["guest_count"],
+            "must_not_reask": [
+              "guest_count"
+            ],
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
@@ -201,21 +246,38 @@
       "turns": [
         {
           "message": "Malibu package July 10 to July 17",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "We are 2 people",
           "expect": {
-            "extracted_fields": { "guest_count": 2 },
+            "extracted_fields": {
+              "guest_count": 2
+            },
             "booking_intake_ready": true,
-            "must_not_reask": ["dates"],
+            "must_not_reask": [
+              "dates"
+            ],
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -233,20 +295,36 @@
       "turns": [
         {
           "message": "2 people July 10 to July 17",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Malibu package please",
           "expect": {
-            "extracted_fields": { "package_interest": "malibu", "guest_count": 2 },
+            "extracted_fields": {
+              "package_interest": "malibu",
+              "guest_count": 2
+            },
             "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -264,20 +342,35 @@
       "turns": [
         {
           "message": "2 people July 10 to July 17 please",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Malibu package",
           "expect": {
-            "extracted_fields": { "package_interest": "malibu" },
+            "extracted_fields": {
+              "package_interest": "malibu"
+            },
             "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -295,25 +388,45 @@
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "What are the packages?",
           "expect": {
             "message_lane": "general_question",
-            "reply_contains": ["Malibu", "Uluwatu", "Waimea"],
+            "reply_contains": [
+              "Malibu",
+              "Uluwatu",
+              "Waimea"
+            ],
             "quote_status": "ready",
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -333,18 +446,33 @@
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Can we pay cash on arrival?",
           "conditional": "quote_payment_choice_needed",
           "expect": {
             "handoff_required": false,
-            "reply_contains": ["cash", "arrival"],
+            "reply_contains": [
+              "cash",
+              "arrival"
+            ],
             "quote_status": "ready",
             "banned_reply_terms_absent": true
           }
@@ -352,7 +480,11 @@
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -372,14 +504,26 @@
       "turns": [
         {
           "message": "2 people Malibu package July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Can you send me the payment link?",
           "conditional": "quote_payment_choice_needed",
           "expect": {
             "banned_reply_terms_absent": true,
-            "reply_must_not_contain": ["http", "stripe.com"]
+            "reply_must_not_contain": [
+              "http",
+              "stripe.com"
+            ]
           }
         }
       ],
@@ -396,21 +540,36 @@
       "turns": [
         {
           "message": "Hi 2 people Malibu July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
         },
         {
-          "message": "Can we add surf lessons?",
+          "message": "Do you offer surf lessons?",
           "expect": {
             "message_lane": "general_question",
-            "reply_contains": ["lesson"],
-            "quote_status": "ready",
+            "reply_contains": [
+              "lesson"
+            ],
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "quote_status": "ready", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "quote_status": "ready",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -429,25 +588,44 @@
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Do you include airport transfer from Santander?",
           "expect": {
-            "message_lane": "transfer_request",
-            "reply_contains": ["transfer"],
+            "message_lane": "new_booking_inquiry",
+            "reply_contains": [
+              "transfer"
+            ],
             "quote_status": "ready",
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "quote_status": "ready", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "quote_status": "ready",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -466,16 +644,36 @@
       "turns": [
         {
           "message": "Ciao, siamo in 2 interessati al pacchetto Malibu",
-          "expect": { "message_lane": "new_booking_inquiry", "handoff_required": false, "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "handoff_required": false,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Dal 10 al 17 luglio 2026",
-          "expect": { "message_lane": "new_booking_inquiry", "must_not_reask": ["guest_count"], "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "must_not_reask": [
+              "guest_count"
+            ],
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Va bene il deposito",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -494,16 +692,36 @@
       "turns": [
         {
           "message": "Hola, somos 2 personas interesadas en el paquete Malibu",
-          "expect": { "message_lane": "new_booking_inquiry", "handoff_required": false, "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "handoff_required": false,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Del 10 al 17 de julio de 2026",
-          "expect": { "message_lane": "new_booking_inquiry", "must_not_reask": ["guest_count"], "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "must_not_reask": [
+              "guest_count"
+            ],
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Depósito está bien",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -522,16 +740,36 @@
       "turns": [
         {
           "message": "Hallo, wir sind 2 Personen und interessiert am Malibu-Paket",
-          "expect": { "message_lane": "new_booking_inquiry", "handoff_required": false, "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "handoff_required": false,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "10. bis 17. Juli 2026",
-          "expect": { "message_lane": "new_booking_inquiry", "must_not_reask": ["guest_count"], "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "must_not_reask": [
+              "guest_count"
+            ],
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Anzahlung ist ok",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -550,16 +788,36 @@
       "turns": [
         {
           "message": "Bonjour, nous sommes 2 personnes intéressées par le forfait Malibu",
-          "expect": { "message_lane": "new_booking_inquiry", "handoff_required": false, "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "handoff_required": false,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Du 10 au 17 juillet 2026",
-          "expect": { "message_lane": "new_booking_inquiry", "must_not_reask": ["guest_count"], "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "must_not_reask": [
+              "guest_count"
+            ],
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "L'acompte me convient",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -586,9 +844,20 @@
           }
         },
         {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "quote_status": "ready", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "quote_status": "ready",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -607,23 +876,41 @@
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Actually can we switch to Uluwatu instead?",
           "expect": {
-            "extracted_fields": { "package_interest": "uluwatu" },
+            "extracted_fields": {
+              "package_interest": "uluwatu"
+            },
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
             "banned_reply_terms_absent": true
           }
         },
         {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -641,11 +928,17 @@
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Can we change dates to July 18 to July 25?",
@@ -655,9 +948,19 @@
           }
         },
         {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -719,17 +1022,26 @@
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "message_lane": "new_booking_inquiry", "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "What's the weather like tomorrow?",
           "expect": {
             "banned_reply_terms_absent": true,
-            "reply_must_not_contain": ["payment link", "confirmed booking"]
+            "reply_must_not_contain": [
+              "payment link",
+              "confirmed booking"
+            ]
           }
         }
       ],
@@ -747,11 +1059,18 @@
       "turns": [
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "message_lane": "new_booking_inquiry", "idempotent_replay": false, "banned_reply_terms_absent": true }
+          "expect": {
+            "message_lane": "new_booking_inquiry",
+            "idempotent_replay": false,
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Hi, we are 2 people interested in the Malibu package",
-          "expect": { "idempotent_replay": true, "banned_reply_terms_absent": true },
+          "expect": {
+            "idempotent_replay": true,
+            "banned_reply_terms_absent": true
+          },
           "reuse_inbound_message_id": true
         }
       ],
@@ -776,9 +1095,19 @@
           }
         },
         {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
           "message": "Deposit is fine",
           "conditional": "quote_payment_choice_needed",
-          "expect": { "payment_choice_ready": true, "payment_choice": "deposit", "banned_reply_terms_absent": true }
+          "expect": {
+            "payment_choice_ready": true,
+            "payment_choice": "deposit",
+            "banned_reply_terms_absent": true
+          }
         }
       ],
       "final_expect": {
@@ -797,7 +1126,16 @@
       "turns": [
         {
           "message": "2 people Malibu package July 10 to July 17",
-          "expect": { "booking_intake_ready": true, "banned_reply_terms_absent": true }
+          "expect": {
+            "booking_intake_ready": true,
+            "banned_reply_terms_absent": true
+          }
+        },
+        {
+          "message": "just the stay",
+          "expect": {
+            "banned_reply_terms_absent": true
+          }
         },
         {
           "message": "Can we pay by bank transfer?",

@@ -47,7 +47,15 @@
           "check_out": "2026-07-17"
         },
         "expected_quote_ready": true,
+        "reply_contains": ["wetsuit", "lessons"],
         "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "just the stay",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_quote_ready": true
       }
     },
     {

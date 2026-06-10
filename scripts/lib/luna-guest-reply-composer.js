@@ -28,6 +28,12 @@ const {
 const { extractQuoteFactsFromPayload } = require('./luna-quote-facts');
 const { quoteChainIsStale } = require('./luna-booking-state-transitions');
 const {
+  quoteAwaitingAddonsDecision,
+  buildMidFlowAddonsReturnTail,
+  buildManualAddonsNote,
+  classifyServiceInterestPricing,
+} = require('./luna-booking-addons-policy');
+const {
   FORBIDDEN_GUEST_COPY_RE,
   sanitizeGuestReply,
   validateComposerFacts,
@@ -189,10 +195,7 @@ function buildPackageChoiceReturnTail(fields, lang) {
 }
 
 function buildServiceReturnTail(fields, quote) {
-  if (quote && quote.short_stay_addons_pending === true) {
-    return 'For this booking, do you need any of those extras, or just the stay?';
-  }
-  return 'Want me to keep going with your booking?';
+  return buildMidFlowAddonsReturnTail(fields, 'en', quote);
 }
 
 function buildTransferReturnTail(fields, pc) {
@@ -224,7 +227,7 @@ function buildExplainPackagesReply(lang, pkgIntent, fields) {
 function buildComposerServiceReply(lang, intent, fields, quote) {
   const raw = buildServiceSideQuestionReply(lang, intent, '');
   const facts = stripLegacyActionDisclaimers(raw);
-  const tail = buildServiceReturnTail(fields, quote);
+  const tail = buildMidFlowAddonsReturnTail(fields, lang, quote);
   if (!facts) return null;
   return tail ? `${facts} ${tail}` : facts;
 }
@@ -369,6 +372,18 @@ function resolveComposerState(input) {
 
   if (!isBookingFlowLane(result)) return null;
 
+  const serviceIntentEarly = detectServiceSideQuestionIntent(messageText)
+    || (result.message_lane === 'add_service_request' ? 'services_general' : null);
+  if (serviceIntentEarly && fields.check_in && fields.check_out) {
+    return 'explain_service_addon';
+  }
+
+  const transferIntentEarly = detectTransferSideQuestionIntent(messageText)
+    || (result.message_lane === 'transfer_request' ? 'transfer_general' : null);
+  if (transferIntentEarly && fields.check_in && fields.check_out) {
+    return 'explain_transfer';
+  }
+
   if (result.safe_handoff_required === true
     || payload.proposed_next_action === 'staff_handoff_required') {
     return 'safe_handoff';
@@ -390,13 +405,15 @@ function resolveComposerState(input) {
     },
   );
 
-  const serviceIntent = detectServiceSideQuestionIntent(messageText)
+  const serviceIntent = serviceIntentEarly
+    || detectServiceSideQuestionIntent(messageText)
     || (result.message_lane === 'add_service_request' ? 'services_general' : null);
   if (serviceIntent && fields.check_in && fields.check_out) {
     return 'explain_service_addon';
   }
 
-  const transferIntent = detectTransferSideQuestionIntent(messageText)
+  const transferIntent = transferIntentEarly
+    || detectTransferSideQuestionIntent(messageText)
     || (result.message_lane === 'transfer_request' ? 'transfer_general' : null);
   if (transferIntent && fields.check_in && fields.check_out) {
     return 'explain_transfer';
@@ -433,12 +450,11 @@ function resolveComposerState(input) {
     return 'payment_choice_ack';
   }
 
-  if (quote.quote_status === 'ready' && quote.short_stay_addons_pending === true
-    && isShortStayAccommodation(result, quote, fields)) {
+  if (quote.quote_status === 'ready' && quoteAwaitingAddonsDecision(quote)) {
     return 'accommodation_quote_ready';
   }
 
-  if (quote.quote_status === 'ready' && !quote.short_stay_addons_pending
+  if (quote.quote_status === 'ready' && !quoteAwaitingAddonsDecision(quote)
     && !isShortStayAccommodation(result, quote, fields)
     && availability.availability_status === 'available'
     && quote.payment_choice_needed === true
@@ -449,8 +465,16 @@ function resolveComposerState(input) {
 
   if (quote.quote_status === 'ready' && quote.payment_choice_needed === true
     && pc.payment_choice_ready !== true
+    && policy.add_ons_status === 'collected'
+    && !quoteAwaitingAddonsDecision(quote)
+    && !isShortStayAccommodation(result, quote, fields)) {
+    return 'ask_payment_choice';
+  }
+
+  if (quote.quote_status === 'ready' && quote.payment_choice_needed === true
+    && pc.payment_choice_ready !== true
     && policy.add_ons_status !== 'pending'
-    && !quote.short_stay_addons_pending
+    && !quoteAwaitingAddonsDecision(quote)
     && isShortStayAccommodation(result, quote, fields)) {
     if (policy.add_ons_status === 'declined') {
       return 'addons_none_confirmed';
@@ -583,6 +607,10 @@ function buildReplyForState(state, ctx) {
       } else {
         parts.push(`${pkgLabel} comes to ${total}.`);
       }
+      if (quoteAwaitingAddonsDecision(quote)) {
+        parts.push('Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?');
+        return parts.join('\n\n');
+      }
       const dep = deposit || total;
       parts.push(`Would you prefer to pay the ${dep} deposit or the full ${total}?`);
       return parts.join('\n\n');
@@ -596,7 +624,15 @@ function buildReplyForState(state, ctx) {
     },
     ask_payment_choice: () => {
       if (!deposit || !total) return null;
-      return `Perfect — accommodation only then 😊\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+      const cls = classifyServiceInterestPricing(fields.service_interest);
+      const manualNote = cls.pending_manual.length
+        ? `\n\n${buildManualAddonsNote(lang, cls.pending_manual)}`
+        : '';
+      const hasCollectedAddons = cls.priced.length + cls.pending_manual.length > 0;
+      if (hasCollectedAddons) {
+        return `Got it — I've noted those extras.${manualNote}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+      }
+      return `Perfect — accommodation only then 😊${manualNote}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
     addons_none: () => {
       if (!deposit || !total) return null;

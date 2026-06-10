@@ -38,6 +38,7 @@ const {
   buildHoldPaymentDraftPlannerChain,
   mergeActiveBookingChainOutput,
   collectPriorExtractedFields,
+  isActiveBookingSideQuestion,
 } = require('./luna-guest-context-merge');
 const {
   evaluateQuoteStaleInvalidation,
@@ -59,6 +60,14 @@ const {
 const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
 const { buildQuoteFactsObservability } = require('./luna-quote-facts');
 const { buildBookingIntakePolicySnapshot } = require('./luna-booking-intake-policy');
+const {
+  addonsAnsweredThisTurn,
+  addonsResolvedFromFields,
+  quoteAwaitingAddonsDecision,
+  buildAddonsObservability,
+  extractAddOnSelections,
+  guestDeclinedAddons,
+} = require('./luna-booking-addons-policy');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -171,24 +180,26 @@ function inShortStayAccommodationHold(guestContext) {
   return isAccommodationOnlyIntent(prior.package_interest) && nights != null && nights < 7;
 }
 
-function shortStayAddonsAnswered(messageText, brainDecision) {
-  return (brainDecision && brainDecision.intent === 'accommodation_only_choice')
-    || detectAccommodationOnlyAnswer(messageText);
+function shortStayAddonsAnswered(messageText, brainDecision, mergedFields) {
+  return addonsAnsweredThisTurn(messageText, brainDecision, mergedFields);
 }
 
 /** Prior turn already declined add-ons / chose accommodation-only for a short stay. */
 function shortStayAddonsAlreadyAnswered(guestContext, messageText, brainDecision) {
   const priorQuote = (guestContext || {}).quote || {};
-  if (priorQuote.quote_status === 'ready' && priorQuote.short_stay_addons_pending === false) {
+  if (priorQuote.quote_status === 'ready'
+    && priorQuote.short_stay_addons_pending === false
+    && priorQuote.addons_pending_after_quote === false) {
     return true;
   }
   const prior = collectPriorExtractedFields(guestContext);
+  if (addonsResolvedFromFields(prior)) return true;
   if (!isAccommodationOnlyIntent(prior.package_interest)) return false;
   const nights = computeStayNights(prior.check_in, prior.check_out);
   if (nights == null || nights >= 7 || prior.guest_count == null || prior.guest_count < 1) {
     return false;
   }
-  return !shortStayAddonsAnswered(messageText, brainDecision);
+  return addonsResolvedFromFields(prior);
 }
 
 /** Guest is pushing toward payment ("deposit"/"full"/"pay now"). */
@@ -509,7 +520,8 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
 
   // Stage 28j.4 — short-stay accommodation quote (price + add-ons question) wins over
   // the router "checking" placeholder once pricing is ready.
-  if (quote && quote.quote_status === 'ready' && quote.proposed_luna_reply && quote.short_stay_addons_pending
+  if (quote && quote.quote_status === 'ready' && quote.proposed_luna_reply
+    && quoteAwaitingAddonsDecision(quote)
     && !quoteLegacyReplyIsStale(quote, result)) {
     return sanitizeReply(quote.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
@@ -650,47 +662,76 @@ function buildOrchestratorResponse(parts) {
 }
 
 function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext) {
+  const prior = priorGuestContext || {};
   const payload = {
     gate,
     result,
-    availability: priorGuestContext && priorGuestContext.availability ? priorGuestContext.availability : null,
-    quote: priorGuestContext && priorGuestContext.quote ? priorGuestContext.quote : null,
-    payment_choice: priorGuestContext && priorGuestContext.payment_choice ? priorGuestContext.payment_choice : null,
-    hold_payment_draft_plan: priorGuestContext && priorGuestContext.hold_payment_draft_plan
-      ? priorGuestContext.hold_payment_draft_plan
-      : null,
-    proposed_next_action: resolveProposedNextAction({ gate, result }),
+    availability: prior.availability || null,
+    quote: prior.quote || null,
+    payment_choice: prior.payment_choice || null,
+    hold_payment_draft_plan: prior.hold_payment_draft_plan || null,
+    proposed_next_action: resolveProposedNextAction({ gate, result, quote: prior.quote, availability: prior.availability }),
   };
   const allowIntro = (brainDecision && brainDecision.intent === 'greeting')
     || (result && result.greeting_only === true);
   const composed = tryComposeBookingReply(
     payload,
     messageText,
-    priorGuestContext || null,
+    prior,
     brainDecision,
     { allowLeadingIntro: allowIntro },
   );
   const proposedLunaReply = composed
     ? composed.reply
-    : resolveProposedReply(payload, messageText, null, brainDecision);
+    : resolveProposedReply(payload, messageText, prior, brainDecision);
   const finalReplySource = composed
     ? composed.reply_source
     : classifyFinalReplySource(proposedLunaReply, payload);
+  const policySnapshot = buildBookingIntakePolicySnapshot(
+    {
+      extracted_fields: (result && result.extracted_fields) || collectPriorExtractedFields(prior),
+      package_night_rule: result && result.package_night_rule,
+    },
+    {
+      channel_guest_name: prior.contact_name || prior.channel_guest_name || null,
+      quote: payload.quote,
+      payment_choice: payload.payment_choice,
+      availability: payload.availability,
+    },
+  );
+  const quoteObs = buildQuoteFactsObservability(payload);
+  const addonsObs = buildAddonsObservability(
+    {
+      extracted_fields: (result && result.extracted_fields) || collectPriorExtractedFields(prior),
+      package_night_rule: result && result.package_night_rule,
+    },
+    { quote: payload.quote },
+    payload.quote,
+  );
   const resultWithBrain = {
     ...result,
+    extracted_fields: (result && result.extracted_fields && Object.keys(result.extracted_fields).length)
+      ? result.extracted_fields
+      : collectPriorExtractedFields(prior),
+    booking_intake_policy: policySnapshot,
+    quote_facts_used_by_composer: quoteObs.quote_facts_used_by_composer,
+    quote_facts_used_by_hold_writer: quoteObs.quote_facts_used_by_hold_writer,
+    ...addonsObs,
     conversation_brain: buildBrainObservability(brainDecision, {
       finalReplySource,
       overrodeBrain: false,
       composer_state: composed ? composed.composer_state : null,
+      booking_flow_stage: policySnapshot.booking_flow_stage,
+      next_required_field: policySnapshot.next_required_field,
     }),
   };
   return buildOrchestratorResponse({
     automation_gate: gate,
     result: resultWithBrain,
-    availability: null,
-    quote: null,
-    payment_choice: null,
-    hold_payment_draft_plan: null,
+    availability: payload.availability,
+    quote: payload.quote,
+    payment_choice: payload.payment_choice,
+    hold_payment_draft_plan: payload.hold_payment_draft_plan,
     proposed_next_action: payload.proposed_next_action,
     proposed_luna_reply: dedupeLunaIntro(proposedLunaReply, allowIntro === true),
   });
@@ -818,7 +859,12 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     }
   }
 
-  const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext);
+  const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext)
+    || (chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready'
+      && quoteAwaitingAddonsDecision(chainGuestContext.quote))
+    || isActiveBookingSideQuestion(chainGuestContext, result, messageText)
+    || ((guestDeclinedAddons(messageText) || extractAddOnSelections(messageText).length > 0)
+      && chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready');
 
   // Stage 28j.2 — short-stay accommodation-only hold: once the guest has chosen
   // accommodation-only for an under-7-night stay, no weekly package / quote / payment
@@ -897,19 +943,28 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   let quote = runGuestQuoteProposalDryRun(result, availability, chainCtx);
 
   const priorQuote = chainGuestContext.quote || {};
-  if (shortStayAddonsAlreadyAnswered(chainGuestContext, messageText, brainDecision)) {
+  const mergedFields = collectPriorExtractedFields({
+    ...chainGuestContext,
+    result,
+  });
+  const addonsAlreadyResolved = addonsResolvedFromFields(mergedFields)
+    || shortStayAddonsAlreadyAnswered(chainGuestContext, messageText, brainDecision);
+
+  if (addonsAlreadyResolved) {
     quote = {
       ...quote,
       short_stay_addons_pending: false,
+      addons_pending_after_quote: false,
       payment_choice_needed: quote.quote_status === 'ready',
     };
   } else {
-    const addonsPending = quote.short_stay_addons_pending === true
-      || priorQuote.short_stay_addons_pending === true;
-    if (addonsPending && shortStayAddonsAnswered(messageText, brainDecision)) {
+    const addonsPending = quoteAwaitingAddonsDecision(quote)
+      || quoteAwaitingAddonsDecision(priorQuote);
+    if (addonsPending && shortStayAddonsAnswered(trimStr(inp.message_text), brainDecision, mergedFields)) {
       quote = {
         ...quote,
         short_stay_addons_pending: false,
+        addons_pending_after_quote: false,
         payment_choice_needed: quote.quote_status === 'ready',
       };
     }
@@ -1006,6 +1061,12 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   );
 
   const quoteObs = buildQuoteFactsObservability(payload);
+  const addonsObs = buildAddonsObservability(
+    { extracted_fields: payload.result && payload.result.extracted_fields, package_night_rule: payload.result && payload.result.package_night_rule },
+    { client_slug: chainCtx.client_slug, quote: payload.quote },
+    payload.quote,
+    staleInvalidation,
+  );
   const resultWithBrain = {
     ...payload.result,
     booking_intake_policy: policySnapshot,
@@ -1016,6 +1077,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     correction_applied: payload.result && payload.result.previous_quote_invalidated === true,
     quote_facts_used_by_composer: quoteObs.quote_facts_used_by_composer,
     quote_facts_used_by_hold_writer: quoteObs.quote_facts_used_by_hold_writer,
+    ...addonsObs,
     conversation_brain: buildBrainObservability(brainDecision, {
       finalReplySource,
       overrodeBrain,

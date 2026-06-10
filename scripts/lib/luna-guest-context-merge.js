@@ -10,6 +10,7 @@ const {
   detectServiceSideQuestionIntent,
   detectTransferSideQuestionIntent,
 } = require('./luna-guest-service-transfer-explainer');
+const { quoteAwaitingAddonsDecision } = require('./luna-booking-addons-policy');
 
 const EXTRACTED_FIELD_KEYS = [
   'check_in',
@@ -201,7 +202,11 @@ function restoreBookingLaneForActiveQuote(ctx) {
 }
 
 function isActiveBookingSideQuestion(priorGuestContext, currentResult, messageText) {
-  if (!shouldAttemptGuestPaymentChoiceWire(priorGuestContext)) return false;
+  const prior = normalizeGuestContextForChain(priorGuestContext || {});
+  const priorQuote = prior.quote || {};
+  const hasPaymentWire = shouldAttemptGuestPaymentChoiceWire(priorGuestContext);
+  const hasAddonsPending = priorQuote.quote_status === 'ready' && quoteAwaitingAddonsDecision(priorQuote);
+  if (!hasPaymentWire && !hasAddonsPending) return false;
   if (!currentResult || currentResult.message_lane === 'new_booking_inquiry') return false;
   const text = String(messageText || '');
   if (detectPackageExplainerIntent(text)) return true;

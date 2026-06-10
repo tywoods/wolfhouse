@@ -21,6 +21,7 @@ const {
   buildShortStayAccommodationQuotedReply,
 } = require('./wolfhouse-package-night-rules');
 const { isShortStayAccommodationQuote } = require('./wolfhouse-short-stay-pricing');
+const { normalizeAddOnsForQuote } = require('./luna-booking-addons-policy');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -117,20 +118,14 @@ function mapPackageInterest(packageInterest) {
   return p || null;
 }
 
-function normalizeAddOns(serviceInterest) {
-  if (!Array.isArray(serviceInterest)) return [];
-  return serviceInterest
-    .filter((item) => item && typeof item === 'object' && item.code)
-    .map((item) => ({
-      code: String(item.code).trim(),
-      days: item.days != null ? Number(item.days) : undefined,
-      quantity: item.quantity != null ? Number(item.quantity) : undefined,
-    }));
+function normalizeAddOns(serviceInterest, nights) {
+  return normalizeAddOnsForQuote(serviceInterest, nights);
 }
 
 function mapRouterToQuoteFields(routerResult, context) {
   const ctx = context || {};
   const extracted = (routerResult && routerResult.extracted_fields) || {};
+  const nights = computeStayNights(extracted.check_in, extracted.check_out);
   return {
     client_slug: String(ctx.client_slug || DEFAULT_CLIENT).trim(),
     check_in: extracted.check_in || null,
@@ -139,7 +134,7 @@ function mapRouterToQuoteFields(routerResult, context) {
     package_code: mapPackageInterest(extracted.package_interest),
     room_type: String(extracted.room_type || ctx.room_type || 'shared').trim(),
     payment_choice: 'deposit',
-    add_ons: normalizeAddOns(extracted.service_interest),
+    add_ons: normalizeAddOns(extracted.service_interest, nights),
     transfer_interest: extracted.transfer_interest || null,
   };
 }
@@ -320,6 +315,7 @@ function runGuestQuoteProposalDryRun(routerResult, availabilityResult, context) 
   const quote = preview.quote;
   const depositOptions = outcome.status === 'ready' ? buildDepositOptions(quote) : null;
   const shortStayAcc = outcome.status === 'ready' && isShortStayAccommodationQuote(quote);
+  const addonsPendingAfterQuote = outcome.status === 'ready';
 
   return {
     success: true,
@@ -335,7 +331,8 @@ function runGuestQuoteProposalDryRun(routerResult, availabilityResult, context) 
     deposit_options: depositOptions,
     short_stay_accommodation_quote: shortStayAcc,
     short_stay_addons_pending: shortStayAcc,
-    payment_choice_needed: outcome.status === 'ready' && !shortStayAcc,
+    addons_pending_after_quote: addonsPendingAfterQuote,
+    payment_choice_needed: outcome.status === 'ready' && !addonsPendingAfterQuote,
     quote_handoff_required: outcome.handoff,
     quote_handoff_reasons: outcome.reasons,
     proposed_luna_reply: buildQuoteReply(

@@ -21,7 +21,10 @@ function detectServiceSideQuestionIntent(text) {
   if (/\b(?:wetsuit|muta|neopren|combinaison)\b/i.test(t)) return 'wetsuit';
   if (/\b(?:soft\s+top|softtop|foam\s+board)\b/i.test(t)) return 'soft_top';
   if (/\b(?:hard\s+board|shortboard|fiberglass\s+board)\b/i.test(t)) return 'hard_board';
-  if (/\b(?:surfboard|surf\s+board|surfbrett|tabla(?:\s+de\s+surf)?|planche)\b/i.test(t)) return 'board_rental';
+  if (/\b(?:do you|can i|can we|can you|do we)\b.*\b(?:rent|hire|offer)\b.*\bboards?\b/i.test(t)) {
+    return 'board_rental';
+  }
+  if (/\b(?:surfboard|surf\s+board|surfbrett|tabla(?:\s+de\s+surf)?|planche|boards?)\b/i.test(t)) return 'board_rental';
   if (/\b(?:add|rent|book|extra|addon|add-on|service|services|equipment|gear|noleggi|alquiler|location|mieten)\b/i.test(t)
     && /\b(?:wetsuit|surfboard|lesson|yoga|board|muta|tabla|lezione|clase|cours)\b/i.test(t)) {
     return 'services_general';
@@ -77,6 +80,18 @@ function buildYogaReply(lang) {
   return map[L] || map.en;
 }
 
+function buildBoardRentalReply(lang) {
+  const L = normalizeLang(lang);
+  const map = {
+    en: 'Yes — we can help with board rental. Soft tops from €15/day and hard boards from €20/day.',
+    it: 'Sì — possiamo aiutarti con il noleggio tavola. Soft top da €15/giorno e hard board da €20/giorno.',
+    es: 'Sí — podemos ayudarte con el alquiler de tabla. Soft top desde €15/día y hard board desde €20/día.',
+    de: 'Ja — wir können beim Board-Verleih helfen. Softtops ab €15/Tag und Hardboards ab €20/Tag.',
+    fr: 'Oui — on peut vous aider pour la location de planche. Soft top à partir de 15 €/jour et hard board à partir de 20 €/jour.',
+  };
+  return map[L] || map.en;
+}
+
 function buildWetsuitReply(lang) {
   const L = normalizeLang(lang);
   const map = {
@@ -108,6 +123,8 @@ function buildServiceSideQuestionReply(lang, intent, messageText) {
       return buildSurfLessonsReply(lang);
     case 'yoga':
       return buildYogaReply(lang);
+    case 'board_rental':
+      return buildBoardRentalReply(lang);
     case 'wetsuit':
     case 'soft_top':
     case 'hard_board':

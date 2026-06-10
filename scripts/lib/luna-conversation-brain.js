@@ -202,6 +202,7 @@ function detectGuestCorrection(text) {
 function detectAccommodationOnlyAnswer(text) {
   const t = trimStr(text).toLowerCase();
   if (!t) return false;
+  if (/\bjust\s+(?:the\s+)?stay\b/i.test(t)) return true;
   if (/\b(?:accommodation|room|bed|stay)\s+only\b/i.test(t)) return true;
   if (/\bjust\s+(?:the\s+)?(?:accommodation|room|bed|stay)\b/i.test(t)) return true;
   if (/^no,?\s*(?:add\s*)?(?:nothing|extras?|add[\s-]?ons?)\b/i.test(t)) return true;

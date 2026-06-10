@@ -149,7 +149,7 @@ const LUNA_REPLIES = {
     short_stay_guidance: 'For stays under 7 nights, our weekly surf packages aren\'t available — they\'re for 7-night stays. We can still help with accommodation and add-ons like wetsuit, board rental, or surf lessons. Would you like accommodation only, or do you want to add lessons/gear?',
     explain_choice: 'Which one sounds best: Malibu, Uluwatu, or Waimea?',
     short_stay_checking: (range, guests) => `Great — I'll check accommodation${range ? ` for ${range}` : ''}${guests ? ` for ${guests}` : ''}.`,
-    short_stay_quoted: (range, guests, totalEur) => `Good news — accommodation is available${range ? ` for ${range}` : ''}${guests ? ` for ${guests}` : ''}. The stay comes to €${totalEur}. Are you going to need a wetsuit, surfboard, and/or lessons?`,
+    short_stay_quoted: (range, guests, totalEur) => `Good news — accommodation is available${range ? ` for ${range}` : ''}${guests ? ` for ${guests}` : ''}. The stay comes to €${totalEur}. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?`,
     short_stay_accommodation_confirm: (range, guests) => `Got it — accommodation only${range ? ` for ${range}` : ''}${guests ? ` for ${guests}` : ''}, no add-ons.`,
     short_stay_accommodation_pending: 'Once we have your accommodation quote confirmed, I can help with the next step.',
     weekly_blocked_short: 'For stays under 7 nights, weekly surf packages are for 7-night stays only. We can still help with accommodation — want me to check availability and price for your dates?',

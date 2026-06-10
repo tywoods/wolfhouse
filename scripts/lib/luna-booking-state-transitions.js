@@ -17,6 +17,7 @@ const {
   detectServiceSideQuestionIntent,
   detectTransferSideQuestionIntent,
 } = require('./luna-guest-service-transfer-explainer');
+const { detectPricedAddonQuoteChange } = require('./luna-booking-addons-policy');
 
 const QUOTE_AFFECTING_FIELDS = Object.freeze([
   'check_in',
@@ -110,6 +111,17 @@ function evaluateQuoteStaleInvalidation(priorGuestContext, routerResult, message
   let corrected = detectQuoteAffectingFieldChanges(priorFields, currentFields);
   if (packageMutation) {
     corrected = [...new Set([...corrected, 'package_interest'])];
+  }
+
+  const addonChange = detectPricedAddonQuoteChange(priorFields, currentFields);
+  if (addonChange) {
+    corrected = [...new Set([...corrected, ...(addonChange.corrected_fields || [])])];
+    return {
+      stale_quote_reason: addonChange.stale_quote_reason || addonChange.reason,
+      corrected_fields: corrected,
+      previous_quote_invalidated: true,
+      add_on_quote_stale_reason: addonChange.add_on_quote_stale_reason || null,
+    };
   }
 
   if (!corrected.length) return null;
