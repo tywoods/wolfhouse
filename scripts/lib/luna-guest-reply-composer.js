@@ -548,13 +548,12 @@ function buildReplyForState(state, ctx) {
     },
     payment_received: () => {
       if (!paid) return null;
-      const parts = [`Got it — your ${paid} deposit is in 🙌`];
-      if (bookingCode) parts.push(`Your booking ${bookingCode} is held.`);
-      if (balance) parts.push(`Balance due before check-in is ${balance}.`);
-      parts.push('I\'ll send your full confirmation details next.');
-      return parts.join(' ');
+      let msg = `Got it — your ${paid} deposit is in 🙌 Your booking is held`;
+      if (balance) msg += `, and the remaining balance is ${balance}`;
+      msg += '. I\'ll send your full confirmation next.';
+      return msg;
     },
-    confirmation_sent: 'You\'re all set! Check your confirmation message above for arrival details and your gate code. See you soon 🌊',
+    confirmation_sent: 'Perfect — your Wolfhouse booking is confirmed 😊 I\'ve sent the details with the address, gate code, and room info.',
     clarify: 'Could you share your check-in and check-out dates, and how many guests?',
     contextual_when: 'Once you choose deposit or full payment, I\'ll line up the next step for your stay.',
     handoff: 'Thanks for your patience — I\'m looping in our team so they can help with the next step.',

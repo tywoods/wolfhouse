@@ -65,6 +65,7 @@ const {
   FORBIDDEN_GUEST_PHRASES,
   isFormDevCopy,
 } = require('./lib/luna-guest-reply-style-contract');
+const { passesConfirmationStyleContract } = require('./lib/luna-guest-confirmation-copy-style');
 
 const WRITE_SOURCE = 'luna_conversation_state_machine_tester';
 
@@ -710,6 +711,22 @@ function checkConfirmationExpectations(confirmationExpect, proof, opts) {
   for (const term of INTERNAL_LANGUAGE_BLACKLIST) {
     if (msg.includes(term.toLowerCase())) {
       failures.push(`confirmation internal language: ${term}`);
+    }
+  }
+
+  if (ce.confirmation_passes_style_contract === true) {
+    const rawMsg = String(cp.proposed_confirmation_message || '');
+    const styleCheck = passesConfirmationStyleContract(rawMsg, {
+      booking_code: proof.booking_code,
+      amount_paid_cents: ce.confirmation_message_contains_paid_cents != null
+        ? ce.confirmation_message_contains_paid_cents
+        : cp.amount_paid_cents,
+      balance_due_cents: ce.confirmation_message_contains_balance_cents != null
+        ? ce.confirmation_message_contains_balance_cents
+        : cp.balance_due_cents,
+    });
+    if (!styleCheck.ok) {
+      failures.push(`confirmation style contract: ${styleCheck.reasons.join(', ')}`);
     }
   }
 

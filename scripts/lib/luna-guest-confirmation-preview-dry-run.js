@@ -17,6 +17,7 @@ const {
   resolveConfirmationAddress,
   PREVIEW_SAFETY_FLAGS,
 } = require('./luna-booking-confirmation-preview');
+const { polishConfirmationGuestCopy } = require('./luna-guest-confirmation-copy-style');
 
 const REUSED_PREVIEW_PATH = 'getLunaBookingConfirmationPreview (Phase 14b)';
 
@@ -160,7 +161,7 @@ function sanitizePreviewMessage(message, paymentStatus, balanceDueCents, languag
   } else if (paymentStatus === 'deposit_paid' && balanceDueCents > 0) {
     text = appendDepositBalanceArrivalOptions(text, balanceDueCents, language);
   }
-  return text.trim();
+  return polishConfirmationGuestCopy(text.trim());
 }
 
 function messageHasBedLeak(message) {
