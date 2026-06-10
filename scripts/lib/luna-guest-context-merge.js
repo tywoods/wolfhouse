@@ -246,7 +246,10 @@ function mergeActiveBookingChainOutput(priorGuestContext, parts, messageText) {
   return {
     ...parts,
     result: mergedResult,
-    quote: (priorQuote && priorQuote.quote_status === 'ready') ? priorQuote : parts.quote,
+    quote: (priorQuote && priorQuote.quote_status === 'ready' && !prior.previous_quote_invalidated
+      && !priorQuote.quote_stale)
+      ? priorQuote
+      : parts.quote,
     availability: (priorAvail && priorAvail.availability_check_attempted === true)
       ? priorAvail
       : parts.availability,
@@ -275,7 +278,9 @@ function buildHoldPaymentDraftPlannerChain(guestContext, currentChain) {
     && priorResult.readiness_state === 'ready_for_availability_check';
   const priorAvailReady = priorAvailability
     && priorAvailability.availability_status === 'available';
-  const priorQuoteReady = priorQuote && priorQuote.quote_status === 'ready';
+  const priorQuoteReady = priorQuote && priorQuote.quote_status === 'ready'
+    && !prior.previous_quote_invalidated
+    && !priorQuote.quote_stale;
 
   if (!priorBookingReady || !priorAvailReady || !priorQuoteReady) return chain;
 

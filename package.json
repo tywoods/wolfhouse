@@ -264,6 +264,7 @@
     "verify:stage30a-smart-reply-composer-personality": "node scripts/verify-stage30a-smart-reply-composer-personality.js",
     "verify:stage30b-composer-side-question-coverage": "node scripts/verify-stage30b-composer-side-question-coverage.js",
     "verify:stage30c-confirmation-copy-style": "node scripts/verify-stage30c-confirmation-copy-style.js",
+    "verify:stage31a-messy-conversation-intelligence": "node scripts/verify-stage31a-messy-conversation-intelligence.js",
     "verify:stage29room-a-real-room-bed-seed": "node scripts/verify-stage29room-a-real-room-bed-seed.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",

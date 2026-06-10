@@ -186,7 +186,10 @@ function buildPaymentChoiceWireContext(bodyGuestContext, result, availability, q
   };
   // Keep a ready prior quote when the current turn did not reproduce quote readiness
   // (e.g. payment_question lane on "pay cash on arrival?" after a ready package quote).
-  if (priorQuote.quote_status === 'ready' && mergedQuote.quote_status !== 'ready') {
+  const { shouldPreservePriorReadyQuote } = require('./luna-booking-state-transitions');
+  if (priorQuote.quote_status === 'ready'
+    && mergedQuote.quote_status !== 'ready'
+    && shouldPreservePriorReadyQuote(prior)) {
     mergedQuote = { ...mergedQuote, ...priorQuote, quote_status: 'ready' };
   }
   return {

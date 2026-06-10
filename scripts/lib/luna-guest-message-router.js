@@ -650,6 +650,8 @@ function buildGreetingMenuReply(lang) {
 function detectNewBookingResetIntent(text) {
   const t = String(text || '').trim().toLowerCase();
   if (!t) return false;
+  const { detectFieldCorrectionIntent } = require('./luna-booking-state-transitions');
+  if (detectFieldCorrectionIntent(text)) return false;
   if (/\b(?:start\s+over|start\s+again|let'?s\s+start\s+again|forget\s+(?:that|the)\s+booking|new\s+booking|another\s+booking|different\s+booking|create\s+another\s+booking|want\s+(?:to\s+)?(?:create|make)\s+another|not\s+that\s+one)\b/i.test(t)) {
     return true;
   }
@@ -657,9 +659,6 @@ function detectNewBookingResetIntent(text) {
     return true;
   }
   if (/\bno[,.\s]+another\s+booking\b/i.test(t)) {
-    return true;
-  }
-  if (/\bactually\b.*\b(?:make\s+it|want|book|booking|change\s+to)\b/i.test(t)) {
     return true;
   }
   return false;
@@ -1201,7 +1200,18 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     }
   }
 
-  if (greetingOnly) {
+  // Stage 31a — bare greeting mid-booking: continue flow, do not restart intake.
+  let midFlowGreeting = false;
+  if (greetingOnly && inActiveBooking) {
+    midFlowGreeting = true;
+    clarifyActiveBooking = true;
+    lane = 'new_booking_inquiry';
+    handoff = false;
+    reasons = [];
+    confidence = Math.max(confidence, 0.9);
+  }
+
+  if (greetingOnly && !midFlowGreeting) {
     lane = 'general_question';
     handoff = false;
     reasons = [];
@@ -1340,7 +1350,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     preservedIntakeState = 'collecting_required_details';
   }
 
-  let safeHandoffRequired = greetingOnly
+  let safeHandoffRequired = greetingOnly && !midFlowGreeting
     ? false
     : ((packageExplainerIntent || clarifyActiveBooking || correctionActiveBooking || guestCorrecting)
       ? false
@@ -1348,7 +1358,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
         || handoff
         || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r))));
 
-  if (packageExplainerIntent || greetingOnly || clarifyActiveBooking
+  if (packageExplainerIntent || (greetingOnly && !midFlowGreeting) || clarifyActiveBooking
     || correctionActiveBooking || guestCorrecting) {
     handoff = false;
     reasons = [];
@@ -1375,7 +1385,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   const hasPriorFields = Object.keys(priorExtracted).some((k) => priorExtracted[k] != null
     && (Array.isArray(priorExtracted[k]) ? priorExtracted[k].length : true));
 
-  let intakeState = greetingOnly
+  let intakeState = greetingOnly && !midFlowGreeting
     ? 'inquiry_received'
     : resolveIntakeState(
       lane,
@@ -1401,7 +1411,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   }
 
   let proposedReply;
-  if (greetingOnly) {
+  if (greetingOnly && !midFlowGreeting) {
     proposedReply = buildGreetingMenuReply(detectedLanguage);
   } else if (packageExplainerIntent) {
     proposedReply = buildPackageExplainerReply(detectedLanguage, packageExplainerIntent, {
@@ -1489,7 +1499,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   return {
     success: true,
     ...ROUTER_SAFETY,
-    greeting_only: greetingOnly,
+    greeting_only: greetingOnly && !midFlowGreeting,
     message_lane: lane,
     intake_state: intakeState,
     detected_language: detectedLanguage,

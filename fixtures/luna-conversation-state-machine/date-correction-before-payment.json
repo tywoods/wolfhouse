@@ -1,0 +1,55 @@
+{
+  "id": "date-correction-before-payment",
+  "label": "Date correction before payment",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "book a stay" },
+    { "message": "July 1-5" },
+    {
+      "message": "1",
+      "expect": {
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 1
+        }
+      }
+    },
+    {
+      "message": "no thanks, i have my own stuff",
+      "expect": {
+        "expected_quote_ready": true,
+        "reply_contains": ["€180"],
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "actually July 2-6",
+      "expect": {
+        "expected_stale_quote": true,
+        "expected_corrected_fields": ["check_in", "check_out"],
+        "expected_dates": {
+          "check_in": "2026-07-02",
+          "check_out": "2026-07-06"
+        },
+        "expected_no_payment_link_before_updated_quote": true,
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-02",
+      "check_out": "2026-07-06",
+      "guest_count": 1,
+      "package_interest": "accommodation_only"
+    },
+    "expected_quote_ready": true,
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

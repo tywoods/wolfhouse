@@ -1,0 +1,47 @@
+{
+  "id": "reset-after-quote",
+  "label": "Reset after quote",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 2",
+      "expect": {
+        "expected_quote_ready": true,
+        "expected_package": "malibu",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "no no I want to create another booking",
+      "expect": {
+        "expected_reset_detected": true,
+        "expected_quote_ready": false,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "July 1-5",
+      "expect": {
+        "expected_dates": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05"
+        },
+        "expected_stale_quote": false,
+        "reply_not_contains": ["Malibu comes to"],
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05"
+    },
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

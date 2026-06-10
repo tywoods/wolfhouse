@@ -450,6 +450,18 @@ function decideConversationAction(input) {
 
   // ── P11 greeting ───────────────────────────────────────────────────────────
   if (detectGreetingOnly(message)) {
+    if (inActiveBooking) {
+      return {
+        ...decision,
+        intent: 'clarify',
+        reply_type: 'mid_flow_greeting_ack',
+        preserve_context: true,
+        next_best_action: 'continue_intake',
+        next_missing_field: activeMissing,
+        should_handoff: false,
+        confidence: 0.9,
+      };
+    }
     return {
       ...decision,
       intent: 'greeting',

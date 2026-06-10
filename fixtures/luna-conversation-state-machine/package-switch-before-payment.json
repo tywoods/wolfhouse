@@ -1,0 +1,57 @@
+{
+  "id": "package-switch-before-payment",
+  "label": "Package switch before payment",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 2",
+      "expect": {
+        "expected_fields": {
+          "package_interest": "malibu",
+          "guest_count": 2,
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
+        },
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "actually make it Uluwatu",
+      "expect": {
+        "expected_package": "uluwatu",
+        "expected_stale_quote": true,
+        "expected_corrected_fields": ["package_interest"],
+        "expected_quote_ready": true,
+        "reply_contains": ["Uluwatu"],
+        "reply_not_contains": ["Malibu comes to"],
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_package": "uluwatu",
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "package_interest": "uluwatu",
+      "guest_count": 2,
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17"
+    },
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true,
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

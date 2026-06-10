@@ -39,6 +39,10 @@ const {
   mergeActiveBookingChainOutput,
   collectPriorExtractedFields,
 } = require('./luna-guest-context-merge');
+const {
+  evaluateQuoteStaleInvalidation,
+  applyQuoteStaleInvalidation,
+} = require('./luna-booking-state-transitions');
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
 const {
   computeStayNights,
@@ -761,7 +765,9 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     return buildNonBookingLaneResponse(result, gate, messageText, brainDecision);
   }
 
-  if (detectNewBookingResetIntent(messageText) && shouldAttemptGuestPaymentChoiceWire(chainGuestContext)) {
+  if (detectNewBookingResetIntent(messageText)
+    && (shouldAttemptGuestPaymentChoiceWire(chainGuestContext)
+      || (chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready'))) {
     chainGuestContext = stripQuotePaymentStateForReset(chainGuestContext);
     result = runLunaGuestMessageRouterDryRun(
       {
@@ -852,6 +858,21 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
 
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
     return buildNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext);
+  }
+
+  const staleInvalidation = evaluateQuoteStaleInvalidation(chainGuestContext, result, messageText);
+  if (staleInvalidation) {
+    chainGuestContext = applyQuoteStaleInvalidation(chainGuestContext, staleInvalidation);
+    result = {
+      ...result,
+      previous_quote_invalidated: true,
+      stale_quote_reason: staleInvalidation.stale_quote_reason,
+      corrected_fields: staleInvalidation.corrected_fields,
+      booking_intake_ready: result.booking_intake_ready !== false,
+      readiness_state: result.booking_intake_ready !== false
+        ? 'ready_for_availability_check'
+        : result.readiness_state,
+    };
   }
 
   const chainCtx = {

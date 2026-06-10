@@ -1655,6 +1655,10 @@ function guestContextFromOrchestrator(out, contactName) {
     payment_choice: r.payment_choice,
     hold_payment_draft_plan: r.hold_payment_draft_plan,
     detected_language: r.result && r.result.detected_language,
+    previous_quote_invalidated: r.result && r.result.previous_quote_invalidated,
+    stale_quote_reason: r.result && r.result.stale_quote_reason,
+    corrected_fields: r.result && r.result.corrected_fields,
+    new_booking_reset: r.result && r.result.new_booking_reset,
   }), contactName);
 }
 
@@ -1773,6 +1777,70 @@ function checkTurnExpectations(expect, out) {
   if (expect.expected_quote_ready === true) {
     const qs = out.quote && out.quote.quote_status;
     if (qs !== 'ready') failures.push(`expected_quote_ready but quote_status=${qs}`);
+  }
+  if (expect.expected_quote_ready === false) {
+    const qs = out.quote && out.quote.quote_status;
+    if (qs === 'ready') failures.push('expected_quote_ready false but quote is ready');
+  }
+  if (expect.expected_stale_quote === true) {
+    const stale = (out.result && out.result.previous_quote_invalidated === true)
+      || (out.quote && out.quote.quote_stale === true)
+      || (out.quote && out.quote.previous_quote_invalidated === true);
+    if (!stale) failures.push('expected_stale_quote but quote was not invalidated');
+  }
+  if (expect.expected_stale_quote === false) {
+    const stale = (out.result && out.result.previous_quote_invalidated === true)
+      || (out.quote && out.quote.quote_stale === true);
+    if (stale) failures.push('expected_stale_quote false but quote was invalidated');
+  }
+  if (expect.expected_stale_quote_reason != null) {
+    const reason = (out.result && out.result.stale_quote_reason)
+      || (out.quote && out.quote.stale_quote_reason);
+    if (String(reason) !== String(expect.expected_stale_quote_reason)) {
+      failures.push(`expected_stale_quote_reason ${expect.expected_stale_quote_reason} got ${reason}`);
+    }
+  }
+  if (Array.isArray(expect.expected_corrected_fields)) {
+    const got = (out.result && out.result.corrected_fields)
+      || (out.quote && out.quote.corrected_fields)
+      || [];
+    for (const field of expect.expected_corrected_fields) {
+      if (!got.includes(field)) failures.push(`expected_corrected_fields missing ${field}`);
+    }
+  }
+  if (expect.expected_reset_detected === true) {
+    if (!(out.result && out.result.new_booking_reset === true)) {
+      failures.push('expected_reset_detected but new_booking_reset not set');
+    }
+  }
+  if (expect.expected_package != null) {
+    const pkg = fields.package_interest;
+    if (String(pkg).toLowerCase() !== String(expect.expected_package).toLowerCase()) {
+      failures.push(`expected_package ${expect.expected_package} got ${pkg}`);
+    }
+  }
+  if (expect.expected_guest_count != null && fields.guest_count !== expect.expected_guest_count) {
+    failures.push(`expected_guest_count ${expect.expected_guest_count} got ${fields.guest_count}`);
+  }
+  if (expect.expected_dates != null) {
+    if (expect.expected_dates.check_in && fields.check_in !== expect.expected_dates.check_in) {
+      failures.push(`expected check_in ${expect.expected_dates.check_in} got ${fields.check_in}`);
+    }
+    if (expect.expected_dates.check_out && fields.check_out !== expect.expected_dates.check_out) {
+      failures.push(`expected check_out ${expect.expected_dates.check_out} got ${fields.check_out}`);
+    }
+  }
+  if (expect.expected_no_payment_link_before_updated_quote === true) {
+    if (/checkout\.stripe\.com/i.test(reply)) {
+      failures.push('stripe payment link present before updated quote');
+    }
+  }
+  if (expect.expected_context_preserved === true) {
+    const hasDates = fields.check_in && fields.check_out;
+    const hasGuests = fields.guest_count != null;
+    if (!hasDates && !hasGuests && !fields.package_interest) {
+      failures.push('expected_context_preserved but booking fields missing');
+    }
   }
   if (expect.no_internal_language === true) {
     const bad = findInternalLanguage(reply);
