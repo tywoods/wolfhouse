@@ -126,6 +126,14 @@ Use `.tmp-stage28c-staff-api-handset-proof.js` or equivalent DB/API polling.
 - No n8n activation required for this path
 - No live WhatsApp unless explicit live-reply flag on HTTP route (Meta never sets it)
 
+## Stage 28c.6 — guest_email synthesis
+
+Stage **28c.5** handset proof (`+491726422307`, July 24–31) passed routing, context accumulation, pricing, and `payment_choice_ready`, but hold write failed with `missing_guest_email`. The harness already supplies `open-demo+{phone_digits}@example.test`; the Meta open-demo adapter did not.
+
+**28c.6** synthesizes staging `guest_email` from the guest phone when none is present on the Meta inbound body (e.g. `+491726422307` → `open-demo+491726422307@example.test`). `guest_name` is taken from Meta `profile_name` when present but is not required. Owner command center routing is unchanged; production and non-demo flows are not affected.
+
+**Next hosted rerun (28c.7):** use the same July 24–31 window after deploy.
+
 ## Verifier
 
 ```bash

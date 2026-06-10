@@ -33,11 +33,23 @@ function metaFromToGuestPhone(from) {
 }
 
 /**
+ * Staging open-demo only — mirrors harness guestEmailFromPhone().
+ */
+function buildOpenDemoGuestEmailFromPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  return `open-demo+${digits}@example.test`;
+}
+
+/**
  * Map normalized Meta webhook fields to n8n-shaped open-demo body.
  */
 function buildOpenDemoRequestBodyFromMeta(normalized) {
   const n = normalized || {};
   const guestPhone = metaFromToGuestPhone(n.from);
+  const contactName = n.profile_name != null ? trimStr(n.profile_name) : null;
+  const existingEmail = n.guest_email != null ? trimStr(n.guest_email) : null;
+  const guestEmail = existingEmail || buildOpenDemoGuestEmailFromPhone(guestPhone);
   let receivedAt = null;
   if (n.timestamp != null && String(n.timestamp).trim()) {
     const ts = Number(n.timestamp);
@@ -52,7 +64,9 @@ function buildOpenDemoRequestBodyFromMeta(normalized) {
     channel: 'whatsapp',
     phone_number_id: n.phone_number_id != null ? trimStr(n.phone_number_id) : null,
     guest_phone: guestPhone,
-    contact_name: n.profile_name != null ? trimStr(n.profile_name) : null,
+    contact_name: contactName || null,
+    guest_name: contactName || null,
+    guest_email: guestEmail || null,
     message_text: n.message_text != null ? trimStr(n.message_text) : null,
     wamid: n.wa_message_id,
     inbound_message_id: n.wa_message_id,
@@ -270,6 +284,7 @@ async function processMetaOpenDemoGuestInbound(input) {
 module.exports = {
   META_OPEN_DEMO_SOURCE,
   metaFromToGuestPhone,
+  buildOpenDemoGuestEmailFromPhone,
   buildOpenDemoRequestBodyFromMeta,
   shouldRouteMetaInboundToOpenDemo,
   buildMetaOpenDemoWriteConfirmFlags,

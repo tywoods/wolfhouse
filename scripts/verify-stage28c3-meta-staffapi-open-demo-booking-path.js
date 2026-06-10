@@ -217,6 +217,72 @@ if (pkg.scripts && pkg.scripts[SCRIPT]) {
   fail('E1', `missing npm script ${SCRIPT}`);
 }
 
+section('F. Guest email synthesis (28c.6)');
+
+const adapter = require('./lib/meta-open-demo-inbound-adapter');
+
+const synthEmail = adapter.buildOpenDemoGuestEmailFromPhone('+491726422307');
+if (synthEmail === 'open-demo+491726422307@example.test') {
+  pass('F1', '+491726422307 synthesizes open-demo+491726422307@example.test');
+} else {
+  fail('F1', `unexpected synthesized email: ${synthEmail}`);
+}
+
+if (adapter.buildOpenDemoGuestEmailFromPhone('') === null) {
+  pass('F2', 'no digits returns null');
+} else {
+  fail('F2', 'empty phone should not synthesize email');
+}
+
+const metaBase = {
+  from: '491726422307',
+  wa_message_id: 'wamid.test',
+  message_text: 'Deposit is fine',
+  phone_number_id: DEMO_PHONE_ID,
+  client_slug: 'wolfhouse-somo',
+  timestamp: '1700000000',
+};
+
+const bodySynth = adapter.buildOpenDemoRequestBodyFromMeta(metaBase);
+if (bodySynth.guest_email === 'open-demo+491726422307@example.test') {
+  pass('F3', 'Meta adapter body includes synthesized guest_email');
+} else {
+  fail('F3', `adapter guest_email missing/wrong: ${bodySynth.guest_email}`);
+}
+
+const bodyKeep = adapter.buildOpenDemoRequestBodyFromMeta({
+  ...metaBase,
+  guest_email: 'keeper@example.test',
+});
+if (bodyKeep.guest_email === 'keeper@example.test') {
+  pass('F4', 'existing guest_email preserved when supplied');
+} else {
+  fail('F4', `existing guest_email overwritten: ${bodyKeep.guest_email}`);
+}
+
+const bodyName = adapter.buildOpenDemoRequestBodyFromMeta({
+  ...metaBase,
+  profile_name: 'Ty Proof',
+});
+if (bodyName.guest_name === 'Ty Proof' && bodyName.contact_name === 'Ty Proof') {
+  pass('F5', 'guest_name/contact_name from Meta profile_name');
+} else {
+  fail('F5', 'Meta profile_name not mapped to guest_name');
+}
+
+if (doc.includes('28c.6') && /guest_email|open-demo\+/i.test(doc)) {
+  pass('F6', 'docs note 28c.6 guest_email synthesis');
+} else {
+  fail('F6', '28c.6 docs missing');
+}
+
+if (adapterSrc.includes('buildOpenDemoGuestEmailFromPhone')
+  && adapterSrc.includes('open-demo+${digits}@example.test')) {
+  pass('F7', 'adapter defines open-demo email helper');
+} else {
+  fail('F7', 'buildOpenDemoGuestEmailFromPhone missing');
+}
+
 section('Summary');
 
 console.log(`\nResults: ${passes} passed, ${failures} failed\n`);
