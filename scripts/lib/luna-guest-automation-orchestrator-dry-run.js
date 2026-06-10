@@ -14,7 +14,11 @@ const {
   detectNewBookingResetIntent,
   buildNewBookingResetReply,
   hasSubstantiveNewBookingDetailsAfterReset,
+  resolveActiveIntakeMissingField,
+  conversationIntakeInProgress,
+  buildAccommodationOnlyAck,
 } = require('./luna-guest-message-router');
+const { decideConversationActionAsync } = require('./luna-conversation-brain');
 const { runGuestAvailabilityDryRun, buildGuestAvailabilitySkippedResponse, shouldAttemptGuestAvailability } = require('./luna-guest-availability-dry-run');
 const { runGuestQuoteProposalDryRun } = require('./luna-guest-quote-proposal-dry-run');
 const {
@@ -466,11 +470,38 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   };
 
   const messageText = trimStr(inp.message_text);
+
+  // Stage 28j — smart LLM conversation brain in the hot path. The async decision uses
+  // the configured LLM only when LUNA_CONVERSATION_BRAIN_LLM_ENABLED=true outside
+  // production; otherwise (or on failure/timeout) it is the deterministic decision.
+  // The brain only classifies/plans — every action below stays deterministic + gated.
+  const brainEnv = ctx.env || process.env;
+  const priorPackageNightRule = chainGuestContext.package_night_rule
+    || (chainGuestContext.result && chainGuestContext.result.package_night_rule)
+    || null;
+  const brainDecision = await decideConversationActionAsync(
+    {
+      message_text: messageText,
+      guest_context: chainGuestContext,
+      prior_extracted_fields: collectPriorExtractedFields(chainGuestContext),
+      active_missing_field: resolveActiveIntakeMissingField(chainGuestContext),
+      in_active_booking: conversationIntakeInProgress(chainGuestContext),
+      in_short_stay_flow: priorPackageNightRule === 'short_stay_guidance'
+        || priorPackageNightRule === 'short_stay_accommodation'
+        || priorPackageNightRule === 'weekly_package_blocked',
+      last_luna_reply: (chainGuestContext.result && chainGuestContext.result.proposed_luna_reply) || null,
+      package_night_rule: priorPackageNightRule,
+      env: brainEnv,
+    },
+    { llmClient: ctx.brain_llm_client },
+  );
+
   let result = runLunaGuestMessageRouterDryRun(
     {
       message_text: messageText,
       language_hint: inp.language_hint,
       guest_context: chainGuestContext,
+      brain_decision: brainDecision,
     },
     routerContext,
   );
@@ -587,6 +618,17 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     hold_payment_draft_plan,
   }, trimStr(inp.message_text));
 
+  let proposedLunaReply = resolveProposedReply(payload, trimStr(inp.message_text), chainGuestContext);
+
+  // Stage 28j — when the guest explicitly chose accommodation-only ("no add nothing"),
+  // the final reply must acknowledge that choice even when a chain reply wins.
+  if (brainDecision && brainDecision.intent === 'accommodation_only_choice' && proposedLunaReply) {
+    const ack = buildAccommodationOnlyAck((result && result.detected_language) || 'en');
+    if (!proposedLunaReply.includes(ack)) {
+      proposedLunaReply = `${ack} ${proposedLunaReply}`;
+    }
+  }
+
   return buildOrchestratorResponse({
     automation_gate: gate,
     result: payload.result,
@@ -595,7 +637,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     payment_choice: payload.payment_choice,
     hold_payment_draft_plan: payload.hold_payment_draft_plan,
     proposed_next_action: resolveProposedNextAction(payload),
-    proposed_luna_reply: resolveProposedReply(payload, trimStr(inp.message_text), chainGuestContext),
+    proposed_luna_reply: proposedLunaReply,
   });
 }
 

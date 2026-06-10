@@ -112,6 +112,8 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Happy to help with a date change — could you share your booking code, your current dates, and the new dates you’re thinking of?',
     ready_next_check: 'Thanks — I have your stay details. Next I can look into the best option for your dates and let you know. I am not confirming availability yet.',
     clarify_prefix: "Sorry, I didn't quite catch that —",
+    accommodation_only_ack: 'No problem — accommodation only it is, no add-ons.',
+    correction_ack: "You're right — sorry about the mix-up, let me fix that.",
   },
   it: {
     intro: 'Ciao! Sono Luna di Wolfhouse',
@@ -131,6 +133,8 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Volentieri per un cambio date — puoi condividere codice prenotazione, date attuali e le nuove date che hai in mente?',
     ready_next_check: 'Grazie — ho i dettagli del soggiorno. Prossimo passo: posso valutare la migliore opzione per le tue date e farti sapere. Non sto ancora confermando disponibilità.',
     clarify_prefix: 'Scusa, non ho capito bene —',
+    accommodation_only_ack: 'Perfetto — solo alloggio, senza extra.',
+    correction_ack: 'Hai ragione — scusa per la confusione, sistemo subito.',
   },
   es: {
     intro: '¡Hola! Soy Luna de Wolfhouse',
@@ -150,6 +154,8 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Con gusto ayudo con un cambio de fechas — ¿puedes compartir tu código de reserva, las fechas actuales y las nuevas que tienes en mente?',
     ready_next_check: 'Gracias — tengo los detalles de la estancia. El siguiente paso es revisar la mejor opción para tus fechas y avisarte. Aún no confirmo disponibilidad.',
     clarify_prefix: 'Perdona, no te he entendido bien —',
+    accommodation_only_ack: 'Perfecto — solo alojamiento, sin extras.',
+    correction_ack: 'Tienes razón — perdona la confusión, lo corrijo.',
   },
   de: {
     intro: 'Hallo! Ich bin Luna von Wolfhouse',
@@ -169,6 +175,8 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Gern helfe ich bei einer Datumsänderung — kannst du Buchungsnummer, aktuelle Daten und die neuen Daten senden?',
     ready_next_check: 'Danke — ich habe eure Aufenthaltsdetails. Als Nächstes kann ich die beste Option für eure Daten prüfen und Bescheid geben. Ich bestätige noch keine Verfügbarkeit.',
     clarify_prefix: 'Entschuldige, das habe ich nicht ganz verstanden —',
+    accommodation_only_ack: 'Alles klar — nur Unterkunft, ohne Extras.',
+    correction_ack: 'Du hast recht — entschuldige das Missverständnis, ich korrigiere das.',
   },
   fr: {
     intro: 'Bonjour ! Je suis Luna de Wolfhouse',
@@ -188,6 +196,8 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Volontiers pour un changement de dates — pouvez-vous partager votre code de réservation, vos dates actuelles et les nouvelles dates envisagées ?',
     ready_next_check: 'Merci — j’ai les détails du séjour. Prochaine étape : je peux regarder la meilleure option pour vos dates et vous revenir. Je ne confirme pas encore la disponibilité.',
     clarify_prefix: 'Désolée, je n’ai pas bien compris —',
+    accommodation_only_ack: 'Très bien — hébergement seul, sans extras.',
+    correction_ack: 'Vous avez raison — désolée pour la confusion, je corrige.',
   },
 };
 
@@ -237,6 +247,31 @@ function buildClarifyReply(lang, activeField, extracted) {
     question = tpl(lang, 'ask_dates');
   }
   return `${tpl(lang, 'clarify_prefix')} ${question}`;
+}
+
+/** Stage 28j — acknowledgement when the guest picks accommodation-only / no add-ons. */
+function buildAccommodationOnlyAck(lang) {
+  return tpl(lang, 'accommodation_only_ack');
+}
+
+/**
+ * Stage 28j — guest corrected Luna: acknowledge, then continue the active flow
+ * (re-ask the missing field, or confirm we're set if intake is complete). Never handoff.
+ */
+function buildCorrectionContinueReply(lang, activeField, extracted) {
+  const ex = extracted || {};
+  const ack = tpl(lang, 'correction_ack');
+  let continuation;
+  if (activeField === 'guest_count') {
+    continuation = tpl(lang, 'ask_guests');
+  } else if (activeField === 'dates') {
+    continuation = ex.check_in ? tpl(lang, 'ask_checkout') : tpl(lang, 'ask_dates');
+  } else if (activeField === 'package_interest' || activeField === 'stay_type') {
+    continuation = tpl(lang, 'ask_package');
+  } else {
+    continuation = tpl(lang, 'ready_next_check');
+  }
+  return `${ack} ${continuation}`;
 }
 
 function hasExplicitDates(text) {
@@ -967,18 +1002,30 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   const classification = classifyMessageLane(messageText, guestContext);
   let { lane, handoff, reasons, confidence, paymentKind } = classification;
 
-  // Stage 28i — conversation brain (deterministic decision before reply finalizes).
+  // Stage 28i/28j — conversation brain decision before the reply finalizes.
+  // Stage 28j: the orchestrator may pass a precomputed (LLM-backed) decision via
+  // src.brain_decision; otherwise fall back to the synchronous deterministic brain.
   const activeMissingField = resolveActiveIntakeMissingField(guestContext);
   const inActiveBooking = conversationIntakeInProgress(guestContext);
-  const brain = decideConversationAction({
-    message_text: messageText,
-    guest_context: guestContext,
-    prior_extracted_fields: priorExtracted,
-    active_missing_field: activeMissingField,
-    in_active_booking: inActiveBooking,
-    message_lane: lane,
-    env: ctx.env,
-  });
+  const priorPackageNightRule = guestContext.package_night_rule
+    || (guestContext.result && guestContext.result.package_night_rule)
+    || null;
+  const inShortStayFlow = priorPackageNightRule === 'short_stay_guidance'
+    || priorPackageNightRule === 'short_stay_accommodation'
+    || priorPackageNightRule === 'weekly_package_blocked';
+  const brain = (src.brain_decision && typeof src.brain_decision === 'object')
+    ? src.brain_decision
+    : decideConversationAction({
+      message_text: messageText,
+      guest_context: guestContext,
+      prior_extracted_fields: priorExtracted,
+      active_missing_field: activeMissingField,
+      in_active_booking: inActiveBooking,
+      in_short_stay_flow: inShortStayFlow,
+      last_luna_reply: (guestContext.result && guestContext.result.proposed_luna_reply) || null,
+      message_lane: lane,
+      env: ctx.env,
+    });
 
   // The brain recognises package side-questions the explainer detector misses
   // (e.g. "explain the packages") and asks us to preserve the active booking context.
@@ -997,6 +1044,43 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   if (!greetingOnly && !packageExplainerIntent
     && brain.intent === 'clarify' && brain.should_handoff === false && inActiveBooking) {
     clarifyActiveBooking = true;
+  }
+
+  // Stage 28j — accommodation-only / "no add nothing" answer in a short-stay flow:
+  // stay in the booking lane, never fall back to package choice or handoff.
+  let accommodationOnlyChoice = false;
+  if (!greetingOnly && !packageExplainerIntent
+    && brain.intent === 'accommodation_only_choice' && inActiveBooking) {
+    accommodationOnlyChoice = true;
+    lane = 'new_booking_inquiry';
+    handoff = false;
+    reasons = [];
+    confidence = Math.max(confidence, 0.9);
+  }
+
+  // Stage 28j — reset/start-over without an active quote/payment wire: never handoff,
+  // restart the intake (the orchestrator handles resets that need quote/payment strip).
+  let resetNewBooking = false;
+  if (!greetingOnly && !packageExplainerIntent && !accommodationOnlyChoice
+    && brain.intent === 'reset_new_booking' && brain.reset_context === true) {
+    resetNewBooking = true;
+    lane = 'new_booking_inquiry';
+    handoff = false;
+    reasons = [];
+    confidence = Math.max(confidence, 0.9);
+  }
+
+  // Stage 28j — guest is correcting Luna: acknowledge + continue, never handoff.
+  const guestCorrecting = !greetingOnly && !packageExplainerIntent && !accommodationOnlyChoice
+    && !resetNewBooking && brain.guest_is_correcting_luna === true && inActiveBooking;
+  let correctionActiveBooking = false;
+  if (guestCorrecting) {
+    handoff = false;
+    reasons = [];
+    if (lane !== 'new_booking_inquiry') {
+      correctionActiveBooking = true;
+      confidence = Math.max(confidence, 0.8);
+    }
   }
 
   if (greetingOnly) {
@@ -1023,17 +1107,39 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   let packageNightCtx = null;
 
   if (lane === 'new_booking_inquiry') {
+    // Stage 28j — on reset, extract from the current message only (fresh start).
     extractedFields = extractBookingFields(messageText, {
       language_hint: detectedLanguage,
       reference_date: ctx.reference_date,
       guest_phone: ctx.guest_phone || guestContext.guest_phone,
-      guest_context: guestContext,
-    }, priorExtracted);
+      guest_context: resetNewBooking ? {} : guestContext,
+    }, resetNewBooking ? {} : priorExtracted);
     if (packageMutation) {
       extractedFields = {
         ...extractedFields,
         package_interest: packageMutation,
       };
+    }
+
+    // Stage 28j — apply the sanitized conversation-brain field patch (fill-only;
+    // accommodation_only is an explicit guest choice and may set the stay type).
+    const brainPatch = brain.extracted_fields_patch || {};
+    if (accommodationOnlyChoice || brainPatch.accommodation_only === true) {
+      extractedFields = { ...extractedFields, package_interest: 'accommodation_only' };
+    }
+    if (brainPatch.check_in && brainPatch.check_out
+      && !extractedFields.check_in && !extractedFields.check_out) {
+      extractedFields = {
+        ...extractedFields,
+        check_in: brainPatch.check_in,
+        check_out: brainPatch.check_out,
+      };
+    }
+    if (brainPatch.guest_count != null && extractedFields.guest_count == null) {
+      extractedFields = { ...extractedFields, guest_count: brainPatch.guest_count };
+    }
+    if (brainPatch.package_interest && !extractedFields.package_interest) {
+      extractedFields = { ...extractedFields, package_interest: brainPatch.package_interest };
     }
 
     const guestDirectlyNamedPackage = !!(packageMutation
@@ -1065,7 +1171,8 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     if (reasons.includes('unclear_availability')) handoff = true;
     if (reasons.includes('uncertain_package_or_pricing')) handoff = true;
 
-    if (!handoff && missingRequired.length === 0 && confidence < 0.75) {
+    if (!handoff && missingRequired.length === 0 && confidence < 0.75
+      && !guestCorrecting && !accommodationOnlyChoice) {
       handoff = true;
       reasons = reasons.concat(['low_confidence_language_or_intent']);
     }
@@ -1089,20 +1196,22 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   // prior extracted fields + active intake state forward so the next turn keeps context.
   let preservedExtracted = null;
   let preservedIntakeState = null;
-  if ((preserveActiveBooking || clarifyActiveBooking) && lane !== 'new_booking_inquiry') {
+  if ((preserveActiveBooking || clarifyActiveBooking || correctionActiveBooking)
+    && lane !== 'new_booking_inquiry') {
     preservedExtracted = { ...priorExtracted };
     preservedIntakeState = 'collecting_required_details';
   }
 
   let safeHandoffRequired = greetingOnly
     ? false
-    : ((packageExplainerIntent || clarifyActiveBooking)
+    : ((packageExplainerIntent || clarifyActiveBooking || correctionActiveBooking || guestCorrecting)
       ? false
       : (lane === 'staff_handoff_required'
         || handoff
         || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r))));
 
-  if (packageExplainerIntent || greetingOnly || clarifyActiveBooking) {
+  if (packageExplainerIntent || greetingOnly || clarifyActiveBooking
+    || correctionActiveBooking || guestCorrecting) {
     handoff = false;
     reasons = [];
   }
@@ -1167,6 +1276,8 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       hasActivePaymentChoiceContext(guestContext),
       reasons,
     );
+  } else if (correctionActiveBooking) {
+    proposedReply = buildCorrectionContinueReply(detectedLanguage, activeMissingField, priorExtracted);
   } else if (clarifyActiveBooking) {
     proposedReply = buildClarifyReply(detectedLanguage, activeMissingField, priorExtracted);
   } else if (safeHandoffRequired) {
@@ -1183,7 +1294,12 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     })}`;
   } else if (lane === 'new_booking_inquiry') {
     const hasGuestsForNightRule = extractedFields.guest_count != null && extractedFields.guest_count >= 1;
-    if (packageNightCtx && packageNightCtx.rule === 'weekly_package_blocked') {
+    const resetWithoutDetails = resetNewBooking
+      && !extractedFields.check_in && !extractedFields.check_out
+      && extractedFields.guest_count == null && !extractedFields.package_interest;
+    if (resetWithoutDetails) {
+      proposedReply = buildNewBookingResetReply(detectedLanguage);
+    } else if (packageNightCtx && packageNightCtx.rule === 'weekly_package_blocked') {
       proposedReply = buildWeeklyPackageBlockedReply(detectedLanguage, packageNightCtx.package_code);
     } else if (packageNightCtx && packageNightCtx.rule === 'short_stay_guidance' && hasGuestsForNightRule) {
       proposedReply = buildShortStayAccommodationGuidanceReply(detectedLanguage);
@@ -1193,6 +1309,12 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       proposedReply = buildBookingReply(detectedLanguage, readiness, extractedFields, {
         includeIntro: false,
       });
+    }
+    // Stage 28j — explicit guest choices/corrections get acknowledged before continuing.
+    if (accommodationOnlyChoice) {
+      proposedReply = `${buildAccommodationOnlyAck(detectedLanguage)} ${proposedReply}`;
+    } else if (guestCorrecting) {
+      proposedReply = `${tpl(detectedLanguage, 'correction_ack')} ${proposedReply}`;
     }
   } else {
     proposedReply = buildLaneReply(lane, detectedLanguage, false, reasons);
@@ -1242,6 +1364,10 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       preserve_context: preserveActiveBooking,
       clarify: clarifyActiveBooking,
       reset_context: brain.reset_context === true,
+      guest_is_correcting_luna: guestCorrecting,
+      accommodation_only_choice: accommodationOnlyChoice,
+      next_best_action: brain.next_best_action || null,
+      confidence: brain.confidence != null ? brain.confidence : null,
     },
     package_night_rule: packageNightCtx ? packageNightCtx.rule : null,
     package_night_ctx: packageNightCtx,
@@ -1265,6 +1391,8 @@ module.exports = {
   detectNewBookingResetIntent,
   buildNewBookingResetReply,
   hasSubstantiveNewBookingDetailsAfterReset,
+  buildAccommodationOnlyAck,
+  buildCorrectionContinueReply,
   detectLanguage,
   detectPackageExplainerIntent,
   buildPackageExplainerReply,
