@@ -252,6 +252,32 @@ function messageLooksLikeDates(text) {
   return /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}[/-]\d|\d{4})\b/i.test(trimStr(text));
 }
 
+function isGuestCountCorrection(result) {
+  if (!result || result.previous_quote_invalidated !== true) return false;
+  const fields = result.corrected_fields;
+  return Array.isArray(fields) && fields.includes('guest_count');
+}
+
+function buildGuestCountCorrectionAddonsReply(fields, quote, plan, pc) {
+  const range = formatDateRange(fields.check_in, fields.check_out);
+  const guests = guestCountLabel(fields.guest_count, 'en');
+  const total = formatEur(quote && quote.quote_total_cents);
+  if (!total || !guests) return null;
+  const datePhrase = range ? ` for ${range}` : '';
+  return `Got it — updating that to ${guests}. The accommodation${datePhrase} comes to ${total}. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?`;
+}
+
+function buildGuestCountCorrectionPaymentReply(fields, quote, plan, pc) {
+  const guests = guestCountLabel(fields.guest_count, 'en');
+  const total = formatEur(quote && quote.quote_total_cents);
+  const deposit = formatEur(depositCentsFromPayload(quote, plan, pc));
+  if (!total || !guests) return null;
+  if (!deposit) {
+    return `Got it — updating that to ${guests}. The stay comes to ${total}.`;
+  }
+  return `Got it — updating that to ${guests}. The stay comes to ${total}. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+}
+
 function resolveComposerDisplayFields(input, payload, quote, result) {
   const fields = mergeGuestExtractedFields(
     collectPriorExtractedFields(input && input.prior_guest_context),
@@ -642,12 +668,18 @@ function buildReplyForState(state, ctx) {
       return buildComposerTransferReply(lang, messageText, fields, pc);
     case 'accommodation_quote_ready':
     case 'ask_addons_after_quote':
+      if (isGuestCountCorrection(result)) {
+        return buildGuestCountCorrectionAddonsReply(fields, quote, plan, pc) || L.accommodation_quote();
+      }
       return L.accommodation_quote();
     case 'package_quote_ready':
       return L.package_quote();
     case 'quote_refreshing':
       return L.quote_refreshing(fields);
     case 'addons_none_confirmed':
+      if (isGuestCountCorrection(result)) {
+        return buildGuestCountCorrectionPaymentReply(fields, quote, plan, pc) || L.addons_none();
+      }
       return L.addons_none();
     case 'ask_payment_choice':
       return L.ask_payment_choice();

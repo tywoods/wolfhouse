@@ -55,8 +55,13 @@ const PROOF_STAFF_NOTE_MARKERS = [
 
 function isExplicitPaidProofReset(context) {
   const ctx = context || {};
-  return ctx.allow_staging_paid_proof_reset === true
-    || ctx.allowStagingPaidProofReset === true;
+  if (ctx.allow_staging_paid_proof_reset === true
+    || ctx.allowStagingPaidProofReset === true) {
+    return true;
+  }
+  const env = ctx.env || process.env || {};
+  const raw = trimStr(env.ALLOW_STAGING_PAID_PROOF_RESET).toLowerCase();
+  return raw === 'true' || raw === '1' || raw === 'yes';
 }
 
 function isAllowlistedProofPhone(phone) {
