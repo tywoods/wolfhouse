@@ -667,23 +667,24 @@
       "id": "flow-en-unavailable-dates",
       "fixture_set": "booking-core",
       "language": "en",
-      "label": "Short-stay availability check (July window — staging-inventory aligned)",
+      "label": "Short-stay accommodation-only → staff confirmation (under 7 nights, no quote/payment)",
       "write_eligible": false,
       "turns": [
         {
           "message": "2 people accommodation only July 10 to July 13",
           "expect": {
             "message_lane": "new_booking_inquiry",
-            "booking_intake_ready": true,
-            "availability_check_attempted": true,
+            "booking_intake_ready": false,
+            "availability_check_attempted": false,
+            "handoff_required": false,
             "banned_reply_terms_absent": true
           }
         }
       ],
       "final_expect": {
         "handoff_required": false,
-        "quote_status": "ready",
-        "availability_check_attempted": true,
+        "proposed_next_action": "await_staff_accommodation_confirmation",
+        "availability_check_attempted": false,
         "banned_reply_terms_absent": true
       }
     },

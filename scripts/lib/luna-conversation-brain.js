@@ -35,7 +35,7 @@
 
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
 const { KNOWN_ADDON_TYPES } = require('./luna-guest-message-intake');
-const { callLunaAiJsonChat } = require('./luna-ai-provider');
+const { callLunaAiJsonChat, resolveLunaAiModel } = require('./luna-ai-provider');
 
 const PACKAGE_NAMES_RE = /\b(?:malibu|uluwatu|waimea)\b/i;
 
@@ -697,12 +697,21 @@ async function defaultConversationBrainLlmClient(prompt, env) {
       env: { ...e, LUNA_AI_MODEL: prompt.model },
     });
     if (text == null) return null; // provider not configured
-    return parseLlmJson(text);
+    const parsed = parseLlmJson(text);
+    if (parsed && typeof parsed === 'object') parsed.__model_used = prompt.model;
+    return parsed;
   } catch (err) {
     // Graceful model fallback: retry once with the repo-configured default model.
+    const fallbackModel = resolveLunaAiModel(e, 'openai');
     const text = await callLunaAiJsonChat({ ...callOpts, env: e });
     if (text == null) return null;
-    return parseLlmJson(text);
+    const parsed = parseLlmJson(text);
+    if (parsed && typeof parsed === 'object') {
+      parsed.__model_used = fallbackModel;
+      parsed.__model_fallback_from = prompt.model;
+      parsed.__llm_error = String((err && err.message) || err).slice(0, 200);
+    }
+    return parsed;
   }
 }
 
@@ -718,9 +727,18 @@ async function defaultConversationBrainLlmClient(prompt, env) {
 async function decideConversationActionAsync(input, options = {}) {
   const inp = input || {};
   const env = inp.env || process.env;
+  const modelRequested = conversationBrainModel(env);
   const deterministic = decideConversationAction(inp);
+  deterministic.brain_enabled = isConversationBrainEnabled(env);
+  deterministic.llm_enabled = isConversationBrainLlmEnabled(env);
+  deterministic.model_requested = modelRequested;
+  deterministic.model_used = null;
+  deterministic.llm_error = null;
 
-  if (!isConversationBrainLlmEnabled(env)) return deterministic;
+  if (!deterministic.llm_enabled) {
+    deterministic.source = 'deterministic';
+    return deterministic;
+  }
 
   const client = typeof options.llmClient === 'function'
     ? options.llmClient
@@ -732,20 +750,59 @@ async function decideConversationActionAsync(input, options = {}) {
       Promise.resolve(client(prompt)),
       conversationBrainTimeoutMs(env),
     );
+    if (raw == null) {
+      // Provider not configured / returned nothing → safe deterministic fallback.
+      deterministic.source = 'fallback';
+      deterministic.llm_error = 'llm_returned_null';
+      return deterministic;
+    }
+    const modelUsed = (raw && raw.__model_used) || modelRequested;
+    const llmError = (raw && raw.__llm_error) || null;
     const sanitized = sanitizeLlmDecision(raw, inp.active_missing_field || null);
-    if (!sanitized) return deterministic;
+    if (!sanitized) {
+      deterministic.source = 'fallback';
+      deterministic.llm_error = 'llm_unparseable';
+      return deterministic;
+    }
+    sanitized.brain_enabled = true;
+    sanitized.llm_enabled = true;
+    sanitized.model_requested = modelRequested;
+    sanitized.model_used = modelUsed;
+    sanitized.llm_error = llmError;
     // If the LLM punts (passthrough/no signal) but deterministic rules are confident,
-    // prefer the deterministic decision.
+    // prefer the deterministic decision (but keep LLM observability).
     if (sanitized.intent === 'passthrough' && deterministic.intent !== 'passthrough') {
+      deterministic.source = 'deterministic';
+      deterministic.deterministic_over_llm = 'passthrough';
+      deterministic.model_used = modelUsed;
+      deterministic.llm_error = llmError;
       return deterministic;
     }
     if (sanitized.intent === 'clarify' && deterministic.intent !== 'passthrough'
       && deterministic.intent !== 'clarify' && deterministic.confidence >= 0.8) {
+      deterministic.source = 'deterministic';
+      deterministic.deterministic_over_llm = 'clarify';
+      deterministic.model_used = modelUsed;
+      deterministic.llm_error = llmError;
       return deterministic;
     }
     return sanitized;
-  } catch (_) {
-    return deterministic; // never fail the conversation on LLM error/timeout
+  } catch (err) {
+    // Never fail the conversation on LLM error/timeout: fall back to deterministic,
+    // and if that is unsure, prefer a clarify over a dumb handoff.
+    const msg = String((err && err.message) || err);
+    deterministic.source = /timeout/i.test(msg) ? 'timeout' : 'error';
+    deterministic.llm_error = msg.slice(0, 200);
+    if (deterministic.intent === 'passthrough') {
+      deterministic.intent = inp.in_active_booking ? 'clarify' : 'passthrough';
+      if (deterministic.intent === 'clarify') {
+        deterministic.reply_type = 'clarify';
+        deterministic.should_handoff = false;
+        deterministic.preserve_context = true;
+        deterministic.next_missing_field = inp.active_missing_field || null;
+      }
+    }
+    return deterministic;
   }
 }
 

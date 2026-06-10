@@ -41,6 +41,12 @@ const {
 } = require('./luna-guest-context-merge');
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
 const {
+  computeStayNights,
+  isAccommodationOnlyIntent,
+  buildShortStayAccommodationConfirmReply,
+  buildShortStayAccommodationPendingReply,
+} = require('./wolfhouse-package-night-rules');
+const {
   detectServiceSideQuestionIntent,
   detectTransferSideQuestionIntent,
   buildServiceSideQuestionReply,
@@ -65,6 +71,8 @@ const VALID_PROPOSED_NEXT_ACTIONS = Object.freeze([
   'show_availability_quote',
   'collect_payment_choice',
   'prepare_hold_payment_draft_plan',
+  'await_staff_accommodation_confirmation',
+  'await_guest_reply',
   'staff_handoff_required',
   'automation_blocked',
 ]);
@@ -99,6 +107,118 @@ const NON_BOOKING_LANES = new Set([
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+const LUNA_INTRO_RE = /(?:Hi|Hey|Hola|Ciao|Bonjour|Hallo)[!,.]?\s+(?:I'?m|Soy|Sono|Je suis|Ich bin)\s+Luna\s+from\s+Wolfhouse\s*🌊\s*(?:—\s*)?/gi;
+
+/**
+ * Stage 28j.2 — final reply cleanup. Mid-flow replies must never repeat the
+ * "Hi/Hey, I'm Luna from Wolfhouse" intro. Only the first greeting/fresh turn keeps it.
+ *
+ * @param {string} reply
+ * @param {boolean} allowLeadingIntro  true only for greeting / fresh-conversation turns
+ */
+function dedupeLunaIntro(reply, allowLeadingIntro) {
+  if (!reply) return reply;
+  let out = String(reply);
+  if (allowLeadingIntro) {
+    // Keep a single leading intro; strip any later/duplicate occurrences.
+    const m = out.match(LUNA_INTRO_RE);
+    if (m && m.length > 1) {
+      let seenFirst = false;
+      out = out.replace(LUNA_INTRO_RE, (frag) => {
+        if (!seenFirst) { seenFirst = true; return frag; }
+        return '';
+      });
+    }
+    return out.replace(/\s{2,}/g, ' ').trim();
+  }
+  // Mid-flow: strip every intro fragment.
+  out = out.replace(LUNA_INTRO_RE, '');
+  return out.replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * Stage 28j.2 — detect a persistent short-stay accommodation-only hold.
+ * True when prior context shows accommodation-only intent for an under-7-night stay.
+ */
+function inShortStayAccommodationHold(guestContext) {
+  const prior = collectPriorExtractedFields(guestContext || {});
+  const rule = (guestContext && guestContext.package_night_rule)
+    || (guestContext && guestContext.result && guestContext.result.package_night_rule)
+    || null;
+  if (rule === 'short_stay_accommodation') {
+    if (isAccommodationOnlyIntent(prior.package_interest)) return true;
+  }
+  const nights = computeStayNights(prior.check_in, prior.check_out);
+  return isAccommodationOnlyIntent(prior.package_interest) && nights != null && nights < 7;
+}
+
+/** Guest is pushing toward payment ("deposit"/"full"/"pay now"). */
+function looksLikePaymentPush(text) {
+  const t = trimStr(text).toLowerCase();
+  if (!t) return false;
+  return /\b(?:deposit|full amount|pay (?:the )?(?:deposit|full|now)|full payment|acconto|pago completo|anzahlung|acompte)\b/i.test(t)
+    || /^(?:deposit|full)$/i.test(t);
+}
+
+/** Guest asks "when"/"how" about a pending next step. */
+function looksLikeWhenQuestion(text) {
+  const t = trimStr(text).toLowerCase();
+  if (!t) return false;
+  return /\b(?:when|how long|how soon|what.?s next|next step|wann|quand|cuándo|cuando|quando)\b/i.test(t);
+}
+
+/**
+ * Stage 28j.2 — conversation-control reply types whose router reply is authoritative.
+ * These must never be overridden by payment-choice/quote templates.
+ */
+const BRAIN_AUTHORITATIVE_REPLY_TYPES = new Set([
+  'accommodation_only_ack', 'correction_ack', 'clarify', 'package_explainer',
+  'package_recommendation', 'short_stay_guidance', 'reset_prompt',
+]);
+const BRAIN_AUTHORITATIVE_INTENTS = new Set([
+  'accommodation_only_choice', 'guest_correction', 'side_question', 'package_undecided',
+  'reset_new_booking', 'clarify',
+]);
+
+/**
+ * Stage 28j.2 — Part C observability. Surfaces whether the smart brain was used,
+ * which model, any error, and whether a downstream module overrode the brain reply.
+ */
+function buildBrainObservability(brainDecision, extra) {
+  const b = brainDecision || {};
+  const x = extra || {};
+  return {
+    intent: b.intent || null,
+    reply_type: b.reply_type || null,
+    source: b.source || null,
+    brain_enabled: b.brain_enabled === true,
+    llm_enabled: b.llm_enabled === true,
+    model_requested: b.model_requested || null,
+    model_used: b.model_used || null,
+    llm_error: b.llm_error || null,
+    brain_intent: b.intent || null,
+    brain_reply_type: b.reply_type || null,
+    guest_is_correcting_luna: b.guest_is_correcting_luna === true,
+    accommodation_only_choice: b.intent === 'accommodation_only_choice',
+    next_best_action: b.next_best_action || null,
+    confidence: b.confidence != null ? b.confidence : null,
+    final_reply_source: x.finalReplySource || null,
+    final_reply_overrode_brain: x.overrodeBrain === true,
+  };
+}
+
+function brainControlsReply(brainDecision, result) {
+  if (result && (result.package_night_rule === 'short_stay_accommodation'
+    || result.package_night_rule === 'short_stay_guidance'
+    || result.package_night_rule === 'weekly_package_blocked'
+    || result.package_night_rule === 'weekly_explain_before_choice')) {
+    return true;
+  }
+  if (!brainDecision) return false;
+  return BRAIN_AUTHORITATIVE_REPLY_TYPES.has(brainDecision.reply_type)
+    || BRAIN_AUTHORITATIVE_INTENTS.has(brainDecision.intent);
 }
 
 function mergeGateContext(input, context) {
@@ -220,6 +340,12 @@ function resolveProposedNextAction(payload) {
 
   if (!result) return 'automation_blocked';
 
+  // Stage 28j.2 — under-7-night accommodation-only choice routes to staff confirmation,
+  // never to a payment/availability step.
+  if (result.package_night_rule === 'short_stay_accommodation') {
+    return 'await_staff_accommodation_confirmation';
+  }
+
   if (plan && plan.plan_status === 'ready') {
     return 'prepare_hold_payment_draft_plan';
   }
@@ -299,7 +425,7 @@ function shouldUsePaymentChoiceReply(pc, quote) {
   return false;
 }
 
-function resolveProposedReply(payload, messageText, priorGuestContext) {
+function resolveProposedReply(payload, messageText, priorGuestContext, brainDecision) {
   const {
     hold_payment_draft_plan: plan,
     payment_choice: pc,
@@ -318,6 +444,14 @@ function resolveProposedReply(payload, messageText, priorGuestContext) {
   }
 
   const fallbackCtx = { result, quote, availability };
+
+  // Stage 28j.2 — when the conversation brain has a clear conversation-control
+  // decision (accommodation-only ack, correction, clarify, side question, short-stay
+  // package rule), the router reply is authoritative. Old payment-choice / quote
+  // templates must not override it.
+  if (brainControlsReply(brainDecision, result) && result && result.proposed_luna_reply) {
+    return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
   const sideQuestionText = messageText != null ? String(messageText).trim() : '';
   const priorFields = collectPriorExtractedFields(priorGuestContext);
   const sideQuestionLang = (result && result.detected_language) || 'en';
@@ -390,6 +524,24 @@ function resolveProposedReply(payload, messageText, priorGuestContext) {
     return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
   return "Hi! I'm Luna from Wolfhouse 🌊 — thanks for your message.";
+}
+
+/** Stage 28j.2 — best-effort source label for the final reply (observability). */
+function classifyFinalReplySource(finalReply, payload) {
+  const norm = (v) => (v == null ? '' : String(v).trim());
+  const f = norm(finalReply);
+  if (!f) return 'fallback';
+  const r = payload.result || {};
+  const pc = payload.payment_choice || {};
+  const q = payload.quote || {};
+  const av = payload.availability || {};
+  const plan = payload.hold_payment_draft_plan || {};
+  if (r.proposed_luna_reply && f.includes(norm(r.proposed_luna_reply))) return 'router';
+  if (pc.proposed_luna_reply && f === norm(pc.proposed_luna_reply)) return 'payment_choice';
+  if (plan.proposed_luna_reply && f === norm(plan.proposed_luna_reply)) return 'plan';
+  if (q.proposed_luna_reply && f === norm(q.proposed_luna_reply)) return 'quote';
+  if (av.proposed_luna_reply && f === norm(av.proposed_luna_reply)) return 'availability';
+  return 'composed';
 }
 
 function buildOrchestratorResponse(parts) {
@@ -556,6 +708,49 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
 
   const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext);
 
+  // Stage 28j.2 — short-stay accommodation-only hold: once the guest has chosen
+  // accommodation-only for an under-7-night stay, no weekly package / quote / payment
+  // path applies. Answer payment pushes and "when?" questions contextually instead of
+  // re-asking deposit/full or handing off.
+  if (inShortStayAccommodationHold(chainGuestContext)
+    && brainDecision.reset_context !== true
+    && !detectNewBookingResetIntent(messageText)) {
+    const isPaymentPush = looksLikePaymentPush(messageText);
+    const isWhen = looksLikeWhenQuestion(messageText);
+    const stillShortStayThisTurn = result.package_night_rule === 'short_stay_accommodation'
+      || result.message_lane !== 'new_booking_inquiry';
+    if ((isPaymentPush || isWhen) && stillShortStayThisTurn) {
+      const lang = result.detected_language || 'en';
+      const pendingReply = buildShortStayAccommodationPendingReply(lang);
+      const heldResult = {
+        ...result,
+        message_lane: 'new_booking_inquiry',
+        intake_state: 'collecting_required_details',
+        readiness_state: 'collecting_required_details',
+        booking_intake_ready: false,
+        safe_handoff_required: false,
+        handoff_reasons: [],
+        package_night_rule: 'short_stay_accommodation',
+        extracted_fields: collectPriorExtractedFields(chainGuestContext),
+        proposed_luna_reply: pendingReply,
+        conversation_brain: buildBrainObservability(brainDecision, {
+          finalReplySource: 'short_stay_accommodation_pending',
+          overrodeBrain: false,
+        }),
+      };
+      return buildOrchestratorResponse({
+        automation_gate: gate,
+        result: heldResult,
+        availability: buildGuestAvailabilitySkippedResponse(heldResult),
+        quote: { quote_status: 'not_ready', payment_choice_needed: false },
+        payment_choice: buildGuestPaymentChoiceSkippedResponse({}),
+        hold_payment_draft_plan: null,
+        proposed_next_action: 'await_staff_accommodation_confirmation',
+        proposed_luna_reply: dedupeLunaIntro(pendingReply, false),
+      });
+    }
+  }
+
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
     return buildNonBookingLaneResponse(result, gate);
   }
@@ -618,20 +813,43 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     hold_payment_draft_plan,
   }, trimStr(inp.message_text));
 
-  let proposedLunaReply = resolveProposedReply(payload, trimStr(inp.message_text), chainGuestContext);
+  let proposedLunaReply = resolveProposedReply(
+    payload, trimStr(inp.message_text), chainGuestContext, brainDecision,
+  );
 
   // Stage 28j — when the guest explicitly chose accommodation-only ("no add nothing"),
   // the final reply must acknowledge that choice even when a chain reply wins.
-  if (brainDecision && brainDecision.intent === 'accommodation_only_choice' && proposedLunaReply) {
+  // Stage 28j.2 — but the short-stay accommodation confirm reply already acknowledges,
+  // so we never double-prepend the generic ack onto it.
+  const replyAlreadyAcksAccommodation = payload.result
+    && payload.result.package_night_rule === 'short_stay_accommodation';
+  if (brainDecision && brainDecision.intent === 'accommodation_only_choice'
+    && proposedLunaReply && !replyAlreadyAcksAccommodation) {
     const ack = buildAccommodationOnlyAck((result && result.detected_language) || 'en');
     if (!proposedLunaReply.includes(ack)) {
       proposedLunaReply = `${ack} ${proposedLunaReply}`;
     }
   }
 
+  // Stage 28j.2 — observability + final reply cleanup.
+  const finalReplySource = classifyFinalReplySource(proposedLunaReply, payload);
+  const overrodeBrain = brainControlsReply(brainDecision, payload.result)
+    && finalReplySource !== 'router';
+  const allowLeadingIntro = (brainDecision && brainDecision.intent === 'greeting')
+    || (payload.result && payload.result.greeting_only === true);
+  proposedLunaReply = dedupeLunaIntro(proposedLunaReply, allowLeadingIntro === true);
+
+  const resultWithBrain = {
+    ...payload.result,
+    conversation_brain: buildBrainObservability(brainDecision, {
+      finalReplySource,
+      overrodeBrain,
+    }),
+  };
+
   return buildOrchestratorResponse({
     automation_gate: gate,
-    result: payload.result,
+    result: resultWithBrain,
     availability: payload.availability,
     quote: payload.quote,
     payment_choice: payload.payment_choice,

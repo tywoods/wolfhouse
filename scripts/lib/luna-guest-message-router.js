@@ -25,6 +25,7 @@ const {
   packageNightRuleBlocksQuote,
   buildWeeklyPackageBlockedReply,
   buildShortStayAccommodationGuidanceReply,
+  buildShortStayAccommodationConfirmReply,
   buildWeeklyPackageExplanationReply,
   isWeeklySurfPackage,
 } = require('./wolfhouse-package-night-rules');
@@ -848,6 +849,7 @@ function computeBookingIntakeReadiness(lane, extracted, safeHandoffRequired, han
     const pReasons = [...reasons];
     if (packageNightCtx.rule === 'weekly_package_blocked') pReasons.push('weekly_package_under_min_nights');
     if (packageNightCtx.rule === 'short_stay_guidance') pReasons.push('short_stay_needs_accommodation_path');
+    if (packageNightCtx.rule === 'short_stay_accommodation') pReasons.push('short_stay_accommodation_needs_staff_confirm');
     if (packageNightCtx.rule === 'weekly_explain_before_choice') pReasons.push('weekly_package_explanation_needed');
     return {
       booking_intake_ready: false,
@@ -1303,6 +1305,8 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       proposedReply = buildWeeklyPackageBlockedReply(detectedLanguage, packageNightCtx.package_code);
     } else if (packageNightCtx && packageNightCtx.rule === 'short_stay_guidance' && hasGuestsForNightRule) {
       proposedReply = buildShortStayAccommodationGuidanceReply(detectedLanguage);
+    } else if (packageNightCtx && packageNightCtx.rule === 'short_stay_accommodation' && hasGuestsForNightRule) {
+      proposedReply = buildShortStayAccommodationConfirmReply(detectedLanguage, extractedFields);
     } else if (packageNightCtx && packageNightCtx.rule === 'weekly_explain_before_choice' && hasGuestsForNightRule) {
       proposedReply = buildWeeklyPackageExplanationReply(detectedLanguage);
     } else {
@@ -1311,7 +1315,11 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       });
     }
     // Stage 28j — explicit guest choices/corrections get acknowledged before continuing.
-    if (accommodationOnlyChoice) {
+    // Stage 28j.2 — the short-stay accommodation confirm reply already acknowledges, so
+    // we do not double-prepend the generic accommodation-only ack onto it.
+    const replyAlreadyAcksAccommodation = packageNightCtx
+      && packageNightCtx.rule === 'short_stay_accommodation';
+    if (accommodationOnlyChoice && !replyAlreadyAcksAccommodation) {
       proposedReply = `${buildAccommodationOnlyAck(detectedLanguage)} ${proposedReply}`;
     } else if (guestCorrecting) {
       proposedReply = `${tpl(detectedLanguage, 'correction_ack')} ${proposedReply}`;

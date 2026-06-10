@@ -189,13 +189,15 @@ const {
     { ...baseInput, env: { ...STAGING_ENV, LUNA_CONVERSATION_BRAIN_TIMEOUT_MS: '50' } },
     { llmClient: () => new Promise(() => {}) }, // never resolves
   );
-  check('B4', d4.source === 'deterministic', 'LLM timeout falls back to deterministic brain');
+  check('B4', d4.source === 'timeout' && d4.intent != null,
+    'LLM timeout falls back to deterministic brain (source=timeout)');
 
   // B5: LLM error falls back to deterministic.
   const d5 = await decideConversationActionAsync(baseInput, {
     llmClient: async () => { throw new Error('boom'); },
   });
-  check('B5', d5.source === 'deterministic', 'LLM error falls back to deterministic brain');
+  check('B5', d5.source === 'error' && d5.intent != null,
+    'LLM error falls back to deterministic brain (source=error)');
 
   // B6: LLM punting to passthrough defers to a confident deterministic decision.
   const d6 = await decideConversationActionAsync(
@@ -361,8 +363,11 @@ const {
     'A: no package prompt after accommodation-only choice');
   check('E-A3', a5.result.safe_handoff_required === false,
     'A: router does not handoff');
-  check('E-A4', /accommodation only it is/i.test(a5.orchestrator.proposed_luna_reply),
-    'A: reply acknowledges accommodation only');
+  check('E-A4', /accommodation only/i.test(a5.orchestrator.proposed_luna_reply)
+    && /team needs to confirm|accommodation only it is/i.test(a5.orchestrator.proposed_luna_reply),
+    'A: reply acknowledges accommodation only (short-stay confirm)');
+  check('E-A5', !/deposit|full amount/i.test(a5.orchestrator.proposed_luna_reply),
+    'A: no deposit/full prompt for short-stay accommodation-only');
 
   // B: guest corrects Luna → acknowledge, continue short-stay flow, no handoff
   const exB = await runTurns([

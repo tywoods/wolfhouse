@@ -114,6 +114,8 @@ function slimResultForChain(result) {
     booking_intake_ready: result.booking_intake_ready,
     extracted_fields: result.extracted_fields,
     detected_language: result.detected_language,
+    package_night_rule: result.package_night_rule,
+    conversation_brain: result.conversation_brain,
   };
 }
 

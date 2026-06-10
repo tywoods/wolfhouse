@@ -161,10 +161,23 @@ function buildOpenDemoResultSummary(outcome) {
   const result = review.result || {};
   const pc = review.payment_choice || {};
   const whatsappSent = lr.whatsapp_sent === true || lr.send_performed === true;
+  const brain = result.conversation_brain || {};
 
   return {
     route: META_OPEN_DEMO_SOURCE,
     calls_n8n: false,
+    conversation_brain: {
+      brain_enabled: brain.brain_enabled === true,
+      llm_enabled: brain.llm_enabled === true,
+      brain_source: brain.source || null,
+      model_requested: brain.model_requested || null,
+      model_used: brain.model_used || null,
+      llm_error: brain.llm_error || null,
+      brain_reply_type: brain.reply_type || brain.brain_reply_type || null,
+      brain_intent: brain.intent || brain.brain_intent || null,
+      final_reply_source: brain.final_reply_source || null,
+      final_reply_overrode_brain: brain.final_reply_overrode_brain === true,
+    },
     review_ok: outcome.reviewOutcome && outcome.reviewOutcome.ok === true,
     live_reply_attempted: lr.live_reply_attempted === true,
     whatsapp_sent: whatsappSent,

@@ -147,28 +147,57 @@ const LUNA_REPLIES = {
     weekly_blocked: (pkg) => `For stays under 7 nights, we don't book the Malibu/Uluwatu/Waimea weekly packages${pkg ? ` (including ${pkg.charAt(0).toUpperCase() + pkg.slice(1)})` : ''}. We can still help with accommodation and add-ons like wetsuit, board rental, or surf lessons. Would you like accommodation only, or do you want to add lessons/gear?`,
     short_stay_guidance: 'For stays under 7 nights, our weekly surf packages (Malibu, Uluwatu, Waimea) aren\'t available — they\'re for 7-night stays. We can still help with accommodation and add-ons like wetsuit, board rental, or surf lessons. Would you like accommodation only, or do you want to add lessons/gear?',
     explain_choice: 'Which one sounds best: Malibu, Uluwatu, or Waimea?',
+    short_stay_accommodation_confirm: (range, guests) => `Got it — accommodation only${range ? ` for ${range}` : ''}${guests ? ` for ${guests}` : ''}. For shorter stays, the team needs to confirm the accommodation-only price and availability. I'll keep this noted and someone can follow up.`,
+    short_stay_accommodation_pending: 'For this short stay, we need the team to confirm the accommodation-only option first. Once it\'s confirmed, they can help with the next step — I can\'t take a deposit or full payment for this yet.',
   },
   it: {
     weekly_blocked: (pkg) => `Per soggiorni sotto le 7 notti non prenotiamo i pacchetti settimanali Malibu/Uluwatu/Waimea${pkg ? ` (incluso ${pkg.charAt(0).toUpperCase() + pkg.slice(1)})` : ''}. Possiamo comunque aiutarti con pernottamento e extra come muta, noleggio tavola o lezioni di surf. Preferisci solo pernottamento o vuoi aggiungere lezioni/attrezzatura?`,
     short_stay_guidance: 'Per soggiorni sotto le 7 notti i pacchetti surf settimanali (Malibu, Uluwatu, Waimea) non sono disponibili — sono per 7 notti. Possiamo comunque aiutarti con pernottamento e extra come muta, noleggio tavola o lezioni. Preferisci solo pernottamento o vuoi aggiungere lezioni/attrezzatura?',
     explain_choice: 'Quale ti sembra più adatto: Malibu, Uluwatu o Waimea?',
+    short_stay_accommodation_confirm: (range, guests) => `Perfetto — solo pernottamento${range ? ` per ${range}` : ''}${guests ? ` per ${guests}` : ''}. Per soggiorni brevi il team deve confermare prezzo e disponibilità del solo pernottamento. Lo annoto e qualcuno ti ricontatta.`,
+    short_stay_accommodation_pending: 'Per questo soggiorno breve serve prima la conferma del team sul solo pernottamento. Una volta confermato, possono aiutarti col passo successivo — per ora non posso prendere un acconto o il pagamento completo.',
   },
   es: {
     weekly_blocked: (pkg) => `Para estancias de menos de 7 noches no reservamos los paquetes semanales Malibu/Uluwatu/Waimea${pkg ? ` (incluido ${pkg.charAt(0).toUpperCase() + pkg.slice(1)})` : ''}. Aun así podemos ayudarte con alojamiento y extras como neopreno, alquiler de tabla o clases de surf. ¿Prefieres solo alojamiento o quieres añadir clases/material?`,
     short_stay_guidance: 'Para estancias de menos de 7 noches los paquetes surf semanales (Malibu, Uluwatu, Waimea) no están disponibles — son para 7 noches. Aun así podemos ayudarte con alojamiento y extras como neopreno, alquiler de tabla o clases. ¿Prefieres solo alojamiento o quieres añadir clases/material?',
     explain_choice: '¿Cuál te encaja más: Malibu, Uluwatu o Waimea?',
+    short_stay_accommodation_confirm: (range, guests) => `Entendido — solo alojamiento${range ? ` para ${range}` : ''}${guests ? ` para ${guests}` : ''}. Para estancias cortas, el equipo debe confirmar el precio y la disponibilidad del alojamiento. Lo dejo anotado y alguien te contactará.`,
+    short_stay_accommodation_pending: 'Para esta estancia corta, el equipo debe confirmar primero la opción de solo alojamiento. Una vez confirmada, pueden ayudarte con el siguiente paso — de momento no puedo cobrar un depósito ni el pago completo.',
   },
   de: {
     weekly_blocked: (pkg) => `Für Aufenthalte unter 7 Nächten buchen wir keine wöchentlichen Malibu/Uluwatu/Waimea-Pakete${pkg ? ` (einschließlich ${pkg.charAt(0).toUpperCase() + pkg.slice(1)})` : ''}. Wir können trotzdem mit Unterkunft und Extras wie Neopren, Brett-Verleih oder Surfkursen helfen. Nur Unterkunft oder Kurse/Equipment dazu?`,
     short_stay_guidance: 'Für Aufenthalte unter 7 Nächten sind die wöchentlichen Surfpakete (Malibu, Uluwatu, Waimea) nicht verfügbar — die gelten für 7 Nächte. Wir können trotzdem mit Unterkunft und Extras wie Neopren, Brett-Verleih oder Surfkursen helfen. Nur Unterkunft oder Kurse/Equipment dazu?',
     explain_choice: 'Was passt am ehesten: Malibu, Uluwatu oder Waimea?',
+    short_stay_accommodation_confirm: (range, guests) => `Alles klar — nur Unterkunft${range ? ` für ${range}` : ''}${guests ? ` für ${guests}` : ''}. Bei kürzeren Aufenthalten muss das Team Preis und Verfügbarkeit für die reine Unterkunft bestätigen. Ich notiere es und jemand meldet sich.`,
+    short_stay_accommodation_pending: 'Für diesen kurzen Aufenthalt muss das Team zuerst die reine Unterkunft bestätigen. Sobald das bestätigt ist, können sie beim nächsten Schritt helfen — eine Anzahlung oder Vollzahlung kann ich dafür noch nicht annehmen.',
   },
   fr: {
     weekly_blocked: (pkg) => `Pour les séjours de moins de 7 nuits, nous ne réservons pas les forfaits hebdomadaires Malibu/Uluwatu/Waimea${pkg ? ` (y compris ${pkg.charAt(0).toUpperCase() + pkg.slice(1)})` : ''}. Nous pouvons quand même vous aider avec l'hébergement et des extras comme combinaison, location de planche ou cours de surf. Hébergement seul ou cours/matériel en plus ?`,
     short_stay_guidance: 'Pour les séjours de moins de 7 nuits, les forfaits surf hebdomadaires (Malibu, Uluwatu, Waimea) ne sont pas disponibles — ils sont pour 7 nuits. Nous pouvons quand même vous aider avec l\'hébergement et des extras comme combinaison, location de planche ou cours. Hébergement seul ou cours/matériel en plus ?',
     explain_choice: 'Lequel vous semble le plus adapté : Malibu, Uluwatu ou Waimea ?',
+    short_stay_accommodation_confirm: (range, guests) => `Parfait — hébergement seul${range ? ` pour ${range}` : ''}${guests ? ` pour ${guests}` : ''}. Pour les séjours courts, l'équipe doit confirmer le prix et la disponibilité de l'hébergement seul. Je le note et quelqu'un vous recontactera.`,
+    short_stay_accommodation_pending: 'Pour ce court séjour, l\'équipe doit d\'abord confirmer l\'option hébergement seul. Une fois confirmée, ils pourront vous aider pour la suite — je ne peux pas encore prendre d\'acompte ou de paiement complet.',
   },
 };
+
+/** Format a guest-count phrase ("1 guest" / "2 guests"). */
+function formatGuestPhrase(lang, count) {
+  if (count == null) return null;
+  const n = Number(count);
+  if (!Number.isFinite(n) || n < 1) return null;
+  const L = normalizeLang(lang);
+  if (L === 'it') return n === 1 ? '1 ospite' : `${n} ospiti`;
+  if (L === 'es') return n === 1 ? '1 huésped' : `${n} huéspedes`;
+  if (L === 'de') return n === 1 ? '1 Gast' : `${n} Gäste`;
+  if (L === 'fr') return n === 1 ? '1 personne' : `${n} personnes`;
+  return n === 1 ? '1 guest' : `${n} guests`;
+}
+
+/** Format a compact date range ("July 1–5" style → ISO fallback). */
+function formatStayRange(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return null;
+  return `${String(checkIn).slice(0, 10)} to ${String(checkOut).slice(0, 10)}`;
+}
 
 function normalizeLang(lang) {
   const l = String(lang || 'en').trim().toLowerCase().slice(0, 2);
@@ -191,9 +220,28 @@ function buildWeeklyPackageExplanationReply(lang) {
   return `${overview}\n\n${L.explain_choice}`;
 }
 
+/**
+ * Stage 28j.2 — confirm-style reply for an under-7-night accommodation-only choice.
+ * No availability/price assertion; routes to staff for accommodation-only confirmation.
+ */
+function buildShortStayAccommodationConfirmReply(lang, fields) {
+  const L = LUNA_REPLIES[normalizeLang(lang)];
+  const f = fields || {};
+  const range = formatStayRange(f.check_in, f.check_out);
+  const guests = formatGuestPhrase(lang, f.guest_count);
+  return L.short_stay_accommodation_confirm(range, guests);
+}
+
+/** Stage 28j.2 — follow-up reply when guest pushes for payment on a short-stay accommodation hold. */
+function buildShortStayAccommodationPendingReply(lang) {
+  const L = LUNA_REPLIES[normalizeLang(lang)];
+  return L.short_stay_accommodation_pending;
+}
+
 function packageNightRuleBlocksQuote(rule) {
   return rule === 'weekly_package_blocked'
     || rule === 'short_stay_guidance'
+    || rule === 'short_stay_accommodation'
     || rule === 'weekly_explain_before_choice';
 }
 
@@ -209,6 +257,10 @@ module.exports = {
   validateStaffPackageNightRule,
   buildWeeklyPackageBlockedReply,
   buildShortStayAccommodationGuidanceReply,
+  buildShortStayAccommodationConfirmReply,
+  buildShortStayAccommodationPendingReply,
   buildWeeklyPackageExplanationReply,
+  formatStayRange,
+  formatGuestPhrase,
   packageNightRuleBlocksQuote,
 };
