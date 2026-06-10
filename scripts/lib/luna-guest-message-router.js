@@ -36,6 +36,7 @@ const {
   extractAddOnSelections,
   quoteAwaitingAddonsDecision,
 } = require('./luna-booking-addons-policy');
+const { detectReactiveServiceIntent, guestDecidedLater, isReactiveServiceFollowUpMessage } = require('./luna-booking-reactive-services-policy');
 const {
   evaluatePackageNightContext,
   packageNightRuleBlocksQuote,
@@ -741,8 +742,22 @@ function classifyMessageLane(text, guestContext) {
     return { lane: 'existing_booking_question', handoff: false, reasons: [], confidence: 0.85 };
   }
 
-  const serviceOnly = /\b(?:wetsuit|surfboard|surf board|surfbrett|muta|tabla de surf|planche|surf lesson|surfstunde|surfbrett|clase de surf|cours de surf|lezione di surf|yoga)\b/i.test(t)
-    || /\b(?:kann ich|can i|posso|puis-je|¿puedo|puedo)\b.*\b(?:surfbrett|wetsuit|surfstunde|lezione|clase|cours|yoga)\b/i.test(t);
+  const priorQuoteForReactive = (guestContext && guestContext.quote) || {};
+  const priorFieldsForReactive = collectPriorExtractedFields(guestContext || {});
+  if (priorQuoteForReactive.quote_status === 'ready') {
+    if (detectReactiveServiceIntent(t)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.91 };
+    }
+    if (guestDecidedLater(t) && (priorFieldsForReactive.meals_request || priorFieldsForReactive.yoga_request)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9 };
+    }
+    if (isReactiveServiceFollowUpMessage(t, priorFieldsForReactive)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.89 };
+    }
+  }
+
+  const serviceOnly = /\b(?:wetsuit|surfboard|surf board|surfbrett|muta|tabla de surf|planche|surf lesson|surfstunde|surfbrett|clase de surf|cours de surf|lezione di surf|yoga|meal|meals|dinner|dinners|breakfast|lunch)\b/i.test(t)
+    || /\b(?:kann ich|can i|posso|puis-je|¿puedo|puedo)\b.*\b(?:surfbrett|wetsuit|surfstunde|lezione|clase|cours|yoga|dinner|meals|meal)\b/i.test(t);
   const negatedStayBooking = /\b(?:not booking|no package|without a package|sin paquete|ohne paket|sans forfait)\b/i.test(t);
   const bookingMix = !negatedStayBooking && (/\b(?:book|stay|nights|check.in|package|vorremmo|venir|reserv|giugno|june|juni|malibu|prenot|interessati|interested)\b/i.test(t)
     || (/\bbuchen\b/i.test(t) && !/\b(?:dazu buchen|surfbrett|wetsuit|surfstunde|lezione|clase|cours)\b/i.test(t)));

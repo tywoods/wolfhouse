@@ -1,0 +1,19 @@
+{
+  "id": "meals-yoga-not-proactively-offered",
+  "label": "Quote step does not proactively offer meals or yoga",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "hi" },
+    { "message": "book a stay" },
+    { "message": "July 6-10 for 1 guest" },
+    { "message": "Marco", "expect": { "expected_quote_ready": true, "expected_no_handoff": true } }
+  ],
+  "final_expect": {
+    "reply_must_not_contain": ["yoga", "dinner", "meals", "breakfast"],
+    "reply_must_contain": ["wetsuit", "lessons"],
+    "confirmation_sent": false,
+    "no_handoff": true,
+    "expected_quote_ready": true
+  }
+}

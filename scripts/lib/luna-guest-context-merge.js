@@ -24,6 +24,8 @@ const EXTRACTED_FIELD_KEYS = [
   'addons_skipped',
   'transfer_interest',
   'service_interest',
+  'meals_request',
+  'yoga_request',
   'payment_preference',
 ];
 
@@ -53,6 +55,13 @@ function mergeTransferInterest(prior, current) {
   return null;
 }
 
+function mergeReactiveRequest(prior, current) {
+  if (!prior && !current) return null;
+  if (!prior) return current;
+  if (!current) return prior;
+  return { ...prior, ...current };
+}
+
 /**
  * Merge prior extracted booking fields with current-turn extraction.
  * New non-null/non-empty values win; null/empty current values do not erase prior.
@@ -69,6 +78,14 @@ function mergeGuestExtractedFields(prior, current) {
     }
     if (key === 'transfer_interest') {
       merged.transfer_interest = mergeTransferInterest(p.transfer_interest, c.transfer_interest);
+      continue;
+    }
+    if (key === 'meals_request') {
+      merged.meals_request = mergeReactiveRequest(p.meals_request, c.meals_request);
+      continue;
+    }
+    if (key === 'yoga_request') {
+      merged.yoga_request = mergeReactiveRequest(p.yoga_request, c.yoga_request);
       continue;
     }
     if (isPresent(c[key])) merged[key] = c[key];

@@ -18,6 +18,7 @@ const {
   quoteAwaitingAddonsDecision,
   resolveAddOnsStatus,
 } = require('./luna-booking-addons-policy');
+const { extractReactiveServicesFromMessage } = require('./luna-booking-reactive-services-policy');
 
 const INTAKE_FIELD_ORDER = Object.freeze([
   'dates',
@@ -492,7 +493,8 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   }
 
   if (Array.isArray(intake.add_ons) && intake.add_ons.length) {
-    patch.service_interest = intake.add_ons;
+    const surfOnly = intake.add_ons.filter((code) => ['wetsuit', 'surfboard', 'surf_lesson'].includes(code));
+    if (surfOnly.length) patch.service_interest = surfOnly;
   }
   const addonSelections = extractAddOnSelections(text);
   if (addonSelections.length) {
@@ -502,6 +504,12 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
     patch.addons_skipped = true;
     patch.service_interest = [];
   }
+
+  const reactivePatch = extractReactiveServicesFromMessage(text, { ...prior, ...patch }, {
+    guest_count: patch.guest_count != null ? patch.guest_count : prior.guest_count,
+  });
+  if (reactivePatch.meals_request) patch.meals_request = reactivePatch.meals_request;
+  if (reactivePatch.yoga_request) patch.yoga_request = reactivePatch.yoga_request;
 
   const transfer = extractTransferInfo(text);
   if (transfer) patch.transfer_info = mergeTransferInfo(prior.transfer_info, transfer);

@@ -81,7 +81,7 @@ function extractAddOnSelections(messageText) {
     found.add('surfboard');
   }
 
-  return [...found].filter((code) => IN_SCOPE_ADDONS.has(code) || code === 'yoga' || code === 'meal');
+  return [...found].filter((code) => IN_SCOPE_ADDONS.has(code));
 }
 
 function normalizeServiceInterestItem(item) {

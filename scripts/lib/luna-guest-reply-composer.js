@@ -21,6 +21,9 @@ const {
   isPackageBooking,
 } = require('./luna-guest-service-transfer-explainer');
 const {
+  buildReactiveServiceComposerReply,
+} = require('./luna-booking-reactive-services-policy');
+const {
   buildBookingIntakePolicySnapshot,
   mapPolicyQuestionToComposerState,
   inferRoomPreferenceNeed,
@@ -225,6 +228,10 @@ function buildExplainPackagesReply(lang, pkgIntent, fields) {
 }
 
 function buildComposerServiceReply(lang, intent, fields, quote) {
+  if (intent === 'yoga' || intent === 'meals') {
+    const reactive = buildReactiveServiceComposerReply(lang, intent, fields, quote);
+    if (reactive) return reactive;
+  }
   const raw = buildServiceSideQuestionReply(lang, intent, '');
   const facts = stripLegacyActionDisclaimers(raw);
   const tail = buildMidFlowAddonsReturnTail(fields, lang, quote);

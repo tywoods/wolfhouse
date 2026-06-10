@@ -17,6 +17,7 @@ function detectServiceSideQuestionIntent(text) {
   if (/\b(?:surf\s+lesson|surf\s+lessons|surf\s+school|lezione(?:\s+di\s+surf)?|lezioni(?:\s+di\s+surf)?|clase(?:s)?\s+de\s+surf|cours\s+de\s+surf|surfschule|surfunterricht)\b/i.test(t)) {
     return 'surf_lessons';
   }
+  if (/\b(?:meal|meals|dinner|dinners|breakfast|lunch|food|cena|comida|repas)\b/i.test(t)) return 'meals';
   if (/\b(?:yoga)\b/i.test(t)) return 'yoga';
   if (/\b(?:wetsuit|muta|neopren|combinaison)\b/i.test(t)) return 'wetsuit';
   if (/\b(?:soft\s+top|softtop|foam\s+board)\b/i.test(t)) return 'soft_top';
@@ -123,6 +124,8 @@ function buildServiceSideQuestionReply(lang, intent, messageText) {
       return buildSurfLessonsReply(lang);
     case 'yoga':
       return buildYogaReply(lang);
+    case 'meals':
+      return buildServicesGeneralReply(lang);
     case 'board_rental':
       return buildBoardRentalReply(lang);
     case 'wetsuit':

@@ -68,6 +68,7 @@ const {
   extractAddOnSelections,
   guestDeclinedAddons,
 } = require('./luna-booking-addons-policy');
+const { buildReactiveServicesObservability } = require('./luna-booking-reactive-services-policy');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -708,6 +709,10 @@ function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, p
     { quote: payload.quote },
     payload.quote,
   );
+  const reactiveObs = buildReactiveServicesObservability(
+    (result && result.extracted_fields) || collectPriorExtractedFields(prior),
+    prior.client_slug || DEFAULT_CLIENT,
+  );
   const resultWithBrain = {
     ...result,
     extracted_fields: (result && result.extracted_fields && Object.keys(result.extracted_fields).length)
@@ -717,6 +722,7 @@ function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, p
     quote_facts_used_by_composer: quoteObs.quote_facts_used_by_composer,
     quote_facts_used_by_hold_writer: quoteObs.quote_facts_used_by_hold_writer,
     ...addonsObs,
+    ...reactiveObs,
     conversation_brain: buildBrainObservability(brainDecision, {
       finalReplySource,
       overrodeBrain: false,
@@ -1067,6 +1073,10 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     payload.quote,
     staleInvalidation,
   );
+  const reactiveObs = buildReactiveServicesObservability(
+    payload.result && payload.result.extracted_fields,
+    chainCtx.client_slug || DEFAULT_CLIENT,
+  );
   const resultWithBrain = {
     ...payload.result,
     booking_intake_policy: policySnapshot,
@@ -1078,6 +1088,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     quote_facts_used_by_composer: quoteObs.quote_facts_used_by_composer,
     quote_facts_used_by_hold_writer: quoteObs.quote_facts_used_by_hold_writer,
     ...addonsObs,
+    ...reactiveObs,
     conversation_brain: buildBrainObservability(brainDecision, {
       finalReplySource,
       overrodeBrain,

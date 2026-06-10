@@ -135,6 +135,14 @@ function slimResultForChain(result) {
     transfer_departure_time: result.transfer_departure_time || null,
     transfer_flight_number: result.transfer_flight_number || null,
     add_on_quote_stale_reason: result.add_on_quote_stale_reason || null,
+    meals_status: result.meals_status || null,
+    meal_type: result.meal_type || null,
+    meals_requested_dates: result.meals_requested_dates || null,
+    yoga_status: result.yoga_status || null,
+    yoga_requested_dates: result.yoga_requested_dates || null,
+    services_requested: result.services_requested || null,
+    services_pending_manual: result.services_pending_manual || null,
+    services_scheduled: result.services_scheduled || null,
   };
 }
 

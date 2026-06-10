@@ -1,0 +1,46 @@
+{
+  "id": "meals-request-then-deposit-flow",
+  "label": "Meals request then deposit flow completes",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "hi" },
+    { "message": "book a stay" },
+    { "message": "July 6-10 for 1 guest" },
+    { "message": "Marco", "expect": { "expected_quote_ready": true, "expected_no_handoff": true } },
+    {
+      "message": "Can I book dinners?",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_quote_ready": true
+      }
+    },
+    {
+      "message": "I'll decide later",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_quote_ready": true
+      }
+    },
+    {
+      "message": "just the stay",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_quote_ready": true
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_handoff": true,
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true
+  }
+}
