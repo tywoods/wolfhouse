@@ -59,6 +59,7 @@ const {
 const {
   runLiveProofHygiene,
   liveProofHygieneGuidanceLines,
+  isAllowlistedProofPhone,
 } = require('./lib/luna-live-proof-hygiene');
 
 const WRITE_SOURCE = 'luna_conversation_state_machine_tester';
@@ -95,6 +96,7 @@ Options:
   --keep-bookings          Keep unpaid test holds after --allow-writes (skip cleanup)
   --preclean-unpaid-holds  With --allow-writes, cancel unpaid holds for fixture phone + hygiene_window before write proof
   --fresh-proof-window     Alias for --preclean-unpaid-holds
+  --allow-staging-paid-proof-reset  With --preclean-unpaid-holds, archive paid staging proof bookings on same window (allowlisted phone only)
   --require-stripe-test-link  With --allow-writes, fail if Stripe TEST checkout is not created
   --simulate-stripe-webhook  With --allow-writes --require-stripe-test-link, apply payment truth via Stage 27p helper
   --expect-confirmation-preview  After payment truth, run Stage 27q confirmation preview dry-run
@@ -116,6 +118,7 @@ function parseArgs(argv) {
     keepBookings: false,
     allowWrites: false,
     precleanUnpaidHolds: false,
+    allowStagingPaidProofReset: false,
     requireStripeTestLink: false,
     simulateStripeWebhook: false,
     expectConfirmationPreview: false,
@@ -135,6 +138,7 @@ function parseArgs(argv) {
     else if (a === '--keep-bookings') opts.keepBookings = true;
     else if (a === '--allow-writes') opts.allowWrites = true;
     else if (a === '--preclean-unpaid-holds' || a === '--fresh-proof-window') opts.precleanUnpaidHolds = true;
+    else if (a === '--allow-staging-paid-proof-reset') opts.allowStagingPaidProofReset = true;
     else if (a === '--require-stripe-test-link') opts.requireStripeTestLink = true;
     else if (a === '--simulate-stripe-webhook') opts.simulateStripeWebhook = true;
     else if (a === '--expect-confirmation-preview') opts.expectConfirmationPreview = true;
@@ -1239,6 +1243,14 @@ async function runPrecleanHygiene(fixture, phone, opts) {
     return summary;
   }
 
+  if (opts.allowStagingPaidProofReset) {
+    if (!isAllowlistedProofPhone(phone)) {
+      summary.skip_reason = 'paid_proof_reset_requires_allowlisted_test_phone';
+      summary.result = 'FAIL';
+      return summary;
+    }
+  }
+
   const out = await runLiveProofHygiene({
     client_slug: CLIENT_SLUG,
     phone,
@@ -1249,11 +1261,16 @@ async function runPrecleanHygiene(fixture, phone, opts) {
     allow_hygiene: true,
     confirm_hygiene: true,
     dry_run: false,
+    allow_staging_paid_proof_reset: opts.allowStagingPaidProofReset === true,
+    host_header: 'localhost',
   });
 
   summary.found_unpaid_holds = out.found_unpaid_holds;
   summary.archived_or_cancelled = out.archived_or_cancelled;
   summary.skipped_paid_or_confirmed = out.skipped_paid_or_confirmed;
+  summary.paid_proof_archived = out.paid_proof_archived || 0;
+  summary.paid_proof_skipped_not_artifact = out.paid_proof_skipped_not_artifact || 0;
+  summary.paid_proof_actions = out.paid_proof_actions || [];
   summary.refused_reason = out.refused_reason || null;
   summary.actions = out.actions || [];
   summary.skipped = out.skipped || [];
@@ -1942,6 +1959,16 @@ async function main() {
 
   if (opts.precleanUnpaidHolds && !opts.allowWrites) {
     console.error('FAIL — --preclean-unpaid-holds requires --allow-writes');
+    process.exit(1);
+  }
+
+  if (opts.allowStagingPaidProofReset && !opts.precleanUnpaidHolds) {
+    console.error('FAIL — --allow-staging-paid-proof-reset requires --preclean-unpaid-holds');
+    process.exit(1);
+  }
+
+  if (opts.allowStagingPaidProofReset && !opts.allowWrites) {
+    console.error('FAIL — --allow-staging-paid-proof-reset requires --allow-writes');
     process.exit(1);
   }
 

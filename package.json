@@ -260,6 +260,7 @@
     "verify:stage29b3-confirmation-preview-after-payment": "node scripts/verify-stage29b3-confirmation-preview-after-payment.js",
     "verify:stage29b4-confirmation-send-go-no-go": "node scripts/verify-stage29b4-confirmation-send-go-no-go.js",
     "verify:stage29c1-live-proof-hygiene-payment-truth": "node scripts/verify-stage29c1-live-proof-hygiene-payment-truth.js",
+    "verify:stage29c3-live-proof-paid-reset-hygiene": "node scripts/verify-stage29c3-live-proof-paid-reset-hygiene.js",
     "verify:stage29room-a-real-room-bed-seed": "node scripts/verify-stage29room-a-real-room-bed-seed.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
