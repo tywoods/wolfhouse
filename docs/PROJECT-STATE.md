@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-10 (**Stage 27demo — open demo closeout**): **PASS** full n8n open-demo chain **27demo-l → 27demo-o.3** end-to-end on hosted staging. Anchor **`WH-G27-0ECC1D9B57`** (`+34600995557`) — n8n booking write → Stripe TEST link → payment truth → confirmation preview → go/no-go → one live confirmation send; gates restored. Image **`9b43cb5-stage27demo-j-n8n-review-pipe`**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md). **Production not live.** **Next:** **Stage 28** — Wolfhouse real-phone staging rehearsal / launch candidate. **After base flow:** services/add-ons — not UI polish.
+**Last updated:** 2026-06-10 (**Stage 28a — real-phone staging rehearsal readiness**): **READINESS PLAN** (docs only). Ale/Cami real-phone rehearsal on staging — allowlisted test phones, gate-by-gate modes A–D, runbook + rollback. Stage **27 closed** (`4f76aae`). Verifier: `verify:stage28a-real-phone-rehearsal`. Doc: [STAGE-28A-REAL-PHONE-STAGING-REHEARSAL.md](STAGE-28A-REAL-PHONE-STAGING-REHEARSAL.md). **Production not live.** **Next:** **Stage 28b** — real-phone review-only rehearsal (Mode A). **After base rehearsal:** services/add-ons — **not UI polish** unless it blocks demo observability.
+
+**Prior — Stage 27demo closeout (2026-06-10):** **PASS** full n8n open-demo chain **27demo-l → 27demo-o.3** on hosted staging. Anchor **`WH-G27-0ECC1D9B57`**. Commit **`4f76aae`**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md).
 
 **Prior — Stage 27demo chain slices (2026-06-09/10):** **PASS** 27demo-l booking write · 27demo-m Stripe TEST link · 27demo-n payment truth · 27demo-o.1 preview · 27demo-o.2 go/no-go blocked · 27demo-o.3 live confirmation (`wamid.HBgLMzQ2MDA5OTU1NTcVAgARGBIzODJEOTYwNzgzNzY4MkFGNzcA`). Verifiers: `verify:stage27demo-l-n8n-booking-write`, `verify:stage27demo-m-n8n-stripe-test-link`, `verify:stage27demo-i-confirmation-send`.
 

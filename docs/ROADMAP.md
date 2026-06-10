@@ -1,4 +1,8 @@
-**Stage 28 WOLFHOUSE REAL-PHONE STAGING REHEARSAL — NEXT (2026-06-10):** Ale/Cami message Luna from real phones on staging; booking appears in Staff Portal + bed calendar. Launch-candidate gates; not production/Main. **Defer UI polish** until base booking-flow rehearsal is solid. **After base flow:** services/add-ons as next core booking capability.
+**Stage 28b REAL-PHONE REVIEW-ONLY REHEARSAL — NEXT (2026-06-10):** Mode A from [STAGE-28A-REAL-PHONE-STAGING-REHEARSAL.md](STAGE-28A-REAL-PHONE-STAGING-REHEARSAL.md) — allowlisted Ale/Cami phones → staging n8n review pipe → Staff Portal Inbox; **no booking write**. Gates restored after window. **Alternative:** 28c booking-write rehearsal if review already proven on real phones.
+
+**Stage 28a REAL-PHONE STAGING REHEARSAL READINESS — PLAN (2026-06-10):** Docs-only runbook, rehearsal modes A–D, test phone policy, rollback gates. Stage 27 closed (`4f76aae`). Verifier: `verify:stage28a-real-phone-rehearsal`. **Defer UI polish.** **After base rehearsal:** services/add-ons.
+
+**Stage 28 WOLFHOUSE REAL-PHONE STAGING REHEARSAL — umbrella (2026-06-10):** Launch candidate — Ale/Cami message Luna; booking visible in Staff Portal/calendar; staging only; not production/Main.
 
 **Stage 27demo OPEN WHATSAPP DEMO — CLOSEOUT PASS (2026-06-10):** Full n8n open-demo chain **27demo-l → 27demo-o.3** end-to-end on hosted staging — n8n booking write, Stripe TEST link, signed webhook payment truth, confirmation preview, go/no-go blocked, one live confirmation send. Anchor **`WH-G27-0ECC1D9B57`** · `+34600995557` · confirmation `wamid.HBgLMzQ2MDA5OTU1NTcVAgARGBIzODJEOTYwNzgzNzY4MkFGNzcA`. Image: **`9b43cb5-stage27demo-j-n8n-review-pipe`**. Gates restored · **production not live**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md). Verifiers: `verify:stage27demo-l-n8n-booking-write`, `verify:stage27demo-m-n8n-stripe-test-link`, `verify:stage27demo-i-confirmation-send`. **Next:** Stage 28 (this entry).
 
