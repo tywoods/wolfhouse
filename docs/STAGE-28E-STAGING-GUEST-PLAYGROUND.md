@@ -309,11 +309,13 @@ SELECT COUNT(*) FROM booking_beds WHERE booking_id = $1::uuid;
 List recent open-demo threads:
 
 ```sql
-SELECT c.id::text, c.guest_phone, c.updated_at,
-       c.metadata->'guest_context'->>'booking_code' AS ctx_booking
-  FROM conversations c
- WHERE c.guest_phone IN ('+491726422307', '491726422307')
- ORDER BY c.updated_at DESC LIMIT 10;
+SELECT conv.id::text, conv.phone, conv.updated_at,
+       conv.metadata->'guest_context'->>'booking_code' AS ctx_booking
+  FROM conversations conv
+  JOIN clients cl ON cl.id = conv.client_id
+ WHERE cl.slug = 'wolfhouse-somo'
+   AND conv.phone IN ('+491726422307', '491726422307')
+ ORDER BY conv.updated_at DESC LIMIT 10;
 ```
 
 Conversation rows may be left for audit; cleanup focus is bookings/beds/payments.
@@ -348,7 +350,18 @@ UPDATE staff_phone_access SET is_active=false
 
 ---
 
-## 10. Optional script proposal (not built in 28e)
+## 10. Playground CLI tools (Stage 28f)
+
+Implemented in [STAGE-28F-OPEN-DEMO-PLAYGROUND-TOOLS.md](STAGE-28F-OPEN-DEMO-PLAYGROUND-TOOLS.md):
+
+```bash
+npm run report:open-demo-playground -- --phone +491726422307 --limit 10
+npm run cleanup:open-demo-booking -- --booking-code WH-G27-... --dry-run
+```
+
+**Do not cleanup `WH-G27-3888294D42`** — `deposit_paid` anchor from 28d; cleanup refuses paid bookings.
+
+### Original 28e proposal (superseded by 28f)
 
 **`scripts/report-open-demo-playground-state.js`** — read-only report for pre-flight and post-session audit:
 
@@ -364,19 +377,13 @@ UPDATE staff_phone_access SET is_active=false
 | Outstanding holds | `status=hold` |
 | Calendar blocks | `booking_beds` joined to demo room codes |
 
-Exit `0` with JSON; no writes. **Implement in Stage 28f** alongside cleanup-by-`booking_code`.
+Exit `0` with JSON; no writes.
 
 ---
 
 ## 11. Recommended next patch
 
-**Stage 28f** — tiny cleanup script:
-
-- `scripts/cleanup-open-demo-staging-booking.js`
-- Args: `--booking-code WH-G27-…` or `--phone +491726422307`
-- Actions: list → confirm unpaid hold → cancel booking → release beds → cancel draft payments
-- Flags: `--dry-run` default; `--include-paid` requires explicit second flag
-- Pair with `report-open-demo-playground-state.js` from §10
+**Stage 28g** (optional) — paid-booking archival policy + conversation trim harness; keep unpaid cleanup as default.
 
 ---
 
