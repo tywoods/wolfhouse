@@ -25,6 +25,8 @@ const {
   mapPolicyQuestionToComposerState,
   inferRoomPreferenceNeed,
 } = require('./luna-booking-intake-policy');
+const { extractQuoteFactsFromPayload } = require('./luna-quote-facts');
+const { quoteChainIsStale } = require('./luna-booking-state-transitions');
 const {
   FORBIDDEN_GUEST_COPY_RE,
   sanitizeGuestReply,
@@ -48,6 +50,7 @@ const COMPOSER_STATES = Object.freeze([
   'explain_transfer',
   'accommodation_quote_ready',
   'package_quote_ready',
+  'quote_refreshing',
   'ask_addons_after_quote',
   'addons_none_confirmed',
   'ask_payment_choice',
@@ -249,6 +252,39 @@ function messageLooksLikeDates(text) {
   return /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}[/-]\d|\d{4})\b/i.test(trimStr(text));
 }
 
+function resolveComposerDisplayFields(input, payload, quote, result) {
+  const fields = mergeGuestExtractedFields(
+    collectPriorExtractedFields(input && input.prior_guest_context),
+    result.extracted_fields || {},
+  );
+  if (quote && quote.quote_status === 'ready') {
+    if (quote.package_code) fields.package_interest = quote.package_code;
+    if (quote.check_in) fields.check_in = quote.check_in;
+    if (quote.check_out) fields.check_out = quote.check_out;
+    if (quote.guest_count != null) fields.guest_count = quote.guest_count;
+  } else if (result.previous_quote_invalidated === true && quote && quote.prior_package_code) {
+    // Never display stale package label after correction when fresh quote is pending.
+    if (fields.package_interest && normalizePackage(fields.package_interest) === normalizePackage(quote.prior_package_code)) {
+      fields.package_interest = null;
+    }
+  }
+  return fields;
+}
+
+function normalizePackage(value) {
+  const v = trimStr(value).toLowerCase();
+  return v || null;
+}
+
+function quotePayloadIsStale(payload, result, quote) {
+  // A fresh ready quote on this turn supersedes prior invalidation flags.
+  if (quote.quote_status === 'ready' && quote.quote_stale !== true) return false;
+  if (result.previous_quote_invalidated === true && quote.quote_status !== 'ready') return true;
+  if (quote.quote_stale === true && quote.quote_status !== 'ready') return true;
+  if (quoteChainIsStale({ quote, ...result }) && quote.quote_status !== 'ready') return true;
+  return false;
+}
+
 function buildComposerFacts(quote, plan, pc, stripe, live) {
   const pt = (live && live.paymentTruth) || {};
   const cp = (live && live.confirmationPreview) || {};
@@ -290,10 +326,13 @@ function resolveComposerState(input) {
   const pt = live.paymentTruth || {};
   const cp = live.confirmationPreview || {};
   const cs = live.confirmationSend || {};
-  const fields = mergeGuestExtractedFields(
-    collectPriorExtractedFields(inp.prior_guest_context || {}),
-    result.extracted_fields || {},
-  );
+  const fields = resolveComposerDisplayFields(inp, payload, quote, result);
+
+  if (quotePayloadIsStale(payload, result, quote)
+    && result.message_lane === 'new_booking_inquiry'
+    && pc.payment_choice_ready !== true) {
+    return 'quote_refreshing';
+  }
 
   if (gate.gate_status && gate.gate_status !== 'allowed_dry_run') return null;
 
@@ -377,7 +416,8 @@ function resolveComposerState(input) {
     && !isShortStayAccommodation(result, quote, fields)
     && availability.availability_status === 'available'
     && quote.payment_choice_needed === true
-    && pc.payment_choice_ready !== true) {
+    && pc.payment_choice_ready !== true
+    && !quote.quote_stale) {
     return 'package_quote_ready';
   }
 
@@ -511,14 +551,22 @@ function buildReplyForState(state, ctx) {
       const pkgLabel = packageName && !/accommodation/i.test(packageName)
         ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)}`
         : 'Your stay';
+      const dateAvail = range ? `for ${range}` : 'for those dates';
       if (availability.availability_status === 'available') {
-        parts.push(`Good news — we have space for those dates. ${pkgLabel} comes to ${total}.`);
+        parts.push(`Good news — we have space ${dateAvail}. ${pkgLabel} comes to ${total}.`);
       } else {
         parts.push(`${pkgLabel} comes to ${total}.`);
       }
       const dep = deposit || total;
       parts.push(`Would you prefer to pay the ${dep} deposit or the full ${total}?`);
       return parts.join('\n\n');
+    },
+    quote_refreshing: (ctxFields) => {
+      const range = formatDateRange(ctxFields.check_in, ctxFields.check_out);
+      if (range) {
+        return `Got it — I'll recheck availability and pricing for ${range} with your updated details. One moment 😊`;
+      }
+      return `Got it — I'll recheck availability and pricing with your updated details. One moment 😊`;
     },
     ask_payment_choice: () => {
       if (!deposit || !total) return null;
@@ -597,6 +645,8 @@ function buildReplyForState(state, ctx) {
       return L.accommodation_quote();
     case 'package_quote_ready':
       return L.package_quote();
+    case 'quote_refreshing':
+      return L.quote_refreshing(fields);
     case 'addons_none_confirmed':
       return L.addons_none();
     case 'ask_payment_choice':
@@ -648,6 +698,7 @@ function nextGuestQuestionForState(state) {
     addons_none_confirmed: 'payment_choice',
     ask_payment_choice: 'payment_choice',
     package_quote_ready: 'payment_choice',
+    quote_refreshing: 'quote_refresh',
     clarify_missing_info: 'dates_or_guests',
   };
   return map[state] || null;
@@ -690,10 +741,7 @@ function composeLunaGuestReply(input) {
   const availability = payload.availability || {};
   const pc = payload.payment_choice || {};
   const plan = payload.hold_payment_draft_plan || {};
-  const fields = mergeGuestExtractedFields(
-    collectPriorExtractedFields(input && input.prior_guest_context),
-    result.extracted_fields || {},
-  );
+  const fields = resolveComposerDisplayFields(input, payload, quote, result);
   const stripe = (input && input.live_outcomes && input.live_outcomes.stripeLink) || {};
   const live = (input && input.live_outcomes) || {};
   const facts = buildComposerFacts(quote, plan, pc, stripe, live);
@@ -702,7 +750,7 @@ function composeLunaGuestReply(input) {
   const groundingErrors = validateComposerFacts(state, facts);
   if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name',
     'explain_packages', 'explain_service_addon', 'explain_transfer', 'ask_package_choice',
-    'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff',
+    'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff', 'quote_refreshing',
     'ask_room_preference_girls_mixed', 'ask_room_preference_private_shared', 'ask_room_preference_neutral',
     'ask_transfer_info_casual', 'payment_choice_ack'].includes(state)) {
     return {
@@ -750,6 +798,7 @@ function composeLunaGuestReply(input) {
     covered: true,
     next_guest_question: nextGuestQuestionForState(state),
     safety_flags: { ...COMPOSER_SAFETY },
+    quote_facts_used_by_composer: extractQuoteFactsFromPayload(payload),
   };
 }
 
@@ -762,6 +811,8 @@ module.exports = {
   buildExplainPackagesReply,
   buildComposerServiceReply,
   buildComposerTransferReply,
+  resolveComposerDisplayFields,
+  quotePayloadIsStale,
   COMPOSER_STATES,
   FORBIDDEN_GUEST_COPY_RE,
   COMPOSER_SAFETY,

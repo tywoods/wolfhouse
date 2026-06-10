@@ -57,6 +57,7 @@ const {
   buildTransferSideQuestionReply,
 } = require('./luna-guest-service-transfer-explainer');
 const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
+const { buildQuoteFactsObservability } = require('./luna-quote-facts');
 const { buildBookingIntakePolicySnapshot } = require('./luna-booking-intake-policy');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
@@ -481,6 +482,11 @@ function shouldUsePaymentChoiceReply(pc, quote) {
   return false;
 }
 
+function quoteLegacyReplyIsStale(quote, result) {
+  return !!(quote && (quote.quote_stale === true || quote.previous_quote_invalidated === true))
+    || !!(result && result.previous_quote_invalidated === true);
+}
+
 function resolveProposedReply(payload, messageText, priorGuestContext, brainDecision) {
   const {
     hold_payment_draft_plan: plan,
@@ -503,7 +509,8 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
 
   // Stage 28j.4 — short-stay accommodation quote (price + add-ons question) wins over
   // the router "checking" placeholder once pricing is ready.
-  if (quote && quote.quote_status === 'ready' && quote.proposed_luna_reply && quote.short_stay_addons_pending) {
+  if (quote && quote.quote_status === 'ready' && quote.proposed_luna_reply && quote.short_stay_addons_pending
+    && !quoteLegacyReplyIsStale(quote, result)) {
     return sanitizeReply(quote.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
 
@@ -588,7 +595,7 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
   if (plan && plan.proposed_luna_reply) {
     return sanitizeReply(plan.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
-  if (quote && quote.proposed_luna_reply) {
+  if (quote && quote.proposed_luna_reply && !quoteLegacyReplyIsStale(quote, result)) {
     return sanitizeReply(quote.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
   if (availability && availability.proposed_luna_reply) {
@@ -998,9 +1005,17 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     },
   );
 
+  const quoteObs = buildQuoteFactsObservability(payload);
   const resultWithBrain = {
     ...payload.result,
     booking_intake_policy: policySnapshot,
+    previous_quote_invalidated: payload.result && payload.result.previous_quote_invalidated,
+    stale_quote_reason: payload.result && payload.result.stale_quote_reason,
+    corrected_fields: payload.result && payload.result.corrected_fields,
+    quote_stale: payload.quote && payload.quote.quote_stale,
+    correction_applied: payload.result && payload.result.previous_quote_invalidated === true,
+    quote_facts_used_by_composer: quoteObs.quote_facts_used_by_composer,
+    quote_facts_used_by_hold_writer: quoteObs.quote_facts_used_by_hold_writer,
     conversation_brain: buildBrainObservability(brainDecision, {
       finalReplySource,
       overrodeBrain,

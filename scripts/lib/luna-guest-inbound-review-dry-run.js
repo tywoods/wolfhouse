@@ -118,6 +118,13 @@ function slimResultForChain(result) {
     detected_language: result.detected_language,
     package_night_rule: result.package_night_rule,
     conversation_brain: result.conversation_brain,
+    previous_quote_invalidated: result.previous_quote_invalidated,
+    stale_quote_reason: result.stale_quote_reason,
+    corrected_fields: result.corrected_fields,
+    quote_stale: result.quote_stale,
+    correction_applied: result.correction_applied,
+    quote_facts_used_by_composer: result.quote_facts_used_by_composer,
+    quote_facts_used_by_hold_writer: result.quote_facts_used_by_hold_writer,
   };
 }
 
@@ -135,6 +142,14 @@ function slimQuoteForChain(quote) {
     quote_status: quote.quote_status,
     quote_total_cents: quote.quote_total_cents,
     payment_choice_needed: quote.payment_choice_needed,
+    package_code: quote.package_code || null,
+    check_in: quote.check_in || null,
+    check_out: quote.check_out || null,
+    guest_count: quote.guest_count != null ? quote.guest_count : null,
+    quote_stale: quote.quote_stale === true,
+    stale_quote_reason: quote.stale_quote_reason || null,
+    previous_quote_invalidated: quote.previous_quote_invalidated === true,
+    corrected_fields: Array.isArray(quote.corrected_fields) ? quote.corrected_fields : null,
   };
   if (quote.deposit_options) {
     slim.deposit_options = {

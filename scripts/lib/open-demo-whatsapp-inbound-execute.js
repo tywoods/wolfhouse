@@ -420,6 +420,7 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   if (deferPaymentChoiceReviewReply && sendLiveReplyConfirmed) {
     const composed = composeLunaGuestReply({
       payload: reviewForFlags,
+      message_text: inboundBody.message_text,
       mode: 'live_staging',
       live_outcomes: {
         bookingWrite,

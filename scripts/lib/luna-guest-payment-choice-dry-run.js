@@ -180,17 +180,21 @@ function shouldAttemptGuestPaymentChoiceWire(guestContext) {
 function buildPaymentChoiceWireContext(bodyGuestContext, result, availability, quote) {
   const prior = bodyGuestContext || {};
   const priorQuote = prior.quote && typeof prior.quote === 'object' ? prior.quote : {};
-  let mergedQuote = {
-    ...(Object.keys(priorQuote).length ? priorQuote : {}),
-    ...(quote && typeof quote === 'object' ? quote : {}),
-  };
-  // Keep a ready prior quote when the current turn did not reproduce quote readiness
-  // (e.g. payment_question lane on "pay cash on arrival?" after a ready package quote).
-  const { shouldPreservePriorReadyQuote } = require('./luna-booking-state-transitions');
-  if (priorQuote.quote_status === 'ready'
-    && mergedQuote.quote_status !== 'ready'
-    && shouldPreservePriorReadyQuote(prior)) {
-    mergedQuote = { ...mergedQuote, ...priorQuote, quote_status: 'ready' };
+  const freshQuote = quote && typeof quote === 'object' ? quote : {};
+  const { shouldPreservePriorReadyQuote, quoteChainIsStale } = require('./luna-booking-state-transitions');
+  const preservePrior = shouldPreservePriorReadyQuote(prior);
+  const stalePrior = quoteChainIsStale(prior) || prior.previous_quote_invalidated === true;
+
+  let mergedQuote;
+  if (preservePrior && priorQuote.quote_status === 'ready' && freshQuote.quote_status !== 'ready') {
+    mergedQuote = { ...priorQuote, ...freshQuote, quote_status: 'ready' };
+  } else if (stalePrior) {
+    mergedQuote = { ...freshQuote };
+  } else {
+    mergedQuote = {
+      ...(Object.keys(priorQuote).length ? priorQuote : {}),
+      ...freshQuote,
+    };
   }
   return {
     ...prior,

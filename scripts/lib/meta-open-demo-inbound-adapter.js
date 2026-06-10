@@ -171,6 +171,18 @@ function buildOpenDemoResultSummary(outcome) {
   const whatsappSent = lr.whatsapp_sent === true || lr.send_performed === true;
   const brain = result.conversation_brain || {};
 
+  const quoteObs = {
+    previous_quote_invalidated: result.previous_quote_invalidated === true,
+    stale_quote_reason: result.stale_quote_reason || null,
+    corrected_fields: result.corrected_fields || null,
+    quote_stale: result.quote_stale === true || (review.quote && review.quote.quote_stale === true),
+    correction_applied: result.correction_applied === true || result.previous_quote_invalidated === true,
+    quote_facts_used_by_composer: result.quote_facts_used_by_composer || null,
+    quote_facts_used_by_hold_writer: result.quote_facts_used_by_hold_writer || null,
+    final_reply_source: brain.final_reply_source || null,
+    composer_state: brain.composer_state || null,
+  };
+
   return {
     route: META_OPEN_DEMO_SOURCE,
     calls_n8n: false,
@@ -185,7 +197,9 @@ function buildOpenDemoResultSummary(outcome) {
       brain_intent: brain.intent || brain.brain_intent || null,
       final_reply_source: brain.final_reply_source || null,
       final_reply_overrode_brain: brain.final_reply_overrode_brain === true,
+      composer_state: brain.composer_state || null,
     },
+    ...quoteObs,
     review_ok: outcome.reviewOutcome && outcome.reviewOutcome.ok === true,
     live_reply_attempted: lr.live_reply_attempted === true,
     whatsapp_sent: whatsappSent,
