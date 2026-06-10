@@ -124,25 +124,29 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
   check('A1', !!pkg.scripts[SCRIPT], 'verifier npm script registered');
 
   // ── 1. Live-style flow reaches guest_count without re-asking ──
-  section('1. Live flow: hi → book a stay → July 1-5 → 1');
-  const flow = await runTurns(['hi', 'book a stay', 'July 1-5', '1']);
+  section('1. Live flow: hi → book a stay → July 1-5 → Ty → 1');
+  const flow = await runTurns(['hi', 'book a stay', 'July 1-5', 'Ty', '1']);
+  const t3 = flow[2];
   const t4 = flow[3];
-  check('1A', t4.result.extracted_fields && t4.result.extracted_fields.guest_count === 1,
+  const t5 = flow[4];
+  check('1A', t5.result.extracted_fields && t5.result.extracted_fields.guest_count === 1,
     'guest_count=1 captured after "1"');
-  check('1B', t4.orchestrator.proposed_next_action !== 'staff_handoff_required'
-    && t4.result.safe_handoff_required !== true,
+  check('1B', t5.orchestrator.proposed_next_action !== 'staff_handoff_required'
+    && t5.result.safe_handoff_required !== true,
     'no handoff on bare "1"');
-  check('1C', /€\s*180|180\.00|wetsuit|surfboard|lessons/i.test(t4.orchestrator.proposed_luna_reply),
+  check('1C', /name/i.test(t3.orchestrator.proposed_luna_reply),
+    'asks booking name after dates');
+  check('1E', t5.orchestrator.quote && t5.orchestrator.quote.quote_status === 'ready',
+    'quote ready after guest count collected');
+  check('1F', /€\s*180|180\.00|wetsuit|surfboard|lessons/i.test(t5.orchestrator.proposed_luna_reply),
     'short-stay accommodation quoted after guest count');
-  check('1E', t4.orchestrator.quote && t4.orchestrator.quote.quote_status === 'ready',
-    'quote ready on guest-count turn');
-  check('1D', !/how many guests/i.test(t4.orchestrator.proposed_luna_reply),
-    'does not re-ask guest count after "1"');
+  check('1D', /guests/i.test(t4.orchestrator.proposed_luna_reply),
+    'asks guest count after booking name is collected');
 
   // ── 2. accommodation-only choice ──
   section('2. "no add nothing" → accommodation-only');
-  const flow2 = await runTurns(['hi', 'book a stay', 'July 1-5', '1', 'no add nothing']);
-  const a5 = flow2[4];
+  const flow2 = await runTurns(['hi', 'book a stay', 'July 1-5', 'Ty', '1', 'no add nothing']);
+  const a5 = flow2[5];
   check('2A', a5.result.extracted_fields.package_interest === 'accommodation_only',
     'accommodation_only set');
   check('2B', !asksPackageChoice(a5.orchestrator.proposed_luna_reply),
@@ -159,8 +163,8 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
 
   // ── 3. "deposit" after accommodation-only ──
   section('3. "deposit" after accommodation-only');
-  const flow3 = await runTurns(['hi', 'book a stay', 'July 1-5', '1', 'no add nothing', 'deposit']);
-  const dep = flow3[5];
+  const flow3 = await runTurns(['hi', 'book a stay', 'July 1-5', 'Ty', '1', 'no add nothing', 'deposit']);
+  const dep = flow3[6];
   check('3A', dep.orchestrator.payment_choice && dep.orchestrator.payment_choice.payment_choice === 'deposit',
     'deposit preference captured');
   check('3B', !isGenericHandoff(dep.orchestrator.proposed_luna_reply)
@@ -172,9 +176,9 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
   // ── 4. "when will you?" ──
   section('4. "when will you?" → contextual, no handoff');
   const flow4 = await runTurns([
-    'hi', 'book a stay', 'July 1-5', '1', 'no add nothing', 'deposit', 'when will you?',
+    'hi', 'book a stay', 'July 1-5', 'Ty', '1', 'no add nothing', 'deposit', 'when will you?',
   ]);
-  const when = flow4[6];
+  const when = flow4[7];
   check('4A', !isGenericHandoff(when.orchestrator.proposed_luna_reply)
     && when.orchestrator.proposed_next_action !== 'staff_handoff_required',
     'no generic handoff on "when will you?"');

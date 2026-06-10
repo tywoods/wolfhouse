@@ -104,10 +104,10 @@ check('A0', !!pkg.scripts[SCRIPT], 'verifier npm script registered');
     'July 1-5 → 2026-07-01 / 2026-07-05');
 
   section('2–9. Core short-stay accommodation flow');
-  const flow = await runTurns(['hi', 'book a stay', 'July 1-5', '1', 'no add nothing']);
+  const flow = await runTurns(['hi', 'book a stay', 'July 1-5', 'Ty', '1', 'no add nothing']);
   const tDates = flow[2];
-  const tGuests = flow[3];
-  const tNoAddons = flow[4];
+  const tGuests = flow[4];
+  const tNoAddons = flow[5];
 
   check('2A', !mentionsWeeklyPackages(tDates.orchestrator.proposed_luna_reply),
     'under-7 no-package: July 1-5 reply does not mention Malibu/Uluwatu/Waimea');
@@ -133,7 +133,7 @@ check('A0', !!pkg.scripts[SCRIPT], 'verifier npm script registered');
     'formula uses ceil5 per-night from Malibu weekly reference');
 
   check('6A', !asksAddonsBeforeQuote(flow),
-    'add-ons question comes after accommodation quote on guest-count turn');
+    'add-ons question comes after accommodation quote');
   check('6B', /wetsuit|surfboard|lessons/i.test(tGuests.orchestrator.proposed_luna_reply),
     'guest-count turn asks about wetsuit/surfboard/lessons');
 
@@ -149,9 +149,9 @@ check('A0', !!pkg.scripts[SCRIPT], 'verifier npm script registered');
     'no await_staff_accommodation_confirmation on quoted short stay');
 
   section('10. 7-night package flow still works');
-  const weekFlow = await runTurns(['hi', 'book a stay', 'July 10-17', '1', 'explain the packages', 'Malibu']);
-  const w4 = weekFlow[3];
-  const w6 = weekFlow[5];
+  const weekFlow = await runTurns(['hi', 'book a stay', 'July 10-17', 'Ty', '1', 'explain the packages', 'Malibu']);
+  const w4 = weekFlow[4];
+  const w6 = weekFlow[6];
   check('10A', w4.result.package_night_rule === 'weekly_explain_before_choice',
     '7-night stay gets weekly_explain_before_choice');
   check('10B', w6.result.extracted_fields.package_interest === 'malibu'

@@ -14,11 +14,21 @@ const {
   detectServiceSideQuestionIntent,
   detectTransferSideQuestionIntent,
 } = require('./luna-guest-service-transfer-explainer');
+const {
+  buildBookingIntakePolicySnapshot,
+  mapPolicyQuestionToComposerState,
+  inferRoomPreferenceNeed,
+} = require('./luna-booking-intake-policy');
 
 const COMPOSER_STATES = Object.freeze([
   'greeting',
   'ask_dates',
   'ask_guests',
+  'ask_guest_name',
+  'ask_room_preference_girls_mixed',
+  'ask_room_preference_private_shared',
+  'ask_room_preference_neutral',
+  'ask_transfer_info_casual',
   'accommodation_quote_ready',
   'package_quote_ready',
   'ask_addons_after_quote',
@@ -196,8 +206,37 @@ function resolveComposerState(input) {
     return 'safe_handoff';
   }
 
+  const channelGuestName = trimStr(
+    (inp.prior_guest_context && inp.prior_guest_context.contact_name)
+    || (inp.prior_guest_context && inp.prior_guest_context.guest_name),
+  );
+  const policy = result.booking_intake_policy || buildBookingIntakePolicySnapshot(
+    { extracted_fields: fields, package_night_rule: result.package_night_rule },
+    {
+      channel_guest_name: channelGuestName,
+      quote,
+      payment_choice: pc,
+      availability,
+    },
+  );
+
   if (quote.quote_status === 'ready' && quote.payment_choice_needed === true
-    && pc.payment_choice_ready !== true) {
+    && pc.payment_choice_ready !== true
+    && policy.add_ons_status !== 'pending'
+    && !quote.short_stay_addons_pending) {
+    if (policy.room_preference_needed && !trimStr(fields.room_preference)) {
+      const roomNeed = inferRoomPreferenceNeed(
+        { extracted_fields: fields, package_night_rule: result.package_night_rule },
+        { availability },
+      );
+      let roomQuestion = null;
+      if (roomNeed.question_type === 'private_or_shared') roomQuestion = 'ask_room_preference_private_shared';
+      else if (roomNeed.question_type === 'girls_or_mixed' || roomNeed.question_type === 'mixed_only_female') {
+        roomQuestion = 'ask_room_preference_girls_mixed';
+      } else if (roomNeed.question_type === 'neutral_shared') roomQuestion = 'ask_room_preference_neutral';
+      const roomState = mapPolicyQuestionToComposerState(roomQuestion);
+      if (roomState) return roomState;
+    }
     return 'ask_payment_choice';
   }
 
@@ -234,7 +273,16 @@ function resolveComposerState(input) {
     return 'ask_dates';
   }
 
+  const guestName = fields.guest_name != null ? String(fields.guest_name).trim() : '';
   if (fields.check_in && fields.check_out
+    && !guestName
+    && (missing.includes('guest_name') || (result.readiness_missing_fields || []).includes('guest_name'))
+    && result.message_lane === 'new_booking_inquiry') {
+    return 'ask_guest_name';
+  }
+
+  if (fields.check_in && fields.check_out
+    && guestName
     && (fields.guest_count == null || missing.includes('guest_count'))
     && result.message_lane === 'new_booking_inquiry') {
     return 'ask_guests';
@@ -269,6 +317,14 @@ function buildReplyForState(state, ctx) {
     ask_guests: range
       ? `Perfect — ${range}. How many guests will be staying?`
       : 'How many guests will be staying?',
+    ask_guest_name: range
+      ? `Perfect — ${range}. Can I grab your name for the booking?`
+      : 'Can I grab your name for the booking?',
+    room_girls_mixed: 'Would you prefer a girls room if one is available, or is a mixed room okay?',
+    room_girls_mixed_unavailable: 'We do not have a girls-only room free for those dates — a mixed shared room would be the option. Is that okay?',
+    room_private_shared: 'We may have a private room available for €10 per night extra. Would you prefer that, or are you okay with shared beds?',
+    room_neutral: 'Do you have any room preference, or is a mixed shared room okay?',
+    transfer_casual: 'For the package transfer, you can send your airport and arrival/departure times whenever you have them.',
     accommodation_quote: () => {
       const parts = [];
       if (guests && range) {
@@ -335,6 +391,18 @@ function buildReplyForState(state, ctx) {
     }
     case 'ask_guests':
       return L.ask_guests;
+    case 'ask_guest_name':
+      return L.ask_guest_name;
+    case 'ask_room_preference_girls_mixed': {
+      const girlsAvail = availability.girls_room_available !== false;
+      return girlsAvail ? L.room_girls_mixed : L.room_girls_mixed_unavailable;
+    }
+    case 'ask_room_preference_private_shared':
+      return L.room_private_shared;
+    case 'ask_room_preference_neutral':
+      return L.room_neutral;
+    case 'ask_transfer_info_casual':
+      return L.transfer_casual;
     case 'accommodation_quote_ready':
     case 'ask_addons_after_quote':
       return L.accommodation_quote();
@@ -369,6 +437,11 @@ function nextGuestQuestionForState(state) {
     greeting: 'book_or_info',
     ask_dates: 'dates',
     ask_guests: 'guest_count',
+    ask_guest_name: 'guest_name',
+    ask_room_preference_girls_mixed: 'room_preference',
+    ask_room_preference_private_shared: 'room_preference',
+    ask_room_preference_neutral: 'room_preference',
+    ask_transfer_info_casual: 'transfer_info',
     accommodation_quote_ready: 'addons',
     ask_addons_after_quote: 'addons',
     addons_none_confirmed: 'payment_choice',

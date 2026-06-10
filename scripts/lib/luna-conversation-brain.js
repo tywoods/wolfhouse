@@ -34,7 +34,7 @@
  */
 
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
-const { KNOWN_ADDON_TYPES } = require('./luna-guest-message-intake');
+const { KNOWN_ADDON_TYPES, parseGuestNameAnswer } = require('./luna-guest-message-intake');
 const { callLunaAiJsonChat, resolveLunaAiModel } = require('./luna-ai-provider');
 
 const PACKAGE_NAMES_RE = /\b(?:malibu|uluwatu|waimea)\b/i;
@@ -65,7 +65,7 @@ const ALLOWED_INTENTS = new Set([
 ]);
 
 const ALLOWED_REPLY_TYPES = new Set([
-  'greeting_menu', 'ask_dates', 'ask_guests', 'ask_package', 'ask_stay_type',
+  'greeting_menu', 'ask_dates', 'ask_guests', 'ask_guest_name', 'ask_package', 'ask_stay_type',
   'package_explainer', 'package_recommendation', 'short_stay_guidance',
   'continue_booking', 'correction_ack', 'accommodation_only_ack',
   'reset_prompt', 'clarify', 'handoff', 'passthrough',
@@ -77,7 +77,7 @@ const ALLOWED_ACTIVE_FLOWS = new Set([
 ]);
 
 const ALLOWED_NEXT_BEST_ACTIONS = new Set([
-  'ask_dates', 'ask_guests', 'ask_package', 'ask_stay_type', 'answer_side_question',
+  'ask_dates', 'ask_guests', 'ask_guest_name', 'ask_package', 'ask_stay_type', 'answer_side_question',
   'explain_packages', 'continue_intake', 'collect_payment_choice', 'check_availability',
   'clarify', 'reset', 'handoff', 'none',
 ]);
@@ -95,7 +95,7 @@ const ALLOWED_SIDE_QUESTION_TYPES = new Set([
 
 /** Extracted fields the brain (and LLM) are allowed to patch. */
 const ALLOWED_PATCH_FIELDS = new Set([
-  'check_in', 'check_out', 'guest_count', 'package_interest', 'room_preference',
+  'check_in', 'check_out', 'guest_count', 'guest_name', 'package_interest', 'room_preference',
   'payment_choice', 'add_ons', 'accommodation_only',
 ]);
 
@@ -424,7 +424,24 @@ function decideConversationAction(input) {
         extracted_fields_patch: { guest_count: n },
         preserve_context: true,
         next_best_action: 'continue_intake',
-        next_missing_field: 'package_interest',
+        next_missing_field: prior.guest_name ? 'guest_count' : 'guest_name',
+        should_handoff: false,
+        confidence: 0.9,
+      };
+    }
+  }
+
+  if (activeMissing === 'guest_name') {
+    const name = parseGuestNameAnswer(message);
+    if (name) {
+      return {
+        ...decision,
+        intent: 'answer_missing_field',
+        reply_type: 'continue_booking',
+        extracted_fields_patch: { guest_name: name },
+        preserve_context: true,
+        next_best_action: 'continue_intake',
+        next_missing_field: 'guest_count',
         should_handoff: false,
         confidence: 0.9,
       };
@@ -536,7 +553,7 @@ function sanitizeLlmDecision(raw, activeMissingField) {
 
   if (typeof raw.next_missing_field === 'string') {
     const f = raw.next_missing_field;
-    if (['dates', 'guest_count', 'package_interest', 'stay_type'].includes(f)) {
+    if (['dates', 'guest_count', 'guest_name', 'package_interest', 'stay_type'].includes(f)) {
       safe.next_missing_field = f;
     }
   }
@@ -557,6 +574,9 @@ function sanitizeLlmDecision(raw, activeMissingField) {
     } else if (k === 'guest_count') {
       const n = Number(v);
       if (Number.isInteger(n) && n >= 1 && n <= 24) patch.guest_count = n;
+    } else if (k === 'guest_name') {
+      const name = parseGuestNameAnswer(v);
+      if (name) patch.guest_name = name;
     } else if (k === 'package_interest') {
       const p = normalizePackagePatch(v);
       if (p) patch.package_interest = p;
@@ -612,15 +632,15 @@ const BRAIN_SYSTEM_PROMPT = [
   '"preserve_context":true,',
   '"reset_context":false,',
   '"guest_is_correcting_luna":false,',
-  '"reply_type":"greeting_menu|ask_dates|ask_guests|ask_package|ask_stay_type|package_explainer|package_recommendation|short_stay_guidance|continue_booking|correction_ack|accommodation_only_ack|reset_prompt|clarify|handoff",',
-  '"extracted_fields_patch":{"check_in":null,"check_out":null,"guest_count":null,"package_interest":null,"room_preference":null,"payment_choice":null,"add_ons":[],"accommodation_only":null},',
+  '"reply_type":"greeting_menu|ask_dates|ask_guests|ask_guest_name|ask_package|ask_stay_type|package_explainer|package_recommendation|short_stay_guidance|continue_booking|correction_ack|accommodation_only_ack|reset_prompt|clarify|handoff",',
+  '"extracted_fields_patch":{"check_in":null,"check_out":null,"guest_count":null,"guest_name":null,"package_interest":null,"room_preference":null,"payment_choice":null,"add_ons":[],"accommodation_only":null},',
   '"active_flow":"new_booking|short_stay_accommodation|weekly_package|payment_choice|general_question|unknown",',
   '"side_question":{"type":null,"topic":null},',
-  '"next_best_action":"ask_dates|ask_guests|ask_package|ask_stay_type|answer_side_question|explain_packages|continue_intake|collect_payment_choice|check_availability|clarify|reset|handoff|none",',
+  '"next_best_action":"ask_dates|ask_guests|ask_guest_name|ask_package|ask_stay_type|answer_side_question|explain_packages|continue_intake|collect_payment_choice|check_availability|clarify|reset|handoff|none",',
   '"reply_guidance":"short instruction for reply composition",',
   '"clarifying_question":null}',
   '',
-  'Field rules: dates are YYYY-MM-DD; guest_count is a positive integer; package_interest is malibu|uluwatu|waimea|package_none; payment_choice deposit|full only when explicit; add_ons from [wetsuit,surfboard,surf_lesson,yoga,meal]; should_handoff true only for handoff_reason in [urgent_safety,human_requested,paid_booking_change,cancel_refund,complaint].',
+  'Field rules: dates are YYYY-MM-DD; guest_count is a positive integer; guest_name is the guest booking name when explicitly provided; package_interest is malibu|uluwatu|waimea|package_none; payment_choice deposit|full only when explicit; add_ons from [wetsuit,surfboard,surf_lesson,yoga,meal]; should_handoff true only for handoff_reason in [urgent_safety,human_requested,paid_booking_change,cancel_refund,complaint].',
 ].join('\n');
 
 /**

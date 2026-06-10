@@ -53,6 +53,7 @@ const {
   buildTransferSideQuestionReply,
 } = require('./luna-guest-service-transfer-explainer');
 const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
+const { buildBookingIntakePolicySnapshot } = require('./luna-booking-intake-policy');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -712,6 +713,9 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     reference_date: inp.reference_date || ctx.reference_date,
     language_hint: inp.language_hint,
     client_slug: trimStr(inp.client_slug) || DEFAULT_CLIENT,
+    guest_phone: trimStr(inp.guest_phone) || trimStr(ctx.guest_phone) || null,
+    guest_name: trimStr(inp.guest_name) || trimStr(inp.contact_name) || null,
+    contact_name: trimStr(inp.contact_name) || trimStr(inp.guest_name) || null,
   };
 
   const messageText = trimStr(inp.message_text);
@@ -958,12 +962,28 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     && finalReplySource !== 'router';
   proposedLunaReply = dedupeLunaIntro(proposedLunaReply, allowLeadingIntro === true);
 
+  const policySnapshot = buildBookingIntakePolicySnapshot(
+    {
+      extracted_fields: payload.result && payload.result.extracted_fields,
+      package_night_rule: payload.result && payload.result.package_night_rule,
+    },
+    {
+      channel_guest_name: routerContext.guest_name || routerContext.contact_name || null,
+      quote: payload.quote,
+      payment_choice: payload.payment_choice,
+      availability: payload.availability,
+    },
+  );
+
   const resultWithBrain = {
     ...payload.result,
+    booking_intake_policy: policySnapshot,
     conversation_brain: buildBrainObservability(brainDecision, {
       finalReplySource,
       overrodeBrain,
       composer_state: composerState,
+      booking_flow_stage: policySnapshot.booking_flow_stage,
+      next_required_field: policySnapshot.next_required_field,
     }),
   };
 

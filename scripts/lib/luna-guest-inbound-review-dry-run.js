@@ -64,6 +64,8 @@ function validateInboundReviewBody(body) {
       reference_date: src.reference_date != null ? trimStr(src.reference_date) || null : null,
       language_hint: src.language_hint,
       guest_context: src.guest_context,
+      guest_name: trimStr(src.guest_name || src.contact_name) || null,
+      contact_name: trimStr(src.contact_name || src.guest_name) || null,
       automation_gate_context: src.automation_gate_context,
     },
   };
@@ -408,6 +410,8 @@ async function runGuestInboundReviewDryRun(body, context) {
       channel:                 normalized.channel,
       message_text:            normalized.message_text,
       guest_phone:             normalized.guest_phone,
+      guest_name:              normalized.guest_name,
+      contact_name:            normalized.contact_name,
       conversation_id:         normalized.conversation_id,
       language_hint:           normalized.language_hint,
       guest_context:           mergeGuestContext(null, normalized.guest_context),
@@ -422,6 +426,8 @@ async function runGuestInboundReviewDryRun(body, context) {
     }, {
       reference_date: normalized.reference_date || undefined,
       guest_phone:    normalized.guest_phone,
+      guest_name:     normalized.guest_name,
+      contact_name:   normalized.contact_name,
       dry_run:        true,
     });
 
@@ -506,6 +512,8 @@ async function runGuestInboundReviewDryRun(body, context) {
     channel:                 normalized.channel,
     message_text:            normalized.message_text,
     guest_phone:             normalized.guest_phone,
+    guest_name:              normalized.guest_name,
+    contact_name:            normalized.contact_name,
     conversation_id:         convRow && convRow.conversation_id,
     language_hint:           normalized.language_hint,
     guest_context:           mergedGuestContext,
@@ -515,6 +523,8 @@ async function runGuestInboundReviewDryRun(body, context) {
   }, {
     reference_date: normalized.reference_date || undefined,
     guest_phone:    normalized.guest_phone,
+    guest_name:     normalized.guest_name,
+    contact_name:   normalized.contact_name,
     dry_run:        true,
     pg,
   });

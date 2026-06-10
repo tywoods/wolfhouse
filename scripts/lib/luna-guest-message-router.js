@@ -7,7 +7,11 @@
  * new_booking_inquiry. No writes, Stripe, WhatsApp, Meta, n8n, or live automation.
  */
 
-const { extractLunaGuestMessageIntake, detectPackageMutationIntent } = require('./luna-guest-message-intake');
+const {
+  extractLunaGuestMessageIntake,
+  detectPackageMutationIntent,
+  parseGuestNameAnswer,
+} = require('./luna-guest-message-intake');
 const {
   mergeGuestExtractedFields,
   collectPriorExtractedFields,
@@ -20,6 +24,10 @@ const {
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
 const { buildTransferSideQuestionReply } = require('./luna-guest-service-transfer-explainer');
 const { decideConversationAction } = require('./luna-conversation-brain');
+const {
+  buildBookingIntakePolicySnapshot,
+  normalizeOutOfOrderBookingInfo,
+} = require('./luna-booking-intake-policy');
 const {
   evaluatePackageNightContext,
   packageNightRuleBlocksQuote,
@@ -72,7 +80,7 @@ const ROUTER_SAFETY = {
   payment_link_sent: false,
 };
 
-const BOOKING_FIELD_PRIORITY = ['dates', 'guest_count', 'package_interest'];
+const BOOKING_FIELD_PRIORITY = ['dates', 'guest_name', 'guest_count', 'package_interest'];
 
 const STAFF_HANDOFF_REASONS = new Set([
   'paid_cancellation_or_reschedule',
@@ -94,6 +102,7 @@ const REPLY_TEMPLATES = {
     ask_dates: 'What check-in and check-out dates are you thinking of?',
     ask_checkout: 'What check-out date are you thinking of?',
     ask_guests: 'How many guests will be staying?',
+    ask_guest_name: 'Can I grab your name for the booking?',
     ask_package: 'Are you interested in one of our packages (Malibu, Uluwatu, Waimea) or a custom stay without a package?',
     ask_package_ready: 'Great — which package are you interested in: Malibu, Uluwatu, or Waimea?',
     handoff: "Thanks for your message — I'm passing this to our team so they can help you properly. Someone from Wolfhouse will follow up soon.",
@@ -123,6 +132,7 @@ const REPLY_TEMPLATES = {
     ask_dates: 'Per quali date di check-in e check-out stai pensando di venire?',
     ask_checkout: 'Per quale data di check-out stai pensando?',
     ask_guests: 'Quante persone sarete?',
+    ask_guest_name: 'A quale nome devo intestare la prenotazione?',
     ask_package: 'Ti interessa un pacchetto (Malibu, Uluwatu, Waimea) o un soggiorno custom senza pacchetto?',
     handoff: 'Grazie per il messaggio — passo la richiesta al team così possiamo aiutarti al meglio. Qualcuno di Wolfhouse ti risponderà presto.',
     ask_booking_code: 'Puoi inviarmi il codice prenotazione o il nome sulla prenotazione?',
@@ -145,6 +155,7 @@ const REPLY_TEMPLATES = {
     ask_dates: '¿Qué fechas de entrada y salida tienes en mente?',
     ask_checkout: '¿Qué fecha de salida tienes en mente?',
     ask_guests: '¿Cuántas personas serán?',
+    ask_guest_name: '¿A qué nombre pongo la reserva?',
     ask_package: '¿Te interesa un paquete (Malibu, Uluwatu, Waimea) o una estancia custom sin paquete?',
     handoff: 'Gracias por tu mensaje — lo paso al equipo para ayudarte bien. Alguien de Wolfhouse te responderá pronto.',
     ask_booking_code: '¿Puedes compartir tu código de reserva o el nombre de la reserva?',
@@ -167,6 +178,7 @@ const REPLY_TEMPLATES = {
     ask_dates: 'Welche Check-in- und Check-out-Daten schweben dir vor?',
     ask_checkout: 'Welches Check-out-Datum schwebt dir vor?',
     ask_guests: 'Wie viele Gäste seid ihr?',
+    ask_guest_name: 'Unter welchem Namen soll ich die Buchung eintragen?',
     ask_package: 'Interessiert dich ein Paket (Malibu, Uluwatu, Waimea) oder ein Custom-Aufenthalt ohne Paket?',
     handoff: 'Danke für deine Nachricht — ich gebe das an unser Team weiter. Jemand von Wolfhouse meldet sich bald.',
     ask_booking_code: 'Kannst du deine Buchungsnummer oder den Namen auf der Buchung senden?',
@@ -189,6 +201,7 @@ const REPLY_TEMPLATES = {
     ask_dates: 'Quelles dates d’arrivée et de départ envisagez-vous ?',
     ask_checkout: 'Quelle date de départ envisagez-vous ?',
     ask_guests: 'Combien de personnes serez-vous ?',
+    ask_guest_name: 'À quel nom dois-je mettre la réservation ?',
     ask_package: 'Souhaitez-vous un forfait (Malibu, Uluwatu, Waimea) ou un séjour custom sans forfait ?',
     handoff: 'Merci pour votre message — je transmets à l’équipe pour vous aider au mieux. Quelqu’un de Wolfhouse vous répondra bientôt.',
     ask_booking_code: 'Pouvez-vous partager votre code de réservation ou le nom sur la réservation ?',
@@ -244,6 +257,8 @@ function buildClarifyReply(lang, activeField, extracted) {
   let question;
   if (activeField === 'guest_count') {
     question = tpl(lang, 'ask_guests');
+  } else if (activeField === 'guest_name') {
+    question = tpl(lang, 'ask_guest_name');
   } else if (activeField === 'dates') {
     question = ex.check_in ? tpl(lang, 'ask_checkout') : tpl(lang, 'ask_dates');
   } else if (activeField === 'package_interest') {
@@ -273,6 +288,8 @@ function buildCorrectionContinueReply(lang, activeField, extracted) {
   let continuation;
   if (activeField === 'guest_count') {
     continuation = tpl(lang, 'ask_guests');
+  } else if (activeField === 'guest_name') {
+    continuation = tpl(lang, 'ask_guest_name');
   } else if (activeField === 'dates') {
     continuation = ex.check_in ? tpl(lang, 'ask_checkout') : tpl(lang, 'ask_dates');
   } else if (activeField === 'package_interest' || activeField === 'stay_type') {
@@ -358,6 +375,7 @@ function isIntakeContinuationAnswer(text, activeField) {
   const t = String(text || '').trim();
   if (!t || !activeField) return false;
   if (activeField === 'guest_count') return parseContinuationGuestCount(t) != null;
+  if (activeField === 'guest_name') return parseGuestNameAnswer(t) != null;
   if (activeField === 'dates') return hasExplicitDates(t);
   if (activeField === 'package_interest') {
     return /\b(?:malibu|uluwatu|waimea|accommodation\s+only|no\s+package|custom)\b/i.test(t);
@@ -798,20 +816,45 @@ function extractBookingFields(messageText, context, priorFields) {
     { reference_date: context.reference_date },
   );
 
+  const activeField = resolveActiveIntakeMissingField(guestContext);
+  const priorWithChannelName = seedChannelGuestName(prior, context, guestContext);
+  const nameReady = hasCollectedGuestName(priorWithChannelName);
+
   const current = {
     check_in: intake.check_in || null,
     check_out: intake.check_out || null,
-    guest_count: intake.guests != null ? intake.guests : null,
+    guest_count: null,
+    deferred_guest_count: null,
+    guest_name: null,
     package_interest: intake.package_code || null,
     transfer_interest: detectTransferInterest(messageText) || null,
     service_interest: (intake.add_ons && intake.add_ons.length) ? intake.add_ons : [],
     payment_preference: intake.payment_choice || null,
   };
 
-  const activeField = resolveActiveIntakeMissingField(guestContext);
-  if (activeField === 'guest_count' && current.guest_count == null) {
-    const n = parseContinuationGuestCount(messageText);
-    if (n != null) current.guest_count = n;
+  if (nameReady || activeField === 'guest_count') {
+    if (activeField === 'guest_count' && current.guest_count == null) {
+      const n = parseContinuationGuestCount(messageText);
+      if (n != null) current.guest_count = n;
+    }
+    if (current.guest_count == null && intake.guests != null) {
+      current.guest_count = intake.guests;
+    }
+    if (current.guest_count == null && priorWithChannelName.deferred_guest_count != null) {
+      current.guest_count = priorWithChannelName.deferred_guest_count;
+    }
+  } else if (intake.guests != null) {
+    current.deferred_guest_count = intake.guests;
+  }
+  if (activeField === 'guest_name' && !current.guest_name) {
+    const name = parseGuestNameAnswer(messageText);
+    if (name) current.guest_name = name;
+  }
+  const mergedAfterName = mergeGuestExtractedFields(priorWithChannelName, current);
+  if (hasCollectedGuestName(mergedAfterName)
+    && current.guest_count == null
+    && mergedAfterName.deferred_guest_count != null) {
+    current.guest_count = mergedAfterName.deferred_guest_count;
   }
 
   if (detectNoPackageIntent(messageText)) {
@@ -823,10 +866,42 @@ function extractBookingFields(messageText, context, priorFields) {
   return mergeGuestExtractedFields(prior, current);
 }
 
+function hasCollectedGuestName(extracted) {
+  const name = extracted && extracted.guest_name != null ? String(extracted.guest_name).trim() : '';
+  return name.length > 0;
+}
+
+function resolveChannelGuestName(context, guestContext) {
+  const ctx = context || {};
+  const gc = guestContext || {};
+  const candidates = [
+    gc.channel_guest_name,
+    gc.whatsapp_guest_name,
+    gc.contact_name,
+    gc.guest_name,
+    ctx.guest_name,
+    ctx.contact_name,
+  ];
+  for (const c of candidates) {
+    const n = c != null ? String(c).trim() : '';
+    if (n) return n;
+  }
+  return null;
+}
+
+function seedChannelGuestName(extracted, context, guestContext) {
+  const fields = extracted || {};
+  if (hasCollectedGuestName(fields)) return fields;
+  const channelName = resolveChannelGuestName(context, guestContext);
+  if (!channelName) return fields;
+  return { ...fields, guest_name: channelName };
+}
+
 function computeReadinessMissingFields(extracted) {
   const missing = [];
   if (!extracted.check_in) missing.push('check_in');
   if (!extracted.check_out) missing.push('check_out');
+  if (!hasCollectedGuestName(extracted)) missing.push('guest_name');
   if (extracted.guest_count == null || extracted.guest_count < 1) missing.push('guest_count');
   if (!hasPackageOrStayIntent(extracted)) missing.push('package_interest');
   return missing;
@@ -898,6 +973,7 @@ function computeBookingIntakeReadiness(lane, extracted, safeHandoffRequired, han
 function computeMissingRequired(extracted) {
   const missing = [];
   if (!extracted.check_in || !extracted.check_out) missing.push('dates');
+  if (!hasCollectedGuestName(extracted)) missing.push('guest_name');
   if (extracted.guest_count == null || extracted.guest_count < 1) missing.push('guest_count');
   if (!extracted.package_interest) missing.push('package_interest');
   return missing;
@@ -927,6 +1003,7 @@ function buildBookingReply(lang, readiness, extracted, options = {}) {
   if (next === 'check_out' && extracted.check_in) parts.push(tpl(lang, 'ask_checkout'));
   else if (next === 'check_in' || next === 'check_out') parts.push(tpl(lang, 'ask_dates'));
   else if (next === 'guest_count') parts.push(tpl(lang, 'ask_guests'));
+  else if (next === 'guest_name') parts.push(tpl(lang, 'ask_guest_name'));
   else if (next === 'package_interest') {
     const readyAsk = extracted.check_in && extracted.check_out
       && extracted.guest_count != null && extracted.guest_count >= 1;
@@ -980,6 +1057,8 @@ function buildAllowedNextActions(lane, intakeState, missing, handoff, readiness)
     const readinessMissing = (readiness && readiness.readiness_missing_fields) || [];
     if (readinessMissing.includes('check_in') || readinessMissing.includes('check_out') || missing.includes('dates')) {
       actions.unshift('ask_dates');
+    } else if (readinessMissing.includes('guest_name') || missing.includes('guest_name')) {
+      actions.unshift('ask_guest_name');
     } else if (readinessMissing.includes('guest_count') || missing.includes('guest_count')) {
       actions.unshift('ask_guest_count');
     } else if (readinessMissing.includes('package_interest') || missing.includes('package_interest')) {
@@ -1005,7 +1084,11 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   const ctx = context || {};
   const messageText = src.message_text != null ? String(src.message_text).trim() : '';
   const guestContext = src.guest_context || {};
-  const priorExtracted = collectPriorExtractedFields(guestContext);
+  const priorExtracted = seedChannelGuestName(
+    collectPriorExtractedFields(guestContext),
+    ctx,
+    guestContext,
+  );
 
   if (!messageText) {
     return {
@@ -1127,13 +1210,25 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   let packageNightCtx = null;
 
   if (lane === 'new_booking_inquiry') {
+    const channelGuestName = resolveChannelGuestName(ctx, guestContext);
+    let intakePrior = resetNewBooking ? {} : priorExtracted;
+    if (!resetNewBooking) {
+      const ooo = normalizeOutOfOrderBookingInfo(messageText, { extracted_fields: intakePrior }, {
+        channel_guest_name: channelGuestName,
+        reference_date: ctx.reference_date,
+        guest_phone: ctx.guest_phone || guestContext.guest_phone,
+      });
+      if (ooo.extracted_fields_patch && Object.keys(ooo.extracted_fields_patch).length) {
+        intakePrior = mergeGuestExtractedFields(intakePrior, ooo.extracted_fields_patch);
+      }
+    }
     // Stage 28j — on reset, extract from the current message only (fresh start).
     extractedFields = extractBookingFields(messageText, {
       language_hint: detectedLanguage,
       reference_date: ctx.reference_date,
       guest_phone: ctx.guest_phone || guestContext.guest_phone,
       guest_context: resetNewBooking ? {} : guestContext,
-    }, resetNewBooking ? {} : priorExtracted);
+    }, resetNewBooking ? {} : intakePrior);
     if (packageMutation) {
       extractedFields = {
         ...extractedFields,
@@ -1158,9 +1253,13 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     if (brainPatch.guest_count != null && extractedFields.guest_count == null) {
       extractedFields = { ...extractedFields, guest_count: brainPatch.guest_count };
     }
+    if (brainPatch.guest_name && !hasCollectedGuestName(extractedFields)) {
+      extractedFields = { ...extractedFields, guest_name: brainPatch.guest_name };
+    }
     if (brainPatch.package_interest && !extractedFields.package_interest) {
       extractedFields = { ...extractedFields, package_interest: brainPatch.package_interest };
     }
+    extractedFields = seedChannelGuestName(extractedFields, ctx, guestContext);
 
     const guestDirectlyNamedPackage = !!(packageMutation
       || (brain.intent === 'package_choice' && brain.extracted_fields_patch
@@ -1402,6 +1501,18 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     handoff_reasons: [...reasons],
     proposed_luna_reply: proposedReply,
     allowed_next_actions: allowedNextActions,
+    booking_intake_policy: buildBookingIntakePolicySnapshot(
+      {
+        extracted_fields: lane === 'new_booking_inquiry' ? extractedFields : (preservedExtracted || {}),
+        package_night_rule: packageNightCtx ? packageNightCtx.rule : null,
+      },
+      {
+        channel_guest_name: resolveChannelGuestName(ctx, guestContext),
+        quote: guestContext.quote || null,
+        payment_choice: guestContext.payment_choice || null,
+        availability: guestContext.availability || null,
+      },
+    ),
   };
 }
 

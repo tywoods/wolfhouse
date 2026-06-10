@@ -39,6 +39,8 @@ function guestContextFromOrch(o) {
     message_lane: o.result && o.result.message_lane,
     readiness_state: o.result && o.result.readiness_state,
     booking_intake_ready: o.result && o.result.booking_intake_ready,
+    missing_required_fields: o.result && o.result.missing_required_fields,
+    readiness_missing_fields: o.result && o.result.readiness_missing_fields,
     extracted_fields: o.result && o.result.extracted_fields,
     package_night_rule: o.result && o.result.package_night_rule,
     result: o.result,
@@ -53,17 +55,32 @@ async function runShortStayFlow(turns, ctxExtra) {
   const { runGuestAutomationOrchestratorDryRun } = require('./lib/luna-guest-automation-orchestrator-dry-run');
   let ctx = {};
   const out = [];
+  const extra = ctxExtra || {};
   for (const message_text of turns) {
     const o = await withPgClient((pg) => runGuestAutomationOrchestratorDryRun({
       client_slug: 'wolfhouse-somo',
       channel: 'whatsapp',
       message_text,
       guest_phone: '+491726422307',
+      guest_name: extra.guest_name || null,
+      contact_name: extra.contact_name || extra.guest_name || null,
       guest_context: ctx,
       reference_date: '2026-06-10',
-    }, { reference_date: '2026-06-10', pg, ...(ctxExtra || {}) }));
+    }, {
+      reference_date: '2026-06-10',
+      pg,
+      guest_name: extra.guest_name || null,
+      contact_name: extra.contact_name || extra.guest_name || null,
+      ...extra,
+    }));
     out.push({ message_text, o });
-    ctx = guestContextFromOrch(o);
+    ctx = {
+      ...guestContextFromOrch(o),
+      result: {
+        ...(o.result || {}),
+        proposed_luna_reply: o.proposed_luna_reply,
+      },
+    };
   }
   return out;
 }
@@ -108,6 +125,7 @@ section('B. Short-stay booking conversation');
     'hi',
     'book a stay',
     'July 1-5',
+    'Ty',
     'just me',
     'Just the stay please',
     'deposit',
@@ -116,9 +134,10 @@ section('B. Short-stay booking conversation');
   const hi = flow[0].o;
   const book = flow[1].o;
   const dates = flow[2].o;
-  const guests = flow[3].o;
-  const addons = flow[4].o;
-  const deposit = flow[5].o;
+  const nameTurn = flow[3].o;
+  const guests = flow[4].o;
+  const addons = flow[5].o;
+  const deposit = flow[6].o;
 
   check('B1', /Hey! I'm Luna from Wolfhouse 🌊/i.test(hi.proposed_luna_reply)
     && /book a stay|checking some info/i.test(hi.proposed_luna_reply),
@@ -133,15 +152,20 @@ section('B. Short-stay booking conversation');
   check('B4', dates.result.extracted_fields.check_in === '2026-07-01'
     && dates.result.extracted_fields.check_out === '2026-07-05',
     'July 1-5 parsed');
-  check('B5', /guests/i.test(dates.proposed_luna_reply),
-    'July 1-5 asks guests');
+  check('B5', /grab your name|name/i.test(dates.proposed_luna_reply)
+    && !/how many guests/i.test(dates.proposed_luna_reply),
+    'July 1-5 asks booking name before guest count');
 
-  check('B6', guests.result.extracted_fields.guest_count === 1,
+  check('B6', nameTurn.result.extracted_fields.guest_name === 'Ty',
+    '"Ty" captured as guest_name');
+  check('B6b', /guests/i.test(nameTurn.proposed_luna_reply),
+    'after name Luna asks guest count');
+  check('B7', guests.result.extracted_fields.guest_count === 1,
     '"just me" → guest_count=1');
-  check('B7', /€180|180/.test(guests.proposed_luna_reply)
+  check('B8', /€180|180/.test(guests.proposed_luna_reply)
     && !PACKAGE_RE.test(guests.proposed_luna_reply),
     'under-7 accommodation quote without package names');
-  check('B8', /wetsuit|surfboard|lessons|just the stay/i.test(guests.proposed_luna_reply),
+  check('B8b', /wetsuit|surfboard|lessons|just the stay/i.test(guests.proposed_luna_reply),
     'add-ons asked after accommodation quote');
 
   check('B9', /accommodation only/i.test(addons.proposed_luna_reply)
@@ -162,21 +186,32 @@ section('B. Short-stay booking conversation');
   check('B13', !INTERNAL_RE.test(flow.map((s) => s.o.proposed_luna_reply).join(' ')),
     'no internal terms in composer replies');
 
+  const waFlow = await runShortStayFlow(['hi', 'book a stay', 'July 1-5'], { guest_name: 'Ty' });
+  const waDates = waFlow[2].o;
+  check('B14', waDates.result.extracted_fields.guest_name === 'Ty'
+    && /guests/i.test(waDates.proposed_luna_reply)
+    && !/what name/i.test(waDates.proposed_luna_reply),
+    'WhatsApp profile name skips name question and asks guest count');
+
   section('C. 7-night package flow');
 
   const pkgFlow = await runShortStayFlow([
-    'Hi, we are 2 people interested in the Malibu package',
+    'Hi, we are interested in the Malibu package',
     'July 10 to July 17',
+    'Sarah',
+    '2',
     'no add nothing',
     'deposit',
   ]);
-  const pkgQuoteTurn = pkgFlow.find((s) => s.o.quote && s.o.quote.quote_status === 'ready') || pkgFlow[1];
-  const pkgPayTurn = pkgFlow.find((s) => /deposit|full/i.test(s.o.proposed_luna_reply || '')) || pkgFlow[1];
+  const pkgQuoteTurn = pkgFlow.find((s) => s.o.quote && s.o.quote.quote_status === 'ready') || pkgFlow[3];
+  const pkgPayTurn = pkgFlow.find((s) => /deposit|full/i.test(s.o.proposed_luna_reply || '')) || pkgFlow[4];
   check('C1', pkgQuoteTurn.o.quote && pkgQuoteTurn.o.quote.quote_status === 'ready',
     '7-night Malibu quote ready with staging DB');
   check('C2', /deposit|full/i.test(pkgPayTurn.o.proposed_luna_reply || ''),
     '7-night package flow reaches payment choice');
-  check('C3', pkgPayTurn.o.result.conversation_brain.final_reply_source === 'luna_reply_composer',
+  const pkgComposerTurn = pkgFlow.find((s) => s.o.result?.conversation_brain?.final_reply_source === 'luna_reply_composer'
+    && /deposit|full|stay comes to/i.test(s.o.proposed_luna_reply || '')) || pkgPayTurn;
+  check('C3', pkgComposerTurn.o.result.conversation_brain.final_reply_source === 'luna_reply_composer',
     '7-night package reply composer-owned when covered');
 
   section('D. Side question context');

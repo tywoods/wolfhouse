@@ -613,7 +613,10 @@ function validateOpenDemoInboundBody(body) {
       message_text: messageText,
       inbound_message_id: inboundMessageId,
       phone_number_id: b.phone_number_id != null ? String(b.phone_number_id).trim() : null,
-      contact_name: b.contact_name != null ? String(b.contact_name).trim() : null,
+      contact_name: b.contact_name != null ? String(b.contact_name).trim()
+        : (b.guest_name != null ? String(b.guest_name).trim() : null),
+      guest_name: b.guest_name != null ? String(b.guest_name).trim()
+        : (b.contact_name != null ? String(b.contact_name).trim() : null),
       received_at: b.received_at != null ? String(b.received_at).trim() : null,
       reference_date: b.reference_date != null ? String(b.reference_date).trim() : null,
       language_hint: b.language_hint,

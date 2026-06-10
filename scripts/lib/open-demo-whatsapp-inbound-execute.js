@@ -237,7 +237,8 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
           confirm_write: true,
           client_slug: inboundBody.client_slug,
           guest_phone: inboundBody.guest_phone,
-          guest_name: rawBody.guest_name || inboundBody.contact_name || null,
+          guest_name: (chain.result && chain.result.extracted_fields && chain.result.extracted_fields.guest_name)
+            || rawBody.guest_name || inboundBody.contact_name || null,
           guest_email: rawBody.guest_email || null,
           env,
           host_header: hostHeader,

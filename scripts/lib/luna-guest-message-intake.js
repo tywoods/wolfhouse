@@ -429,6 +429,8 @@ function hasPartialBookingSignal(fields, text) {
 function extractGuests(text) {
   const t = String(text || '').toLowerCase();
   if (/\b(?:just me|only me|solo(?:\s+travell(?:er|er))?|one person|1 person)\b/i.test(t)) return 1;
+  if (/^(?:me)$/i.test(t.trim())) return 1;
+  if (/\btwo\s+of\s+us\b/i.test(t)) return 2;
   if (/\bcouple\b/i.test(t)) return 2;
   if (/\bme and my (?:partner|girlfriend|boyfriend|friend|wife|husband)\b/i.test(t)) return 2;
   const familyOf = t.match(/\bfamily of (\d{1,2})\b/i);
@@ -467,6 +469,34 @@ function extractGuests(text) {
   ]) {
     const m = t.match(re);
     if (m && WORD_NUMBERS[m[1].toLowerCase()]) return WORD_NUMBERS[m[1].toLowerCase()];
+  }
+  return null;
+}
+
+/** Parse a short guest-name answer when Luna asked for the booking name. */
+function parseGuestNameAnswer(text) {
+  const raw = String(text || '').trim();
+  if (!raw || raw.length > 60) return null;
+  if (/^\d+$/.test(raw)) return null;
+  if (/\b(?:deposit|full(?:\s+payment)?|just\s+(?:me|the\s+stay)|accommodation(?:\s+only)?|no\s+package|malibu|uluwatu|waimea|wetsuit|surfboard|lessons?|yoga|book(?:ing)?\s+(?:a\s+)?stay)\b/i.test(raw)) {
+    return null;
+  }
+  if (/^(?:hi|hello|hey|thanks|thank\s+you|yes|no|ok(?:ay)?|sure)$/i.test(raw)) return null;
+
+  const clean = (s) => {
+    const t = String(s || '').trim().replace(/\s+/g, ' ');
+    if (!t || t.length < 1 || t.length > 50) return null;
+    return t;
+  };
+
+  const im = raw.match(/\b(?:i'?m|i\s+am)\s+([a-z][a-z'\- ]{0,40})/i);
+  if (im) return clean(im[1]);
+
+  const nameIs = raw.match(/\b(?:my\s+name\s+is|name\s+is|call\s+me|it'?s)\s+([a-z][a-z'\- ]{0,40})/i);
+  if (nameIs) return clean(nameIs[1]);
+
+  if (/^[a-z][a-z'\-]*(?:\s+[a-z][a-z'\-]*){0,2}$/i.test(raw) && raw.split(/\s+/).length <= 3) {
+    return clean(raw);
   }
   return null;
 }
@@ -811,6 +841,7 @@ module.exports = {
   hasEnoughFieldsForDryRun,
   isGuestIntakeAiEnabled,
   detectPackageMutationIntent,
+  parseGuestNameAnswer,
   INTAKE_SAFETY_FLAGS,
   KNOWN_PACKAGE_CODES,
   KNOWN_ADDON_TYPES,

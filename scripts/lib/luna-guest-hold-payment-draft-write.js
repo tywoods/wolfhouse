@@ -253,7 +253,7 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
   const idempotencyKey = planner.idempotency_key_preview;
   const paymentIdemKey = `ghpd-pay-${idempotencyKey}`;
 
-  const guestName = trimStr(ctx.guest_name) || trimStr(fields.guest_name) || 'Guest';
+  const guestName = trimStr(fields.guest_name) || trimStr(ctx.guest_name) || 'Guest';
   const guestEmail = trimStr(ctx.guest_email) || trimStr(fields.guest_email) || null;
   const guestPhone = trimStr(ctx.guest_phone) || trimStr(fields.guest_phone) || trimStr(fields.phone);
 
