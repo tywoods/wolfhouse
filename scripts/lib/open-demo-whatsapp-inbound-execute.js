@@ -39,8 +39,8 @@ const {
   buildOpenDemoBookingWriteBlockedResponse,
   buildOpenDemoBedAssignmentBlockedResponse,
   shouldDeferOpenDemoPaymentChoiceReviewReply,
-  buildOpenDemoPaymentChoiceLiveReply,
 } = require('./open-demo-whatsapp-gate');
+const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
 
 /**
  * @param {import('pg').Client} pg
@@ -417,12 +417,17 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   }
 
   if (deferPaymentChoiceReviewReply && sendLiveReplyConfirmed) {
-    const bridgeReply = buildOpenDemoPaymentChoiceLiveReply(reviewForFlags, {
-      bookingWrite,
-      bedAssignment,
-      stripeLink,
-      paymentLinkSend,
+    const composed = composeLunaGuestReply({
+      payload: reviewForFlags,
+      mode: 'live_staging',
+      live_outcomes: {
+        bookingWrite,
+        bedAssignment,
+        stripeLink,
+        paymentLinkSend,
+      },
     });
+    const bridgeReply = composed && composed.covered ? composed.reply : null;
     if (bridgeReply) {
       proposedReplyForSend = bridgeReply;
       liveReply = await sendOpenDemoLiveReplyMessage(

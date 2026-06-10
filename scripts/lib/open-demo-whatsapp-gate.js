@@ -556,53 +556,18 @@ function shouldDeferOpenDemoPaymentChoiceReviewReply(body, env, review, flags) {
 }
 
 /**
- * Stage 28j.5 — guest-facing reply after hold/draft (+ optional Stripe link) writes.
+ * Stage 28j.5/28j.6 — guest-facing reply after hold/draft (+ optional Stripe link) writes.
+ * Delegates to Luna Reply Composer when available.
  */
 function buildOpenDemoPaymentChoiceLiveReply(review, outcomes) {
-  const r = review || {};
-  const o = outcomes || {};
-  const bw = o.bookingWrite || {};
-  const plSend = o.paymentLinkSend || {};
-  const lang = resolveOpenDemoPaymentChoiceLang(r);
-  const writeOk = bw.write_status === 'created' || bw.write_status === 'reused_existing';
-  const isDeposit = isOpenDemoDepositPaymentChoice(r);
-  const amountEur = formatOpenDemoPaymentAmountEur(resolveOpenDemoPaymentChoiceAmountCents(r));
-  const linkSent = plSend.payment_link_sent === true;
-
-  const amountPhrase = amountEur
-    ? (isDeposit ? `€${amountEur} deposit` : `€${amountEur}`)
-    : (isDeposit ? 'deposit' : 'full amount');
-
-  const byLang = {
-    en: {
-      hold_staff_sends: `Thanks! Your stay is held. Our team will send your secure payment link here shortly for your ${amountPhrase}.`,
-      hold_link_sent: `Thanks! Your stay is held. I've sent your secure test payment link in a separate message for your ${amountPhrase}.`,
-      write_pending: 'Thanks! I noted your payment preference. Our team will follow up with the next step shortly.',
-    },
-    it: {
-      hold_staff_sends: `Grazie! Il soggiorno è in hold. Il team invierà a breve il link di pagamento sicuro per il ${amountPhrase}.`,
-      hold_link_sent: `Grazie! Il soggiorno è in hold. Ho inviato il link di pagamento di test in un messaggio separato per il ${amountPhrase}.`,
-      write_pending: 'Grazie! Ho annotato la preferenza di pagamento. Il team seguirà a breve.',
-    },
-    es: {
-      hold_staff_sends: `¡Gracias! Tu estancia está en hold. El equipo enviará pronto el enlace de pago seguro para el ${amountPhrase}.`,
-      hold_link_sent: `¡Gracias! Tu estancia está en hold. Envié el enlace de pago de prueba en un mensaje aparte para el ${amountPhrase}.`,
-      write_pending: '¡Gracias! Anoté tu preferencia de pago. El equipo seguirá en breve.',
-    },
-    de: {
-      hold_staff_sends: `Danke! Euer Aufenthalt ist reserviert. Das Team schickt gleich den sicheren Zahlungslink für die ${amountPhrase}.`,
-      hold_link_sent: `Danke! Euer Aufenthalt ist reserviert. Den Test-Zahlungslink habe ich in einer separaten Nachricht für die ${amountPhrase} geschickt.`,
-      write_pending: 'Danke! Ich habe eure Zahlungswahl notiert. Das Team meldet sich gleich.',
-    },
-    fr: {
-      hold_staff_sends: `Merci ! Votre séjour est en attente. L'équipe enverra bientôt le lien de paiement sécurisé pour l'${amountPhrase}.`,
-      hold_link_sent: `Merci ! Votre séjour est en attente. J'ai envoyé le lien de paiement test dans un message séparé pour l'${amountPhrase}.`,
-      write_pending: 'Merci ! J\'ai noté votre choix de paiement. L\'équipe suivra sous peu.',
-    },
-  };
-  const L = byLang[lang] || byLang.en;
-  if (!writeOk) return L.write_pending;
-  return linkSent ? L.hold_link_sent : L.hold_staff_sends;
+  const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
+  const composed = composeLunaGuestReply({
+    payload: review || {},
+    mode: 'live_staging',
+    live_outcomes: outcomes || {},
+  });
+  if (composed && composed.covered && composed.reply) return composed.reply;
+  return null;
 }
 
 function resolveInboundMessageId(body) {

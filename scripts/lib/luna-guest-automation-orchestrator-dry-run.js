@@ -52,6 +52,7 @@ const {
   buildServiceSideQuestionReply,
   buildTransferSideQuestionReply,
 } = require('./luna-guest-service-transfer-explainer');
+const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -236,6 +237,7 @@ function buildBrainObservability(brainDecision, extra) {
     confidence: b.confidence != null ? b.confidence : null,
     final_reply_source: x.finalReplySource || null,
     final_reply_overrode_brain: x.overrodeBrain === true,
+    composer_state: x.composer_state || null,
   };
 }
 
@@ -430,6 +432,24 @@ function sanitizeReply(text, fallbackCtx, detected) {
   return sanitizeLunaGuestReply(text, fallback);
 }
 
+/** Stage 28j.6 — try centralized booking reply composer before legacy templates. */
+function tryComposeBookingReply(payload, messageText, priorGuestContext, brainDecision, opts) {
+  const o = opts || {};
+  const composed = composeLunaGuestReply({
+    payload,
+    message_text: messageText,
+    prior_guest_context: priorGuestContext,
+    brain_decision: brainDecision,
+    mode: o.mode || 'orchestrator',
+    allow_leading_intro: o.allowLeadingIntro === true,
+    live_outcomes: o.liveOutcomes,
+  });
+  if (composed && composed.covered && composed.reply) {
+    return composed;
+  }
+  return null;
+}
+
 function shouldPreferRouterReply(result) {
   if (!result) return false;
   if (result.booking_intake_ready === false) return true;
@@ -617,7 +637,7 @@ function buildOrchestratorResponse(parts) {
   };
 }
 
-function buildNonBookingLaneResponse(result, gate) {
+function buildNonBookingLaneResponse(result, gate, messageText, brainDecision) {
   const payload = {
     gate,
     result,
@@ -625,16 +645,40 @@ function buildNonBookingLaneResponse(result, gate) {
     quote: null,
     payment_choice: null,
     hold_payment_draft_plan: null,
+    proposed_next_action: resolveProposedNextAction({ gate, result }),
+  };
+  const allowIntro = (brainDecision && brainDecision.intent === 'greeting')
+    || (result && result.greeting_only === true);
+  const composed = tryComposeBookingReply(
+    payload,
+    messageText,
+    null,
+    brainDecision,
+    { allowLeadingIntro: allowIntro },
+  );
+  const proposedLunaReply = composed
+    ? composed.reply
+    : resolveProposedReply(payload, messageText, null, brainDecision);
+  const finalReplySource = composed
+    ? composed.reply_source
+    : classifyFinalReplySource(proposedLunaReply, payload);
+  const resultWithBrain = {
+    ...result,
+    conversation_brain: buildBrainObservability(brainDecision, {
+      finalReplySource,
+      overrodeBrain: false,
+      composer_state: composed ? composed.composer_state : null,
+    }),
   };
   return buildOrchestratorResponse({
     automation_gate: gate,
-    result,
+    result: resultWithBrain,
     availability: null,
     quote: null,
     payment_choice: null,
     hold_payment_draft_plan: null,
-    proposed_next_action: resolveProposedNextAction(payload),
-    proposed_luna_reply: resolveProposedReply(payload, null, null),
+    proposed_next_action: payload.proposed_next_action,
+    proposed_luna_reply: dedupeLunaIntro(proposedLunaReply, allowIntro === true),
   });
 }
 
@@ -708,7 +752,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   );
 
   if (result.greeting_only) {
-    return buildNonBookingLaneResponse(result, gate);
+    return buildNonBookingLaneResponse(result, gate, messageText, brainDecision);
   }
 
   if (detectNewBookingResetIntent(messageText) && shouldAttemptGuestPaymentChoiceWire(chainGuestContext)) {
@@ -801,7 +845,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   }
 
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
-    return buildNonBookingLaneResponse(result, gate);
+    return buildNonBookingLaneResponse(result, gate, messageText, brainDecision);
   }
 
   const chainCtx = {
@@ -881,27 +925,37 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     hold_payment_draft_plan,
   }, trimStr(inp.message_text));
 
-  let proposedLunaReply = resolveProposedReply(
-    payload, trimStr(inp.message_text), chainGuestContext, brainDecision,
-  );
-
-  // Stage 28j — when the guest explicitly chose accommodation-only ("no add nothing"),
-  // the final reply must acknowledge that choice even when a chain reply wins.
-  // Stage 28j.2 — but the short-stay accommodation confirm reply already acknowledges,
-  // so we never double-prepend the generic ack onto it.
-  if (brainDecision && brainDecision.intent === 'accommodation_only_choice' && proposedLunaReply) {
-    const ack = buildAccommodationOnlyAck((result && result.detected_language) || 'en');
-    if (!proposedLunaReply.includes(ack)) {
-      proposedLunaReply = `${ack} ${proposedLunaReply}`;
-    }
-  }
-
-  // Stage 28j.2 — observability + final reply cleanup.
-  const finalReplySource = classifyFinalReplySource(proposedLunaReply, payload);
-  const overrodeBrain = brainControlsReply(brainDecision, payload.result, payload.quote)
-    && finalReplySource !== 'router';
   const allowLeadingIntro = (brainDecision && brainDecision.intent === 'greeting')
     || (payload.result && payload.result.greeting_only === true);
+  const composed = tryComposeBookingReply(
+    payload,
+    trimStr(inp.message_text),
+    chainGuestContext,
+    brainDecision,
+    { allowLeadingIntro: allowLeadingIntro === true },
+  );
+  let proposedLunaReply;
+  let finalReplySource;
+  let composerState = null;
+  if (composed) {
+    proposedLunaReply = composed.reply;
+    finalReplySource = composed.reply_source;
+    composerState = composed.composer_state;
+  } else {
+    proposedLunaReply = resolveProposedReply(
+      payload, trimStr(inp.message_text), chainGuestContext, brainDecision,
+    );
+    if (brainDecision && brainDecision.intent === 'accommodation_only_choice' && proposedLunaReply) {
+      const ack = buildAccommodationOnlyAck((result && result.detected_language) || 'en');
+      if (!proposedLunaReply.includes(ack)) {
+        proposedLunaReply = `${ack} ${proposedLunaReply}`;
+      }
+    }
+    finalReplySource = classifyFinalReplySource(proposedLunaReply, payload);
+  }
+  const overrodeBrain = !composed
+    && brainControlsReply(brainDecision, payload.result, payload.quote)
+    && finalReplySource !== 'router';
   proposedLunaReply = dedupeLunaIntro(proposedLunaReply, allowLeadingIntro === true);
 
   const resultWithBrain = {
@@ -909,6 +963,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     conversation_brain: buildBrainObservability(brainDecision, {
       finalReplySource,
       overrodeBrain,
+      composer_state: composerState,
     }),
   };
 

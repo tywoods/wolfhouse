@@ -202,8 +202,8 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
   const obs = a5.result.conversation_brain || {};
   check('6B', obs.final_reply_overrode_brain === false || obs.final_reply_source === 'payment_choice',
     'arbitration observability present for accommodation-only turn');
-  check('6C', ['payment_choice', 'router', 'quote', 'composed'].includes(obs.final_reply_source),
-    'short-stay accommodation reply sourced from quote/payment/router chain');
+  check('6C', ['payment_choice', 'router', 'quote', 'composed', 'luna_reply_composer'].includes(obs.final_reply_source),
+    'short-stay accommodation reply sourced from composer or quote/payment/router chain');
 
   // ── 7. observability fields ──
   section('7. Brain observability fields');

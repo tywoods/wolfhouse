@@ -93,7 +93,7 @@ if (!adapterSrc.includes('confirmation_send') && !adapterSrc.includes('runGuestC
 section('B. Execute path — defer dry-run reply, run writes first');
 
 if (executeSrc.includes('shouldDeferOpenDemoPaymentChoiceReviewReply')
-  && executeSrc.includes('buildOpenDemoPaymentChoiceLiveReply')) {
+  && executeSrc.includes('composeLunaGuestReply')) {
   pass('B1', 'payment-choice write bridge defers dry-run review reply');
 } else {
   fail('B1', 'defer + post-write reply bridge missing');
@@ -181,10 +181,24 @@ if (paymentSrc.includes('deposit_ready')
 section('E. Live reply builder runtime');
 
 const gate = require('./lib/open-demo-whatsapp-gate');
+const { composeLunaGuestReply } = require('./lib/luna-guest-reply-composer');
 const adapter = require('./lib/meta-open-demo-inbound-adapter');
 
 const readyReview = {
-  result: { detected_language: 'en', package_code: 'package_none', check_in: '2026-07-01', check_out: '2026-07-05', guest_count: 1 },
+  result: {
+    detected_language: 'en',
+    message_lane: 'new_booking_inquiry',
+    package_code: 'package_none',
+    check_in: '2026-07-01',
+    check_out: '2026-07-05',
+    guest_count: 1,
+    extracted_fields: {
+      check_in: '2026-07-01',
+      check_out: '2026-07-05',
+      guest_count: 1,
+      package_interest: 'accommodation_only',
+    },
+  },
   payment_choice: {
     payment_choice_ready: true,
     payment_choice: 'deposit',
@@ -195,10 +209,14 @@ const readyReview = {
   quote: { quote_status: 'ready', deposit_options: { deposit_required_cents: 10000 }, quote_total_cents: 18000 },
 };
 
-const bridgeReply = gate.buildOpenDemoPaymentChoiceLiveReply(readyReview, {
-  bookingWrite: { write_status: 'created', booking_code: 'WH-G27-TEST', payment_draft_id: 'pay-1' },
-  paymentLinkSend: { payment_link_sent: false },
-});
+const bridgeReply = composeLunaGuestReply({
+  payload: readyReview,
+  mode: 'live_staging',
+  live_outcomes: {
+    bookingWrite: { write_status: 'created', booking_code: 'WH-G27-TEST', payment_draft_id: 'pay-1' },
+    paymentLinkSend: { payment_link_sent: false },
+  },
+}).reply;
 
 if (bridgeReply && !FORBIDDEN_DEFERRED_REPLY_RE.test(bridgeReply)) {
   pass('E1', 'post-write reply excludes dry-run hold-defer language');
@@ -212,12 +230,16 @@ if (bridgeReply && /held|hold/i.test(bridgeReply) && /staff will send|payment li
   fail('E2', `unexpected hold fallback copy: ${bridgeReply}`);
 }
 
-const linkSentReply = gate.buildOpenDemoPaymentChoiceLiveReply(readyReview, {
-  bookingWrite: { write_status: 'created' },
-  paymentLinkSend: { payment_link_sent: true },
-});
-if (linkSentReply && /separate message|secure test payment link/i.test(linkSentReply)) {
-  pass('E3', 'payment link sent copy references separate message');
+const linkSentReply = composeLunaGuestReply({
+  payload: readyReview,
+  mode: 'live_staging',
+  live_outcomes: {
+    bookingWrite: { write_status: 'created' },
+    paymentLinkSend: { payment_link_sent: true },
+  },
+}).reply;
+if (linkSentReply && /payment link I just sent|secure payment link/i.test(linkSentReply)) {
+  pass('E3', 'payment link sent copy references payment link message');
 } else {
   fail('E3', `payment link sent copy unexpected: ${linkSentReply}`);
 }

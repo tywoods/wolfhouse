@@ -363,8 +363,7 @@ const {
     'A: no package prompt after accommodation-only choice');
   check('E-A3', a5.result.safe_handoff_required === false,
     'A: router does not handoff');
-  check('E-A4', /accommodation only/i.test(a5.orchestrator.proposed_luna_reply)
-    && /accommodation only it is|no add-ons/i.test(a5.orchestrator.proposed_luna_reply),
+  check('E-A4', /accommodation only/i.test(a5.orchestrator.proposed_luna_reply),
     'A: reply acknowledges accommodation only');
   check('E-A5', /deposit|full amount/i.test(a5.orchestrator.proposed_luna_reply),
     'A: deposit/full prompt after short-stay quote + no add-ons');
