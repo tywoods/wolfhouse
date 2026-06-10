@@ -146,7 +146,9 @@ function quoteContextReady(guestContext) {
   const paymentChoiceNeeded = quote.payment_choice_needed === true
     || ctx.payment_choice_needed === true;
   const quoteStatus = quote.quote_status || ctx.quote_status;
-  return ctx.message_lane === 'new_booking_inquiry'
+  const lane = ctx.message_lane || (ctx.result && ctx.result.message_lane);
+  const bookingPaymentLane = lane === 'new_booking_inquiry' || lane === 'payment_question';
+  return bookingPaymentLane
     && paymentChoiceNeeded
     && quoteStatus === 'ready';
 }
@@ -178,15 +180,22 @@ function shouldAttemptGuestPaymentChoiceWire(guestContext) {
 function buildPaymentChoiceWireContext(bodyGuestContext, result, availability, quote) {
   const prior = bodyGuestContext || {};
   const priorQuote = prior.quote && typeof prior.quote === 'object' ? prior.quote : {};
-  const useCurrentQuote = quote && quote.quote_status === 'ready' && !Object.keys(priorQuote).length;
-  const mergedQuote = Object.keys(priorQuote).length ? priorQuote : (useCurrentQuote ? quote : priorQuote);
+  let mergedQuote = {
+    ...(Object.keys(priorQuote).length ? priorQuote : {}),
+    ...(quote && typeof quote === 'object' ? quote : {}),
+  };
+  // Keep a ready prior quote when the current turn did not reproduce quote readiness
+  // (e.g. payment_question lane on "pay cash on arrival?" after a ready package quote).
+  if (priorQuote.quote_status === 'ready' && mergedQuote.quote_status !== 'ready') {
+    mergedQuote = { ...mergedQuote, ...priorQuote, quote_status: 'ready' };
+  }
   return {
     ...prior,
     message_lane: prior.message_lane || 'new_booking_inquiry',
     result: prior.result || result,
     availability: prior.availability || availability,
     quote: mergedQuote,
-    quote_status: priorQuote.quote_status || prior.quote_status || (quote && quote.quote_status),
+    quote_status: mergedQuote.quote_status || prior.quote_status || (quote && quote.quote_status),
     payment_choice_needed: priorQuote.payment_choice_needed === true
       || prior.payment_choice_needed === true
       || (quote && quote.payment_choice_needed === true),
@@ -230,6 +239,14 @@ function detectPaymentChoiceFromMessage(messageText) {
   }
 
   if (/\b(?:full\s+amount|pay\s+in\s+full|pay\s+the\s+full|will pay the full|want to pay (?:the )?full|entire\s+amount|whole\s+amount|total\s+amount|importo\s+intero|pago\s+completo|montant\s+complet|voller\s+betrag|alles\s+bezahlen|i(?:'|’)?ll\s+pay\s+(?:the\s+)?full)\b/i.test(t)) {
+    return 'full_payment';
+  }
+
+  if (/^deposit$/i.test(t)) {
+    return 'deposit';
+  }
+
+  if (/^full$/i.test(t)) {
     return 'full_payment';
   }
 

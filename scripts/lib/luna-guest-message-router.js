@@ -25,6 +25,7 @@ const {
   packageNightRuleBlocksQuote,
   buildWeeklyPackageBlockedReply,
   buildShortStayAccommodationGuidanceReply,
+  buildShortStayAccommodationCheckingReply,
   buildShortStayAccommodationConfirmReply,
   buildWeeklyPackageExplanationReply,
   isWeeklySurfPackage,
@@ -113,6 +114,7 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Happy to help with a date change — could you share your booking code, your current dates, and the new dates you’re thinking of?',
     ready_next_check: 'Thanks — I have your stay details. Next I can look into the best option for your dates and let you know. I am not confirming availability yet.',
     clarify_prefix: "Sorry, I didn't quite catch that —",
+    booking_progress_when: 'once you pick deposit or full, I’ll line up the next step for your stay — our team usually confirms within a few hours on weekdays.',
     accommodation_only_ack: 'No problem — accommodation only it is, no add-ons.',
     correction_ack: "You're right — sorry about the mix-up, let me fix that.",
   },
@@ -134,6 +136,7 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Volentieri per un cambio date — puoi condividere codice prenotazione, date attuali e le nuove date che hai in mente?',
     ready_next_check: 'Grazie — ho i dettagli del soggiorno. Prossimo passo: posso valutare la migliore opzione per le tue date e farti sapere. Non sto ancora confermando disponibilità.',
     clarify_prefix: 'Scusa, non ho capito bene —',
+    booking_progress_when: 'una volta scelto deposito o importo intero, preparo il passo successivo — di solito il team conferma entro poche ore nei giorni feriali.',
     accommodation_only_ack: 'Perfetto — solo alloggio, senza extra.',
     correction_ack: 'Hai ragione — scusa per la confusione, sistemo subito.',
   },
@@ -155,6 +158,7 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Con gusto ayudo con un cambio de fechas — ¿puedes compartir tu código de reserva, las fechas actuales y las nuevas que tienes en mente?',
     ready_next_check: 'Gracias — tengo los detalles de la estancia. El siguiente paso es revisar la mejor opción para tus fechas y avisarte. Aún no confirmo disponibilidad.',
     clarify_prefix: 'Perdona, no te he entendido bien —',
+    booking_progress_when: 'cuando elijas depósito o importe completo, preparo el siguiente paso — el equipo suele confirmar en unas horas en días laborables.',
     accommodation_only_ack: 'Perfecto — solo alojamiento, sin extras.',
     correction_ack: 'Tienes razón — perdona la confusión, lo corrijo.',
   },
@@ -176,6 +180,7 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Gern helfe ich bei einer Datumsänderung — kannst du Buchungsnummer, aktuelle Daten und die neuen Daten senden?',
     ready_next_check: 'Danke — ich habe eure Aufenthaltsdetails. Als Nächstes kann ich die beste Option für eure Daten prüfen und Bescheid geben. Ich bestätige noch keine Verfügbarkeit.',
     clarify_prefix: 'Entschuldige, das habe ich nicht ganz verstanden —',
+    booking_progress_when: 'sobald ihr Anzahlung oder vollen Betrag wählt, kümmere ich mich um den nächsten Schritt — das Team bestätigt meist innerhalb weniger Stunden an Werktagen.',
     accommodation_only_ack: 'Alles klar — nur Unterkunft, ohne Extras.',
     correction_ack: 'Du hast recht — entschuldige das Missverständnis, ich korrigiere das.',
   },
@@ -197,6 +202,7 @@ const REPLY_TEMPLATES = {
     cancel_change_intake: 'Volontiers pour un changement de dates — pouvez-vous partager votre code de réservation, vos dates actuelles et les nouvelles dates envisagées ?',
     ready_next_check: 'Merci — j’ai les détails du séjour. Prochaine étape : je peux regarder la meilleure option pour vos dates et vous revenir. Je ne confirme pas encore la disponibilité.',
     clarify_prefix: 'Désolée, je n’ai pas bien compris —',
+    booking_progress_when: 'une fois que vous choisissez acompte ou montant complet, je prépare la suite — l’équipe confirme en général en quelques heures en semaine.',
     accommodation_only_ack: 'Très bien — hébergement seul, sans extras.',
     correction_ack: 'Vous avez raison — désolée pour la confusion, je corrige.',
   },
@@ -244,6 +250,8 @@ function buildClarifyReply(lang, activeField, extracted) {
     question = (ex.check_in && ex.check_out && ex.guest_count != null)
       ? tpl(lang, 'ask_package_ready')
       : tpl(lang, 'ask_package');
+  } else if (ex.check_in && ex.check_out && ex.guest_count != null) {
+    question = tpl(lang, 'booking_progress_when');
   } else {
     question = tpl(lang, 'ask_dates');
   }
@@ -651,10 +659,21 @@ function hasSubstantiveNewBookingDetailsAfterReset(routerResult) {
   return false;
 }
 
+function isBookingProgressWhenQuestion(text) {
+  const t = String(text || '').trim().toLowerCase();
+  return /\bwhen\b/i.test(t)
+    && /\b(?:will you|you send|you confirm|next step|hear back|get back)\b/i.test(t);
+}
+
 function classifyMessageLane(text, guestContext) {
   const t = String(text || '');
   const ctx = guestContext || {};
   const hasCode = hasBookingCode(t) || !!(ctx.booking_code || ctx.booking_id);
+
+  if ((isActiveBookingIntakeContext(ctx) || conversationIntakeInProgress(ctx) || hasPriorBookingChain(ctx))
+    && isBookingProgressWhenQuestion(t)) {
+    return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.86 };
+  }
 
   if (hasActivePaymentChoiceContext(ctx)) {
     const pc = detectPaymentChoiceFromMessage(t);
@@ -849,7 +868,6 @@ function computeBookingIntakeReadiness(lane, extracted, safeHandoffRequired, han
     const pReasons = [...reasons];
     if (packageNightCtx.rule === 'weekly_package_blocked') pReasons.push('weekly_package_under_min_nights');
     if (packageNightCtx.rule === 'short_stay_guidance') pReasons.push('short_stay_needs_accommodation_path');
-    if (packageNightCtx.rule === 'short_stay_accommodation') pReasons.push('short_stay_accommodation_needs_staff_confirm');
     if (packageNightCtx.rule === 'weekly_explain_before_choice') pReasons.push('weekly_package_explanation_needed');
     return {
       booking_intake_ready: false,
@@ -1161,14 +1179,15 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       };
     }
 
-    missingRequired = computeMissingRequired(extractedFields);
-    if (packageNightCtx.nights != null
-      && packageNightCtx.nights < 7
-      && packageNightCtx.rule === 'short_stay_guidance'
+    // Stage 28j.4 — under-7-night stays default to accommodation-only; no package prompt.
+    if (packageNightCtx.rule === 'short_stay_accommodation'
       && extractedFields.guest_count != null && extractedFields.guest_count >= 1) {
-      missingRequired = missingRequired.filter((f) => f !== 'package_interest');
-      if (!missingRequired.includes('stay_type')) missingRequired.push('stay_type');
+      if (!extractedFields.package_interest) {
+        extractedFields = { ...extractedFields, package_interest: 'accommodation_only' };
+      }
     }
+
+    missingRequired = computeMissingRequired(extractedFields);
 
     if (reasons.includes('unclear_availability')) handoff = true;
     if (reasons.includes('uncertain_package_or_pricing')) handoff = true;
@@ -1306,7 +1325,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     } else if (packageNightCtx && packageNightCtx.rule === 'short_stay_guidance' && hasGuestsForNightRule) {
       proposedReply = buildShortStayAccommodationGuidanceReply(detectedLanguage);
     } else if (packageNightCtx && packageNightCtx.rule === 'short_stay_accommodation' && hasGuestsForNightRule) {
-      proposedReply = buildShortStayAccommodationConfirmReply(detectedLanguage, extractedFields);
+      proposedReply = buildShortStayAccommodationCheckingReply(detectedLanguage, extractedFields);
     } else if (packageNightCtx && packageNightCtx.rule === 'weekly_explain_before_choice' && hasGuestsForNightRule) {
       proposedReply = buildWeeklyPackageExplanationReply(detectedLanguage);
     } else {

@@ -18,7 +18,9 @@ const {
   isWeeklySurfPackage,
   computeStayNights,
   WEEKLY_PACKAGE_MIN_NIGHTS,
+  buildShortStayAccommodationQuotedReply,
 } = require('./wolfhouse-package-night-rules');
+const { isShortStayAccommodationQuote } = require('./wolfhouse-short-stay-pricing');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -96,11 +98,17 @@ function shouldAttemptGuestQuoteProposal(routerResult, availabilityResult) {
   if (nights != null && isWeeklySurfPackage(pkg) && nights < WEEKLY_PACKAGE_MIN_NIGHTS) {
     return false;
   }
+  const shortStayAcc = routerResult.package_night_rule === 'short_stay_accommodation';
+  const availOk = availabilityResult.availability_status === 'available';
+  const availDryRunNoPg = shortStayAcc
+    && availabilityResult.availability_check_attempted === true
+    && availabilityResult.availability_status === 'needs_staff_review'
+    && (availabilityResult.availability_handoff_reasons || []).includes('no_pg_client');
   return routerResult.message_lane === 'new_booking_inquiry'
     && routerResult.booking_intake_ready === true
     && routerResult.readiness_state === 'ready_for_availability_check'
     && availabilityResult.availability_check_attempted === true
-    && availabilityResult.availability_status === 'available';
+    && (availOk || availDryRunNoPg);
 }
 
 function mapPackageInterest(packageInterest) {
@@ -176,12 +184,18 @@ function buildQuoteSummary(status, preview, fields) {
   return summary;
 }
 
-function buildQuoteReply(lang, status, preview) {
+function buildQuoteReply(lang, status, preview, routerResult) {
   const L = tpl(lang);
   const intro = `${L.intro} 🌊`;
   if (status === 'ready' && preview && preview.quote) {
-    const totalEur = (preview.quote.total_cents / 100).toFixed(2);
-    const depositEur = (preview.quote.deposit_required_cents / 100).toFixed(2);
+    const q = preview.quote;
+    if (isShortStayAccommodationQuote(q)) {
+      const totalEur = (q.total_cents / 100).toFixed(2);
+      const fields = (routerResult && routerResult.extracted_fields) || {};
+      return buildShortStayAccommodationQuotedReply(lang, fields, totalEur);
+    }
+    const totalEur = (q.total_cents / 100).toFixed(2);
+    const depositEur = (q.deposit_required_cents / 100).toFixed(2);
     return `${intro} — ${L.ready(totalEur, depositEur)}`;
   }
   if (status === 'error') return `${intro} — ${L.error}`;
@@ -305,6 +319,7 @@ function runGuestQuoteProposalDryRun(routerResult, availabilityResult, context) 
   const outcome = resolveQuoteOutcome(preview, fields);
   const quote = preview.quote;
   const depositOptions = outcome.status === 'ready' ? buildDepositOptions(quote) : null;
+  const shortStayAcc = outcome.status === 'ready' && isShortStayAccommodationQuote(quote);
 
   return {
     success: true,
@@ -314,13 +329,16 @@ function runGuestQuoteProposalDryRun(routerResult, availabilityResult, context) 
     quote_result_summary: buildQuoteSummary(outcome.status, preview, fields),
     quote_total_cents: quote && quote.success ? quote.total_cents : null,
     deposit_options: depositOptions,
-    payment_choice_needed: outcome.status === 'ready',
+    short_stay_accommodation_quote: shortStayAcc,
+    short_stay_addons_pending: shortStayAcc,
+    payment_choice_needed: outcome.status === 'ready' && !shortStayAcc,
     quote_handoff_required: outcome.handoff,
     quote_handoff_reasons: outcome.reasons,
     proposed_luna_reply: buildQuoteReply(
       routerResult.detected_language || 'en',
       outcome.status,
       preview,
+      routerResult,
     ),
     reused_helper: 'runBookingPreviewDryRun',
     anchor_route: DRY_RUN_ANCHOR_ROUTES.booking_preview,

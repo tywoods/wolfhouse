@@ -667,15 +667,14 @@
       "id": "flow-en-unavailable-dates",
       "fixture_set": "booking-core",
       "language": "en",
-      "label": "Short-stay accommodation-only → staff confirmation (under 7 nights, no quote/payment)",
+      "label": "Short-stay accommodation-only → quote + payment choice (under 7 nights)",
       "write_eligible": false,
       "turns": [
         {
           "message": "2 people accommodation only July 10 to July 13",
           "expect": {
             "message_lane": "new_booking_inquiry",
-            "booking_intake_ready": false,
-            "availability_check_attempted": false,
+            "booking_intake_ready": true,
             "handoff_required": false,
             "banned_reply_terms_absent": true
           }
@@ -683,8 +682,7 @@
       ],
       "final_expect": {
         "handoff_required": false,
-        "proposed_next_action": "await_staff_accommodation_confirmation",
-        "availability_check_attempted": false,
+        "proposed_next_action": "collect_payment_choice",
         "banned_reply_terms_absent": true
       }
     },

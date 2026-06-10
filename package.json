@@ -235,6 +235,7 @@
     "verify:stage28i1-package-night-rules": "node scripts/verify-stage28i1-package-night-rules.js",
     "verify:stage28j-smart-llm-hot-path": "node scripts/verify-stage28j-smart-llm-hot-path.js",
     "verify:stage28j2-brain-arbitration": "node scripts/verify-stage28j2-brain-arbitration.js",
+    "verify:stage28j4-short-stay-accommodation-pricing": "node scripts/verify-stage28j4-short-stay-accommodation-pricing.js",
     "report:open-demo-playground": "node scripts/report-open-demo-playground-state.js",
     "cleanup:open-demo-booking": "node scripts/cleanup-open-demo-staging-booking.js",
     "playground:open-demo-on": "node scripts/set-open-demo-playground-mode.js --on",

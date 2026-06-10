@@ -121,11 +121,12 @@ if (!/check-?out date/.test(reply)) {
   fail('E2', `reply asks checkout: ${routerOut.proposed_luna_reply}`);
 }
 
-if (routerOut.package_night_rule === 'short_stay_guidance'
+if (routerOut.package_night_rule === 'short_stay_accommodation'
+  || routerOut.package_night_rule === 'short_stay_guidance'
   || (routerOut.missing_required_fields && routerOut.missing_required_fields.includes('stay_type'))) {
-  pass('E3', 'short stay (<7 nights) routes to accommodation guidance, not weekly package');
+  pass('E3', 'short stay (<7 nights) routes to accommodation flow, not weekly package');
 } else {
-  fail('E3', `expected short_stay guidance: rule=${routerOut.package_night_rule} missing=${JSON.stringify(routerOut.missing_required_fields)}`);
+  fail('E3', `expected short_stay accommodation: rule=${routerOut.package_night_rule} missing=${JSON.stringify(routerOut.missing_required_fields)}`);
 }
 
 section('F. Scope guard — no Stripe/confirmation/n8n changes');

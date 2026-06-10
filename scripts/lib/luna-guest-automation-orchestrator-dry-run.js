@@ -18,7 +18,7 @@ const {
   conversationIntakeInProgress,
   buildAccommodationOnlyAck,
 } = require('./luna-guest-message-router');
-const { decideConversationActionAsync } = require('./luna-conversation-brain');
+const { decideConversationActionAsync, detectAccommodationOnlyAnswer } = require('./luna-conversation-brain');
 const { runGuestAvailabilityDryRun, buildGuestAvailabilitySkippedResponse, shouldAttemptGuestAvailability } = require('./luna-guest-availability-dry-run');
 const { runGuestQuoteProposalDryRun } = require('./luna-guest-quote-proposal-dry-run');
 const {
@@ -143,15 +143,45 @@ function dedupeLunaIntro(reply, allowLeadingIntro) {
  * True when prior context shows accommodation-only intent for an under-7-night stay.
  */
 function inShortStayAccommodationHold(guestContext) {
-  const prior = collectPriorExtractedFields(guestContext || {});
-  const rule = (guestContext && guestContext.package_night_rule)
-    || (guestContext && guestContext.result && guestContext.result.package_night_rule)
+  const ctx = guestContext || {};
+  const quote = ctx.quote || {};
+  // Stage 28j.4 — once accommodation is quoted, normal quote/add-ons/payment flow applies.
+  if (quote.quote_status === 'ready') return false;
+  const prior = collectPriorExtractedFields(ctx);
+  const nights = computeStayNights(prior.check_in, prior.check_out);
+  const shortStayIntakeComplete = nights != null && nights < 7
+    && prior.guest_count != null && prior.guest_count >= 1
+    && prior.check_in && prior.check_out
+    && isAccommodationOnlyIntent(prior.package_interest);
+  // Complete short-stay intake quotes via Staff Portal pricing — no staff hold.
+  if (shortStayIntakeComplete) return false;
+  const rule = ctx.package_night_rule
+    || (ctx.result && ctx.result.package_night_rule)
     || null;
   if (rule === 'short_stay_accommodation') {
     if (isAccommodationOnlyIntent(prior.package_interest)) return true;
   }
-  const nights = computeStayNights(prior.check_in, prior.check_out);
   return isAccommodationOnlyIntent(prior.package_interest) && nights != null && nights < 7;
+}
+
+function shortStayAddonsAnswered(messageText, brainDecision) {
+  return (brainDecision && brainDecision.intent === 'accommodation_only_choice')
+    || detectAccommodationOnlyAnswer(messageText);
+}
+
+/** Prior turn already declined add-ons / chose accommodation-only for a short stay. */
+function shortStayAddonsAlreadyAnswered(guestContext, messageText, brainDecision) {
+  const priorQuote = (guestContext || {}).quote || {};
+  if (priorQuote.quote_status === 'ready' && priorQuote.short_stay_addons_pending === false) {
+    return true;
+  }
+  const prior = collectPriorExtractedFields(guestContext);
+  if (!isAccommodationOnlyIntent(prior.package_interest)) return false;
+  const nights = computeStayNights(prior.check_in, prior.check_out);
+  if (nights == null || nights >= 7 || prior.guest_count == null || prior.guest_count < 1) {
+    return false;
+  }
+  return !shortStayAddonsAnswered(messageText, brainDecision);
 }
 
 /** Guest is pushing toward payment ("deposit"/"full"/"pay now"). */
@@ -209,9 +239,13 @@ function buildBrainObservability(brainDecision, extra) {
   };
 }
 
-function brainControlsReply(brainDecision, result) {
-  if (result && (result.package_night_rule === 'short_stay_accommodation'
-    || result.package_night_rule === 'short_stay_guidance'
+function brainControlsReply(brainDecision, result, quote) {
+  if (result && result.package_night_rule === 'short_stay_accommodation') {
+    // Stage 28j.4 — once accommodation is quoted, payment/add-ons replies take over.
+    if (quote && quote.quote_status === 'ready') return false;
+    return true;
+  }
+  if (result && (result.package_night_rule === 'short_stay_guidance'
     || result.package_night_rule === 'weekly_package_blocked'
     || result.package_night_rule === 'weekly_explain_before_choice')) {
     return true;
@@ -340,12 +374,6 @@ function resolveProposedNextAction(payload) {
 
   if (!result) return 'automation_blocked';
 
-  // Stage 28j.2 — under-7-night accommodation-only choice routes to staff confirmation,
-  // never to a payment/availability step.
-  if (result.package_night_rule === 'short_stay_accommodation') {
-    return 'await_staff_accommodation_confirmation';
-  }
-
   if (plan && plan.plan_status === 'ready') {
     return 'prepare_hold_payment_draft_plan';
   }
@@ -362,10 +390,13 @@ function resolveProposedNextAction(payload) {
     || (quote && quote.quote_status === 'ready')
     || (plan && plan.plan_status === 'ready');
 
+  const availHandoffBlocks = availability && availability.availability_handoff_required
+    && !(result.package_night_rule === 'short_stay_accommodation'
+      && quote && quote.quote_status === 'ready');
   if (!chainProgress && (
     result.safe_handoff_required
     || result.message_lane === 'staff_handoff_required'
-    || (availability && availability.availability_handoff_required)
+    || availHandoffBlocks
     || (quote && quote.quote_handoff_required)
     || (plan && plan.plan_handoff_required)
   )) {
@@ -445,17 +476,23 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
 
   const fallbackCtx = { result, quote, availability };
 
-  // Stage 28j.2 — when the conversation brain has a clear conversation-control
-  // decision (accommodation-only ack, correction, clarify, side question, short-stay
-  // package rule), the router reply is authoritative. Old payment-choice / quote
-  // templates must not override it.
-  if (brainControlsReply(brainDecision, result) && result && result.proposed_luna_reply) {
-    return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  // Stage 28j.4 — short-stay accommodation quote (price + add-ons question) wins over
+  // the router "checking" placeholder once pricing is ready.
+  if (quote && quote.quote_status === 'ready' && quote.proposed_luna_reply && quote.short_stay_addons_pending) {
+    return sanitizeReply(quote.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
+
   const sideQuestionText = messageText != null ? String(messageText).trim() : '';
   const priorFields = collectPriorExtractedFields(priorGuestContext);
   const sideQuestionLang = (result && result.detected_language) || 'en';
-  const quoteReadyForSideQuestion = quote && quote.quote_status === 'ready' && quote.payment_choice_needed === true;
+  const quoteReadyForSideQuestion = quote && quote.quote_status === 'ready';
+
+  if (sideQuestionText && looksLikeWhenQuestion(sideQuestionText)
+    && result && result.proposed_luna_reply && result.message_lane === 'new_booking_inquiry') {
+    if (priorFields.check_in && priorFields.check_out && priorFields.guest_count != null) {
+      return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+    }
+  }
 
   if (sideQuestionText && detectPackageExplainerIntent(sideQuestionText) && result && result.proposed_luna_reply) {
     return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
@@ -484,6 +521,18 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
         pc && pc.payment_choice,
       );
     }
+  }
+
+  if (shouldUsePaymentChoiceReply(pc, quote)) {
+    return sanitizeReply(pc.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+
+  // Stage 28j.2 — when the conversation brain has a clear conversation-control
+  // decision (accommodation-only ack, correction, clarify, side question, short-stay
+  // package rule), the router reply is authoritative. Old payment-choice / quote
+  // templates must not override it.
+  if (brainControlsReply(brainDecision, result, quote) && result && result.proposed_luna_reply) {
+    return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
 
   if (plan && plan.plan_status === 'ready' && plan.proposed_luna_reply) {
@@ -767,7 +816,26 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     availability = buildGuestAvailabilitySkippedResponse(result);
   }
 
-  const quote = runGuestQuoteProposalDryRun(result, availability, chainCtx);
+  let quote = runGuestQuoteProposalDryRun(result, availability, chainCtx);
+
+  const priorQuote = chainGuestContext.quote || {};
+  if (shortStayAddonsAlreadyAnswered(chainGuestContext, messageText, brainDecision)) {
+    quote = {
+      ...quote,
+      short_stay_addons_pending: false,
+      payment_choice_needed: quote.quote_status === 'ready',
+    };
+  } else {
+    const addonsPending = quote.short_stay_addons_pending === true
+      || priorQuote.short_stay_addons_pending === true;
+    if (addonsPending && shortStayAddonsAnswered(messageText, brainDecision)) {
+      quote = {
+        ...quote,
+        short_stay_addons_pending: false,
+        payment_choice_needed: quote.quote_status === 'ready',
+      };
+    }
+  }
 
   const wireCtx = buildPaymentChoiceWireContext(
     chainGuestContext,
@@ -777,7 +845,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   );
 
   let payment_choice;
-  if (shouldAttemptGuestPaymentChoiceWire(chainGuestContext)) {
+  if (shouldAttemptGuestPaymentChoiceWire(wireCtx)) {
     payment_choice = runGuestPaymentChoiceDryRun(
       { message_text: trimStr(inp.message_text), language_hint: inp.language_hint },
       wireCtx,
@@ -821,10 +889,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   // the final reply must acknowledge that choice even when a chain reply wins.
   // Stage 28j.2 — but the short-stay accommodation confirm reply already acknowledges,
   // so we never double-prepend the generic ack onto it.
-  const replyAlreadyAcksAccommodation = payload.result
-    && payload.result.package_night_rule === 'short_stay_accommodation';
-  if (brainDecision && brainDecision.intent === 'accommodation_only_choice'
-    && proposedLunaReply && !replyAlreadyAcksAccommodation) {
+  if (brainDecision && brainDecision.intent === 'accommodation_only_choice' && proposedLunaReply) {
     const ack = buildAccommodationOnlyAck((result && result.detected_language) || 'en');
     if (!proposedLunaReply.includes(ack)) {
       proposedLunaReply = `${ack} ${proposedLunaReply}`;
@@ -833,7 +898,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
 
   // Stage 28j.2 — observability + final reply cleanup.
   const finalReplySource = classifyFinalReplySource(proposedLunaReply, payload);
-  const overrodeBrain = brainControlsReply(brainDecision, payload.result)
+  const overrodeBrain = brainControlsReply(brainDecision, payload.result, payload.quote)
     && finalReplySource !== 'router';
   const allowLeadingIntro = (brainDecision && brainDecision.intent === 'greeting')
     || (payload.result && payload.result.greeting_only === true);

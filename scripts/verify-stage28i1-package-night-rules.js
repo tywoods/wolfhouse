@@ -138,11 +138,15 @@ section('C. Luna — short stay + blocked package');
   const last = shortFlow[shortFlow.length - 1];
   const sreply = last.orchestrator.proposed_luna_reply || '';
 
-  if (last.result.package_night_rule === 'short_stay_guidance') pass('C4', 'short stay flow ends on guidance rule');
-  else fail('C4', `rule=${last.result.package_night_rule}`);
+  if (last.result.package_night_rule === 'short_stay_accommodation') {
+    pass('C4', 'short stay flow ends on accommodation quote rule');
+  } else {
+    fail('C4', `rule=${last.result.package_night_rule}`);
+  }
 
-  if (/accommodation|add-ons|under 7 nights/i.test(sreply) && !isDepositReply(sreply)) {
-    pass('C5', 'short stay guidance, not deposit/package quote');
+  if ((/good news|accommodation is available|€\s*180|wetsuit|surfboard|lessons/i.test(sreply))
+    && !isDepositReply(sreply)) {
+    pass('C5', 'short stay accommodation quote, not weekly package/deposit prompt');
   } else {
     fail('C5', `reply=${sreply.slice(0, 100)}`);
   }

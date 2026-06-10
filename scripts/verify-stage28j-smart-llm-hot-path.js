@@ -364,10 +364,10 @@ const {
   check('E-A3', a5.result.safe_handoff_required === false,
     'A: router does not handoff');
   check('E-A4', /accommodation only/i.test(a5.orchestrator.proposed_luna_reply)
-    && /team needs to confirm|accommodation only it is/i.test(a5.orchestrator.proposed_luna_reply),
-    'A: reply acknowledges accommodation only (short-stay confirm)');
-  check('E-A5', !/deposit|full amount/i.test(a5.orchestrator.proposed_luna_reply),
-    'A: no deposit/full prompt for short-stay accommodation-only');
+    && /accommodation only it is|no add-ons/i.test(a5.orchestrator.proposed_luna_reply),
+    'A: reply acknowledges accommodation only');
+  check('E-A5', /deposit|full amount/i.test(a5.orchestrator.proposed_luna_reply),
+    'A: deposit/full prompt after short-stay quote + no add-ons');
 
   // B: guest corrects Luna → acknowledge, continue short-stay flow, no handoff
   const exB = await runTurns([

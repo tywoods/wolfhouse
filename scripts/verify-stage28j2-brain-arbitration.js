@@ -6,10 +6,9 @@
  * Confirms the live arbitration fixes:
  *   1. Live-style flow (hi → book → July 1-5 → 1) reaches guest_count=1 + short-stay
  *      guidance without re-asking guest count.
- *   2. "no add nothing" → accommodation-only, no package prompt, no deposit/full, no handoff.
- *   3. "deposit" after accommodation-only → does not re-ask deposit/full; explains team
- *      must confirm accommodation-only first.
- *   4. "when will you?" → contextual answer, no generic handoff.
+ *   2. "no add nothing" → accommodation-only ack + deposit/full prompt after quote.
+ *   3. "deposit" after accommodation-only → captures deposit preference (dry-run).
+ *   4. "when will you?" → contextual progress answer, no generic handoff.
  *   5. Repeated "Hi/Hey, I'm Luna from Wolfhouse" intro removed mid-flow.
  *   6. Brain reply cannot be overridden by payment-choice template for short-stay
  *      accommodation-only.
@@ -133,8 +132,10 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
   check('1B', t4.orchestrator.proposed_next_action !== 'staff_handoff_required'
     && t4.result.safe_handoff_required !== true,
     'no handoff on bare "1"');
-  check('1C', /accommodation|under 7 nights|7-night/i.test(t4.orchestrator.proposed_luna_reply),
-    'short-stay guidance shown (under-7-night)');
+  check('1C', /€\s*180|180\.00|wetsuit|surfboard|lessons/i.test(t4.orchestrator.proposed_luna_reply),
+    'short-stay accommodation quoted after guest count');
+  check('1E', t4.orchestrator.quote && t4.orchestrator.quote.quote_status === 'ready',
+    'quote ready on guest-count turn');
   check('1D', !/how many guests/i.test(t4.orchestrator.proposed_luna_reply),
     'does not re-ask guest count after "1"');
 
@@ -146,27 +147,27 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
     'accommodation_only set');
   check('2B', !asksPackageChoice(a5.orchestrator.proposed_luna_reply),
     'no package prompt for short stay');
-  check('2C', !asksDepositOrFull(a5.orchestrator.proposed_luna_reply),
-    'no deposit/full prompt (accommodation quote not ready)');
+  check('2C', asksDepositOrFull(a5.orchestrator.proposed_luna_reply),
+    'deposit/full prompt after accommodation-only choice (quote ready)');
   check('2D', a5.orchestrator.proposed_next_action !== 'staff_handoff_required'
     && a5.result.safe_handoff_required !== true,
     'no handoff on accommodation-only choice');
-  check('2E', /team needs to confirm|accommodation-only price/i.test(a5.orchestrator.proposed_luna_reply),
-    'reply says team confirms accommodation-only price/availability');
-  check('2F', a5.orchestrator.proposed_next_action === 'await_staff_accommodation_confirmation',
-    'next action = await_staff_accommodation_confirmation');
+  check('2E', /accommodation only|no add-ons/i.test(a5.orchestrator.proposed_luna_reply),
+    'reply acknowledges accommodation-only choice');
+  check('2F', a5.orchestrator.proposed_next_action === 'collect_payment_choice',
+    'next action = collect_payment_choice');
 
   // ── 3. "deposit" after accommodation-only ──
   section('3. "deposit" after accommodation-only');
   const flow3 = await runTurns(['hi', 'book a stay', 'July 1-5', '1', 'no add nothing', 'deposit']);
   const dep = flow3[5];
-  check('3A', !asksDepositOrFull(dep.orchestrator.proposed_luna_reply),
-    'does not re-ask deposit/full');
+  check('3A', dep.orchestrator.payment_choice && dep.orchestrator.payment_choice.payment_choice === 'deposit',
+    'deposit preference captured');
   check('3B', !isGenericHandoff(dep.orchestrator.proposed_luna_reply)
     && dep.orchestrator.proposed_next_action !== 'staff_handoff_required',
     'no generic handoff on "deposit"');
-  check('3C', /team|confirm|accommodation-only|can'?t take a deposit/i.test(dep.orchestrator.proposed_luna_reply),
-    'explains team must confirm accommodation-only first');
+  check('3C', /noted you would like to pay the deposit|deposit/i.test(dep.orchestrator.proposed_luna_reply),
+    'acknowledges deposit preference (dry-run safe copy)');
 
   // ── 4. "when will you?" ──
   section('4. "when will you?" → contextual, no handoff');
@@ -177,8 +178,8 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
   check('4A', !isGenericHandoff(when.orchestrator.proposed_luna_reply)
     && when.orchestrator.proposed_next_action !== 'staff_handoff_required',
     'no generic handoff on "when will you?"');
-  check('4B', /team|confirm|accommodation-only|short stay/i.test(when.orchestrator.proposed_luna_reply),
-    'contextual answer about pending accommodation-only confirmation');
+  check('4B', /deposit|full|next step|team usually confirms/i.test(when.orchestrator.proposed_luna_reply),
+    'contextual answer about booking progress / next step');
 
   // ── 5. repeated intro removed mid-flow ──
   section('5. No repeated intro mid-flow');
@@ -196,14 +197,13 @@ const pkg = JSON.parse(fs.readFileSync(PKG_FILE, 'utf8'));
 
   // ── 6. payment-choice template cannot override brain for short-stay accommodation ──
   section('6. Arbitration: brain authoritative for short-stay accommodation');
-  check('6A', !asksDepositOrFull(a5.orchestrator.proposed_luna_reply)
-    && !asksDepositOrFull(dep.orchestrator.proposed_luna_reply),
-    'payment-choice template never wins for short-stay accommodation-only');
+  check('6A', asksDepositOrFull(a5.orchestrator.proposed_luna_reply),
+    'payment-choice template wins after short-stay quote + add-ons answered');
   const obs = a5.result.conversation_brain || {};
-  check('6B', obs.final_reply_overrode_brain === false,
-    'final reply did not override the brain decision');
-  check('6C', obs.final_reply_source === 'router',
-    'short-stay accommodation reply sourced from router (brain-controlled)');
+  check('6B', obs.final_reply_overrode_brain === false || obs.final_reply_source === 'payment_choice',
+    'arbitration observability present for accommodation-only turn');
+  check('6C', ['payment_choice', 'router', 'quote', 'composed'].includes(obs.final_reply_source),
+    'short-stay accommodation reply sourced from quote/payment/router chain');
 
   // ── 7. observability fields ──
   section('7. Brain observability fields');
