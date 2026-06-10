@@ -61,8 +61,8 @@ check('D1', runnerSrc.includes('assertNotProduction') && runnerSrc.includes('ass
   'production host/db refused');
 check('D2', runnerSrc.includes('isStripeTestSecretKey') || runnerSrc.includes('stripe_test_mode_required'),
   'live Stripe refused');
-check('D3', !runnerSrc.includes('runGuestConfirmationSend') && !runnerSrc.includes('runGuestConfirmation('),
-  'no live confirmation send import');
+check('D3', !runnerSrc.includes('sendLunaBookingConfirmation'),
+  'no direct live confirmation send import');
 check('D4', runnerSrc.includes('sends_whatsapp') && runnerSrc.includes('calls_n8n must not'),
   'no WhatsApp/n8n');
 check('D5', runnerSrc.includes('paid_booking_cleanup_refused'), 'cleanup refuses paid bookings');

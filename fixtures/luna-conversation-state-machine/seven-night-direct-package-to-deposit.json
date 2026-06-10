@@ -75,5 +75,18 @@
     "gate_code_present": true,
     "room_label_present": true,
     "no_bed_number_exposed": true
+  },
+  "confirmation_send_expect": {
+    "confirmation_send_attempted": true,
+    "expected_send_status_without_approval": "blocked_by_gate",
+    "expected_send_status": "blocked_dry_run",
+    "expected_duplicate_send_status": ["blocked_dry_run", "idempotent_replay"],
+    "confirmation_sent_expected": false,
+    "confirmation_sent_at_expected": "unchanged",
+    "duplicate_confirmation_blocked": true,
+    "confirmation_message_matches_preview": true,
+    "whatsapp_sent_expected": false,
+    "provider_send_performed_expected": false,
+    "calls_n8n_expected": false
   }
 }

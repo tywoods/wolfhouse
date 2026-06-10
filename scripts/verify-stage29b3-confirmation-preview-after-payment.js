@@ -50,8 +50,8 @@ check('C1', runnerSrc.includes('runGuestConfirmationPreviewDryRun'),
   'uses Stage 27q confirmation preview dry-run');
 check('C2', previewSrc.includes('getLunaBookingConfirmationPreview'),
   'preview helper reuses Phase 14b path');
-check('C3', !runnerSrc.includes('runGuestConfirmationSend') && !runnerSrc.includes('runGuestConfirmation('),
-  'no live confirmation send import');
+check('C3', !runnerSrc.includes('sendLunaBookingConfirmation'),
+  'no direct live confirmation send import');
 
 section('D. Payment truth prerequisite');
 

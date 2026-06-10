@@ -12,6 +12,7 @@
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --verbose
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --simulate-stripe-webhook --verbose
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --simulate-stripe-webhook --expect-confirmation-preview --verbose
+ *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --simulate-stripe-webhook --expect-confirmation-preview --attempt-confirmation-send --verbose
  */
 
 'use strict';
@@ -42,6 +43,13 @@ const {
   runGuestConfirmationPreviewDryRun,
   messageHasBedLeak,
 } = require('./lib/luna-guest-confirmation-preview-dry-run');
+const {
+  runGuestConfirmationSendGoNoGo,
+  isWhatsappDryRun,
+} = require('./lib/luna-guest-confirmation-send-go-no-go');
+const {
+  evaluateConfirmationLiveSendAllowlist,
+} = require('./lib/luna-guest-confirmation-live-send-allowlist');
 const {
   assertNotProductionDb,
   assessCleanupEligibility,
@@ -85,6 +93,8 @@ Options:
   --require-stripe-test-link  With --allow-writes, fail if Stripe TEST checkout is not created
   --simulate-stripe-webhook  With --allow-writes --require-stripe-test-link, apply payment truth via Stage 27p helper
   --expect-confirmation-preview  After payment truth, run Stage 27q confirmation preview dry-run
+  --attempt-confirmation-send    After preview, exercise Stage 27r confirmation send go/no-go
+  --allow-real-whatsapp-send     With send attempt, allow live WhatsApp (requires allowlist + WHATSAPP_DRY_RUN=false)
   --phone-prefix <prefix>  Default +34629800
   --reference-date <date>  Default ${DEFAULT_REFERENCE_DATE}
   --fixture-dir <path>     Default fixtures/luna-conversation-state-machine
@@ -103,6 +113,8 @@ function parseArgs(argv) {
     requireStripeTestLink: false,
     simulateStripeWebhook: false,
     expectConfirmationPreview: false,
+    attemptConfirmationSend: false,
+    allowRealWhatsappSend: false,
     phonePrefix: '+34629800',
     referenceDate: DEFAULT_REFERENCE_DATE,
     fixtureDir: DEFAULT_FIXTURE_DIR,
@@ -119,6 +131,8 @@ function parseArgs(argv) {
     else if (a === '--require-stripe-test-link') opts.requireStripeTestLink = true;
     else if (a === '--simulate-stripe-webhook') opts.simulateStripeWebhook = true;
     else if (a === '--expect-confirmation-preview') opts.expectConfirmationPreview = true;
+    else if (a === '--attempt-confirmation-send') opts.attemptConfirmationSend = true;
+    else if (a === '--allow-real-whatsapp-send') opts.allowRealWhatsappSend = true;
     else if (a === '--fixture') opts.fixture = argv[++i];
     else if (a === '--limit') opts.limit = parseInt(argv[++i], 10);
     else if (a === '--phone-prefix') opts.phonePrefix = argv[++i];
@@ -761,7 +775,272 @@ async function runConfirmationPreviewProof(proof, fixture, opts) {
   });
 }
 
-function checkWriteExpectations(writeExpect, proof, opts, webhookExpect, confirmationExpect) {
+function normalizeFixtureSendStatus(status) {
+  if (status === 'not_approved' || status === 'send_gate_blocked') return 'blocked_by_gate';
+  if (status === 'recipient_not_allowlisted') return 'blocked_by_gate';
+  return status;
+}
+
+function buildSendPreviewPayload(cp, proof) {
+  const previewResult = (cp && cp.preview_result) || {};
+  return {
+    ...previewResult,
+    confirmation_preview_ready: cp && cp.confirmation_preview_ready === true,
+    proposed_confirmation_message: cp && cp.proposed_confirmation_message,
+    booking_code: proof.booking_code,
+    booking_id: previewResult.booking_id || null,
+    payment_status: cp && cp.payment_status,
+  };
+}
+
+function buildConfirmationSendEnv(opts) {
+  const env = {
+    ...process.env,
+    LUNA_AUTO_SEND_ENABLED: 'true',
+    WHATSAPP_DRY_RUN: opts.allowRealWhatsappSend ? 'false' : 'true',
+  };
+  if (!opts.allowRealWhatsappSend) {
+    env.WHATSAPP_DRY_RUN = 'true';
+  }
+  return env;
+}
+
+function confirmationMessageMatchesPreview(sendOut, previewMessage) {
+  const preview = String(previewMessage || '').trim();
+  if (!preview) return false;
+  const candidates = [
+    sendOut && sendOut.message_sent,
+    sendOut && sendOut.proposed_confirmation_message,
+    sendOut && sendOut.message_preview,
+  ].filter(Boolean).map((v) => String(v).trim());
+  if (!candidates.length) return false;
+  return candidates.some((msg) => msg === preview || msg.includes(preview.slice(0, 60)));
+}
+
+function assessAllowRealWhatsappSend(opts, phone) {
+  const reasons = [];
+  if (!opts.allowRealWhatsappSend) return { allowed: false, reasons: ['flag_not_passed'] };
+  try {
+    assertNotProduction();
+  } catch (e) {
+    reasons.push(e.message);
+  }
+  try {
+    assertNotProductionDb(defaultConnectionString());
+  } catch (e) {
+    reasons.push(e.message);
+  }
+  if (isWhatsappDryRun(process.env)) {
+    reasons.push('WHATSAPP_DRY_RUN_must_be_false');
+  }
+  const allowEval = evaluateConfirmationLiveSendAllowlist(phone, process.env);
+  if (!allowEval.allowed) reasons.push(...allowEval.reasons);
+  return { allowed: reasons.length === 0, reasons, allowEval };
+}
+
+function checkConfirmationSendExpectations(confirmationSendExpect, proof, opts) {
+  const failures = [];
+  if (!opts.attemptConfirmationSend) return failures;
+  const se = confirmationSendExpect || {};
+  const cs = proof.confirmation_send || {};
+
+  if (se.confirmation_send_attempted === true && !cs.attempted) {
+    failures.push('confirmation_send_attempted expected true');
+    return failures;
+  }
+  if (!cs.attempted) return failures;
+
+  const withoutStatus = normalizeFixtureSendStatus(
+    cs.without_approval && cs.without_approval.send_status,
+  );
+  if (se.expected_send_status_without_approval) {
+    if (withoutStatus !== se.expected_send_status_without_approval) {
+      failures.push(`expected_send_status_without_approval ${se.expected_send_status_without_approval} got ${withoutStatus}`);
+    }
+  }
+  const withStatus = normalizeFixtureSendStatus(cs.with_approval && cs.with_approval.send_status);
+  if (se.expected_send_status) {
+    const expected = Array.isArray(se.expected_send_status)
+      ? se.expected_send_status.map(normalizeFixtureSendStatus)
+      : [normalizeFixtureSendStatus(se.expected_send_status)];
+    if (!expected.includes(withStatus)) {
+      failures.push(`expected_send_status ${expected.join('|')} got ${withStatus}`);
+    }
+  }
+  const dupStatus = normalizeFixtureSendStatus(cs.duplicate_attempt && cs.duplicate_attempt.send_status);
+  if (se.expected_duplicate_send_status) {
+    const expected = Array.isArray(se.expected_duplicate_send_status)
+      ? se.expected_duplicate_send_status
+      : [se.expected_duplicate_send_status];
+    if (!expected.includes(dupStatus)) {
+      failures.push(`expected_duplicate_send_status ${expected.join('|')} got ${dupStatus}`);
+    }
+  }
+  if (se.confirmation_sent_expected === false && cs.confirmation_sent === true) {
+    failures.push('confirmation_sent expected false after send go/no-go');
+  }
+  if (se.confirmation_sent_at_expected === 'unchanged') {
+    const before = cs.confirmation_sent_at_before || null;
+    const after = cs.confirmation_sent_at_after || null;
+    if (before !== after) {
+      failures.push(`confirmation_sent_at changed: ${before} -> ${after}`);
+    }
+  }
+  if (se.duplicate_confirmation_blocked === true) {
+    const dup = cs.duplicate_attempt || {};
+    if (dup.sends_whatsapp === true) {
+      failures.push('duplicate confirmation send performed WhatsApp');
+    }
+    if (dup.send_status === 'sent') {
+      failures.push('duplicate confirmation send status sent');
+    }
+  }
+  if (se.confirmation_message_matches_preview === true && !cs.message_matches_preview) {
+    failures.push('confirmation_message_matches_preview expected true');
+  }
+  if (se.whatsapp_sent_expected === false) {
+    if (cs.with_approval && cs.with_approval.sends_whatsapp === true) {
+      failures.push('whatsapp_sent_expected false but sends_whatsapp true');
+    }
+    if (cs.duplicate_attempt && cs.duplicate_attempt.sends_whatsapp === true) {
+      failures.push('duplicate whatsapp_sent_expected false but sends_whatsapp true');
+    }
+  }
+  if (se.provider_send_performed_expected === false && cs.provider_send_performed === true) {
+    failures.push('provider_send_performed expected false');
+  }
+  if (se.calls_n8n_expected === false && cs.calls_n8n === true) {
+    failures.push('calls_n8n expected false');
+  }
+  if (cs.result === 'FAIL' || (cs.attempted && cs.result !== 'PASS' && cs.result !== 'PARTIAL')) {
+    if (!failures.some((f) => f.startsWith('confirmation_send'))) {
+      failures.push(`confirmation_send: ${cs.skip_reason || cs.result || 'failed'}`);
+    }
+  }
+  return failures;
+}
+
+async function runConfirmationSendProof(proof, fixture, phone, opts) {
+  const cs = {
+    attempted: false,
+    result: 'SKIPPED',
+    skip_reason: null,
+    without_approval: null,
+    with_approval: null,
+    duplicate_attempt: null,
+    confirmation_sent_at_before: null,
+    confirmation_sent_at_after: null,
+    confirmation_sent: false,
+    provider_send_performed: false,
+    calls_n8n: false,
+    message_matches_preview: false,
+    whatsapp_dry_run: true,
+    live_send_blocked: true,
+  };
+
+  if (!opts.attemptConfirmationSend) return cs;
+
+  cs.attempted = true;
+  const cp = proof.confirmation_preview;
+  if (!cp || !cp.attempted) {
+    cs.skip_reason = 'confirmation_preview_required';
+    cs.result = 'FAIL';
+    return cs;
+  }
+  if (cp.result === 'FAIL' || !cp.confirmation_preview_ready) {
+    cs.skip_reason = cp.skip_reason || 'confirmation_preview_not_ready';
+    cs.result = 'FAIL';
+    return cs;
+  }
+
+  if (opts.allowRealWhatsappSend) {
+    const liveGate = assessAllowRealWhatsappSend(opts, phone);
+    if (!liveGate.allowed) {
+      cs.skip_reason = liveGate.reasons.join('; ');
+      cs.result = 'PARTIAL';
+      return cs;
+    }
+  }
+
+  return withPgClient(async (pg) => {
+    const snapBefore = await loadPaymentBookingSnapshot(pg, proof.payment_draft_id, proof.booking_code);
+    cs.confirmation_sent_at_before = snapBefore && snapBefore.confirmation_sent_at
+      ? snapBefore.confirmation_sent_at
+      : null;
+
+    const previewPayload = buildSendPreviewPayload(cp, proof);
+    const idempotencyKey = `${WRITE_SOURCE}:${fixture.id}:${proof.booking_code}:confirmation`;
+    const sendEnv = buildConfirmationSendEnv(opts);
+    cs.whatsapp_dry_run = isWhatsappDryRun(sendEnv);
+
+    const sendInputBase = {
+      confirmation_preview_result: previewPayload,
+      to: phone,
+      idempotency_key: idempotencyKey,
+      client_slug: CLIENT_SLUG,
+      booking_code: proof.booking_code,
+      booking_id: snapBefore && snapBefore.booking_id,
+    };
+    const sendCtx = { pg, env: sendEnv };
+
+    cs.without_approval = await runGuestConfirmationSendGoNoGo({
+      ...sendInputBase,
+      confirm_send: false,
+    }, sendCtx);
+
+    cs.with_approval = await runGuestConfirmationSendGoNoGo({
+      ...sendInputBase,
+      confirm_send: true,
+    }, sendCtx);
+
+    cs.duplicate_attempt = await runGuestConfirmationSendGoNoGo({
+      ...sendInputBase,
+      confirm_send: true,
+    }, sendCtx);
+
+    const snapAfter = await loadPaymentBookingSnapshot(pg, proof.payment_draft_id, proof.booking_code);
+    cs.confirmation_sent_at_after = snapAfter && snapAfter.confirmation_sent_at
+      ? snapAfter.confirmation_sent_at
+      : null;
+    cs.confirmation_sent = !!cs.confirmation_sent_at_after;
+    cs.provider_send_performed = cs.with_approval && (
+      cs.with_approval.send_performed === true || cs.with_approval.sends_whatsapp === true
+    );
+    cs.calls_n8n = [cs.without_approval, cs.with_approval, cs.duplicate_attempt].some(
+      (r) => r && r.calls_n8n === true,
+    );
+    cs.live_send_blocked = cs.with_approval && cs.with_approval.live_send_blocked !== false;
+    cs.message_matches_preview = confirmationMessageMatchesPreview(
+      cs.with_approval,
+      cp.proposed_confirmation_message,
+    );
+
+    const withoutOk = cs.without_approval && cs.without_approval.send_attempted === false
+      && normalizeFixtureSendStatus(cs.without_approval.send_status) === 'blocked_by_gate';
+    const withOk = cs.with_approval && cs.with_approval.send_attempted === true
+      && cs.with_approval.sends_whatsapp !== true;
+    const dupOk = cs.duplicate_attempt && cs.duplicate_attempt.sends_whatsapp !== true;
+
+    if (withoutOk && withOk && dupOk && cs.message_matches_preview) {
+      cs.result = 'PASS';
+    } else if (cs.with_approval && cs.with_approval.send_attempted === true) {
+      cs.result = 'PARTIAL';
+      cs.skip_reason = [
+        !withoutOk ? 'without_approval_unexpected' : null,
+        !withOk ? 'with_approval_unexpected' : null,
+        !dupOk ? 'duplicate_not_blocked' : null,
+        !cs.message_matches_preview ? 'message_preview_mismatch' : null,
+      ].filter(Boolean).join('; ') || 'confirmation_send_partial';
+    } else {
+      cs.result = 'FAIL';
+      cs.skip_reason = (cs.with_approval && cs.with_approval.block_reasons || []).join('; ')
+        || 'confirmation_send_failed';
+    }
+    return cs;
+  });
+}
+
+function checkWriteExpectations(writeExpect, proof, opts, webhookExpect, confirmationExpect, confirmationSendExpect) {
   const failures = [];
   if (!writeExpect || typeof writeExpect !== 'object') return failures;
   const w = proof || {};
@@ -852,6 +1131,7 @@ function checkWriteExpectations(writeExpect, proof, opts, webhookExpect, confirm
 
   failures.push(...checkWebhookExpectations(webhookExpect, proof, opts));
   failures.push(...checkConfirmationExpectations(confirmationExpect, proof, opts));
+  failures.push(...checkConfirmationSendExpectations(confirmationSendExpect, proof, opts));
 
   if (writeExpect.idempotency_check === true) {
     if (!w.idempotency || w.idempotency.result !== 'PASS') {
@@ -927,6 +1207,7 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     assigned_beds: [],
     stripe_webhook: null,
     confirmation_preview: null,
+    confirmation_send: null,
   };
 
   const envCheck = assessWriteEnvironment();
@@ -1061,6 +1342,13 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     }
   }
 
+  if (opts.attemptConfirmationSend) {
+    proof.confirmation_send = await runConfirmationSendProof(proof, fixture, phone, opts);
+    if (proof.confirmation_send) {
+      proof.confirmation_sent = proof.confirmation_send.confirmation_sent === true;
+    }
+  }
+
   const webhookApplied = proof.stripe_webhook && proof.stripe_webhook.result === 'PASS';
 
   if (!opts.keepBookings && proof.booking_code) {
@@ -1084,9 +1372,13 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     opts,
     fixture.webhook_expect,
     fixture.confirmation_expect,
+    fixture.confirmation_send_expect,
   );
   proof.result = writeFailures.length === 0 ? 'PASS' : 'FAIL';
   if (proof.result === 'PASS' && proof.confirmation_preview && proof.confirmation_preview.result === 'PARTIAL') {
+    proof.result = 'PARTIAL';
+  }
+  if (proof.result === 'PASS' && proof.confirmation_send && proof.confirmation_send.result === 'PARTIAL') {
     proof.result = 'PARTIAL';
   }
   proof.write_failures = writeFailures;
@@ -1094,6 +1386,28 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     ? 'created'
     : (stripeRequired ? 'FAIL_required' : 'PASS_optional');
   return proof;
+}
+
+function printConfirmationSendDiagnostics(wm) {
+  const cs = wm && wm.confirmation_send;
+  if (!cs || !cs.attempted) return;
+  console.log(`    confirmation_send: ${cs.result}${cs.skip_reason ? ` (${cs.skip_reason})` : ''}`);
+  if (cs.without_approval) {
+    console.log(`    send without approval: ${normalizeFixtureSendStatus(cs.without_approval.send_status)}`);
+  }
+  if (cs.with_approval) {
+    console.log(`    send with approval: ${cs.with_approval.send_status} sends_whatsapp=${cs.with_approval.sends_whatsapp === true}`);
+    console.log(`    provider_send_performed: ${cs.provider_send_performed === true}`);
+  }
+  if (cs.duplicate_attempt) {
+    console.log(`    duplicate send: ${cs.duplicate_attempt.send_status} sends_whatsapp=${cs.duplicate_attempt.sends_whatsapp === true}`);
+    console.log(`    duplicate blocked: ${cs.duplicate_attempt.sends_whatsapp !== true}`);
+  }
+  console.log(`    message_matches_preview: ${cs.message_matches_preview === true}`);
+  console.log(`    confirmation_sent: ${cs.confirmation_sent === true}`);
+  console.log(`    confirmation_sent_at unchanged: ${(cs.confirmation_sent_at_before || null) === (cs.confirmation_sent_at_after || null)}`);
+  console.log(`    whatsapp_dry_run: ${cs.whatsapp_dry_run !== false}`);
+  console.log(`    calls_n8n: ${cs.calls_n8n === true}`);
 }
 
 function printConfirmationPreviewDiagnostics(wm) {
@@ -1131,6 +1445,7 @@ function printStripeWebhookDiagnostics(wm) {
     console.log(`    no_duplicate_payment_truth: ${wh.no_duplicate_payment_truth}`);
   }
   printConfirmationPreviewDiagnostics(wm);
+  printConfirmationSendDiagnostics(wm);
 }
 
 function printBedAssignmentDiagnostics(wm) {
@@ -1551,6 +1866,30 @@ async function main() {
     process.exit(1);
   }
 
+  if (opts.attemptConfirmationSend && !opts.expectConfirmationPreview) {
+    console.error('FAIL — --attempt-confirmation-send requires --expect-confirmation-preview');
+    process.exit(1);
+  }
+
+  if (opts.allowRealWhatsappSend && !opts.attemptConfirmationSend) {
+    console.error('FAIL — --allow-real-whatsapp-send requires --attempt-confirmation-send');
+    process.exit(1);
+  }
+
+  if (opts.allowRealWhatsappSend) {
+    try {
+      assertNotProduction();
+      assertNotProductionDb(defaultConnectionString());
+    } catch (e) {
+      console.error(`FAIL — --allow-real-whatsapp-send blocked: ${e.message}`);
+      process.exit(1);
+    }
+    if (isWhatsappDryRun(process.env)) {
+      console.error('FAIL — --allow-real-whatsapp-send requires WHATSAPP_DRY_RUN=false in environment');
+      process.exit(1);
+    }
+  }
+
   if (opts.allowWrites) {
     try {
       assertNotProduction();
@@ -1575,13 +1914,15 @@ async function main() {
   const report = {
     result: 'PASS',
     mode: opts.allowWrites
-      ? (opts.expectConfirmationPreview
-        ? 'conversation_dry_run_plus_write_proof_confirmation_preview'
-        : (opts.simulateStripeWebhook
-          ? 'conversation_dry_run_plus_write_proof_stripe_webhook'
-          : (opts.requireStripeTestLink
-            ? 'conversation_dry_run_plus_write_proof_stripe_required'
-            : 'conversation_dry_run_plus_write_proof')))
+      ? (opts.attemptConfirmationSend
+        ? 'conversation_dry_run_plus_write_proof_confirmation_send'
+        : (opts.expectConfirmationPreview
+          ? 'conversation_dry_run_plus_write_proof_confirmation_preview'
+          : (opts.simulateStripeWebhook
+            ? 'conversation_dry_run_plus_write_proof_stripe_webhook'
+            : (opts.requireStripeTestLink
+              ? 'conversation_dry_run_plus_write_proof_stripe_required'
+              : 'conversation_dry_run_plus_write_proof'))))
       : 'dry_run_review_only',
     fixture_dir: opts.fixtureDir,
     reference_date: opts.referenceDate,
