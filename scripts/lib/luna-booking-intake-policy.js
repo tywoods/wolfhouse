@@ -170,6 +170,19 @@ function guestDeclinedAddons(text) {
   return NO_ADDONS_RE.test(String(text || ''));
 }
 
+/** Guest count can be stored without a collected name when the message already carries booking context. */
+function shouldDeferGuestCount(prior, patch, text, channelName) {
+  if (hasCollectedGuestName({ ...(prior || {}), ...(patch || {}) }, channelName)) return false;
+  if (patch && patch.package_interest) return false;
+  if (prior && prior.package_interest) return false;
+  if (patch && patch.check_in && patch.check_out) return false;
+  if (prior && prior.check_in && prior.check_out) return false;
+  if (/\b(?:malibu|uluwatu|waimea|surf\s+package|package|people|guests?|ppl|persons?|personnes|personas|gäste|gaste|ospiti)\b/i.test(String(text || ''))) {
+    return false;
+  }
+  return true;
+}
+
 function addonsResolved(state) {
   const st = state || {};
   if (st.add_ons_status === 'declined' || st.add_ons_status === 'collected') return true;
@@ -324,7 +337,6 @@ function determineRequiredBookingFields(state, context) {
   const missing = [];
 
   if (!hasDates(fields)) missing.push('dates');
-  if (!hasCollectedGuestName(fields, ctx.channel_guest_name)) missing.push('guest_name');
   if (fields.guest_count == null || fields.guest_count < 1) missing.push('guest_count');
 
   const nights = computeStayNights(fields.check_in, fields.check_out);
@@ -351,6 +363,7 @@ function determineRequiredBookingFields(state, context) {
     }
     if (ctx.quote.payment_choice_needed === true
       && !(ctx.payment_choice && ctx.payment_choice.payment_choice_ready)) {
+      if (!hasCollectedGuestName(fields, ctx.channel_guest_name)) missing.push('guest_name');
       missing.push('payment_choice');
     }
   }
@@ -408,8 +421,17 @@ function determineNextBookingQuestion(state, context) {
   if (quote.quote_status === 'ready' && missing.includes('room_preference')) {
     return mapFieldToQuestion('room_preference', state, ctx);
   }
+  if (quote.quote_status === 'ready' && missing.includes('guest_name')) {
+    return mapFieldToQuestion('guest_name', state, ctx);
+  }
   if (quote.quote_status === 'ready' && missing.includes('payment_choice')) {
     return mapFieldToQuestion('payment_choice', state, ctx);
+  }
+
+  if (hasDates(fields)
+    && (fields.guest_count == null || fields.guest_count < 1)
+    && !hasCollectedGuestName(fields, ctx.channel_guest_name)) {
+    return mapFieldToQuestion('guest_name', state, ctx);
   }
 
   for (const field of INTAKE_FIELD_ORDER) {
@@ -449,12 +471,13 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   if (intake.package_code) patch.package_interest = intake.package_code;
 
   const name = extractNameFromText(text);
-  if (name && !isGenericWhatsAppName(name)) patch.guest_name = name;
+  if (name && !isGenericWhatsAppName(name) && !guestDeclinedAddons(text)) {
+    patch.guest_name = name;
+  }
 
   const guests = extractGuestCountFromText(text);
-  const nameReady = hasCollectedGuestName({ ...prior, ...patch }, ctx.channel_guest_name);
   if (guests != null) {
-    if (nameReady || hasCollectedGuestName(prior, ctx.channel_guest_name)) {
+    if (!shouldDeferGuestCount(prior, patch, text, ctx.channel_guest_name)) {
       patch.guest_count = guests;
     } else {
       patch.deferred_guest_count = guests;
@@ -590,4 +613,5 @@ module.exports = {
   guestDeclinedAddons,
   effectiveGuestName,
   hasCollectedGuestName,
+  shouldDeferGuestCount,
 };

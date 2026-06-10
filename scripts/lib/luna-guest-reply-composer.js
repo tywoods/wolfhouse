@@ -208,6 +208,8 @@ function resolveComposerState(input) {
 
   const channelGuestName = trimStr(
     (inp.prior_guest_context && inp.prior_guest_context.contact_name)
+    || (inp.prior_guest_context && inp.prior_guest_context.whatsapp_guest_name)
+    || (inp.prior_guest_context && inp.prior_guest_context.channel_guest_name)
     || (inp.prior_guest_context && inp.prior_guest_context.guest_name),
   );
   const policy = result.booking_intake_policy || buildBookingIntakePolicySnapshot(
@@ -273,11 +275,12 @@ function resolveComposerState(input) {
     return 'ask_dates';
   }
 
-  const guestName = fields.guest_name != null ? String(fields.guest_name).trim() : '';
+  const guestName = trimStr(fields.guest_name) || channelGuestName;
   if (fields.check_in && fields.check_out
     && !guestName
     && (missing.includes('guest_name') || (result.readiness_missing_fields || []).includes('guest_name'))
-    && result.message_lane === 'new_booking_inquiry') {
+    && result.message_lane === 'new_booking_inquiry'
+    && quote.quote_status !== 'ready') {
     return 'ask_guest_name';
   }
 

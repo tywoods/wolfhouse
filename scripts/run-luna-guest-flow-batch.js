@@ -233,9 +233,25 @@ function postJson(urlStr, body, headers) {
   });
 }
 
-function guestContextFromReview(apiBody) {
+function resolveFlowContactName(flow, fixtureData) {
+  if (flow.skip_contact_name === true || flow.contact_name === null) return null;
+  if (flow.contact_name) return flow.contact_name;
+  const set = fixtureData && fixtureData.fixture_sets && fixtureData.fixture_sets[flow.fixture_set];
+  if (set && set.default_contact_name) return set.default_contact_name;
+  return null;
+}
+
+function applyChannelContactName(guestContext, contactName) {
+  if (!contactName) return guestContext || undefined;
+  const gc = guestContext ? { ...guestContext } : {};
+  if (!gc.contact_name) gc.contact_name = contactName;
+  if (!gc.whatsapp_guest_name) gc.whatsapp_guest_name = contactName;
+  return gc;
+}
+
+function guestContextFromReview(apiBody, contactName) {
   const r = (apiBody && apiBody.review) || {};
-  return normalizeGuestContextForChain({
+  return applyChannelContactName(normalizeGuestContextForChain({
     message_lane: r.result && r.result.message_lane,
     intake_state: r.result && r.result.intake_state,
     readiness_state: r.result && r.result.readiness_state,
@@ -248,7 +264,7 @@ function guestContextFromReview(apiBody) {
     payment_choice: r.payment_choice,
     hold_payment_draft_plan: r.hold_payment_draft_plan,
     detected_language: r.result && r.result.detected_language,
-  });
+  }), contactName);
 }
 
 function wrapOrchestratorAsReviewBody(orchOut) {
@@ -272,7 +288,7 @@ function wrapOrchestratorAsReviewBody(orchOut) {
   };
 }
 
-function buildSimulatorPayload(opts, flow, message, guestContext, phone) {
+function buildSimulatorPayload(opts, flow, message, guestContext, phone, contactName) {
   return {
     client_slug: CLIENT_SLUG,
     channel: flow.channel || 'staff_review',
@@ -281,7 +297,7 @@ function buildSimulatorPayload(opts, flow, message, guestContext, phone) {
     reference_date: opts.referenceDate,
     guest_phone: phone,
     language_hint: flow.language,
-    guest_context: guestContext || undefined,
+    guest_context: applyChannelContactName(guestContext, contactName),
     automation_gate_context: {
       public_guest_automation_enabled: false,
       whatsapp_dry_run: true,
@@ -290,7 +306,7 @@ function buildSimulatorPayload(opts, flow, message, guestContext, phone) {
   };
 }
 
-function buildInboundPayload(opts, flow, turn, message, guestContext, phone, inboundMessageId) {
+function buildInboundPayload(opts, flow, turn, message, guestContext, phone, inboundMessageId, contactName) {
   return {
     source: 'flow_batch_runner',
     client_slug: CLIENT_SLUG,
@@ -302,7 +318,7 @@ function buildInboundPayload(opts, flow, turn, message, guestContext, phone, inb
     received_at: new Date().toISOString(),
     inbound_message_id: inboundMessageId,
     idempotency_key: `${CLIENT_SLUG}:whatsapp:${inboundMessageId}`,
-    guest_context: guestContext || undefined,
+    guest_context: applyChannelContactName(guestContext, contactName),
     automation_gate_context: {
       public_guest_automation_enabled: false,
       whatsapp_dry_run: true,
@@ -598,6 +614,7 @@ function buildInboundMessageId(flow, opts, flowIndex, turnIndex, isIdempotentRep
 
 async function runFlow(flow, opts, mode, headers, flowIndex) {
   const phone = buildFlowPhone(mode, opts, flowIndex);
+  const flowContactName = resolveFlowContactName(flow, opts.fixtureData);
   const endpoint = flow.endpoint === 'inbound' ? 'inbound' : 'simulator';
   const flowResult = {
     id: flow.id,
@@ -640,11 +657,11 @@ async function runFlow(flow, opts, mode, headers, flowIndex) {
       const msgId = (isIdempotentReplayFlow || turn.reuse_inbound_message_id)
         ? inboundId
         : `${inboundId}-turn${ti + 1}`;
-      const payload = buildInboundPayload(opts, flow, turn, turn.message, guestContext, phone, msgId);
+      const payload = buildInboundPayload(opts, flow, turn, turn.message, guestContext, phone, msgId, flowContactName);
       if (mode === 'local') runRes = await runInboundLocal(payload);
       else runRes = await runInboundEndpoint(opts, payload, headers);
     } else {
-      const payload = buildSimulatorPayload(opts, flow, turn.message, guestContext, phone);
+      const payload = buildSimulatorPayload(opts, flow, turn.message, guestContext, phone, flowContactName);
       if (mode === 'local') runRes = await runSimulatorLocal(payload);
       else runRes = await runSimulatorEndpoint(opts, payload, headers);
     }
@@ -677,7 +694,7 @@ async function runFlow(flow, opts, mode, headers, flowIndex) {
     if (body.review) {
       priorReview = body.review;
       if (!turn.reuse_inbound_message_id || !turn.reset_guest_context) {
-        guestContext = guestContextFromReview(body);
+        guestContext = guestContextFromReview(body, flowContactName);
       }
       if (isReadyForHoldWrite(body.review)) {
         readyContext = guestContext;
@@ -767,6 +784,7 @@ async function main() {
   }
 
   const fixtureFile = loadFixtureFile(DEFAULT_FIXTURE);
+  opts.fixtureData = fixtureFile;
   const flows = filterFlows(fixtureFile, opts);
   if (flows.length === 0) {
     console.error('No flows matched filters.');

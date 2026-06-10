@@ -27,6 +27,9 @@ const { decideConversationAction } = require('./luna-conversation-brain');
 const {
   buildBookingIntakePolicySnapshot,
   normalizeOutOfOrderBookingInfo,
+  shouldDeferGuestCount,
+  guestDeclinedAddons,
+  hasCollectedGuestName: policyHasCollectedGuestName,
 } = require('./luna-booking-intake-policy');
 const {
   evaluatePackageNightContext,
@@ -818,7 +821,8 @@ function extractBookingFields(messageText, context, priorFields) {
 
   const activeField = resolveActiveIntakeMissingField(guestContext);
   const priorWithChannelName = seedChannelGuestName(prior, context, guestContext);
-  const nameReady = hasCollectedGuestName(priorWithChannelName);
+  const channelName = resolveChannelGuestName(context, guestContext);
+  const nameReady = policyHasCollectedGuestName(priorWithChannelName, channelName);
 
   const current = {
     check_in: intake.check_in || null,
@@ -844,9 +848,13 @@ function extractBookingFields(messageText, context, priorFields) {
       current.guest_count = priorWithChannelName.deferred_guest_count;
     }
   } else if (intake.guests != null) {
-    current.deferred_guest_count = intake.guests;
+    if (!shouldDeferGuestCount(priorWithChannelName, current, messageText, channelName)) {
+      current.guest_count = intake.guests;
+    } else {
+      current.deferred_guest_count = intake.guests;
+    }
   }
-  if (activeField === 'guest_name' && !current.guest_name) {
+  if (activeField === 'guest_name' && !current.guest_name && !guestDeclinedAddons(messageText)) {
     const name = parseGuestNameAnswer(messageText);
     if (name) current.guest_name = name;
   }
@@ -901,7 +909,6 @@ function computeReadinessMissingFields(extracted) {
   const missing = [];
   if (!extracted.check_in) missing.push('check_in');
   if (!extracted.check_out) missing.push('check_out');
-  if (!hasCollectedGuestName(extracted)) missing.push('guest_name');
   if (extracted.guest_count == null || extracted.guest_count < 1) missing.push('guest_count');
   if (!hasPackageOrStayIntent(extracted)) missing.push('package_interest');
   return missing;

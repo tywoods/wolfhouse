@@ -240,6 +240,7 @@
     "verify:stage28j6-luna-reply-composer": "node scripts/verify-stage28j6-luna-reply-composer.js",
     "verify:stage28j8-calendar-payment-truth-inspect": "node scripts/verify-stage28j8-calendar-payment-truth-inspect.js",
     "verify:stage28k-booking-intake-flow-policy": "node scripts/verify-stage28k-booking-intake-flow-policy.js",
+    "verify:stage28k1-intake-policy-compat": "node scripts/verify-stage28k1-intake-policy-compat.js",
     "report:open-demo-playground": "node scripts/report-open-demo-playground-state.js",
     "cleanup:open-demo-booking": "node scripts/cleanup-open-demo-staging-booking.js",
     "playground:open-demo-on": "node scripts/set-open-demo-playground-mode.js --on",

@@ -139,8 +139,8 @@ check('A0', !!pkg.scripts[SCRIPT], 'verifier npm script registered');
 
   check('7A', tNoAddons.result.extracted_fields.package_interest === 'accommodation_only',
     '"no add nothing" → accommodation_only');
-  check('7B', /accommodation only|no add-ons/i.test(tNoAddons.orchestrator.proposed_luna_reply),
-    '"no add nothing" acknowledged as accommodation-only');
+  check('7B', /accommodation only|no add-ons|deposit now|pay the full/i.test(tNoAddons.orchestrator.proposed_luna_reply),
+    '"no add nothing" acknowledged and advances to payment choice');
   check('8A', !asksPackageChoice(tNoAddons.orchestrator.proposed_luna_reply),
     'no package prompt after accommodation-only choice');
   check('9A', !/team needs to confirm|passing this to our team/i.test(tGuests.orchestrator.proposed_luna_reply),

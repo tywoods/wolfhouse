@@ -478,7 +478,7 @@ function parseGuestNameAnswer(text) {
   const raw = String(text || '').trim();
   if (!raw || raw.length > 60) return null;
   if (/^\d+$/.test(raw)) return null;
-  if (/\b(?:deposit|full(?:\s+payment)?|just\s+(?:me|the\s+stay)|accommodation(?:\s+only)?|no\s+package|malibu|uluwatu|waimea|wetsuit|surfboard|lessons?|yoga|book(?:ing)?\s+(?:a\s+)?stay)\b/i.test(raw)) {
+  if (/\b(?:deposit|full(?:\s+payment)?|just\s+(?:me|the\s+stay)|accommodation(?:\s+only)?|no\s+package|no\s+add(?:\s+|-)?nothing|nothing\s+extra|no\s+extras?|i\s+have\s+my\s+own(?:\s+stuff)?|malibu|uluwatu|waimea|wetsuit|surfboard|lessons?|yoga|book(?:ing)?\s+(?:a\s+)?stay)\b/i.test(raw)) {
     return null;
   }
   if (/^(?:hi|hello|hey|thanks|thank\s+you|yes|no|ok(?:ay)?|sure)$/i.test(raw)) return null;

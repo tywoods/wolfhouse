@@ -6,7 +6,8 @@
   "default_channel": "staff_review",
   "fixture_sets": {
     "booking-core": {
-      "description": "Core multi-turn booking flows for batch regression before n8n wiring. Date windows are chosen for beds free on local and staging inventory (reference_date 2026-06-08); re-check flow-en-unavailable-dates and flow-en-change-dates if staging bed calendar drifts."
+      "description": "Core multi-turn booking flows for batch regression before n8n wiring. Date windows are chosen for beds free on local and staging inventory (reference_date 2026-06-08); re-check flow-en-unavailable-dates and flow-en-change-dates if staging bed calendar drifts.",
+      "default_contact_name": "Marco"
     }
   },
   "flows": [
