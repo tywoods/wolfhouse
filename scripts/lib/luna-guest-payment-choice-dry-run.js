@@ -430,6 +430,27 @@ function runGuestPaymentChoiceDryRun(input, guestContext) {
   const lang = resolveLanguage(input, guestContext);
   const ctx = guestContext || {};
 
+  let resetIntent = false;
+  try {
+    const { detectNewBookingResetIntent, buildNewBookingResetReply } = require('./luna-guest-message-router');
+    resetIntent = detectNewBookingResetIntent(messageText);
+    if (resetIntent && quoteContextReady(ctx)) {
+      return {
+        success: true,
+        ...PAYMENT_CHOICE_SAFETY,
+        payment_choice_capture_attempted: false,
+        payment_choice_detected: false,
+        payment_choice: null,
+        payment_choice_ready: false,
+        payment_choice_reasons: ['new_booking_reset'],
+        next_safe_step: 'not_ready',
+        proposed_luna_reply: buildNewBookingResetReply(lang),
+      };
+    }
+  } catch (_) {
+    resetIntent = false;
+  }
+
   if (!shouldAttemptGuestPaymentChoiceCapture(ctx) && !detected) {
     return buildGuestPaymentChoiceSkippedResponse(ctx, null);
   }

@@ -41,7 +41,7 @@ const VALID_QUOTE_STATUSES = new Set([
 const REPLY_TEMPLATES = {
   en: {
     intro: "Hi! I'm Luna from Wolfhouse",
-    ready: (totalEur, depositEur) => `Thanks — for your stay I estimate a total of €${totalEur}. Would you prefer to pay a €${depositEur} deposit or the full amount? I am not confirming the booking and I cannot send a payment link yet.`,
+    ready: (totalEur, depositEur) => `Thanks — for your stay I estimate a total of €${totalEur}. Would you prefer to pay a €${depositEur} deposit or the full amount? I am not confirming or holding the booking yet and I cannot send a payment link yet.`,
     needs_review: 'Thanks — I need our team to confirm pricing details for your stay before the next step. Someone from Wolfhouse will follow up soon.',
     error: 'Thanks for your stay details — I hit a snag preparing a quote. Our team will confirm pricing and follow up with you.',
     not_ready: 'Thanks for your message — I still need a few details before I can prepare a quote.',

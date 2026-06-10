@@ -9,7 +9,12 @@
  * Does NOT call: 27n write, 27o Stripe link, 27p payment truth, 27q preview, 27r/27s send.
  */
 
-const { runLunaGuestMessageRouterDryRun } = require('./luna-guest-message-router');
+const {
+  runLunaGuestMessageRouterDryRun,
+  detectNewBookingResetIntent,
+  buildNewBookingResetReply,
+  hasSubstantiveNewBookingDetailsAfterReset,
+} = require('./luna-guest-message-router');
 const { runGuestAvailabilityDryRun, buildGuestAvailabilitySkippedResponse, shouldAttemptGuestAvailability } = require('./luna-guest-availability-dry-run');
 const { runGuestQuoteProposalDryRun } = require('./luna-guest-quote-proposal-dry-run');
 const {
@@ -25,6 +30,7 @@ const {
 } = require('./luna-guest-hold-payment-draft-planner');
 const {
   normalizeGuestContextForChain,
+  stripQuotePaymentStateForReset,
   buildHoldPaymentDraftPlannerChain,
   mergeActiveBookingChainOutput,
   collectPriorExtractedFields,
@@ -196,6 +202,10 @@ function resolveProposedNextAction(payload) {
 
   if (result && result.greeting_only) {
     return 'await_guest_reply';
+  }
+
+  if (result && result.new_booking_reset) {
+    return 'ask_missing_details';
   }
 
   if (gate && gate.gate_status !== 'allowed_dry_run') {
@@ -447,7 +457,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     });
   }
 
-  const chainGuestContext = normalizeGuestContextForChain(inp.guest_context);
+  let chainGuestContext = normalizeGuestContextForChain(inp.guest_context);
 
   const routerContext = {
     reference_date: inp.reference_date || ctx.reference_date,
@@ -455,9 +465,10 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     client_slug: trimStr(inp.client_slug) || DEFAULT_CLIENT,
   };
 
-  const result = runLunaGuestMessageRouterDryRun(
+  const messageText = trimStr(inp.message_text);
+  let result = runLunaGuestMessageRouterDryRun(
     {
-      message_text: trimStr(inp.message_text),
+      message_text: messageText,
       language_hint: inp.language_hint,
       guest_context: chainGuestContext,
     },
@@ -466,6 +477,50 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
 
   if (result.greeting_only) {
     return buildNonBookingLaneResponse(result, gate);
+  }
+
+  if (detectNewBookingResetIntent(messageText) && shouldAttemptGuestPaymentChoiceWire(chainGuestContext)) {
+    chainGuestContext = stripQuotePaymentStateForReset(chainGuestContext);
+    result = runLunaGuestMessageRouterDryRun(
+      {
+        message_text: messageText,
+        language_hint: inp.language_hint,
+        guest_context: chainGuestContext,
+      },
+      routerContext,
+    );
+    result = { ...result, new_booking_reset: true };
+
+    if (!hasSubstantiveNewBookingDetailsAfterReset(result)) {
+      const resetReply = buildNewBookingResetReply(result.detected_language || 'en');
+      return buildOrchestratorResponse({
+        automation_gate: gate,
+        result: {
+          ...result,
+          message_lane: 'new_booking_inquiry',
+          intake_state: 'inquiry_received',
+          readiness_state: 'collecting_required_details',
+          booking_intake_ready: false,
+          extracted_fields: {},
+          new_booking_reset: true,
+        },
+        availability: null,
+        quote: { quote_status: 'not_ready', payment_choice_needed: false },
+        payment_choice: {
+          success: true,
+          payment_choice_capture_attempted: false,
+          payment_choice_detected: false,
+          payment_choice: null,
+          payment_choice_ready: false,
+          payment_choice_reasons: ['new_booking_reset'],
+          next_safe_step: 'not_ready',
+          proposed_luna_reply: resetReply,
+        },
+        hold_payment_draft_plan: null,
+        proposed_next_action: 'ask_missing_details',
+        proposed_luna_reply: resetReply,
+      });
+    }
   }
 
   const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext);

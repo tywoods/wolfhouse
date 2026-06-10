@@ -119,6 +119,36 @@ function normalizeGuestContextForChain(guestContext) {
 }
 
 /**
+ * Clear prior quote/payment-choice chain so guest can start a fresh booking intake.
+ */
+function stripQuotePaymentStateForReset(guestContext) {
+  const prior = guestContext || {};
+  const lang = prior.detected_language
+    || (prior.result && prior.result.detected_language)
+    || 'en';
+  const freshResult = {
+    message_lane: 'new_booking_inquiry',
+    intake_state: 'inquiry_received',
+    readiness_state: 'collecting_required_details',
+    booking_intake_ready: false,
+    extracted_fields: {},
+    detected_language: lang,
+    new_booking_reset: true,
+  };
+  return {
+    detected_language: lang,
+    message_lane: 'new_booking_inquiry',
+    intake_state: 'inquiry_received',
+    readiness_state: 'collecting_required_details',
+    booking_intake_ready: false,
+    extracted_fields: {},
+    quote_status: 'not_ready',
+    payment_choice_needed: false,
+    result: freshResult,
+  };
+}
+
+/**
  * When quote is ready and payment choice is pending, restore booking lane on guest_context
  * so side-question turns (package explainer, cash-on-arrival) do not break the chain.
  */
@@ -303,6 +333,7 @@ module.exports = {
   mergeGuestExtractedFields,
   collectPriorExtractedFields,
   normalizeGuestContextForChain,
+  stripQuotePaymentStateForReset,
   restoreBookingLaneForActiveQuote,
   isActiveBookingSideQuestion,
   mergeActiveBookingChainOutput,

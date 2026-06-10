@@ -480,6 +480,40 @@ function buildGreetingMenuReply(lang) {
   return `${intro.replace(/^Hi!/, 'Hey!')} How can I help — are you looking to book a stay, ask about packages, or something else?`;
 }
 
+/** Guest wants to abandon current quote/payment-choice and start a fresh booking. */
+function detectNewBookingResetIntent(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return false;
+  if (/\b(?:start\s+over|start\s+again|let'?s\s+start\s+again|forget\s+(?:that|the)\s+booking|new\s+booking|another\s+booking|different\s+booking|create\s+another\s+booking|want\s+(?:to\s+)?(?:create|make)\s+another|not\s+that\s+one)\b/i.test(t)) {
+    return true;
+  }
+  if (/\bno\b[\s,!.?-]*(?:no\b[\s,!.?-]*)?(?:i\s+)?(?:want|wanna)\s+(?:to\s+)?(?:create|make)\s+(?:another|a\s+new|a\s+different)\s+booking\b/i.test(t)) {
+    return true;
+  }
+  if (/\bno[,.\s]+another\s+booking\b/i.test(t)) {
+    return true;
+  }
+  if (/\bactually\b.*\b(?:make\s+it|want|book|booking|change\s+to)\b/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+function buildNewBookingResetReply(lang) {
+  const intro = `${tpl(lang, 'intro')} 🌊`;
+  return `${intro} — No problem — we can start a new booking. What dates are you looking for, and how many guests?`;
+}
+
+function hasSubstantiveNewBookingDetailsAfterReset(routerResult) {
+  const ef = routerResult && routerResult.extracted_fields && typeof routerResult.extracted_fields === 'object'
+    ? routerResult.extracted_fields
+    : {};
+  if (ef.check_in && ef.check_out) return true;
+  if (ef.guest_count != null && ef.guest_count >= 1) return true;
+  if (ef.package_interest) return true;
+  return false;
+}
+
 function classifyMessageLane(text, guestContext) {
   const t = String(text || '');
   const ctx = guestContext || {};
@@ -985,6 +1019,9 @@ module.exports = {
   classifyMessageLane,
   isGreetingOnlyMessage,
   buildGreetingMenuReply,
+  detectNewBookingResetIntent,
+  buildNewBookingResetReply,
+  hasSubstantiveNewBookingDetailsAfterReset,
   detectLanguage,
   detectPackageExplainerIntent,
   buildPackageExplainerReply,
