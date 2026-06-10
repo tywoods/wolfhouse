@@ -9,6 +9,7 @@
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit
  *   npm run test:luna-conversations -- --all --verbose --json
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --verbose
+ *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --verbose
  */
 
 'use strict';
@@ -71,6 +72,7 @@ Options:
   --verbose                Print full turn diagnostics
   --keep-bookings          Keep unpaid test holds after --allow-writes (skip cleanup)
   --allow-writes           After conversation, run hold/draft + Stripe TEST write proof
+  --require-stripe-test-link  With --allow-writes, fail if Stripe TEST checkout is not created
   --phone-prefix <prefix>  Default +34629800
   --reference-date <date>  Default ${DEFAULT_REFERENCE_DATE}
   --fixture-dir <path>     Default fixtures/luna-conversation-state-machine
@@ -86,6 +88,7 @@ function parseArgs(argv) {
     verbose: false,
     keepBookings: false,
     allowWrites: false,
+    requireStripeTestLink: false,
     phonePrefix: '+34629800',
     referenceDate: DEFAULT_REFERENCE_DATE,
     fixtureDir: DEFAULT_FIXTURE_DIR,
@@ -99,6 +102,7 @@ function parseArgs(argv) {
     else if (a === '--verbose') opts.verbose = true;
     else if (a === '--keep-bookings') opts.keepBookings = true;
     else if (a === '--allow-writes') opts.allowWrites = true;
+    else if (a === '--require-stripe-test-link') opts.requireStripeTestLink = true;
     else if (a === '--fixture') opts.fixture = argv[++i];
     else if (a === '--limit') opts.limit = parseInt(argv[++i], 10);
     else if (a === '--phone-prefix') opts.phonePrefix = argv[++i];
@@ -146,6 +150,45 @@ function assessWriteEnvironment() {
     reasons.push('hold_write_environment_not_staging_or_local');
   }
   return { ok: reasons.length === 0, reasons };
+}
+
+function assessStripeTestLinkEnvironment() {
+  const reasons = [];
+  try {
+    assertNotProduction();
+  } catch (e) {
+    reasons.push(e.message);
+  }
+  try {
+    assertNotProductionDb(defaultConnectionString());
+  } catch (e) {
+    reasons.push(e.message);
+  }
+  const gate = shouldAllowGuestStripeTestLinkCreate({
+    payment_draft_id: '00000000-0000-0000-0000-000000000001',
+  }, buildStripeContext());
+  if (!gate.allowed) {
+    reasons.push(...gate.reasons.filter((r) => r !== 'payment_draft_id_required'));
+  }
+  return { ok: reasons.length === 0, reasons };
+}
+
+function isStripeCheckoutRequired(opts, writeExpect) {
+  if (opts && opts.requireStripeTestLink) return true;
+  if (writeExpect && writeExpect.stripe_test_checkout_created === true) return true;
+  return false;
+}
+
+const UNPAID_CHECKOUT_PAYMENT_STATUSES = ['checkout_created', 'waiting_payment', 'draft', 'pending'];
+
+async function loadPaymentTruth(pg, paymentDraftId) {
+  const res = await pg.query(
+    `SELECT status::text AS payment_status, amount_paid_cents,
+            stripe_checkout_session_id, checkout_url
+       FROM payments WHERE id = $1::uuid`,
+    [paymentDraftId],
+  );
+  return res.rows[0] || null;
 }
 
 function buildWriteChain(lastOut) {
@@ -277,10 +320,11 @@ async function cleanupUnpaidTestBooking(pg, bookingCode) {
   }
 }
 
-function checkWriteExpectations(writeExpect, proof) {
+function checkWriteExpectations(writeExpect, proof, opts) {
   const failures = [];
   if (!writeExpect || typeof writeExpect !== 'object') return failures;
   const w = proof || {};
+  const stripeRequired = isStripeCheckoutRequired(opts, writeExpect);
 
   if (writeExpect.booking_created === true) {
     if (!w.booking_write || w.booking_write.success !== true) failures.push('booking_created expected true');
@@ -314,12 +358,41 @@ function checkWriteExpectations(writeExpect, proof) {
   }
 
   const stripeExpect = writeExpect.stripe_test_checkout_created;
-  if (stripeExpect === true) {
+  if (stripeRequired) {
+    if (!w.stripe_test_checkout_created) {
+      failures.push(`stripe_test_checkout_required: ${w.stripe_skip_reason || 'gate blocked'}`);
+    }
+  } else if (stripeExpect === true) {
     if (!w.stripe_test_checkout_created) {
       failures.push(`stripe_test_checkout_created expected true (${w.stripe_skip_reason || 'gate blocked'})`);
     }
   } else if (stripeExpect === false) {
     if (w.stripe_test_checkout_created) failures.push('stripe_test_checkout_created expected false');
+  }
+
+  if (w.stripe_test_checkout_created || stripeRequired) {
+    if (writeExpect.stripe_checkout_url_exists === true && !w.stripe_checkout_url) {
+      failures.push('stripe_checkout_url_exists expected true');
+    }
+    if (writeExpect.stripe_checkout_session_id_exists === true && !w.stripe_checkout_session_id) {
+      failures.push('stripe_checkout_session_id_exists expected true');
+    }
+    if (stripeRequired || writeExpect.stripe_checkout_url_exists === true) {
+      if (!w.stripe_checkout_url) failures.push('stripe_checkout_url missing after checkout');
+    }
+    if (stripeRequired || writeExpect.stripe_checkout_session_id_exists === true) {
+      if (!w.stripe_checkout_session_id) failures.push('stripe_checkout_session_id missing after checkout');
+    }
+    const ps = w.payment_status_after_checkout;
+    if (stripeRequired && ps === 'paid') {
+      failures.push(`payment_status must not be paid after checkout got ${ps}`);
+    }
+    if (stripeRequired && ps && !UNPAID_CHECKOUT_PAYMENT_STATUSES.includes(ps)) {
+      failures.push(`payment_status unexpected after checkout: ${ps}`);
+    }
+    if (w.payment_amount_paid_cents > 0) {
+      failures.push(`payment truth mutated: amount_paid_cents=${w.payment_amount_paid_cents}`);
+    }
   }
 
   if (writeExpect.cleanup_expected === true && w.cleanup && w.cleanup.result === 'error') {
@@ -336,6 +409,7 @@ function checkWriteExpectations(writeExpect, proof) {
 }
 
 async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
+  const stripeRequired = isStripeCheckoutRequired(opts, fixture.write_expect);
   const proof = {
     attempted: true,
     result: 'SKIPPED',
@@ -347,11 +421,18 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     deposit_amount_cents: null,
     stripe_test_checkout_created: false,
     stripe_skip_reason: null,
+    stripe_skipped: false,
+    stripe_checkout_url: null,
+    stripe_checkout_session_id: null,
+    payment_status_after_checkout: null,
+    payment_amount_paid_cents: 0,
     stripe_live_used: false,
     confirmation_sent: false,
     duplicate_booking_created: false,
     idempotency: null,
     cleanup: null,
+    require_stripe_test_link: stripeRequired,
+    stripe_gate_reasons: [],
   };
 
   const envCheck = assessWriteEnvironment();
@@ -398,6 +479,7 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     bookingWrite.booking_id,
     bookingWrite.booking_code,
   );
+  proof.stripe_gate_reasons = stripeGate.reasons || [];
   if (stripeGate.allowed) {
     const stripeOut = await withPgClient((pg) => runGuestStripeTestLinkCreateApproved({
       payment_draft_id: bookingWrite.payment_draft_id,
@@ -408,11 +490,32 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     proof.stripe_link = stripeOut;
     proof.stripe_test_checkout_created = stripeOut.stripe_link_created === true;
     proof.stripe_live_used = !isStripeTestSecretKey(process.env);
+    proof.stripe_checkout_url = stripeOut.stripe_checkout_url || null;
+    proof.stripe_checkout_session_id = stripeOut.stripe_checkout_session_id || null;
+    proof.payment_status_after_checkout = stripeOut.payment_status || null;
     if (!proof.stripe_test_checkout_created) {
       proof.stripe_skip_reason = (stripeOut.block_reasons || []).join('; ');
+      proof.stripe_skipped = true;
     }
   } else {
     proof.stripe_skip_reason = stripeGate.reasons.join('; ');
+    proof.stripe_skipped = true;
+  }
+
+  if (proof.payment_draft_id) {
+    const truth = await withPgClient((pg) => loadPaymentTruth(pg, proof.payment_draft_id));
+    if (truth) {
+      proof.payment_status_after_checkout = truth.payment_status;
+      proof.payment_amount_paid_cents = Number(truth.amount_paid_cents || 0);
+      if (!proof.stripe_checkout_url) proof.stripe_checkout_url = truth.checkout_url;
+      if (!proof.stripe_checkout_session_id) {
+        proof.stripe_checkout_session_id = truth.stripe_checkout_session_id;
+      }
+    }
+    if (proof.booking_code) {
+      const booking = await withPgClient((pg) => loadBookingForCleanup(pg, proof.booking_code));
+      proof.confirmation_sent = !!(booking && booking.confirmation_sent_at);
+    }
   }
 
   if (fixture.write_expect && fixture.write_expect.idempotency_check === true) {
@@ -439,10 +542,35 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     proof.cleanup = { result: 'skipped', reason: '--keep-bookings' };
   }
 
-  const writeFailures = checkWriteExpectations(fixture.write_expect, proof);
+  const writeFailures = checkWriteExpectations(fixture.write_expect, proof, opts);
   proof.result = writeFailures.length === 0 ? 'PASS' : 'FAIL';
   proof.write_failures = writeFailures;
+  proof.stripe_outcome = proof.stripe_test_checkout_created
+    ? 'created'
+    : (stripeRequired ? 'FAIL_required' : 'PASS_optional');
   return proof;
+}
+
+function printStripeWriteDiagnostics(wm) {
+  if (!wm) return;
+  console.log(`    write: ${wm.result} booking=${wm.booking_code || '—'} draft=${wm.payment_draft_id || '—'}`);
+  if (wm.stripe_test_checkout_created) {
+    console.log('    stripe_test_checkout_created: true');
+    console.log(`    checkout_url present: ${!!wm.stripe_checkout_url}`);
+    console.log(`    checkout_session_id present: ${!!wm.stripe_checkout_session_id}`);
+    console.log(`    payment_status after checkout: ${wm.payment_status_after_checkout || '—'}`);
+    console.log(`    confirmation_sent: ${wm.confirmation_sent === true}`);
+    console.log(`    stripe_live_used: ${wm.stripe_live_used === true}`);
+  } else if (wm.stripe_skipped || wm.stripe_skip_reason) {
+    console.log('    stripe skipped: true');
+    console.log(`    missing gate/env: ${wm.stripe_skip_reason || wm.stripe_gate_reasons.join('; ') || 'unknown'}`);
+    console.log(`    require_stripe_test_link: ${wm.require_stripe_test_link === true}`);
+    console.log(`    outcome: ${wm.stripe_outcome || (wm.require_stripe_test_link ? 'FAIL_required' : 'PASS_optional')}`);
+  } else {
+    console.log(`    stripe_test_checkout_created: ${wm.stripe_test_checkout_created}`);
+  }
+  if (wm.cleanup) console.log(`    cleanup: ${wm.cleanup.result}${wm.cleanup.reason ? ` (${wm.cleanup.reason})` : ''}`);
+  if (wm.idempotency) console.log(`    idempotency: ${wm.idempotency.result}`);
 }
 
 function loadFixtures(fixtureDir) {
@@ -779,17 +907,18 @@ async function runFixture(fixture, opts, fixtureIndex) {
       }
       result.result = 'FAIL';
     } else if (result.write_mode.result === 'SKIPPED') {
-      result.result = 'PARTIAL';
-      result.write_skip_reason = result.write_mode.skip_reason;
+      if (opts.requireStripeTestLink) {
+        result.failures.push(`write: stripe_test_checkout_required but write skipped: ${result.write_mode.skip_reason}`);
+        result.result = 'FAIL';
+      } else {
+        result.result = 'PARTIAL';
+        result.write_skip_reason = result.write_mode.skip_reason;
+      }
     } else if (result.write_mode.booking_write) {
       result.writes_or_sends = true;
     }
     if (!opts.json && result.write_mode) {
-      const wm = result.write_mode;
-      console.log(`    write: ${wm.result} booking=${wm.booking_code || '—'} draft=${wm.payment_draft_id || '—'} stripe=${wm.stripe_test_checkout_created}`);
-      if (wm.stripe_skip_reason) console.log(`    stripe_skip: ${wm.stripe_skip_reason}`);
-      if (wm.cleanup) console.log(`    cleanup: ${wm.cleanup.result}${wm.cleanup.reason ? ` (${wm.cleanup.reason})` : ''}`);
-      if (wm.idempotency) console.log(`    idempotency: ${wm.idempotency.result}`);
+      printStripeWriteDiagnostics(result.write_mode);
     }
   }
 
@@ -801,6 +930,11 @@ async function main() {
   if (opts.help) {
     usage();
     process.exit(0);
+  }
+
+  if (opts.requireStripeTestLink && !opts.allowWrites) {
+    console.error('FAIL — --require-stripe-test-link requires --allow-writes');
+    process.exit(1);
   }
 
   if (opts.allowWrites) {
@@ -826,7 +960,9 @@ async function main() {
 
   const report = {
     result: 'PASS',
-    mode: opts.allowWrites ? 'conversation_dry_run_plus_write_proof' : 'dry_run_review_only',
+    mode: opts.allowWrites
+      ? (opts.requireStripeTestLink ? 'conversation_dry_run_plus_write_proof_stripe_required' : 'conversation_dry_run_plus_write_proof')
+      : 'dry_run_review_only',
     fixture_dir: opts.fixtureDir,
     reference_date: opts.referenceDate,
     total: fixtures.length,
