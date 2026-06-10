@@ -228,6 +228,7 @@
     "verify:stage28g-open-demo-playground-live-mode": "node scripts/verify-stage28g-open-demo-playground-live-mode.js",
     "verify:stage28h-live-inbox-greeting": "node scripts/verify-stage28h-live-inbox-greeting.js",
     "verify:stage28h-reset-new-booking-intent": "node scripts/verify-stage28h-reset-new-booking-intent.js",
+    "verify:stage28h4-compact-ordinal-date-range": "node scripts/verify-stage28h4-compact-ordinal-date-range.js",
     "report:open-demo-playground": "node scripts/report-open-demo-playground-state.js",
     "cleanup:open-demo-booking": "node scripts/cleanup-open-demo-staging-booking.js",
     "playground:open-demo-on": "node scripts/set-open-demo-playground-mode.js --on",

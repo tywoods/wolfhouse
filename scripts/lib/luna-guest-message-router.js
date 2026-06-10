@@ -213,7 +213,8 @@ function hasExplicitDates(text) {
     || monthDay.test(text)
     || /\b(?:from|dal|del|du|vom|von)\s+\d{1,2}/i.test(text)
     || /\b\d{1,2}\.\s*bis\s+\d{1,2}\./i.test(text)
-    || /\b(?:from|to)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i.test(text);
+    || /\b(?:from|to)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i.test(text)
+    || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\s*(?:to|thru|through|–|-)\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\s+)?\d{1,2}(?:st|nd|rd|th)?\b/i.test(text);
 }
 
 function hasGuestCountSignal(text) {

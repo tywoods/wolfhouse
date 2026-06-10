@@ -264,15 +264,17 @@ function extractNamedDateRange(text, ref) {
   const slashRange = extractSlashDateRange(t, ref);
   if (slashRange) return slashRange;
 
-  // EN compact — jul 10 thru jul 17 / july 10 - july 17
+  // EN compact — jul 10 thru jul 17 / july 1st to 5th / from July 1st to 5th
+  const MONTH_ALT = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
   const enCompactMonthFirst = t.match(
-    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})\s*(?:thru|through|to|–|-)\s*(?:(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+)?(\d{1,2})\b/i,
+    new RegExp(`\\b(?:from\\s+)?(${MONTH_ALT})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:thru|through|to|–|-)\\s*(?:(${MONTH_ALT})\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'),
   );
   if (enCompactMonthFirst) {
-    const month = monthFromName(enCompactMonthFirst[1]);
+    const monthIn = monthFromName(enCompactMonthFirst[1]);
+    const monthOut = enCompactMonthFirst[3] ? monthFromName(enCompactMonthFirst[3]) : monthIn;
     const year = explicitYear;
-    const checkIn = dayMonthYearToIso(Number(enCompactMonthFirst[2]), month, year, ref);
-    const checkOut = dayMonthYearToIso(Number(enCompactMonthFirst[4]), month, year, ref);
+    const checkIn = dayMonthYearToIso(Number(enCompactMonthFirst[2]), monthIn, year, ref);
+    const checkOut = dayMonthYearToIso(Number(enCompactMonthFirst[4]), monthOut || monthIn, year, ref);
     if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
   }
 
