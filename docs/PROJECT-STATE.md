@@ -1,6 +1,12 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-10 (**Stage 28c.1 — Meta-compatible n8n booking-write ingress**): **WORKFLOW EXPORT + DOCS** (no deploy, no activation). Fixed 27demo-l pipe: same-path **GET hub.challenge** + **POST** Meta inbound on `open-demo-whatsapp-booking-write-27l`. Rejects Staff API→n8n bridge bandaid. Verifier: `verify:stage28c1-meta-compatible-n8n-booking-ingress`. Doc: [STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md](STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md). **28c failed** (POST-only webhook). **Next:** **Rerun 28c** real-handset booking-write · dates **Nov 10–17, 2026**. **Production not live.**
+**Last updated:** 2026-06-10 (**Stage 28e — Staging WhatsApp guest playground**): **DESIGN + OPERATING MODEL** (docs only). Repeatable staging playground for real-handset guest tests via Meta → Staff API open-demo path: booking-write, Stripe TEST payment, confirmation preview windows; rollback + cleanup checklists. Anchors: **28c.7 PASS** `WH-G27-3888294D42` · **28d PASS** deposit_paid + preview ready (no send). Doc: [STAGE-28E-STAGING-GUEST-PLAYGROUND.md](STAGE-28E-STAGING-GUEST-PLAYGROUND.md). **Next:** **Stage 28f** — tiny cleanup script by `booking_code` or phone. **Production not live.**
+
+**Prior — Stage 28d STRIPE TEST PAYMENT TRUTH REHEARSAL — PASS (2026-06-10):** Booking `WH-G27-3888294D42` → Stripe TEST checkout → real webhook `deposit_paid` → confirmation preview ready. No confirmation sent · no WhatsApp payment link · gates restored.
+
+**Prior — Stage 28c.7 META STAFF API BOOKING WRITE — PASS (2026-06-10):** Real handset `+491726422307` → Meta → Staff API → hold + draft + `DEMO-R1-B1/B2` + calendar. Booking `WH-G27-3888294D42` · Jul 24–31, 2026. Doc: [STAGE-28C3-META-STAFFAPI-OPEN-DEMO-BOOKING-PATH.md](STAGE-28C3-META-STAFFAPI-OPEN-DEMO-BOOKING-PATH.md).
+
+**Prior — Stage 28c.1 — Meta-compatible n8n booking-write ingress (2026-06-10):** **WORKFLOW EXPORT + DOCS** (no deploy, no activation). Fixed 27demo-l pipe: same-path **GET hub.challenge** + **POST** Meta inbound on `open-demo-whatsapp-booking-write-27l`. Verifier: `verify:stage28c1-meta-compatible-n8n-booking-ingress`. Doc: [STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md](STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md). Playground path uses Staff API directly (28c.3+); n8n remains inactive.
 
 **Prior — Stage 27demo closeout (2026-06-10):** **PASS** full n8n open-demo chain **27demo-l → 27demo-o.3** on hosted staging. Anchor **`WH-G27-0ECC1D9B57`**. Commit **`4f76aae`**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md).
 

@@ -1,4 +1,12 @@
-**Stage 28c REAL-PHONE BOOKING-WRITE REHEARSAL — NEXT (2026-06-10):** After **28c.1** Meta GET+POST ingress — real phone → Meta → staging n8n `27demo-l` → hold/draft/beds/calendar. Dates **Nov 10–17, 2026**. Doc: [STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md](STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md) §5. **28c prior attempt:** FAIL (POST-only n8n webhook).
+**Stage 28f OPEN-DEMO STAGING CLEANUP SCRIPT — NEXT (2026-06-10):** Tiny harness `cleanup-open-demo-staging-booking.js` by `booking_code` or phone; pair with proposed `report-open-demo-playground-state.js`. Unpaid holds only by default; never touch production. Parent: [STAGE-28E-STAGING-GUEST-PLAYGROUND.md](STAGE-28E-STAGING-GUEST-PLAYGROUND.md) §10–11.
+
+**Stage 28e STAGING WHATSAPP GUEST PLAYGROUND — PLAN (2026-06-10):** Docs-only operating model — explicit booking-write / payment / confirmation-preview windows; rollback + cleanup checklists; default gates unchanged. Anchors: **28c.7** `WH-G27-3888294D42` · **28d** Stripe TEST `deposit_paid` + preview. Doc: [STAGE-28E-STAGING-GUEST-PLAYGROUND.md](STAGE-28E-STAGING-GUEST-PLAYGROUND.md).
+
+**Stage 28d STRIPE TEST PAYMENT TRUTH — PASS (2026-06-10):** `WH-G27-3888294D42` → TEST checkout → webhook `deposit_paid` → confirmation preview ready. No confirmation send · gates restored.
+
+**Stage 28c.7 META STAFF API BOOKING WRITE — PASS (2026-06-10):** `+491726422307` → Meta → Staff API → `WH-G27-3888294D42` · `DEMO-R1-B1/B2` · Jul 24–31. Doc: [STAGE-28C3-META-STAFFAPI-OPEN-DEMO-BOOKING-PATH.md](STAGE-28C3-META-STAFFAPI-OPEN-DEMO-BOOKING-PATH.md).
+
+**Stage 28c REAL-PHONE BOOKING-WRITE REHEARSAL — PASS via 28c.7 (2026-06-10):** Staff API Meta path (not n8n). Prior n8n attempt FAIL (POST-only webhook); superseded by 28c.3+.
 
 **Stage 28c.1 META-COMPATIBLE N8N BOOKING INGRESS — DONE (2026-06-10):** Two webhook nodes (GET verify + POST inbound) on `open-demo-whatsapp-booking-write-27l`. Rejects Staff API→n8n bridge. Verifier: `verify:stage28c1-meta-compatible-n8n-booking-ingress`. **No deploy/activation in slice.**
 
