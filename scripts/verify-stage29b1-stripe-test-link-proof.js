@@ -85,7 +85,8 @@ section('G. Safety defaults preserved');
 
 check('G1', runnerSrc.includes('dry_run: true') && runnerSrc.includes('sends_whatsapp'),
   'conversation stays dry-run; no real WhatsApp default');
-check('G2', !runnerSrc.includes('runGuestConfirmation'), 'no confirmation send import');
+check('G2', !runnerSrc.includes('runGuestConfirmationSend') && !runnerSrc.includes('runGuestConfirmation('),
+  'no live confirmation send import');
 check('G3', runnerSrc.includes('calls_n8n must not') || runnerSrc.includes('calls_n8n === true'),
   'no n8n activation');
 check('G4', stripeSrc.includes('payment_truth_recorded: false'), 'stripe module does not record payment truth');

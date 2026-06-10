@@ -63,5 +63,17 @@
     "expected_no_duplicate_payment_truth": true,
     "expected_webhook_idempotency": true,
     "cleanup_refused_expected": true
+  },
+  "confirmation_expect": {
+    "confirmation_preview_ready": true,
+    "confirmation_message_contains": ["2684#", "Somo"],
+    "confirmation_message_contains_booking_code": true,
+    "confirmation_message_contains_paid_cents": 20000,
+    "confirmation_message_not_contains": ["dry run", "quote_status", "payment_choice", "guest_context", "intake_state"],
+    "confirmation_sent": false,
+    "confirmation_sent_at_unchanged": true,
+    "gate_code_present": true,
+    "room_label_present": true,
+    "no_bed_number_exposed": true
   }
 }

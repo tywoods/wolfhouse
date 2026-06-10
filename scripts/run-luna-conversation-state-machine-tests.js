@@ -11,6 +11,7 @@
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --verbose
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --verbose
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --simulate-stripe-webhook --verbose
+ *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --simulate-stripe-webhook --expect-confirmation-preview --verbose
  */
 
 'use strict';
@@ -37,6 +38,10 @@ const { runOpenDemoBookingBedAssignApproved } = require('./lib/open-demo-booking
 const {
   runGuestStripePaymentTruthApplyApproved,
 } = require('./lib/luna-guest-stripe-payment-truth-apply');
+const {
+  runGuestConfirmationPreviewDryRun,
+  messageHasBedLeak,
+} = require('./lib/luna-guest-confirmation-preview-dry-run');
 const {
   assertNotProductionDb,
   assessCleanupEligibility,
@@ -79,6 +84,7 @@ Options:
   --allow-writes           After conversation, run hold/draft + Stripe TEST write proof
   --require-stripe-test-link  With --allow-writes, fail if Stripe TEST checkout is not created
   --simulate-stripe-webhook  With --allow-writes --require-stripe-test-link, apply payment truth via Stage 27p helper
+  --expect-confirmation-preview  After payment truth, run Stage 27q confirmation preview dry-run
   --phone-prefix <prefix>  Default +34629800
   --reference-date <date>  Default ${DEFAULT_REFERENCE_DATE}
   --fixture-dir <path>     Default fixtures/luna-conversation-state-machine
@@ -96,6 +102,7 @@ function parseArgs(argv) {
     allowWrites: false,
     requireStripeTestLink: false,
     simulateStripeWebhook: false,
+    expectConfirmationPreview: false,
     phonePrefix: '+34629800',
     referenceDate: DEFAULT_REFERENCE_DATE,
     fixtureDir: DEFAULT_FIXTURE_DIR,
@@ -111,6 +118,7 @@ function parseArgs(argv) {
     else if (a === '--allow-writes') opts.allowWrites = true;
     else if (a === '--require-stripe-test-link') opts.requireStripeTestLink = true;
     else if (a === '--simulate-stripe-webhook') opts.simulateStripeWebhook = true;
+    else if (a === '--expect-confirmation-preview') opts.expectConfirmationPreview = true;
     else if (a === '--fixture') opts.fixture = argv[++i];
     else if (a === '--limit') opts.limit = parseInt(argv[++i], 10);
     else if (a === '--phone-prefix') opts.phonePrefix = argv[++i];
@@ -264,6 +272,30 @@ function buildPaymentTruthContext() {
   };
 }
 
+async function detectPaymentTruthReuse(proof) {
+  if (!proof.payment_draft_id) return;
+  const snap = await withPgClient((pg) => loadPaymentBookingSnapshot(
+    pg,
+    proof.payment_draft_id,
+    proof.booking_code,
+  ));
+  if (!snap) return;
+  if (!proof.stripe_checkout_session_id && snap.stripe_checkout_session_id) {
+    proof.stripe_checkout_session_id = snap.stripe_checkout_session_id;
+  }
+  if (!proof.stripe_checkout_url && snap.checkout_url) {
+    proof.stripe_checkout_url = snap.checkout_url;
+  }
+  proof.payment_status_after_checkout = snap.payment_status;
+  proof.payment_amount_paid_cents = Number(snap.amount_paid_cents || 0);
+  const paid = ['deposit_paid', 'paid'].includes(snap.booking_payment_status);
+  const hasSession = !!snap.stripe_checkout_session_id;
+  if (paid && hasSession && proof.payment_amount_paid_cents > 0) {
+    proof.payment_truth_pre_applied = true;
+    proof.booking_payment_status = snap.booking_payment_status;
+  }
+}
+
 async function simulateStripeWebhookPaymentTruth(proof, opts) {
   const webhook = {
     attempted: false,
@@ -293,9 +325,12 @@ async function simulateStripeWebhookPaymentTruth(proof, opts) {
 
   webhook.attempted = true;
   if (!proof.stripe_test_checkout_created) {
-    webhook.skip_reason = 'stripe_checkout_not_created';
-    webhook.result = 'FAIL';
-    return webhook;
+    if (!proof.payment_truth_pre_applied || !proof.stripe_checkout_session_id) {
+      webhook.skip_reason = 'stripe_checkout_not_created';
+      webhook.result = 'FAIL';
+      return webhook;
+    }
+    webhook.reused_payment_truth = true;
   }
   if (!proof.payment_draft_id || !proof.stripe_checkout_session_id) {
     webhook.skip_reason = 'missing_payment_draft_or_session_id';
@@ -359,7 +394,7 @@ async function simulateStripeWebhookPaymentTruth(proof, opts) {
       second_apply_success: apply2.success === true,
     };
 
-    if (apply1.success && apply1.payment_truth_recorded) {
+    if (apply1.success && (apply1.payment_truth_recorded || apply1.idempotent_replay)) {
       webhook.result = 'PASS';
     } else {
       webhook.result = 'FAIL';
@@ -575,7 +610,158 @@ function checkWebhookExpectations(webhookExpect, proof, opts) {
   return failures;
 }
 
-function checkWriteExpectations(writeExpect, proof, opts, webhookExpect) {
+function formatEuroCents(cents) {
+  return `€${(Number(cents) / 100).toFixed(0)}`;
+}
+
+function checkConfirmationExpectations(confirmationExpect, proof, opts) {
+  const failures = [];
+  if (!opts.expectConfirmationPreview) return failures;
+  const ce = confirmationExpect || {};
+  const cp = proof.confirmation_preview || {};
+
+  if (ce.confirmation_preview_ready === true && !cp.confirmation_preview_ready) {
+    failures.push(`confirmation_preview_ready expected true (${cp.skip_reason || 'not ready'})`);
+  }
+  if (ce.confirmation_sent === false && cp.confirmation_sent === true) {
+    failures.push('confirmation_sent expected false after preview');
+  }
+  if (ce.confirmation_sent_at_unchanged === true) {
+    const before = cp.confirmation_sent_at_before || null;
+    const after = cp.confirmation_sent_at_after || null;
+    if (before !== after) {
+      failures.push(`confirmation_sent_at changed: ${before} -> ${after}`);
+    }
+  }
+  if (ce.gate_code_present === true && !cp.gate_code_present) {
+    failures.push('gate_code 2684# not present in confirmation preview');
+  }
+  if (ce.room_label_present === true && !cp.room_label_present) {
+    failures.push('room label not present in confirmation preview');
+  }
+  if (ce.no_bed_number_exposed === true && cp.bed_number_exposed === true) {
+    failures.push('bed number exposed in confirmation message');
+  }
+
+  const msg = String(cp.proposed_confirmation_message || '').toLowerCase();
+  if (Array.isArray(ce.confirmation_message_contains)) {
+    for (const needle of ce.confirmation_message_contains) {
+      const n = String(needle).toLowerCase();
+      if (!msg.includes(n)) failures.push(`confirmation_message_contains "${needle}" missing`);
+    }
+  }
+  if (ce.confirmation_message_contains_booking_code === true && proof.booking_code) {
+    if (!msg.includes(String(proof.booking_code).toLowerCase())) {
+      failures.push(`confirmation_message missing booking_code ${proof.booking_code}`);
+    }
+  }
+  if (ce.confirmation_message_contains_paid_cents != null) {
+    const euros = formatEuroCents(ce.confirmation_message_contains_paid_cents).toLowerCase();
+    const centsStr = String(ce.confirmation_message_contains_paid_cents);
+    if (!msg.includes(euros) && !msg.includes(centsStr)) {
+      failures.push(`confirmation_message missing paid amount ${euros}`);
+    }
+  }
+  if (Array.isArray(ce.confirmation_message_not_contains)) {
+    for (const needle of ce.confirmation_message_not_contains) {
+      if (msg.includes(String(needle).toLowerCase())) {
+        failures.push(`confirmation_message_not_contains "${needle}" found`);
+      }
+    }
+  }
+  for (const term of INTERNAL_LANGUAGE_BLACKLIST) {
+    if (msg.includes(term.toLowerCase())) {
+      failures.push(`confirmation internal language: ${term}`);
+    }
+  }
+
+  if (cp.result === 'FAIL' || (cp.attempted && cp.result !== 'PASS' && cp.result !== 'PARTIAL')) {
+    if (!failures.some((f) => f.startsWith('confirmation_preview'))) {
+      failures.push(`confirmation_preview: ${cp.skip_reason || cp.result || 'failed'}`);
+    }
+  }
+
+  return failures;
+}
+
+async function runConfirmationPreviewProof(proof, fixture, opts) {
+  const cp = {
+    attempted: false,
+    result: 'SKIPPED',
+    skip_reason: null,
+    confirmation_preview_ready: false,
+    proposed_confirmation_message: null,
+    gate_code_present: false,
+    room_label_present: false,
+    bed_number_exposed: false,
+    payment_status: null,
+    amount_paid_cents: null,
+    balance_due_cents: null,
+    confirmation_sent: false,
+    confirmation_sent_at_before: null,
+    confirmation_sent_at_after: null,
+    preview_result: null,
+  };
+
+  if (!opts.expectConfirmationPreview) return cp;
+
+  cp.attempted = true;
+  const wh = proof.stripe_webhook;
+  if (!wh || wh.result !== 'PASS') {
+    cp.skip_reason = 'payment_truth_required_before_confirmation_preview';
+    cp.result = 'FAIL';
+    return cp;
+  }
+  const paidStatus = wh.booking_payment_status_after;
+  if (!['deposit_paid', 'paid'].includes(paidStatus)) {
+    cp.skip_reason = `booking_not_paid:${paidStatus}`;
+    cp.result = 'FAIL';
+    return cp;
+  }
+
+  return withPgClient(async (pg) => {
+    const before = await loadPaymentBookingSnapshot(pg, proof.payment_draft_id, proof.booking_code);
+    cp.confirmation_sent_at_before = before && before.confirmation_sent_at ? before.confirmation_sent_at : null;
+    cp.payment_status = paidStatus;
+    cp.amount_paid_cents = wh.amount_paid_cents_after;
+
+    const previewOut = await runGuestConfirmationPreviewDryRun({
+      client_slug: CLIENT_SLUG,
+      booking_code: proof.booking_code,
+      booking_id: before && before.booking_id,
+      language_hint: fixture.language || 'en',
+    }, { pg });
+
+    cp.preview_result = previewOut;
+    cp.confirmation_preview_ready = previewOut.confirmation_preview_ready === true;
+    cp.proposed_confirmation_message = previewOut.proposed_confirmation_message
+      || previewOut.message_preview
+      || null;
+    cp.gate_code_present = !!(previewOut.gate_code && String(previewOut.gate_code).includes('2684'));
+    cp.room_label_present = !!(previewOut.room_label || previewOut.room_number);
+    cp.bed_number_exposed = messageHasBedLeak(cp.proposed_confirmation_message);
+    cp.balance_due_cents = previewOut.balance_due_cents != null
+      ? Number(previewOut.balance_due_cents)
+      : null;
+
+    const after = await loadPaymentBookingSnapshot(pg, proof.payment_draft_id, proof.booking_code);
+    cp.confirmation_sent_at_after = after && after.confirmation_sent_at ? after.confirmation_sent_at : null;
+    cp.confirmation_sent = !!cp.confirmation_sent_at_after;
+
+    if (previewOut.success && previewOut.confirmation_preview_ready) {
+      cp.result = cp.bed_number_exposed ? 'PARTIAL' : 'PASS';
+      if (cp.bed_number_exposed) {
+        cp.skip_reason = 'bed_number_exposed_in_confirmation_template';
+      }
+    } else {
+      cp.result = 'FAIL';
+      cp.skip_reason = (previewOut.block_reasons || []).join('; ') || 'confirmation_preview_not_ready';
+    }
+    return cp;
+  });
+}
+
+function checkWriteExpectations(writeExpect, proof, opts, webhookExpect, confirmationExpect) {
   const failures = [];
   if (!writeExpect || typeof writeExpect !== 'object') return failures;
   const w = proof || {};
@@ -613,9 +799,13 @@ function checkWriteExpectations(writeExpect, proof, opts, webhookExpect) {
   }
 
   const stripeExpect = writeExpect.stripe_test_checkout_created;
+  const prePaidReuse = w.payment_truth_pre_applied === true;
   if (stripeRequired) {
-    if (!w.stripe_test_checkout_created) {
+    if (!w.stripe_test_checkout_created && !prePaidReuse) {
       failures.push(`stripe_test_checkout_required: ${w.stripe_skip_reason || 'gate blocked'}`);
+    }
+    if (prePaidReuse && !w.stripe_checkout_session_id) {
+      failures.push('payment_truth_pre_applied but stripe_checkout_session_id missing');
     }
   } else if (stripeExpect === true) {
     if (!w.stripe_test_checkout_created) {
@@ -625,7 +815,9 @@ function checkWriteExpectations(writeExpect, proof, opts, webhookExpect) {
     if (w.stripe_test_checkout_created) failures.push('stripe_test_checkout_created expected false');
   }
 
-  if (w.stripe_test_checkout_created || stripeRequired) {
+  const stripeCheckoutChecks = w.stripe_test_checkout_created
+    || (prePaidReuse && w.stripe_checkout_session_id);
+  if (stripeCheckoutChecks && !prePaidReuse) {
     if (writeExpect.stripe_checkout_url_exists === true && !w.stripe_checkout_url) {
       failures.push('stripe_checkout_url_exists expected true');
     }
@@ -659,6 +851,7 @@ function checkWriteExpectations(writeExpect, proof, opts, webhookExpect) {
   }
 
   failures.push(...checkWebhookExpectations(webhookExpect, proof, opts));
+  failures.push(...checkConfirmationExpectations(confirmationExpect, proof, opts));
 
   if (writeExpect.idempotency_check === true) {
     if (!w.idempotency || w.idempotency.result !== 'PASS') {
@@ -733,6 +926,7 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     bed_assignment: null,
     assigned_beds: [],
     stripe_webhook: null,
+    confirmation_preview: null,
   };
 
   const envCheck = assessWriteEnvironment();
@@ -833,6 +1027,7 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
       const booking = await withPgClient((pg) => loadBookingForCleanup(pg, proof.booking_code));
       proof.confirmation_sent = !!(booking && booking.confirmation_sent_at);
     }
+    await detectPaymentTruthReuse(proof);
   }
 
   if (fixture.write_expect && fixture.write_expect.idempotency_check === true) {
@@ -859,6 +1054,13 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     }
   }
 
+  if (opts.expectConfirmationPreview) {
+    proof.confirmation_preview = await runConfirmationPreviewProof(proof, fixture, opts);
+    if (proof.confirmation_preview) {
+      proof.confirmation_sent = proof.confirmation_preview.confirmation_sent === true;
+    }
+  }
+
   const webhookApplied = proof.stripe_webhook && proof.stripe_webhook.result === 'PASS';
 
   if (!opts.keepBookings && proof.booking_code) {
@@ -881,13 +1083,34 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     proof,
     opts,
     fixture.webhook_expect,
+    fixture.confirmation_expect,
   );
   proof.result = writeFailures.length === 0 ? 'PASS' : 'FAIL';
+  if (proof.result === 'PASS' && proof.confirmation_preview && proof.confirmation_preview.result === 'PARTIAL') {
+    proof.result = 'PARTIAL';
+  }
   proof.write_failures = writeFailures;
   proof.stripe_outcome = proof.stripe_test_checkout_created
     ? 'created'
     : (stripeRequired ? 'FAIL_required' : 'PASS_optional');
   return proof;
+}
+
+function printConfirmationPreviewDiagnostics(wm) {
+  const cp = wm && wm.confirmation_preview;
+  if (!cp || !cp.attempted) return;
+  console.log(`    confirmation_preview: ${cp.result}${cp.skip_reason ? ` (${cp.skip_reason})` : ''}`);
+  console.log(`    confirmation_preview_ready: ${cp.confirmation_preview_ready === true}`);
+  console.log(`    payment_status: ${cp.payment_status || '—'} amount_paid_cents: ${cp.amount_paid_cents}`);
+  console.log(`    gate_code present: ${cp.gate_code_present === true}`);
+  console.log(`    room_label present: ${cp.room_label_present === true}`);
+  console.log(`    bed_number exposed: ${cp.bed_number_exposed === true}`);
+  console.log(`    confirmation_sent: ${cp.confirmation_sent === true}`);
+  console.log(`    confirmation_sent_at unchanged: ${(cp.confirmation_sent_at_before || null) === (cp.confirmation_sent_at_after || null)}`);
+  if (cp.proposed_confirmation_message) {
+    const summary = String(cp.proposed_confirmation_message).replace(/\n/g, ' ').slice(0, wm && wm.result === 'PARTIAL' ? 500 : 200);
+    console.log(`    confirmation message: ${summary}`);
+  }
 }
 
 function printStripeWebhookDiagnostics(wm) {
@@ -907,6 +1130,7 @@ function printStripeWebhookDiagnostics(wm) {
   if (wh.no_duplicate_payment_truth != null) {
     console.log(`    no_duplicate_payment_truth: ${wh.no_duplicate_payment_truth}`);
   }
+  printConfirmationPreviewDiagnostics(wm);
 }
 
 function printBedAssignmentDiagnostics(wm) {
@@ -1286,6 +1510,9 @@ async function runFixture(fixture, opts, fixtureIndex) {
         result.result = 'PARTIAL';
         result.write_skip_reason = result.write_mode.skip_reason;
       }
+    } else if (result.write_mode.result === 'PARTIAL') {
+      result.result = 'PARTIAL';
+      result.writes_or_sends = true;
     } else if (result.write_mode.booking_write) {
       result.writes_or_sends = true;
     }
@@ -1319,6 +1546,11 @@ async function main() {
     process.exit(1);
   }
 
+  if (opts.expectConfirmationPreview && !opts.simulateStripeWebhook) {
+    console.error('FAIL — --expect-confirmation-preview requires --simulate-stripe-webhook');
+    process.exit(1);
+  }
+
   if (opts.allowWrites) {
     try {
       assertNotProduction();
@@ -1343,11 +1575,13 @@ async function main() {
   const report = {
     result: 'PASS',
     mode: opts.allowWrites
-      ? (opts.simulateStripeWebhook
-        ? 'conversation_dry_run_plus_write_proof_stripe_webhook'
-        : (opts.requireStripeTestLink
-          ? 'conversation_dry_run_plus_write_proof_stripe_required'
-          : 'conversation_dry_run_plus_write_proof'))
+      ? (opts.expectConfirmationPreview
+        ? 'conversation_dry_run_plus_write_proof_confirmation_preview'
+        : (opts.simulateStripeWebhook
+          ? 'conversation_dry_run_plus_write_proof_stripe_webhook'
+          : (opts.requireStripeTestLink
+            ? 'conversation_dry_run_plus_write_proof_stripe_required'
+            : 'conversation_dry_run_plus_write_proof')))
       : 'dry_run_review_only',
     fixture_dir: opts.fixtureDir,
     reference_date: opts.referenceDate,
