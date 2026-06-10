@@ -16,6 +16,7 @@ const API = path.join(__dirname, 'staff-query-api.js');
 const GATE = path.join(__dirname, 'lib', 'open-demo-whatsapp-gate.js');
 const ASSIGN = path.join(__dirname, 'lib', 'open-demo-booking-bed-assign.js');
 const PLAN = path.join(__dirname, 'lib', 'assign-booking-beds-plan.js');
+const EXECUTE = path.join(__dirname, 'lib', 'open-demo-whatsapp-inbound-execute.js');
 const HARNESS = path.join(__dirname, 'run-open-demo-whatsapp-inbound-dry-run.js');
 const PKG_FILE = path.join(ROOT, 'package.json');
 const DOC = path.join(ROOT, 'docs', 'STAGE-27DEMO-D-OPEN-DEMO-BOOKING-WRITE-CALENDAR.md');
@@ -41,6 +42,7 @@ const src = fs.readFileSync(API, 'utf8');
 const gateSrc = fs.readFileSync(GATE, 'utf8');
 const assignSrc = fs.readFileSync(ASSIGN, 'utf8');
 const planSrc = fs.readFileSync(PLAN, 'utf8');
+const executeSrc = fs.existsSync(EXECUTE) ? fs.readFileSync(EXECUTE, 'utf8') : '';
 const harnessSrc = fs.readFileSync(HARNESS, 'utf8');
 const doc = fs.readFileSync(DOC, 'utf8');
 
@@ -49,6 +51,7 @@ const handlerEnd = src.indexOf('\nfunction parseGuestSimulatorChain(', handlerSt
 const handler = handlerStart > -1 && handlerEnd > handlerStart
   ? src.slice(handlerStart, handlerEnd)
   : '';
+const integrationSrc = handler + executeSrc;
 
 section('A. Gate + assignment module');
 
@@ -89,30 +92,30 @@ try {
   fail('A8', 'assignment module syntax error');
 }
 
-const assignBlockStart = handler.indexOf('if (assignDemoBedConfirmed)');
-const assignBlock = assignBlockStart > -1 ? handler.slice(assignBlockStart, assignBlockStart + 2800) : '';
+const assignBlockStart = integrationSrc.indexOf('if (assignDemoBedConfirmed)');
+const assignBlock = assignBlockStart > -1 ? integrationSrc.slice(assignBlockStart, assignBlockStart + 2800) : '';
 
 section('B. Handler integration');
 
-if (handler.includes('wantsAssignDemoBedConfirmed') || handler.includes('assign_demo_bed_confirmed')) {
+if (integrationSrc.includes('wantsAssignDemoBedConfirmed') || integrationSrc.includes('assign_demo_bed_confirmed')) {
   pass('B1', 'handler reads assign_demo_bed_confirmed');
 } else {
   fail('B1', 'assign flag not wired');
 }
 
-if (handler.includes('evaluateOpenDemoBookingWriteGate') && handler.includes('assignDemoBedConfirmed')) {
+if (integrationSrc.includes('evaluateOpenDemoBookingWriteGate') && integrationSrc.includes('assignDemoBedConfirmed')) {
   pass('B2', 'assignment behind OPEN_DEMO_BOOKING_WRITES_ENABLED gate');
 } else {
   fail('B2', 'assignment gate missing');
 }
 
-if (handler.includes('create_demo_hold_draft_confirmed_required') || handler.includes('createHoldDraftConfirmed')) {
+if (integrationSrc.includes('create_demo_hold_draft_confirmed_required') || integrationSrc.includes('createHoldDraftConfirmed')) {
   pass('B3', 'assignment requires create_demo_hold_draft_confirmed');
 } else {
   fail('B3', 'create flag prerequisite missing');
 }
 
-if (handler.includes('runOpenDemoBookingBedAssignApproved')) {
+if (integrationSrc.includes('runOpenDemoBookingBedAssignApproved')) {
   pass('B4', 'reuses runOpenDemoBookingBedAssignApproved');
 } else {
   fail('B4', 'assignment helper not called');

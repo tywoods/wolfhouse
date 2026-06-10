@@ -30,6 +30,10 @@ const {
   processOwnerWhatsAppCommandCenterInbound,
   processOwnerWhatsAppCommandCenterWithoutPersistence,
 } = require('./luna-owner-whatsapp-inbound');
+const {
+  shouldRouteMetaInboundToOpenDemo,
+  processMetaOpenDemoGuestInbound,
+} = require('./meta-open-demo-inbound-adapter');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -159,6 +163,16 @@ async function processWithoutPersistence(pg, env, normalized, body, signatureMet
     });
   }
 
+  if (shouldRouteMetaInboundToOpenDemo(env, normalized)) {
+    return processMetaOpenDemoGuestInbound({
+      pg,
+      env,
+      normalized,
+      signatureMeta,
+      event_row: null,
+    });
+  }
+
   const ran = await runDraftAndSendGate(pg, env, normalized);
   const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
     draft: ran.draftResult,
@@ -264,6 +278,16 @@ async function processMetaWhatsAppWebhookInbound(input) {
       normalized,
       signatureMeta,
       staff_access: staffPhoneAccess,
+      event_row: eventRow,
+    });
+  }
+
+  if (shouldRouteMetaInboundToOpenDemo(env, normalized)) {
+    return processMetaOpenDemoGuestInbound({
+      pg,
+      env,
+      normalized,
+      signatureMeta,
       event_row: eventRow,
     });
   }
