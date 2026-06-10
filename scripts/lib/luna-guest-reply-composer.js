@@ -35,6 +35,8 @@ const {
   buildMidFlowAddonsReturnTail,
   buildManualAddonsNote,
   classifyServiceInterestPricing,
+  extractAddOnSelections,
+  isExplicitAddonSelectionMessage,
 } = require('./luna-booking-addons-policy');
 const {
   FORBIDDEN_GUEST_COPY_RE,
@@ -379,8 +381,16 @@ function resolveComposerState(input) {
 
   if (!isBookingFlowLane(result)) return null;
 
-  const serviceIntentEarly = detectServiceSideQuestionIntent(messageText)
-    || (result.message_lane === 'add_service_request' ? 'services_general' : null);
+  function resolveServiceSideQuestionIntent() {
+    if (isExplicitAddonSelectionMessage(messageText)) return null;
+    if (quoteAwaitingAddonsDecision(quote) && extractAddOnSelections(messageText).length > 0) {
+      return null;
+    }
+    return detectServiceSideQuestionIntent(messageText)
+      || (result.message_lane === 'add_service_request' ? 'services_general' : null);
+  }
+
+  const serviceIntentEarly = resolveServiceSideQuestionIntent();
   if (serviceIntentEarly && fields.check_in && fields.check_out) {
     return 'explain_service_addon';
   }
@@ -412,9 +422,7 @@ function resolveComposerState(input) {
     },
   );
 
-  const serviceIntent = serviceIntentEarly
-    || detectServiceSideQuestionIntent(messageText)
-    || (result.message_lane === 'add_service_request' ? 'services_general' : null);
+  const serviceIntent = serviceIntentEarly || resolveServiceSideQuestionIntent();
   if (serviceIntent && fields.check_in && fields.check_out) {
     return 'explain_service_addon';
   }
@@ -458,6 +466,7 @@ function resolveComposerState(input) {
   }
 
   if (quote.quote_status === 'ready' && quoteAwaitingAddonsDecision(quote)) {
+    if (hasWeeklyPackageSelected(fields)) return 'package_quote_ready';
     return 'accommodation_quote_ready';
   }
 

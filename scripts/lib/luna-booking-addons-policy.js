@@ -47,19 +47,9 @@ function guestDeclinedAddons(text) {
   return NO_ADDONS_RE.test(String(text || ''));
 }
 
-function isAddonSideQuestion(text) {
-  const t = trimStr(text);
-  if (!t) return false;
-  if (!/\?\s*$/.test(t) && !/\b(?:do you|can i|can we|can you|do we|is there|are there)\b/i.test(t)) {
-    return false;
-  }
-  return /\b(?:rent|hire|offer|add|lessons?|wetsuit|surfboard|board|transfer|gear)\b/i.test(t);
-}
-
-function extractAddOnSelections(messageText) {
+function extractAddOnSelectionsRaw(messageText) {
   const text = trimStr(messageText);
   if (!text || guestDeclinedAddons(text)) return [];
-  if (isAddonSideQuestion(text)) return [];
 
   const found = new Set(extractAddOnsFromText(text));
   if (/\b(?:all\s+three|wetsuit.*(?:board|surfboard).*(?:lesson|lessons)|(?:board|surfboard).*wetsuit.*(?:lesson|lessons))\b/i.test(text)) {
@@ -77,11 +67,43 @@ function extractAddOnSelections(messageText) {
     if (/\b(?:board|surfboard)\b/i.test(text)) found.add('surfboard');
     if (/\blessons?\b/i.test(text)) found.add('surf_lesson');
   }
-  if (/\b(?:board\s+rental|rent(?:al)?\s+board)\b/i.test(text) && !isAddonSideQuestion(text)) {
+  if (/\b(?:board\s+rental|rent(?:al)?\s+board)\b/i.test(text)) {
     found.add('surfboard');
   }
 
   return [...found].filter((code) => IN_SCOPE_ADDONS.has(code));
+}
+
+function isExplicitAddonSelectionMessage(text) {
+  const t = trimStr(text);
+  if (!t) return false;
+  if (guestDeclinedAddons(t)) return true;
+  return extractAddOnSelectionsRaw(t).length > 0;
+}
+
+function isAddonSideQuestion(text) {
+  const t = trimStr(text);
+  if (!t) return false;
+  if (isExplicitAddonSelectionMessage(t)) return false;
+  const isQuestion = /\?\s*$/.test(t)
+    || /\b(?:do you|can i|can we|can you|do we|is there|are there|how much|what(?:'s| is| are)|do i need)\b/i.test(t);
+  if (!isQuestion) return false;
+  return /\b(?:rent|hire|offer|lessons?|wetsuit|surfboard|board|transfer|gear|included|include)\b/i.test(t);
+}
+
+function shouldTreatAsServiceSideQuestion(text, quote) {
+  if (!text || isExplicitAddonSelectionMessage(text)) return false;
+  if (quote && quoteAwaitingAddonsDecision(quote) && extractAddOnSelectionsRaw(text).length > 0) {
+    return false;
+  }
+  return true;
+}
+
+function extractAddOnSelections(messageText) {
+  const text = trimStr(messageText);
+  if (!text || guestDeclinedAddons(text)) return [];
+  if (isAddonSideQuestion(text)) return [];
+  return extractAddOnSelectionsRaw(text);
 }
 
 function normalizeServiceInterestItem(item) {
@@ -107,8 +129,6 @@ function serviceInterestSignature(serviceInterest, addonsSkipped) {
 
 function quoteAwaitingAddonsDecision(quote) {
   if (!quote || quote.quote_status !== 'ready') return false;
-  if (quote.addons_pending_after_quote === false) return false;
-  if (quote.short_stay_addons_pending === false) return false;
   return quote.addons_pending_after_quote === true || quote.short_stay_addons_pending === true;
 }
 
@@ -360,4 +380,6 @@ module.exports = {
   buildMidFlowAddonsReturnTail,
   buildAddonsObservability,
   isAddonSideQuestion,
+  isExplicitAddonSelectionMessage,
+  shouldTreatAsServiceSideQuestion,
 };

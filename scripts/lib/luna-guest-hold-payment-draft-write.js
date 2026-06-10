@@ -19,6 +19,9 @@ const {
   upsertBookingHold,
   EXECUTE_HOLD_STATUSES,
 } = require('./main-booking-hold-pg-sql');
+const {
+  attachPendingManualGuestServices,
+} = require('./luna-guest-pending-service-attach');
 
 const HOLD_EXPIRES_IN_HOURS = 6;
 const DEFAULT_CLIENT = 'wolfhouse-somo';
@@ -210,10 +213,11 @@ async function lookupExistingHoldPaymentDraft(pg, clientSlug, idempotencyKey) {
   };
 }
 
-function formatReuseResponse(chainResult, planner, existing) {
+function formatReuseResponse(chainResult, planner, existing, attachMeta) {
   const lang = resolveLang(chainResult);
   const b = existing.booking;
   const p = existing.payment;
+  const attach = attachMeta || {};
   return {
     success: true,
     ...WRITE_SAFETY,
@@ -224,6 +228,7 @@ function formatReuseResponse(chainResult, planner, existing) {
     booking_code: b.booking_code,
     payment_draft_id: p ? p.payment_draft_id : null,
     hold_expires_at: b.hold_expires_at || null,
+    attached_manual_services: attach.attached_manual_services || [],
     created_records: null,
     reused_records: {
       booking_hold: {
@@ -266,7 +271,14 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
 
   const existing = await lookupExistingHoldPaymentDraft(pg, clientSlug, idempotencyKey);
   if (existing && existing.booking) {
-    return { reused: existing };
+    const attach = await attachPendingManualGuestServices(pg, {
+      clientSlug,
+      bookingId: existing.booking.booking_id,
+      bookingCode: existing.booking.booking_code,
+      guestName,
+      extractedFields: fields,
+    });
+    return { reused: existing, ...attach };
   }
 
   const clientRes = await resolveClientId(pg, clientSlug);
@@ -402,6 +414,14 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
 
     await pg.query('COMMIT');
 
+    const attach = await attachPendingManualGuestServices(pg, {
+      clientSlug,
+      bookingId,
+      bookingCode: holdOutcome.booking.booking_code,
+      guestName,
+      extractedFields: fields,
+    });
+
     return {
       created: true,
       booking_id: bookingId,
@@ -410,6 +430,7 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       hold_expires_at: holdExpiresAt,
       hold_created: holdOutcome.created,
       hold_updated: holdOutcome.updated,
+      ...attach,
     };
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
@@ -448,7 +469,7 @@ async function runGuestHoldPaymentDraftWriteDryRunApproved(chainResult, context)
   const runWrite = async (pg) => {
     const outcome = await executeHoldPaymentDraftWrite(pg, chainResult, planner, ctx);
     if (outcome.reused) {
-      return formatReuseResponse(chainResult, planner, outcome.reused);
+      return formatReuseResponse(chainResult, planner, outcome.reused, outcome);
     }
     if (outcome.error) {
       return {
@@ -479,6 +500,7 @@ async function runGuestHoldPaymentDraftWriteDryRunApproved(chainResult, context)
       booking_code: outcome.booking_code,
       payment_draft_id: outcome.payment_draft_id,
       hold_expires_at: outcome.hold_expires_at,
+      attached_manual_services: outcome.attached_manual_services || [],
       created_records: {
         booking_hold: {
           booking_id: outcome.booking_id,

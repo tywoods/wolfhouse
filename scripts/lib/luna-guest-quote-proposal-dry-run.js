@@ -181,7 +181,6 @@ function buildQuoteSummary(status, preview, fields) {
 
 function buildQuoteReply(lang, status, preview, routerResult) {
   const L = tpl(lang);
-  const intro = `${L.intro} 🌊`;
   if (status === 'ready' && preview && preview.quote) {
     const q = preview.quote;
     if (isShortStayAccommodationQuote(q)) {
@@ -189,10 +188,10 @@ function buildQuoteReply(lang, status, preview, routerResult) {
       const fields = (routerResult && routerResult.extracted_fields) || {};
       return buildShortStayAccommodationQuotedReply(lang, fields, totalEur);
     }
-    const totalEur = (q.total_cents / 100).toFixed(2);
-    const depositEur = (q.deposit_required_cents / 100).toFixed(2);
-    return `${intro} — ${L.ready(totalEur, depositEur)}`;
+    // Stage 33 — package/weekly quotes: composer owns guest copy (quote + add-ons question).
+    return null;
   }
+  const intro = `${L.intro} 🌊`;
   if (status === 'error') return `${intro} — ${L.error}`;
   if (status === 'needs_staff_review') return `${intro} — ${L.needs_review}`;
   return `${intro} — ${L.not_ready}`;

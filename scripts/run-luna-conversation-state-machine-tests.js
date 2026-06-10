@@ -451,6 +451,18 @@ async function loadAssignedBedsWithMeta(pg, bookingCode) {
   return res.rows;
 }
 
+async function loadAttachedManualGuestServices(pg, bookingId) {
+  const res = await pg.query(
+    `SELECT service_type, service_date, status, source, metadata
+       FROM booking_service_records
+      WHERE booking_id = $1::uuid
+        AND source = 'luna_guest_pending'
+      ORDER BY created_at ASC`,
+    [bookingId],
+  );
+  return res.rows;
+}
+
 function priorityOrderValid(beds) {
   if (!beds || beds.length < 2) return true;
   for (let i = 1; i < beds.length; i++) {
@@ -1220,6 +1232,24 @@ function checkWriteExpectations(writeExpect, proof, opts, webhookExpect, confirm
     }
   }
 
+  if (Array.isArray(writeExpect.attached_manual_services_includes)) {
+    const attached = (w.attached_manual_services || []).map((row) => {
+      const t = String(row.service_type || '').toLowerCase();
+      return t === 'meal' ? 'meals' : t;
+    });
+    for (const svc of writeExpect.attached_manual_services_includes) {
+      if (!attached.includes(String(svc).toLowerCase())) {
+        failures.push(`attached_manual_services missing ${svc}`);
+      }
+    }
+  }
+  if (writeExpect.attached_service_no_fake_schedule === true) {
+    const bad = (w.attached_manual_services || []).filter((row) => row.service_date != null);
+    if (bad.length) {
+      failures.push('attached manual service must not fake service_date');
+    }
+  }
+
   return failures;
 }
 
@@ -1367,6 +1397,12 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
   }
   if (proof.deposit_amount_cents == null && lastOut.hold_payment_draft_plan) {
     proof.deposit_amount_cents = lastOut.hold_payment_draft_plan.payment_amount_cents;
+  }
+
+  if (bookingWrite.booking_id && fixture.write_expect
+    && (Array.isArray(fixture.write_expect.attached_manual_services_includes)
+      || fixture.write_expect.attached_service_no_fake_schedule === true)) {
+    proof.attached_manual_services = await withPgClient((pg) => loadAttachedManualGuestServices(pg, bookingWrite.booking_id));
   }
 
   proof.bed_assignment = await withPgClient((pg) => runOpenDemoBookingBedAssignApproved(pg, {

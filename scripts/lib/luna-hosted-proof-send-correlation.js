@@ -46,7 +46,9 @@ function correlateHostedProofTurns(events, sends) {
         const sid = sendRowId(s);
         if (sid && usedSendIds.has(sid)) return false;
         const st = parseTime(s.created_at);
-        if (st == null || st <= evTime) return false;
+        const su = parseTime(s.updated_at);
+        const activity = su != null ? su : st;
+        if (activity == null || activity <= evTime) return false;
         if (nextTime != null && st >= nextTime) return false;
         return true;
       });

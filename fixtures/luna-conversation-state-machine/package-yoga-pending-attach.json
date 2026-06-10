@@ -1,0 +1,56 @@
+{
+  "id": "package-yoga-pending-attach",
+  "label": "Yoga pending manual service attaches after hold creation",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 1",
+      "expect": {
+        "expected_quote_ready": true,
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "just the stay",
+      "expect": {
+        "expected_quote_ready": true,
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "Can I add yoga?",
+      "expect": {
+        "expected_no_handoff": true,
+        "reply_contains": ["yoga"],
+        "expected_reply_source": "luna_reply_composer"
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer"
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
+    "no_handoff": true,
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true
+  },
+  "write_expect": {
+    "booking_created": true,
+    "payment_draft_created": true,
+    "attached_manual_services_includes": ["yoga"],
+    "attached_service_no_fake_schedule": true,
+    "stripe_live_used": false,
+    "confirmation_sent": false,
+    "cleanup_expected": true
+  }
+}

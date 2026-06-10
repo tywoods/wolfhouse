@@ -1,0 +1,35 @@
+{
+  "id": "explicit-addons-selection",
+  "label": "Explicit add-on selections beat side-question explainers",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 1-5 for 1",
+      "expect": {
+        "expected_quote_ready": true,
+        "reply_contains": ["wetsuit", "lessons"],
+        "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer"
+      }
+    },
+    {
+      "message": "wetsuit and lessons",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "ask_payment_choice",
+        "reply_not_contains": ["Neopren-Verleih", "I am not adding", "do you want to know"],
+        "reply_contains": ["deposit", "full"]
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
+    "no_handoff": true,
+    "expected_quote_ready": true
+  }
+}

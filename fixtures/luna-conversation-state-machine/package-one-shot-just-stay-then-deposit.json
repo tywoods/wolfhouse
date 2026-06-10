@@ -1,0 +1,59 @@
+{
+  "id": "package-one-shot-just-stay-then-deposit",
+  "label": "Package one-shot add-ons declined then deposit",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 1",
+      "expect": {
+        "expected_quote_ready": true,
+        "reply_contains": ["wetsuit", "lessons"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "just the stay",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_quote_ready": true,
+        "expected_fields": {
+          "addons_skipped": true
+        }
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer",
+        "no_form_dev_copy": true,
+        "reply_contains": ["deposit"]
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
+    "no_handoff": true,
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true
+  },
+  "write_expect": {
+    "booking_created": true,
+    "booking_code_exists": true,
+    "payment_draft_created": true,
+    "payment_draft_id_exists": true,
+    "stripe_test_checkout_created": "optional",
+    "stripe_live_used": false,
+    "confirmation_sent": false,
+    "duplicate_booking_created": false,
+    "cleanup_expected": true,
+    "expected_deposit_cents": 20000,
+    "idempotency_check": true
+  }
+}

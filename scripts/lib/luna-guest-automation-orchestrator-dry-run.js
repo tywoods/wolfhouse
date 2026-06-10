@@ -66,6 +66,7 @@ const {
   quoteAwaitingAddonsDecision,
   buildAddonsObservability,
   extractAddOnSelections,
+  isExplicitAddonSelectionMessage,
   guestDeclinedAddons,
 } = require('./luna-booking-addons-policy');
 const { buildReactiveServicesObservability } = require('./luna-booking-reactive-services-policy');
@@ -519,14 +520,6 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
 
   const fallbackCtx = { result, quote, availability };
 
-  // Stage 28j.4 — short-stay accommodation quote (price + add-ons question) wins over
-  // the router "checking" placeholder once pricing is ready.
-  if (quote && quote.quote_status === 'ready' && quote.proposed_luna_reply
-    && quoteAwaitingAddonsDecision(quote)
-    && !quoteLegacyReplyIsStale(quote, result)) {
-    return sanitizeReply(quote.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
-  }
-
   const sideQuestionText = messageText != null ? String(messageText).trim() : '';
   const priorFields = collectPriorExtractedFields(priorGuestContext);
   const sideQuestionLang = (result && result.detected_language) || 'en';
@@ -557,8 +550,13 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
       );
     }
 
-    const serviceIntent = detectServiceSideQuestionIntent(sideQuestionText)
-      || (result && result.message_lane === 'add_service_request' ? 'services_general' : null);
+    const explicitAddonSelection = isExplicitAddonSelectionMessage(sideQuestionText);
+    const addonsStepSelection = quoteAwaitingAddonsDecision(quote)
+      && extractAddOnSelections(sideQuestionText).length > 0;
+    const serviceIntent = (!explicitAddonSelection && !addonsStepSelection)
+      ? (detectServiceSideQuestionIntent(sideQuestionText)
+        || (result && result.message_lane === 'add_service_request' ? 'services_general' : null))
+      : null;
     if (serviceIntent) {
       return sanitizeReply(
         buildServiceSideQuestionReply(sideQuestionLang, serviceIntent, sideQuestionText),
@@ -608,11 +606,14 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
   if (plan && plan.proposed_luna_reply) {
     return sanitizeReply(plan.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
-  if (quote && quote.proposed_luna_reply && !quoteLegacyReplyIsStale(quote, result)) {
+  if (quote && quote.proposed_luna_reply && !quoteLegacyReplyIsStale(quote, result)
+    && !quoteAwaitingAddonsDecision(quote)) {
     return sanitizeReply(quote.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }
   if (availability && availability.proposed_luna_reply) {
-    return sanitizeReply(availability.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+    if (!(quote && quote.quote_status === 'ready' && quoteAwaitingAddonsDecision(quote))) {
+      return sanitizeReply(availability.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+    }
   }
   if (result && result.proposed_luna_reply) {
     return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);

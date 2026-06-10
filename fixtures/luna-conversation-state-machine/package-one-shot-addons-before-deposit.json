@@ -1,0 +1,33 @@
+{
+  "id": "package-one-shot-addons-before-deposit",
+  "label": "Package one-shot asks surf add-ons before deposit",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 1",
+      "expect": {
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "package_quote_ready",
+        "reply_contains": ["wetsuit", "lessons"],
+        "reply_not_contains": ["deposit", "full payment", "I am not confirming"],
+        "expected_fields": {
+          "guest_count": 1,
+          "package_interest": "malibu",
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
+        }
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
+    "no_handoff": true,
+    "expected_quote_ready": true
+  }
+}

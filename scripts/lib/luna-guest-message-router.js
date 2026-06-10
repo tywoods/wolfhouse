@@ -1299,7 +1299,10 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     // Stage 28j — apply the sanitized conversation-brain field patch (fill-only;
     // accommodation_only is an explicit guest choice and may set the stay type).
     const brainPatch = brain.extracted_fields_patch || {};
-    if (accommodationOnlyChoice || brainPatch.accommodation_only === true) {
+    const weeklyPackageStay = isWeeklySurfPackage(priorExtracted.package_interest)
+      || isWeeklySurfPackage(extractedFields.package_interest);
+    const declinedSurfAddonsOnly = guestDeclinedAddons(messageText) && weeklyPackageStay;
+    if ((accommodationOnlyChoice || brainPatch.accommodation_only === true) && !declinedSurfAddonsOnly) {
       extractedFields = { ...extractedFields, package_interest: 'accommodation_only' };
     }
     if (guestDeclinedAddons(messageText)) {
