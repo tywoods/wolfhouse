@@ -1,4 +1,16 @@
-**Stage 27demo OPEN WHATSAPP DEMO — CLOSEOUT PASS (2026-06-09):** Full staging chain **27demo-a → 27demo-i** — inbound, live reply, hold/draft, calendar assign, Stripe TEST link, payment truth, confirmation preview, go/no-go dry-run, one live confirmation send. Anchor **`WH-G27-850FDAFDB9`**. Image: **`2d4dfde-stage27demo-i-confirmation-send`**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md). Verifier: `verify:stage27demo-i-confirmation-send`. **Next:** production cutover planning (27x.2+ / live Stripe / owner GO — not demo repeat).
+**Stage 28 WOLFHOUSE REAL-PHONE STAGING REHEARSAL — NEXT (2026-06-10):** Ale/Cami message Luna from real phones on staging; booking appears in Staff Portal + bed calendar. Launch-candidate gates; not production/Main. **Defer UI polish** until base booking-flow rehearsal is solid. **After base flow:** services/add-ons as next core booking capability.
+
+**Stage 27demo OPEN WHATSAPP DEMO — CLOSEOUT PASS (2026-06-10):** Full n8n open-demo chain **27demo-l → 27demo-o.3** end-to-end on hosted staging — n8n booking write, Stripe TEST link, signed webhook payment truth, confirmation preview, go/no-go blocked, one live confirmation send. Anchor **`WH-G27-0ECC1D9B57`** · `+34600995557` · confirmation `wamid.HBgLMzQ2MDA5OTU1NTcVAgARGBIzODJEOTYwNzgzNzY4MkFGNzcA`. Image: **`9b43cb5-stage27demo-j-n8n-review-pipe`**. Gates restored · **production not live**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md). Verifiers: `verify:stage27demo-l-n8n-booking-write`, `verify:stage27demo-m-n8n-stripe-test-link`, `verify:stage27demo-i-confirmation-send`. **Next:** Stage 28 (this entry).
+
+**Stage 27demo-o.3 LIVE CONFIRMATION SEND — PASS (2026-06-10):** One allowlisted WhatsApp to `+34600995557`; idempotency blocked second send; gates restored. Prior: o.1 preview PASS · o.2 go/no-go blocked PASS.
+
+**Stage 27demo-n PAYMENT TRUTH — PASS (2026-06-10):** Signed Stripe TEST `checkout.session.completed` → hosted `/staff/stripe/webhook`; `deposit_paid` on `WH-G27-0ECC1D9B57`.
+
+**Stage 27demo-m N8N STRIPE TEST LINK PIPE — PASS (2026-06-09):** n8n export `Luna Open Demo WhatsApp Stripe Test Link Pipe` · path `open-demo-whatsapp-stripe-test-link-27m`. Verifier: `verify:stage27demo-m-n8n-stripe-test-link`. Doc: [STAGE-27DEMO-M-N8N-STRIPE-TEST-LINK.md](STAGE-27DEMO-M-N8N-STRIPE-TEST-LINK.md).
+
+**Stage 27demo-l N8N BOOKING WRITE + CALENDAR — PASS (2026-06-09):** Booking **`WH-G27-0ECC1D9B57`** · `DEMO-R2-B1/B2`. Commit **`30bab43`**. Verifier: `verify:stage27demo-l-n8n-booking-write`. Doc: [STAGE-27DEMO-L-N8N-BOOKING-WRITE-CALENDAR.md](STAGE-27DEMO-L-N8N-BOOKING-WRITE-CALENDAR.md).
+
+**Stage 27demo-a → 27demo-i — PASS (2026-06-09):** Earlier chain on anchor **`WH-G27-850FDAFDB9`** · image **`2d4dfde-stage27demo-i-confirmation-send`**. Superseded as primary closeout anchor by n8n chain above.
 
 **Stage 27demo-a OPEN WHATSAPP BOOKING + STRIPE TEST DEMO — DESIGN LOCK (2026-06-09):** Docs-only design for **open demo** on staging WhatsApp number — **no guest phone allowlist**; anyone with demo number → n8n pipe → Staff API brain → hold/draft → Stripe TEST link → calendar proof. Stability baseline **`51977c6-stage27test-t1-pg-pool`**. Verifier: `verify:stage27demo-a-open-whatsapp-stripe-design`. Doc: [STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md](STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md).
 

@@ -1,6 +1,10 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-09 (**Stage 27demo — Open WhatsApp demo closeout**): **PASS** full chain **27demo-a → 27demo-i** on staging. Anchor booking **`WH-G27-850FDAFDB9`** — deposit paid, confirmation sent once, idempotency normalized. Final image **`2d4dfde-stage27demo-i-confirmation-send`**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md). Verifier: `verify:stage27demo-i-confirmation-send`. **Next:** production cutover planning (not open-demo repeat).
+**Last updated:** 2026-06-10 (**Stage 27demo — open demo closeout**): **PASS** full n8n open-demo chain **27demo-l → 27demo-o.3** end-to-end on hosted staging. Anchor **`WH-G27-0ECC1D9B57`** (`+34600995557`) — n8n booking write → Stripe TEST link → payment truth → confirmation preview → go/no-go → one live confirmation send; gates restored. Image **`9b43cb5-stage27demo-j-n8n-review-pipe`**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md). **Production not live.** **Next:** **Stage 28** — Wolfhouse real-phone staging rehearsal / launch candidate. **After base flow:** services/add-ons — not UI polish.
+
+**Prior — Stage 27demo chain slices (2026-06-09/10):** **PASS** 27demo-l booking write · 27demo-m Stripe TEST link · 27demo-n payment truth · 27demo-o.1 preview · 27demo-o.2 go/no-go blocked · 27demo-o.3 live confirmation (`wamid.HBgLMzQ2MDA5OTU1NTcVAgARGBIzODJEOTYwNzgzNzY4MkFGNzcA`). Verifiers: `verify:stage27demo-l-n8n-booking-write`, `verify:stage27demo-m-n8n-stripe-test-link`, `verify:stage27demo-i-confirmation-send`.
+
+**Prior — Stage 27demo-a → 27demo-i (2026-06-09):** **PASS** earlier open-demo chain on anchor **`WH-G27-850FDAFDB9`**. Image **`2d4dfde-stage27demo-i-confirmation-send`**. Superseded as primary anchor by n8n chain above.
 
 **Prior — Stage 27demo-a (2026-06-09):** **DESIGN LOCK** (docs only). Open demo on staging WhatsApp number — no guest phone allowlist; n8n pipe + Staff API brain; Stripe TEST only. Stability baseline **`51977c6-stage27test-t1-pg-pool`**. Verifier: `verify:stage27demo-a-open-whatsapp-stripe-design`. Doc: [STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md](STAGE-27DEMO-A-OPEN-WHATSAPP-BOOKING-STRIPE-DEMO-DESIGN.md).
 
