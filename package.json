@@ -230,6 +230,7 @@
     "verify:stage28h-reset-new-booking-intent": "node scripts/verify-stage28h-reset-new-booking-intent.js",
     "verify:stage28h4-compact-ordinal-date-range": "node scripts/verify-stage28h4-compact-ordinal-date-range.js",
     "verify:stage28h6-fresh-start-button": "node scripts/verify-stage28h6-fresh-start-button.js",
+    "verify:stage28h7-intake-continuation": "node scripts/verify-stage28h7-intake-continuation.js",
     "report:open-demo-playground": "node scripts/report-open-demo-playground-state.js",
     "cleanup:open-demo-booking": "node scripts/cleanup-open-demo-staging-booking.js",
     "playground:open-demo-on": "node scripts/set-open-demo-playground-mode.js --on",
