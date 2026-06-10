@@ -49,5 +49,14 @@
     "duplicate_booking_created": false,
     "cleanup_expected": true,
     "expected_deposit_cents": 10000
+  },
+  "webhook_expect": {
+    "expected_payment_status_after_webhook": "deposit_paid",
+    "expected_amount_paid_cents": 10000,
+    "expected_confirmation_sent": false,
+    "expected_confirmation_sent_at_unchanged": true,
+    "expected_no_duplicate_payment_truth": true,
+    "expected_webhook_idempotency": true,
+    "cleanup_refused_expected": true
   }
 }

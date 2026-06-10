@@ -54,5 +54,14 @@
     "no_operator_blocked_beds": true,
     "no_inactive_beds": true,
     "assigned_priority_order": "ascending"
+  },
+  "webhook_expect": {
+    "expected_payment_status_after_webhook": "deposit_paid",
+    "expected_amount_paid_cents": 20000,
+    "expected_confirmation_sent": false,
+    "expected_confirmation_sent_at_unchanged": true,
+    "expected_no_duplicate_payment_truth": true,
+    "expected_webhook_idempotency": true,
+    "cleanup_refused_expected": true
   }
 }

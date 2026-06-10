@@ -10,6 +10,7 @@
  *   npm run test:luna-conversations -- --all --verbose --json
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --verbose
  *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --verbose
+ *   npm run test:luna-conversations -- --fixture short-stay-accommodation-only-to-deposit --allow-writes --require-stripe-test-link --simulate-stripe-webhook --verbose
  */
 
 'use strict';
@@ -33,6 +34,9 @@ const {
   isStripeTestSecretKey,
 } = require('./lib/luna-guest-stripe-test-link-create');
 const { runOpenDemoBookingBedAssignApproved } = require('./lib/open-demo-booking-bed-assign');
+const {
+  runGuestStripePaymentTruthApplyApproved,
+} = require('./lib/luna-guest-stripe-payment-truth-apply');
 const {
   assertNotProductionDb,
   assessCleanupEligibility,
@@ -74,6 +78,7 @@ Options:
   --keep-bookings          Keep unpaid test holds after --allow-writes (skip cleanup)
   --allow-writes           After conversation, run hold/draft + Stripe TEST write proof
   --require-stripe-test-link  With --allow-writes, fail if Stripe TEST checkout is not created
+  --simulate-stripe-webhook  With --allow-writes --require-stripe-test-link, apply payment truth via Stage 27p helper
   --phone-prefix <prefix>  Default +34629800
   --reference-date <date>  Default ${DEFAULT_REFERENCE_DATE}
   --fixture-dir <path>     Default fixtures/luna-conversation-state-machine
@@ -90,6 +95,7 @@ function parseArgs(argv) {
     keepBookings: false,
     allowWrites: false,
     requireStripeTestLink: false,
+    simulateStripeWebhook: false,
     phonePrefix: '+34629800',
     referenceDate: DEFAULT_REFERENCE_DATE,
     fixtureDir: DEFAULT_FIXTURE_DIR,
@@ -104,6 +110,7 @@ function parseArgs(argv) {
     else if (a === '--keep-bookings') opts.keepBookings = true;
     else if (a === '--allow-writes') opts.allowWrites = true;
     else if (a === '--require-stripe-test-link') opts.requireStripeTestLink = true;
+    else if (a === '--simulate-stripe-webhook') opts.simulateStripeWebhook = true;
     else if (a === '--fixture') opts.fixture = argv[++i];
     else if (a === '--limit') opts.limit = parseInt(argv[++i], 10);
     else if (a === '--phone-prefix') opts.phonePrefix = argv[++i];
@@ -190,6 +197,176 @@ async function loadPaymentTruth(pg, paymentDraftId) {
     [paymentDraftId],
   );
   return res.rows[0] || null;
+}
+
+async function loadPaymentBookingSnapshot(pg, paymentDraftId, bookingCode) {
+  const res = await pg.query(
+    `SELECT p.id::text AS payment_draft_id,
+            p.status::text AS payment_status,
+            p.amount_paid_cents,
+            p.amount_due_cents,
+            p.stripe_checkout_session_id,
+            p.payment_kind::text AS payment_kind,
+            b.booking_code,
+            b.id::text AS booking_id,
+            b.status::text AS booking_status,
+            b.payment_status::text AS booking_payment_status,
+            b.confirmation_sent_at::text AS confirmation_sent_at,
+            (SELECT COUNT(*)::int FROM payments px WHERE px.booking_id = b.id) AS payment_row_count
+       FROM payments p
+       JOIN bookings b ON b.id = p.booking_id
+       JOIN clients c ON c.id = b.client_id
+      WHERE c.slug = $1
+        AND p.id = $2::uuid
+        AND ($3::text IS NULL OR b.booking_code = $3)
+      LIMIT 1`,
+    [CLIENT_SLUG, paymentDraftId, bookingCode || null],
+  );
+  return res.rows[0] || null;
+}
+
+function buildStripeWebhookFixture(snapshot) {
+  const sessionId = snapshot && snapshot.stripe_checkout_session_id;
+  if (!sessionId) return null;
+  const session = {
+    id: sessionId,
+    livemode: false,
+    currency: 'eur',
+    amount_total: Number(snapshot.amount_due_cents || 0),
+    payment_intent: `pi_test_luna_csm_${String(snapshot.payment_draft_id).slice(0, 8)}`,
+    payment_status: 'paid',
+    status: 'complete',
+    metadata: {
+      payment_id: snapshot.payment_draft_id,
+      booking_id: snapshot.booking_id,
+      booking_code: snapshot.booking_code,
+      source: WRITE_SOURCE,
+    },
+  };
+  const event = {
+    id: `evt_test_luna_csm_${Date.now()}`,
+    type: 'checkout.session.completed',
+    livemode: false,
+    data: { object: session },
+  };
+  return { session, event };
+}
+
+function buildPaymentTruthContext() {
+  return {
+    confirm_payment_truth: true,
+    env: {
+      ...process.env,
+      WHATSAPP_DRY_RUN: 'true',
+      STRIPE_WEBHOOK_SKIP_VERIFY: 'true',
+    },
+    host_header: 'localhost',
+  };
+}
+
+async function simulateStripeWebhookPaymentTruth(proof, opts) {
+  const webhook = {
+    attempted: false,
+    result: 'SKIPPED',
+    skip_reason: null,
+    stripe_checkout_session_id: proof.stripe_checkout_session_id || null,
+    payment_draft_id: proof.payment_draft_id || null,
+    booking_code: proof.booking_code || null,
+    payment_status_before: null,
+    payment_status_after: null,
+    booking_payment_status_before: null,
+    booking_payment_status_after: null,
+    booking_status_after: null,
+    amount_paid_cents_before: null,
+    amount_paid_cents_after: null,
+    confirmation_sent: false,
+    confirmation_sent_at_before: null,
+    confirmation_sent_at_after: null,
+    payment_row_count_before: null,
+    payment_row_count_after: null,
+    no_duplicate_payment_truth: null,
+    idempotency: null,
+    apply_result: null,
+  };
+
+  if (!opts.simulateStripeWebhook) return webhook;
+
+  webhook.attempted = true;
+  if (!proof.stripe_test_checkout_created) {
+    webhook.skip_reason = 'stripe_checkout_not_created';
+    webhook.result = 'FAIL';
+    return webhook;
+  }
+  if (!proof.payment_draft_id || !proof.stripe_checkout_session_id) {
+    webhook.skip_reason = 'missing_payment_draft_or_session_id';
+    webhook.result = 'FAIL';
+    return webhook;
+  }
+
+  return withPgClient(async (pg) => {
+    const before = await loadPaymentBookingSnapshot(pg, proof.payment_draft_id, proof.booking_code);
+    if (!before) {
+      webhook.skip_reason = 'payment_booking_snapshot_not_found';
+      webhook.result = 'FAIL';
+      return webhook;
+    }
+
+    webhook.payment_status_before = before.payment_status;
+    webhook.booking_payment_status_before = before.booking_payment_status;
+    webhook.amount_paid_cents_before = Number(before.amount_paid_cents || 0);
+    webhook.confirmation_sent_at_before = before.confirmation_sent_at || null;
+    webhook.payment_row_count_before = before.payment_row_count;
+    webhook.stripe_checkout_session_id = before.stripe_checkout_session_id;
+
+    const fixture = buildStripeWebhookFixture(before);
+    if (!fixture) {
+      webhook.skip_reason = 'stripe_session_fixture_build_failed';
+      webhook.result = 'FAIL';
+      return webhook;
+    }
+
+    const applyInput = {
+      payment_draft_id: proof.payment_draft_id,
+      booking_id: before.booking_id,
+      booking_code: before.booking_code,
+      stripe_event: fixture.event,
+      stripe_session: fixture.session,
+      source: WRITE_SOURCE,
+    };
+    const truthCtx = { ...buildPaymentTruthContext(), pg };
+
+    const apply1 = await runGuestStripePaymentTruthApplyApproved(applyInput, truthCtx);
+    webhook.apply_result = apply1;
+
+    const after1 = await loadPaymentBookingSnapshot(pg, proof.payment_draft_id, proof.booking_code);
+    const apply2 = await runGuestStripePaymentTruthApplyApproved(applyInput, truthCtx);
+    const after2 = await loadPaymentBookingSnapshot(pg, proof.payment_draft_id, proof.booking_code);
+
+    webhook.payment_status_after = after1 && after1.payment_status;
+    webhook.booking_payment_status_after = after1 && after1.booking_payment_status;
+    webhook.booking_status_after = after1 && after1.booking_status;
+    webhook.amount_paid_cents_after = after1 ? Number(after1.amount_paid_cents || 0) : null;
+    webhook.confirmation_sent_at_after = after1 && after1.confirmation_sent_at ? after1.confirmation_sent_at : null;
+    webhook.confirmation_sent = !!webhook.confirmation_sent_at_after;
+    webhook.payment_row_count_after = after2 && after2.payment_row_count;
+    webhook.no_duplicate_payment_truth = after2
+      && after1
+      && after2.payment_row_count === before.payment_row_count;
+
+    webhook.idempotency = {
+      result: apply2.idempotent_replay === true ? 'PASS' : 'FAIL',
+      idempotent_replay: apply2.idempotent_replay === true,
+      second_apply_success: apply2.success === true,
+    };
+
+    if (apply1.success && apply1.payment_truth_recorded) {
+      webhook.result = 'PASS';
+    } else {
+      webhook.result = 'FAIL';
+      webhook.skip_reason = (apply1.block_reasons || []).join('; ') || 'payment_truth_apply_failed';
+    }
+    return webhook;
+  });
 }
 
 async function loadAssignedBedsWithMeta(pg, bookingCode) {
@@ -349,7 +526,56 @@ async function cleanupUnpaidTestBooking(pg, bookingCode) {
   }
 }
 
-function checkWriteExpectations(writeExpect, proof, opts) {
+function checkWebhookExpectations(webhookExpect, proof, opts) {
+  const failures = [];
+  if (!opts.simulateStripeWebhook) return failures;
+  const w = proof.stripe_webhook || {};
+  const we = webhookExpect || {};
+
+  if (w.result === 'FAIL' || (w.attempted && w.result !== 'PASS')) {
+    failures.push(`stripe_webhook_simulation: ${w.skip_reason || w.result || 'failed'}`);
+    return failures;
+  }
+  if (!w.attempted) {
+    failures.push('stripe_webhook_simulation not attempted');
+    return failures;
+  }
+
+  const bookingPayStatus = w.booking_payment_status_after;
+  const expectedStatus = we.expected_payment_status_after_webhook
+    || we.expected_booking_payment_status_after_webhook;
+  if (expectedStatus && bookingPayStatus !== expectedStatus) {
+    failures.push(`expected_payment_status_after_webhook ${expectedStatus} got ${bookingPayStatus}`);
+  }
+  if (we.expected_amount_paid_cents != null && w.amount_paid_cents_after !== we.expected_amount_paid_cents) {
+    failures.push(`expected_amount_paid_cents ${we.expected_amount_paid_cents} got ${w.amount_paid_cents_after}`);
+  }
+  if (we.expected_confirmation_sent === false && w.confirmation_sent === true) {
+    failures.push('confirmation_sent expected false after webhook');
+  }
+  if (we.expected_confirmation_sent_at_unchanged === true) {
+    const before = w.confirmation_sent_at_before || null;
+    const after = w.confirmation_sent_at_after || null;
+    if (before !== after) {
+      failures.push(`confirmation_sent_at changed: ${before} -> ${after}`);
+    }
+  }
+  if (we.expected_no_duplicate_payment_truth === true && w.no_duplicate_payment_truth !== true) {
+    failures.push('duplicate payment row detected after webhook');
+  }
+  if (we.expected_webhook_idempotency === true) {
+    if (!w.idempotency || w.idempotency.result !== 'PASS') {
+      failures.push(`webhook idempotency failed: ${(w.idempotency && w.idempotency.result) || 'missing'}`);
+    }
+  }
+  if (w.payment_status_after !== 'paid') {
+    failures.push(`payment row status expected paid got ${w.payment_status_after}`);
+  }
+
+  return failures;
+}
+
+function checkWriteExpectations(writeExpect, proof, opts, webhookExpect) {
   const failures = [];
   if (!writeExpect || typeof writeExpect !== 'object') return failures;
   const w = proof || {};
@@ -427,6 +653,12 @@ function checkWriteExpectations(writeExpect, proof, opts) {
   if (writeExpect.cleanup_expected === true && w.cleanup && w.cleanup.result === 'error') {
     failures.push(`cleanup failed: ${w.cleanup.reason}`);
   }
+  if (writeExpect.cleanup_expected === true && w.cleanup && w.cleanup.result === 'refused'
+    && !(opts.simulateStripeWebhook && webhookExpect && webhookExpect.cleanup_refused_expected === true)) {
+    failures.push(`cleanup refused: ${w.cleanup.reason}`);
+  }
+
+  failures.push(...checkWebhookExpectations(webhookExpect, proof, opts));
 
   if (writeExpect.idempotency_check === true) {
     if (!w.idempotency || w.idempotency.result !== 'PASS') {
@@ -500,6 +732,7 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     stripe_gate_reasons: [],
     bed_assignment: null,
     assigned_beds: [],
+    stripe_webhook: null,
   };
 
   const envCheck = assessWriteEnvironment();
@@ -619,20 +852,61 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     proof.duplicate_booking_created = !sameBooking;
   }
 
-  if (!opts.keepBookings && fixture.write_expect && fixture.write_expect.cleanup_expected === true
-    && proof.booking_code) {
-    proof.cleanup = await withPgClient((pg) => cleanupUnpaidTestBooking(pg, proof.booking_code));
+  if (opts.simulateStripeWebhook) {
+    proof.stripe_webhook = await simulateStripeWebhookPaymentTruth(proof, opts);
+    if (proof.stripe_webhook) {
+      proof.confirmation_sent = proof.stripe_webhook.confirmation_sent === true;
+    }
+  }
+
+  const webhookApplied = proof.stripe_webhook && proof.stripe_webhook.result === 'PASS';
+
+  if (!opts.keepBookings && proof.booking_code) {
+    if (webhookApplied) {
+      proof.cleanup = {
+        result: 'refused',
+        reason: 'paid_booking_cleanup_refused',
+        booking_payment_status: proof.stripe_webhook && proof.stripe_webhook.booking_payment_status_after,
+        booking_code: proof.booking_code,
+      };
+    } else if (fixture.write_expect && fixture.write_expect.cleanup_expected === true) {
+      proof.cleanup = await withPgClient((pg) => cleanupUnpaidTestBooking(pg, proof.booking_code));
+    }
   } else if (opts.keepBookings) {
     proof.cleanup = { result: 'skipped', reason: '--keep-bookings' };
   }
 
-  const writeFailures = checkWriteExpectations(fixture.write_expect, proof, opts);
+  const writeFailures = checkWriteExpectations(
+    fixture.write_expect,
+    proof,
+    opts,
+    fixture.webhook_expect,
+  );
   proof.result = writeFailures.length === 0 ? 'PASS' : 'FAIL';
   proof.write_failures = writeFailures;
   proof.stripe_outcome = proof.stripe_test_checkout_created
     ? 'created'
     : (stripeRequired ? 'FAIL_required' : 'PASS_optional');
   return proof;
+}
+
+function printStripeWebhookDiagnostics(wm) {
+  const wh = wm && wm.stripe_webhook;
+  if (!wh || !wh.attempted) return;
+  console.log(`    stripe_webhook: ${wh.result}${wh.skip_reason ? ` (${wh.skip_reason})` : ''}`);
+  console.log(`    stripe_checkout_session_id: ${wh.stripe_checkout_session_id || '—'}`);
+  console.log(`    payment_draft_id: ${wh.payment_draft_id || '—'}`);
+  console.log(`    booking_code: ${wh.booking_code || '—'}`);
+  console.log(`    payment_status before/after webhook: ${wh.payment_status_before || '—'} → ${wh.payment_status_after || '—'}`);
+  console.log(`    booking payment_status before/after: ${wh.booking_payment_status_before || '—'} → ${wh.booking_payment_status_after || '—'}`);
+  console.log(`    amount_paid_cents before/after: ${wh.amount_paid_cents_before} → ${wh.amount_paid_cents_after}`);
+  console.log(`    booking_status after webhook: ${wh.booking_status_after || '—'}`);
+  console.log(`    confirmation_sent: ${wh.confirmation_sent === true}`);
+  console.log(`    confirmation_sent_at before/after: ${wh.confirmation_sent_at_before || 'null'} → ${wh.confirmation_sent_at_after || 'null'}`);
+  if (wh.idempotency) console.log(`    webhook idempotency: ${wh.idempotency.result}`);
+  if (wh.no_duplicate_payment_truth != null) {
+    console.log(`    no_duplicate_payment_truth: ${wh.no_duplicate_payment_truth}`);
+  }
 }
 
 function printBedAssignmentDiagnostics(wm) {
@@ -666,8 +940,9 @@ function printStripeWriteDiagnostics(wm) {
   } else {
     console.log(`    stripe_test_checkout_created: ${wm.stripe_test_checkout_created}`);
   }
-  if (wm.cleanup) console.log(`    cleanup: ${wm.cleanup.result}${wm.cleanup.reason ? ` (${wm.cleanup.reason})` : ''}`);
+  if (wm.cleanup) console.log(`    cleanup: ${wm.cleanup.result}${wm.cleanup.reason ? ` (${wm.cleanup.reason})` : ''}${wm.cleanup.booking_code ? ` booking=${wm.cleanup.booking_code}` : ''}`);
   if (wm.idempotency) console.log(`    idempotency: ${wm.idempotency.result}`);
+  printStripeWebhookDiagnostics(wm);
 }
 
 function loadFixtures(fixtureDir) {
@@ -1034,6 +1309,16 @@ async function main() {
     process.exit(1);
   }
 
+  if (opts.simulateStripeWebhook && !opts.allowWrites) {
+    console.error('FAIL — --simulate-stripe-webhook requires --allow-writes');
+    process.exit(1);
+  }
+
+  if (opts.simulateStripeWebhook && !opts.requireStripeTestLink) {
+    console.error('FAIL — --simulate-stripe-webhook requires --require-stripe-test-link');
+    process.exit(1);
+  }
+
   if (opts.allowWrites) {
     try {
       assertNotProduction();
@@ -1058,7 +1343,11 @@ async function main() {
   const report = {
     result: 'PASS',
     mode: opts.allowWrites
-      ? (opts.requireStripeTestLink ? 'conversation_dry_run_plus_write_proof_stripe_required' : 'conversation_dry_run_plus_write_proof')
+      ? (opts.simulateStripeWebhook
+        ? 'conversation_dry_run_plus_write_proof_stripe_webhook'
+        : (opts.requireStripeTestLink
+          ? 'conversation_dry_run_plus_write_proof_stripe_required'
+          : 'conversation_dry_run_plus_write_proof'))
       : 'dry_run_review_only',
     fixture_dir: opts.fixtureDir,
     reference_date: opts.referenceDate,
