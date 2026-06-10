@@ -638,14 +638,16 @@ function buildOrchestratorResponse(parts) {
   };
 }
 
-function buildNonBookingLaneResponse(result, gate, messageText, brainDecision) {
+function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext) {
   const payload = {
     gate,
     result,
-    availability: null,
-    quote: null,
-    payment_choice: null,
-    hold_payment_draft_plan: null,
+    availability: priorGuestContext && priorGuestContext.availability ? priorGuestContext.availability : null,
+    quote: priorGuestContext && priorGuestContext.quote ? priorGuestContext.quote : null,
+    payment_choice: priorGuestContext && priorGuestContext.payment_choice ? priorGuestContext.payment_choice : null,
+    hold_payment_draft_plan: priorGuestContext && priorGuestContext.hold_payment_draft_plan
+      ? priorGuestContext.hold_payment_draft_plan
+      : null,
     proposed_next_action: resolveProposedNextAction({ gate, result }),
   };
   const allowIntro = (brainDecision && brainDecision.intent === 'greeting')
@@ -653,7 +655,7 @@ function buildNonBookingLaneResponse(result, gate, messageText, brainDecision) {
   const composed = tryComposeBookingReply(
     payload,
     messageText,
-    null,
+    priorGuestContext || null,
     brainDecision,
     { allowLeadingIntro: allowIntro },
   );
@@ -849,7 +851,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   }
 
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
-    return buildNonBookingLaneResponse(result, gate, messageText, brainDecision);
+    return buildNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext);
   }
 
   const chainCtx = {

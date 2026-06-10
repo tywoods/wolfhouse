@@ -29,6 +29,11 @@ function normalizeLang(lang) {
 function detectPackageExplainerIntent(text) {
   const t = String(text || '');
   const tl = t.toLowerCase();
+
+  if (/\bexplain(?:\s+the)?\s+packages?\b/i.test(tl)) {
+    return 'overview';
+  }
+
   const hasPkgName = /\b(?:malibu|uluwatu|waimea)\b/i.test(t);
   const pkgNameCount = (tl.match(/\b(?:malibu|uluwatu|waimea)\b/g) || []).length;
 

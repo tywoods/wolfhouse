@@ -12,6 +12,8 @@
       "message": "explain the packages",
       "expect": {
         "reply_contains": ["Malibu", "Uluwatu", "Waimea"],
+        "expected_reply_source": "luna_reply_composer",
+        "no_form_dev_copy": true,
         "expected_fields": {
           "check_in": "2026-07-10",
           "check_out": "2026-07-17",
@@ -44,6 +46,8 @@
   "final_expect": {
     "confirmation_sent": false,
     "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
     "no_handoff": true,
     "expected_fields": {
       "guest_count": 1,

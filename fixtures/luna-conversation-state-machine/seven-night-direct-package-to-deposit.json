@@ -23,6 +23,8 @@
       "expect": {
         "expected_payment_choice": "deposit",
         "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer",
+        "no_form_dev_copy": true,
         "reply_contains": ["deposit"]
       }
     }
@@ -30,6 +32,8 @@
   "final_expect": {
     "confirmation_sent": false,
     "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
     "no_handoff": true,
     "expected_fields": {
       "guest_count": 1,

@@ -61,6 +61,10 @@ const {
   liveProofHygieneGuidanceLines,
   isAllowlistedProofPhone,
 } = require('./lib/luna-live-proof-hygiene');
+const {
+  FORBIDDEN_GUEST_PHRASES,
+  isFormDevCopy,
+} = require('./lib/luna-guest-reply-style-contract');
 
 const WRITE_SOURCE = 'luna_conversation_state_machine_tester';
 
@@ -70,16 +74,7 @@ const DEFAULT_REFERENCE_DATE = '2026-06-10';
 const PACKAGE_NAMES_RE = /\b(?:Malibu|Uluwatu|Waimea)\b/i;
 
 const INTERNAL_LANGUAGE_BLACKLIST = [
-  'dry run',
-  'staging',
-  'automation gate',
-  'quote_status',
-  'payment_choice',
-  'guest_context',
-  'intake_state',
-  'i am not confirming the booking',
-  'i am not creating a hold',
-  'i am not sending a payment link',
+  ...FORBIDDEN_GUEST_PHRASES,
   'not creating a hold',
   'not sending a payment link',
 ];
@@ -1690,6 +1685,8 @@ function buildTurnDiagnostic(turnIndex, message, out) {
     payment_link_sent: out.payment_link_sent,
     confirmation_sent: out.confirmation_sent === true,
     internal_language: findInternalLanguage(out.proposed_luna_reply || ''),
+    final_reply_source: (r.conversation_brain && r.conversation_brain.final_reply_source) || null,
+    composer_state: (r.conversation_brain && r.conversation_brain.composer_state) || null,
   };
 }
 
@@ -1764,6 +1761,15 @@ function checkTurnExpectations(expect, out) {
     const bad = findInternalLanguage(reply);
     if (bad.length) failures.push(`internal language: ${bad.join(', ')}`);
   }
+  if (expect.no_form_dev_copy === true && isFormDevCopy(reply)) {
+    failures.push('form/dev copy detected in reply');
+  }
+  if (expect.expected_reply_source != null) {
+    const src = (out.result && out.result.conversation_brain && out.result.conversation_brain.final_reply_source);
+    if (src !== expect.expected_reply_source) {
+      failures.push(`expected_reply_source ${expect.expected_reply_source} got ${src}`);
+    }
+  }
   return failures;
 }
 
@@ -1785,6 +1791,16 @@ function checkFinalExpectations(finalExpect, lastOut, allTurns) {
       if (t.internal_language && t.internal_language.length) {
         failures.push(`internal language turn ${t.turn}: ${t.internal_language.join(', ')}`);
       }
+      if (finalExpect.no_form_dev_copy === true && isFormDevCopy(t.luna_reply || '')) {
+        failures.push(`form/dev copy turn ${t.turn}`);
+      }
+    }
+  }
+  if (finalExpect.expected_final_reply_source != null) {
+    const src = (lastOut.result && lastOut.result.conversation_brain
+      && lastOut.result.conversation_brain.final_reply_source);
+    if (src !== finalExpect.expected_final_reply_source) {
+      failures.push(`expected_final_reply_source ${finalExpect.expected_final_reply_source} got ${src}`);
     }
   }
   if (finalExpect.no_package_prompt === true) {

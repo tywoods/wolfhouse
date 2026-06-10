@@ -1,15 +1,18 @@
 'use strict';
 
 /**
- * Stage 28j.6 — Luna Reply Composer MVP (booking conversations).
+ * Stage 28j.6 / 30a — Luna Reply Composer (booking conversations).
  *
  * Owns guest-facing copy for the main new-booking flow. Business modules supply
- * structured state; this module returns one clean reply.
+ * structured facts; this module returns natural Luna copy grounded in those facts.
  */
 
-const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
+const { collectPriorExtractedFields, mergeGuestExtractedFields } = require('./luna-guest-context-merge');
 const { computeStayNights, isAccommodationOnlyIntent } = require('./wolfhouse-package-night-rules');
-const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
+const {
+  detectPackageExplainerIntent,
+  buildPackageExplainerReply,
+} = require('./luna-guest-package-explainer');
 const {
   detectServiceSideQuestionIntent,
   detectTransferSideQuestionIntent,
@@ -19,16 +22,24 @@ const {
   mapPolicyQuestionToComposerState,
   inferRoomPreferenceNeed,
 } = require('./luna-booking-intake-policy');
+const {
+  FORBIDDEN_GUEST_COPY_RE,
+  sanitizeGuestReply,
+  validateComposerFacts,
+  LUNA_IDENTITY,
+} = require('./luna-guest-reply-style-contract');
 
 const COMPOSER_STATES = Object.freeze([
   'greeting',
   'ask_dates',
+  'confirm_dates',
   'ask_guests',
   'ask_guest_name',
   'ask_room_preference_girls_mixed',
   'ask_room_preference_private_shared',
   'ask_room_preference_neutral',
   'ask_transfer_info_casual',
+  'explain_packages',
   'accommodation_quote_ready',
   'package_quote_ready',
   'ask_addons_after_quote',
@@ -39,29 +50,13 @@ const COMPOSER_STATES = Object.freeze([
   'stripe_test_link_created',
   'payment_link_sent',
   'payment_pending_no_link',
+  'payment_link_failed',
+  'payment_received_preview_ready',
+  'confirmation_sent_ack',
   'clarify_missing_info',
   'contextual_pending_answer',
   'safe_handoff',
 ]);
-
-const FORBIDDEN_GUEST_COPY_RE = new RegExp(
-  [
-    'dry run',
-    'automation gate',
-    'quote_status',
-    'payment_choice',
-    'hold writer',
-    '\\bstaging\\b',
-    '\\bgate\\b',
-    '\\breview\\b',
-    'I am not confirming the booking',
-    'I am not creating a hold',
-    'not sending a payment link yet',
-    "didn't catch that",
-    "didn't quite catch",
-  ].join('|'),
-  'i',
-);
 
 const PACKAGE_NAMES_RE = /\b(?:Malibu|Uluwatu|Waimea)\b/i;
 
@@ -131,15 +126,7 @@ function depositCentsFromPayload(quote, plan, pc) {
 }
 
 function sanitizeComposerReply(text) {
-  const s = trimStr(text);
-  if (!s || FORBIDDEN_GUEST_COPY_RE.test(s)) return null;
-  return s
-    .split('\n')
-    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trim())
-    .filter(Boolean)
-    .join('\n\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return sanitizeGuestReply(text);
 }
 
 function isShortStayAccommodation(result, quote, fields) {
@@ -157,7 +144,6 @@ function isShortStayAccommodation(result, quote, fields) {
 function isUncoveredSideQuestion(messageText, result) {
   const t = trimStr(messageText);
   if (!t) return false;
-  if (detectPackageExplainerIntent(t)) return true;
   if (detectTransferSideQuestionIntent(t) || result.message_lane === 'transfer_request') return true;
   if (detectServiceSideQuestionIntent(t) || result.message_lane === 'add_service_request') return true;
   return false;
@@ -166,8 +152,33 @@ function isUncoveredSideQuestion(messageText, result) {
 function isBookingFlowLane(result) {
   if (!result) return false;
   if (result.message_lane === 'new_booking_inquiry') return true;
+  if (result.message_lane === 'general_question') return true;
   if (result.greeting_only === true) return true;
   return false;
+}
+
+function messageLooksLikeDates(text) {
+  return /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}[/-]\d|\d{4})\b/i.test(trimStr(text));
+}
+
+function buildComposerFacts(quote, plan, pc, stripe, live) {
+  const pt = (live && live.paymentTruth) || {};
+  const cp = (live && live.confirmationPreview) || {};
+  const cs = (live && live.confirmationSend) || {};
+  return {
+    quote_total_cents: quote && quote.quote_total_cents,
+    deposit_amount_cents: depositCentsFromPayload(quote, plan, pc),
+    balance_due_cents: pt.balance_due_cents != null ? pt.balance_due_cents : quote && quote.balance_due_cents,
+    amount_paid_cents: pt.amount_paid_cents,
+    payment_status: pt.payment_status,
+    payment_link_url: stripe && stripe.stripe_checkout_url,
+    booking_code: pt.booking_code || (live && live.bookingWrite && live.bookingWrite.booking_code),
+    room_label: pt.room_label || cp.room_label,
+    confirmation_preview_ready: cp.confirmation_preview_ready === true,
+    confirmation_sent: cs.confirmation_sent === true,
+    hold_created: live && live.bookingWrite
+      && (live.bookingWrite.write_status === 'created' || live.bookingWrite.write_status === 'reused_existing'),
+  };
 }
 
 /**
@@ -188,7 +199,13 @@ function resolveComposerState(input) {
   const bw = live.bookingWrite || {};
   const stripe = live.stripeLink || {};
   const plSend = live.paymentLinkSend || {};
-  const fields = result.extracted_fields || collectPriorExtractedFields(inp.prior_guest_context || {});
+  const pt = live.paymentTruth || {};
+  const cp = live.confirmationPreview || {};
+  const cs = live.confirmationSend || {};
+  const fields = mergeGuestExtractedFields(
+    collectPriorExtractedFields(inp.prior_guest_context || {}),
+    result.extracted_fields || {},
+  );
 
   if (gate.gate_status && gate.gate_status !== 'allowed_dry_run') return null;
 
@@ -200,6 +217,11 @@ function resolveComposerState(input) {
   if (!isBookingFlowLane(result)) return null;
 
   if (isUncoveredSideQuestion(messageText, result)) return null;
+
+  const pkgIntent = detectPackageExplainerIntent(messageText);
+  if (pkgIntent && fields.check_in && fields.check_out) {
+    return 'explain_packages';
+  }
 
   if (result.safe_handoff_required === true
     || payload.proposed_next_action === 'staff_handoff_required') {
@@ -222,10 +244,53 @@ function resolveComposerState(input) {
     },
   );
 
+  if (mode === 'live_staging') {
+    if (cs.confirmation_sent === true) return 'confirmation_sent_ack';
+    if (cp.confirmation_preview_ready === true
+      && (pt.payment_status === 'deposit_paid' || pt.payment_status === 'paid')) {
+      return 'payment_received_preview_ready';
+    }
+  }
+
+  if (pc.payment_choice_ready === true) {
+    if (mode === 'live_staging') {
+      const writeOk = bw.write_status === 'created' || bw.write_status === 'reused_existing';
+      if (writeOk) {
+        if (plSend.payment_link_sent === true) return 'payment_link_sent';
+        if (stripe.stripe_link_created === true || stripe.stripe_link_reused === true) {
+          return 'stripe_test_link_created';
+        }
+        if (stripe.stripe_link_attempted === true && stripe.stripe_link_created !== true) {
+          return 'payment_link_failed';
+        }
+        return 'payment_pending_no_link';
+      }
+      if (plan.plan_status === 'ready') return 'payment_pending_no_link';
+    }
+    return 'payment_choice_ack';
+  }
+
+  if (quote.quote_status === 'ready' && quote.short_stay_addons_pending === true
+    && isShortStayAccommodation(result, quote, fields)) {
+    return 'accommodation_quote_ready';
+  }
+
+  if (quote.quote_status === 'ready' && !quote.short_stay_addons_pending
+    && !isShortStayAccommodation(result, quote, fields)
+    && availability.availability_status === 'available'
+    && quote.payment_choice_needed === true
+    && pc.payment_choice_ready !== true) {
+    return 'package_quote_ready';
+  }
+
   if (quote.quote_status === 'ready' && quote.payment_choice_needed === true
     && pc.payment_choice_ready !== true
     && policy.add_ons_status !== 'pending'
-    && !quote.short_stay_addons_pending) {
+    && !quote.short_stay_addons_pending
+    && isShortStayAccommodation(result, quote, fields)) {
+    if (policy.add_ons_status === 'declined') {
+      return 'addons_none_confirmed';
+    }
     if (policy.room_preference_needed && !trimStr(fields.room_preference)) {
       const roomNeed = inferRoomPreferenceNeed(
         { extracted_fields: fields, package_night_rule: result.package_night_rule },
@@ -242,37 +307,18 @@ function resolveComposerState(input) {
     return 'ask_payment_choice';
   }
 
-  if (pc.payment_choice_ready === true) {
-    if (mode === 'live_staging') {
-      const writeOk = bw.write_status === 'created' || bw.write_status === 'reused_existing';
-      if (writeOk) {
-        if (plSend.payment_link_sent === true) return 'payment_link_sent';
-        if (stripe.stripe_link_created === true || stripe.stripe_link_reused === true) {
-          return 'stripe_test_link_created';
-        }
-        return 'payment_pending_no_link';
-      }
-      if (plan.plan_status === 'ready') return 'payment_pending_no_link';
-    }
-    return 'payment_choice_ack';
-  }
-
-  if (quote.quote_status === 'ready' && quote.short_stay_addons_pending === true
-    && isShortStayAccommodation(result, quote, fields)) {
-    return 'accommodation_quote_ready';
-  }
-
-  if (quote.quote_status === 'ready' && !quote.short_stay_addons_pending
-    && !isShortStayAccommodation(result, quote, fields)
-    && availability.availability_status === 'available') {
-    return 'package_quote_ready';
-  }
-
   const missing = result.missing_required_fields || [];
   if ((!fields.check_in || !fields.check_out
     || missing.includes('check_in') || missing.includes('check_out'))
     && result.message_lane === 'new_booking_inquiry') {
     return 'ask_dates';
+  }
+
+  if (fields.check_in && fields.check_out
+    && (fields.guest_count == null || missing.includes('guest_count'))
+    && messageLooksLikeDates(messageText)
+    && result.message_lane === 'new_booking_inquiry') {
+    return 'confirm_dates';
   }
 
   const guestName = trimStr(fields.guest_name) || channelGuestName;
@@ -305,82 +351,106 @@ function resolveComposerState(input) {
 
 function buildReplyForState(state, ctx) {
   const {
-    lang, fields, quote, plan, pc, result, availability, stripe, allowIntro, messageText,
+    lang, fields, quote, plan, pc, result, availability, stripe, allowIntro, messageText, facts, pkgIntent,
   } = ctx;
   const range = formatDateRange(fields.check_in, fields.check_out);
   const guests = guestCountLabel(fields.guest_count, lang);
   const total = formatEur(quote && quote.quote_total_cents);
   const deposit = formatEur(depositCentsFromPayload(quote, plan, pc));
   const checkoutUrl = stripe && stripe.stripe_checkout_url ? trimStr(stripe.stripe_checkout_url) : '';
+  const packageName = trimStr(fields.package_interest || fields.package_code);
+  const paid = formatEur(facts && facts.amount_paid_cents);
+  const balance = formatEur(facts && facts.balance_due_cents);
+  const bookingCode = facts && facts.booking_code ? trimStr(facts.booking_code) : '';
 
   const en = {
-    greeting: "Hey! I'm Luna from Wolfhouse 🌊\nAre you looking to book a stay, or just checking some info?",
+    greeting: `${LUNA_IDENTITY.intro_short}\nAre you looking to book a stay, or just checking some info?`,
     ask_dates: 'Nice! What dates are you thinking for check-in and check-out?',
     ask_dates_mid: 'What dates are you thinking for check-in and check-out?',
+    confirm_dates: range
+      ? `Perfect — ${range}. How many guests will be staying?`
+      : 'How many guests will be staying?',
     ask_guests: range
       ? `Perfect — ${range}. How many guests will be staying?`
       : 'How many guests will be staying?',
     ask_guest_name: range
-      ? `Perfect — ${range}. Can I grab your name for the booking?`
-      : 'Can I grab your name for the booking?',
+      ? `Perfect — ${range}. What name should I put on the booking?`
+      : 'What name should I put on the booking?',
     room_girls_mixed: 'Would you prefer a girls room if one is available, or is a mixed room okay?',
     room_girls_mixed_unavailable: 'We do not have a girls-only room free for those dates — a mixed shared room would be the option. Is that okay?',
     room_private_shared: 'We may have a private room available for €10 per night extra. Would you prefer that, or are you okay with shared beds?',
     room_neutral: 'Do you have any room preference, or is a mixed shared room okay?',
     transfer_casual: 'For the package transfer, you can send your airport and arrival/departure times whenever you have them.',
     accommodation_quote: () => {
+      if (!total) return null;
       const parts = [];
       if (guests && range) {
         parts.push(`Great — I'll check accommodation for ${range} for ${guests}.`);
       }
-      if (total) {
-        const availOk = quote.quote_status === 'ready'
-          || !availability.availability_status
-          || availability.availability_status === 'available';
-        if (availOk) {
-          parts.push(`Good news — we have space for those dates. Accommodation comes to ${total}.`);
-        } else {
-          parts.push(`Accommodation comes to ${total}.`);
-        }
+      const availOk = quote.quote_status === 'ready'
+        || !availability.availability_status
+        || availability.availability_status === 'available';
+      if (availOk) {
+        parts.push(`Good news — we have space for those dates. Accommodation comes to ${total}.`);
+      } else {
+        parts.push(`Accommodation comes to ${total}.`);
       }
       parts.push('Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?');
       return parts.join('\n\n');
     },
     package_quote: () => {
+      if (!total) return null;
       const parts = [];
-      if (availability.availability_status === 'available' && total) {
-        parts.push(`Good news — we have space for those dates. Your stay comes to ${total}.`);
-      } else if (total) {
-        parts.push(`Your stay comes to ${total}.`);
+      const pkgLabel = packageName && !/accommodation/i.test(packageName)
+        ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)}`
+        : 'Your stay';
+      if (availability.availability_status === 'available') {
+        parts.push(`Good news — we have space for those dates. ${pkgLabel} comes to ${total}.`);
+      } else {
+        parts.push(`${pkgLabel} comes to ${total}.`);
       }
-      parts.push('Would you prefer to pay the deposit or the full amount?');
+      const dep = deposit || total;
+      parts.push(`Would you prefer to pay the ${dep} deposit or the full ${total}?`);
       return parts.join('\n\n');
     },
     ask_payment_choice: () => {
-      const dep = deposit || '€100';
-      const full = total || 'the full amount';
-      return `Perfect — accommodation only then 😊\n\nTo hold the spot, would you prefer to pay the ${dep} deposit now, or pay the full ${full}?`;
+      if (!deposit || !total) return null;
+      return `Perfect — accommodation only then 😊\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
-    deposit_ack: 'Thanks — deposit it is. I’ll line up secure payment next.',
-    full_ack: 'Thanks — full payment it is. I’ll line up secure payment next.',
+    addons_none: () => {
+      if (!deposit || !total) return null;
+      return `Perfect — accommodation only then 😊\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+    },
+    deposit_ack: 'Perfect — deposit it is. I\'ll get your secure payment link ready.',
+    full_ack: 'Perfect — full payment it is. I\'ll get your secure payment link ready.',
     hold_no_link: () => {
-      const dep = deposit || '€100';
-      return `Thanks! Your stay is held. Our team will send your secure payment link here shortly for your ${dep} deposit.`;
+      if (!deposit) return null;
+      return `Thanks! Your stay is held. Our team will send your secure payment link here shortly for your ${deposit} deposit.`;
     },
     stripe_link: () => {
-      const dep = deposit || '€100';
-      if (checkoutUrl) {
-        return `Perfect — I've held your stay. You can pay the ${dep} deposit here: ${checkoutUrl}\n\nOnce that's paid, your booking will be confirmed.`;
-      }
-      return `Perfect — I've held your stay. I'll send your secure test payment link for the ${dep} deposit shortly.`;
+      if (!deposit || !checkoutUrl) return null;
+      return `Perfect — I've held your stay. You can pay the ${deposit} deposit here: ${checkoutUrl}\n\nOnce that's paid, your booking will be confirmed.`;
     },
     payment_link_sent: () => {
-      const dep = deposit || '€100';
-      return `Perfect — I've held your stay for the ${dep} deposit. Check the secure payment link I just sent.`;
+      if (!deposit) return null;
+      return `Perfect — I've held your stay for the ${deposit} deposit. Check the secure payment link I just sent.`;
     },
+    payment_link_failed: () => {
+      if (!deposit) return null;
+      return `Your stay is held — I'm having a quick hiccup generating the payment link. Our team will send your secure ${deposit} deposit link here shortly.`;
+    },
+    payment_received: () => {
+      if (!paid) return null;
+      const parts = [`Got it — your ${paid} deposit is in 🙌`];
+      if (bookingCode) parts.push(`Your booking ${bookingCode} is held.`);
+      if (balance) parts.push(`Balance due before check-in is ${balance}.`);
+      parts.push('I\'ll send your full confirmation details next.');
+      return parts.join(' ');
+    },
+    confirmation_sent: 'You\'re all set! Check your confirmation message above for arrival details and your gate code. See you soon 🌊',
     clarify: 'Could you share your check-in and check-out dates, and how many guests?',
-    contextual_when: 'Once you choose deposit or full payment, I’ll line up the next step for your stay.',
-    handoff: 'Thanks for your patience — I’m looping in our team so they can help with the next step.',
+    contextual_when: 'Once you choose deposit or full payment, I\'ll line up the next step for your stay.',
+    handoff: 'Thanks for your patience — I\'m looping in our team so they can help with the next step.',
   };
 
   const L = en;
@@ -392,6 +462,8 @@ function buildReplyForState(state, ctx) {
       const bookingIntent = /\bbook(?:ing)?\s+(?:a\s+)?stay\b/i.test(messageText || '');
       return (allowIntro || bookingIntent) ? L.ask_dates : L.ask_dates_mid;
     }
+    case 'confirm_dates':
+      return L.confirm_dates;
     case 'ask_guests':
       return L.ask_guests;
     case 'ask_guest_name':
@@ -406,12 +478,17 @@ function buildReplyForState(state, ctx) {
       return L.room_neutral;
     case 'ask_transfer_info_casual':
       return L.transfer_casual;
+    case 'explain_packages':
+      return buildPackageExplainerReply(lang, pkgIntent || 'overview', {
+        bookingInProgress: !!(fields.check_in && fields.check_out),
+      });
     case 'accommodation_quote_ready':
     case 'ask_addons_after_quote':
       return L.accommodation_quote();
     case 'package_quote_ready':
       return L.package_quote();
     case 'addons_none_confirmed':
+      return L.addons_none();
     case 'ask_payment_choice':
       return L.ask_payment_choice();
     case 'payment_choice_ack':
@@ -420,10 +497,16 @@ function buildReplyForState(state, ctx) {
       return L.hold_no_link();
     case 'payment_pending_no_link':
       return L.hold_no_link();
+    case 'payment_link_failed':
+      return L.payment_link_failed();
     case 'stripe_test_link_created':
       return L.stripe_link();
     case 'payment_link_sent':
       return L.payment_link_sent();
+    case 'payment_received_preview_ready':
+      return L.payment_received();
+    case 'confirmation_sent_ack':
+      return L.confirmation_sent;
     case 'clarify_missing_info':
       return L.clarify;
     case 'contextual_pending_answer':
@@ -439,12 +522,14 @@ function nextGuestQuestionForState(state) {
   const map = {
     greeting: 'book_or_info',
     ask_dates: 'dates',
+    confirm_dates: 'guest_count',
     ask_guests: 'guest_count',
     ask_guest_name: 'guest_name',
     ask_room_preference_girls_mixed: 'room_preference',
     ask_room_preference_private_shared: 'room_preference',
     ask_room_preference_neutral: 'room_preference',
     ask_transfer_info_casual: 'transfer_info',
+    explain_packages: 'package_choice',
     accommodation_quote_ready: 'addons',
     ask_addons_after_quote: 'addons',
     addons_none_confirmed: 'payment_choice',
@@ -492,8 +577,29 @@ function composeLunaGuestReply(input) {
   const availability = payload.availability || {};
   const pc = payload.payment_choice || {};
   const plan = payload.hold_payment_draft_plan || {};
-  const fields = result.extracted_fields || collectPriorExtractedFields(input && input.prior_guest_context);
+  const fields = mergeGuestExtractedFields(
+    collectPriorExtractedFields(input && input.prior_guest_context),
+    result.extracted_fields || {},
+  );
   const stripe = (input && input.live_outcomes && input.live_outcomes.stripeLink) || {};
+  const live = (input && input.live_outcomes) || {};
+  const facts = buildComposerFacts(quote, plan, pc, stripe, live);
+  const pkgIntent = detectPackageExplainerIntent(trimStr(input && input.message_text));
+
+  const groundingErrors = validateComposerFacts(state, facts);
+  if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name',
+    'explain_packages', 'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff',
+    'ask_room_preference_girls_mixed', 'ask_room_preference_private_shared', 'ask_room_preference_neutral',
+    'ask_transfer_info_casual', 'payment_choice_ack'].includes(state)) {
+    return {
+      reply: null,
+      reply_source: 'legacy',
+      composer_state: state,
+      covered: false,
+      next_guest_question: null,
+      safety_flags: { ...COMPOSER_SAFETY, grounding_refused: groundingErrors },
+    };
+  }
 
   let reply = buildReplyForState(state, {
     lang: langOf(result),
@@ -506,6 +612,8 @@ function composeLunaGuestReply(input) {
     stripe,
     allowIntro: input && input.allow_leading_intro === true,
     messageText: trimStr(input && input.message_text),
+    facts,
+    pkgIntent,
   });
 
   reply = sanitizeComposerReply(reply);
@@ -533,9 +641,12 @@ function composeLunaGuestReply(input) {
 module.exports = {
   composeLunaGuestReply,
   resolveComposerState,
+  buildReplyForState,
+  buildComposerFacts,
   COMPOSER_STATES,
   FORBIDDEN_GUEST_COPY_RE,
   COMPOSER_SAFETY,
   formatEur,
   formatDateRange,
+  PACKAGE_NAMES_RE,
 };

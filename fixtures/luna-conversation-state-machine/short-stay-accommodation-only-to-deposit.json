@@ -26,13 +26,17 @@
         "reply_contains": ["deposit"],
         "expected_payment_choice": "deposit",
         "expected_no_handoff": true,
-        "reply_not_contains": ["dry run", "staging", "quote_status"]
+        "expected_reply_source": "luna_reply_composer",
+        "no_form_dev_copy": true,
+        "reply_not_contains": ["dry run", "staging", "quote_status", "I am not confirming"]
       }
     }
   ],
   "final_expect": {
     "confirmation_sent": false,
     "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
     "no_handoff": true,
     "no_package_prompt": true,
     "expected_fields": {
