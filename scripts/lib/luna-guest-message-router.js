@@ -19,6 +19,7 @@ const {
 } = require('./luna-guest-package-explainer');
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
 const { buildTransferSideQuestionReply } = require('./luna-guest-service-transfer-explainer');
+const { decideConversationAction } = require('./luna-conversation-brain');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -102,6 +103,7 @@ const REPLY_TEMPLATES = {
     cancel: "Changes or cancellations after payment need our team — I'm handing this over so they can help you directly.",
     cancel_change_intake: 'Happy to help with a date change — could you share your booking code, your current dates, and the new dates you’re thinking of?',
     ready_next_check: 'Thanks — I have your stay details. Next I can look into the best option for your dates and let you know. I am not confirming availability yet.',
+    clarify_prefix: "Sorry, I didn't quite catch that —",
   },
   it: {
     intro: 'Ciao! Sono Luna di Wolfhouse',
@@ -120,6 +122,7 @@ const REPLY_TEMPLATES = {
     cancel: 'Modifiche o cancellazioni dopo il pagamento richiedono il team — passo la conversazione a loro.',
     cancel_change_intake: 'Volentieri per un cambio date — puoi condividere codice prenotazione, date attuali e le nuove date che hai in mente?',
     ready_next_check: 'Grazie — ho i dettagli del soggiorno. Prossimo passo: posso valutare la migliore opzione per le tue date e farti sapere. Non sto ancora confermando disponibilità.',
+    clarify_prefix: 'Scusa, non ho capito bene —',
   },
   es: {
     intro: '¡Hola! Soy Luna de Wolfhouse',
@@ -138,6 +141,7 @@ const REPLY_TEMPLATES = {
     cancel: 'Cambios o cancelaciones después del pago necesitan al equipo — les paso la conversación.',
     cancel_change_intake: 'Con gusto ayudo con un cambio de fechas — ¿puedes compartir tu código de reserva, las fechas actuales y las nuevas que tienes en mente?',
     ready_next_check: 'Gracias — tengo los detalles de la estancia. El siguiente paso es revisar la mejor opción para tus fechas y avisarte. Aún no confirmo disponibilidad.',
+    clarify_prefix: 'Perdona, no te he entendido bien —',
   },
   de: {
     intro: 'Hallo! Ich bin Luna von Wolfhouse',
@@ -156,6 +160,7 @@ const REPLY_TEMPLATES = {
     cancel: 'Änderungen oder Stornos nach Zahlung brauchen unser Team — ich gebe das weiter.',
     cancel_change_intake: 'Gern helfe ich bei einer Datumsänderung — kannst du Buchungsnummer, aktuelle Daten und die neuen Daten senden?',
     ready_next_check: 'Danke — ich habe eure Aufenthaltsdetails. Als Nächstes kann ich die beste Option für eure Daten prüfen und Bescheid geben. Ich bestätige noch keine Verfügbarkeit.',
+    clarify_prefix: 'Entschuldige, das habe ich nicht ganz verstanden —',
   },
   fr: {
     intro: 'Bonjour ! Je suis Luna de Wolfhouse',
@@ -174,6 +179,7 @@ const REPLY_TEMPLATES = {
     cancel: 'Les changements ou annulations après paiement passent par l’équipe — je leur transmets la conversation.',
     cancel_change_intake: 'Volontiers pour un changement de dates — pouvez-vous partager votre code de réservation, vos dates actuelles et les nouvelles dates envisagées ?',
     ready_next_check: 'Merci — j’ai les détails du séjour. Prochaine étape : je peux regarder la meilleure option pour vos dates et vous revenir. Je ne confirme pas encore la disponibilité.',
+    clarify_prefix: 'Désolée, je n’ai pas bien compris —',
   },
 };
 
@@ -202,6 +208,27 @@ function detectLanguage(text, hint) {
 function tpl(lang, key) {
   const L = REPLY_TEMPLATES[lang] || REPLY_TEMPLATES.en;
   return L[key] || REPLY_TEMPLATES.en[key] || '';
+}
+
+/**
+ * Build a soft "didn't catch that" reply that re-asks the active missing field instead of
+ * handing off. Used by the conversation brain's clarify decision during an active intake.
+ */
+function buildClarifyReply(lang, activeField, extracted) {
+  const ex = extracted || {};
+  let question;
+  if (activeField === 'guest_count') {
+    question = tpl(lang, 'ask_guests');
+  } else if (activeField === 'dates') {
+    question = ex.check_in ? tpl(lang, 'ask_checkout') : tpl(lang, 'ask_dates');
+  } else if (activeField === 'package_interest') {
+    question = (ex.check_in && ex.check_out && ex.guest_count != null)
+      ? tpl(lang, 'ask_package_ready')
+      : tpl(lang, 'ask_package');
+  } else {
+    question = tpl(lang, 'ask_dates');
+  }
+  return `${tpl(lang, 'clarify_prefix')} ${question}`;
 }
 
 function hasExplicitDates(text) {
@@ -913,11 +940,43 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   }
 
   const detectedLanguage = detectLanguage(messageText, src.language_hint || guestContext.language);
-  const packageExplainerIntent = detectPackageExplainerIntent(messageText);
+  let packageExplainerIntent = detectPackageExplainerIntent(messageText);
   const packageMutation = detectPackageMutationIntent(messageText);
   const greetingOnly = isGreetingOnlyMessage(messageText);
   const classification = classifyMessageLane(messageText, guestContext);
   let { lane, handoff, reasons, confidence, paymentKind } = classification;
+
+  // Stage 28i — conversation brain (deterministic decision before reply finalizes).
+  const activeMissingField = resolveActiveIntakeMissingField(guestContext);
+  const inActiveBooking = conversationIntakeInProgress(guestContext);
+  const brain = decideConversationAction({
+    message_text: messageText,
+    guest_context: guestContext,
+    prior_extracted_fields: priorExtracted,
+    active_missing_field: activeMissingField,
+    in_active_booking: inActiveBooking,
+    message_lane: lane,
+    env: ctx.env,
+  });
+
+  // The brain recognises package side-questions the explainer detector misses
+  // (e.g. "explain the packages") and asks us to preserve the active booking context.
+  let preserveActiveBooking = false;
+  if (!greetingOnly && !packageExplainerIntent
+    && brain.side_question_answer_needed && brain.side_question_type) {
+    packageExplainerIntent = brain.side_question_type;
+  }
+  if (packageExplainerIntent && inActiveBooking
+    && (brain.preserve_context || brain.intent === 'side_question')) {
+    preserveActiveBooking = true;
+  }
+
+  // Unknown short message inside an active booking → clarify, never silent handoff.
+  let clarifyActiveBooking = false;
+  if (!greetingOnly && !packageExplainerIntent
+    && brain.intent === 'clarify' && brain.should_handoff === false && inActiveBooking) {
+    clarifyActiveBooking = true;
+  }
 
   if (greetingOnly) {
     lane = 'general_question';
@@ -979,17 +1038,26 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     missingRequired = [];
   }
 
+  // Stage 28i — when answering a side-question or clarifying mid-booking, carry the
+  // prior extracted fields + active intake state forward so the next turn keeps context.
+  let preservedExtracted = null;
+  let preservedIntakeState = null;
+  if ((preserveActiveBooking || clarifyActiveBooking) && lane !== 'new_booking_inquiry') {
+    preservedExtracted = { ...priorExtracted };
+    preservedIntakeState = 'collecting_required_details';
+  }
+
   let safeHandoffRequired = greetingOnly
     ? false
-    : (packageExplainerIntent
+    : ((packageExplainerIntent || clarifyActiveBooking)
       ? false
       : (lane === 'staff_handoff_required'
         || handoff
         || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r))));
 
-  if (packageExplainerIntent || greetingOnly) {
+  if (packageExplainerIntent || greetingOnly || clarifyActiveBooking) {
     handoff = false;
-    reasons = greetingOnly ? [] : [];
+    reasons = [];
   }
 
   const readiness = computeBookingIntakeReadiness(
@@ -1023,6 +1091,10 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     safeHandoffRequired = false;
   }
 
+  if (preservedIntakeState && lane !== 'new_booking_inquiry') {
+    intakeState = preservedIntakeState;
+  }
+
   let proposedReply;
   if (greetingOnly) {
     proposedReply = buildGreetingMenuReply(detectedLanguage);
@@ -1037,6 +1109,8 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       hasActivePaymentChoiceContext(guestContext),
       reasons,
     );
+  } else if (clarifyActiveBooking) {
+    proposedReply = buildClarifyReply(detectedLanguage, activeMissingField, priorExtracted);
   } else if (safeHandoffRequired) {
     proposedReply = buildLaneReply(
       lane === 'cancel_or_change_request' ? lane : 'staff_handoff_required',
@@ -1087,9 +1161,21 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     intake_state: intakeState,
     detected_language: detectedLanguage,
     confidence,
-    extracted_fields: lane === 'new_booking_inquiry' ? extractedFields : {},
-    missing_required_fields: lane === 'new_booking_inquiry' ? missingRequired : [],
+    extracted_fields: lane === 'new_booking_inquiry'
+      ? extractedFields
+      : (preservedExtracted || {}),
+    missing_required_fields: lane === 'new_booking_inquiry'
+      ? missingRequired
+      : (preservedExtracted ? computeMissingRequired(preservedExtracted) : []),
     ...readinessOutput,
+    conversation_brain: {
+      intent: brain.intent,
+      reply_type: brain.reply_type,
+      source: brain.source,
+      preserve_context: preserveActiveBooking,
+      clarify: clarifyActiveBooking,
+      reset_context: brain.reset_context === true,
+    },
     safe_handoff_required: safeHandoffRequired,
     handoff_reasons: [...reasons],
     proposed_luna_reply: proposedReply,
