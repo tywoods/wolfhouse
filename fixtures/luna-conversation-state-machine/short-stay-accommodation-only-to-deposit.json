@@ -3,6 +3,10 @@
   "label": "Short-stay accommodation-only to deposit",
   "contact_name": "Marco",
   "reference_date": "2026-06-10",
+  "hygiene_window": {
+    "check_in": "2026-07-01",
+    "check_out": "2026-07-05"
+  },
   "turns": [
     { "message": "hi" },
     { "message": "book a stay" },
@@ -53,6 +57,7 @@
   "webhook_expect": {
     "expected_payment_status_after_webhook": "deposit_paid",
     "expected_amount_paid_cents": 10000,
+    "expected_balance_due_cents": 8000,
     "expected_confirmation_sent": false,
     "expected_confirmation_sent_at_unchanged": true,
     "expected_no_duplicate_payment_truth": true,
@@ -64,6 +69,7 @@
     "confirmation_message_contains": ["2684#", "Somo"],
     "confirmation_message_contains_booking_code": true,
     "confirmation_message_contains_paid_cents": 10000,
+    "confirmation_message_contains_balance_cents": 8000,
     "confirmation_message_not_contains": ["dry run", "quote_status", "payment_choice", "guest_context", "intake_state"],
     "confirmation_sent": false,
     "confirmation_sent_at_unchanged": true,

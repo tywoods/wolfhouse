@@ -13,6 +13,10 @@ const fs = require('fs');
 const path = require('path');
 const { withPgClient } = require('./pg-connect');
 const { isStagingResetEnvironment } = require('./luna-test-reset-phone');
+const {
+  sumCompletedPaymentCentsForBooking,
+  deriveBookingPaymentState,
+} = require('./luna-booking-payment-totals');
 
 const WRITE_SOURCE = 'luna_guest_stage27p';
 const REUSED_WEBHOOK_PATH = 'handleStripeWebhook (Stage 8.4.11)';
@@ -178,6 +182,9 @@ function buildValidationBlockedResponse(pm, session, reasons) {
 }
 
 function formatIdempotentSuccess(pm) {
+  const bkPaid = Number(pm.bk_amount_paid || 0);
+  const bkBalance = Number(pm.bk_balance || 0);
+  const bkPayStatus = trimStr(pm.bk_payment_status) || (bkBalance === 0 && Number(pm.bk_total || 0) > 0 ? 'paid' : 'deposit_paid');
   return {
     success: true,
     ...TRUTH_SAFETY,
@@ -187,8 +194,10 @@ function formatIdempotentSuccess(pm) {
     booking_id: pm.booking_id,
     booking_code: pm.booking_code,
     booking_status: pm.booking_status,
+    booking_payment_status: bkPayStatus,
     amount_paid_cents: Number(pm.pm_amount_paid || 0),
-    balance_due_cents: Number(pm.bk_balance || 0),
+    balance_due_cents: bkBalance,
+    booking_amount_paid_cents: bkPaid,
     stripe_checkout_session_id: pm.stripe_checkout_session_id,
     idempotent_replay: true,
     next_safe_step: 'ready_for_confirmation_dry_run',
@@ -233,6 +242,7 @@ async function fetchPaymentForTruth(pg, paymentDraftId, sessionId) {
            p.metadata               AS payment_metadata,
            b.booking_code,
            b.status::text           AS booking_status,
+           b.payment_status::text   AS bk_payment_status,
            b.total_amount_cents     AS bk_total,
            b.amount_paid_cents      AS bk_amount_paid,
            b.balance_due_cents      AS bk_balance,
@@ -310,20 +320,14 @@ function validatePaymentForTruth(pm, session, input) {
 async function applyPaymentTruthTransaction(pg, pm, session, event, env, actor, metadataSource) {
   const sessionId = session.id;
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
-  const newPmPaidCents = stripePaidCents;
-  const prevBkPaid = Number(pm.bk_amount_paid || 0);
-  const bkTotal = Number(pm.bk_total || 0);
-  const newBkPaid = Math.min(prevBkPaid + stripePaidCents, bkTotal > 0 ? bkTotal : prevBkPaid + stripePaidCents);
-  const newBkBalance = bkTotal > 0 ? Math.max(bkTotal - newBkPaid, 0) : 0;
-
-  let newBkPayStatus;
-  if (newBkBalance === 0 && bkTotal > 0) {
-    newBkPayStatus = 'paid';
-  } else if (pm.payment_kind === 'deposit_only') {
-    newBkPayStatus = 'deposit_paid';
-  } else {
-    newBkPayStatus = 'waiting_payment';
-  }
+  const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(pg, pm.booking_id, pm.payment_id);
+  const amounts = deriveBookingPaymentState({
+    bkTotal: pm.bk_total,
+    prevCompletedPaidCents: prevCompletedPaid,
+    stripePaidCents,
+    paymentKind: pm.payment_kind,
+  });
+  const { newPmPaidCents, newBkPaid, newBkBalance, newBkPayStatus } = amounts;
 
   const confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
   const skipVerify = readEnv(env).STRIPE_WEBHOOK_SKIP_VERIFY === 'true';
@@ -471,6 +475,8 @@ module.exports = {
   confirmPaymentTruthApproved,
   extractStripeSession,
   validatePaymentForTruth,
+  applyPaymentTruthTransaction,
+  deriveBookingPaymentState,
   ELIGIBLE_PAYMENT_STATUSES,
   REUSED_WEBHOOK_PATH,
   WRITE_SOURCE,

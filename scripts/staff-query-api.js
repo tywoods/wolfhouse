@@ -361,6 +361,10 @@ const {
   runGuestStripeTestLinkCreateApproved,
 } = require('./lib/luna-guest-stripe-test-link-create');
 const {
+  sumCompletedPaymentCentsForBooking,
+  deriveBookingPaymentState,
+} = require('./lib/luna-booking-payment-totals');
+const {
   getPauseState,
   pauseConversation,
   resumeConversation,
@@ -11699,33 +11703,29 @@ async function handleStripeWebhook(req, res) {
     return sendJSON(res, 200, addonBody);
   }
 
-  // ── 7. Derive amounts (deposit_only / full_amount package payments) ───────
-  // Stripe session.amount_total is in smallest currency unit (cents for EUR)
-  const stripePaidCents    = Number(session.amount_total || pm.amount_due_cents || 0);
-  const newPmPaidCents     = stripePaidCents;   // This payment record
-  const prevBkPaid         = Number(pm.bk_amount_paid || 0);
-  const bkTotal            = Number(pm.bk_total        || 0);
-  const newBkPaid          = Math.min(prevBkPaid + stripePaidCents, bkTotal > 0 ? bkTotal : prevBkPaid + stripePaidCents);
-  const newBkBalance       = bkTotal > 0 ? Math.max(bkTotal - newBkPaid, 0) : 0;
-
-  // ── 8. Determine new booking payment_status ───────────────────────────────
-  // Use existing payment_status enum values from schema inspection:
-  //   not_requested, waiting_payment, payment_link_sent, deposit_paid, paid,
-  //   refunded, failed, expired
+  // ── 7–9. Derive amounts from completed payment rows + atomic DB update ─────
+  const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
+  let newPmPaidCents;
+  let newBkPaid;
+  let newBkBalance;
   let newBkPayStatus;
-  if (newBkBalance === 0 && bkTotal > 0) {
-    newBkPayStatus = 'paid';
-  } else if (pm.payment_kind === 'deposit_only') {
-    newBkPayStatus = 'deposit_paid';
-  } else {
-    newBkPayStatus = 'waiting_payment';
-  }
+  let confirmationDraft;
 
-  const confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
-
-  // ── 9. Atomic DB update: payment + booking ────────────────────────────────
   try {
     await withPgClient(async (pg) => {
+      const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(pg, pm.booking_id, pm.payment_id);
+      const derived = deriveBookingPaymentState({
+        bkTotal: pm.bk_total,
+        prevCompletedPaidCents: prevCompletedPaid,
+        stripePaidCents,
+        paymentKind: pm.payment_kind,
+      });
+      newPmPaidCents = derived.newPmPaidCents;
+      newBkPaid = derived.newBkPaid;
+      newBkBalance = derived.newBkBalance;
+      newBkPayStatus = derived.newBkPayStatus;
+      confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
+
       await pg.query('BEGIN');
       try {
         await pg.query(

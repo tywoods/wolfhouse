@@ -56,6 +56,10 @@ const {
   defaultConnectionString,
   UNPAID_PAYMENT_CANCEL_STATUSES,
 } = require('./lib/open-demo-playground-common');
+const {
+  runLiveProofHygiene,
+  liveProofHygieneGuidanceLines,
+} = require('./lib/luna-live-proof-hygiene');
 
 const WRITE_SOURCE = 'luna_conversation_state_machine_tester';
 
@@ -89,7 +93,8 @@ Options:
   --json                   Print JSON report only
   --verbose                Print full turn diagnostics
   --keep-bookings          Keep unpaid test holds after --allow-writes (skip cleanup)
-  --allow-writes           After conversation, run hold/draft + Stripe TEST write proof
+  --preclean-unpaid-holds  With --allow-writes, cancel unpaid holds for fixture phone + hygiene_window before write proof
+  --fresh-proof-window     Alias for --preclean-unpaid-holds
   --require-stripe-test-link  With --allow-writes, fail if Stripe TEST checkout is not created
   --simulate-stripe-webhook  With --allow-writes --require-stripe-test-link, apply payment truth via Stage 27p helper
   --expect-confirmation-preview  After payment truth, run Stage 27q confirmation preview dry-run
@@ -110,6 +115,7 @@ function parseArgs(argv) {
     verbose: false,
     keepBookings: false,
     allowWrites: false,
+    precleanUnpaidHolds: false,
     requireStripeTestLink: false,
     simulateStripeWebhook: false,
     expectConfirmationPreview: false,
@@ -128,6 +134,7 @@ function parseArgs(argv) {
     else if (a === '--verbose') opts.verbose = true;
     else if (a === '--keep-bookings') opts.keepBookings = true;
     else if (a === '--allow-writes') opts.allowWrites = true;
+    else if (a === '--preclean-unpaid-holds' || a === '--fresh-proof-window') opts.precleanUnpaidHolds = true;
     else if (a === '--require-stripe-test-link') opts.requireStripeTestLink = true;
     else if (a === '--simulate-stripe-webhook') opts.simulateStripeWebhook = true;
     else if (a === '--expect-confirmation-preview') opts.expectConfirmationPreview = true;
@@ -233,6 +240,9 @@ async function loadPaymentBookingSnapshot(pg, paymentDraftId, bookingCode) {
             b.id::text AS booking_id,
             b.status::text AS booking_status,
             b.payment_status::text AS booking_payment_status,
+            b.amount_paid_cents AS booking_amount_paid_cents,
+            b.balance_due_cents AS booking_balance_due_cents,
+            b.total_amount_cents AS booking_total_amount_cents,
             b.confirmation_sent_at::text AS confirmation_sent_at,
             (SELECT COUNT(*)::int FROM payments px WHERE px.booking_id = b.id) AS payment_row_count
        FROM payments p
@@ -394,7 +404,12 @@ async function simulateStripeWebhookPaymentTruth(proof, opts) {
     webhook.payment_status_after = after1 && after1.payment_status;
     webhook.booking_payment_status_after = after1 && after1.booking_payment_status;
     webhook.booking_status_after = after1 && after1.booking_status;
-    webhook.amount_paid_cents_after = after1 ? Number(after1.amount_paid_cents || 0) : null;
+    webhook.amount_paid_cents_after = after1
+      ? Number((after1.booking_amount_paid_cents ?? after1.amount_paid_cents) || 0)
+      : null;
+    webhook.balance_due_cents_after = after1
+      ? Number(after1.booking_balance_due_cents ?? 0)
+      : null;
     webhook.confirmation_sent_at_after = after1 && after1.confirmation_sent_at ? after1.confirmation_sent_at : null;
     webhook.confirmation_sent = !!webhook.confirmation_sent_at_after;
     webhook.payment_row_count_after = after2 && after2.payment_row_count;
@@ -599,6 +614,9 @@ function checkWebhookExpectations(webhookExpect, proof, opts) {
   if (we.expected_amount_paid_cents != null && w.amount_paid_cents_after !== we.expected_amount_paid_cents) {
     failures.push(`expected_amount_paid_cents ${we.expected_amount_paid_cents} got ${w.amount_paid_cents_after}`);
   }
+  if (we.expected_balance_due_cents != null && w.balance_due_cents_after !== we.expected_balance_due_cents) {
+    failures.push(`expected_balance_due_cents ${we.expected_balance_due_cents} got ${w.balance_due_cents_after}`);
+  }
   if (we.expected_confirmation_sent === false && w.confirmation_sent === true) {
     failures.push('confirmation_sent expected false after webhook');
   }
@@ -676,6 +694,13 @@ function checkConfirmationExpectations(confirmationExpect, proof, opts) {
       failures.push(`confirmation_message missing paid amount ${euros}`);
     }
   }
+  if (ce.confirmation_message_contains_balance_cents != null) {
+    const euros = formatEuroCents(ce.confirmation_message_contains_balance_cents).toLowerCase();
+    const centsStr = String(ce.confirmation_message_contains_balance_cents);
+    if (!msg.includes(euros) && !msg.includes(centsStr) && !msg.includes('balance')) {
+      failures.push(`confirmation_message missing balance amount ${euros}`);
+    }
+  }
   if (Array.isArray(ce.confirmation_message_not_contains)) {
     for (const needle of ce.confirmation_message_not_contains) {
       if (msg.includes(String(needle).toLowerCase())) {
@@ -687,6 +712,10 @@ function checkConfirmationExpectations(confirmationExpect, proof, opts) {
     if (msg.includes(term.toLowerCase())) {
       failures.push(`confirmation internal language: ${term}`);
     }
+  }
+
+  if (ce.expected_balance_due_cents != null && cp.balance_due_cents !== ce.expected_balance_due_cents) {
+    failures.push(`expected_balance_due_cents ${ce.expected_balance_due_cents} got ${cp.balance_due_cents}`);
   }
 
   if (cp.result === 'FAIL' || (cp.attempted && cp.result !== 'PASS' && cp.result !== 'PARTIAL')) {
@@ -1178,6 +1207,60 @@ function checkWriteExpectations(writeExpect, proof, opts, webhookExpect, confirm
   return failures;
 }
 
+function resolveHygieneWindow(fixture) {
+  const hw = (fixture && (fixture.hygiene_window || fixture.proof_window)) || null;
+  if (hw && hw.check_in && hw.check_out) {
+    return { check_in: hw.check_in, check_out: hw.check_out };
+  }
+  return null;
+}
+
+async function runPrecleanHygiene(fixture, phone, opts) {
+  const window = resolveHygieneWindow(fixture);
+  const summary = {
+    attempted: false,
+    result: 'SKIPPED',
+    skip_reason: null,
+    found_unpaid_holds: 0,
+    archived_or_cancelled: 0,
+    skipped_paid_or_confirmed: 0,
+  };
+  if (!opts.precleanUnpaidHolds) return summary;
+
+  summary.attempted = true;
+  if (!opts.allowWrites) {
+    summary.skip_reason = 'preclean_requires_allow_writes';
+    summary.result = 'FAIL';
+    return summary;
+  }
+  if (!window) {
+    summary.skip_reason = 'fixture_missing_hygiene_window';
+    summary.result = 'FAIL';
+    return summary;
+  }
+
+  const out = await runLiveProofHygiene({
+    client_slug: CLIENT_SLUG,
+    phone,
+    check_in: window.check_in,
+    check_out: window.check_out,
+    source: WRITE_SOURCE,
+  }, {
+    allow_hygiene: true,
+    confirm_hygiene: true,
+    dry_run: false,
+  });
+
+  summary.found_unpaid_holds = out.found_unpaid_holds;
+  summary.archived_or_cancelled = out.archived_or_cancelled;
+  summary.skipped_paid_or_confirmed = out.skipped_paid_or_confirmed;
+  summary.refused_reason = out.refused_reason || null;
+  summary.actions = out.actions || [];
+  summary.skipped = out.skipped || [];
+  summary.result = out.refused_reason ? 'FAIL' : 'PASS';
+  return summary;
+}
+
 async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
   const stripeRequired = isStripeCheckoutRequired(opts, fixture.write_expect);
   const proof = {
@@ -1208,11 +1291,19 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     stripe_webhook: null,
     confirmation_preview: null,
     confirmation_send: null,
+    hygiene: null,
   };
 
   const envCheck = assessWriteEnvironment();
   if (!envCheck.ok) {
     proof.skip_reason = envCheck.reasons.join('; ');
+    return proof;
+  }
+
+  proof.hygiene = await runPrecleanHygiene(fixture, phone, opts);
+  if (opts.precleanUnpaidHolds && proof.hygiene.result === 'FAIL') {
+    proof.skip_reason = proof.hygiene.skip_reason || proof.hygiene.refused_reason || 'preclean_failed';
+    proof.result = 'FAIL';
     return proof;
   }
 
@@ -1437,6 +1528,9 @@ function printStripeWebhookDiagnostics(wm) {
   console.log(`    payment_status before/after webhook: ${wh.payment_status_before || '—'} → ${wh.payment_status_after || '—'}`);
   console.log(`    booking payment_status before/after: ${wh.booking_payment_status_before || '—'} → ${wh.booking_payment_status_after || '—'}`);
   console.log(`    amount_paid_cents before/after: ${wh.amount_paid_cents_before} → ${wh.amount_paid_cents_after}`);
+  if (wh.balance_due_cents_after != null) {
+    console.log(`    balance_due_cents after webhook: ${wh.balance_due_cents_after}`);
+  }
   console.log(`    booking_status after webhook: ${wh.booking_status_after || '—'}`);
   console.log(`    confirmation_sent: ${wh.confirmation_sent === true}`);
   console.log(`    confirmation_sent_at before/after: ${wh.confirmation_sent_at_before || 'null'} → ${wh.confirmation_sent_at_after || 'null'}`);
@@ -1846,6 +1940,11 @@ async function main() {
     process.exit(0);
   }
 
+  if (opts.precleanUnpaidHolds && !opts.allowWrites) {
+    console.error('FAIL — --preclean-unpaid-holds requires --allow-writes');
+    process.exit(1);
+  }
+
   if (opts.requireStripeTestLink && !opts.allowWrites) {
     console.error('FAIL — --require-stripe-test-link requires --allow-writes');
     process.exit(1);
@@ -1896,6 +1995,11 @@ async function main() {
     } catch (e) {
       console.error(`FAIL — ${e.message}`);
       process.exit(1);
+    }
+    if (!opts.json) {
+      for (const line of liveProofHygieneGuidanceLines()) {
+        console.error(`NOTE — ${line}`);
+      }
     }
   }
 
