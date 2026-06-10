@@ -1,6 +1,6 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-10 (**Stage 28a — real-phone staging rehearsal readiness**): **READINESS PLAN** (docs only). Ale/Cami real-phone rehearsal on staging — allowlisted test phones, gate-by-gate modes A–D, runbook + rollback. Stage **27 closed** (`4f76aae`). Verifier: `verify:stage28a-real-phone-rehearsal`. Doc: [STAGE-28A-REAL-PHONE-STAGING-REHEARSAL.md](STAGE-28A-REAL-PHONE-STAGING-REHEARSAL.md). **Production not live.** **Next:** **Stage 28b** — real-phone review-only rehearsal (Mode A). **After base rehearsal:** services/add-ons — **not UI polish** unless it blocks demo observability.
+**Last updated:** 2026-06-10 (**Stage 28c.1 — Meta-compatible n8n booking-write ingress**): **WORKFLOW EXPORT + DOCS** (no deploy, no activation). Fixed 27demo-l pipe: same-path **GET hub.challenge** + **POST** Meta inbound on `open-demo-whatsapp-booking-write-27l`. Rejects Staff API→n8n bridge bandaid. Verifier: `verify:stage28c1-meta-compatible-n8n-booking-ingress`. Doc: [STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md](STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md). **28c failed** (POST-only webhook). **Next:** **Rerun 28c** real-handset booking-write · dates **Nov 10–17, 2026**. **Production not live.**
 
 **Prior — Stage 27demo closeout (2026-06-10):** **PASS** full n8n open-demo chain **27demo-l → 27demo-o.3** on hosted staging. Anchor **`WH-G27-0ECC1D9B57`**. Commit **`4f76aae`**. Doc: [STAGE-27DEMO-CLOSEOUT.md](STAGE-27DEMO-CLOSEOUT.md).
 

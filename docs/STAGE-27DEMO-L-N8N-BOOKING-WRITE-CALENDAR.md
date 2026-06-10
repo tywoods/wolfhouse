@@ -29,6 +29,7 @@
 | **Repo export** | `n8n/Luna Open Demo WhatsApp Booking Write Pipe.json` |
 | **Staging import id** | `stage27demoLWrite01` |
 | **Webhook path** | `open-demo-whatsapp-booking-write-27l` |
+| **Meta ingress** | **GET** hub verify + **POST** inbound on same path ([28c.1](STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md)) |
 | **Credential** | `Luna Bot Internal Token (staging)` |
 | **Default in repo** | `active: false` |
 
@@ -153,6 +154,8 @@ Three Meta-shaped POSTs to staging n8n webhook; unique `wamid` per turn.
 ## 7. Next — 27demo-m
 
 Stripe TEST link through n8n: add `create_stripe_test_link_confirmed` only when `OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED=true`. Still no payment-link send unless 27demo-e scope.
+
+See [STAGE-27DEMO-M-N8N-STRIPE-TEST-LINK.md](STAGE-27DEMO-M-N8N-STRIPE-TEST-LINK.md).
 
 ---
 

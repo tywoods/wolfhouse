@@ -222,6 +222,7 @@
     "verify:stage27demo-l-n8n-booking-write": "node scripts/verify-stage27demo-l-n8n-booking-write.js",
     "verify:stage27demo-m-n8n-stripe-test-link": "node scripts/verify-stage27demo-m-n8n-stripe-test-link.js",
     "verify:stage28a-real-phone-rehearsal": "node scripts/verify-stage28a-real-phone-rehearsal.js",
+    "verify:stage28c1-meta-compatible-n8n-booking-ingress": "node scripts/verify-stage28c1-meta-compatible-n8n-booking-ingress.js",
     "open-demo:whatsapp-inbound": "node scripts/run-open-demo-whatsapp-inbound-dry-run.js",
     "luna:guest-torture:generate": "node scripts/generate-luna-guest-torture-fixtures.js",
     "luna:guest-torture": "node scripts/run-luna-guest-torture-tests.js",

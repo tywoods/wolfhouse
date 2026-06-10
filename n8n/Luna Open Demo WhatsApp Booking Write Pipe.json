@@ -2,10 +2,47 @@
   "name": "Luna Open Demo WhatsApp Booking Write Pipe",
   "active": false,
   "meta": {
-    "description": "Stage 27demo-l booking-write pipe. STAGING/DEMO ONLY — INACTIVE in repo. Meta WhatsApp webhook → normalize → guard phone_number_id 1152900101233109 → POST /staff/bot/open-demo-whatsapp-inbound-dry-run with create_demo_hold_draft_confirmed:true and assign_demo_bed_confirmed:true (Staff API gates write). Pass guest_context/guest_email via flat body fields on turns 2–3. No send_live_reply_confirmed. No Stripe/payment-link/confirmation flags. Staff API is brain.",
+    "description": "Stage 27demo-l + 28c.1 Meta-compatible booking-write pipe. STAGING/DEMO ONLY — INACTIVE in repo. Same path open-demo-whatsapp-booking-write-27l: GET hub.challenge verify (wolfhouse_verify_token) + POST Meta inbound → normalize → guard phone_number_id 1152900101233109 → POST /staff/bot/open-demo-whatsapp-inbound-dry-run with create_demo_hold_draft_confirmed:true and assign_demo_bed_confirmed:true (Staff API gates write). Multi-turn guest_context via Staff API persistence + optional harness flat fields. No Staff API→n8n bridge. No send_live_reply_confirmed. No Stripe/payment-link/confirmation. Staff API is brain.",
     "instanceId": "stage27demo-l-booking-write-pipe"
   },
   "nodes": [
+    {
+      "id": "l0",
+      "name": "Webhook - Meta GET Hub Verify",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [80, 80],
+      "parameters": {
+        "path": "open-demo-whatsapp-booking-write-27l",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "a28c1-0027-4000-8000-000000000031"
+    },
+    {
+      "id": "l0a",
+      "name": "Code - Meta Hub Verify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 80],
+      "parameters": {
+        "jsCode": "// Stage 28c.1 — Meta GET hub challenge (same path as POST inbound)\nconst raw = $input.first().json;\nconst query = raw.query || {};\nconst mode = String(query['hub.mode'] || '').trim();\nconst verifyToken = query['hub.verify_token'];\nconst challenge = query['hub.challenge'];\nconst EXPECTED = 'wolfhouse_verify_token';\n\nif (mode !== 'subscribe') {\n  throw new Error('invalid_hub_mode');\n}\nif (!verifyToken || String(verifyToken) !== EXPECTED) {\n  throw new Error('invalid_verify_token');\n}\nif (challenge == null || String(challenge).length === 0) {\n  throw new Error('missing_hub_challenge');\n}\n\nreturn [{ json: { challenge: String(challenge), meta_verify_ok: true } }];"
+      }
+    },
+    {
+      "id": "l0b",
+      "name": "Respond - Meta Hub Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [480, 80],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
     {
       "id": "l1",
       "name": "Webhook - Open Demo Booking Write Inbound",
@@ -164,6 +201,12 @@
     }
   ],
   "connections": {
+    "Webhook - Meta GET Hub Verify": {
+      "main": [[{ "node": "Code - Meta Hub Verify", "type": "main", "index": 0 }]]
+    },
+    "Code - Meta Hub Verify": {
+      "main": [[{ "node": "Respond - Meta Hub Challenge", "type": "main", "index": 0 }]]
+    },
     "Webhook - Open Demo Booking Write Inbound": {
       "main": [[{ "node": "Code - Set Booking Write Pipe Flags", "type": "main", "index": 0 }]]
     },

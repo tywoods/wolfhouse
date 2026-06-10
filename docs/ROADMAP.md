@@ -1,4 +1,8 @@
-**Stage 28b REAL-PHONE REVIEW-ONLY REHEARSAL — NEXT (2026-06-10):** Mode A from [STAGE-28A-REAL-PHONE-STAGING-REHEARSAL.md](STAGE-28A-REAL-PHONE-STAGING-REHEARSAL.md) — allowlisted Ale/Cami phones → staging n8n review pipe → Staff Portal Inbox; **no booking write**. Gates restored after window. **Alternative:** 28c booking-write rehearsal if review already proven on real phones.
+**Stage 28c REAL-PHONE BOOKING-WRITE REHEARSAL — NEXT (2026-06-10):** After **28c.1** Meta GET+POST ingress — real phone → Meta → staging n8n `27demo-l` → hold/draft/beds/calendar. Dates **Nov 10–17, 2026**. Doc: [STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md](STAGE-28C1-META-COMPATIBLE-N8N-BOOKING-INGRESS.md) §5. **28c prior attempt:** FAIL (POST-only n8n webhook).
+
+**Stage 28c.1 META-COMPATIBLE N8N BOOKING INGRESS — DONE (2026-06-10):** Two webhook nodes (GET verify + POST inbound) on `open-demo-whatsapp-booking-write-27l`. Rejects Staff API→n8n bridge. Verifier: `verify:stage28c1-meta-compatible-n8n-booking-ingress`. **No deploy/activation in slice.**
+
+**Stage 28b REAL-PHONE REVIEW-ONLY REHEARSAL — PASS (2026-06-10):** Mode A — Meta-shaped POST to staging n8n review pipe; not true handset. Caveat documented in 28a runbook.
 
 **Stage 28a REAL-PHONE STAGING REHEARSAL READINESS — PLAN (2026-06-10):** Docs-only runbook, rehearsal modes A–D, test phone policy, rollback gates. Stage 27 closed (`4f76aae`). Verifier: `verify:stage28a-real-phone-rehearsal`. **Defer UI polish.** **After base rehearsal:** services/add-ons.
 
