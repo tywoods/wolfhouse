@@ -125,7 +125,8 @@ function buildMetaOpenDemoWriteConfirmFlags(env, review, openDemoBody) {
     create_demo_hold_draft_confirmed: true,
     assign_demo_bed_confirmed: true,
     create_stripe_test_link_confirmed: stripeOk,
-    send_payment_link_whatsapp_confirmed: stripeOk && liveReplyGate.ok === true,
+    // Composer live reply includes Stripe TEST URL inline when live-reply gate is on.
+    send_payment_link_whatsapp_confirmed: stripeOk && liveReplyGate.ok !== true,
   };
 }
 

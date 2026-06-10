@@ -81,7 +81,7 @@ function getBedCalendarBlocksQuery() {
   return `
 SELECT
   bb.id::text               AS booking_bed_id,
-  bb.room_code,
+  COALESCE(NULLIF(bb.room_code, ''), r.room_code) AS room_code,
   bb.bed_code,
   bb.assignment_start_date::text  AS assignment_start_date,
   bb.assignment_end_date::text    AS assignment_end_date,

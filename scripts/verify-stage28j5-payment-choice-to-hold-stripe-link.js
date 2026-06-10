@@ -270,10 +270,10 @@ const stripeEnv = {
 };
 const flagsOn = adapter.buildMetaOpenDemoWriteConfirmFlags(stripeEnv, readyReview, body);
 if (flagsOn.create_stripe_test_link_confirmed === true
-  && flagsOn.send_payment_link_whatsapp_confirmed === true) {
-  pass('E5', 'stripe + payment-link WhatsApp flags when test gates enabled');
+  && flagsOn.send_payment_link_whatsapp_confirmed === false) {
+  pass('E5', 'stripe on with live reply — composer owns inline URL (no separate payment-link send)');
 } else {
-  fail('E5', `stripe flags not set when gates on: ${JSON.stringify(flagsOn)}`);
+  fail('E5', `stripe flags unexpected when live-reply gate on: ${JSON.stringify(flagsOn)}`);
 }
 
 if (gate.shouldDeferOpenDemoPaymentChoiceReviewReply(body, stagingEnv, readyReview, {

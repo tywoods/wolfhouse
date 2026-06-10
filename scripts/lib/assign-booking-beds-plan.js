@@ -12,7 +12,10 @@ function parseBedList(raw) {
 }
 
 function roomCodeFromBedCode(bedCode) {
-  const m = String(bedCode || '').match(/^(R\d+)-/i);
+  const s = String(bedCode || '').trim();
+  const demo = s.match(/^(DEMO-R\d+)-/i);
+  if (demo) return demo[1].toUpperCase();
+  const m = s.match(/^(R\d+)-/i);
   return m ? m[1].toUpperCase() : null;
 }
 
