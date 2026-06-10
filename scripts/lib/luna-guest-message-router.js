@@ -468,6 +468,18 @@ function isTransferRequestMessage(text) {
     || (/\b(?:Santander|Bilbao|SDR|BIO)\b/i.test(t) && /\b(?:transfer|aeropuerto|airport|flughafen|pickup|pick.?up|shuttle|aéroport|aeroport)\b/i.test(t));
 }
 
+/** Bare greeting only — not "Hi, we are 2 people…" */
+function isGreetingOnlyMessage(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  return /^(?:hi|hey|hello|hiya|howdy|yo|good\s+(?:morning|afternoon|evening)|ciao|hola|bonjour|hallo|salut|servus)(?:\s*[!?.…]*)?$/i.test(t);
+}
+
+function buildGreetingMenuReply(lang) {
+  const intro = `${tpl(lang, 'intro')} 🌊`;
+  return `${intro.replace(/^Hi!/, 'Hey!')} How can I help — are you looking to book a stay, ask about packages, or something else?`;
+}
+
 function classifyMessageLane(text, guestContext) {
   const t = String(text || '');
   const ctx = guestContext || {};
@@ -566,6 +578,10 @@ function classifyMessageLane(text, guestContext) {
       reasons: ['outside_policy_question'],
       confidence: 0.7,
     };
+  }
+
+  if (isGreetingOnlyMessage(t)) {
+    return { lane: 'general_question', handoff: false, reasons: [], confidence: 0.95, greeting_only: true };
   }
 
   return {
@@ -785,8 +801,16 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   const detectedLanguage = detectLanguage(messageText, src.language_hint || guestContext.language);
   const packageExplainerIntent = detectPackageExplainerIntent(messageText);
   const packageMutation = detectPackageMutationIntent(messageText);
+  const greetingOnly = isGreetingOnlyMessage(messageText);
   const classification = classifyMessageLane(messageText, guestContext);
   let { lane, handoff, reasons, confidence, paymentKind } = classification;
+
+  if (greetingOnly) {
+    lane = 'general_question';
+    handoff = false;
+    reasons = [];
+    confidence = 0.95;
+  }
 
   if (packageExplainerIntent) {
     lane = 'general_question';
@@ -840,15 +864,17 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     missingRequired = [];
   }
 
-  let safeHandoffRequired = packageExplainerIntent
+  let safeHandoffRequired = greetingOnly
     ? false
-    : (lane === 'staff_handoff_required'
-      || handoff
-      || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r)));
+    : (packageExplainerIntent
+      ? false
+      : (lane === 'staff_handoff_required'
+        || handoff
+        || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r))));
 
-  if (packageExplainerIntent) {
+  if (packageExplainerIntent || greetingOnly) {
     handoff = false;
-    reasons = [];
+    reasons = greetingOnly ? [] : [];
   }
 
   const readiness = computeBookingIntakeReadiness(
@@ -861,14 +887,16 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   const hasPriorFields = Object.keys(priorExtracted).some((k) => priorExtracted[k] != null
     && (Array.isArray(priorExtracted[k]) ? priorExtracted[k].length : true));
 
-  let intakeState = resolveIntakeState(
-    lane,
-    missingRequired,
-    safeHandoffRequired,
-    guestContext.intake_state,
-    hasPriorFields,
-    readiness,
-  );
+  let intakeState = greetingOnly
+    ? 'inquiry_received'
+    : resolveIntakeState(
+      lane,
+      missingRequired,
+      safeHandoffRequired,
+      guestContext.intake_state,
+      hasPriorFields,
+      readiness,
+    );
 
   if (reasons.includes('needs_booking_identification') && !safeHandoffRequired) {
     intakeState = guestContext.intake_state || 'inquiry_received';
@@ -881,7 +909,9 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   }
 
   let proposedReply;
-  if (packageExplainerIntent) {
+  if (greetingOnly) {
+    proposedReply = buildGreetingMenuReply(detectedLanguage);
+  } else if (packageExplainerIntent) {
     proposedReply = buildPackageExplainerReply(detectedLanguage, packageExplainerIntent, {
       bookingInProgress: isBookingExplainerContext(guestContext),
     });
@@ -935,6 +965,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   return {
     success: true,
     ...ROUTER_SAFETY,
+    greeting_only: greetingOnly,
     message_lane: lane,
     intake_state: intakeState,
     detected_language: detectedLanguage,
@@ -952,6 +983,8 @@ function runLunaGuestMessageRouterDryRun(input, context) {
 module.exports = {
   runLunaGuestMessageRouterDryRun,
   classifyMessageLane,
+  isGreetingOnlyMessage,
+  buildGreetingMenuReply,
   detectLanguage,
   detectPackageExplainerIntent,
   buildPackageExplainerReply,

@@ -194,6 +194,10 @@ function resolveProposedNextAction(payload) {
     hold_payment_draft_plan: plan,
   } = payload;
 
+  if (result && result.greeting_only) {
+    return 'await_guest_reply';
+  }
+
   if (gate && gate.gate_status !== 'allowed_dry_run') {
     return gate.gate_status === 'staff_handoff_required'
       ? 'staff_handoff_required'
@@ -293,6 +297,10 @@ function resolveProposedReply(payload, messageText, priorGuestContext) {
 
   if (gate && gate.gate_status !== 'allowed_dry_run') {
     return buildGateBlockedReply(gate);
+  }
+
+  if (result && result.greeting_only && result.proposed_luna_reply) {
+    return sanitizeReply(result.proposed_luna_reply, { result, quote, availability }, null);
   }
 
   const fallbackCtx = { result, quote, availability };
@@ -455,6 +463,10 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     },
     routerContext,
   );
+
+  if (result.greeting_only) {
+    return buildNonBookingLaneResponse(result, gate);
+  }
 
   const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext);
 

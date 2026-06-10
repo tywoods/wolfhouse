@@ -7,6 +7,10 @@
 
 const { runGuestInboundReviewDryRun } = require('./luna-guest-inbound-review-dry-run');
 const { evaluateGuestReplySendRouteWithPause } = require('./luna-guest-reply-send-route');
+const {
+  persistOpenDemoInboundThreadMessage,
+  persistOpenDemoLiveReplyThreadMessage,
+} = require('./luna-staff-inbox-thread-message');
 const { runGuestHoldPaymentDraftWriteDryRunApproved } = require('./luna-guest-hold-payment-draft-write');
 const { runOpenDemoBookingBedAssignApproved } = require('./open-demo-booking-bed-assign');
 const { runGuestStripeTestLinkCreateApproved } = require('./luna-guest-stripe-test-link-create');
@@ -79,7 +83,35 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
 
   const reviewOutcome = await runGuestInboundReviewDryRun(inboundBody, { pg });
   if (!reviewOutcome.ok) {
-    return { reviewOutcome, liveReply: null, bookingWrite: null, bedAssignment: null, stripeLink: null, paymentLinkSend: null };
+    return {
+      reviewOutcome,
+      liveReply: null,
+      bookingWrite: null,
+      bedAssignment: null,
+      stripeLink: null,
+      paymentLinkSend: null,
+      threadInbound: null,
+      threadOutbound: null,
+    };
+  }
+
+  let threadInbound = null;
+  const conversationId = reviewOutcome.body && reviewOutcome.body.conversation_id
+    ? String(reviewOutcome.body.conversation_id)
+    : null;
+  if (pg && conversationId) {
+    try {
+      threadInbound = await persistOpenDemoInboundThreadMessage(pg, {
+        client_slug: inboundBody.client_slug,
+        conversation_id: conversationId,
+        message_text: inboundBody.message_text,
+        whatsapp_message_id: inboundBody.inbound_message_id,
+        wamid: rawBody.wamid || inboundBody.inbound_message_id,
+        inbound_message_id: inboundBody.inbound_message_id,
+      });
+    } catch (_) {
+      threadInbound = { ok: false, persisted: false, reason: 'persist_error' };
+    }
   }
 
   if (typeof options.resolveWriteFlagsAfterReview === 'function') {
@@ -93,12 +125,15 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   let bedAssignment = null;
   let stripeLink = null;
   let paymentLinkSend = null;
+  let threadOutbound = null;
+
+  const proposedReplyForSend = reviewOutcome.body.review
+    && reviewOutcome.body.review.proposed_luna_reply != null
+    ? String(reviewOutcome.body.review.proposed_luna_reply).trim()
+    : '';
 
   if (sendLiveReplyConfirmed) {
-    const proposedReply = reviewOutcome.body.review
-      && reviewOutcome.body.review.proposed_luna_reply != null
-      ? String(reviewOutcome.body.review.proposed_luna_reply).trim()
-      : '';
+    const proposedReply = proposedReplyForSend;
 
     if (!proposedReply) {
       liveReply = {
@@ -353,6 +388,19 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     }
   }
 
+  if (pg && conversationId && proposedReplyForSend && liveReply && liveReply.send_performed === true) {
+    try {
+      threadOutbound = await persistOpenDemoLiveReplyThreadMessage(pg, {
+        client_slug: inboundBody.client_slug,
+        conversation_id: conversationId,
+        message_text: proposedReplyForSend,
+        idempotency_key: liveReply.idempotency_key || null,
+      }, liveReply.send_result || liveReply);
+    } catch (_) {
+      threadOutbound = { ok: false, persisted: false, reason: 'persist_error' };
+    }
+  }
+
   return {
     reviewOutcome,
     liveReply,
@@ -360,6 +408,8 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     bedAssignment,
     stripeLink,
     paymentLinkSend,
+    threadInbound,
+    threadOutbound,
     effectiveFlags: {
       send_live_reply_confirmed: sendLiveReplyConfirmed,
       create_demo_hold_draft_confirmed: createHoldDraftConfirmed,
