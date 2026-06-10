@@ -49,6 +49,10 @@
     "duplicate_booking_created": false,
     "cleanup_expected": true,
     "expected_deposit_cents": 20000,
-    "idempotency_check": true
+    "idempotency_check": true,
+    "assigned_beds_count": 1,
+    "no_operator_blocked_beds": true,
+    "no_inactive_beds": true,
+    "assigned_priority_order": "ascending"
   }
 }

@@ -1,0 +1,47 @@
+{
+  "_note": "Template only — not live inventory. Populate from Airtable Rooms/Beds or database/*-Grid view.csv exports.",
+  "required_env_for_airtable": [
+    "AIRTABLE_API_TOKEN",
+    "AIRTABLE_BASE_ID",
+    "AIRTABLE_ROOMS_TABLE_ID",
+    "AIRTABLE_BEDS_TABLE_ID"
+  ],
+  "room_fields": {
+    "Room ID": "rooms.room_code (R1…R10)",
+    "Room Name": "rooms.name",
+    "House": "rooms.house",
+    "Room Type": "rooms.room_type",
+    "Capacity": "rooms.capacity",
+    "Fill Priority": "rooms.fill_priority (lower = fill earlier)",
+    "Private Priority": "rooms.private_priority",
+    "Gender Strategy": "rooms.gender_strategy (Flexible, Male preferred, Female preferred, Mixed ok, Private)",
+    "Can be Matrimonial": "rooms.can_be_matrimonial",
+    "Often used By Operator": "rooms.often_used_by_operator",
+    "Active": "rooms.active",
+    "Room Sort / Round Robin Order": "rooms.sort_order",
+    "Avoid Until Needed": "rooms.avoid_until_needed"
+  },
+  "bed_fields": {
+    "Bed ID": "beds.bed_code (R1-B1…)",
+    "Room ID": "rooms.room_code link",
+    "Bed Number": "beds.bed_number",
+    "Bed Label": "beds.bed_label",
+    "Active": "beds.active",
+    "Sellable": "beds.sellable",
+    "Planning Row Label": "beds.planning_row_label"
+  },
+  "example_room": {
+    "room_code": "R3",
+    "fill_priority": 1,
+    "gender_strategy": "Flexible",
+    "often_used_by_operator": false,
+    "active": true
+  },
+  "example_bed": {
+    "bed_code": "R3-B1",
+    "room_code": "R3",
+    "bed_label": "Bed 1",
+    "active": true,
+    "sellable": true
+  }
+}

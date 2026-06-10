@@ -32,6 +32,7 @@ const {
   shouldAllowGuestStripeTestLinkCreate,
   isStripeTestSecretKey,
 } = require('./lib/luna-guest-stripe-test-link-create');
+const { runOpenDemoBookingBedAssignApproved } = require('./lib/open-demo-booking-bed-assign');
 const {
   assertNotProductionDb,
   assessCleanupEligibility,
@@ -189,6 +190,34 @@ async function loadPaymentTruth(pg, paymentDraftId) {
     [paymentDraftId],
   );
   return res.rows[0] || null;
+}
+
+async function loadAssignedBedsWithMeta(pg, bookingCode) {
+  const res = await pg.query(
+    `SELECT bb.bed_code, bb.room_code, bb.assignment_type,
+            r.name AS room_name, r.fill_priority, r.private_priority,
+            r.gender_strategy, r.room_type, r.often_used_by_operator,
+            bd.active AS bed_active, bd.sellable AS bed_sellable, bd.bed_label
+       FROM booking_beds bb
+       JOIN bookings b ON b.id = bb.booking_id AND b.client_id = bb.client_id
+       JOIN clients c ON c.id = b.client_id
+       JOIN beds bd ON bd.id = bb.bed_id AND bd.client_id = bb.client_id
+       JOIN rooms r ON r.id = bd.room_id AND r.client_id = bd.client_id
+      WHERE c.slug = $1 AND b.booking_code = $2
+      ORDER BY r.fill_priority ASC, bb.bed_code ASC`,
+    [CLIENT_SLUG, bookingCode],
+  );
+  return res.rows;
+}
+
+function priorityOrderValid(beds) {
+  if (!beds || beds.length < 2) return true;
+  for (let i = 1; i < beds.length; i++) {
+    const prev = Number(beds[i - 1].fill_priority);
+    const cur = Number(beds[i].fill_priority);
+    if (Number.isFinite(prev) && Number.isFinite(cur) && cur < prev) return false;
+  }
+  return true;
 }
 
 function buildWriteChain(lastOut) {
@@ -405,6 +434,42 @@ function checkWriteExpectations(writeExpect, proof, opts) {
     }
   }
 
+  const assigned = w.assigned_beds || [];
+  if (writeExpect.assigned_beds_count != null) {
+    if (assigned.length !== writeExpect.assigned_beds_count) {
+      failures.push(`assigned_beds_count expected ${writeExpect.assigned_beds_count} got ${assigned.length}`);
+    }
+  }
+  if (writeExpect.no_operator_blocked_beds === true) {
+    const op = assigned.filter((b) => b.often_used_by_operator === true);
+    if (op.length) {
+      failures.push(`operator_blocked_bed_assigned: ${op.map((b) => b.bed_code).join(', ')}`);
+    }
+  }
+  if (writeExpect.no_inactive_beds === true) {
+    const bad = assigned.filter((b) => b.bed_active === false || b.bed_sellable === false);
+    if (bad.length) {
+      failures.push(`inactive_or_unsellable_bed_assigned: ${bad.map((b) => b.bed_code).join(', ')}`);
+    }
+  }
+  if (writeExpect.assigned_room_contains) {
+    const needle = String(writeExpect.assigned_room_contains).toLowerCase();
+    const hit = assigned.some((b) => String(b.room_code || '').toLowerCase().includes(needle)
+      || String(b.room_name || '').toLowerCase().includes(needle));
+    if (!hit) failures.push(`assigned_room_contains "${writeExpect.assigned_room_contains}" missing`);
+  }
+  if (writeExpect.assigned_bed_contains) {
+    const needle = String(writeExpect.assigned_bed_contains).toLowerCase();
+    const hit = assigned.some((b) => String(b.bed_code || '').toLowerCase().includes(needle)
+      || String(b.bed_label || '').toLowerCase().includes(needle));
+    if (!hit) failures.push(`assigned_bed_contains "${writeExpect.assigned_bed_contains}" missing`);
+  }
+  if (writeExpect.assigned_priority_order === 'ascending' && assigned.length > 1) {
+    if (!priorityOrderValid(assigned)) {
+      failures.push('assigned_priority_order not ascending by fill_priority');
+    }
+  }
+
   return failures;
 }
 
@@ -433,6 +498,8 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
     cleanup: null,
     require_stripe_test_link: stripeRequired,
     stripe_gate_reasons: [],
+    bed_assignment: null,
+    assigned_beds: [],
   };
 
   const envCheck = assessWriteEnvironment();
@@ -472,6 +539,23 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
   }
   if (proof.deposit_amount_cents == null && lastOut.hold_payment_draft_plan) {
     proof.deposit_amount_cents = lastOut.hold_payment_draft_plan.payment_amount_cents;
+  }
+
+  proof.bed_assignment = await withPgClient((pg) => runOpenDemoBookingBedAssignApproved(pg, {
+    client_slug: CLIENT_SLUG,
+    booking_id: bookingWrite.booking_id,
+    booking_code: bookingWrite.booking_code,
+    review: {
+      result: lastOut.result,
+      availability: lastOut.availability,
+      quote: lastOut.quote,
+      payment_choice: lastOut.payment_choice,
+    },
+    env: { ...process.env, WHATSAPP_DRY_RUN: 'true' },
+    host_header: 'localhost',
+  }));
+  if (proof.booking_code) {
+    proof.assigned_beds = await withPgClient((pg) => loadAssignedBedsWithMeta(pg, proof.booking_code));
   }
 
   const stripeGate = evaluateStripeGate(
@@ -551,9 +635,22 @@ async function runWriteModeProof(fixture, lastOut, phone, contactName, opts) {
   return proof;
 }
 
+function printBedAssignmentDiagnostics(wm) {
+  if (!wm || !wm.bed_assignment) return;
+  const ba = wm.bed_assignment;
+  console.log(`    bed_assignment: ${ba.assignment_write_status || '—'} beds=${(wm.assigned_beds || []).length}`);
+  for (const bed of wm.assigned_beds || []) {
+    console.log(`      ${bed.room_code}/${bed.bed_code} fill_priority=${bed.fill_priority} gender=${bed.gender_strategy || '—'} operator=${bed.often_used_by_operator === true}`);
+  }
+  if ((wm.assigned_beds || []).length > 1) {
+    console.log(`    assignment_priority_ascending: ${priorityOrderValid(wm.assigned_beds)}`);
+  }
+}
+
 function printStripeWriteDiagnostics(wm) {
   if (!wm) return;
   console.log(`    write: ${wm.result} booking=${wm.booking_code || '—'} draft=${wm.payment_draft_id || '—'}`);
+  printBedAssignmentDiagnostics(wm);
   if (wm.stripe_test_checkout_created) {
     console.log('    stripe_test_checkout_created: true');
     console.log(`    checkout_url present: ${!!wm.stripe_checkout_url}`);
