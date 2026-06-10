@@ -37,5 +37,18 @@
     },
     "expected_payment_choice": "deposit",
     "expected_quote_ready": true
+  },
+  "write_expect": {
+    "booking_created": true,
+    "booking_code_exists": true,
+    "payment_draft_created": true,
+    "payment_draft_id_exists": true,
+    "stripe_test_checkout_created": "optional",
+    "stripe_live_used": false,
+    "confirmation_sent": false,
+    "duplicate_booking_created": false,
+    "cleanup_expected": true,
+    "expected_deposit_cents": 20000,
+    "idempotency_check": true
   }
 }
