@@ -381,9 +381,16 @@ Exit `0` with JSON; no writes.
 
 ---
 
-## 11. Recommended next patch
+## 11. Playground live mode (Stage 28g)
 
-**Stage 28g** (optional) — paid-booking archival policy + conversation trim harness; keep unpaid cleanup as default.
+For **usable** async testing (Luna replies on phone, no Cursor polling):
+
+- Doc: [STAGE-28G-OPEN-DEMO-PLAYGROUND-LIVE-MODE.md](STAGE-28G-OPEN-DEMO-PLAYGROUND-LIVE-MODE.md)
+- `npm run playground:open-demo-on` / `npm run playground:open-demo-off`
+
+## 12. Recommended next patch
+
+Hosted deploy of 28g Meta adapter + first async handset smoke after `playground:open-demo-on`.
 
 ---
 

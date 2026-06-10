@@ -14,6 +14,7 @@ const {
   isOpenDemoWhatsAppEnabled,
   isOpenDemoBookingWritesEnabled,
   evaluateOpenDemoWhatsAppGate,
+  evaluateOpenDemoWhatsAppLiveReplyGate,
   evaluateOpenDemoHoldDraftWriteReady,
   validateOpenDemoInboundBody,
 } = require('./open-demo-whatsapp-gate');
@@ -92,6 +93,15 @@ function shouldRouteMetaInboundToOpenDemo(env, normalized) {
 /**
  * Auto-confirm write flags when staging booking-write gate is on and review is ready.
  */
+/**
+ * Stage 28g — auto-confirm live reply when staging playground live-reply gate passes.
+ * Never sets Stripe/payment-link/confirmation flags.
+ */
+function shouldMetaOpenDemoSendLiveReply(env, openDemoBody) {
+  const gate = evaluateOpenDemoWhatsAppLiveReplyGate(openDemoBody, env);
+  return gate.ok === true;
+}
+
 function buildMetaOpenDemoWriteConfirmFlags(env, review) {
   if (!isOpenDemoBookingWritesEnabled(env)) {
     return {
@@ -112,19 +122,29 @@ function buildMetaOpenDemoWriteConfirmFlags(env, review) {
   };
 }
 
-function buildDraftFromOpenDemoReview(review) {
+function buildDraftFromOpenDemoReview(review, liveReply, env, openDemoBody) {
   const r = review || {};
+  const lr = liveReply || {};
+  const liveGate = evaluateOpenDemoWhatsAppLiveReplyGate(openDemoBody || {}, env || process.env);
+  const sent = lr.whatsapp_sent === true || lr.send_performed === true;
+  const attempted = lr.live_reply_attempted === true;
+  const blockedReasons = [];
+  if (!liveGate.ok && liveGate.code) blockedReasons.push(liveGate.code);
+  if (lr.live_reply_gate_code) blockedReasons.push(lr.live_reply_gate_code);
+  if (!blockedReasons.length && !sent && !attempted) {
+    blockedReasons.push('live_reply_not_requested');
+  }
   return {
     suggested_reply: r.proposed_luna_reply != null ? String(r.proposed_luna_reply) : null,
     next_action: r.proposed_next_action || null,
     send_eligibility: {
       requires_staff: false,
-      send_allowed_later: true,
-      auto_send_ready: false,
+      send_allowed_later: liveGate.ok === true,
+      auto_send_ready: liveGate.ok === true && !!trimStr(r.proposed_luna_reply),
       allowed_send_kind: 'staff_reply',
-      sends_whatsapp: false,
-      live_send_blocked: true,
-      blocked_reasons: ['whatsapp_dry_run_active', 'live_send_env_not_enabled'],
+      sends_whatsapp: sent,
+      live_send_blocked: !sent,
+      blocked_reasons: sent ? [] : blockedReasons,
     },
     extraction: null,
     open_demo_review: true,
@@ -137,13 +157,19 @@ function buildOpenDemoResultSummary(outcome) {
     : {};
   const bw = outcome.bookingWrite || {};
   const ba = outcome.bedAssignment || {};
+  const lr = outcome.liveReply || {};
   const result = review.result || {};
   const pc = review.payment_choice || {};
+  const whatsappSent = lr.whatsapp_sent === true || lr.send_performed === true;
 
   return {
     route: META_OPEN_DEMO_SOURCE,
     calls_n8n: false,
     review_ok: outcome.reviewOutcome && outcome.reviewOutcome.ok === true,
+    live_reply_attempted: lr.live_reply_attempted === true,
+    whatsapp_sent: whatsappSent,
+    live_send_blocked: lr.live_send_blocked !== false && !whatsappSent,
+    live_reply_gate_code: lr.live_reply_gate_code || null,
     proposed_next_action: review.proposed_next_action || null,
     package_code: result.package_code || null,
     guest_count: result.guest_count != null ? result.guest_count : null,
@@ -167,7 +193,8 @@ function buildOpenDemoResultSummary(outcome) {
 }
 
 /**
- * Process Meta guest inbound via internal open-demo path (no n8n, no live reply).
+ * Process Meta guest inbound via internal open-demo path (no n8n).
+ * Live reply when OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED=true and WHATSAPP_DRY_RUN=false.
  */
 async function processMetaOpenDemoGuestInbound(input) {
   const pg = input.pg;
@@ -196,7 +223,12 @@ async function processMetaOpenDemoGuestInbound(input) {
     };
   }
 
-  const outcome = await executeOpenDemoWhatsAppInbound(pg, openDemoBody, env, {
+  const executeBody = { ...openDemoBody };
+  if (shouldMetaOpenDemoSendLiveReply(env, openDemoBody)) {
+    executeBody.send_live_reply_confirmed = true;
+  }
+
+  const outcome = await executeOpenDemoWhatsAppInbound(pg, executeBody, env, {
     hostHeader: '',
     actorId: 'meta-whatsapp-open-demo',
     resolveWriteFlagsAfterReview: (review) => buildMetaOpenDemoWriteConfirmFlags(env, review),
@@ -205,17 +237,22 @@ async function processMetaOpenDemoGuestInbound(input) {
   const review = outcome.reviewOutcome && outcome.reviewOutcome.body
     ? outcome.reviewOutcome.body.review || {}
     : {};
-  const draft = buildDraftFromOpenDemoReview(review);
+  const liveReply = outcome.liveReply || null;
+  const draft = buildDraftFromOpenDemoReview(review, liveReply, env, openDemoBody);
   const openDemoResult = buildOpenDemoResultSummary(outcome);
   const writeCreated = outcome.bookingWrite
     && (outcome.bookingWrite.write_status === 'created'
       || outcome.bookingWrite.write_status === 'reused_existing');
+  const sendAttempted = liveReply && liveReply.live_reply_attempted === true;
+  const sendStatus = liveReply && liveReply.whatsapp_sent
+    ? 'sent'
+    : (sendAttempted ? 'blocked' : null);
 
   const decisionPatch = buildDecisionPatch({
     draft,
     draft_called: true,
-    send_attempted: false,
-    send_status: null,
+    send_attempted: sendAttempted,
+    send_status: sendStatus,
   });
 
   const normalizedForStorage = {
@@ -256,9 +293,9 @@ async function processMetaOpenDemoGuestInbound(input) {
   const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
     draft,
     draft_called: true,
-    send_attempted: false,
-    send_result: null,
-    idempotency_key: null,
+    send_attempted: sendAttempted,
+    send_result: liveReply && liveReply.send_result ? liveReply.send_result : liveReply,
+    idempotency_key: liveReply && liveReply.idempotency_key ? liveReply.idempotency_key : null,
     booking_write_preview: normalizedForStorage.booking_write_preview,
     event_persisted: !!updatedRow,
   });
@@ -268,6 +305,9 @@ async function processMetaOpenDemoGuestInbound(input) {
       ...response,
       open_demo_route: true,
       open_demo_result: openDemoResult,
+      sends_whatsapp: openDemoResult.whatsapp_sent === true,
+      whatsapp_sent: openDemoResult.whatsapp_sent === true,
+      live_send_blocked: openDemoResult.live_send_blocked === true,
       creates_booking: writeCreated,
       creates_payment: writeCreated,
       no_write_performed: !writeCreated,
@@ -287,6 +327,7 @@ module.exports = {
   buildOpenDemoGuestEmailFromPhone,
   buildOpenDemoRequestBodyFromMeta,
   shouldRouteMetaInboundToOpenDemo,
+  shouldMetaOpenDemoSendLiveReply,
   buildMetaOpenDemoWriteConfirmFlags,
   processMetaOpenDemoGuestInbound,
   buildOpenDemoResultSummary,

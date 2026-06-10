@@ -17,6 +17,29 @@ const DEFAULT_PHONE = '+491726422307';
 const DEFAULT_LIMIT = 20;
 const N8N_WORKFLOW_ID = 'stage27demoLWrite01';
 const DEMO_PHONE_NUMBER_ID = '1152900101233109';
+const STAFF_API_APP = 'wh-staging-staff-api';
+const STAFF_API_RG = 'wh-staging-rg';
+
+/** Stage 28g — staging guest playground ON (live replies + booking writes). */
+const PLAYGROUND_ON_ENV = {
+  WHATSAPP_DRY_RUN: 'false',
+  OPEN_DEMO_WHATSAPP_ENABLED: 'true',
+  OPEN_DEMO_BOOKING_WRITES_ENABLED: 'true',
+  OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED: 'true',
+  OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED: 'false',
+  OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID: DEMO_PHONE_NUMBER_ID,
+  WHATSAPP_PHONE_NUMBER_ID: DEMO_PHONE_NUMBER_ID,
+};
+
+/** Safe baseline after playground OFF. */
+const PLAYGROUND_OFF_ENV = {
+  WHATSAPP_DRY_RUN: 'true',
+  OPEN_DEMO_WHATSAPP_ENABLED: 'true',
+  OPEN_DEMO_BOOKING_WRITES_ENABLED: 'false',
+  OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED: 'false',
+  OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED: 'false',
+  OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID: DEMO_PHONE_NUMBER_ID,
+};
 
 const GATE_NAMES = [
   'WHATSAPP_DRY_RUN',
@@ -25,6 +48,8 @@ const GATE_NAMES = [
   'OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED',
   'OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED',
   'OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID',
+  'WHATSAPP_PHONE_NUMBER_ID',
+  'LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST',
 ];
 
 const PROD_DB_PATTERNS = [
@@ -263,15 +288,82 @@ function assessCleanupEligibility(booking, payments, opts = {}) {
   return { eligible: reasons.length === 0, reasons };
 }
 
+function azExec(cmd) {
+  return execSync(cmd, { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+
+function setStaffApiEnvVars(pairs) {
+  const args = Object.entries(pairs).map(([k, v]) => `${k}=${v}`).join(' ');
+  azExec([
+    'az containerapp update',
+    `--name ${STAFF_API_APP}`,
+    `--resource-group ${STAFF_API_RG}`,
+    `--set-env-vars ${args}`,
+    '-o none',
+  ].join(' '));
+}
+
+function removeStaffApiEnvVars(names) {
+  if (!names.length) return;
+  azExec([
+    'az containerapp update',
+    `--name ${STAFF_API_APP}`,
+    `--resource-group ${STAFF_API_RG}`,
+    `--remove-env-vars ${names.join(' ')}`,
+    '-o none',
+  ].join(' '));
+}
+
+async function setGuestPhoneInactive(pg, phone) {
+  const { raw, e164 } = parsePhoneVariants(phone);
+  const before = await pg.query(
+    `SELECT role, is_active::text FROM staff_phone_access
+      WHERE client_slug=$1 AND (phone_normalized=$2 OR phone_e164=$3)`,
+    [CLIENT_SLUG, raw, e164],
+  );
+  await pg.query(
+    `UPDATE staff_phone_access SET is_active=false, updated_at=NOW()
+      WHERE client_slug=$1 AND (phone_normalized=$2 OR phone_e164=$3 OR phone_e164=$4)`,
+    [CLIENT_SLUG, raw, e164, phone],
+  );
+  const after = await pg.query(
+    `SELECT role, is_active::text FROM staff_phone_access
+      WHERE client_slug=$1 AND (phone_normalized=$2 OR phone_e164=$3)`,
+    [CLIENT_SLUG, raw, e164],
+  );
+  return { before: before.rows[0] || null, after: after.rows[0] || null };
+}
+
+async function restoreGuestPhoneOwner(pg, phone) {
+  const { raw, e164 } = parsePhoneVariants(phone);
+  await pg.query(
+    `UPDATE staff_phone_access SET is_active=true, updated_at=NOW()
+      WHERE client_slug=$1 AND (phone_normalized=$2 OR phone_e164=$3 OR phone_e164=$4)`,
+    [CLIENT_SLUG, raw, e164, phone],
+  );
+  const after = await pg.query(
+    `SELECT role, is_active::text FROM staff_phone_access
+      WHERE client_slug=$1 AND (phone_normalized=$2 OR phone_e164=$3)`,
+    [CLIENT_SLUG, raw, e164],
+  );
+  return after.rows[0] || null;
+}
+
 module.exports = {
   CLIENT_SLUG,
   DEFAULT_BASE_URL,
   DEFAULT_PHONE,
   DEFAULT_LIMIT,
+  DEMO_PHONE_NUMBER_ID,
+  STAFF_API_APP,
+  STAFF_API_RG,
   GATE_NAMES,
+  PLAYGROUND_ON_ENV,
+  PLAYGROUND_OFF_ENV,
   UNPAID_PAYMENT_CANCEL_STATUSES,
   assertNotProductionDb,
   assessCleanupEligibility,
+  azExec,
   defaultConnectionString,
   fetchMetaCallback,
   fetchN8nWorkflowStatus,
@@ -279,5 +371,9 @@ module.exports = {
   parseBaseArgs,
   parsePhoneVariants,
   redactUrl,
+  removeStaffApiEnvVars,
+  restoreGuestPhoneOwner,
+  setGuestPhoneInactive,
+  setStaffApiEnvVars,
   trimStr,
 };

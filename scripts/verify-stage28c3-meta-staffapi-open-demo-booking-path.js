@@ -23,7 +23,6 @@ const OPEN_DEMO_ROUTE = '/staff/bot/open-demo-whatsapp-inbound-dry-run';
 const DEMO_PHONE_ID = '1152900101233109';
 
 const FORBIDDEN_META_FLAGS = [
-  'send_live_reply_confirmed',
   'create_stripe_test_link_confirmed',
   'send_payment_link_whatsapp_confirmed',
 ];
@@ -144,6 +143,15 @@ for (const flag of FORBIDDEN_META_FLAGS) {
   } else {
     fail(id, `adapter must not pass ${flag}`);
   }
+}
+
+if (adapterSrc.includes('shouldMetaOpenDemoSendLiveReply')
+  && adapterSrc.includes('evaluateOpenDemoWhatsAppLiveReplyGate')) {
+  pass('B6-send_live_reply_confirmed', 'live reply gated via env (28g), not hardcoded');
+} else if (!adapterSrc.includes('send_live_reply_confirmed: true')) {
+  pass('B6-send_live_reply_confirmed', 'adapter does not hardcode live reply');
+} else {
+  fail('B6-send_live_reply_confirmed', 'live reply must be env-gated');
 }
 
 if (adapterSrc.includes('calls_n8n: false') || adapterSrc.includes('calls_n8n:false')) {
