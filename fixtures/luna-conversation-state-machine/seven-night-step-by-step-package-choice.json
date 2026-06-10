@@ -1,34 +1,20 @@
 {
-  "id": "package-side-question-mid-flow",
-  "label": "Package side-question mid-flow to deposit",
+  "id": "seven-night-step-by-step-package-choice",
+  "label": "Seven-night step-by-step package choice to deposit",
   "contact_name": "Marco",
   "reference_date": "2026-06-10",
   "turns": [
     { "message": "hi" },
     { "message": "book a stay" },
     { "message": "July 10-17" },
-    { "message": "1",
+    {
+      "message": "1",
       "expect": {
-        "reply_contains": ["Malibu", "Uluwatu", "Waimea"],
+        "reply_contains": ["Malibu", "Uluwatu", "Waimea", "7-night"],
         "expected_reply_source": "luna_reply_composer",
         "expected_composer_state": "ask_package_choice",
         "no_form_dev_copy": true,
         "reply_not_contains": ["I am not confirming", "I am not adding"],
-        "expected_fields": {
-          "check_in": "2026-07-10",
-          "check_out": "2026-07-17",
-          "guest_count": 1
-        },
-        "expected_no_handoff": true
-      }
-    },
-    {
-      "message": "explain the packages",
-      "expect": {
-        "reply_contains": ["Malibu", "Uluwatu", "Waimea", "July"],
-        "expected_reply_source": "luna_reply_composer",
-        "expected_composer_state": "explain_packages",
-        "no_form_dev_copy": true,
         "expected_fields": {
           "check_in": "2026-07-10",
           "check_out": "2026-07-17",
@@ -47,6 +33,8 @@
           "check_out": "2026-07-17"
         },
         "expected_quote_ready": true,
+        "expected_reply_source": "luna_reply_composer",
+        "no_form_dev_copy": true,
         "expected_no_handoff": true
       }
     },
@@ -54,6 +42,8 @@
       "message": "deposit",
       "expect": {
         "expected_payment_choice": "deposit",
+        "expected_reply_source": "luna_reply_composer",
+        "no_form_dev_copy": true,
         "expected_no_handoff": true
       }
     }

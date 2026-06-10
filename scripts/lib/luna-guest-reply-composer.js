@@ -16,6 +16,9 @@ const {
 const {
   detectServiceSideQuestionIntent,
   detectTransferSideQuestionIntent,
+  buildServiceSideQuestionReply,
+  buildTransferSideQuestionReply,
+  isPackageBooking,
 } = require('./luna-guest-service-transfer-explainer');
 const {
   buildBookingIntakePolicySnapshot,
@@ -39,7 +42,10 @@ const COMPOSER_STATES = Object.freeze([
   'ask_room_preference_private_shared',
   'ask_room_preference_neutral',
   'ask_transfer_info_casual',
+  'ask_package_choice',
   'explain_packages',
+  'explain_service_addon',
+  'explain_transfer',
   'accommodation_quote_ready',
   'package_quote_ready',
   'ask_addons_after_quote',
@@ -141,12 +147,94 @@ function isShortStayAccommodation(result, quote, fields) {
   return isAccommodationOnlyIntent(fields.package_interest);
 }
 
-function isUncoveredSideQuestion(messageText, result) {
-  const t = trimStr(messageText);
-  if (!t) return false;
-  if (detectTransferSideQuestionIntent(t) || result.message_lane === 'transfer_request') return true;
-  if (detectServiceSideQuestionIntent(t) || result.message_lane === 'add_service_request') return true;
-  return false;
+function hasWeeklyPackageSelected(fields) {
+  const pkg = trimStr(fields.package_interest || fields.package_code).toLowerCase();
+  return pkg && pkg !== 'no_package' && pkg !== 'package_none' && pkg !== 'accommodation_only';
+}
+
+function needsPackageChoice(fields, result, quote) {
+  if (isShortStayAccommodation(result, quote, fields)) return false;
+  const nights = computeStayNights(fields.check_in, fields.check_out);
+  if (nights == null || nights < 7) return false;
+  if (fields.guest_count == null || !fields.check_in || !fields.check_out) return false;
+  if (hasWeeklyPackageSelected(fields)) return false;
+  if (quote && quote.quote_status === 'ready') return false;
+  return true;
+}
+
+function stripLegacyActionDisclaimers(text) {
+  return trimStr(text)
+    .replace(/\s*I am not (?:adding|confirming|creating|arranging|organizing)[^.]*\.?/gi, '')
+    .replace(/\s*I(?:'m| am) not (?:adding|confirming|creating|arranging)[^.]*\.?/gi, '')
+    .replace(/\s*Non (?:sto|aggiungo)[^.]*\.?/gi, '')
+    .replace(/\s*Aún no [^.]*\.?/gi, '')
+    .trim();
+}
+
+function buildStayContextPhrase(fields, lang) {
+  const range = formatDateRange(fields.check_in, fields.check_out);
+  const guests = guestCountLabel(fields.guest_count, lang);
+  if (range && guests) return `${range} for ${guests}`;
+  if (range) return range;
+  return '';
+}
+
+function buildPackageChoiceReturnTail(fields, lang) {
+  const ctx = buildStayContextPhrase(fields, lang);
+  if (!ctx) return 'Which package would you like — Malibu, Uluwatu, or Waimea?';
+  return `For your ${ctx} stay, which package would you like — Malibu, Uluwatu, or Waimea?`;
+}
+
+function buildServiceReturnTail(fields, quote) {
+  if (quote && quote.short_stay_addons_pending === true) {
+    return 'For this booking, do you need any of those extras, or just the stay?';
+  }
+  return 'Want me to keep going with your booking?';
+}
+
+function buildTransferReturnTail(fields, pc) {
+  if (isPackageBooking(fields.package_interest)) {
+    if (pc && pc.payment_choice_ready === true) {
+      return 'We can still hold your booking first.';
+    }
+    return 'We can still hold the booking first — just let me know when you have flight details.';
+  }
+  return 'Want to continue with your booking?';
+}
+
+function buildExplainPackagesReply(lang, pkgIntent, fields) {
+  const intent = pkgIntent || 'overview';
+  if (intent === 'overview') {
+    let body = buildPackageExplainerReply(lang, intent, { bookingInProgress: false });
+    body = stripLegacyActionDisclaimers(body);
+    const tail = hasWeeklyPackageSelected(fields)
+      ? `For your ${buildStayContextPhrase(fields, lang)} stay, want to stick with your package or switch?`
+      : buildPackageChoiceReturnTail(fields, lang);
+    return tail ? `${body}\n\n${tail}` : body;
+  }
+  let body = buildPackageExplainerReply(lang, intent, { bookingInProgress: false });
+  body = stripLegacyActionDisclaimers(body);
+  const tail = buildPackageChoiceReturnTail(fields, lang);
+  return tail ? `${body}\n\n${tail}` : body;
+}
+
+function buildComposerServiceReply(lang, intent, fields, quote) {
+  const raw = buildServiceSideQuestionReply(lang, intent, '');
+  const facts = stripLegacyActionDisclaimers(raw);
+  const tail = buildServiceReturnTail(fields, quote);
+  if (!facts) return null;
+  return tail ? `${facts} ${tail}` : facts;
+}
+
+function buildComposerTransferReply(lang, messageText, fields, pc) {
+  const raw = buildTransferSideQuestionReply(lang, messageText, {
+    packageInterest: fields.package_interest,
+    guestCount: fields.guest_count,
+  });
+  const facts = stripLegacyActionDisclaimers(raw);
+  const tail = buildTransferReturnTail(fields, pc);
+  if (!facts) return null;
+  return tail ? `${facts} ${tail}` : facts;
 }
 
 function isBookingFlowLane(result) {
@@ -216,13 +304,6 @@ function resolveComposerState(input) {
 
   if (!isBookingFlowLane(result)) return null;
 
-  if (isUncoveredSideQuestion(messageText, result)) return null;
-
-  const pkgIntent = detectPackageExplainerIntent(messageText);
-  if (pkgIntent && fields.check_in && fields.check_out) {
-    return 'explain_packages';
-  }
-
   if (result.safe_handoff_required === true
     || payload.proposed_next_action === 'staff_handoff_required') {
     return 'safe_handoff';
@@ -243,6 +324,23 @@ function resolveComposerState(input) {
       availability,
     },
   );
+
+  const serviceIntent = detectServiceSideQuestionIntent(messageText)
+    || (result.message_lane === 'add_service_request' ? 'services_general' : null);
+  if (serviceIntent && fields.check_in && fields.check_out) {
+    return 'explain_service_addon';
+  }
+
+  const transferIntent = detectTransferSideQuestionIntent(messageText)
+    || (result.message_lane === 'transfer_request' ? 'transfer_general' : null);
+  if (transferIntent && fields.check_in && fields.check_out) {
+    return 'explain_transfer';
+  }
+
+  const pkgIntentEarly = detectPackageExplainerIntent(messageText);
+  if (pkgIntentEarly && fields.check_in && fields.check_out) {
+    return 'explain_packages';
+  }
 
   if (mode === 'live_staging') {
     if (cs.confirmation_sent === true) return 'confirmation_sent_ack';
@@ -337,6 +435,10 @@ function resolveComposerState(input) {
     return 'ask_guests';
   }
 
+  if (needsPackageChoice(fields, result, quote)) {
+    return 'ask_package_choice';
+  }
+
   if (result.readiness_state === 'collecting_required_details'
     && payload.proposed_next_action === 'ask_missing_details') {
     return 'clarify_missing_info';
@@ -380,7 +482,12 @@ function buildReplyForState(state, ctx) {
     room_girls_mixed_unavailable: 'We do not have a girls-only room free for those dates — a mixed shared room would be the option. Is that okay?',
     room_private_shared: 'We may have a private room available for €10 per night extra. Would you prefer that, or are you okay with shared beds?',
     room_neutral: 'Do you have any room preference, or is a mixed shared room okay?',
-    transfer_casual: 'For the package transfer, you can send your airport and arrival/departure times whenever you have them.',
+    transfer_casual: 'For the package transfer, you can send your airport and arrival/departure times whenever you have them. We can still hold the booking first.',
+    ask_package_choice: () => {
+      const ctx = buildStayContextPhrase(fields, lang);
+      if (!ctx) return null;
+      return `Perfect — ${ctx} 😊 For 7-night stays, most guests choose one of the surf packages: Malibu, Uluwatu, or Waimea. Want me to explain them quickly, or do you already know which one you prefer?`;
+    },
     accommodation_quote: () => {
       if (!total) return null;
       const parts = [];
@@ -478,10 +585,14 @@ function buildReplyForState(state, ctx) {
       return L.room_neutral;
     case 'ask_transfer_info_casual':
       return L.transfer_casual;
+    case 'ask_package_choice':
+      return L.ask_package_choice();
     case 'explain_packages':
-      return buildPackageExplainerReply(lang, pkgIntent || 'overview', {
-        bookingInProgress: !!(fields.check_in && fields.check_out),
-      });
+      return buildExplainPackagesReply(lang, pkgIntent, fields);
+    case 'explain_service_addon':
+      return buildComposerServiceReply(lang, ctx.serviceIntent, fields, quote);
+    case 'explain_transfer':
+      return buildComposerTransferReply(lang, messageText, fields, pc);
     case 'accommodation_quote_ready':
     case 'ask_addons_after_quote':
       return L.accommodation_quote();
@@ -529,7 +640,10 @@ function nextGuestQuestionForState(state) {
     ask_room_preference_private_shared: 'room_preference',
     ask_room_preference_neutral: 'room_preference',
     ask_transfer_info_casual: 'transfer_info',
+    ask_package_choice: 'package_choice',
     explain_packages: 'package_choice',
+    explain_service_addon: 'addons',
+    explain_transfer: 'transfer_info',
     accommodation_quote_ready: 'addons',
     ask_addons_after_quote: 'addons',
     addons_none_confirmed: 'payment_choice',
@@ -588,7 +702,8 @@ function composeLunaGuestReply(input) {
 
   const groundingErrors = validateComposerFacts(state, facts);
   if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name',
-    'explain_packages', 'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff',
+    'explain_packages', 'explain_service_addon', 'explain_transfer', 'ask_package_choice',
+    'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff',
     'ask_room_preference_girls_mixed', 'ask_room_preference_private_shared', 'ask_room_preference_neutral',
     'ask_transfer_info_casual', 'payment_choice_ack'].includes(state)) {
     return {
@@ -614,6 +729,7 @@ function composeLunaGuestReply(input) {
     messageText: trimStr(input && input.message_text),
     facts,
     pkgIntent,
+    serviceIntent: detectServiceSideQuestionIntent(trimStr(input && input.message_text)),
   });
 
   reply = sanitizeComposerReply(reply);
@@ -643,6 +759,10 @@ module.exports = {
   resolveComposerState,
   buildReplyForState,
   buildComposerFacts,
+  needsPackageChoice,
+  buildExplainPackagesReply,
+  buildComposerServiceReply,
+  buildComposerTransferReply,
   COMPOSER_STATES,
   FORBIDDEN_GUEST_COPY_RE,
   COMPOSER_SAFETY,

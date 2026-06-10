@@ -1770,6 +1770,12 @@ function checkTurnExpectations(expect, out) {
       failures.push(`expected_reply_source ${expect.expected_reply_source} got ${src}`);
     }
   }
+  if (expect.expected_composer_state != null) {
+    const cs = (out.result && out.result.conversation_brain && out.result.conversation_brain.composer_state);
+    if (cs !== expect.expected_composer_state) {
+      failures.push(`expected_composer_state ${expect.expected_composer_state} got ${cs}`);
+    }
+  }
   return failures;
 }
 

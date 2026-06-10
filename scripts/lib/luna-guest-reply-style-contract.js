@@ -61,6 +61,8 @@ const FORM_DEV_COPY_RES = [
   /\bcannot send a payment link yet\b/i,
   /\bi am not confirming\b/i,
   /\bnot confirming or holding\b/i,
+  /\bi am not adding\b/i,
+  /\bi am not arranging\b/i,
 ];
 
 /** States that require verified quote totals before mentioning price. */
