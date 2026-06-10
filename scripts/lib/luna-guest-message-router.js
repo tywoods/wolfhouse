@@ -1167,6 +1167,14 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     reasons = [];
     confidence = Math.max(confidence, 0.9);
   }
+  if (!greetingOnly && !packageExplainerIntent && !accommodationOnlyChoice
+    && inActiveBooking && guestDeclinedAddons(messageText)) {
+    accommodationOnlyChoice = true;
+    lane = 'new_booking_inquiry';
+    handoff = false;
+    reasons = [];
+    confidence = Math.max(confidence, 0.9);
+  }
 
   // Stage 28j — reset/start-over without an active quote/payment wire: never handoff,
   // restart the intake (the orchestrator handles resets that need quote/payment strip).
@@ -1248,6 +1256,9 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     const brainPatch = brain.extracted_fields_patch || {};
     if (accommodationOnlyChoice || brainPatch.accommodation_only === true) {
       extractedFields = { ...extractedFields, package_interest: 'accommodation_only' };
+    }
+    if (guestDeclinedAddons(messageText)) {
+      extractedFields = { ...extractedFields, addons_skipped: true };
     }
     if (brainPatch.check_in && brainPatch.check_out
       && !extractedFields.check_in && !extractedFields.check_out) {

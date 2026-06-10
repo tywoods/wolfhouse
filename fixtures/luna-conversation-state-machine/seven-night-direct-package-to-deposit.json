@@ -1,0 +1,41 @@
+{
+  "id": "seven-night-direct-package-to-deposit",
+  "label": "Seven-night direct Malibu package to deposit",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 1",
+      "expect": {
+        "reply_not_contains": ["grab your name", "your name for the booking"],
+        "expected_fields": {
+          "guest_count": 1,
+          "package_interest": "malibu",
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
+        },
+        "expected_quote_ready": true,
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true,
+        "reply_contains": ["deposit"]
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_fields": {
+      "guest_count": 1,
+      "package_interest": "malibu"
+    },
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "id": "short-stay-accommodation-only-to-deposit",
+  "label": "Short-stay accommodation-only to deposit",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "hi" },
+    { "message": "book a stay" },
+    { "message": "July 1-5" },
+    { "message": "1" },
+    {
+      "message": "no thanks, i have my own stuff",
+      "expect": {
+        "reply_not_contains": ["Malibu", "Uluwatu", "Waimea"],
+        "expected_no_handoff": true,
+        "expected_quote_ready": true
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "reply_contains": ["deposit"],
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true,
+        "reply_not_contains": ["dry run", "staging", "quote_status"]
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_handoff": true,
+    "no_package_prompt": true,
+    "expected_fields": {
+      "guest_count": 1,
+      "package_interest": "accommodation_only"
+    },
+    "expected_payment_choice": "deposit",
+    "expected_quote_total_cents": 18000
+  }
+}
