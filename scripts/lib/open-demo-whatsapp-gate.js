@@ -317,11 +317,13 @@ function buildOpenDemoPaymentLinkSendBody(normalized, checkoutUrl) {
 function formatOpenDemoStripeLinkResponse(linkOut) {
   const out = { ...(linkOut || {}) };
   out.confirmation_sent = false;
+  out.payment_truth_applied = out.payment_truth_recorded === true;
   if (out.idempotent === true && out.stripe_link_created) {
     out.stripe_link_reused = true;
   } else if (out.stripe_link_created) {
     out.stripe_link_reused = false;
   }
+  if (!out.stripe_mode) out.stripe_mode = 'test';
   if (!out.next_safe_step && out.stripe_checkout_url) {
     out.next_safe_step = 'awaiting_payment_truth';
   }
@@ -338,11 +340,14 @@ function buildOpenDemoStripeLinkBlockedResponse(gateResult, extra) {
     stripe_link_attempted: false,
     stripe_link_created: false,
     stripe_link_reused: false,
+    stripe_mode: 'test',
     stripe_checkout_url: null,
     payment_link_sent: false,
     sends_whatsapp: false,
+    whatsapp_sent: false,
     live_send_blocked: true,
     confirmation_sent: false,
+    payment_truth_applied: false,
     ...(extra || {}),
   };
 }
@@ -501,6 +506,105 @@ function buildOpenDemoLiveReplyBlockedResponse(gateResult) {
   };
 }
 
+/** Dry-run payment-choice copy that must not be sent when staging writes are allowed. */
+const OPEN_DEMO_PAYMENT_CHOICE_DEFERRED_DRY_RUN_RE =
+  /I am not confirming the booking, creating a hold, or sending a payment link yet/i;
+
+function formatOpenDemoPaymentAmountEur(cents) {
+  if (cents == null || !Number.isFinite(Number(cents))) return null;
+  const n = Number(cents);
+  if (n % 100 === 0) return String(n / 100);
+  return (n / 100).toFixed(2);
+}
+
+function resolveOpenDemoPaymentChoiceLang(review) {
+  const r = review || {};
+  return (r.result && r.result.detected_language) || 'en';
+}
+
+function resolveOpenDemoPaymentChoiceAmountCents(review) {
+  const r = review || {};
+  const plan = r.hold_payment_draft_plan || {};
+  const quote = r.quote || {};
+  if (plan.payment_amount_cents != null) return plan.payment_amount_cents;
+  const dep = quote.deposit_options && quote.deposit_options.deposit_required_cents;
+  if (dep != null) return dep;
+  if (quote.quote_total_cents != null && (r.payment_choice || {}).payment_choice === 'full_payment') {
+    return quote.quote_total_cents;
+  }
+  return null;
+}
+
+function isOpenDemoDepositPaymentChoice(review) {
+  const r = review || {};
+  const pc = (r.payment_choice || {}).payment_choice
+    || (r.hold_payment_draft_plan || {}).payment_kind;
+  return pc === 'deposit';
+}
+
+/**
+ * Stage 28j.5 — defer dry-run payment-choice reply when live staging will run hold/draft writes.
+ */
+function shouldDeferOpenDemoPaymentChoiceReviewReply(body, env, review, flags) {
+  const f = flags || {};
+  if (f.send_live_reply_confirmed !== true || f.create_demo_hold_draft_confirmed !== true) {
+    return false;
+  }
+  const writeGate = evaluateOpenDemoBookingWriteGate(body, env);
+  if (!writeGate.ok) return false;
+  return evaluateOpenDemoHoldDraftWriteReady(review || {}).ok === true;
+}
+
+/**
+ * Stage 28j.5 — guest-facing reply after hold/draft (+ optional Stripe link) writes.
+ */
+function buildOpenDemoPaymentChoiceLiveReply(review, outcomes) {
+  const r = review || {};
+  const o = outcomes || {};
+  const bw = o.bookingWrite || {};
+  const plSend = o.paymentLinkSend || {};
+  const lang = resolveOpenDemoPaymentChoiceLang(r);
+  const writeOk = bw.write_status === 'created' || bw.write_status === 'reused_existing';
+  const isDeposit = isOpenDemoDepositPaymentChoice(r);
+  const amountEur = formatOpenDemoPaymentAmountEur(resolveOpenDemoPaymentChoiceAmountCents(r));
+  const linkSent = plSend.payment_link_sent === true;
+
+  const amountPhrase = amountEur
+    ? (isDeposit ? `€${amountEur} deposit` : `€${amountEur}`)
+    : (isDeposit ? 'deposit' : 'full amount');
+
+  const byLang = {
+    en: {
+      hold_staff_sends: `Thanks! Your stay is held. Our team will send your secure payment link here shortly for your ${amountPhrase}.`,
+      hold_link_sent: `Thanks! Your stay is held. I've sent your secure test payment link in a separate message for your ${amountPhrase}.`,
+      write_pending: 'Thanks! I noted your payment preference. Our team will follow up with the next step shortly.',
+    },
+    it: {
+      hold_staff_sends: `Grazie! Il soggiorno è in hold. Il team invierà a breve il link di pagamento sicuro per il ${amountPhrase}.`,
+      hold_link_sent: `Grazie! Il soggiorno è in hold. Ho inviato il link di pagamento di test in un messaggio separato per il ${amountPhrase}.`,
+      write_pending: 'Grazie! Ho annotato la preferenza di pagamento. Il team seguirà a breve.',
+    },
+    es: {
+      hold_staff_sends: `¡Gracias! Tu estancia está en hold. El equipo enviará pronto el enlace de pago seguro para el ${amountPhrase}.`,
+      hold_link_sent: `¡Gracias! Tu estancia está en hold. Envié el enlace de pago de prueba en un mensaje aparte para el ${amountPhrase}.`,
+      write_pending: '¡Gracias! Anoté tu preferencia de pago. El equipo seguirá en breve.',
+    },
+    de: {
+      hold_staff_sends: `Danke! Euer Aufenthalt ist reserviert. Das Team schickt gleich den sicheren Zahlungslink für die ${amountPhrase}.`,
+      hold_link_sent: `Danke! Euer Aufenthalt ist reserviert. Den Test-Zahlungslink habe ich in einer separaten Nachricht für die ${amountPhrase} geschickt.`,
+      write_pending: 'Danke! Ich habe eure Zahlungswahl notiert. Das Team meldet sich gleich.',
+    },
+    fr: {
+      hold_staff_sends: `Merci ! Votre séjour est en attente. L'équipe enverra bientôt le lien de paiement sécurisé pour l'${amountPhrase}.`,
+      hold_link_sent: `Merci ! Votre séjour est en attente. J'ai envoyé le lien de paiement test dans un message séparé pour l'${amountPhrase}.`,
+      write_pending: 'Merci ! J\'ai noté votre choix de paiement. L\'équipe suivra sous peu.',
+    },
+  };
+  const L = byLang[lang] || byLang.en;
+  if (!writeOk) return L.write_pending;
+  return linkSent ? L.hold_link_sent : L.hold_staff_sends;
+}
+
 function resolveInboundMessageId(body) {
   const b = body || {};
   if (b.inbound_message_id != null && String(b.inbound_message_id).trim()) {
@@ -609,6 +713,9 @@ module.exports = {
   buildOpenDemoWriteChainFromReview,
   buildOpenDemoLiveReplySendBody,
   buildOpenDemoLiveReplyBlockedResponse,
+  OPEN_DEMO_PAYMENT_CHOICE_DEFERRED_DRY_RUN_RE,
+  shouldDeferOpenDemoPaymentChoiceReviewReply,
+  buildOpenDemoPaymentChoiceLiveReply,
   buildOpenDemoBookingWriteBlockedResponse,
   buildOpenDemoBedAssignmentBlockedResponse,
   resolveInboundMessageId,

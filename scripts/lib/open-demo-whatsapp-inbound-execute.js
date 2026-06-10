@@ -38,6 +38,8 @@ const {
   buildOpenDemoLiveReplyBlockedResponse,
   buildOpenDemoBookingWriteBlockedResponse,
   buildOpenDemoBedAssignmentBlockedResponse,
+  shouldDeferOpenDemoPaymentChoiceReviewReply,
+  buildOpenDemoPaymentChoiceLiveReply,
 } = require('./open-demo-whatsapp-gate');
 
 /**
@@ -47,9 +49,60 @@ const {
  * @param {{
  *   hostHeader?: string,
  *   actorId?: string,
- *   resolveWriteFlagsAfterReview?: (review: object) => { create_demo_hold_draft_confirmed?: boolean, assign_demo_bed_confirmed?: boolean },
+ *   resolveWriteFlagsAfterReview?: (review: object) => {
+ *     create_demo_hold_draft_confirmed?: boolean,
+ *     assign_demo_bed_confirmed?: boolean,
+ *     create_stripe_test_link_confirmed?: boolean,
+ *     send_payment_link_whatsapp_confirmed?: boolean,
+ *   },
  * }} [options]
  */
+async function sendOpenDemoLiveReplyMessage(pg, inboundBody, rawBody, env, proposedReply) {
+  const reply = proposedReply != null ? String(proposedReply).trim() : '';
+  if (!reply) {
+    return {
+      send_live_reply_confirmed: true,
+      live_reply_attempted: true,
+      live_send_blocked: true,
+      sends_whatsapp: false,
+      whatsapp_sent: false,
+      send_performed: false,
+      live_reply_gate_blocked: true,
+      live_reply_gate_code: 'missing_proposed_reply',
+      live_reply_error: 'proposed_luna_reply is required for live send',
+    };
+  }
+  const liveGate = evaluateOpenDemoWhatsAppLiveReplyGate(rawBody, env);
+  if (!liveGate.ok) {
+    return {
+      send_live_reply_confirmed: true,
+      live_reply_attempted: true,
+      ...buildOpenDemoLiveReplyBlockedResponse(liveGate),
+    };
+  }
+  const sendBody = buildOpenDemoLiveReplySendBody(inboundBody, reply);
+  const evaluated = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env });
+  const sendResult = evaluated.result || {};
+  const sent = sendResult.send_performed === true && sendResult.sends_whatsapp === true;
+  return {
+    send_live_reply_confirmed: true,
+    live_reply_attempted: true,
+    live_send_blocked: !sent,
+    sends_whatsapp: sent,
+    whatsapp_sent: sent,
+    send_performed: sent,
+    live_reply_gate_blocked: !sent,
+    live_reply_gate_code: sent ? null : ((sendResult.blocked_reasons || [])[0] || 'send_blocked'),
+    live_reply_error: sent ? null : (sendResult.provider_error || null),
+    reused_send_path: 'evaluateGuestReplySendRouteWithPause',
+    guest_message_send_id: sendResult.guest_message_send_id || null,
+    guest_message_send_status: sendResult.guest_message_send_status || null,
+    whatsapp_message_id: sendResult.whatsapp_message_id || null,
+    idempotency_key: sendBody.idempotency_key,
+    send_result: sendResult,
+  };
+}
+
 async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   const hostHeader = options.hostHeader || '';
   const actorId = options.actorId || 'open-demo-inbound';
@@ -78,8 +131,8 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   let sendLiveReplyConfirmed = wantsSendLiveReplyConfirmed(rawBody);
   let createHoldDraftConfirmed = wantsCreateDemoHoldDraftConfirmed(rawBody);
   let assignDemoBedConfirmed = wantsAssignDemoBedConfirmed(rawBody);
-  const createStripeTestLinkConfirmed = wantsCreateStripeTestLinkConfirmed(rawBody);
-  const sendPaymentLinkWhatsAppConfirmed = wantsSendPaymentLinkWhatsAppConfirmed(rawBody);
+  let createStripeTestLinkConfirmed = wantsCreateStripeTestLinkConfirmed(rawBody);
+  let sendPaymentLinkWhatsAppConfirmed = wantsSendPaymentLinkWhatsAppConfirmed(rawBody);
 
   const reviewOutcome = await runGuestInboundReviewDryRun(inboundBody, { pg });
   if (!reviewOutcome.ok) {
@@ -114,10 +167,15 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     }
   }
 
+  const reviewForFlags = reviewOutcome.body.review || {};
   if (typeof options.resolveWriteFlagsAfterReview === 'function') {
-    const autoFlags = options.resolveWriteFlagsAfterReview(reviewOutcome.body.review || {}) || {};
+    const autoFlags = options.resolveWriteFlagsAfterReview(reviewForFlags) || {};
     if (autoFlags.create_demo_hold_draft_confirmed === true) createHoldDraftConfirmed = true;
     if (autoFlags.assign_demo_bed_confirmed === true) assignDemoBedConfirmed = true;
+    if (autoFlags.create_stripe_test_link_confirmed === true) createStripeTestLinkConfirmed = true;
+    if (autoFlags.send_payment_link_whatsapp_confirmed === true) {
+      sendPaymentLinkWhatsAppConfirmed = true;
+    }
   }
 
   let liveReply = null;
@@ -127,58 +185,28 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   let paymentLinkSend = null;
   let threadOutbound = null;
 
-  const proposedReplyForSend = reviewOutcome.body.review
-    && reviewOutcome.body.review.proposed_luna_reply != null
-    ? String(reviewOutcome.body.review.proposed_luna_reply).trim()
+  let proposedReplyForSend = reviewForFlags.proposed_luna_reply != null
+    ? String(reviewForFlags.proposed_luna_reply).trim()
     : '';
 
-  if (sendLiveReplyConfirmed) {
-    const proposedReply = proposedReplyForSend;
+  const deferPaymentChoiceReviewReply = shouldDeferOpenDemoPaymentChoiceReviewReply(
+    rawBody,
+    env,
+    reviewForFlags,
+    {
+      send_live_reply_confirmed: sendLiveReplyConfirmed,
+      create_demo_hold_draft_confirmed: createHoldDraftConfirmed,
+    },
+  );
 
-    if (!proposedReply) {
-      liveReply = {
-        send_live_reply_confirmed: true,
-        live_reply_attempted: true,
-        live_send_blocked: true,
-        sends_whatsapp: false,
-        whatsapp_sent: false,
-        send_performed: false,
-        live_reply_gate_blocked: true,
-        live_reply_gate_code: 'missing_proposed_reply',
-        live_reply_error: 'proposed_luna_reply is required for live send',
-      };
-    } else {
-      const liveGate = evaluateOpenDemoWhatsAppLiveReplyGate(rawBody, env);
-      if (!liveGate.ok) {
-        liveReply = {
-          send_live_reply_confirmed: true,
-          live_reply_attempted: true,
-          ...buildOpenDemoLiveReplyBlockedResponse(liveGate),
-        };
-      } else {
-        const sendBody = buildOpenDemoLiveReplySendBody(inboundBody, proposedReply);
-        const evaluated = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env });
-        const sendResult = evaluated.result || {};
-        const sent = sendResult.send_performed === true && sendResult.sends_whatsapp === true;
-        liveReply = {
-          send_live_reply_confirmed: true,
-          live_reply_attempted: true,
-          live_send_blocked: !sent,
-          sends_whatsapp: sent,
-          whatsapp_sent: sent,
-          send_performed: sent,
-          live_reply_gate_blocked: !sent,
-          live_reply_gate_code: sent ? null : ((sendResult.blocked_reasons || [])[0] || 'send_blocked'),
-          live_reply_error: sent ? null : (sendResult.provider_error || null),
-          reused_send_path: 'evaluateGuestReplySendRouteWithPause',
-          guest_message_send_id: sendResult.guest_message_send_id || null,
-          guest_message_send_status: sendResult.guest_message_send_status || null,
-          whatsapp_message_id: sendResult.whatsapp_message_id || null,
-          idempotency_key: sendBody.idempotency_key,
-          send_result: sendResult,
-        };
-      }
-    }
+  if (sendLiveReplyConfirmed && !deferPaymentChoiceReviewReply) {
+    liveReply = await sendOpenDemoLiveReplyMessage(
+      pg,
+      inboundBody,
+      rawBody,
+      env,
+      proposedReplyForSend,
+    );
   }
 
   if (createHoldDraftConfirmed) {
@@ -388,6 +416,25 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     }
   }
 
+  if (deferPaymentChoiceReviewReply && sendLiveReplyConfirmed) {
+    const bridgeReply = buildOpenDemoPaymentChoiceLiveReply(reviewForFlags, {
+      bookingWrite,
+      bedAssignment,
+      stripeLink,
+      paymentLinkSend,
+    });
+    if (bridgeReply) {
+      proposedReplyForSend = bridgeReply;
+      liveReply = await sendOpenDemoLiveReplyMessage(
+        pg,
+        inboundBody,
+        rawBody,
+        env,
+        bridgeReply,
+      );
+    }
+  }
+
   if (pg && conversationId && proposedReplyForSend && liveReply && liveReply.send_performed === true) {
     try {
       threadOutbound = await persistOpenDemoLiveReplyThreadMessage(pg, {
@@ -422,4 +469,5 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
 
 module.exports = {
   executeOpenDemoWhatsAppInbound,
+  sendOpenDemoLiveReplyMessage,
 };

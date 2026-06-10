@@ -16,6 +16,7 @@ const {
   evaluateOpenDemoWhatsAppGate,
   evaluateOpenDemoWhatsAppLiveReplyGate,
   evaluateOpenDemoHoldDraftWriteReady,
+  evaluateOpenDemoStripeTestLinkGate,
   validateOpenDemoInboundBody,
 } = require('./open-demo-whatsapp-gate');
 const { executeOpenDemoWhatsAppInbound } = require('./open-demo-whatsapp-inbound-execute');
@@ -95,30 +96,36 @@ function shouldRouteMetaInboundToOpenDemo(env, normalized) {
  */
 /**
  * Stage 28g — auto-confirm live reply when staging playground live-reply gate passes.
- * Never sets Stripe/payment-link/confirmation flags.
  */
 function shouldMetaOpenDemoSendLiveReply(env, openDemoBody) {
   const gate = evaluateOpenDemoWhatsAppLiveReplyGate(openDemoBody, env);
   return gate.ok === true;
 }
 
-function buildMetaOpenDemoWriteConfirmFlags(env, review) {
-  if (!isOpenDemoBookingWritesEnabled(env)) {
-    return {
-      create_demo_hold_draft_confirmed: false,
-      assign_demo_bed_confirmed: false,
-    };
-  }
+/**
+ * Stage 28j.5 — auto-confirm gated write flags when payment choice is ready for hold/draft.
+ * Stripe + payment-link WhatsApp only when respective staging gates pass (never confirmation).
+ */
+function buildMetaOpenDemoWriteConfirmFlags(env, review, openDemoBody) {
+  const base = {
+    create_demo_hold_draft_confirmed: false,
+    assign_demo_bed_confirmed: false,
+    create_stripe_test_link_confirmed: false,
+    send_payment_link_whatsapp_confirmed: false,
+  };
+  if (!isOpenDemoBookingWritesEnabled(env)) return base;
   const ready = evaluateOpenDemoHoldDraftWriteReady(review || {});
-  if (!ready.ok) {
-    return {
-      create_demo_hold_draft_confirmed: false,
-      assign_demo_bed_confirmed: false,
-    };
-  }
+  if (!ready.ok) return base;
+
+  const body = openDemoBody || {};
+  const stripeGate = evaluateOpenDemoStripeTestLinkGate(body, env);
+  const liveReplyGate = evaluateOpenDemoWhatsAppLiveReplyGate(body, env);
+  const stripeOk = stripeGate.ok === true;
   return {
     create_demo_hold_draft_confirmed: true,
     assign_demo_bed_confirmed: true,
+    create_stripe_test_link_confirmed: stripeOk,
+    send_payment_link_whatsapp_confirmed: stripeOk && liveReplyGate.ok === true,
   };
 }
 
@@ -198,8 +205,11 @@ function buildOpenDemoResultSummary(outcome) {
     assigned_bed_label: ba.assigned_bed_label || ba.bed_code || null,
     assigned_room_label: ba.assigned_room_label || ba.room_code || null,
     calendar_visible_expected: ba.calendar_visible_expected === true,
-    stripe_link_created: false,
-    payment_link_sent: false,
+    stripe_link_created: !!(outcome.stripeLink
+      && (outcome.stripeLink.stripe_link_created === true
+        || outcome.stripeLink.stripe_link_reused === true)),
+    payment_link_sent: !!(outcome.paymentLinkSend
+      && outcome.paymentLinkSend.payment_link_sent === true),
     confirmation_sent: false,
     effective_flags: outcome.effectiveFlags || {},
   };
@@ -244,7 +254,7 @@ async function processMetaOpenDemoGuestInbound(input) {
   const outcome = await executeOpenDemoWhatsAppInbound(pg, executeBody, env, {
     hostHeader: '',
     actorId: 'meta-whatsapp-open-demo',
-    resolveWriteFlagsAfterReview: (review) => buildMetaOpenDemoWriteConfirmFlags(env, review),
+    resolveWriteFlagsAfterReview: (review) => buildMetaOpenDemoWriteConfirmFlags(env, review, executeBody),
   });
 
   const review = outcome.reviewOutcome && outcome.reviewOutcome.body
