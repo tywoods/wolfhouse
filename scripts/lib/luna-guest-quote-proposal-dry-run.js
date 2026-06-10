@@ -14,6 +14,11 @@ const {
   runBookingPreviewDryRun,
   DRY_RUN_ANCHOR_ROUTES,
 } = require('./luna-guest-booking-dry-run');
+const {
+  isWeeklySurfPackage,
+  computeStayNights,
+  WEEKLY_PACKAGE_MIN_NIGHTS,
+} = require('./wolfhouse-package-night-rules');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -83,6 +88,14 @@ function tpl(lang) {
 function shouldAttemptGuestQuoteProposal(routerResult, availabilityResult) {
   if (!routerResult || routerResult.success === false) return false;
   if (!availabilityResult) return false;
+  const nights = computeStayNights(
+    routerResult.extracted_fields && routerResult.extracted_fields.check_in,
+    routerResult.extracted_fields && routerResult.extracted_fields.check_out,
+  );
+  const pkg = routerResult.extracted_fields && routerResult.extracted_fields.package_interest;
+  if (nights != null && isWeeklySurfPackage(pkg) && nights < WEEKLY_PACKAGE_MIN_NIGHTS) {
+    return false;
+  }
   return routerResult.message_lane === 'new_booking_inquiry'
     && routerResult.booking_intake_ready === true
     && routerResult.readiness_state === 'ready_for_availability_check'

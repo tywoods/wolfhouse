@@ -671,7 +671,7 @@
       "write_eligible": false,
       "turns": [
         {
-          "message": "2 people Malibu package July 10 to July 13",
+          "message": "2 people accommodation only July 10 to July 13",
           "expect": {
             "message_lane": "new_booking_inquiry",
             "booking_intake_ready": true,

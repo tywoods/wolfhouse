@@ -20,6 +20,14 @@ const {
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
 const { buildTransferSideQuestionReply } = require('./luna-guest-service-transfer-explainer');
 const { decideConversationAction } = require('./luna-conversation-brain');
+const {
+  evaluatePackageNightContext,
+  packageNightRuleBlocksQuote,
+  buildWeeklyPackageBlockedReply,
+  buildShortStayAccommodationGuidanceReply,
+  buildWeeklyPackageExplanationReply,
+  isWeeklySurfPackage,
+} = require('./wolfhouse-package-night-rules');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -772,7 +780,7 @@ function computeReadinessMissingFields(extracted) {
 /**
  * Stage 27e — booking intake readiness gate (new_booking_inquiry only).
  */
-function computeBookingIntakeReadiness(lane, extracted, safeHandoffRequired, handoffReasons) {
+function computeBookingIntakeReadiness(lane, extracted, safeHandoffRequired, handoffReasons, packageNightCtx) {
   const reasons = [];
   const handoffList = handoffReasons || [];
 
@@ -798,6 +806,19 @@ function computeBookingIntakeReadiness(lane, extracted, safeHandoffRequired, han
       readiness_state: 'staff_handoff_required',
       readiness_missing_fields: computeReadinessMissingFields(extracted || {}),
       readiness_reasons: reasons.length ? reasons : [...handoffList],
+    };
+  }
+
+  if (packageNightCtx && packageNightRuleBlocksQuote(packageNightCtx.rule)) {
+    const pReasons = [...reasons];
+    if (packageNightCtx.rule === 'weekly_package_blocked') pReasons.push('weekly_package_under_min_nights');
+    if (packageNightCtx.rule === 'short_stay_guidance') pReasons.push('short_stay_needs_accommodation_path');
+    if (packageNightCtx.rule === 'weekly_explain_before_choice') pReasons.push('weekly_package_explanation_needed');
+    return {
+      booking_intake_ready: false,
+      readiness_state: 'collecting_required_details',
+      readiness_missing_fields: computeReadinessMissingFields(extracted || {}),
+      readiness_reasons: pReasons.length ? pReasons : ['package_night_rule'],
     };
   }
 
@@ -999,6 +1020,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
 
   let extractedFields = {};
   let missingRequired = [];
+  let packageNightCtx = null;
 
   if (lane === 'new_booking_inquiry') {
     extractedFields = extractBookingFields(messageText, {
@@ -1013,7 +1035,32 @@ function runLunaGuestMessageRouterDryRun(input, context) {
         package_interest: packageMutation,
       };
     }
+
+    const guestDirectlyNamedPackage = !!(packageMutation
+      || (brain.intent === 'package_choice' && brain.extracted_fields_patch
+        && brain.extracted_fields_patch.package_interest)
+      || (isWeeklySurfPackage(extractedFields.package_interest)
+        && !isWeeklySurfPackage(priorExtracted.package_interest)));
+    packageNightCtx = evaluatePackageNightContext(extractedFields, {
+      guest_directly_named_package: guestDirectlyNamedPackage,
+    });
+
+    if (packageNightCtx.rule === 'weekly_package_blocked') {
+      extractedFields = {
+        ...extractedFields,
+        blocked_weekly_package: packageNightCtx.package_code,
+        package_interest: null,
+      };
+    }
+
     missingRequired = computeMissingRequired(extractedFields);
+    if (packageNightCtx.nights != null
+      && packageNightCtx.nights < 7
+      && packageNightCtx.rule === 'short_stay_guidance'
+      && extractedFields.guest_count != null && extractedFields.guest_count >= 1) {
+      missingRequired = missingRequired.filter((f) => f !== 'package_interest');
+      if (!missingRequired.includes('stay_type')) missingRequired.push('stay_type');
+    }
 
     if (reasons.includes('unclear_availability')) handoff = true;
     if (reasons.includes('uncertain_package_or_pricing')) handoff = true;
@@ -1060,11 +1107,22 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     reasons = [];
   }
 
+  const packageNightCtxForReadiness = (() => {
+    if (!packageNightCtx || lane !== 'new_booking_inquiry') return packageNightCtx;
+    const hasGuests = extractedFields.guest_count != null && extractedFields.guest_count >= 1;
+    if ((packageNightCtx.rule === 'short_stay_guidance'
+      || packageNightCtx.rule === 'weekly_explain_before_choice') && !hasGuests) {
+      return { ...packageNightCtx, rule: 'defer_collect_fields' };
+    }
+    return packageNightCtx;
+  })();
+
   const readiness = computeBookingIntakeReadiness(
     lane,
     extractedFields,
     safeHandoffRequired,
     reasons,
+    packageNightCtxForReadiness,
   );
 
   const hasPriorFields = Object.keys(priorExtracted).some((k) => priorExtracted[k] != null
@@ -1124,9 +1182,18 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       guestCount: priorExtracted.guest_count,
     })}`;
   } else if (lane === 'new_booking_inquiry') {
-    proposedReply = buildBookingReply(detectedLanguage, readiness, extractedFields, {
-      includeIntro: false,
-    });
+    const hasGuestsForNightRule = extractedFields.guest_count != null && extractedFields.guest_count >= 1;
+    if (packageNightCtx && packageNightCtx.rule === 'weekly_package_blocked') {
+      proposedReply = buildWeeklyPackageBlockedReply(detectedLanguage, packageNightCtx.package_code);
+    } else if (packageNightCtx && packageNightCtx.rule === 'short_stay_guidance' && hasGuestsForNightRule) {
+      proposedReply = buildShortStayAccommodationGuidanceReply(detectedLanguage);
+    } else if (packageNightCtx && packageNightCtx.rule === 'weekly_explain_before_choice' && hasGuestsForNightRule) {
+      proposedReply = buildWeeklyPackageExplanationReply(detectedLanguage);
+    } else {
+      proposedReply = buildBookingReply(detectedLanguage, readiness, extractedFields, {
+        includeIntro: false,
+      });
+    }
   } else {
     proposedReply = buildLaneReply(lane, detectedLanguage, false, reasons);
   }
@@ -1176,6 +1243,8 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       clarify: clarifyActiveBooking,
       reset_context: brain.reset_context === true,
     },
+    package_night_rule: packageNightCtx ? packageNightCtx.rule : null,
+    package_night_ctx: packageNightCtx,
     safe_handoff_required: safeHandoffRequired,
     handoff_reasons: [...reasons],
     proposed_luna_reply: proposedReply,

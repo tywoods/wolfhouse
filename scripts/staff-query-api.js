@@ -214,6 +214,13 @@ const {
   calculateWolfhouseQuote,
 } = require('./lib/wolfhouse-quote-calculator');
 const {
+  validateStaffPackageNightRule,
+  STAFF_PACKAGE_VALIDATION_MSG,
+  computeStayNights,
+  isWeeklySurfPackage,
+  WEEKLY_PACKAGE_MIN_NIGHTS,
+} = require('./lib/wolfhouse-package-night-rules');
+const {
   runLunaGuestBookingDryRun,
   DRY_RUN_SAFETY_FLAGS,
 } = require('./lib/luna-guest-booking-dry-run');
@@ -7554,6 +7561,29 @@ async function handleQuotePreview(req, res, user) {
   const actorId   = user ? user.staff_user_id : 'dev-quote-preview-local';
   const actorRole = user ? user.role          : 'viewer';
 
+  if (packageCode !== undefined) {
+    const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, packageCode);
+    if (!packageNightCheck.ok) {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:quote_preview',
+        preview_only: true,
+        no_write_performed: true,
+        success: false,
+        error: 'package_min_nights_violation',
+        client_slug: clientSlug,
+        check_in: checkIn,
+        check_out: checkOut,
+        package_code: packageCode,
+        nights: packageNightCheck.nights,
+        staff_user_id: actorId,
+        staff_role: actorRole,
+        elapsed_ms: Date.now() - started,
+      });
+      return send400(res, packageNightCheck.error);
+    }
+  }
+
   let quote;
   try {
     quote = calculateWolfhouseQuote({
@@ -13515,6 +13545,27 @@ async function handleManualBookingCreate(req, res, user) {
   if (!MANUAL_BOOKING_ALLOWED_ROLES.includes(actorRole))
     return sendJSON(res, 403, { success: false, error: `Role '${actorRole}' may not create manual bookings.` });
 
+  // ── 5a. Weekly package minimum stay (Stage 28i.1) ───────────────────────────
+  const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, packageCode);
+  if (!packageNightCheck.ok) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:manual_booking_create',
+      category: 'manual_booking_create',
+      success: false,
+      error: 'package_min_nights_violation',
+      client_slug: clientSlug,
+      check_in: checkIn,
+      check_out: checkOut,
+      package_code: packageCode,
+      nights: packageNightCheck.nights,
+      staff_user_id: actorId,
+      staff_role: actorRole,
+      elapsed_ms: Date.now() - started,
+    });
+    return send400(res, packageNightCheck.error);
+  }
+
   // ── 5b. Server-side quote calculation (Stage 8.4.8) ──────────────────────────
   if (!packageCode) {
     return send400(res, 'package_code is required for quote-driven booking');
@@ -17495,6 +17546,22 @@ function bcStayNightsFromCheckInOut(checkIn, checkOut){
   } catch(_){ return 0; }
 }
 
+/* Stage 28i.1 — weekly surf packages require 7-night stays */
+function bcValidatePackageNightRule(checkIn, checkOut, packageCode){
+  var weekly = ['malibu','uluwatu','waimea'];
+  var pkg = String(packageCode || '').trim().toLowerCase();
+  if (!checkIn || !checkOut || weekly.indexOf(pkg) < 0) return { ok: true };
+  var nights = bcStayNightsFromCheckInOut(checkIn, checkOut);
+  if (nights < 7) {
+    return {
+      ok: false,
+      nights: nights,
+      error: 'Packages require a 7-night stay. For shorter stays, use accommodation/services/add-ons instead.'
+    };
+  }
+  return { ok: true, nights: nights };
+}
+
 /* ── Cell selection model (Stage 8.3c, read-only) ─────────────────────────── */
 function bcClearSelection(){
   bcSel = null;
@@ -17956,6 +18023,11 @@ function runManualBookingCreate(){
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Guest name required</div>Enter guest name before creating.</div>';
     return;
   }
+  var createNightVal = bcValidatePackageNightRule(checkIn, checkOut, packageCode);
+  if (!createNightVal.ok) {
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Package stay rule</div>' + escHtml(createNightVal.error) + '</div>';
+    return;
+  }
   cr.innerHTML = '<div class="bk-preview-loading">Checking availability\u2026</div>';
   var createBtn = el('bc-sel-create');
   bcManualCreateInFlight = true;
@@ -18286,6 +18358,14 @@ function runQuotePreview(){
   }
   payload.selected_bed_codes = bcSelectedBeds.map(function(b){ return b.bed_code; });
   payload.add_ons = buildAddOns();
+  var quoteNightVal = bcValidatePackageNightRule(checkIn, checkOut, packageCode);
+  if (!quoteNightVal.ok) {
+    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Package stay rule</div>' + escHtml(quoteNightVal.error) + '</div>';
+    bcLastQuote = null;
+    bcLastQuoteResp = null;
+    bcUpdateCreateButton();
+    return;
+  }
   qr.innerHTML = '<div class="bk-preview-loading">Calculating quote\u2026</div>';
   fetch('/staff/quote-preview', {
     method: 'POST',

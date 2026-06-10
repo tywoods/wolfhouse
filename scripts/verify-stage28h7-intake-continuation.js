@@ -135,16 +135,18 @@ section('C. Full conversation flow');
   if (ef.guest_count === 1) pass('C4', 'guest_count=1 on final turn');
   else fail('C4', `guest_count=${ef.guest_count}`);
 
-  if ((r.missing_required_fields || []).includes('package_interest')
+  if (r.package_night_rule === 'short_stay_guidance'
+    && (r.missing_required_fields || []).includes('stay_type')
     && !(r.missing_required_fields || []).includes('guest_count')) {
-    pass('C5', 'only package missing after guest count');
+    pass('C5', 'short stay (<7 nights) routes to stay_type guidance after guest count');
   } else {
-    fail('C5', `missing=${JSON.stringify(r.missing_required_fields)}`);
+    fail('C5', `missing=${JSON.stringify(r.missing_required_fields)} rule=${r.package_night_rule}`);
   }
 
   const reply = last.orchestrator.proposed_luna_reply || '';
-  if (/malibu|uluwatu|waimea/i.test(reply) && !/follow up soon|passing this to our team/i.test(reply)) {
-    pass('C6', 'asks package not handoff');
+  if (/accommodation|under 7 nights|add-ons/i.test(reply)
+    && !/follow up soon|passing this to our team/i.test(reply)) {
+    pass('C6', 'short stay guidance not handoff');
   } else {
     fail('C6', `reply=${reply}`);
   }
@@ -177,12 +179,24 @@ section('C. Full conversation flow');
     }
   }
 
-  section('E. Guest count 2 continuation');
+  section('E. Guest count 2 continuation (short stay)');
 
   const turns2 = await runTurns(['Yes I want to book a stay', 'July 1-5', '2']);
   const r2 = turns2[2].result;
   if (r2.extracted_fields?.guest_count === 2) pass('E1', '"2" extracts guest_count=2');
   else fail('E1', `guest_count=${r2.extracted_fields?.guest_count}`);
+
+  section('E2. 7-night intake still asks package after guest count');
+
+  const turns7 = await runTurns(['Yes I want to book a stay', 'July 10-17', '1']);
+  const r7 = turns7[turns7.length - 1].result;
+  const reply7 = turns7[turns7.length - 1].orchestrator.proposed_luna_reply || '';
+  if (r7.package_night_rule === 'weekly_explain_before_choice'
+    && /malibu|uluwatu|waimea/i.test(reply7)) {
+    pass('E2', '7-night stay explains/asks package after guest count');
+  } else {
+    fail('E2', `rule=${r7.package_night_rule} reply=${reply7.slice(0, 80)}`);
+  }
 
   section('F. Scope guard');
 

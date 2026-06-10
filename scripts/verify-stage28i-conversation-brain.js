@@ -176,7 +176,7 @@ section('C. Test 1 — package side-question during active intake');
 
   section('D. Test 3 — package choice after explanation');
 
-  const turns2 = await runTurns(['hi', 'book a stay', 'July 1-5', '1', 'explain the packages', 'Malibu']);
+  const turns2 = await runTurns(['hi', 'book a stay', 'July 10-17', '1', 'explain the packages', 'Malibu']);
   const pick = turns2[turns2.length - 1].result;
   if (pick.message_lane === 'new_booking_inquiry') pass('D1', 'Malibu continues booking lane');
   else fail('D1', `lane=${pick.message_lane}`);
@@ -184,7 +184,7 @@ section('C. Test 1 — package side-question during active intake');
   if ((pick.extracted_fields || {}).package_interest === 'malibu') pass('D2', 'package_interest=malibu set');
   else fail('D2', `package=${(pick.extracted_fields || {}).package_interest}`);
 
-  if (pick.extracted_fields.check_in === '2026-07-01' && pick.extracted_fields.guest_count === 1) {
+  if (pick.extracted_fields.check_in === '2026-07-10' && pick.extracted_fields.guest_count === 1) {
     pass('D3', 'dates/guests reused for the pick');
   } else {
     fail('D3', `ef=${JSON.stringify(pick.extracted_fields)}`);

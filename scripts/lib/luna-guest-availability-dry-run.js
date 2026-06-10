@@ -13,6 +13,7 @@ const {
   runAvailabilityCheckDryRun,
   DRY_RUN_ANCHOR_ROUTES,
 } = require('./luna-guest-booking-dry-run');
+const { packageNightRuleBlocksQuote } = require('./wolfhouse-package-night-rules');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -83,6 +84,7 @@ function tpl(lang, key) {
 
 function shouldAttemptGuestAvailability(routerResult) {
   if (!routerResult || routerResult.success === false) return false;
+  if (packageNightRuleBlocksQuote(routerResult.package_night_rule)) return false;
   return routerResult.message_lane === 'new_booking_inquiry'
     && routerResult.booking_intake_ready === true
     && routerResult.readiness_state === 'ready_for_availability_check';
