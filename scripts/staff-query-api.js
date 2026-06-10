@@ -138,6 +138,7 @@ const {
 } = require('./lib/staff-conversation-queries');
 const {
   clearConversationMessages,
+  resetLunaConversationContext,
   deleteConversationHard,
 } = require('./lib/staff-conversation-writes');
 const {
@@ -489,6 +490,7 @@ const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
 const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
+const CONV_RESET_LUNA_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-luna-context$`, 'i');
 // Phase 23c.1 — POST /staff/inbox/handoffs/:id/review
 const INBOX_HANDOFF_REVIEW_RE = new RegExp(`^/staff/inbox/handoffs/(${UUID_RE})/review$`, 'i');
 
@@ -16714,7 +16716,7 @@ function loadConvDetail(convId, targetEl){
     html += '<div class="thread-section">';
     html += '<div class="thread">';
     html += '<div class="detail-conv-toolbar">';
-    html += '<button type="button" class="pill pill-clear-conv" id="btn-clear-conversation">Clear Conversation</button>';
+    html += '<button type="button" class="pill pill-fresh-start" id="btn-fresh-start">Fresh Start</button>';
     html += '</div>';
     html +=   '<div class="thread-messages" id="thread-container">';
     if (msgs.length === 0){
@@ -16848,7 +16850,7 @@ function loadConvDetail(convId, targetEl){
     wireInboxSendReply(convId, c.phone, targetEl);
     wireNeedsHumanToggle(convId, targetEl);
     wireLunaPauseSwitch(convId, targetEl);
-    wireClearConversation(convId, targetEl);
+    wireFreshStart(convId, targetEl);
 
     var calLinks = targetEl.querySelectorAll('.inbox-open-booking-cal');
     calLinks.forEach(function(calLink){
@@ -16926,13 +16928,13 @@ function wireNeedsHumanToggle(convId, targetEl){
   });
 }
 
-function wireClearConversation(convId, targetEl){
-  var btn = targetEl.querySelector('#btn-clear-conversation');
+function wireFreshStart(convId, targetEl){
+  var btn = targetEl.querySelector('#btn-fresh-start');
   if (!btn) return;
   btn.addEventListener('click', function(){
-    if (!window.confirm('Clear the contents of this conversation?')) return;
+    if (!window.confirm('Reset Luna\u2019s active context for this guest? This keeps bookings, payments, and history, but clears Luna\u2019s current intake/quote state.')) return;
     btn.disabled = true;
-    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/clear-messages', {
+    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-luna-context', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ client_slug: getClient() }),
@@ -16944,11 +16946,10 @@ function wireClearConversation(convId, targetEl){
       .then(function(out){
         var d = out.data || {};
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
-        patchInboxConvRow(convId, { last_message_preview: null });
         loadConvDetail(convId, targetEl);
       })
       .catch(function(err){
-        alert(err.message || 'Could not clear conversation');
+        alert(err.message || 'Could not reset Luna context');
       })
       .finally(function(){ btn.disabled = false; });
   });
@@ -24962,7 +24963,77 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Staff Portal — Fresh Start (Luna context reset; preserves messages + bookings)
+//
+// POST /staff/conversations/:id/reset-luna-context
+//   Body: { client_slug }
+//   Staging/test only — operator+ auth.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleConversationResetLunaContext(convId, req, res, user) {
+  const started = Date.now();
+  const hostHeader = String(req.headers.host || '');
+
+  if (!isStagingResetEnvironment(process.env, hostHeader)) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'staging_only',
+      detail: 'Fresh Start is allowed only on staging/test environments.',
+    });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'action:api:conversation.reset_luna_context',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => resetLunaConversationContext(pg, clientSlug, convId));
+    const elapsed = Date.now() - started;
+    if (!result.found) {
+      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
+      return send404(res);
+    }
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      context_cleared: result.context_cleared,
+      messages_preserved: result.messages_preserved,
+      metadata_keys_cleared: result.metadata_keys_cleared,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      conversation_id: convId,
+      context_cleared: result.context_cleared,
+      messages_preserved: result.messages_preserved,
+      metadata_keys_cleared: result.metadata_keys_cleared,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'reset failed' });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Staff Portal — clear conversation thread (messages delete + field reset)
+// Legacy/admin destructive path — not wired to Inbox Fresh Start button.
 //
 // POST /staff/conversations/:id/clear-messages
 //   Body: { client_slug }
@@ -27286,6 +27357,17 @@ async function router(req, res) {
     return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
   }
 
+  const convResetLunaMatch = CONV_RESET_LUNA_RE.exec(pathname);
+  if (convResetLunaMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/reset-luna-context' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleConversationResetLunaContext(convResetLunaMatch[1], req, res, auth.user);
+  }
+
   const convClearMatch = CONV_CLEAR_RE.exec(pathname);
   if (convClearMatch) {
     if (method !== 'POST') {
@@ -28138,7 +28220,8 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/handoffs/:id/review <- 23c.1 mark reviewed`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/send-reply       <- 23d Inbox reply send`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/needs-human <- needs_human toggle`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-messages <- clear thread (operator+)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-luna-context <- Fresh Start (operator+, staging)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-messages <- clear thread legacy (operator+)`);
   console.log(`    DELETE http://127.0.0.1:${PORT}/staff/conversations/:id?client=... <- hard delete (admin+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/auth/session <- role + client access list`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/test/reset-luna-phone  <- 19g.11a staging test reset (operator+)`);
