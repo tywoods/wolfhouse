@@ -40,8 +40,10 @@ const handlerEnd = src.indexOf('async function handleBookingRecordCashPayment', 
 const handler = handlerStart >= 0 && handlerEnd > handlerStart
   ? src.slice(handlerStart, handlerEnd)
   : '';
-const drawerIdx = src.indexOf('/* ── 6. Conversation / Handoff');
-const drawerRender = drawerIdx >= 0 ? src.slice(drawerIdx, drawerIdx + 2200) : '';
+const drawerJs = src.match(/function renderBookingContextDrawer\([\s\S]*?^function toGetClient/m)?.[0] || '';
+const convCardIdx = drawerJs.indexOf('id="bc-drawer-card-conversation"');
+const drawerRender = convCardIdx >= 0 ? drawerJs.slice(convCardIdx, convCardIdx + 1200) : drawerJs;
+const footerRender = src.match(/function bcRenderBookingDrawerFooterHtml[\s\S]*?\n\}/)?.[0] || '';
 const newConvInit = src.match(/function bcInitNewConversationShell[\s\S]*?\n\}/)?.[0] || '';
 const loadInboxFn = src.match(/function loadInbox\([\s\S]*?\n\}/)?.[0] || '';
 const openInboxFn = src.match(/function openInboxToConversation[\s\S]*?\n\}/)?.[0] || '';
@@ -58,30 +60,35 @@ check(/No linked conversation yet\./.test(drawerRender),
   'empty state copy: No linked conversation yet.');
 check(!/No linked conversation or open handoff/.test(drawerRender),
   'old combined empty copy removed from drawer render');
-check(/id="bc-new-conversation-btn"/.test(drawerRender), 'New Conversation button id');
-check(/New Conversation/.test(drawerRender), 'New Conversation button label');
-check(/btn-bc-create-soft/.test(drawerRender), 'soft green create button class');
-check(/data\.conversation/.test(drawerRender) && /Open conversation/.test(drawerRender),
-  'linked conversation preserves Open conversation');
-check(/if \(data\.conversation\)/.test(drawerRender) && /} else \{/.test(drawerRender),
+check(/id="bc-new-conversation-btn"/.test(src), 'Start Conversation button id');
+check(/Start Conversation/.test(src), 'Start Conversation button label');
+check(/bcSyncConversationButtons/.test(src), 'syncs toolbar/footer conversation buttons');
+check(/bcStartConversationFromBooking/.test(src), 'start conversation helper');
+check(/btn-success-light/.test(footerRender), 'success-light conversation button class');
+check(/data\.conversation/.test(footerRender) && /Open Conversation/.test(footerRender),
+  'linked conversation preserves Open Conversation');
+check(/if \(data\.conversation\)/.test(footerRender) && /} else \{/.test(footerRender),
   'button branch only when no linked conversation (else branch)');
 
 console.log('\nC. Button → API → Inbox open');
 
 check(/bcInitNewConversationShell/.test(src), 'drawer init wires new conversation shell');
-check(/create-conversation/.test(newConvInit), 'UI posts to create-conversation');
-check(/idempotency_key/.test(newConvInit), 'UI sends idempotency_key');
-check(/Created from booking drawer/.test(newConvInit), 'UI sends drawer reason');
-check(/openInboxToConversation/.test(newConvInit), 'success opens inbox via helper');
+check(/create-conversation/.test(src), 'UI posts to create-conversation');
+check(/idempotency_key/.test(src.match(/function bcStartConversationFromBooking[\s\S]*?\n\}/)?.[0] || ''), 'UI sends idempotency_key');
+check(/Created from booking drawer/.test(src.match(/function bcStartConversationFromBooking[\s\S]*?\n\}/)?.[0] || ''), 'UI sends drawer reason');
+check(/openInboxToConversation/.test(src.match(/function bcStartConversationFromBooking[\s\S]*?\n\}/)?.[0] || ''), 'success opens inbox via helper');
 check(/function openInboxToConversation/.test(src), 'openInboxToConversation helper exists');
+check(/beginConvDetailLoad/.test(src.match(/function openInboxToConversation[\s\S]*?\n\}/)?.[0] || ''),
+  'openInboxToConversation shows loading state before inbox refresh');
+check(/loadConvDetail\(selectConvIdAfterLoad\)/.test(src.match(/function loadInbox\([\s\S]*?\n\}/)?.[0] || ''),
+  'loadInbox always reloads selected conversation detail');
 check(/switchToTab\('conversations', 'inbox'\)/.test(openInboxFn), 'helper switches to Inbox tab');
 check(/loadInbox\(convId\)/.test(openInboxFn), 'helper reloads inbox with conversation id');
-check(/loadInbox\(selectConvIdAfterLoad\)/.test(loadInboxFn), 'loadInbox accepts select-after-load');
+check(/function loadInbox\(selectConvIdAfterLoad/.test(src), 'loadInbox accepts select-after-load');
 check(/applyInboxFilter/.test(loadInboxFn), 'loadInbox still applies inbox filter');
 check(/loadConvDetail\(selectConvIdAfterLoad\)/.test(loadInboxFn),
   'loadInbox loads detail when card not in filtered list');
-check(/openInboxToConversation/.test(src.slice(src.indexOf('bc-open-conv-btn'), src.indexOf('bc-open-conv-btn') + 400)),
-  'Open conversation uses inbox reload helper');
+check(/bcOpenOrStartConversationFromBooking/.test(src), 'open or start conversation handler');
 
 console.log('\nD. API endpoint');
 
@@ -104,12 +111,12 @@ check(/BOOKING_LINKED_CONVERSATION_SQL/.test(handler), 'lookup existing linked c
 
 console.log('\nE. Idempotency');
 
-check(/booking-drawer-conv-/.test(newConvInit), 'stable UI idempotency key per booking');
+check(/booking-drawer-conv-/.test(src.match(/function bcStartConversationFromBooking[\s\S]*?\n\}/)?.[0] || ''), 'stable UI idempotency key per booking');
 check(/idempotency_key/.test(handler), 'server accepts idempotency_key');
 
 console.log('\nF. Safety boundaries');
 
-check(!/sendWhatsApp|whatsapp\.com|graph\.facebook|triggerN8n|n8n\.webhook|fetch\([^)]*n8n/i.test(handler + newConvInit),
+check(!/sendWhatsApp|whatsapp\.com|graph\.facebook|triggerN8n|n8n\.webhook|fetch\([^)]*n8n/i.test(handler + (src.match(/function bcStartConversationFromBooking[\s\S]*?\n\}/)?.[0] || '')),
   'no WhatsApp/n8n in handler or UI');
 check(!/stripe\.|INSERT INTO payments|UPDATE payments/.test(handler),
   'no Stripe/payment mutation');
