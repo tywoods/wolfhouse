@@ -107,6 +107,10 @@ async function persistOpenDemoInboundThreadMessage(pg, input) {
   const metadata = {
     open_demo_inbound: true,
     inbound_message_id: waId,
+    ...(payload.open_phone_testing === true ? { open_phone_testing: true } : {}),
+    ...(trimStr(payload.guest_tester_class)
+      ? { guest_tester_class: trimStr(payload.guest_tester_class) }
+      : {}),
   };
 
   try {

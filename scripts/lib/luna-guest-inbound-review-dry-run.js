@@ -10,6 +10,8 @@
 const { runGuestAutomationOrchestratorDryRun } = require('./luna-guest-automation-orchestrator-dry-run');
 const { normalizeGuestContextForChain } = require('./luna-guest-context-merge');
 const { getPauseState } = require('./staff-bot-pause-sql');
+const { lookupStaffPhoneAccess } = require('./staff-phone-access');
+const { evaluateOpenPhoneTestingStaffRoutingBypass } = require('./luna-open-phone-testing-gate');
 
 const INBOUND_REVIEW_ROUTE = '/staff/bot/guest-inbound-review-dry-run';
 
@@ -224,6 +226,27 @@ function parseMetadata(raw) {
   }
 }
 
+/** Stage 45g — open-phone tester labels for Staff Portal inbox. */
+function extractOpenPhoneTestingMetadata(automationGateContext) {
+  const gate = automationGateContext && typeof automationGateContext === 'object'
+    ? automationGateContext
+    : {};
+  if (gate.open_phone_testing !== true) return null;
+  const guestTesterClass = gate.guest_tester_class != null && trimStr(gate.guest_tester_class)
+    ? trimStr(gate.guest_tester_class)
+    : null;
+  return {
+    open_phone_testing: true,
+    ...(guestTesterClass ? { guest_tester_class: guestTesterClass } : {}),
+  };
+}
+
+function mergeOpenPhoneTestingIntoMetadata(baseMeta, automationGateContext) {
+  const patch = extractOpenPhoneTestingMetadata(automationGateContext);
+  if (!patch) return baseMeta;
+  return { ...baseMeta, ...patch };
+}
+
 function getCachedInboundReview(metadata, idempotencyKey) {
   const meta = metadata || {};
   const reviews = meta.luna_inbound_reviews && typeof meta.luna_inbound_reviews === 'object'
@@ -264,13 +287,18 @@ async function loadConversationRow(pg, { clientId, conversationId, guestPhone })
   return null;
 }
 
-async function buildAutomationGateContext(pg, normalized, convRow) {
+async function buildAutomationGateContext(pg, normalized, convRow, env) {
+  const e = env || process.env;
   const reqGate = normalized.automation_gate_context && typeof normalized.automation_gate_context === 'object'
     ? normalized.automation_gate_context
     : {};
 
   let botPaused = reqGate.bot_paused === true;
   let humanTakeover = reqGate.human_takeover === true;
+  let openPhoneTesting = reqGate.open_phone_testing === true;
+  let guestTesterClass = reqGate.guest_tester_class != null && trimStr(reqGate.guest_tester_class)
+    ? trimStr(reqGate.guest_tester_class)
+    : null;
 
   if (convRow && convRow.needs_human === true) humanTakeover = true;
 
@@ -285,6 +313,27 @@ async function buildAutomationGateContext(pg, normalized, convRow) {
     /* non-fatal — gate context falls back to request flags */
   }
 
+  if (pg) {
+    try {
+      const staffAccess = await lookupStaffPhoneAccess(pg, {
+        client_slug: normalized.client_slug,
+        phone: normalized.guest_phone,
+        channel: 'whatsapp',
+      });
+      const bypass = evaluateOpenPhoneTestingStaffRoutingBypass(
+        e,
+        { client_slug: normalized.client_slug, phone: normalized.guest_phone },
+        staffAccess,
+      );
+      if (bypass.staff_routing_bypassed === true && bypass.guest_tester_class) {
+        openPhoneTesting = true;
+        guestTesterClass = bypass.guest_tester_class;
+      }
+    } catch (_) {
+      /* non-fatal — fall back to inbound phone gate class */
+    }
+  }
+
   return {
     ...reqGate,
     public_guest_automation_enabled: false,
@@ -292,6 +341,8 @@ async function buildAutomationGateContext(pg, normalized, convRow) {
     live_send_allowed:               false,
     bot_paused:                      botPaused,
     human_takeover:                  humanTakeover,
+    open_phone_testing:              openPhoneTesting,
+    guest_tester_class:              guestTesterClass,
   };
 }
 
@@ -309,9 +360,13 @@ function buildInboundReviewResponse({
   conversationId,
   idempotentReplay,
   reviewPersistencePerformed,
+  automationGateContext,
 }) {
   const review = buildReviewFromOrchestrator(orchOut);
   const slimGuestContext = slimGuestContextForNextTurn(review);
+  const openPhoneMeta = extractOpenPhoneTestingMetadata(
+    automationGateContext || normalized.automation_gate_context,
+  );
 
   return {
     success:                      orchOut.success !== false,
@@ -321,6 +376,7 @@ function buildInboundReviewResponse({
     no_write_performed:           true,
     public_guest_automation_enabled: false,
     whatsapp_dry_run:             true,
+    ...(openPhoneMeta || {}),
     review,
     slim_guest_context_for_next_turn: slimGuestContext,
     conversation_id:              conversationId || null,
@@ -337,6 +393,7 @@ async function persistInboundReviewArtifact(pg, {
   convRow,
   review,
   slimGuestContext,
+  automationGateContext,
 }) {
   let row = convRow;
   if (!row) {
@@ -358,6 +415,10 @@ async function persistInboundReviewArtifact(pg, {
     ? { ...existingMeta.luna_inbound_reviews }
     : {};
 
+  const openPhoneMeta = extractOpenPhoneTestingMetadata(
+    automationGateContext || normalized.automation_gate_context,
+  );
+
   inboundReviews[normalized.idempotency_key] = {
     inbound_message_id: normalized.inbound_message_id,
     received_at:        normalized.received_at || new Date().toISOString(),
@@ -366,9 +427,10 @@ async function persistInboundReviewArtifact(pg, {
     proposed_luna_reply:  proposedReply,
     review,
     slim_guest_context_for_next_turn: slimGuestContext,
+    ...(openPhoneMeta || {}),
   };
 
-  const nextMeta = {
+  const nextMeta = mergeOpenPhoneTestingIntoMetadata({
     ...existingMeta,
     source:              'luna_inbound_review_dry_run',
     channel:             normalized.channel,
@@ -376,7 +438,7 @@ async function persistInboundReviewArtifact(pg, {
     luna_inbound_reviews: inboundReviews,
     last_inbound_message_id: normalized.inbound_message_id,
     last_inbound_at:     normalized.received_at || new Date().toISOString(),
-  };
+  }, automationGateContext || normalized.automation_gate_context);
 
   if (row && row.conversation_id) {
     const upd = await pg.query(
@@ -577,6 +639,7 @@ async function runGuestInboundReviewDryRun(body, context) {
       convRow,
       review,
       slimGuestContext,
+      automationGateContext,
     });
     reviewPersistencePerformed = true;
   } catch (_) {
@@ -592,6 +655,7 @@ async function runGuestInboundReviewDryRun(body, context) {
       conversationId,
       idempotentReplay: false,
       reviewPersistencePerformed,
+      automationGateContext,
     }),
   };
 }
@@ -604,5 +668,8 @@ module.exports = {
   buildReviewFromOrchestrator,
   slimGuestContextForNextTurn,
   guestContextFromReviewBody,
+  extractOpenPhoneTestingMetadata,
+  mergeOpenPhoneTestingIntoMetadata,
+  persistInboundReviewArtifact,
   runGuestInboundReviewDryRun,
 };

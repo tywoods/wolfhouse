@@ -57,6 +57,8 @@ SELECT
   conv.last_message_preview,
   conv.pending_action,
   conv.updated_at            AS last_activity,
+  CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
+  conv.metadata->>'guest_tester_class' AS guest_tester_class,
   h.reason_code              AS handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
@@ -187,7 +189,9 @@ SELECT
   m.route,
   m.source,
   m.conversation_stage,
-  m.created_at
+  m.created_at,
+  CASE WHEN m.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
+  m.metadata->>'guest_tester_class' AS guest_tester_class
 FROM messages m
 INNER JOIN conversations conv ON conv.id = m.conversation_id
 INNER JOIN clients c ON c.id = conv.client_id

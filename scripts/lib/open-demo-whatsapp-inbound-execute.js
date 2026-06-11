@@ -161,6 +161,11 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
         whatsapp_message_id: inboundBody.inbound_message_id,
         wamid: rawBody.wamid || inboundBody.inbound_message_id,
         inbound_message_id: inboundBody.inbound_message_id,
+        open_phone_testing: reviewOutcome.body && reviewOutcome.body.open_phone_testing === true,
+        guest_tester_class: reviewOutcome.body && reviewOutcome.body.guest_tester_class
+          ? String(reviewOutcome.body.guest_tester_class)
+          : (inboundBody.automation_gate_context
+            && inboundBody.automation_gate_context.guest_tester_class),
       });
     } catch (_) {
       threadInbound = { ok: false, persisted: false, reason: 'persist_error' };
