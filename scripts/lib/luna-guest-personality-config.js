@@ -157,7 +157,7 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
       return parts.join('\n\n');
     },
     package_quote: (ctx) => {
-      const { total, deposit, packageLabel, dateAvail, awaitingAddons } = ctx;
+      const { total, deposit, packageLabel, dateAvail } = ctx;
       if (!total) return null;
       const parts = [];
       const head = t('package_quote_available', {
@@ -166,14 +166,8 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
         date_avail: dateAvail,
       }, 'quote_ready');
       if (head) parts.push(head);
-      if (awaitingAddons) {
-        const tail = t('accommodation_quote_addons_tail', {}, 'addons_question')
-          || 'Do you need a wetsuit, board, or lessons too, or just the stay?';
-        parts.push(tail);
-        return parts.join('\n\n');
-      }
       const payTail = t('package_quote_payment_tail', { deposit, total }, 'payment_choice_prompt')
-        || `Would you rather pay the ${deposit} deposit or the full ${total}?`;
+        || `To reserve it, you can pay the ${deposit} deposit or the full ${total}. We can always add lessons or rentals later if you want.`;
       parts.push(payTail);
       return parts.join('\n\n');
     },

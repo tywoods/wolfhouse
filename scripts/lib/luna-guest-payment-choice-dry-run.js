@@ -271,7 +271,7 @@ function detectPaymentChoiceFromMessage(messageText) {
     return 'arrival_payment_question';
   }
 
-  if (/\b(?:full\s+amount|pay\s+in\s+full|pay\s+the\s+full|will pay the full|want to pay (?:the )?full|entire\s+amount|whole\s+amount|total\s+amount|importo\s+intero|pago\s+completo|montant\s+complet|voller\s+betrag|alles\s+bezahlen|i(?:'|’)?ll\s+pay\s+(?:the\s+)?full)\b/i.test(t)) {
+  if (/\b(?:full\s+amount|full\s+payment(?:\s+is\s+fine|\s+please|\s+works)?|pay\s+in\s+full|pay\s+the\s+full|will pay the full|want to pay (?:the )?full|entire\s+amount|whole\s+amount|total\s+amount|importo\s+intero|pago\s+completo|montant\s+complet|voller\s+betrag|alles\s+bezahlen|i(?:'|’)?ll\s+pay\s+(?:the\s+)?full)\b/i.test(t)) {
     return 'full_payment';
   }
 

@@ -15,6 +15,7 @@ const {
 } = require('./luna-guest-message-intake');
 const {
   guestDeclinedAddons,
+  paymentChoiceDeclinesPendingAddons,
   extractAddOnSelections,
   quoteAwaitingAddonsDecision,
   resolveAddOnsStatus,
@@ -640,6 +641,7 @@ module.exports = {
   extractGuestCountFromText,
   extractNameFromText,
   guestDeclinedAddons,
+  paymentChoiceDeclinesPendingAddons,
   effectiveGuestName,
   hasCollectedGuestName,
   shouldDeferGuestCount,

@@ -772,12 +772,8 @@ function buildReplyForState(state, ctx) {
       } else {
         parts.push(`${pkgLabel} comes to ${total}.`);
       }
-      if (quoteAwaitingAddonsDecision(quote)) {
-        parts.push('Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?');
-        return parts.join('\n\n');
-      }
       const dep = deposit || total;
-      parts.push(`Would you prefer to pay the ${dep} deposit or the full ${total}?`);
+      parts.push(`To reserve it, you can pay the ${dep} deposit or the full ${total}. We can always add lessons or rentals later if you want.`);
       return parts.join('\n\n');
     },
     quote_refreshing: (ctxFields) => {

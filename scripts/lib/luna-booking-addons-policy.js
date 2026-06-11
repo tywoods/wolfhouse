@@ -10,6 +10,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
+
 const { computeStayNights, formatStayRange, formatGuestPhrase } = require('./wolfhouse-package-night-rules');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
@@ -142,9 +144,22 @@ function addonsResolvedFromFields(fields) {
   return codes.length > 0;
 }
 
+/**
+ * Stage 45i — clear deposit/full payment choice while add-ons are pending implies
+ * "just the stay" (no surf gear/lessons add-ons). Vague or add-on side questions do not count.
+ */
+function paymentChoiceDeclinesPendingAddons(messageText) {
+  const t = trimStr(messageText);
+  if (!t || isAddonSideQuestion(t)) return false;
+  if (extractAddOnSelectionsRaw(t).length > 0) return false;
+  const detected = detectPaymentChoiceFromMessage(t);
+  return detected === 'deposit' || detected === 'full_payment';
+}
+
 function addonsAnsweredThisTurn(messageText, brainDecision, fields) {
   if (brainDecision && brainDecision.intent === 'accommodation_only_choice') return true;
   if (guestDeclinedAddons(messageText)) return true;
+  if (paymentChoiceDeclinesPendingAddons(messageText)) return true;
   if (extractAddOnSelections(messageText).length > 0) return true;
   if (addonsResolvedFromFields(fields)) return true;
   return false;
@@ -374,6 +389,7 @@ function buildAddonsObservability(state, context, quote, invalidation) {
 module.exports = {
   NO_ADDONS_RE,
   guestDeclinedAddons,
+  paymentChoiceDeclinesPendingAddons,
   extractAddOnSelections,
   normalizeServiceInterestCodes,
   serviceInterestSignature,

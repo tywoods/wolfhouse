@@ -32,6 +32,7 @@ const {
   normalizeOutOfOrderBookingInfo,
   shouldDeferGuestCount,
   guestDeclinedAddons,
+  paymentChoiceDeclinesPendingAddons,
   extractTransferInfo,
   hasCollectedGuestName: policyHasCollectedGuestName,
 } = require('./luna-booking-intake-policy');
@@ -1316,7 +1317,8 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     confidence = Math.max(confidence, 0.9);
   }
   if (!greetingOnly && !packageExplainerIntent && !accommodationOnlyChoice
-    && inActiveBooking && guestDeclinedAddons(messageText)) {
+    && inActiveBooking
+    && (guestDeclinedAddons(messageText) || paymentChoiceDeclinesPendingAddons(messageText))) {
     accommodationOnlyChoice = true;
     lane = 'new_booking_inquiry';
     handoff = false;
@@ -1434,7 +1436,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
         extractedFields = { ...extractedFields, addons_skipped: true };
       }
     }
-    if (guestDeclinedAddons(messageText)) {
+    if (guestDeclinedAddons(messageText) || paymentChoiceDeclinesPendingAddons(messageText)) {
       extractedFields = { ...extractedFields, addons_skipped: true, service_interest: [] };
     }
     const reactivePatch = extractReactiveServicesFromMessage(messageText, extractedFields, {
