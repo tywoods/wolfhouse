@@ -676,7 +676,10 @@ function detectNewBookingResetIntent(text) {
   return false;
 }
 
-function buildNewBookingResetReply(lang) {
+function buildNewBookingResetReply(lang, clientSlug) {
+  const { buildPersonalityResetReply } = require('./luna-guest-personality-config');
+  const fromPersonality = buildPersonalityResetReply(clientSlug, lang);
+  if (fromPersonality) return fromPersonality;
   const intro = `${tpl(lang, 'intro')} 🌊`;
   return `${intro} — No problem — we can start a new booking. What dates are you looking for, and how many guests?`;
 }

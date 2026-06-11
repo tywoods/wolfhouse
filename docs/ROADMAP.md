@@ -1,4 +1,30 @@
-**Stage 28f OPEN-DEMO STAGING CLEANUP SCRIPT — NEXT (2026-06-10):** Tiny harness `cleanup-open-demo-staging-booking.js` by `booking_code` or phone; pair with proposed `report-open-demo-playground-state.js`. Unpaid holds only by default; never touch production. Parent: [STAGE-28E-STAGING-GUEST-PLAYGROUND.md](STAGE-28E-STAGING-GUEST-PLAYGROUND.md) §10–11.
+**Stage 37a CAMI PERSONALITY FOUNDATION — PASS (2026-06-10):** Attachable Luna personalities + Cami v1 for `wolfhouse-somo`. Config: `config/clients/wolfhouse-somo.personalities.json`. Verifier: `verify:stage37a-cami-personality-config`. **Next:** **Stage 37b** — welcome + confirmation copy upgrade.
+
+**Near-term humanization + hardening (2026-06-10):**
+
+| Stage | Focus |
+|-------|--------|
+| **37** | Attachable Luna personalities + Cami v1 |
+| **38** | Welcome + confirmation copy upgrade |
+| **39** | Multilingual/out-of-order fixture pack |
+| **40** | Randomized stress tester / hammer harness |
+| **41** | Somo/Wolfhouse knowledge config |
+| **42** | Add-on services as first-class services/payments |
+| **43** | Client-facing surf report |
+| **44** | Ale/Cami hammer mode report |
+| **45** | Final pre-demo live rehearsal |
+
+**Product decisions locked:** Luna remains assistant name · personalities attachable/configurable · Cami first profile · future owner-chat upload → generated personality · short pay links `lunafrontdesk.com/pay/WH-G27-XXXX` (planned) · add-ons logged to booking/services/payments · add-on copy sounds confirmed/held · surf report client-facing later (positive text tone) · order: Cami → multilingual/stress → fix findings.
+
+**Stage 36c ALE/CAMI DEMO REHEARSAL — PASS (2026-06-10):** Controlled staging rehearsal Mode A/B + restore. Doc: [STAGE-36C-ALE-CAMI-DEMO-REHEARSAL.md](STAGE-36C-ALE-CAMI-DEMO-REHEARSAL.md).
+
+**Stage 36b ALE/CAMI STAGING DEMO RUNBOOK — PASS (2026-06-10):** Step-by-step demo runbook + gate checklist. Doc: [STAGE-36B-ALE-CAMI-STAGING-DEMO-RUNBOOK.md](STAGE-36B-ALE-CAMI-STAGING-DEMO-RUNBOOK.md). Verifier: `verify:stage36b-demo-runbook`.
+
+**Stage 36a DEMO READINESS STAFF VISIBILITY — PASS (2026-06-10):** Ale/Cami demo readiness checklist + staff visibility audit. Doc: [STAGE-36A-ALE-CAMI-DEMO-READINESS-CHECKLIST.md](STAGE-36A-ALE-CAMI-DEMO-READINESS-CHECKLIST.md).
+
+**Stage 35b HOSTED MESSY-FLOW PROOF — PASS (2026-06-10):** Stale quote / reset / cash on hosted review path. Doc: [STAGE-35B-HOSTED-MESSY-FLOW-PROOF.md](STAGE-35B-HOSTED-MESSY-FLOW-PROOF.md).
+
+**Stage 28f OPEN-DEMO STAGING CLEANUP SCRIPT — DEFERRED (2026-06-10):** Superseded by humanization track above; revisit after Stage 45 if needed. Parent: [STAGE-28E-STAGING-GUEST-PLAYGROUND.md](STAGE-28E-STAGING-GUEST-PLAYGROUND.md).
 
 **Stage 28e STAGING WHATSAPP GUEST PLAYGROUND — PLAN (2026-06-10):** Docs-only operating model — explicit booking-write / payment / confirmation-preview windows; rollback + cleanup checklists; default gates unchanged. Anchors: **28c.7** `WH-G27-3888294D42` · **28d** Stripe TEST `deposit_paid` + preview. Doc: [STAGE-28E-STAGING-GUEST-PLAYGROUND.md](STAGE-28E-STAGING-GUEST-PLAYGROUND.md).
 

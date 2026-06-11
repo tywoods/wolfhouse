@@ -44,6 +44,10 @@ const {
   validateComposerFacts,
   LUNA_IDENTITY,
 } = require('./luna-guest-reply-style-contract');
+const {
+  buildPersonalityReplyLexicon,
+  resolveActivePersonality,
+} = require('./luna-guest-personality-config');
 
 const COMPOSER_STATES = Object.freeze([
   'greeting',
@@ -595,9 +599,19 @@ function resolveComposerState(input) {
   return null;
 }
 
+function buildPaymentChoicePersonalityCtx(fields, lang, total, deposit) {
+  const cls = classifyServiceInterestPricing(fields.service_interest);
+  const manualNote = cls.pending_manual.length
+    ? `\n\n${buildManualAddonsNote(lang, cls.pending_manual)}`
+    : '';
+  const hasCollectedAddons = cls.priced.length + cls.pending_manual.length > 0;
+  return { deposit, total, hasCollectedAddons, manualNote };
+}
+
 function buildReplyForState(state, ctx) {
   const {
     lang, fields, quote, plan, pc, result, availability, stripe, allowIntro, messageText, facts, pkgIntent,
+    client_slug: clientSlug,
   } = ctx;
   const range = formatDateRange(fields.check_in, fields.check_out);
   const guests = guestCountLabel(fields.guest_count, lang);
@@ -729,21 +743,28 @@ function buildReplyForState(state, ctx) {
     handoff: 'Thanks for your patience — I\'m looping in our team so they can help with the next step.',
   };
 
+  const personalityLex = clientSlug
+    ? buildPersonalityReplyLexicon(clientSlug, lang)
+    : null;
   const L = en;
+  const P = personalityLex;
 
   switch (state) {
     case 'greeting':
-      return L.greeting;
+      return (P && P.greeting) || L.greeting;
     case 'ask_dates': {
       const bookingIntent = /\bbook(?:ing)?\s+(?:a\s+)?stay\b/i.test(messageText || '');
-      return (allowIntro || bookingIntent) ? L.ask_dates : L.ask_dates_mid;
+      if (allowIntro || bookingIntent) {
+        return (P && P.ask_dates) || L.ask_dates;
+      }
+      return (P && P.ask_dates_mid) || L.ask_dates_mid;
     }
     case 'confirm_dates':
-      return L.confirm_dates;
+      return (P && P.confirm_dates && P.confirm_dates(range)) || L.confirm_dates;
     case 'ask_guests':
-      return L.ask_guests;
+      return (P && P.ask_guests && P.ask_guests(range)) || L.ask_guests;
     case 'ask_guest_name':
-      return L.ask_guest_name;
+      return (P && P.ask_guest_name && P.ask_guest_name(range)) || L.ask_guest_name;
     case 'ask_room_preference_girls_mixed': {
       const girlsAvail = availability.girls_room_available !== false;
       return girlsAvail ? L.room_girls_mixed : L.room_girls_mixed_unavailable;
@@ -765,39 +786,100 @@ function buildReplyForState(state, ctx) {
     case 'accommodation_quote_ready':
     case 'ask_addons_after_quote':
       if (isDateCorrection(result)) {
-        return buildDateCorrectionAddonsReply(fields, quote) || L.accommodation_quote();
+        return buildDateCorrectionAddonsReply(fields, quote)
+          || (P && P.accommodation_quote && P.accommodation_quote({
+            total,
+            range,
+            guests,
+            availOk: quote.quote_status === 'ready'
+              || !availability.availability_status
+              || availability.availability_status === 'available',
+          }))
+          || L.accommodation_quote();
       }
       if (isGuestCountCorrection(result)) {
-        return buildGuestCountCorrectionAddonsReply(fields, quote, plan, pc) || L.accommodation_quote();
+        return buildGuestCountCorrectionAddonsReply(fields, quote, plan, pc)
+          || (P && P.accommodation_quote && P.accommodation_quote({ total, range, guests, availOk: true }))
+          || L.accommodation_quote();
+      }
+      if (P && P.accommodation_quote) {
+        const availOk = quote.quote_status === 'ready'
+          || !availability.availability_status
+          || availability.availability_status === 'available';
+        return P.accommodation_quote({ total, range, guests, availOk });
       }
       return L.accommodation_quote();
     case 'package_quote_ready':
       if (isPackageCorrection(result)) {
+        if (P && P.package_quote) {
+          const pkgLabel = packageName && !/accommodation/i.test(packageName)
+            ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)}`
+            : 'Your stay';
+          const dateAvail = range ? `for ${range}` : 'for those dates';
+          return P.package_quote({
+            total,
+            deposit,
+            packageLabel: pkgLabel,
+            dateAvail,
+            awaitingAddons: quoteAwaitingAddonsDecision(quote),
+          });
+        }
         return L.package_quote();
+      }
+      if (P && P.package_quote) {
+        const pkgLabel = packageName && !/accommodation/i.test(packageName)
+          ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)}`
+          : 'Your stay';
+        const dateAvail = range ? `for ${range}` : 'for those dates';
+        return P.package_quote({
+          total,
+          deposit,
+          packageLabel: pkgLabel,
+          dateAvail,
+          awaitingAddons: quoteAwaitingAddonsDecision(quote),
+        });
       }
       return L.package_quote();
     case 'quote_refreshing':
       return L.quote_refreshing(fields);
     case 'addons_none_confirmed':
       if (isDateCorrection(result)) {
-        return buildDateCorrectionPaymentReply(fields, quote, plan, pc) || L.addons_none();
+        return buildDateCorrectionPaymentReply(fields, quote, plan, pc)
+          || (P && P.addons_none && P.addons_none({ deposit, total }))
+          || L.addons_none();
       }
       if (isGuestCountCorrection(result)) {
-        return buildGuestCountCorrectionPaymentReply(fields, quote, plan, pc) || L.addons_none();
+        return buildGuestCountCorrectionPaymentReply(fields, quote, plan, pc)
+          || (P && P.addons_none && P.addons_none({ deposit, total }))
+          || L.addons_none();
       }
+      if (P && P.addons_none) return P.addons_none({ deposit, total });
       return L.addons_none();
     case 'ask_payment_choice':
       if (isDateCorrection(result)) {
-        return buildDateCorrectionPaymentReply(fields, quote, plan, pc) || L.ask_payment_choice();
+        return buildDateCorrectionPaymentReply(fields, quote, plan, pc)
+          || (P && P.ask_payment_choice && P.ask_payment_choice(buildPaymentChoicePersonalityCtx(fields, lang, total, deposit)))
+          || L.ask_payment_choice();
       }
       if (isGuestCountCorrection(result)) {
-        return buildGuestCountCorrectionPaymentReply(fields, quote, plan, pc) || L.ask_payment_choice();
+        return buildGuestCountCorrectionPaymentReply(fields, quote, plan, pc)
+          || (P && P.ask_payment_choice && P.ask_payment_choice(buildPaymentChoicePersonalityCtx(fields, lang, total, deposit)))
+          || L.ask_payment_choice();
+      }
+      if (P && P.ask_payment_choice) {
+        return P.ask_payment_choice(buildPaymentChoicePersonalityCtx(fields, lang, total, deposit));
       }
       return L.ask_payment_choice();
     case 'answer_arrival_payment_question':
+      if (P && P.answer_arrival_payment_question) {
+        return P.answer_arrival_payment_question({ deposit, total });
+      }
       return L.answer_arrival_payment_question();
     case 'payment_choice_ack':
-      return pc.payment_choice === 'full_payment' ? L.full_ack : L.deposit_ack;
+      if (pc.payment_choice === 'full_payment') {
+        return (P && P.full_ack) || L.full_ack;
+      }
+      return (P && P.deposit_ack) || L.deposit_ack;
     case 'payment_choice_received_hold_created':
       return L.hold_no_link();
     case 'payment_pending_no_link':
@@ -805,19 +887,22 @@ function buildReplyForState(state, ctx) {
     case 'payment_link_failed':
       return L.payment_link_failed();
     case 'stripe_test_link_created':
+      if (P && P.stripe_link) return P.stripe_link({ deposit, checkoutUrl });
       return L.stripe_link();
     case 'payment_link_sent':
+      if (P && P.payment_link_sent) return P.payment_link_sent({ deposit });
       return L.payment_link_sent();
     case 'payment_received_preview_ready':
+      if (P && P.payment_received) return P.payment_received({ paid, balance });
       return L.payment_received();
     case 'confirmation_sent_ack':
-      return L.confirmation_sent;
+      return (P && P.confirmation_sent) || L.confirmation_sent;
     case 'clarify_missing_info':
       return L.clarify;
     case 'contextual_pending_answer':
       return L.contextual_when;
     case 'safe_handoff':
-      return L.handoff;
+      return (P && P.handoff) || L.handoff;
     default:
       return null;
   }
@@ -891,6 +976,9 @@ function composeLunaGuestReply(input) {
   const stripe = (input && input.live_outcomes && input.live_outcomes.stripeLink) || {};
   const live = (input && input.live_outcomes) || {};
   const facts = buildComposerFacts(quote, plan, pc, stripe, live);
+  const clientSlug = trimStr(input && input.client_slug)
+    || trimStr(input && input.prior_guest_context && input.prior_guest_context.client_slug)
+    || null;
   const pkgIntent = detectPackageExplainerIntent(trimStr(input && input.message_text));
 
   const groundingErrors = validateComposerFacts(state, facts);
@@ -922,6 +1010,7 @@ function composeLunaGuestReply(input) {
     messageText: trimStr(input && input.message_text),
     facts,
     pkgIntent,
+    client_slug: clientSlug,
     serviceIntent: detectServiceSideQuestionIntent(trimStr(input && input.message_text)),
   });
 
@@ -945,6 +1034,11 @@ function composeLunaGuestReply(input) {
     next_guest_question: nextGuestQuestionForState(state),
     safety_flags: { ...COMPOSER_SAFETY },
     quote_facts_used_by_composer: extractQuoteFactsFromPayload(payload),
+    personality_id: (() => {
+      if (!clientSlug) return 'luna_safe';
+      const resolved = resolveActivePersonality(clientSlug);
+      return resolved.active_personality_id || 'luna_safe';
+    })(),
   };
 }
 

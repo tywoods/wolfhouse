@@ -1,0 +1,62 @@
+{
+  "id": "cami-personality-basic-copy",
+  "label": "Cami personality basic copy",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "hygiene_window": {
+    "check_in": "2026-07-01",
+    "check_out": "2026-07-05"
+  },
+  "turns": [
+    {
+      "message": "hi",
+      "expect": {
+        "reply_contains": ["Luna", "Wolfhouse"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "greeting",
+        "no_form_dev_copy": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "book a stay",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "July 1-5",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "1",
+      "expect": {
+        "reply_contains": ["€180", "wetsuit"],
+        "reply_not_contains": ["July 1", "1 guest", "for 1 guest", "Great — I'll check accommodation"],
+        "expected_quote_ready": true,
+        "expected_quote_total_cents": 18000,
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "accommodation_quote_ready",
+        "no_form_dev_copy": true,
+        "no_internal_language": true,
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "no_handoff": true,
+    "expected_fields": {
+      "guest_count": 1,
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "package_interest": "accommodation_only"
+    },
+    "expected_quote_total_cents": 18000
+  }
+}

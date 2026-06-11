@@ -454,6 +454,9 @@ function sanitizeReply(text, fallbackCtx, detected) {
 /** Stage 28j.6 — try centralized booking reply composer before legacy templates. */
 function tryComposeBookingReply(payload, messageText, priorGuestContext, brainDecision, opts) {
   const o = opts || {};
+  const clientSlug = trimStr(o.client_slug)
+    || trimStr(priorGuestContext && priorGuestContext.client_slug)
+    || DEFAULT_CLIENT;
   const composed = composeLunaGuestReply({
     payload,
     message_text: messageText,
@@ -462,6 +465,7 @@ function tryComposeBookingReply(payload, messageText, priorGuestContext, brainDe
     mode: o.mode || 'orchestrator',
     allow_leading_intro: o.allowLeadingIntro === true,
     live_outcomes: o.liveOutcomes,
+    client_slug: clientSlug,
   });
   if (composed && composed.covered && composed.reply) {
     return composed;
@@ -681,7 +685,7 @@ function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, p
     messageText,
     prior,
     brainDecision,
-    { allowLeadingIntro: allowIntro },
+    { allowLeadingIntro: allowIntro, client_slug: trimStr(prior.client_slug) || DEFAULT_CLIENT },
   );
   const proposedLunaReply = composed
     ? composed.reply
@@ -835,7 +839,10 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     result = { ...result, new_booking_reset: true };
 
     if (!hasSubstantiveNewBookingDetailsAfterReset(result)) {
-      const resetReply = buildNewBookingResetReply(result.detected_language || 'en');
+      const resetReply = buildNewBookingResetReply(
+        result.detected_language || 'en',
+        routerContext.client_slug || DEFAULT_CLIENT,
+      );
       return buildOrchestratorResponse({
         automation_gate: gate,
         result: {
@@ -1028,7 +1035,10 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     trimStr(inp.message_text),
     chainGuestContext,
     brainDecision,
-    { allowLeadingIntro: allowLeadingIntro === true },
+    {
+      allowLeadingIntro: allowLeadingIntro === true,
+      client_slug: chainCtx.client_slug || DEFAULT_CLIENT,
+    },
   );
   let proposedLunaReply;
   let finalReplySource;

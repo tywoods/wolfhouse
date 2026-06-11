@@ -1,6 +1,18 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-10 (**Stage 28e — Staging WhatsApp guest playground**): **DESIGN + OPERATING MODEL** (docs only). Repeatable staging playground for real-handset guest tests via Meta → Staff API open-demo path: booking-write, Stripe TEST payment, confirmation preview windows; rollback + cleanup checklists. Anchors: **28c.7 PASS** `WH-G27-3888294D42` · **28d PASS** deposit_paid + preview ready (no send). Doc: [STAGE-28E-STAGING-GUEST-PLAYGROUND.md](STAGE-28E-STAGING-GUEST-PLAYGROUND.md). **Next:** **Stage 28f** — tiny cleanup script by `booking_code` or phone. **Production not live.**
+**Last updated:** 2026-06-10 (**Stage 37a — Attachable Luna personalities + Cami v1**): **PASS**. Personality foundation: `config/clients/wolfhouse-somo.personalities.json` · loader `luna-guest-personality-config.js` · composer wired for `wolfhouse-somo` → Cami copy (facts code-owned). Verifier: `verify:stage37a-cami-personality-config` · fixture `cami-personality-basic-copy`. **No deploy · no production · no n8n · no WhatsApp/Stripe/confirmation sends.** **Next:** **Stage 37b** — welcome + confirmation copy upgrade (Wolfhouse family, Maps link, lesson schedule).
+
+**Near-term track (37→45):** 37 personality · 38 welcome/confirmation copy · 39 multilingual fixtures · 40 stress harness · 41 Somo knowledge · 42 add-on payments ledger · 43 surf report · 44 Ale/Cami hammer report · 45 pre-demo rehearsal.
+
+**Prior — Stage 36c Ale/Cami demo rehearsal — PASS (2026-06-10):** Mode A/B + restore on staging. Doc: [STAGE-36C-ALE-CAMI-DEMO-REHEARSAL.md](STAGE-36C-ALE-CAMI-DEMO-REHEARSAL.md).
+
+**Prior — Stage 36b Ale/Cami staging demo runbook — PASS (2026-06-10):** Doc: [STAGE-36B-ALE-CAMI-STAGING-DEMO-RUNBOOK.md](STAGE-36B-ALE-CAMI-STAGING-DEMO-RUNBOOK.md).
+
+**Prior — Stage 36a Demo readiness staff visibility — PASS (2026-06-10):** Doc: [STAGE-36A-ALE-CAMI-DEMO-READINESS-CHECKLIST.md](STAGE-36A-ALE-CAMI-DEMO-READINESS-CHECKLIST.md).
+
+**Prior — Stage 35b Hosted messy-flow proof — PASS (2026-06-10):** Doc: [STAGE-35B-HOSTED-MESSY-FLOW-PROOF.md](STAGE-35B-HOSTED-MESSY-FLOW-PROOF.md).
+
+**Prior — Stage 28e — Staging WhatsApp guest playground (2026-06-10):** **DESIGN + OPERATING MODEL** (docs only). Repeatable staging playground for real-handset guest tests via Meta → Staff API open-demo path: booking-write, Stripe TEST payment, confirmation preview windows; rollback + cleanup checklists. Anchors: **28c.7 PASS** `WH-G27-3888294D42` · **28d PASS** deposit_paid + preview ready (no send). Doc: [STAGE-28E-STAGING-GUEST-PLAYGROUND.md](STAGE-28E-STAGING-GUEST-PLAYGROUND.md). **Production not live.**
 
 **Prior — Stage 28d STRIPE TEST PAYMENT TRUTH REHEARSAL — PASS (2026-06-10):** Booking `WH-G27-3888294D42` → Stripe TEST checkout → real webhook `deposit_paid` → confirmation preview ready. No confirmation sent · no WhatsApp payment link · gates restored.
 
