@@ -1,0 +1,25 @@
+{
+  "id": "surf-report-en-flat",
+  "label": "Guest surf report EN flat day",
+  "reference_date": "2026-06-10",
+  "surf_report_mock": {
+    "wave_height_m": 0.05,
+    "wind_speed_mps": 3,
+    "tide_phase": "low"
+  },
+  "turns": [
+    {
+      "message": "Is there surf today?",
+      "expect": {
+        "reply_contains": ["Somo", "flat"],
+        "reply_not_contains": ["fun Somo day", "nice range", "unsafe"],
+        "expected_composer_state": "explain_surf_report",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_no_handoff": true
+  }
+}

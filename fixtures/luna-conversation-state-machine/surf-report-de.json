@@ -1,0 +1,24 @@
+{
+  "id": "surf-report-de",
+  "label": "Guest surf report German",
+  "reference_date": "2026-06-10",
+  "surf_report_mock": {
+    "wave_height_m": 1.0,
+    "wind_speed_mps": 4,
+    "tide_phase": "rising"
+  },
+  "turns": [
+    {
+      "message": "Wie sind die Wellen heute?",
+      "expect": {
+        "reply_contains": ["Somo", "Wellen"],
+        "expected_composer_state": "explain_surf_report",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_no_handoff": true
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "surf-report-mid-booking-preserves-context",
+  "label": "Surf report mid-booking preserves context",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 1-5 for 1",
+      "expect": {
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 1
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "How are the waves today?",
+      "surf_report_mock": {
+        "wave_height_m": 1.0,
+        "wind_speed_mps": 4,
+        "tide_phase": "rising"
+      },
+      "expect": {
+        "reply_contains": ["Somo"],
+        "expected_context_preserved": true,
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 1
+        },
+        "expected_composer_state": "explain_surf_report",
+        "expected_reply_source": "luna_reply_composer",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 1
+    },
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

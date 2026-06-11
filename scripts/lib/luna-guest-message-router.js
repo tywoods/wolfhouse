@@ -916,6 +916,19 @@ function classifyMessageLane(text, guestContext) {
     };
   }
 
+  const { detectGuestSurfReportIntent } = require('./luna-guest-surf-report');
+  const surfReportIntent = detectGuestSurfReportIntent(t);
+  if (surfReportIntent) {
+    return {
+      lane: 'general_question',
+      handoff: false,
+      reasons: [],
+      confidence: 0.89,
+      surf_report_intent: surfReportIntent.intent,
+      surf_report_day: surfReportIntent.day,
+    };
+  }
+
   return {
     lane: 'general_question',
     handoff: true,

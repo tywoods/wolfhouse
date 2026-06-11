@@ -1,0 +1,21 @@
+{
+  "id": "surf-report-api-unavailable-fallback",
+  "label": "Surf report API unavailable fallback",
+  "reference_date": "2026-06-10",
+  "surf_report_mock": "unavailable",
+  "turns": [
+    {
+      "message": "Surf report",
+      "expect": {
+        "reply_contains": ["Somo", "live surf report", "team"],
+        "reply_not_contains": ["1.0m", "fun Somo day", "stormglass", "STORMGLASS"],
+        "expected_composer_state": "explain_surf_report",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_no_handoff": true
+  }
+}

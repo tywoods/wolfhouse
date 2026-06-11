@@ -2213,11 +2213,17 @@ async function runFixture(fixture, opts, fixtureIndex) {
   };
 
   let guestContext = applyChannelContactName(null, contactName);
+  if (fixture.surf_report_mock) {
+    guestContext = { ...guestContext, surf_report_mock: fixture.surf_report_mock };
+  }
   let lastOut = null;
 
   for (let ti = 0; ti < fixture.turns.length; ti++) {
     const turn = fixture.turns[ti];
     const message = typeof turn === 'string' ? turn : turn.message;
+    if (turn && typeof turn === 'object' && turn.surf_report_mock) {
+      guestContext = { ...guestContext, surf_report_mock: turn.surf_report_mock };
+    }
     const input = {
       client_slug: CLIENT_SLUG,
       channel: 'whatsapp',

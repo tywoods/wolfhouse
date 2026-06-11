@@ -1,0 +1,24 @@
+{
+  "id": "surf-report-it",
+  "label": "Guest surf report Italian",
+  "reference_date": "2026-06-10",
+  "surf_report_mock": {
+    "wave_height_m": 1.1,
+    "wind_speed_mps": 4,
+    "tide_phase": "rising"
+  },
+  "turns": [
+    {
+      "message": "Come sono le onde oggi?",
+      "expect": {
+        "reply_contains": ["Somo", "onde"],
+        "expected_composer_state": "explain_surf_report",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_no_handoff": true
+  }
+}

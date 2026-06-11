@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "purpose": "Stage 43a — guest-facing Somo surf report policy (copy/tone guardrails; live data via Stormglass when configured).",
+    "client_slug": "wolfhouse-somo",
+    "beach": "Somo",
+    "config_version": "2026-06-10.1"
+  },
+  "beach": "Somo",
+  "ideal_wave_height_m": {
+    "min": 0.1,
+    "max": 2.5
+  },
+  "tide_guidance": {
+    "bigger_waves_m": { "min": 1.0, "max": 2.5 },
+    "bigger_waves_note": "rising/high tide is generally nicer",
+    "smaller_waves_note": "lower tide windows can be sweet when waves are smaller"
+  },
+  "wind_guidance": {
+    "ignore_below_mps": 8,
+    "stormy_threshold_mps": 10,
+    "guest_copy": "ignore minor wind unless clearly stormy or very windy all day"
+  },
+  "safety_copy": {
+    "no_hard_safety_calls": true,
+    "lessons_timing_note": "surf school/staff confirm best lesson windows",
+    "avoid_unsafe_unsafe_labels": true
+  },
+  "tone": {
+    "style": "positive",
+    "format": "short text paragraph",
+    "personality": "cami",
+    "no_raw_metrics_table": true,
+    "generally_optimistic": true
+  },
+  "condition_buckets": [
+    "tiny_flat",
+    "small_friendly",
+    "fun",
+    "solid",
+    "stormy_messy"
+  ],
+  "fallback": {
+    "en": "I can't see the live surf report right this second, but Somo usually works with a nice range of conditions. The team can confirm the best window closer to the day 🌊",
+    "it": "In questo momento non riesco a vedere il report live, ma a Somo di solito ci si trova bene con tante condizioni diverse. Il team confermerà la finestra migliore più vicino al giorno 🌊",
+    "es": "Ahora mismo no puedo ver el reporte en vivo, pero en Somo suele haber buenas ventanas con muchas condiciones. El equipo confirmará el mejor momento más cerca del día 🌊",
+    "de": "Gerade kann ich den Live-Surfbericht nicht abrufen, aber in Somo gibt es meistens schöne Fenster bei vielen Bedingungen. Das Team bestätigt das beste Timing näher am Tag 🌊"
+  }
+}

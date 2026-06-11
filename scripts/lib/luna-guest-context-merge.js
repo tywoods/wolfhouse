@@ -14,6 +14,10 @@ const {
   detectGuestKnowledgeIntent,
   shouldPrioritizeKnowledgeOverService,
 } = require('./luna-guest-knowledge-config');
+const {
+  detectGuestSurfReportIntent,
+  shouldPrioritizeSurfReportOverService,
+} = require('./luna-guest-surf-report');
 const { quoteAwaitingAddonsDecision } = require('./luna-booking-addons-policy');
 
 const EXTRACTED_FIELD_KEYS = [
@@ -240,6 +244,8 @@ function isActiveBookingSideQuestion(priorGuestContext, currentResult, messageTe
   if (detectTransferSideQuestionIntent(text)) return true;
   const knowledgeIntent = detectGuestKnowledgeIntent(text);
   if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(text, knowledgeIntent, priorGuestContext)) return true;
+  if (detectGuestSurfReportIntent(text)
+    && shouldPrioritizeSurfReportOverService(text, priorGuestContext)) return true;
   if (currentResult.message_lane === 'add_service_request') return true;
   if (currentResult.message_lane === 'transfer_request') return true;
   return false;

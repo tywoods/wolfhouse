@@ -22,6 +22,10 @@ const {
   detectGuestKnowledgeIntent,
   shouldPrioritizeKnowledgeOverService,
 } = require('./luna-guest-knowledge-config');
+const {
+  detectGuestSurfReportIntent,
+  shouldPrioritizeSurfReportOverService,
+} = require('./luna-guest-surf-report');
 const { detectPricedAddonQuoteChange } = require('./luna-booking-addons-policy');
 
 const QUOTE_AFFECTING_FIELDS = Object.freeze([
@@ -102,6 +106,8 @@ function isQuotePreservingSideQuestion(messageText, guestContext) {
   if (pc === 'arrival_payment_question' || pc === 'payment_link_request') return true;
   const knowledgeIntent = detectGuestKnowledgeIntent(text);
   if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(text, knowledgeIntent, guestContext)) return true;
+  if (detectGuestSurfReportIntent(text)
+    && shouldPrioritizeSurfReportOverService(text, guestContext)) return true;
   return false;
 }
 

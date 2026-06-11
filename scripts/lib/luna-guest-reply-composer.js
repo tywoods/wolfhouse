@@ -63,6 +63,11 @@ const {
   shouldPrioritizeKnowledgeOverService,
   buildGuestKnowledgeReply,
 } = require('./luna-guest-knowledge-config');
+const {
+  detectGuestSurfReportIntent,
+  shouldPrioritizeSurfReportOverService,
+  buildGuestSurfReportReply,
+} = require('./luna-guest-surf-report');
 
 const COMPOSER_STATES = Object.freeze([
   'greeting',
@@ -79,6 +84,7 @@ const COMPOSER_STATES = Object.freeze([
   'explain_service_addon',
   'explain_transfer',
   'explain_house_knowledge',
+  'explain_surf_report',
   'accommodation_quote_ready',
   'package_quote_ready',
   'quote_refreshing',
@@ -446,6 +452,11 @@ function resolveComposerState(input) {
   const clientSlugForKnowledge = trimStr(inp.client_slug)
     || trimStr(inp.prior_guest_context && inp.prior_guest_context.client_slug)
     || 'wolfhouse-somo';
+  if (detectGuestSurfReportIntent(messageText)
+    && shouldPrioritizeSurfReportOverService(messageText, inp.prior_guest_context)) {
+    return 'explain_surf_report';
+  }
+
   const knowledgeIntent = detectGuestKnowledgeIntent(messageText);
   if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(messageText, knowledgeIntent, inp.prior_guest_context)) {
     return 'explain_house_knowledge';
@@ -842,6 +853,22 @@ function buildReplyForState(state, ctx) {
       });
       return built.reply;
     }
+    case 'explain_surf_report': {
+      const surfIntent = detectGuestSurfReportIntent(messageText);
+      const payload = (ctx && ctx.payload) || {};
+      const built = buildGuestSurfReportReply({
+        client_slug: clientSlug,
+        lang,
+        message_text: messageText,
+        day: (payload.surf_report && payload.surf_report.day) || (surfIntent && surfIntent.day) || 'today',
+        surf_data: payload.surf_report || { unavailable: true },
+        fields,
+        quote,
+        payment_choice: pc,
+        preserve_booking_context: true,
+      });
+      return built.reply;
+    }
     case 'accommodation_quote_ready':
     case 'ask_addons_after_quote':
       if (isDateCorrection(result)) {
@@ -994,6 +1021,7 @@ function nextGuestQuestionForState(state) {
     explain_service_addon: 'addons',
     explain_transfer: 'transfer_info',
     explain_house_knowledge: 'house_faq',
+    explain_surf_report: 'surf_report',
     accommodation_quote_ready: 'addons',
     ask_addons_after_quote: 'addons',
     addons_none_confirmed: 'payment_choice',
@@ -1054,7 +1082,7 @@ function composeLunaGuestReply(input) {
 
   const groundingErrors = validateComposerFacts(state, facts);
   if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name',
-    'explain_packages', 'explain_service_addon', 'explain_transfer', 'explain_house_knowledge', 'ask_package_choice',
+    'explain_packages', 'explain_service_addon', 'explain_transfer', 'explain_house_knowledge', 'explain_surf_report', 'ask_package_choice',
     'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff', 'quote_refreshing',
     'ask_room_preference_girls_mixed', 'ask_room_preference_private_shared', 'ask_room_preference_neutral',
     'ask_transfer_info_casual', 'payment_choice_ack'].includes(state)) {
@@ -1094,6 +1122,7 @@ function composeLunaGuestReply(input) {
     },
     serviceIntent: detectServiceSideQuestionIntent(trimStr(input && input.message_text)),
     prior_guest_context: input && input.prior_guest_context,
+    payload,
   });
 
   reply = sanitizeComposerReply(reply);

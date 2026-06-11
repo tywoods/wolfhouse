@@ -1,0 +1,27 @@
+{
+  "id": "surf-report-en-fun",
+  "label": "Guest surf report EN fun day",
+  "reference_date": "2026-06-10",
+  "surf_report_mock": {
+    "wave_height_m": 1.0,
+    "wind_speed_mps": 4,
+    "tide_phase": "rising"
+  },
+  "turns": [
+    {
+      "message": "How are the waves today?",
+      "expect": {
+        "reply_contains": ["Somo", "fun"],
+        "reply_not_contains": ["1.0m", "unsafe", "not safe"],
+        "expected_composer_state": "explain_surf_report",
+        "expected_reply_source": "luna_reply_composer",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_no_handoff": true,
+    "no_internal_language": true
+  }
+}

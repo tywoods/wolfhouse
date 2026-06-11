@@ -58,6 +58,11 @@ const {
   buildTransferSideQuestionReply,
 } = require('./luna-guest-service-transfer-explainer');
 const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
+const {
+  detectGuestSurfReportIntent,
+  shouldPrioritizeSurfReportOverService,
+  fetchGuestSurfReportData,
+} = require('./luna-guest-surf-report');
 const { buildQuoteFactsObservability } = require('./luna-quote-facts');
 const { buildBookingIntakePolicySnapshot } = require('./luna-booking-intake-policy');
 const {
@@ -451,6 +456,26 @@ function sanitizeReply(text, fallbackCtx, detected) {
   return sanitizeLunaGuestReply(text, fallback);
 }
 
+/** Stage 43a — prefetch guest surf report (mock fixtures or Stormglass when configured). */
+async function prefetchGuestSurfReportPayload(messageText, priorGuestContext, clientSlug) {
+  const detected = detectGuestSurfReportIntent(messageText);
+  if (!detected || !shouldPrioritizeSurfReportOverService(messageText, priorGuestContext)) {
+    return null;
+  }
+  const mock = priorGuestContext && (priorGuestContext.surf_report_mock || priorGuestContext.surf_report_test_override);
+  const data = await fetchGuestSurfReportData({
+    clientSlug: clientSlug || DEFAULT_CLIENT,
+    day: detected.day,
+    mock,
+  });
+  return {
+    day: data.day || detected.day,
+    metrics: data.metrics || null,
+    unavailable: data.unavailable === true,
+    source: data.source || null,
+  };
+}
+
 /** Stage 28j.6 — try centralized booking reply composer before legacy templates. */
 function tryComposeBookingReply(payload, messageText, priorGuestContext, brainDecision, opts) {
   const o = opts || {};
@@ -678,14 +703,21 @@ function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, p
     hold_payment_draft_plan: prior.hold_payment_draft_plan || null,
     proposed_next_action: resolveProposedNextAction({ gate, result, quote: prior.quote, availability: prior.availability }),
   };
-  const allowIntro = (brainDecision && brainDecision.intent === 'greeting')
-    || (result && result.greeting_only === true);
+  return { payload, prior, allowIntro: (brainDecision && brainDecision.intent === 'greeting')
+    || (result && result.greeting_only === true) };
+}
+
+async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext) {
+  const { payload, prior, allowIntro } = buildNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext);
+  const clientSlug = trimStr(prior.client_slug) || DEFAULT_CLIENT;
+  const surfReport = await prefetchGuestSurfReportPayload(messageText, prior, clientSlug);
+  if (surfReport) payload.surf_report = surfReport;
   const composed = tryComposeBookingReply(
     payload,
     messageText,
     prior,
     brainDecision,
-    { allowLeadingIntro: allowIntro, client_slug: trimStr(prior.client_slug) || DEFAULT_CLIENT },
+    { allowLeadingIntro: allowIntro, client_slug: clientSlug },
   );
   const proposedLunaReply = composed
     ? composed.reply
@@ -821,7 +853,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   );
 
   if (result.greeting_only) {
-    return buildNonBookingLaneResponse(result, gate, messageText, brainDecision);
+    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext);
   }
 
   if (detectNewBookingResetIntent(messageText)
@@ -924,7 +956,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   }
 
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
-    return buildNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext);
+    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext);
   }
 
   const staleInvalidation = evaluateQuoteStaleInvalidation(chainGuestContext, result, messageText);
@@ -1027,6 +1059,10 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     payment_choice,
     hold_payment_draft_plan,
   }, trimStr(inp.message_text));
+
+  const clientSlugForSurf = chainCtx.client_slug || DEFAULT_CLIENT;
+  const surfReport = await prefetchGuestSurfReportPayload(trimStr(inp.message_text), chainGuestContext, clientSlugForSurf);
+  if (surfReport) payload.surf_report = surfReport;
 
   const allowLeadingIntro = (brainDecision && brainDecision.intent === 'greeting')
     || (payload.result && payload.result.greeting_only === true);

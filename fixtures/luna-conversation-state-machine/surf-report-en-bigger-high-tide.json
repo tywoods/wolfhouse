@@ -1,0 +1,25 @@
+{
+  "id": "surf-report-en-bigger-high-tide",
+  "label": "Guest surf report EN bigger waves high tide",
+  "reference_date": "2026-06-10",
+  "surf_report_mock": {
+    "wave_height_m": 1.8,
+    "wind_speed_mps": 5,
+    "tide_phase": "high"
+  },
+  "turns": [
+    {
+      "message": "What's the surf like today?",
+      "expect": {
+        "reply_contains": ["Somo", "energy", "tide", "surf school"],
+        "reply_not_contains": ["1.8m", "unsafe", "not safe"],
+        "expected_composer_state": "explain_surf_report",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_no_handoff": true
+  }
+}
