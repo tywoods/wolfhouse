@@ -25,6 +25,7 @@ const EXPORTS = [
   'getConversationDetailQuery',
   'getConversationMessagesQuery',
   'getConversationContextQuery',
+  'getConversationBookingsQuery',
   'getConversationDraftQuery',
   'getConversationStaffStateQuery',
 ];
@@ -123,8 +124,8 @@ if (allClientScoped) ok('All queries contain $1 (client slug scope)');
 
 // Check 26: Per-conversation queries (detail, messages, context, draft, staff-state) use $2
 const PER_CONV = ['getConversationDetailQuery', 'getConversationMessagesQuery',
-                  'getConversationContextQuery', 'getConversationDraftQuery',
-                  'getConversationStaffStateQuery'];
+                  'getConversationContextQuery', 'getConversationBookingsQuery',
+                  'getConversationDraftQuery', 'getConversationStaffStateQuery'];
 let allUuidParam = true;
 for (const name of PER_CONV) {
   if (typeof mod[name] !== 'function') continue;

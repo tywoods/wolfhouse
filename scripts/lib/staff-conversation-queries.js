@@ -60,7 +60,8 @@ SELECT
   h.reason_code              AS handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
-  b.booking_code
+  b.booking_code,
+  COALESCE(pause.paused, FALSE) AS luna_paused
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
 LEFT JOIN LATERAL (
@@ -76,6 +77,15 @@ LEFT JOIN LATERAL (
     opened_at DESC
   LIMIT 1
 ) h ON TRUE
+LEFT JOIN LATERAL (
+  SELECT TRUE AS paused
+  FROM bot_pause_states bps
+  WHERE bps.conversation_id = conv.id::text
+    AND bps.client_slug = c.slug
+    AND bps.paused = TRUE
+  ORDER BY bps.paused_at DESC
+  LIMIT 1
+) pause ON TRUE
 LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
 WHERE c.slug = $1
   AND conv.status IN ('open', 'on_hold')
@@ -235,7 +245,13 @@ SELECT
   p.amount_due_cents         AS payment_amount_due_cents,
   p.amount_paid_cents        AS payment_amount_paid_cents,
   p.payment_record_status,
-  p.stripe_payment_intent_id
+  p.stripe_payment_intent_id,
+  b.booking_source::text     AS booking_source,
+  b.metadata->>'source'      AS metadata_source,
+  b.metadata->>'channel'     AS metadata_channel,
+  b.metadata->>'bot_source'  AS bot_source,
+  b.metadata->>'created_by'  AS metadata_created_by,
+  b.metadata->>'staff_source' AS staff_source
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
 LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
@@ -257,6 +273,86 @@ LEFT JOIN LATERAL (
 ) p ON b.id IS NOT NULL
 WHERE c.slug = $1
   AND conv.id = $2::uuid
+`;
+}
+
+// ---------------------------------------------------------------------------
+// D2. All bookings for conversation guest phone (stacked inbox sidebar)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns every booking for the conversation's phone on this client, with the
+ * same payment/rooming fields as getConversationContextQuery per row.
+ * Linked booking (current_hold_booking_id) sorts first.
+ *
+ * @returns {string} Parameterised SQL ($1 = client slug, $2 = conversation UUID)
+ */
+function getConversationBookingsQuery() {
+  return `
+SELECT
+  conv.id::text              AS conversation_id,
+  conv.phone,
+  b.id::text                 AS booking_id,
+  b.booking_code,
+  b.guest_name               AS booking_guest_name,
+  b.guest_count,
+  b.package_code,
+  b.check_in,
+  b.check_out,
+  b.status::text             AS booking_status,
+  b.payment_status::text     AS booking_payment_status,
+  b.hold_expires_at,
+  b.confirmation_sent_at,
+  b.requested_room_type,
+  b.room_preference,
+  b.guest_gender_group_type,
+  b.assignment_status::text  AS assignment_status,
+  b.needs_rooming_review,
+  b.rooming_notes,
+  b.primary_room_code,
+  bb.room_code               AS assigned_room_code,
+  bb.bed_code                AS assigned_bed_code,
+  bb.planning_row_label,
+  p.amount_due_cents         AS payment_amount_due_cents,
+  p.amount_paid_cents        AS payment_amount_paid_cents,
+  p.payment_record_status,
+  p.stripe_payment_intent_id,
+  (b.id = conv.current_hold_booking_id) AS is_linked,
+  b.booking_source::text     AS booking_source,
+  b.metadata->>'source'      AS metadata_source,
+  b.metadata->>'channel'     AS metadata_channel,
+  b.metadata->>'bot_source'  AS bot_source,
+  b.metadata->>'created_by'  AS metadata_created_by,
+  b.metadata->>'staff_source' AS staff_source
+FROM conversations conv
+INNER JOIN clients c ON c.id = conv.client_id
+INNER JOIN bookings b ON b.client_id = c.id
+  AND (
+    (b.phone IS NOT NULL AND conv.phone IS NOT NULL AND b.phone = conv.phone)
+    OR b.id = conv.current_hold_booking_id
+  )
+LEFT JOIN LATERAL (
+  SELECT room_code, bed_code, planning_row_label
+  FROM booking_beds
+  WHERE booking_id = b.id
+  ORDER BY assignment_start_date ASC
+  LIMIT 1
+) bb ON TRUE
+LEFT JOIN LATERAL (
+  SELECT amount_due_cents, amount_paid_cents,
+         status::text AS payment_record_status,
+         stripe_payment_intent_id
+  FROM payments
+  WHERE booking_id = b.id
+  ORDER BY created_at DESC
+  LIMIT 1
+) p ON TRUE
+WHERE c.slug = $1
+  AND conv.id = $2::uuid
+ORDER BY
+  (b.id = conv.current_hold_booking_id) DESC,
+  b.check_in DESC NULLS LAST,
+  b.created_at DESC
 `;
 }
 
@@ -357,6 +453,7 @@ module.exports = {
   getConversationDetailQuery,
   getConversationMessagesQuery,
   getConversationContextQuery,
+  getConversationBookingsQuery,
   getConversationDraftQuery,
   getConversationStaffStateQuery,
 };
