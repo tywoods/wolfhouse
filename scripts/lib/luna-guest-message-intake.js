@@ -151,6 +151,8 @@ function normalizeHammerDateText(text) {
     .replace(/\bjulyy\b/gi, 'july')
     .replace(/\bjulyyy\b/gi, 'july')
     .replace(/\bluglioo\b/gi, 'luglio')
+    .replace(/\bluglo\b/gi, 'luglio')
+    .replace(/\bsiamoo\b/gi, 'siamo')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -562,7 +564,7 @@ function extractGuests(text) {
     /\b(\d{1,2})\s+ppl\b/i,
     /\b(\d{1,2})\s*(?:people|persons|guests|pax|persone|personas|personnes|gäste|gaste)\b/i,
     /\b(?:for|per|para|pour|für|we are|we're|somos|siamo{1,2}|nous sommes|wir sind|wir w(?:ä|a)ren)\s+(\d{1,2})\b/i,
-    /\b(?:siamo|somos|nous sommes|wir sind)\s+in\s+(\d{1,2})\b/i,
+    /\b(?:siamo+|somos+)\s+in\s+(\d{1,2})\b/i,
     /\bsiamo\s+(due|tre|quattro|cinque)\b/i,
     /\bsiamo\s+(\d{1,2})\s+non\s+(\d{1,2})\b/i,
     /\bsiamo\s+in\s+(due|tre|quattro|cinque|\d{1,2})\b/i,

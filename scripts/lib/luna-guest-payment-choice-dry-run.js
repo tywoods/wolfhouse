@@ -255,7 +255,11 @@ function detectPaymentChoiceFromMessage(messageText) {
     return 'arrival_payment_question';
   }
 
-  if (/\b(?:poss(?:o|iamo)\s+pagare|(?:si|se)\s+paga)\b.*\b(?:contanti|cash|efectivo)\b/i.test(t)) {
+  if (/\b(?:poss(?:o|iamo)\s+pagare|(?:si|se)\s+paga|pued(?:o|es|en)|podemos|se\s+puede)\b.*\b(?:contanti|cash|efectivo|met[aá]lico|transferencia|tarjeta)\b/i.test(t)) {
+    return 'arrival_payment_question';
+  }
+
+  if (/\b(?:pagar|pago)\s+(?:al llegar|a la llegada|en\s+efectivo|en\s+met[aá]lico|por\s+transferencia|con\s+tarjeta)\b/i.test(t)) {
     return 'arrival_payment_question';
   }
 

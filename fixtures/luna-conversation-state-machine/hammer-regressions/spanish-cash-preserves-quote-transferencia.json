@@ -1,0 +1,52 @@
+{
+  "id": "spanish-cash-preserves-quote-transferencia",
+  "fixture_set": "hammer-regressions",
+  "language": "es",
+  "label": "ES bank transfer side-question preserves quote",
+  "contact_name": "Ana",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "1-5 julio para 1",
+      "expect": {
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 1
+        },
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    },
+    {
+      "message": "puedo pagar por transferencia?",
+      "expect": {
+        "reply_contains": ["transferencia"],
+        "expected_context_preserved": true,
+        "expected_stale_quote": false,
+        "expected_quote_ready": true,
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 1
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 1,
+      "package_interest": "accommodation_only"
+    },
+    "expected_quote_ready": true,
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

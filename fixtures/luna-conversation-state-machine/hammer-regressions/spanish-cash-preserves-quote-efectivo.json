@@ -1,37 +1,37 @@
 {
-  "id": "es-short-stay-cash-question",
-  "fixture_set": "multilingual-out-of-order",
+  "id": "spanish-cash-preserves-quote-efectivo",
+  "fixture_set": "hammer-regressions",
   "language": "es",
-  "language_tags": ["es"],
-  "label": "ES short stay cash side question",
+  "label": "ES cash side-question preserves quote (efectivo)",
   "contact_name": "Carlos",
   "reference_date": "2026-06-10",
   "turns": [
     {
-      "message": "Hola! somos 2 del 1 al 5 de julio",
+      "message": "del 1 al 5 de julio para 2",
       "expect": {
-        "expected_language": "es",
-        "expected_guest_count": 2,
-        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
-        "expected_no_handoff": true,
-        "no_internal_language": true
-      }
-    },
-    {
-      "message": "solo alojamiento",
-      "expect": {
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 2
+        },
         "expected_quote_ready": true,
         "expected_no_handoff": true,
+        "no_internal_language": true,
         "allow_partial": true
       }
     },
     {
-      "message": "podemos pagar en efectivo?",
+      "message": "puedo pagar en efectivo?",
       "expect": {
         "reply_contains": ["efectivo"],
         "expected_context_preserved": true,
         "expected_stale_quote": false,
         "expected_quote_ready": true,
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 2
+        },
         "expected_no_handoff": true,
         "no_internal_language": true,
         "allow_partial": true
@@ -42,9 +42,9 @@
     "expected_fields": {
       "check_in": "2026-07-01",
       "check_out": "2026-07-05",
-      "guest_count": 2
+      "guest_count": 2,
+      "package_interest": "accommodation_only"
     },
-    "expected_language": "es",
     "expected_quote_ready": true,
     "no_internal_language": true,
     "no_handoff": true

@@ -272,6 +272,17 @@ function buildOpening(lang, stay, guests, pkg, accOnly, rng) {
   return `Hi ${gp}, ${dates}`;
 }
 
+function cashReplyContainsForLanguage(lang) {
+  const map = {
+    en: ['cash'],
+    it: ['contanti'],
+    es: ['efectivo'],
+    de: ['bar'],
+    mixed: ['cash'],
+  };
+  return map[lang] || map.en;
+}
+
 function baseExpect(lang, guests, stay, opts = {}) {
   const expect = {
     expected_guest_count: guests,
@@ -287,7 +298,7 @@ function baseExpect(lang, guests, stay, opts = {}) {
   if (opts.yoga) expect.expected_yoga_request = true;
   if (opts.meals) expect.expected_meals_request = true;
   if (opts.contextPreserved) expect.expected_context_preserved = true;
-  if (opts.cashReply) expect.reply_contains = ['cash'];
+  if (opts.cashReply) expect.reply_contains = cashReplyContainsForLanguage(lang);
   if (opts.allowPartial) expect.allow_partial = true;
   return expect;
 }
@@ -596,4 +607,5 @@ module.exports = {
   REFERENCE_DATE,
   createSeededRng,
   generateHammerScenarios,
+  cashReplyContainsForLanguage,
 };

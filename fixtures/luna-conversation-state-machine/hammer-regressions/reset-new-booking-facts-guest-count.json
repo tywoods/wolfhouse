@@ -1,0 +1,52 @@
+{
+  "id": "reset-new-booking-facts-guest-count",
+  "fixture_set": "hammer-regressions",
+  "language": "en",
+  "label": "Reset then new dates and guest count",
+  "contact_name": "James",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 10-17 for 1 Malibu",
+      "expect": {
+        "expected_guest_count": 1,
+        "expected_dates": { "check_in": "2026-07-10", "check_out": "2026-07-17" },
+        "expected_package": "malibu",
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "start over",
+      "expect": {
+        "expected_reset_detected": true,
+        "expected_quote_ready": false,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "July 1-5 for 2",
+      "expect": {
+        "expected_guest_count": 2,
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 2,
+      "package_interest": "accommodation_only"
+    },
+    "expected_quote_ready": true,
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

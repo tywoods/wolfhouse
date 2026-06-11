@@ -290,6 +290,7 @@
     "verify:stage40b-hammer-failure-fixes": "node scripts/verify-stage40b-hammer-failure-fixes.js",
     "verify:stage40c-hammer-review-pack": "node scripts/verify-stage40c-hammer-review-pack.js",
     "verify:stage40d-cash-correction-fixes": "node scripts/verify-stage40d-cash-correction-fixes.js",
+    "verify:stage40e-final-hammer-cleanup": "node scripts/verify-stage40e-final-hammer-cleanup.js",
     "hammer:luna": "node scripts/run-luna-random-hammer-test.js",
     "verify:stage29room-a-real-room-bed-seed": "node scripts/verify-stage29room-a-real-room-bed-seed.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",

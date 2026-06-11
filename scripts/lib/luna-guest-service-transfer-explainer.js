@@ -36,11 +36,18 @@ function detectServiceSideQuestionIntent(text) {
   return null;
 }
 
+function isPaymentMethodTransferQuestion(text) {
+  const t = String(text || '');
+  return /\b(?:puedo|podemos|se\s+puede|pagar|pago|pay(?:ment)?|pagare|payer|bezahlen|zahlen)\b/i.test(t)
+    && /\b(?:transferencia|bank\s+transfer|überweisung|bonifico|virement)\b/i.test(t);
+}
+
 function detectTransferSideQuestionIntent(text) {
   const t = String(text || '');
   if (!t.trim()) return null;
+  if (isPaymentMethodTransferQuestion(t)) return null;
 
-  if (/\b(?:airport\s+transfer|transfer\s+from|pick.?up\s+from|transfer\s+included|include\s+transfer|shuttle|aeropuerto|aeroporto|flughafen|transfert|transferencia)\b/i.test(t)) {
+  if (/\b(?:airport\s+transfer|transfer\s+from|pick.?up\s+from|transfer\s+included|include\s+transfer|shuttle|aeropuerto|aeroporto|flughafen|transfert)\b/i.test(t)) {
     return 'transfer_general';
   }
   if (/\b(?:Santander|Bilbao|SDR|BIO)\b/i.test(t) && /\b(?:transfer|airport|pickup|shuttle|aeropuerto|aeroporto|flughafen)\b/i.test(t)) {
