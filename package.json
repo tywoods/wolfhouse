@@ -286,6 +286,8 @@
     "proof:stage38b-addon-service-ledger-write": "node scripts/run-stage38b-addon-service-ledger-write-proof.js",
     "verify:stage39a-multilingual-out-of-order-fixtures": "node scripts/verify-stage39a-multilingual-out-of-order-fixtures.js",
     "verify:stage39b-multilingual-parser-hardening": "node scripts/verify-stage39b-multilingual-parser-hardening.js",
+    "verify:stage40a-random-hammer-tester": "node scripts/verify-stage40a-random-hammer-tester.js",
+    "hammer:luna": "node scripts/run-luna-random-hammer-test.js",
     "verify:stage29room-a-real-room-bed-seed": "node scripts/verify-stage29room-a-real-room-bed-seed.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",

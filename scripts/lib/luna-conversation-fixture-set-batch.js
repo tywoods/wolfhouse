@@ -171,7 +171,7 @@ async function runConversationFixture(fixture, opts, index) {
     }
   }
 
-  return result;
+  return { ...result, last_out: lastOut };
 }
 
 async function runConversationFixtureSetAsBatch(opts) {
