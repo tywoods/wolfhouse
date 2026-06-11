@@ -323,9 +323,9 @@
               "Perfect — extras added 😊\n\nReady to hold with the {{deposit}} deposit or full {{total}}?"
             ],
             "payment_choice_prompt": [
-              "Would you rather pay the {{deposit}} deposit or the full {{total}}?",
-              "You can pay the {{deposit}} deposit or the full {{total}} — whatever's easier for you 👍",
-              "Which works — {{deposit}} deposit now or full {{total}}?"
+              "Would you rather pay the {{deposit}} deposit or the full {{total}}? We can always add lessons or rentals later if you want.",
+              "You can pay the {{deposit}} deposit or the full {{total}} — whatever's easier for you 👍 We can add lessons or rentals later if you want.",
+              "To reserve it, you can do the {{deposit}} deposit now or the full {{total}}. We can always add lessons or rentals later if you want."
             ],
             "cash_side_question": [
               "Sure — cash with me at check-in, or bank transfer on your arrival day. To hold the spot now — {{deposit}} deposit or full {{total}}? Whatever's easier 👍",
@@ -439,7 +439,7 @@
           "accommodation_quote_available": "Yesss, good news — we have space for those dates ☀️ The stay comes to {{total}}.",
           "accommodation_quote_addons_tail": "Do you need a wetsuit, board, or lessons too, or just the stay?",
           "package_quote_available": "Yesss, good news — we have space {{date_avail}}. {{package_label}} comes to {{total}}.",
-          "package_quote_payment_tail": "Would you rather pay the {{deposit}} deposit or the full {{total}}?",
+          "package_quote_payment_tail": "To reserve it, you can pay the {{deposit}} deposit or the full {{total}}. We can always add lessons or rentals later if you want.",
           "addons_none": "Perfect — just the stay then 😊\n\nTo hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
           "ask_payment_choice_with_extras": "Got it — I've noted those extras 😊\n\nTo hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
           "ask_payment_choice_accommodation_only": "Perfect — just the stay then 😊\n\nTo hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",

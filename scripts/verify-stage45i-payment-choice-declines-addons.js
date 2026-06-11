@@ -288,6 +288,7 @@ function clearedWireCtx() {
   section('D. Quote copy — payment first, add-ons optional/later');
   const composed = composeLunaGuestReply({
     payload: {
+      client_slug: 'wolfhouse-somo',
       result: quotedMalibuCtx().result,
       availability: quotedMalibuCtx().availability,
       quote: quotedMalibuCtx().quote,
@@ -301,6 +302,23 @@ function clearedWireCtx() {
     'does not force just-the-stay wording');
   check('D4', !/stripe link/i.test(quoteReply),
     'quote copy avoids Stripe link');
+
+  const camiHosted = composeLunaGuestReply({
+    payload: {
+      client_slug: 'wolfhouse-somo',
+      prior_guest_context: { guest_phone: '+34600995563', cami_variation_history: { turn_count: 1 } },
+      result: quotedMalibuCtx().result,
+      availability: quotedMalibuCtx().availability,
+      quote: quotedMalibuCtx().quote,
+    },
+    guest_phone: '+34600995563',
+  });
+  const camiReply = camiHosted && camiHosted.reply ? camiHosted.reply : '';
+  check('D5', /deposit|full/i.test(camiReply), 'Cami package quote asks deposit or full');
+  check('D6', /lessons|rentals/i.test(camiReply) && /later|if you want/i.test(camiReply),
+    'Cami package quote mentions optional add-ons later');
+  check('D7', !/just the stay/i.test(camiReply), 'Cami package quote does not force just-the-stay');
+  check('D8', !/stripe link/i.test(camiReply), 'Cami package quote avoids Stripe link');
 
   section('E. Explicit add-on request stays safe');
   const addonTurn = await runTurn('Can we add surf lessons?', quotedMalibuCtx());
