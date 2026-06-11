@@ -189,8 +189,8 @@ check(/pathname\s*===\s*['"]\/staff\/conversations['"]/.test(src),
 const ctxHandler = extractHandlerBlock('handleConversationContext');
 check(/getConversationBookingsQuery/.test(ctxHandler),
   'Context handler loads guest bookings query');
-check(/bookings:\s*bookingRows/.test(ctxHandler),
-  'Context handler returns bookings array');
+check(/filterActiveInboxBookings/.test(ctxHandler) && /bookings:\s*activeBookings/.test(ctxHandler),
+  'Context handler returns filtered active bookings array');
 
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -14299,6 +14299,12 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-grid th,.bc-grid td{border-right:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);padding:0}
 .bc-grid thead th{background:var(--surface-soft);padding:7px 8px;font-size:10px;font-weight:700;color:var(--text-2);text-align:center;position:sticky;top:0;z-index:2;white-space:nowrap;letter-spacing:.03em}
 .bc-grid thead th.bc-bed-head{left:0;z-index:3;text-align:left;min-width:130px;background:var(--sand)}
+.bc-grid-shell{display:none;position:relative}
+.bc-grid-wrap-inner{overflow-x:auto;overflow-y:auto;border:1px solid #EFE8DC;border-radius:12px 12px 0 0;background:var(--surface)}
+.bc-grid-resize-handle{height:10px;cursor:ns-resize;background:linear-gradient(180deg,#EFE8DC 0%,#E6DDD0 100%);border:1px solid #EFE8DC;border-top:none;border-radius:0 0 12px 12px;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none}
+.bc-grid-resize-handle::after{content:'';width:40px;height:3px;border-radius:2px;background:#B8A99A;opacity:.85}
+.bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:#8A7A6C}
+.conv-list-handoff-pill{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC}
 .bc-room-hdr{background:var(--olive);color:#fff;font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.02em}
 .bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:11px;padding:6px 10px;min-width:120px;position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
 .bc-day-cell{height:30px;min-width:46px;vertical-align:middle;padding:2px 3px}
@@ -15014,8 +15020,11 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <!-- State message -->
     <div id="bc-state" class="state-msg">Select a date range and click Load.</div>
 
-    <!-- Grid -->
-    <div id="bc-grid-wrap" style="display:none;overflow-x:auto;overflow-y:auto;max-height:620px;border:1px solid #EFE8DC;border-radius:12px"></div>
+    <!-- Grid (vertically resizable — Stage 47a) -->
+    <div id="bc-grid-shell" class="bc-grid-shell">
+      <div id="bc-grid-wrap" class="bc-grid-wrap-inner"></div>
+      <div id="bc-grid-resize-handle" class="bc-grid-resize-handle" title="Drag to resize calendar" role="separator" aria-orientation="horizontal" aria-label="Resize calendar height"></div>
+    </div>
   </div>
 
   <!-- Manual booking preview skeleton (Stage 8.3d / 8.4.5, read-only) -->
@@ -15592,6 +15601,136 @@ function conversationNeedsHuman(c){
   return !!(c && c.needs_human);
 }
 
+var BC_GRID_HEIGHT_KEY = 'staff_bc_grid_height';
+var BC_GRID_HEIGHT_MIN = 280;
+var BC_GRID_HEIGHT_MAX = 900;
+var BC_GRID_HEIGHT_DEFAULT = 620;
+var bcCalendarResizeWired = false;
+
+function bcClampGridHeight(px){
+  var n = Number(px);
+  if (!Number.isFinite(n)) return BC_GRID_HEIGHT_DEFAULT;
+  return Math.max(BC_GRID_HEIGHT_MIN, Math.min(BC_GRID_HEIGHT_MAX, Math.round(n)));
+}
+
+function bcApplyGridHeight(px){
+  var wrap = el('bc-grid-wrap');
+  if (!wrap) return;
+  var h = bcClampGridHeight(px);
+  wrap.style.height = h + 'px';
+  wrap.style.maxHeight = h + 'px';
+}
+
+function bcLoadSavedGridHeight(){
+  try {
+    var raw = localStorage.getItem(BC_GRID_HEIGHT_KEY);
+    if (raw != null && raw !== '') return bcClampGridHeight(parseInt(raw, 10));
+  } catch (_) { /* ignore */ }
+  return BC_GRID_HEIGHT_DEFAULT;
+}
+
+function bcSaveGridHeight(px){
+  try { localStorage.setItem(BC_GRID_HEIGHT_KEY, String(bcClampGridHeight(px))); } catch (_) { /* ignore */ }
+}
+
+function bcInitCalendarResize(){
+  if (bcCalendarResizeWired) return;
+  var handle = el('bc-grid-resize-handle');
+  var wrap = el('bc-grid-wrap');
+  if (!handle || !wrap) return;
+  bcCalendarResizeWired = true;
+  bcApplyGridHeight(bcLoadSavedGridHeight());
+  var dragging = false;
+  var startY = 0;
+  var startH = 0;
+  function pointerY(ev){
+    if (ev.touches && ev.touches.length) return ev.touches[0].clientY;
+    return ev.clientY;
+  }
+  function onMove(ev){
+    if (!dragging) return;
+    ev.preventDefault();
+    bcApplyGridHeight(startH + (pointerY(ev) - startY));
+  }
+  function onUp(){
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    var h = parseInt(wrap.style.height, 10);
+    if (!isNaN(h)) bcSaveGridHeight(h);
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    window.removeEventListener('touchmove', onMove);
+    window.removeEventListener('touchend', onUp);
+  }
+  function onDown(ev){
+    ev.preventDefault();
+    dragging = true;
+    startY = pointerY(ev);
+    startH = wrap.getBoundingClientRect().height;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+  }
+  handle.addEventListener('mousedown', onDown);
+  handle.addEventListener('touchstart', onDown, { passive: false });
+}
+
+function bcNaturalCodeSort(a, b){
+  return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function bcSortRoomsForDisplay(rooms){
+  return (rooms || []).slice().sort(function(a, b){
+    return bcNaturalCodeSort(a.room_code || a.room_name, b.room_code || b.room_name);
+  });
+}
+
+function bcSortBedsForDisplay(beds){
+  return (beds || []).slice().sort(function(a, b){
+    var ao = a.sort_order != null ? Number(a.sort_order) : 999;
+    var bo = b.sort_order != null ? Number(b.sort_order) : 999;
+    if (ao !== bo) return ao - bo;
+    return bcNaturalCodeSort(a.bed_code, b.bed_code);
+  });
+}
+
+function isInactiveInboxBookingStatus(status){
+  var s = String(status || '').toLowerCase();
+  return s === 'cancelled' || s === 'canceled' || s === 'expired';
+}
+
+function filterActiveInboxBookings(rows){
+  return (rows || []).filter(function(b){ return !isInactiveInboxBookingStatus(b.booking_status); });
+}
+
+function sanitizeConversationContextForInbox(row){
+  if (!row || !isInactiveInboxBookingStatus(row.booking_status)) return row;
+  return Object.assign({}, row, {
+    booking_id: null,
+    booking_code: null,
+    booking_status: null,
+    booking_payment_status: null,
+    check_in: null,
+    check_out: null,
+    guest_count: null,
+    package_code: null,
+    assigned_room_code: null,
+    assigned_bed_code: null,
+  });
+}
+
+function conversationHasOpenHandoff(conv){
+  if (!conv) return false;
+  var st = String(conv.handoff_status || '').toLowerCase();
+  if (st === 'open' || st === 'assigned' || st === 'waiting_guest') return true;
+  return !!(conv.handoff_reason && conv.needs_human);
+}
+
 function filterInboxConversations(convs){
   if (inboxFilter === 'needs-human'){
     return (convs || []).filter(conversationNeedsHuman);
@@ -16045,7 +16184,9 @@ function convSourcePill(conv){
 function convListPill(conv){
   conv = conv || {};
   var html = convSourcePill(conv);
-  if (conv.needs_human){
+  if (conversationHasOpenHandoff(conv)){
+    html += '<span class="pill pill-orange conv-list-status-pill conv-list-handoff-pill">Human handoff</span>';
+  } else if (conv.needs_human){
     html += '<span class="pill pill-orange conv-list-status-pill conv-list-needs-human-pill">Needs Human</span>';
   }
   return html;
@@ -16053,7 +16194,9 @@ function convListPill(conv){
 
 function convHeaderStatusPillsHtml(conv, lunaPaused){
   var html = inboxLunaStaffPill(lunaPaused);
-  if (conv && conv.needs_human){
+  if (conversationHasOpenHandoff(conv)){
+    html += '<span class="pill pill-orange" id="conv-handoff-pill">Human handoff</span>';
+  } else if (conv && conv.needs_human){
     html += '<span class="pill pill-orange" id="conv-needs-human-pill">Needs Human</span>';
   }
   return html;
@@ -16532,11 +16675,18 @@ function renderInbox(convs, opts){
     var delBtn = staffIsAdmin()
       ? '<button type="button" class="conv-card-delete" title="Delete conversation" aria-label="Delete conversation">&times;</button>'
       : '';
+    var handoffLine = '';
+    if (conversationHasOpenHandoff(c) && c.handoff_reason){
+      handoffLine = '<div class="conv-card-handoff">' + escHtml(handoffLabel(c.handoff_reason)) + '</div>';
+    } else if (c.needs_human && !conversationHasOpenHandoff(c)){
+      handoffLine = '<div class="conv-card-handoff">Needs staff reply</div>';
+    }
     return '<div class="conv-card" data-id="' + escHtml(c.conversation_id) + '">' +
       delBtn +
       '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
       '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' +
       '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
+      handoffLine +
     '</div>';
   }).join('');
 
@@ -16851,9 +17001,9 @@ function loadConvDetail(convId, targetEl){
 
     var c     = detailData.conversation;
     var msgs  = (msgsData.success  && msgsData.messages)  ? msgsData.messages  : [];
-    var ctx   = (ctxData.success   && ctxData.context)    ? ctxData.context    : null;
+    var ctx   = (ctxData.success   && ctxData.context)    ? sanitizeConversationContextForInbox(ctxData.context) : null;
     var bookingRows = (ctxData.success && ctxData.bookings && ctxData.bookings.length)
-      ? ctxData.bookings
+      ? filterActiveInboxBookings(ctxData.bookings)
       : (ctx && (ctx.booking_code || ctx.booking_id) ? [ctx] : []);
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
     var state = (stateData.success && stateData.state)     ? stateData.state    : null;
@@ -16864,7 +17014,8 @@ function loadConvDetail(convId, targetEl){
     html +=   '<div>';
     html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
     html +=     '<div class="detail-meta">' + escHtml(c.phone);
-    if (c.handoff_reason) html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
+    if (conversationHasOpenHandoff(c) && c.handoff_reason) html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
+    else if (c.needs_human) html += ' &bull; Needs staff reply';
     html +=     '</div>';
     html +=   '</div>';
     html +=   '<div class="detail-header-pills" style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
@@ -18831,13 +18982,8 @@ function renderBedCalendar(data){
   var blocks = data.blocks || [];
   bcCalendarBlocks = blocks;
 
-  /* Natural numeric room sort: R1, R2, R3 … R10 (not R1, R10, R2) */
-  rooms = rooms.slice().sort(function(a, b){
-    var ao = a.sort_order != null ? a.sort_order : 999;
-    var bo = b.sort_order != null ? b.sort_order : 999;
-    if (ao !== bo) return ao - bo;
-    return (a.room_name || a.room_code || '').localeCompare(b.room_name || b.room_code || '', undefined, { numeric: true, sensitivity: 'base' });
-  });
+  /* Display order R1–R10 (natural numeric room_code); fill_priority unchanged for assignment */
+  rooms = bcSortRoomsForDisplay(rooms);
 
   /* Warnings */
   if (data.warnings && data.warnings.length > 0){
@@ -18881,7 +19027,7 @@ function renderBedCalendar(data){
       (roomMeta.length ? ' <span style="font-weight:400;opacity:.65;font-size:10px;margin-left:6px">' + roomMeta.join(' &middot; ') + '</span>' : '') +
       '</td></tr>';
 
-    var beds = room.beds || [];
+    var beds = bcSortBedsForDisplay(room.beds || []);
     if (beds.length === 0){
       html += '<tr><td class="bc-bed-cell" style="color:#9aabb8;font-style:italic">no beds</td>';
       for (var e = 0; e < N; e++) html += '<td class="bc-day-cell"></td>';
@@ -18957,8 +19103,10 @@ function renderBedCalendar(data){
   html += '</tbody></table>';
 
   var wrap = el('bc-grid-wrap');
+  var shell = el('bc-grid-shell');
   wrap.innerHTML = html;
-  wrap.style.display = 'block';
+  bcApplyGridHeight(bcLoadSavedGridHeight());
+  if (shell) shell.style.display = 'block';
   el('bc-state').style.display = 'none';
 
   /* Wire block clicks (primary bars + turnover checkout markers) */
@@ -23787,7 +23935,8 @@ function loadBedCalendar(afterRender){
   var end    = (el('bc-end').value||'').trim();
   var client = getBcClient();
 
-  el('bc-grid-wrap').style.display = 'none';
+  var bcShell = el('bc-grid-shell');
+  if (bcShell) bcShell.style.display = 'none';
   el('bc-detail').style.display    = 'none';
   el('bc-state').className         = 'state-msg';
   el('bc-state').textContent       = 'Loading bed calendar\u2026';
@@ -23840,6 +23989,7 @@ function bcAddDaysISO(iso, delta){
 
 var bcInitialLoadDone = false;
 function bcOnBedCalendarTabOpen(){
+  bcInitCalendarResize();
   bcInitDetailCopyDelegation();
   var sEl = el('bc-start');
   var eEl = el('bc-end');
@@ -23874,6 +24024,7 @@ function bcSetRange(start, end, chipKey){
 
 /* Initialise date inputs dynamically (next 30 days default) */
 (function initBcDates(){
+  bcInitCalendarResize();
   var today = new Date();
   var plus30 = new Date(today.getTime() + 30 * 86400000);
   var s = el('bc-start'); var e = el('bc-end');
@@ -24668,16 +24819,19 @@ async function handleConversationContext(convId, query, res, user) {
     return send404(res);
   }
 
+  const activeBookings = filterActiveInboxBookings(bookingRows);
+  const context = sanitizeConversationContextForInbox(contextRow);
+
   appendAuditLog({
     ...auditBase,
     success: true,
-    row_count: bookingRows.length || 1,
+    row_count: activeBookings.length || (context && context.booking_id ? 1 : 0),
     elapsed_ms: elapsed,
   });
   return sendJSON(res, 200, {
     success: true,
-    context: contextRow,
-    bookings: bookingRows,
+    context,
+    bookings: activeBookings,
     elapsed_ms: elapsed,
   });
 }
@@ -25623,8 +25777,9 @@ function buildRoomHierarchy(roomRows) {
         house:       row.house      || null,
         room_type:   row.room_type  || null,
         capacity:    row.capacity   || 0,
-        sort_order:  row.fill_priority != null ? Number(row.fill_priority)
-          : (row.room_sort_order != null ? Number(row.room_sort_order) : 999),
+        sort_order:  row.room_sort_order != null ? Number(row.room_sort_order)
+          : (row.fill_priority != null ? Number(row.fill_priority) : 999),
+        fill_priority: row.fill_priority != null ? Number(row.fill_priority) : null,
         gender_strategy: row.gender_strategy || null,
         beds: [],
       };

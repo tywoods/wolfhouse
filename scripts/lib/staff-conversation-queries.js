@@ -353,6 +353,7 @@ LEFT JOIN LATERAL (
 ) p ON TRUE
 WHERE c.slug = $1
   AND conv.id = $2::uuid
+  AND b.status NOT IN ('cancelled', 'expired')
 ORDER BY
   (b.id = conv.current_hold_booking_id) DESC,
   b.check_in DESC NULLS LAST,

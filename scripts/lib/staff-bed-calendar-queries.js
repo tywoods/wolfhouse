@@ -27,8 +27,9 @@ const {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns all active rooms and their active beds for a client, ordered for
- * rendering as grid rows (room sort_order → room_code → bed_number → bed_code).
+ * Returns all active rooms and their active beds for a client.
+ * SQL ORDER BY fill_priority supports Luna assignment; Staff Portal UI re-sorts
+ * rows by natural room_code (R1–R10) for display only.
  * One row per bed. Rooms with no beds still appear (with NULL bed columns).
  *
  * @returns {string} Parameterised SQL ($1 = client slug)
