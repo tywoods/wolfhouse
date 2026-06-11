@@ -37,6 +37,7 @@ const {
 const {
   shouldBlockMetaGuestInboundAfterOpenDemo,
   buildMetaGuestPhoneGateBlockedExtras,
+  shouldRouteActiveStaffPhoneToOwnerCommandCenter,
 } = require('./luna-open-phone-testing-gate');
 
 function buildDraftFromStoredEvent(row) {
@@ -176,7 +177,7 @@ async function processWithoutPersistence(pg, env, normalized, body, signatureMet
     })
     : { found: false, active: false };
 
-  if (staffPhoneAccess.found && staffPhoneAccess.active) {
+  if (shouldRouteActiveStaffPhoneToOwnerCommandCenter(env, normalized, staffPhoneAccess)) {
     return processOwnerWhatsAppCommandCenterWithoutPersistence({
       pg,
       env,
@@ -304,7 +305,7 @@ async function processMetaWhatsAppWebhookInbound(input) {
     })
     : { found: false, active: false };
 
-  if (staffPhoneAccess.found && staffPhoneAccess.active) {
+  if (shouldRouteActiveStaffPhoneToOwnerCommandCenter(env, normalized, staffPhoneAccess)) {
     return processOwnerWhatsAppCommandCenterInbound({
       pg,
       env,

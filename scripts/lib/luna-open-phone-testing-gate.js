@@ -16,6 +16,8 @@ const {
 const { isAllowlistedProofPhone } = require('./luna-live-proof-hygiene');
 
 const OPEN_PHONE_TESTING_ENV = 'LUNA_OPEN_PHONE_TESTING';
+const BYPASS_STAFF_ROUTING_ENV = 'LUNA_OPEN_PHONE_TESTING_BYPASS_STAFF_ROUTING';
+const STAFF_ROUTING_KEEP_ALLOWLIST_ENV = 'LUNA_OPEN_PHONE_TESTING_STAFF_ROUTING_KEEP_ALLOWLIST';
 const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 
 function trimEnv(v) {
@@ -33,6 +35,35 @@ function isProductionEnvironment(env) {
 
 function isLunaOpenPhoneTestingEnabled(env) {
   return trimEnv(readEnv(env)[OPEN_PHONE_TESTING_ENV]).toLowerCase() === 'true';
+}
+
+function isLunaOpenPhoneTestingBypassStaffRoutingEnabled(env) {
+  const e = readEnv(env);
+  return isLunaOpenPhoneTestingEnabled(e)
+    && trimEnv(e[BYPASS_STAFF_ROUTING_ENV]).toLowerCase() === 'true';
+}
+
+/**
+ * Parse comma/semicolon/whitespace-separated monitor keep-list from env.
+ * @param {object} [env]
+ * @returns {string[]} normalized digit-only phone numbers
+ */
+function parseStaffRoutingKeepAllowlist(env) {
+  const raw = trimEnv(readEnv(env)[STAFF_ROUTING_KEEP_ALLOWLIST_ENV]);
+  if (!raw) return [];
+  return [...new Set(
+    raw.split(/[,;\s]+/)
+      .map(normalizeRecipientPhone)
+      .filter(Boolean),
+  )];
+}
+
+function isStaffRoutingKeepMonitorPhone(phone, env) {
+  const normalized = normalizeRecipientPhone(phone);
+  if (!normalized) return false;
+  const list = parseStaffRoutingKeepAllowlist(env);
+  if (!list.length) return false;
+  return list.includes(normalized);
 }
 
 function extractGuestPhone(body) {
@@ -156,6 +187,64 @@ function shouldBlockMetaGuestInboundAfterOpenDemo(env, normalized) {
   return { block: true, gate };
 }
 
+/**
+ * Whether an active staff_phone_access row should route to owner command center (Meta inbound).
+ * Default: staff/admin phones stay on owner path. When open phone testing + bypass are on
+ * (wolfhouse-somo, non-production), staff phones continue to guest open-demo instead.
+ *
+ * @param {object} env
+ * @param {{ client_slug?: string, phone?: string }} normalized
+ * @param {{ found?: boolean, active?: boolean }} staffPhoneAccess
+ * @returns {{
+ *   route_to_owner: boolean,
+ *   bypass_to_guest_path?: boolean,
+ *   staff_routing_bypassed?: boolean,
+ *   kept_as_staff_monitor?: boolean,
+ *   guest_tester_class?: string|null,
+ * }}
+ */
+function evaluateOpenPhoneTestingStaffRoutingBypass(env, normalized, staffPhoneAccess) {
+  const access = staffPhoneAccess || {};
+  if (!access.found || !access.active) {
+    return { route_to_owner: false };
+  }
+
+  const clientSlug = trimStr(normalized && normalized.client_slug);
+  if (clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
+    return { route_to_owner: true };
+  }
+
+  if (isProductionEnvironment(env)) {
+    return { route_to_owner: true };
+  }
+
+  if (!isLunaOpenPhoneTestingBypassStaffRoutingEnabled(env)) {
+    return { route_to_owner: true };
+  }
+
+  const phone = normalized && normalized.phone != null
+    ? normalized.phone
+    : (normalized && normalized.from);
+  if (isStaffRoutingKeepMonitorPhone(phone, env)) {
+    return {
+      route_to_owner: true,
+      kept_as_staff_monitor: true,
+    };
+  }
+
+  return {
+    route_to_owner: false,
+    bypass_to_guest_path: true,
+    staff_routing_bypassed: true,
+    guest_tester_class: 'staff_open_testing',
+  };
+}
+
+function shouldRouteActiveStaffPhoneToOwnerCommandCenter(env, normalized, staffPhoneAccess) {
+  return evaluateOpenPhoneTestingStaffRoutingBypass(env, normalized, staffPhoneAccess)
+    .route_to_owner === true;
+}
+
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
@@ -198,10 +287,17 @@ function buildOpenDemoPhoneGateBlockedResponse(gate) {
 
 module.exports = {
   OPEN_PHONE_TESTING_ENV,
+  BYPASS_STAFF_ROUTING_ENV,
+  STAFF_ROUTING_KEEP_ALLOWLIST_ENV,
   WOLFHOUSE_CLIENT_SLUG,
   isLunaOpenPhoneTestingEnabled,
+  isLunaOpenPhoneTestingBypassStaffRoutingEnabled,
+  parseStaffRoutingKeepAllowlist,
+  isStaffRoutingKeepMonitorPhone,
   isKnownInboundTestPhone,
   evaluateGuestInboundPhoneGate,
+  evaluateOpenPhoneTestingStaffRoutingBypass,
+  shouldRouteActiveStaffPhoneToOwnerCommandCenter,
   shouldBlockMetaGuestInboundAfterOpenDemo,
   buildMetaGuestPhoneGateBlockedExtras,
   buildOpenDemoPhoneGateBlockedResponse,
