@@ -11,6 +11,7 @@ const { collectPriorExtractedFields, mergeGuestExtractedFields } = require('./lu
 const { computeStayNights, isAccommodationOnlyIntent } = require('./wolfhouse-package-night-rules');
 const {
   detectPackageExplainerIntent,
+  resolvePackageExplainerIntent,
   buildPackageExplainerReply,
 } = require('./luna-guest-package-explainer');
 const {
@@ -247,10 +248,13 @@ function buildStayContextPhrase(fields, lang) {
   return '';
 }
 
-function buildPackageChoiceReturnTail(fields, lang) {
+function buildPackageChoiceReturnTail(fields, lang, pkgIntent) {
   const ctx = buildStayContextPhrase(fields, lang);
-  if (!ctx) return 'Which package would you like — Malibu, Uluwatu, or Waimea?';
-  return `For your ${ctx} stay, which package would you like — Malibu, Uluwatu, or Waimea?`;
+  if (pkgIntent === 'malibu') {
+    return ctx ? `Want me to check Malibu for ${ctx}?` : 'Want me to check Malibu for you?';
+  }
+  if (!ctx) return 'Which one sounds best — Malibu, Uluwatu, or Waimea?';
+  return `For ${ctx}, Malibu is probably the easiest one to start with. Want me to check Malibu for you?`;
 }
 
 function buildServiceReturnTail(fields, quote) {
@@ -305,17 +309,18 @@ function buildTransferReturnTail(fields, pc, messageText, bodyText) {
 
 function buildExplainPackagesReply(lang, pkgIntent, fields) {
   const intent = pkgIntent || 'overview';
-  if (intent === 'overview') {
+  const bookingInProgress = !!(fields && fields.check_in && fields.check_out);
+  if (intent === 'overview' || intent === 'compare' || intent === 'recommend') {
     let body = buildPackageExplainerReply(lang, intent, { bookingInProgress: false });
     body = stripLegacyActionDisclaimers(body);
     const tail = hasWeeklyPackageSelected(fields)
       ? `For your ${buildStayContextPhrase(fields, lang)} stay, want to stick with your package or switch?`
-      : buildPackageChoiceReturnTail(fields, lang);
+      : buildPackageChoiceReturnTail(fields, lang, intent);
     return tail ? `${body}\n\n${tail}` : body;
   }
-  let body = buildPackageExplainerReply(lang, intent, { bookingInProgress: false });
+  let body = buildPackageExplainerReply(lang, intent, { bookingInProgress });
   body = stripLegacyActionDisclaimers(body);
-  const tail = buildPackageChoiceReturnTail(fields, lang);
+  const tail = buildPackageChoiceReturnTail(fields, lang, intent);
   return tail ? `${body}\n\n${tail}` : body;
 }
 
@@ -594,9 +599,14 @@ function resolveComposerState(input) {
     return 'explain_transfer';
   }
 
-  const pkgIntentEarly = detectPackageExplainerIntent(messageText);
-  if (pkgIntentEarly && fields.check_in && fields.check_out) {
-    return 'explain_packages';
+  const pkgIntentEarly = resolvePackageExplainerIntent(messageText, inp.brain_decision);
+  if (pkgIntentEarly) {
+    const directPackageInfo = [
+      'overview', 'malibu', 'uluwatu', 'waimea', 'compare', 'recommend',
+      'choice_beginner', 'choice_experienced', 'what_to_bring',
+    ].includes(pkgIntentEarly);
+    if (fields.check_in && fields.check_out) return 'explain_packages';
+    if (directPackageInfo) return 'explain_packages';
   }
 
   if (mode === 'live_staging') {
@@ -1181,7 +1191,10 @@ function composeLunaGuestReply(input) {
     || trimStr(input && input.prior_guest_context && input.prior_guest_context.client_slug)
     || null;
   const facts = buildComposerFacts(quote, plan, pc, stripe, live, clientSlug);
-  const pkgIntent = detectPackageExplainerIntent(trimStr(input && input.message_text));
+  const pkgIntent = resolvePackageExplainerIntent(
+    trimStr(input && input.message_text),
+    input && input.brain_decision,
+  );
 
   const groundingErrors = validateComposerFacts(state, facts);
   if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name', 'ask_package',

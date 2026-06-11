@@ -34,6 +34,13 @@ function detectPackageExplainerIntent(text) {
     return 'overview';
   }
 
+  if (/\b(?:explain|tell me about|tell me more about|describe|more about|info on|information about|what about|talk me through|walk me through|run me through)\b[^.?!]*\bpackages?\b/i.test(t)) {
+    return 'overview';
+  }
+  if (/\bpackages?\b[^.?!]*\b(?:explain|options|guide|overview|details|info)\b/i.test(t)) {
+    return 'overview';
+  }
+
   const hasPkgName = /\b(?:malibu|uluwatu|waimea)\b/i.test(t);
   const pkgNameCount = (tl.match(/\b(?:malibu|uluwatu|waimea)\b/g) || []).length;
 
@@ -58,9 +65,16 @@ function detectPackageExplainerIntent(text) {
 
   const hasCompareSignal = /\b(?:vs\.?|versus)\b/i.test(t)
     || /\b(?:difference between|differenza tra|diferencia entre|unterschied zwischen|diff[eé]rence entre)\b/i.test(t)
+    || /\b(?:what(?:'s| is) the )?difference(?:s)?(?: between)?\b/i.test(t)
     || /\b(?:explain|compare)\b/i.test(t);
-  if (hasPkgName && hasCompareSignal && (pkgNameCount >= 2 || /\b(?:vs\.?|versus|difference between|differenza tra|diferencia entre|unterschied zwischen|diff[eé]rence entre|explain)\b/i.test(t))) {
+  if (hasCompareSignal && (hasPkgName || /\bpackages?\b/i.test(t))
+    && (pkgNameCount >= 2 || /\b(?:vs\.?|versus|difference|explain|compare|packages?)\b/i.test(t))) {
     return 'compare';
+  }
+
+  if (/\b(?:what(?:'s| is) included|what is included|what's included|what(?:'s| is) in (?:the )?packages?)\b/i.test(t)
+    && !hasPkgName) {
+    return 'overview';
   }
 
   if (/\b(?:which package (?:do you )?recommend|what package (?:do you )?recommend|quale pacchetto consigli|qu[eé] paquete recomiendas|welches paket empfiehl|quel forfait (?:tu )?recommandes)\b/i.test(t)) {
@@ -105,6 +119,19 @@ function detectPackageExplainerIntent(text) {
     if (/\bmalibu\b/i.test(t)) return 'malibu';
   }
 
+  return null;
+}
+
+/**
+ * Package-info intent from message text, with optional brain side-question fallback.
+ */
+function resolvePackageExplainerIntent(text, brainDecision) {
+  const explicit = detectPackageExplainerIntent(text);
+  if (explicit) return explicit;
+  const brain = brainDecision || {};
+  if (brain.side_question_answer_needed && brain.side_question_type) {
+    return brain.side_question_type;
+  }
   return null;
 }
 
@@ -290,6 +317,7 @@ function isBookingExplainerContext(guestContext) {
 
 module.exports = {
   detectPackageExplainerIntent,
+  resolvePackageExplainerIntent,
   buildPackageExplainerReply,
   isBookingExplainerContext,
   TRANSFER_CAVEAT,
