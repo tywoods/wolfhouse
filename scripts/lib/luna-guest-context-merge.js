@@ -239,7 +239,7 @@ function isActiveBookingSideQuestion(priorGuestContext, currentResult, messageTe
   if (detectServiceSideQuestionIntent(text)) return true;
   if (detectTransferSideQuestionIntent(text)) return true;
   const knowledgeIntent = detectGuestKnowledgeIntent(text);
-  if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(text, knowledgeIntent)) return true;
+  if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(text, knowledgeIntent, priorGuestContext)) return true;
   if (currentResult.message_lane === 'add_service_request') return true;
   if (currentResult.message_lane === 'transfer_request') return true;
   return false;

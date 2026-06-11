@@ -1,0 +1,44 @@
+{
+  "id": "faq-mid-booking-it-wetsuit-preserves-context",
+  "label": "FAQ IT wetsuit mid-booking preserves context",
+  "contact_name": "Marco",
+  "language": "it",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "1-5 luglio per 2",
+      "expect": {
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 2
+        },
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "serve la muta?",
+      "expect": {
+        "reply_contains": ["muta"],
+        "expected_context_preserved": true,
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 2
+        },
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 2
+    },
+    "no_handoff": true
+  }
+}

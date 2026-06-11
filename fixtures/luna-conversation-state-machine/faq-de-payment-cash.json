@@ -1,0 +1,20 @@
+{
+  "id": "faq-de-payment-cash",
+  "label": "FAQ DE payment cash",
+  "language": "de",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Kann ich bar bezahlen?",
+      "expect": {
+        "reply_contains": ["bar", "Anzahlung"],
+        "reply_not_contains": ["2684"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": { "no_handoff": true, "no_internal_language": true }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "faq-de-lesson-times",
+  "label": "FAQ DE lesson times",
+  "language": "de",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Wann sind die Surfkurse?",
+      "expect": {
+        "reply_contains": ["08:30", "11:00", "bestätigt"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": { "no_handoff": true, "no_internal_language": true }
+}

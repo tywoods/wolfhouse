@@ -92,7 +92,7 @@ function detectFieldCorrectionIntent(messageText) {
   return false;
 }
 
-function isQuotePreservingSideQuestion(messageText) {
+function isQuotePreservingSideQuestion(messageText, guestContext) {
   const text = trimStr(messageText);
   if (!text) return false;
   if (detectPackageExplainerIntent(text)) return true;
@@ -101,7 +101,7 @@ function isQuotePreservingSideQuestion(messageText) {
   const pc = detectPaymentChoiceFromMessage(text);
   if (pc === 'arrival_payment_question' || pc === 'payment_link_request') return true;
   const knowledgeIntent = detectGuestKnowledgeIntent(text);
-  if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(text, knowledgeIntent)) return true;
+  if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(text, knowledgeIntent, guestContext)) return true;
   return false;
 }
 
@@ -120,7 +120,7 @@ function evaluateQuoteStaleInvalidation(priorGuestContext, routerResult, message
   if (!priorQuoteWasReady(priorGuestContext)) return null;
   const text = trimStr(messageText);
   if (!text) return null;
-  if (isQuotePreservingSideQuestion(text)) return null;
+  if (isQuotePreservingSideQuestion(text, priorGuestContext)) return null;
 
   const priorFields = collectPriorExtractedFields(priorGuestContext);
   const currentFields = (routerResult && routerResult.extracted_fields) || {};

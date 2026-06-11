@@ -1,0 +1,19 @@
+{
+  "id": "faq-de-towels-sheets",
+  "label": "FAQ DE towels and sheets",
+  "language": "de",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Brauche ich ein Handtuch?",
+      "expect": {
+        "reply_contains": ["Handtüch", "Bettwäsche"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": { "no_handoff": true, "no_internal_language": true }
+}

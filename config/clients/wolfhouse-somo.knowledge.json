@@ -1,267 +1,43 @@
 {
   "_meta": {
     "client_slug": "wolfhouse-somo",
-    "version": "0.1",
-    "stage": "41a",
-    "purpose": "Grounded Wolfhouse/Somo guest FAQ facts for Luna dry-run replies",
-    "source_notes": "Operator-provided facts (Stage 41a). No live surf API, no website scrape, no vector search."
+    "version": "0.2",
+    "stage": "41b",
+    "purpose": "Grounded Wolfhouse/Somo guest FAQ facts — multilingual EN/IT/ES/DE",
+    "source_notes": "Stage 41a operator facts + Stage 41b expansion. wolf-house.com FAQ not scraped — local_area/restaurants marked staff-confirmed if unknown.",
+    "website_source_status": "partial — no live scraper; add verified facts manually in future stages"
   },
   "client_slug": "wolfhouse-somo",
   "maps_link": "https://maps.app.goo.gl/oPRckhqozVBvXxL16",
-  "private_fields": [
-    "gate_code",
-    "room_label",
-    "bed_number"
-  ],
+  "private_fields": ["gate_code", "room_label", "bed_number"],
   "unsafe_to_invent": [
     "exact_transfer_pickup_time",
     "exact_lesson_group_assignment",
     "exact_yoga_schedule",
     "exact_dinner_time",
     "live_surf_conditions",
-    "driver_name"
+    "driver_name",
+    "restaurant_names_unverified"
   ],
-  "escalation_default": "The team will confirm the exact details with you.",
+  "escalation_default": {
+    "en": "The team will confirm the exact details with you.",
+    "it": "Il team confermerà i dettagli esatti con te.",
+    "es": "El equipo confirmará los detalles exactos contigo.",
+    "de": "Das Team bestätigt die genauen Details mit dir."
+  },
   "categories": [
     {
       "id": "location",
       "label": "Location / Somo",
       "visibility": "public",
       "allowed_guest_answer": true,
-      "keywords": [
-        "where is wolfhouse",
-        "where are you",
-        "where is the house",
-        "location",
-        "address",
-        "how far from the beach",
-        "how far from beach",
-        "somo",
-        "find you",
-        "maps"
-      ],
-      "facts": [
-        "Wolfhouse is in Somo.",
-        "General location/map link can be shared before booking."
-      ],
+      "keywords": ["where is wolfhouse", "where are you", "location", "address", "somo", "maps", "dove si trova", "dove siete", "dónde está", "wo ist"],
+      "facts": ["Wolfhouse is in Somo.", "Beach/surf-house vibe.", "Maps link shareable; no private access codes."],
       "templates": {
-        "en": "We're in Somo 🌊 Here's the location: {{maps_link}}"
-      }
-    },
-    {
-      "id": "towels_sheets",
-      "label": "Towels and linen",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": [
-        "towel",
-        "towels",
-        "sheets",
-        "linen",
-        "bedding",
-        "bring towels",
-        "need towels"
-      ],
-      "facts": [
-        "Sheets are provided.",
-        "Towels are not provided — bring one for shower and beach."
-      ],
-      "templates": {
-        "en": "Tiny packing note 😊 We provide sheets, but not towels — so bring one for the shower and one for the beach if you can."
-      }
-    },
-    {
-      "id": "packing",
-      "label": "What to bring",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": [
-        "what should i bring",
-        "what to bring",
-        "what do i need to pack",
-        "packing list",
-        "what do i need"
-      ],
-      "facts": [
-        "Towel for beach and shower; sheets provided.",
-        "Sweatshirt/hoodie for evenings; sunscreen; swimsuit; trainers.",
-        "Poncho useful; personal hairdryer if needed — limited shared hairdryers."
-      ],
-      "templates": {
-        "en": "Practical packing for Somo 🌊 Sheets are on us — bring towels for shower + beach, a sweatshirt for evenings, sunscreen, swimsuit, trainers, and a poncho helps. Hairdryers are limited, so bring your own if you rely on one."
-      }
-    },
-    {
-      "id": "wetsuit_info",
-      "label": "Wetsuit guidance",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": [
-        "do i need a wetsuit",
-        "need a wetsuit",
-        "should i bring a wetsuit",
-        "wetsuit thickness",
-        "4/3",
-        "3/2"
-      ],
-      "facts": [
-        "Wolfhouse can provide wetsuits for lessons; personal wetsuits welcome.",
-        "Common thickness around here: 4/3 or 3/2 depending on season/weather."
-      ],
-      "templates": {
-        "en": "For lessons we can sort you with a wetsuit 🌊 If you have your own, bring it too. Around here 4/3 or 3/2 is usually the safe call depending on the season."
-      }
-    },
-    {
-      "id": "lesson_times",
-      "label": "Surf lesson rhythm",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": [
-        "what time are surf lessons",
-        "when are lessons",
-        "lesson times",
-        "surf lesson schedule",
-        "what time is the lesson"
-      ],
-      "facts": [
-        "Lessons run most days in season; low season can be quieter.",
-        "First group leaves Wolfhouse around 08:30 for 09:00–11:00.",
-        "Second group leaves around 10:30 for 11:00–13:00.",
-        "Exact group assignment confirmed later by staff/surf school."
-      ],
-      "templates": {
-        "en": "Most mornings we run two surf lesson groups: one leaves Wolfhouse around 08:30 for 09:00–11:00, and the second leaves around 10:30 for 11:00–13:00. The exact group gets confirmed closer to the day."
-      }
-    },
-    {
-      "id": "rentals_info",
-      "label": "Board / wetsuit rentals",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": [
-        "rent a board",
-        "rent board",
-        "rent wetsuit",
-        "hire board",
-        "board rental",
-        "can i rent"
-      ],
-      "facts": [
-        "Boards and wetsuits can be rented; pricing handled in booking flow.",
-        "Do not invent availability."
-      ],
-      "templates": {
-        "en": "Yep — we can help with board and wetsuit rentals 🌊 Exact options depend on your dates and stay. If you're booking now, tell me your dates and I can keep going with the stay quote."
-      }
-    },
-    {
-      "id": "payments_info",
-      "label": "Payments overview",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": [
-        "how can i pay",
-        "how do payments work",
-        "pay on arrival",
-        "payment methods",
-        "pay by card",
-        "pay by bank"
-      ],
-      "facts": [
-        "Deposit or full payment holds the booking.",
-        "Remaining balance can be paid on arrival by cash, bank transfer, or Stripe.",
-        "Add-on services can be added and settled at checkout unless paid earlier."
-      ],
-      "templates": {
-        "en": "To hold a booking you can pay a deposit or the full amount upfront. The rest can be settled on arrival — cash, bank transfer, or Stripe all work. Add-ons like rentals or lessons can go on your booking and be paid at checkout unless you settle them earlier."
-      }
-    },
-    {
-      "id": "transfer_how",
-      "label": "Airport transfer process",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "requires_staff_confirmation": true,
-      "keywords": [
-        "how does airport transfer work",
-        "how do transfers work",
-        "airport transfer how",
-        "how does transfer work",
-        "pickup from airport"
-      ],
-      "facts": [
-        "Airport transfers can be organized; staff confirm exact pickup.",
-        "Guest can share airport, flight number, arrival date/time, passengers, luggage/boards.",
-        "Do not promise a driver until staff/system confirms."
-      ],
-      "templates": {
-        "en": "We can help organize airport transfers 😊 Send your airport, flight number, arrival date/time, passenger count, and any luggage or boards — the team confirms the exact pickup. I can't promise a driver until that's confirmed."
-      }
-    },
-    {
-      "id": "yoga_meals_info",
-      "label": "Yoga and meals",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "requires_staff_confirmation": true,
-      "keywords": [
-        "how does yoga work",
-        "how do dinners work",
-        "how do meals work",
-        "yoga schedule",
-        "dinner times",
-        "when is yoga",
-        "when is dinner"
-      ],
-      "facts": [
-        "Yoga and meals can be requested/added; staff schedule exact timing.",
-        "Guest can settle at checkout.",
-        "Do not invent dates/times."
-      ],
-      "templates": {
-        "en": "Yoga and dinners can be added to your stay 😊 Exact times get scheduled/confirmed by the team — I won't guess a slot. They can usually be settled at checkout with the rest of your balance."
-      }
-    },
-    {
-      "id": "board_care",
-      "label": "Board care",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": [
-        "what do i do with the board",
-        "after surfing",
-        "board storage",
-        "rinse the board",
-        "board care",
-        "where do i put the board"
-      ],
-      "facts": [
-        "Rinse Wolfhouse boards after the beach.",
-        "Return boards to the board storage area."
-      ],
-      "templates": {
-        "en": "After surfing, give Wolfhouse boards a quick rinse and pop them back in the board storage area 🌊 Thanks for looking after the gear!"
-      }
-    },
-    {
-      "id": "house_rules",
-      "label": "House basics / rules",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": [
-        "house rules",
-        "food boxes",
-        "fridge label",
-        "name on food",
-        "checkout date label"
-      ],
-      "facts": [
-        "Food boxes/fridge labels: write name + checkout date.",
-        "Sheets provided; towels not provided."
-      ],
-      "templates": {
-        "en": "Quick house note 😊 Label food in the fridge/boxes with your name + checkout date. Sheets are provided; towels aren't — bring your own for shower and beach."
+        "en": "We're in Somo 🌊 Right by the surf-house vibe — here's the location: {{maps_link}}",
+        "it": "Siamo a Somo 🌊 Vibe surf house — ecco la posizione: {{maps_link}}",
+        "es": "Estamos en Somo 🌊 Ambiente surf house — aquí tienes la ubicación: {{maps_link}}",
+        "de": "Wir sind in Somo 🌊 Surf-House-Vibe — hier ist der Standort: {{maps_link}}"
       }
     },
     {
@@ -269,18 +45,199 @@
       "label": "Check-in / check-out",
       "visibility": "public",
       "allowed_guest_answer": true,
-      "keywords": [
-        "check in time",
-        "check-in time",
-        "check out time",
-        "check-out time",
-        "when can i check in"
-      ],
-      "facts": [
-        "Check-in/check-out times are in client baseline; answer generally if unsure."
-      ],
+      "keywords": ["check in time", "check-in", "check out time", "check-out", "ora check", "hora de entrada", "check-in uhrzeit"],
+      "facts": ["Typical check-in from 15:00, check-out by 11:00 (baseline).", "Gate code private until confirmation."],
       "templates": {
-        "en": "Check-in is usually from the afternoon and check-out in the morning — the team sends exact times with your confirmed booking details."
+        "en": "Check-in is usually from the afternoon (around 3pm) and check-out in the morning (around 11am) — the team sends exact times with your confirmed booking. Gate code comes with that confirmation 🔒",
+        "it": "Il check-in di solito è dal pomeriggio (verso le 15:00) e il check-out al mattino (verso le 11:00) — il team manda gli orari esatti con la prenotazione confermata. Il codice del cancello arriva lì 🔒",
+        "es": "El check-in suele ser por la tarde (sobre las 15:00) y el check-out por la mañana (sobre las 11:00) — el equipo envía los horarios exactos con tu reserva confirmada. El código del portón llega ahí 🔒",
+        "de": "Check-in ist meist ab dem Nachmittag (gegen 15:00) und Check-out am Morgen (gegen 11:00) — das Team schickt die genauen Zeiten mit deiner bestätigten Buchung. Der Torcode kommt damit 🔒"
+      }
+    },
+    {
+      "id": "towels_sheets",
+      "label": "Towels and linen",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["towel", "towels", "sheets", "linen", "asciugamani", "lenzuola", "toallas", "sábanas", "handtuch", "bettwäsche", "bettwasche"],
+      "facts": ["Sheets provided.", "Towels not provided — shower + beach towel recommended."],
+      "templates": {
+        "en": "Tiny packing note 😊 We provide sheets, but not towels — so bring one for the shower and one for the beach if you can.",
+        "it": "Piccola nota valigia 😊 Le lenzuola le diamo noi, ma gli asciugamani no — portane uno per la doccia e uno per la spiaggia se riesci.",
+        "es": "Nota de equipaje 😊 Las sábanas sí, pero las toallas no — trae una para la ducha y otra para la playa si puedes.",
+        "de": "Kleiner Packtipp 😊 Bettwäsche ist dabei, Handtücher nicht — bring eins fürs Bad und eins für den Strand mit, wenn du kannst."
+      }
+    },
+    {
+      "id": "packing",
+      "label": "What to bring",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["what should i bring", "what to bring", "packing", "qué tengo que llevar", "cosa devo portare", "was soll ich mitbringen"],
+      "facts": ["Towels, hoodie, sunscreen, swimsuit, trainers, poncho, hairdryer if needed."],
+      "templates": {
+        "en": "Practical packing for Somo 🌊 Sheets are on us — bring towels for shower + beach, a sweatshirt for evenings, sunscreen, swimsuit, trainers, and a poncho helps. Hairdryers are limited, so bring your own if you rely on one.",
+        "it": "Pack pratico per Somo 🌊 Lenzuola incluse — porta asciugamani per doccia e spiaggia, felpa per la sera, crema solare, costume, scarpe comode e un poncho aiuta. Pochi phon in casa, porta il tuo se ti serve.",
+        "es": "Equipaje práctico para Somo 🌊 Sábanas incluidas — trae toallas para ducha y playa, sudadera para las tardes, protector solar, bañador, zapatillas y un poncho ayuda. Pocos secadores, trae el tuyo si lo necesitas.",
+        "de": "Praktisches Packen für Somo 🌊 Bettwäsche ist drin — Handtücher für Dusche + Strand, Hoodie für abends, Sonnencreme, Badezeug, Turnschuhe und ein Poncho hilft. Wenige Föhns — bring deinen mit, wenn du einen brauchst."
+      }
+    },
+    {
+      "id": "wetsuit_info",
+      "label": "Wetsuit guidance",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["wetsuit", "muta", "neopren", "need a wetsuit", "serve la muta", "necesito neopreno"],
+      "facts": ["Wetsuit for lessons available; personal welcome.", "4/3 or 3/2 typical."],
+      "templates": {
+        "en": "For lessons we can sort you with a wetsuit 🌊 If you have your own, bring it too. Around here 4/3 or 3/2 is usually the safe call depending on the season.",
+        "it": "Per le lezioni possiamo darti una muta 🌊 Se hai la tua, portala pure. Qui di solito 4/3 o 3/2 va bene a seconda della stagione.",
+        "es": "Para las clases podemos facilitarte una wetsuit 🌊 Si tienes la tuya, tráela. Aquí 4/3 o 3/2 suele ir bien según la temporada.",
+        "de": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison."
+      }
+    },
+    {
+      "id": "rentals_info",
+      "label": "Board / wetsuit rentals",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["rent a board", "rent board", "noleggiare tavola", "alquilar tabla", "board mieten", "can i rent"],
+      "facts": ["Boards/wetsuits can be added to booking; staff confirms options."],
+      "templates": {
+        "en": "Yep — we can help with board and wetsuit rentals 🌊 We can add them to your booking and you can settle at checkout. Tell me your dates if you want to keep going with a stay quote.",
+        "it": "Sì — possiamo aiutarti con tavola e muta 🌊 Si possono aggiungere alla prenotazione e saldare al checkout. Dimmi le date se vuoi continuare con un preventivo.",
+        "es": "Sí — podemos ayudarte con tabla y wetsuit 🌊 Se pueden añadir a la reserva y pagar al checkout. Dime las fechas si quieres seguir con un presupuesto.",
+        "de": "Ja — wir helfen mit Board- und Neopren-Verleih 🌊 Kann zur Buchung hinzugefügt und beim Checkout bezahlt werden. Sag mir deine Daten, wenn du ein Angebot willst."
+      }
+    },
+    {
+      "id": "lesson_times",
+      "label": "Surf lesson rhythm",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["lesson times", "surf lessons", "when are lessons", "orario lezioni", "a che ora", "horario clases", "surfkurse"],
+      "facts": ["Almost daily in season; low season quieter.", "08:30/09:00–11:00 and 10:30/11:00–13:00.", "Exact group staff-confirmed."],
+      "templates": {
+        "en": "Most mornings we run two surf lesson groups: one leaves Wolfhouse around 08:30 for 09:00–11:00, and the second leaves around 10:30 for 11:00–13:00. The exact group gets confirmed closer to the day. Low season can be quieter.",
+        "it": "La maggior parte delle mattine ci sono due gruppi lezione: uno parte da Wolfhouse verso le 08:30 per 09:00–11:00, il secondo verso le 10:30 per 11:00–13:00. Il gruppo esatto lo conferma il team più avanti. In bassa stagione può essere più tranquillo.",
+        "es": "La mayoría de las mañanas hay dos grupos de surf: uno sale de Wolfhouse sobre las 08:30 para 09:00–11:00, y el segundo sobre las 10:30 para 11:00–13:00. El grupo exacto lo confirma el equipo más cerca del día. En temporada baja puede haber menos.",
+        "de": "Die Surfkurse laufen meistens morgens in zwei Gruppen 🌊 Eine Gruppe fährt gegen 08:30 los, Unterricht 09:00–11:00; die zweite gegen 10:30, Unterricht 11:00–13:00. Die genaue Gruppe bestätigt das Team später. In der Nebensaison kann es ruhiger sein."
+      }
+    },
+    {
+      "id": "yoga_info",
+      "label": "Yoga",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "requires_staff_confirmation": true,
+      "keywords": ["yoga", "add yoga", "can i do yoga", "posso fare yoga", "puedo hacer yoga", "yoga machen"],
+      "facts": ["Yoga can be requested/added.", "Exact days/times staff-confirmed.", "Settle at checkout."],
+      "templates": {
+        "en": "Yoga can be added to your stay 😊 Exact days and times get confirmed by the team — I won't guess a schedule. It can usually be settled at checkout.",
+        "it": "Lo yoga si può aggiungere al soggiorno 😊 Giorni e orari li conferma il team — non invento un programma. Di solito si salda al checkout.",
+        "es": "El yoga se puede añadir a tu estancia 😊 El equipo confirma días y horarios — no invento horarios. Normalmente se paga al checkout.",
+        "de": "Yoga kann zum Aufenthalt hinzugefügt werden 😊 Termine bestätigt das Team — ich rate nichts vor. Meist zahlbar beim Checkout."
+      }
+    },
+    {
+      "id": "meals_dinner",
+      "label": "Meals / dinner",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "requires_staff_confirmation": true,
+      "keywords": ["dinner", "meals", "can i have dinner", "cena", "comida", "posso cenare", "abendessen"],
+      "facts": ["Dinners/meals can be requested.", "Staff confirms timing/menu.", "Settle at checkout."],
+      "templates": {
+        "en": "Dinners can be added to your stay 😊 The team confirms timing and menu — I won't guess a time. Usually settled at checkout with your balance.",
+        "it": "Le cene si possono aggiungere 😊 Orari e menu li conferma il team — non indovino. Di solito si salda al checkout.",
+        "es": "Las cenas se pueden añadir 😊 El equipo confirma horario y menú — no invento horarios. Normalmente al checkout.",
+        "de": "Abendessen kann dazu gebucht werden 😊 Zeiten und Menü bestätigt das Team — ich rate nichts vor. Meist beim Checkout."
+      }
+    },
+    {
+      "id": "transfer_how",
+      "label": "Airport transfer",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "requires_staff_confirmation": true,
+      "keywords": ["transfer work", "airport transfer", "how does transfer", "transferencia aeropuerto", "transfer zum flughafen", "come funziona transfer"],
+      "facts": ["Ask airport, flight, date/time, passengers, luggage/boards.", "Staff confirms driver — no auto-promise."],
+      "templates": {
+        "en": "We can help organize airport transfers 😊 Send your airport, flight number, arrival date/time, passenger count, and any luggage or boards — the team confirms the exact pickup. I can't promise a driver until that's confirmed.",
+        "it": "Possiamo organizzare i transfer aeroporto 😊 Mandaci aeroporto, numero volo, data/ora arrivo, passeggeri e bagagli/tavole — il team conferma il pickup. Non prometto un autista finché non è confermato.",
+        "es": "Podemos organizar transfers desde el aeropuerto 😊 Envía aeropuerto, número de vuelo, fecha/hora de llegada, pasajeros y equipaje/tablas — el equipo confirma la recogida. No prometo conductor hasta que esté confirmado.",
+        "de": "Wir können Flughafen-Transfers organisieren 😊 Schick Flughafen, Flugnummer, Ankunftsdatum/-zeit, Passagiere und Gepäck/Boards — das Team bestätigt die Abholung. Kein Fahrer-Versprechen vorher."
+      }
+    },
+    {
+      "id": "payments_info",
+      "label": "Payments overview",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["how can i pay", "pay cash", "bank transfer", "payment methods", "pagar en efectivo", "contanti", "bar bezahlen", "überweisung"],
+      "facts": ["Deposit/full holds booking.", "Balance on arrival: cash, bank, Stripe.", "Add-ons at checkout."],
+      "templates": {
+        "en": "To hold a booking you pay a deposit or the full amount upfront. The rest can be settled on arrival — cash, bank transfer, or Stripe. Add-ons can go on your booking and be paid at checkout.",
+        "it": "Per bloccare la prenotazione serve il deposito o il pagamento completo. Il resto si può saldare all'arrivo in contanti, bonifico o Stripe. I servizi extra di solito al checkout.",
+        "es": "Sí 😊 El resto se puede pagar a la llegada en efectivo, transferencia bancaria o Stripe. Para bloquear la plaza, sí necesitamos el depósito o el pago completo. Los extras se pueden pagar al checkout.",
+        "de": "Zum Halten der Buchung brauchst du Anzahlung oder Vollzahlung. Den Rest kannst du bei Ankunft bar, per Überweisung oder Stripe zahlen. Extras meist beim Checkout."
+      }
+    },
+    {
+      "id": "house_rules",
+      "label": "House rules",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["house rules", "fridge label", "food box", "regole casa", "normas casa", "hausregeln"],
+      "facts": ["Label food name + checkout date.", "Rinse boards; board storage.", "Shared-house respect."],
+      "templates": {
+        "en": "Quick house note 😊 Label food in the fridge/boxes with your name + checkout date. Rinse Wolfhouse boards after the beach and return them to board storage. Shared-house vibes — be kind and keep common areas tidy.",
+        "it": "Nota casa 😊 Etichetta cibo con nome + data checkout. Risciacqua le tavole Wolfhouse e riponile nell'area storage. Casa condivisa — rispetto e ordine negli spazi comuni.",
+        "es": "Nota de casa 😊 Etiqueta la comida con tu nombre + fecha de salida. Enjuaga las tablas Wolfhouse y déjalas en el almacén. Casa compartida — respeto y orden.",
+        "de": "Kurze Hausregel 😊 Essen mit Name + Check-out-Datum labeln. Wolfhouse-Boards abspülen und in den Board-Stauraum. Gemeinschaftshaus — respektvoll und ordentlich."
+      }
+    },
+    {
+      "id": "board_care",
+      "label": "Board care",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["board after surfing", "rinse board", "board storage", "tavola dopo surf", "tabla después", "board pflegen"],
+      "facts": ["Rinse Wolfhouse boards; return to storage."],
+      "templates": {
+        "en": "After surfing, give Wolfhouse boards a quick rinse and pop them back in the board storage area 🌊 Thanks for looking after the gear!",
+        "it": "Dopo il surf, risciacqua le tavole Wolfhouse e riponile nell'area storage 🌊 Grazie per aver curato l'attrezzatura!",
+        "es": "Después de surfear, enjuaga las tablas Wolfhouse y déjalas en el almacén 🌊 ¡Gracias por cuidar el material!",
+        "de": "Nach dem Surfen Wolfhouse-Boards kurz abspülen und in den Board-Stauraum 🌊 Danke fürs Pflegen des Materials!"
+      }
+    },
+    {
+      "id": "rooms_beds",
+      "label": "Rooms / beds",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": ["room assignment", "which room", "private room", "shared room", "camera", "habitación", "zimmer"],
+      "facts": ["Room label after booking context only.", "Bed number never guest-facing.", "No guaranteed room until assigned."],
+      "templates": {
+        "en": "We can note private vs shared preferences when you book 😊 Your room label comes with confirmed booking details — I don't share bed numbers in chat. Final room depends on availability.",
+        "it": "Possiamo annotare preferenza privata/condivisa in prenotazione 😊 L'etichetta camera arriva con la conferma — niente numeri letto in chat. La camera finale dipende dalla disponibilità.",
+        "es": "Podemos anotar preferencia privada/compartida al reservar 😊 La habitación llega con la confirmación — no comparto números de cama en chat. Depende de disponibilidad.",
+        "de": "Private/geteilte Präferenz notieren wir bei der Buchung 😊 Dein Zimmerlabel kommt mit der Bestätigung — keine Bettnummern im Chat. Endgültiges Zimmer je nach Verfügbarkeit."
+      }
+    },
+    {
+      "id": "local_area",
+      "label": "Local area / Somo",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "requires_staff_confirmation": true,
+      "keywords": ["restaurants somo", "bars somo", "what to do somo", "local tips", "cosa fare a somo", "qué hacer en somo"],
+      "facts": ["Somo beach/surf vibe.", "Specific restaurant/bar list not verified in config — staff tips."],
+      "templates": {
+        "en": "Somo is a surfy beach town 🌊 Great waves, relaxed evenings, and plenty around the house. For specific restaurant or bar tips, the team knows the current favourites — ask when you're here or once you're booked.",
+        "it": "Somo è un paese da surf 🌊 Onde, serate easy e tanto vicino alla casa. Per ristoranti o bar specifici, il team conosce i posti del momento — chiedi quando sei qui o dopo la prenotazione.",
+        "es": "Somo es un pueblo surfero 🌊 Buenas olas, tardes relajadas y mucho cerca de la casa. Para restaurantes o bares concretos, el equipo sabe los favoritos — pregunta cuando llegues.",
+        "de": "Somo ist ein Surfdorf 🌊 Gute Wellen, entspannte Abende, viel in der Nähe. Für konkrete Restaurant-/Bar-Tipps kennt das Team die aktuellen Favoriten — frag vor Ort oder nach der Buchung."
       }
     },
     {
@@ -288,20 +245,28 @@
       "label": "Gate code (private)",
       "visibility": "private",
       "allowed_guest_answer": false,
-      "keywords": [
-        "gate code",
-        "door code",
-        "access code",
-        "entry code",
-        "what is the code"
-      ],
-      "facts": [
-        "Gate code only after confirmed booking / confirmation path.",
-        "Never expose bed number."
-      ],
+      "keywords": ["gate code", "door code", "codice cancello", "código portón", "torcode", "torkode"],
+      "facts": ["Gate code only after confirmed booking."],
       "templates": {
         "en": "The gate code comes with your confirmed booking/check-in info once the stay is locked in 🔒 I can't share it before that — after you book, it'll be in your confirmation message.",
+        "it": "Il codice del cancello arriva con la prenotazione confermata/check-in 🔒 Non posso darlo prima — lo trovi nel messaggio di conferma dopo la prenotazione.",
+        "es": "El código del portón llega con tu reserva confirmada/check-in 🔒 No puedo compartirlo antes — estará en tu confirmación después de reservar.",
+        "de": "Der Torcode kommt mit deiner bestätigten Buchung/Check-in-Info 🔒 Vorher kann ich ihn nicht teilen — steht in der Bestätigung nach der Buchung.",
         "en_confirmed": "Your gate code is in your confirmation details 🔒 If anything looks off, ping the team and they'll help."
+      }
+    },
+    {
+      "id": "yoga_meals_info",
+      "label": "Yoga and meals (legacy Stage 41a id)",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "keywords": [],
+      "facts": ["Alias — use yoga_info or meals_dinner."],
+      "templates": {
+        "en": "Yoga and dinners can be added to your stay 😊 Exact times get scheduled/confirmed by the team. Usually settled at checkout.",
+        "it": "Yoga e cene si possono aggiungere 😊 Orari confermati dal team. Di solito al checkout.",
+        "es": "Yoga y cenas se pueden añadir 😊 El equipo confirma horarios. Normalmente al checkout.",
+        "de": "Yoga und Abendessen können dazu gebucht werden 😊 Termine bestätigt das Team. Meist beim Checkout."
       }
     }
   ]

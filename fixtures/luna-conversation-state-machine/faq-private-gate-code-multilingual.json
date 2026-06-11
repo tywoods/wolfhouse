@@ -1,0 +1,38 @@
+{
+  "id": "faq-private-gate-code-multilingual",
+  "label": "FAQ gate code private IT/ES/DE",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Qual è il codice del cancello?",
+      "expect": {
+        "reply_contains": ["confermata", "cancello"],
+        "reply_not_contains": ["2684"],
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "¿Cuál es el código del portón?",
+      "expect": {
+        "reply_contains": ["confirmada", "portón"],
+        "reply_not_contains": ["2684"],
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "Wie ist der Torcode?",
+      "expect": {
+        "reply_contains": ["Torcode", "bestätigten"],
+        "reply_not_contains": ["2684"],
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

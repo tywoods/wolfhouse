@@ -1,0 +1,20 @@
+{
+  "id": "faq-es-payment-cash",
+  "label": "FAQ ES payment cash",
+  "language": "es",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "puedo pagar en efectivo?",
+      "expect": {
+        "reply_contains": ["efectivo", "depósito"],
+        "reply_not_contains": ["2684"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": { "no_handoff": true, "no_internal_language": true }
+}

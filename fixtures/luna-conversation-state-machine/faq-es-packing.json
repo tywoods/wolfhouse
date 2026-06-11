@@ -1,0 +1,19 @@
+{
+  "id": "faq-es-packing",
+  "label": "FAQ ES packing list",
+  "language": "es",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "¿qué tengo que llevar?",
+      "expect": {
+        "reply_contains": ["toallas", "sábanas"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": { "no_handoff": true, "no_internal_language": true }
+}

@@ -447,7 +447,7 @@ function resolveComposerState(input) {
     || trimStr(inp.prior_guest_context && inp.prior_guest_context.client_slug)
     || 'wolfhouse-somo';
   const knowledgeIntent = detectGuestKnowledgeIntent(messageText);
-  if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(messageText, knowledgeIntent)) {
+  if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(messageText, knowledgeIntent, inp.prior_guest_context)) {
     return 'explain_house_knowledge';
   }
 
