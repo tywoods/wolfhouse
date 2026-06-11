@@ -1,0 +1,21 @@
+{
+  "id": "faq-towels-sheets",
+  "label": "FAQ towels and sheets",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Do I need to bring towels?",
+      "expect": {
+        "reply_contains": ["towel", "sheets"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

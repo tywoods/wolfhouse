@@ -10,6 +10,10 @@ const {
   detectServiceSideQuestionIntent,
   detectTransferSideQuestionIntent,
 } = require('./luna-guest-service-transfer-explainer');
+const {
+  detectGuestKnowledgeIntent,
+  shouldPrioritizeKnowledgeOverService,
+} = require('./luna-guest-knowledge-config');
 const { quoteAwaitingAddonsDecision } = require('./luna-booking-addons-policy');
 
 const EXTRACTED_FIELD_KEYS = [
@@ -234,6 +238,8 @@ function isActiveBookingSideQuestion(priorGuestContext, currentResult, messageTe
   if (pc === 'arrival_payment_question' || pc === 'payment_link_request') return true;
   if (detectServiceSideQuestionIntent(text)) return true;
   if (detectTransferSideQuestionIntent(text)) return true;
+  const knowledgeIntent = detectGuestKnowledgeIntent(text);
+  if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(text, knowledgeIntent)) return true;
   if (currentResult.message_lane === 'add_service_request') return true;
   if (currentResult.message_lane === 'transfer_request') return true;
   return false;

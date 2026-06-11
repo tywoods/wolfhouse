@@ -1,0 +1,22 @@
+{
+  "id": "faq-location-public",
+  "label": "FAQ location — public maps link",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Where is Wolfhouse?",
+      "expect": {
+        "reply_contains": ["Somo", "maps.app.goo.gl"],
+        "reply_not_contains": ["2684", "bed", "room"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

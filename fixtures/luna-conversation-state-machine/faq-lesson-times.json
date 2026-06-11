@@ -1,0 +1,21 @@
+{
+  "id": "faq-lesson-times",
+  "label": "FAQ surf lesson times",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "What time are surf lessons?",
+      "expect": {
+        "reply_contains": ["08:30", "09:00", "10:30", "11:00", "confirmed"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "faq-gate-code-private",
+  "label": "FAQ gate code stays private pre-booking",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "What is the gate code?",
+      "expect": {
+        "reply_contains": ["confirmed", "booking"],
+        "reply_not_contains": ["2684"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

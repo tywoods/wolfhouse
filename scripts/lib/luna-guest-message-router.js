@@ -904,6 +904,18 @@ function classifyMessageLane(text, guestContext) {
     return { lane: 'general_question', handoff: false, reasons: [], confidence: 0.95, greeting_only: true };
   }
 
+  const { detectGuestKnowledgeIntent } = require('./luna-guest-knowledge-config');
+  const knowledgeIntent = detectGuestKnowledgeIntent(t);
+  if (knowledgeIntent) {
+    return {
+      lane: 'general_question',
+      handoff: false,
+      reasons: [],
+      confidence: 0.89,
+      knowledge_intent: knowledgeIntent,
+    };
+  }
+
   return {
     lane: 'general_question',
     handoff: true,

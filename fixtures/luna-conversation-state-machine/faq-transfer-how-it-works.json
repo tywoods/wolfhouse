@@ -1,0 +1,22 @@
+{
+  "id": "faq-transfer-how-it-works",
+  "label": "FAQ airport transfer process",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "How does airport transfer work?",
+      "expect": {
+        "reply_contains": ["flight", "confirm"],
+        "reply_not_contains": ["driver is booked", "confirmed pickup"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

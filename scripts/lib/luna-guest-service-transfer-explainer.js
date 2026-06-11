@@ -210,6 +210,7 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
 module.exports = {
   detectServiceSideQuestionIntent,
   detectTransferSideQuestionIntent,
+  isPaymentMethodTransferQuestion,
   buildServiceSideQuestionReply,
   buildTransferSideQuestionReply,
   isPackageBooking,

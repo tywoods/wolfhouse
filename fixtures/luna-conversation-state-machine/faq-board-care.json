@@ -1,0 +1,21 @@
+{
+  "id": "faq-board-care",
+  "label": "FAQ board care after surfing",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "What do I do with the board after surfing?",
+      "expect": {
+        "reply_contains": ["rinse", "storage"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "explain_house_knowledge",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

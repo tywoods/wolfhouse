@@ -58,6 +58,11 @@ const {
   buildAddonPaymentChoiceReply,
   buildAddonServiceObservability,
 } = require('./luna-guest-addon-service-confirmation-policy');
+const {
+  detectGuestKnowledgeIntent,
+  shouldPrioritizeKnowledgeOverService,
+  buildGuestKnowledgeReply,
+} = require('./luna-guest-knowledge-config');
 
 const COMPOSER_STATES = Object.freeze([
   'greeting',
@@ -73,6 +78,7 @@ const COMPOSER_STATES = Object.freeze([
   'explain_packages',
   'explain_service_addon',
   'explain_transfer',
+  'explain_house_knowledge',
   'accommodation_quote_ready',
   'package_quote_ready',
   'quote_refreshing',
@@ -271,6 +277,7 @@ function isBookingFlowLane(result) {
   if (!result) return false;
   if (result.message_lane === 'new_booking_inquiry') return true;
   if (result.message_lane === 'general_question') return true;
+  if (result.message_lane === 'checkin_house_info_question') return true;
   if (result.greeting_only === true) return true;
   return false;
 }
@@ -434,6 +441,14 @@ function resolveComposerState(input) {
   if (result.greeting_only === true
     || (inp.brain_decision && inp.brain_decision.intent === 'greeting')) {
     return 'greeting';
+  }
+
+  const clientSlugForKnowledge = trimStr(inp.client_slug)
+    || trimStr(inp.prior_guest_context && inp.prior_guest_context.client_slug)
+    || 'wolfhouse-somo';
+  const knowledgeIntent = detectGuestKnowledgeIntent(messageText);
+  if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(messageText, knowledgeIntent)) {
+    return 'explain_house_knowledge';
   }
 
   if (!isBookingFlowLane(result)) return null;
@@ -630,7 +645,7 @@ function buildPaymentChoicePersonalityCtx(fields, lang, total, deposit) {
 function buildReplyForState(state, ctx) {
   const {
     lang, fields, quote, plan, pc, result, availability, stripe, allowIntro, messageText, facts, pkgIntent,
-    client_slug: clientSlug,
+    client_slug: clientSlug, prior_guest_context: priorGuestContext,
   } = ctx;
   const range = formatDateRange(fields.check_in, fields.check_out);
   const guests = guestCountLabel(fields.guest_count, lang);
@@ -814,6 +829,19 @@ function buildReplyForState(state, ctx) {
       return buildComposerServiceReply(lang, ctx.serviceIntent, fields, quote);
     case 'explain_transfer':
       return buildComposerTransferReply(lang, messageText, fields, pc);
+    case 'explain_house_knowledge': {
+      const built = buildGuestKnowledgeReply({
+        client_slug: clientSlug,
+        lang,
+        message_text: messageText,
+        guest_context: priorGuestContext,
+        fields,
+        quote,
+        payment_choice: pc,
+        preserve_booking_context: true,
+      });
+      return built.reply;
+    }
     case 'accommodation_quote_ready':
     case 'ask_addons_after_quote':
       if (isDateCorrection(result)) {
@@ -965,6 +993,7 @@ function nextGuestQuestionForState(state) {
     explain_packages: 'package_choice',
     explain_service_addon: 'addons',
     explain_transfer: 'transfer_info',
+    explain_house_knowledge: 'house_faq',
     accommodation_quote_ready: 'addons',
     ask_addons_after_quote: 'addons',
     addons_none_confirmed: 'payment_choice',
@@ -1025,7 +1054,7 @@ function composeLunaGuestReply(input) {
 
   const groundingErrors = validateComposerFacts(state, facts);
   if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name',
-    'explain_packages', 'explain_service_addon', 'explain_transfer', 'ask_package_choice',
+    'explain_packages', 'explain_service_addon', 'explain_transfer', 'explain_house_knowledge', 'ask_package_choice',
     'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff', 'quote_refreshing',
     'ask_room_preference_girls_mixed', 'ask_room_preference_private_shared', 'ask_room_preference_neutral',
     'ask_transfer_info_casual', 'payment_choice_ack'].includes(state)) {
@@ -1064,6 +1093,7 @@ function composeLunaGuestReply(input) {
         || pc.payment_choice_ready === true,
     },
     serviceIntent: detectServiceSideQuestionIntent(trimStr(input && input.message_text)),
+    prior_guest_context: input && input.prior_guest_context,
   });
 
   reply = sanitizeComposerReply(reply);
