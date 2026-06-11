@@ -1,0 +1,113 @@
+{
+  "id": "stage36a-demo-booking-shapes",
+  "reference_date": "2026-06-10",
+  "bookings": [
+    {
+      "id": "short_stay_accommodation_deposit_paid_yoga_pending",
+      "label": "Short stay / accommodation only — deposit paid, balance due, pending yoga",
+      "booking": {
+        "booking_code": "WH-G27-DEMO36A",
+        "guest_name": "Elena Demo",
+        "phone": "+3462983600001",
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-05",
+        "guest_count": 1,
+        "package_code": "accommodation_only",
+        "status": "hold",
+        "payment_status": "deposit_paid",
+        "deposit_required_cents": 10000,
+        "amount_paid_cents": 10000,
+        "total_amount_cents": 18000,
+        "balance_due_cents": 8000,
+        "primary_room_code": "R2"
+      },
+      "payments": {
+        "amount_paid_cents": 10000,
+        "balance_due_cents": 8000,
+        "latest_status": "paid"
+      },
+      "addons": {
+        "surf_addons": "skipped",
+        "note": "Guest declined wetsuit/surfboard/lessons — accommodation only"
+      },
+      "service_records": [
+        {
+          "service_type": "yoga",
+          "source": "luna_guest",
+          "status": "requested",
+          "service_date": null,
+          "metadata": {
+            "pending_origin": "luna_guest_pending",
+            "needs_scheduling": true,
+            "intent_status": "requested"
+          }
+        }
+      ],
+      "expected_staff_pending_lines": [
+        "Yoga — requested by guest, needs scheduling"
+      ]
+    },
+    {
+      "id": "malibu_package_addons_skipped_meals_transfer_deferred",
+      "label": "Malibu package — surf add-ons skipped, meals interested/deferred, transfer deferred",
+      "booking": {
+        "booking_code": "WH-G27-DEMO36B",
+        "guest_name": "Marco Demo",
+        "phone": "+3462983600002",
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "package_code": "malibu",
+        "status": "hold",
+        "payment_status": "deposit_paid",
+        "deposit_required_cents": 29900,
+        "amount_paid_cents": 29900,
+        "total_amount_cents": 59800,
+        "balance_due_cents": 29900,
+        "primary_room_code": "R1"
+      },
+      "payments": {
+        "amount_paid_cents": 29900,
+        "balance_due_cents": 29900,
+        "latest_status": "paid"
+      },
+      "addons": {
+        "surf_addons": "skipped",
+        "package_includes": "malibu",
+        "note": "Guest chose just the stay — no extra surf gear/lessons"
+      },
+      "transfer": {
+        "status": "deferred",
+        "note": "Guest will share flight details later"
+      },
+      "service_records": [
+        {
+          "service_type": "meal",
+          "source": "luna_guest",
+          "status": "requested",
+          "service_date": null,
+          "metadata": {
+            "pending_origin": "luna_guest_pending",
+            "needs_scheduling": true,
+            "intent_status": "interested"
+          }
+        },
+        {
+          "service_type": "meal",
+          "source": "luna_guest",
+          "status": "requested",
+          "service_date": null,
+          "metadata": {
+            "pending_origin": "luna_guest_pending",
+            "needs_scheduling": true,
+            "intent_status": "deferred"
+          }
+        }
+      ],
+      "expected_staff_pending_lines": [
+        "Meals/dinner — interested, needs staff follow-up",
+        "Meals/dinner — deferred, needs staff follow-up"
+      ]
+    }
+  ]
+}

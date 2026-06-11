@@ -176,7 +176,7 @@ function formatAskLunaPendingManualServicesAnswer(intentKey, rows, ctx = {}) {
     lines.push(`(+${list.length - 10} more)`);
   }
   lines.push('');
-  lines.push('Source: Luna guest request — scheduling still needed (no service date yet).');
+  lines.push('These are Luna guest requests — still need staff scheduling (no date/time set yet).');
   return lines.join('\n');
 }
 

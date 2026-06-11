@@ -54,6 +54,17 @@ function filterPendingManualServiceRecords(rows) {
   return (rows || []).filter(isPendingManualServiceRecord);
 }
 
+/** Staff-facing block for booking lookup / drawer (no raw metadata). */
+function formatPendingManualServicesSection(rows) {
+  const list = filterPendingManualServiceRecords(rows);
+  if (!list.length) return '';
+  const lines = ['Pending services:', ''];
+  for (const row of list) {
+    lines.push(`* ${formatPendingManualServiceStaffLine(row)}`);
+  }
+  return lines.join('\n');
+}
+
 module.exports = {
   PENDING_ORIGIN,
   DB_SOURCE,
@@ -61,4 +72,5 @@ module.exports = {
   isPendingManualServiceRecord,
   formatPendingManualServiceStaffLine,
   filterPendingManualServiceRecords,
+  formatPendingManualServicesSection,
 };

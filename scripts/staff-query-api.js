@@ -23172,12 +23172,12 @@ function bcRenderServicesTabHtml(bk){
 function bcRenderPendingManualServicesOverviewHtml(items){
   if (!items || !items.length) return '';
   var html = '<div class="bc-drawer-overview-card ctx-section" id="bc-pending-manual-services">';
-  html += '<h3 class="bc-drawer-card-title">Pending manual services</h3>';
-  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px">Guest-requested yoga/meals awaiting staff scheduling (no date/time yet).</div>';
+  html += '<h3 class="bc-drawer-card-title">Pending services</h3>';
+  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px">Guest-requested yoga/meals from Luna — needs staff scheduling (no date/time yet).</div>';
   for (var i = 0; i < items.length; i++){
     var it = items[i];
     html += '<div class="ctx-field-row" style="margin-bottom:6px;font-size:12px;line-height:1.45">';
-    html += escHtml(it.staff_line || (it.service_type + ' — needs staff follow-up'));
+    html += '&#8226; ' + escHtml(it.staff_line || (it.service_type + ' — needs staff follow-up'));
     if (it.requested_at) {
       var reqDate = String(it.requested_at).slice(0, 10);
       html += ' <span class="ctx-none">(' + escHtml(reqDate) + ')</span>';
