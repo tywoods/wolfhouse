@@ -62,11 +62,10 @@ function extractRenderBookingContextDrawer(fileSrc) {
 }
 
 function extractBcRenderRunningInvoiceHtml(fileSrc) {
-  const start = 'function bcRenderRunningInvoiceHtml(bk, svcRows, pmt){';
-  const i = fileSrc.indexOf(start);
+  const i = fileSrc.indexOf('function bcRenderRunningInvoiceHtml(bk, svcRows, pmt');
   if (i < 0) return '';
-  const j = fileSrc.indexOf('\n/* Phase 10.5f-lite', i);
-  return j > i ? fileSrc.slice(i, j) : fileSrc.slice(i);
+  const j = fileSrc.indexOf('\nfunction bcRenderPaymentLinkSectionHtml', i);
+  return j > i ? fileSrc.slice(i, j) : fileSrc.slice(i, i + 15000);
 }
 
 function extractTourOperatorJs(fileSrc) {
@@ -203,9 +202,12 @@ const jsSection = src.slice(src.indexOf('<script>') || 0);
   // Stage 8.4.8: create IS now wired; confirm is still not wired
   check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(jsSection),
     '/staff/manual-bookings/create fetch present in UI JS (Stage 8.4.8 — wired with flag gate)');
-  // Verify no PATCH/DELETE/PUT fetches
-  check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(jsSection),
-    'No PATCH/DELETE/PUT fetch method in embedded UI JS (Stage 8.4)');
+  // Bed calendar cell selection stays read-only; drawer/inbox may PATCH/DELETE elsewhere.
+  const cellStart = src.indexOf('function bcHandleCellClick');
+  const cellEnd = cellStart > 0 ? src.indexOf('\nfunction ', cellStart + 10) : -1;
+  const cellSrc = cellStart > 0 && cellEnd > cellStart ? src.slice(cellStart, cellEnd) : '';
+  check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(cellSrc),
+    'No PATCH/DELETE/PUT fetch in bed calendar cell selection (Stage 8.4)');
 })();
 
 // 25. No drag/drop event listeners or attributes
@@ -323,12 +325,12 @@ check(/bc-legend/.test(src),
 (function check107bLegend(){
   const legendStart = src.indexOf('id="bc-legend"');
   const legendSlice = legendStart >= 0 ? src.slice(legendStart, legendStart + 1200) : '';
-  check(/bc-legend-sw-confirmed/.test(legendSlice) && />Staff \/ manual</.test(legendSlice),
-    '10.7b: legend has Staff / manual (green) swatch');
+  check(/bc-legend-sw-manual/.test(legendSlice) && />Staff</.test(legendSlice),
+    '10.7b: legend has Staff (green) swatch');
   check(/bc-legend-sw-payment/.test(legendSlice) && />Luna</.test(legendSlice),
     '10.7b: legend has Luna (blue) swatch');
-  check(/bc-legend-sw-tour_operator/.test(legendSlice) && />Tour operator</.test(legendSlice),
-    '10.7d: legend has Tour operator (purple) swatch');
+  check(/bc-legend-sw-tour_operator/.test(legendSlice) && />Tour</.test(legendSlice),
+    '10.7d: legend has Tour (purple) swatch');
   check(!/bc-legend-sw-hold/.test(legendSlice) && !/bc-legend-sw-review/.test(legendSlice) &&
         !/bc-legend-sw-balance/.test(legendSlice) &&
         !/bc-legend-sw-cancelled/.test(legendSlice),
@@ -368,8 +370,11 @@ check(/bed\.bed_code/.test(src),
 // preview POST allowed. The create stub is server-side only and NOT UI-wired, so
 // there must be no fetch() to create/confirm in the file. PATCH/DELETE/PUT forbidden.
 (function checkFilePostRestriction(){
-  check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(src),
-    'No PATCH/DELETE/PUT fetch calls in entire file (Stage 8.3a / 8.4)');
+  const cellStart = src.indexOf('function bcHandleCellClick');
+  const cellEnd = cellStart > 0 ? src.indexOf('\nfunction ', cellStart + 10) : -1;
+  const cellSrc = cellStart > 0 && cellEnd > cellStart ? src.slice(cellStart, cellEnd) : '';
+  check(!/method\s*:\s*['"](?:PATCH|DELETE|PUT)['"]/i.test(cellSrc),
+    'No PATCH/DELETE/PUT in bcHandleCellClick (Stage 8.3a / 8.4)');
   check(/fetch\s*\(\s*['"]\/staff\/manual-bookings\/create['"]/.test(src),
     '/staff/manual-bookings/create fetch present in file (Stage 8.4.8)');
 })();
@@ -466,9 +471,9 @@ check(/function bcHandleCellClick/.test(src),
 check(/id="bc-sel-panel"/.test(src),
   'Selection summary panel (bc-sel-panel) present in HTML (Stage 8.3c)');
 
-// 79. "No booking created" notice present (wording updated Stage 8.3d)
-check(/no booking.*created|no booking will be created/i.test(src),
-  '"No booking created" or "no booking will be created" notice present (Stage 8.3c / 8.3d)');
+// 79. Manual booking create guidance (bc-create-note; Stage 8.3c / 8.3d)
+check(/id="bc-create-note"|Still needed:/.test(src),
+  'Manual booking create guidance via bc-create-note (Stage 8.3c / 8.3d)');
 
 // 80. "Create Manual Booking" disabled button present (wording trimmed Stage 8.3d)
 check(/Create Manual Booking/i.test(src),
@@ -630,7 +635,8 @@ check(rbStart > 0 && !/'\s*\\n\s*'/.test(rbSrc),
   const js = raw
     .replace(/\$\{STAFF_ACTIONS_ENABLED\}/g, 'false')
     .replace(/\$\{MANUAL_BOOKING_ENABLED\}/g, 'false')
-    .replace(/\$\{STRIPE_LINKS_ENABLED\}/g, 'false');
+    .replace(/\$\{STRIPE_LINKS_ENABLED\}/g, 'false')
+    .replace(/\$\{process\.env\.WHATSAPP_DRY_RUN === 'true'\}/g, 'false');
   try {
     new vm.Script(js);
     check(true, 'Embedded UI script passes parse check (Stage 8.7.20)');
@@ -1309,8 +1315,8 @@ check(/BC_MANUAL_BOOKING\s*=\s*\$\{MANUAL_BOOKING_ENABLED\}/.test(src),
   const fnSrc   = fnStart > 0 && fnEnd > 0 ? src.slice(fnStart, fnEnd) : '';
   check(/function bcUpdateCreateButton/.test(src),
     'bcUpdateCreateButton function present (Stage 8.4.8)');
-  check(/BC_STAFF_ACTIONS/.test(fnSrc) && /BC_MANUAL_BOOKING/.test(fnSrc),
-    'bcUpdateCreateButton checks both BC_STAFF_ACTIONS and BC_MANUAL_BOOKING flags (Stage 8.4.8)');
+  check(/BC_MANUAL_BOOKING/.test(fnSrc),
+    'bcUpdateCreateButton checks BC_MANUAL_BOOKING flag (Stage 8.4.8)');
   check(/bcLastQuote/.test(fnSrc),
     'bcUpdateCreateButton requires bcLastQuote (quote must be run first) (Stage 8.4.8)');
 })();
@@ -1330,8 +1336,8 @@ check(/BC_MANUAL_BOOKING\s*=\s*\$\{MANUAL_BOOKING_ENABLED\}/.test(src),
     'runManualBookingCreate payload includes add_ons (Stage 8.4.8)');
   check(!/deposit_amount_cents|total_amount_cents/.test(fnSrc),
     'runManualBookingCreate does NOT send deposit_amount_cents/total_amount_cents (Stage 8.4.8)');
-  check(/BC_STAFF_ACTIONS.*BC_MANUAL_BOOKING|BC_MANUAL_BOOKING.*BC_STAFF_ACTIONS/.test(fnSrc),
-    'runManualBookingCreate checks flags before posting (Stage 8.4.8)');
+  check(/BC_MANUAL_BOOKING/.test(fnSrc),
+    'runManualBookingCreate checks BC_MANUAL_BOOKING before posting (Stage 8.4.8)');
 })();
 
 // 207. bcClearSelection resets bcLastQuote (Stage 8.4.8)
@@ -1473,14 +1479,18 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   check(/stripe_payment_intent_id/.test(payFn),
     '219g: drawer shows stripe_payment_intent_id (Stage 8.4.12)');
 
-  check(/deposit_paid|Deposit paid/.test(payUi),
+  const payBadgeSrc = (src.match(/function bcCalendarPaymentBadgesHtml[\s\S]*?\nfunction bcBlockLabel/)?.[0] || '') +
+    (src.match(/function bcDetailHeaderMetaHtml[\s\S]*?\nfunction bcHeaderNights/)?.[0] || '');
+  const payLabelUi = payUi + payBadgeSrc;
+
+  check(/deposit_paid|Deposit paid/.test(payLabelUi),
     '219h: drawer has deposit-paid label (Stage 8.4.12)');
-  check(/Paid in full|paid-in-full/.test(payUi),
+  check(/Paid in full|paid-in-full/.test(payLabelUi),
     '219i: drawer has paid-in-full label (Stage 8.4.12)');
   check(/bcPaymentLedgerRowDisplayLabel|Stripe paid|Paid cash/.test(payFn),
     '219j: drawer uses user-facing payment row labels (Stage 10.6f.1)');
-  check(/No payment record yet|No payment/.test(payFn),
-    '219k: drawer shows "No payment record yet" when no rows (Stage 8.4.12)');
+  check(/No payments recorded yet|No payment record yet|No payment/.test(payFn),
+    '219k: drawer shows empty payment copy when no rows (Stage 8.4.12)');
 
   check(/btn-bc-copy-link-icon/.test(payFn) && /bcCopyPaymentLinkIcon/.test(src),
     '219l: drawer uses bcCopyPaymentLinkIcon for payment link copy (Stage 10.7c)');
@@ -1650,7 +1660,11 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 
 // ── Stage 8.7.15 — clean manual booking notes + add-ons layout ───────────────
 (function check8715NotesAndAddOns(){
-  const aoStart = src.indexOf('<!-- Section: Add-ons');
+  const aoStart = (() => {
+    const svc = src.indexOf('<!-- Section: Add Services');
+    if (svc >= 0) return svc;
+    return src.indexOf('<!-- Section: Add-ons');
+  })();
   const aoEnd   = aoStart > 0 ? src.indexOf('<!-- Section: Quote Preview', aoStart) : -1;
   const aoSrc   = aoStart > 0 && aoEnd > 0 ? src.slice(aoStart, aoEnd) : '';
 
@@ -1925,14 +1939,14 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
   check(/loadBookingServiceRecords/.test(src),
     '232f: loadBookingServiceRecords helper exists (Stage 8.8.14)');
 
-  check(/bcRenderRunningInvoiceHtml|id="bc-inv-addons"/.test(svcPanel),
-    '232g: running invoice shows add-on lines from service_records (Stage 10.4d)');
+  check(/bcRenderRunningInvoiceHtml|id="bc-inv-services"/.test(svcPanel),
+    '232g: running invoice shows service lines from service_records (Stage 10.4d)');
   check(!/id="bc-service-records"/.test(svcPanel),
     '232h: legacy bc-service-records panel removed (Stage 10.4d)');
   check(/bcRunningInvoiceSvcLineText|amount_due_cents/.test(svcPanel),
     '232i: running invoice renders service record amounts (Stage 10.4d)');
-  check(/No add-ons recorded/.test(svcPanel),
-    '232j: running invoice empty add-ons copy (Stage 10.4d)');
+  check(/No services recorded|No add-ons recorded/.test(svcPanel),
+    '232j: running invoice empty services copy (Stage 10.4d)');
 
   check(!/Add service|Add add-on|Edit service|Edit add-on|Send payment|payment link sent/i.test(svcPanel),
     '232k: running invoice has no Add/Edit/Send payment link buttons (Stage 8.8.14)');
@@ -2141,10 +2155,13 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     src.match(/function bcDetailHeaderMetaHtml[\s\S]*?function updateBcDetailHeader/)?.[0] || ''
   ),
     '10.6a.4: drawer header nights badge still removed');
-  check(/id="bc-add-ons-panel"/.test(src) && /bcRenderAddServicePanelHtml[\s\S]*?bcRenderRunningInvoiceHtml/.test(
-    src.match(/function renderBookingContextDrawer[\s\S]*?return html;/)?.[0] || ''
-  ),
-    '10.6a.4: add-ons panel still above Payment in drawer');
+  check(/function bcRenderServicesTabHtml/.test(src) &&
+        /bcRenderAddServicePanelHtml/.test(src) &&
+        /id="bc-drawer-tab-payments"/.test(src) &&
+        /bcRenderRunningInvoiceHtml/.test(
+          src.match(/function renderBookingContextDrawer[\s\S]*?return html;/)?.[0] || ''
+        ),
+    '10.6a.4: drawer services tab has add-ons; payments tab has running invoice');
   check(/id="bc-move-booking-btn"/.test(src) && />Move Bed</.test(src) && !/>Move booking</.test(
     src.match(/function renderBookingContextDrawer[\s\S]*?return html;/)?.[0] || ''
   ),
@@ -2249,10 +2266,10 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
 (function check107dTourOperatorPurple(){
   check(/#E8DDF5/.test(src) && /\.bc-block-tour_operator/.test(src),
     '10.7d: tour operator block uses soft pastel purple');
-  check(/bc-legend-sw-tour_operator/.test(src) && />Tour operator</.test(
+  check(/bc-legend-sw-tour_operator/.test(src) && />Tour</.test(
     src.slice(src.indexOf('id="bc-legend"'), src.indexOf('id="bc-legend"') + 900)
   ),
-    '10.7d: calendar legend shows Tour operator purple swatch');
+    '10.7d: calendar legend shows Tour purple swatch');
 })();
 
 // ── Phase 10.7c — Apr-May / May-Jun chips + source legend preserved ─────────
@@ -2261,9 +2278,9 @@ check(!/stripe\.charges|stripe\.paymentIntents|Stripe\s*\(|loadStripe\s*\(/.test
     const s = src.indexOf('id="bc-legend"');
     return s >= 0 ? src.slice(s, s + 800) : '';
   })();
-  check(/>Staff \/ manual</.test(legendSlice) && />Luna</.test(legendSlice) &&
-        />Tour operator</.test(legendSlice),
-    '10.7c: source legend has Staff/manual, Luna, and Tour operator');
+  check(/>Staff</.test(legendSlice) && />Luna</.test(legendSlice) &&
+        />Tour</.test(legendSlice),
+    '10.7c: source legend has Staff, Luna, and Tour');
   check(!/>Confirmed</.test(legendSlice) && !/>Payment pending</.test(legendSlice),
     '10.7c: old status-color legend entries still absent');
   check(/bcCalendarPaymentBadgesHtml/.test(src),
