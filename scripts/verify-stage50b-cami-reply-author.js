@@ -260,6 +260,27 @@ function baseInput(overrides) {
     check('G5', off.rejection_reason === 'author_disabled', 'flag off skips author');
   }
 
+  section('H2. Greeting skip — no unsolicited package dump');
+  {
+    const input = baseInput({
+      message: 'hello!',
+      fields: {},
+      composer_state: 'greeting',
+      deterministic: "Heyyy! I'm Luna from Wolfhouse 🌊 So happy you're here! Book a stay or need info?",
+    });
+    input.booking_state.greeting_only = true;
+    const badMock = JSON.stringify({
+      reply: 'Ciao!! Malibu from €249, Uluwatu €349, Waimea €499 — which one?',
+    });
+    const out = await runCamiGuestReplyAuthor(
+      { ...input, deterministic_reply: input.deterministic_reply },
+      { env: AUTHOR_ENV, authorCaller: mockCaller(badMock) },
+    );
+    check('H2a', out.author_used !== true, 'greeting skips GPT author');
+    check('H2b', out.rejection_reason === 'greeting_skip', 'greeting_skip reason');
+    check('H2c', out.authored_reply.includes('Book a stay') || out.authored_reply.includes('info'), 'composer welcome kept');
+  }
+
   section('H. Orchestrator regression — author off by default');
   {
     const out = await runGuestAutomationOrchestratorDryRun({

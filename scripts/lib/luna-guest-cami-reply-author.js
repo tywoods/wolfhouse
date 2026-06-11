@@ -23,13 +23,14 @@ const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
 const FLAG = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED';
 const FLAG_PROD = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED_PROD';
 const DEFAULT_MODEL = 'gpt-4o-mini';
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 8000;
 
 const INTERNAL_WORDS_RE = /\b(?:\bAI\b|\bmodel\b|\bprompt\b|\btool\b|\bbackend\b|\bdatabase\b|\brouter\b|\bcomposer\b|\borchestrator\b|\bdry[\s-]?run\b|\bstripe\s+link\b)\b/i;
 const CONFIRMED_RE = /\b(?:booking\s+is\s+confirmed|you(?:'re| are)\s+confirmed|reservation\s+is\s+confirmed|fully\s+confirmed)\b/i;
 const PAID_RE = /\b(?:payment\s+(?:went\s+through|received|completed)|you(?:'ve| have)\s+paid|already\s+paid|deposit\s+paid)\b/i;
 const AVAIL_CLAIM_RE = /\b(?:i\s+checked\s+it|beds?\s+available|we\s+have\s+(?:space|availability)|availability\s+looks\s+good)\b/i;
 const EXPLAIN_ASK_RE = /\bwant\s+me\s+to\s+explain\b/i;
+const PUSHY_CLOSER_RE = /looking forward to hearing from you|can't wait to hear from you/i;
 const EURO_RE = /€\s*(\d+(?:[.,]\d{1,2})?)/g;
 
 function trimStr(v) {
@@ -229,6 +230,10 @@ function buildAuthorSystemPrompt() {
     'You must NOT invent prices, availability, payment status, booking confirmation, or URLs.',
     'You must NOT mention AI, models, prompts, tools, backend, database, router, composer, or Stripe link.',
     'Use warm casual surf-house tone — human, cute but not childish, tasteful emojis, readable spacing.',
+    'Be helpful, not pushy: one clear next step, no sales pressure, no repeated sign-offs.',
+    'Do NOT repeat the guest name every message. Do NOT say "Looking forward to hearing from you" every turn.',
+    'On greeting-only turns: welcome warmly and ask if they want to book a stay or need info — NO package names, NO prices.',
+    'Only explain Malibu/Uluwatu/Waimea when booking intake needs package choice or guest asked about packages.',
     'Use blank lines between package bullets or sections. Avoid starting with "Perfect" if the draft already used it.',
     'Preserve exact dates, guest count, package name, quote total, and deposit from facts.',
     'Include exactly ONE clear next step or question.',
@@ -279,11 +284,20 @@ function parseAuthorJson(text) {
 function allowedEuroCentsSet(input) {
   const allowed = new Set();
   const q = input.quote_result || {};
+  const pay = input.payment_choice_result || {};
   const pf = input.package_facts || {};
+  const bs = input.booking_state || {};
   if (q.quote_total_cents != null) allowed.add(q.quote_total_cents);
   if (q.deposit_required_cents != null) allowed.add(q.deposit_required_cents);
-  for (const pkg of (pf.packages || [])) {
-    if (pkg.from_eur != null) allowed.add(pkg.from_eur * 100);
+  if (pay.deposit_required_cents != null) allowed.add(pay.deposit_required_cents);
+  // Quote-ready replies may cite deposit even when only total is in quote payload.
+  if (q.quote_status === 'ready' && q.deposit_required_cents == null) allowed.add(10000);
+  const packageExplainTurn = bs.guest_count && bs.check_in && !bs.package_interest
+    || /explain_packages|ask_package/i.test(String(input.composer_state || ''));
+  if (packageExplainTurn) {
+    for (const pkg of (pf.packages || [])) {
+      if (pkg.from_eur != null) allowed.add(pkg.from_eur * 100);
+    }
   }
   return allowed;
 }
@@ -350,6 +364,15 @@ function validateCamiAuthoredReply(reply, input) {
 
   if (EXPLAIN_ASK_RE.test(text) && /\bpackages?\b/i.test(input.latest_guest_message || '')) {
     reasons.push('redundant_explain_offer');
+  }
+
+  if (bs.greeting_only === true || input.composer_state === 'greeting') {
+    if (/malibu/i.test(text) && /uluwatu/i.test(text)) reasons.push('greeting_unsolicited_packages');
+    if (/€\s*\d+/i.test(text)) reasons.push('greeting_unsolicited_prices');
+  }
+
+  if (PUSHY_CLOSER_RE.test(text) && bs.greeting_only !== true) {
+    reasons.push('pushy_repeated_closer');
   }
 
   const needsPackageExplain = (bs.missing_fields || []).includes('package_or_accommodation')
@@ -458,6 +481,17 @@ async function runCamiGuestReplyAuthor(input, options) {
   }
 
   const authorInput = input.booking_state ? input : buildAuthorInput(input);
+
+  if (authorInput.booking_state && authorInput.booking_state.greeting_only === true) {
+    base.rejection_reason = 'greeting_skip';
+    base.safety_notes.push('skipped_greeting_use_composer_welcome');
+    return base;
+  }
+  if (authorInput.composer_state === 'greeting') {
+    base.rejection_reason = 'greeting_skip';
+    base.safety_notes.push('skipped_greeting_composer_state');
+    return base;
+  }
   const caller = opts.authorCaller || defaultAuthorCaller;
 
   let rawText = null;

@@ -313,6 +313,7 @@
     "verify:stage49b-luna-agent-brain-frontdesk": "node scripts/verify-stage49b-luna-agent-brain-frontdesk.js",
     "verify:stage49c-agent-package-choice-frontdesk": "node scripts/verify-stage49c-agent-package-choice-frontdesk.js",
     "verify:stage50b-cami-reply-author": "node scripts/verify-stage50b-cami-reply-author.js",
+    "verify:stage50c-gpt-tool-planner": "node scripts/verify-stage50c-gpt-tool-planner.js",
     "verify:stage47a-staff-portal-polish": "node scripts/verify-stage47a-staff-portal-polish.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",

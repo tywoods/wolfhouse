@@ -64,6 +64,13 @@ const {
 } = require('./luna-guest-agent-brain');
 const { applyCamiReplyAuthorStage } = require('./luna-guest-cami-reply-author');
 const {
+  runGuestGptToolPlanner,
+  isGptToolPlannerEnabled,
+  isGptToolPlannerActive,
+  applyPlannerFieldSeed,
+  buildGptToolPlannerObservability,
+} = require('./luna-guest-gpt-tool-planner');
+const {
   detectGuestSurfReportIntent,
   shouldPrioritizeSurfReportOverService,
   fetchGuestSurfReportData,
@@ -913,6 +920,24 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     { llmClient: ctx.brain_llm_client },
   );
 
+  let gptToolPlannerOutput = null;
+  if (isGptToolPlannerEnabled(brainEnv)) {
+    gptToolPlannerOutput = await runGuestGptToolPlanner({
+      client_slug: routerContext.client_slug,
+      message_text: messageText,
+      prior_guest_context: chainGuestContext,
+      reference_date: routerContext.reference_date,
+      contact_name: routerContext.contact_name,
+      guest_phone: routerContext.guest_phone,
+    }, {
+      env: brainEnv,
+      plannerCaller: ctx.gpt_tool_planner_caller,
+    });
+    if (isGptToolPlannerActive(brainEnv) && gptToolPlannerOutput && gptToolPlannerOutput.field_patch) {
+      chainGuestContext = applyPlannerFieldSeed(chainGuestContext, gptToolPlannerOutput.field_patch);
+    }
+  }
+
   let result = runLunaGuestMessageRouterDryRun(
     {
       message_text: messageText,
@@ -1247,6 +1272,9 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     }),
     guest_agent_brain: agentStage.observability,
     cami_reply_author: camiStage.observability,
+    guest_gpt_tool_planner: gptToolPlannerOutput
+      ? buildGptToolPlannerObservability(gptToolPlannerOutput)
+      : undefined,
     cami_variation_history: composed && composed.cami_variation_history
       ? composed.cami_variation_history
       : (chainGuestContext && chainGuestContext.cami_variation_history) || undefined,

@@ -178,7 +178,28 @@ function planGuestAgentToolSteps(input) {
   return steps;
 }
 
+/** Stage 50c — read-only tools GPT may plan/execute. */
+const GUEST_AGENT_READ_TOOL_IDS = Object.freeze(
+  Object.keys(GUEST_AGENT_TOOLS).filter((id) => GUEST_AGENT_TOOLS[id].read_or_write === 'read'),
+);
+
+const GUEST_AGENT_WRITE_TOOL_IDS = Object.freeze(
+  Object.keys(GUEST_AGENT_TOOLS).filter((id) => GUEST_AGENT_TOOLS[id].read_or_write === 'write'),
+);
+
+function isGuestAgentReadTool(toolId) {
+  return GUEST_AGENT_READ_TOOL_IDS.includes(toolId);
+}
+
+function isGuestAgentWriteTool(toolId) {
+  return GUEST_AGENT_WRITE_TOOL_IDS.includes(toolId);
+}
+
 module.exports = {
   GUEST_AGENT_TOOLS,
+  GUEST_AGENT_READ_TOOL_IDS,
+  GUEST_AGENT_WRITE_TOOL_IDS,
+  isGuestAgentReadTool,
+  isGuestAgentWriteTool,
   planGuestAgentToolSteps,
 };
