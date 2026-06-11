@@ -110,6 +110,7 @@
     "include_address": true,
     "include_gate_code": true,
     "address": "C. Mies de La Ran, 41, 39140 Somo, Cantabria",
+    "maps_link": "https://maps.app.goo.gl/oPRckhqozVBvXxL16",
     "gate_code": "2684#",
     "include_room_number": true,
     "include_bed_number": false,

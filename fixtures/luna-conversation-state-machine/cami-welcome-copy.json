@@ -1,0 +1,24 @@
+{
+  "id": "cami-welcome-copy",
+  "label": "Cami welcome copy",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "hi",
+      "expect": {
+        "reply_contains": ["Luna", "Wolfhouse", "So happy"],
+        "reply_not_contains": ["orchestrator", "dry run", "I am not confirming"],
+        "expected_reply_source": "luna_reply_composer",
+        "expected_composer_state": "greeting",
+        "no_form_dev_copy": true,
+        "no_internal_language": true,
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

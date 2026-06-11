@@ -124,7 +124,8 @@ function buildHandoffResponse(reasons, partial) {
 function ensureLunaIdentity(message) {
   const text = trimStr(message);
   if (!text) return text;
-  if (LUNA_IDENTITY_RE.test(text.slice(0, 120))) return text;
+  if (LUNA_IDENTITY_RE.test(text.slice(0, 160))) return text;
+  if (/\bwolfhouse family\b/i.test(text.slice(0, 200))) return text;
   return `Luna from Wolfhouse here ☀️\n\n${text}`;
 }
 

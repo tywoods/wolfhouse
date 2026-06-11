@@ -66,6 +66,7 @@ const {
   isFormDevCopy,
 } = require('./lib/luna-guest-reply-style-contract');
 const { passesConfirmationStyleContract } = require('./lib/luna-guest-confirmation-copy-style');
+const { bookingDraftIncludesSurfLessons } = require('./lib/luna-guest-lesson-schedule-config');
 
 const WRITE_SOURCE = 'luna_conversation_state_machine_tester';
 
@@ -1991,7 +1992,88 @@ function checkSafetyDefaults(out) {
   return failures;
 }
 
+function checkConfirmationPreviewFixtureExpectations(expect, previewOut) {
+  const failures = [];
+  const exp = expect || {};
+  const msg = String(previewOut.proposed_confirmation_message || previewOut.message_preview || '');
+  const msgLower = msg.toLowerCase();
+
+  if (exp.confirmation_preview_ready === true && previewOut.confirmation_preview_ready !== true) {
+    failures.push(`confirmation_preview_ready expected true (${(previewOut.block_reasons || []).join('; ')})`);
+  }
+  if (Array.isArray(exp.confirmation_message_contains)) {
+    for (const needle of exp.confirmation_message_contains) {
+      if (!msgLower.includes(String(needle).toLowerCase())) {
+        failures.push(`confirmation_message_contains "${needle}" missing`);
+      }
+    }
+  }
+  if (Array.isArray(exp.confirmation_message_not_contains)) {
+    for (const needle of exp.confirmation_message_not_contains) {
+      if (msgLower.includes(String(needle).toLowerCase())) {
+        failures.push(`confirmation_message_not_contains "${needle}" violated`);
+      }
+    }
+  }
+  if (exp.lesson_schedule_present === true && !/surf lesson rhythm|ritmo lezioni surf/i.test(msg)) {
+    failures.push('lesson_schedule_present expected true');
+  }
+  if (exp.lesson_schedule_present === false && /surf lesson rhythm|ritmo lezioni surf/i.test(msg)) {
+    failures.push('lesson_schedule_present expected false');
+  }
+  if (exp.no_bed_number === true && messageHasBedLeak(msg)) {
+    failures.push('bed number leak in confirmation message');
+  }
+  if (exp.no_internal_language === true) {
+    for (const phrase of INTERNAL_LANGUAGE_BLACKLIST) {
+      if (new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(msg)) {
+        failures.push(`internal language "${phrase}" in confirmation`);
+      }
+    }
+  }
+  return failures;
+}
+
+async function runConfirmationPreviewFixture(fixture, opts) {
+  const draft = fixture.confirmation_draft || {};
+  const previewOut = await runGuestConfirmationPreviewDryRun({
+    client_slug: fixture.client_slug || CLIENT_SLUG,
+    booking_code: draft.booking_code,
+    confirmation_draft: draft,
+    payment_status: draft.payment_status || 'deposit_paid',
+    language_hint: fixture.language || 'en',
+    guest_name: draft.guest_name,
+  }, { use_fixture_pg: true });
+
+  const failures = checkConfirmationPreviewFixtureExpectations(fixture.expect, previewOut);
+  const result = {
+    id: fixture.id,
+    label: fixture.label || fixture.id,
+    mode: 'confirmation_preview',
+    result: failures.length ? 'FAIL' : 'PASS',
+    failures,
+    confirmation_preview_ready: previewOut.confirmation_preview_ready === true,
+    includes_lessons: bookingDraftIncludesSurfLessons(draft),
+    message_preview: previewOut.proposed_confirmation_message || previewOut.message_preview || null,
+  };
+
+  if (!opts.json) {
+    console.log(`\n▶ ${fixture.id} — ${fixture.label || fixture.id} [confirmation_preview]`);
+    if (result.message_preview) {
+      console.log(`    Preview: ${String(result.message_preview).replace(/\n/g, ' | ').slice(0, 320)}`);
+    }
+    console.log(`    lessons=${result.includes_lessons} ready=${result.confirmation_preview_ready}`);
+    console.log(`  ${result.result === 'PASS' ? 'PASS' : 'FAIL'}  ${fixture.id}`);
+    if (failures.length) failures.forEach((f) => console.log(`    - ${f}`));
+  }
+
+  return result;
+}
+
 async function runFixture(fixture, opts, fixtureIndex) {
+  if (fixture.mode === 'confirmation_preview') {
+    return runConfirmationPreviewFixture(fixture, opts);
+  }
   const contactName = fixture.contact_name || null;
   const referenceDate = fixture.reference_date || opts.referenceDate;
   const phone = `${opts.phonePrefix}${String(fixtureIndex + 1).padStart(2, '0')}`;

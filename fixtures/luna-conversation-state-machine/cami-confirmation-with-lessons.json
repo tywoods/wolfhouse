@@ -1,0 +1,38 @@
+{
+  "id": "cami-confirmation-with-lessons",
+  "mode": "confirmation_preview",
+  "label": "Cami confirmation with surf lessons",
+  "client_slug": "wolfhouse-somo",
+  "language": "en",
+  "confirmation_draft": {
+    "booking_code": "WH-G27-CAMI37L",
+    "guest_name": "Alex",
+    "payment_status": "deposit_paid",
+    "amount_paid_cents": 20000,
+    "balance_due_cents": 80000,
+    "room_number": "R2",
+    "address": "C. Mies de La Ran, 41, 39140 Somo, Cantabria",
+    "gate_code": "2684#",
+    "package_code": "malibu",
+    "includes_surf_lessons": true
+  },
+  "expect": {
+    "confirmation_preview_ready": true,
+    "confirmation_message_contains": [
+      "Wolfhouse family",
+      "Surf lesson rhythm",
+      "08:30",
+      "11:00-13:00",
+      "low season"
+    ],
+    "confirmation_message_not_contains": [
+      "your group is",
+      "assigned to group",
+      "Group 1 is yours",
+      "bed number"
+    ],
+    "lesson_schedule_present": true,
+    "no_bed_number": true,
+    "no_internal_language": true
+  }
+}

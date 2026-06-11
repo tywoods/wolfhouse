@@ -15,6 +15,8 @@ const {
   MAX_REPLY_CHARS,
 } = require('./luna-guest-reply-style-contract');
 
+const MAX_CONFIRMATION_CHARS = 900;
+
 const CONFIRMATION_INTERNAL_PHRASES = Object.freeze([
   'staff review',
   'staff notice',
@@ -102,7 +104,7 @@ function passesConfirmationStyleContract(message, context) {
       reasons.push(`internal_phrase:${phrase}`);
     }
   }
-  if (msg.length > MAX_REPLY_CHARS) reasons.push('too_long');
+  if (msg.length > MAX_CONFIRMATION_CHARS) reasons.push('too_long');
   if (!/\b(?:luna|wolfhouse)\b/i.test(msg.slice(0, 160))) reasons.push('missing_luna_identity');
   if (messageHasBedLeak(msg)) reasons.push('bed_number_leak');
   if (!msg.includes(GATE_CODE_REQUIRED)) reasons.push('missing_gate_code');
@@ -129,6 +131,7 @@ module.exports = {
   CONFIRMATION_INTERNAL_PHRASES,
   FORBIDDEN_GUEST_PHRASES,
   GATE_CODE_REQUIRED,
+  MAX_CONFIRMATION_CHARS,
   polishConfirmationGuestCopy,
   stripConfirmationInternalCopy,
   passesConfirmationStyleContract,

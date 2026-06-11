@@ -269,6 +269,12 @@ function buildPlaybookMessagePreview({
     balance_payment_link: balancePaymentLink,
     include_balance_link: includeBalanceLink,
     payment_status:       paymentStatus,
+    package_code:         draft.package_code || draft.package_interest || null,
+    package_interest:     draft.package_interest || draft.package_code || null,
+    includes_surf_lessons: draft.includes_surf_lessons,
+    service_interest:     draft.service_interest,
+    add_ons:              draft.add_ons,
+    draft,
   });
 
   if (playbookResult.ok) {

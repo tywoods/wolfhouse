@@ -1,0 +1,37 @@
+{
+  "id": "cami-confirmation-short-stay",
+  "mode": "confirmation_preview",
+  "label": "Cami confirmation short-stay (no lessons)",
+  "client_slug": "wolfhouse-somo",
+  "language": "en",
+  "confirmation_draft": {
+    "booking_code": "WH-G27-CAMI37B",
+    "guest_name": "Alex",
+    "payment_status": "deposit_paid",
+    "amount_paid_cents": 10000,
+    "balance_due_cents": 8000,
+    "room_number": "R1",
+    "address": "C. Mies de La Ran, 41, 39140 Somo, Cantabria",
+    "gate_code": "2684#"
+  },
+  "expect": {
+    "confirmation_preview_ready": true,
+    "confirmation_message_contains": [
+      "Wolfhouse family",
+      "maps.app.goo.gl/oPRckhqozVBvXxL16",
+      "2684#",
+      "R1",
+      "WH-G27-CAMI37B",
+      "€100",
+      "€80"
+    ],
+    "confirmation_message_not_contains": [
+      "bed number",
+      "DEMO-R",
+      "Surf lesson rhythm"
+    ],
+    "lesson_schedule_present": false,
+    "no_bed_number": true,
+    "no_internal_language": true
+  }
+}

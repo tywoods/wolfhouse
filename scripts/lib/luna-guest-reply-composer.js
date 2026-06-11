@@ -47,6 +47,7 @@ const {
 const {
   buildPersonalityReplyLexicon,
   resolveActivePersonality,
+  buildWelcomeReply,
 } = require('./luna-guest-personality-config');
 
 const COMPOSER_STATES = Object.freeze([
@@ -746,12 +747,17 @@ function buildReplyForState(state, ctx) {
   const personalityLex = clientSlug
     ? buildPersonalityReplyLexicon(clientSlug, lang)
     : null;
+  const welcomeCtx = ctx.welcomeCtx || {};
   const L = en;
   const P = personalityLex;
 
   switch (state) {
-    case 'greeting':
-      return (P && P.greeting) || L.greeting;
+    case 'greeting': {
+      const welcome = clientSlug
+        ? buildWelcomeReply(clientSlug, lang, welcomeCtx)
+        : null;
+      return welcome || (P && P.greeting) || L.greeting;
+    }
     case 'ask_dates': {
       const bookingIntent = /\bbook(?:ing)?\s+(?:a\s+)?stay\b/i.test(messageText || '');
       if (allowIntro || bookingIntent) {
@@ -1011,6 +1017,16 @@ function composeLunaGuestReply(input) {
     facts,
     pkgIntent,
     client_slug: clientSlug,
+    welcomeCtx: {
+      bookingIntent: /\bbook(?:ing)?\s+(?:a\s+)?(?:stay|room|bed)\b/i.test(trimStr(input && input.message_text)),
+      infoOnlyIntent: /\b(?:info|information|packages?|how much|price|cost|surf|yoga|transfer)\b/i.test(trimStr(input && input.message_text))
+        && !/\bbook\b/i.test(trimStr(input && input.message_text)),
+      hasPriorContext: !!(input && input.prior_guest_context
+        && (input.prior_guest_context.check_in || input.prior_guest_context.quote)),
+      bookingInProgress: quote.quote_status === 'ready'
+        || !!(fields.check_in && fields.check_out)
+        || pc.payment_choice_ready === true,
+    },
     serviceIntent: detectServiceSideQuestionIntent(trimStr(input && input.message_text)),
   });
 

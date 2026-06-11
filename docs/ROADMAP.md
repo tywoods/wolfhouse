@@ -1,4 +1,6 @@
-**Stage 37a CAMI PERSONALITY FOUNDATION — PASS (2026-06-10):** Attachable Luna personalities + Cami v1 for `wolfhouse-somo`. Config: `config/clients/wolfhouse-somo.personalities.json`. Verifier: `verify:stage37a-cami-personality-config`. **Next:** **Stage 37b** — welcome + confirmation copy upgrade.
+**Stage 37b CAMI WELCOME + CONFIRMATION COPY — PASS (2026-06-10):** Wolfhouse-family confirmation · Google Maps link · lesson rhythm when relevant. Verifier: `verify:stage37b-welcome-confirmation-copy`. **Next:** **Stage 37c** — short payment links.
+
+**Stage 37a CAMI PERSONALITY FOUNDATION — PASS (2026-06-10):** Attachable Luna personalities + Cami v1 for `wolfhouse-somo`. Verifier: `verify:stage37a-cami-personality-config`.
 
 **Near-term humanization + hardening (2026-06-10):**
 

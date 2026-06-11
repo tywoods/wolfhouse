@@ -216,6 +216,35 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters) {
   };
 }
 
+function buildWelcomeReply(clientSlug, lang, ctx) {
+  const resolved = resolveActivePersonality(clientSlug);
+  if (!resolved.personality || resolved.active_personality_id === 'luna_safe') {
+    return null;
+  }
+
+  const tpl = pickLangTemplates(resolved.personality, lang);
+  if (!tpl) return null;
+
+  const introShort = tpl.intro_short
+    || `Heyyy! I'm ${resolved.assistant_name} from Wolfhouse 🌊 So happy you're here!`;
+  const c = ctx || {};
+
+  if (c.bookingInProgress && c.hasPriorContext) {
+    return interpolateTemplate(tpl.greeting_returning || tpl.greeting, { intro_short: introShort })
+      || 'Hey again! 🌊 Still here for you — want to keep going with your booking or start fresh?';
+  }
+  if (c.bookingIntent) {
+    return interpolateTemplate(tpl.greeting_booking_intent || tpl.greeting, { intro_short: introShort })
+      || 'Yesss, love that 🌊 What dates are you thinking for check-in and check-out?';
+  }
+  if (c.infoOnlyIntent) {
+    return interpolateTemplate(tpl.greeting_info_only || tpl.greeting, { intro_short: introShort })
+      || `${introShort}\nHappy to help with packages, surf, or anything about Somo — what would you like to know?`;
+  }
+  return interpolateTemplate(tpl.greeting_generic || tpl.greeting, { intro_short: introShort })
+    || `${introShort}\nAre you looking to book a stay, ask about packages, or just check some info?`;
+}
+
 function buildPersonalityResetReply(clientSlug, lang) {
   const resolved = resolveActivePersonality(clientSlug);
   if (!resolved.personality) return null;
@@ -254,6 +283,7 @@ module.exports = {
   loadClientPersonalityFile,
   resolveActivePersonality,
   buildPersonalityReplyLexicon,
+  buildWelcomeReply,
   buildPersonalityResetReply,
   getPersonalityBannedPhrases,
   personalityAffectsCopyOnlySummary,

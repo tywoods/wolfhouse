@@ -1,6 +1,8 @@
 ﻿# Wolfhouse ? Project State
 
-**Last updated:** 2026-06-10 (**Stage 37a — Attachable Luna personalities + Cami v1**): **PASS**. Personality foundation: `config/clients/wolfhouse-somo.personalities.json` · loader `luna-guest-personality-config.js` · composer wired for `wolfhouse-somo` → Cami copy (facts code-owned). Verifier: `verify:stage37a-cami-personality-config` · fixture `cami-personality-basic-copy`. **No deploy · no production · no n8n · no WhatsApp/Stripe/confirmation sends.** **Next:** **Stage 37b** — welcome + confirmation copy upgrade (Wolfhouse family, Maps link, lesson schedule).
+**Last updated:** 2026-06-10 (**Stage 37b — Cami welcome + confirmation copy upgrade**): **PASS**. Cami welcome variants · Wolfhouse-family confirmation with Google Maps link · lesson rhythm section when package/add-on includes lessons · facts code-owned. Verifier: `verify:stage37b-welcome-confirmation-copy`. **No deploy · no send paths.** **Next:** **Stage 37c** — short payment links (`lunafrontdesk.com/pay/WH-G27-XXXX`).
+
+**Prior — Stage 37a — Attachable Luna personalities + Cami v1 (2026-06-10):** **PASS**. Config: `config/clients/wolfhouse-somo.personalities.json` · verifier `verify:stage37a-cami-personality-config`.
 
 **Near-term track (37→45):** 37 personality · 38 welcome/confirmation copy · 39 multilingual fixtures · 40 stress harness · 41 Somo knowledge · 42 add-on payments ledger · 43 surf report · 44 Ale/Cami hammer report · 45 pre-demo rehearsal.
 

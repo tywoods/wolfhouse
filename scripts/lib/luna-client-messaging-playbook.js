@@ -6,6 +6,9 @@
 
 const fs   = require('fs');
 const path = require('path');
+const {
+  buildCamiConfirmationPreview,
+} = require('./luna-guest-confirmation-personality-copy');
 
 const CONFIG_DIR = path.join(__dirname, '..', '..', 'config', 'clients');
 
@@ -248,6 +251,23 @@ function formatPlaybookEuro(cents) {
  *   address, gate_code, room_number, balance_payment_link, include_balance_link
  */
 function buildConfirmationPreviewFromPlaybook(clientSlug, language, fields) {
+  const personalityPreview = buildCamiConfirmationPreview(clientSlug, language, {
+    ...fields,
+    draft: fields,
+  });
+  if (personalityPreview.ok) {
+    return {
+      ok: true,
+      message: personalityPreview.message,
+      source: personalityPreview.source,
+      template_source: personalityPreview.template_source,
+      messaging_playbook: buildPlaybookMetadata(clientSlug),
+      personality_id: personalityPreview.personality_id,
+      includes_lessons: personalityPreview.includes_lessons,
+      maps_link: personalityPreview.maps_link,
+    };
+  }
+
   const loaded = loadLunaMessagingPlaybook(clientSlug);
   const templates = getLunaMessagingPlaybookValue(clientSlug, 'confirmation_templates', null);
   const template = pickLocalizedPlaybook(templates, language);
