@@ -71,7 +71,7 @@ function hasExplicitDates(text) {
 
 function hasGuestCountSignal(text) {
   const t = trimStr(text);
-  return /\b(?:we\s+are|we're|for\s+\d+|^\d+$|\d\s+guests?|guests?\s*\d|siamo\s+\d|somos\s+\d|\d\s+of\s+us|siamo\s+in\s+\d+|siamo\s+in\s+(?:due|tre|quattro|cinque)|siamo\s+(?:due|tre|quattro|cinque)|siamo\s+\d+\s+non\s+\d+)\b/i.test(t);
+  return /\b(?:we\s+are|we're|wir\s+sind|for\s+\d+|^\d+$|\d+\s+guests?|guests?\s*\d|siamo\s+\d|somos\s+\d|sind\s+wir\s+\d+|\d\s+of\s+us|siamo\s+in\s+\d+|siamo\s+in\s+(?:due|tre|quattro|cinque)|siamo\s+(?:due|tre|quattro|cinque)|siamo\s+\d+\s+non\s+\d+)\b/i.test(t);
 }
 
 function normalizeStaleQuoteReason(correctedFields, packageMutation) {

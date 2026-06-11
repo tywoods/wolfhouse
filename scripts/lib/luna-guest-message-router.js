@@ -348,12 +348,12 @@ function hasGuestCountSignal(text) {
       || /\bsiamo in \d+\b/i.test(t)
       || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|ppl|persons)\b/i.test(t);
   }
-  return /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti|ppl|persons)\b/i.test(t)
+  return /\b\d+\s+(?:people|guests?|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti|ppl|persons)\b/i.test(t)
     || /\b(\d{1,2})\s+of\s+us\b/i.test(t)
     || /\b(?:couple|family of \d+|just me|only me|one person|1 person|me and my (?:partner|girlfriend|boyfriend|friend|wife|husband))\b/i.test(t)
     || isSoloTravellerGuestCountPhrase(t)
     || /\b(?:for|per|para|für|pour)\s*\d+\b/i.test(t)
-    || /\b(?:we are|we're|somos|siamo|nous sommes|wir sind|wir w(?:ä|a)ren)\s+\d+\b/i.test(t)
+    || /\b(?:we are|we're|somos|siamo|nous sommes|wir sind|wir w(?:ä|a)ren|sind wir)\s+\d+\b/i.test(t)
     || /\b(?:group of|grupo de|gruppe von)\s*\d+\b/i.test(t)
     || /\bsiamo in \d+\b/i.test(t)
     || /\b(?:una|due|tre|quattro|dos|tres|cuatro|zwei|drei|vier)\s+(?:persone|personas|personnes|personen)\b/i.test(t)
@@ -458,6 +458,42 @@ function detectNewStayBookingIntent(text) {
 function detectVagueBookingOpenerIntent(text) {
   const t = String(text || '');
   return /\b(?:book(?:\s+a)?\s+stay|need\s+a?\s*room|do\s+you\s+have\s+space|have\s+(?:you\s+got\s+)?space|any\s+beds?\s+free|beds?\s+free|rooms?\s+available|looking\s+for\s+(?:a\s+)?room|want\s+(?:a\s+)?room)\b/i.test(t);
+}
+
+const MONTH_NAME_RE = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|abril|mayo|junio|julio|septiembre|octubre|noviembre|diciembre|janvier|f[eé]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[eé]cembre|januar|februar|m[aä]rz|april|juni|juli|august|september|oktober|november|dezember|août|aout|agosto|sommer|été|ete|summer)\b/i;
+
+const WEEKDAY_NAME_RE = /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i;
+
+function extractVagueMonthLabel(text) {
+  const m = String(text || '').match(MONTH_NAME_RE);
+  if (!m) return null;
+  const raw = m[0].toLowerCase();
+  if (raw === 'jun') return 'June';
+  if (raw === 'jul') return 'July';
+  if (raw === 'aug') return 'August';
+  if (raw === 'sep' || raw === 'sept') return 'September';
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+/** Stage 46c — month-only availability without exact calendar dates. */
+function isVagueMonthAvailabilityQuestion(text) {
+  const t = String(text || '');
+  if (hasExplicitDates(t)) return false;
+  if (!MONTH_NAME_RE.test(t)) return false;
+  return /\b(?:come|visit|stay|book|available|availability|free|space|room|beds?|join|arrive|looking)\b/i.test(t)
+    || detectVagueBookingOpenerIntent(t)
+    || /\b(?:can i|could i|may i|vorrei|posso|quiero|puis[- ]?je)\b/i.test(t);
+}
+
+/** Stage 46c — relative weekday/weekend phrases we must not guess into ISO dates. */
+function isRelativeDatePhraseNeedingClarification(text) {
+  const t = String(text || '');
+  if (hasExplicitDates(t)) return false;
+  if (/\b(?:next|this|coming)\s+weekend\b/i.test(t)) return true;
+  if (/\b(?:from|starting)\s+/i.test(t) && WEEKDAY_NAME_RE.test(t)
+    && /\b(?:to|through|thru|until|–|-)\s+/i.test(t) && WEEKDAY_NAME_RE.test(t)) return true;
+  if (WEEKDAY_NAME_RE.test(t) && /\b(?:to|through|thru|until|–|-)\s+/i.test(t) && WEEKDAY_NAME_RE.test(t)) return true;
+  return false;
 }
 
 function detectPackageGuestBookingIntent(text) {
@@ -776,6 +812,11 @@ function classifyMessageLane(text, guestContext) {
   const ctx = guestContext || {};
   const hasCode = hasBookingCode(t) || !!(ctx.booking_code || ctx.booking_id);
 
+  const { detectFieldCorrectionIntent, priorQuoteWasReady } = require('./luna-booking-state-transitions');
+  if (priorQuoteWasReady(ctx) && detectFieldCorrectionIntent(t)) {
+    return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9 };
+  }
+
   const priorQuoteSide = (ctx.quote && typeof ctx.quote === 'object') ? ctx.quote : {};
   if (priorQuoteSide.quote_status === 'ready') {
     const sidePay = detectPaymentChoiceFromMessage(t);
@@ -891,6 +932,15 @@ function classifyMessageLane(text, guestContext) {
       handoff: false,
       reasons: [],
       confidence: 0.78,
+    };
+  }
+
+  if (isVagueMonthAvailabilityQuestion(t) || isRelativeDatePhraseNeedingClarification(t)) {
+    return {
+      lane: 'new_booking_inquiry',
+      handoff: false,
+      reasons: [],
+      confidence: 0.76,
     };
   }
 
@@ -1515,11 +1565,10 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       reasons = reasons.concat(['low_confidence_language_or_intent']);
     }
 
-    const hasMonthOnly = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|f[eé]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[eé]cembre|januar|februar|m[aä]rz|april|mai|juni|juli|august|september|oktober|november|dezember|août|aout|agosto|sommer|été|ete|summer)\b/i.test(messageText)
-      && !extractedFields.check_in;
-    if (hasMonthOnly && !handoff && !detectVagueBookingOpenerIntent(messageText)) {
-      handoff = true;
-      if (!reasons.includes('unclear_availability')) reasons.push('unclear_availability');
+    const hasMonthOnly = MONTH_NAME_RE.test(messageText) && !extractedFields.check_in;
+    if (hasMonthOnly && handoff && reasons.includes('unclear_availability')) {
+      handoff = false;
+      reasons = reasons.filter((r) => r !== 'unclear_availability');
     }
   } else if (lane !== 'staff_handoff_required') {
     extractedFields = {};
@@ -1762,6 +1811,9 @@ function runLunaGuestMessageRouterDryRun(input, context) {
 module.exports = {
   runLunaGuestMessageRouterDryRun,
   classifyMessageLane,
+  isVagueMonthAvailabilityQuestion,
+  isRelativeDatePhraseNeedingClarification,
+  extractVagueMonthLabel,
   isGreetingOnlyMessage,
   buildGreetingMenuReply,
   isActiveBookingIntakeContext,

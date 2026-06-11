@@ -31,6 +31,11 @@ const {
 const { extractQuoteFactsFromPayload } = require('./luna-quote-facts');
 const { quoteChainIsStale } = require('./luna-booking-state-transitions');
 const {
+  isVagueMonthAvailabilityQuestion,
+  isRelativeDatePhraseNeedingClarification,
+  extractVagueMonthLabel,
+} = require('./luna-guest-message-router');
+const {
   quoteAwaitingAddonsDecision,
   buildMidFlowAddonsReturnTail,
   buildManualAddonsNote,
@@ -348,6 +353,20 @@ function isBookingFlowLane(result) {
 
 function messageLooksLikeDates(text) {
   return /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}[/-]\d|\d{4})\b/i.test(trimStr(text));
+}
+
+function buildDateClarificationReply(messageText) {
+  const t = trimStr(messageText);
+  if (!t) return null;
+  if (isVagueMonthAvailabilityQuestion(t)) {
+    const month = extractVagueMonthLabel(t);
+    if (month) return `Sure — what exact check-in and check-out dates in ${month}?`;
+    return 'What dates are you looking at?';
+  }
+  if (isRelativeDatePhraseNeedingClarification(t)) {
+    return 'Just to be sure, what exact check-in and check-out dates?';
+  }
+  return null;
 }
 
 function isGuestCountCorrection(result) {
@@ -872,6 +891,8 @@ function buildReplyForState(state, ctx) {
       return welcome || (P && P.greeting) || L.greeting;
     }
     case 'ask_dates': {
+      const dateClarify = buildDateClarificationReply(messageText);
+      if (dateClarify) return dateClarify;
       const bookingIntent = /\bbook(?:ing)?\s+(?:a\s+)?stay\b/i.test(messageText || '');
       if (allowIntro || bookingIntent) {
         return (P && P.ask_dates) || L.ask_dates;
@@ -1061,8 +1082,22 @@ function buildReplyForState(state, ctx) {
       return L.payment_received();
     case 'confirmation_sent_ack':
       return (P && P.confirmation_sent) || L.confirmation_sent;
-    case 'clarify_missing_info':
+    case 'clarify_missing_info': {
+      if (fields.check_in && fields.check_out
+        && (fields.guest_count == null || fields.guest_count < 1)) {
+        return range
+          ? `Perfect — ${range}. How many guests will be staying?`
+          : L.ask_guests;
+      }
+      if (fields.check_in && fields.check_out && fields.guest_count >= 1
+        && !hasPackageOrStayIntent(fields)) {
+        return L.ask_package;
+      }
+      if (fields.check_in && fields.check_out) return L.ask_guests;
+      const dateClarify = buildDateClarificationReply(messageText);
+      if (dateClarify) return dateClarify;
       return L.clarify;
+    }
     case 'contextual_pending_answer':
       return L.contextual_when;
     case 'safe_handoff':

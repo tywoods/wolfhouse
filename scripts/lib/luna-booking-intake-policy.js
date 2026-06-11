@@ -166,12 +166,16 @@ function extractGuestCountFromText(text) {
   if (pleaseNum) return Number(pleaseNum[1]);
   const forWord = t.match(/^for\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)$/i);
   if (forWord) return CONTINUATION_COUNT_WORDS[forWord[1].toLowerCase()] || null;
-  const people = t.match(/^(\d{1,2})\s+(?:people|guests|persons|ppl)$/i);
+  const people = t.match(/^(\d{1,2})\s+(?:people|guests?|persons|ppl)$/i);
   if (people) return Number(people[1]);
+  const guestN = t.match(/\b(\d{1,2})\s+guest\b/i);
+  if (guestN) return Number(guestN[1]);
   const ofUs = t.match(/\b(\d{1,2})\s+of\s+us\b/i);
   if (ofUs) return Number(ofUs[1]);
-  const weAre = t.match(/\b(?:we are|we're)\s+(\d{1,2})\b/i);
+  const weAre = t.match(/\b(?:we are|we're|wir sind|siamo|somos|nous sommes)\s+(\d{1,2})\b/i);
   if (weAre) return Number(weAre[1]);
+  const sindWir = t.match(/\b(?:sind wir|siamo in|somos)\s+(\d{1,2})\b/i);
+  if (sindWir) return Number(sindWir[1]);
   if (/^(?:me|just\s+me|only\s+me)$/i.test(t)) return 1;
   if (/\btwo\s+of\s+us\b/i.test(t)) return 2;
   if (/\bme\s+and\s+my\s+friend\b/i.test(t)) return 2;
