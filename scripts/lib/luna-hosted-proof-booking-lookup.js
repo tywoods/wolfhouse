@@ -64,6 +64,14 @@ function pickProofBookingCandidate(bookings, opts) {
   return candidates[0] || null;
 }
 
+function isStripePaymentLinkSend(send) {
+  const text = trimStr(send && send.message_text);
+  if (!text) return false;
+  if (/https:\/\/checkout\.stripe\.com|https:\/\/pay\.stripe\.com/i.test(text)) return true;
+  if (/\bcs_test_[a-zA-Z0-9]+\b/.test(text)) return true;
+  return false;
+}
+
 /**
  * Poll outbound send rows for a Stripe/payment link after deposit turn.
  *
@@ -77,7 +85,7 @@ async function pollForPaymentLinkSend(fetchSends, opts) {
   const maxWaitMs = Math.max(intervalMs, Number(o.maxWaitMs) || 45000);
   const matcher = typeof o.matcher === 'function'
     ? o.matcher
-    : (send) => /https:\/\/checkout\.stripe\.com|pay\.stripe\.com|payment link|secure payment/i.test(trimStr(send.message_text));
+    : isStripePaymentLinkSend;
 
   const correlate = (sends) => {
     const rows = (sends || []).slice().sort((a, b) => (parseTime(a.created_at) || 0) - (parseTime(b.created_at) || 0));
@@ -133,5 +141,6 @@ module.exports = {
   rowActivityTime,
   filterBookingsSince,
   pickProofBookingCandidate,
+  isStripePaymentLinkSend,
   pollForPaymentLinkSend,
 };

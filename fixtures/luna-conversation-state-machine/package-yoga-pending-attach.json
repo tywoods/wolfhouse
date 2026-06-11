@@ -31,7 +31,9 @@
       "expect": {
         "expected_payment_choice": "deposit",
         "expected_no_handoff": true,
-        "expected_reply_source": "luna_reply_composer"
+        "expected_reply_source": "luna_reply_composer",
+        "expected_quote_ready": true,
+        "expected_hold_plan_ready": true
       }
     }
   ],

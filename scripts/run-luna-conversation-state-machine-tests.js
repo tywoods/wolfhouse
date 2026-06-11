@@ -1818,6 +1818,12 @@ function checkTurnExpectations(expect, out) {
     const qs = out.quote && out.quote.quote_status;
     if (qs === 'ready') failures.push('expected_quote_ready false but quote is ready');
   }
+  if (expect.expected_hold_plan_ready === true) {
+    const plan = out.hold_payment_draft_plan || {};
+    if (plan.plan_status !== 'ready' || plan.plan_handoff_required === true) {
+      failures.push(`expected_hold_plan_ready but plan_status=${plan.plan_status} handoff=${plan.plan_handoff_required} reasons=${JSON.stringify(plan.plan_handoff_reasons || [])}`);
+    }
+  }
   if (expect.expected_stale_quote === true) {
     const stale = (out.result && out.result.previous_quote_invalidated === true)
       || (out.quote && out.quote.quote_stale === true)

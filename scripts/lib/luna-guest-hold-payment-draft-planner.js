@@ -141,10 +141,22 @@ function detectTransferAmbiguity(fields) {
   return null;
 }
 
+/** Yoga/meals are pending manual services — attach post-hold; never block hold write. */
+const PENDING_MANUAL_SERVICE_CODES = new Set(['yoga', 'meal', 'meals']);
+
 function detectServiceAmbiguity(fields) {
   const services = fields.service_interest;
   if (!Array.isArray(services) || services.length === 0) return null;
-  const bad = services.some((s) => !s || !s.code);
+  const { normalizeServiceInterestCodes } = require('./luna-booking-addons-policy');
+  const holdBlockingCodes = normalizeServiceInterestCodes(services)
+    .filter((code) => !PENDING_MANUAL_SERVICE_CODES.has(code));
+  if (!holdBlockingCodes.length) return null;
+  const bad = services.some((s) => {
+    if (s == null) return true;
+    if (typeof s === 'string') return false;
+    if (typeof s === 'object' && s.code) return false;
+    return true;
+  });
   if (bad) return 'unclear_service_line_items';
   return null;
 }

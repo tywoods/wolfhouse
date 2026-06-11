@@ -36,7 +36,13 @@ const {
   extractAddOnSelections,
   quoteAwaitingAddonsDecision,
 } = require('./luna-booking-addons-policy');
-const { detectReactiveServiceIntent, guestDecidedLater, isReactiveServiceFollowUpMessage } = require('./luna-booking-reactive-services-policy');
+const {
+  detectReactiveServiceIntent,
+  extractReactiveServicesFromMessage,
+  guestDecidedLater,
+  isReactiveServiceFollowUpMessage,
+  stripPendingManualFromServiceInterest,
+} = require('./luna-booking-reactive-services-policy');
 const {
   evaluatePackageNightContext,
   packageNightRuleBlocksQuote,
@@ -866,7 +872,9 @@ function extractBookingFields(messageText, context, priorFields) {
     guest_name: null,
     package_interest: intake.package_code || null,
     transfer_interest: detectTransferInterest(messageText) || null,
-    service_interest: (intake.add_ons && intake.add_ons.length) ? intake.add_ons : [],
+    service_interest: (intake.add_ons && intake.add_ons.length)
+      ? intake.add_ons.filter((code) => ['wetsuit', 'surfboard', 'surf_lesson'].includes(code))
+      : [],
     payment_preference: intake.payment_choice || null,
   };
 
@@ -1308,6 +1316,16 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     if (guestDeclinedAddons(messageText)) {
       extractedFields = { ...extractedFields, addons_skipped: true, service_interest: [] };
     }
+    const reactivePatch = extractReactiveServicesFromMessage(messageText, extractedFields, {
+      guest_count: extractedFields.guest_count,
+    });
+    if (reactivePatch.yoga_request) {
+      extractedFields = { ...extractedFields, yoga_request: reactivePatch.yoga_request };
+    }
+    if (reactivePatch.meals_request) {
+      extractedFields = { ...extractedFields, meals_request: reactivePatch.meals_request };
+    }
+    extractedFields = stripPendingManualFromServiceInterest(extractedFields);
     if (brainPatch.check_in && brainPatch.check_out
       && !extractedFields.check_in && !extractedFields.check_out) {
       extractedFields = {

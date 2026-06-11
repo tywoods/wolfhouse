@@ -328,6 +328,22 @@ function buildReactiveServiceComposerReply(lang, intent, fields, quote) {
   return null;
 }
 
+const PENDING_MANUAL_SERVICE_CODES = new Set(['yoga', 'meal', 'meals']);
+
+function stripPendingManualFromServiceInterest(fields) {
+  const f = fields || {};
+  const list = Array.isArray(f.service_interest) ? f.service_interest : [];
+  if (!list.length) return f;
+  const filtered = list.filter((item) => {
+    const code = typeof item === 'string'
+      ? trimStr(item).toLowerCase()
+      : (item && item.code ? trimStr(item.code).toLowerCase() : '');
+    return code && !PENDING_MANUAL_SERVICE_CODES.has(code);
+  });
+  if (filtered.length === list.length) return f;
+  return { ...f, service_interest: filtered };
+}
+
 function buildReactiveServicesObservability(fields, clientSlug) {
   const f = fields || {};
   const meals = f.meals_request && typeof f.meals_request === 'object' ? f.meals_request : null;
@@ -380,10 +396,12 @@ function isReactiveServiceFollowUpMessage(text, priorFields) {
 }
 
 module.exports = {
+  PENDING_MANUAL_SERVICE_CODES,
   guestDecidedLater,
   isReactiveServiceMessage,
   isReactiveServiceFollowUpMessage,
   detectReactiveServiceIntent,
+  stripPendingManualFromServiceInterest,
   detectMealType,
   extractReactiveServicesFromMessage,
   mergeMealsRequest,
