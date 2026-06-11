@@ -244,6 +244,13 @@ function detectPricedAddonQuoteChange(priorFields, currentFields, clientSlug) {
   const currentSig = serviceInterestSignature(current.service_interest, current.addons_skipped);
   if (priorSig === currentSig) return null;
 
+  // Guest declining optional surf add-ons completes the add-ons step — not quote invalidation.
+  if (current.addons_skipped === true && prior.addons_skipped !== true) {
+    const priorPricedEarly = [...classifyServiceInterestPricing(prior.service_interest, clientSlug).priced].sort().join(',');
+    const currentPricedEarly = [...classifyServiceInterestPricing(current.service_interest, clientSlug).priced].sort().join(',');
+    if (priorPricedEarly === currentPricedEarly) return null;
+  }
+
   const priorCls = classifyServiceInterestPricing(prior.service_interest, clientSlug);
   const currentCls = classifyServiceInterestPricing(current.service_interest, clientSlug);
   const priorPriced = [...priorCls.priced].sort().join(',');

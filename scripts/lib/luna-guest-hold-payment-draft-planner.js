@@ -8,6 +8,7 @@
  */
 
 const crypto = require('crypto');
+const { quoteChainIsStale, stalePaymentLinkBlocked } = require('./luna-booking-state-transitions');
 
 const PLANNER_SAFETY = Object.freeze({
   dry_run: true,
@@ -104,7 +105,9 @@ function normalizeChain(chainResult) {
  * Stage 27m entry gate — all chain gates must pass.
  */
 function shouldAttemptGuestHoldPaymentDraftPlan(chainResult) {
-  const { result, availability, quote, payment_choice: pc } = normalizeChain(chainResult);
+  const chain = normalizeChain(chainResult);
+  const { result, availability, quote, payment_choice: pc } = chain;
+  if (stalePaymentLinkBlocked(chain) || quoteChainIsStale(chain)) return false;
   if (!result || result.success === false) return false;
   return result.message_lane === 'new_booking_inquiry'
     && result.booking_intake_ready === true

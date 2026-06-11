@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Stage 31a — booking quote stale invalidation and correction/reset helpers.
+ * Stage 31a / 35a — booking quote stale invalidation and correction/reset helpers.
  *
  * Code owns truth: if quote-affecting fields change after a ready quote,
  * prior quote/payment readiness must not be reused.
@@ -62,6 +62,16 @@ function hasExplicitDates(text) {
 
 function hasGuestCountSignal(text) {
   return /\b(?:we\s+are|for\s+\d+|^\d+$|\d\s+guests?|guests?\s*\d)\b/i.test(trimStr(text));
+}
+
+function normalizeStaleQuoteReason(correctedFields, packageMutation) {
+  const corrected = correctedFields || [];
+  if (packageMutation || corrected.includes('package_interest')) return 'package_changed';
+  if (corrected.includes('check_in') || corrected.includes('check_out')) return 'dates_changed';
+  if (corrected.includes('guest_count')) return 'guest_count_changed';
+  if (corrected.length === 1) return `${corrected[0]}_changed`;
+  if (corrected.length > 1) return corrected.join('_changed_') + '_changed';
+  return 'field_changed';
 }
 
 /**
@@ -126,9 +136,7 @@ function evaluateQuoteStaleInvalidation(priorGuestContext, routerResult, message
 
   if (!corrected.length) return null;
 
-  const reason = packageMutation
-    ? 'package_changed'
-    : corrected.join('_changed');
+  const reason = normalizeStaleQuoteReason(corrected, packageMutation);
 
   return {
     stale_quote_reason: reason,
@@ -182,6 +190,11 @@ function shouldPreservePriorReadyQuote(priorGuestContext) {
   return priorQuote.quote_status === 'ready';
 }
 
+/** Read-only gate: stale quote chain must not proceed to hold/payment link. */
+function stalePaymentLinkBlocked(guestContext) {
+  return quoteChainIsStale(guestContext);
+}
+
 module.exports = {
   QUOTE_AFFECTING_FIELDS,
   detectQuoteAffectingFieldChanges,
@@ -191,5 +204,7 @@ module.exports = {
   applyQuoteStaleInvalidation,
   quoteChainIsStale,
   shouldPreservePriorReadyQuote,
+  stalePaymentLinkBlocked,
+  normalizeStaleQuoteReason,
   priorQuoteWasReady,
 };

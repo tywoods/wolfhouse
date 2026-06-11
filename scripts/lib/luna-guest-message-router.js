@@ -518,7 +518,7 @@ function classifyPaymentQuestionLane(text, ctx) {
   const hasCode = hasBookingCode(t) || !!(guestCtx.booking_code || guestCtx.booking_id);
   const activeQuote = hasActivePaymentChoiceContext(guestCtx);
 
-  if (activeQuote && (kind === 'deposit' || kind === 'full_payment')) {
+  if (activeQuote && (kind === 'deposit' || kind === 'full_payment' || kind === 'arrival_payment_question')) {
     return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9, paymentKind: kind };
   }
 

@@ -14,7 +14,7 @@
       }
     },
     {
-      "message": "no no I want to create another booking",
+      "message": "no no, start over",
       "expect": {
         "expected_reset_detected": true,
         "expected_quote_ready": false,

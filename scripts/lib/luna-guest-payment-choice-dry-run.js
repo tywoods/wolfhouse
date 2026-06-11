@@ -341,6 +341,17 @@ function finalizeProposedLunaReply(lang, guestContext, outcome, detected) {
 
 function buildOutcome(detected, guestContext) {
   const ctx = guestContext || {};
+  const { stalePaymentLinkBlocked } = require('./luna-booking-state-transitions');
+  if (stalePaymentLinkBlocked(ctx)) {
+    return {
+      payment_choice_detected: detected != null,
+      payment_choice: detected,
+      payment_choice_ready: false,
+      payment_choice_reasons: ['stale_quote_blocked'],
+      next_safe_step: 'collect_payment_choice',
+      replyKey: 'not_ready',
+    };
+  }
   const lane = ctx.message_lane || (ctx.result && ctx.result.message_lane);
   const quoteReady = quoteContextReady(ctx);
 

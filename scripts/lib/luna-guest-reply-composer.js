@@ -65,6 +65,7 @@ const COMPOSER_STATES = Object.freeze([
   'ask_addons_after_quote',
   'addons_none_confirmed',
   'ask_payment_choice',
+  'answer_arrival_payment_question',
   'payment_choice_ack',
   'payment_choice_received_hold_created',
   'stripe_test_link_created',
@@ -270,6 +271,39 @@ function isGuestCountCorrection(result) {
   return Array.isArray(fields) && fields.includes('guest_count');
 }
 
+function isDateCorrection(result) {
+  if (!result || result.previous_quote_invalidated !== true) return false;
+  const fields = result.corrected_fields;
+  return Array.isArray(fields)
+    && (fields.includes('check_in') || fields.includes('check_out'));
+}
+
+function isPackageCorrection(result) {
+  if (!result || result.previous_quote_invalidated !== true) return false;
+  const fields = result.corrected_fields;
+  return Array.isArray(fields) && fields.includes('package_interest');
+}
+
+function buildDateCorrectionPaymentReply(fields, quote, plan, pc) {
+  const range = formatDateRange(fields.check_in, fields.check_out);
+  const total = formatEur(quote && quote.quote_total_cents);
+  const deposit = formatEur(depositCentsFromPayload(quote, plan, pc));
+  if (!total) return null;
+  const datePhrase = range ? ` for ${range}` : '';
+  if (!deposit) {
+    return `Got it — updating those dates${datePhrase}. The stay comes to ${total}.`;
+  }
+  return `Got it — updating those dates${datePhrase}. The stay comes to ${total}. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+}
+
+function buildDateCorrectionAddonsReply(fields, quote) {
+  const range = formatDateRange(fields.check_in, fields.check_out);
+  const total = formatEur(quote && quote.quote_total_cents);
+  if (!total) return null;
+  const datePhrase = range ? ` for ${range}` : '';
+  return `Got it — updating those dates${datePhrase}. The accommodation comes to ${total}. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?`;
+}
+
 function buildGuestCountCorrectionAddonsReply(fields, quote, plan, pc) {
   const range = formatDateRange(fields.check_in, fields.check_out);
   const guests = guestCountLabel(fields.guest_count, 'en');
@@ -445,6 +479,10 @@ function resolveComposerState(input) {
       && (pt.payment_status === 'deposit_paid' || pt.payment_status === 'paid')) {
       return 'payment_received_preview_ready';
     }
+  }
+
+  if (pc.payment_choice === 'arrival_payment_question' && pc.payment_choice_detected === true) {
+    return 'answer_arrival_payment_question';
   }
 
   if (pc.payment_choice_ready === true) {
@@ -650,6 +688,12 @@ function buildReplyForState(state, ctx) {
       }
       return `Perfect — accommodation only then 😊${manualNote}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
+    answer_arrival_payment_question: () => {
+      if (!deposit || !total) {
+        return 'Yes — the remaining balance can be paid on arrival by cash, bank transfer, or Stripe. To hold the spot, we still need a deposit or full payment now.';
+      }
+      return `Yes — the remaining balance can be paid on arrival by cash, bank transfer, or Stripe. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+    },
     addons_none: () => {
       if (!deposit || !total) return null;
       return `Perfect — accommodation only then 😊\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
@@ -720,21 +764,38 @@ function buildReplyForState(state, ctx) {
       return buildComposerTransferReply(lang, messageText, fields, pc);
     case 'accommodation_quote_ready':
     case 'ask_addons_after_quote':
+      if (isDateCorrection(result)) {
+        return buildDateCorrectionAddonsReply(fields, quote) || L.accommodation_quote();
+      }
       if (isGuestCountCorrection(result)) {
         return buildGuestCountCorrectionAddonsReply(fields, quote, plan, pc) || L.accommodation_quote();
       }
       return L.accommodation_quote();
     case 'package_quote_ready':
+      if (isPackageCorrection(result)) {
+        return L.package_quote();
+      }
       return L.package_quote();
     case 'quote_refreshing':
       return L.quote_refreshing(fields);
     case 'addons_none_confirmed':
+      if (isDateCorrection(result)) {
+        return buildDateCorrectionPaymentReply(fields, quote, plan, pc) || L.addons_none();
+      }
       if (isGuestCountCorrection(result)) {
         return buildGuestCountCorrectionPaymentReply(fields, quote, plan, pc) || L.addons_none();
       }
       return L.addons_none();
     case 'ask_payment_choice':
+      if (isDateCorrection(result)) {
+        return buildDateCorrectionPaymentReply(fields, quote, plan, pc) || L.ask_payment_choice();
+      }
+      if (isGuestCountCorrection(result)) {
+        return buildGuestCountCorrectionPaymentReply(fields, quote, plan, pc) || L.ask_payment_choice();
+      }
       return L.ask_payment_choice();
+    case 'answer_arrival_payment_question':
+      return L.answer_arrival_payment_question();
     case 'payment_choice_ack':
       return pc.payment_choice === 'full_payment' ? L.full_ack : L.deposit_ack;
     case 'payment_choice_received_hold_created':
@@ -781,6 +842,7 @@ function nextGuestQuestionForState(state) {
     ask_addons_after_quote: 'addons',
     addons_none_confirmed: 'payment_choice',
     ask_payment_choice: 'payment_choice',
+    answer_arrival_payment_question: 'payment_choice',
     package_quote_ready: 'payment_choice',
     quote_refreshing: 'quote_refresh',
     clarify_missing_info: 'dates_or_guests',

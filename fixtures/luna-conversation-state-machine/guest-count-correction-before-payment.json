@@ -19,6 +19,7 @@
       "message": "actually we are 2",
       "expect": {
         "expected_stale_quote": true,
+        "expected_stale_quote_reason": "guest_count_changed",
         "expected_corrected_fields": ["guest_count"],
         "expected_guest_count": 2,
         "expected_no_payment_link_before_updated_quote": true,

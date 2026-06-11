@@ -1692,7 +1692,9 @@ function guestContextFromOrchestrator(out, contactName) {
     payment_choice: r.payment_choice,
     hold_payment_draft_plan: r.hold_payment_draft_plan,
     detected_language: r.result && r.result.detected_language,
-    previous_quote_invalidated: r.result && r.result.previous_quote_invalidated,
+    previous_quote_invalidated: r.result && r.result.previous_quote_invalidated === true
+      ? true
+      : undefined,
     stale_quote_reason: r.result && r.result.stale_quote_reason,
     corrected_fields: r.result && r.result.corrected_fields,
     new_booking_reset: r.result && r.result.new_booking_reset,

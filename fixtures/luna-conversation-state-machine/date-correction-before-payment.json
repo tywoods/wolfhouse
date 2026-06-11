@@ -29,6 +29,7 @@
       "message": "actually July 2-6",
       "expect": {
         "expected_stale_quote": true,
+        "expected_stale_quote_reason": "dates_changed",
         "expected_corrected_fields": ["check_in", "check_out"],
         "expected_dates": {
           "check_in": "2026-07-02",
