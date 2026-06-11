@@ -310,6 +310,7 @@
     "verify:stage46b-vague-booking-intake": "node scripts/verify-stage46b-vague-booking-intake.js",
     "verify:stage46c-relative-date-intake": "node scripts/verify-stage46c-relative-date-intake.js",
     "verify:stage48a-package-info-intent": "node scripts/verify-stage48a-package-info-intent.js",
+    "verify:stage49b-luna-agent-brain-frontdesk": "node scripts/verify-stage49b-luna-agent-brain-frontdesk.js",
     "verify:stage47a-staff-portal-polish": "node scripts/verify-stage47a-staff-portal-polish.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",

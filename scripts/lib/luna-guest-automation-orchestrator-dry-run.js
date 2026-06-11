@@ -59,6 +59,10 @@ const {
 } = require('./luna-guest-service-transfer-explainer');
 const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
 const {
+  runLunaGuestAgentBrain,
+  buildGuestAgentBrainObservability,
+} = require('./luna-guest-agent-brain');
+const {
   detectGuestSurfReportIntent,
   shouldPrioritizeSurfReportOverService,
   fetchGuestSurfReportData,
@@ -262,6 +266,37 @@ function buildBrainObservability(brainDecision, extra) {
     final_reply_source: x.finalReplySource || null,
     final_reply_overrode_brain: x.overrodeBrain === true,
     composer_state: x.composer_state || null,
+  };
+}
+
+// Stage 49b — run Agent Brain v1 after the deterministic chain has produced its
+// candidate reply. The agent may take final reply authority (final_reply_source:
+// agent_brain) or endorse the existing reply (fallback). Never touches gates.
+function applyGuestAgentBrainStage(args) {
+  const a = args || {};
+  const agent = runLunaGuestAgentBrain({
+    client_slug: a.client_slug,
+    conversation_id: a.conversation_id || null,
+    guest_phone: a.guest_phone || null,
+    contact_name: a.contact_name || null,
+    message_text: a.message_text,
+    prior_guest_context: a.prior_guest_context,
+    brain_decision: a.brain_decision,
+    composed: a.composed || null,
+    candidate_reply: a.candidate_reply,
+    candidate_source: a.candidate_source,
+    payload: a.payload,
+    channel_mode: a.channel_mode || 'orchestrator_dry_run',
+    env: a.env,
+  });
+  const agentTookReply = agent.agent_brain_enabled === true
+    && agent.fallback_used !== true
+    && trimStr(agent.final_reply) !== '';
+  return {
+    agent,
+    reply: agentTookReply ? agent.final_reply : a.candidate_reply,
+    reply_source: agentTookReply ? 'agent_brain' : a.candidate_source,
+    observability: buildGuestAgentBrainObservability(agent),
   };
 }
 
@@ -712,7 +747,7 @@ function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, p
     || (result && result.greeting_only === true) };
 }
 
-async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext) {
+async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext, env) {
   const { payload, prior, allowIntro } = buildNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext);
   const clientSlug = trimStr(prior.client_slug) || DEFAULT_CLIENT;
   const surfReport = await prefetchGuestSurfReportPayload(messageText, prior, clientSlug);
@@ -724,12 +759,25 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
     brainDecision,
     { allowLeadingIntro: allowIntro, client_slug: clientSlug },
   );
-  const proposedLunaReply = composed
+  const candidateReply = composed
     ? composed.reply
     : resolveProposedReply(payload, messageText, prior, brainDecision);
-  const finalReplySource = composed
+  const candidateSource = composed
     ? composed.reply_source
-    : classifyFinalReplySource(proposedLunaReply, payload);
+    : classifyFinalReplySource(candidateReply, payload);
+  const agentStage = applyGuestAgentBrainStage({
+    client_slug: clientSlug,
+    message_text: messageText,
+    prior_guest_context: prior,
+    brain_decision: brainDecision,
+    composed,
+    candidate_reply: candidateReply,
+    candidate_source: candidateSource,
+    payload,
+    env: env || process.env,
+  });
+  const proposedLunaReply = agentStage.reply;
+  const finalReplySource = agentStage.reply_source;
   const policySnapshot = buildBookingIntakePolicySnapshot(
     {
       extracted_fields: (result && result.extracted_fields) || collectPriorExtractedFields(prior),
@@ -772,6 +820,7 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
       booking_flow_stage: policySnapshot.booking_flow_stage,
       next_required_field: policySnapshot.next_required_field,
     }),
+    guest_agent_brain: agentStage.observability,
   };
   return buildOrchestratorResponse({
     automation_gate: gate,
@@ -858,7 +907,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   );
 
   if (result.greeting_only) {
-    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext);
+    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext, brainEnv);
   }
 
   if (detectNewBookingResetIntent(messageText)
@@ -961,7 +1010,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   }
 
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
-    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext);
+    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext, brainEnv);
   }
 
   const staleInvalidation = evaluateQuoteStaleInvalidation(chainGuestContext, result, messageText);
@@ -1103,6 +1152,22 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   const overrodeBrain = !composed
     && brainControlsReply(brainDecision, payload.result, payload.quote)
     && finalReplySource !== 'router';
+  const agentStage = applyGuestAgentBrainStage({
+    client_slug: chainCtx.client_slug || DEFAULT_CLIENT,
+    conversation_id: inp.conversation_id || null,
+    guest_phone: inp.guest_phone || null,
+    contact_name: routerContext.contact_name || null,
+    message_text: trimStr(inp.message_text),
+    prior_guest_context: chainGuestContext,
+    brain_decision: brainDecision,
+    composed,
+    candidate_reply: proposedLunaReply,
+    candidate_source: finalReplySource,
+    payload,
+    env: brainEnv,
+  });
+  proposedLunaReply = agentStage.reply;
+  finalReplySource = agentStage.reply_source;
   proposedLunaReply = dedupeLunaIntro(proposedLunaReply, allowLeadingIntro === true);
 
   const policySnapshot = buildBookingIntakePolicySnapshot(
@@ -1148,6 +1213,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       booking_flow_stage: policySnapshot.booking_flow_stage,
       next_required_field: policySnapshot.next_required_field,
     }),
+    guest_agent_brain: agentStage.observability,
     cami_variation_history: composed && composed.cami_variation_history
       ? composed.cami_variation_history
       : (chainGuestContext && chainGuestContext.cami_variation_history) || undefined,
