@@ -136,7 +136,7 @@ section('F. Payment ledger visibility');
 const ledger = paymentLedgerGapSummary();
 check('F1', ledger.service_rows_supported === true, 'service rows supported');
 check('F2', ledger.service_amount_due_on_record === true, 'amount_due on service record');
-check('F3', ledger.booking_payment_ledger_per_service_row === false, 'documents per-service payment ledger gap honestly');
+check('F3', ledger.booking_payment_ledger_per_service_row === true, 'per-service payment ledger rows supported (Stage 38b)');
 
 section('G. Safety');
 

@@ -57,6 +57,10 @@ const {
   parsePaymentShortLinkToken,
   resolvePaymentShortLinkRedirectFromDb,
 } = require('./lib/luna-payment-short-link');
+const {
+  buildServiceChargesDueFromContext,
+  formatAddonServicePaymentLedgerLabel,
+} = require('./lib/luna-guest-addon-service-payment-ledger');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
 const {
   computeBalanceDueRows,
@@ -20054,6 +20058,11 @@ function bcPaymentLedgerRowDisplayLabel(pr){
   var md = bcPaymentLedgerParseMetadata(pr.metadata);
   var method = String(md.method || '').toLowerCase();
   var source = String(md.source || '').toLowerCase();
+  var kind = String(pr.payment_kind || '').toLowerCase();
+
+  if (kind === 'addon_service' || md.payment_origin === 'luna_guest_service_addon') {
+    return formatAddonServicePaymentLedgerLabel(pr);
+  }
 
   if (st === 'failed') return 'Failed payment';
   if (st === 'cancelled' || st === 'canceled') return 'Cancelled payment link';
@@ -27375,6 +27384,12 @@ async function handleBookingContext(bookingCode, query, res, user) {
     source: row.source,
   }));
 
+  const serviceChargesDue = buildServiceChargesDueFromContext({
+    booking: bk,
+    serviceRecords: serviceRecordRows,
+    paymentRows,
+  });
+
   return sendJSON(res, 200, {
     success:      true,
     client_slug:  clientSlug,
@@ -27436,6 +27451,10 @@ async function handleBookingContext(bookingCode, query, res, user) {
     service_records: serviceRecordRows,
     service_records_available: serviceRecordsAvailable,
     pending_manual_services: pendingManualServices,
+    service_charges_due_cents: serviceChargesDue.service_charges_due_cents,
+    service_charges_due_lines: serviceChargesDue.service_charges_due_lines,
+    accommodation_balance_due_cents: serviceChargesDue.accommodation_balance_due_cents,
+    total_due_at_checkout_cents: serviceChargesDue.total_due_at_checkout_cents,
     transfers: transferRecordRows,
     warnings: [],
     elapsed_ms: elapsed,

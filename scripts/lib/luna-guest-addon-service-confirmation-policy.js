@@ -68,6 +68,7 @@ const SERVICE_RULES = Object.freeze({
 
 const PAYMENT_TAIL_EN = 'Feel free to pay whenever you\'re ready, or you can settle it at checkout.';
 const PAYMENT_TAIL_NO_FORCE_EN = 'No stress on payment now — it can be settled at checkout.';
+const PAYMENT_TAIL_CHECKOUT_BOOKING_EN = 'No stress on payment now — it\'s added to your booking and you can settle it at checkout.';
 
 function trimStr(v) {
   if (v == null) return '';
@@ -217,7 +218,7 @@ function buildServiceConfirmationSection(fields, quote, lang, clientSlug) {
 
   const gearLine = buildHeldGearCopy(lang, hasWetsuit, hasBoard);
   if (gearLine) {
-    parts.push(`${gearLine} ${PAYMENT_TAIL_EN}`);
+    parts.push(`${gearLine} ${PAYMENT_TAIL_CHECKOUT_BOOKING_EN}`);
   }
 
   for (const svc of services) {
@@ -227,7 +228,7 @@ function buildServiceConfirmationSection(fields, quote, lang, clientSlug) {
     if (svc.code === 'meal') {
       parts.push(`${line} ${PAYMENT_TAIL_NO_FORCE_EN}`);
     } else if (svc.code === 'surf_lesson') {
-      parts.push(`${line} You can pay now if you like, or settle it at checkout.`);
+      parts.push(`${line} ${PAYMENT_TAIL_NO_FORCE_EN}`);
     } else {
       parts.push(line);
     }
@@ -295,6 +296,9 @@ function buildAddonServiceObservability(fields, quote, clientSlug) {
     addon_services_payment_optional: unpaid.length > 0,
     addon_services_settle_at_checkout: ctx.services.some((s) => s.settle_at_checkout),
     addon_service_attach_origin: ADDON_ATTACH_ORIGIN,
+    service_charges_due_plan: unpaid.length > 0,
+    optional_pay_now: false,
+    payable_at_checkout: true,
   };
 }
 
@@ -303,9 +307,10 @@ function paymentLedgerGapSummary() {
     service_rows_supported: true,
     service_amount_due_on_record: true,
     service_payment_status_pending_supported: true,
-    booking_payment_ledger_per_service_row: false,
-    gap: 'Unpaid add-on amounts live on booking_service_records.amount_due_cents / payment_status; no separate payments row per add-on yet (Stage 38b hardening).',
-    staff_visibility: 'Services tab + booking detail service records query',
+    booking_payment_ledger_per_service_row: true,
+    gap: null,
+    staff_visibility: 'Payments tab payment history + service_charges_due_lines on booking context (Stage 38b)',
+    optional_pay_now: false,
   };
 }
 

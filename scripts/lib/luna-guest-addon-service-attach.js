@@ -10,6 +10,7 @@ const { computeStayNights } = require('./wolfhouse-package-night-rules');
 const { buildManualBookingServiceRecordRows } = require('./manual-booking-service-records');
 const { ADDON_ATTACH_ORIGIN, ruleForCode } = require('./luna-guest-addon-service-confirmation-policy');
 const { attachPendingManualGuestServices } = require('./luna-guest-pending-service-attach');
+const { syncGuestAddonServicePaymentLedger } = require('./luna-guest-addon-service-payment-ledger');
 
 const SERVICE_RECORD_DB_SOURCE = 'luna_guest';
 
@@ -155,10 +156,19 @@ async function attachAllGuestAddonServices(pg, opts) {
     attachedManual: pending.attached_manual_services || [],
   });
 
+  const ledger = await syncGuestAddonServicePaymentLedger(pg, {
+    clientSlug,
+    clientId: o.clientId,
+    bookingId: o.bookingId,
+    bookingCode: o.bookingCode,
+    writeSource: o.writeSource,
+  });
+
   return {
     ...pending,
     ...priced,
     enriched_pending_amounts: yogaMealsUpdated,
+    service_payment_ledger: ledger,
     attached_all_services: [
       ...(pending.attached_manual_services || []),
       ...(priced.attached_priced_services || []),

@@ -22,7 +22,7 @@
         "expected_composer_state": "ask_payment_choice",
         "expected_no_handoff": true,
         "expected_reply_source": "luna_reply_composer",
-        "reply_contains": ["hold", "wetsuit", "board", "checkout", "deposit"],
+        "reply_contains": ["hold", "wetsuit", "board", "checkout", "deposit", "booking"],
         "reply_not_contains": ["already paid", "payment received", "I am not adding", "checkout.stripe.com"]
       }
     }

@@ -273,6 +273,7 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
 
   const existing = await lookupExistingHoldPaymentDraft(pg, clientSlug, idempotencyKey);
   if (existing && existing.booking) {
+    const clientResReuse = await resolveClientId(pg, clientSlug);
     const attach = await attachAllGuestAddonServices(pg, {
       clientSlug,
       bookingId: existing.booking.booking_id,
@@ -281,6 +282,8 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       extractedFields: attachFields,
       resultContext: chain.result,
       quote,
+      clientId: clientResReuse.client_id,
+      writeSource: WRITE_SOURCE,
     });
     return { reused: existing, ...attach };
   }
@@ -426,6 +429,8 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       extractedFields: attachFields,
       resultContext: chain.result,
       quote,
+      clientId: clientRes.client_id,
+      writeSource: WRITE_SOURCE,
     });
 
     return {
