@@ -13,6 +13,7 @@ const {
   parseGuestNameAnswer,
   isSoloAccommodationStayPhrase,
   isSoloTravellerGuestCountPhrase,
+  detectStayAccommodationOnlyText,
 } = require('./luna-guest-message-intake');
 const {
   mergeGuestExtractedFields,
@@ -24,7 +25,7 @@ const {
   isBookingExplainerContext,
 } = require('./luna-guest-package-explainer');
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
-const { buildTransferSideQuestionReply } = require('./luna-guest-service-transfer-explainer');
+const { buildTransferSideQuestionReply, detectTransferSideQuestionIntent, detectServiceSideQuestionIntent } = require('./luna-guest-service-transfer-explainer');
 const { decideConversationAction } = require('./luna-conversation-brain');
 const {
   buildBookingIntakePolicySnapshot,
@@ -345,6 +346,7 @@ function hasGuestCountSignal(text) {
       || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|ppl|persons)\b/i.test(t);
   }
   return /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti|ppl|persons)\b/i.test(t)
+    || /\b(\d{1,2})\s+of\s+us\b/i.test(t)
     || /\b(?:couple|family of \d+|just me|only me|one person|1 person|me and my (?:partner|girlfriend|boyfriend|friend|wife|husband))\b/i.test(t)
     || isSoloTravellerGuestCountPhrase(t)
     || /\b(?:for|per|para|für|pour)\s*\d+\b/i.test(t)
@@ -491,11 +493,12 @@ function detectTransferInterest(text) {
 }
 
 function detectNoPackageIntent(text) {
+  if (detectStayAccommodationOnlyText(text)) return false;
   return /\b(?:no package|not booking a package|sin paquete|sans forfait|ohne paket|custom stay|without a package)\b/i.test(String(text || ''));
 }
 
 function detectAccommodationOnlyIntent(text) {
-  return /\b(?:accommodation only|room only|just accommodation|solo alojamiento|nur unterkunft|logement seulement|solo pernottamento|bed only)\b/i.test(String(text || ''));
+  return detectStayAccommodationOnlyText(text);
 }
 
 function hasPackageOrStayIntent(extracted) {
@@ -540,6 +543,7 @@ function detectPaymentQuestionKind(text) {
 
 function classifyPaymentQuestionLane(text, ctx) {
   const t = String(text || '');
+  if (messageHasEmbeddedBookingFacts(t)) return null;
   const guestCtx = ctx || {};
   let kind = detectPaymentQuestionKind(t);
   const balanceSignal = /\b(?:remaining balance|balance due|still owe|how much.*owe|how much balance|how much do i owe|cuánto debo|saldo restante|reste à payer|reste a payer|noch zu zahlen|saldo rimanente|quanto devo|was muss ich|noch zahlen)\b/i.test(t);
@@ -822,6 +826,9 @@ function classifyMessageLane(text, guestContext) {
 
   const transferOnly = isTransferRequestMessage(t);
   if (transferOnly && !bookingMix && !hasCode) {
+    if (hasExplicitDates(t) || hasGuestCountSignal(t)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9 };
+    }
     const priorQuote = (guestContext && guestContext.quote) || {};
     if (priorQuote.quote_status === 'ready') {
       return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.88 };
@@ -950,10 +957,12 @@ function extractBookingFields(messageText, context, priorFields) {
     current.guest_count = mergedAfterName.deferred_guest_count;
   }
 
-  if (detectNoPackageIntent(messageText)) {
+  if (detectAccommodationOnlyIntent(messageText)) {
+    if (!isWeeklySurfPackage(prior.package_interest) && !isWeeklySurfPackage(current.package_interest)) {
+      current.package_interest = 'accommodation_only';
+    }
+  } else if (detectNoPackageIntent(messageText)) {
     current.package_interest = 'no_package';
-  } else if (!current.package_interest && detectAccommodationOnlyIntent(messageText)) {
-    current.package_interest = 'accommodation_only';
   }
 
   return mergeGuestExtractedFields(prior, current);
@@ -1307,7 +1316,12 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     confidence = 0.95;
   }
 
-  if (packageExplainerIntent) {
+  if (packageExplainerIntent && messageHasEmbeddedBookingFacts(messageText) && !inActiveBooking) {
+    lane = 'new_booking_inquiry';
+    handoff = false;
+    reasons = [];
+    confidence = Math.max(confidence, 0.88);
+  } else if (packageExplainerIntent) {
     lane = 'general_question';
     handoff = false;
     reasons = [];
@@ -1323,6 +1337,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   let missingRequired = [];
   let packageNightCtx = null;
   let embeddedSideQuestionFields = null;
+  let correctionFieldsPatch = null;
 
   if (lane === 'new_booking_inquiry') {
     const channelGuestName = resolveChannelGuestName(ctx, guestContext);
@@ -1350,6 +1365,10 @@ function runLunaGuestMessageRouterDryRun(input, context) {
         package_interest: packageMutation,
       };
     }
+    const pkgCodes = new Set(['malibu', 'uluwatu', 'waimea']);
+    if (packageExplainerIntent && pkgCodes.has(packageExplainerIntent) && !extractedFields.package_interest) {
+      extractedFields = { ...extractedFields, package_interest: packageExplainerIntent };
+    }
 
     // Stage 28j — apply the sanitized conversation-brain field patch (fill-only;
     // accommodation_only is an explicit guest choice and may set the stay type).
@@ -1358,7 +1377,11 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       || isWeeklySurfPackage(extractedFields.package_interest);
     const declinedSurfAddonsOnly = guestDeclinedAddons(messageText) && weeklyPackageStay;
     if ((accommodationOnlyChoice || brainPatch.accommodation_only === true) && !declinedSurfAddonsOnly) {
-      extractedFields = { ...extractedFields, package_interest: 'accommodation_only' };
+      if (!weeklyPackageStay) {
+        extractedFields = { ...extractedFields, package_interest: 'accommodation_only' };
+      } else {
+        extractedFields = { ...extractedFields, addons_skipped: true };
+      }
     }
     if (guestDeclinedAddons(messageText)) {
       extractedFields = { ...extractedFields, addons_skipped: true, service_interest: [] };
@@ -1448,15 +1471,28 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     missingRequired = [];
   }
 
+  // Stage 40b — correction mid-flow: merge updated booking facts from the correction turn.
+  if (correctionActiveBooking && lane !== 'new_booking_inquiry') {
+    const ooo = normalizeOutOfOrderBookingInfo(messageText, { extracted_fields: priorExtracted }, {
+      channel_guest_name: resolveChannelGuestName(ctx, guestContext),
+      reference_date: ctx.reference_date,
+      guest_phone: ctx.guest_phone || guestContext.guest_phone,
+    });
+    if (ooo.extracted_fields_patch && Object.keys(ooo.extracted_fields_patch).length) {
+      correctionFieldsPatch = ooo.extracted_fields_patch;
+    }
+  }
+
   // Stage 28i — when answering a side-question or clarifying mid-booking, carry the
   // prior extracted fields + active intake state forward so the next turn keeps context.
   let preservedExtracted = null;
   let preservedIntakeState = null;
   if ((preserveActiveBooking || clarifyActiveBooking || correctionActiveBooking)
     && lane !== 'new_booking_inquiry') {
-    preservedExtracted = embeddedSideQuestionFields
-      ? mergeGuestExtractedFields(priorExtracted, embeddedSideQuestionFields)
-      : { ...priorExtracted };
+    preservedExtracted = mergeGuestExtractedFields(
+      priorExtracted,
+      correctionFieldsPatch || embeddedSideQuestionFields || {},
+    );
     preservedIntakeState = 'collecting_required_details';
   } else if (embeddedSideQuestionFields && lane !== 'new_booking_inquiry') {
     preservedExtracted = mergeGuestExtractedFields(priorExtracted, embeddedSideQuestionFields);

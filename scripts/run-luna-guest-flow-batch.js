@@ -771,7 +771,7 @@ async function main() {
     process.exit(0);
   }
 
-  if (opts.fixtureSet === 'multilingual-out-of-order') {
+  if (opts.fixtureSet === 'multilingual-out-of-order' || opts.fixtureSet === 'hammer-regressions') {
     const { runConversationFixtureSetAsBatch } = require('./lib/luna-conversation-fixture-set-batch');
     return runConversationFixtureSetAsBatch(opts);
   }

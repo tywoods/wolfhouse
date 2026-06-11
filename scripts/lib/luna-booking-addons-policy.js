@@ -20,7 +20,7 @@ function extractAddOnsFromText(text) {
   const found = new Set();
   if (/\b(?:meal|meals|dinner|food|cena|comida|repas|abendessen)\b/.test(t)) found.add('meal');
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
-  if (/\b(?:surf\s+lesson|surfstunde|lessons?|lezione|clase\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
+  if (/\b(?:surf\s+lesson|surfstunde|surfunterricht|surfkurs|lessons?|lezione|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
   if (/\b(?:wetsuit|muta)\b/.test(t)) found.add('wetsuit');
   if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|tavola|planche)\b/.test(t)) found.add('surfboard');
   return [...found];
@@ -44,7 +44,10 @@ function trimStr(v) {
 }
 
 function guestDeclinedAddons(text) {
-  return NO_ADDONS_RE.test(String(text || ''));
+  const t = String(text || '');
+  const surfAddons = extractAddOnsFromText(t).filter((code) => IN_SCOPE_ADDONS.has(code));
+  if (surfAddons.length > 0) return false;
+  return NO_ADDONS_RE.test(t);
 }
 
 function extractAddOnSelectionsRaw(messageText) {

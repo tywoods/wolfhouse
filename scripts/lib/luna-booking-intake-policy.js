@@ -11,6 +11,7 @@ const { computeStayNights, isWeeklySurfPackage, isAccommodationOnlyIntent } = re
 const {
   extractLunaGuestMessageIntake,
   parseGuestNameAnswer,
+  detectStayAccommodationOnlyText,
 } = require('./luna-guest-message-intake');
 const {
   guestDeclinedAddons,
@@ -150,6 +151,8 @@ function extractGuestCountFromText(text) {
   );
   if (intake.guests != null) return intake.guests;
   const t = trimStr(text).toLowerCase();
+  const ofUs = t.match(/\b(\d{1,2})\s+of\s+us\b/i);
+  if (ofUs) return Number(ofUs[1]);
   if (/^(?:me|just\s+me|only\s+me)$/i.test(t)) return 1;
   if (/\btwo\s+of\s+us\b/i.test(t)) return 2;
   if (/\bme\s+and\s+my\s+friend\b/i.test(t)) return 2;
@@ -511,6 +514,16 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   });
   if (reactivePatch.meals_request) patch.meals_request = reactivePatch.meals_request;
   if (reactivePatch.yoga_request) patch.yoga_request = reactivePatch.yoga_request;
+
+  if (detectStayAccommodationOnlyText(text)) {
+    const priorPkg = prior.package_interest;
+    if (!isWeeklySurfPackage(priorPkg) && !/\b(?:malibu|uluwatu|waimea)\b/i.test(text)) {
+      patch.package_interest = 'accommodation_only';
+    }
+  } else if (/\b(?:no package|not booking a package|sin paquete|sans forfait|ohne paket|without a package)\b/i.test(text)
+    && !/\b(?:malibu|uluwatu|waimea)\b/i.test(text)) {
+    if (!patch.package_interest) patch.package_interest = 'no_package';
+  }
 
   const transfer = extractTransferInfo(text);
   if (transfer) patch.transfer_info = mergeTransferInfo(prior.transfer_info, transfer);

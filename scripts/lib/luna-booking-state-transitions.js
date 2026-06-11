@@ -28,8 +28,8 @@ const QUOTE_AFFECTING_FIELDS = Object.freeze([
   'addons_skipped',
 ]);
 
-const DATE_CORRECTION_RE = /\b(?:actually|sorry|wait|i\s+meant|meant|change(?:d)?\s+(?:to|the)?)\b/i;
-const GUEST_COUNT_CORRECTION_RE = /\b(?:actually|sorry|wait|we\s+are|guests?\s*\d|\d\s+guests?)\b/i;
+const DATE_CORRECTION_RE = /\b(?:actually|sorry|wait|i\s+meant|meant|change(?:d)?\s+(?:to|the)?|scusa|perd[oó]n|eigentlich|in\s+realt[aà]|en\s+realidad)\b/i;
+const GUEST_COUNT_CORRECTION_RE = /\b(?:actually|sorry|wait|scusa|perd[oó]n|eigentlich|in\s+realt[aà]|en\s+realidad|we\s+are|we're|siamo|somos|guests?\s*\d|\d\s+guests?)\b/i;
 
 function trimStr(v) {
   if (v == null) return '';
@@ -61,7 +61,7 @@ function hasExplicitDates(text) {
 }
 
 function hasGuestCountSignal(text) {
-  return /\b(?:we\s+are|for\s+\d+|^\d+$|\d\s+guests?|guests?\s*\d)\b/i.test(trimStr(text));
+  return /\b(?:we\s+are|we're|for\s+\d+|^\d+$|\d\s+guests?|guests?\s*\d|siamo\s+\d|somos\s+\d|\d\s+of\s+us)\b/i.test(trimStr(text));
 }
 
 function normalizeStaleQuoteReason(correctedFields, packageMutation) {

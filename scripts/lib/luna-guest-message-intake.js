@@ -90,7 +90,8 @@ const MONTH_MAP = {
   // IT
   gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, maggio: 5, giugno: 6,
   luglio: 7, agosto: 8, settembre: 9, ottobre: 10, novembre: 11, dicembre: 12,
-  luglo: 7,
+  luglo: 7, luglioo: 7,
+  julyy: 7,
   // ES
   enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
   julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
@@ -132,6 +133,26 @@ function isSoloAccommodationStayPhrase(text) {
   return /\b(?:solo|solamente|sólo|only|just)\s+(?:alloggio|alojamiento|il\s+soggiorno|estad[ií]a|estancia|accommodation|the\s+stay|stay|pernottamento)\b/i.test(t)
     || /\b(?:only|just)\s+the\s+stay\b/i.test(t)
     || /\bno\s+pack(?:age)?[,.\s]+(?:solo|only)\s+stay\b/i.test(t);
+}
+
+/** Accommodation-only / no-package stay phrasing (not guest_count=1). */
+function detectStayAccommodationOnlyText(text) {
+  const t = String(text || '').toLowerCase();
+  if (isSoloAccommodationStayPhrase(t)) return true;
+  return /\b(?:accommodation\s+only|room\s+only|just\s+accommodation|just\s+the\s+stay|only\s+stay)\b/i.test(t)
+    || /\bno\s+pack(?:age)?\s+just\s+stay\b/i.test(t)
+    || /\bnur\s+(?:unterkunft|übernachtung|uebernachtung)\b/i.test(t);
+}
+
+/** Strip emoji + normalize common hammer-test date typos before parsing. */
+function normalizeHammerDateText(text) {
+  return String(text || '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ')
+    .replace(/\bjulyy\b/gi, 'july')
+    .replace(/\bjulyyy\b/gi, 'july')
+    .replace(/\bluglioo\b/gi, 'luglio')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Valid solo-traveller guest count (not accommodation-only "solo"). */
@@ -276,16 +297,16 @@ function extractSlashDateRange(text, ref) {
 }
 
 function extractNamedDateRange(text, ref) {
-  const t = String(text || '');
+  const t = normalizeHammerDateText(text);
   const explicitYear = parseYearFromText(t);
 
   const slashRange = extractSlashDateRange(t, ref);
   if (slashRange) return slashRange;
 
-  // EN compact — jul 10 thru jul 17 / july 1st to 5th / from July 1st to 5th
-  const MONTH_ALT = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+  // EN compact — jul 10 thru jul 17 / july 1st to 5th / julyy 10-17 / July 1 - 5
+  const MONTH_ALT = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|julyy|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
   const enCompactMonthFirst = t.match(
-    new RegExp(`\\b(?:from\\s+)?(${MONTH_ALT})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:thru|through|to|–|-)\\s*(?:(${MONTH_ALT})\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'),
+    new RegExp(`\\b(?:from\\s+|for\\s+)?(${MONTH_ALT})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:thru|through|to|–|-)\\s*(?:(${MONTH_ALT})\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'),
   );
   if (enCompactMonthFirst) {
     const monthIn = monthFromName(enCompactMonthFirst[1]);
@@ -537,6 +558,7 @@ function extractGuests(text) {
   const familyOf = t.match(/\bfamily of (\d{1,2})\b/i);
   if (familyOf) return Number(familyOf[1]);
   const patterns = [
+    /\b(\d{1,2})\s+of\s+us\b/i,
     /\b(\d{1,2})\s+ppl\b/i,
     /\b(\d{1,2})\s*(?:people|persons|guests|pax|persone|personas|personnes|gäste|gaste)\b/i,
     /\b(?:for|per|para|pour|für|we are|we're|somos|siamo{1,2}|nous sommes|wir sind|wir w(?:ä|a)ren)\s+(\d{1,2})\b/i,
@@ -641,7 +663,7 @@ function extractAddOns(text) {
   const found = new Set();
   if (/\b(?:meal|meals|dinner|d[iî]ner|food|cena|comida|repas|abendessen)\b/.test(t)) found.add('meal');
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
-  if (/\b(?:surf\s+lesson|surfstunde|lessons?|lezione|clase\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
+  if (/\b(?:surf\s+lesson|surfstunde|surfunterricht|surfkurs|lessons?|lezione|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
   if (/\b(?:wetsuit|muta)\b/.test(t)) found.add('wetsuit');
   if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|tavola|planche)\b/.test(t)) found.add('surfboard');
   return [...found];
@@ -706,7 +728,9 @@ function computeNights(checkIn, checkOut) {
 function extractLunaGuestMessageIntake(input, context = {}) {
   const src         = input || {};
   const clientSlug  = String(src.client_slug || DEFAULT_CLIENT).trim();
-  const messageText = src.message_text != null ? String(src.message_text).trim() : '';
+  const messageText = normalizeHammerDateText(
+    src.message_text != null ? String(src.message_text).trim() : '',
+  );
   const ref         = resolveReferenceDate(context);
 
   const phone = String(src.from || src.phone || src.guest_phone || '').trim() || null;
@@ -946,6 +970,8 @@ module.exports = {
   parseGuestNameAnswer,
   isSoloAccommodationStayPhrase,
   isSoloTravellerGuestCountPhrase,
+  detectStayAccommodationOnlyText,
+  normalizeHammerDateText,
   INTAKE_SAFETY_FLAGS,
   KNOWN_PACKAGE_CODES,
   KNOWN_ADDON_TYPES,

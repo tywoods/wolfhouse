@@ -34,6 +34,7 @@
  */
 
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
+const { detectFieldCorrectionIntent } = require('./luna-booking-state-transitions');
 const { KNOWN_ADDON_TYPES, parseGuestNameAnswer } = require('./luna-guest-message-intake');
 const { callLunaAiJsonChat, resolveLunaAiModel } = require('./luna-ai-provider');
 
@@ -198,6 +199,7 @@ function detectGreetingOnly(text) {
 function detectGuestCorrection(text) {
   const t = trimStr(text).toLowerCase();
   if (!t) return false;
+  if (detectFieldCorrectionIntent(text)) return true;
   return /\b(?:you (?:told|said)|you'?re wrong|you got (?:it|that) wrong|that'?s (?:wrong|not right|not what i)|no,?\s*i (?:said|told you|meant)|i already (?:told|said)|that is not what i)\b/i.test(t);
 }
 

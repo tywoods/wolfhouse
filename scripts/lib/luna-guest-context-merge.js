@@ -221,9 +221,12 @@ function restoreBookingLaneForActiveQuote(ctx) {
 function isActiveBookingSideQuestion(priorGuestContext, currentResult, messageText) {
   const prior = normalizeGuestContextForChain(priorGuestContext || {});
   const priorQuote = prior.quote || {};
+  const priorFields = collectPriorExtractedFields(prior);
   const hasPaymentWire = shouldAttemptGuestPaymentChoiceWire(priorGuestContext);
   const hasAddonsPending = priorQuote.quote_status === 'ready' && quoteAwaitingAddonsDecision(priorQuote);
-  if (!hasPaymentWire && !hasAddonsPending) return false;
+  const quoteReady = priorQuote.quote_status === 'ready';
+  const hasBookingContext = !!(priorFields.check_in && priorFields.check_out && priorFields.guest_count != null);
+  if (!hasPaymentWire && !hasAddonsPending && !quoteReady && !hasBookingContext) return false;
   if (!currentResult || currentResult.message_lane === 'new_booking_inquiry') return false;
   const text = String(messageText || '');
   if (detectPackageExplainerIntent(text)) return true;

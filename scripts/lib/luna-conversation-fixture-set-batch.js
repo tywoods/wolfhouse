@@ -24,6 +24,9 @@ const FIXTURE_SET_DIRS = Object.freeze({
   'multilingual-out-of-order': path.join(
     __dirname, '..', '..', 'fixtures', 'luna-conversation-state-machine', 'multilingual-out-of-order',
   ),
+  'hammer-regressions': path.join(
+    __dirname, '..', '..', 'fixtures', 'luna-conversation-state-machine', 'hammer-regressions',
+  ),
 });
 
 function applyChannelContactName(guestContext, contactName) {
