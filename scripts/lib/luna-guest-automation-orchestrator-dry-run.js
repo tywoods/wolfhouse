@@ -62,6 +62,7 @@ const {
   runLunaGuestAgentBrain,
   buildGuestAgentBrainObservability,
 } = require('./luna-guest-agent-brain');
+const { applyCamiReplyAuthorStage } = require('./luna-guest-cami-reply-author');
 const {
   detectGuestSurfReportIntent,
   shouldPrioritizeSurfReportOverService,
@@ -747,7 +748,7 @@ function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, p
     || (result && result.greeting_only === true) };
 }
 
-async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext, env) {
+async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext, env, orchestratorCtx) {
   const { payload, prior, allowIntro } = buildNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext);
   const clientSlug = trimStr(prior.client_slug) || DEFAULT_CLIENT;
   const surfReport = await prefetchGuestSurfReportPayload(messageText, prior, clientSlug);
@@ -776,8 +777,23 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
     payload,
     env: env || process.env,
   });
-  const proposedLunaReply = agentStage.reply;
-  const finalReplySource = agentStage.reply_source;
+  let proposedLunaReply = agentStage.reply;
+  let finalReplySource = agentStage.reply_source;
+  const camiStage = await applyCamiReplyAuthorStage({
+    client_slug: clientSlug,
+    message_text: messageText,
+    prior_guest_context: prior,
+    composed,
+    deterministic_reply: proposedLunaReply,
+    deterministic_reply_source: finalReplySource,
+    allowed_next_action: payload.proposed_next_action,
+    payload,
+    channel_mode: 'orchestrator_dry_run',
+    env: env || process.env,
+    authorCaller: (orchestratorCtx && orchestratorCtx.cami_reply_author_caller) || undefined,
+  });
+  proposedLunaReply = camiStage.reply;
+  if (camiStage.reply_source === 'cami_reply_author') finalReplySource = 'cami_reply_author';
   const policySnapshot = buildBookingIntakePolicySnapshot(
     {
       extracted_fields: (result && result.extracted_fields) || collectPriorExtractedFields(prior),
@@ -821,6 +837,7 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
       next_required_field: policySnapshot.next_required_field,
     }),
     guest_agent_brain: agentStage.observability,
+    cami_reply_author: camiStage.observability,
   };
   return buildOrchestratorResponse({
     automation_gate: gate,
@@ -907,7 +924,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   );
 
   if (result.greeting_only) {
-    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext, brainEnv);
+    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext, brainEnv, ctx);
   }
 
   if (detectNewBookingResetIntent(messageText)
@@ -1010,7 +1027,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   }
 
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
-    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext, brainEnv);
+    return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext, brainEnv, ctx);
   }
 
   const staleInvalidation = evaluateQuoteStaleInvalidation(chainGuestContext, result, messageText);
@@ -1169,6 +1186,21 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   proposedLunaReply = agentStage.reply;
   finalReplySource = agentStage.reply_source;
   proposedLunaReply = dedupeLunaIntro(proposedLunaReply, allowLeadingIntro === true);
+  const camiStage = await applyCamiReplyAuthorStage({
+    client_slug: chainCtx.client_slug || DEFAULT_CLIENT,
+    message_text: trimStr(inp.message_text),
+    prior_guest_context: chainGuestContext,
+    composed,
+    deterministic_reply: proposedLunaReply,
+    deterministic_reply_source: finalReplySource,
+    allowed_next_action: resolveProposedNextAction(payload),
+    payload,
+    channel_mode: 'orchestrator_dry_run',
+    env: brainEnv,
+    authorCaller: ctx.cami_reply_author_caller,
+  });
+  proposedLunaReply = camiStage.reply;
+  if (camiStage.reply_source === 'cami_reply_author') finalReplySource = 'cami_reply_author';
 
   const policySnapshot = buildBookingIntakePolicySnapshot(
     {
@@ -1214,6 +1246,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       next_required_field: policySnapshot.next_required_field,
     }),
     guest_agent_brain: agentStage.observability,
+    cami_reply_author: camiStage.observability,
     cami_variation_history: composed && composed.cami_variation_history
       ? composed.cami_variation_history
       : (chainGuestContext && chainGuestContext.cami_variation_history) || undefined,
