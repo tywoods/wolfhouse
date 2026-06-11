@@ -277,6 +277,7 @@
     "verify:stage35a-stale-quote-reset-corrections": "node scripts/verify-stage35a-stale-quote-reset-corrections.js",
     "proof:stage35b-hosted-messy-flow": "node scripts/run-stage35b-hosted-messy-flow-proof.js",
     "verify:stage36a-demo-readiness-staff-visibility": "node scripts/verify-stage36a-demo-readiness-staff-visibility.js",
+    "verify:stage36b-demo-runbook": "node scripts/verify-stage36b-demo-runbook.js",
     "verify:stage29room-a-real-room-bed-seed": "node scripts/verify-stage29room-a-real-room-bed-seed.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
