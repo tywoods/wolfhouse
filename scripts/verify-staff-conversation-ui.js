@@ -118,15 +118,42 @@ try {
 const htmlMatch = src.match(/function buildUiHtml\(port\)\s*\{([\s\S]*?)^function handleUI/m);
 const htmlSrc = htmlMatch ? htmlMatch[1] : src;
 
+function sliceBetween(html, startMarker, endMarker) {
+  const s = html.indexOf(startMarker);
+  const e = html.indexOf(endMarker, s >= 0 ? s + 1 : 0);
+  return s >= 0 && e > s ? html.slice(s, e) : '';
+}
+
+function extractHandlerBlock(full, fnName) {
+  const start = full.indexOf(`function ${fnName}`);
+  if (start < 0) return '';
+  const next = full.indexOf('\nfunction ', start + 12);
+  return next > start ? full.slice(start, next) : full.slice(start, start + 8000);
+}
+
+const convTabSrc = sliceBetween(htmlSrc, 'id="tab-conversations"', 'id="tab-ask-luna"');
+const todayTabSrc = sliceBetween(htmlSrc, 'id="tab-today"', 'id="tab-conversations"');
+const convInboxJs = [
+  'renderInbox', 'loadConvDetail', 'wireLunaPauseSwitch', 'wireNeedsHumanToggle',
+  'wireInboxSendReply', 'performInboxSend', 'wireDeleteConversation',
+  'renderInboxBookingStackItemHtml', 'fetchBotPauseState',
+].map((n) => extractHandlerBlock(htmlSrc, n)).join('\n');
+const todayNavJs = extractHandlerBlock(htmlSrc, 'loadTodaySummary') +
+  extractHandlerBlock(htmlSrc, 'switchToTab');
+
 // 4. Dashboard branding (UI was renamed from "Cami Dashboard" to "Luna Front Desk" in stage 7.7k)
 check(/Luna Front Desk|Cami Dashboard/i.test(htmlSrc), 'Luna Front Desk or Cami Dashboard text in HTML');
 
 // 5. Luna Front Desk branding
 check(/Luna Front Desk/i.test(htmlSrc), 'Luna Front Desk text in HTML');
 
-// 6. READ-ONLY / SHADOW MODE banner
-check(/READ-ONLY.*SHADOW MODE|SHADOW MODE.*READ-ONLY/i.test(htmlSrc),
-  'READ-ONLY / SHADOW MODE banner text');
+// 6. Legacy top SHADOW MODE strip removed; Luna Front Desk branding kept
+check(/Luna Front Desk/i.test(htmlSrc) &&
+      !/READ-ONLY.*SHADOW MODE|SHADOW MODE.*READ-ONLY/i.test(
+        htmlSrc.slice(0, htmlSrc.indexOf('id="tab-conversations"') >= 0
+          ? htmlSrc.indexOf('id="tab-conversations"') : 8000)
+      ),
+  'Luna Front Desk branding without legacy READ-ONLY / SHADOW MODE top banner');
 
 // 7. Conversations tab button
 check(/Conversations/i.test(htmlSrc) && /tab-btn/i.test(htmlSrc),
@@ -217,9 +244,9 @@ check(/shadow mode|manually in WhatsApp|send.*manually|copy.*WhatsApp/i.test(htm
 check(/NOT SENT|draft-not-sent/i.test(htmlSrc),
   'NOT SENT label on Luna draft');
 
-// 30. Approve/send button is disabled
-check(/btn-send-disabled|disabled.*Approve|Approve.*disabled/i.test(htmlSrc),
-  'Approve/Send button present and disabled');
+// 30. Staff-gated Send reply (replaces disabled Approve/Send shadow button)
+check(/btn-send-reply|id="btn-send-reply"/.test(htmlSrc) && /performInboxSend/.test(htmlSrc),
+  'Send reply button wired via Staff API (replaces disabled Approve/Send)');
 
 // 31. No active fetch call to approve-send endpoint
 check(!/fetch\s*\([^)]*approve.send/i.test(htmlSrc) &&
@@ -230,13 +257,12 @@ check(!/fetch\s*\([^)]*approve.send/i.test(htmlSrc) &&
 check(!/handoff\.resolve|handoff-resolve/i.test(htmlSrc),
   'No handoff.resolve action in UI');
 
-// 33. No POST/PATCH/DELETE fetch calls in embedded JS except /staff/manual-bookings/preview
-// Stage 8.3l: preview POST is now allowed; all other write methods remain forbidden.
+// 33. Conversation inbox JS has no PATCH/PUT (bed calendar drawer may PATCH elsewhere)
 const fetchWriteRe = /fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:PATCH|PUT)['"]/i;
-check(!fetchWriteRe.test(htmlSrc),
-  'No PATCH/PUT fetch calls in embedded JS (Stage 8.3l: preview POST allowed)');
-check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(htmlSrc),
-  'No /manual-bookings/create or /confirm fetch in UI (Stage 8.3l)');
+check(!fetchWriteRe.test(convInboxJs),
+  'No PATCH/PUT fetch calls in inbox conversation JS');
+check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(convTabSrc + convInboxJs),
+  'No /manual-bookings/create or /confirm fetch in conversation inbox UI');
 
 // 34. No external CDN script src
 check(!/src\s*=\s*['"]https?:\/\//i.test(htmlSrc),
@@ -257,9 +283,9 @@ check(/fetch\s*\(\s*['"`]\/staff\/intents/.test(htmlSrc),
 check(/fetch\s*\(\s*['"`]\/staff\/query/.test(htmlSrc),
   "fetch('/staff/query') present (query tools)");
 
-// 39. Read-only reminder in detail (no live sends)
-check(/READ-ONLY VIEW|no live sends|not sent automatically/i.test(htmlSrc),
-  'Read-only reminder in detail view');
+// 39. Detail view send/review guidance (Staff API gated — legacy READ-ONLY VIEW note hidden)
+check(/Edit reply before sending|send_performed|Send blocked|draft-send-status/i.test(htmlSrc),
+  'Conversation detail send/review guidance present (Staff API gated)');
 
 // 40. Context sidebar / booking section present
 check(/sidebar-card|kv2|Booking|booking_code/i.test(htmlSrc),
@@ -281,8 +307,9 @@ try {
 } catch (_) {}
 check(pkgHasScript, 'package.json has verify:staff-conversation-ui script');
 
-// 44. Stage 7.7f banner label
-check(/7\.7f|Stage 7\.7f/i.test(htmlSrc), 'Stage 7.7f label in HTML');
+// 44. Legacy Stage 7.7f dev banner label removed from conversation UI
+check(!/Stage 7\.7f/i.test(convTabSrc),
+  'Legacy Stage 7.7f banner label removed from conversation UI');
 
 // ── Stage 7.7f — Handoff queue checks ─────────────────────────────────────
 
@@ -308,17 +335,17 @@ check(!/fetch\s*\([^)]*\/staff\/handoffs/.test(htmlSrc),
 check(/No conversations need staff review right now/i.test(htmlSrc),
   'Needs Human empty state message present (Stage 8.7.13)');
 
-// 50. READ-ONLY HANDOFF QUEUE label (shown on needs-human filter)
-check(/READ-ONLY HANDOFF QUEUE/i.test(htmlSrc),
-  'READ-ONLY HANDOFF QUEUE label present (Stage 8.7.13)');
+// 50. Legacy READ-ONLY HANDOFF QUEUE label removed
+check(!/READ-ONLY HANDOFF QUEUE/i.test(convTabSrc),
+  'Legacy READ-ONLY HANDOFF QUEUE label removed (Stage 8.7.13+)');
 
-// 51. Resolve disabled notice
-check(/Resolve actions are disabled|resolve.*disabled.*UI|disabled.*resolve/i.test(htmlSrc),
-  'Resolve-disabled notice present in inbox filter UI (Stage 8.7.13)');
+// 51. Legacy resolve-disabled notice removed from inbox filter UI
+check(!/Resolve actions are disabled/i.test(convTabSrc),
+  'Legacy resolve-disabled notice removed from inbox filter UI');
 
-// 52. timeSince removed with handoff sub-page (Stage 8.7.13) — optional legacy helper not required
-check(!/hq-table|hq-tbody/i.test(htmlSrc),
-  'Legacy hq-table/hq-tbody handoff table absent (Stage 8.7.13)');
+// 52. Legacy handoff sub-page layout absent (hq-table may remain for message-events tooling)
+check(!/id="hq-list"|id="hq-right"|subtab-handoffs/i.test(htmlSrc),
+  'Legacy handoff queue sub-page layout absent (Stage 8.7.13)');
 
 // ── Stage 8.2 — Dashboard polish checks ───────────────────────────────────
 
@@ -335,20 +362,19 @@ check(/data-tab="conversations".*Inbox|Inbox.*data-tab="conversations"/s.test(ht
 check(/Developer Tools|dev-tab/i.test(htmlSrc),
   'Developer Tools admin-only tab present (Stage 8.2)');
 
-// 56. Shadow Mode badge present in Today panel
-check(/Shadow Mode.*active|Read-only.*Shadow Mode/i.test(htmlSrc),
-  'Shadow Mode notice in Today panel (Stage 8.2)');
+// 56. Today panel kept without legacy Shadow Mode badge
+check(/tab-today/i.test(htmlSrc) && !/Shadow Mode.*active|Read-only.*Shadow Mode/i.test(todayTabSrc),
+  'Today panel present without legacy Shadow Mode badge (Stage 8.2+)');
 
 // 57. loadTodaySummary function present
 check(/loadTodaySummary/i.test(htmlSrc),
   'loadTodaySummary function present (Stage 8.2)');
 
-// 58. No POST/PATCH/DELETE fetch added for new Today/nav UI except preview endpoint
-// Stage 8.3l: preview POST is now allowed; all other write methods remain forbidden.
-check(!/fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:PATCH|DELETE)['"]/i.test(htmlSrc),
-  'No new PATCH/DELETE fetch in Today/nav UI (Stage 8.2 / 8.3l)');
-check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(htmlSrc),
-  'No /manual-bookings/create or /confirm in UI (Stage 8.2 / 8.3l safety)');
+// 58. Today/nav helpers stay read-only; conversation inbox may DELETE via gated API
+check(!/fetch\s*\([^,)]+,\s*\{[^}]*method\s*:\s*['"](?:PATCH|DELETE)['"]/i.test(todayNavJs),
+  'No PATCH/DELETE fetch in Today/nav helpers (Stage 8.2 / 8.3l)');
+check(!/fetch[^)]*manual-bookings\/(create|confirm)/i.test(convTabSrc + convInboxJs + todayNavJs),
+  'No manual-bookings create/confirm in conversation/today UI slices');
 
 // 59. switchToTab utility function present
 check(/switchToTab/i.test(htmlSrc),
@@ -410,11 +436,17 @@ check(!/'<h3>Messages<\/h3>'/.test(htmlSrc) &&
       !/html\s*\+=\s*'<h3>Messages<\/h3>'/.test(htmlSrc),
   '"Messages" section title removed from thread area (Stage 8.3y)');
 
-// 72. Booking sidebar card appears before Bot state card
-const bookingIdx = htmlSrc.indexOf("'<h3>Booking</h3>'");
+// 72. Bot state sidebar card appears before Bookings stack
+const bookingsIdx = htmlSrc.indexOf("'<h3>Bookings</h3>'");
 const botIdx     = htmlSrc.indexOf("'<h3>Bot state</h3>'");
-check(bookingIdx !== -1 && botIdx !== -1 && bookingIdx < botIdx,
-  'Booking sidebar card rendered before Bot state card (Stage 8.3y)');
+check(bookingsIdx !== -1 && botIdx !== -1 && botIdx < bookingsIdx,
+  'Bot state sidebar card rendered before Bookings stack');
+
+// 72b. Multiple bookings stack support
+check(/inbox-booking-stack/.test(htmlSrc) && /renderInboxBookingStackItemHtml/.test(htmlSrc),
+  'Inbox sidebar stacks multiple guest bookings');
+check(/ctxData\.bookings/.test(htmlSrc),
+  'Inbox detail uses bookings array from context API');
 
 // 73. Pending row removed from Bot state
 check(!/kv\s*\(\s*['"]Pending['"]/i.test(htmlSrc),
@@ -447,21 +479,29 @@ check(/switchToTab\s*\(\s*['"]conversations['"]\s*,\s*['"]handoffs['"]\s*\)/.tes
 check(/Auto-select top conversation|pickId|convs\[0\]\.conversation_id/.test(htmlSrc),
   'Top conversation auto-select logic in renderInbox (Stage 8.7.13)');
 
-// 80. No bot pause/resume write controls (Phase 9.3 allows read-only status display)
-check(!/Pause Luna|Resume Luna|btn.*pause|btn.*resume|\/staff\/bot\/pause|\/staff\/bot\/resume/i.test(htmlSrc),
-  'No bot pause/resume write controls (Phase 9.3 read-only status OK) (Stage 8.7.13+)');
+// 80. Inbox Luna pause toggle (Phase 9.5b — server-gated via BOT_PAUSE_CONTROLS)
+check(/luna-pause-switch|Pause Luna/.test(htmlSrc) && /wireLunaPauseSwitch/.test(htmlSrc),
+  'Inbox Luna pause toggle present (Phase 9.5b — server-gated)');
 
-// ── Phase 9.3 — Inbox Luna pause status (read-only) ───────────────────────
+// ── Phase 9.3 / 9.5 — Inbox Luna pause status + Staff API wiring ─────────
 
-// 82. Read-only Luna automation status display
+// 82. Luna automation status display + pause/resume via Staff API
 check(/Luna active/.test(htmlSrc) && /Luna paused/.test(htmlSrc),
-  'Luna active/paused read-only status strings present (Phase 9.3)');
+  'Luna active/paused status strings present (Phase 9.3)');
 check(/function isLunaGuestAutomationPaused/.test(htmlSrc),
   'isLunaGuestAutomationPaused() helper present (Phase 9.3)');
 check(/Automation status: active/.test(htmlSrc),
   'Active automation helper copy present (Phase 9.3)');
-check(!/fetch\([^)]*\/staff\/bot\/pause|fetch\([^)]*\/staff\/bot\/resume/i.test(htmlSrc),
-  'No fetch to pause/resume endpoints (Phase 9.3)');
+check(/fetch\([^)]*\/staff\/bot\/pause-state/i.test(htmlSrc),
+  'Read-only pause lookup via GET /staff/bot/pause-state (Phase 9.5)');
+check(/fetch\([^)]*\/staff\/bot\/pause|fetch\([^)]*\/staff\/bot\/resume/i.test(convInboxJs),
+  'Pause/resume POST routed via Staff API (Phase 9.5b)');
+check(/bot_pause_controls_disabled|Pause controls are disabled/.test(convInboxJs),
+  'Pause UI handles disabled gate when BOT_PAUSE_CONTROLS off');
+check(/\/staff\/inbox\/send-reply/.test(convInboxJs),
+  'Staff reply send uses /staff/inbox/send-reply (gated — not raw WhatsApp URL)');
+check(/wireDeleteConversation/.test(htmlSrc) && /needs-human/.test(convInboxJs),
+  'Allowed gated conversation writes: needs-human toggle + delete conversation');
 
 // 81. Safety — no WhatsApp / n8n / Stripe in conversation UI
 check(!/graph\.facebook\.com/.test(htmlSrc),
