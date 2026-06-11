@@ -77,9 +77,9 @@ const legendMatch = htmlSrc.match(/id="bc-legend"[\s\S]*?<\/div>/);
 const legend = legendMatch ? legendMatch[0] : '';
 const lunaIdx = legend.indexOf('>Luna<');
 const staffIdx = legend.indexOf('>Staff<');
-const tourIdx = legend.toLowerCase().indexOf('tour operator');
+const tourIdx = legend.indexOf('>Tour<');
 if (lunaIdx >= 0 && staffIdx > lunaIdx && tourIdx > staffIdx) {
-  pass('B3', 'legend order Luna → Staff → Tour operator');
+  pass('B3', 'legend order Luna → Staff → Tour');
 } else fail('B3', 'legend order incorrect');
 
 if (!legend.includes('Staff / manual')) pass('B4', 'Staff / manual label removed');
