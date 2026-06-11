@@ -11,6 +11,8 @@ const {
   extractLunaGuestMessageIntake,
   detectPackageMutationIntent,
   parseGuestNameAnswer,
+  isSoloAccommodationStayPhrase,
+  isSoloTravellerGuestCountPhrase,
 } = require('./luna-guest-message-intake');
 const {
   mergeGuestExtractedFields,
@@ -324,6 +326,7 @@ function hasExplicitDates(text) {
     || /\b\d{1,2}\.\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|januar|februar|märz|maerz|april|mai|juni|juli|august|september|oktober|november|dezember)\b/i.test(text)
     || monthDay.test(text)
     || /\b(?:from|dal|del|du|vom|von)\s+\d{1,2}/i.test(text)
+    || /\b\d{1,2}\s*[-–]\s*\d{1,2}\s+(?:luglio|julio|giugno|agosto|juli|juillet|january|february|march|april|may|june|july|august|september|october|november|december|gennaio|febbraio|marzo|aprile|maggio|settembre|ottobre|novembre|dicembre|enero|febrero|abril|mayo|junio|septiembre|octubre|noviembre|diciembre|januar|februar|märz|maerz|mai|juni|august|september|oktober|november|dezember)\b/i.test(text)
     || /\b\d{1,2}\.\s*bis\s+\d{1,2}\./i.test(text)
     || /\b(?:from|to)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i.test(text)
     || /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\s*(?:to|thru|through|–|-)\s*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\s+)?\d{1,2}(?:st|nd|rd|th)?\b/i.test(text);
@@ -336,13 +339,39 @@ const CONTINUATION_COUNT_WORDS = {
 
 function hasGuestCountSignal(text) {
   const t = String(text || '');
+  if (isSoloAccommodationStayPhrase(t)) {
+    return /\b(?:siamo|somos|we are|we're|wir sind|wir w(?:ä|a)ren|para|per|for)\s+\d+\b/i.test(t)
+      || /\bsiamo in \d+\b/i.test(t)
+      || /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|ppl|persons)\b/i.test(t);
+  }
   return /\b\d+\s+(?:people|guests|persone|personas|personnes|personen|gäste|gaste|huéspedes|huespedes|ospiti|ppl|persons)\b/i.test(t)
-    || /\b(?:couple|family of \d+|just me|only me|solo|one person|1 person|me and my (?:partner|girlfriend|boyfriend|friend|wife|husband))\b/i.test(t)
-    || /\b(?:for|para|für|pour)\s*\d+\b/i.test(t)
-    || /\b(?:we are|we're|somos|siamo|nous sommes|wir sind)\s+\d+\b/i.test(t)
+    || /\b(?:couple|family of \d+|just me|only me|one person|1 person|me and my (?:partner|girlfriend|boyfriend|friend|wife|husband))\b/i.test(t)
+    || isSoloTravellerGuestCountPhrase(t)
+    || /\b(?:for|per|para|für|pour)\s*\d+\b/i.test(t)
+    || /\b(?:we are|we're|somos|siamo|nous sommes|wir sind|wir w(?:ä|a)ren)\s+\d+\b/i.test(t)
     || /\b(?:group of|grupo de|gruppe von)\s*\d+\b/i.test(t)
     || /\bsiamo in \d+\b/i.test(t)
+    || /\b(?:una|due|tre|quattro|dos|tres|cuatro|zwei|drei|vier)\s+(?:persone|personas|personnes|personen)\b/i.test(t)
     || parseContinuationGuestCount(t) != null;
+}
+
+function messageHasEmbeddedBookingFacts(text) {
+  return hasExplicitDates(text) || hasGuestCountSignal(text)
+    || /\b(?:malibu|uluwatu|waimea)\b/i.test(String(text || ''));
+}
+
+function extractEmbeddedSideQuestionFields(messageText, ctx, guestContext, priorExtracted, packageExplainerIntent) {
+  const ooo = normalizeOutOfOrderBookingInfo(messageText, { extracted_fields: priorExtracted || {} }, {
+    channel_guest_name: resolveChannelGuestName(ctx, guestContext),
+    reference_date: ctx.reference_date,
+    guest_phone: ctx.guest_phone || guestContext.guest_phone,
+  });
+  let fields = { ...(ooo.extracted_fields_patch || {}) };
+  const pkgCodes = new Set(['malibu', 'uluwatu', 'waimea']);
+  if (packageExplainerIntent && pkgCodes.has(packageExplainerIntent) && !fields.package_interest) {
+    fields.package_interest = packageExplainerIntent;
+  }
+  return Object.keys(fields).length ? fields : null;
 }
 
 function isActiveBookingIntakeContext(ctx) {
@@ -380,7 +409,9 @@ function parseContinuationGuestCount(text) {
   }
   const word = t.match(/^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)$/i);
   if (word) return CONTINUATION_COUNT_WORDS[word[1].toLowerCase()] || null;
-  if (/\b(?:just me|only me|solo)\b/i.test(t)) return 1;
+  if (/\b(?:just me|only me)\b/i.test(t)) return 1;
+  if (isSoloTravellerGuestCountPhrase(t)) return 1;
+  if (isSoloAccommodationStayPhrase(t)) return null;
   const weAre = t.match(/\b(?:we are|we're)\s+(\d{1,2})\b/i);
   if (weAre) return Number(weAre[1]);
   return null;
@@ -673,7 +704,10 @@ function detectNewBookingResetIntent(text) {
   if (/\bno[,.\s]+another\s+booking\b/i.test(t)) {
     return true;
   }
-  if (/\b(?:empezamos de nuevo|empecemos de nuevo|vamos de nuevo|comenzar de nuevo|ricominciamo|ricominciare|von vorne|nochmal von vorn)\b/i.test(t)) {
+  if (/\b(?:empezamos de nuevo|empecemos de nuevo|quiero empezar de nuevo|empezamos otra vez|empezar otra vez|vamos de nuevo|comenzar de nuevo|ricominciamo|ricominciare|von vorne|nochmal von vorn)\b/i.test(t)) {
+    return true;
+  }
+  if (/\bno[,.\s!-]+(?:espera|wait)[,.\s!-]+(?:empezamos|empecemos)\s+de\s+nuevo\b/i.test(t)) {
     return true;
   }
   return false;
@@ -774,6 +808,9 @@ function classifyMessageLane(text, guestContext) {
   const bookingMix = !negatedStayBooking && (/\b(?:book|stay|nights|check.in|package|vorremmo|venir|reserv|giugno|june|juni|malibu|prenot|interessati|interested)\b/i.test(t)
     || (/\bbuchen\b/i.test(t) && !/\b(?:dazu buchen|surfbrett|wetsuit|surfstunde|lezione|clase|cours)\b/i.test(t)));
   if (serviceOnly && !bookingMix && !hasCode) {
+    if (hasExplicitDates(t) || hasGuestCountSignal(t)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9 };
+    }
     const priorQuote = (guestContext && guestContext.quote) || {};
     const addonAnswer = guestDeclinedAddons(t) || extractAddOnSelections(t).length > 0;
     if (addonAnswer && priorQuote.quote_status === 'ready'
@@ -1196,6 +1233,9 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     && (brain.preserve_context || brain.intent === 'side_question')) {
     preserveActiveBooking = true;
   }
+  if (packageExplainerIntent && messageHasEmbeddedBookingFacts(messageText)) {
+    preserveActiveBooking = true;
+  }
 
   // Unknown short message inside an active booking → clarify, never silent handoff.
   let clarifyActiveBooking = false;
@@ -1282,6 +1322,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   let extractedFields = {};
   let missingRequired = [];
   let packageNightCtx = null;
+  let embeddedSideQuestionFields = null;
 
   if (lane === 'new_booking_inquiry') {
     const channelGuestName = resolveChannelGuestName(ctx, guestContext);
@@ -1396,6 +1437,11 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   } else if (lane !== 'staff_handoff_required') {
     extractedFields = {};
     missingRequired = [];
+    if (packageExplainerIntent && messageHasEmbeddedBookingFacts(messageText)) {
+      embeddedSideQuestionFields = extractEmbeddedSideQuestionFields(
+        messageText, ctx, guestContext, priorExtracted, packageExplainerIntent,
+      );
+    }
     if (handoff && !reasons.length) reasons = ['needs_booking_identification'];
   } else {
     extractedFields = {};
@@ -1408,7 +1454,12 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   let preservedIntakeState = null;
   if ((preserveActiveBooking || clarifyActiveBooking || correctionActiveBooking)
     && lane !== 'new_booking_inquiry') {
-    preservedExtracted = { ...priorExtracted };
+    preservedExtracted = embeddedSideQuestionFields
+      ? mergeGuestExtractedFields(priorExtracted, embeddedSideQuestionFields)
+      : { ...priorExtracted };
+    preservedIntakeState = 'collecting_required_details';
+  } else if (embeddedSideQuestionFields && lane !== 'new_booking_inquiry') {
+    preservedExtracted = mergeGuestExtractedFields(priorExtracted, embeddedSideQuestionFields);
     preservedIntakeState = 'collecting_required_details';
   }
 

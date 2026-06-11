@@ -90,6 +90,7 @@ const MONTH_MAP = {
   // IT
   gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, maggio: 5, giugno: 6,
   luglio: 7, agosto: 8, settembre: 9, ottobre: 10, novembre: 11, dicembre: 12,
+  luglo: 7,
   // ES
   enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
   julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
@@ -124,6 +125,23 @@ const MULTILINGUAL_GUEST_STANDALONE_RES = [
   /\b(une|deux|trois|quatre)\s+personnes\b/i,
   /\b(eine|zwei|drei|vier)\s+personen\b/i,
 ];
+
+/** "solo alloggio" / "solo stay" — accommodation-only, not guest_count=1. */
+function isSoloAccommodationStayPhrase(text) {
+  const t = String(text || '').toLowerCase();
+  return /\b(?:solo|solamente|sólo|only|just)\s+(?:alloggio|alojamiento|il\s+soggiorno|estad[ií]a|estancia|accommodation|the\s+stay|stay|pernottamento)\b/i.test(t)
+    || /\b(?:only|just)\s+the\s+stay\b/i.test(t)
+    || /\bno\s+pack(?:age)?[,.\s]+(?:solo|only)\s+stay\b/i.test(t);
+}
+
+/** Valid solo-traveller guest count (not accommodation-only "solo"). */
+function isSoloTravellerGuestCountPhrase(text) {
+  const t = String(text || '').toLowerCase();
+  if (isSoloAccommodationStayPhrase(t)) return false;
+  return /\b(?:solo\s+(?:io|travell(?:er|er)?)|sono\s+solo|vengo\s+da\s+solo|viajo\s+solo|voy\s+solo)\b/i.test(t)
+    || /\b(?:just me|only me|one person|1 person)\b/i.test(t)
+    || /^(?:me|solo)$/i.test(t.trim());
+}
 
 function isGuestIntakeAiEnabled(env) {
   const e = env || process.env;
@@ -304,6 +322,53 @@ function extractNamedDateRange(text, ref) {
     if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
   }
 
+  // IT — dal 1 luglio al 5 / dal 1 luglo al 5 (optional trailing month)
+  const itDalAl = t.match(
+    /\b(?:dal|da)\s+(\d{1,2})\s+([a-zàèéìòù]+)\s+al\s+(\d{1,2})(?:\s+([a-zàèéìòù]+))?(?:\s+(20\d{2}))?\b/i,
+  );
+  if (itDalAl) {
+    const m1 = monthFromName(itDalAl[2]);
+    const m2 = itDalAl[4] ? monthFromName(itDalAl[4]) : m1;
+    const year = itDalAl[5] ? Number(itDalAl[5]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(itDalAl[1]), m1, year, ref);
+    const checkOut = dayMonthYearToIso(Number(itDalAl[3]), m2 || m1, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // IT compact — 1-5 luglio / 10-17 luglio
+  const itCompactDayMonth = t.match(
+    /\b(\d{1,2})\s*[-–]\s*(\d{1,2})\s+([a-zàèéìòù]+)(?:\s+(20\d{2}))?\b/i,
+  );
+  if (itCompactDayMonth) {
+    const month = monthFromName(itCompactDayMonth[3]);
+    const year = itCompactDayMonth[4] ? Number(itCompactDayMonth[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(itCompactDayMonth[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(itCompactDayMonth[2]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // IT — 1 luglio al 5 luglio
+  const itDayToDay = t.match(
+    /\b(\d{1,2})\s+([a-zàèéìòù]+)\s+al\s+(\d{1,2})\s+([a-zàèéìòù]+)\b/i,
+  );
+  if (itDayToDay) {
+    const m1 = monthFromName(itDayToDay[2]);
+    const m2 = monthFromName(itDayToDay[4]);
+    const month = m2 || m1;
+    const checkIn = dayMonthYearToIso(Number(itDayToDay[1]), m1 || month, explicitYear, ref);
+    const checkOut = dayMonthYearToIso(Number(itDayToDay[3]), month, explicitYear, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // IT/ES slash+month — 1/5 luglio
+  const slashSingleMonth = t.match(/\b(\d{1,2})\/(\d{1,2})\s+([a-zàèéìòùáéíóúüñ]+)\b/i);
+  if (slashSingleMonth) {
+    const month = monthFromName(slashSingleMonth[3]);
+    const checkIn = dayMonthYearToIso(Number(slashSingleMonth[1]), month, explicitYear, ref);
+    const checkOut = dayMonthYearToIso(Number(slashSingleMonth[2]), month, explicitYear, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
   // ES — del 10 al 17 de julio de 2026
   const esRangeSingleMonth = t.match(
     /\b(?:del|de)\s+(\d{1,2})\s+al\s+(\d{1,2})\s+de\s+([a-záéíóúüñ]+)(?:\s+de\s+(20\d{2}))?\b/i,
@@ -313,6 +378,30 @@ function extractNamedDateRange(text, ref) {
     const year = esRangeSingleMonth[4] ? Number(esRangeSingleMonth[4]) : explicitYear;
     const checkIn = dayMonthYearToIso(Number(esRangeSingleMonth[1]), month, year, ref);
     const checkOut = dayMonthYearToIso(Number(esRangeSingleMonth[2]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // ES compact — 1-5 julio / 10-17 julio
+  const esCompactDayMonth = t.match(
+    /\b(\d{1,2})\s*[-–]\s*(\d{1,2})\s+([a-záéíóúüñ]+)(?:\s+(20\d{2}))?\b/i,
+  );
+  if (esCompactDayMonth) {
+    const month = monthFromName(esCompactDayMonth[3]);
+    const year = esCompactDayMonth[4] ? Number(esCompactDayMonth[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(esCompactDayMonth[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(esCompactDayMonth[2]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // ES — del 1 al 5 julio (without "de" before month)
+  const esDelAlMonth = t.match(
+    /\b(?:del|de)\s+(\d{1,2})\s+al\s+(\d{1,2})\s+([a-záéíóúüñ]+)(?:\s+de\s+(20\d{2}))?\b/i,
+  );
+  if (esDelAlMonth) {
+    const month = monthFromName(esDelAlMonth[3]);
+    const year = esDelAlMonth[4] ? Number(esDelAlMonth[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(esDelAlMonth[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(esDelAlMonth[2]), month, year, ref);
     if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
   }
 
@@ -361,6 +450,18 @@ function extractNamedDateRange(text, ref) {
     const year = deRangeVom[4] ? Number(deRangeVom[4]) : explicitYear;
     const checkIn = dayMonthYearToIso(Number(deRangeVom[1]), month, year, ref);
     const checkOut = dayMonthYearToIso(Number(deRangeVom[2]), month, year, ref);
+    if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
+  }
+
+  // DE — vom 10. bis 17. Juli (single trailing month)
+  const deVomBisMonth = t.match(
+    /\b(?:vom|von)\s+(\d{1,2})\.?\s*bis\s+(\d{1,2})\.?\s+([a-zäöüß]+)(?:\s+(20\d{2}))?\b/i,
+  );
+  if (deVomBisMonth) {
+    const month = monthFromName(deVomBisMonth[3]);
+    const year = deVomBisMonth[4] ? Number(deVomBisMonth[4]) : explicitYear;
+    const checkIn = dayMonthYearToIso(Number(deVomBisMonth[1]), month, year, ref);
+    const checkOut = dayMonthYearToIso(Number(deVomBisMonth[2]), month, year, ref);
     if (checkIn && checkOut) return { check_in: checkIn, check_out: checkOut };
   }
 
@@ -428,7 +529,7 @@ function hasPartialBookingSignal(fields, text) {
 
 function extractGuests(text) {
   const t = String(text || '').toLowerCase();
-  if (/\b(?:just me|only me|solo(?:\s+travell(?:er|er))?|one person|1 person)\b/i.test(t)) return 1;
+  if (isSoloTravellerGuestCountPhrase(t)) return 1;
   if (/^(?:me)$/i.test(t.trim())) return 1;
   if (/\btwo\s+of\s+us\b/i.test(t)) return 2;
   if (/\bcouple\b/i.test(t)) return 2;
@@ -438,9 +539,9 @@ function extractGuests(text) {
   const patterns = [
     /\b(\d{1,2})\s+ppl\b/i,
     /\b(\d{1,2})\s*(?:people|persons|guests|pax|persone|personas|personnes|gäste|gaste)\b/i,
-    /\b(?:for|we are|we're|somos|siamo|nous sommes|wir sind)\s+(\d{1,2})\b/i,
+    /\b(?:for|per|para|pour|für|we are|we're|somos|siamo{1,2}|nous sommes|wir sind|wir w(?:ä|a)ren)\s+(\d{1,2})\b/i,
     /\b(?:siamo|somos|nous sommes|wir sind)\s+in\s+(\d{1,2})\b/i,
-    /\b(\d{1,2})\s*(?:persone|personas|personnes)\b/i,
+    /\b(\d{1,2})\s*(?:persone|personas|personnes|personen)\b/i,
   ];
   for (const re of patterns) {
     const m = t.match(re);
@@ -478,6 +579,7 @@ function parseGuestNameAnswer(text) {
   const raw = String(text || '').trim();
   if (!raw || raw.length > 60) return null;
   if (/^\d+$/.test(raw)) return null;
+  if (isSoloAccommodationStayPhrase(raw)) return null;
   if (/\b(?:deposit|full(?:\s+payment)?|just\s+(?:me|the\s+stay)|accommodation(?:\s+only)?|no\s+package|no\s+add(?:\s+|-)?nothing|nothing\s+extra|no\s+extras?|i\s+have\s+my\s+own(?:\s+stuff)?|malibu|uluwatu|waimea|wetsuit|surfboard|lessons?|yoga|book(?:ing)?\s+(?:a\s+)?stay)\b/i.test(raw)) {
     return null;
   }
@@ -541,7 +643,7 @@ function extractAddOns(text) {
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
   if (/\b(?:surf\s+lesson|surfstunde|lessons?|lezione|clase\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
   if (/\b(?:wetsuit|muta)\b/.test(t)) found.add('wetsuit');
-  if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|planche)\b/.test(t)) found.add('surfboard');
+  if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|tavola|planche)\b/.test(t)) found.add('surfboard');
   return [...found];
 }
 
@@ -842,6 +944,8 @@ module.exports = {
   isGuestIntakeAiEnabled,
   detectPackageMutationIntent,
   parseGuestNameAnswer,
+  isSoloAccommodationStayPhrase,
+  isSoloTravellerGuestCountPhrase,
   INTAKE_SAFETY_FLAGS,
   KNOWN_PACKAGE_CODES,
   KNOWN_ADDON_TYPES,

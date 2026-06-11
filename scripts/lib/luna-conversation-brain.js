@@ -178,6 +178,12 @@ function detectResetSignal(text) {
   if (/\bno\b[\s,!.?-]*(?:no\b[\s,!.?-]*)?(?:i\s+)?(?:want|wanna)\s+(?:to\s+)?(?:create|make)\s+(?:another|a\s+new|a\s+different)\s+booking\b/i.test(t)) {
     return true;
   }
+  if (/\b(?:empezamos de nuevo|empecemos de nuevo|quiero empezar de nuevo|empezamos otra vez|empezar otra vez|vamos de nuevo|comenzar de nuevo|ricominciamo|ricominciare|von vorne|nochmal von vorn)\b/i.test(t)) {
+    return true;
+  }
+  if (/\bno[,.\s!-]+(?:espera|wait)[,.\s!-]+(?:empezamos|empecemos)\s+de\s+nuevo\b/i.test(t)) {
+    return true;
+  }
   return false;
 }
 
@@ -202,6 +208,8 @@ function detectGuestCorrection(text) {
 function detectAccommodationOnlyAnswer(text) {
   const t = trimStr(text).toLowerCase();
   if (!t) return false;
+  if (/\bno\s+pack(?:age)?[,.\s]+(?:solo|only)\s+stay\b/i.test(t)) return true;
+  if (/\b(?:solo|solamente|sólo)\s+(?:alloggio|alojamiento|il\s+soggiorno|estad[ií]a|estancia|pernottamento)\b/i.test(t)) return true;
   if (/\bjust\s+(?:the\s+)?stay\b/i.test(t)) return true;
   if (/\b(?:accommodation|room|bed|stay)\s+only\b/i.test(t)) return true;
   if (/\bjust\s+(?:the\s+)?(?:accommodation|room|bed|stay)\b/i.test(t)) return true;
@@ -290,6 +298,18 @@ function looksLikeLowSignalUnknown(text) {
   return t.split(/\s+/).length <= 5;
 }
 
+function messageCarriesEmbeddedBookingFacts(text) {
+  const t = trimStr(text);
+  if (!t) return false;
+  if (/\b(?:malibu|uluwatu|waimea)\b/i.test(t) && /\d/.test(t)) return true;
+  if (/\b\d{1,2}\s*[-–]\s*\d{1,2}\s+(?:luglio|julio|giugno|agosto|juli|juillet|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(t)) {
+    return true;
+  }
+  if (/\b(?:dal|del|vom|von|from)\s+\d{1,2}\b/i.test(t)) return true;
+  if (/\b\d{1,2}\s+personen\b/i.test(t) || /\bwir\s+w(?:ä|a)ren\s+\d+\b/i.test(t)) return true;
+  return false;
+}
+
 /**
  * Deterministic conversation decision (synchronous; safe for the hot path).
  *
@@ -366,16 +386,17 @@ function decideConversationAction(input) {
   // ── P6 side question (package explainer), preserve active flow ─────────────
   const sideType = detectPackageSideQuestion(message);
   if (sideType) {
+    const embeddedFacts = messageCarriesEmbeddedBookingFacts(message);
     return {
       ...decision,
       intent: 'side_question',
       reply_type: 'package_explainer',
       side_question_answer_needed: true,
       side_question_type: sideType,
-      preserve_context: inActiveBooking,
-      active_flow: inActiveBooking ? 'new_booking' : 'general_question',
+      preserve_context: inActiveBooking || embeddedFacts,
+      active_flow: (inActiveBooking || embeddedFacts) ? 'new_booking' : 'general_question',
       next_best_action: 'answer_side_question',
-      next_missing_field: inActiveBooking ? activeMissing : null,
+      next_missing_field: (inActiveBooking || embeddedFacts) ? activeMissing : null,
       should_handoff: false,
       confidence: 0.85,
     };

@@ -22,7 +22,7 @@ function extractAddOnsFromText(text) {
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
   if (/\b(?:surf\s+lesson|surfstunde|lessons?|lezione|clase\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
   if (/\b(?:wetsuit|muta)\b/.test(t)) found.add('wetsuit');
-  if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|planche)\b/.test(t)) found.add('surfboard');
+  if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|tavola|planche)\b/.test(t)) found.add('surfboard');
   return [...found];
 }
 

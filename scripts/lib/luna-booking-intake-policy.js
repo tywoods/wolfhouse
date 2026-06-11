@@ -160,6 +160,7 @@ function extractNameFromText(text) {
   const direct = parseGuestNameAnswer(text);
   if (direct) return direct;
   const t = String(text || '');
+  if (/\b(?:paket|package|paquete|enthalten|inclus|included|incluye)\b/i.test(t)) return null;
   const im = t.match(/\b(?:i'?m|i\s+am)\s+([a-z][a-z'\- ]{0,40})/i);
   if (im) return trimStr(im[1]);
   const hi = t.match(/\bhi[,!]?\s+i'?m\s+([a-z][a-z'\- ]{0,40})/i);
