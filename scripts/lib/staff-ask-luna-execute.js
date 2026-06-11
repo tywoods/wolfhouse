@@ -32,6 +32,16 @@ const {
   formatAskLunaMealsYogaAnswer,
 } = require('./staff-ask-luna-meals-yoga');
 const {
+  resolveAskLunaPendingManualServicesIntentKey,
+  getPendingManualServicesQuery,
+  getPendingManualYogaQuery,
+  getPendingManualMealsQuery,
+  formatAskLunaPendingManualServicesAnswer,
+  PENDING_MANUAL_KEY,
+  PENDING_YOGA_KEY,
+  PENDING_MEALS_KEY,
+} = require('./staff-ask-luna-pending-manual-services');
+const {
   resolveAskLunaArrivalsCheckoutsIntentKey,
   getAskLunaArrivalsOnDateQuery,
   getAskLunaCheckoutsOnDateQuery,
@@ -544,6 +554,9 @@ const ASK_LUNA_LOCAL_QUERY = {
   'services.yoga_tomorrow':    getAskLunaYogaOnDateQuery,
   'services.meals_on_date':    getAskLunaMealsOnDateQuery,
   'services.yoga_on_date':     getAskLunaYogaOnDateQuery,
+  [PENDING_MANUAL_KEY]:          getPendingManualServicesQuery,
+  [PENDING_YOGA_KEY]:            getPendingManualYogaQuery,
+  [PENDING_MEALS_KEY]:           getPendingManualMealsQuery,
   'bookings.arrivals_today':     getAskLunaArrivalsOnDateQuery,
   'bookings.arrivals_tomorrow':  getAskLunaArrivalsOnDateQuery,
   'bookings.arrivals_on_date':   getAskLunaArrivalsOnDateQuery,
@@ -560,8 +573,13 @@ const ASK_LUNA_LOCAL_QUERY = {
   'bookings.lookup':               getAskLunaBookingLookupByCodeQuery,
 };
 
+const PENDING_MANUAL_QUERY_KEYS = new Set([
+  PENDING_MANUAL_KEY,
+  PENDING_YOGA_KEY,
+  PENDING_MEALS_KEY,
+]);
+
 /**
- * Keyword-based natural-language → registry intent resolver.
  * Returns { intentKey, extraParams } or null for unsupported questions.
  */
 function resolveNaturalLanguageIntent(question) {
@@ -578,6 +596,11 @@ function resolveNaturalLanguageIntent(question) {
 
   const gearIntentEarly = resolveAskLunaGearIntentKey(question, REGISTRY_BY_KEY, refDate);
   if (gearIntentEarly) return gearIntentEarly;
+
+  const pendingManualIntentEarly = resolveAskLunaPendingManualServicesIntentKey(
+    question, REGISTRY_BY_KEY,
+  );
+  if (pendingManualIntentEarly) return pendingManualIntentEarly;
 
   const mealsYogaIntentEarly = resolveAskLunaMealsYogaIntentKey(question, REGISTRY_BY_KEY, refDate);
   if (mealsYogaIntentEarly) return mealsYogaIntentEarly;
@@ -779,6 +802,9 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       'services.yoga_tomorrow':       'No yoga classes are currently booked for tomorrow.',
       'services.meals_on_date':       'No meals are currently booked for that date.',
       'services.yoga_on_date':        'No yoga classes are currently booked for that date.',
+      'services.pending_manual':      'No pending manual service requests need staff follow-up right now. ✅',
+      'services.pending_yoga':        'No pending yoga requests need scheduling right now. ✅',
+      'services.pending_meals':       'No pending meals requests need staff follow-up right now. ✅',
       'bookings.arrivals_today':      'No arrivals are currently scheduled for today.',
       'bookings.arrivals_tomorrow':   'No arrivals are currently scheduled for tomorrow.',
       'bookings.arrivals_on_date':    'No arrivals are currently scheduled for that date.',
@@ -924,6 +950,10 @@ function formatAnswer(intentKey, rows, ctx = {}) {
       const serviceCategory = intentKey.includes('yoga') ? 'yoga' : 'meals';
       return formatAskLunaMealsYogaAnswer(rows, { ...ctx, serviceCategory });
     }
+    case PENDING_MANUAL_KEY:
+    case PENDING_YOGA_KEY:
+    case PENDING_MEALS_KEY:
+      return formatAskLunaPendingManualServicesAnswer(intentKey, rows, ctx);
     case 'bookings.arrivals_today':
     case 'bookings.arrivals_tomorrow':
     case 'bookings.arrivals_on_date':
@@ -980,6 +1010,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
     'surf/wave forecast today or tomorrow (forecast.surf_today / forecast.surf_tomorrow)',
     'surf gear today or tomorrow (services.gear_today / services.gear_tomorrow)',
     'meals or yoga today/tomorrow/weekday (services.meals_* / services.yoga_*)',
+    'pending manual services (services.pending_manual / services.pending_yoga / services.pending_meals)',
     'arrivals or checkouts today/tomorrow/weekday (bookings.arrivals_* / bookings.checkouts_*)',
     'surf lessons / wetsuits / surfboards (services.*)',
     'who needs human reply (handoffs.open)',
@@ -1092,6 +1123,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
       searchValue: extraParams.searchValue,
       roomCode: extraParams.roomCode,
       bedCode: extraParams.bedCode,
+      pendingCategory: extraParams.pendingCategory,
     };
     let localRows = [];
     try {
@@ -1101,6 +1133,9 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
         const bundle = buildAskLunaBookingLookupQuery(extraParams, clientSlug);
         sql = bundle.sql;
         queryParams = bundle.params;
+      } else if (PENDING_MANUAL_QUERY_KEYS.has(intentKey)) {
+        sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
+        queryParams = [clientSlug];
       } else {
         sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
         queryParams = [clientSlug, today];

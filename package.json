@@ -273,6 +273,7 @@
     "verify:stage33c-pending-service-attach-hold-write": "node scripts/verify-stage33c-pending-service-attach-hold-write.js",
     "verify:stage33d1-open-demo-pending-service-attach-wiring": "node scripts/verify-stage33d1-open-demo-pending-service-attach-wiring.js",
     "verify:stage33e1-pending-service-db-constraint-mapping": "node scripts/verify-stage33e1-pending-service-db-constraint-mapping.js",
+    "verify:stage34a-pending-manual-services-staff-visibility": "node scripts/verify-stage34a-pending-manual-services-staff-visibility.js",
     "verify:stage29room-a-real-room-bed-seed": "node scripts/verify-stage29room-a-real-room-bed-seed.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",

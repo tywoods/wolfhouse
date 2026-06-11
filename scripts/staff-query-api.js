@@ -166,6 +166,10 @@ const {
   getBookingServiceRecordsQuery,
 } = require('./lib/staff-booking-detail-queries');
 const {
+  filterPendingManualServiceRecords,
+  formatPendingManualServiceStaffLine,
+} = require('./lib/staff-pending-manual-services');
+const {
   dispatchBookingTransfersRoute,
   dispatchBookingTransferDirectionRoute,
   dispatchBookingTransferLookupRoute,
@@ -15301,6 +15305,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <button type="button" class="al-example-chip" data-q="What gear do we need tomorrow?">What gear do we need tomorrow?</button>
       <button type="button" class="al-example-chip" data-q="Who has meals today?">Who has meals today?</button>
       <button type="button" class="al-example-chip" data-q="How many people are in yoga on Friday?">How many people are in yoga on Friday?</button>
+      <button type="button" class="al-example-chip" data-q="Show pending manual services">Show pending manual services</button>
       <button type="button" class="al-example-chip" data-q="Which conversations need staff reply?">Which conversations need staff reply?</button>
       <button type="button" class="al-example-chip" data-q="Show Jimmy's booking">Show Jimmy&rsquo;s booking</button>
       <button type="button" class="al-example-chip" data-q="Who is in R1?">Who is in R1?</button>
@@ -23163,6 +23168,26 @@ function bcRenderServicesTabHtml(bk){
   return html;
 }
 
+/* Render pending guest manual service requests (Stage 34a — read-only overview) */
+function bcRenderPendingManualServicesOverviewHtml(items){
+  if (!items || !items.length) return '';
+  var html = '<div class="bc-drawer-overview-card ctx-section" id="bc-pending-manual-services">';
+  html += '<h3 class="bc-drawer-card-title">Pending manual services</h3>';
+  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px">Guest-requested yoga/meals awaiting staff scheduling (no date/time yet).</div>';
+  for (var i = 0; i < items.length; i++){
+    var it = items[i];
+    html += '<div class="ctx-field-row" style="margin-bottom:6px;font-size:12px;line-height:1.45">';
+    html += escHtml(it.staff_line || (it.service_type + ' — needs staff follow-up'));
+    if (it.requested_at) {
+      var reqDate = String(it.requested_at).slice(0, 10);
+      html += ' <span class="ctx-none">(' + escHtml(reqDate) + ')</span>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
 /* Render the enriched booking context drawer sections (Stage 8.3b) */
 function renderBookingContextDrawer(data){
   var html = '';
@@ -23212,6 +23237,8 @@ function renderBookingContextDrawer(data){
   html += '</div></div>';
 
   html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || []);
+
+  html += bcRenderPendingManualServicesOverviewHtml(data.pending_manual_services || []);
 
   html += '<div class="bc-drawer-overview-card ctx-section" id="bc-drawer-card-conversation">';
   html += '<h3 class="bc-drawer-card-title">Conversation / Handoff</h3>';
@@ -27242,6 +27269,14 @@ async function handleBookingContext(bookingCode, query, res, user) {
     };
   }
 
+  const pendingManualServices = filterPendingManualServiceRecords(serviceRecordRows).map((row) => ({
+    service_type: row.service_type,
+    staff_line: formatPendingManualServiceStaffLine(row),
+    requested_at: row.requested_at || row.created_at || null,
+    status: row.status,
+    source: row.source,
+  }));
+
   return sendJSON(res, 200, {
     success:      true,
     client_slug:  clientSlug,
@@ -27302,6 +27337,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
     },
     service_records: serviceRecordRows,
     service_records_available: serviceRecordsAvailable,
+    pending_manual_services: pendingManualServices,
     transfers: transferRecordRows,
     warnings: [],
     elapsed_ms: elapsed,

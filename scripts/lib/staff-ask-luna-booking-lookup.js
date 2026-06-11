@@ -191,7 +191,32 @@ SELECT
         AND sr.status <> 'cancelled'
       GROUP BY sr.service_type
     ) svc
-  ) AS services_summary
+  ) AS services_summary,
+  (
+    SELECT NULLIF(STRING_AGG(pending.line, E'\\n' ORDER BY pending.line), '')
+    FROM (
+      SELECT
+        CASE sr.service_type
+          WHEN 'yoga' THEN 'Yoga — requested by guest, needs scheduling'
+          WHEN 'meal' THEN
+            'Meals/dinner — '
+            || COALESCE(NULLIF(sr.metadata->>'intent_status', ''), 'requested')
+            || CASE
+              WHEN COALESCE(sr.metadata->>'intent_status', '') IN ('interested', 'deferred')
+                THEN ', needs staff follow-up'
+              ELSE ', needs scheduling'
+            END
+          ELSE INITCAP(sr.service_type::text) || ' — needs staff follow-up'
+        END AS line
+      FROM booking_service_records sr
+      WHERE sr.booking_id = b.id
+        AND sr.source = 'luna_guest'
+        AND sr.status = 'requested'
+        AND sr.metadata->>'pending_origin' = 'luna_guest_pending'
+        AND COALESCE((sr.metadata->>'needs_scheduling')::boolean, false) = true
+        AND sr.service_date IS NULL
+    ) pending
+  ) AS pending_manual_services_summary
 `;
 }
 
@@ -370,6 +395,12 @@ function formatSingleBooking(row, ctx = {}) {
   const pay = formatLookupPayment(row);
   if (pay) lines.push(`Payment: ${pay}`);
   if (row.services_summary) lines.push(`Services: ${row.services_summary}`);
+  if (row.pending_manual_services_summary) {
+    lines.push('Pending services:');
+    String(row.pending_manual_services_summary).split('\n').forEach((line) => {
+      if (line.trim()) lines.push(`* ${line.trim()}`);
+    });
+  }
   if (stay && (focus === 'checkout' || focus === 'arrival')) {
     lines.push(`Stay: ${stay}`);
   }

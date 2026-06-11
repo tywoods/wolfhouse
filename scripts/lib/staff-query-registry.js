@@ -37,6 +37,7 @@ const handoffQueries = require('./staff-handoff-queries');
 const askLunaLessons   = require('./staff-ask-luna-lessons');
 const askLunaGear      = require('./staff-ask-luna-gear');
 const askLunaMealsYoga = require('./staff-ask-luna-meals-yoga');
+const askLunaPendingManual = require('./staff-ask-luna-pending-manual-services');
 const askLunaArrivalsCheckouts = require('./staff-ask-luna-arrivals-checkouts');
 const askLunaCleaning = require('./staff-ask-luna-cleaning');
 const askLunaBookingLookup = require('./staff-ask-luna-booking-lookup');
@@ -582,6 +583,45 @@ const REGISTRY = [
     requiredParams:  [
       { name: 'date', description: 'Yoga date (ISO)', example: '2026-06-06' },
     ],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.pending_manual',
+    category:        'services',
+    description:     'Guest-requested yoga/meals awaiting staff scheduling (no service date yet)',
+    helperModule:    'lib/staff-ask-luna-pending-manual-services',
+    helperFn:        'getPendingManualServicesQuery',
+    helperRef:       askLunaPendingManual.getPendingManualServicesQuery,
+    requiredParams:  [],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.pending_yoga',
+    category:        'services',
+    description:     'Pending guest yoga requests needing staff scheduling',
+    helperModule:    'lib/staff-ask-luna-pending-manual-services',
+    helperFn:        'getPendingManualYogaQuery',
+    helperRef:       askLunaPendingManual.getPendingManualYogaQuery,
+    requiredParams:  [],
+    optionalParams:  [],
+    clientSlugged:   true,
+    readOnly:        true,
+    migrationRequired: 'migration_010',
+  },
+  {
+    key:             'services.pending_meals',
+    category:        'services',
+    description:     'Pending guest meals/dinner requests needing staff follow-up',
+    helperModule:    'lib/staff-ask-luna-pending-manual-services',
+    helperFn:        'getPendingManualMealsQuery',
+    helperRef:       askLunaPendingManual.getPendingManualMealsQuery,
+    requiredParams:  [],
     optionalParams:  [],
     clientSlugged:   true,
     readOnly:        true,

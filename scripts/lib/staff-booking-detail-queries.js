@@ -159,11 +159,22 @@ SELECT
   conv.updated_at
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
-INNER JOIN bookings b ON b.phone = conv.phone
-  AND b.client_id = conv.client_id
-WHERE c.slug = $1
+INNER JOIN bookings b ON b.client_id = c.id
   AND b.booking_code = $2
-ORDER BY conv.updated_at DESC
+WHERE c.slug = $1
+  AND (
+    conv.current_hold_booking_id = b.id
+    OR (
+      b.phone IS NOT NULL
+      AND btrim(b.phone) <> ''
+      AND conv.phone = b.phone
+    )
+    OR conv.phone = ('staff:booking:' || b.id::text)
+  )
+ORDER BY
+  CASE WHEN conv.current_hold_booking_id = b.id THEN 0 ELSE 1 END,
+  CASE WHEN conv.phone NOT LIKE 'staff:booking:%' THEN 0 ELSE 1 END,
+  conv.updated_at DESC
 LIMIT 1
 `;
 }
@@ -260,7 +271,9 @@ SELECT
   sr.amount_due_cents,
   sr.amount_paid_cents,
   sr.source,
-  sr.notes
+  sr.notes,
+  sr.metadata,
+  sr.created_at::text     AS requested_at
 FROM booking_service_records sr
 INNER JOIN clients c ON c.slug = sr.client_slug
 INNER JOIN bookings b ON b.client_id = c.id
