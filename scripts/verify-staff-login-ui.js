@@ -27,8 +27,8 @@
  *  21.  browserLoginRedirect called for /staff/ui route.
  *  22.  Logout button present in UI (doLogout).
  *  23.  Logout JS calls POST /staff/auth/logout.
- *  24.  Staging / shadow mode badge present in login page.
- *  25.  Staff actions disabled badge present in login page.
+ *  24.  Staging / shadow mode badge removed from login page.
+ *  25.  Staff actions disabled badge removed from login page.
  *  26.  STAFF_AUTH_REQUIRED gate in browserLoginRedirect.
  *  27.  Login page has no eval / no execSync.
  *  28.  Login page is self-contained (no external scripts).
@@ -205,13 +205,13 @@ check(
   "doLogout() uses POST to /staff/auth/logout"
 );
 
-// ── 24. Staging badge ────────────────────────────────────────────────────────
-console.log('\n── 24. Staging / shadow mode badge ──');
-check(/[Ss]taging.*shadow|shadow.*[Ss]taging/i.test(loginSection), 'staging/shadow mode badge in login page');
+// ── 24. Staging badge removed from login ─────────────────────────────────────
+console.log('\n── 24. Staging / shadow mode badge removed ──');
+check(!/[Ss]taging.*shadow|shadow.*[Ss]taging/i.test(loginSection), 'no staging/shadow mode badge on login page');
 
-// ── 25. Staff actions disabled badge ─────────────────────────────────────────
-console.log('\n── 25. Staff actions disabled badge ──');
-check(/[Ss]taff\s+actions\s+disabled/i.test(loginSection), 'staff actions disabled badge in login page');
+// ── 25. Staff actions disabled badge removed ─────────────────────────────────
+console.log('\n── 25. Staff actions disabled badge removed ──');
+check(!/[Ss]taff\s+actions\s+disabled/i.test(loginSection), 'no staff actions disabled badge on login page');
 
 // ── 26. STAFF_AUTH_REQUIRED gate in browserLoginRedirect ─────────────────────
 console.log('\n── 26. STAFF_AUTH_REQUIRED gate in browserLoginRedirect ──');
