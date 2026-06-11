@@ -771,6 +771,11 @@ async function main() {
     process.exit(0);
   }
 
+  if (opts.fixtureSet === 'multilingual-out-of-order') {
+    const { runConversationFixtureSetAsBatch } = require('./lib/luna-conversation-fixture-set-batch');
+    return runConversationFixtureSetAsBatch(opts);
+  }
+
   if (opts.createStripeTestLink && !opts.createHoldDraft) {
     console.error('Error: --create-stripe-test-link requires --create-hold-draft');
     process.exit(1);

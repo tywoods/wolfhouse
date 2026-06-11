@@ -1,0 +1,44 @@
+{
+  "id": "it-package-addons-messy",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "it",
+  "language_tags": ["it"],
+  "label": "IT Malibu messy add-ons",
+  "contact_name": "Luca",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Ciaooo siamo 2 per Malibu 10-17 luglio, uno vuole muta e tavola",
+      "expect": {
+        "expected_language": "it",
+        "expected_package": "malibu",
+        "expected_guest_count": 2,
+        "expected_dates": { "check_in": "2026-07-10", "check_out": "2026-07-17" },
+        "expected_service_interest": ["wetsuit", "surfboard"],
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "solo il soggiorno",
+      "expect": {
+        "expected_quote_ready": true,
+        "reply_contains": ["deposit"],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 2,
+      "package_interest": "malibu"
+    },
+    "expected_quote_ready": true,
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

@@ -673,6 +673,9 @@ function detectNewBookingResetIntent(text) {
   if (/\bno[,.\s]+another\s+booking\b/i.test(t)) {
     return true;
   }
+  if (/\b(?:empezamos de nuevo|empecemos de nuevo|vamos de nuevo|comenzar de nuevo|ricominciamo|ricominciare|von vorne|nochmal von vorn)\b/i.test(t)) {
+    return true;
+  }
   return false;
 }
 

@@ -1,0 +1,32 @@
+{
+  "id": "mixed-it-en-booking",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "en",
+  "language_tags": ["en", "it", "mixed"],
+  "label": "Mixed IT/EN private room request",
+  "contact_name": "Emma",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Ciao! we are 2 girls, July 1 to 5, can we have private room?",
+      "expect": {
+        "expected_language": ["en", "it"],
+        "expected_guest_count": 2,
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "reply_not_contains": ["confirmed your booking", "payment received"]
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 2
+    },
+    "expected_language": ["en", "it"],
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "id": "de-package-question",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "de",
+  "language_tags": ["de"],
+  "label": "DE Malibu package question",
+  "contact_name": "Anna",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Hallo, was ist im Malibu Paket enthalten? Wir wären 2 Personen vom 10. bis 17. Juli",
+      "expect": {
+        "expected_language": "de",
+        "expected_guest_count": 2,
+        "expected_dates": { "check_in": "2026-07-10", "check_out": "2026-07-17" },
+        "expected_package": "malibu",
+        "reply_contains": ["Malibu"],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 2,
+      "package_interest": "malibu"
+    },
+    "expected_language": "de",
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

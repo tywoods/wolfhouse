@@ -1,0 +1,32 @@
+{
+  "id": "en-clean-but-casual",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "en",
+  "language_tags": ["en"],
+  "label": "EN casual with lesson interest",
+  "contact_name": "Alex",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "heyyy we're 3 friends looking for July 8-12, maybe lessons too",
+      "expect": {
+        "expected_language": "en",
+        "expected_guest_count": 3,
+        "expected_dates": { "check_in": "2026-07-08", "check_out": "2026-07-12" },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "reply_contains": ["lesson"]
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-08",
+      "check_out": "2026-07-12",
+      "guest_count": 3
+    },
+    "expected_language": "en",
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "it-short-stay-out-of-order",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "it",
+  "language_tags": ["it"],
+  "label": "IT short stay out-of-order facts",
+  "contact_name": "Giulia",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Siamo in 2, vorremmo venire 1-5 luglio, solo alloggio per ora",
+      "expect": {
+        "expected_language": "it",
+        "expected_guest_count": 2,
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_accommodation_only": true,
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "reply_not_contains": ["payment choice", "quote_status"]
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 2,
+      "package_interest": "accommodation_only"
+    },
+    "expected_quote_ready": true,
+    "expected_language": "it",
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

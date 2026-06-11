@@ -1,0 +1,50 @@
+{
+  "id": "it-yoga-dinner-midflow",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "it",
+  "language_tags": ["it"],
+  "label": "IT yoga + dinner mid-flow",
+  "contact_name": "Sara",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Ciao, siamo 2 per Malibu dal 10 al 17 luglio",
+      "expect": {
+        "expected_language": "it",
+        "expected_guest_count": 2,
+        "expected_package": "malibu",
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "solo il soggiorno",
+      "expect": {
+        "expected_quote_ready": true,
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "posso aggiungere yoga? e magari una cena?",
+      "expect": {
+        "expected_yoga_request": true,
+        "expected_meals_request": true,
+        "expected_context_preserved": true,
+        "reply_contains": ["yoga"],
+        "reply_not_contains": ["checkout.stripe.com", "already paid"],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 2,
+      "package_interest": "malibu"
+    },
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

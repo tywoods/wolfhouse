@@ -8,6 +8,11 @@
     "booking-core": {
       "description": "Core multi-turn booking flows for batch regression before n8n wiring. Date windows are chosen for beds free on local and staging inventory (reference_date 2026-06-08); re-check flow-en-unavailable-dates and flow-en-change-dates if staging bed calendar drifts.",
       "default_contact_name": "Marco"
+    },
+    "multilingual-out-of-order": {
+      "description": "Stage 39a — multilingual and messy-order conversation fixtures (nested JSON directory).",
+      "default_contact_name": "Marco",
+      "conversation_fixture_dir": "fixtures/luna-conversation-state-machine/multilingual-out-of-order"
     }
   },
   "flows": [

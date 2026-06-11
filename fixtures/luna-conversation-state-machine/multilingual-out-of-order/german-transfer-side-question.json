@@ -1,0 +1,50 @@
+{
+  "id": "german-transfer-side-question",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "de",
+  "language_tags": ["de", "transfer"],
+  "label": "DE transfer side question mid-booking",
+  "contact_name": "Thomas",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Wir sind 2 Personen vom 1. bis 5. Juli, nur Unterkunft",
+      "expect": {
+        "expected_language": "de",
+        "expected_guest_count": 2,
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    },
+    {
+      "message": "Gibt es Transfer vom Flughafen Santander?",
+      "expect": {
+        "reply_contains": ["Transfer"],
+        "expected_context_preserved": true,
+        "expected_stale_quote": false,
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 2
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 2
+    },
+    "expected_language": "de",
+    "expected_quote_ready": true,
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

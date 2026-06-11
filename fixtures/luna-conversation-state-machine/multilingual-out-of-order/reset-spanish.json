@@ -1,0 +1,53 @@
+{
+  "id": "reset-spanish",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "es",
+  "language_tags": ["es", "reset"],
+  "label": "Spanish reset after quote",
+  "contact_name": "Maria",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu del 10 al 17 de julio para 2",
+      "expect": {
+        "expected_language": "es",
+        "expected_package": "malibu",
+        "expected_guest_count": 2,
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "no espera, empezamos de nuevo",
+      "expect": {
+        "expected_reset_detected": true,
+        "expected_quote_ready": false,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "1-5 julio para 1",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_guest_count": 1,
+        "expected_stale_quote": false,
+        "reply_not_contains": ["Malibu comes to", "Malibu viene"],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 1
+    },
+    "expected_language": "es",
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

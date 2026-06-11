@@ -1,0 +1,32 @@
+{
+  "id": "emoji-heavy-surf-addons",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "it",
+  "language_tags": ["it", "emoji"],
+  "label": "Emoji-heavy IT surf add-ons",
+  "contact_name": "Chiara",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Ciaooo 🌊😍 1-5 luglio siamo 2 🏄‍♀️ serve muta + tavola pls",
+      "expect": {
+        "expected_language": "it",
+        "expected_guest_count": 2,
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_service_interest": ["wetsuit", "surfboard"],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 2
+    },
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

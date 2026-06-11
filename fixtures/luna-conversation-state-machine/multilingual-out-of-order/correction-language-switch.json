@@ -1,0 +1,45 @@
+{
+  "id": "correction-language-switch",
+  "fixture_set": "multilingual-out-of-order",
+  "language": "it",
+  "language_tags": ["it", "en", "correction"],
+  "label": "IT start then EN guest count correction",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "1-5 luglio per 1",
+      "expect": {
+        "expected_language": "it",
+        "expected_guest_count": 1,
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "actually we are 2",
+      "expect": {
+        "expected_stale_quote": true,
+        "expected_stale_quote_reason": "guest_count_changed",
+        "expected_corrected_fields": ["guest_count"],
+        "expected_guest_count": 2,
+        "expected_no_payment_link_before_updated_quote": true,
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 2
+    },
+    "expected_quote_ready": true,
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}
