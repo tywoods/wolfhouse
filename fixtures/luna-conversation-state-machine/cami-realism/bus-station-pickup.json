@@ -1,0 +1,42 @@
+{
+  "id": "bus-station-pickup",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Guest asks for bus station pickup — constraint plus alternative",
+  "contact_name": "Alex",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 1-5 for 1",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_guest_count": 1
+      }
+    },
+    {
+      "message": "no thanks",
+      "expect": { "expected_quote_ready": true }
+    },
+    {
+      "message": "Can you pick me up from the bus station?",
+      "expect": {
+        "reply_contains": ["bus", "airport", "keep going"],
+        "reply_not_contains": [
+          "booking is confirmed",
+          "pickup is confirmed",
+          "we'll pick you up at the bus station",
+          "Want to continue with your booking"
+        ],
+        "no_fake_confirmation": true,
+        "no_bare_refusal": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "min_cami_score": 50
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

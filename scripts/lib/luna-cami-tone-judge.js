@@ -17,8 +17,30 @@ const WARMTH_MARKERS = [
 ];
 
 const HUMAN_ENERGY_MARKERS = [
-  /hey+|yesss|super|nice|perfect|got it|love that|good news/i,
+  /(?:!!|!!!)/,
+  /hey+|super|nice|perfect|got it|love that|good news/i,
+  /talk soon|see you|no stress at all|a domani/i,
   /volentieri|genial|ottime|bellissim/i,
+];
+
+const HONEST_HEDGE_MARKERS = [
+  /\bi think\b/i,
+  /\bshould be\b/i,
+  /\bmore or less\b/i,
+  /\bi(?:'|')?ll let you know\b/i,
+  /\bdepends on\b/i,
+];
+
+const CLOSER_PRESENT_PATTERNS = [
+  /\ba domani!?\b/i,
+  /\btalk soon\b/i,
+  /\bsee you soon\b/i,
+  /\bun abbraccio\b/i,
+  /\bbacioni\b/i,
+  /\bgood night\b/i,
+  /\bhere if you need\b/i,
+  /\bcan't wait to welcome\b/i,
+  /\bvi aspettiamo\b/i,
 ];
 
 const ROBOTIC_PATTERNS = [
@@ -59,6 +81,34 @@ const NEXT_STEP_PATTERNS = [
   /\blet me know\b/i,
   /\bteam will\b/i,
   /\bfollow up\b/i,
+  /\bshare (?:your )?flight\b/i,
+  /\bsend me your flight\b/i,
+];
+
+const REFUSAL_MARKERS = [
+  /\b(?:can(?:'|')?t|cannot|unable to)\b/i,
+  /\b(?:don(?:'|')?t|do not) (?:do|offer)\b/i,
+  /\bnot (?:available|possible)\b/i,
+  /\b(?:impossible)\b/i,
+  /\bwe don(?:'|')?t\b/i,
+  /\busually don(?:'|')?t\b/i,
+  /\bnot 100% sure\b/i,
+  /\bnot sure yet\b/i,
+];
+
+const ALTERNATIVE_MARKERS = [
+  /\bbut (?:we|I|you)\b/i,
+  /\binstead\b/i,
+  /\bwe(?:'|')?ll sort\b/i,
+  /\bwe(?:'|')?ll check\b/i,
+  /\bi(?:'|')?ll (?:check|let you know|organize)\b/i,
+  /\b(?:easiest|best) option\b/i,
+  /\bour team will\b/i,
+  /\bno stress\b/i,
+  /\bshare (?:your )?flight\b/i,
+  /\bpick(?:\s|-)?(?:you\s-)?up\b/i,
+  /\bwhat we can do\b/i,
+  /\bask anytime\b/i,
 ];
 
 function countEmojis(text) {
@@ -93,11 +143,43 @@ function hasHumanEnergy(text) {
   return HUMAN_ENERGY_MARKERS.some((re) => re.test(text));
 }
 
+function hasHonestHedge(text) {
+  return HONEST_HEDGE_MARKERS.some((re) => re.test(text));
+}
+
+function hasCloserPresent(text) {
+  return CLOSER_PRESENT_PATTERNS.some((re) => re.test(text));
+}
+
+function hasRefusalLanguage(text) {
+  return REFUSAL_MARKERS.some((re) => re.test(text));
+}
+
+function hasAlternativeLanguage(text) {
+  if (ALTERNATIVE_MARKERS.some((re) => re.test(text))) return true;
+  if (NEXT_STEP_PATTERNS.some((re) => re.test(text))) return true;
+  if (hasHonestHedge(text) && /\b(?:check|sort|let you know|depends)\b/i.test(text)) return true;
+  if (hasCloserPresent(text)) return true;
+  return false;
+}
+
+function hasConstraintAlternative(text) {
+  if (hasRefusalLanguage(text) && hasAlternativeLanguage(text)) return true;
+  if (hasHonestHedge(text) && /\b(?:sort|check|let you know)\b/i.test(text)) return true;
+  if (/\bno stress\b/i.test(text) && /\b(?:easiest|best) option\b/i.test(text)) return true;
+  return false;
+}
+
+function hasBareRefusal(text) {
+  if (!hasRefusalLanguage(text)) return false;
+  return !hasAlternativeLanguage(text);
+}
+
 function suggestCategory(flags) {
   if (flags.includes('internal_language') || flags.includes('fake_confirmation')) return 'safety';
   if (flags.includes('robotic_opening') || flags.includes('too_corporate')) return 'robotic';
   if (flags.includes('repeated_phrase') || flags.includes('too_many_emojis')) return 'repetition';
-  if (flags.includes('missing_next_step') || flags.includes('too_long')) return 'structure';
+  if (flags.includes('missing_next_step') || flags.includes('too_long') || flags.includes('bare_refusal')) return 'structure';
   if (flags.includes('no_warmth')) return 'warmth';
   return 'good';
 }
@@ -160,16 +242,27 @@ function judgeCamiTone(reply, context) {
     }
   }
 
-  if (!hasWarmth(text) && !hasHumanEnergy(text)) {
+  if (!hasWarmth(text) && !hasHumanEnergy(text) && !hasHonestHedge(text)) {
     flags.push('no_warmth');
     score -= 12;
   }
 
-  if (questionCount === 0 && !NEXT_STEP_PATTERNS.some((re) => re.test(text))) {
+  const closerPresent = hasCloserPresent(text);
+  const constraintAlternative = hasConstraintAlternative(text);
+  if (questionCount === 0 && !NEXT_STEP_PATTERNS.some((re) => re.test(text)) && !closerPresent) {
     flags.push('missing_next_step');
     score -= 12;
+  } else if (closerPresent && questionCount === 0) {
+    score += 4;
   } else if (questionCount > 2) {
     score -= 8;
+  }
+
+  if (hasBareRefusal(text)) {
+    flags.push('bare_refusal');
+    score -= 18;
+  } else if (constraintAlternative) {
+    score += 5;
   }
 
   if (detectRepeatedPhrase(text, ctx.priorReplies)) {
@@ -220,6 +313,10 @@ function judgeCamiTone(reply, context) {
       question_count: questionCount,
       opener: extractOpener(text),
       payment_prompt_sig: extractPaymentPromptSignature(text),
+      closer_present: closerPresent,
+      honest_hedge: hasHonestHedge(text),
+      constraint_alternative: constraintAlternative,
+      bare_refusal: hasBareRefusal(text),
     },
   };
 }
@@ -255,5 +352,11 @@ module.exports = {
   aggregateCamiScores,
   topToneFlags,
   WARMTH_MARKERS,
+  HONEST_HEDGE_MARKERS,
+  CLOSER_PRESENT_PATTERNS,
   ROBOTIC_PATTERNS,
+  hasCloserPresent,
+  hasHonestHedge,
+  hasConstraintAlternative,
+  hasBareRefusal,
 };

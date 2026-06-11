@@ -1,0 +1,48 @@
+{
+  "id": "flight-delayed-late-arrival",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Guest reports delayed flight / late arrival",
+  "contact_name": "Casey",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 10-14 for 2",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-10", "check_out": "2026-07-14" },
+        "expected_guest_count": 2
+      }
+    },
+    {
+      "message": "no thanks",
+      "expect": { "expected_quote_ready": true }
+    },
+    {
+      "message": "My flight is delayed — I might arrive around midnight",
+      "expect": {
+        "reply_contains": ["No stress", "updated", "pickup", "booking moving"],
+        "reply_not_contains": [
+          "pickup is confirmed",
+          "booking is confirmed",
+          "we'll pick you up at midnight",
+          "Want to continue with your booking",
+          "No stress, we'll keep the booking moving"
+        ],
+        "no_fake_confirmation": true,
+        "no_bare_refusal": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "min_cami_score": 50
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-14",
+      "guest_count": 2
+    },
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

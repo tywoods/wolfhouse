@@ -223,6 +223,25 @@ function checkTurnExpectations(expect, out, extras) {
       failures.push('no_fake_confirmation but confirmation/hold language found');
     }
   }
+  if (expect.no_bare_refusal === true) {
+    try {
+      const { hasBareRefusal } = require('./luna-cami-tone-judge');
+      if (hasBareRefusal(reply)) failures.push('no_bare_refusal but bare_refusal detected');
+    } catch (_) {
+      /* tone judge optional */
+    }
+  }
+  if (expect.no_italian_payment_closer === true) {
+    if (/\b(bacioni|un abbraccio|a domani)\b/i.test(reply)) {
+      failures.push('no_italian_payment_closer but Italian/heavy closer found');
+    }
+  }
+  if (expect.expected_message_lane != null) {
+    const lane = (out.result && out.result.message_lane) || null;
+    if (lane !== expect.expected_message_lane) {
+      failures.push(`expected_message_lane ${expect.expected_message_lane} got ${lane}`);
+    }
+  }
   if (expect.expected_reply_source != null) {
     const src = (out.result && out.result.conversation_brain && out.result.conversation_brain.final_reply_source);
     if (src !== expect.expected_reply_source) {

@@ -1,0 +1,25 @@
+{
+  "id": "pay-later-before-quote",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Guest asks to pay later before quote is ready",
+  "contact_name": "Sam",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Hi! Can I pay later?",
+      "expect": {
+        "expected_quote_ready": false,
+        "expected_message_lane": "payment_question",
+        "reply_contains": ["hold", "deposit", "quote"],
+        "reply_not_contains": ["€", "confirmed", "payment received", "you're confirmed"],
+        "no_fake_confirmation": true,
+        "no_internal_language": true,
+        "min_cami_score": 50
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true
+  }
+}

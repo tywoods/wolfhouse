@@ -595,6 +595,11 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
     }
   }
 
+  // Stage 42b.2 — router payment side-questions (Cami pools) override payment-choice templates.
+  if (result && result.message_lane === 'payment_question' && result.proposed_luna_reply) {
+    return sanitizeReply(result.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
+  }
+
   if (shouldUsePaymentChoiceReply(pc, quote)) {
     return sanitizeReply(pc.proposed_luna_reply, fallbackCtx, pc && pc.payment_choice);
   }

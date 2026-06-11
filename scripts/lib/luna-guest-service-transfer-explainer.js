@@ -56,6 +56,12 @@ function detectTransferSideQuestionIntent(text) {
   if (/\b(?:Santander|Bilbao|SDR|BIO)\b/i.test(t) && /\b(?:flight|fly|arrive|arrival|land)\b/i.test(t)) {
     return 'transfer_general';
   }
+  if (/\b(?:bus\s+station|estaci[oó]n\s+de\s+autobuses|stazione\s+(?:dei|degli?\s+)?autobus)\b/i.test(t)) {
+    return 'transfer_general';
+  }
+  if (/\b(?:flight\s+(?:is\s+)?(?:delayed|late)|delayed\s+flight|late\s+arrival|arriv(?:e|ing)\s+(?:late|around|after))\b/i.test(t)) {
+    return 'transfer_general';
+  }
   return null;
 }
 
@@ -152,6 +158,30 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
   const guests = Number(opts.guestCount) || 0;
   const hasPackage = isPackageBooking(pkg);
   const t = String(messageText || '');
+
+  if (/\b(?:bus\s+station|estaci[oó]n\s+de\s+autobuses|stazione\s+(?:dei|degli?\s+)?autobus)\b/i.test(t)) {
+    const map = {
+      en: 'We usually don\'t do bus-station transfers — but we can pick everyone up together from the airport instead 😊 Share your flight details?',
+      it: 'Di solito non facciamo transfer dalla stazione degli autobus — ma possiamo venire a prendervi tutti insieme in aeroporto 😊 Mandami i dettagli del volo?',
+      es: 'Normalmente no hacemos transfers desde la estación de autobuses — pero podemos recogeros juntos en el aeropuerto 😊 ¿Me pasas los detalles del vuelo?',
+      de: 'Vom Busbahnhof holen wir normalerweise nicht ab — aber wir können euch gemeinsam am Flughafen abholen 😊 Schick mir deine Flugdetails?',
+      fr: 'On ne fait en général pas de transfert depuis la gare routière — mais on peut vous récupérer ensemble à l’aéroport 😊 Partagez vos infos de vol ?',
+    };
+    return map[L] || map.en;
+  }
+
+  if (/\b(?:flight\s+(?:is\s+)?(?:delayed|late)|delayed\s+flight|late\s+arrival|arriv(?:e|ing)\s+(?:late|around|after))\b/i.test(t)
+    && !/\b(?:Bilbao|BIO)\b/i.test(t)) {
+    const map = {
+      en: 'No stress if your flight shifts or you arrive late — send your updated arrival time and we\'ll sort pickup 👍',
+      it: 'Nessun stress se il volo cambia o arrivi tardi — mandami l\'orario aggiornato e organizziamo il pickup 👍',
+      es: 'Sin estrés si el vuelo cambia o llegas tarde — mándame la hora actualizada y organizamos la recogida 👍',
+      de: 'Kein Stress bei Flugverspätung oder später Ankunft — schick mir die aktuelle Ankunftszeit und wir klären den Pickup 👍',
+      fr: 'Pas de stress si votre vol change ou si vous arrivez tard — envoyez l’heure mise à jour et on organise le pickup 👍',
+    };
+    return map[L] || map.en;
+  }
+
   const mentionsBilbao = /\bbilbao\b|\bBIO\b/i.test(t);
   const mentionsSantander = /\bsantander\b|\bSDR\b/i.test(t);
 

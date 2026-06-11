@@ -41,15 +41,48 @@ const WELCOME_POOL_KEYS = Object.freeze({
 
 const OPENER_PATTERNS = [
   /^yesss[,\s!—-]*/i,
+  /^good news[,\s!—-]*/i,
   /^heyyy[,\s!—-]*/i,
   /^hey[,\s!—-]*/i,
   /^perfect[,\s!—-]*/i,
   /^nice[,\s!—-]*/i,
   /^super[,\s!—-]*/i,
   /^got it[,\s!—-]*/i,
+  /^ciao[,\s!—-]*/i,
   /^holaaa[,\s!—-]*/i,
   /^ciaooo[,\s!—-]*/i,
   /^genial[,\s!—-]*/i,
+];
+
+const CLOSER_ENDING_PATTERNS = [
+  /\ba domani!?\b/i,
+  /\btalk soon\b/i,
+  /\bsee you soon\b/i,
+  /\bun abbraccio\b/i,
+  /\bbacioni\b/i,
+  /\bgood night\b/i,
+  /\bhere if you need\b/i,
+  /\bcan't wait to welcome\b/i,
+];
+
+const ITALIAN_WARMTH_CLOSER_RE = /\b(a domani|un abbraccio|bacioni|come preferite)\b/i;
+
+const PAYMENT_TRANSACTIONAL_STATES = new Set([
+  'ask_payment_choice',
+  'payment_choice_ack',
+  'answer_arrival_payment_question',
+]);
+
+const REPLY_NEXT_STEP_PATTERNS = [
+  /\?/,
+  /\blet me know\b/i,
+  /\bteam will\b/i,
+  /\bwhen you(?:'|')?re ready\b/i,
+  /\bfollow up\b/i,
+  /\bdeposit or full\b/i,
+  /\bwould you (?:rather|prefer)\b/i,
+  /\bwhat dates\b/i,
+  /\bhow many guests\b/i,
 ];
 
 const PAYMENT_PROMPT_PATTERNS = [
@@ -110,9 +143,33 @@ function extractPaymentPromptSignature(text) {
   if (/deposit.*full|full.*deposit/.test(t)) {
     if (/hold the spot/.test(t)) return 'hold_spot_deposit_full';
     if (/would you rather/.test(t)) return 'would_rather_deposit_full';
+    if (/whatever's easier/.test(t)) return 'whatever_easier_deposit_full';
     return 'deposit_or_full';
   }
   return null;
+}
+
+function hasReplyQuestionOrNextStep(text) {
+  const t = trimStr(text);
+  if (!t) return false;
+  return REPLY_NEXT_STEP_PATTERNS.some((re) => re.test(t));
+}
+
+function hasCloserEnding(text) {
+  return CLOSER_ENDING_PATTERNS.some((re) => re.test(text));
+}
+
+function extractCloserSignature(text) {
+  const lastLine = trimStr(text).split('\n').pop() || '';
+  const lower = lastLine.toLowerCase();
+  for (const re of CLOSER_ENDING_PATTERNS) {
+    if (re.test(lower)) return lower.match(re)[0].toLowerCase();
+  }
+  return lower.length <= 36 ? lower : null;
+}
+
+function containsItalianWarmth(text) {
+  return ITALIAN_WARMTH_CLOSER_RE.test(text);
 }
 
 function buildVariationContext(input) {
@@ -126,6 +183,8 @@ function buildVariationContext(input) {
     turnIndex: Number(history.turn_count || 0),
     usedOpeners: Array.isArray(history.openers) ? history.openers.slice() : [],
     usedPaymentPrompts: Array.isArray(history.payment_prompts) ? history.payment_prompts.slice() : [],
+    usedClosers: Array.isArray(history.closers) ? history.closers.slice() : [],
+    italianWarmthUsed: history.italian_warmth_used === true,
     usedPhrases: Array.isArray(history.phrases) ? history.phrases.slice() : [],
     priorReplies: Array.isArray(history.replies) ? history.replies.slice(-5) : [],
   };
@@ -204,6 +263,7 @@ function recordCamiPhraseUsage(history, reply, composerState) {
 
   const openers = Array.isArray(h.openers) ? h.openers.slice() : [];
   const paymentPrompts = Array.isArray(h.payment_prompts) ? h.payment_prompts.slice() : [];
+  const closers = Array.isArray(h.closers) ? h.closers.slice() : [];
   const phrases = Array.isArray(h.phrases) ? h.phrases.slice() : [];
   const replies = Array.isArray(h.replies) ? h.replies.slice() : [];
 
@@ -214,6 +274,12 @@ function recordCamiPhraseUsage(history, reply, composerState) {
   const paySig = extractPaymentPromptSignature(text);
   if (paySig && !paymentPrompts.includes(paySig)) paymentPrompts.push(paySig);
   if (paymentPrompts.length > 6) paymentPrompts.splice(0, paymentPrompts.length - 6);
+
+  const closerSig = extractCloserSignature(text);
+  if (closerSig && !closers.includes(closerSig)) closers.push(closerSig);
+  if (closers.length > 6) closers.splice(0, closers.length - 6);
+
+  const italianWarmthUsed = h.italian_warmth_used === true || containsItalianWarmth(text);
 
   const snippet = text.slice(0, 80).toLowerCase();
   if (snippet && !phrases.includes(snippet)) phrases.push(snippet);
@@ -227,9 +293,57 @@ function recordCamiPhraseUsage(history, reply, composerState) {
     last_composer_state: composerState || h.last_composer_state || null,
     openers,
     payment_prompts: paymentPrompts,
+    closers,
+    italian_warmth_used: italianWarmthUsed,
     phrases,
     replies,
   };
+}
+
+function appendCamiCloser(reply, opts) {
+  const text = trimStr(reply);
+  if (!text || hasReplyQuestionOrNextStep(text) || hasCloserEnding(text)) return text;
+
+  const clientSlug = opts && opts.clientSlug;
+  const lang = normalizeLang(opts && opts.lang);
+  const composerState = opts && opts.composerState;
+  const variationCtx = opts && opts.variationCtx;
+  const behavior = loadCamiBehavior(clientSlug);
+  const closers = getVariationPool(behavior, lang, 'closers');
+  if (!closers || !closers.length) return text;
+
+  const paymentTransactional = PAYMENT_TRANSACTIONAL_STATES.has(composerState);
+  const italianCap = lang !== 'it' && variationCtx && variationCtx.italianWarmthUsed;
+
+  let candidates = closers.filter((variant) => {
+    if (paymentTransactional && ITALIAN_WARMTH_CLOSER_RE.test(variant)) return false;
+    if (/\bbacioni\b/i.test(variant) && paymentTransactional) return false;
+    if (italianCap && ITALIAN_WARMTH_CLOSER_RE.test(variant)) return false;
+    const sig = extractCloserSignature(variant);
+    if (sig && variationCtx && variationCtx.usedClosers && variationCtx.usedClosers.includes(sig)) return false;
+    return true;
+  });
+
+  if (!candidates.length) {
+    candidates = closers.filter((variant) => {
+      if (paymentTransactional && ITALIAN_WARMTH_CLOSER_RE.test(variant)) return false;
+      if (italianCap && ITALIAN_WARMTH_CLOSER_RE.test(variant)) return false;
+      return true;
+    });
+  }
+  if (!candidates.length) {
+    candidates = ['Talk soon ☀️', 'See you soon 🌊'];
+  }
+
+  const picked = pickCamiVariant({
+    variants: candidates,
+    seed: `${(variationCtx && variationCtx.seed) || 'cami'}:closers:${(variationCtx && variationCtx.turnIndex) || 0}`,
+    turnIndex: variationCtx && variationCtx.turnIndex,
+    lang,
+    poolKey: 'closers',
+  });
+  if (!picked) return text;
+  return `${text}\n\n${picked}`;
 }
 
 function applyCamiReplyVariation(reply, opts) {
@@ -261,6 +375,8 @@ function applyCamiReplyVariation(reply, opts) {
     }
   }
 
+  out = appendCamiCloser(out, opts);
+
   return out;
 }
 
@@ -278,6 +394,10 @@ module.exports = {
   getVariationPool,
   extractOpener,
   extractPaymentPromptSignature,
+  extractCloserSignature,
+  hasCloserEnding,
+  hasReplyQuestionOrNextStep,
+  appendCamiCloser,
   buildVariationContext,
   pickCamiVariant,
   resolveCamiTemplate,

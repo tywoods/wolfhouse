@@ -24,15 +24,18 @@
     {
       "message": "The payment link doesn't work",
       "expect": {
-        "reply_contains": ["payment"],
+        "expected_message_lane": "payment_question",
+        "expected_reply_source": "router",
+        "reply_contains": ["team will send", "link"],
+        "reply_not_contains": ["confirmed", "payment received", "you're confirmed", "booking is held", "process payment automatically"],
         "no_fake_confirmation": true,
-        "min_cami_score": 40,
-        "allow_partial": true
+        "no_italian_payment_closer": true,
+        "min_cami_score": 55
       }
     }
   ],
   "final_expect": {
-    "no_internal_language": false,
-    "min_avg_cami_score": 40
+    "no_internal_language": true,
+    "min_avg_cami_score": 55
   }
 }

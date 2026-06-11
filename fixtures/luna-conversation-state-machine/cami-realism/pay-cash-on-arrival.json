@@ -1,9 +1,9 @@
 {
-  "id": "i-already-paid",
+  "id": "pay-cash-on-arrival",
   "fixture_set": "cami-realism",
   "language": "en",
-  "label": "Guest claims already paid during payment choice",
-  "contact_name": "Chris",
+  "label": "Guest asks to pay cash on arrival after quote",
+  "contact_name": "Jordan",
   "reference_date": "2026-06-10",
   "turns": [
     {
@@ -15,17 +15,15 @@
     },
     {
       "message": "no thanks",
-      "expect": { "expected_no_handoff": true, "expected_quote_ready": true }
+      "expect": { "expected_quote_ready": true }
     },
     {
-      "message": "I paid already",
+      "message": "Can I pay cash when I arrive?",
       "expect": {
         "expected_message_lane": "payment_question",
-        "expected_reply_source": "router",
-        "reply_contains": ["can't confirm payment", "team will check"],
-        "reply_not_contains": ["confirmed", "payment received", "you're confirmed", "deposit is in", "Would you prefer to pay the deposit"],
+        "reply_contains": ["arrival", "deposit", "hold"],
+        "reply_not_contains": ["confirmed", "payment received", "you're confirmed", "booking is held"],
         "no_fake_confirmation": true,
-        "no_internal_language": true,
         "no_italian_payment_closer": true,
         "min_cami_score": 55
       }
