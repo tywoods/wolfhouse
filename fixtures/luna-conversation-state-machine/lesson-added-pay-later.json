@@ -1,0 +1,37 @@
+{
+  "id": "lesson-added-pay-later",
+  "label": "Surf lesson added with optional checkout payment",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "hygiene_window": {
+    "check_in": "2026-07-01",
+    "check_out": "2026-07-05"
+  },
+  "turns": [
+    {
+      "message": "July 1-5 for 1",
+      "expect": {
+        "expected_quote_ready": true,
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "one surf lesson please",
+      "expect": {
+        "expected_composer_state": "ask_payment_choice",
+        "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer",
+        "reply_contains": ["lesson", "checkout", "deposit"],
+        "reply_not_contains": ["already paid", "payment received", "08:30", "exact lesson group at"]
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
+    "no_handoff": true,
+    "expected_quote_ready": true
+  }
+}

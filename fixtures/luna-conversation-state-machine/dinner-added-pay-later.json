@@ -1,0 +1,46 @@
+{
+  "id": "dinner-added-pay-later",
+  "label": "Dinner request recorded with optional checkout payment",
+  "contact_name": "Marco",
+  "reference_date": "2026-06-10",
+  "hygiene_window": {
+    "check_in": "2026-07-10",
+    "check_out": "2026-07-17"
+  },
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 1",
+      "expect": {
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "expected_fields": {
+          "package_interest": "malibu"
+        }
+      }
+    },
+    {
+      "message": "just the stay",
+      "expect": {
+        "reply_contains": ["deposit"],
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "Can I book dinner?",
+      "expect": {
+        "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer",
+        "reply_contains": ["dinner", "checkout"],
+        "reply_not_contains": ["already paid", "payment received", "I am not adding"]
+      }
+    }
+  ],
+  "final_expect": {
+    "confirmation_sent": false,
+    "no_internal_language": true,
+    "no_form_dev_copy": true,
+    "expected_final_reply_source": "luna_reply_composer",
+    "no_handoff": true,
+    "expected_quote_ready": true
+  }
+}

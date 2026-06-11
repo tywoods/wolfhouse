@@ -13,6 +13,7 @@ const path = require('path');
 
 const { formatStayRange, formatGuestPhrase } = require('./wolfhouse-package-night-rules');
 const { quoteAwaitingAddonsDecision } = require('./luna-booking-addons-policy');
+const { buildReactiveServiceConfirmationCopy } = require('./luna-guest-addon-service-confirmation-policy');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 const PRICING_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
@@ -295,6 +296,11 @@ function buildReactiveReturnTail(fields, lang, quote) {
 }
 
 function buildReactiveYogaReply(lang, fields, quote) {
+  const cami = buildReactiveServiceConfirmationCopy(lang, 'yoga', fields);
+  if (cami) {
+    const tail = buildReactiveReturnTail(fields, lang, quote);
+    return tail ? `${cami} ${tail}` : cami;
+  }
   const req = fields.yoga_request || {};
   const L = trimStr(lang).slice(0, 2) || 'en';
   const opening = L === 'de'
@@ -305,6 +311,11 @@ function buildReactiveYogaReply(lang, fields, quote) {
 }
 
 function buildReactiveMealsReply(lang, fields, quote) {
+  const cami = buildReactiveServiceConfirmationCopy(lang, 'meals', fields);
+  if (cami) {
+    const tail = buildReactiveReturnTail(fields, lang, quote);
+    return tail ? `${cami} ${tail}` : cami;
+  }
   const req = fields.meals_request || {};
   const L = trimStr(lang).slice(0, 2) || 'en';
   const mealLabel = req.meal_type === 'breakfast' ? 'breakfast'

@@ -54,6 +54,10 @@ const {
   resolveGuestPaymentLinkUrl,
   buildPaymentLinkObservability,
 } = require('./luna-payment-short-link');
+const {
+  buildAddonPaymentChoiceReply,
+  buildAddonServiceObservability,
+} = require('./luna-guest-addon-service-confirmation-policy');
 
 const COMPOSER_STATES = Object.freeze([
   'greeting',
@@ -883,6 +887,17 @@ function buildReplyForState(state, ctx) {
       if (P && P.addons_none) return P.addons_none({ deposit, total });
       return L.addons_none();
     case 'ask_payment_choice':
+      {
+        const addonReply = buildAddonPaymentChoiceReply({
+          lang,
+          fields,
+          quote,
+          client_slug: clientSlug,
+          deposit,
+          total,
+        });
+        if (addonReply) return addonReply;
+      }
       if (isDateCorrection(result)) {
         return buildDateCorrectionPaymentReply(fields, quote, plan, pc)
           || (P && P.ask_payment_choice && P.ask_payment_choice(buildPaymentChoicePersonalityCtx(fields, lang, total, deposit)))
@@ -1082,6 +1097,7 @@ function composeLunaGuestReply(input) {
       stripe_checkout_url: stripe && stripe.stripe_checkout_url,
       stripe_checkout_session_id: stripe && stripe.stripe_checkout_session_id,
     }),
+    ...buildAddonServiceObservability(fields, quote, clientSlug),
   };
 }
 

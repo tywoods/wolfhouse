@@ -20,9 +20,9 @@ const {
   EXECUTE_HOLD_STATUSES,
 } = require('./main-booking-hold-pg-sql');
 const {
-  attachPendingManualGuestServices,
-  mergePendingServiceAttachContext,
-} = require('./luna-guest-pending-service-attach');
+  attachAllGuestAddonServices,
+} = require('./luna-guest-addon-service-attach');
+const { mergePendingServiceAttachContext } = require('./luna-guest-pending-service-attach');
 
 const HOLD_EXPIRES_IN_HOURS = 6;
 const DEFAULT_CLIENT = 'wolfhouse-somo';
@@ -273,13 +273,14 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
 
   const existing = await lookupExistingHoldPaymentDraft(pg, clientSlug, idempotencyKey);
   if (existing && existing.booking) {
-    const attach = await attachPendingManualGuestServices(pg, {
+    const attach = await attachAllGuestAddonServices(pg, {
       clientSlug,
       bookingId: existing.booking.booking_id,
       bookingCode: existing.booking.booking_code,
       guestName,
       extractedFields: attachFields,
       resultContext: chain.result,
+      quote,
     });
     return { reused: existing, ...attach };
   }
@@ -417,13 +418,14 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
 
     await pg.query('COMMIT');
 
-    const attach = await attachPendingManualGuestServices(pg, {
+    const attach = await attachAllGuestAddonServices(pg, {
       clientSlug,
       bookingId,
       bookingCode: holdOutcome.booking.booking_code,
       guestName,
       extractedFields: attachFields,
       resultContext: chain.result,
+      quote,
     });
 
     return {

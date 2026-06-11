@@ -281,6 +281,7 @@
     "verify:stage37a-cami-personality-config": "node scripts/verify-stage37a-cami-personality-config.js",
     "verify:stage37b-welcome-confirmation-copy": "node scripts/verify-stage37b-welcome-confirmation-copy.js",
     "verify:stage37c-short-payment-links": "node scripts/verify-stage37c-short-payment-links.js",
+    "verify:stage38a-addon-service-confirmation-payment-ux": "node scripts/verify-stage38a-addon-service-confirmation-payment-ux.js",
     "verify:stage29room-a-real-room-bed-seed": "node scripts/verify-stage29room-a-real-room-bed-seed.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
