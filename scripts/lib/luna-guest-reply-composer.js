@@ -50,6 +50,11 @@ const {
   buildWelcomeReply,
 } = require('./luna-guest-personality-config');
 const {
+  buildVariationContext,
+  applyCamiReplyVariation,
+  recordCamiPhraseUsage,
+} = require('./luna-guest-cami-reply-variation');
+const {
   buildPaymentShortLink,
   resolveGuestPaymentLinkUrl,
   buildPaymentLinkObservability,
@@ -674,6 +679,10 @@ function buildReplyForState(state, ctx) {
   const packageName = trimStr(fields.package_interest || fields.package_code);
   const paid = formatEur(facts && facts.amount_paid_cents);
   const balance = formatEur(facts && facts.balance_due_cents);
+  const variationInput = {
+    prior_guest_context: priorGuestContext,
+    variation_seed: priorGuestContext && priorGuestContext.guest_phone,
+  };
 
   const en = {
     greeting: `${LUNA_IDENTITY.intro_short}\nAre you looking to book a stay, or just checking some info?`,
@@ -796,7 +805,7 @@ function buildReplyForState(state, ctx) {
   };
 
   const personalityLex = clientSlug
-    ? buildPersonalityReplyLexicon(clientSlug, lang)
+    ? buildPersonalityReplyLexicon(clientSlug, lang, null, variationInput)
     : null;
   const welcomeCtx = ctx.welcomeCtx || {};
   const L = en;
@@ -805,7 +814,7 @@ function buildReplyForState(state, ctx) {
   switch (state) {
     case 'greeting': {
       const welcome = clientSlug
-        ? buildWelcomeReply(clientSlug, lang, welcomeCtx)
+        ? buildWelcomeReply(clientSlug, lang, welcomeCtx, variationInput)
         : null;
       return welcome || (P && P.greeting) || L.greeting;
     }
@@ -1125,6 +1134,22 @@ function composeLunaGuestReply(input) {
     payload,
   });
 
+  const variationCtx = buildVariationContext({
+    prior_guest_context: input && input.prior_guest_context,
+    guest_phone: input && input.guest_phone,
+  });
+  reply = applyCamiReplyVariation(reply, {
+    clientSlug,
+    lang: langOf(result),
+    composerState: state,
+    variationCtx,
+  });
+  const camiVariationHistory = recordCamiPhraseUsage(
+    (input && input.prior_guest_context && input.prior_guest_context.cami_variation_history) || {},
+    reply,
+    state,
+  );
+
   reply = sanitizeComposerReply(reply);
   if (!reply) {
     return {
@@ -1144,6 +1169,7 @@ function composeLunaGuestReply(input) {
     covered: true,
     next_guest_question: nextGuestQuestionForState(state),
     safety_flags: { ...COMPOSER_SAFETY },
+    cami_variation_history: camiVariationHistory,
     quote_facts_used_by_composer: extractQuoteFactsFromPayload(payload),
     personality_id: (() => {
       if (!clientSlug) return 'luna_safe';

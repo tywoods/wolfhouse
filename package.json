@@ -293,6 +293,7 @@
     "verify:stage40e-final-hammer-cleanup": "node scripts/verify-stage40e-final-hammer-cleanup.js",
     "verify:stage41a-somo-knowledge-config": "node scripts/verify-stage41a-somo-knowledge-config.js",
     "verify:stage41b-multilingual-faq-knowledge": "node scripts/verify-stage41b-multilingual-faq-knowledge.js",
+    "verify:stage42a-cami-behavior-realism": "node scripts/verify-stage42a-cami-behavior-realism.js",
     "verify:stage43a-client-facing-surf-report": "node scripts/verify-stage43a-client-facing-surf-report.js",
     "proof:stage43b-hosted-surf-report": "node scripts/run-stage43b-hosted-surf-report-proof.js",
     "verify:stage43b-hosted-surf-report-proof": "node scripts/verify-stage43b-hosted-surf-report-proof.js",

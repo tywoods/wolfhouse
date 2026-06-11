@@ -1,0 +1,65 @@
+{
+  "id": "repeated-flow-no-template-feel",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Multi-turn flow should not feel templated",
+  "contact_name": "Flow",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "hi",
+      "expect": {
+        "reply_contains": ["Wolfhouse"],
+        "min_cami_score": 55,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "July 1-5 for 1",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_guest_count": 1,
+        "min_cami_score": 50,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "no thanks",
+      "expect": {
+        "expected_quote_ready": true,
+        "min_cami_score": 50,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "can I pay cash?",
+      "expect": {
+        "reply_contains": ["cash"],
+        "expected_context_preserved": true,
+        "min_cami_score": 50,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "min_cami_score": 50,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 1
+    },
+    "expected_payment_choice": "deposit",
+    "expected_quote_ready": true,
+    "no_handoff": true,
+    "no_internal_language": true,
+    "min_avg_cami_score": 55,
+    "max_same_opener_count": 2
+  }
+}

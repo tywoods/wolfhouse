@@ -1,0 +1,26 @@
+{
+  "id": "friend-arrives-later",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Two guests with staggered arrival",
+  "contact_name": "Alex",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "We are 2 but my friend arrives one day later",
+      "expect": {
+        "expected_guest_count": 2,
+        "expected_no_handoff": true,
+        "no_fake_confirmation": true,
+        "no_internal_language": true,
+        "min_cami_score": 50,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": { "guest_count": 2 },
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

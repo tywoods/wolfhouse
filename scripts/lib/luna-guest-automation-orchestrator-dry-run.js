@@ -1143,6 +1143,9 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       booking_flow_stage: policySnapshot.booking_flow_stage,
       next_required_field: policySnapshot.next_required_field,
     }),
+    cami_variation_history: composed && composed.cami_variation_history
+      ? composed.cami_variation_history
+      : (chainGuestContext && chainGuestContext.cami_variation_history) || undefined,
   };
 
   return buildOrchestratorResponse({

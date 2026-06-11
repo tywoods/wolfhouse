@@ -1,0 +1,26 @@
+{
+  "id": "unsure-package-choice",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Guest unsure between Malibu and accommodation only",
+  "contact_name": "Sam",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Hmm not sure if Malibu or just stay, what do you think?",
+      "expect": {
+        "reply_contains": ["dates"],
+        "reply_not_contains": ["you must choose", "pick one now"],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "min_cami_score": 50,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true,
+    "min_avg_cami_score": 50
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "id": "beginners-welcome",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Total beginner reassurance mid-booking",
+  "contact_name": "Newbie",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 1-5 for 1",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_guest_count": 1,
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "I'm a total beginner, is that okay?",
+      "expect": {
+        "reply_contains": ["Wolfhouse"],
+        "reply_not_contains": ["dangerous", "not safe", "cannot surf"],
+        "no_internal_language": true,
+        "min_cami_score": 55,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true,
+    "min_avg_cami_score": 55
+  }
+}

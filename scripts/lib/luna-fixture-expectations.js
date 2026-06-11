@@ -17,6 +17,9 @@ const PARTIAL_FAILURE_PATTERNS = [
   /expected_reply_source/i,
   /expected_composer_state/i,
   /composer tone/i,
+  /min_cami_score/i,
+  /min_avg_cami_score/i,
+  /max_same_opener_count/i,
 ];
 
 const FAILURE_CATEGORY_RULES = [
@@ -60,12 +63,14 @@ function checkObjectSubset(expected, actual, label) {
   return failures;
 }
 
-function checkTurnExpectations(expect, out) {
+function checkTurnExpectations(expect, out, extras) {
   const failures = [];
   if (!expect || typeof expect !== 'object') return failures;
   const reply = String(out.proposed_luna_reply || (out.result && out.result.proposed_luna_reply) || '');
   const fields = (out.result && out.result.extracted_fields) || {};
   const policy = (out.result && out.result.booking_intake_policy) || {};
+  const tone = extras && extras.tone;
+  const priorReplies = (extras && extras.priorReplies) || [];
 
   if (Array.isArray(expect.reply_contains)) {
     for (const needle of expect.reply_contains) {
@@ -197,6 +202,26 @@ function checkTurnExpectations(expect, out) {
   }
   if (expect.no_form_dev_copy === true && isFormDevCopy(reply)) {
     failures.push('form/dev copy detected in reply');
+  }
+  if (expect.min_cami_score != null) {
+    const score = tone && tone.cami_score != null
+      ? tone.cami_score
+      : (() => {
+        try {
+          const { judgeCamiTone } = require('./luna-cami-tone-judge');
+          return judgeCamiTone(reply, { priorReplies }).cami_score;
+        } catch (_) {
+          return 0;
+        }
+      })();
+    if (score < Number(expect.min_cami_score)) {
+      failures.push(`min_cami_score ${expect.min_cami_score} got ${score}`);
+    }
+  }
+  if (expect.no_fake_confirmation === true) {
+    if (/\b(?:you(?:'|')?re confirmed|booking is confirmed|payment received|your booking is held)\b/i.test(reply)) {
+      failures.push('no_fake_confirmation but confirmation/hold language found');
+    }
   }
   if (expect.expected_reply_source != null) {
     const src = (out.result && out.result.conversation_brain && out.result.conversation_brain.final_reply_source);

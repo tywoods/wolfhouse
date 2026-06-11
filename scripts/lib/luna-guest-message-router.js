@@ -527,7 +527,7 @@ function detectPaymentQuestionKind(text) {
   if (/\b(?:already paid|i(?:'|’)?ve paid|have paid|i paid|ya pagu[eé]|gi[aà] pagato|j'ai d[eé]j[aà] pay[eé]|bereits bezahlt|schon bezahlt)\b/i.test(t)) {
     return 'already_paid_claim';
   }
-  if (/\b(?:payment failed|payment didn't go through|card declined|transaction failed|pago fallido|pagamento fallito|paiement [eé]chou[eé]|zahlung fehlgeschlagen)\b/i.test(t)) {
+  if (/\b(?:payment failed|payment didn't go through|payment link(?:'|')?s? (?:doesn(?:'|')?t|does not|won't) work|link doesn(?:'|')?t work|link not working|broken (?:payment )?link|card declined|transaction failed|pago fallido|pagamento fallito|paiement [eé]chou[eé]|zahlung fehlgeschlagen)\b/i.test(t)) {
     return 'payment_failed';
   }
   if (/\b(?:do i need to pay (?:a )?deposit|need to pay (?:a )?deposit|deposit required)\b/i.test(t)) {

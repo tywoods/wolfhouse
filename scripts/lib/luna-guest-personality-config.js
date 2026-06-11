@@ -9,6 +9,11 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  buildVariationContext,
+  resolveCamiTemplate,
+  resolveCamiWelcomeTemplate,
+} = require('./luna-guest-cami-reply-variation');
 
 const CONFIG_DIR = path.join(__dirname, '..', '..', 'config', 'clients');
 const CACHE = new Map();
@@ -99,7 +104,7 @@ function interpolateTemplate(template, vars) {
 /**
  * Build composer lexicon hooks for a client/lang. Returns null → use default safe Luna copy.
  */
-function buildPersonalityReplyLexicon(clientSlug, lang, formatters) {
+function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInput) {
   const resolved = resolveActivePersonality(clientSlug);
   if (!resolved.personality || resolved.active_personality_id === 'luna_safe') {
     return null;
@@ -109,13 +114,21 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters) {
   if (!tpl) return null;
 
   const fmt = formatters || {};
+  const variationCtx = buildVariationContext(variationInput || {});
   const introShort = tpl.intro_short
     || `Hey! I'm ${resolved.assistant_name} from Wolfhouse 🌊`;
 
-  function t(key, vars) {
+  function t(key, vars, poolKey) {
     const base = tpl[key];
-    if (!base) return null;
-    return interpolateTemplate(base, { intro_short: introShort, ...(vars || {}) });
+    if (!base && !poolKey) return null;
+    return resolveCamiTemplate(
+      clientSlug,
+      lang,
+      poolKey || key,
+      base,
+      { intro_short: introShort, ...(vars || {}) },
+      variationCtx,
+    );
   }
 
   return {
@@ -132,13 +145,14 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters) {
       if (!total) return null;
       const parts = [];
       if (availOk !== false) {
-        const head = t('accommodation_quote_available', { total, range, guests });
+        const head = t('accommodation_quote_available', { total, range, guests }, 'quote_ready');
         if (head) parts.push(head);
         else parts.push(`Yesss, good news — we have space for those dates ☀️ The stay comes to ${total}.`);
       } else {
         parts.push(`The stay comes to ${total}.`);
       }
-      const tail = t('accommodation_quote_addons_tail') || 'Do you need a wetsuit, board, or lessons too, or just the stay?';
+      const tail = t('accommodation_quote_addons_tail', {}, 'addons_question')
+        || 'Do you need a wetsuit, board, or lessons too, or just the stay?';
       parts.push(tail);
       return parts.join('\n\n');
     },
@@ -150,14 +164,15 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters) {
         total,
         package_label: packageLabel,
         date_avail: dateAvail,
-      });
+      }, 'quote_ready');
       if (head) parts.push(head);
       if (awaitingAddons) {
-        const tail = t('accommodation_quote_addons_tail') || 'Do you need a wetsuit, board, or lessons too, or just the stay?';
+        const tail = t('accommodation_quote_addons_tail', {}, 'addons_question')
+          || 'Do you need a wetsuit, board, or lessons too, or just the stay?';
         parts.push(tail);
         return parts.join('\n\n');
       }
-      const payTail = t('package_quote_payment_tail', { deposit, total })
+      const payTail = t('package_quote_payment_tail', { deposit, total }, 'payment_choice_prompt')
         || `Would you rather pay the ${deposit} deposit or the full ${total}?`;
       parts.push(payTail);
       return parts.join('\n\n');
@@ -167,9 +182,11 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters) {
       if (!deposit || !total) return null;
       const note = manualNote || '';
       if (hasCollectedAddons) {
-        return (t('ask_payment_choice_with_extras', { deposit, total }) || `Got it — I've noted those extras 😊${note}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`);
+        return (t('ask_payment_choice_with_extras', { deposit, total }, 'service_added')
+          || `Got it — I've noted those extras 😊${note}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`);
       }
-      return (t('ask_payment_choice_accommodation_only', { deposit, total }) || `Perfect — just the stay then 😊${note}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`);
+      return (t('ask_payment_choice_accommodation_only', { deposit, total }, 'addons_declined')
+        || `Perfect — just the stay then 😊${note}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`);
     },
     answer_arrival_payment_question: (ctx) => {
       const { deposit, total } = ctx;
@@ -177,13 +194,13 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters) {
         return t('answer_arrival_payment_question_no_amounts')
           || 'Yes — the rest can be paid on arrival by cash, bank transfer, or Stripe 😊 To hold the spot, we still need a deposit or full payment now.';
       }
-      return t('answer_arrival_payment_question', { deposit, total })
+      return t('answer_arrival_payment_question', { deposit, total }, 'cash_side_question')
         || `Yes — the rest can be paid on arrival by cash, bank transfer, or Stripe 😊 To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
     addons_none: (ctx) => {
       const { deposit, total } = ctx;
       if (!deposit || !total) return null;
-      return t('addons_none', { deposit, total })
+      return t('addons_none', { deposit, total }, 'addons_declined')
         || `Perfect — just the stay then 😊\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
     deposit_ack: t('deposit_ack') || null,
@@ -216,7 +233,7 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters) {
   };
 }
 
-function buildWelcomeReply(clientSlug, lang, ctx) {
+function buildWelcomeReply(clientSlug, lang, ctx, variationInput) {
   const resolved = resolveActivePersonality(clientSlug);
   if (!resolved.personality || resolved.active_personality_id === 'luna_safe') {
     return null;
@@ -228,31 +245,33 @@ function buildWelcomeReply(clientSlug, lang, ctx) {
   const introShort = tpl.intro_short
     || `Heyyy! I'm ${resolved.assistant_name} from Wolfhouse 🌊 So happy you're here!`;
   const c = ctx || {};
+  const variationCtx = buildVariationContext(variationInput || {});
 
   if (c.bookingInProgress && c.hasPriorContext) {
-    return interpolateTemplate(tpl.greeting_returning || tpl.greeting, { intro_short: introShort })
+    return resolveCamiWelcomeTemplate(clientSlug, lang, 'returning', tpl.greeting_returning || tpl.greeting, { intro_short: introShort }, variationCtx)
       || 'Hey again! 🌊 Still here for you — want to keep going with your booking or start fresh?';
   }
   if (c.bookingIntent) {
-    return interpolateTemplate(tpl.greeting_booking_intent || tpl.greeting, { intro_short: introShort })
+    return resolveCamiWelcomeTemplate(clientSlug, lang, 'booking_intent', tpl.greeting_booking_intent || tpl.greeting, { intro_short: introShort }, variationCtx)
       || 'Yesss, love that 🌊 What dates are you thinking for check-in and check-out?';
   }
   if (c.infoOnlyIntent) {
-    return interpolateTemplate(tpl.greeting_info_only || tpl.greeting, { intro_short: introShort })
+    return resolveCamiWelcomeTemplate(clientSlug, lang, 'info_only', tpl.greeting_info_only || tpl.greeting, { intro_short: introShort }, variationCtx)
       || `${introShort}\nHappy to help with packages, surf, or anything about Somo — what would you like to know?`;
   }
-  return interpolateTemplate(tpl.greeting_generic || tpl.greeting, { intro_short: introShort })
+  return resolveCamiWelcomeTemplate(clientSlug, lang, 'generic', tpl.greeting_generic || tpl.greeting, { intro_short: introShort }, variationCtx)
     || `${introShort}\nAre you looking to book a stay, ask about packages, or just check some info?`;
 }
 
-function buildPersonalityResetReply(clientSlug, lang) {
+function buildPersonalityResetReply(clientSlug, lang, variationInput) {
   const resolved = resolveActivePersonality(clientSlug);
   if (!resolved.personality) return null;
   const tpl = pickLangTemplates(resolved.personality, lang);
+  const variationCtx = buildVariationContext(variationInput || {});
   if (tpl && tpl.reset_start_over) {
-    return interpolateTemplate(tpl.reset_start_over, {
+    return resolveCamiTemplate(clientSlug, lang, 'reset_start_over', tpl.reset_start_over, {
       intro_short: tpl.intro_short || '',
-    });
+    }, variationCtx);
   }
   const samples = resolved.personality.sample_replies;
   if (samples && samples.reset_start_over) {

@@ -16,6 +16,8 @@ const {
   isHandoff,
   classifyFixtureResult,
 } = require('./luna-fixture-expectations');
+const { judgeCamiTone, aggregateCamiScores, topToneFlags } = require('./luna-cami-tone-judge');
+const { extractOpener } = require('./luna-guest-cami-reply-variation');
 
 const CLIENT_SLUG = 'wolfhouse-somo';
 const DEFAULT_REFERENCE_DATE = '2026-06-10';
@@ -29,6 +31,9 @@ const FIXTURE_SET_DIRS = Object.freeze({
   ),
   'generated-hammer-failures': path.join(
     __dirname, '..', '..', 'fixtures', 'luna-conversation-state-machine', 'generated-hammer-failures',
+  ),
+  'cami-realism': path.join(
+    __dirname, '..', '..', 'fixtures', 'luna-conversation-state-machine', 'cami-realism',
   ),
 });
 
@@ -59,6 +64,7 @@ function guestContextFromOrchestrator(out, contactName) {
     stale_quote_reason: r.result && r.result.stale_quote_reason,
     corrected_fields: r.result && r.result.corrected_fields,
     new_booking_reset: r.result && r.result.new_booking_reset,
+    cami_variation_history: r.result && r.result.cami_variation_history,
   }), contactName);
 }
 
@@ -139,12 +145,23 @@ async function runConversationFixture(fixture, opts, index) {
     }));
 
     const summary = buildTurnSummary(lastOut);
-    const turnFailures = turn.expect ? checkTurnExpectations(turn.expect, lastOut) : [];
+    const reply = String(lastOut.proposed_luna_reply || (lastOut.result && lastOut.result.proposed_luna_reply) || '');
+    const priorReplies = result.turns.map((t) => t.reply).filter(Boolean);
+    const tone = judgeCamiTone(reply, {
+      priorReplies,
+      hasPaymentTruth: !!(lastOut.result && lastOut.result.payment_confirmed),
+      paymentConfirmed: lastOut.payment_choice && lastOut.payment_choice.payment_choice_ready === true
+        && lastOut.quote && lastOut.quote.deposit_paid === true,
+    });
+    const turnFailures = turn.expect ? checkTurnExpectations(turn.expect, lastOut, { tone, priorReplies }) : [];
     const classified = classifyFixtureResult(turnFailures, turn.expect, lastOut);
 
     result.turns.push({
       turn: ti + 1,
       message,
+      reply,
+      cami_score: tone.cami_score,
+      cami_flags: tone.flags,
       ...summary,
       failures: turnFailures,
       turn_result: classified,
@@ -177,6 +194,31 @@ async function runConversationFixture(fixture, opts, index) {
     }
   }
 
+  const toneJudgments = result.turns.map((t) => ({
+    cami_score: t.cami_score,
+    flags: t.cami_flags,
+  }));
+  result.cami_score_summary = aggregateCamiScores(toneJudgments);
+  result.cami_top_flags = topToneFlags(toneJudgments, 5);
+
+  if (fixture.final_expect && fixture.final_expect.min_avg_cami_score != null) {
+    const minAvg = Number(fixture.final_expect.min_avg_cami_score);
+    if (result.cami_score_summary.average < minAvg) {
+      result.failures.push(`min_avg_cami_score ${minAvg} got ${result.cami_score_summary.average}`);
+      result.result = result.result === 'FAIL' ? 'FAIL' : 'PARTIAL';
+    }
+  }
+  if (fixture.final_expect && fixture.final_expect.max_same_opener_count != null) {
+    const openers = result.turns.map((t) => extractOpener(t.reply || '')).filter(Boolean);
+    const counts = new Map();
+    for (const o of openers) counts.set(o, (counts.get(o) || 0) + 1);
+    const maxSame = Math.max(0, ...counts.values());
+    if (maxSame > fixture.final_expect.max_same_opener_count) {
+      result.failures.push(`max_same_opener_count ${fixture.final_expect.max_same_opener_count} got ${maxSame}`);
+      if (result.result === 'PASS') result.result = 'PARTIAL';
+    }
+  }
+
   return { ...result, last_out: lastOut };
 }
 
@@ -206,6 +248,9 @@ async function runConversationFixtureSetAsBatch(opts) {
     partial: 0,
     flows: [],
     first_failure: null,
+    cami_score_average: null,
+    cami_top_flags: [],
+    business_fact_safety: 'PASS',
   };
 
   if (!opts.json) {
@@ -255,11 +300,29 @@ async function runConversationFixtureSetAsBatch(opts) {
 
   if (report.failed === 0 && report.partial > 0) report.result = 'PARTIAL';
 
+  if (fixtureSet === 'cami-realism') {
+    const allScores = report.flows.flatMap((f) => (f.turns || []).map((t) => t.cami_score).filter((s) => s != null));
+    report.cami_score_average = aggregateCamiScores(allScores.map((s) => ({ cami_score: s }))).average;
+    report.cami_top_flags = topToneFlags(
+      report.flows.flatMap((f) => (f.turns || []).map((t) => ({ flags: t.cami_flags || [] }))),
+      5,
+    );
+    const unsafe = report.flows.some((f) => (f.failures || []).some((x) => /fake_confirmation|internal language|payment truth/i.test(x)));
+    report.business_fact_safety = unsafe ? 'FAIL' : 'PASS';
+  }
+
   if (opts.json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
     console.log(`\n── Batch result: ${report.result} ──`);
     console.log(`Passed: ${report.passed} · Partial: ${report.partial} · Failed: ${report.failed} / ${report.total}`);
+    if (fixtureSet === 'cami-realism') {
+      console.log(`Cami score avg: ${report.cami_score_average != null ? report.cami_score_average : 'n/a'}`);
+      if (report.cami_top_flags && report.cami_top_flags.length) {
+        console.log(`Top tone flags: ${report.cami_top_flags.map((f) => `${f.flag}(${f.count})`).join(', ')}`);
+      }
+      console.log(`Business fact safety: ${report.business_fact_safety}`);
+    }
     if (report.first_failure) {
       console.log(`First failure: ${report.first_failure.flow_id} — ${report.first_failure.failures[0]}`);
     }

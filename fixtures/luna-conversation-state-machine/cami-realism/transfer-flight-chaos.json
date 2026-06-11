@@ -1,0 +1,37 @@
+{
+  "id": "transfer-flight-chaos",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Flight delayed — Bilbao instead of Santander",
+  "contact_name": "Riley",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 10-14 for 2",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-10", "check_out": "2026-07-14" },
+        "expected_guest_count": 2
+      }
+    },
+    {
+      "message": "My flight is delayed and now I arrive in Bilbao instead of Santander",
+      "expect": {
+        "reply_contains": ["transfer"],
+        "no_fake_confirmation": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "min_cami_score": 50,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-14",
+      "guest_count": 2
+    },
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "mixed-services-per-person",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Different services per guest",
+  "contact_name": "Jordan",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 8-12 for 2",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-08", "check_out": "2026-07-12" },
+        "expected_guest_count": 2,
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "Two of us need lessons, one only needs a board",
+      "expect": {
+        "reply_contains": ["lesson"],
+        "no_fake_confirmation": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "min_cami_score": 50,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-08",
+      "check_out": "2026-07-12",
+      "guest_count": 2
+    },
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

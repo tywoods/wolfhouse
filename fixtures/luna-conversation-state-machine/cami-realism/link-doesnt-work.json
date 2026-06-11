@@ -1,0 +1,38 @@
+{
+  "id": "link-doesnt-work",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "Payment link doesn't work after deposit choice",
+  "contact_name": "Taylor",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 1-5 for 1",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_guest_count": 1
+      }
+    },
+    {
+      "message": "no thanks",
+      "expect": { "expected_quote_ready": true }
+    },
+    {
+      "message": "deposit",
+      "expect": { "expected_payment_choice": "deposit" }
+    },
+    {
+      "message": "The payment link doesn't work",
+      "expect": {
+        "reply_contains": ["payment"],
+        "no_fake_confirmation": true,
+        "min_cami_score": 40,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": false,
+    "min_avg_cami_score": 40
+  }
+}
