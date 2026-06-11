@@ -31,6 +31,7 @@ const {
   buildBookingIntakePolicySnapshot,
   normalizeOutOfOrderBookingInfo,
   shouldDeferGuestCount,
+  extractGuestCountFromText,
   guestDeclinedAddons,
   paymentChoiceDeclinesPendingAddons,
   extractTransferInfo,
@@ -99,7 +100,7 @@ const ROUTER_SAFETY = {
   payment_link_sent: false,
 };
 
-const BOOKING_FIELD_PRIORITY = ['dates', 'guest_name', 'guest_count', 'package_interest'];
+const BOOKING_FIELD_PRIORITY = ['dates', 'guest_count', 'guest_name', 'package_interest'];
 
 const STAFF_HANDOFF_REASONS = new Set([
   'paid_cancellation_or_reschedule',
@@ -122,7 +123,7 @@ const REPLY_TEMPLATES = {
     ask_checkout: 'What check-out date are you thinking of?',
     ask_guests: 'How many guests will be staying?',
     ask_guest_name: 'Can I grab your name for the booking?',
-    ask_package: 'Are you interested in one of our packages (Malibu, Uluwatu, Waimea) or a custom stay without a package?',
+    ask_package: 'Are you looking for a surf package like Malibu, or just accommodation?',
     ask_package_ready: 'Great — which package are you interested in: Malibu, Uluwatu, or Waimea?',
     handoff: "Thanks for your message — I'm passing this to our team so they can help you properly. Someone from Wolfhouse will follow up soon.",
     ask_booking_code: 'Could you share your booking code or the name on the reservation so I can look this up with the team?',
@@ -404,6 +405,8 @@ function resolveActiveIntakeMissingField(ctx) {
 }
 
 function parseContinuationGuestCount(text) {
+  const fromPolicy = extractGuestCountFromText(text);
+  if (fromPolicy != null) return fromPolicy;
   const t = String(text || '').trim().toLowerCase();
   if (!t) return null;
   const bare = t.match(/^(\d{1,2})$/);
@@ -425,7 +428,9 @@ function isIntakeContinuationAnswer(text, activeField) {
   const t = String(text || '').trim();
   if (!t || !activeField) return false;
   if (activeField === 'guest_count') return parseContinuationGuestCount(t) != null;
-  if (activeField === 'guest_name') return parseGuestNameAnswer(t) != null;
+  if (activeField === 'guest_name') {
+    return parseContinuationGuestCount(t) != null || parseGuestNameAnswer(t) != null;
+  }
   if (activeField === 'dates') return hasExplicitDates(t);
   if (activeField === 'package_interest') {
     return /\b(?:malibu|uluwatu|waimea|accommodation\s+only|no\s+package|custom)\b/i.test(t);
@@ -447,7 +452,12 @@ function hasBookingCode(text) {
 }
 
 function detectNewStayBookingIntent(text) {
-  return /\b(?:want to book|would like to book|book(?:\s+(?:malibu|uluwatu|waimea|a room|accommodation))|looking to stay|vorremmo venire|voglio venire|quiero reservar|souhaite.*venir|möchte.*buchen|moechte.*buchen|nous\s+voulons\s+r[eé]server|nous\s+voulons\s+reserver)\b/i.test(String(text || ''));
+  return /\b(?:want to book|would like to book|book(?:\s+a)?\s+stay|book(?:\s+(?:malibu|uluwatu|waimea|a room|accommodation))|looking to stay|need\s+a?\s*room|vorremmo venire|voglio venire|quiero reservar|souhaite.*venir|möchte.*buchen|moechte.*buchen|nous\s+voulons\s+r[eé]server|nous\s+voulons\s+reserver)\b/i.test(String(text || ''));
+}
+
+function detectVagueBookingOpenerIntent(text) {
+  const t = String(text || '');
+  return /\b(?:book(?:\s+a)?\s+stay|need\s+a?\s*room|do\s+you\s+have\s+space|have\s+(?:you\s+got\s+)?space|any\s+beds?\s+free|beds?\s+free|rooms?\s+available|looking\s+for\s+(?:a\s+)?room|want\s+(?:a\s+)?room)\b/i.test(t);
 }
 
 function detectPackageGuestBookingIntent(text) {
@@ -476,7 +486,8 @@ function detectCheckinHouseInfoQuestion(text) {
 }
 
 function detectBookingAvailabilityIntent(text) {
-  return /\b(?:room available|have a room|any availability|disponibilidad|hay sitio|posto libre|chambre libre|zimmer frei|place pour|c['']?è posto|posto per \d+|y a-t-il de la place)\b/i.test(String(text || ''));
+  return detectVagueBookingOpenerIntent(text)
+    || /\b(?:room available|have a room|any availability|disponibilidad|hay sitio|posto libre|chambre libre|zimmer frei|place pour|c['']?è posto|posto per \d+|y a-t-il de la place)\b/i.test(String(text || ''));
 }
 
 function detectTransferInterest(text) {
@@ -874,13 +885,12 @@ function classifyMessageLane(text, guestContext) {
     };
   }
 
-  if (detectBookingAvailabilityIntent(t)) {
-    const unclear = !hasExplicitDates(t);
+  if (detectBookingAvailabilityIntent(t) || detectVagueBookingOpenerIntent(t)) {
     return {
       lane: 'new_booking_inquiry',
-      handoff: unclear,
-      reasons: unclear ? ['unclear_availability'] : [],
-      confidence: unclear ? 0.6 : 0.78,
+      handoff: false,
+      reasons: [],
+      confidence: 0.78,
     };
   }
 
@@ -980,8 +990,8 @@ function extractBookingFields(messageText, context, priorFields) {
     payment_preference: intake.payment_choice || null,
   };
 
-  if (nameReady || activeField === 'guest_count') {
-    if (activeField === 'guest_count' && current.guest_count == null) {
+  if (nameReady || activeField === 'guest_count' || activeField === 'guest_name') {
+    if ((activeField === 'guest_count' || activeField === 'guest_name') && current.guest_count == null) {
       const n = parseContinuationGuestCount(messageText);
       if (n != null) current.guest_count = n;
     }
@@ -998,7 +1008,8 @@ function extractBookingFields(messageText, context, priorFields) {
       current.deferred_guest_count = intake.guests;
     }
   }
-  if (activeField === 'guest_name' && !current.guest_name && !guestDeclinedAddons(messageText)) {
+  if (activeField === 'guest_name' && !current.guest_name && !guestDeclinedAddons(messageText)
+    && current.guest_count == null) {
     const name = parseGuestNameAnswer(messageText);
     if (name) current.guest_name = name;
   }
@@ -1126,8 +1137,8 @@ function computeBookingIntakeReadiness(lane, extracted, safeHandoffRequired, han
 function computeMissingRequired(extracted) {
   const missing = [];
   if (!extracted.check_in || !extracted.check_out) missing.push('dates');
-  if (!hasCollectedGuestName(extracted)) missing.push('guest_name');
   if (extracted.guest_count == null || extracted.guest_count < 1) missing.push('guest_count');
+  if (!hasCollectedGuestName(extracted)) missing.push('guest_name');
   if (!extracted.package_interest) missing.push('package_interest');
   return missing;
 }
@@ -1210,10 +1221,10 @@ function buildAllowedNextActions(lane, intakeState, missing, handoff, readiness)
     const readinessMissing = (readiness && readiness.readiness_missing_fields) || [];
     if (readinessMissing.includes('check_in') || readinessMissing.includes('check_out') || missing.includes('dates')) {
       actions.unshift('ask_dates');
-    } else if (readinessMissing.includes('guest_name') || missing.includes('guest_name')) {
-      actions.unshift('ask_guest_name');
     } else if (readinessMissing.includes('guest_count') || missing.includes('guest_count')) {
       actions.unshift('ask_guest_count');
+    } else if (readinessMissing.includes('guest_name') || missing.includes('guest_name')) {
+      actions.unshift('ask_guest_name');
     } else if (readinessMissing.includes('package_interest') || missing.includes('package_interest')) {
       actions.unshift('ask_package_interest');
     } else {
@@ -1504,9 +1515,9 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       reasons = reasons.concat(['low_confidence_language_or_intent']);
     }
 
-    const hasMonthOnly = /\b(?:august|août|aout|agosto|sommer|été|ete|summer)\b/i.test(messageText)
+    const hasMonthOnly = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|janvier|f[eé]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[eé]cembre|januar|februar|m[aä]rz|april|mai|juni|juli|august|september|oktober|november|dezember|août|aout|agosto|sommer|été|ete|summer)\b/i.test(messageText)
       && !extractedFields.check_in;
-    if (hasMonthOnly && !handoff) {
+    if (hasMonthOnly && !handoff && !detectVagueBookingOpenerIntent(messageText)) {
       handoff = true;
       if (!reasons.includes('unclear_availability')) reasons.push('unclear_availability');
     }

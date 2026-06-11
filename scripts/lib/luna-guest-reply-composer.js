@@ -80,6 +80,7 @@ const COMPOSER_STATES = Object.freeze([
   'confirm_dates',
   'ask_guests',
   'ask_guest_name',
+  'ask_package',
   'ask_room_preference_girls_mixed',
   'ask_room_preference_private_shared',
   'ask_room_preference_neutral',
@@ -196,6 +197,22 @@ function isShortStayAccommodation(result, quote, fields) {
 function hasWeeklyPackageSelected(fields) {
   const pkg = trimStr(fields.package_interest || fields.package_code).toLowerCase();
   return pkg && pkg !== 'no_package' && pkg !== 'package_none' && pkg !== 'accommodation_only';
+}
+
+function hasPackageOrStayIntent(fields) {
+  const pi = trimStr(fields && (fields.package_interest || fields.package_code)).toLowerCase();
+  if (!pi) return false;
+  return pi === 'no_package'
+    || pi === 'accommodation_only'
+    || pi === 'custom'
+    || ['malibu', 'uluwatu', 'waimea'].includes(pi);
+}
+
+function needsPackageStayTypeChoice(fields, result) {
+  if (!result || result.message_lane !== 'new_booking_inquiry') return false;
+  if (!fields.check_in || !fields.check_out) return false;
+  if (fields.guest_count == null || fields.guest_count < 1) return false;
+  return !hasPackageOrStayIntent(fields);
 }
 
 function needsPackageChoice(fields, result, quote) {
@@ -653,6 +670,16 @@ function resolveComposerState(input) {
     return 'confirm_dates';
   }
 
+  if (fields.check_in && fields.check_out
+    && (fields.guest_count == null || missing.includes('guest_count'))
+    && result.message_lane === 'new_booking_inquiry') {
+    return 'ask_guests';
+  }
+
+  if (needsPackageStayTypeChoice(fields, result)) {
+    return 'ask_package';
+  }
+
   const guestName = trimStr(fields.guest_name) || channelGuestName;
   if (fields.check_in && fields.check_out
     && !guestName
@@ -660,13 +687,6 @@ function resolveComposerState(input) {
     && result.message_lane === 'new_booking_inquiry'
     && quote.quote_status !== 'ready') {
     return 'ask_guest_name';
-  }
-
-  if (fields.check_in && fields.check_out
-    && guestName
-    && (fields.guest_count == null || missing.includes('guest_count'))
-    && result.message_lane === 'new_booking_inquiry') {
-    return 'ask_guests';
   }
 
   if (needsPackageChoice(fields, result, quote)) {
@@ -733,6 +753,7 @@ function buildReplyForState(state, ctx) {
     ask_guest_name: range
       ? `Perfect — ${range}. What name should I put on the booking?`
       : 'What name should I put on the booking?',
+    ask_package: 'Are you looking for a surf package like Malibu, or just accommodation?',
     room_girls_mixed: 'Would you prefer a girls room if one is available, or is a mixed room okay?',
     room_girls_mixed_unavailable: 'We do not have a girls-only room free for those dates — a mixed shared room would be the option. Is that okay?',
     room_private_shared: 'We may have a private room available for €10 per night extra. Would you prefer that, or are you okay with shared beds?',
@@ -863,6 +884,8 @@ function buildReplyForState(state, ctx) {
       return (P && P.ask_guests && P.ask_guests(range)) || L.ask_guests;
     case 'ask_guest_name':
       return (P && P.ask_guest_name && P.ask_guest_name(range)) || L.ask_guest_name;
+    case 'ask_package':
+      return L.ask_package;
     case 'ask_room_preference_girls_mixed': {
       const girlsAvail = availability.girls_room_available !== false;
       return girlsAvail ? L.room_girls_mixed : L.room_girls_mixed_unavailable;
@@ -1056,6 +1079,7 @@ function nextGuestQuestionForState(state) {
     confirm_dates: 'guest_count',
     ask_guests: 'guest_count',
     ask_guest_name: 'guest_name',
+    ask_package: 'package_interest',
     ask_room_preference_girls_mixed: 'room_preference',
     ask_room_preference_private_shared: 'room_preference',
     ask_room_preference_neutral: 'room_preference',
@@ -1125,7 +1149,7 @@ function composeLunaGuestReply(input) {
   const pkgIntent = detectPackageExplainerIntent(trimStr(input && input.message_text));
 
   const groundingErrors = validateComposerFacts(state, facts);
-  if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name',
+  if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name', 'ask_package',
     'explain_packages', 'explain_service_addon', 'explain_transfer', 'explain_house_knowledge', 'explain_surf_report', 'ask_package_choice',
     'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff', 'quote_refreshing',
     'ask_room_preference_girls_mixed', 'ask_room_preference_private_shared', 'ask_room_preference_neutral',

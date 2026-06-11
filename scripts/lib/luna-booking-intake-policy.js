@@ -24,8 +24,8 @@ const { extractReactiveServicesFromMessage } = require('./luna-booking-reactive-
 
 const INTAKE_FIELD_ORDER = Object.freeze([
   'dates',
-  'guest_name',
   'guest_count',
+  'guest_name',
   'stay_type',
 ]);
 
@@ -145,6 +145,11 @@ function extractTransferInfo(text) {
   return info;
 }
 
+const CONTINUATION_COUNT_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12,
+};
+
 function extractGuestCountFromText(text) {
   const intake = extractLunaGuestMessageIntake(
     { client_slug: 'wolfhouse-somo', message_text: text },
@@ -152,8 +157,21 @@ function extractGuestCountFromText(text) {
   );
   if (intake.guests != null) return intake.guests;
   const t = trimStr(text).toLowerCase();
+  const bare = t.match(/^(\d{1,2})$/);
+  if (bare) {
+    const n = Number(bare[1]);
+    if (n >= 1 && n <= 24) return n;
+  }
+  const pleaseNum = t.match(/^(\d{1,2})\s+please$/);
+  if (pleaseNum) return Number(pleaseNum[1]);
+  const forWord = t.match(/^for\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)$/i);
+  if (forWord) return CONTINUATION_COUNT_WORDS[forWord[1].toLowerCase()] || null;
+  const people = t.match(/^(\d{1,2})\s+(?:people|guests|persons|ppl)$/i);
+  if (people) return Number(people[1]);
   const ofUs = t.match(/\b(\d{1,2})\s+of\s+us\b/i);
   if (ofUs) return Number(ofUs[1]);
+  const weAre = t.match(/\b(?:we are|we're)\s+(\d{1,2})\b/i);
+  if (weAre) return Number(weAre[1]);
   if (/^(?:me|just\s+me|only\s+me)$/i.test(t)) return 1;
   if (/\btwo\s+of\s+us\b/i.test(t)) return 2;
   if (/\bme\s+and\s+my\s+friend\b/i.test(t)) return 2;
@@ -439,12 +457,6 @@ function determineNextBookingQuestion(state, context) {
   }
   if (quote.quote_status === 'ready' && missing.includes('payment_choice')) {
     return mapFieldToQuestion('payment_choice', state, ctx);
-  }
-
-  if (hasDates(fields)
-    && (fields.guest_count == null || fields.guest_count < 1)
-    && !hasCollectedGuestName(fields, ctx.channel_guest_name)) {
-    return mapFieldToQuestion('guest_name', state, ctx);
   }
 
   for (const field of INTAKE_FIELD_ORDER) {

@@ -307,6 +307,7 @@
     "verify:stage45d-luna-open-phone-staff-routing-bypass": "node scripts/verify-stage45d-luna-open-phone-staff-routing-bypass.js",
     "verify:stage45g-open-phone-metadata-persist": "node scripts/verify-stage45g-open-phone-metadata-persist.js",
     "verify:stage45i-payment-choice-declines-addons": "node scripts/verify-stage45i-payment-choice-declines-addons.js",
+    "verify:stage46b-vague-booking-intake": "node scripts/verify-stage46b-vague-booking-intake.js",
     "guest:intake:dry-run": "node scripts/run-guest-intake-dry-run.js",
     "verify:staff-ask-luna-ai-answer-formatter": "node scripts/verify-staff-ask-luna-ai-answer-formatter.js",
     "verify:staff-ask-luna-lessons": "node scripts/verify-staff-ask-luna-lessons.js",
