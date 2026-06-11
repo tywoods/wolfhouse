@@ -21,6 +21,7 @@ const {
 } = require('./main-booking-hold-pg-sql');
 const {
   attachPendingManualGuestServices,
+  mergePendingServiceAttachContext,
 } = require('./luna-guest-pending-service-attach');
 
 const HOLD_EXPIRES_IN_HOURS = 6;
@@ -253,6 +254,7 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
   const ctx = context || {};
   const chain = normalizeChain(chainResult);
   const fields = chain.result.extracted_fields || {};
+  const attachFields = mergePendingServiceAttachContext(fields, chain.result);
   const quote = chain.quote;
   const clientSlug = trimStr(ctx.client_slug) || DEFAULT_CLIENT;
   const idempotencyKey = planner.idempotency_key_preview;
@@ -276,7 +278,8 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       bookingId: existing.booking.booking_id,
       bookingCode: existing.booking.booking_code,
       guestName,
-      extractedFields: fields,
+      extractedFields: attachFields,
+      resultContext: chain.result,
     });
     return { reused: existing, ...attach };
   }
@@ -419,7 +422,8 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       bookingId,
       bookingCode: holdOutcome.booking.booking_code,
       guestName,
-      extractedFields: fields,
+      extractedFields: attachFields,
+      resultContext: chain.result,
     });
 
     return {

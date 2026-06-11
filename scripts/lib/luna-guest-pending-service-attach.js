@@ -13,6 +13,71 @@ function trimStr(v) {
   return String(v).trim();
 }
 
+function normalizePendingManualList(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => trimStr(item).toLowerCase()).filter(Boolean);
+}
+
+/**
+ * Merge observability/context pending service state into extracted_fields for attach.
+ * extracted_fields remains valid but is not the only source on deposit turns.
+ */
+function mergePendingServiceAttachContext(extractedFields, resultContext) {
+  const base = extractedFields && typeof extractedFields === 'object'
+    ? { ...extractedFields }
+    : {};
+  const ctx = resultContext && typeof resultContext === 'object'
+    ? resultContext
+    : {};
+
+  const pending = normalizePendingManualList(
+    ctx.services_pending_manual != null
+      ? ctx.services_pending_manual
+      : base.services_pending_manual,
+  );
+  if (pending.length) {
+    base.services_pending_manual = pending;
+  }
+
+  const yogaStatus = trimStr(ctx.yoga_status || base.yoga_status);
+  const mealsStatus = trimStr(ctx.meals_status || base.meals_status);
+  if (yogaStatus) base.yoga_status = yogaStatus;
+  if (mealsStatus) base.meals_status = mealsStatus;
+
+  if (ctx.yoga_request && typeof ctx.yoga_request === 'object' && !base.yoga_request) {
+    base.yoga_request = ctx.yoga_request;
+  }
+  if (ctx.meals_request && typeof ctx.meals_request === 'object' && !base.meals_request) {
+    base.meals_request = ctx.meals_request;
+  }
+
+  if (pending.includes('yoga') && !base.yoga_request) {
+    const st = ATTACHABLE_STATUSES.has(yogaStatus) ? yogaStatus : 'requested';
+    base.yoga_request = { status: st };
+    if (ctx.yoga_requested_dates) base.yoga_request.requested_dates = ctx.yoga_requested_dates;
+  } else if (yogaStatus && ATTACHABLE_STATUSES.has(yogaStatus) && !base.yoga_request) {
+    base.yoga_request = { status: yogaStatus };
+  }
+
+  const mealType = ctx.meal_type || base.meal_type;
+  const hasMealsPending = pending.includes('meals') || pending.includes('meal');
+  if (hasMealsPending && !base.meals_request) {
+    const st = ATTACHABLE_STATUSES.has(mealsStatus) ? mealsStatus : 'requested';
+    base.meals_request = { status: st };
+    if (mealType) base.meals_request.meal_type = mealType;
+  } else if (mealsStatus && ATTACHABLE_STATUSES.has(mealsStatus) && !base.meals_request) {
+    base.meals_request = { status: mealsStatus };
+    if (mealType) base.meals_request.meal_type = mealType;
+  }
+
+  const mealsDays = ctx.meals_days || ctx.requested_days || base.meals_days || base.requested_days;
+  if (mealsDays && base.meals_request && !base.meals_request.meals_days) {
+    base.meals_request.meals_days = mealsDays;
+  }
+
+  return base;
+}
+
 function collectPendingManualServices(extractedFields) {
   const fields = extractedFields || {};
   const services = [];
@@ -34,16 +99,36 @@ function collectPendingManualServices(extractedFields) {
     push('meal', 'meals_request');
   }
 
-  const pending = fields.services_pending_manual;
-  if (Array.isArray(pending)) {
-    for (const item of pending) {
-      const code = trimStr(item).toLowerCase();
-      if (code === 'yoga') push('yoga', 'services_pending_manual');
-      if (code === 'meals' || code === 'meal') push('meal', 'services_pending_manual');
-    }
+  const pending = normalizePendingManualList(fields.services_pending_manual);
+  for (const code of pending) {
+    if (code === 'yoga') push('yoga', 'services_pending_manual');
+    if (code === 'meals' || code === 'meal') push('meal', 'services_pending_manual');
+  }
+
+  const yogaStatusTop = trimStr(fields.yoga_status);
+  if (yogaStatusTop && ATTACHABLE_STATUSES.has(yogaStatusTop)) {
+    push('yoga', 'yoga_status');
+  }
+
+  const mealsStatusTop = trimStr(fields.meals_status);
+  if (mealsStatusTop && ATTACHABLE_STATUSES.has(mealsStatusTop)) {
+    push('meal', 'meals_status');
   }
 
   return services;
+}
+
+function resolveServiceRecordStatus(svc, fields) {
+  const f = fields || {};
+  if (svc.type === 'yoga') {
+    const st = trimStr((f.yoga_request && f.yoga_request.status) || f.yoga_status);
+    return ATTACHABLE_STATUSES.has(st) ? st : 'requested';
+  }
+  if (svc.type === 'meal') {
+    const st = trimStr((f.meals_request && f.meals_request.status) || f.meals_status);
+    return ATTACHABLE_STATUSES.has(st) ? st : 'requested';
+  }
+  return 'requested';
 }
 
 /**
@@ -57,7 +142,8 @@ async function attachPendingManualGuestServices(pg, opts) {
   const bookingId = trimStr(o.bookingId);
   const bookingCode = trimStr(o.bookingCode);
   const guestName = trimStr(o.guestName) || 'Guest';
-  const services = collectPendingManualServices(o.extractedFields);
+  const fields = mergePendingServiceAttachContext(o.extractedFields, o.resultContext);
+  const services = collectPendingManualServices(fields);
 
   if (!pg || typeof pg.query !== 'function' || !bookingId || services.length === 0) {
     return { attached_manual_services: [] };
@@ -76,6 +162,7 @@ async function attachPendingManualGuestServices(pg, opts) {
     );
     if (existing.rows.length) continue;
 
+    const recordStatus = resolveServiceRecordStatus(svc, fields);
     await pg.query(
       `INSERT INTO booking_service_records (
          client_slug, booking_id, booking_code, guest_name,
@@ -84,9 +171,9 @@ async function attachPendingManualGuestServices(pg, opts) {
          source, notes, metadata
        ) VALUES (
          $1, $2::uuid, $3, $4,
-         $5, NULL, 1, 'requested',
+         $5, NULL, 1, $6,
          0, 0, 'not_requested',
-         $6, NULL, $7::jsonb
+         $7, NULL, $8::jsonb
        )`,
       [
         clientSlug,
@@ -94,6 +181,7 @@ async function attachPendingManualGuestServices(pg, opts) {
         bookingCode,
         guestName,
         svc.type,
+        recordStatus,
         PENDING_ATTACH_SOURCE,
         JSON.stringify({
           pending_manual: true,
@@ -111,6 +199,7 @@ async function attachPendingManualGuestServices(pg, opts) {
 
 module.exports = {
   PENDING_ATTACH_SOURCE,
+  mergePendingServiceAttachContext,
   collectPendingManualServices,
   attachPendingManualGuestServices,
 };

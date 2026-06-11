@@ -5,6 +5,7 @@
  */
 
 const OPEN_DEMO_WHATSAPP_ROUTE = '/staff/bot/open-demo-whatsapp-inbound-dry-run';
+const { mergePendingServiceAttachContext } = require('./luna-guest-pending-service-attach');
 
 function trimEnv(v) {
   if (v == null) return '';
@@ -445,8 +446,10 @@ function evaluateOpenDemoHoldDraftWriteReady(review) {
 
 function buildOpenDemoWriteChainFromReview(review) {
   const r = review || {};
+  const result = r.result || {};
+  const extracted_fields = mergePendingServiceAttachContext(result.extracted_fields, result);
   return {
-    result: r.result || {},
+    result: { ...result, extracted_fields },
     availability: r.availability || {},
     quote: r.quote || {},
     payment_choice: r.payment_choice || {},
