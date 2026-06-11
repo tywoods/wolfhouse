@@ -13,6 +13,7 @@ const {
   detectPackageExplainerIntent,
   resolvePackageExplainerIntent,
   buildPackageExplainerReply,
+  buildPackageChoiceIntakeReply,
 } = require('./luna-guest-package-explainer');
 const {
   detectServiceSideQuestionIntent,
@@ -253,8 +254,14 @@ function buildPackageChoiceReturnTail(fields, lang, pkgIntent) {
   if (pkgIntent === 'malibu') {
     return ctx ? `Want me to check Malibu for ${ctx}?` : 'Want me to check Malibu for you?';
   }
-  if (!ctx) return 'Which one sounds best — Malibu, Uluwatu, or Waimea?';
-  return `For ${ctx}, Malibu is probably the easiest one to start with. Want me to check Malibu for you?`;
+  if (pkgIntent === 'uluwatu') {
+    return ctx ? `Want me to check Uluwatu for ${ctx}?` : 'Want me to check Uluwatu for you?';
+  }
+  if (pkgIntent === 'waimea') {
+    return ctx ? `Want me to check Waimea for ${ctx}?` : 'Want me to check Waimea for you?';
+  }
+  if (!ctx) return 'Are you thinking more stay only, gear included, or lessons included?';
+  return `For ${ctx}, are you thinking more stay only, gear included, or lessons included?`;
 }
 
 function buildServiceReturnTail(fields, quote) {
@@ -310,13 +317,19 @@ function buildTransferReturnTail(fields, pc, messageText, bodyText) {
 function buildExplainPackagesReply(lang, pkgIntent, fields) {
   const intent = pkgIntent || 'overview';
   const bookingInProgress = !!(fields && fields.check_in && fields.check_out);
+  const explainerOpts = { bookingInProgress, fields };
   if (intent === 'overview' || intent === 'compare' || intent === 'recommend') {
-    let body = buildPackageExplainerReply(lang, intent, { bookingInProgress: false });
+    let body = buildPackageExplainerReply(lang, intent, explainerOpts);
     body = stripLegacyActionDisclaimers(body);
     const tail = hasWeeklyPackageSelected(fields)
       ? `For your ${buildStayContextPhrase(fields, lang)} stay, want to stick with your package or switch?`
       : buildPackageChoiceReturnTail(fields, lang, intent);
     return tail ? `${body}\n\n${tail}` : body;
+  }
+  if (intent === 'choice_beginner') {
+    let body = buildPackageExplainerReply(lang, intent, explainerOpts);
+    body = stripLegacyActionDisclaimers(body);
+    return body;
   }
   let body = buildPackageExplainerReply(lang, intent, { bookingInProgress });
   body = stripLegacyActionDisclaimers(body);
@@ -812,19 +825,20 @@ function buildReplyForState(state, ctx) {
     },
     package_quote: () => {
       if (!total) return null;
-      const parts = [];
       const pkgLabel = packageName && !/accommodation/i.test(packageName)
         ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)}`
         : 'Your stay';
-      const dateAvail = range ? `for ${range}` : 'for those dates';
-      if (availability.availability_status === 'available') {
-        parts.push(`Good news — we have space ${dateAvail}. ${pkgLabel} comes to ${total}.`);
-      } else {
-        parts.push(`${pkgLabel} comes to ${total}.`);
-      }
+      const stayLine = range && guests
+        ? `Perfect 😊 ${pkgLabel} for ${range}, ${guests}.`
+        : range
+          ? `Perfect 😊 ${pkgLabel} for ${range}.`
+          : `Perfect 😊 ${pkgLabel} for your dates.`;
       const dep = deposit || total;
-      parts.push(`To reserve it, you can pay the ${dep} deposit or the full ${total}. We can always add lessons or rentals later if you want.`);
-      return parts.join('\n\n');
+      const checked = availability.availability_status === 'available'
+        ? `I checked it and the stay comes to ${total} total.`
+        : `The stay comes to ${total} total.`;
+      const payLine = `To reserve it, you can do the ${dep} deposit now or pay the full ${total} — which do you prefer?`;
+      return [stayLine, checked, payLine].join('\n\n');
     },
     quote_refreshing: (ctxFields) => {
       const range = formatDateRange(ctxFields.check_in, ctxFields.check_out);
@@ -916,7 +930,7 @@ function buildReplyForState(state, ctx) {
     case 'ask_guest_name':
       return (P && P.ask_guest_name && P.ask_guest_name(range)) || L.ask_guest_name;
     case 'ask_package':
-      return L.ask_package;
+      return buildPackageChoiceIntakeReply(lang, fields);
     case 'ask_room_preference_girls_mixed': {
       const girlsAvail = availability.girls_room_available !== false;
       return girlsAvail ? L.room_girls_mixed : L.room_girls_mixed_unavailable;
@@ -928,7 +942,7 @@ function buildReplyForState(state, ctx) {
     case 'ask_transfer_info_casual':
       return L.transfer_casual;
     case 'ask_package_choice':
-      return L.ask_package_choice();
+      return buildPackageChoiceIntakeReply(lang, fields);
     case 'explain_packages':
       return buildExplainPackagesReply(lang, pkgIntent, fields);
     case 'explain_service_addon':
@@ -990,23 +1004,9 @@ function buildReplyForState(state, ctx) {
         return P.accommodation_quote({ total, range, guests, availOk });
       }
       return L.accommodation_quote();
-    case 'package_quote_ready':
-      if (isPackageCorrection(result)) {
-        if (P && P.package_quote) {
-          const pkgLabel = packageName && !/accommodation/i.test(packageName)
-            ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)}`
-            : 'Your stay';
-          const dateAvail = range ? `for ${range}` : 'for those dates';
-          return P.package_quote({
-            total,
-            deposit,
-            packageLabel: pkgLabel,
-            dateAvail,
-            awaitingAddons: quoteAwaitingAddonsDecision(quote),
-          });
-        }
-        return L.package_quote();
-      }
+    case 'package_quote_ready': {
+      const groundedPkgQuote = L.package_quote();
+      if (groundedPkgQuote) return groundedPkgQuote;
       if (P && P.package_quote) {
         const pkgLabel = packageName && !/accommodation/i.test(packageName)
           ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)}`
@@ -1020,7 +1020,8 @@ function buildReplyForState(state, ctx) {
           awaitingAddons: quoteAwaitingAddonsDecision(quote),
         });
       }
-      return L.package_quote();
+      return null;
+    }
     case 'quote_refreshing':
       return L.quote_refreshing(fields);
     case 'addons_none_confirmed':

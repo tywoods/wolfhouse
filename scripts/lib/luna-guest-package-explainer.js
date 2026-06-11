@@ -14,7 +14,7 @@ const TRANSFER_CAVEAT = {
 };
 
 const CHOICE_FOLLOWUP = {
-  en: 'Which one sounds closest: Malibu, Uluwatu, Waimea, or accommodation only?',
+  en: 'Are you thinking more stay only, gear included, or lessons included?',
   it: 'Quale ti sembra più adatto: Malibu, Uluwatu, Waimea o solo pernottamento?',
   es: '¿Cuál te encaja más: Malibu, Uluwatu, Waimea o solo alojamiento?',
   de: 'Was passt am ehesten: Malibu, Uluwatu, Waimea oder nur Unterkunft?',
@@ -147,41 +147,140 @@ function intro(lang) {
   return map[L] || map.en;
 }
 
+function formatStayContextPhrase(fields) {
+  const f = fields || {};
+  const checkIn = f.check_in;
+  const checkOut = f.check_out;
+  const count = f.guest_count;
+  if (!checkIn || !checkOut) return '';
+  const inParts = String(checkIn).split('-');
+  const outParts = String(checkOut).split('-');
+  if (inParts.length !== 3 || outParts.length !== 3) return '';
+  const months = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const mIn = months[Number(inParts[1]) - 1];
+  const mOut = months[Number(outParts[1]) - 1];
+  const dIn = Number(inParts[2]);
+  const dOut = Number(outParts[2]);
+  const range = mIn === mOut
+    ? `${mIn} ${dIn} to ${dOut}`
+    : `${mIn} ${dIn} to ${mOut} ${dOut}`;
+  if (count != null && count >= 1) {
+    const guestLabel = count === 1 ? '1 guest' : `${count} guests`;
+    return `${range} for ${guestLabel}`;
+  }
+  return range;
+}
+
+function buildWhatsAppPackageLines(lang) {
+  const L = normalizeLang(lang);
+  if (L === 'it') {
+    return [
+      '🏡 Malibu — soggiorno base, semplice e flessibile, da €249.',
+      '🏄 Uluwatu — soggiorno + noleggio tavola e muta, da €349.',
+      '🌊 Waimea — soggiorno + lezioni + attrezzatura, da €499.',
+    ];
+  }
+  if (L === 'es') {
+    return [
+      '🏡 Malibu — estancia simple y flexible, desde €249.',
+      '🏄 Uluwatu — estancia + alquiler de tabla y neopreno, desde €349.',
+      '🌊 Waimea — estancia + clases + material, desde €499.',
+    ];
+  }
+  if (L === 'de') {
+    return [
+      '🏡 Malibu — einfacher Aufenthalt, flexibel, ab €249.',
+      '🏄 Uluwatu — Aufenthalt + Brett- und Neopren-Verleih, ab €349.',
+      '🌊 Waimea — Aufenthalt + Kurse + Equipment, ab €499.',
+    ];
+  }
+  if (L === 'fr') {
+    return [
+      '🏡 Malibu — séjour simple et flexible, à partir de 249 €.',
+      '🏄 Uluwatu — séjour + location planche et combinaison, à partir de 349 €.',
+      '🌊 Waimea — séjour + cours + matériel, à partir de 499 €.',
+    ];
+  }
+  return [
+    '🏡 Malibu — simple weekly stay, from €249.',
+    '🏄 Uluwatu — Malibu + surfboard and wetsuit rental, from €349.',
+    '🌊 Waimea — Malibu + lessons + gear, from €499.',
+  ];
+}
+
+function buildPackageChoiceQuestionTail(lang, fields, opts) {
+  const L = normalizeLang(lang);
+  const o = opts || {};
+  const ctx = formatStayContextPhrase(fields);
+  if (o.beginnerSignal) {
+    if (L === 'en') {
+      return ctx
+        ? `For ${ctx}, Waimea is probably the easiest if you want lessons. Want me to check Waimea?`
+        : 'Waimea is probably the easiest if you want lessons. Want me to check Waimea?';
+    }
+    return ctx
+      ? `${ctx} — Waimea di solito è la scelta più semplice per i principianti. Vuoi che controlli Waimea?`
+      : 'Waimea di solito è la scelta più semplice per i principianti.';
+  }
+  if (L === 'en') {
+    return ctx
+      ? `For ${ctx}, are you thinking more stay only, gear included, or lessons included?`
+      : 'Are you thinking more stay only, gear included, or lessons included?';
+  }
+  if (L === 'it') {
+    return ctx
+      ? `Per ${ctx}, preferisci solo soggiorno, con attrezzatura, o con lezioni incluse?`
+      : 'Preferisci solo soggiorno, con attrezzatura, o con lezioni incluse?';
+  }
+  if (L === 'es') {
+    return ctx
+      ? `Para ${ctx}, ¿prefieres solo estancia, con material, o con clases incluidas?`
+      : '¿Prefieres solo estancia, con material, o con clases incluidas?';
+  }
+  if (L === 'de') {
+    return ctx
+      ? `Für ${ctx}: nur Aufenthalt, mit Equipment, oder mit Kursen?`
+      : 'Nur Aufenthalt, mit Equipment, oder mit Kursen?';
+  }
+  return ctx
+    ? `Pour ${ctx}, plutôt séjour seul, avec matériel, ou avec cours ?`
+    : 'Plutôt séjour seul, avec matériel, ou avec cours ?';
+}
+
+/**
+ * Front-desk package choice prompt after dates + guest count are known.
+ * Explains all packages before asking — guests do not know the names.
+ */
+function buildPackageChoiceIntakeReply(lang, fields, opts) {
+  const L = normalizeLang(lang);
+  const lines = buildWhatsAppPackageLines(L);
+  const introMap = {
+    en: 'Lovely 😊 We have a few options depending on how much surf you want:',
+    it: 'Perfetto 😊 Abbiamo alcune opzioni a seconda di quanto surf vuoi fare:',
+    es: 'Genial 😊 Tenemos varias opciones según cuánto surf quieras:',
+    de: 'Super 😊 Wir haben ein paar Optionen — je nachdem, wie viel Surfen ihr wollt:',
+    fr: 'Super 😊 On a quelques options selon le surf que vous voulez :',
+  };
+  const body = [introMap[L] || introMap.en, ...lines].join('\n\n');
+  const tail = buildPackageChoiceQuestionTail(L, fields, opts);
+  return `${body}\n\n${tail}`;
+}
+
 function buildOverviewReply(lang, opts) {
   const L = normalizeLang(lang);
-  const parts = [intro(L)];
-
-  if (L === 'en') {
-    parts.push('Malibu is the simple stay package: from €249, 7 nights, shared kitchen, Wolfhouse T-shirt, and airport shuttle under our transfer rules.');
-    parts.push('Uluwatu is for guests who want gear included: from €349, 7 nights — everything in Malibu, plus 6 full days of surfboard and wetsuit rental from local partners.');
-    parts.push('Waimea is best if you want lessons: from €499, 7 nights — everything in Malibu, plus 6 morning surf school lessons (about 12 hours weekly) and surfboard + wetsuit rental all week from local partners.');
-    parts.push('If you\'re a beginner, Waimea is usually the easiest choice because lessons are included. If you already surf and just need gear, Uluwatu usually makes more sense.');
-  } else if (L === 'it') {
-    parts.push('Malibu è il pacchetto soggiorno base: da €249, 7 notti, cucina condivisa, T-shirt Wolfhouse e transfer aeroporto secondo le nostre regole.');
-    parts.push('Uluwatu include tutto Malibu più 6 giorni completi di noleggio tavola e muta da partner locali.');
-    parts.push('Waimea è ideale con lezioni: tutto Malibu più 6 lezioni scuola surf al mattino (circa 12 ore a settimana) e noleggio tavola + muta tutta la settimana.');
-    parts.push('Se sei principiante, Waimea di solito è la scelta più semplice. Se già surfi e ti serve solo il gear, Uluwatu ha più senso.');
-  } else if (L === 'es') {
-    parts.push('Malibu es el paquete de estancia simple: desde €249, 7 noches, cocina compartida, camiseta Wolfhouse y traslado aeropuerto según nuestras reglas.');
-    parts.push('Uluwatu incluye todo Malibu más 6 días completos de alquiler de tabla y neopreno con socios locales.');
-    parts.push('Waimea es ideal con clases: todo Malibu más 6 clases de surf por la mañana (unas 12 horas semanales) y alquiler tabla + neopreno toda la semana.');
-    parts.push('Si eres principiante, Waimea suele ser la opción más fácil. Si ya surfeas y solo necesitas material, Uluwatu encaja mejor.');
-  } else if (L === 'de') {
-    parts.push('Malibu ist das einfache Aufenthaltspaket: ab €249, 7 Nächte, Gemeinschaftsküche, Wolfhouse T-Shirt und Flughafen-Shuttle gemäß unseren Transferregeln.');
-    parts.push('Uluwatu enthält alles aus Malibu plus 6 volle Tage Surfbrett- und Neopren-Verleih von lokalen Partnern.');
-    parts.push('Waimea ist ideal mit Kursen: alles aus Malibu plus 6 morgendliche Surfschulkurse (ca. 12 Stunden pro Woche) und Brett + Neopren die ganze Woche.');
-    parts.push('Als Anfänger ist Waimea meist am einfachsten. Wenn du schon surfst und nur Equipment brauchst, passt Uluwatu oft besser.');
-  } else {
-    parts.push('Malibu est le forfait séjour simple : à partir de 249 €, 7 nuits, cuisine partagée, T-shirt Wolfhouse et navette aéroport selon nos règles.');
-    parts.push('Uluwatu inclut tout Malibu plus 6 jours complets de location planche et combinaison via des partenaires locaux.');
-    parts.push('Waimea est idéal avec cours : tout Malibu plus 6 cours d’école de surf le matin (environ 12 h par semaine) et location planche + combinaison toute la semaine.');
-    parts.push('Débutant : Waimea est souvent le plus simple. Si vous surfez déjà et voulez surtout le matériel, Uluwatu convient mieux.');
-  }
-
-  if (opts && opts.bookingInProgress) {
-    parts.push(CHOICE_FOLLOWUP[L] || CHOICE_FOLLOWUP.en);
-  }
-  return parts.join('\n\n');
+  const o = opts || {};
+  const lines = buildWhatsAppPackageLines(L);
+  const beginnerNote = L === 'en'
+    ? 'Waimea is best if you want lessons included. Uluwatu if you already surf and need gear. Malibu if you just want the stay.'
+    : L === 'it'
+      ? 'Waimea se vuoi lezioni incluse. Uluwatu se già surfi e ti serve il gear. Malibu se vuoi solo il soggiorno.'
+      : L === 'es'
+        ? 'Waimea si quieres clases incluidas. Uluwatu si ya surfeas y necesitas material. Malibu si solo quieres la estancia.'
+        : L === 'de'
+          ? 'Waimea mit Kursen. Uluwatu wenn ihr schon surft und Equipment braucht. Malibu nur für den Aufenthalt.'
+          : 'Waimea avec cours. Uluwatu si vous surfez déjà. Malibu pour le séjour seul.';
+  return [intro(L), ...lines, ...(o.bookingInProgress ? [] : [beginnerNote])].join('\n\n');
 }
 
 function buildMalibuReply(lang) {
@@ -237,18 +336,11 @@ function buildWaimeaReply(lang) {
 
 function buildChoiceBeginnerReply(lang, opts) {
   const L = normalizeLang(lang);
-  const base = buildOverviewReply(L, { bookingInProgress: false });
-  const tail = L === 'it'
-    ? 'Per un principiante, Waimea di solito è la scelta più semplice perché include le lezioni.'
-    : L === 'es'
-      ? 'Si eres principiante, Waimea suele ser la opción más fácil porque incluye clases.'
-      : L === 'de'
-        ? 'Als Anfänger ist Waimea meist am einfachsten, weil Kurse enthalten sind.'
-        : L === 'fr'
-          ? 'En débutant, Waimea est souvent le plus simple car les cours sont inclus.'
-          : 'If you\'re a beginner, Waimea is usually the easiest choice because lessons are included.';
-  const follow = (opts && opts.bookingInProgress) ? `\n\n${CHOICE_FOLLOWUP[L] || CHOICE_FOLLOWUP.en}` : '';
-  return `${base}\n\n${tail}${follow}`;
+  const lines = buildWhatsAppPackageLines(L);
+  const body = [intro(L), ...lines].join('\n\n');
+  const fields = (opts && opts.fields) || {};
+  const tail = buildPackageChoiceQuestionTail(L, fields, { beginnerSignal: true });
+  return `${body}\n\n${tail}`;
 }
 
 function buildChoiceExperiencedReply(lang, opts) {
@@ -319,6 +411,9 @@ module.exports = {
   detectPackageExplainerIntent,
   resolvePackageExplainerIntent,
   buildPackageExplainerReply,
+  buildPackageChoiceIntakeReply,
+  buildWhatsAppPackageLines,
+  formatStayContextPhrase,
   isBookingExplainerContext,
   TRANSFER_CAVEAT,
   CHOICE_FOLLOWUP,

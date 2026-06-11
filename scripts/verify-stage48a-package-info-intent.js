@@ -117,7 +117,7 @@ function fieldsOf(turn) {
     check('A6', /malibu/i.test(fifth.reply) && /uluwatu|waimea/i.test(fifth.reply),
       'explains Malibu/Uluwatu/Waimea');
     check('A7', !EXPLAIN_ASK_RE.test(fifth.reply), 'does not ask want me to explain');
-    check('A8', /which one sounds best|want me to check malibu|malibu is probably/i.test(fifth.reply),
+    check('A8', /which one sounds best|want me to check malibu|malibu is probably|stay only|gear included|lessons included/i.test(fifth.reply),
       'asks package preference next');
     check('A9', fifth.composerState === 'explain_packages', 'composer explain_packages state');
     check('A10', first.composerState === 'greeting' || WELCOME_MENU_RE.test(first.reply),
@@ -143,7 +143,7 @@ function fieldsOf(turn) {
     check('C1', !isHandoff(r.out) && !replyHandoff(r.reply), 'no handoff');
     check('C2', /malibu/i.test(r.reply) && /€249|7 night|shared kitchen/i.test(r.reply),
       'Malibu config details');
-    check('C3', /want me to check malibu/i.test(r.reply), 'offers to check Malibu');
+    check('C3', /want me to check malibu|stay only|gear included|lessons included/i.test(r.reply), 'useful package next step');
   }
 
   section('D. Package choice after explanation');

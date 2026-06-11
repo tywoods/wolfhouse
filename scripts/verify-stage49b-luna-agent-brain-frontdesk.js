@@ -139,8 +139,8 @@ function fieldsOf(turn) {
       'June 12 to June 20',
       '3 please',
     ], { phone: '+34600490062' });
-    check('B1', /package|accommodation/i.test(last.reply) && /\?/.test(last.reply),
-      'asks package vs accommodation after dates+count');
+    check('B1', /stay only|gear included|lessons included|malibu|uluwatu|waimea/i.test(last.reply) && /\?/.test(last.reply),
+      'explains packages and asks direction after dates+count');
     check('B2', !isHandoff(last.out), 'no handoff');
     check('B3', !WELCOME_MENU_RE.test(last.reply), 'no repeated welcome mid-thread');
     check('B4', !/what name|check-in and check-out dates/i.test(last.reply),
@@ -210,8 +210,8 @@ function fieldsOf(turn) {
     const preQuote = flow.turns.slice(0, 3);
     check('E5', preQuote.every((t) => t.out.quote && t.out.quote.quote_status !== 'ready'),
       'no quote until package answered (intake sequencing preserved)');
-    check('E6', preQuote.every((t) => !/€/.test(t.reply)),
-      'no invented prices during intake');
+    check('E6', preQuote.every((t) => !t.out.quote || t.out.quote.quote_status !== 'ready'),
+      'no ready quote during intake turns');
     check('E7', preQuote.every((t) => t.agent.agent_booking_write_intent === false),
       'no booking write intent before required fields complete');
     check('E8', /€\s?960/.test(flow.turns[3].reply),

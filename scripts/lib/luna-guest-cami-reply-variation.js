@@ -371,7 +371,7 @@ function applyCamiReplyVariation(reply, opts) {
       out = out.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, (m) => {
         count += 1;
         return count <= max ? m : '';
-      }).replace(/\s{2,}/g, ' ').trim();
+      }).replace(/[ \t]{2,}/g, ' ').trim();
     }
   }
 

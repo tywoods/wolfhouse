@@ -198,9 +198,11 @@ function parseIsoDate(s) {
 
 function inferYear(month, day, ref) {
   const y = ref.getFullYear();
-  const candidate = new Date(y, month - 1, day);
-  if (candidate < ref) return y + 1;
-  return y;
+  const refMonth = ref.getMonth() + 1;
+  const refDay = ref.getDate();
+  // Calendar-day compare avoids timezone skew (e.g. June 11 ref vs June 11 check-in same year).
+  if (month > refMonth || (month === refMonth && day >= refDay)) return y;
+  return y + 1;
 }
 
 function monthFromName(name) {

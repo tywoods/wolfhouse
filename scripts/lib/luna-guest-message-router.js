@@ -22,6 +22,7 @@ const {
 const {
   detectPackageExplainerIntent,
   buildPackageExplainerReply,
+  buildPackageChoiceIntakeReply,
   isBookingExplainerContext,
 } = require('./luna-guest-package-explainer');
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
@@ -284,8 +285,8 @@ function buildClarifyReply(lang, activeField, extracted) {
     question = ex.check_in ? tpl(lang, 'ask_checkout') : tpl(lang, 'ask_dates');
   } else if (activeField === 'package_interest') {
     question = (ex.check_in && ex.check_out && ex.guest_count != null)
-      ? tpl(lang, 'ask_package_ready')
-      : tpl(lang, 'ask_package');
+      ? buildPackageChoiceIntakeReply(lang, ex)
+      : buildPackageChoiceIntakeReply(lang, ex);
   } else if (ex.check_in && ex.check_out && ex.guest_count != null) {
     question = tpl(lang, 'booking_progress_when');
   } else {
@@ -1209,8 +1210,8 @@ function buildBookingReply(lang, readiness, extracted, options = {}) {
   const parts = [];
   if (options.includeIntro) parts.push(`${tpl(lang, 'intro')} 🌊`);
   if (readiness.readiness_state === 'ready_for_availability_check') {
-    parts.push(tpl(lang, 'ready_next_check'));
-    return parts.join(' ');
+    // Orchestrator runs availability/quote on this turn; composer owns the guest reply.
+    return '';
   }
   const missing = readiness.readiness_missing_fields || [];
   const next = missing[0];
@@ -1219,9 +1220,7 @@ function buildBookingReply(lang, readiness, extracted, options = {}) {
   else if (next === 'guest_count') parts.push(tpl(lang, 'ask_guests'));
   else if (next === 'guest_name') parts.push(tpl(lang, 'ask_guest_name'));
   else if (next === 'package_interest') {
-    const readyAsk = extracted.check_in && extracted.check_out
-      && extracted.guest_count != null && extracted.guest_count >= 1;
-    parts.push(tpl(lang, readyAsk ? 'ask_package_ready' : 'ask_package'));
+    parts.push(buildPackageChoiceIntakeReply(lang, extracted));
   } else if (extracted.transfer_interest) {
     parts.push(tpl(lang, 'transfer_no_booking'));
   } else {

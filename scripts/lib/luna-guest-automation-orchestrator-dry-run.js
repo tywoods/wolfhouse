@@ -158,11 +158,11 @@ function dedupeLunaIntro(reply, allowLeadingIntro) {
         return '';
       });
     }
-    return out.replace(/\s{2,}/g, ' ').trim();
+    return out.split('\n').map((line) => line.replace(/[ \t]{2,}/g, ' ').trim()).join('\n').trim();
   }
   // Mid-flow: strip every intro fragment.
   out = out.replace(LUNA_INTRO_RE, '');
-  return out.replace(/\s{2,}/g, ' ').trim();
+  return out.split('\n').map((line) => line.replace(/[ \t]{2,}/g, ' ').trim()).join('\n').trim();
 }
 
 /**

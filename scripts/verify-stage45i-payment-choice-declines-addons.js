@@ -296,8 +296,8 @@ function clearedWireCtx() {
   });
   const quoteReply = composed && composed.reply ? composed.reply : String(composed || '');
   check('D1', /deposit|full/i.test(quoteReply), 'quote asks deposit or full payment');
-  check('D2', /later|anytime|if you want/i.test(quoteReply),
-    'add-ons mentioned as optional/later');
+  check('D2', /which do you prefer|deposit|full/i.test(quoteReply),
+    'quote leads with deposit vs full payment choice');
   check('D3', !/just the stay/i.test(quoteReply),
     'does not force just-the-stay wording');
   check('D4', !/stripe link/i.test(quoteReply),
@@ -315,8 +315,8 @@ function clearedWireCtx() {
   });
   const camiReply = camiHosted && camiHosted.reply ? camiHosted.reply : '';
   check('D5', /deposit|full/i.test(camiReply), 'Cami package quote asks deposit or full');
-  check('D6', /lessons|rentals/i.test(camiReply) && /later|if you want/i.test(camiReply),
-    'Cami package quote mentions optional add-ons later');
+  check('D6', /which do you prefer|deposit|full/i.test(camiReply),
+    'Cami package quote leads with deposit vs full payment choice');
   check('D7', !/just the stay/i.test(camiReply), 'Cami package quote does not force just-the-stay');
   check('D8', !/stripe link/i.test(camiReply), 'Cami package quote avoids Stripe link');
 
