@@ -165,6 +165,11 @@ const {
   getBedCalendarSummaryQuery,
 } = require('./lib/staff-bed-calendar-queries');
 const {
+  resolveBedCalendarRoomRows,
+  filterDemoCalendarBlocks,
+  isWolfhouseInventoryClient,
+} = require('./lib/wolfhouse-inventory-source');
+const {
   getBookingDetailQuery,
   getBookingPaymentsQuery,
   getBookingRoomingAssignmentsQuery,
@@ -7831,6 +7836,9 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     sendJSON(res, 500, { success: false, error: 'db_error', detail: err.message });
     return;
   }
+
+  bedRows = resolveBedCalendarRoomRows(clientSlug, bedRows);
+  blockRows = filterDemoCalendarBlocks(blockRows);
 
   // ── Build bed metadata list (active + sellable only) ───────────────────────
   const allBeds = bedRows
@@ -18866,6 +18874,7 @@ function renderBedCalendar(data){
     var roomLabel = escHtml(room.room_code);
     if (room.room_name && room.room_name !== room.room_code) roomLabel += ' &mdash; ' + escHtml(room.room_name);
     var roomMeta = [];
+    if (room.gender_strategy) roomMeta.push(escHtml(room.gender_strategy));
     if (room.room_type) roomMeta.push(escHtml(room.room_type));
     if (room.capacity)  roomMeta.push(room.capacity + ' beds');
     html += '<tr><td colspan="' + totalCols + '" class="bc-room-hdr">' + roomLabel +
@@ -25614,7 +25623,9 @@ function buildRoomHierarchy(roomRows) {
         house:       row.house      || null,
         room_type:   row.room_type  || null,
         capacity:    row.capacity   || 0,
-        sort_order:  row.room_sort_order != null ? Number(row.room_sort_order) : 999,
+        sort_order:  row.fill_priority != null ? Number(row.fill_priority)
+          : (row.room_sort_order != null ? Number(row.room_sort_order) : 999),
+        gender_strategy: row.gender_strategy || null,
         beds: [],
       };
       rooms.push(roomMap[row.room_code]);
@@ -25894,6 +25905,9 @@ async function handleBedCalendar(query, res, user) {
     return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
   }
 
+  roomRows = resolveBedCalendarRoomRows(clientSlug, roomRows);
+  blockRows = filterDemoCalendarBlocks(blockRows);
+
   const rooms  = buildRoomHierarchy(roomRows);
   const days   = generateCalendarDays(startDate, endDate);
   const transfersByBookingId = buildTransferSummariesByBookingId(transferRows);
@@ -25923,6 +25937,8 @@ async function handleBedCalendar(query, res, user) {
     summary:      summaryRows,
     warnings:     [],
     elapsed_ms:   elapsed,
+    inventory_source: isWolfhouseInventoryClient(clientSlug)
+      ? 'wolfhouse_airtable_csv' : 'rooms_table',
   });
 }
 
@@ -26378,7 +26394,7 @@ async function handleTourOperatorRooms(query, res, user) {
   try {
     const roomRows = await withPgClient((pg) =>
       pg.query(getBedCalendarRoomsQuery(), [clientSlug]).then((r) => r.rows));
-    const rooms = buildRoomHierarchy(roomRows);
+    const rooms = buildRoomHierarchy(resolveBedCalendarRoomRows(clientSlug, roomRows));
     return sendJSON(res, 200, {
       success: true,
       client_slug: clientSlug,

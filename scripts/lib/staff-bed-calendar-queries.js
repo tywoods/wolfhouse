@@ -17,6 +17,11 @@
 
 'use strict';
 
+const {
+  wolfhouseExcludeDemoRoomsSql,
+  wolfhouseExcludeDemoBookingsSql,
+} = require('./wolfhouse-inventory-source');
+
 // ---------------------------------------------------------------------------
 // A. Room + bed hierarchy (grid rows)
 // ---------------------------------------------------------------------------
@@ -37,7 +42,8 @@ SELECT
   r.house,
   r.room_type,
   r.capacity,
-  COALESCE(r.sort_order, 999) AS room_sort_order,
+  r.fill_priority,
+  COALESCE(r.sort_order, r.fill_priority, 999) AS room_sort_order,
   r.gender_strategy,
   r.can_be_matrimonial,
   bd.id::text               AS bed_id,
@@ -52,8 +58,9 @@ INNER JOIN clients c ON c.id = r.client_id
 LEFT JOIN beds bd ON bd.room_id = r.id AND bd.client_id = r.client_id AND bd.active = TRUE
 WHERE c.slug = $1
   AND r.active = TRUE
+  ${wolfhouseExcludeDemoRoomsSql('r')}
 ORDER BY
-  COALESCE(r.sort_order, 999) ASC,
+  COALESCE(r.fill_priority, r.sort_order, 999) ASC,
   r.room_code ASC,
   COALESCE(bd.bed_number, 999) ASC,
   bd.bed_code ASC
@@ -112,6 +119,7 @@ WHERE c.slug = $1
   AND bb.assignment_start_date < $3::date
   AND bb.assignment_end_date   > $2::date
   AND b.status NOT IN ('cancelled', 'expired')
+  ${wolfhouseExcludeDemoBookingsSql('b', 'bb')}
 ORDER BY bb.room_code ASC, bb.bed_code ASC, bb.assignment_start_date ASC
 `;
 }
@@ -140,6 +148,7 @@ WHERE c.slug = $1
   AND bb.assignment_start_date < $3::date
   AND bb.assignment_end_date   > $2::date
   AND b.status NOT IN ('cancelled', 'expired')
+  ${wolfhouseExcludeDemoBookingsSql('b', 'bb', 'c')}
 GROUP BY b.status, b.payment_status, b.assignment_status
 ORDER BY b.status, b.payment_status
 `;

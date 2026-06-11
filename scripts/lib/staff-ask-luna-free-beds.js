@@ -11,6 +11,11 @@
 
 'use strict';
 
+const {
+  wolfhouseExcludeDemoRoomsSql,
+  wolfhouseExcludeDemoBookingsSql,
+} = require('./wolfhouse-inventory-source');
+
 const FREE_BEDS_TONIGHT_KEY = 'inventory.free_beds_tonight';
 const FREE_BEDS_TOMORROW_NIGHT_KEY = 'inventory.free_beds_tomorrow_night';
 const FREE_BEDS_REGISTRY_KEYS = new Set([FREE_BEDS_TONIGHT_KEY, FREE_BEDS_TOMORROW_NIGHT_KEY]);
@@ -127,6 +132,7 @@ WITH sellable_beds AS (
   INNER JOIN clients c ON c.id = bd.client_id
   WHERE c.slug = $1
     AND r.active = TRUE
+    ${wolfhouseExcludeDemoRoomsSql('r', 'c')}
 ),
 occupied_beds AS (
   SELECT DISTINCT bb.bed_id
@@ -137,6 +143,7 @@ occupied_beds AS (
     AND b.check_in <= $2::date
     AND b.check_out > $2::date
     AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired', 'hold')
+    ${wolfhouseExcludeDemoBookingsSql('b', 'bb', 'c')}
 )
 SELECT
   sb.bed_id::text         AS bed_id,
