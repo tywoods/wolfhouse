@@ -129,7 +129,7 @@ check('E4', file && file.future_roadmap.addon_service_payment_ledger, 'add-on le
 
 const loaderSrc = fs.readFileSync(PERSONALITY_LOADER, 'utf8');
 check('E5', !loaderSrc.match(/upload.*chat|generatePersonalityFromChats/i), 'no owner-chat upload feature');
-check('E6', !composerSrc.includes('lunafrontdesk.com/pay/'), 'no short payment link feature in composer');
+check('E6', composerSrc.includes('luna-payment-short-link'), 'short payment link helper wired in composer');
 
 section('F. Safety — no new send/deploy paths');
 

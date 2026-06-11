@@ -132,6 +132,11 @@
     "shared_room_base": true
   },
 
+  "public_urls": {
+    "_note": "Stage 37c — guest-facing short payment links redirect to existing Stripe checkout sessions. Production host can be swapped later without code changes.",
+    "public_payment_base_url": "https://staff-staging.lunafrontdesk.com"
+  },
+
   "hold_and_payment_rules": {
     "booking_hold_hours": 6,
     "stripe_checkout_link_expiry_hours": 6,

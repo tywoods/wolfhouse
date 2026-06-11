@@ -328,6 +328,15 @@ function formatOpenDemoStripeLinkResponse(linkOut) {
   if (!out.next_safe_step && out.stripe_checkout_url) {
     out.next_safe_step = 'awaiting_payment_truth';
   }
+  try {
+    const { buildPaymentLinkObservability } = require('./luna-payment-short-link');
+    Object.assign(out, buildPaymentLinkObservability({
+      booking_code: out.booking_code,
+      client_slug: out.client_slug,
+      stripe_checkout_url: out.stripe_checkout_url,
+      stripe_checkout_session_id: out.stripe_checkout_session_id,
+    }));
+  } catch (_) { /* non-fatal observability */ }
   return out;
 }
 

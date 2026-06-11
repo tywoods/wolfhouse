@@ -53,6 +53,10 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 
 const { withPgClient }       = require('./lib/pg-connect');
+const {
+  parsePaymentShortLinkToken,
+  resolvePaymentShortLinkRedirectFromDb,
+} = require('./lib/luna-payment-short-link');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
 const {
   computeBalanceDueRows,
@@ -1190,6 +1194,100 @@ function isStripeCheckoutCancelLandingPath(pathname, query) {
   if (pathname === '/staff/payment/cancel' || pathname === '/staff/stripe/cancel') return true;
   if (pathname === '/staff' && !(query && query.session_id)) return true;
   return false;
+}
+
+const GUEST_PAY_SHORT_LINK_RE = /^\/pay\/([^/]+)$/i;
+
+function requestPrefersJson(req) {
+  const accept = String((req && req.headers && req.headers.accept) || '').toLowerCase();
+  return accept.includes('application/json');
+}
+
+function buildGuestPaymentLinkStatusHtml(title, message) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f6f8fb; color: #1a1a1a; margin: 0; padding: 32px 16px; }
+    .card { max-width: 520px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 28px 24px; box-shadow: 0 8px 24px rgba(0,0,0,.06); }
+    h1 { font-size: 1.25rem; margin: 0 0 12px; }
+    p { margin: 0; line-height: 1.5; color: #444; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${title}</h1>
+    <p>${message}</p>
+  </div>
+</body>
+</html>`;
+}
+
+function sendGuestPaymentLinkStatus(res, statusCode, payload, req) {
+  const body = payload || {};
+  if (requestPrefersJson(req)) {
+    return sendJSON(res, statusCode, {
+      success: statusCode >= 200 && statusCode < 300,
+      status: body.status || null,
+      message: body.message || null,
+      booking_code: body.booking_code || null,
+      payment_short_url: body.payment_short_url || null,
+      stripe_checkout_url_present: body.stripe_checkout_url_present === true,
+      stripe_session_id: body.stripe_session_id || null,
+    });
+  }
+  const title = statusCode === 200 ? 'Payment link' : 'Payment link unavailable';
+  return sendHTML(res, statusCode, buildGuestPaymentLinkStatusHtml(title, body.message || 'Payment link unavailable.'));
+}
+
+/**
+ * Stage 37c — GET /pay/:bookingCode
+ * Read-only redirect to existing Stripe checkout URL. Never creates sessions or marks paid.
+ */
+async function handleGuestPaymentShortLinkRedirect(bookingCodeToken, parsedQuery, req, res) {
+  const parsed = parsePaymentShortLinkToken(bookingCodeToken);
+  if (!parsed.ok) {
+    return sendGuestPaymentLinkStatus(res, 404, {
+      status: 'invalid_token',
+      message: 'This payment link is not valid.',
+    }, req);
+  }
+
+  const clientSlug = (parsedQuery.client != null ? String(parsedQuery.client).trim() : '')
+    || (process.env.DEFAULT_CLIENT_SLUG != null ? String(process.env.DEFAULT_CLIENT_SLUG).trim() : '')
+    || 'wolfhouse-somo';
+
+  let outcome;
+  try {
+    outcome = await withPgClient((pg) => resolvePaymentShortLinkRedirectFromDb(pg, {
+      booking_code: parsed.booking_code,
+      client_slug: clientSlug,
+      env: process.env,
+    }));
+  } catch (err) {
+    return sendGuestPaymentLinkStatus(res, 500, {
+      status: 'error',
+      message: 'We could not open this payment link right now. Please message Wolfhouse and we\'ll send a fresh one.',
+    }, req);
+  }
+
+  if (outcome.status === 'redirect' && outcome.redirect_url) {
+    res.writeHead(302, {
+      Location: outcome.redirect_url,
+      'Cache-Control': 'no-store',
+      'X-Powered-By': 'wolfhouse-staff-api/payment-short-link',
+    });
+    return res.end();
+  }
+
+  const statusCode = outcome.status === 'paid' ? 200
+    : outcome.status === 'unsafe_live' ? 503
+      : 404;
+
+  return sendGuestPaymentLinkStatus(res, statusCode, outcome, req);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27379,6 +27477,10 @@ async function router(req, res) {
     }
     if (isStripeCheckoutCancelLandingPath(pathname, parsed.query)) {
       return handleStripeCheckoutCancelLanding(parsed.query, res);
+    }
+    const payShortMatch = GUEST_PAY_SHORT_LINK_RE.exec(pathname);
+    if (payShortMatch) {
+      return handleGuestPaymentShortLinkRedirect(payShortMatch[1], parsed.query, req, res);
     }
   }
 

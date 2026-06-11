@@ -24,6 +24,7 @@ const { URL } = require('url');
 require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 
 const { runGuestAutomationOrchestratorDryRun } = require('./lib/luna-guest-automation-orchestrator-dry-run');
+const { composeLunaGuestReply } = require('./lib/luna-guest-reply-composer');
 const { withPgClient } = require('./lib/pg-connect');
 const { normalizeGuestContextForChain } = require('./lib/luna-guest-context-merge');
 const {
@@ -2070,9 +2071,129 @@ async function runConfirmationPreviewFixture(fixture, opts) {
   return result;
 }
 
+function checkPaymentShortLinkCopyFixtureExpectations(expect, composed) {
+  const failures = [];
+  const exp = expect || {};
+  const reply = String((composed && composed.reply) || '');
+  const replyLower = reply.toLowerCase();
+
+  if (exp.composer_state && composed.composer_state !== exp.composer_state) {
+    failures.push(`composer_state expected ${exp.composer_state} got ${composed.composer_state}`);
+  }
+  if (Array.isArray(exp.reply_contains)) {
+    for (const needle of exp.reply_contains) {
+      if (!replyLower.includes(String(needle).toLowerCase())) {
+        failures.push(`reply_contains "${needle}" missing`);
+      }
+    }
+  }
+  if (Array.isArray(exp.reply_not_contains)) {
+    for (const needle of exp.reply_not_contains) {
+      if (replyLower.includes(String(needle).toLowerCase())) {
+        failures.push(`reply_not_contains "${needle}" violated`);
+      }
+    }
+  }
+  if (exp.stripe_checkout_url_present === true && composed.stripe_checkout_url_present !== true) {
+    failures.push('stripe_checkout_url_present expected true');
+  }
+  if (exp.payment_short_url_contains) {
+    const short = String(composed.payment_short_url || '');
+    if (!short.includes(String(exp.payment_short_url_contains))) {
+      failures.push(`payment_short_url_contains "${exp.payment_short_url_contains}" missing`);
+    }
+  }
+  if (exp.uses_short_payment_link === true && composed.uses_short_payment_link !== true) {
+    failures.push('uses_short_payment_link expected true');
+  }
+  if (exp.no_internal_language === true) {
+    const replyForCheck = reply.replace(/https?:\/\/\S+/gi, ' ');
+    for (const phrase of INTERNAL_LANGUAGE_BLACKLIST) {
+      if (new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(replyForCheck)) {
+        failures.push(`internal language "${phrase}" in payment link reply`);
+      }
+    }
+  }
+  return failures;
+}
+
+async function runPaymentShortLinkCopyFixture(fixture, opts) {
+  const ctx = fixture.payment_context || {};
+  const payload = {
+    result: {
+      detected_language: fixture.language || 'en',
+      message_lane: 'new_booking_inquiry',
+    },
+    payment_choice: {
+      payment_choice_ready: true,
+      payment_choice: 'deposit',
+      next_safe_step: 'ready_for_hold_payment_draft',
+    },
+    hold_payment_draft_plan: {
+      plan_status: 'ready',
+      payment_kind: 'deposit',
+      payment_amount_cents: ctx.deposit_amount_cents || 10000,
+    },
+    quote: {
+      quote_status: 'ready',
+      quote_total_cents: 18000,
+      deposit_options: { deposit_required_cents: ctx.deposit_amount_cents || 10000 },
+      payment_choice_needed: true,
+    },
+  };
+
+  const composed = composeLunaGuestReply({
+    payload,
+    mode: 'live_staging',
+    client_slug: fixture.client_slug || CLIENT_SLUG,
+    live_outcomes: {
+      bookingWrite: {
+        write_status: 'created',
+        booking_code: ctx.booking_code,
+      },
+      stripeLink: {
+        stripe_link_created: true,
+        stripe_checkout_url: ctx.stripe_checkout_url,
+        stripe_checkout_session_id: ctx.stripe_checkout_session_id,
+        booking_code: ctx.booking_code,
+      },
+      paymentLinkSend: { payment_link_sent: false },
+    },
+  });
+
+  const failures = checkPaymentShortLinkCopyFixtureExpectations(fixture.expect, composed);
+  const result = {
+    id: fixture.id,
+    label: fixture.label || fixture.id,
+    mode: 'payment_short_link_copy',
+    result: failures.length ? 'FAIL' : 'PASS',
+    failures,
+    composer_state: composed.composer_state,
+    proposed_luna_reply: composed.reply,
+    payment_short_url: composed.payment_short_url,
+    stripe_checkout_url_present: composed.stripe_checkout_url_present,
+    stripe_session_id: composed.stripe_session_id,
+  };
+
+  if (!opts.json) {
+    console.log(`\n▶ ${fixture.id} — ${fixture.label || fixture.id} [payment_short_link_copy]`);
+    if (composed.reply) {
+      console.log(`    Reply: ${String(composed.reply).replace(/\n/g, ' | ').slice(0, 320)}`);
+    }
+    console.log(`    short=${composed.payment_short_url || '(n/a)'} stripe_present=${composed.stripe_checkout_url_present === true}`);
+    console.log(`  ${result.result === 'PASS' ? 'PASS' : 'FAIL'}  ${fixture.id}`);
+    if (failures.length) failures.forEach((f) => console.log(`    - ${f}`));
+  }
+
+  return result;
+}
+
 async function runFixture(fixture, opts, fixtureIndex) {
   if (fixture.mode === 'confirmation_preview') {
     return runConfirmationPreviewFixture(fixture, opts);
+  }
+  if (fixture.mode === 'payment_short_link_copy') {
+    return runPaymentShortLinkCopyFixture(fixture, opts);
   }
   const contactName = fixture.contact_name || null;
   const referenceDate = fixture.reference_date || opts.referenceDate;

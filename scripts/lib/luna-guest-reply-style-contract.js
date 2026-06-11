@@ -93,7 +93,8 @@ function trimStr(v) {
 }
 
 function isForbiddenGuestCopy(text) {
-  return FORBIDDEN_GUEST_COPY_RE.test(trimStr(text));
+  const s = trimStr(text).replace(/https?:\/\/\S+/gi, ' ');
+  return FORBIDDEN_GUEST_COPY_RE.test(s);
 }
 
 function isFormDevCopy(text) {

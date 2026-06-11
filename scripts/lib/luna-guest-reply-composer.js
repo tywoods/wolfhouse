@@ -49,6 +49,11 @@ const {
   resolveActivePersonality,
   buildWelcomeReply,
 } = require('./luna-guest-personality-config');
+const {
+  buildPaymentShortLink,
+  resolveGuestPaymentLinkUrl,
+  buildPaymentLinkObservability,
+} = require('./luna-payment-short-link');
 
 const COMPOSER_STATES = Object.freeze([
   'greeting',
@@ -362,18 +367,27 @@ function quotePayloadIsStale(payload, result, quote) {
   return false;
 }
 
-function buildComposerFacts(quote, plan, pc, stripe, live) {
+function buildComposerFacts(quote, plan, pc, stripe, live, clientSlug) {
   const pt = (live && live.paymentTruth) || {};
   const cp = (live && live.confirmationPreview) || {};
   const cs = (live && live.confirmationSend) || {};
+  const bookingCode = pt.booking_code
+    || (stripe && stripe.booking_code)
+    || (live && live.bookingWrite && live.bookingWrite.booking_code);
+  const stripeCheckoutUrl = stripe && stripe.stripe_checkout_url;
+  const paymentShortUrl = buildPaymentShortLink({
+    booking_code: bookingCode,
+    client_slug: clientSlug,
+  });
   return {
     quote_total_cents: quote && quote.quote_total_cents,
     deposit_amount_cents: depositCentsFromPayload(quote, plan, pc),
     balance_due_cents: pt.balance_due_cents != null ? pt.balance_due_cents : quote && quote.balance_due_cents,
     amount_paid_cents: pt.amount_paid_cents,
     payment_status: pt.payment_status,
-    payment_link_url: stripe && stripe.stripe_checkout_url,
-    booking_code: pt.booking_code || (live && live.bookingWrite && live.bookingWrite.booking_code),
+    payment_link_url: stripeCheckoutUrl,
+    payment_short_url: paymentShortUrl,
+    booking_code: bookingCode,
     room_label: pt.room_label || cp.room_label,
     confirmation_preview_ready: cp.confirmation_preview_ready === true,
     confirmation_sent: cs.confirmation_sent === true,
@@ -618,11 +632,18 @@ function buildReplyForState(state, ctx) {
   const guests = guestCountLabel(fields.guest_count, lang);
   const total = formatEur(quote && quote.quote_total_cents);
   const deposit = formatEur(depositCentsFromPayload(quote, plan, pc));
-  const checkoutUrl = stripe && stripe.stripe_checkout_url ? trimStr(stripe.stripe_checkout_url) : '';
+  const stripeCheckoutUrl = stripe && stripe.stripe_checkout_url ? trimStr(stripe.stripe_checkout_url) : '';
+  const bookingCode = facts && facts.booking_code
+    ? trimStr(facts.booking_code)
+    : (stripe && stripe.booking_code ? trimStr(stripe.booking_code) : '');
+  const checkoutUrl = resolveGuestPaymentLinkUrl({
+    booking_code: bookingCode,
+    stripe_checkout_url: stripeCheckoutUrl,
+    client_slug: clientSlug,
+  }) || stripeCheckoutUrl;
   const packageName = trimStr(fields.package_interest || fields.package_code);
   const paid = formatEur(facts && facts.amount_paid_cents);
   const balance = formatEur(facts && facts.balance_due_cents);
-  const bookingCode = facts && facts.booking_code ? trimStr(facts.booking_code) : '';
 
   const en = {
     greeting: `${LUNA_IDENTITY.intro_short}\nAre you looking to book a stay, or just checking some info?`,
@@ -981,10 +1002,10 @@ function composeLunaGuestReply(input) {
   const fields = resolveComposerDisplayFields(input, payload, quote, result);
   const stripe = (input && input.live_outcomes && input.live_outcomes.stripeLink) || {};
   const live = (input && input.live_outcomes) || {};
-  const facts = buildComposerFacts(quote, plan, pc, stripe, live);
   const clientSlug = trimStr(input && input.client_slug)
     || trimStr(input && input.prior_guest_context && input.prior_guest_context.client_slug)
     || null;
+  const facts = buildComposerFacts(quote, plan, pc, stripe, live, clientSlug);
   const pkgIntent = detectPackageExplainerIntent(trimStr(input && input.message_text));
 
   const groundingErrors = validateComposerFacts(state, facts);
@@ -1055,6 +1076,12 @@ function composeLunaGuestReply(input) {
       const resolved = resolveActivePersonality(clientSlug);
       return resolved.active_personality_id || 'luna_safe';
     })(),
+    ...buildPaymentLinkObservability({
+      booking_code: facts.booking_code,
+      client_slug: clientSlug,
+      stripe_checkout_url: stripe && stripe.stripe_checkout_url,
+      stripe_checkout_session_id: stripe && stripe.stripe_checkout_session_id,
+    }),
   };
 }
 
