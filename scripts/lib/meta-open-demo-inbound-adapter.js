@@ -260,7 +260,7 @@ async function processMetaOpenDemoGuestInbound(input) {
   const eventRow = input.event_row;
 
   const openDemoBody = buildOpenDemoRequestBodyFromMeta(normalized);
-  const validation = validateOpenDemoInboundBody(openDemoBody);
+  const validation = validateOpenDemoInboundBody(openDemoBody, env);
   if (!validation.ok) {
     const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
       draft_called: false,

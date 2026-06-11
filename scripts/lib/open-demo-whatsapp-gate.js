@@ -6,6 +6,10 @@
 
 const OPEN_DEMO_WHATSAPP_ROUTE = '/staff/bot/open-demo-whatsapp-inbound-dry-run';
 const { mergePendingServiceAttachContext } = require('./luna-guest-pending-service-attach');
+const {
+  evaluateGuestInboundPhoneGate,
+  isLunaOpenPhoneTestingEnabled,
+} = require('./luna-open-phone-testing-gate');
 
 function trimEnv(v) {
   if (v == null) return '';
@@ -83,7 +87,22 @@ function evaluateOpenDemoWhatsAppGate(body, env) {
       };
     }
   }
-  return { ok: true };
+  const phoneGate = evaluateGuestInboundPhoneGate(body, env);
+  if (phoneGate.applies && !phoneGate.ok) {
+    return {
+      ok: false,
+      status: phoneGate.status || 403,
+      code: phoneGate.code || 'guest_phone_not_allowlisted',
+      error: phoneGate.error || 'inbound guest phone not allowlisted',
+      open_phone_testing: phoneGate.open_phone_testing === true,
+      guest_tester_class: phoneGate.guest_tester_class || null,
+    };
+  }
+  return {
+    ok: true,
+    open_phone_testing: phoneGate.open_phone_testing === true,
+    guest_tester_class: phoneGate.guest_tester_class || null,
+  };
 }
 
 /**
@@ -599,7 +618,8 @@ function resolveInboundMessageId(body) {
 /**
  * Validate n8n-shaped open demo payload (after trim).
  */
-function validateOpenDemoInboundBody(body) {
+function validateOpenDemoInboundBody(body, env) {
+  const e = env || process.env;
   const b = body || {};
   const clientSlug = b.client_slug != null ? String(b.client_slug).trim() : '';
   const channel = b.channel != null ? String(b.channel).trim().toLowerCase() : '';
@@ -613,6 +633,11 @@ function validateOpenDemoInboundBody(body) {
   if (!guestPhone) missing.push('guest_phone');
   if (!messageText) missing.push('message_text');
   if (!inboundMessageId) missing.push('inbound_message_id or wamid');
+
+  const phoneGate = evaluateGuestInboundPhoneGate(
+    { client_slug: clientSlug, guest_phone: guestPhone },
+    e,
+  );
 
   return {
     ok: missing.length === 0,
@@ -642,6 +667,8 @@ function validateOpenDemoInboundBody(body) {
         whatsapp_dry_run: true,
         live_send_allowed: false,
         open_demo_whatsapp: true,
+        open_phone_testing: isLunaOpenPhoneTestingEnabled(e),
+        guest_tester_class: phoneGate.guest_tester_class || null,
       },
     },
   };
@@ -701,4 +728,5 @@ module.exports = {
   resolveInboundMessageId,
   validateOpenDemoInboundBody,
   buildOpenDemoBlockedResponse,
+  isLunaOpenPhoneTestingEnabled,
 };

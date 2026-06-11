@@ -34,6 +34,10 @@ const {
   shouldRouteMetaInboundToOpenDemo,
   processMetaOpenDemoGuestInbound,
 } = require('./meta-open-demo-inbound-adapter');
+const {
+  shouldBlockMetaGuestInboundAfterOpenDemo,
+  buildMetaGuestPhoneGateBlockedExtras,
+} = require('./luna-open-phone-testing-gate');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -92,6 +96,25 @@ function buildResponseFromStoredEvent(row, signatureMeta, replayMeta = {}) {
 function draftCalledDraft(draft, row) {
   if (row.draft_called !== true) return null;
   return draft;
+}
+
+function buildGuestPhoneGateBlockedMetaResponse(normalized, signatureMeta, eventRow, gate) {
+  const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
+    draft_called: false,
+    send_attempted: false,
+    event_persisted: !!eventRow,
+  });
+  return {
+    response: {
+      ...response,
+      duplicate: false,
+      idempotent_replay: false,
+      guest_message_event_id: eventRow ? eventRow.id : null,
+      ...buildMetaGuestPhoneGateBlockedExtras(gate),
+    },
+    event_row: eventRow,
+    replay: false,
+  };
 }
 
 function enrichDraftForStorage(draft, bookingWritePreview) {
@@ -161,6 +184,16 @@ async function processWithoutPersistence(pg, env, normalized, body, signatureMet
       signatureMeta,
       staff_access: staffPhoneAccess,
     });
+  }
+
+  const phoneGateBlock = shouldBlockMetaGuestInboundAfterOpenDemo(env, normalized);
+  if (phoneGateBlock.block) {
+    return buildGuestPhoneGateBlockedMetaResponse(
+      normalized,
+      signatureMeta,
+      null,
+      phoneGateBlock.gate,
+    );
   }
 
   if (shouldRouteMetaInboundToOpenDemo(env, normalized)) {
@@ -280,6 +313,16 @@ async function processMetaWhatsAppWebhookInbound(input) {
       staff_access: staffPhoneAccess,
       event_row: eventRow,
     });
+  }
+
+  const phoneGateBlock = shouldBlockMetaGuestInboundAfterOpenDemo(env, normalized);
+  if (phoneGateBlock.block) {
+    return buildGuestPhoneGateBlockedMetaResponse(
+      normalized,
+      signatureMeta,
+      eventRow,
+      phoneGateBlock.gate,
+    );
   }
 
   if (shouldRouteMetaInboundToOpenDemo(env, normalized)) {

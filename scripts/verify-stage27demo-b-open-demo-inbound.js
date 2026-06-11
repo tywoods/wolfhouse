@@ -16,6 +16,7 @@ const API = path.join(__dirname, 'staff-query-api.js');
 const GATE = path.join(__dirname, 'lib', 'open-demo-whatsapp-gate.js');
 const HARNESS = path.join(__dirname, 'run-open-demo-whatsapp-inbound-dry-run.js');
 const REVIEW_LIB = path.join(__dirname, 'lib', 'luna-guest-inbound-review-dry-run.js');
+const EXECUTE_LIB = path.join(__dirname, 'lib', 'open-demo-whatsapp-inbound-execute.js');
 const PKG_FILE = path.join(ROOT, 'package.json');
 const DOC = path.join(ROOT, 'docs', 'STAGE-27DEMO-B-OPEN-DEMO-WHATSAPP-INBOUND.md');
 const SCRIPT = 'verify:stage27demo-b-open-demo-inbound';
@@ -46,6 +47,7 @@ const src = fs.readFileSync(API, 'utf8');
 const gateSrc = fs.existsSync(GATE) ? fs.readFileSync(GATE, 'utf8') : '';
 const harnessSrc = fs.existsSync(HARNESS) ? fs.readFileSync(HARNESS, 'utf8') : '';
 const reviewLibSrc = fs.existsSync(REVIEW_LIB) ? fs.readFileSync(REVIEW_LIB, 'utf8') : '';
+const executeLibSrc = fs.existsSync(EXECUTE_LIB) ? fs.readFileSync(EXECUTE_LIB, 'utf8') : '';
 const doc = fs.existsSync(DOC) ? fs.readFileSync(DOC, 'utf8') : '';
 
 const routeIdx = src.indexOf(`pathname === OPEN_DEMO_WHATSAPP_ROUTE`);
@@ -126,8 +128,23 @@ else fail('B6', 'demo gate not evaluated in handler');
 if (handler.includes('validateOpenDemoInboundBody')) pass('B7', 'handler validates n8n payload');
 else fail('B7', 'payload validation missing');
 
-if (handler.includes('runGuestInboundReviewDryRun(')) pass('B8', 'handler calls runGuestInboundReviewDryRun');
-else fail('B8', 'inbound review path not called');
+if (handler.includes('executeOpenDemoWhatsAppInbound(')) {
+  pass('B8', 'handler delegates to executeOpenDemoWhatsAppInbound (Stage 28c.3+ path)');
+} else {
+  fail('B8', 'handler missing executeOpenDemoWhatsAppInbound delegation');
+}
+
+if (executeLibSrc.includes('runGuestInboundReviewDryRun(')) {
+  pass('B8b', 'execute module runs runGuestInboundReviewDryRun inbound review');
+} else {
+  fail('B8b', 'execute path missing runGuestInboundReviewDryRun');
+}
+
+if (executeLibSrc.includes('validateOpenDemoInboundBody')) {
+  pass('B8c', 'execute module validates open-demo inbound body');
+} else {
+  fail('B8c', 'execute path missing validateOpenDemoInboundBody');
+}
 
 try {
   execSync(`node --check "${API}"`, { stdio: 'pipe' });
@@ -273,6 +290,36 @@ try {
   );
   if (ok.ok) pass('H4', 'gate open when enabled + phone match');
   else fail('H4', 'gate should pass when configured correctly');
+
+  const unknownWolfhouse = {
+    client_slug: 'wolfhouse-somo',
+    guest_phone: '+15551234567',
+    phone_number_id: 'demo-staging',
+  };
+  const openDemoEnv = {
+    OPEN_DEMO_WHATSAPP_ENABLED: 'true',
+    OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID: 'demo-staging',
+  };
+  const unknownBlocked = gate.evaluateOpenDemoWhatsAppGate(unknownWolfhouse, openDemoEnv);
+  if (!unknownBlocked.ok && unknownBlocked.code === 'guest_phone_not_allowlisted') {
+    pass('H5', 'unknown wolfhouse phone blocked by default (Stage 45b)');
+  } else {
+    fail('H5', 'unknown phone should be blocked without LUNA_OPEN_PHONE_TESTING');
+  }
+  const openTestingEnv = { ...openDemoEnv, LUNA_OPEN_PHONE_TESTING: 'true' };
+  const unknownOpen = gate.evaluateOpenDemoWhatsAppGate(unknownWolfhouse, openTestingEnv);
+  if (unknownOpen.ok) pass('H6', 'unknown phone allowed when LUNA_OPEN_PHONE_TESTING=true');
+  else fail('H6', 'LUNA_OPEN_PHONE_TESTING should allow unknown inbound');
+
+  const liveReply = gate.evaluateOpenDemoWhatsAppLiveReplyGate(unknownWolfhouse, openTestingEnv);
+  if (!liveReply.ok) pass('H7', 'open phone testing does not enable live replies');
+  else fail('H7', 'live reply must stay gated without OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED');
+
+  if (gateSrc.includes('public_guest_automation_enabled: false')) {
+    pass('H8', 'public guest automation remains disabled in open-demo validation');
+  } else {
+    fail('H8', 'public_guest_automation_enabled: false missing from gate validation');
+  }
 } catch (err) {
   fail('H0', `gate smoke test threw: ${err.message}`);
 }
