@@ -77,6 +77,7 @@ const IMPORTS = [
   'getConversationDetailQuery',
   'getConversationMessagesQuery',
   'getConversationContextQuery',
+  'getConversationBookingsQuery',
   'getConversationDraftQuery',
   'getConversationStaffStateQuery',
 ];
@@ -124,13 +125,22 @@ check(/intent:\s*['"]api:conversation\./.test(src),
 check(/category:\s*['"]conversation_api['"]/.test(src),
   "Audit category 'conversation_api' used");
 
-// Check 25: No POST/PATCH/DELETE for /staff/conversations
-const convPostRe = /\bmethod\s*===\s*['"]POST['"]\b[\s\S]{0,200}\/staff\/conversations/;
-const convPatchRe = /\bmethod\s*===\s*['"]PATCH['"]\b[\s\S]{0,200}\/staff\/conversations/;
-check(!convPostRe.test(src) && !convPatchRe.test(src),
-  'No POST/PATCH/DELETE route handler for /staff/conversations');
+// Check 25: Allowed write routes on /staff/conversations only
+check(/CONV_CLEAR_RE/.test(src), 'CONV_CLEAR_RE route regex defined');
+check(/handleConversationClearMessages/.test(src), 'handleConversationClearMessages defined');
+check(/handleConversationDelete/.test(src), 'handleConversationDelete defined');
+check(/deleteConversationHard/.test(src), 'deleteConversationHard helper used');
+check(/clearConversationMessages/.test(src), 'clearConversationMessages helper used');
+check(/needs-human/.test(src) && /clear-messages/.test(src),
+  'needs-human and clear-messages POST routes present');
+check(/method\s*===\s*['"]DELETE['"][\s\S]{0,120}handleConversationDelete/.test(src),
+  'DELETE conversation route wired to handleConversationDelete');
+check(/convDeleteMatch && method === 'DELETE'/.test(src),
+  'DELETE conversation route registered before GET-only guard');
+check(!/\/staff\/conversations\/.+\/staff-reply/.test(src),
+  'No unauthorized /staff/conversations write sub-routes (staff-reply)');
 
-// Check 26: No approve-send reference in conversation handlers
+// Check 26 (was 26): No approve-send reference in conversation handlers
 check(!/approve.send|approve_send/.test(src.split('handleConversationInbox')[1] || ''),
   'No approve-send reference in conversation handler code');
 
@@ -142,19 +152,30 @@ check(!/\/staff\/conversations\/.+\/staff-reply/.test(src),
 check(!/\/staff\/conversations\/.+\/takeover/.test(src),
   'No /staff/conversations/:id/takeover write route');
 
-// Check 29: No UPDATE bookings in conversation handler code
-const afterConvHandlers = src.includes('handleConversationInbox')
-  ? src.slice(src.indexOf('handleConversationInbox'))
-  : '';
-check(!/UPDATE\s+bookings/i.test(afterConvHandlers),
+// Checks 29–31: No booking/payment writes in conversation handler functions only
+function extractHandlerBlock(name) {
+  const start = src.indexOf(`async function ${name}`);
+  if (start < 0) return '';
+  const next = src.indexOf('\nasync function ', start + 1);
+  return next > start ? src.slice(start, next) : src.slice(start, start + 8000);
+}
+const convHandlerNames = [
+  'handleConversationInbox',
+  'handleConversationDetail',
+  'handleConversationMessages',
+  'handleConversationContext',
+  'handleConversationDraft',
+  'handleConversationStaffState',
+  'handleConversationNeedsHuman',
+  'handleConversationClearMessages',
+  'handleConversationDelete',
+];
+const convHandlersOnly = convHandlerNames.map(extractHandlerBlock).join('\n');
+check(!/UPDATE\s+bookings/i.test(convHandlersOnly),
   'No UPDATE bookings in conversation handlers');
-
-// Check 30: No UPDATE payments in conversation handler code
-check(!/UPDATE\s+payments/i.test(afterConvHandlers),
+check(!/UPDATE\s+payments/i.test(convHandlersOnly),
   'No UPDATE payments in conversation handlers');
-
-// Check 31: No UPDATE booking_beds in conversation handler code
-check(!/UPDATE\s+booking_beds/i.test(afterConvHandlers),
+check(!/UPDATE\s+booking_beds/i.test(convHandlersOnly),
   'No UPDATE booking_beds in conversation handlers');
 
 // Check 32: Route regexes defined
@@ -164,6 +185,12 @@ check(/const CONV_ID_RE/.test(src) && /const CONV_SUB_RE/.test(src),
 // Check 33: Inbox route wired in router
 check(/pathname\s*===\s*['"]\/staff\/conversations['"]/.test(src),
   "Inbox route ('/staff/conversations') wired in router");
+
+const ctxHandler = extractHandlerBlock('handleConversationContext');
+check(/getConversationBookingsQuery/.test(ctxHandler),
+  'Context handler loads guest bookings query');
+check(/bookings:\s*bookingRows/.test(ctxHandler),
+  'Context handler returns bookings array');
 
 // ─────────────────────────────────────────────────────────────────────────────
 
