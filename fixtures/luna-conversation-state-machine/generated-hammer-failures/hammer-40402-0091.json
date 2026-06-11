@@ -1,0 +1,103 @@
+{
+  "id": "hammer-40402-0091",
+  "fixture_set": "generated-hammer-failures",
+  "language": "it",
+  "contact_name": "Sara",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 40402,
+    "index": 91,
+    "scenario_type": "dinner_meals_request",
+    "language": "it",
+    "style": [
+      "typo",
+      "emoji"
+    ],
+    "generated_at": "2026-06-11T09:40:40.629Z"
+  },
+  "turns": [
+    {
+      "message": "🙏 Ciao per 4 pacchetto Waimea 3-10 luglo",
+      "expect": {
+        "expected_guest_count": 4,
+        "expected_dates": {
+          "check_in": "2026-07-03",
+          "check_out": "2026-07-10"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "it",
+        "expected_quote_ready": true,
+        "expected_package": "waimea"
+      }
+    },
+    {
+      "message": "🏄 possiamo cenare lì?",
+      "expect": {
+        "expected_guest_count": 4,
+        "expected_dates": {
+          "check_in": "2026-07-03",
+          "check_out": "2026-07-10"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "it",
+        "expected_meals_request": true,
+        "expected_context_preserved": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-03",
+      "check_out": "2026-07-10",
+      "guest_count": 4,
+      "package_interest": "waimea"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "it",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 40402,
+    "scenario_id": "hammer-40402-0091",
+    "language": "it",
+    "scenario_type": "dinner_meals_request",
+    "failure_categories": [
+      "internal_error",
+      "yoga_meals_intent"
+    ],
+    "generated_turns": [
+      "🙏 Ciao per 4 pacchetto Waimea 3-10 luglo",
+      "🏄 possiamo cenare lì?"
+    ],
+    "expected_issue_summary": "final: final expected_quote_ready but quote_status=not_ready (internal_error, yoga_meals_intent)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-03",
+      "check_out": "2026-07-10",
+      "guest_count": 4,
+      "guest_name": "Sara",
+      "deferred_guest_count": null,
+      "package_interest": "waimea",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": null,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "not_ready",
+    "luna_final_reply": "Scusa, non ho capito bene — una volta scelto deposito o importo intero, preparo il passo successivo — di solito il team conferma entro poche ore nei giorni feriali.",
+    "suggested_fix_area": "orchestrator crash / missing import",
+    "hammer_result": "FAIL",
+    "failures": [
+      "final: final expected_quote_ready but quote_status=not_ready",
+      "turn 2: expected_meals_request but meals_request missing"
+    ],
+    "exported_at": "2026-06-11T09:40:41.339Z"
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "id": "hammer-40402-0031",
+  "fixture_set": "generated-hammer-failures",
+  "language": "es",
+  "contact_name": "Pablo",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 40402,
+    "index": 31,
+    "scenario_type": "dinner_meals_request",
+    "language": "es",
+    "style": [],
+    "generated_at": "2026-06-11T09:40:40.628Z"
+  },
+  "turns": [
+    {
+      "message": "Hola para 3 Waimea del 17 al 24 de julio",
+      "expect": {
+        "expected_guest_count": 3,
+        "expected_dates": {
+          "check_in": "2026-07-17",
+          "check_out": "2026-07-24"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "es",
+        "expected_quote_ready": true,
+        "expected_package": "waimea"
+      }
+    },
+    {
+      "message": "¿y cena?",
+      "expect": {
+        "expected_guest_count": 3,
+        "expected_dates": {
+          "check_in": "2026-07-17",
+          "check_out": "2026-07-24"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "es",
+        "expected_meals_request": true,
+        "expected_context_preserved": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-17",
+      "check_out": "2026-07-24",
+      "guest_count": 3,
+      "package_interest": "waimea"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "es",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 40402,
+    "scenario_id": "hammer-40402-0031",
+    "language": "es",
+    "scenario_type": "dinner_meals_request",
+    "failure_categories": [
+      "yoga_meals_intent"
+    ],
+    "generated_turns": [
+      "Hola para 3 Waimea del 17 al 24 de julio",
+      "¿y cena?"
+    ],
+    "expected_issue_summary": "turn 2: expected_meals_request but meals_request missing (yoga_meals_intent)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-17",
+      "check_out": "2026-07-24",
+      "guest_count": 3,
+      "guest_name": "Pablo",
+      "deferred_guest_count": null,
+      "package_interest": "waimea",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": null,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "ready",
+    "luna_final_reply": "Perfect — I have you down for dinner 🍽️ No stress on payment now — it can be settled at checkout. For your booking, I have 2026-07-17 to 2026-07-24 for 3 huéspedes. Are you going to need anything else, or should I keep going with the booking?",
+    "suggested_fix_area": "reactive services policy + composer ack",
+    "hammer_result": "PARTIAL",
+    "failures": [
+      "turn 2: expected_meals_request but meals_request missing"
+    ],
+    "exported_at": "2026-06-11T09:40:41.342Z"
+  }
+}

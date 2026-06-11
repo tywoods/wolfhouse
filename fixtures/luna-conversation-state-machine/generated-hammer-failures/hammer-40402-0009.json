@@ -1,0 +1,107 @@
+{
+  "id": "hammer-40402-0009",
+  "fixture_set": "generated-hammer-failures",
+  "language": "en",
+  "contact_name": "Emma",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 40402,
+    "index": 9,
+    "scenario_type": "cash_payment_side_question",
+    "language": "en",
+    "style": [
+      "typo",
+      "emoji"
+    ],
+    "generated_at": "2026-06-11T09:40:40.627Z"
+  },
+  "turns": [
+    {
+      "message": "Hey we're 3, julyy 10-17, just the stay",
+      "expect": {
+        "expected_guest_count": 3,
+        "expected_dates": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "en",
+        "expected_quote_ready": true,
+        "expected_accommodation_only": true
+      }
+    },
+    {
+      "message": "cash payment ok?",
+      "expect": {
+        "expected_guest_count": 3,
+        "expected_dates": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "en",
+        "expected_quote_ready": true,
+        "expected_context_preserved": true,
+        "reply_contains": [
+          "cash"
+        ],
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 3,
+      "package_interest": "accommodation_only"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "en",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 40402,
+    "scenario_id": "hammer-40402-0009",
+    "language": "en",
+    "scenario_type": "cash_payment_side_question",
+    "failure_categories": [
+      "internal_error",
+      "cash_side_question"
+    ],
+    "generated_turns": [
+      "Hey we're 3, julyy 10-17, just the stay",
+      "cash payment ok?"
+    ],
+    "expected_issue_summary": "final: final expected_quote_ready but quote_status=not_ready (internal_error, cash_side_question)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 3,
+      "guest_name": "Emma",
+      "deferred_guest_count": null,
+      "package_interest": "accommodation_only",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": true,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "not_ready",
+    "luna_final_reply": "Thanks! Would you prefer to pay the deposit or the full amount for your stay?",
+    "suggested_fix_area": "orchestrator crash / missing import",
+    "hammer_result": "FAIL",
+    "failures": [
+      "final: final expected_quote_ready but quote_status=not_ready",
+      "turn 2: reply_contains \"cash\" missing",
+      "turn 2: expected_quote_ready but quote_status=not_ready"
+    ],
+    "exported_at": "2026-06-11T09:40:41.335Z"
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "id": "hammer-40402-0017",
+  "fixture_set": "generated-hammer-failures",
+  "language": "de",
+  "contact_name": "Lena",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 40402,
+    "index": 17,
+    "scenario_type": "lesson_addon",
+    "language": "de",
+    "style": [],
+    "generated_at": "2026-06-11T09:40:40.628Z"
+  },
+  "turns": [
+    {
+      "message": "Hallo, 2 Personen, vom 17. bis 24. Juli, nur Unterkunft, Surfkurse bitte",
+      "expect": {
+        "expected_guest_count": 2,
+        "expected_dates": {
+          "check_in": "2026-07-17",
+          "check_out": "2026-07-24"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "de",
+        "expected_quote_ready": true,
+        "expected_accommodation_only": true,
+        "expected_service_interest": [
+          "surf_lesson"
+        ],
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-17",
+      "check_out": "2026-07-24",
+      "guest_count": 2,
+      "package_interest": "accommodation_only"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "de",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 40402,
+    "scenario_id": "hammer-40402-0017",
+    "language": "de",
+    "scenario_type": "lesson_addon",
+    "failure_categories": [
+      "service_addon_intent"
+    ],
+    "generated_turns": [
+      "Hallo, 2 Personen, vom 17. bis 24. Juli, nur Unterkunft, Surfkurse bitte"
+    ],
+    "expected_issue_summary": "turn 1: expected_service_interest missing surf_lesson (service_addon_intent)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-17",
+      "check_out": "2026-07-24",
+      "guest_count": 2,
+      "guest_name": "Lena",
+      "deferred_guest_count": null,
+      "package_interest": "accommodation_only",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": null,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "ready",
+    "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €630. Do you need a wetsuit, board, or lessons too, or just the stay?",
+    "suggested_fix_area": "add-on parsing (muta/tavola/board/lesson)",
+    "hammer_result": "PARTIAL",
+    "failures": [
+      "turn 1: expected_service_interest missing surf_lesson"
+    ],
+    "exported_at": "2026-06-11T09:40:41.340Z"
+  }
+}

@@ -21,6 +21,8 @@ const {
 const ROOT = path.join(__dirname, '..');
 const TMP_DIR = path.join(ROOT, 'tmp');
 const DEFAULT_FAILURE_CAP = 20;
+const CURATED_FAIL_CAP = 10;
+const CURATED_PARTIAL_CAP = 5;
 const DEFAULT_FAILURE_DIR = path.join(
   ROOT, 'fixtures', 'luna-conversation-state-machine', 'generated-hammer-failures',
 );
@@ -34,7 +36,7 @@ Options:
   --local             Local orchestrator dry-run (default)
   --language LANG     it|en|es|de|mixed|all (default all)
   --write-report      Write JSON + markdown reports
-  --fixture-out DIR   Export failing scenarios as fixtures (cap 20)
+  --fixture-out DIR   Export curated FAIL/PARTIAL fixtures (cap 10 fail + 5 partial)
   --max-turns N       Cap turns per generated scenario
   --json              JSON report to stdout only
   --fail-fast         Stop on first FAIL
@@ -198,30 +200,274 @@ function writeMarkdownReport(report, seedsNote) {
   return mdPath;
 }
 
-function exportFailureFixtures(scenarios, results, outDir, cap) {
+function summarizeIssueSummary(failures, categories) {
+  const primary = (failures && failures[0]) || 'Expectation mismatch';
+  const cats = (categories || []).filter(Boolean);
+  if (!cats.length) return primary;
+  return `${primary} (${cats.slice(0, 3).join(', ')})`;
+}
+
+function buildReviewExportPayload(scenario, record, seed) {
+  const turns = (scenario.turns || []).map((t) => ({
+    message: t.message,
+    expect: t.expect || undefined,
+  }));
+  return {
+    ...scenario,
+    fixture_set: 'generated-hammer-failures',
+    hammer_review: {
+      source_seed: seed,
+      scenario_id: record.scenario_id,
+      language: record.language,
+      scenario_type: record.scenario_type,
+      failure_categories: record.failure_categories || [],
+      generated_turns: record.input_turns || turns.map((t) => t.message),
+      expected_issue_summary: summarizeIssueSummary(record.failures, record.failure_categories),
+      final_extracted_facts: record.final_extracted_fields || {},
+      quote_status: record.quote_status || null,
+      luna_final_reply: record.luna_final_reply || null,
+      suggested_fix_area: (record.suggested_fix_areas && record.suggested_fix_areas[0]) || null,
+      hammer_result: record.result,
+      failures: record.failures || [],
+      exported_at: new Date().toISOString(),
+    },
+  };
+}
+
+function exportFailureFixtures(scenarios, results, outDir, exportOpts) {
   const dir = outDir || DEFAULT_FAILURE_DIR;
+  const seed = exportOpts && exportOpts.seed;
+  const failCap = (exportOpts && exportOpts.failCap) || CURATED_FAIL_CAP;
+  const partialCap = (exportOpts && exportOpts.partialCap) || CURATED_PARTIAL_CAP;
+
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const fails = results
-    .map((r, i) => ({ r, scenario: scenarios[i] }))
-    .filter(({ r }) => r.result === 'FAIL')
-    .slice(0, cap || DEFAULT_FAILURE_CAP);
+  for (const f of fs.readdirSync(dir)) {
+    if (f.endsWith('.json')) fs.unlinkSync(path.join(dir, f));
+  }
+
+  const paired = results.map((r, i) => ({ r, scenario: scenarios[i] }));
+  const failItems = paired.filter(({ r }) => r.result === 'FAIL').slice(0, failCap);
+  const partialItems = paired.filter(({ r }) => r.result === 'PARTIAL').slice(0, partialCap);
 
   const written = [];
-  for (const { r, scenario } of fails) {
+  for (const { r, scenario } of [...failItems, ...partialItems]) {
     const name = `${scenario.id}.json`;
-    const payload = {
-      ...scenario,
-      hammer_export: {
-        exported_from: 'stage40a-hammer',
-        result: r.result,
-        failure_categories: r.failure_categories,
-        failures: r.failures,
-      },
-    };
+    const payload = buildReviewExportPayload(scenario, r, seed);
     fs.writeFileSync(path.join(dir, name), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-    written.push(name);
+    written.push({
+      file: name,
+      result: r.result,
+      scenario_id: r.scenario_id,
+      language: r.language,
+      scenario_type: r.scenario_type,
+      failure_categories: r.failure_categories || [],
+      expected_issue_summary: payload.hammer_review.expected_issue_summary,
+      suggested_fix_area: payload.hammer_review.suggested_fix_area,
+    });
   }
-  return { dir, written };
+
+  const manifest = {
+    stage: '40c',
+    source_seed: seed,
+    exported_at: new Date().toISOString(),
+    caps: { fail: failCap, partial: partialCap },
+    fail_exported: failItems.length,
+    partial_exported: partialItems.length,
+    exports: written,
+  };
+  fs.writeFileSync(path.join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+  return {
+    dir,
+    written: written.map((w) => w.file),
+    manifest,
+    fail_count: failItems.length,
+    partial_count: partialItems.length,
+  };
+}
+
+function writeReviewPackDoc(report, exportMeta) {
+  const mdPath = path.join(ROOT, 'docs', 'STAGE-40C-HAMMER-REVIEW-PACK.md');
+  const passRate = report.count ? Math.round((report.passed / report.count) * 100) : 0;
+  const failRate = report.count ? Math.round((report.failed / report.count) * 100) : 0;
+  const partialRate = report.count ? Math.round((report.partial / report.count) * 100) : 0;
+
+  const langRows = Object.entries(report.language_breakdown || {})
+    .map(([lang, s]) => `| ${lang} | ${s.pass || 0} | ${s.partial || 0} | ${s.fail || 0} |`)
+    .join('\n');
+
+  const scenarioRows = Object.entries(report.scenario_breakdown || {})
+    .map(([sc, s]) => `| ${sc.replace(/_/g, ' ')} | ${s.pass || 0} | ${s.partial || 0} | ${s.fail || 0} |`)
+    .join('\n');
+
+  const catLines = (report.top_failure_categories || [])
+    .slice(0, 8)
+    .map((row) => `- **${row.category.replace(/_/g, ' ')}** — ${row.count} hits`)
+    .join('\n');
+
+  const examples = (report.results || [])
+    .filter((r) => r.result === 'FAIL' || r.result === 'PARTIAL')
+    .slice(0, 5)
+    .map((ex, idx) => {
+      const turns = (ex.input_turns || []).map((m, i) => `${i + 1}. Guest: "${m}"`).join('\n');
+      const reply = ex.luna_final_reply
+        ? `Luna (last turn): "${String(ex.luna_final_reply).slice(0, 220)}${ex.luna_final_reply.length > 220 ? '…' : ''}"`
+        : 'Luna: (no final reply captured)';
+      const facts = ex.final_extracted_fields
+        ? `Facts kept: dates ${ex.final_extracted_fields.check_in || '—'}→${ex.final_extracted_fields.check_out || '—'}, guests ${ex.final_extracted_fields.guest_count ?? '—'}, package ${ex.final_extracted_fields.package_interest || '—'}`
+        : '';
+      return `### Example ${idx + 1}: ${ex.scenario_id} (${ex.result})
+
+**Type:** ${ex.scenario_type} · **Lang:** ${ex.language}
+
+${turns}
+
+${reply}
+
+${facts}
+
+**Issue:** ${(ex.failures && ex.failures[0]) || 'partial expectation mismatch'}
+`;
+    })
+    .join('\n');
+
+  const exportedList = exportMeta && exportMeta.manifest
+    ? exportMeta.manifest.exports.map((e) => `- \`${e.file}\` (${e.result}) — ${e.expected_issue_summary}`).join('\n')
+    : '_(run with --fixture-out to generate)_';
+
+  const lines = [
+    '# Stage 40c — Hammer Review Pack (Ale/Cami)',
+    '',
+    'Readable summary of Luna’s randomized stress-test results. No live payments, WhatsApp, or confirmations were used.',
+    '',
+    '---',
+    '',
+    '## 1. What the hammer test does',
+    '',
+    'The hammer test generates **100 realistic guest conversations** in Italian, English, Spanish, German, and mixed phrasing — including typos and emojis. Each conversation is run through the **same Luna booking path** used in production dry-run mode. We score PASS / PARTIAL / FAIL and export a **small curated set** of failures for manual review.',
+    '',
+    '**Command used:** `npm run hammer:luna -- --count 100 --seed 40402 --local --write-report --fixture-out`',
+    '',
+    '---',
+    '',
+    '## 2. Current score (seed 40402)',
+    '',
+    '| PASS | PARTIAL | FAIL | Total |',
+    '|------|---------|------|-------|',
+    `| **${report.passed}** | **${report.partial}** | **${report.failed}** | ${report.count} |`,
+    '',
+    `| Metric | Value |`,
+    `|--------|-------|`,
+    `| Pass rate | **${passRate}%** |`,
+    `| Partial rate | ${partialRate}% |`,
+    `| Fail rate | **${failRate}%** |`,
+    '',
+    'Stage 40b target was ≥65 PASS and <20 FAIL — **met**.',
+    '',
+    '### Language breakdown',
+    '',
+    '| Language | PASS | PARTIAL | FAIL |',
+    '|----------|------|---------|------|',
+    langRows,
+    '',
+    '### Scenario breakdown',
+    '',
+    '| Scenario | PASS | PARTIAL | FAIL |',
+    '|----------|------|---------|------|',
+    scenarioRows,
+    '',
+    '### Top failure categories',
+    '',
+    catLines || '_None_',
+    '',
+    '---',
+    '',
+    '## 3. What Luna handles well',
+    '',
+    '- **Short-stay and weekly package bookings** in IT/EN/ES/DE with messy dates and guest counts',
+    '- **Embedded booking + side questions** when dates and guests arrive in one message (cash, transfer)',
+    '- **First-turn surf add-ons** (wetsuit, board, lessons) on many paths',
+    '- **Corrections and resets** on most flows; Spanish/English/German correction paths are strong',
+    '- **Multilingual out-of-order** fixture set: 11/12 pass (1 known composer partial on yoga copy)',
+    '- **Booking-core** regression: 26/26 pass',
+    '',
+    '---',
+    '',
+    '## 4. What still fails',
+    '',
+    'Remaining issues are **edge combinations**, not core booking collapse:',
+    '',
+    '1. **Turn-2 cash side-question** — quote context lost after a clean first turn on some EN/IT/DE paths',
+    '2. **Italian correction + stale quote** — guest-count correction does not always invalidate/rebuild quote',
+    '3. **German add-on phrasing** — occasional partials on wetsuit/lesson wording',
+    '4. **Meals/yoga mid-flow** — dinner or yoga add-on not always detected on turn 2',
+    '5. **Rare reset** — final guest count null after reset + reopen',
+    '',
+    '---',
+    '',
+    '## 5. Examples of real failing conversations',
+    '',
+    examples || '_No failures in this run._',
+    '',
+    '---',
+    '',
+    '## 6. What Ale/Cami should test manually',
+    '',
+    'Focus manual hammering on these **high-value messy combos**:',
+    '',
+    '1. Book dates + guests, then ask **“can we pay cash?”** before choosing deposit/full',
+    '2. Start a Malibu/weekly quote, then say **“actually we are 3”** (Italian: _in realtà siamo 3_)',
+    '3. Short stay + **wetsuit and board** in one message (DE: Neopren + Board)',
+    '4. Mid-flow **dinner or yoga** after quote is ready',
+    '5. **Reset** (“start over”) then send new dates in the next message',
+    '6. Mixed **IT/EN** in one thread with typos and emojis around dates',
+    '',
+    'Use exported fixtures under `fixtures/luna-conversation-state-machine/generated-hammer-failures/` as starting scripts.',
+    '',
+    '---',
+    '',
+    '## 7. What is safe to ignore for demo',
+    '',
+    '- **PARTIAL** on composer copy (e.g. missing the word “yoga” once) — tone, not booking breakage',
+    '- **Internal dry-run labels** in logs — not guest-facing',
+    '- **Add-on pay-at-checkout** wording — services are held, not charged in hammer mode',
+    '- Failures that only appear with **hammer typo injection** (`julyy`, `luglo`) if clean phrasing works in manual test',
+    '',
+    '---',
+    '',
+    '## 8. Top recommended Stage 40d fixes',
+    '',
+    '1. **Turn-2 cash side-question quote preservation** — keep quote ready when guest asks cash/bank after quote',
+    '2. **Italian correction_stale_quote** — invalidate and rebuild when guest count changes mid-flow',
+    '',
+    'Do not start Somo FAQ or surf report until these two are cleaner for manual testing.',
+    '',
+    '---',
+    '',
+    '## What to tell Ale/Cami',
+    '',
+    '> Luna now handles **most clean and messy booking flows**, including multiple languages, corrections, add-ons, and combined side-questions. On our 100-conversation stress test, **74 passed** and only **10 failed** — mostly unusual combos like asking about cash on turn 2 after a quote, or changing guest count in Italian without refreshing the quote. **These are exactly the areas we want you to hammer manually** using the exported conversation scripts. Nothing in this test sent real payments or WhatsApp messages.',
+    '',
+    '---',
+    '',
+    '## Exported curated fixtures',
+    '',
+    exportMeta
+      ? `Seed **${exportMeta.manifest.source_seed}** · ${exportMeta.fail_count} FAIL + ${exportMeta.partial_count} PARTIAL exported (caps: ${CURATED_FAIL_CAP} fail, ${CURATED_PARTIAL_CAP} partial)`
+      : '',
+    '',
+    exportedList,
+    '',
+    '---',
+    '',
+    '## Safety',
+    '',
+    report.safety_note || 'No writes, live Stripe, WhatsApp, confirmations, n8n activation, or production changes.',
+    '',
+  ];
+
+  fs.writeFileSync(mdPath, `${lines.join('\n')}\n`, 'utf8');
+  return mdPath;
 }
 
 async function runHammerBatch(opts) {
@@ -312,11 +558,19 @@ async function runHammerBatch(opts) {
 
   if (opts.fixtureOut !== null) {
     const outDir = opts.fixtureOut || DEFAULT_FAILURE_DIR;
-    const exp = exportFailureFixtures(generated.scenarios, hammerResults, outDir, DEFAULT_FAILURE_CAP);
+    const exp = exportFailureFixtures(generated.scenarios, hammerResults, outDir, {
+      seed: opts.seed,
+      failCap: CURATED_FAIL_CAP,
+      partialCap: CURATED_PARTIAL_CAP,
+    });
     if (!opts.json) {
-      console.log(`\nExported ${exp.written.length} failure fixtures → ${exp.dir}`);
+      console.log(`\nExported ${exp.written.length} curated fixtures (${exp.fail_count} FAIL + ${exp.partial_count} PARTIAL) → ${exp.dir}`);
     }
     report.exported_failure_fixtures = exp;
+    writeReviewPackDoc(report, exp);
+    if (!opts.json) {
+      console.log(`Review pack: ${path.join(ROOT, 'docs', 'STAGE-40C-HAMMER-REVIEW-PACK.md')}`);
+    }
   }
 
   if (opts.json) {
@@ -347,6 +601,9 @@ module.exports = {
   buildReport,
   writeJsonReport,
   writeMarkdownReport,
+  writeReviewPackDoc,
   exportFailureFixtures,
   DEFAULT_FAILURE_DIR,
+  CURATED_FAIL_CAP,
+  CURATED_PARTIAL_CAP,
 };

@@ -1,0 +1,88 @@
+{
+  "id": "hammer-40402-0028",
+  "fixture_set": "generated-hammer-failures",
+  "language": "es",
+  "contact_name": "Ana",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 40402,
+    "index": 28,
+    "scenario_type": "short_stay_surf_addons",
+    "language": "es",
+    "style": [],
+    "generated_at": "2026-06-11T09:40:40.628Z"
+  },
+  "turns": [
+    {
+      "message": "Hola! para 4 del 15 al 20 de julio, solo estadía, traje y tabla",
+      "expect": {
+        "expected_guest_count": 4,
+        "expected_dates": {
+          "check_in": "2026-07-15",
+          "check_out": "2026-07-20"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "es",
+        "expected_quote_ready": true,
+        "expected_accommodation_only": true,
+        "expected_service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-15",
+      "check_out": "2026-07-20",
+      "guest_count": 4,
+      "package_interest": "accommodation_only"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "es",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 40402,
+    "scenario_id": "hammer-40402-0028",
+    "language": "es",
+    "scenario_type": "short_stay_surf_addons",
+    "failure_categories": [
+      "service_addon_intent"
+    ],
+    "generated_turns": [
+      "Hola! para 4 del 15 al 20 de julio, solo estadía, traje y tabla"
+    ],
+    "expected_issue_summary": "turn 1: expected_service_interest missing wetsuit (service_addon_intent)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-15",
+      "check_out": "2026-07-20",
+      "guest_count": 4,
+      "guest_name": "Ana",
+      "deferred_guest_count": null,
+      "package_interest": "accommodation_only",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": null,
+      "transfer_interest": null,
+      "service_interest": [
+        "surfboard"
+      ],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "ready",
+    "luna_final_reply": "Perfect — we have the board on hold for you 🌊 No stress on payment now — it's added to your booking and you can settle it at checkout. To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €975?",
+    "suggested_fix_area": "add-on parsing (muta/tavola/board/lesson)",
+    "hammer_result": "PARTIAL",
+    "failures": [
+      "turn 1: expected_service_interest missing wetsuit"
+    ],
+    "exported_at": "2026-06-11T09:40:41.342Z"
+  }
+}

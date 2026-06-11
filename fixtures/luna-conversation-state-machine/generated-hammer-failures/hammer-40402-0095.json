@@ -1,0 +1,109 @@
+{
+  "id": "hammer-40402-0095",
+  "fixture_set": "generated-hammer-failures",
+  "language": "it",
+  "contact_name": "Luca",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 40402,
+    "index": 95,
+    "scenario_type": "reset_flow",
+    "language": "it",
+    "style": [
+      "typo"
+    ],
+    "generated_at": "2026-06-11T09:40:40.629Z"
+  },
+  "turns": [
+    {
+      "message": "Ciao siamoo 3 per Malibu 10-17 luglio",
+      "expect": {
+        "expected_guest_count": 3,
+        "expected_dates": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "it",
+        "expected_quote_ready": true,
+        "expected_package": "malibu"
+      }
+    },
+    {
+      "message": "no aspetta, ricominciamo",
+      "expect": {
+        "expected_reset_detected": true,
+        "expected_quote_ready": false,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "siamoo in 2, 8-12 luglo, solo il soggiorno",
+      "expect": {
+        "expected_guest_count": 2,
+        "expected_dates": {
+          "check_in": "2026-07-08",
+          "check_out": "2026-07-12"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "it",
+        "expected_accommodation_only": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-08",
+      "check_out": "2026-07-12",
+      "guest_count": 2
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "it"
+  },
+  "hammer_review": {
+    "source_seed": 40402,
+    "scenario_id": "hammer-40402-0095",
+    "language": "it",
+    "scenario_type": "reset_flow",
+    "failure_categories": [
+      "guest_count",
+      "reset"
+    ],
+    "generated_turns": [
+      "Ciao siamoo 3 per Malibu 10-17 luglio",
+      "no aspetta, ricominciamo",
+      "siamoo in 2, 8-12 luglo, solo il soggiorno"
+    ],
+    "expected_issue_summary": "final: final.expected_fields.guest_count expected 2 got null (guest_count, reset)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-08",
+      "check_out": "2026-07-12",
+      "guest_count": null,
+      "guest_name": "Luca",
+      "deferred_guest_count": null,
+      "package_interest": "accommodation_only",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": null,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "not_ready",
+    "luna_final_reply": "Perfetto — July 8 to July 12. Quanti ospiti sarete?",
+    "suggested_fix_area": "guest count extraction + solo accommodation guard",
+    "hammer_result": "FAIL",
+    "failures": [
+      "final: final.expected_fields.guest_count expected 2 got null",
+      "turn 3: expected_guest_count 2 got null"
+    ],
+    "exported_at": "2026-06-11T09:40:41.340Z"
+  }
+}

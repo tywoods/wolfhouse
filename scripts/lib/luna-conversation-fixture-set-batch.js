@@ -27,6 +27,9 @@ const FIXTURE_SET_DIRS = Object.freeze({
   'hammer-regressions': path.join(
     __dirname, '..', '..', 'fixtures', 'luna-conversation-state-machine', 'hammer-regressions',
   ),
+  'generated-hammer-failures': path.join(
+    __dirname, '..', '..', 'fixtures', 'luna-conversation-state-machine', 'generated-hammer-failures',
+  ),
 });
 
 function applyChannelContactName(guestContext, contactName) {
@@ -65,7 +68,7 @@ function loadConversationFixtures(fixtureSet) {
     throw new Error(`unknown or missing fixture-set directory: ${fixtureSet}`);
   }
   return fs.readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
+    .filter((f) => f.endsWith('.json') && f !== 'manifest.json')
     .sort()
     .map((file) => {
       const raw = fs.readFileSync(path.join(dir, file), 'utf8');
