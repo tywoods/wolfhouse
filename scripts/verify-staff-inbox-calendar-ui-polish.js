@@ -37,6 +37,8 @@ const htmlSrc = htmlMatch ? htmlMatch[1] : src;
 
 const loadDetailMatch = src.match(/function loadConvDetail\(convId[\s\S]*?function wireNeedsHumanToggle\(/);
 const loadDetailJs = loadDetailMatch ? loadDetailMatch[0] : '';
+const bookingStackJs = src.match(/function renderInboxBookingStackItemHtml[\s\S]*?\n\}/)?.[0] || '';
+const openConvJs = src.match(/function bcOpenOrStartConversationFromBooking[\s\S]*?\n\}/)?.[0] || '';
 
 const nhToggleMatch = src.match(/function wireNeedsHumanToggle\([\s\S]*?\n\}/);
 const pauseSwitchMatch = src.match(/function wireLunaPauseSwitch\([\s\S]*?\n\}/);
@@ -73,7 +75,7 @@ else fail('B4', 'skeleton missing');
 
 section('C. Inbox labels and links');
 
-if (/Open Booking in Calendar/.test(loadDetailJs)) pass('C1', 'Open Booking in Calendar text');
+if (/Open Booking in Calendar/.test(bookingStackJs + loadDetailJs)) pass('C1', 'Open Booking in Calendar text');
 else fail('C1', 'new calendar link text missing');
 
 if (!/Open in Booking Calendar/.test(loadDetailJs)) pass('C2', 'old calendar link text removed');
@@ -82,8 +84,11 @@ else fail('C2', 'old Open in Booking Calendar still present');
 if (!/<h3>Reply<\/h3>/.test(loadDetailJs)) pass('C3', 'Reply heading removed');
 else fail('C3', 'Reply h3 still present');
 
-if (/Review and send reply/.test(loadDetailJs)) pass('C4', 'Review and send reply retained');
-else fail('C4', 'Review and send reply missing');
+if (/Reply:/.test(loadDetailJs) && !/Review and send reply/.test(loadDetailJs)) {
+  pass('C4', 'Reply label retained');
+} else fail('C4', 'Reply label missing or old text remains');
+if (!/No Luna draft yet/.test(loadDetailJs)) pass('C4b', 'empty draft hint removed');
+else fail('C4b', 'No Luna draft hint still present');
 
 section('D. Booking Calendar Open Conversation');
 
@@ -93,16 +98,20 @@ else fail('D1', 'toolbar button missing');
 if (/btn-success-light/.test(htmlSrc) && /Open Conversation/.test(src)) pass('D2', 'soft green Open Conversation style');
 else fail('D2', 'btn-success-light / label missing');
 
-if (/function bcOpenConversationFromBooking/.test(src) && /openInboxToConversation/.test(src.match(/function bcOpenConversationFromBooking[\s\S]*?\n\}/)?.[0] || '')) {
+if (/function bcOpenOrStartConversationFromBooking/.test(src) && /openInboxToConversation/.test(openConvJs)) {
   pass('D3', 'opens Inbox conversation path');
 } else fail('D3', 'Inbox open path missing');
 
-if (/No conversation found for this booking/.test(src)) pass('D4', 'friendly not-found status');
-else fail('D4', 'not-found message missing');
+const footerFn = src.match(/function bcRenderBookingDrawerFooterHtml\([\s\S]*?\n\}/)?.[0] || '';
 
-if (/id=["']bc-open-conv-btn["']/.test(src.match(/Conversation \/ Handoff[\s\S]{0,900}/)?.[0] || '')) {
-  pass('D5', 'handoff section uses Open Conversation button');
-} else fail('D5', 'handoff section button missing');
+if (/Could not start conversation|bcShowOpenConversationStatus|Start Conversation/.test(src) &&
+    /bcOpenOrStartConversationFromBooking/.test(src)) {
+  pass('D4', 'conversation start/open status handling present');
+} else fail('D4', 'not-found message missing');
+
+if (/id=["']bc-open-conv-btn["']/.test(footerFn) || /id=["']bc-new-conversation-btn["']/.test(footerFn)) {
+  pass('D5', 'footer uses Open/New Conversation button');
+} else fail('D5', 'footer conversation button missing');
 
 if (/bcWireOpenConversationButtons/.test(src)) pass('D6', 'shared wiring helper');
 else fail('D6', 'bcWireOpenConversationButtons missing');
@@ -128,26 +137,57 @@ else fail('F2', 'Stripe or Graph found');
 
 section('G. Inbox card badges');
 
-const priorityPillMatch = src.match(/function priorityPill\([\s\S]*?\n\}/);
-const priorityPillJs = priorityPillMatch ? priorityPillMatch[0] : '';
-if (!/URGENT/.test(priorityPillJs)) pass('G1', 'URGENT badge not rendered in conv cards');
-else fail('G1', 'URGENT still in priorityPill');
-if (/NEEDS HUMAN/.test(priorityPillJs)) pass('G2', 'Needs human badge retained');
-else fail('G2', 'Needs human badge missing');
+const convListPillMatch = src.match(/function convListPill\([\s\S]*?\n\}/);
+const convListPillJs = convListPillMatch ? convListPillMatch[0] : '';
+if (!/URGENT/.test(convListPillJs) && !/HANDOFF/.test(convListPillJs)) {
+  pass('G1', 'URGENT/HANDOFF badges not rendered in conv cards');
+} else fail('G1', 'URGENT or HANDOFF still in convListPill');
+if (/Needs Human/.test(convListPillJs) && /convSourcePill|pill-luna/.test(convListPillJs)) {
+  pass('G2', 'Needs Human + Luna/Staff badges in list');
+} else fail('G2', 'convListPill missing Needs Human or Luna/Staff');
 if (/needs-human|setInboxFilter\s*\(\s*['"]needs-human['"]/.test(src)) pass('G3', 'Needs human filter retained');
 else fail('G3', 'Needs human filter missing');
 
 section('H. Matching Open/New Conversation buttons');
 
-const convHandoffBlock = src.match(/Conversation \/ Handoff[\s\S]{0,1200}/);
-const convHandoffJs = convHandoffBlock ? convHandoffBlock[0] : '';
-if (/btn-success-light[\s\S]{0,200}bc-open-conv-btn/.test(convHandoffJs)) pass('H1', 'Open Conversation uses btn-success-light');
-else fail('H1', 'Open Conversation style mismatch');
-if (/btn-success-light[\s\S]{0,200}bc-new-conversation-btn/.test(convHandoffJs)) pass('H2', 'New Conversation uses btn-success-light');
-else fail('H2', 'New Conversation style mismatch');
-if (!/btn-bc-create-soft[\s\S]{0,200}bc-new-conversation-btn/.test(convHandoffJs)) {
-  pass('H3', 'legacy btn-bc-create-soft removed from handoff section');
+if (/btn-success-light[\s\S]{0,200}bc-open-conv-btn/.test(footerFn) ||
+    /btn-success-light[\s\S]{0,200}bc-new-conversation-btn/.test(footerFn)) {
+  pass('H1', 'Open/New Conversation uses btn-success-light in footer');
+} else fail('H1', 'Open Conversation style mismatch');
+if (/btn-success-light[\s\S]{0,200}bc-new-conversation-btn/.test(footerFn) ||
+    /btn-success-light[\s\S]{0,200}bc-open-conv-btn/.test(footerFn)) {
+  pass('H2', 'footer conversation button uses btn-success-light');
+} else fail('H2', 'New Conversation style mismatch');
+if (!/btn-bc-create-soft[\s\S]{0,200}bc-new-conversation-btn/.test(footerFn)) {
+  pass('H3', 'legacy btn-bc-create-soft removed from footer');
 } else fail('H3', 'New Conversation still uses btn-bc-create-soft');
+
+section('L. Inbox Luna/Staff pebble + drawer footer layout');
+
+if (/function inboxLunaStaffPill/.test(src) && /\.pill-luna\{/.test(htmlSrc) && /\.pill-staff-source\{/.test(htmlSrc)) {
+  pass('L1', 'Inbox Luna/Staff pebble styles');
+} else fail('L1', 'Inbox pebble styles missing');
+if (/convHeaderStatusPillsHtml\(c,\s*lunaGuestPaused\)/.test(loadDetailJs)) {
+  pass('L2', 'Inbox header uses pause state for pebble');
+} else fail('L2', 'convHeaderStatusPillsHtml not wired in detail load');
+if (/detail-header-pills/.test(src.match(/function updateLunaPauseUiInPlace[\s\S]*?\n\}/)?.[0] || '')) {
+  pass('L3', 'Pause Luna toggle updates pebble in place');
+} else fail('L3', 'pebble in-place update missing');
+
+const drawerJs = src.match(/function renderBookingContextDrawer\([\s\S]*?^function toGetClient/m)?.[0] || '';
+if (/id="bc-move-bed"/.test(drawerJs) &&
+    /bcRenderServicesTabHtml/.test(drawerJs) &&
+    /bcRenderAddServicePanelHtml/.test(src) &&
+    /bcRenderRunningInvoiceHtml/.test(drawerJs) &&
+    /id="bc-drawer-tab-payments"/.test(drawerJs)) {
+  pass('L4', 'Move bed on overview; add-ons in Services tab; invoice in Payments tab');
+} else fail('L4', 'section order incorrect');
+if (/Cancel Booking/.test(footerFn) && /bc-drawer-footer-right/.test(footerFn)) {
+  pass('L5', 'footer has Cancel Booking on drawer bottom right');
+} else fail('L5', 'drawer footer cancel missing');
+if (/bc-drawer-footer-left/.test(footerFn) && /bc-drawer-footer-right/.test(footerFn)) {
+  pass('L6', 'footer left/right conversation and cancel layout');
+} else fail('L6', 'footer alignment layout missing');
 
 section('I. npm script');
 
