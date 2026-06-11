@@ -19,7 +19,8 @@ const {
   mergePendingServiceAttachContext,
   collectPendingManualServices,
   attachPendingManualGuestServices,
-  PENDING_ATTACH_SOURCE,
+  PENDING_ATTACH_ORIGIN,
+  SERVICE_RECORD_DB_SOURCE,
 } = require('./lib/luna-guest-pending-service-attach');
 const { stripPendingManualFromServiceInterest } = require('./lib/luna-booking-reactive-services-policy');
 
@@ -162,7 +163,8 @@ async function runAttachIdempotence() {
   check('E2', second.attached_manual_services.length === 0, 'second attach is idempotent');
   check('E3', inserts.length === 1, 'only one yoga row inserted');
   check('E4', inserts[0] && inserts[0].status === 'requested', 'yoga row status requested');
-  check('E5', PENDING_ATTACH_SOURCE === 'luna_guest_pending', 'source marker unchanged');
+  check('E5', PENDING_ATTACH_ORIGIN === 'luna_guest_pending'
+    && SERVICE_RECORD_DB_SOURCE === 'luna_guest', 'pending origin + DB source constants');
 }
 
 runAttachIdempotence().then(() => {

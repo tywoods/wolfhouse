@@ -456,7 +456,8 @@ async function loadAttachedManualGuestServices(pg, bookingId) {
     `SELECT service_type, service_date, status, source, metadata
        FROM booking_service_records
       WHERE booking_id = $1::uuid
-        AND source = 'luna_guest_pending'
+        AND source = 'luna_guest'
+        AND metadata->>'pending_origin' = 'luna_guest_pending'
       ORDER BY created_at ASC`,
     [bookingId],
   );

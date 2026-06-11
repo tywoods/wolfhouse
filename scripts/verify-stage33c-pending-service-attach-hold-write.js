@@ -20,7 +20,8 @@ const { withPgClient } = require('./lib/pg-connect');
 const {
   collectPendingManualServices,
   attachPendingManualGuestServices,
-  PENDING_ATTACH_SOURCE,
+  PENDING_ATTACH_ORIGIN,
+  SERVICE_RECORD_DB_SOURCE,
 } = require('./lib/luna-guest-pending-service-attach');
 const {
   runGuestHoldPaymentDraftPlannerDryRun,
@@ -156,7 +157,9 @@ section('C. Pending attach idempotency');
       )).rows;
       const yogaRow = rows.find((r) => r.service_type === 'yoga');
       check('C4', yogaRow && yogaRow.status === 'requested', 'yoga status requested');
-      check('C5', yogaRow && yogaRow.source === PENDING_ATTACH_SOURCE, 'yoga source luna_guest_pending');
+      check('C5', yogaRow && yogaRow.source === SERVICE_RECORD_DB_SOURCE, 'yoga source luna_guest');
+      check('C5b', yogaRow && yogaRow.metadata && yogaRow.metadata.pending_origin === PENDING_ATTACH_ORIGIN,
+        'yoga pending_origin luna_guest_pending');
       check('C6', yogaRow && yogaRow.service_date == null, 'yoga service_date null');
       check('C7', yogaRow && yogaRow.metadata && yogaRow.metadata.needs_scheduling === true,
         'yoga needs_scheduling true');

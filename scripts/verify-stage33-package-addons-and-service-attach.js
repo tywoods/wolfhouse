@@ -27,7 +27,8 @@ const {
 } = require('./lib/luna-booking-addons-policy');
 const {
   collectPendingManualServices,
-  PENDING_ATTACH_SOURCE,
+  PENDING_ATTACH_ORIGIN,
+  SERVICE_RECORD_DB_SOURCE,
 } = require('./lib/luna-guest-pending-service-attach');
 const {
   filterBookingsSince,
@@ -97,7 +98,8 @@ const pending = collectPendingManualServices({
   services_pending_manual: ['yoga'],
 });
 check('D1', pending.some((s) => s.type === 'yoga'), 'yoga pending manual collected');
-check('D2', PENDING_ATTACH_SOURCE === 'luna_guest_pending', 'attach source constant set');
+check('D2', PENDING_ATTACH_ORIGIN === 'luna_guest_pending'
+  && SERVICE_RECORD_DB_SOURCE === 'luna_guest', 'attach DB source + pending origin constants');
 check('D3', holdWriteSrc.includes('attachPendingManualGuestServices'),
   'hold write path calls pending service attach');
 check('D4', holdWriteSrc.includes('attached_manual_services'),

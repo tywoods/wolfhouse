@@ -5,7 +5,16 @@
  * Reuses booking_service_records; no fake schedule times; no automatic charges.
  */
 
-const PENDING_ATTACH_SOURCE = 'luna_guest_pending';
+/** Logical pending-origin marker stored in metadata (not a DB source column value). */
+const PENDING_ATTACH_ORIGIN = 'luna_guest_pending';
+/** Allowed booking_service_records.source value on staging/production constraints. */
+const SERVICE_RECORD_DB_SOURCE = 'luna_guest';
+/** Allowed booking_service_records.status for pending manual attach rows. */
+const SERVICE_RECORD_DB_STATUS = 'requested';
+
+/** @deprecated use PENDING_ATTACH_ORIGIN — kept for metadata/idempotency callers */
+const PENDING_ATTACH_SOURCE = PENDING_ATTACH_ORIGIN;
+
 const ATTACHABLE_STATUSES = new Set(['requested', 'interested', 'needs_staff_confirmation']);
 
 function trimStr(v) {
@@ -118,17 +127,38 @@ function collectPendingManualServices(extractedFields) {
   return services;
 }
 
-function resolveServiceRecordStatus(svc, fields) {
+function resolveIntentStatus(svc, fields) {
   const f = fields || {};
   if (svc.type === 'yoga') {
-    const st = trimStr((f.yoga_request && f.yoga_request.status) || f.yoga_status);
+    const req = f.yoga_request;
+    if (req && req.deferred === true) return 'deferred';
+    const st = trimStr((req && req.status) || f.yoga_status) || 'requested';
     return ATTACHABLE_STATUSES.has(st) ? st : 'requested';
   }
   if (svc.type === 'meal') {
-    const st = trimStr((f.meals_request && f.meals_request.status) || f.meals_status);
+    const req = f.meals_request;
+    if (req && req.deferred === true) return 'deferred';
+    const st = trimStr((req && req.status) || f.meals_status) || 'requested';
     return ATTACHABLE_STATUSES.has(st) ? st : 'requested';
   }
   return 'requested';
+}
+
+function buildAttachMetadata(svc, fields, opts) {
+  const intentStatus = resolveIntentStatus(svc, fields);
+  const meta = {
+    pending_manual: true,
+    service_pending_manual: true,
+    needs_scheduling: true,
+    pending_origin: PENDING_ATTACH_ORIGIN,
+    intent_status: intentStatus,
+    original_status: intentStatus,
+    attach_source: svc.attach_source,
+    stage: '33_guest_pending_attach',
+  };
+  const channel = trimStr(opts && opts.requestChannel);
+  if (channel) meta.request_channel = channel;
+  return meta;
 }
 
 /**
@@ -157,12 +187,16 @@ async function attachPendingManualGuestServices(pg, opts) {
         WHERE booking_id = $1::uuid
           AND service_type = $2
           AND source = $3
+          AND metadata->>'pending_origin' = $4
         LIMIT 1`,
-      [bookingId, svc.type, PENDING_ATTACH_SOURCE],
+      [bookingId, svc.type, SERVICE_RECORD_DB_SOURCE, PENDING_ATTACH_ORIGIN],
     );
     if (existing.rows.length) continue;
 
-    const recordStatus = resolveServiceRecordStatus(svc, fields);
+    const metadata = buildAttachMetadata(svc, fields, {
+      requestChannel: o.requestChannel || o.request_channel,
+    });
+
     await pg.query(
       `INSERT INTO booking_service_records (
          client_slug, booking_id, booking_code, guest_name,
@@ -181,14 +215,9 @@ async function attachPendingManualGuestServices(pg, opts) {
         bookingCode,
         guestName,
         svc.type,
-        recordStatus,
-        PENDING_ATTACH_SOURCE,
-        JSON.stringify({
-          pending_manual: true,
-          needs_scheduling: true,
-          attach_source: svc.attach_source,
-          stage: '33_guest_pending_attach',
-        }),
+        SERVICE_RECORD_DB_STATUS,
+        SERVICE_RECORD_DB_SOURCE,
+        JSON.stringify(metadata),
       ],
     );
     attached.push(svc.type === 'meal' ? 'meals' : svc.type);
@@ -198,8 +227,13 @@ async function attachPendingManualGuestServices(pg, opts) {
 }
 
 module.exports = {
+  PENDING_ATTACH_ORIGIN,
   PENDING_ATTACH_SOURCE,
+  SERVICE_RECORD_DB_SOURCE,
+  SERVICE_RECORD_DB_STATUS,
   mergePendingServiceAttachContext,
   collectPendingManualServices,
+  resolveIntentStatus,
+  buildAttachMetadata,
   attachPendingManualGuestServices,
 };
