@@ -136,9 +136,9 @@ function appendDepositBalanceArrivalOptions(message, balanceDueCents, language) 
   const lang = String(language || 'en').slice(0, 2).toLowerCase();
   const amount = `€${(balanceDueCents / 100).toFixed(0)}`;
   if (lang === 'it') {
-    return `${message}\n\nIl saldo restante di ${amount} può essere saldato all'arrivo/check-in in contanti, bonifico o Stripe.`;
+    return `${message}\n\nIl saldo restante di ${amount} può essere saldato all'arrivo/check-in in contanti, bonifico o pagamento online.`;
   }
-  return `${message}\n\nYour remaining balance of ${amount} can be settled on arrival/check-in by cash, bank transfer, or Stripe.`;
+  return `${message}\n\nYour remaining balance of ${amount} can be settled on arrival/check-in by cash, bank transfer, or pay online.`;
 }
 
 function stripBalanceCopyForFullPaid(message) {

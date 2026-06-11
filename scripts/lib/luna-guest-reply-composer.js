@@ -235,14 +235,50 @@ function buildServiceReturnTail(fields, quote) {
   return buildMidFlowAddonsReturnTail(fields, 'en', quote);
 }
 
-function buildTransferReturnTail(fields, pc) {
+function transferBodyHasReassurance(text) {
+  return /\b(?:no stress|no worries|don(?:'|')?t worry|all good|no problem)\b/i.test(String(text || ''));
+}
+
+function stripReassuranceOpenerFromTail(tail) {
+  let s = String(tail || '').trim();
+  s = s.replace(/^No stress,\s*/i, '');
+  s = s.replace(/^No worries,\s*/i, '');
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function finalizeTransferReturnTail(tail, bodyText) {
+  if (!tail) return tail;
+  return transferBodyHasReassurance(bodyText)
+    ? stripReassuranceOpenerFromTail(tail)
+    : tail;
+}
+
+function buildTransferReturnTail(fields, pc, messageText, bodyText) {
   if (isPackageBooking(fields.package_interest)) {
     if (pc && pc.payment_choice_ready === true) {
       return 'We can still hold your booking first.';
     }
     return 'We can still hold the booking first — just let me know when you have flight details.';
   }
-  return 'Want to continue with your booking?';
+  const t = String(messageText || '');
+  let tail;
+  if (/\b(?:bus\s+station|estaci[oó]n\s+de\s+autobuses|stazione\s+(?:dei|degli?\s+)?autobus)\b/i.test(t)) {
+    tail = 'Then we can keep going with the booking 😊';
+  } else if (/\b(?:flight\s+(?:is\s+)?(?:delayed|late)|delayed\s+flight|late\s+arrival|arriv(?:e|ing)\s+(?:late|around|after))\b/i.test(t)) {
+    tail = 'No stress, we\'ll keep the booking moving from there.';
+  } else if (/\b(?:Santander|Bilbao|SDR|BIO|airport|flight details|pickup|transfer)\b/i.test(t)) {
+    tail = 'Send me your flight details and we\'ll keep going from there 👍';
+  } else {
+    const softTails = [
+      'Then we can keep going with the booking 😊',
+      'No stress, we\'ll keep the booking moving from there.',
+      'Send your updated time and we\'ll sort it from there 👍',
+    ];
+    const seed = String((fields && fields.check_in) || '') + String((fields && fields.guest_count) || '');
+    tail = softTails[seed.length % softTails.length];
+  }
+  return finalizeTransferReturnTail(tail, bodyText);
 }
 
 function buildExplainPackagesReply(lang, pkgIntent, fields) {
@@ -279,7 +315,7 @@ function buildComposerTransferReply(lang, messageText, fields, pc) {
     guestCount: fields.guest_count,
   });
   const facts = stripLegacyActionDisclaimers(raw);
-  const tail = buildTransferReturnTail(fields, pc);
+  const tail = buildTransferReturnTail(fields, pc, messageText, facts);
   if (!facts) return null;
   return tail ? `${facts} ${tail}` : facts;
 }
@@ -765,9 +801,9 @@ function buildReplyForState(state, ctx) {
     },
     answer_arrival_payment_question: () => {
       if (!deposit || !total) {
-        return 'Yep — the remaining balance can be paid on arrival by cash, bank transfer, or Stripe. To hold the spot, we still need a deposit or full payment now.';
+        return 'Yep — the remaining balance can be paid on arrival by cash, bank transfer, or pay online. To hold the spot, we still need a deposit or full payment now.';
       }
-      return `Yep — the remaining balance can be paid on arrival by cash, bank transfer, or Stripe. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+      return `Yep — the remaining balance can be paid on arrival by cash, bank transfer, or pay online. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
     addons_none: () => {
       if (!deposit || !total) return null;
@@ -983,14 +1019,17 @@ function buildReplyForState(state, ctx) {
       return L.answer_arrival_payment_question();
     case 'payment_choice_ack':
       if (pc.payment_choice === 'full_payment') {
-        return (P && P.full_ack) || L.full_ack;
+        return (P && P.full_ack && P.full_ack({ deposit, total })) || (P && P.full_ack) || L.full_ack;
       }
-      return (P && P.deposit_ack) || L.deposit_ack;
+      return (P && P.deposit_ack && P.deposit_ack({ deposit, total })) || (P && P.deposit_ack) || L.deposit_ack;
     case 'payment_choice_received_hold_created':
+      if (P && P.hold_no_link) return P.hold_no_link({ deposit });
       return L.hold_no_link();
     case 'payment_pending_no_link':
+      if (P && P.hold_no_link) return P.hold_no_link({ deposit });
       return L.hold_no_link();
     case 'payment_link_failed':
+      if (P && P.payment_link_failed) return P.payment_link_failed({ deposit });
       return L.payment_link_failed();
     case 'stripe_test_link_created':
       if (P && P.stripe_link) return P.stripe_link({ deposit, checkoutUrl });

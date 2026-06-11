@@ -267,19 +267,20 @@
           "guest_adds_service": "Say added/noted/held — not paid unless payment truth exists.",
           "staff_scheduling_needed": "Team will confirm the exact time.",
           "side_question_mid_booking": "Answer briefly + gently return to booking.",
-          "guest_changes_mind": "No stress — we update it."
+          "guest_changes_mind": "No stress — we update it.",
+          "constraint_plus_alternative": "When refusing or limiting something, state the practical reason and a useful alternative in the same reply — never a bare no and never policy-citing."
         },
         "variation_pools": {
           "en": {
             "welcome": [
               "{{intro_short}}\nAre you looking to book a stay, ask about packages, or just check some info?",
-              "Heyyy 🌊 {{intro_short}}\nBook a stay, packages, or just some info — what sounds good?",
-              "So happy you're here! {{intro_short}}\nWant to book, ask about packages, or check something?"
+              "Ciao!! {{intro_short}}\nBook a stay, packages, or just some info — what sounds good?",
+              "So happy you're here!! {{intro_short}}\nWant to book, ask about packages, or check something?"
             ],
             "welcome_booking_intent": [
               "Yesss, love that 🌊 What dates are you thinking for check-in and check-out?",
               "Nice — let's get you sorted 🌊 What check-in and check-out dates work for you?",
-              "Super! What dates are you looking at for your stay?"
+              "Super!! What dates are you looking at for your stay?"
             ],
             "welcome_info_only": [
               "{{intro_short}}\nHappy to help with packages, surf, or anything about Somo — what would you like to know?",
@@ -302,9 +303,9 @@
               "Nice — {{range}}. How many guests?"
             ],
             "quote_ready": [
-              "Yesss, good news — we have space for those dates ☀️ The stay comes to {{total}}.",
-              "Good news — we're good for those dates ☀️ The stay comes to {{total}}.",
-              "We've got space for those dates 🌊 The stay comes to {{total}}."
+              "Good news — we have space for those dates!! ☀️\nComes to {{total}}.",
+              "Good news — we're good for those dates ☀️\nThe stay comes to {{total}}.",
+              "We've got space for those dates 🌊\nThe stay comes to {{total}}."
             ],
             "addons_question": [
               "Do you need a wetsuit, board, or lessons too, or just the stay?",
@@ -312,9 +313,9 @@
               "Any add-ons — wetsuit, board, lessons — or just the stay?"
             ],
             "addons_declined": [
+              "No stress at all 😊 If you change your mind during the week just tell me.\n\nSo — {{deposit}} deposit or full {{total}}?",
               "Perfect — just the stay then 😊\n\nTo hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
-              "All good — accommodation only 😊\n\nWould you rather pay the {{deposit}} deposit or the full {{total}} to hold it?",
-              "Got it — stay only then 🌊\n\nDeposit {{deposit}} or full {{total}} — which works for you?"
+              "All good — accommodation only 😊\n\nWould you rather pay the {{deposit}} deposit or the full {{total}} to hold it?"
             ],
             "service_added": [
               "Got it — I've noted those extras 😊\n\nTo hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
@@ -323,18 +324,48 @@
             ],
             "payment_choice_prompt": [
               "Would you rather pay the {{deposit}} deposit or the full {{total}}?",
-              "To hold the spot — {{deposit}} deposit or pay the full {{total}}?",
+              "You can pay the {{deposit}} deposit or the full {{total}} — whatever's easier for you 👍",
               "Which works — {{deposit}} deposit now or full {{total}}?"
             ],
             "cash_side_question": [
-              "Yes — the rest can be paid on arrival by cash, bank transfer, or Stripe 😊 To hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
-              "Totally — balance on arrival by cash, transfer, or Stripe 😊 For now, {{deposit}} deposit or full {{total}} to hold the spot?",
-              "Yep, rest on arrival works 😊 To hold it now — {{deposit}} deposit or full {{total}}?"
+              "Sure — cash with me at check-in, or bank transfer on your arrival day. To hold the spot now — {{deposit}} deposit or full {{total}}? Whatever's easier 👍",
+              "Yep, rest on arrival works by cash or transfer 😊 For now to hold it — {{deposit}} deposit or full {{total}}?",
+              "Totally — balance on arrival by cash, transfer, or pay online 😊 Would you rather pay the {{deposit}} deposit or the full {{total}} now?"
+            ],
+            "pay_later_explainer": [
+              "No stress — to hold the spot we need a deposit or full payment once your quote is ready. The rest you can pay on arrival 👍",
+              "Balance on arrival is totally fine — cash, transfer, or pay online. To secure the dates, {{deposit}} deposit or full {{total}}, whatever's easier for you."
+            ],
+            "pay_why_now": [
+              "It's just to hold your spot while we get sorted — balance can be on arrival. {{deposit}} deposit or full {{total}}, whatever's easier 👍",
+              "The deposit or full payment holds the dates for you — rest on arrival works. Which works — {{deposit}} or full {{total}}?"
+            ],
+            "already_paid_check": [
+              "Thanks for letting me know — I can't confirm payment from chat alone. Our team will check and follow up with you 👍",
+              "Got it — I can't see payment status from here, but our team will check in the system and get back to you. No stress."
+            ],
+            "payment_link_failed": [
+              "No stress — I'm having a quick hiccup with the payment link. Our team will send your secure {{deposit}} deposit link here shortly 👍",
+              "Sorry about that — the link isn't cooperating. Our team will send a fresh secure link for your {{deposit}} deposit shortly."
+            ],
+            "payment_link_pending": [
+              "Your spot is held — our team will send your secure payment link here shortly for the {{deposit}} deposit 👍",
+              "All good, stay is held — payment link coming your way shortly for the {{deposit}} deposit."
+            ],
+            "deposit_ack": [
+              "Perfect — deposit it is 👍 I'll get your secure payment link ready.",
+              "Got it — {{deposit}} deposit 👍 Link coming up next."
+            ],
+            "full_ack": [
+              "Perfect — full payment it is 👍 I'll get your secure payment link ready.",
+              "Got it — full {{total}} 👍 Link coming up next."
             ],
             "transfer_side_question": [
-              "Happy to help with transfer — our team will confirm the exact pickup once your stay is held.",
-              "We can sort airport transfer 😊 The team will confirm timing once your booking is held.",
-              "No stress on transfer — share flight details when you can and our team will confirm pickup."
+              "We do airport pickups — send me your flight time and I'll organize it ✌️ White van, right side as you exit.",
+              "We usually don't do bus-station transfers — but we can pick everyone up together from the airport instead 😊 Share your flight details?",
+              "No stress if you're arriving late or your flight shifts — send your updated time and we'll sort pickup 👍",
+              "Rooms are usually ready after 2pm — if yours is free earlier I'll let you know 😊",
+              "Need a taxi or transfer? Once your stay is held, our team will confirm timing — share your flight or arrival time when you can."
             ],
             "reset_start_over": [
               "No problem at all, we start fresh 😊 What dates are you looking for?",
@@ -342,24 +373,31 @@
               "All good, fresh start 😊 Which dates are you thinking?"
             ],
             "correction_accepted": [
-              "You're right — thanks for catching that, let me fix it.",
-              "Good catch — sorry about the mix-up, updating that now.",
+              "No problem at all — sorry, mixed that up! Updating it now 👍",
+              "Good catch — thanks for catching that, let me fix it.",
               "Got it — thanks, I'll fix that for you."
             ],
             "confirmation_intro": [
-              "Yesss, you're officially part of the Wolfhouse family 🌊❤️",
-              "Welcome to the Wolfhouse family 🌊 You're all set!",
-              "You're in the Wolfhouse family now 🌊❤️"
+              "Welcome to the Wolfhouse family!! 🌊❤️",
+              "You're in the Wolfhouse family now 🌊 You're all set!",
+              "Yesss, you're officially part of the Wolfhouse family 🌊❤️"
             ],
             "surf_report_fallback": [
-              "Here's a quick Somo surf snapshot 🌊 Conditions can shift — our team keeps an eye on it.",
-              "Quick Somo surf vibe for you 🏄 Conditions change — we'll keep you posted.",
-              "Somo surf snapshot 🌊 Things can move fast — ask anytime for an update."
+              "Not 100% sure on tomorrow's surf yet — depends a bit on the day, but we'll sort it 🌊 Ask anytime.",
+              "Here's a quick Somo surf snapshot 🌊 Conditions can shift — more or less depends on the day.",
+              "Quick Somo surf vibe for you 🏄 I think it'll be decent — I'll let you know if it shifts."
             ],
             "faq_answer_tail": [
               "Happy to help with more Wolfhouse questions anytime 😊",
               "Ask anytime if you want more house or Somo tips 🌊",
               "Hope that helps — here if you need anything else 😊"
+            ],
+            "closers": [
+              "Talk soon ☀️",
+              "See you soon 🌊",
+              "A domani!",
+              "Here if you need anything 😊",
+              "Un abbraccio 🩷"
             ]
           }
         }
@@ -375,7 +413,7 @@
         "addon_selected": "Got it — I've noted those extras 😊 To hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
         "yoga_request": "Yoga at Wolfhouse is such a vibe 🧘 I'll note your interest — we can sort the class once your stay is held.",
         "meals_request": "Our dinners are a big part of the Wolfhouse family feel 🍽️ I'll note that — we can confirm meals once your stay is held.",
-        "cash_question": "Yes — you can settle the rest on arrival by cash, bank transfer, or Stripe 😊 To hold the spot now, would you prefer the {{deposit}} deposit or full {{total}}?",
+        "cash_question": "Yes — you can settle the rest on arrival by cash, bank transfer, or pay online 😊 To hold the spot now, would you prefer the {{deposit}} deposit or full {{total}}?",
         "payment_link": "Perfect — your stay is held 🙌 You can pay the {{deposit}} deposit here: {{checkout_url}}",
         "payment_received": "Got it — your {{paid}} deposit is in 🙌 You're part of the Wolfhouse family — I'll send your full confirmation next.",
         "confirmation_intro": "You're confirmed — welcome to the Wolfhouse family 😊 I've sent your details with address, gate code, and room info.",
@@ -405,9 +443,15 @@
           "addons_none": "Perfect — just the stay then 😊\n\nTo hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
           "ask_payment_choice_with_extras": "Got it — I've noted those extras 😊\n\nTo hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
           "ask_payment_choice_accommodation_only": "Perfect — just the stay then 😊\n\nTo hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
-          "answer_arrival_payment_question": "Yes — the rest can be paid on arrival by cash, bank transfer, or Stripe 😊 To hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
-          "deposit_ack": "Perfect — deposit it is 🙌 I'll get your secure payment link ready.",
-          "full_ack": "Perfect — full payment it is 🙌 I'll get your secure payment link ready.",
+          "answer_arrival_payment_question": "Sure — cash with me at check-in, or bank transfer on your arrival day. To hold the spot, would you prefer to pay the {{deposit}} deposit now, or pay the full {{total}}?",
+          "answer_arrival_payment_question_no_amounts": "Sure — balance on arrival by cash, bank transfer, or pay online works 😊 To hold the spot, we still need a deposit or full payment now.",
+          "pay_later_explainer": "No stress — to hold the spot we need a deposit or full payment once your quote is ready. The rest you can pay on arrival 👍",
+          "pay_why_now": "It's just to hold your spot while we get sorted — balance can be on arrival. {{deposit}} deposit or full {{total}}, whatever's easier 👍",
+          "already_paid_check": "Thanks for letting me know — I can't confirm payment from chat alone. Our team will check and follow up with you 👍",
+          "payment_link_failed": "No stress — I'm having a quick hiccup with the payment link. Our team will send your secure {{deposit}} deposit link here shortly 👍",
+          "payment_link_pending": "Your spot is held — our team will send your secure payment link here shortly for the {{deposit}} deposit 👍",
+          "deposit_ack": "Perfect — deposit it is 👍 I'll get your secure payment link ready.",
+          "full_ack": "Perfect — full payment it is 👍 I'll get your secure payment link ready.",
           "stripe_link": "Perfect — your stay is held 🙌 You can pay the {{deposit}} deposit here: {{checkout_url}}\n\nOnce that's paid, your booking will be confirmed.",
           "payment_link_sent": "Perfect — your stay is held for the {{deposit}} deposit 🙌 Check the secure payment link I just sent.",
           "payment_received": "Got it — your {{paid}} deposit is in 🙌 You're part of the Wolfhouse family — I'll send your full confirmation next.",

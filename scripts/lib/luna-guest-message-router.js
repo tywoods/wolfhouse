@@ -130,12 +130,12 @@ const REPLY_TEMPLATES = {
     checkin_info: "Check-in details depend on your booking — I'll ask our team to confirm the exact time and house info for you.",
     payment_help: "For payment or balance questions I'll need your booking code — could you send that, and our team will confirm the right next step?",
     pay_now: "I can't process payment automatically yet — our team will confirm your booking and payment status and follow up with you.",
-    pay_arrival_balance: 'The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. To secure the booking, we still need a deposit or full payment once your quote is ready.',
-    pay_arrival_with_quote: 'Yep — the remaining balance can be paid on arrival by cash, bank transfer, or Stripe. To hold the spot, would you prefer to pay the deposit now, or the full amount?',
+    pay_arrival_balance: 'The remaining balance can be paid by cash, bank transfer, or pay online on arrival or at check-in. To secure the booking, we still need a deposit or full payment once your quote is ready.',
+    pay_arrival_with_quote: 'Yep — the remaining balance can be paid on arrival by cash, bank transfer, or pay online. To hold the spot, would you prefer to pay the deposit now, or the full amount?',
     pay_link_need_quote: "I can't send a pay link yet — I'll need your stay details and a quote first. Once that's ready, you can choose deposit or full payment.",
     pay_already_paid_check: "Thanks for letting me know — I can't confirm payment from chat alone. Our team will check your payment status in the system and follow up with you.",
     pay_failed_safe: "Sorry the payment didn't go through — I'm not able to retry or refund from here. Our team can check what happened and help with the next step.",
-    pay_later_safe: 'For now, to hold a booking we need a deposit or full payment once your quote is ready. The remaining balance can usually be paid on arrival by cash, bank transfer, or Stripe.',
+    pay_later_safe: 'For now, to hold a booking we need a deposit or full payment once your quote is ready. The remaining balance can usually be paid on arrival by cash, bank transfer, or pay online.',
     pay_deposit_explainer: 'Once your stay quote is ready, you can pay a deposit or the full amount to secure the booking. The remaining balance can be paid on arrival or at check-in.',
     general: "Thanks for reaching out to Wolfhouse! I'll flag this for our team so they can answer you properly.",
     cancel: "Changes or cancellations after payment need our team — I'm handing this over so they can help you directly.",
@@ -521,8 +521,6 @@ function hasActivePaymentChoiceContext(ctx) {
 
 function detectPaymentQuestionKind(text) {
   const t = String(text || '');
-  const choice = detectPaymentChoiceFromMessage(t);
-  if (choice) return choice;
 
   if (/\b(?:already paid|i(?:'|’)?ve paid|have paid|i paid|ya pagu[eé]|gi[aà] pagato|j'ai d[eé]j[aà] pay[eé]|bereits bezahlt|schon bezahlt)\b/i.test(t)) {
     return 'already_paid_claim';
@@ -530,6 +528,10 @@ function detectPaymentQuestionKind(text) {
   if (/\b(?:payment failed|payment didn't go through|payment link(?:'|')?s? (?:doesn(?:'|')?t|does not|won't) work|link doesn(?:'|')?t work|link not working|broken (?:payment )?link|card declined|transaction failed|pago fallido|pagamento fallito|paiement [eé]chou[eé]|zahlung fehlgeschlagen)\b/i.test(t)) {
     return 'payment_failed';
   }
+
+  const choice = detectPaymentChoiceFromMessage(t);
+  if (choice) return choice;
+
   if (/\b(?:do i need to pay (?:a )?deposit|need to pay (?:a )?deposit|deposit required)\b/i.test(t)) {
     return 'deposit_question';
   }
@@ -603,7 +605,15 @@ function hasReadyQuoteSideQuestionContext(ctx) {
   return quote.quote_status === 'ready';
 }
 
-function buildPaymentQuestionReply(lang, paymentKind, activeQuote, reasons, guestCtx) {
+function buildPaymentQuestionReply(lang, paymentKind, activeQuote, reasons, guestCtx, clientSlug) {
+  const slug = String(clientSlug || '').trim() || DEFAULT_CLIENT;
+  const { buildPersonalityPaymentSideReply } = require('./luna-guest-personality-config');
+  const personalityReply = buildPersonalityPaymentSideReply(slug, lang, paymentKind, {
+    quoteReady: activeQuote || hasReadyQuoteSideQuestionContext(guestCtx),
+    guestCtx,
+  });
+  if (personalityReply) return personalityReply;
+
   const intro = `${tpl(lang, 'intro')} 🌊 — `;
   const kind = paymentKind || 'unknown';
   const quoteReady = activeQuote || hasReadyQuoteSideQuestionContext(guestCtx);
@@ -1614,6 +1624,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       hasActivePaymentChoiceContext(guestContext),
       reasons,
       guestContext,
+      DEFAULT_CLIENT,
     );
   } else if (correctionActiveBooking) {
     proposedReply = buildCorrectionContinueReply(detectedLanguage, activeMissingField, priorExtracted);
@@ -1747,6 +1758,9 @@ module.exports = {
   conversationIntakeInProgress,
   detectNewBookingResetIntent,
   buildNewBookingResetReply,
+  buildPaymentQuestionReply,
+  detectPaymentQuestionKind,
+  hasReadyQuoteSideQuestionContext,
   hasSubstantiveNewBookingDetailsAfterReset,
   buildAccommodationOnlyAck,
   buildCorrectionContinueReply,

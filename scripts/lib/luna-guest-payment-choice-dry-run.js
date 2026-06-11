@@ -59,7 +59,7 @@ const REPLY_TEMPLATES = {
     intro: "Hi! I'm Luna from Wolfhouse",
     deposit_ready: 'Thanks — I noted you would like to pay the deposit. I am not confirming the booking, creating a hold, or sending a payment link yet.',
     full_ready: 'Thanks — I noted you would like to pay the full amount. I am not confirming the booking, creating a hold, or sending a payment link yet.',
-    arrival: 'The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?',
+    arrival: 'The remaining balance can be paid by cash, bank transfer, or pay online on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?',
     link_request: 'I cannot send a payment link automatically yet. Would you prefer to pay the deposit or the full amount? I am not confirming the booking yet.',
     unclear: 'Thanks! Would you prefer to pay the deposit or the full amount for your stay?',
     not_ready_deposit: 'Perfect, deposit is fine 😊 First I just need to confirm the stay details so I can check the right option for you.',
@@ -74,7 +74,7 @@ const REPLY_TEMPLATES = {
     intro: 'Ciao! Sono Luna di Wolfhouse',
     deposit_ready: 'Grazie — ho annotato che preferisci il deposito. Non sto confermando la prenotazione né inviando un link di pagamento.',
     full_ready: 'Grazie — ho annotato che preferisci pagare l\'importo intero. Non sto confermando la prenotazione né inviando un link.',
-    arrival: 'Il saldo restante si può pagare in contanti, bonifico o Stripe all\'arrivo o al check-in. Per ora preferisci il deposito o l\'importo intero?',
+    arrival: 'Il saldo restante si può pagare in contanti, bonifico o pagamento online all\'arrivo o al check-in. Per ora preferisci il deposito o l\'importo intero?',
     link_request: 'Non posso inviare un link di pagamento automaticamente. Preferisci il deposito o l\'importo intero?',
     unclear: 'Grazie! Preferisci pagare il deposito o l\'importo intero?',
     not_ready_deposit: 'Perfetto, il deposito va bene 😊 Prima devo solo confermare i dettagli del soggiorno per verificare l\'opzione giusta per te.',
@@ -89,7 +89,7 @@ const REPLY_TEMPLATES = {
     intro: '¡Hola! Soy Luna de Wolfhouse',
     deposit_ready: 'Gracias — anoté que prefieres el depósito. No confirmo la reserva ni envío un enlace de pago todavía.',
     full_ready: 'Gracias — anoté que prefieres pagar el importe completo. No confirmo la reserva ni envío un enlace todavía.',
-    arrival: 'El saldo restante se puede pagar en efectivo, transferencia o Stripe a la llegada o en el check-in. ¿Prefieres el depósito o el importe completo ahora?',
+    arrival: 'El saldo restante se puede pagar en efectivo, transferencia o pago online a la llegada o en el check-in. ¿Prefieres el depósito o el importe completo ahora?',
     link_request: 'No puedo enviar un enlace de pago automáticamente. ¿Prefieres el depósito o el importe completo?',
     unclear: '¡Gracias! ¿Prefieres pagar el depósito o el importe completo?',
     not_ready_deposit: 'Perfecto, el depósito está bien 😊 Primero solo necesito confirmar los detalles de la estancia para revisar la opción adecuada.',
@@ -104,7 +104,7 @@ const REPLY_TEMPLATES = {
     intro: 'Hallo! Ich bin Luna von Wolfhouse',
     deposit_ready: 'Danke — ich habe notiert, dass ihr die Anzahlung wählt. Ich bestätige die Buchung nicht und sende noch keinen Zahlungslink.',
     full_ready: 'Danke — ich habe notiert, dass ihr den vollen Betrag zahlen möchtet. Ich bestätige die Buchung nicht und sende noch keinen Link.',
-    arrival: 'Der Restbetrag kann bar, per Überweisung oder Stripe bei Ankunft oder Check-in gezahlt werden. Möchtet ihr jetzt die Anzahlung oder den vollen Betrag?',
+    arrival: 'Der Restbetrag kann bar, per Überweisung oder online bei Ankunft oder Check-in gezahlt werden. Möchtet ihr jetzt die Anzahlung oder den vollen Betrag?',
     link_request: 'Ich kann noch keinen Zahlungslink automatisch senden. Anzahlung oder voller Betrag?',
     unclear: 'Danke! Möchtet ihr die Anzahlung oder den vollen Betrag zahlen?',
     not_ready_deposit: 'Perfekt, Anzahlung ist in Ordnung 😊 Zuerst bestätige ich nur die Aufenthaltsdetails, damit ich die passende Option prüfen kann.',
@@ -119,7 +119,7 @@ const REPLY_TEMPLATES = {
     intro: 'Bonjour ! Je suis Luna de Wolfhouse',
     deposit_ready: 'Merci — j\'ai noté que vous choisissez l\'acompte. Je ne confirme pas la réservation et n\'envoie pas encore de lien de paiement.',
     full_ready: 'Merci — j\'ai noté que vous choisissez le montant complet. Je ne confirme pas la réservation et n\'envoie pas encore de lien.',
-    arrival: 'Le solde restant peut être réglé en espèces, virement ou Stripe à l\'arrivée ou au check-in. Préférez-vous l\'acompte ou le montant complet maintenant ?',
+    arrival: 'Le solde restant peut être réglé en espèces, virement ou paiement en ligne à l\'arrivée ou au check-in. Préférez-vous l\'acompte ou le montant complet maintenant ?',
     link_request: 'Je ne peux pas encore envoyer de lien de paiement automatiquement. Acompte ou montant complet ?',
     unclear: 'Merci ! Préférez-vous payer l\'acompte ou le montant complet ?',
     not_ready_deposit: 'Parfait, l\'acompte convient 😊 D\'abord je dois confirmer les détails du séjour pour vérifier la bonne option.',
@@ -359,9 +359,29 @@ function sanitizeLunaGuestReply(text, fallback) {
 
 function finalizeProposedLunaReply(lang, guestContext, outcome, detected) {
   const fallback = buildPaymentChoiceNotReadyReply(lang, guestContext, detected);
-  const raw = outcome.replyKey === 'not_ready'
-    ? fallback
-    : buildReply(lang, outcome.replyKey);
+  if (outcome.replyKey === 'not_ready') {
+    return sanitizeLunaGuestReply(fallback, fallback);
+  }
+  if (outcome.replyKey === 'arrival') {
+    const clientSlug = guestContext.client_slug
+      || (guestContext.result && guestContext.result.client_slug)
+      || 'wolfhouse-somo';
+    try {
+      const { buildPersonalityPaymentSideReply } = require('./luna-guest-personality-config');
+      const personalityReply = buildPersonalityPaymentSideReply(
+        clientSlug,
+        lang,
+        'arrival_payment_question',
+        { guestCtx: guestContext, quoteReady: quoteContextReady(guestContext) },
+      );
+      if (personalityReply) {
+        return sanitizeLunaGuestReply(personalityReply, fallback);
+      }
+    } catch (_) {
+      /* fall through to legacy template */
+    }
+  }
+  const raw = buildReply(lang, outcome.replyKey);
   return sanitizeLunaGuestReply(raw, fallback);
 }
 

@@ -191,11 +191,11 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
     answer_arrival_payment_question: (ctx) => {
       const { deposit, total } = ctx;
       if (!deposit || !total) {
-        return t('answer_arrival_payment_question_no_amounts')
-          || 'Yes — the rest can be paid on arrival by cash, bank transfer, or Stripe 😊 To hold the spot, we still need a deposit or full payment now.';
+        return t('answer_arrival_payment_question_no_amounts', {}, 'pay_later_explainer')
+          || 'Sure — balance on arrival by cash, bank transfer, or pay online works 😊 To hold the spot, we still need a deposit or full payment now.';
       }
       return t('answer_arrival_payment_question', { deposit, total }, 'cash_side_question')
-        || `Yes — the rest can be paid on arrival by cash, bank transfer, or Stripe 😊 To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+        || `Sure — cash with me at check-in, or bank transfer on your arrival day. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
     addons_none: (ctx) => {
       const { deposit, total } = ctx;
@@ -203,8 +203,34 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
       return t('addons_none', { deposit, total }, 'addons_declined')
         || `Perfect — just the stay then 😊\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
-    deposit_ack: t('deposit_ack') || null,
-    full_ack: t('full_ack') || null,
+    deposit_ack: (ctx) => t('deposit_ack', { deposit: ctx && ctx.deposit, total: ctx && ctx.total }, 'deposit_ack')
+      || t('deposit_ack') || null,
+    full_ack: (ctx) => t('full_ack', { deposit: ctx && ctx.deposit, total: ctx && ctx.total }, 'full_ack')
+      || t('full_ack') || null,
+    hold_no_link: (ctx) => {
+      const { deposit } = ctx || {};
+      if (!deposit) return null;
+      return t('payment_link_pending', { deposit }, 'payment_link_pending')
+        || `Your spot is held — our team will send your secure payment link here shortly for the ${deposit} deposit 👍`;
+    },
+    payment_link_failed: (ctx) => {
+      const { deposit } = ctx || {};
+      if (!deposit) return null;
+      return t('payment_link_failed', { deposit }, 'payment_link_failed')
+        || `No stress — I'm having a quick hiccup with the payment link. Our team will send your secure ${deposit} deposit link here shortly 👍`;
+    },
+    already_paid_check: () => t('already_paid_check', {}, 'already_paid_check')
+      || "Thanks for letting me know — I can't confirm payment from chat alone. Our team will check and follow up with you 👍",
+    pay_later_explainer: (ctx) => {
+      const { deposit, total } = ctx || {};
+      return t('pay_later_explainer', { deposit, total }, 'pay_later_explainer')
+        || 'No stress — to hold the spot we need a deposit or full payment once your quote is ready. The rest you can pay on arrival 👍';
+    },
+    pay_why_now: (ctx) => {
+      const { deposit, total } = ctx || {};
+      return t('pay_why_now', { deposit, total }, 'pay_why_now')
+        || `It's just to hold your spot while we get sorted — balance can be on arrival. ${deposit || 'deposit'} or full ${total || 'amount'}, whatever's easier 👍`;
+    },
     stripe_link: (ctx) => {
       const { deposit, checkoutUrl } = ctx;
       if (!deposit || !checkoutUrl) return null;
@@ -263,6 +289,65 @@ function buildWelcomeReply(clientSlug, lang, ctx, variationInput) {
     || `${introShort}\nAre you looking to book a stay, ask about packages, or just check some info?`;
 }
 
+function paymentAmountsFromGuestCtx(guestCtx) {
+  const quote = guestCtx && guestCtx.quote && typeof guestCtx.quote === 'object' ? guestCtx.quote : {};
+  const fmt = (cents) => {
+    if (cents == null || Number.isNaN(Number(cents))) return null;
+    const euros = Number(cents) / 100;
+    return `€${Number.isInteger(euros) ? euros : euros.toFixed(2)}`;
+  };
+  const total = fmt(quote.quote_total_cents);
+  const depCents = quote.deposit_options && quote.deposit_options.deposit_required_cents;
+  return { deposit: fmt(depCents), total };
+}
+
+/**
+ * Cami wording for router-handled payment side questions (wording only — no payment truth changes).
+ */
+function buildPersonalityPaymentSideReply(clientSlug, lang, paymentKind, opts) {
+  const resolved = resolveActivePersonality(clientSlug);
+  if (!resolved.personality || resolved.active_personality_id === 'luna_safe') {
+    return null;
+  }
+
+  const o = opts || {};
+  const guestCtx = o.guestCtx || {};
+  const quoteReady = o.quoteReady === true;
+  const { deposit, total } = paymentAmountsFromGuestCtx(guestCtx);
+  const variationInput = {
+    prior_guest_context: guestCtx,
+    guest_phone: guestCtx.guest_phone || o.guest_phone,
+  };
+  const lex = buildPersonalityReplyLexicon(clientSlug, lang, null, variationInput);
+  if (!lex) return null;
+
+  const kind = paymentKind || 'unknown';
+
+  if (kind === 'already_paid_claim') {
+    return lex.already_paid_check ? lex.already_paid_check() : null;
+  }
+
+  if (kind === 'payment_failed') {
+    return lex.payment_link_failed ? lex.payment_link_failed({ deposit }) : null;
+  }
+
+  if (kind === 'arrival_payment_question' || kind === 'pay_later') {
+    if (quoteReady && deposit && total && lex.answer_arrival_payment_question) {
+      return lex.answer_arrival_payment_question({ deposit, total });
+    }
+    return lex.pay_later_explainer ? lex.pay_later_explainer({ deposit, total }) : null;
+  }
+
+  if (kind === 'deposit_question') {
+    if (quoteReady && deposit && total && lex.pay_why_now) {
+      return lex.pay_why_now({ deposit, total });
+    }
+    return lex.pay_later_explainer ? lex.pay_later_explainer({ deposit, total }) : null;
+  }
+
+  return null;
+}
+
 function buildPersonalityResetReply(clientSlug, lang, variationInput) {
   const resolved = resolveActivePersonality(clientSlug);
   if (!resolved.personality) return null;
@@ -304,6 +389,8 @@ module.exports = {
   buildPersonalityReplyLexicon,
   buildWelcomeReply,
   buildPersonalityResetReply,
+  buildPersonalityPaymentSideReply,
+  paymentAmountsFromGuestCtx,
   getPersonalityBannedPhrases,
   personalityAffectsCopyOnlySummary,
   clearPersonalityConfigCache,

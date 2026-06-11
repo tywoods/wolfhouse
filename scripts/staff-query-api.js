@@ -13190,8 +13190,8 @@ async function tryInsertManualBookingServiceRecords(pg, rows) {
 // calculateWolfhouseQuote() runs server-side; amounts are NEVER trusted from
 // the client. quote_snapshot stored in booking.metadata. Draft payment record
 // created from quote.payment_link_amount_cents. No Stripe. No WhatsApp. No n8n.
-// Stage 8.8.16: When add_ons present, inserts booking_service_records in the
-// same transaction (source=staff_manual). Meals excluded. Table-missing → warning.
+// Stage 8.8.16 / 26j.2: When add_ons present, inserts booking_service_records in the
+// same transaction (source=staff_manual, amounts from quote line_items). Table-missing → warning.
 //
 // Required flags (both env vars must be true to use from UI):
 //   MANUAL_BOOKING_ENABLED=true  — gates this route (returns 403 if false)
@@ -13390,7 +13390,7 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
     outcome.payment_id = paymentId;
     outcome.amount_paid_cents = paidCents;
     outcome.payment_status = newBkPayStatus;
-    outcome.message = `Booking created. ${isBank ? 'Bank transfer' : 'Cash'} payment of \u20ac${(paidCents / 100).toFixed(2)} recorded. No Stripe link was created or sent.`;
+    outcome.message = `Booking created. ${isBank ? 'Bank transfer' : 'Cash'} payment of \u20ac${(paidCents / 100).toFixed(2)} recorded. No payment link was created or sent.`;
     return outcome;
   }
 
@@ -13450,7 +13450,7 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
     outcome.payment_status = 'waiting_payment';
     outcome.payment_link_skipped = true;
     outcome.skip_reason = 'stripe_links_disabled';
-    outcome.message = 'Booking created. Stripe payment link skipped — Stripe links are disabled. Generate a link from the booking drawer when enabled.';
+    outcome.message = 'Booking created. Secure payment link skipped — online payment links are disabled. Generate a payment link from the booking drawer when enabled.';
     return outcome;
   }
 
@@ -13465,7 +13465,7 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
     outcome.checkout_url = exist.checkout_url;
     outcome.amount_due_cents = amountDueCents;
     outcome.payment_status = 'payment_link_created';
-    outcome.message = 'Booking created. Stripe payment link ready (idempotent). Link not marked paid — webhook confirms payment.';
+    outcome.message = 'Booking created. Secure payment link ready (idempotent). Link not marked paid — webhook confirms payment.';
     return outcome;
   }
 
@@ -13537,8 +13537,8 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
   outcome.payment_status = 'payment_link_created';
   outcome.stripe_called = true;
   outcome.message = staffPaymentChoice === 'stripe_full'
-    ? 'Booking created. Stripe full-payment link generated. Link not marked paid — webhook confirms payment.'
-    : 'Booking created. Stripe deposit link generated. Link not marked paid — webhook confirms payment.';
+    ? 'Booking created. Full secure payment link generated. Link not marked paid — webhook confirms payment.'
+    : 'Booking created. Deposit secure payment link generated. Link not marked paid — webhook confirms payment.';
   return outcome;
 }
 
@@ -13580,7 +13580,7 @@ async function handleManualBookingCreate(req, res, user) {
   const roomPref    = String(body.room_preference || '').trim().slice(0, 200) || null;
   const notes       = String(body.notes || '').trim().slice(0, 2000) || null;
   const reason      = String(body.reason || 'Manual booking via Staff Portal Bed Calendar').trim().slice(0, 500);
-  const source      = String(body.source || 'staff_manual').trim().slice(0, 50) || 'staff_manual';
+  const source      = String(body.source || body.booking_source || 'staff_manual').trim().slice(0, 50) || 'staff_manual';
   // Stage 8.4.8: quote-driven fields — amounts derived from calculateWolfhouseQuote(), NOT from body
   const packageCode   = String(body.package_code || body.package_or_stay_type || '').trim().slice(0, 50) || null;
   const roomType      = String(body.room_type || 'shared').trim().slice(0, 20) || 'shared';
@@ -13932,7 +13932,7 @@ async function handleManualBookingCreate(req, res, user) {
       success: false,
       error: row._payment_error || 'payment_step_failed',
       message: isStripe
-        ? 'Booking was not created — Stripe is not configured for payment links.'
+        ? 'Booking was not created — online payment links are not configured.'
         : (isPaidAmt
           ? 'Booking was not created — invalid paid amount for cash/bank choice.'
           : 'Booking was not created — payment step failed. Transaction rolled back.'),
@@ -15146,8 +15146,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
         <div class="bk-compact-row">
           <label class="bk-label" for="bk-payment-choice">Payment choice</label>
           <select id="bk-payment-choice" class="bk-input bk-input-sm">
-            <option value="stripe_deposit">Stripe deposit link</option>
-            <option value="stripe_full">Stripe full payment link</option>
+            <option value="stripe_deposit">Deposit payment link</option>
+            <option value="stripe_full">Full secure payment link</option>
             <option value="paid_cash">Already paid cash</option>
             <option value="paid_bank_transfer">Already paid bank transfer</option>
             <option value="no_payment_yet">No payment yet</option>
@@ -15165,7 +15165,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
           <label class="bk-label" for="bk-paid-amount-custom">Custom paid amount (&euro;)</label>
           <input type="number" id="bk-paid-amount-custom" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0.01">
         </div>
-        <div class="bk-compact-hint" id="bk-payment-choice-hint">Stripe links are created at booking save &mdash; nothing is sent automatically.</div>
+        <div class="bk-compact-hint" id="bk-payment-choice-hint">Secure payment links are created at booking save &mdash; nothing is sent automatically.</div>
       </div>
     </div>
 
@@ -18017,9 +18017,9 @@ function bcUpdateManualBookingPaidFields(){
   }
   if (hint) {
     if (choice === 'stripe_deposit' || choice === 'stripe_full') {
-      hint.textContent = 'Stripe link is created when you save the booking. Nothing is sent automatically.';
+      hint.textContent = 'A secure payment link is created when you save the booking. Nothing is sent automatically.';
     } else if (showPaid) {
-      hint.textContent = 'Paid amount is recorded in Payment history immediately. No Stripe link.';
+      hint.textContent = 'Paid amount is recorded in Payment history immediately. No payment link.';
     } else {
       hint.textContent = 'No payment row or link at create. Balance remains due.';
     }
@@ -18110,7 +18110,7 @@ function runManualBookingCreate(){
     payment_choice:     payChoice,
     paid_amount_type:   paidAmtType,
     add_ons:            buildAddOns(),
-    booking_source:     source,
+    source:               source,
     notes:              notes,
     confirm:            true,
   };
@@ -18403,10 +18403,10 @@ function bcQuoteSelectedPaymentLabel(paymentChoice, paidAmountType, quote) {
   var total = Number(quote.total_cents || 0);
   var deposit = Number(quote.deposit_required_cents || 0);
   if (paymentChoice === 'stripe_deposit') {
-    return 'Stripe deposit link \u2014 ' + fmtEur(deposit);
+    return 'Deposit payment link \u2014 ' + fmtEur(deposit);
   }
   if (paymentChoice === 'stripe_full') {
-    return 'Stripe full payment link \u2014 ' + fmtEur(total);
+    return 'Full secure payment link \u2014 ' + fmtEur(total);
   }
   if (paymentChoice === 'paid_cash') {
     var amt = bcQuotePaidNowCents(paymentChoice, paidAmountType, quote);

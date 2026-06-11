@@ -187,19 +187,19 @@ function buildNoUrlSafeTemplate(lang, name) {
     en:
       'Thanks' +
       n +
-      "! Your space is held for 1 hour. We're preparing your secure Stripe payment link and will send it here in a moment.",
+      "! Your space is held for 1 hour. We're preparing your secure payment link and will send it here in a moment.",
     de:
       'Danke' +
       n +
-      '! Wir haben euren Platz fuer 1 Stunde reserviert. Wir bereiten gerade euren sicheren Stripe-Zahlungslink vor und schicken ihn gleich hier.',
+      '! Wir haben euren Platz fuer 1 Stunde reserviert. Wir bereiten gerade euren sicheren Zahlungslink vor und schicken ihn gleich hier.',
     es:
       'Gracias' +
       n +
-      '! Hemos reservado vuestro espacio durante 1 hora. Estamos preparando vuestro enlace de pago seguro de Stripe y lo enviaremos aqui en un momento.',
+      '! Hemos reservado vuestro espacio durante 1 hora. Estamos preparando vuestro enlace de pago seguro y lo enviaremos aqui en un momento.',
     it:
       'Grazie' +
       n +
-      '! Abbiamo tenuto il posto per 1 ora. Stiamo preparando il link di pagamento Stripe sicuro e ve lo inviamo qui tra un attimo.',
+      '! Abbiamo tenuto il posto per 1 ora. Stiamo preparando il link di pagamento sicuro e ve lo inviamo qui tra un attimo.',
   };
   return byLang[lang] || byLang.en;
 }
@@ -380,19 +380,19 @@ function buildNoUrlSafeTemplate(lang, name) {
     en:
       'Thanks' +
       n +
-      "! Your space is held for 1 hour. We're preparing your secure Stripe payment link and will send it here in a moment.",
+      "! Your space is held for 1 hour. We're preparing your secure payment link and will send it here in a moment.",
     de:
       'Danke' +
       n +
-      '! Wir haben euren Platz fuer 1 Stunde reserviert. Wir bereiten gerade euren sicheren Stripe-Zahlungslink vor und schicken ihn gleich hier.',
+      '! Wir haben euren Platz fuer 1 Stunde reserviert. Wir bereiten gerade euren sicheren Zahlungslink vor und schicken ihn gleich hier.',
     es:
       'Gracias' +
       n +
-      '! Hemos reservado vuestro espacio durante 1 hora. Estamos preparando vuestro enlace de pago seguro de Stripe y lo enviaremos aqui en un momento.',
+      '! Hemos reservado vuestro espacio durante 1 hora. Estamos preparando vuestro enlace de pago seguro y lo enviaremos aqui en un momento.',
     it:
       'Grazie' +
       n +
-      '! Abbiamo tenuto il posto per 1 ora. Stiamo preparando il link di pagamento Stripe sicuro e ve lo inviamo qui tra un attimo.',
+      '! Abbiamo tenuto il posto per 1 ora. Stiamo preparando il link di pagamento sicuro e ve lo inviamo qui tra un attimo.',
   };
   return byLang[lang] || byLang.en;
 }

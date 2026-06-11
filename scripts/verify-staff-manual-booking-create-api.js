@@ -33,6 +33,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const TARGET = path.join(__dirname, 'staff-query-api.js');
+const SVC_LIB  = path.join(__dirname, 'lib', 'manual-booking-service-records.js');
 const PKG    = path.join(__dirname, '..', 'package.json');
 let passed = 0, failed = 0;
 
@@ -45,6 +46,7 @@ console.log('\nverify-staff-manual-booking-create-api.js  (Stage 8.4)\n');
 // ── A. File / syntax ──────────────────────────────────────────────────────────
 check('A1', fs.existsSync(TARGET), 'staff-query-api.js exists');
 const src = fs.existsSync(TARGET) ? fs.readFileSync(TARGET, 'utf8') : '';
+const svcLib = fs.existsSync(SVC_LIB) ? fs.readFileSync(SVC_LIB, 'utf8') : '';
 check('A2', src.length > 10000, 'file is readable and non-trivial');
 check('A3', (() => { try { require('child_process').execSync(`node --check "${TARGET}"`, { stdio: 'pipe' }); return true; } catch { return false; } })(),
   'passes node --check (no syntax errors)');
@@ -180,12 +182,15 @@ check('M43', /quote_snapshot/.test(handler) && /UPDATE bookings/.test(handler),
   'handler stores quote_snapshot in booking metadata (UPDATE bookings)');
 
 // M44: payment_kind determined from payment_choice
-check('M44', /payment_kind.*payment_choice|paymentKind.*paymentChoice/i.test(handler),
-  'handler derives payment_kind from payment_choice (not hardcoded)');
+const applyPayFn = src.match(/async function manualBookingApplyStaffPaymentChoice[\s\S]*?\n\}/)?.[0] || '';
+check('M44', /manualBookingPaymentKindForStaffChoice/.test(handler)
+  && /paymentKind/.test(applyPayFn),
+  'payment_kind derived from payment_choice in applyStaffPaymentChoice');
 
-// M45: UPDATE payments with payment_kind + amount_due_cents from quote
-check('M45', /UPDATE payments/.test(handler) && /amount_due_cents/.test(handler),
-  'handler UPDATEs payment record with quote-derived amount_due_cents');
+// M45: payment row gets quote-derived amount_due_cents (apply path, not legacy SQL draft)
+check('M45', /UPDATE payments/.test(applyPayFn) && /amount_due_cents/.test(applyPayFn)
+  && /checkout_created/.test(applyPayFn),
+  'applyStaffPaymentChoice sets quote-derived amount_due_cents + checkout_created');
 
 // M46: Handler returns quote_summary in success response
 check('M46', /quote_summary/.test(handler),
@@ -197,10 +202,10 @@ check('M47',
   /BC_MANUAL_BOOKING\s*=\s*\$\{MANUAL_BOOKING_ENABLED\}/.test(src),
   'UI template embeds server flags as JS vars (BC_STAFF_ACTIONS, BC_MANUAL_BOOKING)');
 
-// M48: UI has bcUpdateCreateButton checking flags
+// M48: UI has bcUpdateCreateButton checking manual booking flag
 check('M48', /function bcUpdateCreateButton/.test(src) &&
-  /BC_STAFF_ACTIONS.*BC_MANUAL_BOOKING|BC_MANUAL_BOOKING.*BC_STAFF_ACTIONS/.test(src),
-  'UI has bcUpdateCreateButton() checking both server flags');
+  /BC_MANUAL_BOOKING/.test(src.match(/function bcUpdateCreateButton[\s\S]*?\n\}/)?.[0] || ''),
+  'UI has bcUpdateCreateButton() checking MANUAL_BOOKING_ENABLED flag');
 
 // M49: UI has runManualBookingCreate posting to create route
 check('M49', /function runManualBookingCreate/.test(src),
@@ -215,7 +220,7 @@ check('M49', /function runManualBookingCreate/.test(src),
     'UI runManualBookingCreate does NOT send deposit_amount_cents/total_amount_cents (trust quote only)');
 })();
 
-// ── O. Stage 8.8.16 — booking_service_records on manual create ───────────────
+// ── O. Stage 8.8.16 / 26j.2 — booking_service_records on manual create ───────
 (function check8816ManualCreateServiceRecords(){
   check('O51', /INSERT INTO booking_service_records/.test(src) &&
         /tryInsertManualBookingServiceRecords/.test(handler),
@@ -229,31 +234,32 @@ check('M49', /function runManualBookingCreate/.test(src),
         /bookingCode:\s*result\.booking_code/.test(handler) &&
         /clientSlug,/.test(handler) && /guestName,/.test(handler),
     'service records use booking_id, booking_code, client_slug, guest_name (Stage 8.8.16)');
-  check('O54', /MANUAL_BOOKING_ADDON_SERVICE_MAP/.test(src) &&
-        /wetsuit_rental.*wetsuit|wetsuit_rental:\s*'wetsuit'/.test(src) &&
-        /soft_top_rental.*surfboard|soft_top_rental:\s*'surfboard'/.test(src) &&
-        /surf_lesson/.test(src) && /yoga_class.*yoga|'yoga'/.test(src),
-    'supported add-on → service_type mapping exists (Stage 8.8.16)');
-  check('O55', /wetsuit_soft_top_combo/.test(src) && /wetsuit_hard_board_combo/.test(src) &&
-        /combo_part:\s*'wetsuit'/.test(src) && /combo_part:\s*'surfboard'/.test(src),
-    'combo add-ons expand to wetsuit + surfboard records (Stage 8.8.16)');
-  check('O56', /\/meal\/i\.test\(addon\.code\)/.test(src) &&
-        !/service_type:\s*'meal'/.test(handler),
-    'meals are not inserted as service records (Stage 8.8.16)');
-  check('O57', /function servicePaymentStatus/.test(src) &&
-        /return Number\(amountDueCents\) > 0 \? 'pending' : 'not_requested'/.test(src),
-    'service record payment_status is pending or not_requested only — never paid (Stage 8.8.16)');
+  check('O54', /MANUAL_BOOKING_ADDON_SERVICE_MAP/.test(svcLib) &&
+        /wetsuit_rental.*wetsuit|wetsuit_rental:\s*'wetsuit'/.test(svcLib) &&
+        /soft_top_rental.*surfboard|soft_top_rental:\s*'surfboard'/.test(svcLib) &&
+        /surf_lesson/.test(svcLib) && /yoga_class.*yoga|'yoga'/.test(svcLib),
+    'supported add-on → service_type mapping exists (Stage 8.8.16 / lib)');
+  check('O55', /wetsuit_soft_top_combo/.test(svcLib) && /wetsuit_hard_board_combo/.test(svcLib) &&
+        /combo_part:\s*'wetsuit'/.test(svcLib) && /combo_part:\s*'surfboard'/.test(svcLib),
+    'combo add-ons expand to wetsuit + surfboard records (Stage 8.8.16 / lib)');
+  check('O56', /addon\.code !== 'meals' && addon\.code !== 'meal'/.test(svcLib) &&
+        /serviceType:\s*'meal'/.test(svcLib) &&
+        /quoteLineItemAmount\(quote, 'meals'\)/.test(svcLib),
+    'meals mapped to meal service records via quote line (Stage 26j.2 / lib)');
+  check('O57', /function servicePaymentStatus/.test(svcLib) &&
+        /return Number\(amountDueCents\) > 0 \? 'pending' : 'not_requested'/.test(svcLib),
+    'service record payment_status is pending or not_requested only — never paid (Stage 8.8.16 / lib)');
   check('O58', /isMissingBookingServiceRecordsTable/.test(src) &&
         /service_records_warning/.test(handler),
     'table-missing safe skip with service_records_warning (Stage 8.8.16)');
   check('O59', /service_records_created/.test(handler),
     'response includes service_records_created (Stage 8.8.16)');
-  check('O60', /needs_scheduling:\s*true|needs_scheduling\s*=\s*true/.test(src) &&
-        /rental_days/.test(src),
-    'metadata includes needs_scheduling and rental_days when applicable (Stage 8.8.16)');
-  check('O61', /source:\s*'staff_manual'/.test(src.slice(src.indexOf('buildManualBookingServiceRecordRows'),
-        src.indexOf('insertManualBookingServiceRecords'))),
-    'service records use source staff_manual (Stage 8.8.16)');
+  check('O60', /needs_scheduling:\s*true|needs_scheduling\s*=\s*true/.test(svcLib) &&
+        /rental_days/.test(svcLib),
+    'metadata includes needs_scheduling and rental_days when applicable (Stage 8.8.16 / lib)');
+  check('O61', /source:\s*'staff_manual'/.test(svcLib.slice(svcLib.indexOf('function buildManualBookingServiceRecordRows'),
+        svcLib.indexOf('module.exports'))),
+    'service records use source staff_manual (Stage 8.8.16 / lib)');
   check('O62', !/graph\.facebook\.com/.test(handler),
     'handler has no graph.facebook.com (Stage 8.8.16)');
   check('O63', !(/fetch[\s\S]{0,80}n8n|https?:\/\/[^"'\\s]*n8n/i.test(handler)),
@@ -262,6 +268,57 @@ check('M49', /function runManualBookingCreate/.test(src),
     'handler has no Stripe API changes (Stage 8.8.16)');
   check('O65', !/confirmation_sent_at/.test(handler),
     'handler does not write confirmation_sent_at (Stage 8.8.16)');
+
+  // Runtime smoke — lock mapping shape against quote engine (Stage 43b)
+  try {
+    const { buildManualBookingServiceRecordRows } = require('./lib/manual-booking-service-records');
+    const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
+    const baseQuote = calculateWolfhouseQuote({
+      client_slug: 'wolfhouse-somo',
+      check_in: '2026-06-15',
+      check_out: '2026-06-22',
+      guest_count: 2,
+      package_code: 'malibu',
+      room_type: 'shared',
+      payment_choice: 'deposit',
+      add_ons: [
+        { code: 'wetsuit_soft_top_combo', days: 2 },
+        { code: 'soft_top_rental', days: 2 },
+        { code: 'surf_lesson_single', quantity: 1 },
+        { code: 'yoga_class', quantity: 1 },
+        { code: 'meals', quantity: 2 },
+      ],
+    });
+    const rows = buildManualBookingServiceRecordRows({
+      addOns: [
+        { code: 'wetsuit_soft_top_combo', days: 2 },
+        { code: 'soft_top_rental', days: 2 },
+        { code: 'surf_lesson_single', quantity: 1 },
+        { code: 'yoga_class', quantity: 1 },
+        { code: 'meals', quantity: 2 },
+      ],
+      quote: baseQuote,
+      clientSlug: 'wolfhouse-somo',
+      bookingId: '00000000-0000-4000-8000-000000000099',
+      bookingCode: 'MB-43B-SMOKE',
+      guestName: 'Smoke Test',
+      checkIn: '2026-06-15',
+      guestCount: 2,
+    });
+    const types = rows.map((r) => r.service_type);
+    check('O66', types.includes('wetsuit') && types.includes('surfboard') && types.includes('surf_lesson')
+      && types.includes('yoga') && types.includes('meal'),
+      'runtime mapping produces wetsuit/surfboard/lesson/yoga/meal rows');
+    check('O67', rows.every((r) => r.booking_id === '00000000-0000-4000-8000-000000000099'
+      && r.booking_code === 'MB-43B-SMOKE' && r.source === 'staff_manual'),
+      'runtime rows bind booking_id/booking_code/source staff_manual');
+    check('O68', rows.every((r) => r.payment_status === 'pending' || r.payment_status === 'not_requested'),
+      'runtime payment_status never paid');
+  } catch (e) {
+    fail('O66', `runtime service-record mapping smoke failed: ${e.message}`);
+    fail('O67', 'runtime booking binding smoke skipped');
+    fail('O68', 'runtime payment_status smoke skipped');
+  }
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
