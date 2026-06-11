@@ -1,0 +1,51 @@
+{
+  "id": "turn2-cash-preserves-short-stay-quote-en",
+  "fixture_set": "hammer-regressions",
+  "language": "en",
+  "label": "Turn-2 EN cash side-question preserves quote",
+  "contact_name": "Alex",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 1-5 for 1",
+      "expect": {
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 1
+        },
+        "expected_quote_ready": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "Can I pay cash?",
+      "expect": {
+        "reply_contains": ["cash"],
+        "expected_context_preserved": true,
+        "expected_stale_quote": false,
+        "expected_quote_ready": true,
+        "expected_fields": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 1
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-05",
+      "guest_count": 1,
+      "package_interest": "accommodation_only"
+    },
+    "expected_quote_ready": true,
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

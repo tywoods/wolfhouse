@@ -9,6 +9,7 @@
 
 const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
 const { detectPackageMutationIntent } = require('./luna-guest-message-intake');
+const { extractGuestCountFromText } = require('./luna-booking-intake-policy');
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
 const {
   detectPackageExplainerIntent,
@@ -28,8 +29,8 @@ const QUOTE_AFFECTING_FIELDS = Object.freeze([
   'addons_skipped',
 ]);
 
-const DATE_CORRECTION_RE = /\b(?:actually|sorry|wait|i\s+meant|meant|change(?:d)?\s+(?:to|the)?|scusa|perd[oó]n|eigentlich|in\s+realt[aà]|en\s+realidad)\b/i;
-const GUEST_COUNT_CORRECTION_RE = /\b(?:actually|sorry|wait|scusa|perd[oó]n|eigentlich|in\s+realt[aà]|en\s+realidad|we\s+are|we're|siamo|somos|guests?\s*\d|\d\s+guests?)\b/i;
+const DATE_CORRECTION_RE = /\b(?:actually|sorry|wait|i\s+meant|meant|change(?:d)?\s+(?:to|the)?|scusa|perd[oó]n|eigentlich|in\s+realt[aà]|en\s+realidad|no\s+aspetta|alla\s+fine)\b/i;
+const GUEST_COUNT_CORRECTION_RE = /\b(?:actually|sorry|wait|scusa|perd[oó]n|eigentlich|in\s+realt[aà]|en\s+realidad|no\s+aspetta|alla\s+fine|invece|we\s+are|we're|siamo|somos|guests?\s*\d|\d\s+guests?)\b/i;
 
 function trimStr(v) {
   if (v == null) return '';
@@ -61,7 +62,8 @@ function hasExplicitDates(text) {
 }
 
 function hasGuestCountSignal(text) {
-  return /\b(?:we\s+are|we're|for\s+\d+|^\d+$|\d\s+guests?|guests?\s*\d|siamo\s+\d|somos\s+\d|\d\s+of\s+us)\b/i.test(trimStr(text));
+  const t = trimStr(text);
+  return /\b(?:we\s+are|we're|for\s+\d+|^\d+$|\d\s+guests?|guests?\s*\d|siamo\s+\d|somos\s+\d|\d\s+of\s+us|siamo\s+in\s+\d+|siamo\s+in\s+(?:due|tre|quattro|cinque)|siamo\s+(?:due|tre|quattro|cinque)|siamo\s+\d+\s+non\s+\d+)\b/i.test(t);
 }
 
 function normalizeStaleQuoteReason(correctedFields, packageMutation) {
@@ -132,6 +134,13 @@ function evaluateQuoteStaleInvalidation(priorGuestContext, routerResult, message
       previous_quote_invalidated: true,
       add_on_quote_stale_reason: addonChange.add_on_quote_stale_reason || null,
     };
+  }
+
+  if (!corrected.length && detectFieldCorrectionIntent(text)) {
+    const correctedGuestCount = extractGuestCountFromText(text);
+    if (correctedGuestCount != null && priorFields.guest_count != null) {
+      corrected = ['guest_count'];
+    }
   }
 
   if (!corrected.length) return null;

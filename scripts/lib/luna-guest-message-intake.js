@@ -563,11 +563,20 @@ function extractGuests(text) {
     /\b(\d{1,2})\s*(?:people|persons|guests|pax|persone|personas|personnes|gäste|gaste)\b/i,
     /\b(?:for|per|para|pour|für|we are|we're|somos|siamo{1,2}|nous sommes|wir sind|wir w(?:ä|a)ren)\s+(\d{1,2})\b/i,
     /\b(?:siamo|somos|nous sommes|wir sind)\s+in\s+(\d{1,2})\b/i,
+    /\bsiamo\s+(due|tre|quattro|cinque)\b/i,
+    /\bsiamo\s+(\d{1,2})\s+non\s+(\d{1,2})\b/i,
+    /\bsiamo\s+in\s+(due|tre|quattro|cinque|\d{1,2})\b/i,
     /\b(\d{1,2})\s*(?:persone|personas|personnes|personen)\b/i,
   ];
   for (const re of patterns) {
     const m = t.match(re);
-    if (m) return Number(m[1]);
+    if (m) {
+      if (m[1] && !/^\d+$/.test(m[1])) {
+        const n = wordToGuestCount(m[1]);
+        if (n) return n;
+      }
+      return Number(m[1]);
+    }
   }
   const zuCount = t.match(/\bwir\s+sind\s+zu\s+(zweit|dritt|viert|fünft|funft)\b/i);
   if (zuCount) {

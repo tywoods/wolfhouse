@@ -140,7 +140,7 @@ function normalizeText(messageText) {
   return String(messageText || '').trim().toLowerCase();
 }
 
-function quoteContextReady(guestContext) {
+function quoteContextReady(guestContext, messageText) {
   const ctx = guestContext || {};
   const quote = ctx.quote || {};
   const paymentChoiceNeeded = quote.payment_choice_needed === true
@@ -148,27 +148,37 @@ function quoteContextReady(guestContext) {
   const quoteStatus = quote.quote_status || ctx.quote_status;
   const lane = ctx.message_lane || (ctx.result && ctx.result.message_lane);
   const bookingPaymentLane = lane === 'new_booking_inquiry' || lane === 'payment_question';
+  if (quoteStatus === 'ready' && messageText) {
+    const sideQ = detectPaymentChoiceFromMessage(messageText);
+    if (sideQ === 'arrival_payment_question' || sideQ === 'payment_link_request') {
+      return true;
+    }
+  }
   return bookingPaymentLane
     && paymentChoiceNeeded
     && quoteStatus === 'ready';
 }
 
-function shouldAttemptGuestPaymentChoiceCapture(guestContext) {
-  return quoteContextReady(guestContext);
+function shouldAttemptGuestPaymentChoiceCapture(guestContext, messageText) {
+  return quoteContextReady(guestContext, messageText);
 }
 
 /**
  * Stage 27k wire gate — prior guest_context from request body (second-turn payment choice).
  * Does not require current router lane; quote must be ready when quote object is present.
  */
-function shouldAttemptGuestPaymentChoiceWire(guestContext) {
+function shouldAttemptGuestPaymentChoiceWire(guestContext, messageText) {
   const ctx = guestContext || {};
   const quote = ctx.quote;
+  const quoteStatus = (quote && quote.quote_status) || ctx.quote_status;
+  if (quoteStatus === 'ready' && messageText) {
+    const sideQ = detectPaymentChoiceFromMessage(messageText);
+    if (sideQ === 'arrival_payment_question') return true;
+  }
   const paymentChoiceNeeded = (quote && quote.payment_choice_needed === true)
     || ctx.payment_choice_needed === true;
   if (!paymentChoiceNeeded) return false;
   if (quote && quote.quote_status != null && quote.quote_status !== 'ready') return false;
-  const quoteStatus = (quote && quote.quote_status) || ctx.quote_status;
   if (quoteStatus != null && quoteStatus !== 'ready') return false;
   return true;
 }
@@ -237,7 +247,19 @@ function detectPaymentChoiceFromMessage(messageText) {
     return 'payment_link_request';
   }
 
-  if (/\b(?:pay\s+cash|cash\s+(?:on\s+)?(?:arrival|when\s+i\s+arrive|at\s+check[\s-]?in)|bank\s+transfer|wire\s+transfer|transferencia|bonifico|virement|überweisung|ueberweisung|efectivo|all'arrivo|à\s+l'arrivée|a\s+l'arrivee|bei\s+ankunft|pay\s+when\s+i\s+arrive|on\s+arrival|at\s+check[\s-]?in|(?:do you )?accept\s+bank\s+transfer|accept\s+bank\s+transfer)\b/i.test(t)) {
+  if (/\b(?:pay\s+cash|cash\s+(?:on\s+)?(?:arrival|when\s+i\s+arrive|at\s+check[\s-]?in)|cash\s+payment|payment\s+(?:by\s+)?cash|cash\s+(?:is\s+)?ok|cash\s+ok)\b/i.test(t)) {
+    return 'arrival_payment_question';
+  }
+
+  if (/\b(?:pay\s+cash|cash\s+(?:on\s+)?(?:arrival|when\s+i\s+arrive|at\s+check[\s-]?in)|bank\s+transfer|wire\s+transfer|transferencia|bonifico|virement|überweisung|ueberweisung|efectivo|all'arrivo|à\s+l'arrivée|a\s+l'arrivee|bei\s+ankunft|pay\s+when\s+i\s+arrive|on\s+arrival|at\s+check[\s-]?in|(?:do you )?accept\s+bank\s+transfer|accept\s+bank\s+transfer|contanti|in\s+contanti|pag(?:are|amento)\s+(?:in\s+)?contanti|bar\s+(?:bezahlen|zahlen)|in\s+bar(?:\s+zahlen)?|pago\s+en\s+efectivo)\b/i.test(t)) {
+    return 'arrival_payment_question';
+  }
+
+  if (/\b(?:poss(?:o|iamo)\s+pagare|(?:si|se)\s+paga)\b.*\b(?:contanti|cash|efectivo)\b/i.test(t)) {
+    return 'arrival_payment_question';
+  }
+
+  if (/\bkann\s+ich\s+bar\b/i.test(t)) {
     return 'arrival_payment_question';
   }
 
@@ -339,7 +361,7 @@ function finalizeProposedLunaReply(lang, guestContext, outcome, detected) {
   return sanitizeLunaGuestReply(raw, fallback);
 }
 
-function buildOutcome(detected, guestContext) {
+function buildOutcome(detected, guestContext, messageText) {
   const ctx = guestContext || {};
   const { stalePaymentLinkBlocked } = require('./luna-booking-state-transitions');
   if (stalePaymentLinkBlocked(ctx)) {
@@ -353,9 +375,9 @@ function buildOutcome(detected, guestContext) {
     };
   }
   const lane = ctx.message_lane || (ctx.result && ctx.result.message_lane);
-  const quoteReady = quoteContextReady(ctx);
+  const quoteReady = quoteContextReady(ctx, messageText);
 
-  if (lane && lane !== 'new_booking_inquiry') {
+  if (lane && lane !== 'new_booking_inquiry' && lane !== 'payment_question') {
     return {
       payment_choice_detected: detected != null,
       payment_choice: detected,
@@ -434,8 +456,8 @@ function buildOutcome(detected, guestContext) {
   };
 }
 
-function buildGuestPaymentChoiceSkippedResponse(guestContext, detected) {
-  const outcome = buildOutcome(detected ?? null, guestContext);
+function buildGuestPaymentChoiceSkippedResponse(guestContext, detected, messageText) {
+  const outcome = buildOutcome(detected ?? null, guestContext, messageText);
   const lang = resolveLanguage(null, guestContext);
   const ctx = guestContext || {};
   return {
@@ -486,12 +508,12 @@ function runGuestPaymentChoiceDryRun(input, guestContext) {
     resetIntent = false;
   }
 
-  if (!shouldAttemptGuestPaymentChoiceCapture(ctx) && !detected) {
-    return buildGuestPaymentChoiceSkippedResponse(ctx, null);
+  if (!shouldAttemptGuestPaymentChoiceCapture(ctx, messageText) && !detected) {
+    return buildGuestPaymentChoiceSkippedResponse(ctx, null, messageText);
   }
 
-  const outcome = buildOutcome(detected, ctx);
-  const captureAttempted = quoteContextReady(ctx) || detected != null;
+  const outcome = buildOutcome(detected, ctx, messageText);
+  const captureAttempted = quoteContextReady(ctx, messageText) || detected != null;
 
   return {
     success: true,

@@ -222,7 +222,7 @@ function isActiveBookingSideQuestion(priorGuestContext, currentResult, messageTe
   const prior = normalizeGuestContextForChain(priorGuestContext || {});
   const priorQuote = prior.quote || {};
   const priorFields = collectPriorExtractedFields(prior);
-  const hasPaymentWire = shouldAttemptGuestPaymentChoiceWire(priorGuestContext);
+  const hasPaymentWire = shouldAttemptGuestPaymentChoiceWire(priorGuestContext, messageText);
   const hasAddonsPending = priorQuote.quote_status === 'ready' && quoteAwaitingAddonsDecision(priorQuote);
   const quoteReady = priorQuote.quote_status === 'ready';
   const hasBookingContext = !!(priorFields.check_in && priorFields.check_out && priorFields.guest_count != null);

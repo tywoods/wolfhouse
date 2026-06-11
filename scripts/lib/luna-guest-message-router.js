@@ -131,6 +131,7 @@ const REPLY_TEMPLATES = {
     payment_help: "For payment or balance questions I'll need your booking code — could you send that, and our team will confirm the right next step?",
     pay_now: "I can't process payment automatically yet — our team will confirm your booking and payment status and follow up with you.",
     pay_arrival_balance: 'The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. To secure the booking, we still need a deposit or full payment once your quote is ready.',
+    pay_arrival_with_quote: 'Yep — the remaining balance can be paid on arrival by cash, bank transfer, or Stripe. To hold the spot, would you prefer to pay the deposit now, or the full amount?',
     pay_link_need_quote: "I can't send a pay link yet — I'll need your stay details and a quote first. Once that's ready, you can choose deposit or full payment.",
     pay_already_paid_check: "Thanks for letting me know — I can't confirm payment from chat alone. Our team will check your payment status in the system and follow up with you.",
     pay_failed_safe: "Sorry the payment didn't go through — I'm not able to retry or refund from here. Our team can check what happened and help with the next step.",
@@ -596,11 +597,18 @@ function classifyPaymentQuestionLane(text, ctx) {
   };
 }
 
-function buildPaymentQuestionReply(lang, paymentKind, activeQuote, reasons) {
+function hasReadyQuoteSideQuestionContext(ctx) {
+  const guestCtx = ctx || {};
+  const quote = guestCtx.quote && typeof guestCtx.quote === 'object' ? guestCtx.quote : {};
+  return quote.quote_status === 'ready';
+}
+
+function buildPaymentQuestionReply(lang, paymentKind, activeQuote, reasons, guestCtx) {
   const intro = `${tpl(lang, 'intro')} 🌊 — `;
   const kind = paymentKind || 'unknown';
+  const quoteReady = activeQuote || hasReadyQuoteSideQuestionContext(guestCtx);
   if (kind === 'arrival_payment_question' || kind === 'pay_later') {
-    return intro + tpl(lang, 'pay_arrival_balance');
+    return intro + (quoteReady ? tpl(lang, 'pay_arrival_with_quote') : tpl(lang, 'pay_arrival_balance'));
   }
   if (kind === 'payment_link_request') {
     return intro + (activeQuote ? tpl(lang, 'pay_now') : tpl(lang, 'pay_link_need_quote'));
@@ -745,6 +753,14 @@ function classifyMessageLane(text, guestContext) {
   const t = String(text || '');
   const ctx = guestContext || {};
   const hasCode = hasBookingCode(t) || !!(ctx.booking_code || ctx.booking_id);
+
+  const priorQuoteSide = (ctx.quote && typeof ctx.quote === 'object') ? ctx.quote : {};
+  if (priorQuoteSide.quote_status === 'ready') {
+    const sidePay = detectPaymentChoiceFromMessage(t);
+    if (sidePay === 'arrival_payment_question') {
+      return { lane: 'payment_question', handoff: false, reasons: [], confidence: 0.9, paymentKind: sidePay };
+    }
+  }
 
   if ((isActiveBookingIntakeContext(ctx) || conversationIntakeInProgress(ctx) || hasPriorBookingChain(ctx))
     && isBookingProgressWhenQuestion(t)) {
@@ -1572,6 +1588,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       paymentKind,
       hasActivePaymentChoiceContext(guestContext),
       reasons,
+      guestContext,
     );
   } else if (correctionActiveBooking) {
     proposedReply = buildCorrectionContinueReply(detectedLanguage, activeMissingField, priorExtracted);

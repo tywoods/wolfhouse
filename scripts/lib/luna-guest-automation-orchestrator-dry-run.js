@@ -873,7 +873,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     }
   }
 
-  const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext)
+  const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext, messageText)
     || (chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready'
       && quoteAwaitingAddonsDecision(chainGuestContext.quote))
     || isActiveBookingSideQuestion(chainGuestContext, result, messageText)
@@ -992,7 +992,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   );
 
   let payment_choice;
-  if (shouldAttemptGuestPaymentChoiceWire(wireCtx)) {
+  if (shouldAttemptGuestPaymentChoiceWire(wireCtx, trimStr(inp.message_text))) {
     payment_choice = runGuestPaymentChoiceDryRun(
       { message_text: trimStr(inp.message_text), language_hint: inp.language_hint },
       wireCtx,
