@@ -29,8 +29,8 @@ const { buildBookingIntakePolicySnapshot } = require('./luna-booking-intake-poli
 const FLAG = 'LUNA_GUEST_FRONTDESK_PLANNER_ENABLED';
 const FLAG_PROD = 'LUNA_GUEST_FRONTDESK_PLANNER_ENABLED_PROD';
 const ACTIVE_FLAG = 'LUNA_GUEST_FRONTDESK_PLANNER_ACTIVE';
-const DEFAULT_MODEL = 'gpt-5.5';
-const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_MODEL = 'gpt-4o';
+const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_PLANNED_TOOLS = 6;
 
 const ASK_COMPOSER_STATES = new Set([
@@ -38,6 +38,8 @@ const ASK_COMPOSER_STATES = new Set([
   'ask_room_preference_girls_mixed', 'ask_room_preference_private_shared',
   'ask_room_preference_neutral', 'ask_transfer_info_casual', 'ask_package_choice',
   'ask_addons_after_quote', 'ask_payment_choice', 'clarify_missing_info',
+  'package_quote_ready', 'accommodation_quote_ready', 'addons_none_confirmed',
+  'greeting',
 ]);
 
 function trimStr(v) {
@@ -65,7 +67,7 @@ function frontdeskModel(env) {
 
 function frontdeskTimeoutMs(env) {
   const v = Number((env || process.env).LUNA_GUEST_FRONTDESK_PLANNER_TIMEOUT_MS);
-  return Number.isFinite(v) && v > 0 ? Math.min(v, 30000) : DEFAULT_TIMEOUT_MS;
+  return Number.isFinite(v) && v > 0 ? Math.min(v, 45000) : DEFAULT_TIMEOUT_MS;
 }
 
 function buildFrontdeskSystemPrompt() {
@@ -304,7 +306,11 @@ function buildFrontdeskReplyPlan(input) {
   if (composerState && ASK_COMPOSER_STATES.has(composerState)) {
     replyMode = 'ask_missing_naturally';
   } else if (quote.quote_status === 'ready' && paymentChoice.payment_choice_ready !== true) {
-    replyMode = 'quote_ready_warmth';
+    if (policy.next_required_field === 'transfer_info' || missing.includes('transfer_info')) {
+      replyMode = 'ask_missing_naturally';
+    } else {
+      replyMode = 'quote_ready_warmth';
+    }
   } else if (paymentChoice.payment_choice_ready === true) {
     replyMode = 'payment_warmth';
   } else if (activeThread === 'booked' || activeThread === 'post_booking') {

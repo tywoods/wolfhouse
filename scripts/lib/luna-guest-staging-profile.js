@@ -17,7 +17,11 @@ const LUNA_GUEST_STAGING_V1 = Object.freeze({
   // Reply layers (pipeline: composer owns intake; Cami warms quotes only)
   LUNA_GUEST_AGENT_BRAIN_ENABLED: 'true',
   LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED: 'true',
-  LUNA_GUEST_CAMI_REPLY_AUTHOR_MODEL: 'gpt-5.5',
+  LUNA_GUEST_CAMI_REPLY_AUTHOR_MODEL: 'gpt-4o',
+  LUNA_GUEST_CAMI_REPLY_AUTHOR_TIMEOUT_MS: '25000',
+  LUNA_GUEST_CAMI_REPLY_AUTHOR_TEMPERATURE: '0.72',
+  LUNA_GUEST_FRONTDESK_PLANNER_TIMEOUT_MS: '18000',
+  LUNA_CONVERSATION_BRAIN_MODEL: 'gpt-4o-mini',
 
   // GPT planners (read before router; write after chain)
   LUNA_GUEST_GPT_TOOL_PLANNER_ENABLED: 'false',
@@ -42,6 +46,10 @@ const LUNA_GUEST_STAGING_V1 = Object.freeze({
   // Staff/Stripe gates for test checkout
   STAFF_ACTIONS_ENABLED: 'true',
   STRIPE_LINKS_ENABLED: 'true',
+  PUBLIC_PAYMENT_BASE_URL: 'https://staff-staging.lunafrontdesk.com',
+  STRIPE_CHECKOUT_PUBLIC_BASE_URL: 'https://staff-staging.lunafrontdesk.com',
+  STRIPE_CHECKOUT_SUCCESS_URL: 'https://staff-staging.lunafrontdesk.com/staff/payment/success?session_id={CHECKOUT_SESSION_ID}',
+  STRIPE_CHECKOUT_CANCEL_URL: 'https://staff-staging.lunafrontdesk.com/staff/payment/cancel',
 });
 
 const LUNA_GUEST_STAGING_V1_LABEL = 'luna-guest-staging-v1';

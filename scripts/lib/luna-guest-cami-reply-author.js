@@ -29,8 +29,8 @@ const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
 
 const FLAG = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED';
 const FLAG_PROD = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED_PROD';
-const DEFAULT_MODEL = 'gpt-5.5';
-const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_MODEL = 'gpt-4o';
+const DEFAULT_TIMEOUT_MS = 20000;
 
 const INTERNAL_WORDS_RE = /\b(?:\bAI\b|\bmodel\b|\bprompt\b|\btool\b|\bbackend\b|\bdatabase\b|\brouter\b|\bcomposer\b|\borchestrator\b|\bdry[\s-]?run\b|\bstripe\s+link\b)\b/i;
 const CONFIRMED_RE = /\b(?:booking\s+is\s+confirmed|you(?:'re| are)\s+confirmed|reservation\s+is\s+confirmed|fully\s+confirmed)\b/i;
@@ -64,7 +64,13 @@ function authorModel(env) {
 function authorTimeoutMs(env) {
   const e = env || process.env;
   const v = Number(e.LUNA_GUEST_CAMI_REPLY_AUTHOR_TIMEOUT_MS);
-  return Number.isFinite(v) && v > 0 ? Math.min(v, 30000) : DEFAULT_TIMEOUT_MS;
+  return Number.isFinite(v) && v > 0 ? Math.min(v, 45000) : DEFAULT_TIMEOUT_MS;
+}
+
+function authorTemperature(env) {
+  const e = env || process.env;
+  const v = Number(e.LUNA_GUEST_CAMI_REPLY_AUTHOR_TEMPERATURE);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.55;
 }
 
 function euroToCents(str) {
@@ -283,6 +289,7 @@ function buildAuthorInput(args) {
     },
     handoff_result: buildHandoffFacts(payload),
     deterministic_reply: trimStr(a.deterministic_reply),
+    cami_author_brief: trimStr(a.cami_author_brief) || null,
     allowed_next_action: trimStr(a.allowed_next_action) || null,
     personality_config: buildPersonalityGuidance(clientSlug),
     channel_mode: trimStr(a.channel_mode) || 'orchestrator_dry_run',
@@ -322,8 +329,8 @@ function buildAuthorSystemPrompt() {
   ].join('\n');
 }
 
-function buildAuthorUserPrompt(input) {
-  return JSON.stringify({
+function buildAuthorUserPrompt(input, retryHint) {
+  const payload = {
     task: 'rewrite_guest_reply',
     latest_guest_message: input.latest_guest_message,
     recent_messages: input.recent_messages,
@@ -336,11 +343,14 @@ function buildAuthorUserPrompt(input) {
     handoff_result: input.handoff_result,
     allowed_next_action: input.allowed_next_action,
     personality: input.personality_config,
-    deterministic_draft_reply: input.deterministic_reply,
+    deterministic_draft_reply: input.cami_author_brief || input.deterministic_reply,
+    guest_safe_fallback_reply: input.deterministic_reply,
     composer_state: input.composer_state,
     cami_variant_hint: input.cami_variant_hint,
     variation_context: input.variation_context,
-  }, null, 2);
+  };
+  if (retryHint) payload.retry_instruction = retryHint;
+  return JSON.stringify(payload, null, 2);
 }
 
 function parseAuthorJson(text) {
@@ -401,14 +411,17 @@ function replyMentionsDate(reply, isoDate) {
 }
 
 /**
- * Validate GPT-authored reply against structured facts.
- * @returns {string[]} rejection reasons (empty = pass)
+ * Safety-critical checks that block Cami's reply from being used.
+ * Only fact-safety and internal-copy issues belong here.
+ * @returns {string[]} blocking rejection reasons (empty = pass)
  */
 function validateCamiAuthoredReply(reply, input) {
   const text = trimStr(reply);
-  const reasons = [];
   if (!text) return ['empty_reply'];
 
+  const reasons = [];
+
+  // --- Hard blocks: internal copy / dev leakage ---
   if (isForbiddenGuestCopy(text) || INTERNAL_WORDS_RE.test(text)) {
     reasons.push('forbidden_internal_copy');
   }
@@ -421,6 +434,7 @@ function validateCamiAuthoredReply(reply, input) {
   const pay = input.payment_choice_result || {};
   const allowedCents = allowedEuroCentsSet(input);
 
+  // --- Hard blocks: invented facts ---
   let euroMatch;
   const euroRe = new RegExp(EURO_RE.source, EURO_RE.flags);
   while ((euroMatch = euroRe.exec(text)) !== null) {
@@ -443,65 +457,62 @@ function validateCamiAuthoredReply(reply, input) {
     reasons.push('paid_claim_without_truth');
   }
 
-  if (EXPLAIN_ASK_RE.test(text) && /\bpackages?\b/i.test(input.latest_guest_message || '')) {
-    reasons.push('redundant_explain_offer');
+  // --- Hard block: must include payment URL when one exists ---
+  if (pay.payment_link_url) {
+    if (!text.includes(pay.payment_link_url)) reasons.push('payment_link_url_missing');
   }
 
+  // --- Hard block: greeting must not solicit prices or all packages unprompted ---
   if (bs.greeting_only === true || input.composer_state === 'greeting') {
     if (/malibu/i.test(text) && /uluwatu/i.test(text)) reasons.push('greeting_unsolicited_packages');
     if (/€\s*\d+/i.test(text)) reasons.push('greeting_unsolicited_prices');
   }
 
-  if (PUSHY_CLOSER_RE.test(text) && bs.greeting_only !== true) {
-    reasons.push('pushy_repeated_closer');
+  // --- Hard block: mid-thread re-welcome (disorienting for the guest) ---
+  const turnIndex = Number((input.variation_context && input.variation_context.turn_index) || 0);
+  const isGreeting = bs.greeting_only === true || input.composer_state === 'greeting';
+  if (!isGreeting && (turnIndex > 0 || bs.check_in || bs.guest_count != null)) {
+    if (isMidThreadWelcomeCopy(text)) reasons.push('mid_thread_welcome_phrase');
+    if (isMidThreadGreetingOpener(text)) reasons.push('mid_thread_greeting_opener');
   }
 
-  const needsPackageExplain = (bs.missing_fields || []).includes('package_or_accommodation')
-    || input.allowed_next_action === 'ask_missing_details'
-    || /ask_package|explain_packages|package_quote/i.test(String(input.composer_state || ''));
-  const hasAllPackages = /malibu/i.test(text) && /uluwatu/i.test(text) && /waimea/i.test(text);
-  if (needsPackageExplain && bs.guest_count && bs.check_in && !bs.package_interest && !hasAllPackages) {
-    reasons.push('package_choice_without_explain');
-  }
+  return reasons;
+}
 
-  if (hasAllPackages && !/\n/.test(text) && text.length > 280) {
-    reasons.push('package_explanation_giant_paragraph');
-  }
+/**
+ * Soft style/completeness hints — logged but do NOT block Cami's reply.
+ * Used to surface coaching notes in observability without falling back to template.
+ * @returns {string[]} hint names (always non-blocking)
+ */
+function softValidateCamiReply(reply, input) {
+  const text = trimStr(reply);
+  if (!text) return [];
+  const hints = [];
 
-  const qCount = (text.match(/\?/g) || []).length;
-  if (qCount > 2) reasons.push('too_many_questions');
+  const bs = input.booking_state || {};
+  const qr = input.quote_result || {};
+  const pay = input.payment_choice_result || {};
 
-  if (bs.check_in && bs.check_out) {
-    const mentionsWrongRange = /\b(?:june|july|august|september|october|november|december|january|february|march|april|may)\b/i.test(text)
-      && !replyMentionsDate(text, bs.check_in) && !replyMentionsDate(text, bs.check_out)
-      && /\b\d{1,2}\b/.test(text);
-    if (mentionsWrongRange && text.length > 60) {
-      reasons.push('dates_may_have_changed');
-    }
-  }
-
-  if (bs.guest_count != null) {
-    const countMatches = text.match(/\b(\d{1,2})\s+guests?\b/i);
-    if (countMatches && Number(countMatches[1]) !== Number(bs.guest_count)) {
-      reasons.push('guest_count_changed');
-    }
-  }
-
+  // Package name should be echoed when confirmed and quote is ready
   if (bs.package_interest && qr.quote_status === 'ready') {
     const pkg = String(bs.package_interest).toLowerCase();
-    if (!new RegExp(`\\b${pkg}\\b`, 'i').test(text)) {
-      reasons.push('package_name_dropped');
+    if (!new RegExp(`\\b${pkg}\\b`, 'i').test(text)) hints.push('package_name_dropped');
+  }
+
+  // Payment choice turn should ideally mention deposit/full
+  const paymentWarmAckStates = new Set(['payment_choice_ack', 'payment_choice_received_hold_created']);
+  if (input.allowed_next_action === 'collect_payment_choice' && qr.quote_status === 'ready'
+    && !paymentWarmAckStates.has(input.composer_state)) {
+    if (!/\b(?:deposit|full(?:\s+payment)?|pay\s+in\s+full)\b/i.test(text)) {
+      hints.push('payment_choice_question_missing');
     }
   }
 
-  const paymentLinkStage = !!pay.payment_link_url;
+  // Quote total should be echoed on quote-presenting states
   const quotePresentStates = new Set([
-    'package_quote_ready',
-    'accommodation_quote_ready',
-    'ask_payment_choice',
-    'ask_addons_after_quote',
+    'package_quote_ready', 'accommodation_quote_ready', 'ask_payment_choice', 'ask_addons_after_quote',
   ]);
-  const paymentWarmAckStates = new Set(['payment_choice_ack', 'payment_choice_received_hold_created']);
+  const paymentLinkStage = !!pay.payment_link_url;
   if (qr.quote_status === 'ready' && qr.quote_total_cents != null && !paymentLinkStage
     && (quotePresentStates.has(input.composer_state)
       || input.allowed_next_action === 'collect_payment_choice')) {
@@ -512,28 +523,39 @@ function validateCamiAuthoredReply(reply, input) {
       || text.includes(`${totalStr} total`)
       || text.includes(`€${formatEuro(qr.quote_total_cents)}`)
     );
-    if (!hasTotal) reasons.push('quote_total_missing');
+    if (!hasTotal) hints.push('quote_total_missing');
   }
 
-  if (input.allowed_next_action === 'collect_payment_choice' && qr.quote_status === 'ready'
-    && !paymentWarmAckStates.has(input.composer_state)) {
-    if (!/\b(?:deposit|full(?:\s+payment)?|pay\s+in\s+full)\b/i.test(text)) {
-      reasons.push('payment_choice_question_missing');
-    }
+  // Package explanation should list all options when guest hasn't chosen
+  const needsPackageExplain = (bs.missing_fields || []).includes('package_or_accommodation')
+    || input.allowed_next_action === 'ask_missing_details'
+    || /ask_package|explain_packages|package_quote/i.test(String(input.composer_state || ''));
+  const hasAllPackages = /malibu/i.test(text) && /uluwatu/i.test(text) && /waimea/i.test(text);
+  if (needsPackageExplain && bs.guest_count && bs.check_in && !bs.package_interest && !hasAllPackages) {
+    hints.push('package_choice_without_explain');
+  }
+  if (hasAllPackages && !/\n/.test(text) && text.length > 280) hints.push('package_explanation_giant_paragraph');
+
+  // Misc style hints
+  if ((text.match(/\?/g) || []).length > 2) hints.push('too_many_questions');
+  if (PUSHY_CLOSER_RE.test(text) && bs.greeting_only !== true) hints.push('pushy_repeated_closer');
+  if (EXPLAIN_ASK_RE.test(text) && /\bpackages?\b/i.test(input.latest_guest_message || '')) {
+    hints.push('redundant_explain_offer');
   }
 
-  if (pay.payment_link_url) {
-    if (!text.includes(pay.payment_link_url)) reasons.push('payment_link_url_missing');
+  if (bs.check_in && bs.check_out) {
+    const mentionsWrongRange = /\b(?:june|july|august|september|october|november|december|january|february|march|april|may)\b/i.test(text)
+      && !replyMentionsDate(text, bs.check_in) && !replyMentionsDate(text, bs.check_out)
+      && /\b\d{1,2}\b/.test(text);
+    if (mentionsWrongRange && text.length > 60) hints.push('dates_may_have_changed');
   }
 
-  const turnIndex = Number((input.variation_context && input.variation_context.turn_index) || 0);
-  const isGreeting = bs.greeting_only === true || input.composer_state === 'greeting';
-  if (!isGreeting && (turnIndex > 0 || bs.check_in || bs.guest_count != null)) {
-    if (isMidThreadWelcomeCopy(text)) reasons.push('mid_thread_welcome_phrase');
-    if (isMidThreadGreetingOpener(text)) reasons.push('mid_thread_greeting_opener');
+  if (bs.guest_count != null) {
+    const countMatches = text.match(/\b(\d{1,2})\s+guests?\b/i);
+    if (countMatches && Number(countMatches[1]) !== Number(bs.guest_count)) hints.push('guest_count_changed');
   }
 
-  return reasons;
+  return hints;
 }
 
 function withTimeout(promise, ms) {
@@ -619,13 +641,43 @@ async function runCamiGuestReplyAuthor(input, options) {
     return base;
   }
 
+  const softHints = softValidateCamiReply(sanitized, authorInput);
   return {
     authored_reply: sanitized,
     author_used: true,
     rejection_reason: null,
     fallback_used: false,
-    safety_notes: ['gpt_cami_author_accepted'],
+    safety_notes: ['gpt_cami_author_accepted', ...softHints.map((h) => `hint:${h}`)],
   };
+}
+
+/**
+ * Build a retry hint string to inject into the user prompt when specific fixable
+ * validator checks fail. Returns null when the failure is not retryable.
+ */
+function buildRetryHints(rejections, input) {
+  const fixable = new Set([
+    'package_name_dropped',
+    'payment_choice_question_missing',
+    'quote_total_missing',
+  ]);
+  if (!rejections.some((r) => fixable.has(r))) return null;
+
+  const hints = [];
+  const bs = input.booking_state || {};
+  const qr = input.quote_result || {};
+
+  if (rejections.includes('package_name_dropped') && bs.package_interest) {
+    hints.push(`REQUIRED: mention the package name "${bs.package_interest}" in your reply.`);
+  }
+  if (rejections.includes('quote_total_missing') && qr.quote_total_cents != null) {
+    const eur = qr.quote_total_eur || formatEuro(qr.quote_total_cents);
+    hints.push(`REQUIRED: include the total price €${eur} in your reply.`);
+  }
+  if (rejections.includes('payment_choice_question_missing')) {
+    hints.push('REQUIRED: ask the guest whether they want to pay the deposit or pay in full.');
+  }
+  return hints.length ? hints.join(' ') : null;
 }
 
 async function defaultAuthorCaller({ system, user, model, env }) {
@@ -634,7 +686,7 @@ async function defaultAuthorCaller({ system, user, model, env }) {
     user,
     env: { ...env, LUNA_AI_MODEL: model },
     maxTokens: 512,
-    temperature: 0.55,
+    temperature: authorTemperature(env),
     jsonObject: true,
     call_label: 'luna_guest_cami_reply_author',
   });
@@ -658,6 +710,7 @@ function buildCamiReplyAuthorObservability(output) {
 async function applyCamiReplyAuthorStage(args) {
   const a = args || {};
   const deterministic = trimStr(a.deterministic_reply);
+  const camiBrief = trimStr(a.composed && a.composed.cami_author_brief);
   const composerState = a.composed && a.composed.composer_state;
   const authorOut = await runCamiGuestReplyAuthor({
     client_slug: a.client_slug,
@@ -665,6 +718,7 @@ async function applyCamiReplyAuthorStage(args) {
     prior_guest_context: a.prior_guest_context,
     payload: a.payload,
     deterministic_reply: deterministic,
+    cami_author_brief: camiBrief || null,
     allowed_next_action: a.allowed_next_action,
     composer_state: composerState,
     guest_phone: a.guest_phone,

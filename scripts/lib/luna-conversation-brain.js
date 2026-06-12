@@ -131,7 +131,7 @@ function isConversationBrainLlmEnabled(env) {
 
 function conversationBrainModel(env) {
   const e = env || process.env;
-  return trimStr(e.LUNA_CONVERSATION_BRAIN_MODEL) || 'gpt-5.5';
+  return trimStr(e.LUNA_CONVERSATION_BRAIN_MODEL) || 'gpt-4o-mini';
 }
 
 function conversationBrainReasoningEffort(env) {
