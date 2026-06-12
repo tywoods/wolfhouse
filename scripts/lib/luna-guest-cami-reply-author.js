@@ -37,7 +37,11 @@ const CONFIRMED_RE = /\b(?:booking\s+is\s+confirmed|you(?:'re| are)\s+confirmed|
 const PAID_RE = /\b(?:payment\s+(?:went\s+through|received|completed)|you(?:'ve| have)\s+paid|already\s+paid|deposit\s+paid)\b/i;
 const AVAIL_CLAIM_RE = /\b(?:i\s+checked\s+it|beds?\s+available|we\s+have\s+(?:space|availability)|availability\s+looks\s+good)\b/i;
 const EXPLAIN_ASK_RE = /\bwant\s+me\s+to\s+explain\b/i;
+const OLD_PACKAGE_ASK_RE = /are you looking for a surf package like malibu, or just accommodation|malibu or (?:just )?accommodation/i;
+const STALL_RE = /i can look into (?:the best option|availability)|let me look into the best option/i;
 const PUSHY_CLOSER_RE = /looking forward to hearing from you|can't wait to hear from you/i;
+const HANDOFF_COPY_RE = /looping in our(?:\s+Wolfhouse)?\s+team|passed your message along|get back to you shortly to sort/i;
+const INVENTED_PACKAGE_AMENITY_RE = /\b(?:yoga|breakfast|fr[uü]hst[uü]ck|workshop|abendessen|dinner included|daily breakfast|ausfl[uü]g|trip included)\b/i;
 const EURO_RE = /€\s*(\d+(?:[.,]\d{1,2})?)/g;
 
 function trimStr(v) {
@@ -86,23 +90,45 @@ function formatEuro(cents) {
 
 function buildPackageFacts(clientSlug, lang) {
   const lines = buildWhatsAppPackageLines(lang || 'en');
+  const formatted = Array.isArray(lines) ? lines : [lines.malibu, lines.uluwatu, lines.waimea].filter(Boolean);
   return {
     packages: [
-      { code: 'malibu', label: 'Malibu', from_eur: 249, line: lines.malibu || '' },
-      { code: 'uluwatu', label: 'Uluwatu', from_eur: 349, line: lines.uluwatu || '' },
-      { code: 'waimea', label: 'Waimea', from_eur: 499, line: lines.waimea || '' },
+      { code: 'malibu', label: 'Malibu', from_eur: 249, line: formatted[0] || '' },
+      { code: 'uluwatu', label: 'Uluwatu', from_eur: 349, line: formatted[1] || '' },
+      { code: 'waimea', label: 'Waimea', from_eur: 499, line: formatted[2] || '' },
     ],
-    formatted_lines: [lines.malibu, lines.uluwatu, lines.waimea].filter(Boolean),
+    formatted_lines: formatted,
+    canonical_copy_only: true,
+    do_not_invent: 'Malibu = stay + T-shirt + airport shuttle. Uluwatu = Malibu + board/wetsuit rental. Waimea = Malibu + surf lessons + gear. No yoga/breakfast/workshops unless in formatted_lines.',
   };
 }
 
-function buildBookingState(payload, priorGuestContext) {
+/**
+ * Returns package facts appropriate for the booking state.
+ * Short stays (<7 nights) must NOT receive the weekly package list — Cami
+ * should never offer Malibu/Uluwatu/Waimea for stays under 7 nights.
+ */
+function buildPackageFactsForState(clientSlug, lang, bookingState) {
+  if (bookingState && bookingState.is_short_stay) {
+    return {
+      packages: [],
+      formatted_lines: [],
+      short_stay_note: 'Stay is under 7 nights — weekly surf packages (Malibu/Uluwatu/Waimea) are NOT available. Offer accommodation only + optional add-ons (wetsuit, board, lessons).',
+    };
+  }
+  return buildPackageFacts(clientSlug, lang);
+}
+
+function buildBookingState(payload, priorGuestContext, messageText) {
   const result = (payload && payload.result) || {};
   const fields = { ...collectPriorExtractedFields(priorGuestContext || {}), ...(result.extracted_fields || {}) };
+  const packageNightCtx = result.package_night_ctx || {};
+  const packageNightRule = result.package_night_rule || packageNightCtx.rule || 'defer_dates_unknown';
+  const isShortStay = packageNightRule === 'short_stay_accommodation';
   const missing = [];
   if (!fields.check_in || !fields.check_out) missing.push('dates');
   if (!fields.guest_count) missing.push('guest_count');
-  if (!fields.package_interest && fields.accommodation_only !== true) missing.push('package_or_accommodation');
+  if (!fields.package_interest && !isShortStay && fields.accommodation_only !== true) missing.push('package_or_accommodation');
   if (!fields.guest_name) missing.push('guest_name');
   return {
     check_in: fields.check_in || null,
@@ -110,14 +136,24 @@ function buildBookingState(payload, priorGuestContext) {
     guest_count: fields.guest_count != null ? fields.guest_count : null,
     package_interest: fields.package_interest || null,
     guest_name: fields.guest_name || null,
-    accommodation_only: fields.accommodation_only === true,
+    accommodation_only: fields.accommodation_only === true || isShortStay,
     missing_fields: missing,
     intake_state: result.intake_state || null,
     message_lane: result.message_lane || null,
     greeting_only: result.greeting_only === true,
     safe_handoff_required: result.safe_handoff_required === true,
     handoff_reasons: Array.isArray(result.handoff_reasons) ? result.handoff_reasons : [],
-    detected_language: result.detected_language || 'en',
+    detected_language: (() => {
+      const { resolveGuestThreadLanguage } = require('./luna-guest-thread-language');
+      return resolveGuestThreadLanguage(
+        trimStr(messageText),
+        priorGuestContext || {},
+        result.detected_language,
+      );
+    })(),
+    package_night_rule: packageNightRule,
+    is_short_stay: isShortStay,
+    stay_nights: packageNightCtx.nights != null ? packageNightCtx.nights : null,
   };
 }
 
@@ -252,7 +288,7 @@ function buildAuthorInput(args) {
   const a = args || {};
   const payload = a.payload || {};
   const clientSlug = trimStr(a.client_slug) || 'wolfhouse-somo';
-  const bookingState = buildBookingState(payload, a.prior_guest_context);
+  const bookingState = buildBookingState(payload, a.prior_guest_context, a.message_text || a.latest_guest_message);
   const lang = bookingState.detected_language || 'en';
   const prior = a.prior_guest_context || {};
   const variationCtx = buildVariationContext({
@@ -278,7 +314,7 @@ function buildAuthorInput(args) {
       a.deterministic_reply,
     ),
     booking_state: bookingState,
-    package_facts: a.package_facts || buildPackageFacts(clientSlug, lang),
+    package_facts: buildPackageFactsForState(clientSlug, lang, bookingState),
     availability_result: buildAvailabilityFacts(payload.availability),
     quote_result: buildQuoteFacts(payload.quote),
     payment_choice_result: buildPaymentFacts(payload.payment_choice, payload.hold_payment_draft_plan, a.prior_guest_context),
@@ -317,7 +353,8 @@ function buildAuthorSystemPrompt() {
     'Use cami_variant_hint and deterministic_draft_reply as tone/structure guides — preserve their facts and next step.',
     'On intake (dates, guests, package): conversational, not a form — short ack then one question. Do not repeat "Perfect" or "Super" every turn.',
     'If guest chose gear (board + wetsuit) or facts show package_interest uluwatu, acknowledge Uluwatu — do not ask for a booking code.',
-    'Only explain Malibu/Uluwatu/Waimea when booking intake needs package choice or guest asked about packages.',
+    'SHORT STAY (booking_state.is_short_stay=true OR package_facts.packages is empty): NEVER mention Malibu, Uluwatu, or Waimea. These are 7-night packages only. For short stays offer accommodation + optional add-ons (wetsuit, board, lessons).',
+    'Only explain Malibu/Uluwatu/Waimea when booking intake needs package choice, guest asked about packages, AND package_facts.packages is non-empty.',
     'Use blank lines between package bullets or sections. 🌊 is fine on surf/package lines after the first message.',
     'On quote-ready: you may say you checked availability when quote_status is ready in facts.',
     'On payment choice / deposit ack: warm and human — preserve exact € amounts and any payment URL from facts.',
@@ -325,6 +362,8 @@ function buildAuthorSystemPrompt() {
     'Include exactly ONE clear next step or question.',
     'If a payment URL is in facts, include it naturally — never call it a Stripe link.',
     'If handoff is required in facts, be warm but do not promise instant confirmation.',
+    'LANGUAGE: Reply in booking_state.detected_language (de/it/es/fr/en). Do not switch to English mid-thread if the guest is writing in another language.',
+    'PACKAGES: Use ONLY package_facts.formatted_lines — never invent yoga, breakfast, workshops, dinners, or trips.',
     'Return ONLY valid JSON: {"reply":"your message"}',
   ].join('\n');
 }
@@ -457,6 +496,16 @@ function validateCamiAuthoredReply(reply, input) {
     reasons.push('paid_claim_without_truth');
   }
 
+  const handoff = input.handoff_result || {};
+  if (HANDOFF_COPY_RE.test(text) && handoff.handoff_required !== true) {
+    reasons.push('handoff_copy_without_handoff_flag');
+  }
+
+  const pf = input.package_facts || {};
+  if ((pf.formatted_lines || []).length && INVENTED_PACKAGE_AMENITY_RE.test(text)) {
+    reasons.push('invented_package_amenity');
+  }
+
   // --- Hard block: must include payment URL when one exists ---
   if (pay.payment_link_url) {
     if (!text.includes(pay.payment_link_url)) reasons.push('payment_link_url_missing');
@@ -536,6 +585,13 @@ function softValidateCamiReply(reply, input) {
   }
   if (hasAllPackages && !/\n/.test(text) && text.length > 280) hints.push('package_explanation_giant_paragraph');
 
+  if (OLD_PACKAGE_ASK_RE.test(text) && bs.guest_count && bs.check_in && !bs.package_interest) {
+    hints.push('blind_package_choice_in_reply');
+  }
+  if (STALL_RE.test(text) && qr.quote_status === 'ready') {
+    hints.push('quote_ready_stall_copy');
+  }
+
   // Misc style hints
   if ((text.match(/\?/g) || []).length > 2) hints.push('too_many_questions');
   if (PUSHY_CLOSER_RE.test(text) && bs.greeting_only !== true) hints.push('pushy_repeated_closer');
@@ -550,13 +606,35 @@ function softValidateCamiReply(reply, input) {
     if (mentionsWrongRange && text.length > 60) hints.push('dates_may_have_changed');
   }
 
+  if (OLD_PACKAGE_ASK_RE.test(text) && needsPackageExplain) {
+    hints.push('blind_package_choice_in_reply');
+  }
+
   if (bs.guest_count != null) {
     const countMatches = text.match(/\b(\d{1,2})\s+guests?\b/i);
     if (countMatches && Number(countMatches[1]) !== Number(bs.guest_count)) hints.push('guest_count_changed');
   }
 
+  if (OLD_PACKAGE_ASK_RE.test(trimStr(input.deterministic_reply))
+    && !OLD_PACKAGE_ASK_RE.test(text)
+    && needsPackageExplain && !hasAllPackages) {
+    hints.push('deterministic_package_explain_dropped');
+  }
+
   return hints;
 }
+
+/** Soft hints that mean Cami replanned facts — fall back to deterministic copy. */
+const CAMI_REPLAN_SOFT_HINTS = new Set([
+  'package_choice_without_explain',
+  'deterministic_package_explain_dropped',
+  'blind_package_choice_in_reply',
+  'quote_ready_stall_copy',
+  'guest_count_changed',
+  'dates_may_have_changed',
+  'quote_total_missing',
+  'payment_choice_question_missing',
+]);
 
 function withTimeout(promise, ms) {
   return new Promise((resolve, reject) => {
@@ -642,6 +720,22 @@ async function runCamiGuestReplyAuthor(input, options) {
   }
 
   const softHints = softValidateCamiReply(sanitized, authorInput);
+  const replanHints = softHints.filter((h) => CAMI_REPLAN_SOFT_HINTS.has(h));
+  if (replanHints.length) {
+    base.rejection_reason = `cami_replan:${replanHints.join(';')}`;
+    base.safety_notes.push('validator_rejected_replan');
+    base.safety_notes.push(...replanHints.slice(0, 5));
+    return base;
+  }
+
+  if (OLD_PACKAGE_ASK_RE.test(sanitized) && authorInput.booking_state
+    && authorInput.booking_state.guest_count && authorInput.booking_state.check_in
+    && !authorInput.booking_state.package_interest) {
+    base.rejection_reason = 'blind_package_choice_without_explain';
+    base.safety_notes.push('validator_rejected_blind_package_ask');
+    return base;
+  }
+
   return {
     authored_reply: sanitized,
     author_used: true,

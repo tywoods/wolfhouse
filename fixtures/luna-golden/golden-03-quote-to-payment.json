@@ -1,0 +1,36 @@
+{
+  "id": "golden-03-quote-to-payment",
+  "label": "Known dates+count+package reach a real quote then payment choice (no stall)",
+  "spec_refs": ["6.1", "6.2", "6.4"],
+  "contact_name": "Sam",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 1",
+      "expect": {
+        "expected_fields": { "package_interest": "malibu", "guest_count": 1, "check_in": "2026-07-10", "check_out": "2026-07-17" },
+        "expected_quote_ready": true,
+        "reply_not_contains": ["I can look into availability", "let me look into the best option"],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "no_fake_confirmation": true
+      }
+    },
+    {
+      "message": "deposit",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "reply_contains": ["deposit"],
+        "no_form_dev_copy": true,
+        "no_internal_language": true,
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true,
+    "expected_quote_ready": true,
+    "expected_payment_choice": "deposit"
+  }
+}

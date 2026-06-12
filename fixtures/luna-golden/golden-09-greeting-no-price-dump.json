@@ -1,0 +1,23 @@
+{
+  "id": "golden-09-greeting-no-price-dump",
+  "label": "Bare greeting gets a warm welcome, not a package/price dump",
+  "spec_refs": ["3.1", "3.2"],
+  "contact_name": "Quinn",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "hello",
+      "expect": {
+        "reply_not_contains": ["€", "deposit", "Malibu"],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "min_cami_score": 40,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

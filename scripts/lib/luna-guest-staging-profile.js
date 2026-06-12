@@ -33,6 +33,7 @@ const LUNA_GUEST_STAGING_V1 = Object.freeze({
   LUNA_GUEST_FRONTDESK_PLANNER_ENABLED: 'true',
   LUNA_GUEST_FRONTDESK_PLANNER_ACTIVE: 'true',
   LUNA_GUEST_COMPOSER_BYPASS_ENABLED: 'true',
+  LUNA_GUEST_UNIFIED_PLANNER_MODE: 'true',
 
   // WhatsApp UX — typing dots while Luna composes live replies
   LUNA_WHATSAPP_TYPING_INDICATOR_ENABLED: 'true',
@@ -67,9 +68,9 @@ function describeLunaGuestStagingProfile(profile) {
     flags: { ...p },
     reply_ownership: {
       composer: 'payment-link + confirmation truth only (intake bypassed when COMPOSER_BYPASS on)',
-      frontdesk_planner: 'transcript-aware tool plan + missing-field reply plan',
+      frontdesk_planner: 'sole intent owner when UNIFIED_PLANNER_MODE on (brain LLM + gpt-tool-planner off)',
       agent_brain: 'paid change + payment mismatch only',
-      cami_author: 'all guest-facing voice including natural intake questions',
+      cami_author: 'voice-only rewrite — rejects replanning (package stall, blind choice, count/date drift)',
       writes: 'luna-guest-write-pipeline (hold → bed → deposit link → optional service add-ons)',
     },
   };

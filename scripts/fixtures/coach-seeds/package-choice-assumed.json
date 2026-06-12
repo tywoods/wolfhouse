@@ -1,0 +1,14 @@
+{
+  "id": "coach-seed-package-choice-assumed",
+  "label": "Package choice assumed knowledge (bad transcript)",
+  "reference_date": "2026-06-10",
+  "transcript": [
+    { "guest": "Hello", "luna": "Hey! I'm Luna from Wolfhouse. Book a stay or info?" },
+    { "guest": "book stay", "luna": "What dates?" },
+    { "guest": "June 11 to 20", "luna": "How many guests?" },
+    {
+      "guest": "3",
+      "luna": "Are you looking for a surf package like Malibu, or just accommodation?"
+    }
+  ]
+}

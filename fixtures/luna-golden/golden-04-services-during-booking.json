@@ -1,0 +1,34 @@
+{
+  "id": "golden-04-services-during-booking",
+  "label": "Services requested during booking are captured (board + wetsuit)",
+  "spec_refs": ["7.1", "7.4"],
+  "contact_name": "Casey",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 5 to 10 for 3 guests",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-05", "check_out": "2026-07-10" },
+        "expected_guest_count": 3,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "we'd like a board and wetsuit for 3 days each",
+      "expect": {
+        "reply_contains": ["wetsuit"],
+        "expected_context_preserved": true,
+        "no_fake_confirmation": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true,
+    "expected_fields": { "check_in": "2026-07-05", "check_out": "2026-07-10", "guest_count": 3 }
+  }
+}

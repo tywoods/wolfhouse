@@ -19,6 +19,7 @@ const {
   buildAccommodationOnlyAck,
 } = require('./luna-guest-message-router');
 const { decideConversationActionAsync, detectAccommodationOnlyAnswer } = require('./luna-conversation-brain');
+const { applyHandoffPolicyToResult } = require('./luna-guest-handoff-policy');
 const { runGuestAvailabilityDryRun, buildGuestAvailabilitySkippedResponse, shouldAttemptGuestAvailability } = require('./luna-guest-availability-dry-run');
 const { runGuestQuoteProposalDryRun } = require('./luna-guest-quote-proposal-dry-run');
 const {
@@ -52,6 +53,7 @@ const {
 const {
   evaluateQuoteStaleInvalidation,
   applyQuoteStaleInvalidation,
+  priorQuoteWasReady,
 } = require('./luna-booking-state-transitions');
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
 const {
@@ -95,6 +97,7 @@ const {
   buildGptWriteToolPlannerObservability,
 } = require('./luna-guest-gpt-write-tool-planner');
 const { applyGuestReplyPipeline } = require('./luna-guest-reply-pipeline');
+const { applyUnifiedPlannerEnv, isUnifiedPlannerActive } = require('./luna-guest-unified-planner');
 const {
   detectGuestSurfReportIntent,
   shouldPrioritizeSurfReportOverService,
@@ -112,6 +115,7 @@ const {
   guestDeclinedAddons,
 } = require('./luna-booking-addons-policy');
 const { buildReactiveServicesObservability } = require('./luna-booking-reactive-services-policy');
+const { runGuestWritePipeline } = require('./luna-guest-write-pipeline');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -963,7 +967,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   // the configured LLM only when LUNA_CONVERSATION_BRAIN_LLM_ENABLED=true outside
   // production; otherwise (or on failure/timeout) it is the deterministic decision.
   // The brain only classifies/plans — every action below stays deterministic + gated.
-  const brainEnv = ctx.env || process.env;
+  const brainEnv = applyUnifiedPlannerEnv(ctx.env || process.env);
   const priorPackageNightRule = chainGuestContext.package_night_rule
     || (chainGuestContext.result && chainGuestContext.result.package_night_rule)
     || null;
@@ -1023,14 +1027,18 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     }
   }
 
-  let result = runLunaGuestMessageRouterDryRun(
-    {
-      message_text: messageText,
-      language_hint: inp.language_hint,
-      guest_context: chainGuestContext,
-      brain_decision: brainDecision,
-    },
-    routerContext,
+  let result = applyHandoffPolicyToResult(
+    runLunaGuestMessageRouterDryRun(
+      {
+        message_text: messageText,
+        language_hint: inp.language_hint,
+        guest_context: chainGuestContext,
+        brain_decision: brainDecision,
+      },
+      routerContext,
+    ),
+    chainGuestContext,
+    messageText,
   );
 
   if (result.greeting_only) {
@@ -1175,10 +1183,18 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     }
   }
 
+  let transferTimesContinuation = false;
+  try {
+    const { guestProvidedTransferTimes } = require('./luna-guest-transfer-times-update');
+    transferTimesContinuation = priorQuoteWasReady(chainGuestContext)
+      && guestProvidedTransferTimes(collectPriorExtractedFields(chainGuestContext), messageText);
+  } catch (_) { /* noop */ }
+
   const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext, messageText)
     || (chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready'
       && quoteAwaitingAddonsDecision(chainGuestContext.quote))
     || isActiveBookingSideQuestion(chainGuestContext, result, messageText)
+    || transferTimesContinuation
     || ((guestDeclinedAddons(messageText) || extractAddOnSelections(messageText).length > 0)
       && chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready')
     // After disambiguation resolves (user picked a booking), force the booking continuation
@@ -1246,6 +1262,15 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
         : result.readiness_state,
     };
   }
+
+  if (result.extracted_fields && result.extracted_fields.booking_ready_to_proceed === true) {
+    result = {
+      ...result,
+      safe_handoff_required: false,
+      handoff_reasons: [],
+    };
+  }
+  result = applyHandoffPolicyToResult(result, chainGuestContext, messageText);
 
   const chainCtx = {
     client_slug: trimStr(inp.client_slug) || DEFAULT_CLIENT,
@@ -1375,10 +1400,34 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       writeLiveOutcomes = {
         bookingWrite: wo.create_booking_hold || null,
         stripeLink: wo.create_payment_link || null,
+        balanceStripeLink: wo.create_balance_payment_link || null,
         serviceAttach: wo.attach_post_booking_services || null,
         serviceStripeLink: wo.create_service_payment_link || null,
       };
       payload.gpt_write_outcomes = wo;
+    }
+    if (contextChainBookingId && ctx.pg) {
+      const maintOut = await runGuestWritePipeline({
+        review: payload,
+        inboundBody: {
+          client_slug: chainCtx.client_slug,
+          guest_phone: inp.guest_phone,
+          contact_name: routerContext.contact_name,
+          message_text: messageText,
+        },
+        rawBody: {},
+        env: brainEnv,
+        pg: ctx.pg,
+        host_header: ctx.host_header || '',
+        actorId: ctx.staff_operator || 'luna-guest-orchestrator',
+        flags: {},
+      });
+      writeLiveOutcomes = writeLiveOutcomes || {};
+      writeLiveOutcomes.serviceAttach = writeLiveOutcomes.serviceAttach || maintOut.serviceAttach;
+      writeLiveOutcomes.serviceStripeLink = writeLiveOutcomes.serviceStripeLink || maintOut.serviceStripeLink;
+      writeLiveOutcomes.transferTimesUpdate = maintOut.transferTimesUpdate;
+      writeLiveOutcomes.serviceSchedule = maintOut.serviceSchedule;
+      writeLiveOutcomes.lunaNotes = maintOut.lunaNotes;
     }
   }
 

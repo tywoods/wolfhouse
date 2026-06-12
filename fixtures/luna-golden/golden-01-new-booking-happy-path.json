@@ -1,0 +1,64 @@
+{
+  "id": "golden-01-new-booking-happy-path",
+  "label": "New booking happy path: greeting → dates → guests → package → deposit",
+  "spec_refs": ["4", "5", "6"],
+  "contact_name": "Alex",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Hello",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "I'd like to book a stay",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "July 12 to 20",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-12", "check_out": "2026-07-20" },
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "3 guests",
+      "expect": {
+        "expected_guest_count": 3,
+        "expected_context_preserved": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "Malibu",
+      "expect": {
+        "expected_package": "malibu",
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "no_fake_confirmation": true
+      }
+    },
+    {
+      "message": "deposit is fine",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "no_form_dev_copy": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true,
+    "expected_fields": { "guest_count": 3, "package_interest": "malibu" },
+    "expected_payment_choice": "deposit"
+  }
+}

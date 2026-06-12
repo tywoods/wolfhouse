@@ -1,0 +1,41 @@
+{
+  "id": "golden-02-package-explain-before-choice",
+  "label": "Package tiers explained before asking guest to choose (no blind choice)",
+  "spec_refs": ["5.1", "5.2", "5.3"],
+  "contact_name": "Robin",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "book a stay",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "June 11 to 20",
+      "expect": {
+        "expected_dates": { "check_in": "2026-06-11", "check_out": "2026-06-20" },
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "3",
+      "expect": {
+        "expected_guest_count": 3,
+        "reply_not_contains": [
+          "Are you looking for a surf package like Malibu, or just accommodation",
+          "Malibu or accommodation"
+        ],
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true,
+    "expected_fields": { "guest_count": 3 }
+  }
+}

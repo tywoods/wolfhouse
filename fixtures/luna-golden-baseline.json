@@ -1,0 +1,17 @@
+{
+  "description": "Recorded golden-fixture baseline. verify-luna-golden.js fails on any regression (a fixture that was PASS/PARTIAL dropping to FAIL, or a PASS dropping to PARTIAL). Update intentionally when you improve a fixture's bar or add new fixtures.",
+  "reference_date": "2026-06-10",
+  "profile": "deterministic-composer (no GPT planner/Cami, no API key)",
+  "results": {
+    "golden-01-new-booking-happy-path": "PASS",
+    "golden-02-package-explain-before-choice": "PASS",
+    "golden-03-quote-to-payment": "PASS",
+    "golden-04-services-during-booking": "PASS",
+    "golden-05-existing-booking-addon": "PASS",
+    "golden-06-transfer-capture": "PASS",
+    "golden-07-no-false-handoff": "PASS",
+    "golden-08-no-internal-language": "PASS",
+    "golden-09-greeting-no-price-dump": "PASS",
+    "golden-10-stale-context-preserved": "PASS"
+  }
+}

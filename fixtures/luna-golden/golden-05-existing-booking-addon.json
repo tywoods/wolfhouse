@@ -1,0 +1,21 @@
+{
+  "id": "golden-05-existing-booking-addon",
+  "label": "Existing booking add-on request (add yoga) handled, not fake-confirmed",
+  "spec_refs": ["7.2"],
+  "contact_name": "Jamie",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "I already booked, can I add yoga?",
+      "expect": {
+        "reply_contains": ["yoga"],
+        "no_fake_confirmation": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true
+  }
+}

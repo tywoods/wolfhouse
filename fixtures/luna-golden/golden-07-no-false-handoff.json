@@ -1,0 +1,22 @@
+{
+  "id": "golden-07-no-false-handoff",
+  "label": "Vague / uncertain message must not escalate to staff on its own",
+  "spec_refs": ["8.1"],
+  "contact_name": "Lee",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "hmm not sure what I want yet, what do you offer?",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "no_bare_refusal": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

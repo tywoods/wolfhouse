@@ -1,0 +1,32 @@
+{
+  "id": "golden-10-stale-context-preserved",
+  "label": "Side question (cash) preserves booking context and does not invalidate quote",
+  "spec_refs": ["4.2", "4.3", "6.5"],
+  "contact_name": "Drew",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Malibu July 10 to July 17 for 2",
+      "expect": {
+        "expected_fields": { "package_interest": "malibu", "guest_count": 2 },
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "can I pay cash on arrival?",
+      "expect": {
+        "expected_context_preserved": true,
+        "expected_stale_quote": false,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true,
+    "expected_fields": { "package_interest": "malibu", "guest_count": 2 }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "golden-08-no-internal-language",
+  "label": "No internal/system words leak across a full intake flow",
+  "spec_refs": ["2"],
+  "contact_name": "Pat",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "hi there",
+      "expect": { "no_internal_language": true, "no_form_dev_copy": true }
+    },
+    {
+      "message": "Malibu Aug 1 to 8 for 2",
+      "expect": { "no_internal_language": true, "no_form_dev_copy": true, "expected_no_handoff": true }
+    },
+    {
+      "message": "can I pay the deposit?",
+      "expect": { "no_internal_language": true, "no_form_dev_copy": true }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

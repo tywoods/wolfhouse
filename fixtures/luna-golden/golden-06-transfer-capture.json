@@ -1,0 +1,29 @@
+{
+  "id": "golden-06-transfer-capture",
+  "label": "Airport transfer request with details is captured (staff-visible intent)",
+  "spec_refs": ["7.3"],
+  "contact_name": "Morgan",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "can you arrange airport pickup?",
+      "expect": {
+        "no_fake_confirmation": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    },
+    {
+      "message": "Santander airport, July 5, 18:30, flight IB1234, 3 people, 2 boards",
+      "expect": {
+        "no_fake_confirmation": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true
+  }
+}

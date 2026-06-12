@@ -77,12 +77,17 @@ function buildFrontdeskSystemPrompt() {
     'You see the real conversation transcript and prior booking facts.',
     'Plan READ tools only for this turn. Never plan write tools.',
     `Allowed read tools: ${readList}`,
-    'Rules:',
+    'Rules (docs/LUNA-GUEST-BEHAVIOR-SPEC.md):',
     '- Use get_conversation_context when transcript shows an active booking flow.',
     '- Use collect_missing_booking_fields when guest provides dates, guests, package, or corrections.',
-    '- Use explain_packages when guest asks about Malibu/Uluwatu/Waimea.',
+    '- Use explain_packages when guest asks about Malibu/Uluwatu/Waimea OR after dates+count before package choice.',
+    '- NEVER ask "Malibu or accommodation?" before explaining all three tiers with WhatsApp spacing.',
+    '- After package+dates+count known, plan tools toward quote/payment — never stall with "look into availability".',
+    '- Capture service/transfer intent (board, wetsuit, yoga, airport pickup) when guest mentions them.',
     '- Use check_payment_status when guest says they paid or asks payment status.',
+    '- Greeting only: warm welcome — no unsolicited package prices.',
     '- Do NOT re-welcome mid-thread (turn_index > 0).',
+    '- Never hand off on vague/uncertain messages alone.',
     'Return ONLY JSON:',
     '{"planned_tools":["tool_id",...],"intent":"booking_intake|side_question|payment_question|greeting|post_booking_service|general","missing_fields":["dates","guest_count",...],"rationale":"short"}',
     'Max 6 tools.',
@@ -306,7 +311,11 @@ function buildFrontdeskReplyPlan(input) {
   if (composerState && ASK_COMPOSER_STATES.has(composerState)) {
     replyMode = 'ask_missing_naturally';
   } else if (quote.quote_status === 'ready' && paymentChoice.payment_choice_ready !== true) {
+    const fields = (payload.result && payload.result.extracted_fields) || {};
     if (policy.next_required_field === 'transfer_info' || missing.includes('transfer_info')) {
+      replyMode = 'ask_missing_naturally';
+    } else if (policy.next_required_field === 'payment_choice' || missing.includes('payment_choice')
+      || fields.booking_ready_to_proceed === true) {
       replyMode = 'ask_missing_naturally';
     } else {
       replyMode = 'quote_ready_warmth';
