@@ -31,6 +31,37 @@ const {
   hasServiceAttachIntent,
 } = require('./luna-guest-agent-write-tool-executor');
 const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
+const { syntheticGuestEmailFromPhone } = require('./luna-guest-hold-payment-draft-write');
+
+const STRIPE_LINK_READY_DELAYS_MS = [0, 150, 400, 800];
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveStripeLinkWriteReady(bookingWrite, rawBody, pg, inboundBody) {
+  for (const delay of STRIPE_LINK_READY_DELAYS_MS) {
+    if (delay > 0) await sleepMs(delay);
+    const linkReady = evaluateOpenDemoStripeLinkWriteReady(bookingWrite, rawBody);
+    if (linkReady.ok) return linkReady;
+    if (!pg) continue;
+    const resolved = await resolveOpenDemoPaymentDraftRef(
+      pg,
+      inboundBody.client_slug,
+      inboundBody.guest_phone,
+    );
+    if (resolved && resolved.payment_draft_id) {
+      return {
+        ok: true,
+        payment_draft_id: resolved.payment_draft_id,
+        booking_id: resolved.booking_id,
+        booking_code: resolved.booking_code,
+        next_safe_step: 'ready_for_stripe_test_link',
+      };
+    }
+  }
+  return { ok: false, missing: ['payment_draft_not_ready'] };
+}
 
 /**
  * @param {object} opts
@@ -91,7 +122,9 @@ async function runGuestWritePipeline(opts) {
           guest_phone: inboundBody.guest_phone,
           guest_name: (chain.result && chain.result.extracted_fields && chain.result.extracted_fields.guest_name)
             || rawBody.guest_name || inboundBody.contact_name || null,
-          guest_email: rawBody.guest_email || null,
+          guest_email: rawBody.guest_email
+            || inboundBody.guest_email
+            || syntheticGuestEmailFromPhone(inboundBody.guest_phone || rawBody.guest_phone),
           env,
           host_header: hostHeader,
           source: rawBody.source || 'luna_guest_write_pipeline',
@@ -168,19 +201,12 @@ async function runGuestWritePipeline(opts) {
     if (!stripeGate.ok) {
       out.stripeLink = buildOpenDemoStripeLinkBlockedResponse(stripeGate);
     } else {
-      let linkReady = evaluateOpenDemoStripeLinkWriteReady(out.bookingWrite, rawBody);
-      if (!linkReady.ok && pg) {
-        const resolved = await resolveOpenDemoPaymentDraftRef(pg, inboundBody.client_slug, inboundBody.guest_phone);
-        if (resolved && resolved.payment_draft_id) {
-          linkReady = {
-            ok: true,
-            payment_draft_id: resolved.payment_draft_id,
-            booking_id: resolved.booking_id,
-            booking_code: resolved.booking_code,
-            next_safe_step: 'ready_for_stripe_test_link',
-          };
-        }
-      }
+      const linkReady = await resolveStripeLinkWriteReady(
+        out.bookingWrite,
+        rawBody,
+        pg,
+        inboundBody,
+      );
       if (!linkReady.ok) {
         out.stripeLink = {
           create_stripe_test_link_confirmed: true,
@@ -194,7 +220,7 @@ async function runGuestWritePipeline(opts) {
           live_send_blocked: true,
         };
       } else {
-        const linkOut = await runGuestStripeTestLinkCreateApproved({
+        let linkOut = await runGuestStripeTestLinkCreateApproved({
           payment_draft_id: linkReady.payment_draft_id,
           booking_id: linkReady.booking_id,
           booking_code: linkReady.booking_code,
@@ -202,10 +228,28 @@ async function runGuestWritePipeline(opts) {
           source: 'luna_guest_write_pipeline',
         }, {
           confirm_stripe_test_link: true,
-          env: { ...env, WHATSAPP_DRY_RUN: 'true' },
+          env,
           host_header: hostHeader,
           pg,
         });
+        const retryableStripe = !linkOut.success
+          && Array.isArray(linkOut.block_reasons)
+          && linkOut.block_reasons.some((r) => /payment_not_found|payment_draft/.test(String(r)));
+        if (retryableStripe) {
+          await sleepMs(500);
+          linkOut = await runGuestStripeTestLinkCreateApproved({
+            payment_draft_id: linkReady.payment_draft_id,
+            booking_id: linkReady.booking_id,
+            booking_code: linkReady.booking_code,
+            staff_operator: actorId,
+            source: 'luna_guest_write_pipeline_retry',
+          }, {
+            confirm_stripe_test_link: true,
+            env,
+            host_header: hostHeader,
+            pg,
+          });
+        }
         out.stripeLink = {
           create_stripe_test_link_confirmed: true,
           demo_stripe_test_link: true,
@@ -220,9 +264,11 @@ async function runGuestWritePipeline(opts) {
   if (isGptWriteToolPlannerActive(env)) {
     const chain = buildOpenDemoWriteChainFromReview(review);
     const fields = collectPriorExtractedFields({ result: review.result, quote: review.quote });
+    // Stage 56c — also resolve booking_id from the context chain snapshot (post-booking service turns).
     const bookingId = (out.bookingWrite && out.bookingWrite.booking_id)
       || (review.gpt_write_outcomes && review.gpt_write_outcomes.create_booking_hold
         && review.gpt_write_outcomes.create_booking_hold.booking_id)
+      || (review.guest_context_chain && review.guest_context_chain.booking_id)
       || null;
     const writeCtx = {
       env,
@@ -235,6 +281,8 @@ async function runGuestWritePipeline(opts) {
       confirm_write: flags.createHoldDraft === true,
       confirm_stripe_test_link: flags.createStripeLink === true,
       confirm_service_payment_link: isGuestServicePayNowEnabled(env),
+      // Stage 56c — post-booking service attaches are always confirmed when a booking_id is known.
+      confirm_service_attach: !!bookingId,
       booking_id: bookingId,
       hold_write_outcome: out.bookingWrite,
     };
@@ -245,9 +293,10 @@ async function runGuestWritePipeline(opts) {
         writeCtx,
       );
     }
-    if (bookingId && isGuestServicePayNowEnabled(env)
-      && (out.serviceAttach && out.serviceAttach.status === 'ok'
-        || /(?:pay|checkout|link).*(?:yoga|meal|surf|gear|addon|service)/i.test(inboundBody.message_text || ''))) {
+    // Stage 56c — only generate a service payment link when the guest explicitly requests it,
+    // or when they are mid-stay. Do NOT send automatically after every service attach.
+    const guestExplicitlyAskedForPayLink = /(?:pay|checkout|link).*(?:yoga|meal|surf|gear|addon|service)/i.test(inboundBody.message_text || '');
+    if (bookingId && isGuestServicePayNowEnabled(env) && guestExplicitlyAskedForPayLink) {
       out.serviceStripeLink = await executeGuestAgentWriteTool(
         'create_service_payment_link',
         chain,

@@ -14,6 +14,9 @@ const {
   isSoloAccommodationStayPhrase,
   isSoloTravellerGuestCountPhrase,
   detectStayAccommodationOnlyText,
+  extractPackageCode,
+  inferPackageFromGearSignals,
+  isPackageTierGuestMessage,
 } = require('./luna-guest-message-intake');
 const {
   mergeGuestExtractedFields,
@@ -36,6 +39,7 @@ const {
   guestDeclinedAddons,
   paymentChoiceDeclinesPendingAddons,
   extractTransferInfo,
+  mergeTransferInfo,
   hasCollectedGuestName: policyHasCollectedGuestName,
 } = require('./luna-booking-intake-policy');
 const {
@@ -440,7 +444,9 @@ function isIntakeContinuationAnswer(text, activeField) {
   }
   if (activeField === 'dates') return hasExplicitDates(t);
   if (activeField === 'package_interest') {
-    return /\b(?:malibu|uluwatu|waimea|accommodation\s+only|no\s+package|custom)\b/i.test(t);
+    return /\b(?:malibu|uluwatu|waimea|accommodation\s+only|no\s+package|custom)\b/i.test(t)
+      || isPackageTierGuestMessage(t)
+      || !!(extractPackageCode(t) || inferPackageFromGearSignals(t));
   }
   return false;
 }
@@ -854,6 +860,9 @@ function classifyMessageLane(text, guestContext) {
     if (hasExplicitDates(t)
       || /\b(?:malibu|uluwatu|waimea|package|paquete|forfait|paket|pacchetto)\b/i.test(t)
       || hasGuestCountSignal(t)
+      || isPackageTierGuestMessage(t)
+      || extractPackageCode(t)
+      || inferPackageFromGearSignals(t)
       || /\b(?:deposit|full amount|pay the|anzahlung|depósito|acompte)\b/i.test(t)) {
       return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.84 };
     }
@@ -1051,7 +1060,8 @@ function extractBookingFields(messageText, context, priorFields) {
     deferred_guest_count: null,
     guest_name: null,
     package_interest: intake.package_code || null,
-    transfer_interest: detectTransferInterest(messageText) || null,
+    transfer_interest: null,
+    transfer_info: null,
     service_interest: (intake.add_ons && intake.add_ons.length)
       ? intake.add_ons.filter((code) => ['wetsuit', 'surfboard', 'surf_lesson'].includes(code))
       : [],
@@ -1076,8 +1086,13 @@ function extractBookingFields(messageText, context, priorFields) {
       current.deferred_guest_count = intake.guests;
     }
   }
+  const tierPackage = extractPackageCode(messageText) || inferPackageFromGearSignals(messageText);
+  if (tierPackage) {
+    current.package_interest = tierPackage;
+  }
+
   if (activeField === 'guest_name' && !current.guest_name && !guestDeclinedAddons(messageText)
-    && current.guest_count == null) {
+    && current.guest_count == null && !tierPackage && !isPackageTierGuestMessage(messageText)) {
     const name = parseGuestNameAnswer(messageText);
     if (name) current.guest_name = name;
   }
@@ -1094,6 +1109,25 @@ function extractBookingFields(messageText, context, priorFields) {
     }
   } else if (detectNoPackageIntent(messageText)) {
     current.package_interest = 'no_package';
+  }
+
+  const transferParsed = extractTransferInfo(messageText);
+  if (transferParsed) {
+    current.transfer_info = mergeTransferInfo(
+      prior.transfer_info || prior.transfer_interest,
+      transferParsed,
+    );
+  }
+  if (current.transfer_info) {
+    current.transfer_interest = current.transfer_info.interested === true
+      ? current.transfer_info
+      : null;
+  } else {
+    const legacyTransfer = detectTransferInterest(messageText);
+    if (legacyTransfer) {
+      current.transfer_interest = legacyTransfer;
+      current.transfer_info = mergeTransferInfo(prior.transfer_info, legacyTransfer);
+    }
   }
 
   return mergeGuestExtractedFields(prior, current);
@@ -1449,6 +1483,15 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     confidence = 0.95;
   }
 
+  const tierPackageSelection = extractPackageCode(messageText) || inferPackageFromGearSignals(messageText);
+  if (!greetingOnly && tierPackageSelection && inActiveBooking) {
+    lane = 'new_booking_inquiry';
+    handoff = false;
+    reasons = [];
+    confidence = Math.max(confidence, 0.93);
+    packageExplainerIntent = null;
+  }
+
   if (packageExplainerIntent && messageHasEmbeddedBookingFacts(messageText) && !inActiveBooking) {
     lane = 'new_booking_inquiry';
     handoff = false;
@@ -1598,6 +1641,20 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       );
     }
     if (handoff && !reasons.length) reasons = ['needs_booking_identification'];
+
+    // Stage 56c — for add_service_request lane, extract reactive meal/yoga intent
+    // from the current message so the write pipeline can attach services.
+    if (lane === 'add_service_request') {
+      const reactivePatch = extractReactiveServicesFromMessage(messageText, priorExtracted, {
+        guest_count: priorExtracted.guest_count,
+      });
+      if (reactivePatch.yoga_request) {
+        extractedFields = { ...extractedFields, yoga_request: reactivePatch.yoga_request };
+      }
+      if (reactivePatch.meals_request) {
+        extractedFields = { ...extractedFields, meals_request: reactivePatch.meals_request };
+      }
+    }
   } else {
     extractedFields = {};
     missingRequired = [];

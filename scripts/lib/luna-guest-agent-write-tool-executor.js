@@ -151,10 +151,14 @@ function evaluateWriteToolReadiness(toolId, chainPayload, ctx) {
     if (!isOpenDemoBookingWritesEnabled(env)) reasons.push('booking_writes_disabled');
     if (!context.pg) reasons.push('pg_required_for_active');
     const ready = reasons.length === 0;
+    // Stage 56c — post-booking service attaches use confirm_service_attach (distinct from
+    // confirm_write which gates new booking hold creation).
+    const wouldExecute = ready
+      && (context.confirm_write === true || context.confirm_service_attach === true);
     return {
       tool_id: id,
       ready,
-      would_execute: ready && context.confirm_write === true,
+      would_execute: wouldExecute,
       block_reasons: reasons,
       source: 'gate_eval',
     };
