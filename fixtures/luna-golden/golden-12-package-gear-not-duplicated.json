@@ -1,0 +1,39 @@
+{
+  "id": "golden-12-package-gear-not-duplicated",
+  "label": "Uluwatu package does not duplicate wetsuit/board as separate services",
+  "spec_refs": ["7.1", "7.4"],
+  "contact_name": "Omar",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Uluwatu Aug 1 to 8 for 2",
+      "expect": {
+        "expected_dates": { "check_in": "2026-08-01", "check_out": "2026-08-08" },
+        "expected_guest_count": 2,
+        "expected_package": "uluwatu",
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "we need a wetsuit and board too",
+      "expect": {
+        "expected_package": "uluwatu",
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true,
+    "expected_fields": {
+      "check_in": "2026-08-01",
+      "check_out": "2026-08-08",
+      "guest_count": 2,
+      "package_interest": "uluwatu"
+    },
+    "expected_service_interest_excludes": ["wetsuit", "surfboard"]
+  }
+}

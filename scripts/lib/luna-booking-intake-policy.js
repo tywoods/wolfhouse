@@ -10,6 +10,7 @@
 const { computeStayNights, isWeeklySurfPackage, isAccommodationOnlyIntent } = require('./wolfhouse-package-night-rules');
 const {
   extractLunaGuestMessageIntake,
+  inferCheckoutDayFromPriorCheckIn,
   parseGuestNameAnswer,
   detectStayAccommodationOnlyText,
 } = require('./luna-guest-message-intake');
@@ -118,10 +119,61 @@ function isPackageBooking(stayType, fields) {
   return isWeeklySurfPackage(st);
 }
 
+function detectTransferDeclined(text) {
+  const t = String(text || '').toLowerCase().trim();
+  if (!t) return false;
+  return /\b(?:no\s+transfer|without\s+transfer|don'?t\s+need(?:\s+a)?\s+transfer|do\s+not\s+need(?:\s+a)?\s+transfer|no\s+shuttle|without\s+shuttle|own\s+transport|i'?ll?\s+(?:get|arrange)\s+(?:my\s+own|there)|we'?ll?\s+drive|no\s+pickup|no\s+pick\s+up)\b/i.test(t)
+    || /^(?:no|nope|nah)(?:\s+thanks?)?$/i.test(t);
+}
+
+/** Guest signals they are done adding details — proceed to deposit/payment. */
+function detectBookingReadyToProceed(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return false;
+  if (detectTransferDeclined(t)) return false;
+  return /\b(?:that'?s\s+it|thats\s+it|that\s+is\s+it|nothing\s+else|no\s+that'?s\s+all|that'?s\s+all|all\s+good|all\s+set|good\s+to\s+go|ready\s+to\s+(?:book|pay|proceed)|let'?s\s+(?:book|do\s+it|finalize|finalise)|book\s+it|finalize|finalise)\b/i.test(t)
+    || /\b(?:for\s+now|that'?s\s+all\s+for\s+now|that'?s\s+it\s+for\s+now)\b/i.test(t)
+    || /^(?:nothing|nothing else|no nothing|nope nothing)[\s.!]*$/i.test(t);
+}
+
+function detectTransferAffirmative(text) {
+  const t = String(text || '').toLowerCase().trim();
+  if (!t) return false;
+  if (detectTransferDeclined(t)) return false;
+  if (/\b(?:transfer|shuttle|airport|pick.?up|pickup)\b/i.test(t)
+    && /\b(?:yes|yeah|yep|sure|please|need|book|want|would\s+like)\b/i.test(t)) {
+    return true;
+  }
+  return /^(?:yes|yeah|yep|sure|please)$/i.test(t);
+}
+
+function parseColloquialTimeToken(raw) {
+  const w = trimStr(raw).toLowerCase();
+  if (!w) return null;
+  if (w === 'noon' || w === 'midday') return '12:00';
+  if (w === 'morning') return '09:00';
+  const m = w.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  if (!m) return null;
+  let hh = Number(m[1]);
+  const mm = m[2] != null ? Number(m[2]) : 0;
+  const mer = m[3] ? m[3].toLowerCase() : null;
+  if (mer === 'pm' && hh < 12) hh += 12;
+  if (mer === 'am' && hh === 12) hh = 0;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
 function extractTransferInfo(text) {
   const t = String(text || '');
-  if (!/\b(?:transfer|airport|aeropuerto|aeroporto|flughafen|aéroport|aeroport|pick.?up|flight|lands?|arriv|depart|fly\s+into)\b/i.test(t)
-    && !/\b(?:Santander|Bilbao|SDR|BIO)\b/i.test(t)) {
+  if (detectTransferDeclined(t)) {
+    return { interested: false };
+  }
+  const hasTransferCue = /\b(?:transfer|airport|aeropuerto|aeroporto|flughafen|aéroport|aeroport|pick.?up|flight|lands?|arriv|depart|fly\s+into|shuttle)\b/i.test(t)
+    || /\b(?:Santander|Bilbao|SDR|BIO)\b/i.test(t);
+  const hasTimingCue = /\b(?:arriv\w*|land\w*|leave|leaving|depart\w*|check[\s-]?in|check[\s-]?out)\b/i.test(t)
+    && /\b(?:noon|midday|morning|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i.test(t);
+  if (!hasTransferCue && !hasTimingCue) {
+    if (detectTransferAffirmative(t)) return { interested: true };
     return null;
   }
   const lower = t.toLowerCase();
@@ -134,9 +186,30 @@ function extractTransferInfo(text) {
   if (/\b(?:departure|partenza|salida|départ|depart|abflug)\b/i.test(lower)) {
     info.direction = 'departure';
   }
-  const timeMatch = t.match(/\b(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i)
-    || t.match(/\b(\d{1,2}:\d{2})\b/);
-  if (timeMatch) info.arrival_time = trimStr(timeMatch[1]);
+  const landMatch = t.match(/\b(?:land(?:ing)?|arriv(?:e|al|ing)?|touch(?:ing)?\s+down)\b[^.?!]{0,40}?(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i)
+    || t.match(/\b(?:arrival|arrive)\b[^.?!]{0,20}?(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  const leaveMatch = t.match(/\b(?:leave|leaving|depart(?:ure|ing)?|fly(?:ing)?\s+out)\b[^.?!]{0,40}?(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i)
+    || t.match(/\b(?:departure|depart)\b[^.?!]{0,20}?(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  if (landMatch) info.arrival_time = trimStr(landMatch[1]);
+  if (leaveMatch) info.departure_time = trimStr(leaveMatch[1]);
+  if (!info.arrival_time && !info.departure_time) {
+    const timeMatch = t.match(/\b(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i)
+      || t.match(/\b(\d{1,2}:\d{2})\b/);
+    if (timeMatch) {
+      if (info.direction === 'departure') info.departure_time = trimStr(timeMatch[1]);
+      else info.arrival_time = trimStr(timeMatch[1]);
+    }
+  }
+  const arriveDay = t.match(/\b(?:arriv\w*|land\w*|get\s+in)\b[^.?!]{0,60}?\b(?:at\s+)?(noon|midday|morning|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i);
+  const leaveDay = t.match(/\b(?:leave|leaving|depart\w*)\b[^.?!]{0,60}?\b(?:at\s+)?(noon|midday|morning|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i);
+  if (arriveDay && !info.arrival_time) {
+    const parsed = parseColloquialTimeToken(arriveDay[1]);
+    if (parsed) info.arrival_time = parsed;
+  }
+  if (leaveDay && !info.departure_time) {
+    const parsed = parseColloquialTimeToken(leaveDay[1]);
+    if (parsed) info.departure_time = parsed;
+  }
   if (/\b(?:later|send.*later|don'?t know yet|not sure yet)\b/i.test(lower)) {
     info.deferred = true;
   }
@@ -196,8 +269,10 @@ function extractNameFromText(text) {
 
 function mergeTransferInfo(prior, next) {
   if (!next) return prior || null;
+  if (next.interested === false) return { interested: false };
   const p = prior && typeof prior === 'object' ? { ...prior } : {};
-  const merged = { ...p, ...next, interested: true };
+  if (p.interested === false) return { interested: false };
+  const merged = { ...p, ...next, interested: next.interested !== false };
   if (next.direction === 'departure' && next.arrival_time && !merged.departure_time) {
     merged.departure_time = next.arrival_time;
   }
@@ -353,11 +428,11 @@ function resolveTransferInfoStatus(state, context) {
 
   const merged = mergeTransferInfo(transfer, ctxTransfer);
   if (!merged) return 'optional_pending';
+  if (merged.interested === false) return 'not_needed';
   if (merged.deferred === true) return 'deferred';
-  if (merged.airport_code && (merged.arrival_time || merged.flight_number || merged.direction)) {
-    return 'complete';
-  }
-  if (merged.airport_code || merged.arrival_time || merged.flight_number) return 'partial';
+  if (merged.airport_code) return 'complete';
+  if (merged.arrival_time || merged.departure_time || merged.flight_number) return 'partial';
+  if (merged.interested === true) return 'partial';
   return 'optional_pending';
 }
 
@@ -394,7 +469,7 @@ function determineRequiredBookingFields(state, context) {
     }
     if (isPackageBooking(stayType, fields)) {
       const ts = resolveTransferInfoStatus(state, ctx);
-      if (ts === 'partial') missing.push('transfer_info');
+      if (ts === 'optional_pending') missing.push('transfer_info');
     }
     if (ctx.quote.payment_choice_needed === true
       && !(ctx.payment_choice && ctx.payment_choice.payment_choice_ready)) {
@@ -459,6 +534,9 @@ function determineNextBookingQuestion(state, context) {
   if (quote.quote_status === 'ready' && missing.includes('guest_name')) {
     return mapFieldToQuestion('guest_name', state, ctx);
   }
+  if (quote.quote_status === 'ready' && missing.includes('transfer_info')) {
+    return mapFieldToQuestion('transfer_info', state, ctx);
+  }
   if (quote.quote_status === 'ready' && missing.includes('payment_choice')) {
     return mapFieldToQuestion('payment_choice', state, ctx);
   }
@@ -497,6 +575,17 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   const patch = {};
   if (intake.check_in) patch.check_in = intake.check_in;
   if (intake.check_out) patch.check_out = intake.check_out;
+  const guestsEarly = extractGuestCountFromText(text);
+  const priorHasCheckout = trimStr(prior.check_out) !== '';
+  const answeringGuestCount = guestsEarly != null && priorHasCheckout && !intake.check_in && !intake.check_out;
+  if (!patch.check_out && !priorHasCheckout && (patch.check_in || prior.check_in) && !answeringGuestCount) {
+    const inferredOut = inferCheckoutDayFromPriorCheckIn(
+      text,
+      patch.check_in || prior.check_in,
+      ctx.reference_date,
+    );
+    if (inferredOut) patch.check_out = inferredOut;
+  }
   if (intake.package_code) patch.package_interest = intake.package_code;
 
   const name = extractNameFromText(text);
@@ -504,7 +593,7 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
     patch.guest_name = name;
   }
 
-  const guests = extractGuestCountFromText(text);
+  const guests = guestsEarly != null ? guestsEarly : extractGuestCountFromText(text);
   if (guests != null) {
     if (!shouldDeferGuestCount(prior, patch, text, ctx.channel_guest_name)) {
       patch.guest_count = guests;
@@ -545,6 +634,18 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   const transfer = extractTransferInfo(text);
   if (transfer) patch.transfer_info = mergeTransferInfo(prior.transfer_info, transfer);
 
+  if (detectBookingReadyToProceed(text)) {
+    patch.booking_ready_to_proceed = true;
+    if (!prior.addons_skipped && !patch.addons_skipped) patch.addons_skipped = true;
+    const ti = patch.transfer_info || prior.transfer_info;
+    if (ti && ti.interested === true && ti.airport_code && !ti.arrival_time && !ti.departure_time) {
+      patch.transfer_info = { ...ti, times_default_ok: true };
+    }
+    if (!trimStr(prior.room_preference) && !trimStr(patch.room_preference)) {
+      patch.room_preference = 'shared';
+    }
+  }
+
   const inferred = [];
   if (patch.guest_name) inferred.push('guest_name');
   if (patch.check_in && patch.check_out) inferred.push('dates');
@@ -580,7 +681,7 @@ function buildSkippedQuestions(state, context) {
   const roomNeed = inferRoomPreferenceNeed(state, context);
   if (!roomNeed.needed) skipped.push('room_preference');
   const ts = resolveTransferInfoStatus(state, context);
-  if (ts === 'not_applicable' || ts === 'deferred' || ts === 'optional_pending') {
+  if (ts === 'not_applicable' || ts === 'deferred' || ts === 'not_needed') {
     skipped.push('transfer_info_blocking');
   }
   return skipped;
@@ -651,6 +752,10 @@ module.exports = {
   buildBookingIntakePolicySnapshot,
   mapPolicyQuestionToComposerState,
   resolveTransferInfoStatus,
+  detectTransferDeclined,
+  detectTransferAffirmative,
+  detectBookingReadyToProceed,
+  mergeTransferInfo,
   isGenericWhatsAppName,
   inferLikelyGuestGender,
   extractTransferInfo,

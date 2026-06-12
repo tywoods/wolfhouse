@@ -139,9 +139,18 @@ function isSoloAccommodationStayPhrase(text) {
 function detectStayAccommodationOnlyText(text) {
   const t = String(text || '').toLowerCase();
   if (isSoloAccommodationStayPhrase(t)) return true;
-  return /\b(?:accommodation\s+only|room\s+only|just\s+accommodation|just\s+the\s+stay|only\s+stay)\b/i.test(t)
+  return /\b(?:accommodation\s+only|room\s+only|just\s+accommodation|just\s+the\s+stay|only\s+stay|stay\s+only)\b/i.test(t)
     || /\bno\s+pack(?:age)?\s+just\s+stay\b/i.test(t)
     || /\bnur\s+(?:unterkunft|übernachtung|uebernachtung)\b/i.test(t);
+}
+
+/** Guest messages that select a package tier — never valid booking names. */
+function isPackageTierGuestMessage(text) {
+  const t = String(text || '').toLowerCase().trim();
+  if (!t) return false;
+  if (extractPackageCode(t) || inferPackageFromGearSignals(t)) return true;
+  return /\b(?:stay\s+only|gear\s+included|lessons?\s+included|accommodation\s+only|room\s+only|just\s+(?:the\s+)?(?:stay|accommodation))\b/i.test(t)
+    || /^(?:malibu|uluwatu|waimea)$/i.test(t);
 }
 
 /** Strip emoji + normalize common hammer-test date typos before parsing. */
@@ -310,7 +319,7 @@ function extractNamedDateRange(text, ref) {
   // EN compact — jul 10 thru jul 17 / july 1st to 5th / julyy 10-17 / July 1 - 5
   const MONTH_ALT = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|julyy|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
   const enCompactMonthFirst = t.match(
-    new RegExp(`\\b(?:from\\s+|for\\s+)?(${MONTH_ALT})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:thru|through|to|–|-)\\s*(?:(${MONTH_ALT})\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'),
+    new RegExp(`\\b(?:from\\s+|for\\s+)?(${MONTH_ALT})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:thru|through|to|–|-)\\s*(?:(${MONTH_ALT})\\s+)?(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'),
   );
   if (enCompactMonthFirst) {
     const monthIn = monthFromName(enCompactMonthFirst[1]);
@@ -525,6 +534,47 @@ function extractNamedDateRange(text, ref) {
   return { check_in: null, check_out: null };
 }
 
+function parseIsoDateParts(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) };
+}
+
+/**
+ * Guest answered with a day only ("15th", "the 15th") while check-in is already known.
+ * Infer checkout in the same month/year as check-in.
+ */
+function inferCheckoutDayFromPriorCheckIn(text, checkInIso, ref) {
+  const checkIn = parseIsoDateParts(checkInIso);
+  if (!checkIn) return null;
+  const t = normalizeHammerDateText(text).trim();
+  if (!t) return null;
+
+  const MONTH_ALT = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+
+  const monthDay = t.match(
+    new RegExp(`^(?:the\\s+)?(?:on\\s+)?(${MONTH_ALT})?\\s*(\\d{1,2})(?:st|nd|rd|th)?\\.?$`, 'i'),
+  );
+  if (!monthDay) return null;
+
+  const monthToken = monthDay[1] ? monthFromName(monthDay[1]) : checkIn.month;
+  const day = Number(monthDay[2]);
+  if (!monthToken || !Number.isFinite(day) || day < 1 || day > 31) return null;
+
+  const year = checkIn.year;
+  const checkOut = dayMonthYearToIso(day, monthToken, year, ref);
+  if (!checkOut) return null;
+
+  const outParts = parseIsoDateParts(checkOut);
+  const inParts = parseIsoDateParts(checkInIso);
+  if (outParts && inParts) {
+    const outKey = outParts.year * 10000 + outParts.month * 100 + outParts.day;
+    const inKey = inParts.year * 10000 + inParts.month * 100 + inParts.day;
+    if (outKey <= inKey) return null;
+  }
+  return checkOut;
+}
+
 function wordToGuestCount(word) {
   const w = String(word || '').toLowerCase();
   return WORD_NUMBERS[w] != null ? WORD_NUMBERS[w] : null;
@@ -615,6 +665,7 @@ function parseGuestNameAnswer(text) {
   if (!raw || raw.length > 60) return null;
   if (/^\d+$/.test(raw)) return null;
   if (isSoloAccommodationStayPhrase(raw)) return null;
+  if (isPackageTierGuestMessage(raw)) return null;
   if (/\b(?:deposit|full(?:\s+payment)?|just\s+(?:me|the\s+stay)|accommodation(?:\s+only)?|no\s+package|no\s+add(?:\s+|-)?nothing|nothing\s+extra|no\s+extras?|i\s+have\s+my\s+own(?:\s+stuff)?|malibu|uluwatu|waimea|wetsuit|surfboard|lessons?|yoga|book(?:ing)?\s+(?:a\s+)?stay)\b/i.test(raw)) {
     return null;
   }
@@ -662,8 +713,12 @@ function inferPackageFromGearSignals(text) {
   const hasLessons = /\b(?:surf\s+lessons?|lessons?|surfstunde|surfunterricht|surfkurs|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t);
   const stayOnly = /\b(?:stay\s+only|accommodation\s+only|just\s+(?:the\s+)?(?:stay|room|accommodation)|room\s+only|only\s+(?:the\s+)?stay)\b/.test(t)
     || /\b(?:no\s+(?:lessons?|surf\s+lessons?)|without\s+lessons?)\b/.test(t);
+  const gearIncluded = /\bgear\s+included\b/.test(t);
+  const lessonsIncluded = /\blessons?\s+included\b/.test(t);
 
   if (stayOnly && !hasLessons && !hasBoard && !hasWetsuit) return 'malibu';
+  if (lessonsIncluded) return 'waimea';
+  if (gearIncluded) return 'uluwatu';
   if (hasLessons) return 'waimea';
   if (hasBoard && hasWetsuit) return 'uluwatu';
   if ((hasBoard || hasWetsuit) && /\b(?:need|want|yes|yeah|yea|i\s+need)\b/.test(t)) return 'uluwatu';
@@ -708,7 +763,7 @@ function detectLanguage(text, inputLang) {
   if (/\b(?:hola|gracias|quiero|personas|septiembre)\b/.test(t)) return 'es';
   if (/\b(?:ciao|grazie|vorrei|persone|settembre)\b/.test(t)) return 'it';
   if (/\b(?:bonjour|merci|personnes|septembre)\b/.test(t)) return 'fr';
-  if (/\b(?:hallo|danke|gäste|gaste|september)\b/.test(t)) return 'de';
+  if (/\b(?:hallo|danke|gäste|gaste|anzahlung|buch(?:en)?|personen|übernachtung|unterkunft|möchten|moechten)\b/.test(t)) return 'de';
   return 'en';
 }
 
@@ -1006,7 +1061,9 @@ module.exports = {
   isSoloAccommodationStayPhrase,
   isSoloTravellerGuestCountPhrase,
   detectStayAccommodationOnlyText,
+  isPackageTierGuestMessage,
   normalizeHammerDateText,
+  inferCheckoutDayFromPriorCheckIn,
   INTAKE_SAFETY_FLAGS,
   KNOWN_PACKAGE_CODES,
   KNOWN_ADDON_TYPES,

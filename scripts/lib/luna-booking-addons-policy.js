@@ -23,7 +23,7 @@ function extractAddOnsFromText(text) {
   if (/\b(?:meal|meals|dinner|food|cena|comida|repas|abendessen)\b/.test(t)) found.add('meal');
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
   if (/\b(?:surf\s+lesson|surfstunde|surfunterricht|surfkurs|lessons?|lezione|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
-  if (/\b(?:wetsuit|muta)\b/.test(t)) found.add('wetsuit');
+  if (/\b(?:wetsuit|wesuit|muta|neopren)\b/.test(t)) found.add('wetsuit');
   if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|tavola|planche)\b/.test(t)) found.add('surfboard');
   return [...found];
 }
@@ -39,6 +39,12 @@ const INTAKE_TO_QUOTE = Object.freeze({
 });
 
 const IN_SCOPE_ADDONS = new Set(['wetsuit', 'surfboard', 'surf_lesson']);
+
+/** Gear/lessons already bundled in weekly packages — do not bill as separate services. */
+const PACKAGE_INCLUDED_SERVICE_CODES = Object.freeze({
+  uluwatu: new Set(['wetsuit', 'surfboard']),
+  waimea: new Set(['wetsuit', 'surfboard', 'surf_lesson']),
+});
 
 function trimStr(v) {
   if (v == null) return '';
@@ -68,7 +74,7 @@ function extractAddOnSelectionsRaw(messageText) {
     found.add('surf_lesson');
   }
   if (/\b(?:wetsuit\s+and\s+lesson|wetsuit\s+and\s+lessons?|board\s+and\s+wetsuit|wetsuit\s+and\s+board)\b/i.test(text)) {
-    if (/\bwetsuit\b/i.test(text)) found.add('wetsuit');
+    if (/\b(?:wetsuit|wesuit)\b/i.test(text)) found.add('wetsuit');
     if (/\b(?:board|surfboard)\b/i.test(text)) found.add('surfboard');
     if (/\blessons?\b/i.test(text)) found.add('surf_lesson');
   }
@@ -302,7 +308,24 @@ function resolveAddOnsStatus(fields, quote) {
   const codes = normalizeServiceInterestCodes(f.service_interest);
   if (codes.length) return 'collected';
   if (quoteAwaitingAddonsDecision(q)) return 'pending';
-  return 'not_asked';
+  return 'collected';
+}
+
+function stripPackageIncludedGearFromServiceInterest(fields) {
+  const f = fields || {};
+  const pkg = trimStr(f.package_interest).toLowerCase();
+  const included = PACKAGE_INCLUDED_SERVICE_CODES[pkg];
+  if (!included) return f;
+  const list = Array.isArray(f.service_interest) ? f.service_interest : [];
+  if (!list.length) return f;
+  const filtered = list.filter((item) => {
+    const code = typeof item === 'string'
+      ? trimStr(item).toLowerCase()
+      : (item && item.code ? trimStr(item.code).toLowerCase() : '');
+    return code && !included.has(code);
+  });
+  if (filtered.length === list.length) return f;
+  return { ...f, service_interest: filtered };
 }
 
 function extractTransferObservability(fields) {
@@ -388,9 +411,11 @@ function buildAddonsObservability(state, context, quote, invalidation) {
 
 module.exports = {
   NO_ADDONS_RE,
+  PACKAGE_INCLUDED_SERVICE_CODES,
   guestDeclinedAddons,
   paymentChoiceDeclinesPendingAddons,
   extractAddOnSelections,
+  stripPackageIncludedGearFromServiceInterest,
   normalizeServiceInterestCodes,
   serviceInterestSignature,
   quoteAwaitingAddonsDecision,

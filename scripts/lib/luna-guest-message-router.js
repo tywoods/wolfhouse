@@ -9,6 +9,7 @@
 
 const {
   extractLunaGuestMessageIntake,
+  inferCheckoutDayFromPriorCheckIn,
   detectPackageMutationIntent,
   parseGuestNameAnswer,
   isSoloAccommodationStayPhrase,
@@ -29,8 +30,17 @@ const {
   isBookingExplainerContext,
 } = require('./luna-guest-package-explainer');
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
+const {
+  detectBalancePaymentLinkRequest,
+  hasExistingPaidBookingContext,
+} = require('./luna-guest-balance-payment-link-create');
 const { buildTransferSideQuestionReply, detectTransferSideQuestionIntent, detectServiceSideQuestionIntent } = require('./luna-guest-service-transfer-explainer');
 const { decideConversationAction } = require('./luna-conversation-brain');
+const {
+  shouldRequireStaffHandoff,
+  resolveUnknownGuestMessage,
+  filterImplicitHandoffReasons,
+} = require('./luna-guest-handoff-policy');
 const {
   buildBookingIntakePolicySnapshot,
   normalizeOutOfOrderBookingInfo,
@@ -41,10 +51,12 @@ const {
   extractTransferInfo,
   mergeTransferInfo,
   hasCollectedGuestName: policyHasCollectedGuestName,
+  detectBookingReadyToProceed,
 } = require('./luna-booking-intake-policy');
 const {
   extractAddOnSelections,
   quoteAwaitingAddonsDecision,
+  stripPackageIncludedGearFromServiceInterest,
 } = require('./luna-booking-addons-policy');
 const {
   detectReactiveServiceIntent,
@@ -256,22 +268,12 @@ function resolveReferenceDate(context) {
   return new Date();
 }
 
-function detectLanguage(text, hint, threadLang) {
-  if (hint) {
-    const h = String(hint).trim().toLowerCase().slice(0, 2);
-    if (REPLY_TEMPLATES[h]) return h;
-  }
-  const t = String(text || '').toLowerCase();
-  const strongEs = /\b(?:hola|gracias|quiero|personas|septiembre|aeropuerto|necesito|qué|que paquetes|paquetes|tenéis|teneis|principiante)\b/;
-  const strongIt = /\b(?:ciao|grazie|vorrei|persone|settembre|giugno|siamo|quali|pacchetto|pacchetti|principiante)\b/;
-  const strongFr = /\b(?:bonjour|merci|personnes|septembre|août|aout|aimerions|voulons|r[eé]server|reserver|forfaits|quels)\b/;
-  const strongDe = /\b(?:hallo|danke|gäste|gaste|september|möchten|moechten|buchen|paket|pakete|anfänger|anfanger|mitbringen|brauche\s+ich)\b/;
-  if (strongEs.test(t)) return 'es';
-  if (strongIt.test(t)) return 'it';
-  if (strongFr.test(t)) return 'fr';
-  if (strongDe.test(t)) return 'de';
-  const thread = String(threadLang || '').trim().toLowerCase().slice(0, 2);
-  if (thread && REPLY_TEMPLATES[thread]) return thread;
+function detectLanguage(text, hint, threadLang, guestContext) {
+  const { resolveGuestThreadLanguage } = require('./luna-guest-thread-language');
+  const ctx = guestContext || (threadLang && typeof threadLang === 'object' ? threadLang : null);
+  const stickyHint = typeof threadLang === 'string' ? threadLang : null;
+  const resolved = resolveGuestThreadLanguage(text, ctx, hint || stickyHint);
+  if (REPLY_TEMPLATES[resolved]) return resolved;
   return 'en';
 }
 
@@ -435,14 +437,21 @@ function parseContinuationGuestCount(text) {
   return null;
 }
 
-function isIntakeContinuationAnswer(text, activeField) {
+function isIntakeContinuationAnswer(text, activeField, guestContext) {
   const t = String(text || '').trim();
   if (!t || !activeField) return false;
   if (activeField === 'guest_count') return parseContinuationGuestCount(t) != null;
   if (activeField === 'guest_name') {
     return parseContinuationGuestCount(t) != null || parseGuestNameAnswer(t) != null;
   }
-  if (activeField === 'dates') return hasExplicitDates(t);
+  if (activeField === 'dates') {
+    if (hasExplicitDates(t)) return true;
+    const prior = collectPriorExtractedFields(guestContext || {});
+    if (prior.check_in && !prior.check_out) {
+      return !!inferCheckoutDayFromPriorCheckIn(t, prior.check_in, null);
+    }
+    return false;
+  }
   if (activeField === 'package_interest') {
     return /\b(?:malibu|uluwatu|waimea|accommodation\s+only|no\s+package|custom)\b/i.test(t)
       || isPackageTierGuestMessage(t)
@@ -631,7 +640,16 @@ function classifyPaymentQuestionLane(text, ctx) {
     };
   }
 
-  if (kind === 'payment_link_request') {
+  if (kind === 'payment_link_request' || detectBalancePaymentLinkRequest(t)) {
+    if (hasExistingPaidBookingContext(guestCtx) || (hasCode && !activeQuote)) {
+      return {
+        lane: 'existing_booking_question',
+        handoff: false,
+        reasons: [],
+        confidence: 0.92,
+        paymentKind: 'balance_payment_link_request',
+      };
+    }
     return {
       lane: 'payment_question',
       handoff: !activeQuote,
@@ -764,7 +782,17 @@ function isTransferRequestMessage(text) {
 function isGreetingOnlyMessage(text) {
   const t = String(text || '').trim();
   if (!t) return false;
-  return /^(?:hi|hey|hello|hiya|howdy|yo|good\s+(?:morning|afternoon|evening)|ciao|hola|bonjour|hallo|salut|servus)(?:\s*[!?.…]*)?$/i.test(t);
+  if (/^(?:hi|hey|hello|hiya|howdy|yo|good\s+(?:morning|afternoon|evening)|ciao|hola|bonjour|hallo|salut|servus|moin|na)(?:\s*[!?.…]*)?$/i.test(t)) {
+    return true;
+  }
+  if (/^(?:hey|hi|hallo|moin|na)[,.\s]+(?:was\s+geht(?:\s+ab)?|wie\s+geht'?s|wie\s+geht\s+es)(?:\s*[!?.…]*)?$/i.test(t)) {
+    return true;
+  }
+  if (/^was\s+geht(?:\s+ab)?(?:\s*[!?.…]*)?$/i.test(t)) return true;
+  if (/^wie\s+geht'?s(?:\s+(?:dir|euch|ihnen))?(?:\s*[!?.…]*)?$/i.test(t)) return true;
+  if (/^guten\s+(?:tag|morgen|abend)(?:\s*[!?.…]*)?$/i.test(t)) return true;
+  if (/^gr[uü]ß(?:\s+(?:dich|gott))?(?:\s*[!?.…]*)?$/i.test(t)) return true;
+  return false;
 }
 
 function buildGreetingMenuReply(lang) {
@@ -843,6 +871,11 @@ function classifyMessageLane(text, guestContext) {
     return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.86 };
   }
 
+  if ((isActiveBookingIntakeContext(ctx) || conversationIntakeInProgress(ctx) || hasPriorBookingChain(ctx))
+    && detectBookingReadyToProceed(t)) {
+    return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.92 };
+  }
+
   if (hasActivePaymentChoiceContext(ctx)) {
     const pc = detectPaymentChoiceFromMessage(t);
     if (pc === 'deposit' || pc === 'full_payment') {
@@ -850,11 +883,16 @@ function classifyMessageLane(text, guestContext) {
     }
   }
 
-  if (isActiveBookingIntakeContext(ctx)
+  if ((isActiveBookingIntakeContext(ctx) || conversationIntakeInProgress(ctx))
     && !hasCode
     && !/\b(?:cancel|refund|reschedule|change my dates)\b/i.test(t)) {
+    const priorFields = collectPriorExtractedFields(ctx);
+    if (priorFields.check_in && !priorFields.check_out
+      && inferCheckoutDayFromPriorCheckIn(t, priorFields.check_in, null)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.93 };
+    }
     const activeField = resolveActiveIntakeMissingField(ctx);
-    if (activeField && isIntakeContinuationAnswer(t, activeField)) {
+    if (activeField && isIntakeContinuationAnswer(t, activeField, ctx)) {
       return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.92 };
     }
     if (hasExplicitDates(t)
@@ -947,8 +985,8 @@ function classifyMessageLane(text, guestContext) {
   if (priceOnly) {
     return {
       lane: 'new_booking_inquiry',
-      handoff: true,
-      reasons: ['uncertain_package_or_pricing'],
+      handoff: false,
+      reasons: [],
       confidence: 0.55,
     };
   }
@@ -992,8 +1030,8 @@ function classifyMessageLane(text, guestContext) {
   if (/\b(?:pets|parking|dogs|cats|allowed to bring)\b/i.test(t)) {
     return {
       lane: 'general_question',
-      handoff: true,
-      reasons: ['outside_policy_question'],
+      handoff: false,
+      reasons: [],
       confidence: 0.7,
     };
   }
@@ -1027,12 +1065,7 @@ function classifyMessageLane(text, guestContext) {
     };
   }
 
-  return {
-    lane: 'general_question',
-    handoff: true,
-    reasons: ['low_confidence_language_or_intent'],
-    confidence: 0.4,
-  };
+  return resolveUnknownGuestMessage(guestContext);
 }
 
 function extractBookingFields(messageText, context, priorFields) {
@@ -1130,7 +1163,30 @@ function extractBookingFields(messageText, context, priorFields) {
     }
   }
 
-  return mergeGuestExtractedFields(prior, current);
+  const merged = mergeGuestExtractedFields(prior, current);
+  const priorHasCheckout = !!(prior.check_out && String(prior.check_out).trim());
+  const guestCountAnswer = activeField === 'guest_count' && parseContinuationGuestCount(messageText) != null;
+  if (merged.check_in && !merged.check_out && !priorHasCheckout && !guestCountAnswer) {
+    const inferredOut = inferCheckoutDayFromPriorCheckIn(
+      messageText,
+      merged.check_in,
+      context && context.reference_date,
+    );
+    if (inferredOut) {
+      return { ...merged, check_out: inferredOut };
+    }
+  }
+  return merged;
+}
+
+function isBasicBookingIntakeDateAnswer(messageText, priorFields) {
+  const prior = priorFields || {};
+  if (!prior.check_in || prior.check_out) return false;
+  return !!inferCheckoutDayFromPriorCheckIn(
+    messageText,
+    prior.check_in,
+    null,
+  );
 }
 
 function hasCollectedGuestName(extracted) {
@@ -1365,18 +1421,41 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   const threadLanguage = guestContext.detected_language
     || (guestContext.result && guestContext.result.detected_language)
     || null;
-  const detectedLanguage = detectLanguage(messageText, src.language_hint || guestContext.language, threadLanguage);
+  const detectedLanguage = detectLanguage(
+    messageText,
+    src.language_hint || guestContext.language,
+    threadLanguage,
+    guestContext,
+  );
   let packageExplainerIntent = detectPackageExplainerIntent(messageText);
   const packageMutation = detectPackageMutationIntent(messageText);
-  const greetingOnly = isGreetingOnlyMessage(messageText);
   const classification = classifyMessageLane(messageText, guestContext);
   let { lane, handoff, reasons, confidence, paymentKind } = classification;
+  const greetingOnly = isGreetingOnlyMessage(messageText) || classification.greeting_only === true;
 
   // Stage 28i/28j — conversation brain decision before the reply finalizes.
   // Stage 28j: the orchestrator may pass a precomputed (LLM-backed) decision via
   // src.brain_decision; otherwise fall back to the synchronous deterministic brain.
   const activeMissingField = resolveActiveIntakeMissingField(guestContext);
   const inActiveBooking = conversationIntakeInProgress(guestContext);
+  const basicDateContinuation = isBasicBookingIntakeDateAnswer(messageText, priorExtracted);
+  if (inActiveBooking && basicDateContinuation) {
+    lane = 'new_booking_inquiry';
+    handoff = false;
+    reasons = [];
+    confidence = Math.max(confidence, 0.93);
+  }
+  let transferTimesContinuation = false;
+  try {
+    const { guestProvidedTransferTimes } = require('./luna-guest-transfer-times-update');
+    if (inActiveBooking && guestProvidedTransferTimes(priorExtracted, messageText)) {
+      transferTimesContinuation = true;
+      lane = 'new_booking_inquiry';
+      handoff = false;
+      reasons = [];
+      confidence = Math.max(confidence, 0.92);
+    }
+  } catch (_) { /* noop */ }
   const priorPackageNightRule = guestContext.package_night_rule
     || (guestContext.result && guestContext.result.package_night_rule)
     || null;
@@ -1572,6 +1651,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       extractedFields = { ...extractedFields, meals_request: reactivePatch.meals_request };
     }
     extractedFields = stripPendingManualFromServiceInterest(extractedFields);
+    extractedFields = stripPackageIncludedGearFromServiceInterest(extractedFields);
     if (brainPatch.check_in && brainPatch.check_out
       && !extractedFields.check_in && !extractedFields.check_out) {
       extractedFields = {
@@ -1618,13 +1698,10 @@ function runLunaGuestMessageRouterDryRun(input, context) {
 
     missingRequired = computeMissingRequired(extractedFields);
 
-    if (reasons.includes('unclear_availability')) handoff = true;
-    if (reasons.includes('uncertain_package_or_pricing')) handoff = true;
-
-    if (!handoff && missingRequired.length === 0 && confidence < 0.75
-      && !guestCorrecting && !accommodationOnlyChoice) {
-      handoff = true;
-      reasons = reasons.concat(['low_confidence_language_or_intent']);
+    const basicDateAnswer = isBasicBookingIntakeDateAnswer(messageText, priorExtracted);
+    if (basicDateAnswer) {
+      handoff = false;
+      reasons = filterImplicitHandoffReasons(reasons);
     }
 
     const hasMonthOnly = MONTH_NAME_RE.test(messageText) && !extractedFields.check_in;
@@ -1701,13 +1778,23 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     };
   }
 
+  const basicIntakeDateAnswer = basicDateContinuation
+    || (lane === 'new_booking_inquiry'
+      && isBasicBookingIntakeDateAnswer(messageText, priorExtracted));
+  const bookingReadyToProceed = detectBookingReadyToProceed(messageText)
+    || extractedFields.booking_ready_to_proceed === true;
   let safeHandoffRequired = greetingOnly && !midFlowGreeting
     ? false
-    : ((packageExplainerIntent || clarifyActiveBooking || correctionActiveBooking || guestCorrecting)
+    : (basicIntakeDateAnswer || bookingReadyToProceed
+      || packageExplainerIntent || clarifyActiveBooking || correctionActiveBooking || guestCorrecting
       ? false
-      : (lane === 'staff_handoff_required'
-        || handoff
-        || reasons.some((r) => STAFF_HANDOFF_REASONS.has(r))));
+      : shouldRequireStaffHandoff({
+        message_lane: lane,
+        handoff_reasons: reasons,
+        handoff_flag: handoff,
+        message_text: messageText,
+        guest_context: guestContext,
+      }));
 
   if (packageExplainerIntent || (greetingOnly && !midFlowGreeting) || clarifyActiveBooking
     || correctionActiveBooking || guestCorrecting) {

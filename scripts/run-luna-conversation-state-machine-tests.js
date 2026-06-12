@@ -1919,6 +1919,21 @@ function checkFinalExpectations(finalExpect, lastOut, allTurns) {
 
   failures.push(...checkObjectSubset(finalExpect.expected_fields, fields, 'final.expected_fields'));
 
+  if (Array.isArray(finalExpect.expected_service_interest_excludes)) {
+    const codes = Array.isArray(fields.service_interest)
+      ? fields.service_interest.map((item) => {
+        if (typeof item === 'string') return String(item).trim().toLowerCase();
+        return item && item.code ? String(item.code).trim().toLowerCase() : '';
+      }).filter(Boolean)
+      : [];
+    for (const code of finalExpect.expected_service_interest_excludes) {
+      const c = String(code).trim().toLowerCase();
+      if (codes.includes(c)) {
+        failures.push(`final.service_interest should not include ${c}`);
+      }
+    }
+  }
+
   if (finalExpect.confirmation_sent === false) {
     if (lastOut.confirmation_sent === true) failures.push('confirmation_sent expected false');
     const anyConfirm = allTurns.some((t) => t.confirmation_sent === true);

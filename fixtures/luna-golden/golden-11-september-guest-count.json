@@ -1,0 +1,47 @@
+{
+  "id": "golden-11-september-guest-count",
+  "label": "September dates + bare guest count does not shorten stay or hijack language",
+  "spec_refs": ["4.2", "5.1", "7.1"],
+  "contact_name": "Nina",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Book a room",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "September 1-10",
+      "expect": {
+        "expected_dates": { "check_in": "2026-09-01", "check_out": "2026-09-10" },
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "3",
+      "expect": {
+        "expected_dates": { "check_in": "2026-09-01", "check_out": "2026-09-10" },
+        "expected_guest_count": 3,
+        "reply_not_contains": [
+          "under 7 nights",
+          "accommodation only"
+        ],
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true,
+    "expected_fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-10",
+      "guest_count": 3
+    }
+  }
+}

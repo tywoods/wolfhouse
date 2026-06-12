@@ -12,6 +12,9 @@
     "golden-07-no-false-handoff": "PASS",
     "golden-08-no-internal-language": "PASS",
     "golden-09-greeting-no-price-dump": "PASS",
-    "golden-10-stale-context-preserved": "PASS"
-  }
+    "golden-10-stale-context-preserved": "PASS",
+    "golden-11-september-guest-count": "PASS",
+    "golden-12-package-gear-not-duplicated": "PASS"
+  },
+  "recorded_at": "2026-06-12T19:27:28.861Z"
 }
