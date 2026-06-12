@@ -10,7 +10,7 @@ const { LUNA_GUEST_STAGING_V1 } = require('./lib/luna-guest-staging-profile');
 const COMMIT = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
 const IMAGE_TAG = `${COMMIT}-luna-robustness`;
 const IMAGE = `whstagingacr.azurecr.io/wh-staff-api:${IMAGE_TAG}`;
-const REV_SUFFIX = 'luna-robustness';
+const REV_SUFFIX = `${COMMIT}-luna-robustness`;
 const STAFF_HOST = 'staff-staging.lunafrontdesk.com';
 const ENV_EXPECT = { ...LUNA_GUEST_STAGING_V1 };
 
