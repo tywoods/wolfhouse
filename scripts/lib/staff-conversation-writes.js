@@ -80,9 +80,12 @@ async function clearConversationMessages(pg, clientSlug, convId) {
 }
 
 /**
- * Fresh Start — clear Luna active context on a conversation without deleting history or bookings.
+ * Fresh Start — clear Luna active context on a conversation.
+ * @param {object} opts
+ * @param {boolean} [opts.clearMessages=false] - also delete message history (staging only)
  */
-async function resetLunaConversationContext(pg, clientSlug, convId) {
+async function resetLunaConversationContext(pg, clientSlug, convId, opts) {
+  const options = opts || {};
   await pg.query('BEGIN');
   try {
     const sel = await pg.query(
@@ -111,6 +114,7 @@ async function resetLunaConversationContext(pg, clientSlug, convId) {
               staff_reply_draft = NULL,
               last_bot_reply = NULL,
               pending_action = NULL,
+              last_message_preview = NULL,
               conversation_summary = NULL,
               updated_at = NOW()
          FROM clients c
@@ -121,16 +125,27 @@ async function resetLunaConversationContext(pg, clientSlug, convId) {
       [clientSlug, convId, JSON.stringify(nextMeta)],
     );
 
-    const msgCount = await pg.query(
-      `SELECT COUNT(*)::int AS n FROM messages WHERE conversation_id = $1::uuid`,
-      [convId],
-    );
+    let messagesDeleted = 0;
+    if (options.clearMessages) {
+      const del = await pg.query(
+        `DELETE FROM messages WHERE conversation_id = $1::uuid`,
+        [convId],
+      );
+      messagesDeleted = del.rowCount || 0;
+    } else {
+      const msgCount = await pg.query(
+        `SELECT COUNT(*)::int AS n FROM messages WHERE conversation_id = $1::uuid`,
+        [convId],
+      );
+      messagesDeleted = msgCount.rows[0]?.n ?? 0;
+    }
 
     await pg.query('COMMIT');
     return {
       found: true,
       context_cleared: hadLunaContext || upd.rows.length > 0,
-      messages_preserved: msgCount.rows[0]?.n ?? 0,
+      messages_deleted: options.clearMessages ? messagesDeleted : 0,
+      messages_preserved: options.clearMessages ? 0 : messagesDeleted,
       metadata_keys_cleared: LUNA_FRESH_START_METADATA_KEYS.filter(
         (k) => Object.prototype.hasOwnProperty.call(priorMeta, k),
       ),

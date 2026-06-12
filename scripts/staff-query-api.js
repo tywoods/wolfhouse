@@ -11517,7 +11517,7 @@ function buildPaymentConfirmationDraft(pm, bkPayStatus, bkPaidCents, bkBalanceCe
     payment_status:    bkPayStatus,
     amount_paid_cents: bkPaidCents,
     balance_due_cents: bkBalanceCents,
-    room_number:       pm.primary_room_code || null,
+    room_number:       pm.primary_room_code || pm.assigned_room_code || null,
     address:           arrival.address || null,
     gate_code:         arrival.gate_code || null,
     sends_whatsapp:    false,
@@ -11608,7 +11608,15 @@ async function handleStripeWebhook(req, res) {
                b.deposit_required_cents AS bk_deposit,
                b.guest_name,
                b.primary_room_code,
-               b.metadata->'guest'->>'phone' AS guest_phone,
+               (SELECT bb.room_code
+                  FROM booking_beds bb
+                 WHERE bb.booking_id = b.id
+                 ORDER BY bb.created_at ASC
+                 LIMIT 1)              AS assigned_room_code,
+               COALESCE(
+                 NULLIF(TRIM(b.metadata->'guest'->>'phone'), ''),
+                 NULLIF(TRIM(b.phone), '')
+               )                        AS guest_phone,
                cl.slug                  AS client_slug
           FROM payments p
           JOIN bookings b  ON b.id  = p.booking_id
@@ -11874,23 +11882,27 @@ async function handleStripeWebhook(req, res) {
             pm.payment_id,
           ]
         );
+        // Promote hold → confirmed when deposit or full payment received.
+        const promotesToConfirmed = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
         await pg.query(
           confirmationDraft
             ? `UPDATE bookings
                  SET amount_paid_cents = $1,
                      balance_due_cents = $2,
                      payment_status    = $3::payment_status,
+                     status            = CASE WHEN status = 'hold' AND $6 THEN 'confirmed'::booking_status ELSE status END,
                      metadata          = COALESCE(metadata, '{}'::jsonb)
                                          || jsonb_build_object('confirmation_draft', $5::jsonb)
                WHERE id = $4`
             : `UPDATE bookings
                  SET amount_paid_cents = $1,
                      balance_due_cents = $2,
-                     payment_status    = $3::payment_status
+                     payment_status    = $3::payment_status,
+                     status            = CASE WHEN status = 'hold' AND $5 THEN 'confirmed'::booking_status ELSE status END
                WHERE id = $4`,
           confirmationDraft
-            ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(confirmationDraft)]
-            : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id]
+            ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(confirmationDraft), promotesToConfirmed]
+            : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, promotesToConfirmed]
         );
         await pg.query('COMMIT');
       } catch (e) {
@@ -17323,7 +17335,7 @@ function wireFreshStart(convId, targetEl){
   var btn = targetEl.querySelector('#btn-fresh-start');
   if (!btn) return;
   btn.addEventListener('click', function(){
-    if (!window.confirm('Reset Luna\u2019s active context for this guest? This keeps bookings, payments, and history, but clears Luna\u2019s current intake/quote state.')) return;
+    if (!window.confirm('Full Fresh Start: clear Luna\u2019s context AND message history for this guest? Bookings and payments are kept. This cannot be undone.')) return;
     btn.disabled = true;
     fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-luna-context', {
       method: 'POST',
@@ -25483,8 +25495,12 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
     staff_user_id:   user ? user.staff_user_id : null,
   };
 
+  // On staging, Fresh Start is a true clean slate: clears context AND message history.
+  // This matches the user expectation that "Fresh Start" means Luna has no memory of prior turns.
+  const clearMessages = true;
+
   try {
-    const result = await withPgClient((pg) => resetLunaConversationContext(pg, clientSlug, convId));
+    const result = await withPgClient((pg) => resetLunaConversationContext(pg, clientSlug, convId, { clearMessages }));
     const elapsed = Date.now() - started;
     if (!result.found) {
       appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
@@ -25494,6 +25510,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       ...auditBase,
       success: true,
       context_cleared: result.context_cleared,
+      messages_deleted: result.messages_deleted,
       messages_preserved: result.messages_preserved,
       metadata_keys_cleared: result.metadata_keys_cleared,
       elapsed_ms: elapsed,
@@ -25502,6 +25519,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       success: true,
       conversation_id: convId,
       context_cleared: result.context_cleared,
+      messages_deleted: result.messages_deleted,
       messages_preserved: result.messages_preserved,
       metadata_keys_cleared: result.metadata_keys_cleared,
       elapsed_ms: elapsed,
