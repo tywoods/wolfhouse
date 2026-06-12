@@ -103,6 +103,22 @@ function defaultTransferLookupDate({ direction, booking, timezone }) {
 }
 
 /**
+ * Staff/Luna default pickup times — matches Transfers tab buildDefaults().
+ *
+ * @param {{ direction: string, booking: object, timezone?: string, client_slug?: string }} opts
+ * @returns {string|null} local datetime string YYYY-MM-DDTHH:mm
+ */
+function defaultTransferScheduledAtLocal({ direction, booking, timezone, client_slug }) {
+  const dir = normalizeTransferDirection(direction);
+  const tz = timezone || (client_slug && getClientTransferConfig(client_slug).timezone)
+    || 'Europe/Madrid';
+  const dateOnly = defaultTransferLookupDate({ direction, booking, timezone: tz });
+  if (!dateOnly) return null;
+  const hour = dir === 'arrival' ? '09:00' : '12:00';
+  return `${dateOnly}T${hour}`;
+}
+
+/**
  * @param {object} booking
  * @returns {boolean}
  */
@@ -602,6 +618,7 @@ module.exports = {
   normalizeTransferStatus,
   normalizeFlightNumber,
   defaultTransferLookupDate,
+  defaultTransferScheduledAtLocal,
   isPackageBooking,
   priceBookingTransfer,
   resolveManualTransferOverride,

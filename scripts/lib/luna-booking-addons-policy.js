@@ -22,7 +22,7 @@ function extractAddOnsFromText(text) {
   const found = new Set();
   if (/\b(?:meal|meals|dinner|food|cena|comida|repas|abendessen)\b/.test(t)) found.add('meal');
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
-  if (/\b(?:surf\s+lesson|surfstunde|surfunterricht|surfkurs|lessons?|lezione|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
+  if (/\b(?:surf\s+lessons?|surfstunde|surfunterricht|surfkurs(?:e|en)?|lessons?|lezione|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
   if (/\b(?:wetsuit|wesuit|muta|neopren)\b/.test(t)) found.add('wetsuit');
   if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|tavola|planche)\b/.test(t)) found.add('surfboard');
   return [...found];

@@ -174,6 +174,13 @@ if (!FORBIDDEN_REPLY_RE.test(deposit.proposed_luna_reply)) {
   fail('D5', 'deposit reply contains forbidden phrase');
 }
 
+for (const phrase of ['deposit works', "i'll start with the deposit", 'ill start with the deposit', 'start with the deposit']) {
+  const detected = detectPaymentChoiceFromMessage(phrase);
+  const id = `D6-${phrase.slice(0, 10).replace(/\W/g, '')}`;
+  if (detected === 'deposit') pass(id, `"${phrase}" → deposit`);
+  else fail(id, `"${phrase}" expected deposit got ${detected}`);
+}
+
 section('E. Fixture — full payment');
 
 const full = runGuestPaymentChoiceDryRun({ message_text: "I'll pay the full amount" }, quoteCtx);
@@ -323,6 +330,8 @@ section('K. Detection helper');
 
 const detectCases = [
   ['Deposit is fine', 'deposit'],
+  ['deposit works', 'deposit'],
+  ['full payment works', 'full_payment'],
   ["I'll pay the full amount", 'full_payment'],
   ['Can I pay cash when I arrive?', 'arrival_payment_question'],
   ['Can I pay by bank transfer?', 'arrival_payment_question'],

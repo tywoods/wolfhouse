@@ -1,27 +1,27 @@
 {
-  "id": "hammer-40402-0004",
+  "id": "hammer-50001-0024",
   "fixture_set": "generated-hammer-failures",
   "language": "de",
   "contact_name": "Anna",
   "reference_date": "2026-06-10",
   "hammer_meta": {
-    "seed": 40402,
-    "index": 4,
-    "scenario_type": "short_stay_surf_addons",
+    "seed": 50001,
+    "index": 24,
+    "scenario_type": "lesson_addon",
     "language": "de",
     "style": [
       "typo"
     ],
-    "generated_at": "2026-06-11T09:40:40.627Z"
+    "generated_at": "2026-06-12T19:59:09.356Z"
   },
   "turns": [
     {
-      "message": "Hallo, 3 Personen, vom 8. bis 13. Juli, nur Unterkunft, Neopren und Board",
+      "message": "Hallo, wir sind 1 Personen, vom 10. bis 17. Juli, nur Übernachtung, auch Surf-Unterricht",
       "expect": {
-        "expected_guest_count": 3,
+        "expected_guest_count": 1,
         "expected_dates": {
-          "check_in": "2026-07-08",
-          "check_out": "2026-07-13"
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
         },
         "expected_no_handoff": true,
         "no_internal_language": true,
@@ -29,8 +29,7 @@
         "expected_quote_ready": true,
         "expected_accommodation_only": true,
         "expected_service_interest": [
-          "wetsuit",
-          "surfboard"
+          "surf_lesson"
         ],
         "allow_partial": true
       }
@@ -38,9 +37,9 @@
   ],
   "final_expect": {
     "expected_fields": {
-      "check_in": "2026-07-08",
-      "check_out": "2026-07-13",
-      "guest_count": 3,
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 1,
       "package_interest": "accommodation_only"
     },
     "no_internal_language": true,
@@ -49,21 +48,21 @@
     "expected_quote_ready": true
   },
   "hammer_review": {
-    "source_seed": 40402,
-    "scenario_id": "hammer-40402-0004",
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0024",
     "language": "de",
-    "scenario_type": "short_stay_surf_addons",
+    "scenario_type": "lesson_addon",
     "failure_categories": [
       "service_addon_intent"
     ],
     "generated_turns": [
-      "Hallo, 3 Personen, vom 8. bis 13. Juli, nur Unterkunft, Neopren und Board"
+      "Hallo, wir sind 1 Personen, vom 10. bis 17. Juli, nur Übernachtung, auch Surf-Unterricht"
     ],
-    "expected_issue_summary": "turn 1: expected_service_interest missing wetsuit (service_addon_intent)",
+    "expected_issue_summary": "turn 1: expected_service_interest missing surf_lesson (service_addon_intent)",
     "final_extracted_facts": {
-      "check_in": "2026-07-08",
-      "check_out": "2026-07-13",
-      "guest_count": 3,
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 1,
       "guest_name": "Anna",
       "deferred_guest_count": null,
       "package_interest": "accommodation_only",
@@ -71,20 +70,18 @@
       "transfer_info": null,
       "addons_skipped": null,
       "transfer_interest": null,
-      "service_interest": [
-        "surfboard"
-      ],
+      "service_interest": [],
       "meals_request": null,
       "yoga_request": null,
       "payment_preference": null
     },
     "quote_status": "ready",
-    "luna_final_reply": "Perfekt — das Board ist für dich reserviert 🌊 No stress on payment now — it's added to your booking and you can settle it at checkout. Um den Platz zu halten: lieber €100 Anzahlung oder €750 komplett?",
+    "luna_final_reply": "Perfekt 😊 No_package vom July 10 to July 17, 1 Gast.\n\nIch habe nachgeschaut — der Aufenthalt kommt auf €315 gesamt.\n\nZur Reservierung könnt ihr jetzt die €200 Anzahlung zahlen oder gleich die vollen €315 — was passt euch besser?",
     "suggested_fix_area": "add-on parsing (muta/tavola/board/lesson)",
     "hammer_result": "PARTIAL",
     "failures": [
-      "turn 1: expected_service_interest missing wetsuit"
+      "turn 1: expected_service_interest missing surf_lesson"
     ],
-    "exported_at": "2026-06-11T09:40:41.340Z"
+    "exported_at": "2026-06-12T19:59:10.662Z"
   }
 }

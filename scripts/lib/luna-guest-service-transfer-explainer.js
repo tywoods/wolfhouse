@@ -59,6 +59,9 @@ function detectTransferSideQuestionIntent(text) {
   if (/\b(?:bus\s+station|estaci[oó]n\s+de\s+autobuses|stazione\s+(?:dei|degli?\s+)?autobus)\b/i.test(t)) {
     return 'transfer_general';
   }
+  if (/\b(?:bus|autob[uú]s|autobus)\b/i.test(t) && /\b(?:bilbao|BIO)\b/i.test(t)) {
+    return 'transfer_general';
+  }
   if (/\b(?:flight\s+(?:is\s+)?(?:delayed|late)|delayed\s+flight|late\s+arrival|arriv(?:e|ing)\s+(?:late|around|after))\b/i.test(t)) {
     return 'transfer_general';
   }
@@ -184,34 +187,54 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
 
   const mentionsBilbao = /\bbilbao\b|\bBIO\b/i.test(t);
   const mentionsSantander = /\bsantander\b|\bSDR\b/i.test(t);
+  const asksAboutBus = /\b(?:bus|autob[uú]s|autobus)\b/i.test(t);
+
+  if (mentionsBilbao && asksAboutBus) {
+    const map = {
+      en: 'Many guests take the bus from Bilbao airport — it\'s a straightforward option. We can also arrange Santander airport transfer for €25 without a package, or it\'s included with Malibu, Uluwatu, or Waimea.',
+      it: 'Molti ospiti usano il bus da Bilbao — è un\'opzione semplice. Possiamo anche organizzare il transfer Santander a €25 senza pacchetto, o incluso con Malibu, Uluwatu o Waimea.',
+      es: 'Muchos huéspedes usan el autobús desde Bilbao — es una opción sencilla. También podemos organizar transfer Santander por €25 sin paquete, o incluido con Malibu, Uluwatu o Waimea.',
+      de: 'Viele Gäste nehmen den Bus ab Bilbao — eine einfache Option. Wir können auch Santander-Transfer für €25 ohne Paket organisieren, oder inklusive mit Malibu, Uluwatu oder Waimea.',
+      fr: 'Beaucoup de clients prennent le bus depuis Bilbao — c’est une option simple. On peut aussi organiser le transfert Santander à 25 € sans forfait, ou inclus avec Malibu, Uluwatu ou Waimea.',
+    };
+    return map[L] || map.en;
+  }
 
   if (mentionsBilbao) {
+    const bilbaoRule = {
+      en: 'We only arrange Bilbao airport transfers for groups of 4 or more, at €15 per person.',
+      it: 'Organizziamo transfer da Bilbao solo per gruppi da 4 o più, a €15 a persona.',
+      es: 'Solo organizamos transfers desde Bilbao para grupos de 4 o más, a €15 por persona.',
+      de: 'Bilbao-Transfers organisieren wir nur für Gruppen ab 4 Personen, €15 pro Person.',
+      fr: 'Nous organisons les transferts Bilbao seulement pour les groupes de 4 ou plus, à 15 € par personne.',
+    };
+    const bilbaoRuleText = bilbaoRule[L] || bilbaoRule.en;
     if (!hasPackage) {
       const map = {
-        en: 'Bilbao airport transfer is not offered without a package — we recommend the bus from Bilbao. Santander transfer is €25 without a package, or included with Malibu, Uluwatu, or Waimea.',
-        it: 'Il transfer aeroporto Bilbao non è offerto senza pacchetto — consigliamo il bus da Bilbao. Santander €25 senza pacchetto, o incluso con Malibu, Uluwatu o Waimea.',
-        es: 'El transfer del aeropuerto de Bilbao no se ofrece sin paquete — recomendamos el autobús desde Bilbao. Santander €25 sin paquete, o incluido con Malibu, Uluwatu o Waimea.',
-        de: 'Bilbao-Flughafen-Transfer ohne Paket bieten wir nicht an — wir empfehlen den Bus ab Bilbao. Santander €25 ohne Paket, oder inklusive mit Malibu, Uluwatu oder Waimea.',
-        fr: 'Le transfert aéroport Bilbao n’est pas proposé sans forfait — nous recommandons le bus depuis Bilbao. Santander 25 € sans forfait, ou inclus avec Malibu, Uluwatu ou Waimea.',
+        en: `${bilbaoRuleText} Without a package, we can arrange Santander airport transfer for €25, or it\'s included with Malibu, Uluwatu, or Waimea.`,
+        it: `${bilbaoRuleText} Senza pacchetto, il transfer Santander costa €25, o è incluso con Malibu, Uluwatu o Waimea.`,
+        es: `${bilbaoRuleText} Sin paquete, el transfer Santander cuesta €25, o está incluido con Malibu, Uluwatu o Waimea.`,
+        de: `${bilbaoRuleText} Ohne Paket organisieren wir Santander-Transfer für €25, oder inklusive mit Malibu, Uluwatu oder Waimea.`,
+        fr: `${bilbaoRuleText} Sans forfait, le transfert Santander est à 25 €, ou inclus avec Malibu, Uluwatu ou Waimea.`,
       };
       return map[L] || map.en;
     }
     if (guests > 0 && guests < 4) {
       const map = {
-        en: 'Bilbao airport transfer is normally only for package groups of 4+, at an extra €15 per person when we can arrange it. Santander transfer is included with your package booking.',
-        it: 'Il transfer Bilbao di solito è solo per gruppi pacchetto da 4+, extra €15 a persona quando possibile. Il transfer Santander è incluso con il tuo pacchetto.',
-        es: 'El transfer de Bilbao suele ser solo para grupos de paquete de 4+, extra €15 por persona cuando podamos. El transfer de Santander está incluido con tu paquete.',
-        de: 'Bilbao-Transfer ist normalerweise nur für Paketgruppen ab 4, extra €15 pro Person wenn möglich. Santander-Transfer ist bei deiner Paketbuchung inklusive.',
-        fr: 'Le transfert Bilbao est en général pour les groupes forfait de 4+, supplément 15 €/personne quand c’est possible. Le transfert Santander est inclus avec votre forfait.',
+        en: `${bilbaoRuleText} Santander airport transfer is included with your package booking.`,
+        it: `${bilbaoRuleText} Il transfer Santander è incluso con il tuo pacchetto.`,
+        es: `${bilbaoRuleText} El transfer de Santander está incluido con tu paquete.`,
+        de: `${bilbaoRuleText} Santander-Transfer ist bei deiner Paketbuchung inklusive.`,
+        fr: `${bilbaoRuleText} Le transfert Santander est inclus avec votre forfait.`,
       };
       return map[L] || map.en;
     }
     const map = {
-      en: 'Bilbao airport transfer can be arranged for package bookings at an extra €15 per person (normally for groups of 4+). Santander transfer is included with package bookings.',
-      it: 'Il transfer Bilbao si può organizzare per i pacchetti con extra €15 a persona (di solito gruppi da 4+). Il transfer Santander è incluso con i pacchetti.',
-      es: 'El transfer de Bilbao se puede organizar en reservas con paquete por €15 extra por persona (normalmente grupos de 4+). El transfer de Santander está incluido con paquetes.',
-      de: 'Bilbao-Transfer ist bei Paketbuchungen mit extra €15 pro Person möglich (normalerweise Gruppen ab 4). Santander-Transfer ist bei Paketbuchungen inklusive.',
-      fr: 'Le transfert Bilbao peut être organisé pour les forfaits avec 15 €/personne en supplément (souvent groupes de 4+). Le transfert Santander est inclus avec les forfaits.',
+      en: `${bilbaoRuleText} Santander airport transfer is included with your package booking.`,
+      it: `${bilbaoRuleText} Il transfer Santander è incluso con il tuo pacchetto.`,
+      es: `${bilbaoRuleText} El transfer de Santander está incluido con tu paquete.`,
+      de: `${bilbaoRuleText} Santander-Transfer ist bei deiner Paketbuchung inklusive.`,
+      fr: `${bilbaoRuleText} Le transfert Santander est inclus avec votre forfait.`,
     };
     return map[L] || map.en;
   }
@@ -228,11 +251,11 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
   }
 
   const map = {
-    en: 'Santander airport transfer is €25 without a package, or included with Malibu, Uluwatu, or Waimea. Bilbao transfer is only for package groups of 4+ at €15 per person extra — without a package we recommend the bus from Bilbao.',
-    it: 'Transfer Santander €25 senza pacchetto, o incluso con Malibu, Uluwatu o Waimea. Bilbao solo per gruppi pacchetto da 4+ a €15 extra a persona — senza pacchetto consigliamo il bus da Bilbao.',
-    es: 'Transfer Santander €25 sin paquete, o incluido con Malibu, Uluwatu o Waimea. Bilbao solo para grupos de paquete de 4+ a €15 extra por persona — sin paquete recomendamos el bus desde Bilbao.',
-    de: 'Santander-Transfer €25 ohne Paket, oder inklusive mit Malibu, Uluwatu oder Waimea. Bilbao nur für Paketgruppen ab 4 zu €15 extra pro Person — ohne Paket empfehlen wir den Bus ab Bilbao.',
-    fr: 'Transfert Santander 25 € sans forfait, ou inclus avec Malibu, Uluwatu ou Waimea. Bilbao seulement pour groupes forfait de 4+ à 15 €/personne en plus — sans forfait nous recommandons le bus depuis Bilbao.',
+    en: 'Santander airport transfer is €25 without a package, or included with Malibu, Uluwatu, or Waimea.',
+    it: 'Transfer Santander €25 senza pacchetto, o incluso con Malibu, Uluwatu o Waimea.',
+    es: 'Transfer Santander €25 sin paquete, o incluido con Malibu, Uluwatu o Waimea.',
+    de: 'Santander-Transfer €25 ohne Paket, oder inklusive mit Malibu, Uluwatu oder Waimea.',
+    fr: 'Transfert Santander 25 € sans forfait, ou inclus avec Malibu, Uluwatu ou Waimea.',
   };
   return map[L] || map.en;
 }

@@ -291,6 +291,11 @@ async function loadConversationRow(pg, { clientId, conversationId, guestPhone })
   return null;
 }
 
+const {
+  detectHandoffResumeMessage,
+  clearLunaAutoHandoffIfPresent,
+} = require('./luna-guest-handoff-persist');
+
 async function buildAutomationGateContext(pg, normalized, convRow, env) {
   const e = env || process.env;
   const reqGate = normalized.automation_gate_context && typeof normalized.automation_gate_context === 'object'
@@ -304,12 +309,29 @@ async function buildAutomationGateContext(pg, normalized, convRow, env) {
     ? trimStr(reqGate.guest_tester_class)
     : null;
 
-  if (convRow && convRow.needs_human === true) humanTakeover = true;
+  let activeConvRow = convRow;
+  if (pg && convRow && convRow.needs_human === true
+    && detectHandoffResumeMessage(normalized.message_text)) {
+    try {
+      const cleared = await clearLunaAutoHandoffIfPresent(pg, {
+        conversation_id: convRow.conversation_id,
+        client_slug: normalized.client_slug,
+        conv_row: convRow,
+      });
+      if (cleared.cleared === true) {
+        activeConvRow = { ...convRow, needs_human: false };
+      }
+    } catch (_) {
+      /* non-fatal — fall through to existing needs_human */
+    }
+  }
+
+  if (activeConvRow && activeConvRow.needs_human === true) humanTakeover = true;
 
   try {
     const pause = await getPauseState(pg, {
       client_slug:     normalized.client_slug,
-      conversation_id: convRow && convRow.conversation_id,
+      conversation_id: activeConvRow && activeConvRow.conversation_id,
       guest_phone:     normalized.guest_phone,
     });
     if (pause.row && pause.row.paused === true) botPaused = true;

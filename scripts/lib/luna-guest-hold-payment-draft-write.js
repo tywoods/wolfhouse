@@ -22,6 +22,10 @@ const {
 const {
   attachAllGuestAddonServices,
 } = require('./luna-guest-addon-service-attach');
+const { upsertBookingTransfer } = require('./booking-transfers');
+const { buildGuestTransferScheduledAtLocal } = require('./luna-guest-transfer-times-update');
+const { parseDatetimeLocalInTimezone } = require('./staff-booking-transfers-routes');
+const { getClientTransferConfig } = require('./client-transfer-config');
 const { mergePendingServiceAttachContext } = require('./luna-guest-pending-service-attach');
 
 const HOLD_EXPIRES_IN_HOURS = 6;
@@ -130,6 +134,69 @@ function deriveBookingCode(idempotencyKey) {
   return `WH-G27-${hex || 'DRAFT'}`;
 }
 
+function syntheticGuestEmailFromPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  return `open-demo+${digits}@example.test`;
+}
+
+async function loadPaymentDraftForBooking(pg, bookingId) {
+  if (!pg || !bookingId) return null;
+  const payRes = await pg.query(
+    `SELECT id::text AS payment_draft_id,
+            status::text AS status,
+            payment_kind::text AS payment_kind,
+            amount_due_cents,
+            checkout_url,
+            stripe_checkout_session_id
+       FROM payments
+      WHERE booking_id = $1::uuid
+        AND status IN ('draft', 'checkout_created', 'pending')
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [bookingId],
+  );
+  return payRes.rows[0] || null;
+}
+
+async function ensurePaymentDraftOnBooking(pg, {
+  clientId,
+  bookingId,
+  planner,
+  paymentIdemKey,
+  idempotencyKey,
+}) {
+  const existing = await loadPaymentDraftForBooking(pg, bookingId);
+  if (existing) return existing;
+  const payKind = mapPaymentKind(planner.payment_kind);
+  const pmMeta = {
+    source: WRITE_SOURCE,
+    idempotency_key: paymentIdemKey,
+    guest_intake_idempotency_key: idempotencyKey,
+    payment_choice: planner.payment_kind,
+    is_payment_truth: false,
+    stage: '27n_reuse',
+  };
+  const payIns = await pg.query(
+    `INSERT INTO payments (
+       client_id, booking_id, status, payment_kind, currency,
+       amount_due_cents, amount_paid_cents, metadata
+     ) VALUES (
+       $1, $2::uuid, 'draft'::payment_record_status, $3::payment_kind, 'EUR',
+       $4, 0, $5::jsonb
+     ) RETURNING id::text AS payment_draft_id, amount_due_cents, status::text AS status,
+               payment_kind::text AS payment_kind`,
+    [
+      clientId,
+      bookingId,
+      payKind,
+      planner.payment_amount_cents,
+      JSON.stringify(pmMeta),
+    ],
+  );
+  return payIns.rows[0] || null;
+}
+
 function buildWriteBlockedResponse(chainResult, context, reasons, replyKey) {
   const lang = resolveLang(chainResult);
   return {
@@ -185,6 +252,7 @@ async function lookupExistingHoldPaymentDraft(pg, clientSlug, idempotencyKey) {
      WHERE c.slug = $1
        AND b.metadata->>'idempotency_key' = $2
        AND b.status::text IN ('hold', 'payment_pending')
+       AND b.payment_status::text NOT IN ('deposit_paid', 'paid')
        AND (b.hold_expires_at IS NULL OR b.hold_expires_at > NOW())
      ORDER BY b.created_at DESC
      LIMIT 1`,
@@ -250,6 +318,69 @@ function formatReuseResponse(chainResult, planner, existing, attachMeta) {
   };
 }
 
+async function attachGuestBookingTransfers(pg, {
+  clientSlug,
+  bookingId,
+  booking,
+  fields,
+}) {
+  const ti = (fields && (fields.transfer_info || fields.transfer_interest)) || null;
+  if (!ti || ti.interested !== true) {
+    return { attached_transfers: [], transfer_attach_skipped: 'not_requested' };
+  }
+
+  const directions = ['arrival', 'departure'];
+  const bookingForTransfer = booking || {};
+  const usedDefaultTimes = !ti.arrival_time && !ti.departure_time;
+
+  const attached = [];
+  const errors = [];
+  for (const direction of directions) {
+    try {
+      const guestTime = direction === 'departure'
+        ? (ti.departure_time || null)
+        : (ti.arrival_time || null);
+      const tz = getClientTransferConfig(clientSlug).timezone || 'Europe/Madrid';
+      const localAt = buildGuestTransferScheduledAtLocal({
+        direction,
+        booking: bookingForTransfer,
+        timeStr: guestTime,
+        client_slug: clientSlug,
+      });
+      const scheduledAt = localAt && localAt.includes('T')
+        ? parseDatetimeLocalInTimezone(localAt, tz)
+        : localAt;
+      const row = await upsertBookingTransfer(pg, {
+        client_slug: clientSlug,
+        booking_id: bookingId,
+        direction,
+        booking: bookingForTransfer,
+        source: 'luna',
+        transfer: {
+          airport_code: ti.airport_code || 'SDR',
+          flight_number: ti.flight_number || null,
+          scheduled_at: scheduledAt,
+          guest_count: bookingForTransfer.guest_count,
+          status: 'requested',
+          notes: ti.deferred
+            ? 'Guest will send flight details later'
+            : (usedDefaultTimes
+              ? 'Booked via Luna — default transfer time (guest did not specify)'
+              : 'Booked via Luna guest intake'),
+        },
+      });
+      attached.push({ direction, transfer_id: row && (row.id || row.transfer_id) });
+    } catch (err) {
+      errors.push({ direction, error: err.message || String(err) });
+    }
+  }
+
+  return {
+    attached_transfers: attached,
+    transfer_attach_errors: errors.length ? errors : undefined,
+  };
+}
+
 async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
   const ctx = context || {};
   const chain = normalizeChain(chainResult);
@@ -261,8 +392,10 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
   const paymentIdemKey = `ghpd-pay-${idempotencyKey}`;
 
   const guestName = trimStr(fields.guest_name) || trimStr(ctx.guest_name) || 'Guest';
-  const guestEmail = trimStr(ctx.guest_email) || trimStr(fields.guest_email) || null;
   const guestPhone = trimStr(ctx.guest_phone) || trimStr(fields.guest_phone) || trimStr(fields.phone);
+  const guestEmail = trimStr(ctx.guest_email)
+    || trimStr(fields.guest_email)
+    || syntheticGuestEmailFromPhone(guestPhone);
 
   if (!guestPhone) {
     return { error: 'missing_guest_phone', handoff: true };
@@ -271,9 +404,21 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
     return { error: 'missing_guest_email', handoff: true };
   }
 
+  const clientRes = await resolveClientId(pg, clientSlug);
+  if (clientRes.error) return { error: clientRes.error };
+
   const existing = await lookupExistingHoldPaymentDraft(pg, clientSlug, idempotencyKey);
   if (existing && existing.booking) {
     const clientResReuse = await resolveClientId(pg, clientSlug);
+    if (!existing.payment) {
+      existing.payment = await ensurePaymentDraftOnBooking(pg, {
+        clientId: clientResReuse.client_id,
+        bookingId: existing.booking.booking_id,
+        planner,
+        paymentIdemKey,
+        idempotencyKey,
+      });
+    }
     const attach = await attachAllGuestAddonServices(pg, {
       clientSlug,
       bookingId: existing.booking.booking_id,
@@ -285,11 +430,14 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       clientId: clientResReuse.client_id,
       writeSource: WRITE_SOURCE,
     });
-    return { reused: existing, ...attach };
+    const transferAttach = await attachGuestBookingTransfers(pg, {
+      clientSlug,
+      bookingId: existing.booking.booking_id,
+      booking: existing.booking,
+      fields: attachFields,
+    });
+    return { reused: existing, ...attach, ...transferAttach };
   }
-
-  const clientRes = await resolveClientId(pg, clientSlug);
-  if (clientRes.error) return { error: clientRes.error };
 
   const bookingCode = deriveBookingCode(idempotencyKey);
   const packageRaw = planner.planned_records?.booking_hold?.package_code
@@ -312,7 +460,29 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
 
   const activeGuard = await selectActiveHoldGuard(pg, clientRes.client_id, holdInput);
   if (activeGuard.blocking) {
-    return { error: 'active_hold_exists', handoff: true, guard: activeGuard };
+    const reuseHold = (activeGuard.other_active_holds && activeGuard.other_active_holds[0])
+      || (activeGuard.matches && activeGuard.matches[0]);
+    // Only reuse a hold if dates AND guest count match exactly — avoids reusing stale holds
+    // from previous test runs or different conversations for the same phone number.
+    const datesMatch = reuseHold
+      && trimStr(reuseHold.check_in).slice(0, 10) === trimStr(fields.check_in).slice(0, 10)
+      && trimStr(reuseHold.check_out).slice(0, 10) === trimStr(fields.check_out).slice(0, 10)
+      && Number(reuseHold.guest_count) === Number(fields.guest_count);
+    if (reuseHold && reuseHold.booking_id && datesMatch) {
+      let payment = await loadPaymentDraftForBooking(pg, reuseHold.booking_id);
+      if (!payment) {
+        payment = await ensurePaymentDraftOnBooking(pg, {
+          clientId: clientRes.client_id,
+          bookingId: reuseHold.booking_id,
+          planner,
+          paymentIdemKey,
+          idempotencyKey,
+        });
+      }
+      return { reused: { booking: reuseHold, payment } };
+    }
+    // Dates/guests don't match — do NOT reuse; fall through to create a fresh hold.
+    // selectActiveHoldGuard is advisory; upsertBookingHold will resolve the conflict.
   }
 
   const holdExpiresAt = proposeGuestHoldExpiresAt();
@@ -387,6 +557,11 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
           idempotency_key: idempotencyKey,
           quote_snapshot: quoteSnapshot,
           guest_intake_stage: 'hold_payment_draft_ready',
+          guest: {
+            name: guestName,
+            phone: guestPhone,
+            email: guestEmail,
+          },
         }),
         bookingId,
       ],
@@ -421,6 +596,14 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
 
     await pg.query('COMMIT');
 
+    const bookingRow = {
+      ...holdOutcome.booking,
+      check_in: holdInput.check_in,
+      check_out: holdInput.check_out,
+      guest_count: holdInput.guest_count,
+      package_code: holdInput.package_code,
+    };
+
     const attach = await attachAllGuestAddonServices(pg, {
       clientSlug,
       bookingId,
@@ -433,6 +616,13 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       writeSource: WRITE_SOURCE,
     });
 
+    const transferAttach = await attachGuestBookingTransfers(pg, {
+      clientSlug,
+      bookingId,
+      booking: bookingRow,
+      fields: attachFields,
+    });
+
     return {
       created: true,
       booking_id: bookingId,
@@ -442,6 +632,7 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       hold_created: holdOutcome.created,
       hold_updated: holdOutcome.updated,
       ...attach,
+      ...transferAttach,
     };
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
@@ -567,6 +758,7 @@ module.exports = {
   confirmWriteApproved,
   lookupExistingHoldPaymentDraft,
   deriveBookingCode,
+  syntheticGuestEmailFromPhone,
   mapPaymentKind,
   HOLD_EXPIRES_IN_HOURS,
   VALID_WRITE_STATUSES,

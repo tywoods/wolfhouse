@@ -1,25 +1,24 @@
 {
-  "id": "hammer-40402-0009",
+  "id": "hammer-50001-0047",
   "fixture_set": "generated-hammer-failures",
   "language": "en",
-  "contact_name": "Emma",
+  "contact_name": "Sophie",
   "reference_date": "2026-06-10",
   "hammer_meta": {
-    "seed": 40402,
-    "index": 9,
-    "scenario_type": "cash_payment_side_question",
+    "seed": 50001,
+    "index": 47,
+    "scenario_type": "surf_report_side_question",
     "language": "en",
     "style": [
-      "typo",
       "emoji"
     ],
-    "generated_at": "2026-06-11T09:40:40.627Z"
+    "generated_at": "2026-06-12T19:59:09.356Z"
   },
   "turns": [
     {
-      "message": "Hey we're 3, julyy 10-17, just the stay",
+      "message": "🌊 Hey we are 4 friends, July 10-17, no package just stay",
       "expect": {
-        "expected_guest_count": 3,
+        "expected_guest_count": 4,
         "expected_dates": {
           "check_in": "2026-07-10",
           "check_out": "2026-07-17"
@@ -28,13 +27,14 @@
         "no_internal_language": true,
         "expected_language": "en",
         "expected_quote_ready": true,
-        "expected_accommodation_only": true
+        "expected_accommodation_only": true,
+        "allow_partial": true
       }
     },
     {
-      "message": "cash payment ok?",
+      "message": "✨ any surf tomorrow?",
       "expect": {
-        "expected_guest_count": 3,
+        "expected_guest_count": 4,
         "expected_dates": {
           "check_in": "2026-07-10",
           "check_out": "2026-07-17"
@@ -42,11 +42,7 @@
         "expected_no_handoff": true,
         "no_internal_language": true,
         "expected_language": "en",
-        "expected_quote_ready": true,
         "expected_context_preserved": true,
-        "reply_contains": [
-          "cash"
-        ],
         "allow_partial": true
       }
     }
@@ -55,7 +51,7 @@
     "expected_fields": {
       "check_in": "2026-07-10",
       "check_out": "2026-07-17",
-      "guest_count": 3,
+      "guest_count": 4,
       "package_interest": "accommodation_only"
     },
     "no_internal_language": true,
@@ -64,44 +60,43 @@
     "expected_quote_ready": true
   },
   "hammer_review": {
-    "source_seed": 40402,
-    "scenario_id": "hammer-40402-0009",
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0047",
     "language": "en",
-    "scenario_type": "cash_payment_side_question",
+    "scenario_type": "surf_report_side_question",
     "failure_categories": [
-      "internal_error",
-      "cash_side_question"
+      "accommodation_intent",
+      "package_intent"
     ],
     "generated_turns": [
-      "Hey we're 3, julyy 10-17, just the stay",
-      "cash payment ok?"
+      "🌊 Hey we are 4 friends, July 10-17, no package just stay",
+      "✨ any surf tomorrow?"
     ],
-    "expected_issue_summary": "final: final expected_quote_ready but quote_status=not_ready (internal_error, cash_side_question)",
+    "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"malibu\" (accommodation_intent, package_intent)",
     "final_extracted_facts": {
       "check_in": "2026-07-10",
       "check_out": "2026-07-17",
-      "guest_count": 3,
-      "guest_name": "Emma",
+      "guest_count": 4,
+      "guest_name": "Sophie",
       "deferred_guest_count": null,
-      "package_interest": "accommodation_only",
+      "package_interest": "malibu",
       "room_preference": null,
       "transfer_info": null,
-      "addons_skipped": true,
+      "addons_skipped": null,
       "transfer_interest": null,
       "service_interest": [],
       "meals_request": null,
       "yoga_request": null,
       "payment_preference": null
     },
-    "quote_status": "not_ready",
-    "luna_final_reply": "Thanks! Would you prefer to pay the deposit or the full amount for your stay?",
-    "suggested_fix_area": "orchestrator crash / missing import",
+    "quote_status": "ready",
+    "luna_final_reply": "I can't see the live surf report right this second, but Somo usually works with a nice range of conditions. The team can confirm the best window closer to the day 🌊 Want me to keep going with your booking?",
+    "suggested_fix_area": "accommodation-only intent + short-stay defaults",
     "hammer_result": "FAIL",
     "failures": [
-      "final: final expected_quote_ready but quote_status=not_ready",
-      "turn 2: reply_contains \"cash\" missing",
-      "turn 2: expected_quote_ready but quote_status=not_ready"
+      "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"malibu\"",
+      "turn 1: expected_accommodation_only but package_interest=malibu"
     ],
-    "exported_at": "2026-06-11T09:40:41.335Z"
+    "exported_at": "2026-06-12T19:59:10.661Z"
   }
 }

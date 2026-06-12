@@ -1,7 +1,7 @@
 {
   "stage": "40c",
-  "source_seed": 40402,
-  "exported_at": "2026-06-11T09:40:41.342Z",
+  "source_seed": 50001,
+  "exported_at": "2026-06-12T19:59:10.663Z",
   "caps": {
     "fail": 10,
     "partial": 5
@@ -10,143 +10,144 @@
   "partial_exported": 5,
   "exports": [
     {
-      "file": "hammer-40402-0009.json",
+      "file": "hammer-50001-0006.json",
       "result": "FAIL",
-      "scenario_id": "hammer-40402-0009",
-      "language": "en",
-      "scenario_type": "cash_payment_side_question",
-      "failure_categories": [
-        "internal_error",
-        "cash_side_question"
-      ],
-      "expected_issue_summary": "final: final expected_quote_ready but quote_status=not_ready (internal_error, cash_side_question)",
-      "suggested_fix_area": "orchestrator crash / missing import"
-    },
-    {
-      "file": "hammer-40402-0010.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0010",
-      "language": "it",
-      "scenario_type": "correction_flow",
-      "failure_categories": [
-        "date_parsing",
-        "guest_count"
-      ],
-      "expected_issue_summary": "turn 2: expected_stale_quote but quote was not invalidated (date_parsing, guest_count)",
-      "suggested_fix_area": "intake date parser / multilingual compact ranges"
-    },
-    {
-      "file": "hammer-40402-0032.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0032",
-      "language": "it",
-      "scenario_type": "transfer_side_question",
-      "failure_categories": [
-        "internal_error",
-        "guest_count",
-        "transfer_side_question"
-      ],
-      "expected_issue_summary": "turn 1: expected_quote_ready but quote_status=not_ready (internal_error, guest_count, transfer_side_question)",
-      "suggested_fix_area": "orchestrator crash / missing import"
-    },
-    {
-      "file": "hammer-40402-0033.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0033",
-      "language": "it",
-      "scenario_type": "cash_payment_side_question",
-      "failure_categories": [
-        "internal_error",
-        "cash_side_question"
-      ],
-      "expected_issue_summary": "final: final expected_quote_ready but quote_status=not_ready (internal_error, cash_side_question)",
-      "suggested_fix_area": "orchestrator crash / missing import"
-    },
-    {
-      "file": "hammer-40402-0045.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0045",
-      "language": "de",
-      "scenario_type": "cash_payment_side_question",
-      "failure_categories": [
-        "internal_error",
-        "cash_side_question"
-      ],
-      "expected_issue_summary": "final: final expected_quote_ready but quote_status=not_ready (internal_error, cash_side_question)",
-      "suggested_fix_area": "orchestrator crash / missing import"
-    },
-    {
-      "file": "hammer-40402-0048.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0048",
-      "language": "it",
-      "scenario_type": "out_of_order_all_in_one",
-      "failure_categories": [
-        "internal_error",
-        "guest_count"
-      ],
-      "expected_issue_summary": "turn 1: expected_quote_ready but quote_status=not_ready (internal_error, guest_count)",
-      "suggested_fix_area": "orchestrator crash / missing import"
-    },
-    {
-      "file": "hammer-40402-0067.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0067",
-      "language": "es",
-      "scenario_type": "dinner_meals_request",
-      "failure_categories": [
-        "internal_error",
-        "yoga_meals_intent"
-      ],
-      "expected_issue_summary": "final: final expected_quote_ready but quote_status=not_ready (internal_error, yoga_meals_intent)",
-      "suggested_fix_area": "orchestrator crash / missing import"
-    },
-    {
-      "file": "hammer-40402-0081.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0081",
-      "language": "en",
-      "scenario_type": "cash_payment_side_question",
-      "failure_categories": [
-        "forbidden_language",
-        "internal_error",
-        "cash_side_question"
-      ],
-      "expected_issue_summary": "final: internal language turn 2: didn't quite catch (forbidden_language, internal_error, cash_side_question)",
-      "suggested_fix_area": "reply style contract / composer sanitization"
-    },
-    {
-      "file": "hammer-40402-0091.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0091",
-      "language": "it",
-      "scenario_type": "dinner_meals_request",
-      "failure_categories": [
-        "internal_error",
-        "yoga_meals_intent"
-      ],
-      "expected_issue_summary": "final: final expected_quote_ready but quote_status=not_ready (internal_error, yoga_meals_intent)",
-      "suggested_fix_area": "orchestrator crash / missing import"
-    },
-    {
-      "file": "hammer-40402-0095.json",
-      "result": "FAIL",
-      "scenario_id": "hammer-40402-0095",
-      "language": "it",
-      "scenario_type": "reset_flow",
-      "failure_categories": [
-        "guest_count",
-        "reset"
-      ],
-      "expected_issue_summary": "final: final.expected_fields.guest_count expected 2 got null (guest_count, reset)",
-      "suggested_fix_area": "guest count extraction + solo accommodation guard"
-    },
-    {
-      "file": "hammer-40402-0004.json",
-      "result": "PARTIAL",
-      "scenario_id": "hammer-40402-0004",
+      "scenario_id": "hammer-50001-0006",
       "language": "de",
       "scenario_type": "short_stay_surf_addons",
+      "failure_categories": [
+        "accommodation_intent",
+        "internal_error",
+        "service_addon_intent"
+      ],
+      "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got null (accommodation_intent, internal_error, service_addon_intent)",
+      "suggested_fix_area": "accommodation-only intent + short-stay defaults"
+    },
+    {
+      "file": "hammer-50001-0007.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0007",
+      "language": "it",
+      "scenario_type": "lesson_addon",
+      "failure_categories": [
+        "accommodation_intent",
+        "service_addon_intent",
+        "package_intent"
+      ],
+      "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"waimea\" (accommodation_intent, service_addon_intent, package_intent)",
+      "suggested_fix_area": "accommodation-only intent + short-stay defaults"
+    },
+    {
+      "file": "hammer-50001-0014.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0014",
+      "language": "en",
+      "scenario_type": "cash_payment_side_question",
+      "failure_categories": [
+        "package_intent",
+        "cash_side_question"
+      ],
+      "expected_issue_summary": "turn 1: expected_accommodation_only but package_interest=malibu (package_intent, cash_side_question)",
+      "suggested_fix_area": "package detection + side-question context"
+    },
+    {
+      "file": "hammer-50001-0015.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0015",
+      "language": "en",
+      "scenario_type": "correction_flow",
+      "failure_categories": [
+        "package_intent"
+      ],
+      "expected_issue_summary": "turn 1: expected_accommodation_only but package_interest=malibu (package_intent)",
+      "suggested_fix_area": "package detection + side-question context"
+    },
+    {
+      "file": "hammer-50001-0023.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0023",
+      "language": "es",
+      "scenario_type": "short_stay_surf_addons",
+      "failure_categories": [
+        "accommodation_intent",
+        "internal_error",
+        "service_addon_intent"
+      ],
+      "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got null (accommodation_intent, internal_error, service_addon_intent)",
+      "suggested_fix_area": "accommodation-only intent + short-stay defaults"
+    },
+    {
+      "file": "hammer-50001-0030.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0030",
+      "language": "en",
+      "scenario_type": "surf_report_side_question",
+      "failure_categories": [
+        "accommodation_intent",
+        "package_intent"
+      ],
+      "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"malibu\" (accommodation_intent, package_intent)",
+      "suggested_fix_area": "accommodation-only intent + short-stay defaults"
+    },
+    {
+      "file": "hammer-50001-0034.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0034",
+      "language": "en",
+      "scenario_type": "out_of_order_all_in_one",
+      "failure_categories": [
+        "internal_error"
+      ],
+      "expected_issue_summary": "turn 1: expected_quote_ready but quote_status=not_ready (internal_error)",
+      "suggested_fix_area": "orchestrator crash / missing import"
+    },
+    {
+      "file": "hammer-50001-0040.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0040",
+      "language": "de",
+      "scenario_type": "short_stay_surf_addons",
+      "failure_categories": [
+        "accommodation_intent",
+        "internal_error",
+        "service_addon_intent"
+      ],
+      "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got null (accommodation_intent, internal_error, service_addon_intent)",
+      "suggested_fix_area": "accommodation-only intent + short-stay defaults"
+    },
+    {
+      "file": "hammer-50001-0041.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0041",
+      "language": "es",
+      "scenario_type": "lesson_addon",
+      "failure_categories": [
+        "accommodation_intent",
+        "service_addon_intent",
+        "package_intent"
+      ],
+      "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"waimea\" (accommodation_intent, service_addon_intent, package_intent)",
+      "suggested_fix_area": "accommodation-only intent + short-stay defaults"
+    },
+    {
+      "file": "hammer-50001-0047.json",
+      "result": "FAIL",
+      "scenario_id": "hammer-50001-0047",
+      "language": "en",
+      "scenario_type": "surf_report_side_question",
+      "failure_categories": [
+        "accommodation_intent",
+        "package_intent"
+      ],
+      "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"malibu\" (accommodation_intent, package_intent)",
+      "suggested_fix_area": "accommodation-only intent + short-stay defaults"
+    },
+    {
+      "file": "hammer-50001-0005.json",
+      "result": "PARTIAL",
+      "scenario_id": "hammer-50001-0005",
+      "language": "es",
+      "scenario_type": "package_surf_addons",
       "failure_categories": [
         "service_addon_intent"
       ],
@@ -154,9 +155,9 @@
       "suggested_fix_area": "add-on parsing (muta/tavola/board/lesson)"
     },
     {
-      "file": "hammer-40402-0017.json",
+      "file": "hammer-50001-0024.json",
       "result": "PARTIAL",
-      "scenario_id": "hammer-40402-0017",
+      "scenario_id": "hammer-50001-0024",
       "language": "de",
       "scenario_type": "lesson_addon",
       "failure_categories": [
@@ -166,10 +167,22 @@
       "suggested_fix_area": "add-on parsing (muta/tavola/board/lesson)"
     },
     {
-      "file": "hammer-40402-0027.json",
+      "file": "hammer-50001-0031.json",
       "result": "PARTIAL",
-      "scenario_id": "hammer-40402-0027",
-      "language": "de",
+      "scenario_id": "hammer-50001-0031",
+      "language": "es",
+      "scenario_type": "cash_payment_side_question",
+      "failure_categories": [
+        "cash_side_question"
+      ],
+      "expected_issue_summary": "turn 2: reply_contains \"efectivo\" missing (cash_side_question)",
+      "suggested_fix_area": "payment side-Q copy + quote preservation"
+    },
+    {
+      "file": "hammer-50001-0039.json",
+      "result": "PARTIAL",
+      "scenario_id": "hammer-50001-0039",
+      "language": "en",
       "scenario_type": "package_surf_addons",
       "failure_categories": [
         "service_addon_intent"
@@ -178,22 +191,10 @@
       "suggested_fix_area": "add-on parsing (muta/tavola/board/lesson)"
     },
     {
-      "file": "hammer-40402-0028.json",
+      "file": "hammer-50001-0043.json",
       "result": "PARTIAL",
-      "scenario_id": "hammer-40402-0028",
-      "language": "es",
-      "scenario_type": "short_stay_surf_addons",
-      "failure_categories": [
-        "service_addon_intent"
-      ],
-      "expected_issue_summary": "turn 1: expected_service_interest missing wetsuit (service_addon_intent)",
-      "suggested_fix_area": "add-on parsing (muta/tavola/board/lesson)"
-    },
-    {
-      "file": "hammer-40402-0031.json",
-      "result": "PARTIAL",
-      "scenario_id": "hammer-40402-0031",
-      "language": "es",
+      "scenario_id": "hammer-50001-0043",
+      "language": "de",
       "scenario_type": "dinner_meals_request",
       "failure_categories": [
         "yoga_meals_intent"

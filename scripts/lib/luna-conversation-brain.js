@@ -34,6 +34,7 @@
  */
 
 const { detectPackageExplainerIntent } = require('./luna-guest-package-explainer');
+const { detectBookingReadyToProceed } = require('./luna-booking-intake-policy');
 const { detectFieldCorrectionIntent } = require('./luna-booking-state-transitions');
 const { KNOWN_ADDON_TYPES, parseGuestNameAnswer } = require('./luna-guest-message-intake');
 const { callLunaAiJsonChat, resolveLunaAiModel } = require('./luna-ai-provider');
@@ -192,7 +193,17 @@ function detectResetSignal(text) {
 function detectGreetingOnly(text) {
   const t = trimStr(text);
   if (!t) return false;
-  return /^(?:hi|hey|hello|hiya|howdy|yo|good\s+(?:morning|afternoon|evening)|ciao|hola|bonjour|hallo|salut|servus)(?:\s*[!?.…]*)?$/i.test(t);
+  if (/^(?:hi|hey|hello|hiya|howdy|yo|good\s+(?:morning|afternoon|evening)|ciao|hola|bonjour|hallo|salut|servus|moin|na)(?:\s*[!?.…]*)?$/i.test(t)) {
+    return true;
+  }
+  if (/^(?:hey|hi|hallo|moin|na)[,.\s]+(?:was\s+geht(?:\s+ab)?|wie\s+geht'?s|wie\s+geht\s+es)(?:\s*[!?.…]*)?$/i.test(t)) {
+    return true;
+  }
+  if (/^was\s+geht(?:\s+ab)?(?:\s*[!?.…]*)?$/i.test(t)) return true;
+  if (/^wie\s+geht'?s(?:\s+(?:dir|euch|ihnen))?(?:\s*[!?.…]*)?$/i.test(t)) return true;
+  if (/^guten\s+(?:tag|morgen|abend)(?:\s*[!?.…]*)?$/i.test(t)) return true;
+  if (/^gr[uü]ß(?:\s+(?:dich|gott))?(?:\s*[!?.…]*)?$/i.test(t)) return true;
+  return false;
 }
 
 /** Guest is correcting something Luna said (priority 4 — never handoff for this alone). */
@@ -493,6 +504,19 @@ function decideConversationAction(input) {
       next_best_action: 'none',
       should_handoff: false,
       confidence: 0.95,
+    };
+  }
+
+  // ── Guest done adding details — proceed to deposit/payment, never handoff ─
+  if (inActiveBooking && detectBookingReadyToProceed(message)) {
+    return {
+      ...decision,
+      intent: 'payment_choice',
+      reply_type: 'continue_booking',
+      preserve_context: true,
+      next_best_action: 'collect_payment_choice',
+      should_handoff: false,
+      confidence: 0.9,
     };
   }
 
@@ -841,6 +865,27 @@ async function decideConversationActionAsync(input, options = {}) {
       deterministic.model_used = modelUsed;
       deterministic.llm_error = llmError;
       return deterministic;
+    }
+    const priorCtx = inp.guest_context || {};
+    const hasPaidBooking = !!(priorCtx.booking_id || priorCtx.booking_code);
+    if (!hasPaidBooking
+      && (sanitized.intent === 'paid_booking_change'
+        || sanitized.handoff_reason === 'paid_booking_change'
+        || (sanitized.should_handoff === true && sanitized.reply_type === 'handoff'))) {
+      if (deterministic.intent === 'payment_choice' && deterministic.confidence >= 0.8) {
+        deterministic.source = 'deterministic';
+        deterministic.deterministic_over_llm = 'payment_choice_over_handoff';
+        deterministic.model_used = modelUsed;
+        deterministic.llm_error = llmError;
+        return deterministic;
+      }
+      sanitized.should_handoff = false;
+      sanitized.handoff_reason = null;
+      if (sanitized.reply_type === 'handoff') sanitized.reply_type = 'continue_booking';
+      if (sanitized.intent === 'paid_booking_change') sanitized.intent = 'booking_intake';
+      if (inp.in_active_booking && sanitized.next_best_action === 'none') {
+        sanitized.next_best_action = 'collect_payment_choice';
+      }
     }
     return sanitized;
   } catch (err) {

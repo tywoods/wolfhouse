@@ -1,33 +1,34 @@
 {
-  "id": "hammer-40402-0027",
+  "id": "hammer-50001-0039",
   "fixture_set": "generated-hammer-failures",
-  "language": "de",
-  "contact_name": "Thomas",
+  "language": "en",
+  "contact_name": "James",
   "reference_date": "2026-06-10",
   "hammer_meta": {
-    "seed": 40402,
-    "index": 27,
+    "seed": 50001,
+    "index": 39,
     "scenario_type": "package_surf_addons",
-    "language": "de",
+    "language": "en",
     "style": [
+      "typo",
       "emoji"
     ],
-    "generated_at": "2026-06-11T09:40:40.628Z"
+    "generated_at": "2026-06-12T19:59:09.356Z"
   },
   "turns": [
     {
-      "message": "✨ Hallo wir sind 2 Personen, Waimea Paket, vom 3. bis 10. Juli, 🏄 Neopren und Board",
+      "message": "Hi we're 1 for July 10-17, Uluwatu 🌊, wetsuit and board please 🙏",
       "expect": {
-        "expected_guest_count": 2,
+        "expected_guest_count": 1,
         "expected_dates": {
-          "check_in": "2026-07-03",
-          "check_out": "2026-07-10"
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17"
         },
         "expected_no_handoff": true,
         "no_internal_language": true,
-        "expected_language": "de",
+        "expected_language": "en",
         "expected_quote_ready": true,
-        "expected_package": "waimea",
+        "expected_package": "uluwatu",
         "expected_service_interest": [
           "wetsuit",
           "surfboard"
@@ -38,53 +39,52 @@
   ],
   "final_expect": {
     "expected_fields": {
-      "check_in": "2026-07-03",
-      "check_out": "2026-07-10",
-      "guest_count": 2,
-      "package_interest": "waimea"
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 1,
+      "package_interest": "uluwatu"
     },
     "no_internal_language": true,
     "no_handoff": true,
-    "expected_language": "de",
+    "expected_language": "en",
     "expected_quote_ready": true
   },
   "hammer_review": {
-    "source_seed": 40402,
-    "scenario_id": "hammer-40402-0027",
-    "language": "de",
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0039",
+    "language": "en",
     "scenario_type": "package_surf_addons",
     "failure_categories": [
       "service_addon_intent"
     ],
     "generated_turns": [
-      "✨ Hallo wir sind 2 Personen, Waimea Paket, vom 3. bis 10. Juli, 🏄 Neopren und Board"
+      "Hi we're 1 for July 10-17, Uluwatu 🌊, wetsuit and board please 🙏"
     ],
     "expected_issue_summary": "turn 1: expected_service_interest missing wetsuit (service_addon_intent)",
     "final_extracted_facts": {
-      "check_in": "2026-07-03",
-      "check_out": "2026-07-10",
-      "guest_count": 2,
-      "guest_name": "Thomas",
+      "check_in": "2026-07-10",
+      "check_out": "2026-07-17",
+      "guest_count": 1,
+      "guest_name": "James",
       "deferred_guest_count": null,
-      "package_interest": "waimea",
+      "package_interest": "uluwatu",
       "room_preference": null,
       "transfer_info": null,
       "addons_skipped": null,
       "transfer_interest": null,
-      "service_interest": [
-        "surfboard"
-      ],
+      "service_interest": [],
       "meals_request": null,
       "yoga_request": null,
       "payment_preference": null
     },
     "quote_status": "ready",
-    "luna_final_reply": "Would you rather pay the €200 deposit or the full €1203?",
+    "luna_final_reply": "For lessons we can sort you with a wetsuit 🌊 If you have your own, bring it too. Around here 4/3 or 3/2 is usually the safe call depending on the season. Want me to keep going with your booking?",
     "suggested_fix_area": "add-on parsing (muta/tavola/board/lesson)",
     "hammer_result": "PARTIAL",
     "failures": [
-      "turn 1: expected_service_interest missing wetsuit"
+      "turn 1: expected_service_interest missing wetsuit",
+      "turn 1: expected_service_interest missing surfboard"
     ],
-    "exported_at": "2026-06-11T09:40:41.341Z"
+    "exported_at": "2026-06-12T19:59:10.662Z"
   }
 }

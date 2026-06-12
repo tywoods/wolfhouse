@@ -15,6 +15,7 @@ const {
 const {
   shouldSkipCamiAuthor,
 } = require('./luna-guest-composer-ownership');
+const { isFrontdeskAuthoringBriefLeak } = require('./luna-guest-frontdesk-reply');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -105,9 +106,27 @@ async function applyGuestReplyPipeline(args) {
     });
   }
 
+  let finalReply = trimStr(camiStage.reply);
+  let finalSource = camiStage.reply_source;
+  const guestSafeFallback = trimStr(a.candidate_reply)
+    || (a.composed && trimStr(a.composed.reply));
+  if (
+    guestSafeFallback
+    && (
+      (a.composed && a.composed.cami_author_required === true && camiStage.observability.cami_author_used !== true)
+      || isFrontdeskAuthoringBriefLeak(finalReply)
+    )
+    && isFrontdeskAuthoringBriefLeak(finalReply)
+  ) {
+    finalReply = guestSafeFallback;
+    if (finalSource === 'frontdesk_planner' || finalSource === 'cami_reply_author') {
+      finalSource = 'frontdesk_guest_fallback';
+    }
+  }
+
   return {
-    reply: camiStage.reply,
-    reply_source: camiStage.reply_source,
+    reply: finalReply,
+    reply_source: finalSource,
     composer_state: a.composed && a.composed.composer_state,
     cami_variation_history: camiStage.cami_variation_history
       || (a.composed && a.composed.cami_variation_history),
@@ -116,7 +135,8 @@ async function applyGuestReplyPipeline(args) {
       agent_brain_source: agentStage.reply_source,
       cami_skipped: camiSkip.skip === true,
       cami_skip_reason: camiSkip.reason,
-      final_source: camiStage.reply_source,
+      final_source: finalSource,
+      guest_fallback_used: finalSource === 'frontdesk_guest_fallback',
     },
     guest_agent_brain: agentStage.observability,
     cami_reply_author: camiStage.observability,

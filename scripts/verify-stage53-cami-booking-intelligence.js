@@ -34,9 +34,12 @@ function check(id, cond, msg) { if (cond) pass(id, msg); else fail(id, msg); }
 function section(t) { console.log(`\n── ${t} ──`); }
 
 section('A. Package inference from gear');
-check('A1', inferPackageFromGearSignals('yea i need a surfboard and a wesuit') === 'uluwatu', 'board+wesuit → uluwatu');
-check('A2', inferPackageFromGearSignals('surf lessons and gear please') === 'waimea', 'lessons → waimea');
-check('A3', inferPackageFromGearSignals('just accommodation only') === 'malibu', 'stay only → malibu');
+check('A1', inferPackageFromGearSignals('yea i need a surfboard and a wesuit') == null, 'board+wesuit addon → no weekly package infer');
+check('A2', inferPackageFromGearSignals('surf lessons and gear please') == null, 'lessons addon → no weekly package infer');
+check('A3', inferPackageFromGearSignals('just accommodation only') == null, 'accommodation only → no weekly package infer');
+check('A4', inferPackageFromGearSignals('gear included') === 'uluwatu', 'tier gear included → uluwatu');
+check('A5', inferPackageFromGearSignals('lessons included') === 'waimea', 'tier lessons included → waimea');
+check('A6', inferPackageFromGearSignals('stay only') === 'malibu', 'tier stay only → malibu');
 
 section('B. Router — gear mid-intake stays booking lane');
 {
@@ -57,7 +60,9 @@ section('B. Router — gear mid-intake stays booking lane');
   });
   check('B1', out.message_lane === 'new_booking_inquiry', 'gear mention stays new_booking_inquiry');
   check('B2', out.detected_language === 'en', 'wetsuit in English does not flip to German');
-  check('B3', out.extracted_fields && out.extracted_fields.package_interest === 'uluwatu', 'package_interest inferred');
+  check('B3', !out.extracted_fields || !out.extracted_fields.package_interest
+    || out.extracted_fields.package_interest === 'no_package',
+    'standalone gear does not infer weekly package');
 }
 
 section('C. Knowledge — no FAQ hijack mid package intake');
@@ -132,13 +137,19 @@ section('E. Fable variation pools wired');
   check('E3', !/so happy you(?:'re| are) here/i.test(welcome), 'welcome drops so-happy-youre-here');
 }
 
-section('F. Intake extracts uluwatu from gear message');
+section('F. Intake tier vs addon signals');
 {
-  const intake = extractLunaGuestMessageIntake({
+  const gearAddon = extractLunaGuestMessageIntake({
     client_slug: 'wolfhouse-somo',
     message_text: 'surfboard and wetsuit please',
   });
-  check('F1', intake.package_code === 'uluwatu', 'intake package_code from gear');
+  check('F1', !gearAddon.package_code || gearAddon.package_code === 'no_package',
+    'standalone gear request does not infer weekly package');
+  const tierGear = extractLunaGuestMessageIntake({
+    client_slug: 'wolfhouse-somo',
+    message_text: 'gear included please',
+  });
+  check('F2', tierGear.package_code === 'uluwatu', 'tier gear included → uluwatu');
 }
 
 console.log(`\n${passes} passed, ${failures} failed\n`);

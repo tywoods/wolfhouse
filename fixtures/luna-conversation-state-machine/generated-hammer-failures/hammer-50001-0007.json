@@ -1,0 +1,91 @@
+{
+  "id": "hammer-50001-0007",
+  "fixture_set": "generated-hammer-failures",
+  "language": "it",
+  "contact_name": "Luca",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 50001,
+    "index": 7,
+    "scenario_type": "lesson_addon",
+    "language": "it",
+    "style": [
+      "emoji"
+    ],
+    "generated_at": "2026-06-12T19:59:09.356Z"
+  },
+  "turns": [
+    {
+      "message": "🏄 per 1, 3-10 luglio, solo alloggio, vorremmo lezioni",
+      "expect": {
+        "expected_guest_count": 1,
+        "expected_dates": {
+          "check_in": "2026-07-03",
+          "check_out": "2026-07-10"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "it",
+        "expected_quote_ready": true,
+        "expected_accommodation_only": true,
+        "expected_service_interest": [
+          "surf_lesson"
+        ],
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-03",
+      "check_out": "2026-07-10",
+      "guest_count": 1,
+      "package_interest": "accommodation_only"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "it",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0007",
+    "language": "it",
+    "scenario_type": "lesson_addon",
+    "failure_categories": [
+      "accommodation_intent",
+      "service_addon_intent",
+      "package_intent"
+    ],
+    "generated_turns": [
+      "🏄 per 1, 3-10 luglio, solo alloggio, vorremmo lezioni"
+    ],
+    "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"waimea\" (accommodation_intent, service_addon_intent, package_intent)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-03",
+      "check_out": "2026-07-10",
+      "guest_count": 1,
+      "guest_name": "Luca",
+      "deferred_guest_count": null,
+      "package_interest": "waimea",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": null,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "ready",
+    "luna_final_reply": "Perfect 😊 Waimea for July 3 to July 10, 1 ospite.\n\nI checked it and the stay comes to €549 total.\n\nTo reserve it, you can do the €200 deposit now or pay the full €549 — which do you prefer?",
+    "suggested_fix_area": "accommodation-only intent + short-stay defaults",
+    "hammer_result": "FAIL",
+    "failures": [
+      "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"waimea\"",
+      "turn 1: expected_service_interest missing surf_lesson",
+      "turn 1: expected_accommodation_only but package_interest=waimea"
+    ],
+    "exported_at": "2026-06-12T19:59:10.658Z"
+  }
+}

@@ -475,18 +475,31 @@
           "confirm_dates": "Perfetto — {{range}}. Quanti ospiti sarete?",
           "accommodation_quote_available": "Ottime notizie — abbiamo posto per quelle date ☀️ Il soggiorno viene {{total}}.",
           "accommodation_quote_addons_tail": "Vi serve muta, tavola o lezioni, o solo pernottamento?",
+          "answer_arrival_payment_question": "Certo — il saldo restante si può pagare in contanti, bonifico o online all'arrivo. Per prenotare ora, preferisci il deposito di {{deposit}} o l'importo intero di {{total}}?",
+          "answer_arrival_payment_question_no_amounts": "Certo — il saldo all'arrivo si può pagare in contanti, bonifico o online 😊 Per prenotare ora serve deposito o pagamento completo.",
           "reset_start_over": "Nessun problema, ricominciamo da zero 😊 Quali date cercate?"
         },
         "es": {
           "intro_short": "Holaaa! Soy Luna de Wolfhouse 🌊 Qué alegría que estéis aquí!",
           "greeting": "{{intro_short}}\n¿Queréis reservar una estancia, preguntar por packs o solo info?",
           "ask_dates": "Genial! ¿Qué fechas tenéis en mente para check-in y check-out?",
+          "answer_arrival_payment_question": "Claro — el saldo restante se puede pagar en efectivo, transferencia o online a la llegada. Para reservar ahora, ¿prefieres el depósito de {{deposit}} o el importe completo de {{total}}?",
+          "answer_arrival_payment_question_no_amounts": "Claro — el saldo a la llegada se puede pagar en efectivo, transferencia o online 😊 Para reservar ahora necesitamos depósito o pago completo.",
           "reset_start_over": "Sin problema, empezamos de nuevo 😊 ¿Qué fechas buscáis?"
         },
         "de": {
           "intro_short": "Heyyy! Ich bin Luna von Wolfhouse 🌊 Schön, dass ihr da seid!",
           "greeting": "{{intro_short}}\nMöchtet ihr einen Aufenthalt buchen, was zu Paketen fragen oder nur Infos?",
           "ask_dates": "Super! Welche Daten habt ihr für Check-in und Check-out im Kopf?",
+          "package_quote_available": "Gute Nachrichten — wir haben Platz {{date_avail}}. {{package_label}} kommt auf {{total}}.",
+          "package_quote_payment_tail": "Zur Reservierung könnt ihr die {{deposit}} Anzahlung oder die vollen {{total}} zahlen.",
+          "deposit_ack": "Perfekt — Anzahlung 👍 Ich bereite euren sicheren Zahlungslink vor.",
+          "full_ack": "Perfekt — volle Zahlung 👍 Ich bereite euren sicheren Zahlungslink vor.",
+          "stripe_link": "Perfekt — euer Platz ist reserviert 🙌 Hier könnt ihr die {{deposit}} Anzahlung zahlen: {{checkout_url}}\n\nSobald die Zahlung durch ist, ist die Buchung bestätigt.",
+          "payment_link_sent": "Perfekt — euer Platz ist für die {{deposit}} Anzahlung reserviert 🙌 Schaut in den sicheren Zahlungslink, den ich gerade geschickt habe.",
+          "payment_received": "Super — eure {{paid}} Anzahlung ist da 🙌 Ihr gehört zur Wolfhouse-Family — gleich kommt die volle Bestätigung.",
+          "answer_arrival_payment_question": "Klar — der Restbetrag kann bar, per Überweisung oder online bei Ankunft gezahlt werden. Für die Reservierung jetzt: {{deposit}} Anzahlung oder volle {{total}}?",
+          "answer_arrival_payment_question_no_amounts": "Klar — der Restbetrag kann bar, per Überweisung oder online bei Ankunft gezahlt werden 😊 Für die Reservierung jetzt brauchen wir Anzahlung oder volle Zahlung.",
           "reset_start_over": "Kein Problem, wir fangen frisch an 😊 Welche Daten sucht ihr?"
         }
       }

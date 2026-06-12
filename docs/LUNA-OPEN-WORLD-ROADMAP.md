@@ -96,10 +96,10 @@
 ## Key commands
 
 ```bash
+npm run verify:luna-all
+npm run luna:nightly              # nightly multilingual + hammer (see docs/LUNA-GUEST-JOURNEY.md)
 node scripts/verify-stage54-open-world-confirmations.js
 node scripts/verify-stage53-cami-booking-intelligence.js
-# Realism batch (subset):
-node -e "require('./scripts/lib/luna-conversation-fixture-set-batch').runFixtureSetBatch('cami-realism')"
 ```
 
 ---

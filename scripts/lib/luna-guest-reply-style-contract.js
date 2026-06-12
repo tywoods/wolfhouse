@@ -133,7 +133,9 @@ function validateComposerFacts(state, facts) {
     }
   }
 
-  if (PAYMENT_LINK_GROUNDED_STATES.has(state) && !trimStr(f.payment_link_url)) {
+  if (PAYMENT_LINK_GROUNDED_STATES.has(state)
+    && !trimStr(f.payment_link_url)
+    && !trimStr(f.payment_short_url)) {
     reasons.push('payment_link_url_required');
   }
 

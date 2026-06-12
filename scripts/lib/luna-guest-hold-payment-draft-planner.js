@@ -136,9 +136,11 @@ function validateIntakeFields(result) {
 }
 
 function detectTransferAmbiguity(fields) {
-  const ti = fields.transfer_interest;
-  if (!ti || !ti.interested) return null;
-  if (!ti.airport_code && !ti.direction) {
+  const ti = fields.transfer_info || fields.transfer_interest;
+  if (!ti || ti.interested !== true) return null;
+  if (ti.deferred === true) return null;
+  if (ti.airport_code) return null;
+  if (!ti.direction && !ti.flight_number) {
     return 'transfer_exception';
   }
   return null;
@@ -247,8 +249,8 @@ function buildPlannedRecords(fields, quote, payment, context) {
       }));
   }
 
-  const transfer = fields.transfer_interest;
-  if (transfer && transfer.interested) {
+  const transfer = fields.transfer_info || fields.transfer_interest;
+  if (transfer && transfer.interested === true) {
     records.transfer_lines = [{
       airport_code: transfer.airport_code || null,
       direction: transfer.direction || null,

@@ -26,6 +26,7 @@ const {
   shouldDeferOpenDemoPaymentChoiceReviewReply,
 } = require('./open-demo-whatsapp-gate');
 const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
+const { applyGuestReplyPipeline } = require('./luna-guest-reply-pipeline');
 const { runGuestWritePipeline } = require('./luna-guest-write-pipeline');
 const { sendLunaWhatsAppTypingIndicator } = require('./luna-whatsapp-provider');
 const {
@@ -36,6 +37,18 @@ const {
   mergeLiveStagingGuestContext,
   persistConversationGuestContext,
 } = require('./luna-guest-live-context-persist');
+const {
+  detectBalancePaymentLinkRequest,
+  runGuestBalancePaymentLinkCreateApproved,
+} = require('./luna-guest-balance-payment-link-create');
+const {
+  isGenuineLunaHandoffReply,
+  markConversationNeedsHuman,
+} = require('./luna-guest-handoff-persist');
+
+function trimStr(v) {
+  return v == null ? '' : String(v).trim();
+}
 
 /**
  * @param {import('pg').Client} pg
@@ -193,11 +206,16 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   let bookingWrite = null;
   let bedAssignment = null;
   let stripeLink = null;
+  let balanceStripeLink = null;
   let paymentLinkSend = null;
   let serviceAttach = null;
   let serviceStripeLink = null;
+  let transferTimesUpdate = null;
+  let serviceSchedule = null;
+  let lunaNotes = null;
   let confirmationSend = null;
   let threadOutbound = null;
+  let handoffPersist = null;
 
   let proposedReplyForSend = reviewForFlags.proposed_luna_reply != null
     ? String(reviewForFlags.proposed_luna_reply).trim()
@@ -213,17 +231,27 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     },
   );
 
-  if (sendLiveReplyConfirmed && !deferPaymentChoiceReviewReply) {
-    liveReply = await sendOpenDemoLiveReplyMessage(
-      pg,
-      inboundBody,
-      rawBody,
-      env,
-      proposedReplyForSend,
-    );
-  }
+  const slimCtx = reviewOutcome.body && reviewOutcome.body.slim_guest_context_for_next_turn;
+  const chainCtx = reviewForFlags.guest_context_chain || slimCtx || {};
+  const contextBookingId = trimStr(
+    chainCtx.booking_id
+    || (chainCtx.payment_truth && chainCtx.payment_truth.booking_id)
+    || (reviewForFlags.result && reviewForFlags.result.booking_id)
+    || (inboundBody.guest_context && inboundBody.guest_context.booking_id)
+    || (rawBody.guest_context && rawBody.guest_context.booking_id),
+  ) || null;
 
-  if (createHoldDraftConfirmed || assignDemoBedConfirmed || createStripeTestLinkConfirmed) {
+  const writePipelineFlags = {
+    createHoldDraft: createHoldDraftConfirmed,
+    assignBed: assignDemoBedConfirmed,
+    createStripeLink: createStripeTestLinkConfirmed,
+  };
+  const needsHoldWritePipeline = createHoldDraftConfirmed
+    || assignDemoBedConfirmed
+    || createStripeTestLinkConfirmed;
+  const needsPostBookingPipeline = pg && contextBookingId;
+
+  if (needsHoldWritePipeline || needsPostBookingPipeline) {
     const writeOut = await runGuestWritePipeline({
       review: reviewForFlags,
       inboundBody,
@@ -232,20 +260,84 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
       pg,
       hostHeader,
       actorId,
-      flags: {
-        createHoldDraft: createHoldDraftConfirmed,
-        assignBed: assignDemoBedConfirmed,
-        createStripeLink: createStripeTestLinkConfirmed,
-      },
+      flags: writePipelineFlags,
     });
-    bookingWrite = writeOut.bookingWrite;
-    bedAssignment = writeOut.bedAssignment;
-    stripeLink = writeOut.stripeLink;
-    serviceAttach = writeOut.serviceAttach;
-    serviceStripeLink = writeOut.serviceStripeLink;
+    if (needsHoldWritePipeline) {
+      bookingWrite = writeOut.bookingWrite;
+      bedAssignment = writeOut.bedAssignment;
+      stripeLink = writeOut.stripeLink;
+      balanceStripeLink = writeOut.balanceStripeLink || balanceStripeLink;
+      serviceAttach = writeOut.serviceAttach;
+      serviceStripeLink = writeOut.serviceStripeLink;
+    } else {
+      serviceAttach = writeOut.serviceAttach;
+      serviceStripeLink = writeOut.serviceStripeLink;
+    }
+    transferTimesUpdate = writeOut.transferTimesUpdate;
+    serviceSchedule = writeOut.serviceSchedule;
+    lunaNotes = writeOut.lunaNotes;
+  }
+  if (pg && contextBookingId && detectBalancePaymentLinkRequest(inboundBody.message_text)) {
+    balanceStripeLink = await runGuestBalancePaymentLinkCreateApproved({
+      booking_id: contextBookingId,
+      client_slug: inboundBody.client_slug,
+      inbound_message_id: inboundBody.inbound_message_id,
+    }, {
+      confirm_balance_payment_link: true,
+      env,
+      pg,
+      host_header: hostHeader,
+    });
   }
 
-  if (sendPaymentLinkWhatsAppConfirmed) {
+  if (balanceStripeLink && balanceStripeLink.stripe_checkout_url) {
+    const liveGate = evaluateOpenDemoWhatsAppLiveReplyGate(rawBody, env);
+    const payUrl = balanceStripeLink.guest_payment_url || balanceStripeLink.stripe_checkout_url;
+    if (!liveGate.ok) {
+      paymentLinkSend = {
+        ...buildOpenDemoPaymentLinkSendBlockedResponse([], liveGate),
+        balance_payment_link: true,
+      };
+    } else {
+      const sendBody = buildOpenDemoPaymentLinkSendBody(inboundBody, payUrl, {
+        kind: 'balance',
+        amount_due_cents: balanceStripeLink.balance_due_cents,
+      });
+      const evaluated = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env });
+      const sendResult = evaluated.result || {};
+      const sent = sendResult.send_performed === true && sendResult.sends_whatsapp === true;
+      paymentLinkSend = {
+        send_payment_link_whatsapp_confirmed: true,
+        payment_link_send_attempted: true,
+        payment_link_sent: sent,
+        balance_payment_link: true,
+        sends_whatsapp: sent,
+        whatsapp_sent: sent,
+        live_send_blocked: !sent,
+        payment_link_send_gate_blocked: !sent,
+        payment_link_send_gate_code: sent ? null : ((sendResult.blocked_reasons || [])[0] || 'send_blocked'),
+        payment_link_send_error: sent ? null : (sendResult.provider_error || null),
+        reused_send_path: 'evaluateGuestReplySendRouteWithPause',
+        guest_message_send_id: sendResult.guest_message_send_id || null,
+        guest_message_send_status: sendResult.guest_message_send_status || null,
+        whatsapp_message_id: sendResult.whatsapp_message_id || null,
+        idempotency_key: sendBody.idempotency_key,
+        confirmation_sent: false,
+      };
+      if (sent) {
+        sendLiveReplyConfirmed = false;
+        liveReply = {
+          send_live_reply_confirmed: false,
+          live_reply_attempted: false,
+          live_send_blocked: true,
+          sends_whatsapp: false,
+          whatsapp_sent: false,
+          send_performed: false,
+          skipped_for_payment_link_send: true,
+        };
+      }
+    }
+  } else if (sendPaymentLinkWhatsAppConfirmed) {
     if (!createStripeTestLinkConfirmed) {
       paymentLinkSend = buildOpenDemoPaymentLinkSendBlockedResponse(
         ['create_stripe_test_link_confirmed_required'],
@@ -290,29 +382,104 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     }
   }
 
-  if (deferPaymentChoiceReviewReply && sendLiveReplyConfirmed) {
+  const balanceLinkWhatsAppSent = !!(paymentLinkSend
+    && paymentLinkSend.balance_payment_link === true
+    && paymentLinkSend.payment_link_sent === true);
+  const isBalanceLinkRequest = detectBalancePaymentLinkRequest(inboundBody.message_text);
+
+  if (isBalanceLinkRequest && !balanceLinkWhatsAppSent) {
+    const priorGuestContext = reviewOutcome.body.slim_guest_context_for_next_turn
+      || inboundBody.guest_context
+      || null;
     const composed = composeLunaGuestReply({
       payload: reviewForFlags,
       message_text: inboundBody.message_text,
+      prior_guest_context: priorGuestContext,
+      client_slug: inboundBody.client_slug,
+      guest_phone: inboundBody.guest_phone,
+      conversation_id: conversationId,
       mode: 'live_staging',
       live_outcomes: {
         bookingWrite,
         bedAssignment,
         stripeLink,
+        balanceStripeLink,
         paymentLinkSend,
         serviceAttach,
         serviceStripeLink,
+        transferTimesUpdate,
+        serviceSchedule,
+        lunaNotes,
       },
+      env,
+    });
+    if (composed && composed.covered && composed.reply) {
+      proposedReplyForSend = composed.reply;
+    }
+  }
+
+  if (sendLiveReplyConfirmed && !deferPaymentChoiceReviewReply && !balanceLinkWhatsAppSent) {
+    liveReply = await sendOpenDemoLiveReplyMessage(
+      pg,
+      inboundBody,
+      rawBody,
+      env,
+      proposedReplyForSend,
+    );
+  }
+
+  if (deferPaymentChoiceReviewReply && sendLiveReplyConfirmed && !balanceLinkWhatsAppSent) {
+    const priorGuestContext = reviewOutcome.body.slim_guest_context_for_next_turn
+      || inboundBody.guest_context
+      || null;
+    const composed = composeLunaGuestReply({
+      payload: reviewForFlags,
+      message_text: inboundBody.message_text,
+      prior_guest_context: priorGuestContext,
+      client_slug: inboundBody.client_slug,
+      guest_phone: inboundBody.guest_phone,
+      conversation_id: conversationId,
+      mode: 'live_staging',
+      live_outcomes: {
+        bookingWrite,
+        bedAssignment,
+        stripeLink,
+        balanceStripeLink,
+        paymentLinkSend,
+        serviceAttach,
+        serviceStripeLink,
+        transferTimesUpdate,
+        serviceSchedule,
+        lunaNotes,
+      },
+      env,
     });
     const bridgeReply = composed && composed.covered ? composed.reply : null;
     if (bridgeReply) {
-      proposedReplyForSend = bridgeReply;
+      const piped = await applyGuestReplyPipeline({
+        client_slug: inboundBody.client_slug,
+        conversation_id: conversationId,
+        guest_phone: inboundBody.guest_phone,
+        message_text: inboundBody.message_text,
+        prior_guest_context: priorGuestContext,
+        composed: {
+          ...composed,
+          cami_author_required: composed.cami_author_required !== false,
+        },
+        candidate_reply: bridgeReply,
+        candidate_source: composed.reply_source || 'luna_reply_composer',
+        allowed_next_action: reviewForFlags.proposed_next_action,
+        payload: reviewForFlags,
+        channel_mode: 'open_demo_whatsapp',
+        env,
+      });
+      proposedReplyForSend = piped.reply || bridgeReply;
       liveReply = await sendOpenDemoLiveReplyMessage(
         pg,
         inboundBody,
         rawBody,
         env,
-        bridgeReply,
+        proposedReplyForSend,
       );
     }
   }
@@ -330,10 +497,30 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     }
   }
 
+  const handoffIntent = reviewForFlags.proposed_next_action === 'staff_handoff_required'
+    || (reviewForFlags.result && reviewForFlags.result.safe_handoff_required === true);
+  const handoffReplySent = liveReply && liveReply.send_performed === true
+    && (isGenuineLunaHandoffReply(proposedReplyForSend) || handoffIntent);
+  if (pg && conversationId && handoffReplySent) {
+    try {
+      handoffPersist = await markConversationNeedsHuman(pg, {
+        conversation_id: conversationId,
+        client_slug: inboundBody.client_slug,
+        handoff_reasons: reviewForFlags.result && reviewForFlags.result.handoff_reasons,
+      });
+    } catch (_) {
+      handoffPersist = { ok: false, needs_human: false, reason: 'persist_error' };
+    }
+  }
+
   const bookingCodeForConfirm = (bookingWrite && bookingWrite.booking_code)
     || (reviewOutcome.body && reviewOutcome.body.slim_guest_context_for_next_turn
       && reviewOutcome.body.slim_guest_context_for_next_turn.booking_code);
-  if (pg && isAutoConfirmationSendEnabled(env) && bookingCodeForConfirm) {
+  const skipAutoConfirmThisTurn = deferPaymentChoiceReviewReply
+    || createHoldDraftConfirmed
+    || createStripeTestLinkConfirmed
+    || (stripeLink && stripeLink.stripe_link_created === true);
+  if (pg && isAutoConfirmationSendEnabled(env) && bookingCodeForConfirm && !skipAutoConfirmThisTurn) {
     try {
       confirmationSend = await tryAutoSendBookingConfirmation({
         booking_code: bookingCodeForConfirm,
@@ -355,6 +542,7 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
       const enriched = mergeLiveStagingGuestContext(priorSlim, {
         bookingWrite,
         stripeLink,
+        balanceStripeLink,
         paymentLinkSend,
         confirmationSend,
         proposedReply: proposedReplyForSend,
@@ -373,12 +561,17 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     bookingWrite,
     bedAssignment,
     stripeLink,
+    balanceStripeLink,
     paymentLinkSend,
     serviceAttach,
     serviceStripeLink,
+    transferTimesUpdate,
+    serviceSchedule,
+    lunaNotes,
     confirmationSend,
     threadInbound,
     threadOutbound,
+    handoffPersist,
     effectiveFlags: {
       send_live_reply_confirmed: sendLiveReplyConfirmed,
       create_demo_hold_draft_confirmed: createHoldDraftConfirmed,

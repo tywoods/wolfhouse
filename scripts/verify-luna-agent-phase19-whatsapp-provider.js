@@ -51,6 +51,8 @@ function readOrEmpty(p) {
 
 const {
   sendLunaWhatsAppMessage,
+  sendLunaWhatsAppTypingIndicator,
+  shouldSendLunaWhatsAppTypingIndicator,
   resolveWhatsappProviderConfig,
 } = require('./lib/luna-whatsapp-provider');
 const {
@@ -89,6 +91,16 @@ else fail('A1', 'provider helper missing');
 if (/function\s+sendLunaWhatsAppMessage\s*\(/.test(providerSrc)) pass('A2', 'sendLunaWhatsAppMessage exported');
 else fail('A2', 'sendLunaWhatsAppMessage missing');
 
+if (/function\s+sendLunaWhatsAppTypingIndicator\s*\(/.test(providerSrc)) pass('A2b', 'sendLunaWhatsAppTypingIndicator exported');
+else fail('A2b', 'sendLunaWhatsAppTypingIndicator missing');
+
+if (/typing_indicator:\s*\{\s*type:\s*'text'\s*\}/.test(providerSrc)) pass('A2c', 'typing indicator uses Meta text payload');
+else fail('A2c', 'typing indicator payload missing');
+
+const executeSrc = readOrEmpty(path.join(__dirname, 'lib', 'open-demo-whatsapp-inbound-execute.js'));
+if (executeSrc.includes('sendLunaWhatsAppTypingIndicator')) pass('A2d', 'open-demo inbound sends typing indicator before review');
+else fail('A2d', 'open-demo inbound typing hook missing');
+
 if (sendRouteSrc.includes("require('./luna-whatsapp-provider')")) pass('A3', 'send route imports provider');
 else fail('A3', 'send route provider import missing');
 
@@ -122,6 +134,32 @@ section('B. Provider unit behavior');
   if (mocked.success === true && mocked.send_performed === true && mocked.whatsapp_message_id) {
     pass('B.mock', 'mock provider simulates success without external call');
   } else fail('B.mock', 'mock provider success failed');
+
+  const typingDry = await sendLunaWhatsAppTypingIndicator(
+    { message_id: 'wamid.test123' },
+    { WHATSAPP_DRY_RUN: 'true' },
+  );
+  if (typingDry.typing_indicator_sent !== true && typingDry.blocked_reason === 'whatsapp_dry_run_active') {
+    pass('B.typing_dry', 'WHATSAPP_DRY_RUN blocks typing indicator');
+  } else fail('B.typing_dry', 'typing dry-run block failed');
+
+  const typingPhase = shouldSendLunaWhatsAppTypingIndicator('wamid.PHASE3E4.001', { WHATSAPP_DRY_RUN: 'false' });
+  if (typingPhase === false) pass('B.typing_phase', 'phase test wamid skips typing indicator');
+  else fail('B.typing_phase', 'phase test wamid should skip typing');
+
+  const mockTyping = async () => ({ success: true });
+  const typingMock = await sendLunaWhatsAppTypingIndicator(
+    { message_id: 'wamid.live-test-001' },
+    {
+      WHATSAPP_DRY_RUN: 'false',
+      WHATSAPP_CLOUD_ACCESS_TOKEN: 'test-token',
+      WHATSAPP_PHONE_NUMBER_ID: '123456',
+    },
+    { sendTypingIndicator: mockTyping },
+  );
+  if (typingMock.typing_indicator_sent === true && typingMock.success === true) {
+    pass('B.typing_mock', 'mock typing indicator succeeds without external call');
+  } else fail('B.typing_mock', 'mock typing indicator failed');
 
   section('C. Send route gates-off (provider not reached)');
 

@@ -156,8 +156,12 @@ The coach evaluator maps spec sections to failure categories. Used by `scripts/l
 ```bash
 npm run verify:luna-all          # fast gate (no API key)
 npm run verify:luna-all -- --full  # includes stage49c, 46b, staff gate
+npm run luna:nightly             # full multilingual nightly (local dry-run)
+npm run luna:nightly -- --quick  # golden + verify only
 npm run luna:coach -- --seed package-choice-assumed  # diagnose a bad transcript
 ```
+
+**Guest journey map:** `docs/LUNA-GUEST-JOURNEY.md` · **Staff portal matrix:** `scripts/lib/luna-staff-portal-capability-matrix.js`
 
 **Rule of the loop:** no Luna behavior change merges without a fixture that proves it. No fixing from screenshots.
 

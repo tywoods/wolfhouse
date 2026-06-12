@@ -7,6 +7,8 @@
  */
 
 const SCENARIO_TYPES = Object.freeze([
+  'greeting_new_guest',
+  'greeting_booking_start',
   'short_stay_accommodation',
   'package_booking',
   'package_surf_addons',
@@ -15,6 +17,9 @@ const SCENARIO_TYPES = Object.freeze([
   'yoga_request',
   'dinner_meals_request',
   'transfer_side_question',
+  'bilbao_transfer_extra',
+  'flight_times_update',
+  'surf_report_side_question',
   'cash_payment_side_question',
   'correction_flow',
   'reset_flow',
@@ -210,6 +215,61 @@ function transferPhrase(lang, rng) {
   return pick(rng, map[lang] || map.en);
 }
 
+function bilbaoTransferPhrase(lang, rng) {
+  const map = {
+    it: ['transfer da Bilbao?', 'arriviamo a Bilbao'],
+    en: ['transfer from Bilbao airport?', 'we fly into Bilbao'],
+    es: ['transfer desde Bilbao?', 'llegamos a Bilbao'],
+    de: ['Transfer ab Bilbao?', 'wir fliegen nach Bilbao'],
+    mixed: ['Bilbao airport pickup?', 'fly into Bilbao'],
+  };
+  return pick(rng, map[lang] || map.en);
+}
+
+function flightTimesPhrase(lang, rng) {
+  const map = {
+    it: ['arrivo alle 18:30', 'partenza alle 12'],
+    en: ['landing at 6:30pm', 'we leave at noon'],
+    es: ['llegamos a las 18:30', 'salida a las 12'],
+    de: ['Ankunft 18:30', 'Abflug 12 Uhr'],
+    mixed: ['landing 6:30pm', 'depart noon'],
+  };
+  return pick(rng, map[lang] || map.en);
+}
+
+function surfReportPhrase(lang, rng) {
+  const map = {
+    it: ['come sono le onde oggi?', 'surf report?'],
+    en: ['how are the waves today?', 'any surf tomorrow?'],
+    es: ['¿cómo están las olas hoy?', 'surf mañana?'],
+    de: ['wie sind die Wellen heute?', 'Surf morgen?'],
+    mixed: ['waves today?', 'surf forecast?'],
+  };
+  return pick(rng, map[lang] || map.en);
+}
+
+function greetingPhrase(lang, rng) {
+  const map = {
+    it: ['ciao', 'buongiorno', 'ciao!'],
+    en: ['hi', 'hello', 'hey there'],
+    es: ['hola', 'buenas'],
+    de: ['hallo', 'moin', 'guten tag'],
+    mixed: ['hi', 'ciao'],
+  };
+  return pick(rng, map[lang] || map.en);
+}
+
+function bookingStartPhrase(lang, rng) {
+  const map = {
+    it: ['vorrei prenotare', 'book a stay', 'prenotazione'],
+    en: ['book a stay', 'I want to book', 'looking to book'],
+    es: ['quiero reservar', 'book a room'],
+    de: ['ich möchte buchen', 'buchung bitte'],
+    mixed: ['book a stay please', 'vorrei book'],
+  };
+  return pick(rng, map[lang] || map.en);
+}
+
 function cashPhrase(lang, rng) {
   const map = {
     it: ['possiamo pagare in contanti?', 'si paga in cash?'],
@@ -342,6 +402,92 @@ function buildScenario(type, rng, lang, style, index, seed) {
   if (lang !== 'mixed') scenario.final_expect.expected_language = lang;
 
   switch (type) {
+    case 'greeting_new_guest': {
+      const hello = applyStyle(greetingPhrase(lang, rng), style, rng);
+      scenario.turns.push({
+        message: hello,
+        expect: {
+          expected_no_handoff: true,
+          no_internal_language: true,
+          reply_not_contains: ['€249', 'Malibu', 'Uluwatu', 'Waimea'],
+          allow_partial: true,
+        },
+      });
+      scenario.final_expect = {
+        no_internal_language: true,
+        no_handoff: true,
+      };
+      if (lang !== 'mixed') scenario.final_expect.expected_language = lang;
+      break;
+    }
+    case 'greeting_booking_start': {
+      const hello = applyStyle(greetingPhrase(lang, rng), style, rng);
+      scenario.turns.push({
+        message: hello,
+        expect: { expected_no_handoff: true, no_internal_language: true, allow_partial: true },
+      });
+      const book = applyStyle(bookingStartPhrase(lang, rng), style, rng);
+      scenario.turns.push({
+        message: book,
+        expect: { expected_no_handoff: true, no_internal_language: true, allow_partial: true },
+      });
+      scenario.final_expect = { no_internal_language: true, no_handoff: true };
+      if (lang !== 'mixed') scenario.final_expect.expected_language = lang;
+      break;
+    }
+    case 'bilbao_transfer_extra': {
+      const open = applyStyle(buildOpening(lang, stay, guests, pkg, false, rng), style, rng);
+      scenario.turns.push({
+        message: open,
+        expect: baseExpect(lang, guests, stay, { package: pkg, quoteReady: true }),
+      });
+      const bilbao = applyStyle(bilbaoTransferPhrase(lang, rng), style, rng);
+      scenario.turns.push({
+        message: bilbao,
+        expect: baseExpect(lang, guests, stay, { contextPreserved: true, allowPartial: true }),
+      });
+      scenario.final_expect.expected_fields.package_interest = pkg;
+      scenario.final_expect.expected_quote_ready = true;
+      break;
+    }
+    case 'flight_times_update': {
+      const open = applyStyle(buildOpening(lang, stay, guests, pkg, false, rng), style, rng);
+      scenario.turns.push({
+        message: open,
+        expect: baseExpect(lang, guests, stay, { package: pkg, quoteReady: true }),
+      });
+      const xfer = applyStyle(transferPhrase(lang, rng), style, rng);
+      scenario.turns.push({
+        message: xfer,
+        expect: baseExpect(lang, guests, stay, { contextPreserved: true, allowPartial: true }),
+      });
+      const times = applyStyle(flightTimesPhrase(lang, rng), style, rng);
+      scenario.turns.push({
+        message: times,
+        expect: baseExpect(lang, guests, stay, { contextPreserved: true, allowPartial: true }),
+      });
+      scenario.final_expect.expected_fields.package_interest = pkg;
+      scenario.final_expect.expected_quote_ready = true;
+      break;
+    }
+    case 'surf_report_side_question': {
+      const open = applyStyle(buildOpening(lang, stay, guests, null, true, rng), style, rng);
+      scenario.turns.push({
+        message: open,
+        expect: baseExpect(lang, guests, stay, { accommodation: true, quoteReady: true, allowPartial: true }),
+      });
+      const surf = applyStyle(surfReportPhrase(lang, rng), style, rng);
+      scenario.turns.push({
+        message: surf,
+        expect: baseExpect(lang, guests, stay, {
+          contextPreserved: true,
+          allowPartial: true,
+        }),
+      });
+      scenario.final_expect.expected_fields.package_interest = 'accommodation_only';
+      scenario.final_expect.expected_quote_ready = true;
+      break;
+    }
     case 'short_stay_accommodation': {
       const msg = applyStyle(buildOpening(lang, stay, guests, null, true, rng), style, rng);
       scenario.turns.push({
@@ -365,11 +511,12 @@ function buildScenario(type, rng, lang, style, index, seed) {
     case 'package_surf_addons': {
       const open = applyStyle(buildOpening(lang, stay, guests, pkg, false, rng), style, rng);
       const addon = applyStyle(addonPhrase(lang, rng), style, rng);
+      const serviceExpect = pkg === 'malibu' ? ['wetsuit', 'surfboard'] : undefined;
       scenario.turns.push({
         message: `${open}, ${addon}`,
         expect: baseExpect(lang, guests, stay, {
           package: pkg,
-          service: ['wetsuit', 'surfboard'],
+          service: serviceExpect,
           quoteReady: true,
           allowPartial: true,
         }),

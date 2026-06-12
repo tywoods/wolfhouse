@@ -208,6 +208,10 @@ const {
   emptyTransferSummary,
 } = require('./lib/booking-transfers');
 const {
+  appendBookingStaffNote,
+  getLunaGuestNotesFromMetadata,
+} = require('./lib/luna-guest-booking-notes');
+const {
   sumActiveTransferChargesCents,
   transferInvoiceLineItems,
 } = require('./lib/booking-invoice-totals');
@@ -10935,6 +10939,12 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       Object.assign(responseBody, paymentLinkSend);
     }
 
+    if (outcome.serviceAttach) responseBody.serviceAttach = outcome.serviceAttach;
+    if (outcome.serviceStripeLink) responseBody.serviceStripeLink = outcome.serviceStripeLink;
+    if (outcome.transferTimesUpdate) responseBody.transferTimesUpdate = outcome.transferTimesUpdate;
+    if (outcome.serviceSchedule) responseBody.serviceSchedule = outcome.serviceSchedule;
+    if (outcome.lunaNotes) responseBody.lunaNotes = outcome.lunaNotes;
+
     if (paymentLinkSent) {
       responseBody.sends_whatsapp = true;
       responseBody.whatsapp_sent = true;
@@ -19426,6 +19436,88 @@ function kvBC(k, v){
          '<span class="v">' + escHtml(String(v == null ? '\u2014' : v)) + '</span></div>';
 }
 
+function bcRenderLunaGuestNotesHtml(data){
+  var notes = (data && data.luna_guest_notes) || [];
+  var html = '<div class="bc-luna-notes-wrap" id="bc-luna-notes-wrap" style="margin-top:12px">';
+  html += '<div class="bc-drawer-card-title" style="font-size:12px;margin-bottom:6px">Notes</div>';
+  if (!notes.length){
+    html += '<div class="ctx-none" id="bc-luna-notes-empty">No notes yet.</div>';
+  } else {
+    html += '<ul class="bc-luna-notes-list" id="bc-luna-notes-list" style="margin:0;padding:0;list-style:none">';
+    notes.forEach(function(n){
+      var src = (n.source === 'staff') ? 'Staff' : 'Luna';
+      var when = n.at ? new Date(n.at).toLocaleString() : '';
+      html += '<li class="bc-luna-note-item" style="margin:0 0 8px;padding:8px 10px;border-radius:8px;background:var(--surface-2,#f4f4f5);font-size:12px;line-height:1.45">';
+      html += '<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px">';
+      html += '<span class="pill pill-neutral" style="font-size:10px">' + escHtml(src) + '</span>';
+      if (when) html += '<span style="font-size:10px;color:var(--muted,#71717a)">' + escHtml(when) + '</span>';
+      html += '</div><div>' + escHtml(n.text || '') + '</div></li>';
+    });
+    html += '</ul>';
+  }
+  html += '<div style="margin-top:8px;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
+  html += '<textarea id="bc-luna-staff-note-input" class="bk-input-sm" rows="2" placeholder="Add a staff note..." style="flex:1;min-width:180px;resize:vertical"></textarea>';
+  html += '<button type="button" class="btn btn-secondary btn-sm" id="bc-luna-staff-note-save">Add note</button>';
+  html += '</div><div id="bc-luna-staff-note-result" style="margin-top:4px;font-size:11px"></div></div>';
+  return html;
+}
+
+function bcBindLunaNotesSave(){
+  var btn = el('bc-luna-staff-note-save');
+  var input = el('bc-luna-staff-note-input');
+  if (!btn || !input || btn._bcLunaNoteBound) return;
+  btn._bcLunaNoteBound = true;
+  btn.addEventListener('click', function(){
+    var ctx = bcLastBookingContext || {};
+    var bk = ctx.booking || {};
+    var text = String(input.value || '').trim();
+    var resultEl = el('bc-luna-staff-note-result');
+    if (!text){
+      if (resultEl) resultEl.textContent = 'Enter a note first.';
+      return;
+    }
+    if (!bk.booking_id){
+      if (resultEl) resultEl.textContent = 'Booking id missing.';
+      return;
+    }
+    btn.disabled = true;
+    if (resultEl) resultEl.textContent = 'Saving...';
+    fetch('/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/luna-notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        client_slug: toGetClient(),
+        text: text,
+      }),
+    }).then(function(r){ return r.json(); }).then(function(j){
+      btn.disabled = false;
+      if (!j || !j.success){
+        if (resultEl) resultEl.textContent = (j && j.error) ? j.error : 'Save failed';
+        return;
+      }
+      input.value = '';
+      if (resultEl) resultEl.textContent = 'Note saved.';
+      if (bcLastBookingContext){
+        bcLastBookingContext.luna_guest_notes = j.luna_guest_notes || [];
+        var panel = el('bc-drawer-tab-overview');
+        if (panel && bcLastBookingContext){
+          var card = el('bc-drawer-card-conversation');
+          if (card){
+            var old = el('bc-luna-notes-wrap');
+            if (old) old.remove();
+            card.insertAdjacentHTML('beforeend', bcRenderLunaGuestNotesHtml(bcLastBookingContext));
+            bcBindLunaNotesSave();
+          }
+        }
+      }
+    }).catch(function(err){
+      btn.disabled = false;
+      if (resultEl) resultEl.textContent = err && err.message ? err.message : 'Save failed';
+    });
+  });
+}
+
 function bcHeaderNights(start, end){
   var n = bcStayNightsFromCheckInOut(start, end);
   return n > 0 ? n : null;
@@ -19686,6 +19778,7 @@ function loadBlockDetail(bookingCode, opts){
       bcInitBookingCancelShell(res.data);
       bcInitNewConversationShell(res.data);
       bcWireOpenConversationButtons(res.data);
+      bcBindLunaNotesSave();
     })
     .catch(function(e){
       var ctxEl = el('bc-ctx-body');
@@ -19716,9 +19809,7 @@ function bcNewMoveIdempotencyKey(){
 }
 
 function bcMoveSourcePillLabel(a){
-  var room = (a && a.room_code) ? String(a.room_code).trim() : '';
   var bed = (a && a.bed_code) ? String(a.bed_code).trim() : '\u2014';
-  if (room) return room + ' / ' + bed;
   return bed;
 }
 
@@ -20299,6 +20390,36 @@ function bcPaymentLedgerSortRows(rows, balanceDueCents){
   return rows;
 }
 
+function bcAddonServiceTypeStaffLabel(serviceType, meta){
+  meta = meta || {};
+  if (meta.staff_ui_service_type) {
+    var ui = String(meta.staff_ui_service_type);
+    if (ui === 'dinner' || ui === 'meals') return 'Dinner';
+    return ui.charAt(0).toUpperCase() + ui.slice(1);
+  }
+  var t = String(serviceType || '').toLowerCase();
+  var labels = { wetsuit: 'Wetsuit rental', surfboard: 'Surfboard rental', surf_lesson: 'Surf lesson', yoga: 'Yoga', meal: 'Dinner' };
+  if (t === 'meal' && meta.meal_type === 'dinner') return 'Dinner';
+  return labels[t] || t.replace(/_/g, ' ');
+}
+
+function bcFormatAddonServicePaymentLedgerLabel(pr){
+  pr = pr || {};
+  var md = bcPaymentLedgerParseMetadata(pr.metadata);
+  var st = String(pr.payment_status || '').toLowerCase();
+  var label = bcAddonServiceTypeStaffLabel(md.service_type, md);
+  if (st === 'paid') return label + ' \u2014 paid';
+  if (st === 'checkout_created' && pr.checkout_url) return label + ' \u2014 Stripe link awaiting payment';
+  if (st === 'draft' || st === 'pending') {
+    var cents = pr.amount_due_cents;
+    if (cents != null && !isNaN(Number(cents))) {
+      return label + ' \u2014 \u20ac' + (Number(cents) / 100).toFixed(2) + ' due at checkout';
+    }
+    return label + ' \u2014 due at checkout';
+  }
+  return label + ' \u2014 ' + (st.replace(/_/g, ' ') || 'due');
+}
+
 function bcPaymentLedgerRowDisplayLabel(pr){
   pr = pr || {};
   var st = String(pr.payment_status || '').toLowerCase();
@@ -20308,7 +20429,7 @@ function bcPaymentLedgerRowDisplayLabel(pr){
   var kind = String(pr.payment_kind || '').toLowerCase();
 
   if (kind === 'addon_service' || md.payment_origin === 'luna_guest_service_addon') {
-    return formatAddonServicePaymentLedgerLabel(pr);
+    return bcFormatAddonServicePaymentLedgerLabel(pr);
   }
 
   if (st === 'failed') return 'Failed payment';
@@ -23617,6 +23738,7 @@ function renderBookingContextDrawer(data){
       if (hf.opened_at)      html += kvBC('Opened', new Date(hf.opened_at).toLocaleString());
       html += '</div>';
   }
+  html += bcRenderLunaGuestNotesHtml(data);
   html += '</div>';
 
   html += '</div>';
@@ -27531,6 +27653,9 @@ async function handleBedReassignConfirm(req, res) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BOOKING_CONTEXT_RE = /^\/staff\/bookings\/([A-Za-z0-9_\-]+)\/context$/;
+const BOOKING_LUNA_NOTES_RE = new RegExp(
+  `^/staff/bookings/(${UUID_RE})/luna-notes$`, 'i',
+);
 
 /** Stage 8.8.14 — safe when migration 010 not applied yet. */
 function isMissingBookingServiceRecordsTable(err) {
@@ -27555,6 +27680,54 @@ async function loadBookingServiceRecords(pg, clientSlug, bookingCode) {
       return { rows: [], available: false };
     }
     throw err;
+  }
+}
+
+async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const text = String(body.text || body.note || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!text) return send400(res, 'text is required');
+  if (!UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+
+  const actorId = user ? user.staff_user_id : 'dev-luna-notes-local';
+
+  try {
+    const out = await withPgClient(async (pg) => appendBookingStaffNote(pg, {
+      client_slug: clientSlug,
+      booking_id: bookingId,
+      text,
+      staff_user_id: actorId,
+    }));
+    if (!out.success) {
+      return sendJSON(res, 400, { success: false, error: out.error || 'append_failed' });
+    }
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:booking_luna_note_append',
+      category: 'booking_luna_notes',
+      client_slug: clientSlug,
+      booking_id: bookingId,
+      staff_user_id: actorId,
+      success: true,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      note: out.note,
+      luna_guest_notes: out.luna_guest_notes,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'append failed', detail: err.message });
   }
 }
 
@@ -27622,6 +27795,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
   const bk = bookingRows[0];
   const bkMetadata = (metaRows[0] && metaRows[0].metadata) || {};
   const confirmationDraft = bkMetadata.confirmation_draft || null;
+  const lunaGuestNotes = getLunaGuestNotesFromMetadata(bkMetadata);
 
   // Payments aggregate — paid truth from paid payment rows only (10.6b)
   const totalPaid = paymentLedgerPaidTotalCents(paymentRows);
@@ -27749,6 +27923,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
     accommodation_balance_due_cents: serviceChargesDue.accommodation_balance_due_cents,
     total_due_at_checkout_cents: serviceChargesDue.total_due_at_checkout_cents,
     transfers: transferRecordRows,
+    luna_guest_notes: lunaGuestNotes,
     warnings: [],
     elapsed_ms: elapsed,
   });
@@ -27992,6 +28167,17 @@ async function router(req, res) {
   }
 
   // ── Phase 10.6a — Booking add service record (staff_manual INSERT only) ───
+  const lunaNotesMatch = BOOKING_LUNA_NOTES_RE.exec(pathname);
+  if (lunaNotesMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/:id/luna-notes' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingLunaNoteAppend(lunaNotesMatch[1], req, res, auth.user);
+  }
+
   if (pathname === '/staff/bookings/add-service') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });

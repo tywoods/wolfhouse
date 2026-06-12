@@ -112,9 +112,8 @@ function shouldAllowGuestStripeTestLinkCreate(input, context) {
   if (env.STRIPE_LINKS_ENABLED !== 'true') {
     reasons.push('STRIPE_LINKS_ENABLED_required');
   }
-  if (env.WHATSAPP_DRY_RUN !== 'true') {
-    reasons.push('WHATSAPP_DRY_RUN_required');
-  }
+  // Live staging uses WHATSAPP_DRY_RUN=false for outbound WhatsApp; link creation is gated
+  // by confirm_stripe_test_link + staging env — not dry-run mode.
   if (!trimStr(env.STRIPE_SECRET_KEY)) {
     reasons.push('STRIPE_SECRET_KEY_missing');
   } else if (!isStripeTestSecretKey(env)) {

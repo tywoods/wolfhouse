@@ -469,6 +469,15 @@ function checkFlowExpectations(expected, body, priorReview) {
     }
   }
 
+  if (expected.extracted_fields_must_not && typeof expected.extracted_fields_must_not === 'object') {
+    const actualFields = result.extracted_fields || {};
+    for (const [k, v] of Object.entries(expected.extracted_fields_must_not)) {
+      if (actualFields[k] === v) {
+        failures.push(`extracted_fields.${k} must not be ${JSON.stringify(v)}`);
+      }
+    }
+  }
+
   if (expected.banned_reply_terms_absent === true) {
     const banned = findBannedTerms(reply);
     if (banned.length > 0) failures.push(`banned_reply_terms found: ${banned.join(', ')}`);

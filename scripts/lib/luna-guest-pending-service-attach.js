@@ -87,6 +87,22 @@ function mergePendingServiceAttachContext(extractedFields, resultContext) {
   return base;
 }
 
+function resolveManualServiceQuantity(serviceType, fields) {
+  const f = fields || {};
+  if (serviceType === 'yoga') {
+    const req = f.yoga_request;
+    if (req && Number(req.guest_count) >= 1) return Number(req.guest_count);
+    if (req && Number(req.quantity) >= 1) return Number(req.quantity);
+  }
+  if (serviceType === 'meal') {
+    const req = f.meals_request;
+    if (req && Number(req.guest_count) >= 1) return Number(req.guest_count);
+    if (req && Number(req.quantity) >= 1) return Number(req.quantity);
+  }
+  if (Number(f.guest_count) >= 1) return Number(f.guest_count);
+  return 1;
+}
+
 function collectPendingManualServices(extractedFields) {
   const fields = extractedFields || {};
   const services = [];
@@ -181,45 +197,54 @@ async function attachPendingManualGuestServices(pg, opts) {
 
   const attached = [];
   for (const svc of services) {
+    const qty = resolveManualServiceQuantity(svc.type, fields);
     const existing = await pg.query(
-      `SELECT id::text AS id
+      `SELECT COUNT(*)::int AS n
          FROM booking_service_records
         WHERE booking_id = $1::uuid
           AND service_type = $2
           AND source = $3
-          AND metadata->>'pending_origin' = $4
-        LIMIT 1`,
+          AND metadata->>'pending_origin' = $4`,
       [bookingId, svc.type, SERVICE_RECORD_DB_SOURCE, PENDING_ATTACH_ORIGIN],
     );
-    if (existing.rows.length) continue;
+    const have = Number(existing.rows[0] && existing.rows[0].n) || 0;
+    const toCreate = Math.max(0, qty - have);
+    if (!toCreate) continue;
 
-    const metadata = buildAttachMetadata(svc, fields, {
+    const metadataBase = buildAttachMetadata(svc, fields, {
       requestChannel: o.requestChannel || o.request_channel,
     });
 
-    await pg.query(
-      `INSERT INTO booking_service_records (
-         client_slug, booking_id, booking_code, guest_name,
-         service_type, service_date, quantity, status,
-         amount_due_cents, amount_paid_cents, payment_status,
-         source, notes, metadata
-       ) VALUES (
-         $1, $2::uuid, $3, $4,
-         $5, NULL, 1, $6,
-         0, 0, 'not_requested',
-         $7, NULL, $8::jsonb
-       )`,
-      [
-        clientSlug,
-        bookingId,
-        bookingCode,
-        guestName,
-        svc.type,
-        SERVICE_RECORD_DB_STATUS,
-        SERVICE_RECORD_DB_SOURCE,
-        JSON.stringify(metadata),
-      ],
-    );
+    for (let i = 0; i < toCreate; i++) {
+      const metadata = {
+        ...metadataBase,
+        per_guest_slot: have + i + 1,
+        per_guest_total: qty,
+      };
+      await pg.query(
+        `INSERT INTO booking_service_records (
+           client_slug, booking_id, booking_code, guest_name,
+           service_type, service_date, quantity, status,
+           amount_due_cents, amount_paid_cents, payment_status,
+           source, notes, metadata
+         ) VALUES (
+           $1, $2::uuid, $3, $4,
+           $5, NULL, 1, $6,
+           0, 0, 'not_requested',
+           $7, NULL, $8::jsonb
+         )`,
+        [
+          clientSlug,
+          bookingId,
+          bookingCode,
+          guestName,
+          svc.type,
+          SERVICE_RECORD_DB_STATUS,
+          SERVICE_RECORD_DB_SOURCE,
+          JSON.stringify(metadata),
+        ],
+      );
+    }
     attached.push(svc.type === 'meal' ? 'meals' : svc.type);
   }
 
@@ -232,6 +257,7 @@ module.exports = {
   SERVICE_RECORD_DB_SOURCE,
   SERVICE_RECORD_DB_STATUS,
   mergePendingServiceAttachContext,
+  resolveManualServiceQuantity,
   collectPendingManualServices,
   resolveIntentStatus,
   buildAttachMetadata,

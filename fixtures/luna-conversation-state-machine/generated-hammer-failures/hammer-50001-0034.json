@@ -1,0 +1,85 @@
+{
+  "id": "hammer-50001-0034",
+  "fixture_set": "generated-hammer-failures",
+  "language": "en",
+  "contact_name": "James",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 50001,
+    "index": 34,
+    "scenario_type": "out_of_order_all_in_one",
+    "language": "en",
+    "style": [
+      "typo",
+      "emoji"
+    ],
+    "generated_at": "2026-06-12T19:59:09.356Z"
+  },
+  "turns": [
+    {
+      "message": "we are 4 friends, looking for July 8-12, just the stay",
+      "expect": {
+        "expected_guest_count": 4,
+        "expected_dates": {
+          "check_in": "2026-07-08",
+          "check_out": "2026-07-12"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "en",
+        "expected_quote_ready": true,
+        "expected_accommodation_only": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-08",
+      "check_out": "2026-07-12",
+      "guest_count": 4,
+      "package_interest": "accommodation_only"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "en",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0034",
+    "language": "en",
+    "scenario_type": "out_of_order_all_in_one",
+    "failure_categories": [
+      "internal_error"
+    ],
+    "generated_turns": [
+      "we are 4 friends, looking for July 8-12, just the stay"
+    ],
+    "expected_issue_summary": "turn 1: expected_quote_ready but quote_status=not_ready (internal_error)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-08",
+      "check_out": "2026-07-12",
+      "guest_count": 4,
+      "guest_name": "James",
+      "deferred_guest_count": null,
+      "package_interest": null,
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": true,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null,
+      "blocked_weekly_package": "malibu"
+    },
+    "quote_status": "not_ready",
+    "luna_final_reply": "Lovely 😊 We have a few options depending on how much surf you want:\n\n🏡 Malibu — simple weekly stay, Wolfhouse T-shirt + airport shuttle included, from €249.\n\n🏄 Uluwatu — Malibu + surfboard and wetsuit rental, from €349.\n\nWaimea — Malibu + lessons + gear, from €499.\n\nFor July 8 to 12 for 4 guests, are you thinking more stay only, gear included, or lessons included?",
+    "suggested_fix_area": "orchestrator crash / missing import",
+    "hammer_result": "FAIL",
+    "failures": [
+      "turn 1: expected_quote_ready but quote_status=not_ready"
+    ],
+    "exported_at": "2026-06-12T19:59:10.660Z"
+  }
+}

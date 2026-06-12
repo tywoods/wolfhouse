@@ -1137,9 +1137,7 @@ function extractBookingFields(messageText, context, priorFields) {
   }
 
   if (detectAccommodationOnlyIntent(messageText)) {
-    if (!isWeeklySurfPackage(prior.package_interest) && !isWeeklySurfPackage(current.package_interest)) {
-      current.package_interest = 'accommodation_only';
-    }
+    current.package_interest = 'accommodation_only';
   } else if (detectNoPackageIntent(messageText)) {
     current.package_interest = 'no_package';
   }
@@ -1641,6 +1639,17 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     if (guestDeclinedAddons(messageText) || paymentChoiceDeclinesPendingAddons(messageText)) {
       extractedFields = { ...extractedFields, addons_skipped: true, service_interest: [] };
     }
+    if (!guestDeclinedAddons(messageText)) {
+      const addonSelections = extractAddOnSelections(messageText);
+      if (addonSelections.length) {
+        const surfAddons = addonSelections.filter((code) =>
+          ['wetsuit', 'surfboard', 'surf_lesson'].includes(code));
+        if (surfAddons.length) {
+          const merged = new Set([...(extractedFields.service_interest || []), ...surfAddons]);
+          extractedFields = { ...extractedFields, service_interest: [...merged] };
+        }
+      }
+    }
     const reactivePatch = extractReactiveServicesFromMessage(messageText, extractedFields, {
       guest_count: extractedFields.guest_count,
     });
@@ -1684,7 +1693,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       extractedFields = {
         ...extractedFields,
         blocked_weekly_package: packageNightCtx.package_code,
-        package_interest: null,
+        package_interest: 'accommodation_only',
       };
     }
 

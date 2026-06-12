@@ -53,7 +53,10 @@ function detectReactiveServiceIntent(text) {
     return 'meals';
   }
   if (/\b(?:book|reserve)\b.*\b(?:dinner|dinners|meals|breakfast|lunch)\b/i.test(t)) return 'meals';
-  if (/\b(?:dinner|dinners|meals)\b/i.test(t) && /\?\s*$/.test(t.trim())) return 'meals';
+  if (/\b(?:dinner|dinners|meals|cena|abendessen)\b/i.test(t) && /\?\s*$/.test(t.trim())) return 'meals';
+  if (/\b(?:magari|maybe|vielleicht|quizá|quiza|peut[- ]?être|peut etre)\b/i.test(t)
+    && /\b(?:dinner|cena|abendessen|meals?)\b/i.test(t)) return 'meals';
+  if (/\b(?:cenare|cenar|essen|manger)\b/i.test(t)) return 'meals';
   return null;
 }
 
@@ -165,7 +168,8 @@ function readPricingConfig(clientSlug) {
 function resolveGuestSchedulingCapability() {
   return {
     staff_schedule_module: 'staff-booking-services-schedule',
-    guest_attach_available: false,
+    guest_attach_available: true,
+    guest_schedule_write_module: 'luna-guest-service-schedule-write',
     attach_after_hold: true,
   };
 }
@@ -174,6 +178,24 @@ function resolveReactiveServiceStatus(hasDetails, deferred) {
   if (deferred) return 'interested';
   if (hasDetails) return 'needs_staff_confirmation';
   return 'requested';
+}
+
+/** Per-guest quantity when guest says "for each of us" / "per person", etc. */
+function resolvePerGuestServiceQuantity(messageText, priorFields, context) {
+  const t = String(messageText || '');
+  const prior = priorFields || {};
+  const ctx = context || {};
+  const guests = Number(prior.guest_count) >= 1
+    ? Number(prior.guest_count)
+    : (Number(ctx.guest_count) >= 1 ? Number(ctx.guest_count) : 1);
+  if (/\b(?:for each of us|each of us|each guest|per (?:guest|person)|for everyone|para cada|für jeden|per ognuno|per tutti|für alle)\b/i.test(t)) {
+    return guests;
+  }
+  const eachMatch = t.match(/\b(\d+)\s+(?:yoga\s+)?class(?:es)?\s+(?:for\s+)?(?:each|per)\b/i);
+  if (eachMatch) return Math.max(1, Number(eachMatch[1]) * guests);
+  const classMatch = t.match(/\b(\d+)\s+(?:yoga\s+)?class(?:es)?/i);
+  if (classMatch) return Math.max(1, Number(classMatch[1]));
+  return 1;
 }
 
 function extractReactiveServicesFromMessage(messageText, priorFields, context) {
@@ -201,6 +223,8 @@ function extractReactiveServicesFromMessage(messageText, priorFields, context) {
     const session = extractYogaSessionHint(text);
     if (session) yogaPatch.preferred_time = session;
     if (intent === 'yoga' || decideLater) {
+      const qty = resolvePerGuestServiceQuantity(text, prior, ctx);
+      if (qty > 1) yogaPatch.guest_count = qty;
       patch.yoga_request = mergeYogaRequest(prior.yoga_request, yogaPatch);
     }
   }
@@ -412,8 +436,11 @@ module.exports = {
   isReactiveServiceMessage,
   isReactiveServiceFollowUpMessage,
   detectReactiveServiceIntent,
+  resolvePerGuestServiceQuantity,
   stripPendingManualFromServiceInterest,
   detectMealType,
+  extractRequestedDays,
+  extractDietaryNotes,
   extractReactiveServicesFromMessage,
   mergeMealsRequest,
   mergeYogaRequest,

@@ -99,11 +99,17 @@ function detectFieldCorrectionIntent(messageText) {
 function isQuotePreservingSideQuestion(messageText, guestContext) {
   const text = trimStr(messageText);
   if (!text) return false;
+  try {
+    const { guestProvidedTransferTimes } = require('./luna-guest-transfer-times-update');
+    const priorFields = collectPriorExtractedFields(guestContext || {});
+    if (guestProvidedTransferTimes(priorFields, text)) return true;
+  } catch (_) { /* noop */ }
   if (detectPackageExplainerIntent(text)) return true;
   if (detectServiceSideQuestionIntent(text)) return true;
   if (detectTransferSideQuestionIntent(text)) return true;
   const pc = detectPaymentChoiceFromMessage(text);
   if (pc === 'arrival_payment_question' || pc === 'payment_link_request') return true;
+  if (pc === 'deposit' || pc === 'full_payment') return true;
   const knowledgeIntent = detectGuestKnowledgeIntent(text);
   if (knowledgeIntent && shouldPrioritizeKnowledgeOverService(text, knowledgeIntent, guestContext)) return true;
   if (detectGuestSurfReportIntent(text)

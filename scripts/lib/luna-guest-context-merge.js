@@ -193,7 +193,13 @@ function restoreBookingLaneForActiveQuote(ctx) {
   const out = { ...(ctx || {}) };
   const quote = out.quote && typeof out.quote === 'object' ? out.quote : {};
   const paymentNeeded = quote.payment_choice_needed === true || out.payment_choice_needed === true;
-  if (quote.quote_status !== 'ready' || !paymentNeeded) return out;
+  const priorPc = out.payment_choice && typeof out.payment_choice === 'object'
+    ? out.payment_choice
+    : null;
+  const paymentCommitted = priorPc
+    && priorPc.payment_choice_ready === true
+    && (priorPc.payment_choice === 'deposit' || priorPc.payment_choice === 'full_payment');
+  if (quote.quote_status !== 'ready' || (!paymentNeeded && !paymentCommitted)) return out;
 
   out.message_lane = 'new_booking_inquiry';
   out.payment_choice_needed = true;

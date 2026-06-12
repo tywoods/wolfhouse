@@ -1,38 +1,35 @@
 {
-  "id": "hammer-40402-0010",
+  "id": "hammer-50001-0015",
   "fixture_set": "generated-hammer-failures",
-  "language": "it",
-  "contact_name": "Luca",
+  "language": "en",
+  "contact_name": "Alex",
   "reference_date": "2026-06-10",
   "hammer_meta": {
-    "seed": 40402,
-    "index": 10,
+    "seed": 50001,
+    "index": 15,
     "scenario_type": "correction_flow",
-    "language": "it",
-    "style": [
-      "typo",
-      "emoji"
-    ],
-    "generated_at": "2026-06-11T09:40:40.627Z"
+    "language": "en",
+    "style": [],
+    "generated_at": "2026-06-12T19:59:09.356Z"
   },
   "turns": [
     {
-      "message": "🏄 per 1, 10-17 luglio, solo il soggiorno",
+      "message": "Hey we are 1 friends, July 17-24, accommodation only",
       "expect": {
         "expected_guest_count": 1,
         "expected_dates": {
-          "check_in": "2026-07-10",
-          "check_out": "2026-07-17"
+          "check_in": "2026-07-17",
+          "check_out": "2026-07-24"
         },
         "expected_no_handoff": true,
         "no_internal_language": true,
-        "expected_language": "it",
+        "expected_language": "en",
         "expected_quote_ready": true,
         "expected_accommodation_only": true
       }
     },
     {
-      "message": "scusa siamo 1",
+      "message": "sorry we are 1",
       "expect": {
         "expected_guest_count": 1,
         "expected_stale_quote": true,
@@ -48,40 +45,39 @@
   ],
   "final_expect": {
     "expected_fields": {
-      "check_in": "2026-07-10",
-      "check_out": "2026-07-17",
+      "check_in": "2026-07-17",
+      "check_out": "2026-07-24",
       "guest_count": 1,
       "package_interest": "accommodation_only"
     },
     "no_internal_language": true,
     "no_handoff": true,
-    "expected_language": "it",
+    "expected_language": "en",
     "expected_quote_ready": true
   },
   "hammer_review": {
-    "source_seed": 40402,
-    "scenario_id": "hammer-40402-0010",
-    "language": "it",
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0015",
+    "language": "en",
     "scenario_type": "correction_flow",
     "failure_categories": [
-      "date_parsing",
-      "guest_count"
+      "package_intent"
     ],
     "generated_turns": [
-      "🏄 per 1, 10-17 luglio, solo il soggiorno",
-      "scusa siamo 1"
+      "Hey we are 1 friends, July 17-24, accommodation only",
+      "sorry we are 1"
     ],
-    "expected_issue_summary": "turn 2: expected_stale_quote but quote was not invalidated (date_parsing, guest_count)",
+    "expected_issue_summary": "turn 1: expected_accommodation_only but package_interest=malibu (package_intent)",
     "final_extracted_facts": {
-      "check_in": "2026-07-10",
-      "check_out": "2026-07-17",
+      "check_in": "2026-07-17",
+      "check_out": "2026-07-24",
       "guest_count": 1,
-      "guest_name": "Luca",
+      "guest_name": "Alex",
       "deferred_guest_count": null,
-      "package_interest": "accommodation_only",
+      "package_interest": "malibu",
       "room_preference": null,
       "transfer_info": null,
-      "addons_skipped": null,
+      "addons_skipped": true,
       "transfer_interest": null,
       "service_interest": [],
       "meals_request": null,
@@ -89,13 +85,12 @@
       "payment_preference": null
     },
     "quote_status": "ready",
-    "luna_final_reply": "Ottime notizie — abbiamo posto per quelle date ☀️ Il soggiorno viene €315. Vi serve muta, tavola o lezioni, o solo pernottamento?",
-    "suggested_fix_area": "intake date parser / multilingual compact ranges",
+    "luna_final_reply": "For July 17 to 24 for 1 guest, your package includes Santander airport transfer — do you need a pickup from Santander? If yes, send your flight details (arrival time). If not, just say no transfer.",
+    "suggested_fix_area": "package detection + side-question context",
     "hammer_result": "FAIL",
     "failures": [
-      "turn 2: expected_stale_quote but quote was not invalidated",
-      "turn 2: expected_corrected_fields missing guest_count"
+      "turn 1: expected_accommodation_only but package_interest=malibu"
     ],
-    "exported_at": "2026-06-11T09:40:41.335Z"
+    "exported_at": "2026-06-12T19:59:10.659Z"
   }
 }

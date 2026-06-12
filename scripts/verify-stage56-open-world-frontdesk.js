@@ -22,6 +22,8 @@ const {
 const {
   composeFrontdeskGuestReply,
   buildFrontdeskIntakeDraft,
+  buildFrontdeskIntakeCamiBrief,
+  isFrontdeskAuthoringBriefLeak,
 } = require('./lib/luna-guest-frontdesk-reply');
 const {
   isComposerBypassEnabled,
@@ -84,7 +86,14 @@ section('C. Composer bypass produces Cami draft');
     { result: { extracted_fields: { check_in: '2026-07-01', check_out: '2026-07-05' } } },
     'July 1-5 for 1',
   );
-  check('C1', /guest_count|how many guests/i.test(draft), 'draft hints guest count naturally');
+  check('C1', /how many guests/i.test(draft), 'guest fallback asks guest count naturally');
+  check('C1b', !isFrontdeskAuthoringBriefLeak(draft), 'guest fallback is not Cami brief');
+  const brief = buildFrontdeskIntakeCamiBrief(
+    { missing_fields: ['guest_count'], next_required_field: 'guest_count' },
+    { result: { extracted_fields: { check_in: '2026-07-01', check_out: '2026-07-05' } } },
+    'July 1-5 for 1',
+  );
+  check('C1c', isFrontdeskAuthoringBriefLeak(brief), 'Cami brief stays internal-only');
   const composed = composeFrontdeskGuestReply({
     payload: {
       result: {
@@ -116,6 +125,8 @@ check('D1', LUNA_GUEST_STAGING_V1.LUNA_GUEST_FRONTDESK_PLANNER_ENABLED === 'true
 check('D2', LUNA_GUEST_STAGING_V1.LUNA_GUEST_COMPOSER_BYPASS_ENABLED === 'true', 'composer bypass on in staging');
 check('D3', isGuestFrontdeskPlannerEnabled(LUNA_GUEST_STAGING_V1), 'frontdesk enabled helper');
 check('D4', isComposerBypassEnabled(LUNA_GUEST_STAGING_V1), 'bypass enabled helper');
+check('D5', Number(LUNA_GUEST_STAGING_V1.LUNA_GUEST_CAMI_REPLY_AUTHOR_TIMEOUT_MS) >= 20000, 'Cami timeout >= 20s on staging');
+check('D6', Number(LUNA_GUEST_STAGING_V1.LUNA_GUEST_FRONTDESK_PLANNER_TIMEOUT_MS) >= 15000, 'frontdesk timeout >= 15s on staging');
 
 section('E. Orchestrator with mocked frontdesk planner');
 (async function runOrchestratorTest() {
@@ -150,7 +161,29 @@ section('E. Orchestrator with mocked frontdesk planner');
   check('E1', fd && fd.frontdesk_planner_used === true, 'mocked frontdesk planner used');
   check('E2', out.guest_context_chain && out.guest_context_chain.transcript_turns >= 1, 'transcript on context chain');
   check('E3', fd && fd.transcript_turns >= 1, 'transcript turns in observability');
-}()).then(() => {
+}()).then(async () => {
+  section('F. Looking to book — Cami failure must not leak brief');
+  const env = { ...LUNA_GUEST_STAGING_V1, NODE_ENV: 'staging' };
+  const out = await runGuestAutomationOrchestratorDryRun({
+    client_slug: 'wolfhouse-somo',
+    channel: 'whatsapp',
+    guest_phone: '+34600956001',
+    message_text: 'Looking to book!',
+    guest_context: {
+      thread_transcript: [
+        { role: 'assistant', text: 'Welcome in — Looking to book, or just exploring?' },
+        { role: 'guest', text: 'Hello!' },
+      ],
+    },
+  }, {
+    env,
+    cami_reply_author_caller: async () => { throw new Error('cami_reply_author_timeout'); },
+  });
+  check('F1', out.proposed_luna_reply && !isFrontdeskAuthoringBriefLeak(out.proposed_luna_reply), 'no instruction leak on Cami timeout');
+  check('F2', /date/i.test(String(out.proposed_luna_reply || '')), 'fallback still asks for dates');
+  check('F3', out.result && out.result.guest_reply_pipeline && out.result.guest_reply_pipeline.guest_fallback_used !== true
+    || !isFrontdeskAuthoringBriefLeak(out.proposed_luna_reply), 'pipeline used guest-safe copy');
+
   section('Summary');
   console.log(`\n${passes} passed, ${failures} failed`);
   process.exit(failures > 0 ? 1 : 0);

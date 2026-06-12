@@ -35,6 +35,9 @@ const FIXTURE_SET_DIRS = Object.freeze({
   'cami-realism': path.join(
     __dirname, '..', '..', 'fixtures', 'luna-conversation-state-machine', 'cami-realism',
   ),
+  'faq-multilingual': path.join(
+    __dirname, '..', '..', 'fixtures', 'luna-conversation-state-machine',
+  ),
 });
 
 function applyChannelContactName(guestContext, contactName) {
@@ -83,13 +86,16 @@ function loadConversationFixtures(fixtureSet) {
   if (!dir || !fs.existsSync(dir)) {
     throw new Error(`unknown or missing fixture-set directory: ${fixtureSet}`);
   }
-  return fs.readdirSync(dir)
-    .filter((f) => f.endsWith('.json') && f !== 'manifest.json')
+  const files = fixtureSet === 'faq-multilingual'
+    ? fs.readdirSync(dir).filter((f) => /^faq-(de|it|es)-/.test(f) && f.endsWith('.json'))
+    : fs.readdirSync(dir).filter((f) => f.endsWith('.json') && f !== 'manifest.json');
+  return files
     .sort()
     .map((file) => {
       const raw = fs.readFileSync(path.join(dir, file), 'utf8');
       const fx = JSON.parse(raw);
       fx._file = file;
+      if (fixtureSet === 'faq-multilingual') fx.fixture_set = 'faq-multilingual';
       return fx;
     });
 }
@@ -326,6 +332,8 @@ async function runConversationFixtureSetAsBatch(opts) {
     const unsafe = report.flows.some((f) => (f.failures || []).some((x) => /fake_confirmation|internal language|payment truth/i.test(x)));
     report.business_fact_safety = unsafe ? 'FAIL' : 'PASS';
   }
+
+  if (opts.returnOnly) return report;
 
   if (opts.json) {
     console.log(JSON.stringify(report, null, 2));

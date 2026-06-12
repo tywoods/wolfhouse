@@ -622,10 +622,7 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   if (reactivePatch.yoga_request) patch.yoga_request = reactivePatch.yoga_request;
 
   if (detectStayAccommodationOnlyText(text)) {
-    const priorPkg = prior.package_interest;
-    if (!isWeeklySurfPackage(priorPkg) && !/\b(?:malibu|uluwatu|waimea)\b/i.test(text)) {
-      patch.package_interest = 'accommodation_only';
-    }
+    patch.package_interest = 'accommodation_only';
   } else if (/\b(?:no package|not booking a package|sin paquete|sans forfait|ohne paket|without a package)\b/i.test(text)
     && !/\b(?:malibu|uluwatu|waimea)\b/i.test(text)) {
     if (!patch.package_interest) patch.package_interest = 'no_package';

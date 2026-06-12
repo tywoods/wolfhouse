@@ -206,11 +206,24 @@ function buildPaymentChoiceWireContext(bodyGuestContext, result, availability, q
       ...freshQuote,
     };
   }
+  const priorPc = prior.payment_choice && typeof prior.payment_choice === 'object'
+    ? prior.payment_choice
+    : null;
+  const priorPaymentCommitted = priorPc
+    && priorPc.payment_choice_ready === true
+    && (priorPc.payment_choice === 'deposit' || priorPc.payment_choice === 'full_payment');
+  const paymentFlowLane = priorPaymentCommitted
+    || mergedQuote.quote_status === 'ready'
+    || prior.message_lane === 'payment_question'
+    ? 'new_booking_inquiry'
+    : (prior.message_lane || 'new_booking_inquiry');
+
   return {
     ...prior,
-    message_lane: prior.message_lane || 'new_booking_inquiry',
+    message_lane: paymentFlowLane,
     result: prior.result || result,
     availability: prior.availability || availability,
+    payment_choice: prior.payment_choice || null,
     quote: mergedQuote,
     quote_status: mergedQuote.quote_status || prior.quote_status || (quote && quote.quote_status),
     payment_choice_needed: priorQuote.payment_choice_needed === true
@@ -242,6 +255,11 @@ function buildGuestPaymentChoiceWireSkippedResponse(guestContext) {
 function detectPaymentChoiceFromMessage(messageText) {
   const t = normalizeText(messageText);
   if (!t) return null;
+
+  const { detectBalancePaymentLinkRequest } = require('./luna-guest-balance-payment-link-create');
+  if (detectBalancePaymentLinkRequest(t)) {
+    return 'payment_link_request';
+  }
 
   if (/\b(?:send(?:\s+me)?\s+(?:the\s+)?(?:payment\s+)?link|send\s+link|payment\s+link|checkout\s+link|pay(?:ment)?\s+link|link\s+to\s+pay|link\s+after\s+quote|invia(?:mi)?\s+(?:il\s+)?link|link\s+de\s+pago|lien\s+de\s+paiement|zahlungslink)\b/i.test(t)) {
     return 'payment_link_request';
@@ -283,7 +301,8 @@ function detectPaymentChoiceFromMessage(messageText) {
     return 'full_payment';
   }
 
-  if (/\b(?:deposit\s+is\s+fine|pay\s+(?:the\s+)?deposit|just\s+(?:the\s+)?deposit|deposit\s+please|(?:a|the)\s+deposit|anzahlung|dep[oó]sito|deposito|l'?acompte|acompte|acconto|va\s+bene\s+(?:il\s+)?deposito|dep[oó]sito\s+est[aá]\s+bien|anzahlung\s+ist\s+ok|l'?acompte\s+me\s+convient)\b/i.test(t)) {
+  if (/\b(?:(?:i(?:'|’)?ll|i\s+will|let(?:'|')?s)\s+)?(?:start\s+with\s+)?(?:the\s+)?deposit(?:\s+is\s+fine|\s+please|\s+works)?\b/i.test(t)
+    || /\b(?:pay\s+(?:the\s+)?deposit|just\s+(?:the\s+)?deposit|(?:a|the)\s+deposit|anzahlung|dep[oó]sito|deposito|l'?acompte|acompte|acconto|va\s+bene\s+(?:il\s+)?deposito|dep[oó]sito\s+est[aá]\s+bien|anzahlung\s+ist\s+ok|l'?acompte\s+me\s+convient)\b/i.test(t)) {
     return 'deposit';
   }
 
@@ -385,6 +404,48 @@ function finalizeProposedLunaReply(lang, guestContext, outcome, detected) {
   return sanitizeLunaGuestReply(raw, fallback);
 }
 
+function readPriorCommittedPaymentChoice(guestContext) {
+  const prior = (guestContext && guestContext.payment_choice) || {};
+  if (prior.payment_choice_ready !== true) return null;
+  if (prior.payment_choice !== 'deposit' && prior.payment_choice !== 'full_payment') return null;
+  return prior;
+}
+
+/**
+ * Keep deposit/full choice across transfer-time, link-request, and other non-payment turns.
+ */
+function applyPriorPaymentChoicePreservation(outcome, priorPc, detected) {
+  if (!priorPc || !outcome) return outcome;
+  if (detected === 'deposit' || detected === 'full_payment') return outcome;
+  if (detected === 'arrival_payment_question') return outcome;
+
+  if (detected === 'payment_link_request') {
+    return {
+      ...outcome,
+      payment_choice_detected: true,
+      payment_choice: priorPc.payment_choice,
+      payment_choice_ready: true,
+      payment_choice_reasons: ['prior_payment_choice_preserved'],
+      next_safe_step: 'ready_for_hold_payment_draft',
+      replyKey: priorPc.payment_choice === 'deposit' ? 'deposit_ready' : 'full_ready',
+    };
+  }
+
+  if (!detected || detected === 'unclear') {
+    return {
+      ...outcome,
+      payment_choice_detected: priorPc.payment_choice_detected !== false,
+      payment_choice: priorPc.payment_choice,
+      payment_choice_ready: true,
+      payment_choice_reasons: ['prior_payment_choice_preserved'],
+      next_safe_step: priorPc.next_safe_step || 'ready_for_hold_payment_draft',
+      replyKey: priorPc.payment_choice === 'deposit' ? 'deposit_ready' : 'full_ready',
+    };
+  }
+
+  return outcome;
+}
+
 function buildOutcome(detected, guestContext, messageText) {
   const ctx = guestContext || {};
   const { stalePaymentLinkBlocked } = require('./luna-booking-state-transitions');
@@ -401,7 +462,18 @@ function buildOutcome(detected, guestContext, messageText) {
   const lane = ctx.message_lane || (ctx.result && ctx.result.message_lane);
   const quoteReady = quoteContextReady(ctx, messageText);
 
+  const priorPc = readPriorCommittedPaymentChoice(ctx);
   if (lane && lane !== 'new_booking_inquiry' && lane !== 'payment_question') {
+    if (priorPc && (detected === 'payment_link_request' || detected === 'deposit' || detected === 'full_payment' || !detected)) {
+      return applyPriorPaymentChoicePreservation({
+        payment_choice_detected: detected != null,
+        payment_choice: detected,
+        payment_choice_ready: false,
+        payment_choice_reasons: ['non_booking_lane'],
+        next_safe_step: 'staff_handoff_required',
+        replyKey: 'non_booking',
+      }, priorPc, detected);
+    }
     return {
       payment_choice_detected: detected != null,
       payment_choice: detected,
@@ -532,11 +604,35 @@ function runGuestPaymentChoiceDryRun(input, guestContext) {
     resetIntent = false;
   }
 
+  const priorPc = readPriorCommittedPaymentChoice(ctx);
+
   if (!shouldAttemptGuestPaymentChoiceCapture(ctx, messageText) && !detected) {
+    if (priorPc) {
+      const preserved = applyPriorPaymentChoicePreservation(
+        buildOutcome(null, ctx, messageText),
+        priorPc,
+        null,
+      );
+      return {
+        success: true,
+        ...PAYMENT_CHOICE_SAFETY,
+        payment_choice_capture_attempted: false,
+        payment_choice_detected: preserved.payment_choice_detected,
+        payment_choice: preserved.payment_choice,
+        payment_choice_ready: preserved.payment_choice_ready,
+        payment_choice_reasons: preserved.payment_choice_reasons,
+        next_safe_step: preserved.next_safe_step,
+        proposed_luna_reply: finalizeProposedLunaReply(lang, ctx, preserved, null),
+      };
+    }
     return buildGuestPaymentChoiceSkippedResponse(ctx, null, messageText);
   }
 
-  const outcome = buildOutcome(detected, ctx, messageText);
+  const outcome = applyPriorPaymentChoicePreservation(
+    buildOutcome(detected, ctx, messageText),
+    priorPc,
+    detected,
+  );
   const captureAttempted = quoteContextReady(ctx, messageText) || detected != null;
 
   return {
@@ -569,4 +665,5 @@ module.exports = {
   VALID_NEXT_SAFE_STEPS,
   PAYMENT_CHOICE_SAFETY,
   REPLY_TEMPLATES,
+  tpl,
 };

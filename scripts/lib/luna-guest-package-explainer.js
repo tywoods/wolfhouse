@@ -6,11 +6,11 @@
  */
 
 const TRANSFER_CAVEAT = {
-  en: 'Airport shuttle is included under Wolfhouse transfer rules (Santander for package bookings; Bilbao only for package groups of 4+).',
-  it: 'Il transfer aeroporto è incluso secondo le regole Wolfhouse (Santander per i pacchetti; Bilbao solo per gruppi pacchetto da 4+).',
-  es: 'El traslado al aeropuerto está incluido según las reglas Wolfhouse (Santander en reservas con paquete; Bilbao solo para grupos de paquete de 4+).',
-  de: 'Der Flughafen-Shuttle ist inklusive gemäß Wolfhouse-Transferregeln (Santander bei Paketbuchungen; Bilbao nur für Paketgruppen ab 4).',
-  fr: 'La navette aéroport est incluse selon les règles Wolfhouse (Santander pour les forfaits ; Bilbao seulement pour les groupes forfait de 4+).',
+  en: 'Santander airport transfer is included with weekly packages (Malibu, Uluwatu, Waimea).',
+  it: 'Il transfer aeroporto Santander è incluso con i pacchetti settimanali (Malibu, Uluwatu, Waimea).',
+  es: 'El traslado al aeropuerto de Santander está incluido con los paquetes semanales (Malibu, Uluwatu, Waimea).',
+  de: 'Santander-Flughafen-Transfer ist bei Wochenpaketen inklusive (Malibu, Uluwatu, Waimea).',
+  fr: 'Le transfert aéroport Santander est inclus avec les forfaits hebdomadaires (Malibu, Uluwatu, Waimea).',
 };
 
 const CHOICE_FOLLOWUP = {
@@ -103,7 +103,13 @@ function detectPackageExplainerIntent(text) {
     return 'malibu';
   }
 
-  if (/\b(?:what are the packages|what packages|which package should|package options|package guide|quali sono i pacchetti|che pacchetti|qué paquetes|que paquetes|cuales son los paquetes|was sind die pakete|welche pakete|quels sont les forfaits|quels forfaits)\b/i.test(t)) {
+  if (/\b(?:what are the packages|what packages|which package should|package options|package guide|quali sono i pacchetti|che pacchetti|qué paquetes|que paquetes|cuales son los paquetes|was sind die pakete|welche pakete|quels sont les forfaits|quels forfaits)\b/i.test(t)
+    || /\bwas\s+gibt\s+es\b/i.test(t) && /\bpaket/i.test(t)) {
+    return 'overview';
+  }
+
+  if (/\b(?:was|welche).{0,40}(?:paket|package|pacchetti|paquetes|forfaits).{0,40}(?:enthalten|inclus|incluye|included|drin|beinhaltet)\b/i.test(t)
+    || /\b(?:was ist|was sind).{0,30}(?:in den paketen|in den packages|im paket)\b/i.test(t)) {
     return 'overview';
   }
 
@@ -176,37 +182,85 @@ function buildWhatsAppPackageLines(lang) {
   const L = normalizeLang(lang);
   if (L === 'it') {
     return [
-      '🏡 Malibu — soggiorno base, semplice e flessibile, da €249.',
+      '🏡 Malibu — soggiorno base con T-shirt Wolfhouse e transfer aeroporto inclusi, da €249.',
       '🏄 Uluwatu — soggiorno + noleggio tavola e muta, da €349.',
       '🌊 Waimea — soggiorno + lezioni + attrezzatura, da €499.',
     ];
   }
   if (L === 'es') {
     return [
-      '🏡 Malibu — estancia simple y flexible, desde €249.',
+      '🏡 Malibu — estancia simple con camiseta Wolfhouse y traslado al aeropuerto incluidos, desde €249.',
       '🏄 Uluwatu — estancia + alquiler de tabla y neopreno, desde €349.',
       '🌊 Waimea — estancia + clases + material, desde €499.',
     ];
   }
   if (L === 'de') {
     return [
-      '🏡 Malibu — einfacher Aufenthalt, flexibel, ab €249.',
+      '🏡 Malibu — einfacher Aufenthalt mit Wolfhouse T-Shirt und Flughafen-Shuttle inklusive, ab €249.',
       '🏄 Uluwatu — Aufenthalt + Brett- und Neopren-Verleih, ab €349.',
       '🌊 Waimea — Aufenthalt + Kurse + Equipment, ab €499.',
     ];
   }
   if (L === 'fr') {
     return [
-      '🏡 Malibu — séjour simple et flexible, à partir de 249 €.',
+      '🏡 Malibu — séjour simple avec T-shirt Wolfhouse et navette aéroport inclus, à partir de 249 €.',
       '🏄 Uluwatu — séjour + location planche et combinaison, à partir de 349 €.',
       '🌊 Waimea — séjour + cours + matériel, à partir de 499 €.',
     ];
   }
   return [
-    '🏡 Malibu — simple weekly stay, from €249.',
+    '🏡 Malibu — simple weekly stay, Wolfhouse T-shirt + airport shuttle included, from €249.',
     '🏄 Uluwatu — Malibu + surfboard and wetsuit rental, from €349.',
     '🌊 Waimea — Malibu + lessons + gear, from €499.',
   ];
+}
+
+/** After airport is known — casually ask for arrival/departure times (non-blocking). */
+function buildTransferTimesQuestion(lang, fields) {
+  const L = normalizeLang(lang);
+  const ctx = formatStayContextPhrase(fields);
+  const maps = {
+    en: ctx
+      ? `Perfect — ${ctx} is noted with airport transfer 🙂 Please send over your arrival and departure times when you have them and we'll log them in our system. If you're ready to pay now, just say deposit and we'll use sensible default pickup times until then.`
+      : 'Please send over your arrival and departure times when you have them and we\'ll log them in our system. If you\'re ready to pay now, just say deposit and we\'ll use sensible default pickup times until then.',
+    de: ctx
+      ? `Perfekt — ${ctx} ist mit Transfer notiert 🙂 Schick uns eure Ankunfts- und Abflugzeiten, sobald ihr sie habt. Wenn ihr jetzt zahlen wollt, sagt einfach Anzahlung — bis dahin nutzen wir sinnvolle Standardzeiten.`
+      : 'Schick uns eure Ankunfts- und Abflugzeiten, sobald ihr sie habt. Für die Zahlung jetzt einfach Anzahlung sagen.',
+    es: ctx
+      ? `Perfecto — ${ctx} queda con transfer 🙂 Envíanos las horas de llegada y salida cuando las tengas y las registramos. Si quieres pagar ahora, di depósito y usamos horarios por defecto hasta entonces.`
+      : 'Envíanos las horas de llegada y salida cuando las tengas. Para pagar ahora, di depósito.',
+    it: ctx
+      ? `Perfetto — ${ctx} con transfer annotato 🙂 Mandaci orari di arrivo e partenza quando li hai e li registriamo. Se vuoi pagare ora, di\' deposito e usiamo orari predefiniti fino ad allora.`
+      : 'Mandaci orari di arrivo e partenza quando li hai. Per pagare ora, di\' deposito.',
+    fr: ctx
+      ? `Parfait — ${ctx} avec transfert noté 🙂 Envoyez vos heures d\'arrivée et de départ quand vous les avez et on les enregistre. Pour payer maintenant, dites acompte — horaires par défaut en attendant.`
+      : 'Envoyez vos heures d\'arrivée et de départ quand vous les avez. Pour payer, dites acompte.',
+  };
+  return maps[L] || maps.en;
+}
+
+/** Ask whether the guest needs airport transfer after a package is chosen. */
+function buildTransferIntakeQuestion(lang, fields) {
+  const L = normalizeLang(lang);
+  const ctx = formatStayContextPhrase(fields);
+  const maps = {
+    en: ctx
+      ? `For ${ctx}, your package includes Santander airport transfer — do you need a pickup from Santander? If yes, send your flight details (arrival time). If not, just say no transfer.`
+      : 'your package includes Santander airport transfer — do you need a pickup from Santander? If yes, send your flight details. If not, just say no transfer.',
+    it: ctx
+      ? `Per ${ctx}, il pacchetto include il transfer da Santander — ti serve il pickup da Santander? Se sì, mandami orario di arrivo. Altrimenti scrivi "no transfer".`
+      : 'il pacchetto include il transfer da Santander — ti serve il pickup da Santander?',
+    es: ctx
+      ? `Para ${ctx}, el paquete incluye traslado desde Santander — ¿necesitas pickup desde Santander? Si sí, envía hora de llegada. Si no, di "no transfer".`
+      : 'el paquete incluye traslado desde Santander — ¿necesitas pickup desde Santander?',
+    de: ctx
+      ? `Für ${ctx}: Santander-Transfer ist im Paket inklusive — braucht ihr einen Pickup ab Santander? Wenn ja, schickt die Ankunftszeit. Sonst einfach "no transfer".`
+      : 'Santander-Transfer ist im Paket inklusive — braucht ihr einen Pickup ab Santander?',
+    fr: ctx
+      ? `Pour ${ctx}, le forfait inclut le transfert depuis Santander — avez-vous besoin d'un pickup depuis Santander ? Si oui, envoyez l'heure d'arrivée. Sinon dites "no transfer".`
+      : 'Le forfait inclut le transfert depuis Santander — besoin d\'un pickup depuis Santander ?',
+  };
+  return maps[L] || maps.en;
 }
 
 function buildPackageChoiceQuestionTail(lang, fields, opts) {
@@ -412,6 +466,8 @@ module.exports = {
   resolvePackageExplainerIntent,
   buildPackageExplainerReply,
   buildPackageChoiceIntakeReply,
+  buildTransferIntakeQuestion,
+  buildTransferTimesQuestion,
   buildWhatsAppPackageLines,
   formatStayContextPhrase,
   isBookingExplainerContext,

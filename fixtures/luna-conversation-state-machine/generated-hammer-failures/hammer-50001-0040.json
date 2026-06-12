@@ -1,0 +1,95 @@
+{
+  "id": "hammer-50001-0040",
+  "fixture_set": "generated-hammer-failures",
+  "language": "de",
+  "contact_name": "Thomas",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 50001,
+    "index": 40,
+    "scenario_type": "short_stay_surf_addons",
+    "language": "de",
+    "style": [
+      "emoji"
+    ],
+    "generated_at": "2026-06-12T19:59:09.356Z"
+  },
+  "turns": [
+    {
+      "message": "Hallo, wir wären 2 Personen, vom 1. bis 4. Juli, nur Übernachtung 🌊, 🙏 Wetsuit und Surfboard",
+      "expect": {
+        "expected_guest_count": 2,
+        "expected_dates": {
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-04"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "de",
+        "expected_quote_ready": true,
+        "expected_accommodation_only": true,
+        "expected_service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-04",
+      "guest_count": 2,
+      "package_interest": "accommodation_only"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "de",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0040",
+    "language": "de",
+    "scenario_type": "short_stay_surf_addons",
+    "failure_categories": [
+      "accommodation_intent",
+      "internal_error",
+      "service_addon_intent"
+    ],
+    "generated_turns": [
+      "Hallo, wir wären 2 Personen, vom 1. bis 4. Juli, nur Übernachtung 🌊, 🙏 Wetsuit und Surfboard"
+    ],
+    "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got null (accommodation_intent, internal_error, service_addon_intent)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-01",
+      "check_out": "2026-07-04",
+      "guest_count": 2,
+      "guest_name": "Thomas",
+      "deferred_guest_count": null,
+      "package_interest": null,
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": null,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null,
+      "blocked_weekly_package": "uluwatu"
+    },
+    "quote_status": "not_ready",
+    "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+    "suggested_fix_area": "accommodation-only intent + short-stay defaults",
+    "hammer_result": "FAIL",
+    "failures": [
+      "final: final.expected_fields.package_interest expected \"accommodation_only\" got null",
+      "final: final expected_quote_ready but quote_status=not_ready",
+      "turn 1: expected_service_interest missing wetsuit",
+      "turn 1: expected_service_interest missing surfboard",
+      "turn 1: expected_quote_ready but quote_status=not_ready"
+    ],
+    "exported_at": "2026-06-12T19:59:10.660Z"
+  }
+}

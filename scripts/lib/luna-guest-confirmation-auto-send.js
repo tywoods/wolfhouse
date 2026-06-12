@@ -19,6 +19,46 @@ function isAutoConfirmationSendEnabled(env) {
   return String(e.LUNA_AUTO_SEND_ENABLED || '').trim().toLowerCase() === 'true';
 }
 
+async function loadVerifiedPaymentTruth(pg, bookingId) {
+  const id = trimStr(bookingId);
+  if (!id) return { verified: false, reason: 'missing_booking_id' };
+  const r = await pg.query(
+    `SELECT b.payment_status::text AS booking_payment_status,
+            COALESCE(p.amount_paid_cents, 0)::bigint AS amount_paid_cents,
+            p.status::text AS payment_record_status
+       FROM bookings b
+       LEFT JOIN LATERAL (
+         SELECT amount_paid_cents, status
+           FROM payments
+          WHERE booking_id = b.id
+          ORDER BY paid_at DESC NULLS LAST, created_at DESC
+          LIMIT 1
+       ) p ON true
+      WHERE b.id = $1::uuid
+      LIMIT 1`,
+    [id],
+  );
+  const row = r.rows[0];
+  if (!row) return { verified: false, reason: 'booking_not_found' };
+  const paidCents = Number(row.amount_paid_cents || 0);
+  const recordPaid = trimStr(row.payment_record_status) === 'paid';
+  if (paidCents > 0 || recordPaid) {
+    return {
+      verified: true,
+      amount_paid_cents: paidCents,
+      payment_record_status: row.payment_record_status,
+      booking_payment_status: row.booking_payment_status,
+    };
+  }
+  return {
+    verified: false,
+    reason: 'no_payment_record_truth',
+    booking_payment_status: row.booking_payment_status,
+    amount_paid_cents: paidCents,
+    payment_record_status: row.payment_record_status,
+  };
+}
+
 async function loadBookingSendState(pg, { bookingId, bookingCode }) {
   const id = trimStr(bookingId);
   const code = trimStr(bookingCode);
@@ -27,12 +67,16 @@ async function loadBookingSendState(pg, { bookingId, bookingCode }) {
     ? `SELECT id, booking_code, payment_status::text AS payment_status,
               confirmation_sent_at,
               metadata->'guest'->>'phone' AS guest_phone_meta,
-              metadata->'guest'->>'name' AS guest_name_meta
+              NULLIF(TRIM(phone), '') AS guest_phone_column,
+              metadata->'guest'->>'name' AS guest_name_meta,
+              guest_name
          FROM bookings WHERE id = $1::uuid LIMIT 1`
     : `SELECT id, booking_code, payment_status::text AS payment_status,
               confirmation_sent_at,
               metadata->'guest'->>'phone' AS guest_phone_meta,
-              metadata->'guest'->>'name' AS guest_name_meta
+              NULLIF(TRIM(phone), '') AS guest_phone_column,
+              metadata->'guest'->>'name' AS guest_name_meta,
+              guest_name
          FROM bookings WHERE booking_code = $1 LIMIT 1`;
   const r = await pg.query(q, [id || code]);
   return r.rows[0] || null;
@@ -88,7 +132,18 @@ async function tryAutoSendBookingConfirmation(input, context) {
     };
   }
 
-  if (!to) to = trimStr(row.guest_phone_meta);
+  const paymentTruth = await loadVerifiedPaymentTruth(pg, row.id);
+  if (!paymentTruth.verified) {
+    return {
+      ...base,
+      skip_reason: paymentTruth.reason || 'payment_record_not_paid',
+      payment_status: row.payment_status,
+      booking_code: row.booking_code,
+      payment_truth: paymentTruth,
+    };
+  }
+
+  if (!to) to = trimStr(row.guest_phone_meta) || trimStr(row.guest_phone_column);
   if (!to) return { ...base, skip_reason: 'missing_guest_phone', booking_code: row.booking_code };
 
   const preview = await runGuestConfirmationPreviewDryRun({
@@ -150,4 +205,5 @@ module.exports = {
   isAutoConfirmationSendEnabled,
   tryAutoSendBookingConfirmation,
   loadBookingSendState,
+  loadVerifiedPaymentTruth,
 };

@@ -297,16 +297,22 @@ async function runOpenDemoBookingBedAssignApproved(pg, context) {
       insertedIds.push(insertRes.rows[0]);
     }
 
+    const primaryInsert = insertedIds[0] || {};
+    const primaryRoomCode = trimStr(primaryInsert.room_code)
+      || roomCodeFromBedCode(primaryInsert.bed_code)
+      || null;
     await pg.query(
       `UPDATE bookings
           SET assignment_status = $3::assignment_status,
-              availability_check_status = $4::availability_check_status
+              availability_check_status = $4::availability_check_status,
+              primary_room_code = COALESCE(NULLIF(TRIM(primary_room_code), ''), $5)
         WHERE id = $1::uuid AND client_id = $2`,
       [
         plan.bookingId,
         plan.clientId,
         plan.assignmentAfter.assignment_status,
         plan.assignmentAfter.availability_check_status,
+        primaryRoomCode,
       ],
     );
 

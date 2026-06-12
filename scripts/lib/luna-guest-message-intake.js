@@ -139,7 +139,7 @@ function isSoloAccommodationStayPhrase(text) {
 function detectStayAccommodationOnlyText(text) {
   const t = String(text || '').toLowerCase();
   if (isSoloAccommodationStayPhrase(t)) return true;
-  return /\b(?:accommodation\s+only|room\s+only|just\s+accommodation|just\s+the\s+stay|only\s+stay|stay\s+only)\b/i.test(t)
+  return /\b(?:accommodation\s+only|room\s+only|just\s+accommodation|just\s+the\s+stay)\b/i.test(t)
     || /\bno\s+pack(?:age)?\s+just\s+stay\b/i.test(t)
     || /\bnur\s+(?:unterkunft|übernachtung|uebernachtung)\b/i.test(t);
 }
@@ -701,27 +701,28 @@ function extractPackageCode(text) {
   return null;
 }
 
-/** Infer weekly package from gear language when guest does not name a package code. */
+/** Infer weekly package tier from explicit tier language (not standalone gear/lesson add-ons). */
 function inferPackageFromGearSignals(text) {
   const explicit = extractPackageCode(text);
   if (explicit) return explicit;
 
-  const t = String(text || '').toLowerCase();
-  const hasWetsuit = /\b(?:wetsuit|wesuit|muta|neopren)\b/.test(t);
-  const hasBoard = /\b(?:surfboards?|surf\s+boards?|soft\s+board|hard\s+board|tabla(?:\s+de\s+surf)?|tavola|planche)\b/.test(t)
-    || (/\bboard\b/.test(t) && /\b(?:surf|wetsuit|wesuit|gear|rental)\b/.test(t));
-  const hasLessons = /\b(?:surf\s+lessons?|lessons?|surfstunde|surfunterricht|surfkurs|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t);
-  const stayOnly = /\b(?:stay\s+only|accommodation\s+only|just\s+(?:the\s+)?(?:stay|room|accommodation)|room\s+only|only\s+(?:the\s+)?stay)\b/.test(t)
-    || /\b(?:no\s+(?:lessons?|surf\s+lessons?)|without\s+lessons?)\b/.test(t);
+  const raw = String(text || '');
+  const t = raw.toLowerCase();
+
+  // Accommodation-only / no-package stay — gear and lessons are add-ons, not weekly packages.
+  if (detectStayAccommodationOnlyText(raw)) return null;
+  if (/\b(?:no package|not booking a package|sin paquete|sans forfait|ohne paket|without a package)\b/i.test(raw)
+    && !/\b(?:malibu|uluwatu|waimea)\b/i.test(raw)) return null;
+
   const gearIncluded = /\bgear\s+included\b/.test(t);
   const lessonsIncluded = /\blessons?\s+included\b/.test(t);
+  const tierStayOnly = /\bstay\s+only\b/.test(t)
+    && !/\bjust\s+(?:the\s+)?(?:stay|room|accommodation)\b/.test(t)
+    && !/\b(?:accommodation\s+only|no\s+pack)/.test(t);
 
-  if (stayOnly && !hasLessons && !hasBoard && !hasWetsuit) return 'malibu';
   if (lessonsIncluded) return 'waimea';
   if (gearIncluded) return 'uluwatu';
-  if (hasLessons) return 'waimea';
-  if (hasBoard && hasWetsuit) return 'uluwatu';
-  if ((hasBoard || hasWetsuit) && /\b(?:need|want|yes|yeah|yea|i\s+need)\b/.test(t)) return 'uluwatu';
+  if (tierStayOnly) return 'malibu';
   return null;
 }
 

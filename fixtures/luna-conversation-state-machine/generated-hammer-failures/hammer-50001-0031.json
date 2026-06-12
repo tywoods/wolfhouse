@@ -1,0 +1,103 @@
+{
+  "id": "hammer-50001-0031",
+  "fixture_set": "generated-hammer-failures",
+  "language": "es",
+  "contact_name": "Carlos",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 50001,
+    "index": 31,
+    "scenario_type": "cash_payment_side_question",
+    "language": "es",
+    "style": [
+      "emoji"
+    ],
+    "generated_at": "2026-06-12T19:59:09.356Z"
+  },
+  "turns": [
+    {
+      "message": "Hola! para 3 del 3 al 10 de julio, solo estadía ✨",
+      "expect": {
+        "expected_guest_count": 3,
+        "expected_dates": {
+          "check_in": "2026-07-03",
+          "check_out": "2026-07-10"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "es",
+        "expected_quote_ready": true,
+        "expected_accommodation_only": true
+      }
+    },
+    {
+      "message": "✨ pago en efectivo?",
+      "expect": {
+        "expected_guest_count": 3,
+        "expected_dates": {
+          "check_in": "2026-07-03",
+          "check_out": "2026-07-10"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "es",
+        "expected_quote_ready": true,
+        "expected_context_preserved": true,
+        "reply_contains": [
+          "efectivo"
+        ],
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-03",
+      "check_out": "2026-07-10",
+      "guest_count": 3,
+      "package_interest": "accommodation_only"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "es",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0031",
+    "language": "es",
+    "scenario_type": "cash_payment_side_question",
+    "failure_categories": [
+      "cash_side_question"
+    ],
+    "generated_turns": [
+      "Hola! para 3 del 3 al 10 de julio, solo estadía ✨",
+      "✨ pago en efectivo?"
+    ],
+    "expected_issue_summary": "turn 2: reply_contains \"efectivo\" missing (cash_side_question)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-03",
+      "check_out": "2026-07-10",
+      "guest_count": 3,
+      "guest_name": "Carlos",
+      "deferred_guest_count": null,
+      "package_interest": "accommodation_only",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": null,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "ready",
+    "luna_final_reply": "Sure — cash with me at check-in, or bank transfer on your arrival day. To hold the spot now — €200 deposit or full €945? Whatever's easier 👍",
+    "suggested_fix_area": "payment side-Q copy + quote preservation",
+    "hammer_result": "PARTIAL",
+    "failures": [
+      "turn 2: reply_contains \"efectivo\" missing"
+    ],
+    "exported_at": "2026-06-12T19:59:10.662Z"
+  }
+}

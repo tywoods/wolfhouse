@@ -32,6 +32,19 @@ const {
 } = require('./luna-guest-agent-write-tool-executor');
 const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
 const { syntheticGuestEmailFromPhone } = require('./luna-guest-hold-payment-draft-write');
+const {
+  detectBalancePaymentLinkRequest,
+  runGuestBalancePaymentLinkCreateApproved,
+} = require('./luna-guest-balance-payment-link-create');
+const {
+  guestProvidedTransferTimes,
+  runGuestBookingTransferTimesUpdate,
+} = require('./luna-guest-transfer-times-update');
+const {
+  resolveGuestServiceScheduleIntent,
+  runGuestServiceScheduleWrite,
+} = require('./luna-guest-service-schedule-write');
+const { appendBookingLunaNotes } = require('./luna-guest-booking-notes');
 
 const STRIPE_LINK_READY_DELAYS_MS = [0, 150, 400, 800];
 
@@ -89,8 +102,12 @@ async function runGuestWritePipeline(opts) {
     bookingWrite: null,
     bedAssignment: null,
     stripeLink: null,
+    balanceStripeLink: null,
     serviceAttach: null,
     serviceStripeLink: null,
+    transferTimesUpdate: null,
+    serviceSchedule: null,
+    lunaNotes: null,
   };
 
   if (flags.createHoldDraft) {
@@ -265,11 +282,14 @@ async function runGuestWritePipeline(opts) {
     const chain = buildOpenDemoWriteChainFromReview(review);
     const fields = collectPriorExtractedFields({ result: review.result, quote: review.quote });
     // Stage 56c — also resolve booking_id from the context chain snapshot (post-booking service turns).
-    const bookingId = (out.bookingWrite && out.bookingWrite.booking_id)
+    const bookingId = trimStr(
+      (out.bookingWrite && out.bookingWrite.booking_id)
       || (review.gpt_write_outcomes && review.gpt_write_outcomes.create_booking_hold
         && review.gpt_write_outcomes.create_booking_hold.booking_id)
       || (review.guest_context_chain && review.guest_context_chain.booking_id)
-      || null;
+      || (inboundBody.guest_context && inboundBody.guest_context.booking_id)
+      || inboundBody.booking_id,
+    ) || null;
     const writeCtx = {
       env,
       pg,
@@ -305,7 +325,61 @@ async function runGuestWritePipeline(opts) {
     }
   }
 
+  const chainBookingId = trimStr(
+    (out.bookingWrite && out.bookingWrite.booking_id)
+    || (review.guest_context_chain && review.guest_context_chain.booking_id)
+    || (review.result && review.result.booking_id)
+    || (inboundBody.guest_context && inboundBody.guest_context.booking_id)
+    || inboundBody.booking_id,
+  );
+  if (pg && chainBookingId && detectBalancePaymentLinkRequest(inboundBody.message_text)) {
+    out.balanceStripeLink = await runGuestBalancePaymentLinkCreateApproved({
+      booking_id: chainBookingId,
+      client_slug: inboundBody.client_slug,
+      inbound_message_id: inboundBody.inbound_message_id,
+    }, {
+      confirm_balance_payment_link: true,
+      env,
+      pg,
+      host_header: hostHeader,
+    });
+  }
+
+  if (pg && chainBookingId) {
+    const fields = collectPriorExtractedFields({ result: review.result, quote: review.quote });
+    const gc = inboundBody.guest_context || {};
+    const schedFields = { ...fields };
+    if (gc.check_in && !schedFields.check_in) schedFields.check_in = gc.check_in;
+    if (gc.check_out && !schedFields.check_out) schedFields.check_out = gc.check_out;
+    if (gc.meals_request && !schedFields.meals_request) schedFields.meals_request = gc.meals_request;
+    if (gc.yoga_request && !schedFields.yoga_request) schedFields.yoga_request = gc.yoga_request;
+    const maintCtx = {
+      client_slug: inboundBody.client_slug,
+      booking_id: chainBookingId,
+      message_text: inboundBody.message_text,
+      extracted_fields: schedFields,
+    };
+    if (guestProvidedTransferTimes(fields, inboundBody.message_text)) {
+      out.transferTimesUpdate = await runGuestBookingTransferTimesUpdate(pg, maintCtx);
+    }
+    const schedIntent = resolveGuestServiceScheduleIntent(
+      inboundBody.message_text,
+      schedFields,
+      { check_in: schedFields.check_in, check_out: schedFields.check_out },
+    );
+    if (schedIntent && !schedIntent.needs_date) {
+      out.serviceSchedule = await runGuestServiceScheduleWrite(pg, maintCtx);
+    } else if (schedIntent && schedIntent.needs_date) {
+      out.serviceSchedule = { attempted: false, skipped: 'needs_date', service_type: schedIntent.service_type };
+    }
+    out.lunaNotes = await appendBookingLunaNotes(pg, maintCtx);
+  }
+
   return out;
+}
+
+function trimStr(v) {
+  return v == null ? '' : String(v).trim();
 }
 
 module.exports = {

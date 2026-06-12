@@ -303,16 +303,31 @@ async function resolveOpenDemoPaymentDraftRef(pg, clientSlug, guestPhone) {
   return rows[0] || null;
 }
 
-function buildOpenDemoPaymentLinkMessage(checkoutUrl) {
+function formatEuroCents(cents) {
+  if (cents == null || Number.isNaN(Number(cents))) return null;
+  return `€${(Number(cents) / 100).toFixed(2)}`;
+}
+
+function buildOpenDemoPaymentLinkMessage(checkoutUrl, opts) {
   const url = trimEnv(checkoutUrl);
   if (!url) return '';
+  const options = opts || {};
+  if (options.kind === 'balance') {
+    const eur = formatEuroCents(options.amount_due_cents);
+    if (eur) {
+      return `Here's your secure payment link for the remaining ${eur} balance: ${url}`;
+    }
+    return `Here's your secure payment link for the remaining balance: ${url}`;
+  }
   return `Perfect, here's the secure test payment link for your deposit: ${url}`;
 }
 
-function buildOpenDemoPaymentLinkSendBody(normalized, checkoutUrl) {
+function buildOpenDemoPaymentLinkSendBody(normalized, checkoutUrl, opts) {
   const n = normalized || {};
-  const message = buildOpenDemoPaymentLinkMessage(checkoutUrl);
-  const idempotencyKey = `open-demo:${n.client_slug}:whatsapp:${n.inbound_message_id}:payment-link`;
+  const options = opts || {};
+  const message = buildOpenDemoPaymentLinkMessage(checkoutUrl, options);
+  const suffix = options.kind === 'balance' ? 'balance-payment-link' : 'payment-link';
+  const idempotencyKey = `open-demo:${n.client_slug}:whatsapp:${n.inbound_message_id}:${suffix}`;
   return {
     client_slug: n.client_slug,
     to: n.guest_phone,
@@ -590,12 +605,16 @@ function shouldDeferOpenDemoPaymentChoiceReviewReply(body, env, review, flags) {
  * Stage 28j.5/28j.6 — guest-facing reply after hold/draft (+ optional Stripe link) writes.
  * Delegates to Luna Reply Composer when available.
  */
-function buildOpenDemoPaymentChoiceLiveReply(review, outcomes) {
+function buildOpenDemoPaymentChoiceLiveReply(review, outcomes, opts) {
   const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
+  const o = opts || {};
   const composed = composeLunaGuestReply({
     payload: review || {},
     mode: 'live_staging',
     live_outcomes: outcomes || {},
+    client_slug: o.client_slug || (review && review.client_slug) || null,
+    prior_guest_context: o.prior_guest_context || null,
+    env: o.env || process.env,
   });
   if (composed && composed.covered && composed.reply) return composed.reply;
   return null;

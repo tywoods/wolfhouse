@@ -1,0 +1,35 @@
+{
+  "id": "golden-14-post-booking-yoga-each",
+  "label": "Post-booking yoga — per guest quantity inferred from each of us",
+  "spec_refs": ["7.2", "33"],
+  "contact_name": "Alex",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "ok great. can we book 1 yoga class for each of us on sept 5th?",
+      "inject_guest_context": {
+        "booking_id": "00000000-0000-0000-0000-000000000001",
+        "booking_code": "WH-G27-GOLDEN14",
+        "payment_status": "deposit_paid",
+        "guest_count": 3,
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-10",
+        "extracted_fields": {
+          "guest_count": 3,
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-10",
+          "package_interest": "waimea"
+        }
+      },
+      "expect": {
+        "reply_contains": ["yoga"],
+        "expected_yoga_request": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true
+  }
+}

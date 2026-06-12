@@ -121,14 +121,14 @@ else fail('C5', 'sk_test_ should pass');
 if (!isStripeTestSecretKey({ STRIPE_SECRET_KEY: 'sk_live_abc' })) pass('C6', 'sk_live_ rejected');
 else fail('C6', 'sk_live_ must be rejected');
 
-const noWhatsapp = shouldAllowGuestStripeTestLinkCreate(
+const liveWhatsapp = shouldAllowGuestStripeTestLinkCreate(
   { payment_draft_id: 'pay-1' },
   { env: { ...stagingEnv, WHATSAPP_DRY_RUN: 'false' }, confirm_stripe_test_link: true },
 );
-if (!noWhatsapp.allowed && noWhatsapp.reasons.includes('WHATSAPP_DRY_RUN_required')) {
-  pass('C7', 'WHATSAPP_DRY_RUN=true required');
+if (liveWhatsapp.allowed || !liveWhatsapp.reasons.includes('WHATSAPP_DRY_RUN_required')) {
+  pass('C7', 'live WhatsApp (WHATSAPP_DRY_RUN=false) does not block Stripe link create');
 } else {
-  fail('C7', 'WHATSAPP_DRY_RUN gate missing');
+  fail('C7', 'WHATSAPP_DRY_RUN must not block live staging checkout');
 }
 
 section('D. Blocked without confirm');

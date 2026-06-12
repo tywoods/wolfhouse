@@ -193,16 +193,26 @@ function runLunaGuestAgentBrain(input) {
   // --- Authoring ladder (deterministic v1) ---
 
   if (intent === 'paid_booking_change' && (lang === 'en' || !lang)) {
-    const reply = buildPaidBookingChangeReply();
-    if (authoredReplyIsSafe(reply)) {
-      base.final_reply = reply;
-      base.final_reply_source = 'agent_brain';
-      base.handoff_required = true;
-      base.handoff_reason = 'paid_booking_refund_or_change';
-      base.fallback_used = false;
-      return base;
+    const prior = inp.prior_guest_context || {};
+    const hasPaidBooking = !!(prior.booking_id || prior.booking_code);
+    const quoteReady = payload.quote && payload.quote.quote_status === 'ready';
+    const paymentPending = quoteReady
+      && payload.quote.payment_choice_needed === true
+      && !(payload.payment_choice && payload.payment_choice.payment_choice_ready);
+    if (!hasPaidBooking && paymentPending) {
+      base.safety_notes.push('paid_booking_change_suppressed_unpaid_quote');
+    } else {
+      const reply = buildPaidBookingChangeReply();
+      if (authoredReplyIsSafe(reply)) {
+        base.final_reply = reply;
+        base.final_reply_source = 'agent_brain';
+        base.handoff_required = true;
+        base.handoff_reason = 'paid_booking_refund_or_change';
+        base.fallback_used = false;
+        return base;
+      }
+      base.safety_notes.push('authored_reply_failed_style_contract');
     }
-    base.safety_notes.push('authored_reply_failed_style_contract');
   }
 
   if (intent === 'payment_status_question' && (lang === 'en' || !lang)) {

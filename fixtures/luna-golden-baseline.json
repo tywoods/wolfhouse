@@ -14,7 +14,9 @@
     "golden-09-greeting-no-price-dump": "PASS",
     "golden-10-stale-context-preserved": "PASS",
     "golden-11-september-guest-count": "PASS",
-    "golden-12-package-gear-not-duplicated": "PASS"
+    "golden-12-package-gear-not-duplicated": "PASS",
+    "golden-13-greeting-welcome": "PASS",
+    "golden-14-post-booking-yoga-each": "PASS"
   },
-  "recorded_at": "2026-06-12T19:27:28.861Z"
+  "recorded_at": "2026-06-12T20:16:00.000Z"
 }

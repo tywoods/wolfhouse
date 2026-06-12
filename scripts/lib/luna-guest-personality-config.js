@@ -200,10 +200,20 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
       return t('addons_none', { deposit, total }, 'addons_declined')
         || `Perfect — just the stay then 😊\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
-    deposit_ack: (ctx) => t('deposit_ack', { deposit: ctx && ctx.deposit, total: ctx && ctx.total }, 'deposit_ack')
-      || t('deposit_ack') || null,
-    full_ack: (ctx) => t('full_ack', { deposit: ctx && ctx.deposit, total: ctx && ctx.total }, 'full_ack')
-      || t('full_ack') || null,
+    deposit_ack: (ctx) => {
+      if (tpl.deposit_ack) {
+        return interpolateTemplate(tpl.deposit_ack, { intro_short: introShort, ...(ctx || {}) });
+      }
+      return t('deposit_ack', { deposit: ctx && ctx.deposit, total: ctx && ctx.total }, 'deposit_ack')
+        || t('deposit_ack') || null;
+    },
+    full_ack: (ctx) => {
+      if (tpl.full_ack) {
+        return interpolateTemplate(tpl.full_ack, { intro_short: introShort, ...(ctx || {}) });
+      }
+      return t('full_ack', { deposit: ctx && ctx.deposit, total: ctx && ctx.total }, 'full_ack')
+        || t('full_ack') || null;
+    },
     hold_no_link: (ctx) => {
       const { deposit } = ctx || {};
       if (!deposit) return null;
@@ -231,12 +241,20 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
     stripe_link: (ctx) => {
       const { deposit, checkoutUrl } = ctx;
       if (!deposit || !checkoutUrl) return null;
+      if (tpl.stripe_link) {
+        return interpolateTemplate(tpl.stripe_link, {
+          intro_short: introShort, deposit, checkout_url: checkoutUrl,
+        });
+      }
       return t('stripe_link', { deposit, checkout_url: checkoutUrl })
         || `Perfect — your stay is held 🙌 You can pay the ${deposit} deposit here: ${checkoutUrl}\n\nOnce that's paid, your booking will be confirmed.`;
     },
     payment_link_sent: (ctx) => {
       const { deposit } = ctx;
       if (!deposit) return null;
+      if (tpl.payment_link_sent) {
+        return interpolateTemplate(tpl.payment_link_sent, { intro_short: introShort, deposit });
+      }
       return t('payment_link_sent', { deposit })
         || `Perfect — your stay is held for the ${deposit} deposit 🙌 Check the secure payment link I just sent.`;
     },

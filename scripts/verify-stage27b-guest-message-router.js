@@ -135,7 +135,7 @@ const FIXTURES = [
       lane: 'transfer_request',
       handoff: false,
       noBookingExtract: true,
-      replyContains: ['Bilbao', 'bus'],
+      replyContains: ['Bilbao', '15'],
     },
   },
   {

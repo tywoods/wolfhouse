@@ -573,6 +573,8 @@ async function runHammerBatch(opts) {
     }
   }
 
+  if (opts.returnOnly) return report;
+
   if (opts.json) {
     console.log(JSON.stringify(report, null, 2));
   } else {

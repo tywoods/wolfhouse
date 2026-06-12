@@ -16,24 +16,13 @@
 
 /** Exact payment / confirmation truth — Cami must not rewrite wording that carries URLs or legal state. */
 
+/** URL-bearing or legal confirmation truth — Cami must not rewrite. */
 const COMPOSER_OWNED_STATES = Object.freeze([
-
   'stripe_test_link_created',
-
   'payment_link_sent',
-
-  'payment_link_failed',
-
-  'payment_pending_no_link',
-
   'payment_received_preview_ready',
-
   'confirmation_sent_ack',
-
   'safe_handoff',
-
-  'quote_refreshing',
-
 ]);
 
 
@@ -62,6 +51,12 @@ const CAMI_ELIGIBLE_STATES = Object.freeze([
 
   'ask_transfer_info_casual',
 
+  'ask_transfer_times_combined',
+
+  'service_scheduled_ack',
+
+  'transfer_times_updated_ack',
+
   'ask_package_choice',
 
   'explain_packages',
@@ -89,6 +84,16 @@ const CAMI_ELIGIBLE_STATES = Object.freeze([
   'payment_choice_ack',
 
   'payment_choice_received_hold_created',
+
+  'payment_pending_no_link',
+
+  'hold_write_failed',
+
+  'payment_link_failed',
+
+  'post_payment_link_ack',
+
+  'quote_refreshing',
 
   'clarify_missing_info',
 
@@ -150,6 +155,17 @@ const FRONTDESK_CAMI_STATES = new Set([
 
 ]);
 
+/** Factual copy — Cami must not rewrite (packages, quotes, payment). */
+const CAMI_SKIP_TRUTH_STATES = new Set([
+  'explain_packages',
+  'package_quote_ready',
+  'ask_payment_choice',
+  'payment_choice_ack',
+  'accommodation_quote_ready',
+  'addons_none_confirmed',
+  'answer_arrival_payment_question',
+]);
+
 
 
 function isComposerBypassEnabled(env) {
@@ -202,22 +218,26 @@ function shouldSkipCamiAuthor(args) {
 
   const state = composed && composed.composer_state;
 
+  if (state && CAMI_SKIP_TRUTH_STATES.has(state)) {
+    return { skip: true, reason: `truth_state:${state}` };
+  }
+
   if (state && FRONTDESK_CAMI_STATES.has(state)) {
 
     return { skip: false, reason: null };
 
   }
 
-  if (isComposerBypassEnabled(env) && composed && composed.cami_author_required === true) {
-
+  if (composed && composed.cami_author_required === true) {
     return { skip: false, reason: null };
+  }
 
+  if (isComposerBypassEnabled(env) && composed && composed.covered) {
+    return { skip: false, reason: null };
   }
 
   if (composed && composed.covered && !camiEligibleForState(composed, payload)) {
-
     return { skip: true, reason: 'composer_covered_not_cami_eligible' };
-
   }
 
   return { skip: false, reason: null };

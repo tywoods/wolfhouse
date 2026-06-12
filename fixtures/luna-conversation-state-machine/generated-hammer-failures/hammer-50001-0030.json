@@ -1,0 +1,103 @@
+{
+  "id": "hammer-50001-0030",
+  "fixture_set": "generated-hammer-failures",
+  "language": "en",
+  "contact_name": "Sophie",
+  "reference_date": "2026-06-10",
+  "hammer_meta": {
+    "seed": 50001,
+    "index": 30,
+    "scenario_type": "surf_report_side_question",
+    "language": "en",
+    "style": [
+      "typo",
+      "emoji"
+    ],
+    "generated_at": "2026-06-12T19:59:09.356Z"
+  },
+  "turns": [
+    {
+      "message": "🙏 Hey we're 2, July 17-24, just the stay",
+      "expect": {
+        "expected_guest_count": 2,
+        "expected_dates": {
+          "check_in": "2026-07-17",
+          "check_out": "2026-07-24"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "en",
+        "expected_quote_ready": true,
+        "expected_accommodation_only": true,
+        "allow_partial": true
+      }
+    },
+    {
+      "message": "😍 any surf tomorrow?",
+      "expect": {
+        "expected_guest_count": 2,
+        "expected_dates": {
+          "check_in": "2026-07-17",
+          "check_out": "2026-07-24"
+        },
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "expected_language": "en",
+        "expected_context_preserved": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "expected_fields": {
+      "check_in": "2026-07-17",
+      "check_out": "2026-07-24",
+      "guest_count": 2,
+      "package_interest": "accommodation_only"
+    },
+    "no_internal_language": true,
+    "no_handoff": true,
+    "expected_language": "en",
+    "expected_quote_ready": true
+  },
+  "hammer_review": {
+    "source_seed": 50001,
+    "scenario_id": "hammer-50001-0030",
+    "language": "en",
+    "scenario_type": "surf_report_side_question",
+    "failure_categories": [
+      "accommodation_intent",
+      "package_intent"
+    ],
+    "generated_turns": [
+      "🙏 Hey we're 2, July 17-24, just the stay",
+      "😍 any surf tomorrow?"
+    ],
+    "expected_issue_summary": "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"malibu\" (accommodation_intent, package_intent)",
+    "final_extracted_facts": {
+      "check_in": "2026-07-17",
+      "check_out": "2026-07-24",
+      "guest_count": 2,
+      "guest_name": "Sophie",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": null,
+      "addons_skipped": true,
+      "transfer_interest": null,
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": null
+    },
+    "quote_status": "ready",
+    "luna_final_reply": "I can't see the live surf report right this second, but Somo usually works with a nice range of conditions. The team can confirm the best window closer to the day 🌊 Want me to keep going with your booking?",
+    "suggested_fix_area": "accommodation-only intent + short-stay defaults",
+    "hammer_result": "FAIL",
+    "failures": [
+      "final: final.expected_fields.package_interest expected \"accommodation_only\" got \"malibu\"",
+      "turn 1: expected_accommodation_only but package_interest=malibu"
+    ],
+    "exported_at": "2026-06-12T19:59:10.660Z"
+  }
+}
