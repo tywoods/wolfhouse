@@ -1325,6 +1325,9 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   let gptWriteToolPlannerOutput = null;
   let writeLiveOutcomes = null;
   if (isGptWriteToolPlannerEnabled(brainEnv)) {
+    // Stage 56c — propagate booking_id from context chain so post-booking service
+    // attaches can run without a fresh hold write.
+    const contextChainBookingId = trimStr(chainGuestContext.booking_id) || null;
     const writeExecCtx = {
       env: brainEnv,
       pg: ctx.pg || null,
@@ -1336,6 +1339,9 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       confirm_write: ctx.confirm_write === true || ctx.confirm_guest_write === true,
       confirm_stripe_test_link: ctx.confirm_stripe_test_link === true,
       confirm_service_payment_link: ctx.confirm_service_payment_link === true,
+      // Post-booking service attaches are auto-confirmed when booking_id is known.
+      confirm_service_attach: !!contextChainBookingId,
+      booking_id: contextChainBookingId,
       staff_operator: ctx.staff_operator || 'luna-guest-orchestrator',
       source: ctx.write_source || 'luna_guest_gpt_write_tool_planner',
     };
@@ -1346,6 +1352,8 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       contact_name: routerContext.contact_name,
       prior_guest_context: chainGuestContext,
       chain_snapshot: payload,
+      // Expose existing booking_id so the GPT prompt correctly assesses readiness.
+      booking_id: contextChainBookingId,
     }, {
       env: brainEnv,
       exec_ctx: writeExecCtx,

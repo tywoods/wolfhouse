@@ -61,7 +61,9 @@ function resolveBookingRef(ctx, chain) {
     c.booking_id
     || hold.booking_id
     || priorHold.booking_id
-    || (prior.result && prior.result.booking_id),
+    || (prior.result && prior.result.booking_id)
+    // Stage 56c — direct booking_id field from the context chain snapshot.
+    || prior.booking_id,
   ) || null;
   const bookingCode = trimStr(
     c.booking_code
