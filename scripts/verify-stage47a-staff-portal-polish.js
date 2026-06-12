@@ -43,6 +43,11 @@ check('A1', /id="bc-grid-resize-handle"/.test(api), 'resize handle element');
 check('A2', /function bcInitCalendarResize/.test(api), 'bcInitCalendarResize helper');
 check('A3', /staff_bc_grid_height/.test(api), 'localStorage height key');
 check('A4', /BC_GRID_HEIGHT_MIN/.test(api) && /BC_GRID_HEIGHT_MAX/.test(api), 'min/max height guards');
+check('A4b', /function bcGetGridHeightMax/.test(api) && /bcMeasureGridContentHeight/.test(api),
+  'content-aware max height for full room list');
+check('A4c', /BC_GRID_HEIGHT_MAX\s*=\s*4000/.test(api), 'absolute max allows all 10 rooms');
+check('A4d', /Math\.min\(BC_GRID_HEIGHT_MAX/.test(api) && !/Math\.min\(bcGetGridHeightMax\(\)/.test(api),
+  'drag clamp uses absolute max (not content cap that can freeze resize)');
 check('A5', /function bcApplyGridHeight/.test(api) && /wrap\.style\.height/.test(api), 'dynamic calendar height');
 check('A6', /addEventListener\('mousedown'/.test(api) && /mousemove/.test(api), 'pointer drag handlers');
 

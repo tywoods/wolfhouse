@@ -7,7 +7,7 @@
  * no message regeneration.
  *
  * No automatic send · explicit confirm_send required · respects WHATSAPP_DRY_RUN.
- * Stage 27s: live send requires LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST match when dry-run off.
+ * Stage 54: live send allowed for any valid guest phone when dry-run off (no allowlist).
  */
 
 const { sendLunaBookingConfirmation } = require('./luna-booking-confirmation-send');
@@ -257,9 +257,7 @@ async function runGuestConfirmationSendGoNoGo(input, context) {
         live_send_allowlist: allowEval.allowlist,
         recipient_normalized: allowEval.normalized_to,
         whatsapp_dry_run: false,
-        staff_notice: notListed
-          ? 'Live confirmation send blocked — recipient not on staging allowlist.'
-          : 'Live confirmation send blocked — allowlist not configured for staging proof.',
+        staff_notice: 'Live confirmation send blocked — missing or invalid recipient phone.',
       });
     }
   }

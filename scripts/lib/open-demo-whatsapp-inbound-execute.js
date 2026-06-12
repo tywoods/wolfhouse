@@ -11,36 +11,31 @@ const {
   persistOpenDemoInboundThreadMessage,
   persistOpenDemoLiveReplyThreadMessage,
 } = require('./luna-staff-inbox-thread-message');
-const { runGuestHoldPaymentDraftWriteDryRunApproved } = require('./luna-guest-hold-payment-draft-write');
-const { runOpenDemoBookingBedAssignApproved } = require('./open-demo-booking-bed-assign');
-const { runGuestStripeTestLinkCreateApproved } = require('./luna-guest-stripe-test-link-create');
 const {
-  evaluateOpenDemoWhatsAppGate,
   evaluateOpenDemoWhatsAppLiveReplyGate,
-  evaluateOpenDemoBookingWriteGate,
-  evaluateOpenDemoHoldDraftWriteReady,
-  evaluateOpenDemoBedAssignmentWriteReady,
-  buildOpenDemoWriteChainFromReview,
   validateOpenDemoInboundBody,
   wantsSendLiveReplyConfirmed,
   wantsCreateDemoHoldDraftConfirmed,
   wantsAssignDemoBedConfirmed,
   wantsCreateStripeTestLinkConfirmed,
   wantsSendPaymentLinkWhatsAppConfirmed,
-  evaluateOpenDemoStripeTestLinkGate,
-  evaluateOpenDemoStripeLinkWriteReady,
-  resolveOpenDemoPaymentDraftRef,
   buildOpenDemoPaymentLinkSendBody,
-  formatOpenDemoStripeLinkResponse,
-  buildOpenDemoStripeLinkBlockedResponse,
   buildOpenDemoPaymentLinkSendBlockedResponse,
   buildOpenDemoLiveReplySendBody,
   buildOpenDemoLiveReplyBlockedResponse,
-  buildOpenDemoBookingWriteBlockedResponse,
-  buildOpenDemoBedAssignmentBlockedResponse,
   shouldDeferOpenDemoPaymentChoiceReviewReply,
 } = require('./open-demo-whatsapp-gate');
 const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
+const { runGuestWritePipeline } = require('./luna-guest-write-pipeline');
+const { sendLunaWhatsAppTypingIndicator } = require('./luna-whatsapp-provider');
+const {
+  tryAutoSendBookingConfirmation,
+  isAutoConfirmationSendEnabled,
+} = require('./luna-guest-confirmation-auto-send');
+const {
+  mergeLiveStagingGuestContext,
+  persistConversationGuestContext,
+} = require('./luna-guest-live-context-persist');
 
 /**
  * @param {import('pg').Client} pg
@@ -128,6 +123,17 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   }
   const inboundBody = validation.normalized;
 
+  let typingIndicator = null;
+  const inboundWamid = inboundBody.inbound_message_id || rawBody.wamid || rawBody.inbound_message_id;
+  const willAttemptLiveReply = wantsSendLiveReplyConfirmed(rawBody)
+    || evaluateOpenDemoWhatsAppLiveReplyGate(rawBody, env).ok;
+  if (willAttemptLiveReply && inboundWamid) {
+    typingIndicator = await sendLunaWhatsAppTypingIndicator({
+      message_id: inboundWamid,
+      phone_number_id: inboundBody.phone_number_id || rawBody.phone_number_id,
+    }, env);
+  }
+
   let sendLiveReplyConfirmed = wantsSendLiveReplyConfirmed(rawBody);
   let createHoldDraftConfirmed = wantsCreateDemoHoldDraftConfirmed(rawBody);
   let assignDemoBedConfirmed = wantsAssignDemoBedConfirmed(rawBody);
@@ -188,6 +194,9 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   let bedAssignment = null;
   let stripeLink = null;
   let paymentLinkSend = null;
+  let serviceAttach = null;
+  let serviceStripeLink = null;
+  let confirmationSend = null;
   let threadOutbound = null;
 
   let proposedReplyForSend = reviewForFlags.proposed_luna_reply != null
@@ -214,167 +223,26 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     );
   }
 
-  if (createHoldDraftConfirmed) {
-    const writeGate = evaluateOpenDemoBookingWriteGate(rawBody, env);
-    if (!writeGate.ok) {
-      bookingWrite = {
-        create_demo_hold_draft_confirmed: true,
-        ...buildOpenDemoBookingWriteBlockedResponse(writeGate),
-      };
-    } else {
-      const review = reviewOutcome.body.review || {};
-      const ready = evaluateOpenDemoHoldDraftWriteReady(review);
-      if (!ready.ok) {
-        bookingWrite = {
-          create_demo_hold_draft_confirmed: true,
-          demo_booking_write: true,
-          write_attempted: false,
-          write_status: 'not_ready',
-          write_block_reasons: ready.missing,
-          stripe_link_created: false,
-          payment_link_sent: false,
-          sends_whatsapp: false,
-          live_send_blocked: true,
-        };
-      } else {
-        const chain = buildOpenDemoWriteChainFromReview(review);
-        const writeOut = await runGuestHoldPaymentDraftWriteDryRunApproved(chain, {
-          confirm_write: true,
-          client_slug: inboundBody.client_slug,
-          guest_phone: inboundBody.guest_phone,
-          guest_name: (chain.result && chain.result.extracted_fields && chain.result.extracted_fields.guest_name)
-            || rawBody.guest_name || inboundBody.contact_name || null,
-          guest_email: rawBody.guest_email || null,
-          env,
-          host_header: hostHeader,
-          source: rawBody.source || 'open_demo_whatsapp_booking_write',
-          pg,
-          planner: review.hold_payment_draft_plan,
-        });
-        bookingWrite = {
-          create_demo_hold_draft_confirmed: true,
-          demo_booking_write: true,
-          reused_write_path: 'runGuestHoldPaymentDraftWriteDryRunApproved',
-          ...writeOut,
-          stripe_link_created: false,
-          payment_link_sent: false,
-          sends_whatsapp: false,
-          live_send_blocked: true,
-        };
-      }
-    }
-  }
-
-  if (assignDemoBedConfirmed) {
-    if (!createHoldDraftConfirmed) {
-      bedAssignment = {
-        assign_demo_bed_confirmed: true,
-        ...buildOpenDemoBedAssignmentBlockedResponse(['create_demo_hold_draft_confirmed_required']),
-      };
-    } else {
-      const assignGate = evaluateOpenDemoBookingWriteGate(rawBody, env);
-      if (!assignGate.ok) {
-        bedAssignment = {
-          assign_demo_bed_confirmed: true,
-          ...buildOpenDemoBedAssignmentBlockedResponse([], assignGate),
-        };
-      } else if (!bookingWrite) {
-        bedAssignment = {
-          assign_demo_bed_confirmed: true,
-          assignment_write_attempted: false,
-          assignment_write_status: 'blocked',
-          assignment_block_reasons: ['booking_write_not_attempted'],
-          calendar_visible_expected: false,
-        };
-      } else {
-        const assignReady = evaluateOpenDemoBedAssignmentWriteReady(bookingWrite);
-        if (!assignReady.ok) {
-          bedAssignment = {
-            assign_demo_bed_confirmed: true,
-            assignment_write_attempted: false,
-            assignment_write_status: 'blocked',
-            assignment_block_reasons: assignReady.missing,
-            calendar_visible_expected: false,
-            stripe_link_created: false,
-            payment_link_sent: false,
-            sends_whatsapp: false,
-            live_send_blocked: true,
-          };
-        } else {
-          const assignOut = await runOpenDemoBookingBedAssignApproved(pg, {
-            client_slug: inboundBody.client_slug,
-            booking_id: bookingWrite.booking_id,
-            booking_code: bookingWrite.booking_code,
-            review: reviewOutcome.body.review || {},
-            env,
-            host_header: hostHeader,
-          });
-          bedAssignment = {
-            assign_demo_bed_confirmed: true,
-            demo_bed_assignment: true,
-            reused_assignment_path: 'runOpenDemoBookingBedAssignApproved',
-            ...assignOut,
-          };
-        }
-      }
-    }
-  }
-
-  if (createStripeTestLinkConfirmed) {
-    const stripeGate = evaluateOpenDemoStripeTestLinkGate(rawBody, env);
-    if (!stripeGate.ok) {
-      stripeLink = buildOpenDemoStripeLinkBlockedResponse(stripeGate);
-    } else {
-      let linkReady = evaluateOpenDemoStripeLinkWriteReady(bookingWrite, rawBody);
-      if (!linkReady.ok) {
-        const resolved = await resolveOpenDemoPaymentDraftRef(pg, inboundBody.client_slug, inboundBody.guest_phone);
-        if (resolved && resolved.payment_draft_id) {
-          linkReady = {
-            ok: true,
-            payment_draft_id: resolved.payment_draft_id,
-            booking_id: resolved.booking_id,
-            booking_code: resolved.booking_code,
-            next_safe_step: 'ready_for_stripe_test_link',
-          };
-        }
-      }
-      if (!linkReady.ok) {
-        stripeLink = {
-          create_stripe_test_link_confirmed: true,
-          stripe_link_attempted: false,
-          stripe_link_created: false,
-          stripe_link_reused: false,
-          stripe_link_status: 'not_ready',
-          stripe_link_block_reasons: linkReady.missing,
-          stripe_checkout_url: null,
-          payment_link_sent: false,
-          sends_whatsapp: false,
-          live_send_blocked: true,
-          confirmation_sent: false,
-        };
-      } else {
-        const linkOut = await runGuestStripeTestLinkCreateApproved({
-          payment_draft_id: linkReady.payment_draft_id,
-          booking_id: linkReady.booking_id,
-          booking_code: linkReady.booking_code,
-          staff_operator: actorId,
-          source: 'open_demo_whatsapp_stripe_test_link',
-        }, {
-          confirm_stripe_test_link: true,
-          env: { ...env, WHATSAPP_DRY_RUN: 'true' },
-          host_header: hostHeader,
-          pg,
-        });
-        stripeLink = {
-          create_stripe_test_link_confirmed: true,
-          demo_stripe_test_link: true,
-          reused_stripe_path: 'runGuestStripeTestLinkCreateApproved',
-          ...formatOpenDemoStripeLinkResponse(linkOut),
-          payment_link_sent: false,
-          confirmation_sent: false,
-        };
-      }
-    }
+  if (createHoldDraftConfirmed || assignDemoBedConfirmed || createStripeTestLinkConfirmed) {
+    const writeOut = await runGuestWritePipeline({
+      review: reviewForFlags,
+      inboundBody,
+      rawBody,
+      env,
+      pg,
+      hostHeader,
+      actorId,
+      flags: {
+        createHoldDraft: createHoldDraftConfirmed,
+        assignBed: assignDemoBedConfirmed,
+        createStripeLink: createStripeTestLinkConfirmed,
+      },
+    });
+    bookingWrite = writeOut.bookingWrite;
+    bedAssignment = writeOut.bedAssignment;
+    stripeLink = writeOut.stripeLink;
+    serviceAttach = writeOut.serviceAttach;
+    serviceStripeLink = writeOut.serviceStripeLink;
   }
 
   if (sendPaymentLinkWhatsAppConfirmed) {
@@ -432,6 +300,8 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
         bedAssignment,
         stripeLink,
         paymentLinkSend,
+        serviceAttach,
+        serviceStripeLink,
       },
     });
     const bridgeReply = composed && composed.covered ? composed.reply : null;
@@ -460,13 +330,53 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
     }
   }
 
+  const bookingCodeForConfirm = (bookingWrite && bookingWrite.booking_code)
+    || (reviewOutcome.body && reviewOutcome.body.slim_guest_context_for_next_turn
+      && reviewOutcome.body.slim_guest_context_for_next_turn.booking_code);
+  if (pg && isAutoConfirmationSendEnabled(env) && bookingCodeForConfirm) {
+    try {
+      confirmationSend = await tryAutoSendBookingConfirmation({
+        booking_code: bookingCodeForConfirm,
+        booking_id: bookingWrite && bookingWrite.booking_id,
+        to: inboundBody.guest_phone,
+        client_slug: inboundBody.client_slug,
+        guest_name: inboundBody.contact_name,
+        language_hint: reviewForFlags.detected_language || 'en',
+        idempotency_key: `confirmation:auto:inbound:${inboundBody.idempotency_key || inboundBody.inbound_message_id}`,
+      }, { pg, env });
+    } catch (_) {
+      confirmationSend = { attempted: true, skipped: true, skip_reason: 'auto_send_error' };
+    }
+  }
+
+  if (pg && conversationId && reviewOutcome.body) {
+    try {
+      const priorSlim = reviewOutcome.body.slim_guest_context_for_next_turn || {};
+      const enriched = mergeLiveStagingGuestContext(priorSlim, {
+        bookingWrite,
+        stripeLink,
+        paymentLinkSend,
+        confirmationSend,
+        proposedReply: proposedReplyForSend,
+      });
+      await persistConversationGuestContext(pg, conversationId, enriched);
+      reviewOutcome.body.slim_guest_context_for_next_turn = enriched;
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
+
   return {
     reviewOutcome,
+    typingIndicator,
     liveReply,
     bookingWrite,
     bedAssignment,
     stripeLink,
     paymentLinkSend,
+    serviceAttach,
+    serviceStripeLink,
+    confirmationSend,
     threadInbound,
     threadOutbound,
     effectiveFlags: {

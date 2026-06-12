@@ -257,6 +257,10 @@ const {
   sendLunaBookingConfirmation,
 } = require('./lib/luna-booking-confirmation-send');
 const {
+  tryAutoSendBookingConfirmation,
+  isAutoConfirmationSendEnabled,
+} = require('./lib/luna-guest-confirmation-auto-send');
+const {
   buildLunaGuestReplyDraft,
 } = require('./lib/luna-guest-reply-draft');
 const {
@@ -10902,6 +10906,11 @@ async function handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode) 
       elapsed_ms:        elapsed,
     };
 
+    if (outcome.typingIndicator) {
+      responseBody.typing_indicator = outcome.typingIndicator;
+      responseBody.typing_indicator_sent = outcome.typingIndicator.typing_indicator_sent === true;
+    }
+
     if (liveReply) {
       Object.assign(responseBody, liveReply);
     } else if (!writeCreated && !bedAssigned && !stripeLinked && !paymentLinkSent) {
@@ -11599,6 +11608,7 @@ async function handleStripeWebhook(req, res) {
                b.deposit_required_cents AS bk_deposit,
                b.guest_name,
                b.primary_room_code,
+               b.metadata->'guest'->>'phone' AS guest_phone,
                cl.slug                  AS client_slug
           FROM payments p
           JOIN bookings b  ON b.id  = p.booking_id
@@ -11896,6 +11906,27 @@ async function handleStripeWebhook(req, res) {
     return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
   }
 
+  let confirmationAutoSend = null;
+  if (isAutoConfirmationSendEnabled(process.env) && pm.guest_phone) {
+    try {
+      confirmationAutoSend = await withPgClient((pg) => tryAutoSendBookingConfirmation({
+        booking_id: pm.booking_id,
+        booking_code: pm.booking_code,
+        to: pm.guest_phone,
+        client_slug: pm.client_slug || 'wolfhouse-somo',
+        guest_name: pm.guest_name,
+        idempotency_key: `confirmation:auto:webhook:${pm.booking_code}:${event.id}`,
+      }, { pg, env: process.env }));
+    } catch (confirmErr) {
+      confirmationAutoSend = {
+        attempted: true,
+        skipped: true,
+        skip_reason: `auto_send_error:${String(confirmErr.message || confirmErr).slice(0, 80)}`,
+      };
+    }
+  }
+
+  const confirmationSent = confirmationAutoSend && confirmationAutoSend.confirmation_sent === true;
   const elapsed = Date.now() - started;
   appendAuditLog({
     ts: new Date().toISOString(), intent: 'webhook:stripe:payment_truth',
@@ -11903,7 +11934,9 @@ async function handleStripeWebhook(req, res) {
     payment_id: pm.payment_id, booking_id: pm.booking_id,
     booking_code: pm.booking_code, amount_paid_cents: newPmPaidCents,
     new_bk_payment_status: newBkPayStatus, elapsed_ms: elapsed,
-    whatsapp_called: false, n8n_called: false, email_sent: false,
+    whatsapp_called: confirmationSent,
+    n8n_called: false, email_sent: false,
+    confirmation_auto_send: confirmationAutoSend,
   });
 
   // ── 10. Success response ──────────────────────────────────────────────────
@@ -11918,10 +11951,11 @@ async function handleStripeWebhook(req, res) {
     booking_amount_paid_cents: newBkPaid,
     booking_balance_due_cents: newBkBalance,
     payment_status:            newBkPayStatus,
-    no_whatsapp:               true,
+    no_whatsapp:               !confirmationSent,
     no_email:                  true,
     no_n8n:                    true,
-    no_confirmation_sent:      true,
+    no_confirmation_sent:      !confirmationSent,
+    confirmation_auto_send:    confirmationAutoSend,
     confirmation_draft:        confirmationDraft,
     elapsed_ms:                elapsed,
   });
@@ -15603,9 +15637,36 @@ function conversationNeedsHuman(c){
 
 var BC_GRID_HEIGHT_KEY = 'staff_bc_grid_height';
 var BC_GRID_HEIGHT_MIN = 280;
-var BC_GRID_HEIGHT_MAX = 900;
+var BC_GRID_HEIGHT_MAX = 4000;
 var BC_GRID_HEIGHT_DEFAULT = 620;
 var bcCalendarResizeWired = false;
+var bcGridContentHeight = 0;
+
+function bcMeasureGridContentHeight(){
+  var wrap = el('bc-grid-wrap');
+  if (!wrap) return 0;
+  var table = wrap.querySelector('table.bc-grid');
+  if (!table) return 0;
+  var prevH = wrap.style.height;
+  var prevMax = wrap.style.maxHeight;
+  var prevOv = wrap.style.overflowY;
+  wrap.style.height = 'auto';
+  wrap.style.maxHeight = 'none';
+  wrap.style.overflowY = 'visible';
+  var h = Math.max(table.offsetHeight, table.scrollHeight, wrap.scrollHeight);
+  wrap.style.height = prevH;
+  wrap.style.maxHeight = prevMax;
+  wrap.style.overflowY = prevOv || '';
+  return Math.ceil(h + 6);
+}
+
+function bcGetGridHeightMax(){
+  var content = bcGridContentHeight || bcMeasureGridContentHeight();
+  if (content > BC_GRID_HEIGHT_MIN) {
+    return Math.min(BC_GRID_HEIGHT_MAX, content);
+  }
+  return BC_GRID_HEIGHT_MAX;
+}
 
 function bcClampGridHeight(px){
   var n = Number(px);
@@ -15618,7 +15679,7 @@ function bcApplyGridHeight(px){
   if (!wrap) return;
   var h = bcClampGridHeight(px);
   wrap.style.height = h + 'px';
-  wrap.style.maxHeight = h + 'px';
+  wrap.style.maxHeight = '';
 }
 
 function bcLoadSavedGridHeight(){
@@ -15652,9 +15713,12 @@ function bcInitCalendarResize(){
     ev.preventDefault();
     bcApplyGridHeight(startH + (pointerY(ev) - startY));
   }
-  function onUp(){
+  function onUp(ev){
     if (!dragging) return;
     dragging = false;
+    if (ev && handle.releasePointerCapture && handle.hasPointerCapture && handle.hasPointerCapture(ev.pointerId)) {
+      try { handle.releasePointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
+    }
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     var h = parseInt(wrap.style.height, 10);
@@ -15663,6 +15727,9 @@ function bcInitCalendarResize(){
     window.removeEventListener('mouseup', onUp);
     window.removeEventListener('touchmove', onMove);
     window.removeEventListener('touchend', onUp);
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
   }
   function onDown(ev){
     ev.preventDefault();
@@ -15671,13 +15738,20 @@ function bcInitCalendarResize(){
     startH = wrap.getBoundingClientRect().height;
     document.body.style.cursor = 'ns-resize';
     document.body.style.userSelect = 'none';
+    if (handle.setPointerCapture && ev.pointerId != null) {
+      try { handle.setPointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
+    }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('touchend', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }
   handle.addEventListener('mousedown', onDown);
   handle.addEventListener('touchstart', onDown, { passive: false });
+  handle.addEventListener('pointerdown', onDown);
 }
 
 function bcNaturalCodeSort(a, b){
@@ -19105,7 +19179,11 @@ function renderBedCalendar(data){
   var wrap = el('bc-grid-wrap');
   var shell = el('bc-grid-shell');
   wrap.innerHTML = html;
+  bcGridContentHeight = bcMeasureGridContentHeight();
   bcApplyGridHeight(bcLoadSavedGridHeight());
+  requestAnimationFrame(function(){
+    bcGridContentHeight = bcMeasureGridContentHeight();
+  });
   if (shell) shell.style.display = 'block';
   el('bc-state').style.display = 'none';
 
@@ -24783,6 +24861,32 @@ async function handleConversationMessages(convId, query, res, user) {
   const elapsed = Date.now() - started;
   appendAuditLog({ ...auditBase, success: true, row_count: rows.length, elapsed_ms: elapsed });
   return sendJSON(res, 200, { success: true, messages: rows, count: rows.length, elapsed_ms: elapsed });
+}
+
+function isInactiveInboxBookingStatusServer(status) {
+  const s = String(status || '').toLowerCase();
+  return s === 'cancelled' || s === 'canceled' || s === 'expired';
+}
+
+function filterActiveInboxBookings(rows) {
+  return (rows || []).filter((b) => !isInactiveInboxBookingStatusServer(b.booking_status));
+}
+
+function sanitizeConversationContextForInbox(row) {
+  if (!row || !isInactiveInboxBookingStatusServer(row.booking_status)) return row;
+  return {
+    ...row,
+    booking_id: null,
+    booking_code: null,
+    booking_status: null,
+    booking_payment_status: null,
+    check_in: null,
+    check_out: null,
+    guest_count: null,
+    package_code: null,
+    assigned_room_code: null,
+    assigned_bed_code: null,
+  };
 }
 
 async function handleConversationContext(convId, query, res, user) {

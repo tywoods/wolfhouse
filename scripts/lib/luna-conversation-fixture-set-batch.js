@@ -65,6 +65,16 @@ function guestContextFromOrchestrator(out, contactName) {
     corrected_fields: r.result && r.result.corrected_fields,
     new_booking_reset: r.result && r.result.new_booking_reset,
     cami_variation_history: r.result && r.result.cami_variation_history,
+    booking_code: r.booking_code || null,
+    booking_id: r.booking_id || null,
+    payment_link_sent: r.payment_link_sent === true,
+    stripe_link_created: r.stripe_link_created === true,
+    confirmation_sent: r.confirmation_sent === true,
+    payment_truth: r.payment_truth || null,
+    hold_created: r.hold_created === true,
+    active_thread: (r.result && r.result.active_thread)
+      || (r.guest_context_chain && r.guest_context_chain.active_thread)
+      || null,
   }), contactName);
 }
 
@@ -121,6 +131,12 @@ async function runConversationFixture(fixture, opts, index) {
   for (let ti = 0; ti < (fixture.turns || []).length; ti++) {
     const turn = fixture.turns[ti];
     const message = typeof turn === 'string' ? turn : turn.message;
+    if (turn.inject_guest_context && typeof turn.inject_guest_context === 'object') {
+      guestContext = normalizeGuestContextForChain({
+        ...guestContext,
+        ...turn.inject_guest_context,
+      });
+    }
     const input = {
       client_slug: CLIENT_SLUG,
       channel: 'whatsapp',

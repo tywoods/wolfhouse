@@ -1,0 +1,109 @@
+{
+  "id": "july-1-5-accommodation-deposit-flow",
+  "fixture_set": "cami-realism",
+  "language": "en",
+  "label": "July 1–5 accommodation deposit flow — gratitude, already paid, post-booking wetsuit",
+  "contact_name": "Alex",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "July 1 to 5 for 1 person",
+      "expect": {
+        "expected_dates": { "check_in": "2026-07-01", "check_out": "2026-07-05" },
+        "expected_guest_count": 1
+      }
+    },
+    {
+      "message": "just accommodation no package",
+      "expect": {
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "no thanks",
+      "expect": {
+        "expected_quote_ready": true,
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "deposit is fine",
+      "expect": {
+        "expected_payment_choice": "deposit",
+        "expected_no_handoff": true
+      }
+    },
+    {
+      "message": "awesome thanks",
+      "inject_guest_context": {
+        "payment_link_sent": true,
+        "stripe_link_created": true,
+        "booking_code": "WH-G27-STAGE54",
+        "hold_created": true,
+        "payment_choice_needed": false,
+        "quote": {
+          "quote_status": "ready",
+          "payment_choice_needed": false,
+          "check_in": "2026-07-01",
+          "check_out": "2026-07-05",
+          "guest_count": 1
+        },
+        "payment_choice": {
+          "payment_choice_detected": true,
+          "payment_choice": "deposit",
+          "payment_choice_ready": true
+        }
+      },
+      "expect": {
+        "reply_not_contains": [
+          "Would you prefer",
+          "deposit or the full",
+          "full amount",
+          "pay the deposit"
+        ],
+        "expected_no_handoff": true,
+        "min_cami_score": 50
+      }
+    },
+    {
+      "message": "I already paid",
+      "inject_guest_context": {
+        "payment_link_sent": true,
+        "booking_code": "WH-G27-STAGE54",
+        "payment_truth": { "payment_status": "deposit_paid", "booking_code": "WH-G27-STAGE54" },
+        "payment_received": true
+      },
+      "expect": {
+        "reply_contains": ["payment"],
+        "reply_not_contains": [
+          "team will double-check",
+          "looping in our team",
+          "Would you prefer to pay the deposit"
+        ],
+        "expected_no_handoff": true,
+        "min_cami_score": 50
+      }
+    },
+    {
+      "message": "book a wetsuit for 2 days",
+      "inject_guest_context": {
+        "booking_code": "WH-G27-STAGE54",
+        "hold_created": true,
+        "payment_received": true,
+        "payment_truth": { "payment_status": "deposit_paid" }
+      },
+      "expect": {
+        "expected_message_lane": "add_service_request",
+        "reply_not_contains": [
+          "wetsuit thickness",
+          "do you need a wetsuit",
+          "bring your own wetsuit"
+        ],
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true
+  }
+}

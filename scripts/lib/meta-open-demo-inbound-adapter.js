@@ -201,9 +201,12 @@ function buildOpenDemoResultSummary(outcome) {
     composer_state: brain.composer_state || null,
   };
 
+  const ti = outcome.typingIndicator || {};
   return {
     route: META_OPEN_DEMO_SOURCE,
     calls_n8n: false,
+    typing_indicator_sent: ti.typing_indicator_sent === true,
+    typing_indicator_blocked_reason: ti.blocked_reason || null,
     conversation_brain: {
       brain_enabled: brain.brain_enabled === true,
       llm_enabled: brain.llm_enabled === true,

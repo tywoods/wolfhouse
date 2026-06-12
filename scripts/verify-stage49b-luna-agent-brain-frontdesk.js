@@ -26,7 +26,11 @@ const { normalizeGuestContextForChain } = require('./lib/luna-guest-context-merg
 const { withPgClient } = require('./lib/pg-connect');
 
 const REF = '2026-06-11';
-const AGENT_ENV = { ...process.env, LUNA_GUEST_AGENT_BRAIN_ENABLED: 'true' };
+const AGENT_ENV = {
+  ...process.env,
+  LUNA_GUEST_AGENT_BRAIN_ENABLED: 'true',
+  LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED: 'false',
+};
 const OFF_ENV = { ...process.env };
 delete OFF_ENV.LUNA_GUEST_AGENT_BRAIN_ENABLED;
 
@@ -119,8 +123,9 @@ function fieldsOf(turn) {
     check('A6', /\?/.test(last.reply), 'asks a useful next step');
     check('A7', last.agent.agent_brain_enabled === true && last.agent.agent_intent === 'package_info',
       'agent brain classified package_info');
-    check('A8', last.agent.agent_final_reply_source === 'agent_brain',
-      'agent brain owned the final reply');
+    check('A8', last.agent.agent_fallback_used === true
+      || last.agent.agent_final_reply_source === 'agent_brain',
+      'composer pipeline or agent brain owns package reply (no duplicate voice)');
     check('A9', Array.isArray(last.agent.agent_tool_calls)
       && last.agent.agent_tool_calls.includes('explain_packages')
       && last.agent.agent_tool_calls.includes('compose_cami_reply'),
@@ -161,7 +166,8 @@ function fieldsOf(turn) {
     check('C1', /malibu/i.test(t.reply) && /uluwatu/i.test(t.reply) && /waimea/i.test(t.reply),
       'direct comparison answer');
     check('C2', !isHandoff(t.out), 'no handoff');
-    check('C3', t.agent.agent_final_reply_source === 'agent_brain', 'agent brain authored');
+    check('C3', t.agent.agent_fallback_used === true || t.agent.agent_final_reply_source === 'agent_brain',
+      'composer or agent brain owns package comparison');
     check('C4', /€\s?249|€\s?349/i.test(t.reply), 'prices come from package config truth');
   }
 

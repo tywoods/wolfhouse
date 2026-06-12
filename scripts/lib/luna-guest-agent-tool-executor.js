@@ -69,6 +69,8 @@ function executeGuestAgentReadTool(toolId, ctx) {
   const lang = trimStr(ctx.language) || 'en';
 
   if (id === 'get_conversation_context') {
+    const transcript = Array.isArray(ctx.transcript) ? ctx.transcript
+      : (Array.isArray(prior.thread_transcript) ? prior.thread_transcript : []);
     return {
       tool_id: id,
       status: 'ok',
@@ -76,8 +78,14 @@ function executeGuestAgentReadTool(toolId, ctx) {
         prior_extracted_fields: priorFields,
         intake_state: (prior.result && prior.result.intake_state) || null,
         message_lane: (prior.result && prior.result.message_lane) || null,
+        active_thread: prior.active_thread || null,
         quote_status: (prior.quote && prior.quote.quote_status) || 'not_ready',
         availability_status: (prior.availability && prior.availability.availability_status) || 'not_ready',
+        transcript_turns: transcript.length,
+        recent_transcript: transcript.slice(-6).map((t) => ({
+          role: t.role,
+          text: trimStr(t.text).slice(0, 300),
+        })),
       },
     };
   }

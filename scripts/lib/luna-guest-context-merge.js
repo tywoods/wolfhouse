@@ -146,6 +146,12 @@ function normalizeGuestContextForChain(guestContext) {
   if (out.intake_state == null && out.result && out.result.intake_state) {
     out.intake_state = out.result.intake_state;
   }
+  if (out.payment_link_sent === true || out.stripe_link_created === true) {
+    out.payment_choice_needed = false;
+    if (out.quote && typeof out.quote === 'object') {
+      out.quote = { ...out.quote, payment_choice_needed: false };
+    }
+  }
   return restoreBookingLaneForActiveQuote(out);
 }
 

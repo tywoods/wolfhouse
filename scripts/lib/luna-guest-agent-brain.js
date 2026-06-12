@@ -20,6 +20,8 @@ const { resolvePackageExplainerIntent } = require('./luna-guest-package-explaine
 const { buildExplainPackagesReply, FORBIDDEN_GUEST_COPY_RE } = require('./luna-guest-reply-composer');
 const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
 const { planGuestAgentToolSteps } = require('./luna-guest-agent-tool-plan');
+const { isCamiReplyAuthorEnabled } = require('./luna-guest-cami-reply-author');
+const { composerOwnedState } = require('./luna-guest-composer-ownership');
 
 const AGENT_FLAG = 'LUNA_GUEST_AGENT_BRAIN_ENABLED';
 const AGENT_FLAG_PROD = 'LUNA_GUEST_AGENT_BRAIN_ENABLED_PROD';
@@ -66,7 +68,11 @@ function detectedLanguage(result) {
 
 function resolvePaymentTruth(priorGuestContext, payload) {
   const prior = priorGuestContext || {};
-  const truth = prior.payment_truth || (prior.result && prior.result.payment_truth) || null;
+  if (prior.confirmation_sent === true || prior.payment_received === true) {
+    return { known: true, status: 'deposit_paid' };
+  }
+  const truth = prior.payment_truth || prior.live_payment_truth
+    || (prior.result && prior.result.payment_truth) || null;
   const status = truth && trimStr(truth.payment_status).toLowerCase();
   if (status === 'paid' || status === 'deposit_paid' || status === 'fully_paid') {
     return { known: true, status };
@@ -90,7 +96,8 @@ function classifyAgentIntent(messageText, brainDecision, payload, priorGuestCont
     return 'paid_booking_change';
   }
 
-  if (ALREADY_PAID_RE.test(msg) && (UNPAID_MISMATCH_RE.test(msg) || lane === 'payment_question')) {
+  if (ALREADY_PAID_RE.test(msg)
+    || (lane === 'payment_question' && ALREADY_PAID_RE.test(msg))) {
     return 'payment_status_question';
   }
 
@@ -106,9 +113,9 @@ function classifyAgentIntent(messageText, brainDecision, payload, priorGuestCont
 
 function buildPaymentStatusReply(paymentTruth) {
   if (paymentTruth.known) {
-    return 'Good news — I can see a payment registered on the booking here 🙌 If something on your side still shows unpaid, don\'t worry, our team will make sure everything is matched up properly.';
+    return 'Good news — I can see your payment registered on the booking here 🙌 Your confirmation with check-in details is on its way to you in this chat.';
   }
-  return 'Thanks for flagging that — payments can take a little while to sync on our side. I\'ve asked the team to double-check it right away. If you have the name or booking code it\'s under, send it over and they\'ll match it up even faster 👍';
+  return 'Thanks for letting me know — I\'m checking the payment status now. If it\'s already gone through, your confirmation will land here shortly. If you have a booking code handy, send it and I\'ll match it up faster 👍';
 }
 
 function buildPaidBookingChangeReply() {
@@ -204,18 +211,25 @@ function runLunaGuestAgentBrain(input) {
     if (authoredReplyIsSafe(reply)) {
       base.final_reply = reply;
       base.final_reply_source = 'agent_brain';
-      base.handoff_required = !paymentTruth.known;
-      base.handoff_reason = paymentTruth.known ? null : 'payment_status_unverified';
+      base.handoff_required = false;
+      base.handoff_reason = null;
+      base.confirmation_intent = true;
       base.fallback_used = false;
       base.safety_notes.push(paymentTruth.known
         ? 'payment_truth_from_context'
-        : 'no_payment_truth_available_team_check');
+        : 'payment_status_check_auto_confirmation');
       return base;
     }
     base.safety_notes.push('authored_reply_failed_style_contract');
   }
 
   if (intent === 'package_info') {
+    // Composer (+ optional Cami) owns package explain when enabled — avoid duplicate voices.
+    if (isCamiReplyAuthorEnabled(env) || (inp.composed && inp.composed.covered)) {
+      base.fallback_used = true;
+      base.safety_notes.push('package_info_deferred_to_cami_pipeline');
+      return base;
+    }
     const pkgIntent = resolvePackageExplainerIntent(messageText, inp.brain_decision) || 'overview';
     const reply = buildExplainPackagesReply(lang, pkgIntent, fields);
     if (authoredReplyIsSafe(reply)) {

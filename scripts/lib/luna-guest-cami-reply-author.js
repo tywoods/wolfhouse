@@ -9,7 +9,14 @@
  */
 
 const { callLunaAiJsonChat } = require('./luna-ai-provider');
-const { resolveActivePersonality } = require('./luna-guest-personality-config');
+const { resolveActivePersonality, pickLangTemplates } = require('./luna-guest-personality-config');
+const {
+  buildVariationContext,
+  resolveCamiTemplateForComposerState,
+  recordCamiPhraseUsage,
+  isMidThreadWelcomeCopy,
+  isMidThreadGreetingOpener,
+} = require('./luna-guest-cami-reply-variation');
 const {
   FORBIDDEN_GUEST_COPY_RE,
   isForbiddenGuestCopy,
@@ -22,7 +29,7 @@ const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
 
 const FLAG = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED';
 const FLAG_PROD = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED_PROD';
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_MODEL = 'gpt-5.5';
 const DEFAULT_TIMEOUT_MS = 8000;
 
 const INTERNAL_WORDS_RE = /\b(?:\bAI\b|\bmodel\b|\bprompt\b|\btool\b|\bbackend\b|\bdatabase\b|\brouter\b|\bcomposer\b|\borchestrator\b|\bdry[\s-]?run\b|\bstripe\s+link\b)\b/i;
@@ -180,14 +187,59 @@ function buildPersonalityGuidance(clientSlug) {
 
 function buildRecentMessages(latestGuestMessage, priorGuestContext, deterministicReply) {
   const msgs = [];
-  const lastOut = priorGuestContext && priorGuestContext.result
-    && trimStr(priorGuestContext.result.proposed_luna_reply);
-  if (lastOut) msgs.push({ role: 'assistant', text: lastOut.slice(0, 500) });
-  if (trimStr(latestGuestMessage)) msgs.push({ role: 'guest', text: trimStr(latestGuestMessage) });
+  const prior = priorGuestContext || {};
+  const transcript = Array.isArray(prior.thread_transcript) ? prior.thread_transcript : [];
+  if (transcript.length) {
+    for (const turn of transcript.slice(-10)) {
+      if (!turn || !trimStr(turn.text)) continue;
+      msgs.push({
+        role: turn.role === 'guest' ? 'guest' : 'assistant',
+        text: trimStr(turn.text).slice(0, 500),
+      });
+    }
+  } else {
+    const lastOut = prior.result && trimStr(prior.result.proposed_luna_reply);
+    if (lastOut) msgs.push({ role: 'assistant', text: lastOut.slice(0, 500) });
+  }
+  if (trimStr(latestGuestMessage)) {
+    const last = msgs[msgs.length - 1];
+    if (!last || last.role !== 'guest' || last.text !== trimStr(latestGuestMessage)) {
+      msgs.push({ role: 'guest', text: trimStr(latestGuestMessage) });
+    }
+  }
   if (trimStr(deterministicReply) && !msgs.some((m) => m.role === 'assistant' && m.text === deterministicReply)) {
     msgs.push({ role: 'deterministic_draft', text: trimStr(deterministicReply).slice(0, 800) });
   }
   return msgs;
+}
+
+function buildCamiVariantHint(args) {
+  const a = args || {};
+  const clientSlug = trimStr(a.client_slug) || 'wolfhouse-somo';
+  const composerState = a.composer_state;
+  const lang = trimStr(a.lang) || 'en';
+  const prior = a.prior_guest_context || {};
+  const variationCtx = buildVariationContext({
+    prior_guest_context: prior,
+    guest_phone: a.guest_phone,
+    conversation_id: a.conversation_id,
+  });
+  const resolved = resolveActivePersonality(clientSlug);
+  const tpl = pickLangTemplates(resolved.personality, lang);
+  if (!tpl || !composerState) return null;
+  const introShort = tpl.intro_short || `I'm ${resolved.assistant_name} from Wolfhouse`;
+  const baseKey = composerState === 'greeting' ? 'greeting' : composerState;
+  const baseTemplate = tpl[baseKey] || tpl.greeting || trimStr(a.deterministic_reply) || null;
+  if (!baseTemplate) return trimStr(a.deterministic_reply) || null;
+  return resolveCamiTemplateForComposerState(
+    clientSlug,
+    lang,
+    composerState,
+    baseKey,
+    baseTemplate,
+    { intro_short: introShort },
+    variationCtx,
+  );
 }
 
 function buildAuthorInput(args) {
@@ -196,6 +248,21 @@ function buildAuthorInput(args) {
   const clientSlug = trimStr(a.client_slug) || 'wolfhouse-somo';
   const bookingState = buildBookingState(payload, a.prior_guest_context);
   const lang = bookingState.detected_language || 'en';
+  const prior = a.prior_guest_context || {};
+  const variationCtx = buildVariationContext({
+    prior_guest_context: prior,
+    guest_phone: a.guest_phone,
+    conversation_id: a.conversation_id,
+  });
+  const camiVariantHint = buildCamiVariantHint({
+    client_slug: clientSlug,
+    composer_state: a.composer_state,
+    lang,
+    prior_guest_context: prior,
+    guest_phone: a.guest_phone,
+    conversation_id: a.conversation_id,
+    deterministic_reply: a.deterministic_reply,
+  });
   return {
     client_slug: clientSlug,
     latest_guest_message: trimStr(a.latest_guest_message || a.message_text),
@@ -220,6 +287,12 @@ function buildAuthorInput(args) {
     personality_config: buildPersonalityGuidance(clientSlug),
     channel_mode: trimStr(a.channel_mode) || 'orchestrator_dry_run',
     composer_state: a.composer_state || null,
+    cami_variant_hint: camiVariantHint,
+    variation_context: {
+      turn_index: variationCtx.turnIndex,
+      used_openers: variationCtx.usedOpeners,
+      used_payment_prompts: variationCtx.usedPaymentPrompts,
+    },
   };
 }
 
@@ -232,9 +305,15 @@ function buildAuthorSystemPrompt() {
     'Use warm casual surf-house tone — human, cute but not childish, tasteful emojis, readable spacing.',
     'Be helpful, not pushy: one clear next step, no sales pressure, no repeated sign-offs.',
     'Do NOT repeat the guest name every message. Do NOT say "Looking forward to hearing from you" every turn.',
-    'On greeting-only turns: welcome warmly and ask if they want to book a stay or need info — NO package names, NO prices.',
+    'GREETING ONLY (turn_index 0, composer_state greeting): welcome warmly — wolf emoji 🐺 at most once in the opener. Ask book vs info. NO package names, NO prices.',
+    'MID-THREAD (turn_index > 0): NEVER re-welcome — no "hey/so happy you\'re here/so glad you\'re here", no Hola/Ciao openers. Continue the booking naturally.',
+    'Use cami_variant_hint and deterministic_draft_reply as tone/structure guides — preserve their facts and next step.',
+    'On intake (dates, guests, package): conversational, not a form — short ack then one question. Do not repeat "Perfect" or "Super" every turn.',
+    'If guest chose gear (board + wetsuit) or facts show package_interest uluwatu, acknowledge Uluwatu — do not ask for a booking code.',
     'Only explain Malibu/Uluwatu/Waimea when booking intake needs package choice or guest asked about packages.',
-    'Use blank lines between package bullets or sections. Avoid starting with "Perfect" if the draft already used it.',
+    'Use blank lines between package bullets or sections. 🌊 is fine on surf/package lines after the first message.',
+    'On quote-ready: you may say you checked availability when quote_status is ready in facts.',
+    'On payment choice / deposit ack: warm and human — preserve exact € amounts and any payment URL from facts.',
     'Preserve exact dates, guest count, package name, quote total, and deposit from facts.',
     'Include exactly ONE clear next step or question.',
     'If a payment URL is in facts, include it naturally — never call it a Stripe link.',
@@ -259,6 +338,8 @@ function buildAuthorUserPrompt(input) {
     personality: input.personality_config,
     deterministic_draft_reply: input.deterministic_reply,
     composer_state: input.composer_state,
+    cami_variant_hint: input.cami_variant_hint,
+    variation_context: input.variation_context,
   }, null, 2);
 }
 
@@ -414,14 +495,28 @@ function validateCamiAuthoredReply(reply, input) {
   }
 
   const paymentLinkStage = !!pay.payment_link_url;
-  if (qr.quote_status === 'ready' && qr.quote_total_eur && !paymentLinkStage) {
-    if (!text.includes(`€${qr.quote_total_eur}`) && !text.includes(`€${qr.quote_total_eur}.`)) {
-      const alt = formatEuro(qr.quote_total_cents);
-      if (alt && !text.includes(`€${alt}`)) reasons.push('quote_total_missing');
-    }
+  const quotePresentStates = new Set([
+    'package_quote_ready',
+    'accommodation_quote_ready',
+    'ask_payment_choice',
+    'ask_addons_after_quote',
+  ]);
+  const paymentWarmAckStates = new Set(['payment_choice_ack', 'payment_choice_received_hold_created']);
+  if (qr.quote_status === 'ready' && qr.quote_total_cents != null && !paymentLinkStage
+    && (quotePresentStates.has(input.composer_state)
+      || input.allowed_next_action === 'collect_payment_choice')) {
+    const totalStr = String(qr.quote_total_eur || formatEuro(qr.quote_total_cents) || '');
+    const hasTotal = totalStr && (
+      text.includes(`€${totalStr}`)
+      || text.includes(`€ ${totalStr}`)
+      || text.includes(`${totalStr} total`)
+      || text.includes(`€${formatEuro(qr.quote_total_cents)}`)
+    );
+    if (!hasTotal) reasons.push('quote_total_missing');
   }
 
-  if (input.allowed_next_action === 'collect_payment_choice' && qr.quote_status === 'ready') {
+  if (input.allowed_next_action === 'collect_payment_choice' && qr.quote_status === 'ready'
+    && !paymentWarmAckStates.has(input.composer_state)) {
     if (!/\b(?:deposit|full(?:\s+payment)?|pay\s+in\s+full)\b/i.test(text)) {
       reasons.push('payment_choice_question_missing');
     }
@@ -429,6 +524,13 @@ function validateCamiAuthoredReply(reply, input) {
 
   if (pay.payment_link_url) {
     if (!text.includes(pay.payment_link_url)) reasons.push('payment_link_url_missing');
+  }
+
+  const turnIndex = Number((input.variation_context && input.variation_context.turn_index) || 0);
+  const isGreeting = bs.greeting_only === true || input.composer_state === 'greeting';
+  if (!isGreeting && (turnIndex > 0 || bs.check_in || bs.guest_count != null)) {
+    if (isMidThreadWelcomeCopy(text)) reasons.push('mid_thread_welcome_phrase');
+    if (isMidThreadGreetingOpener(text)) reasons.push('mid_thread_greeting_opener');
   }
 
   return reasons;
@@ -482,16 +584,6 @@ async function runCamiGuestReplyAuthor(input, options) {
 
   const authorInput = input.booking_state ? input : buildAuthorInput(input);
 
-  if (authorInput.booking_state && authorInput.booking_state.greeting_only === true) {
-    base.rejection_reason = 'greeting_skip';
-    base.safety_notes.push('skipped_greeting_use_composer_welcome');
-    return base;
-  }
-  if (authorInput.composer_state === 'greeting') {
-    base.rejection_reason = 'greeting_skip';
-    base.safety_notes.push('skipped_greeting_composer_state');
-    return base;
-  }
   const caller = opts.authorCaller || defaultAuthorCaller;
 
   let rawText = null;
@@ -542,7 +634,7 @@ async function defaultAuthorCaller({ system, user, model, env }) {
     user,
     env: { ...env, LUNA_AI_MODEL: model },
     maxTokens: 512,
-    temperature: 0.4,
+    temperature: 0.55,
     jsonObject: true,
     call_label: 'luna_guest_cami_reply_author',
   });
@@ -566,6 +658,7 @@ function buildCamiReplyAuthorObservability(output) {
 async function applyCamiReplyAuthorStage(args) {
   const a = args || {};
   const deterministic = trimStr(a.deterministic_reply);
+  const composerState = a.composed && a.composed.composer_state;
   const authorOut = await runCamiGuestReplyAuthor({
     client_slug: a.client_slug,
     latest_guest_message: a.message_text,
@@ -573,7 +666,9 @@ async function applyCamiReplyAuthorStage(args) {
     payload: a.payload,
     deterministic_reply: deterministic,
     allowed_next_action: a.allowed_next_action,
-    composer_state: a.composed && a.composed.composer_state,
+    composer_state: composerState,
+    guest_phone: a.guest_phone,
+    conversation_id: a.conversation_id,
     channel_mode: a.channel_mode || 'orchestrator_dry_run',
   }, {
     env: a.env,
@@ -581,18 +676,29 @@ async function applyCamiReplyAuthorStage(args) {
   });
 
   const used = authorOut.author_used === true && trimStr(authorOut.authored_reply);
+  const finalReply = used ? authorOut.authored_reply : deterministic;
+  const camiVariationHistory = recordCamiPhraseUsage(
+    (a.prior_guest_context && a.prior_guest_context.cami_variation_history)
+      || (a.composed && a.composed.cami_variation_history)
+      || {},
+    finalReply,
+    composerState,
+  );
   return {
-    reply: used ? authorOut.authored_reply : deterministic,
+    reply: finalReply,
     reply_source: used ? 'cami_reply_author' : a.deterministic_reply_source,
     author: authorOut,
     observability: buildCamiReplyAuthorObservability(authorOut),
+    cami_variation_history: camiVariationHistory,
   };
 }
 
 module.exports = {
   FLAG,
   FLAG_PROD,
+  DEFAULT_MODEL,
   isCamiReplyAuthorEnabled,
+  authorModel,
   buildAuthorInput,
   buildAuthorSystemPrompt,
   buildAuthorUserPrompt,

@@ -17,6 +17,7 @@ const {
   isCamiReplyAuthorEnabled,
 } = require('./lib/luna-guest-cami-reply-author');
 const { runGuestAutomationOrchestratorDryRun } = require('./lib/luna-guest-automation-orchestrator-dry-run');
+const { applyGuestReplyPipeline } = require('./lib/luna-guest-reply-pipeline');
 
 let passes = 0;
 let failures = 0;
@@ -260,7 +261,7 @@ function baseInput(overrides) {
     check('G5', off.rejection_reason === 'author_disabled', 'flag off skips author');
   }
 
-  section('H2. Greeting skip — no unsolicited package dump');
+  section('H2. Greeting Cami — warm rewrite, reject package dump');
   {
     const input = baseInput({
       message: 'hello!',
@@ -269,16 +270,25 @@ function baseInput(overrides) {
       deterministic: "Heyyy! I'm Luna from Wolfhouse 🌊 So happy you're here! Book a stay or need info?",
     });
     input.booking_state.greeting_only = true;
+    const goodMock = JSON.stringify({
+      reply: "Holaaa 🌊 I'm Luna at Wolfhouse!\n\nBook a stay or want info — what sounds good?",
+    });
+    const good = await runCamiGuestReplyAuthor(
+      { ...input, deterministic_reply: input.deterministic_reply },
+      { env: AUTHOR_ENV, authorCaller: mockCaller(goodMock) },
+    );
+    check('H2a', good.author_used === true, 'greeting uses Cami when safe');
+    check('H2b', /book a stay|info/i.test(good.authored_reply), 'greeting keeps book/info ask');
+
     const badMock = JSON.stringify({
       reply: 'Ciao!! Malibu from €249, Uluwatu €349, Waimea €499 — which one?',
     });
-    const out = await runCamiGuestReplyAuthor(
+    const bad = await runCamiGuestReplyAuthor(
       { ...input, deterministic_reply: input.deterministic_reply },
       { env: AUTHOR_ENV, authorCaller: mockCaller(badMock) },
     );
-    check('H2a', out.author_used !== true, 'greeting skips GPT author');
-    check('H2b', out.rejection_reason === 'greeting_skip', 'greeting_skip reason');
-    check('H2c', out.authored_reply.includes('Book a stay') || out.authored_reply.includes('info'), 'composer welcome kept');
+    check('H2c', bad.author_used !== true, 'greeting rejects package dump');
+    check('H2d', bad.fallback_used === true, 'greeting falls back on unsafe mock');
   }
 
   section('H. Orchestrator regression — author off by default');
@@ -297,25 +307,39 @@ function baseInput(overrides) {
     check('H2', !(out.result && out.result.cami_reply_author && out.result.cami_reply_author.cami_author_used), 'author off in default path');
   }
 
-  section('I. Orchestrator with mocked author enabled');
+  section('I. Reply pipeline — Cami on package_quote_ready only');
   {
     const mockReply = JSON.stringify({
-      reply: 'Heyyy 🌊 June 11–20 noted — how many of you are coming?',
+      reply: 'Waimea June 19–29 for 3 — €2250 total. Deposit €100 or pay in full?',
     });
-    const out = await runGuestAutomationOrchestratorDryRun({
+    const pipelineOut = await applyGuestReplyPipeline({
       client_slug: 'wolfhouse-somo',
-      channel: 'dry_run',
-      message_text: 'June 11th to 20th',
-      guest_phone: '+34600500051',
-      guest_context: {},
-      reference_date: '2026-06-11',
-    }, {
+      message_text: 'waimea please',
+      composed: {
+        covered: true,
+        composer_state: 'package_quote_ready',
+        reply: 'Waimea €2250 for June 19–29, 3 guests. Deposit or full?',
+        reply_source: 'composer',
+      },
+      candidate_reply: 'Waimea €2250 for June 19–29, 3 guests. Deposit or full?',
+      candidate_source: 'composer',
+      payload: {
+        result: {
+          extracted_fields: {
+            check_in: '2026-06-19',
+            check_out: '2026-06-29',
+            guest_count: 3,
+            package_interest: 'waimea',
+          },
+        },
+        quote: { quote_status: 'ready', quote_total_cents: 225000, deposit_required_cents: 10000 },
+      },
       env: { ...AUTHOR_ENV, LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED: 'true' },
-      cami_reply_author_caller: mockCaller(mockReply),
+      authorCaller: mockCaller(mockReply),
     });
-    check('I1', /how many/i.test(out.proposed_luna_reply || ''), 'mock author reply used');
-    check('I2', out.result && out.result.cami_reply_author && out.result.cami_reply_author.cami_author_used === true,
-      'observability shows author used');
+    check('I1', /2250|deposit/i.test(pipelineOut.reply || ''), 'mock author on quote-ready state');
+    check('I2', pipelineOut.cami_reply_author.cami_author_used === true, 'observability shows author used');
+    check('I3', pipelineOut.reply_pipeline.cami_skipped !== true, 'pipeline allows cami on package_quote_ready');
   }
 
   console.log(`\n${passes} passed, ${failures} failed\n`);

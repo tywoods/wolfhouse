@@ -252,16 +252,22 @@ function resolveReferenceDate(context) {
   return new Date();
 }
 
-function detectLanguage(text, hint) {
+function detectLanguage(text, hint, threadLang) {
   if (hint) {
     const h = String(hint).trim().toLowerCase().slice(0, 2);
     if (REPLY_TEMPLATES[h]) return h;
   }
   const t = String(text || '').toLowerCase();
-  if (/\b(?:hola|gracias|quiero|personas|septiembre|aeropuerto|necesito|qué|que paquetes|paquetes|tenéis|teneis|principiante)\b/.test(t)) return 'es';
-  if (/\b(?:ciao|grazie|vorrei|persone|settembre|giugno|siamo|quali|pacchetto|pacchetti|principiante)\b/.test(t)) return 'it';
-  if (/\b(?:bonjour|merci|personnes|septembre|août|aout|aimerions|voulons|r[eé]server|reserver|forfaits|quels)\b/.test(t)) return 'fr';
-  if (/\b(?:hallo|danke|gäste|gaste|september|surfbrett|wetsuit|mieten|möchten|moechten|buchen|paket|pakete|anfänger|anfanger|mitbringen)\b/.test(t)) return 'de';
+  const strongEs = /\b(?:hola|gracias|quiero|personas|septiembre|aeropuerto|necesito|qué|que paquetes|paquetes|tenéis|teneis|principiante)\b/;
+  const strongIt = /\b(?:ciao|grazie|vorrei|persone|settembre|giugno|siamo|quali|pacchetto|pacchetti|principiante)\b/;
+  const strongFr = /\b(?:bonjour|merci|personnes|septembre|août|aout|aimerions|voulons|r[eé]server|reserver|forfaits|quels)\b/;
+  const strongDe = /\b(?:hallo|danke|gäste|gaste|september|möchten|moechten|buchen|paket|pakete|anfänger|anfanger|mitbringen|brauche\s+ich)\b/;
+  if (strongEs.test(t)) return 'es';
+  if (strongIt.test(t)) return 'it';
+  if (strongFr.test(t)) return 'fr';
+  if (strongDe.test(t)) return 'de';
+  const thread = String(threadLang || '').trim().toLowerCase().slice(0, 2);
+  if (thread && REPLY_TEMPLATES[thread]) return thread;
   return 'en';
 }
 
@@ -869,6 +875,12 @@ function classifyMessageLane(text, guestContext) {
   }
 
   if (hasCode && !detectNewStayBookingIntent(t)) {
+    try {
+      const { hasPostBookingHold, isPostBookingServiceBookRequest } = require('./luna-guest-knowledge-config');
+      if (hasPostBookingHold(ctx) && isPostBookingServiceBookRequest(t)) {
+        return { lane: 'add_service_request', handoff: false, reasons: [], confidence: 0.88 };
+      }
+    } catch (_) { /* noop */ }
     return { lane: 'existing_booking_question', handoff: false, reasons: [], confidence: 0.85 };
   }
 
@@ -892,8 +904,13 @@ function classifyMessageLane(text, guestContext) {
   const bookingMix = !negatedStayBooking && (/\b(?:book|stay|nights|check.in|package|vorremmo|venir|reserv|giugno|june|juni|malibu|prenot|interessati|interested)\b/i.test(t)
     || (/\bbuchen\b/i.test(t) && !/\b(?:dazu buchen|surfbrett|wetsuit|surfstunde|lezione|clase|cours)\b/i.test(t)));
   if (serviceOnly && !bookingMix && !hasCode) {
-    if (hasExplicitDates(t) || hasGuestCountSignal(t)) {
-      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.9 };
+    const priorFieldsForIntake = collectPriorExtractedFields(guestContext || {});
+    const bookingIntakeNeedsPackage = priorFieldsForIntake.check_in
+      && priorFieldsForIntake.check_out
+      && priorFieldsForIntake.guest_count != null
+      && !priorFieldsForIntake.package_interest;
+    if (bookingIntakeNeedsPackage || hasExplicitDates(t) || hasGuestCountSignal(t)) {
+      return { lane: 'new_booking_inquiry', handoff: false, reasons: [], confidence: 0.91 };
     }
     const priorQuote = (guestContext && guestContext.quote) || {};
     const addonAnswer = guestDeclinedAddons(t) || extractAddOnSelections(t).length > 0;
@@ -1311,7 +1328,10 @@ function runLunaGuestMessageRouterDryRun(input, context) {
     };
   }
 
-  const detectedLanguage = detectLanguage(messageText, src.language_hint || guestContext.language);
+  const threadLanguage = guestContext.detected_language
+    || (guestContext.result && guestContext.result.detected_language)
+    || null;
+  const detectedLanguage = detectLanguage(messageText, src.language_hint || guestContext.language, threadLanguage);
   let packageExplainerIntent = detectPackageExplainerIntent(messageText);
   const packageMutation = detectPackageMutationIntent(messageText);
   const greetingOnly = isGreetingOnlyMessage(messageText);

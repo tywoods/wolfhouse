@@ -650,6 +650,26 @@ function extractPackageCode(text) {
   return null;
 }
 
+/** Infer weekly package from gear language when guest does not name a package code. */
+function inferPackageFromGearSignals(text) {
+  const explicit = extractPackageCode(text);
+  if (explicit) return explicit;
+
+  const t = String(text || '').toLowerCase();
+  const hasWetsuit = /\b(?:wetsuit|wesuit|muta|neopren)\b/.test(t);
+  const hasBoard = /\b(?:surfboards?|surf\s+boards?|soft\s+board|hard\s+board|tabla(?:\s+de\s+surf)?|tavola|planche)\b/.test(t)
+    || (/\bboard\b/.test(t) && /\b(?:surf|wetsuit|wesuit|gear|rental)\b/.test(t));
+  const hasLessons = /\b(?:surf\s+lessons?|lessons?|surfstunde|surfunterricht|surfkurs|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t);
+  const stayOnly = /\b(?:stay\s+only|accommodation\s+only|just\s+(?:the\s+)?(?:stay|room|accommodation)|room\s+only|only\s+(?:the\s+)?stay)\b/.test(t)
+    || /\b(?:no\s+(?:lessons?|surf\s+lessons?)|without\s+lessons?)\b/.test(t);
+
+  if (stayOnly && !hasLessons && !hasBoard && !hasWetsuit) return 'malibu';
+  if (hasLessons) return 'waimea';
+  if (hasBoard && hasWetsuit) return 'uluwatu';
+  if ((hasBoard || hasWetsuit) && /\b(?:need|want|yes|yeah|yea|i\s+need)\b/.test(t)) return 'uluwatu';
+  return null;
+}
+
 function detectPackageMutationIntent(text) {
   const t = String(text || '');
   if (!/\b(?:switch|change|make it|instead|rather|actually)\b/i.test(t)) return null;
@@ -677,7 +697,7 @@ function extractAddOns(text) {
   if (/\b(?:meal|meals|dinner|d[iî]ner|food|cena|comida|repas|abendessen)\b/.test(t)) found.add('meal');
   if (/\b(?:yoga)\b/.test(t)) found.add('yoga');
   if (/\b(?:surf\s+lesson|surfstunde|surfunterricht|surfkurs|lessons?|lezione|lezioni|clase(?:s)?\s+de\s+surf|clases?\s+de\s+surf|cours\s+de\s+surf)\b/.test(t)) found.add('surf_lesson');
-  if (/\b(?:wetsuit|muta)\b/.test(t)) found.add('wetsuit');
+  if (/\b(?:wetsuit|wesuit|muta)\b/.test(t)) found.add('wetsuit');
   if (/\b(?:surfboard|soft\s+board|hard\s+board|board|tabla|tavola|planche)\b/.test(t)) found.add('surfboard');
   return [...found];
 }
@@ -774,7 +794,7 @@ function extractLunaGuestMessageIntake(input, context = {}) {
   let checkOut = isoDates[1] || namedRange.check_out || null;
 
   const guests         = extractGuests(messageText);
-  const packageCode    = extractPackageCode(messageText);
+  const packageCode    = extractPackageCode(messageText) || inferPackageFromGearSignals(messageText);
   const paymentChoice  = extractPaymentChoice(messageText);
   const addOns         = extractAddOns(messageText);
   const handoffMatch   = HANDOFF_RE.test(messageText);
@@ -980,6 +1000,8 @@ module.exports = {
   hasEnoughFieldsForDryRun,
   isGuestIntakeAiEnabled,
   detectPackageMutationIntent,
+  inferPackageFromGearSignals,
+  extractPackageCode,
   parseGuestNameAnswer,
   isSoloAccommodationStayPhrase,
   isSoloTravellerGuestCountPhrase,

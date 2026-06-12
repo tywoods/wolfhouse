@@ -14,6 +14,9 @@ function personalityHelpers() {
 const COMPOSER_STATE_POOL_KEYS = Object.freeze({
   greeting: 'welcome',
   ask_dates: 'ask_dates',
+  ask_package: 'package_choice',
+  ask_package_choice: 'package_choice',
+  explain_packages: 'package_choice',
   confirm_dates: 'ask_guest_count',
   ask_guests: 'ask_guest_count',
   ask_guest_name: 'ask_guest_count',
@@ -84,6 +87,9 @@ const REPLY_NEXT_STEP_PATTERNS = [
   /\bwhat dates\b/i,
   /\bhow many guests\b/i,
 ];
+
+const MID_THREAD_WELCOME_RE = /\b(?:so happy you(?:'re| are) here|so glad you(?:'re| are) here|so stoked you(?:'re| are) here|welcome in|benvenut|lovely to hear from you)\b/i;
+const MID_THREAD_GREETING_OPENER_RE = /^(?:heyyy|holaaa|ciaooo|ciao!!|hey again|welcome back|so happy)/i;
 
 const PAYMENT_PROMPT_PATTERNS = [
   /would you (?:rather|prefer).*deposit.*full/i,
@@ -175,12 +181,15 @@ function containsItalianWarmth(text) {
 function buildVariationContext(input) {
   const prior = (input && input.prior_guest_context) || {};
   const history = prior.cami_variation_history || {};
+  const phone = trimStr(input && input.guest_phone) || trimStr(prior.guest_phone);
+  const sessionKey = trimStr(input && input.conversation_id)
+    || trimStr(prior.conversation_id)
+    || trimStr(input && input.inbound_message_id)
+    || trimStr(input && input.variation_nonce);
+  const seedParts = [phone, sessionKey, trimStr(input && input.variation_seed)].filter(Boolean);
   return {
-    seed: trimStr(input && input.variation_seed)
-      || trimStr(prior.guest_phone)
-      || trimStr(input && input.guest_phone)
-      || 'wolfhouse-cami',
-    turnIndex: Number(history.turn_count || 0),
+    seed: seedParts.length ? seedParts.join(':') : 'wolfhouse-cami',
+    turnIndex: Number(history.turn_count || 0) + Number(input && input.turn_bump || 0),
     usedOpeners: Array.isArray(history.openers) ? history.openers.slice() : [],
     usedPaymentPrompts: Array.isArray(history.payment_prompts) ? history.payment_prompts.slice() : [],
     usedClosers: Array.isArray(history.closers) ? history.closers.slice() : [],
@@ -387,9 +396,21 @@ function mergeVariationHistoryIntoGuestContext(guestContext, history) {
   return gc;
 }
 
+function isMidThreadWelcomeCopy(text) {
+  return MID_THREAD_WELCOME_RE.test(trimStr(text));
+}
+
+function isMidThreadGreetingOpener(text) {
+  return MID_THREAD_GREETING_OPENER_RE.test(trimStr(text));
+}
+
 module.exports = {
   COMPOSER_STATE_POOL_KEYS,
   WELCOME_POOL_KEYS,
+  MID_THREAD_WELCOME_RE,
+  MID_THREAD_GREETING_OPENER_RE,
+  isMidThreadWelcomeCopy,
+  isMidThreadGreetingOpener,
   loadCamiBehavior,
   getVariationPool,
   extractOpener,

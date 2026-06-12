@@ -70,6 +70,16 @@ const GUEST_AGENT_TOOLS = Object.freeze({
     safety_gate_required: false,
     backing: 'luna-guest-reply-composer + Cami personality config',
   },
+  attach_post_booking_services: {
+    read_or_write: 'write',
+    safety_gate_required: true,
+    backing: 'luna-guest-addon-service-attach.attachAllGuestAddonServices (post-hold)',
+  },
+  create_service_payment_link: {
+    read_or_write: 'write',
+    safety_gate_required: true,
+    backing: 'luna-guest-addon-service-payment-link-create (addon_service Stripe checkout)',
+  },
 });
 
 function planItem(toolId, reason, currentStatus, wouldExecuteNow) {
@@ -187,6 +197,14 @@ const GUEST_AGENT_WRITE_TOOL_IDS = Object.freeze(
   Object.keys(GUEST_AGENT_TOOLS).filter((id) => GUEST_AGENT_TOOLS[id].read_or_write === 'write'),
 );
 
+/** Stage 50d/50e — write tools GPT may plan when chain + gates are ready. */
+const GUEST_AGENT_GPT_PLANNABLE_WRITE_TOOL_IDS = Object.freeze([
+  'create_booking_hold',
+  'create_payment_link',
+  'attach_post_booking_services',
+  'create_service_payment_link',
+]);
+
 function isGuestAgentReadTool(toolId) {
   return GUEST_AGENT_READ_TOOL_IDS.includes(toolId);
 }
@@ -195,11 +213,17 @@ function isGuestAgentWriteTool(toolId) {
   return GUEST_AGENT_WRITE_TOOL_IDS.includes(toolId);
 }
 
+function isGuestAgentGptPlannableWriteTool(toolId) {
+  return GUEST_AGENT_GPT_PLANNABLE_WRITE_TOOL_IDS.includes(toolId);
+}
+
 module.exports = {
   GUEST_AGENT_TOOLS,
   GUEST_AGENT_READ_TOOL_IDS,
   GUEST_AGENT_WRITE_TOOL_IDS,
+  GUEST_AGENT_GPT_PLANNABLE_WRITE_TOOL_IDS,
   isGuestAgentReadTool,
   isGuestAgentWriteTool,
+  isGuestAgentGptPlannableWriteTool,
   planGuestAgentToolSteps,
 };

@@ -40,6 +40,8 @@ const {
   collectPriorExtractedFields,
   isActiveBookingSideQuestion,
 } = require('./luna-guest-context-merge');
+const { hydrateGuestContextPaymentTruth } = require('./luna-guest-payment-truth-hydrate');
+const { attachActiveThreadToGuestContext } = require('./luna-guest-thread-state');
 const {
   evaluateQuoteStaleInvalidation,
   applyQuoteStaleInvalidation,
@@ -58,6 +60,16 @@ const {
   buildTransferSideQuestionReply,
 } = require('./luna-guest-service-transfer-explainer');
 const { composeLunaGuestReply } = require('./luna-guest-reply-composer');
+const { composeFrontdeskGuestReply } = require('./luna-guest-frontdesk-reply');
+const { resolveGuestThreadTranscript } = require('./luna-guest-thread-transcript-loader');
+const {
+  isGuestFrontdeskPlannerEnabled,
+  isGuestFrontdeskPlannerActive,
+  runGuestFrontdeskPlannerPreChain,
+  buildFrontdeskReplyPlan,
+  buildFrontdeskObservability,
+  applyPlannerFieldSeed: applyFrontdeskFieldSeed,
+} = require('./luna-guest-frontdesk-planner');
 const {
   runLunaGuestAgentBrain,
   buildGuestAgentBrainObservability,
@@ -70,6 +82,12 @@ const {
   applyPlannerFieldSeed,
   buildGptToolPlannerObservability,
 } = require('./luna-guest-gpt-tool-planner');
+const {
+  runGuestGptWriteToolPlanner,
+  isGptWriteToolPlannerEnabled,
+  buildGptWriteToolPlannerObservability,
+} = require('./luna-guest-gpt-write-tool-planner');
+const { applyGuestReplyPipeline } = require('./luna-guest-reply-pipeline');
 const {
   detectGuestSurfReportIntent,
   shouldPrioritizeSurfReportOverService,
@@ -525,7 +543,8 @@ function tryComposeBookingReply(payload, messageText, priorGuestContext, brainDe
   const clientSlug = trimStr(o.client_slug)
     || trimStr(priorGuestContext && priorGuestContext.client_slug)
     || DEFAULT_CLIENT;
-  const composed = composeLunaGuestReply({
+  const env = o.env || process.env;
+  const composed = composeFrontdeskGuestReply({
     payload,
     message_text: messageText,
     prior_guest_context: priorGuestContext,
@@ -534,6 +553,8 @@ function tryComposeBookingReply(payload, messageText, priorGuestContext, brainDe
     allow_leading_intro: o.allowLeadingIntro === true,
     live_outcomes: o.liveOutcomes,
     client_slug: clientSlug,
+    frontdesk_reply_plan: o.frontdeskReplyPlan || null,
+    env,
   });
   if (composed && composed.covered && composed.reply) {
     return composed;
@@ -716,6 +737,23 @@ function classifyFinalReplySource(finalReply, payload) {
   return 'composed';
 }
 
+function buildGuestContextChainSnapshot(chainGuestContext) {
+  const ctx = chainGuestContext || {};
+  return {
+    active_thread: ctx.active_thread || null,
+    booking_code: ctx.booking_code || null,
+    booking_id: ctx.booking_id || null,
+    payment_link_sent: ctx.payment_link_sent === true,
+    stripe_link_created: ctx.stripe_link_created === true,
+    confirmation_sent: ctx.confirmation_sent === true,
+    payment_received: ctx.payment_received === true,
+    hold_created: ctx.hold_created === true,
+    payment_truth: ctx.payment_truth || null,
+    transcript_source: ctx.transcript_source || null,
+    transcript_turns: Array.isArray(ctx.thread_transcript) ? ctx.thread_transcript.length : 0,
+  };
+}
+
 function buildOrchestratorResponse(parts) {
   const gate = parts.automation_gate;
   const publicEnabled = gate.public_guest_automation_enabled === true;
@@ -734,6 +772,7 @@ function buildOrchestratorResponse(parts) {
     quote: parts.quote ?? null,
     payment_choice: parts.payment_choice ?? null,
     hold_payment_draft_plan: parts.hold_payment_draft_plan ?? null,
+    guest_context_chain: parts.guest_context_chain ?? null,
     proposed_next_action: parts.proposed_next_action,
     proposed_luna_reply: parts.proposed_luna_reply,
     reused_chain_helpers: [...REUSED_CHAIN_HELPERS],
@@ -756,7 +795,8 @@ function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, p
 }
 
 async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext, env, orchestratorCtx) {
-  const { payload, prior, allowIntro } = buildNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext);
+  const priorWithThread = attachActiveThreadToGuestContext(priorGuestContext || {});
+  const { payload, prior, allowIntro } = buildNonBookingLaneResponse(result, gate, messageText, brainDecision, priorWithThread);
   const clientSlug = trimStr(prior.client_slug) || DEFAULT_CLIENT;
   const surfReport = await prefetchGuestSurfReportPayload(messageText, prior, clientSlug);
   if (surfReport) payload.surf_report = surfReport;
@@ -773,7 +813,7 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
   const candidateSource = composed
     ? composed.reply_source
     : classifyFinalReplySource(candidateReply, payload);
-  const agentStage = applyGuestAgentBrainStage({
+  const replyPipeline = await applyGuestReplyPipeline({
     client_slug: clientSlug,
     message_text: messageText,
     prior_guest_context: prior,
@@ -781,26 +821,14 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
     composed,
     candidate_reply: candidateReply,
     candidate_source: candidateSource,
-    payload,
-    env: env || process.env,
-  });
-  let proposedLunaReply = agentStage.reply;
-  let finalReplySource = agentStage.reply_source;
-  const camiStage = await applyCamiReplyAuthorStage({
-    client_slug: clientSlug,
-    message_text: messageText,
-    prior_guest_context: prior,
-    composed,
-    deterministic_reply: proposedLunaReply,
-    deterministic_reply_source: finalReplySource,
     allowed_next_action: payload.proposed_next_action,
     payload,
     channel_mode: 'orchestrator_dry_run',
     env: env || process.env,
     authorCaller: (orchestratorCtx && orchestratorCtx.cami_reply_author_caller) || undefined,
   });
-  proposedLunaReply = camiStage.reply;
-  if (camiStage.reply_source === 'cami_reply_author') finalReplySource = 'cami_reply_author';
+  let proposedLunaReply = replyPipeline.reply;
+  let finalReplySource = replyPipeline.reply_source;
   const policySnapshot = buildBookingIntakePolicySnapshot(
     {
       extracted_fields: (result && result.extracted_fields) || collectPriorExtractedFields(prior),
@@ -828,6 +856,7 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
   );
   const resultWithBrain = {
     ...result,
+    active_thread: priorWithThread.active_thread || null,
     extracted_fields: (result && result.extracted_fields && Object.keys(result.extracted_fields).length)
       ? result.extracted_fields
       : collectPriorExtractedFields(prior),
@@ -843,8 +872,13 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
       booking_flow_stage: policySnapshot.booking_flow_stage,
       next_required_field: policySnapshot.next_required_field,
     }),
-    guest_agent_brain: agentStage.observability,
-    cami_reply_author: camiStage.observability,
+    guest_agent_brain: replyPipeline.guest_agent_brain,
+    cami_reply_author: replyPipeline.cami_reply_author,
+    guest_reply_pipeline: replyPipeline.reply_pipeline,
+    cami_variation_history: replyPipeline.cami_variation_history
+      || (composed && composed.cami_variation_history)
+      || prior.cami_variation_history
+      || undefined,
   };
   return buildOrchestratorResponse({
     automation_gate: gate,
@@ -853,6 +887,7 @@ async function finalizeNonBookingLaneResponse(result, gate, messageText, brainDe
     quote: payload.quote,
     payment_choice: payload.payment_choice,
     hold_payment_draft_plan: payload.hold_payment_draft_plan,
+    guest_context_chain: buildGuestContextChainSnapshot(priorWithThread),
     proposed_next_action: payload.proposed_next_action,
     proposed_luna_reply: dedupeLunaIntro(proposedLunaReply, allowIntro === true),
   });
@@ -883,6 +918,25 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   }
 
   let chainGuestContext = normalizeGuestContextForChain(inp.guest_context);
+  if (ctx.pg) {
+    chainGuestContext = await hydrateGuestContextPaymentTruth(ctx.pg, chainGuestContext);
+  } else {
+    chainGuestContext = attachActiveThreadToGuestContext(chainGuestContext);
+  }
+
+  const clientSlugEarly = trimStr(inp.client_slug) || DEFAULT_CLIENT;
+  const threadBundle = await resolveGuestThreadTranscript(ctx.pg, {
+    client_slug: clientSlugEarly,
+    conversation_id: inp.conversation_id,
+    prior_guest_context: chainGuestContext,
+    message_text: trimStr(inp.message_text),
+  });
+  chainGuestContext = {
+    ...chainGuestContext,
+    thread_transcript: threadBundle.transcript || [],
+    recent_history: threadBundle.recent_history || [],
+    transcript_source: threadBundle.source || null,
+  };
 
   const routerContext = {
     reference_date: inp.reference_date || ctx.reference_date,
@@ -913,7 +967,10 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       in_short_stay_flow: priorPackageNightRule === 'short_stay_guidance'
         || priorPackageNightRule === 'short_stay_accommodation'
         || priorPackageNightRule === 'weekly_package_blocked',
-      last_luna_reply: (chainGuestContext.result && chainGuestContext.result.proposed_luna_reply) || null,
+      last_luna_reply: threadBundle.last_assistant_reply
+        || (chainGuestContext.result && chainGuestContext.result.proposed_luna_reply)
+        || null,
+      recent_history: threadBundle.recent_history || [],
       package_night_rule: priorPackageNightRule,
       env: brainEnv,
     },
@@ -921,7 +978,25 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   );
 
   let gptToolPlannerOutput = null;
-  if (isGptToolPlannerEnabled(brainEnv)) {
+  let frontdeskPrePlan = null;
+  if (isGuestFrontdeskPlannerEnabled(brainEnv)) {
+    frontdeskPrePlan = await runGuestFrontdeskPlannerPreChain({
+      client_slug: routerContext.client_slug,
+      message_text: messageText,
+      prior_guest_context: chainGuestContext,
+      reference_date: routerContext.reference_date,
+      contact_name: routerContext.contact_name,
+      guest_phone: routerContext.guest_phone,
+      transcript: threadBundle.transcript || [],
+      transcript_source: threadBundle.source || null,
+    }, {
+      env: brainEnv,
+      plannerCaller: ctx.frontdesk_planner_caller,
+    });
+    if (isGuestFrontdeskPlannerActive(brainEnv) && frontdeskPrePlan && frontdeskPrePlan.field_patch) {
+      chainGuestContext = applyFrontdeskFieldSeed(chainGuestContext, frontdeskPrePlan.field_patch);
+    }
+  } else if (isGptToolPlannerEnabled(brainEnv)) {
     gptToolPlannerOutput = await runGuestGptToolPlanner({
       client_slug: routerContext.client_slug,
       message_text: messageText,
@@ -1156,12 +1231,69 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     hold_payment_draft_plan,
   }, trimStr(inp.message_text));
 
+  let gptWriteToolPlannerOutput = null;
+  let writeLiveOutcomes = null;
+  if (isGptWriteToolPlannerEnabled(brainEnv)) {
+    const writeExecCtx = {
+      env: brainEnv,
+      pg: ctx.pg || null,
+      host_header: ctx.host_header || '',
+      client_slug: chainCtx.client_slug,
+      guest_phone: inp.guest_phone,
+      contact_name: routerContext.contact_name,
+      prior_guest_context: chainGuestContext,
+      confirm_write: ctx.confirm_write === true || ctx.confirm_guest_write === true,
+      confirm_stripe_test_link: ctx.confirm_stripe_test_link === true,
+      confirm_service_payment_link: ctx.confirm_service_payment_link === true,
+      staff_operator: ctx.staff_operator || 'luna-guest-orchestrator',
+      source: ctx.write_source || 'luna_guest_gpt_write_tool_planner',
+    };
+    gptWriteToolPlannerOutput = await runGuestGptWriteToolPlanner({
+      message_text: messageText,
+      client_slug: chainCtx.client_slug,
+      guest_phone: inp.guest_phone,
+      contact_name: routerContext.contact_name,
+      prior_guest_context: chainGuestContext,
+      chain_snapshot: payload,
+    }, {
+      env: brainEnv,
+      exec_ctx: writeExecCtx,
+      writePlannerCaller: ctx.gpt_write_tool_planner_caller,
+    });
+    const wo = (gptWriteToolPlannerOutput && gptWriteToolPlannerOutput.write_outcomes) || {};
+    if (Object.keys(wo).length) {
+      writeLiveOutcomes = {
+        bookingWrite: wo.create_booking_hold || null,
+        stripeLink: wo.create_payment_link || null,
+        serviceAttach: wo.attach_post_booking_services || null,
+        serviceStripeLink: wo.create_service_payment_link || null,
+      };
+      payload.gpt_write_outcomes = wo;
+    }
+  }
+
   const clientSlugForSurf = chainCtx.client_slug || DEFAULT_CLIENT;
   const surfReport = await prefetchGuestSurfReportPayload(trimStr(inp.message_text), chainGuestContext, clientSlugForSurf);
   if (surfReport) payload.surf_report = surfReport;
 
   const allowLeadingIntro = (brainDecision && brainDecision.intent === 'greeting')
     || (payload.result && payload.result.greeting_only === true);
+  const truthComposed = composeLunaGuestReply({
+    payload,
+    message_text: trimStr(inp.message_text),
+    prior_guest_context: chainGuestContext,
+    brain_decision: brainDecision,
+    mode: writeLiveOutcomes ? 'live_staging' : 'orchestrator',
+    allow_leading_intro: allowLeadingIntro === true,
+    live_outcomes: writeLiveOutcomes,
+    client_slug: chainCtx.client_slug || DEFAULT_CLIENT,
+  });
+  const frontdeskReplyPlan = buildFrontdeskReplyPlan({
+    payload,
+    prior_guest_context: chainGuestContext,
+    frontdesk_pre_plan: frontdeskPrePlan,
+    composed: truthComposed,
+  });
   const composed = tryComposeBookingReply(
     payload,
     trimStr(inp.message_text),
@@ -1170,6 +1302,10 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     {
       allowLeadingIntro: allowLeadingIntro === true,
       client_slug: chainCtx.client_slug || DEFAULT_CLIENT,
+      liveOutcomes: writeLiveOutcomes,
+      mode: writeLiveOutcomes ? 'live_staging' : 'orchestrator',
+      frontdeskReplyPlan,
+      env: brainEnv,
     },
   );
   let proposedLunaReply;
@@ -1194,7 +1330,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   const overrodeBrain = !composed
     && brainControlsReply(brainDecision, payload.result, payload.quote)
     && finalReplySource !== 'router';
-  const agentStage = applyGuestAgentBrainStage({
+  const replyPipeline = await applyGuestReplyPipeline({
     client_slug: chainCtx.client_slug || DEFAULT_CLIENT,
     conversation_id: inp.conversation_id || null,
     guest_phone: inp.guest_phone || null,
@@ -1205,27 +1341,14 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     composed,
     candidate_reply: proposedLunaReply,
     candidate_source: finalReplySource,
-    payload,
-    env: brainEnv,
-  });
-  proposedLunaReply = agentStage.reply;
-  finalReplySource = agentStage.reply_source;
-  proposedLunaReply = dedupeLunaIntro(proposedLunaReply, allowLeadingIntro === true);
-  const camiStage = await applyCamiReplyAuthorStage({
-    client_slug: chainCtx.client_slug || DEFAULT_CLIENT,
-    message_text: trimStr(inp.message_text),
-    prior_guest_context: chainGuestContext,
-    composed,
-    deterministic_reply: proposedLunaReply,
-    deterministic_reply_source: finalReplySource,
     allowed_next_action: resolveProposedNextAction(payload),
     payload,
     channel_mode: 'orchestrator_dry_run',
     env: brainEnv,
     authorCaller: ctx.cami_reply_author_caller,
   });
-  proposedLunaReply = camiStage.reply;
-  if (camiStage.reply_source === 'cami_reply_author') finalReplySource = 'cami_reply_author';
+  proposedLunaReply = dedupeLunaIntro(replyPipeline.reply, allowLeadingIntro === true);
+  finalReplySource = replyPipeline.reply_source;
 
   const policySnapshot = buildBookingIntakePolicySnapshot(
     {
@@ -1251,8 +1374,11 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     payload.result && payload.result.extracted_fields,
     chainCtx.client_slug || DEFAULT_CLIENT,
   );
+  chainGuestContext = attachActiveThreadToGuestContext(chainGuestContext);
+
   const resultWithBrain = {
     ...payload.result,
+    active_thread: chainGuestContext.active_thread || null,
     booking_intake_policy: policySnapshot,
     previous_quote_invalidated: payload.result && payload.result.previous_quote_invalidated,
     stale_quote_reason: payload.result && payload.result.stale_quote_reason,
@@ -1270,14 +1396,20 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       booking_flow_stage: policySnapshot.booking_flow_stage,
       next_required_field: policySnapshot.next_required_field,
     }),
-    guest_agent_brain: agentStage.observability,
-    cami_reply_author: camiStage.observability,
+    guest_agent_brain: replyPipeline.guest_agent_brain,
+    cami_reply_author: replyPipeline.cami_reply_author,
+    guest_reply_pipeline: replyPipeline.reply_pipeline,
     guest_gpt_tool_planner: gptToolPlannerOutput
       ? buildGptToolPlannerObservability(gptToolPlannerOutput)
       : undefined,
-    cami_variation_history: composed && composed.cami_variation_history
-      ? composed.cami_variation_history
-      : (chainGuestContext && chainGuestContext.cami_variation_history) || undefined,
+    guest_gpt_write_tool_planner: gptWriteToolPlannerOutput
+      ? buildGptWriteToolPlannerObservability(gptWriteToolPlannerOutput)
+      : undefined,
+    guest_frontdesk: buildFrontdeskObservability(frontdeskPrePlan, frontdeskReplyPlan),
+    cami_variation_history: (replyPipeline && replyPipeline.cami_variation_history)
+      || (composed && composed.cami_variation_history)
+      || (chainGuestContext && chainGuestContext.cami_variation_history)
+      || undefined,
   };
 
   return buildOrchestratorResponse({
@@ -1287,6 +1419,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     quote: payload.quote,
     payment_choice: payload.payment_choice,
     hold_payment_draft_plan: payload.hold_payment_draft_plan,
+    guest_context_chain: buildGuestContextChainSnapshot(chainGuestContext),
     proposed_next_action: resolveProposedNextAction(payload),
     proposed_luna_reply: proposedLunaReply,
   });

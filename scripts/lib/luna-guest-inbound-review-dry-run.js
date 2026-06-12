@@ -105,6 +105,8 @@ function buildReviewFromOrchestrator(orchOut) {
     quote:                   orchOut.quote,
     payment_choice:          orchOut.payment_choice,
     hold_payment_draft_plan: orchOut.hold_payment_draft_plan,
+    guest_context_chain:     orchOut.guest_context_chain || null,
+    gpt_write_outcomes:      orchOut.result && orchOut.result.gpt_write_outcomes,
     handoff_reasons:         collectGuestAutomationReviewHandoffReasons(orchOut),
   };
 }
@@ -192,7 +194,7 @@ function slimPaymentChoiceForChain(paymentChoice) {
   };
 }
 
-function slimGuestContextForNextTurn(review) {
+function slimGuestContextForNextTurn(review, liveStagingPatch) {
   const r = review || {};
   const ctx = {
     message_lane: r.result && r.result.message_lane,
@@ -207,6 +209,8 @@ function slimGuestContextForNextTurn(review) {
     payment_choice: slimPaymentChoiceForChain(r.payment_choice),
     detected_language: r.result && r.result.detected_language,
     last_updated_at: new Date().toISOString(),
+    ...(r.guest_context_chain && typeof r.guest_context_chain === 'object' ? r.guest_context_chain : {}),
+    ...(liveStagingPatch && typeof liveStagingPatch === 'object' ? liveStagingPatch : {}),
   };
   return normalizeGuestContextForChain(ctx);
 }

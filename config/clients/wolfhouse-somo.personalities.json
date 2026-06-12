@@ -273,9 +273,12 @@
         "variation_pools": {
           "en": {
             "welcome": [
-              "{{intro_short}}\nAre you looking to book a stay, ask about packages, or just check some info?",
-              "Ciao!! {{intro_short}}\nBook a stay, packages, or just some info — what sounds good?",
-              "So happy you're here!! {{intro_short}}\nWant to book, ask about packages, or check something?"
+              "Heyyy! I'm Luna from Wolfhouse 🐺\nAre you looking to book a stay, ask about packages, or just check some info?",
+              "Hey! Lovely to hear from you ☀️ I'm Luna from Wolfhouse 🐺\nBook a stay, packages, or just some info — what sounds good?",
+              "Holaaa!! I'm Luna from Wolfhouse 🐺\nStay, packages, or just a quick question — what sounds good?",
+              "Ciao!! I'm Luna from Wolfhouse 🐺\nBook a stay, packages, or house info — what are you after?",
+              "Welcome in ☀️ I'm Luna from Wolfhouse 🐺\nLooking to book, or just exploring what we offer?",
+              "{{intro_short}}\nWant to book, ask about packages, or check something?"
             ],
             "welcome_booking_intent": [
               "Yesss, love that 🌊 What dates are you thinking for check-in and check-out?",
@@ -301,6 +304,11 @@
               "Perfect — {{range}}. How many guests will be staying?",
               "Got it — {{range}} ☀️ How many of you will be coming?",
               "Nice — {{range}}. How many guests?"
+            ],
+            "package_choice": [
+              "Nice — Malibu is stay only, Uluwatu adds board + wetsuit, Waimea adds lessons + gear. Which fits you?",
+              "For your dates we've got Malibu (stay), Uluwatu (board + wetsuit), or Waimea (lessons + gear) 🌊 — which sounds right?",
+              "Got it — Malibu, Uluwatu, or Waimea? Uluwatu is board + wetsuit if you already surf."
             ],
             "quote_ready": [
               "Good news — we have space for those dates!! ☀️\nComes to {{total}}.",
@@ -404,7 +412,7 @@
       },
 
       "sample_replies": {
-        "welcome": "Heyyy! I'm Luna from Wolfhouse 🌊 So happy you're here! Are you looking to book a stay, ask about packages, or just check some info?",
+        "welcome": "Heyyy! I'm Luna from Wolfhouse 🐺 Are you looking to book a stay, ask about packages, or just check some info?",
         "booking_start": "Nice! What dates are you thinking for check-in and check-out?",
         "date_question": "What dates are you looking for?",
         "package_quote": "Yesss, good news — we have space for those dates ☀️ {{package_label}} comes to {{total}}. Would you rather pay the {{deposit}} deposit or the full {{total}}?",
@@ -423,10 +431,10 @@
 
       "reply_templates": {
         "en": {
-          "intro_short": "Heyyy! I'm Luna from Wolfhouse 🌊 So happy you're here!",
-          "greeting": "{{intro_short}}\nAre you looking to book a stay, ask about packages, or just check some info?",
-          "greeting_generic": "{{intro_short}}\nAre you looking to book a stay, ask about packages, or just check some info?",
-          "greeting_booking_intent": "Yesss, love that 🌊 What dates are you thinking for check-in and check-out?",
+          "intro_short": "I'm Luna from Wolfhouse",
+          "greeting": "Heyyy! I'm Luna from Wolfhouse 🐺\nAre you looking to book a stay, ask about packages, or just check some info?",
+          "greeting_generic": "Heyyy! I'm Luna from Wolfhouse 🐺\nAre you looking to book a stay, ask about packages, or just check some info?",
+          "greeting_booking_intent": "Nice — let's get you sorted 🌊 What check-in and check-out dates work for you?",
           "greeting_info_only": "{{intro_short}}\nHappy to help with packages, surf, or anything about Somo — what would you like to know?",
           "greeting_returning": "Hey again! 🌊 Still here for you — want to keep going with your booking or start fresh?",
           "confirmation_intro": "Yesss, you're officially part of the Wolfhouse family 🌊❤️",

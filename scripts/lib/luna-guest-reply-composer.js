@@ -75,6 +75,7 @@ const {
   shouldPrioritizeKnowledgeOverService,
   buildGuestKnowledgeReply,
 } = require('./luna-guest-knowledge-config');
+const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
 const {
   detectGuestSurfReportIntent,
   shouldPrioritizeSurfReportOverService,
@@ -113,6 +114,7 @@ const COMPOSER_STATES = Object.freeze([
   'payment_link_failed',
   'payment_received_preview_ready',
   'confirmation_sent_ack',
+  'post_payment_link_ack',
   'clarify_missing_info',
   'contextual_pending_answer',
   'safe_handoff',
@@ -135,6 +137,13 @@ const COMPOSER_SAFETY = Object.freeze({
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+function isGratitudeOnlyMessage(text) {
+  const t = trimStr(text).replace(/[!?.🙏💛]+$/g, '').trim();
+  if (!t) return false;
+  return /^(?:thanks?(?:\s+you)?|thank\s+you|thx|ty|cheers|gracias|grazie|danke)\s*$/i.test(t)
+    || /^(?:awesome|perfect|great|lovely|amazing|sounds?\s+good)\s*,?\s*thanks?\s*$/i.test(t);
 }
 
 function langOf(result) {
@@ -544,6 +553,11 @@ function resolveComposerState(input) {
     return 'greeting';
   }
 
+  const priorCtx = inp.prior_guest_context || {};
+  if (priorCtx.payment_link_sent === true && isGratitudeOnlyMessage(messageText)) {
+    return 'post_payment_link_ack';
+  }
+
   const clientSlugForKnowledge = trimStr(inp.client_slug)
     || trimStr(inp.prior_guest_context && inp.prior_guest_context.client_slug)
     || 'wolfhouse-somo';
@@ -635,6 +649,11 @@ function resolveComposerState(input) {
   }
 
   if (pc.payment_choice_ready === true) {
+    const linkAlreadyOut = priorCtx.payment_link_sent === true
+      || priorCtx.stripe_link_created === true;
+    if (linkAlreadyOut && isGratitudeOnlyMessage(messageText)) {
+      return 'post_payment_link_ack';
+    }
     if (mode === 'live_staging') {
       const writeOk = bw.write_status === 'created' || bw.write_status === 'reused_existing';
       if (writeOk) {
@@ -779,7 +798,10 @@ function buildReplyForState(state, ctx) {
   const balance = formatEur(facts && facts.balance_due_cents);
   const variationInput = {
     prior_guest_context: priorGuestContext,
-    variation_seed: priorGuestContext && priorGuestContext.guest_phone,
+    guest_phone: ctx.guest_phone,
+    conversation_id: ctx.conversation_id,
+    inbound_message_id: ctx.inbound_message_id,
+    variation_seed: [ctx.guest_phone, ctx.conversation_id].filter(Boolean).join(':'),
   };
 
   const en = {
@@ -1093,6 +1115,9 @@ function buildReplyForState(state, ctx) {
       return L.payment_received();
     case 'confirmation_sent_ack':
       return (P && P.confirmation_sent) || L.confirmation_sent;
+    case 'post_payment_link_ack':
+      if (P && P.post_payment_link_ack) return P.post_payment_link_ack();
+      return 'You\'re welcome! Once your payment lands I\'ll send your confirmation here with all the check-in details 🙌';
     case 'clarify_missing_info': {
       if (fields.check_in && fields.check_out
         && (fields.guest_count == null || fields.guest_count < 1)) {
@@ -1239,12 +1264,17 @@ function composeLunaGuestReply(input) {
     },
     serviceIntent: detectServiceSideQuestionIntent(trimStr(input && input.message_text)),
     prior_guest_context: input && input.prior_guest_context,
+    guest_phone: input && input.guest_phone,
+    conversation_id: input && input.conversation_id,
+    inbound_message_id: input && input.inbound_message_id,
     payload,
   });
 
   const variationCtx = buildVariationContext({
     prior_guest_context: input && input.prior_guest_context,
     guest_phone: input && input.guest_phone,
+    conversation_id: input && input.conversation_id,
+    inbound_message_id: input && input.inbound_message_id,
   });
   reply = applyCamiReplyVariation(reply, {
     clientSlug,

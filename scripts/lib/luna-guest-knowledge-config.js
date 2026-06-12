@@ -119,6 +119,18 @@ function hasActiveQuoteContext(guestContext) {
   return !!(fields.check_in && fields.check_out);
 }
 
+function isActiveBookingIntake(guestContext) {
+  try {
+    const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
+    const fields = collectPriorExtractedFields(guestContext || {});
+    return !!(fields.check_in && fields.check_out && fields.guest_count != null && !fields.package_interest);
+  } catch (_) {
+    const ctx = guestContext || {};
+    const fields = ctx.extracted_fields || (ctx.result && ctx.result.extracted_fields) || {};
+    return !!(fields.check_in && fields.check_out && fields.guest_count != null && !fields.package_interest);
+  }
+}
+
 function hasActivePaymentWire(guestContext) {
   try {
     const { shouldAttemptGuestPaymentChoiceWire } = require('./luna-guest-payment-choice-dry-run');
@@ -126,6 +138,29 @@ function hasActivePaymentWire(guestContext) {
   } catch (_) {
     return false;
   }
+}
+
+/** Guest has a hold/booking on file — post-booking service attach beats FAQ loops. */
+function hasPostBookingHold(guestContext) {
+  const ctx = guestContext || {};
+  try {
+    const { isPostBookingThread } = require('./luna-guest-thread-state');
+    if (isPostBookingThread(ctx)) return true;
+  } catch (_) { /* noop */ }
+  if (trimStr(ctx.booking_code) || trimStr(ctx.booking_id)) return true;
+  if (ctx.hold_created === true) return true;
+  if (ctx.payment_link_sent === true || ctx.stripe_link_created === true) return true;
+  if (ctx.confirmation_sent === true || ctx.payment_received === true) return true;
+  const pt = ctx.payment_truth || ctx.live_payment_truth;
+  const status = trimStr(pt && pt.payment_status).toLowerCase();
+  if (status === 'deposit_paid' || status === 'paid' || status === 'fully_paid') return true;
+  return false;
+}
+
+function isPostBookingServiceBookRequest(text) {
+  const t = String(text || '');
+  return /\b(?:book|rent|hire|add|reserve|for\s+\d+\s+days?)\b/i.test(t)
+    && /\b(?:wetsuit|surfboard|surf board|surf lesson|yoga|meal|meals|dinner)\b/i.test(t);
 }
 
 function canRevealPrivateBookingDetails(guestContext) {
@@ -182,15 +217,17 @@ function detectLangFromMessage(text) {
   return null;
 }
 
-function resolveKnowledgeLanguage(messageText, explicitLang) {
+function resolveKnowledgeLanguage(messageText, explicitLang, threadLang) {
   const fromMsg = detectLangFromMessage(messageText);
   if (fromMsg) return fromMsg;
   const lang = trimStr(explicitLang).slice(0, 2);
-  if (lang && lang !== 'en') return lang;
+  const thread = trimStr(threadLang).slice(0, 2);
   const t = String(messageText || '');
   if (/\b(?:devo|portare|lenzuola|muta|lezioni|soggiorno)\b/i.test(t)) return 'it';
   if (/\b(?:necesito|llevar|julio|dep[oó]sito|estancia)\b/i.test(t)) return 'es';
   if (/\b(?:brauche|mitbringen|Surfkurse|Ankunft)\b/i.test(t)) return 'de';
+  if (thread) return thread;
+  if (lang && lang !== 'en') return lang;
   return lang || 'en';
 }
 
@@ -230,9 +267,16 @@ function shouldPrioritizeKnowledgeOverService(text, intent, guestContext) {
     }
     return true;
   }
-  if (intent === 'wetsuit_info') {
-    return /\b(?:do\s+i\s+need|should\s+i\s+bring|need|serve|brauche|necesito|ho\s+bisogno)\b/i.test(t)
-      || /\b(?:wetsuit|muta|neopren)\b/i.test(t);
+  if (intent === 'wetsuit_info' || intent === 'rentals_info') {
+    if (hasPostBookingHold(ctx) && isPostBookingServiceBookRequest(t)) return false;
+    if (isActiveBookingIntake(ctx)) {
+      return /\b(?:do\s+i\s+need|should\s+i\s+bring|thickness|how\s+thick|what\s+(?:kind|type)\s+of)\b/i.test(t);
+    }
+    if (intent === 'wetsuit_info') {
+      return /\b(?:do\s+i\s+need|should\s+i\s+bring|need|serve|brauche|necesito|ho\s+bisogno)\b/i.test(t)
+        || /\b(?:wetsuit|muta|neopren)\b/i.test(t);
+    }
+    return true;
   }
   return false;
 }
@@ -277,9 +321,16 @@ function buildGuestKnowledgeReply(input) {
   const inp = input || {};
   const clientSlug = trimStr(inp.client_slug) || DEFAULT_CLIENT;
   const messageText = trimStr(inp.message_text);
-  const lang = resolveKnowledgeLanguage(messageText, trimStr(inp.lang).slice(0, 2) || 'en');
-  const categoryId = normalizeCategoryId(trimStr(inp.category_id) || detectGuestKnowledgeIntent(messageText));
   const guestContext = inp.guest_context || inp.prior_guest_context || {};
+  const threadLang = guestContext.detected_language
+    || (guestContext.result && guestContext.result.detected_language)
+    || null;
+  const lang = resolveKnowledgeLanguage(
+    messageText,
+    trimStr(inp.lang).slice(0, 2) || 'en',
+    threadLang,
+  );
+  const categoryId = normalizeCategoryId(trimStr(inp.category_id) || detectGuestKnowledgeIntent(messageText));
   const fields = inp.fields || {};
   const quote = inp.quote || guestContext.quote || null;
   const pc = inp.payment_choice || guestContext.payment_choice || null;
@@ -385,5 +436,8 @@ module.exports = {
   resolveKnowledgeLanguage,
   detectLangFromMessage,
   isPrivateCategory,
+  isActiveBookingIntake,
+  hasPostBookingHold,
+  isPostBookingServiceBookRequest,
   DEFAULT_CLIENT,
 };

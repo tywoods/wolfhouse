@@ -116,7 +116,7 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
   const fmt = formatters || {};
   const variationCtx = buildVariationContext(variationInput || {});
   const introShort = tpl.intro_short
-    || `Hey! I'm ${resolved.assistant_name} from Wolfhouse 🌊`;
+    || `I'm ${resolved.assistant_name} from Wolfhouse`;
 
   function t(key, vars, poolKey) {
     const base = tpl[key];
