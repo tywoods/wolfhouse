@@ -64,6 +64,7 @@ function buildWritePlannerSystemPrompt() {
     'Given chain snapshot + guest message, suggest which WRITE tools should run.',
     `Allowed write tools: ${list}`,
     'Only plan writes when chain snapshot shows readiness (payment_choice_ready, hold plan ready, or existing booking_id for add-ons).',
+    'When booking_id is present AND meals_request or yoga_request is non-null in chain_status, you MUST plan attach_post_booking_services.',
     'NEVER plan assign_beds or mark_handoff.',
     'Order: create_booking_hold before create_payment_link; attach_post_booking_services before create_service_payment_link.',
     'Return ONLY JSON: {"planned_tools":["tool_id",...],"rationale":"short reason"}',
@@ -73,6 +74,7 @@ function buildWritePlannerSystemPrompt() {
 
 function buildWritePlannerUserPrompt(input) {
   const snap = input.chain_snapshot || {};
+  const extractedFields = (snap.result && snap.result.extracted_fields) || {};
   return JSON.stringify({
     latest_guest_message: input.message_text,
     chain_status: {
@@ -81,6 +83,8 @@ function buildWritePlannerUserPrompt(input) {
       hold_plan_status: snap.hold_payment_draft_plan && snap.hold_payment_draft_plan.plan_status,
       quote_status: snap.quote && snap.quote.quote_status,
       booking_id: input.booking_id || null,
+      meals_request: extractedFields.meals_request || null,
+      yoga_request: extractedFields.yoga_request || null,
     },
     allowed_write_tools: GUEST_AGENT_GPT_PLANNABLE_WRITE_TOOL_IDS,
     service_pay_now_enabled: input.service_pay_now_enabled === true,

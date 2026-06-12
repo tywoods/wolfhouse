@@ -1086,12 +1086,104 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     }
   }
 
+  // Stage 56c — multi-booking disambiguation for service requests.
+  // Runs BEFORE bookingContinuation so it intercepts even when a prior booking_id is stored.
+  let addServiceReadyForAttach = false;
+  {
+    const guestPhone = trimStr(inp.guest_phone) || trimStr(ctx.guest_phone) || '';
+
+    // Case A: guest is replying to a disambiguation prompt (any message lane).
+    // The reply message ("1", "the first one", "AAA111", etc.) won't be classified as
+    // add_service_request by the router, so this check must run unconditionally.
+    if (
+      chainGuestContext.pending_booking_choice
+      && Array.isArray(chainGuestContext.pending_booking_choice.bookings)
+      && chainGuestContext.pending_booking_choice.bookings.length > 0
+    ) {
+      const pendingBookings = chainGuestContext.pending_booking_choice.bookings;
+      const selected = parseBookingSelectionFromMessage(messageText, pendingBookings);
+      if (selected) {
+        const serviceIntent = chainGuestContext.pending_service_intent;
+        chainGuestContext = {
+          ...chainGuestContext,
+          booking_id: selected.booking_id,
+          booking_code: selected.booking_code,
+          pending_booking_choice: null,
+          pending_service_intent: null,
+        };
+        result = {
+          ...result,
+          message_lane: 'add_service_request',
+          // The router may have set safe_handoff_required on this selection message
+          // (e.g. "the first one" looks like a non-booking query). Clear it so the
+          // service attach path runs instead of handing off to staff.
+          safe_handoff_required: false,
+          handoff_reasons: [],
+          intake_state: 'post_booking_service_request',
+          extracted_fields: {
+            ...((result && result.extracted_fields) || {}),
+            ...(serviceIntent && serviceIntent.type === 'meals'
+              ? { meals_request: { status: 'requested', meal_type: 'unspecified' } }
+              : {}),
+            ...(serviceIntent && serviceIntent.type === 'yoga'
+              ? { yoga_request: { status: 'requested' } }
+              : {}),
+          },
+        };
+        addServiceReadyForAttach = true;
+      }
+      // If selection not parsed: fall through — Cami will repeat the choice.
+    }
+
+    // Case B: fresh service intent — always query DB for active bookings so multiple-booking
+    // guests see a choice list even when an old booking_id is stored in context.
+    if (!addServiceReadyForAttach && result.message_lane === 'add_service_request' && ctx && ctx.pg) {
+      const serviceType = detectServiceTypeFromText(messageText)
+        || (chainGuestContext.pending_service_intent && chainGuestContext.pending_service_intent.type)
+        || null;
+      if (serviceType) {
+        const activeBookings = await loadActiveGuestBookings(ctx.pg, { phone: guestPhone });
+        if (activeBookings.length > 1) {
+          const lang = trimStr(
+            chainGuestContext.detected_language || (result && result.detected_language),
+          ) || 'en';
+          const disambigReply = buildBookingChoiceReply(lang, activeBookings, serviceType);
+          const disambigChain = {
+            ...chainGuestContext,
+            pending_service_intent: { type: serviceType },
+            pending_booking_choice: { bookings: activeBookings },
+          };
+          return buildOrchestratorResponse({
+            automation_gate: gate,
+            result: { ...result, active_thread: disambigChain.active_thread || 'post_booking' },
+            availability: null,
+            quote: chainGuestContext.quote || null,
+            payment_choice: null,
+            hold_payment_draft_plan: null,
+            guest_context_chain: buildGuestContextChainSnapshot(disambigChain),
+            proposed_next_action: 'await_booking_selection',
+            proposed_luna_reply: disambigReply,
+          });
+        } else if (activeBookings.length === 1 && !trimStr(chainGuestContext.booking_id)) {
+          chainGuestContext = {
+            ...chainGuestContext,
+            booking_id: activeBookings[0].booking_id,
+            booking_code: activeBookings[0].booking_code,
+          };
+        }
+      }
+    }
+  }
+
   const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext, messageText)
     || (chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready'
       && quoteAwaitingAddonsDecision(chainGuestContext.quote))
     || isActiveBookingSideQuestion(chainGuestContext, result, messageText)
     || ((guestDeclinedAddons(messageText) || extractAddOnSelections(messageText).length > 0)
-      && chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready');
+      && chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready')
+    // After disambiguation resolves (user picked a booking), force the booking continuation
+    // path so the write planner can run attach_post_booking_services.
+    || addServiceReadyForAttach;
 
   // Stage 28j.2 — short-stay accommodation-only hold: once the guest has chosen
   // accommodation-only for an under-7-night stay, no weekly package / quote / payment
@@ -1137,87 +1229,6 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   }
 
   if (result.message_lane !== 'new_booking_inquiry' && !bookingContinuation) {
-    // Stage 56c — multi-booking disambiguation for post-booking service requests.
-    if (result.message_lane === 'add_service_request' && ctx && ctx.pg) {
-      const guestPhone = trimStr(inp.guest_phone) || trimStr(ctx.guest_phone) || '';
-
-      // Case A: guest is replying to a pending booking selection prompt.
-      if (chainGuestContext.pending_booking_choice
-        && Array.isArray(chainGuestContext.pending_booking_choice.bookings)
-        && chainGuestContext.pending_booking_choice.bookings.length > 0) {
-        const pendingBookings = chainGuestContext.pending_booking_choice.bookings;
-        const selected = parseBookingSelectionFromMessage(messageText, pendingBookings);
-        if (selected) {
-          // Anchor the chosen booking into context and clear the disambiguation state.
-          chainGuestContext = {
-            ...chainGuestContext,
-            booking_id: selected.booking_id,
-            booking_code: selected.booking_code,
-            pending_booking_choice: null,
-          };
-          // Re-run with the anchored booking_id so service attach can fire.
-          result = {
-            ...result,
-            extracted_fields: {
-              ...((result && result.extracted_fields) || {}),
-              ...(chainGuestContext.pending_service_intent
-                && chainGuestContext.pending_service_intent.type === 'meals'
-                ? { meals_request: { status: 'requested', meal_type: 'unspecified' } }
-                : {}),
-              ...(chainGuestContext.pending_service_intent
-                && chainGuestContext.pending_service_intent.type === 'yoga'
-                ? { yoga_request: { status: 'requested' } }
-                : {}),
-            },
-          };
-          // Clear pending_service_intent now that it's embedded in extracted_fields.
-          chainGuestContext = { ...chainGuestContext, pending_service_intent: null };
-        }
-        // If selection not parsed yet, fall through to the normal non-booking reply
-        // (Cami will repeat the choice prompt).
-      }
-
-      // Case B: service intent with no anchored booking_id yet — check for disambiguation need.
-      if (!trimStr(chainGuestContext.booking_id)) {
-        const serviceType = detectServiceTypeFromText(messageText)
-          || (chainGuestContext.pending_service_intent && chainGuestContext.pending_service_intent.type)
-          || null;
-        if (serviceType) {
-          const activeBookings = await loadActiveGuestBookings(ctx.pg, { phone: guestPhone });
-          if (needsBookingDisambiguation(activeBookings, chainGuestContext.booking_id)) {
-            // Multiple bookings — ask which one.
-            const lang = trimStr(chainGuestContext.detected_language
-              || (result && result.detected_language)) || 'en';
-            const disambigReply = buildBookingChoiceReply(lang, activeBookings, serviceType);
-            const disambigChain = {
-              ...chainGuestContext,
-              pending_service_intent: { type: serviceType },
-              pending_booking_choice: { bookings: activeBookings },
-            };
-            return buildOrchestratorResponse({
-              automation_gate: gate,
-              result: { ...result, active_thread: disambigChain.active_thread || 'post_booking' },
-              availability: null,
-              quote: chainGuestContext.quote || null,
-              payment_choice: null,
-              hold_payment_draft_plan: null,
-              guest_context_chain: buildGuestContextChainSnapshot(disambigChain),
-              proposed_next_action: 'await_booking_selection',
-              proposed_luna_reply: disambigReply,
-            });
-          } else if (activeBookings.length === 1) {
-            // Single booking — anchor it so the write pipeline can attach without asking.
-            chainGuestContext = {
-              ...chainGuestContext,
-              booking_id: activeBookings[0].booking_id,
-              booking_code: activeBookings[0].booking_code,
-            };
-          }
-          // activeBookings.length === 0 falls through to normal non-booking reply.
-        }
-      }
-    }
-
     return finalizeNonBookingLaneResponse(result, gate, messageText, brainDecision, chainGuestContext, brainEnv, ctx);
   }
 
