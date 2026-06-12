@@ -1654,6 +1654,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       if (reactivePatch.meals_request) {
         extractedFields = { ...extractedFields, meals_request: reactivePatch.meals_request };
       }
+      // preservedExtracted overlay is applied after its declaration below (line ~1681).
     }
   } else {
     extractedFields = {};
@@ -1686,6 +1687,18 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   } else if (embeddedSideQuestionFields && lane !== 'new_booking_inquiry') {
     preservedExtracted = mergeGuestExtractedFields(priorExtracted, embeddedSideQuestionFields);
     preservedIntakeState = 'collecting_required_details';
+  }
+
+  // Stage 56c — overlay reactive service fields (meals_request, yoga_request) from the
+  // current-turn extractedFields onto preservedExtracted so they survive the router return.
+  // The router returns preservedExtracted (not extractedFields) for non-booking lanes.
+  if (lane === 'add_service_request'
+    && (extractedFields.meals_request != null || extractedFields.yoga_request != null)) {
+    preservedExtracted = {
+      ...(preservedExtracted || priorExtracted),
+      ...(extractedFields.meals_request != null ? { meals_request: extractedFields.meals_request } : {}),
+      ...(extractedFields.yoga_request != null ? { yoga_request: extractedFields.yoga_request } : {}),
+    };
   }
 
   let safeHandoffRequired = greetingOnly && !midFlowGreeting
