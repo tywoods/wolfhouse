@@ -272,12 +272,21 @@ function mergeActiveBookingChainOutput(priorGuestContext, parts, messageText) {
   const priorAvail = prior.availability;
   const mergedFields = collectPriorExtractedFields(prior);
 
+  // Stage 56c — preserve reactive service requests from the current router result
+  // so post-booking meal/yoga attaches survive the field merge.
+  const currentTurnFields = (parts.result && parts.result.extracted_fields) || {};
+  const mergedExtracted = {
+    ...mergedFields,
+    ...(currentTurnFields.meals_request != null ? { meals_request: currentTurnFields.meals_request } : {}),
+    ...(currentTurnFields.yoga_request != null ? { yoga_request: currentTurnFields.yoga_request } : {}),
+  };
+
   const mergedResult = {
     ...parts.result,
     booking_intake_ready: priorResult.booking_intake_ready ?? parts.result.booking_intake_ready,
     readiness_state: priorResult.readiness_state || parts.result.readiness_state,
     intake_state: priorResult.intake_state || parts.result.intake_state,
-    extracted_fields: mergedFields,
+    extracted_fields: mergedExtracted,
     safe_handoff_required: parts.result.message_lane === 'staff_handoff_required'
       ? parts.result.safe_handoff_required
       : false,
