@@ -6,7 +6,7 @@
  */
 
 const TRANSFER_CAVEAT = {
-  en: 'Santander airport transfer is included with weekly packages (Malibu, Uluwatu, Waimea).',
+  en: 'Santander shuttle is included with weekly packages (Malibu, Uluwatu, Waimea).',
   it: 'Il transfer aeroporto Santander è incluso con i pacchetti settimanali (Malibu, Uluwatu, Waimea).',
   es: 'El traslado al aeropuerto de Santander está incluido con los paquetes semanales (Malibu, Uluwatu, Waimea).',
   de: 'Santander-Flughafen-Transfer ist bei Wochenpaketen inklusive (Malibu, Uluwatu, Waimea).',
@@ -209,9 +209,9 @@ function buildWhatsAppPackageLines(lang) {
     ];
   }
   return [
-    '🏡 Malibu — simple weekly stay, Wolfhouse T-shirt + airport shuttle included, from €249.',
-    '🏄 Uluwatu — Malibu + surfboard and wetsuit rental, from €349.',
-    '🌊 Waimea — Malibu + lessons + gear, from €499.',
+    '☀️ Malibu — the classic Wolfhouse week: 7 nights, shared kitchen, Wolfhouse T-shirt, and Santander shuttle included. Cute, easy, good-vibes base if you mostly want the house + Somo life, from €249.',
+    '🌊 Uluwatu — Malibu plus 6 full days of surfboard + wetsuit rental. Best if you already surf a bit and want freedom to chase waves on your own, from €349.',
+    '🏄‍♀️ Waimea — the full surf-school week: Malibu plus 6 morning surf lessons, 12 hours total, and board + wetsuit rental all week. Best if you’re beginner/intermediate or want the most guided surf experience, from €499.',
   ];
 }
 
@@ -351,41 +351,41 @@ function buildMalibuReply(lang) {
   if (L === 'fr') {
     return `${intro(L)}\n\nMalibu : à partir de 249 €, 7 nuits, cuisine partagée, T-shirt Wolfhouse et navette aéroport selon les règles Wolfhouse.`;
   }
-  return `${intro(L)}\n\nMalibu is the simple stay package: from €249, 7 nights, shared kitchen, Wolfhouse T-shirt, and airport shuttle under Wolfhouse transfer rules.`;
+  return `${intro(L)}\n\nMalibu is the classic Wolfhouse week: from €249, 7 nights, shared kitchen, Wolfhouse T-shirt, and Santander shuttle included. Cute, easy, good-vibes base if you mostly want the house + Somo life.`;
 }
 
 function buildUluwatuReply(lang) {
   const L = normalizeLang(lang);
   if (L === 'it') {
-    return `${intro(L)}\n\nUluwatu: da €349, 7 notti — tutto Malibu più 6 giorni completi di noleggio tavola e muta da partner locali. ${TRANSFER_CAVEAT.it}`;
+    return `${intro(L)}\n\nUluwatu: da €349, 7 notti — tutto Malibu più 6 giorni completi di noleggio tavola e muta. ${TRANSFER_CAVEAT.it}`;
   }
   if (L === 'es') {
-    return `${intro(L)}\n\nUluwatu: desde €349, 7 noches — todo Malibu más 6 días completos de alquiler de tabla y neopreno con socios locales. ${TRANSFER_CAVEAT.es}`;
+    return `${intro(L)}\n\nUluwatu: desde €349, 7 noches — todo Malibu más 6 días completos de alquiler de tabla y neopreno. ${TRANSFER_CAVEAT.es}`;
   }
   if (L === 'de') {
-    return `${intro(L)}\n\nUluwatu: ab €349, 7 Nächte — alles aus Malibu plus 6 volle Tage Surfbrett- und Neopren-Verleih von lokalen Partnern. ${TRANSFER_CAVEAT.de}`;
+    return `${intro(L)}\n\nUluwatu: ab €349, 7 Nächte — alles aus Malibu plus 6 volle Tage Surfbrett- und Neopren-Verleih. ${TRANSFER_CAVEAT.de}`;
   }
   if (L === 'fr') {
-    return `${intro(L)}\n\nUluwatu : à partir de 349 €, 7 nuits — tout Malibu plus 6 jours complets de location planche et combinaison via partenaires locaux. ${TRANSFER_CAVEAT.fr}`;
+    return `${intro(L)}\n\nUluwatu : à partir de 349 €, 7 nuits — tout Malibu plus 6 jours complets de location planche et combinaison. ${TRANSFER_CAVEAT.fr}`;
   }
-  return `${intro(L)}\n\nUluwatu is for guests who want gear included: from €349, 7 nights — everything in Malibu, plus 6 full days of surfboard and wetsuit rental from local partners. ${TRANSFER_CAVEAT.en}`;
+  return `${intro(L)}\n\nUluwatu is for guests who want gear and freedom: from €349, 7 nights — Malibu plus 6 full days of surfboard + wetsuit rental. Best if you already surf a bit and want freedom to chase waves on your own. ${TRANSFER_CAVEAT.en}`;
 }
 
 function buildWaimeaReply(lang) {
   const L = normalizeLang(lang);
   if (L === 'it') {
-    return `${intro(L)}\n\nWaimea: da €499, 7 notti — tutto Malibu più 6 lezioni scuola surf al mattino (circa 12 ore a settimana) e noleggio tavola + muta tutta la settimana da partner locali.`;
+    return `${intro(L)}\n\nWaimea: da €499, 7 notti — tutto Malibu più 6 lezioni scuola surf al mattino (circa 12 ore a settimana) e noleggio tavola + muta tutta la settimana.`;
   }
   if (L === 'es') {
-    return `${intro(L)}\n\nWaimea: desde €499, 7 noches — todo Malibu más 6 clases de surf por la mañana (unas 12 horas semanales) y alquiler tabla + neopreno toda la semana con socios locales.`;
+    return `${intro(L)}\n\nWaimea: desde €499, 7 noches — todo Malibu más 6 clases de surf por la mañana (unas 12 horas semanales) y alquiler tabla + neopreno toda la semana.`;
   }
   if (L === 'de') {
-    return `${intro(L)}\n\nWaimea: ab €499, 7 Nächte — alles aus Malibu plus 6 morgendliche Surfschulkurse (ca. 12 Stunden pro Woche) und Brett + Neopren die ganze Woche von lokalen Partnern.`;
+    return `${intro(L)}\n\nWaimea: ab €499, 7 Nächte — alles aus Malibu plus 6 morgendliche Surfschulkurse (ca. 12 Stunden pro Woche) und Brett + Neopren die ganze Woche.`;
   }
   if (L === 'fr') {
-    return `${intro(L)}\n\nWaimea : à partir de 499 €, 7 nuits — tout Malibu plus 6 cours d’école de surf le matin (environ 12 h par semaine) et location planche + combinaison toute la semaine via partenaires locaux.`;
+    return `${intro(L)}\n\nWaimea : à partir de 499 €, 7 nuits — tout Malibu plus 6 cours d’école de surf le matin (environ 12 h par semaine) et location planche + combinaison toute la semaine.`;
   }
-  return `${intro(L)}\n\nWaimea is best if you want lessons: from €499, 7 nights — everything in Malibu, plus 6 morning surf school lessons (about 12 hours weekly) and surfboard + wetsuit rental all week from local partners.`;
+  return `${intro(L)}\n\nWaimea is the full surf-school week: from €499, 7 nights — Malibu plus 6 morning surf lessons, 12 hours total, and board + wetsuit rental all week. Best if you’re beginner/intermediate or want the most guided surf experience.`;
 }
 
 function buildChoiceBeginnerReply(lang, opts) {

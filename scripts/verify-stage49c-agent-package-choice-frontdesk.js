@@ -13,7 +13,11 @@ require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 const { runGuestAutomationOrchestratorDryRun } = require('./lib/luna-guest-automation-orchestrator-dry-run');
 const { normalizeGuestContextForChain } = require('./lib/luna-guest-context-merge');
 const { withPgClient } = require('./lib/pg-connect');
-const { buildPackageChoiceIntakeReply } = require('./lib/luna-guest-package-explainer');
+const {
+  buildPackageChoiceIntakeReply,
+  buildPackageExplainerReply,
+  buildWhatsAppPackageLines,
+} = require('./lib/luna-guest-package-explainer');
 
 const REF = '2026-06-11';
 const AGENT_ENV = { ...process.env, LUNA_GUEST_AGENT_BRAIN_ENABLED: 'true' };
@@ -34,6 +38,23 @@ const INTERNAL_RE = /\b(?:router|composer|orchestrator|dry.?run|stripe link)\b/i
 
 function paragraphCount(reply) {
   return String(reply || '').split(/\n\s*\n/).filter((p) => p.trim()).length;
+}
+
+
+section('A0. Cami package copy is guest-safe and Santander-specific');
+{
+  const overview = buildPackageExplainerReply('en', 'overview');
+  const choice = buildPackageChoiceIntakeReply('en', { check_in: '2026-06-11', check_out: '2026-06-20', guest_count: 3 });
+  const single = [
+    buildPackageExplainerReply('en', 'malibu'),
+    buildPackageExplainerReply('en', 'uluwatu'),
+    buildPackageExplainerReply('en', 'waimea'),
+  ].join('\n');
+  const all = [overview, choice, single, ...buildWhatsAppPackageLines('en')].join('\n');
+  check('A0.1', /Santander shuttle|Santander airport transfer/i.test(all), 'package copy names Santander transfer/shuttle');
+  check('A0.2', !/\bairport shuttle\b/i.test(all), 'package copy avoids generic airport shuttle');
+  check('A0.3', !/local partners/i.test(all), 'package copy avoids local partners wording');
+  check('A0.4', /classic Wolfhouse week|good-vibes|freedom to chase waves|surf-school week/i.test(all), 'package copy has Cami-style descriptions');
 }
 
 async function runTurn(message, prior, opts) {

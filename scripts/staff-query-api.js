@@ -186,6 +186,8 @@ const {
   dispatchBookingTransfersRoute,
   dispatchBookingTransferDirectionRoute,
   dispatchBookingTransferLookupRoute,
+  buildTransfersDrawerPayload,
+  isMissingBookingTransfersTable,
   BOOKING_TRANSFERS_RE,
   BOOKING_TRANSFER_DIRECTION_RE,
   BOOKING_TRANSFER_LOOKUP_RE,
@@ -11259,6 +11261,170 @@ function makeInMemoryBotReq(bodyObj) {
   };
 }
 
+
+// Stage 57b — Hermes Luna bot transfer save bridge.
+// Default safe: preview-only unless confirm_transfer_write:true is supplied.
+async function handleBotTransferSave(req, res, user, authMode) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const bookingId = String(body.booking_id || body.bookingId || '').trim();
+  if (!bookingId) {
+    return sendJSON(res, 400, { success: false, error: 'booking_id is required' });
+  }
+
+  const transferPayload = {
+    ...body,
+    client_slug: String(body.client_slug || DEFAULT_CLIENT).trim(),
+    source: body.source || 'luna_bot_transfer_save',
+  };
+
+  if (body.confirm_transfer_write !== true) {
+    return sendJSON(res, 200, {
+      success: true,
+      preview_only: true,
+      write_performed: false,
+      no_payment_write: true,
+      no_whatsapp: true,
+      no_n8n: true,
+      auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
+      booking_id: bookingId,
+      transfer: {
+        direction: transferPayload.direction || null,
+        airport_code: transferPayload.airport_code || transferPayload.airport || null,
+        scheduled_at: transferPayload.scheduled_at || transferPayload.transfer_datetime || null,
+        flight_number: transferPayload.flight_number || null,
+        notes: transferPayload.notes || null,
+      },
+      next_action: 'confirm_transfer_write_to_save',
+    });
+  }
+
+  const jsonRes = {
+    status(code) {
+      res.statusCode = code;
+      return jsonRes;
+    },
+    json(obj) {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        ...obj,
+        source: 'luna_bot_transfer_save',
+        auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
+        no_payment_write: true,
+        no_whatsapp: true,
+        no_n8n: true,
+      }));
+      return jsonRes;
+    },
+  };
+
+  return handlePostBookingTransfer(
+    bookingId,
+    makeInMemoryBotReq(transferPayload),
+    jsonRes
+  );
+}
+
+// Stage 57b — Hermes Luna read-only payment truth endpoint.
+async function handleBotPaymentStatus(req, res, user, authMode) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const paymentId = String(body.payment_id || body.paymentId || '').trim();
+  const bookingId = String(body.booking_id || body.bookingId || '').trim();
+  if (!paymentId && !bookingId) {
+    return sendJSON(res, 400, { success: false, error: 'payment_id or booking_id is required' });
+  }
+
+  try {
+    const rows = await withPgClient(async (pg) => {
+      if (paymentId) {
+        const r = await pg.query(
+          `SELECT p.id::text AS payment_id,
+                  p.booking_id::text AS booking_id,
+                  p.status::text AS payment_status,
+                  p.payment_kind,
+                  p.amount_due_cents,
+                  p.amount_paid_cents,
+                  p.checkout_url,
+                  p.stripe_checkout_session_id,
+                  b.booking_code,
+                  b.payment_status::text AS booking_payment_status,
+                  b.paid_cents,
+                  b.balance_due_cents,
+                  c.slug AS client_slug
+             FROM payments p
+             JOIN bookings b ON b.id = p.booking_id
+             JOIN clients c ON c.id = p.client_id
+            WHERE p.id = $1::uuid
+              AND c.slug = $2
+            LIMIT 1`,
+          [paymentId, clientSlug]
+        );
+        return r.rows;
+      }
+      const r = await pg.query(
+        `SELECT p.id::text AS payment_id,
+                p.booking_id::text AS booking_id,
+                p.status::text AS payment_status,
+                p.payment_kind,
+                p.amount_due_cents,
+                p.amount_paid_cents,
+                p.checkout_url,
+                p.stripe_checkout_session_id,
+                b.booking_code,
+                b.payment_status::text AS booking_payment_status,
+                b.paid_cents,
+                b.balance_due_cents,
+                c.slug AS client_slug
+           FROM payments p
+           JOIN bookings b ON b.id = p.booking_id
+           JOIN clients c ON c.id = p.client_id
+          WHERE p.booking_id = $1::uuid
+            AND c.slug = $2
+          ORDER BY p.created_at DESC
+          LIMIT 10`,
+        [bookingId, clientSlug]
+      );
+      return r.rows;
+    });
+
+    const truthStates = ['checkout_created', 'paid', 'deposit_paid', 'fully_paid'];
+    return sendJSON(res, 200, {
+      success: true,
+      source: 'luna_bot_payment_status',
+      auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
+      client_slug: clientSlug,
+      payment_id: paymentId || null,
+      booking_id: bookingId || (rows[0] && rows[0].booking_id) || null,
+      payment_records: rows,
+      latest_payment: rows[0] || null,
+      payment_truth_known: rows.length > 0,
+      truth_states: truthStates,
+      no_payment_write: true,
+      no_whatsapp: true,
+      no_n8n: true,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'payment status lookup failed',
+      detail: err.message,
+      no_payment_write: true,
+    });
+  }
+}
+
 // Route: POST /staff/bot/booking-create-from-plan  (Phase 13c — gated write bridge)
 //
 // Chains dry-run → write eligibility → existing handleBotBookingCreate.
@@ -14459,6 +14625,7 @@ input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box
 .ctx-section:first-of-type{margin-top:4px;padding-top:0;border-top:none}
 .ctx-section h3{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
 .ctx-loading{color:var(--text-3);font-size:12px;font-style:italic;padding:10px 0}
+.bc-drawer-preview .ctx-loading{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-2)}
 .ctx-none{color:var(--text-3);font-size:12px;font-style:italic}
 .btn-open-conv{background:var(--olive);color:#fff;border:none;border-radius:var(--radius-sm);padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s}
 .btn-open-conv:hover{background:#7C9079}
@@ -19702,8 +19869,32 @@ function bcRefreshBlockDetail(){
   var blk = bcLastOpenedBlock;
   if (!blk || !blk.booking_code) return;
   var ctxEl = el('bc-ctx-body');
-  if (ctxEl) ctxEl.innerHTML = '<div class="ctx-loading">Loading booking details\u2026</div>';
+  if (ctxEl) ctxEl.innerHTML = bcRenderBlockSummaryPreviewHtml(blk);
   loadBlockDetail(blk.booking_code);
+}
+
+function bcRenderBlockSummaryPreviewHtml(blk){
+  blk = blk || {};
+  var html = '<div class="bc-drawer-preview" id="bc-drawer-preview">';
+  html += '<div class="bc-drawer-overview-card">';
+  html += '<h3 class="bc-drawer-card-title">Booking details</h3>';
+  html += '<div class="kv-grid">';
+  if (blk.guest_name) html += kvBC('Guest', blk.guest_name);
+  if (blk.phone) html += kvBC('Phone', blk.phone);
+  var cin = blk.check_in || blk.start_date;
+  var cout = blk.check_out || blk.end_date;
+  if (cin) html += kvBC('Check-in', cin);
+  if (cout) html += kvBC('Check-out', cout);
+  if (blk.room_code){
+    var roomLabel = blk.room_code + (blk.bed_code ? ' / ' + blk.bed_code : '');
+    html += kvBC('Room / bed', roomLabel);
+  }
+  if (blk.status) html += kvBC('Status', String(blk.status).replace(/_/g, ' '));
+  if (blk.payment_status) html += kvBC('Payment', String(blk.payment_status).replace(/_/g, ' '));
+  html += '</div></div>';
+  html += '<div class="ctx-loading">Loading full details\u2026</div>';
+  html += '</div>';
+  return html;
 }
 
 function showBlockDetail(blk){
@@ -19721,7 +19912,7 @@ function showBlockDetail(blk){
     '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">Start Conversation</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="Refresh booking details">\u21bb Refresh</button>' +
     '</div></div>' +
-    '<div id="bc-ctx-body"><div class="ctx-loading">Loading booking details\u2026</div></div>';
+    '<div id="bc-ctx-body">' + bcRenderBlockSummaryPreviewHtml(blk) + '</div>';
   el('bc-detail').style.display = 'block';
   el('bc-refresh-detail').addEventListener('click', bcRefreshBlockDetail);
   bcWireOpenConversationButtons(null);
@@ -19763,6 +19954,7 @@ function loadBlockDetail(bookingCode, opts){
         ctxEl.innerHTML = '<div class="state-msg error">Context load failed: ' + escHtml((res.data && res.data.error) || 'error') + '</div>';
         return;
       }
+      bcLastBookingContext = res.data;
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
       updateBcDetailHeader(res.data);
       bcInitDrawerTabs();
@@ -19802,6 +19994,7 @@ var bcMoveCtx = {
   moveInFlight: false,
   targetsInFlight: false,
   targetsLoadFailed: false,
+  targetsDeferred: true,
 };
 
 function bcNewMoveIdempotencyKey(){
@@ -19908,6 +20101,13 @@ function bcRenderMoveTargetsFiltered(targets){
   bcUpdateMoveButtons();
 }
 
+function bcEnsureMoveTargetsLoaded(){
+  if (!bcMoveCtx.targetsDeferred || bcMoveCtx.targetsInFlight) return;
+  if (!bcGetSelectedBookingBedId() || !bcMoveCtx.checkIn || !bcMoveCtx.checkOut) return;
+  bcMoveCtx.targetsDeferred = false;
+  bcLoadMoveTargets();
+}
+
 function bcLoadMoveTargets(){
   var wrap = el('bc-move-target-field');
   if (!wrap) return;
@@ -19965,6 +20165,7 @@ function bcOnMoveSourcePillClick(btn){
   bcMoveCtx.selectedSourceBedId = String(btn.getAttribute('data-bed-id') || '').trim() || null;
   bcMoveCtx.currentBedCode = String(btn.getAttribute('data-bed-code') || '').trim() || null;
   bcMoveCtx.currentRoomCode = String(btn.getAttribute('data-room-code') || '').trim() || null;
+  bcMoveCtx.targetsDeferred = false;
   bcClearMoveResult();
   bcRefreshMoveTargetField();
 }
@@ -20103,6 +20304,7 @@ function bcInitMovePanel(data){
   bcMoveCtx.moveInFlight = false;
   bcMoveCtx.targetsInFlight = false;
   bcMoveCtx.targetsLoadFailed = false;
+  bcMoveCtx.targetsDeferred = true;
 
   var moveBtn = el('bc-move-booking-btn');
   if (moveBtn){
@@ -20111,7 +20313,11 @@ function bcInitMovePanel(data){
   document.querySelectorAll('.bc-move-source-pill').forEach(function(btn){
     btn.onclick = function(){ bcOnMoveSourcePillClick(btn); };
   });
-  bcLoadMoveTargets();
+  var moveTargetWrap = el('bc-move-target-wrap');
+  if (moveTargetWrap){
+    moveTargetWrap.addEventListener('click', bcEnsureMoveTargetsLoaded);
+    moveTargetWrap.addEventListener('focusin', bcEnsureMoveTargetsLoaded);
+  }
   bcUpdateMoveButtons();
 }
 
@@ -22705,7 +22911,7 @@ var bcTransferCtx = {
 
 function bcRenderTransferDetailsShell(){
   return '<div class="ctx-section ctx-transfer-details" id="bc-transfer-details">' +
-    '<div id="bc-transfer-cards" class="bc-transfer-cards ctx-loading">Loading transfers\u2026</div>' +
+    '<div id="bc-transfer-cards" class="bc-transfer-cards"></div>' +
     '<div class="bc-transfer-tab-spacer" aria-hidden="true"></div>' +
     '</div>';
 }
@@ -23188,6 +23394,45 @@ function bcSaveTransfer(direction){
     });
 }
 
+function bcApplyTransferDrawerPayload(payload, contextData, cardsEl){
+  if (!cardsEl) cardsEl = el('bc-transfer-cards');
+  if (!cardsEl || !payload) return;
+  bcTransferCtx.data = payload;
+  bcTransferCtx.lookupMeta = { arrival: null, departure: null };
+  bcTransferCtx.existingStatus = { arrival: null, departure: null };
+  (payload.transfers || []).forEach(function(t){
+    if (t.direction === 'arrival') bcTransferCtx.existingStatus.arrival = t.status;
+    if (t.direction === 'departure') bcTransferCtx.existingStatus.departure = t.status;
+  });
+  cardsEl.innerHTML = bcRenderTransferCards(payload);
+  cardsEl.classList.remove('ctx-loading');
+  if (bcLastOpenedBlock){
+    bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(payload.transfers);
+    updateBcDetailHeader(contextData);
+  }
+  document.querySelectorAll('.bc-transfer-save').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      bcSaveTransfer(btn.getAttribute('data-direction'));
+    });
+  });
+  document.querySelectorAll('.bc-transfer-remove').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      bcRemoveTransfer(btn.getAttribute('data-direction'));
+    });
+  });
+  document.querySelectorAll('.bc-transfer-override-toggle').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var dir = btn.getAttribute('data-direction');
+      var wrap = el('bc-transfer-' + dir + '-override-wrap');
+      if (!wrap) return;
+      var open = wrap.style.display !== 'none';
+      wrap.style.display = open ? 'none' : 'block';
+      btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    });
+  });
+  bcTransferWireLookupControls();
+}
+
 function bcInitTransferShell(contextData){
   var bk = (contextData && contextData.booking) || {};
   if (!bk.booking_id) return;
@@ -23195,6 +23440,13 @@ function bcInitTransferShell(contextData){
   bcTransferCtx.clientSlug = getBcClient();
   var cardsEl = el('bc-transfer-cards');
   if (!cardsEl) return;
+
+  var embedded = contextData && contextData.transfers_drawer;
+  if (embedded && embedded.success){
+    bcApplyTransferDrawerPayload(embedded, contextData, cardsEl);
+    return;
+  }
+
   var url = '/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/transfers?client_slug=' +
     encodeURIComponent(bcTransferCtx.clientSlug);
   fetch(url)
@@ -23204,40 +23456,7 @@ function bcInitTransferShell(contextData){
         cardsEl.innerHTML = '<div class="state-msg error">' + escHtml((res.data && res.data.error) || 'Failed to load transfers') + '</div>';
         return;
       }
-      bcTransferCtx.data = res.data;
-      bcTransferCtx.lookupMeta = { arrival: null, departure: null };
-      bcTransferCtx.existingStatus = { arrival: null, departure: null };
-      (res.data.transfers || []).forEach(function(t){
-        if (t.direction === 'arrival') bcTransferCtx.existingStatus.arrival = t.status;
-        if (t.direction === 'departure') bcTransferCtx.existingStatus.departure = t.status;
-      });
-      cardsEl.innerHTML = bcRenderTransferCards(res.data);
-      cardsEl.classList.remove('ctx-loading');
-      if (bcLastOpenedBlock){
-        bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(res.data.transfers);
-        updateBcDetailHeader(contextData);
-      }
-      document.querySelectorAll('.bc-transfer-save').forEach(function(btn){
-        btn.addEventListener('click', function(){
-          bcSaveTransfer(btn.getAttribute('data-direction'));
-        });
-      });
-      document.querySelectorAll('.bc-transfer-remove').forEach(function(btn){
-        btn.addEventListener('click', function(){
-          bcRemoveTransfer(btn.getAttribute('data-direction'));
-        });
-      });
-      document.querySelectorAll('.bc-transfer-override-toggle').forEach(function(btn){
-        btn.addEventListener('click', function(){
-          var dir = btn.getAttribute('data-direction');
-          var wrap = el('bc-transfer-' + dir + '-override-wrap');
-          if (!wrap) return;
-          var open = wrap.style.display !== 'none';
-          wrap.style.display = open ? 'none' : 'block';
-          btn.setAttribute('aria-expanded', open ? 'false' : 'true');
-        });
-      });
-      bcTransferWireLookupControls();
+      bcApplyTransferDrawerPayload(res.data, contextData, cardsEl);
     })
     .catch(function(e){
       cardsEl.innerHTML = '<div class="state-msg error">' + escHtml(e.message) + '</div>';
@@ -23703,7 +23922,7 @@ function renderBookingContextDrawer(data){
   }
   html += '<div style="margin-top:10px" id="bc-move-target-wrap">';
   html += '<div id="bc-move-target-field">';
-  html += '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled><option value="">\u2014 loading \u2014</option></select>';
+  html += '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled><option value="">\u2014 click to load beds \u2014</option></select>';
   html += '</div>';
   html += '<div id="bc-move-target-note" class="ctx-none" style="margin-top:4px;font-size:11px;line-height:1.45"></div></div>';
   html += '<div id="bc-move-result"></div>';
@@ -27752,8 +27971,10 @@ async function handleBookingContext(bookingCode, query, res, user) {
   let serviceRecordRows = [];
   let serviceRecordsAvailable = false;
   let transferRecordRows = [];
+  let transfersAvailable = true;
+  let pauseGateResult = null;
   try {
-    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows, serviceRecordRows, serviceRecordsAvailable, transferRecordRows] =
+    [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows, serviceRecordRows, serviceRecordsAvailable, transferRecordRows, transfersAvailable, pauseGateResult] =
       await withPgClient(async (pg) => {
         const [b, p, r, c, h, a, m, svc] = await Promise.all([
           pg.query(getBookingDetailQuery(),             [clientSlug, bookingCode]),
@@ -27774,13 +27995,36 @@ async function handleBookingContext(bookingCode, query, res, user) {
         ]);
         const bkRow = b.rows[0] || null;
         let transfers = [];
+        let xferAvailable = true;
         if (bkRow && bkRow.booking_id) {
-          transfers = await listBookingTransfersForBooking(pg, {
-            client_slug: clientSlug,
-            booking_id: bkRow.booking_id,
-          });
+          try {
+            transfers = await listBookingTransfersForBooking(pg, {
+              client_slug: clientSlug,
+              booking_id: bkRow.booking_id,
+            });
+          } catch (err) {
+            if (isMissingBookingTransfersTable(err)) {
+              xferAvailable = false;
+            } else {
+              throw err;
+            }
+          }
         }
-        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows, m.rows, svc.rows, svc.available, transfers];
+        let pauseGate = null;
+        if (c.rows.length > 0) {
+          const convRow = c.rows[0];
+          try {
+            pauseGate = await checkGuestAutomationPauseState(pg, {
+              client_slug:     clientSlug,
+              conversation_id: convRow.conversation_id,
+              guest_phone:     convRow.phone || (bkRow && bkRow.phone),
+              booking_code:    bookingCode,
+            });
+          } catch (_) {
+            pauseGate = { bot_paused: false, live_send_blocked: false, source: 'default_active' };
+          }
+        }
+        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows, m.rows, svc.rows, svc.available, transfers, xferAvailable, pauseGate];
       });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -27822,16 +28066,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
   let conversationPayload = null;
   if (convRows.length > 0) {
     const convRow = convRows[0];
-    let lunaPaused = false;
-    try {
-      const gate = await withPgClient((pg) => checkGuestAutomationPauseState(pg, {
-        client_slug:     clientSlug,
-        conversation_id: convRow.conversation_id,
-        guest_phone:     convRow.phone || bk.phone,
-        booking_code:    bookingCode,
-      }));
-      lunaPaused = gate.bot_paused === true;
-    } catch (_) { /* non-fatal — default active */ }
+    const lunaPaused = pauseGateResult && pauseGateResult.bot_paused === true;
     conversationPayload = {
       conversation_id:      convRow.conversation_id,
       needs_human:          convRow.needs_human,
@@ -27856,6 +28091,15 @@ async function handleBookingContext(bookingCode, query, res, user) {
     serviceRecords: serviceRecordRows,
     paymentRows,
   });
+
+  let transfersDrawer = null;
+  try {
+    transfersDrawer = buildTransfersDrawerPayload(clientSlug, bk, transferRecordRows, {
+      transfers_available: transfersAvailable,
+    });
+  } catch (_) {
+    transfersDrawer = null;
+  }
 
   return sendJSON(res, 200, {
     success:      true,
@@ -27923,6 +28167,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
     accommodation_balance_due_cents: serviceChargesDue.accommodation_balance_due_cents,
     total_due_at_checkout_cents: serviceChargesDue.total_due_at_checkout_cents,
     transfers: transferRecordRows,
+    transfers_drawer: transfersDrawer,
     luna_guest_notes: lunaGuestNotes,
     warnings: [],
     elapsed_ms: elapsed,
@@ -28585,6 +28830,28 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotAddonRequestCreate(req, res, auth.user, auth.auth_mode);
+  }
+
+
+  // ── Stage 57b — Hermes Luna transfer save/status bot routes ────────────────
+  if (pathname === '/staff/bot/transfers/save') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/transfers/save' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotTransferSave(req, res, auth.user, auth.auth_mode);
+  }
+
+  if (pathname === '/staff/bot/payments/status') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/payments/status' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotPaymentStatus(req, res, auth.user, auth.auth_mode);
   }
 
   // ── Phase 9.4b — Luna guest bot pause/resume (bot_pause_states SoT) ─────────

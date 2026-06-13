@@ -1,0 +1,253 @@
+{
+  "stage": "luna-nightly",
+  "started_at": "2026-06-12T19:50:06.512Z",
+  "finished_at": "2026-06-12T19:50:09.016Z",
+  "mode": "full",
+  "strict": false,
+  "result": "FAIL",
+  "staff_portal_capabilities_tested": 15,
+  "suites": [
+    {
+      "name": "verify:luna-all",
+      "label": "verify:luna-all",
+      "script": "verify-luna-all.js",
+      "result": "PASS",
+      "exit_code": 0,
+      "ok": true,
+      "stdout_tail": "ale-context-preserved\n   PASS     golden-11-september-guest-count\n   PASS     golden-12-package-gear-not-duplicated\n   PASS     golden-13-greeting-welcome\n\nverify:luna-golden PASSED (no regressions)\n\n▶ verify:luna-coach\n\n── A. Coach evaluator detects known failure patterns ──\n  PASS  [A1] package-choice score penalized (88)\n  PASS  [A2] detects package assumed knowledge\n  PASS  [A3] package choice alone is not shipping blocker\n  PASS  [A4] detects quote stall\n  PASS  [A5] stall is booking_progress\n  PASS  [A6] detects greeting price dump\n  PASS  [A7] detects missed service capture\n  PASS  [A8] detects missed transfer ack\n\n── B. Fixture builder produces runnable skeleton ──\n  PASS  [B1] fixture id set\n  PASS  [B2] four turns\n  PASS  [B3] bad turn has reply_not_contains\n  PASS  [B4] forbidden_replies captured\n  PASS  [B5] marked coach_generated\n\n── C. Good transcript scores high ──\n  PASS  [C1] good transcript scores 100\n  PASS  [C2] good transcript not a blocker\n\n── D. No production/live side effects (static proof) ──\n  PASS  [D1] coach evaluator no external APIs\n  PASS  [D2] builder is pure (no DB)\n  PASS  [D3] deterministic default\n\n── Summary: 18 passed, 0 failed ──\n\n▶ verify:luna-unified-planner\n\n── A. Staging profile enables unified planner ──\n  PASS  [A1] UNIFIED_PLANNER_MODE on\n  PASS  [A2] frontdesk planner active\n  PASS  [A3] brain LLM disabled under unified mode\n  PASS  [A4] gpt tool planner disabled\n  PASS  [A5] unified planner active\n\n── B. Orchestrator wires unified env ──\n  PASS  [B1] orchestrator applies unified env\n  PASS  [B2] orchestrator imports unified planner\n\n── C. Frontdesk planner references behavior spec ──\n  PASS  [C1] planner prompt cites spec\n  PASS  [C2] planner blocks blind package ask\n\n── D. Cami voice-only replan guards ──\n  PASS  [D1] replan hint set defined\n  PASS  [D2] hard reject blind package ask\n  PASS  [D3] soft replan hints fall back to deterministic\n\n── Summary: 12 passed, 0 failed ──\n\n── verify:luna-all PASSED (3/3 green) ──\n",
+      "stderr_tail": ""
+    },
+    {
+      "name": "verify:luna-golden",
+      "label": "verify:luna-golden",
+      "script": "verify-luna-golden.js",
+      "result": "PASS",
+      "exit_code": 0,
+      "ok": true,
+      "stdout_tail": "\n── Luna golden gate ──\nprofile: deterministic-composer (no GPT, no API key)\nfixtures: 13  pass: 13  partial: 0  fail: 0\n\n   PASS     golden-01-new-booking-happy-path\n   PASS     golden-02-package-explain-before-choice\n   PASS     golden-03-quote-to-payment\n   PASS     golden-04-services-during-booking\n   PASS     golden-05-existing-booking-addon\n   PASS     golden-06-transfer-capture\n   PASS     golden-07-no-false-handoff\n   PASS     golden-08-no-internal-language\n   PASS     golden-09-greeting-no-price-dump\n   PASS     golden-10-stale-context-preserved\n   PASS     golden-11-september-guest-count\n   PASS     golden-12-package-gear-not-duplicated\n   PASS     golden-13-greeting-welcome\n\nverify:luna-golden PASSED (no regressions)\n",
+      "stderr_tail": ""
+    },
+    {
+      "name": "cami-realism",
+      "result": "PARTIAL",
+      "passed": 11,
+      "partial": 4,
+      "failed": 0,
+      "total": 15,
+      "first_failure": null,
+      "cami_score_average": 96.9,
+      "business_fact_safety": "PASS"
+    },
+    {
+      "name": "multilingual-out-of-order",
+      "result": "PARTIAL",
+      "passed": 8,
+      "partial": 4,
+      "failed": 0,
+      "total": 12,
+      "first_failure": null,
+      "cami_score_average": null,
+      "business_fact_safety": "PASS"
+    },
+    {
+      "name": "hammer-regressions",
+      "result": "FAIL",
+      "passed": 5,
+      "partial": 4,
+      "failed": 3,
+      "total": 12,
+      "first_failure": {
+        "flow_id": "first-turn-surf-lesson",
+        "failures": [
+          "final: final.expected_fields.package_interest expected \"accommodation_only\" got null",
+          "final: final expected_quote_ready but quote_status=not_ready"
+        ]
+      },
+      "cami_score_average": null,
+      "business_fact_safety": "PASS"
+    },
+    {
+      "name": "faq-multilingual",
+      "result": "PASS",
+      "passed": 9,
+      "partial": 0,
+      "failed": 0,
+      "total": 9,
+      "first_failure": null,
+      "cami_score_average": null,
+      "business_fact_safety": "PASS"
+    },
+    {
+      "name": "hammer-en",
+      "result": "FAIL",
+      "passed": 17,
+      "partial": 2,
+      "failed": 11,
+      "total": 30,
+      "language": "en",
+      "seed": 60612,
+      "top_failure_categories": [
+        {
+          "category": "package_intent",
+          "count": 6
+        },
+        {
+          "category": "accommodation_intent",
+          "count": 6
+        },
+        {
+          "category": "service_addon_intent",
+          "count": 6
+        },
+        {
+          "category": "internal_error",
+          "count": 5
+        },
+        {
+          "category": "cash_side_question",
+          "count": 1
+        }
+      ],
+      "first_failure": {
+        "scenario_id": "hammer-60612-0003",
+        "failures": [
+          "turn 1: expected_quote_ready but quote_status=not_ready"
+        ]
+      }
+    },
+    {
+      "name": "hammer-de",
+      "result": "PARTIAL",
+      "passed": 24,
+      "partial": 6,
+      "failed": 0,
+      "total": 30,
+      "language": "de",
+      "seed": 61612,
+      "top_failure_categories": [
+        {
+          "category": "service_addon_intent",
+          "count": 3
+        },
+        {
+          "category": "yoga_meals_intent",
+          "count": 2
+        },
+        {
+          "category": "robotic_copy",
+          "count": 1
+        }
+      ],
+      "first_failure": {
+        "scenario_id": "hammer-61612-0007",
+        "failures": [
+          "turn 1: expected_service_interest missing surf_lesson"
+        ]
+      }
+    },
+    {
+      "name": "hammer-it",
+      "result": "FAIL",
+      "passed": 21,
+      "partial": 4,
+      "failed": 5,
+      "total": 30,
+      "language": "it",
+      "seed": 62612,
+      "top_failure_categories": [
+        {
+          "category": "service_addon_intent",
+          "count": 5
+        },
+        {
+          "category": "accommodation_intent",
+          "count": 4
+        },
+        {
+          "category": "package_intent",
+          "count": 2
+        },
+        {
+          "category": "yoga_meals_intent",
+          "count": 2
+        },
+        {
+          "category": "internal_error",
+          "count": 2
+        },
+        {
+          "category": "date_parsing",
+          "count": 1
+        },
+        {
+          "category": "guest_count",
+          "count": 1
+        },
+        {
+          "category": "cash_side_question",
+          "count": 1
+        }
+      ],
+      "first_failure": {
+        "scenario_id": "hammer-62612-0005",
+        "failures": [
+          "turn 1: expected_service_interest missing wetsuit",
+          "turn 1: expected_service_interest missing surfboard"
+        ]
+      }
+    },
+    {
+      "name": "hammer-es",
+      "result": "FAIL",
+      "passed": 21,
+      "partial": 6,
+      "failed": 3,
+      "total": 30,
+      "language": "es",
+      "seed": 63612,
+      "top_failure_categories": [
+        {
+          "category": "service_addon_intent",
+          "count": 6
+        },
+        {
+          "category": "accommodation_intent",
+          "count": 3
+        },
+        {
+          "category": "package_intent",
+          "count": 2
+        },
+        {
+          "category": "yoga_meals_intent",
+          "count": 2
+        },
+        {
+          "category": "cash_side_question",
+          "count": 1
+        },
+        {
+          "category": "internal_error",
+          "count": 1
+        }
+      ],
+      "first_failure": {
+        "scenario_id": "hammer-63612-0005",
+        "failures": [
+          "turn 1: expected_service_interest missing wetsuit"
+        ]
+      }
+    },
+    {
+      "name": "agent-regression",
+      "label": "agent-regression",
+      "script": "run-luna-guest-agent-regression.js",
+      "result": "PASS",
+      "exit_code": 0,
+      "ok": true,
+      "stdout_tail": "\n── Agent Regression Report ──\nTotal:     40\nPassed:    40\nFailed:    0\nPass rate: 100%\nReport:    C:\\Users\\tywoo\\Desktop\\WH\\reports\\luna-nightly\\agent-regression.json\n",
+      "stderr_tail": ""
+    }
+  ],
+  "safety_note": "Local dry-run only — no WhatsApp, Stripe live, confirmations, or writes."
+}

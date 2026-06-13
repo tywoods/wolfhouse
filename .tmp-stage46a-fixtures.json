@@ -1,0 +1,437 @@
+[
+  {
+    "id": "46a-regression-book-stay-dates-count",
+    "label": "Regression: Hello → Book a stay → June 12-20 → 3 please",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["Hello", "Book a stay", "June 12 to 20th", "3 please"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-vague-book-stay",
+    "label": "Vague: Book a stay",
+    "category": "A",
+    "reference_date": "2026-06-08",
+    "turns": ["Book a stay"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-vague-want-stay",
+    "label": "Vague: I want to stay",
+    "category": "A",
+    "reference_date": "2026-06-08",
+    "turns": ["I want to stay"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-vague-have-space",
+    "label": "Vague: Do you have space?",
+    "category": "A",
+    "reference_date": "2026-06-08",
+    "turns": ["Do you have space?"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-vague-june",
+    "label": "Vague: Can I come in June?",
+    "category": "A",
+    "reference_date": "2026-06-08",
+    "turns": ["Can I come in June?"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-vague-we-are-3",
+    "label": "Vague: We are 3",
+    "category": "A",
+    "reference_date": "2026-06-08",
+    "turns": ["We are 3"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-vague-need-room",
+    "label": "Vague: Need a room",
+    "category": "A",
+    "reference_date": "2026-06-08",
+    "turns": ["Need a room"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-date-june-12-20",
+    "label": "Date-first: June 12 to 20",
+    "category": "B",
+    "reference_date": "2026-06-08",
+    "turns": ["June 12 to 20"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-date-12-20-june",
+    "label": "Date-first: 12-20 June",
+    "category": "B",
+    "reference_date": "2026-06-08",
+    "turns": ["12-20 June"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-date-next-weekend",
+    "label": "Date-first: next weekend",
+    "category": "B",
+    "reference_date": "2026-06-08",
+    "turns": ["next weekend"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-date-friday-sunday",
+    "label": "Date-first: from Friday to Sunday",
+    "category": "B",
+    "reference_date": "2026-06-08",
+    "turns": ["from Friday to Sunday"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-date-aug-week",
+    "label": "Date-first: Aug 18 for a week",
+    "category": "B",
+    "reference_date": "2026-06-08",
+    "turns": ["Aug 18 for a week"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-count-3-please",
+    "label": "Count-only: 3 please",
+    "category": "C",
+    "reference_date": "2026-06-08",
+    "turns": ["3 please"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-count-for-two",
+    "label": "Count-only: for two",
+    "category": "C",
+    "reference_date": "2026-06-08",
+    "turns": ["for two"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-count-solo",
+    "label": "Count-only: solo traveler",
+    "category": "C",
+    "reference_date": "2026-06-08",
+    "turns": ["solo traveler"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-count-4-friends",
+    "label": "Count-only: we are 4 friends",
+    "category": "C",
+    "reference_date": "2026-06-08",
+    "turns": ["we are 4 friends"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-pkg-malibu-2",
+    "label": "Package: Malibu for 2",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["Hi, we are 2 people interested in the Malibu package", "August 18 to August 25"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "expect_quote_or_payment_ask": true }
+  },
+  {
+    "id": "46a-pkg-surf-camp",
+    "label": "Package: surf camp",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["surf camp", "July 10 to July 17", "2"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-pkg-beginner",
+    "label": "Package: beginner surf package",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["beginner surf package", "August 1-8", "1 guest"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-pkg-just-accommodation",
+    "label": "Package: just accommodation",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["just accommodation", "July 6-10", "2"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-pkg-private-room",
+    "label": "Package: private room",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["private room", "July 15-19", "2"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-pkg-shared-room",
+    "label": "Package: shared room",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["shared room please", "July 20-24", "1"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-messy-book-stay-dates-count",
+    "label": "Messy: book stay → dates → count (no hello)",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["book a stay", "june 12-20", "3"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-messy-typo-dates",
+    "label": "Messy: typo dates",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["hi", "book stay", "julyy 1-5", "2 ppl"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-messy-es-dates",
+    "label": "Messy: Spanish dates",
+    "category": "E",
+    "language": "es",
+    "reference_date": "2026-06-08",
+    "turns": ["hola", "quiero reservar", "del 12 al 20 de junio", "somos 3"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-messy-change-count",
+    "label": "Messy: actually we are 4",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu package 2 people", "Aug 18-25", "actually we are 4"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-messy-deposit-early",
+    "label": "Messy: can we pay deposit?",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu for 2", "Aug 18-25", "can we pay deposit?"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-messy-how-much",
+    "label": "Messy: how much?",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["book a stay", "July 1-5", "2", "how much?"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-messy-female-room",
+    "label": "Messy: female room?",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["book stay", "July 6-10", "2", "do you have female room?"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-pay-deposit-after-quote",
+    "label": "Payment: deposit after Malibu quote",
+    "category": "F",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu package 2 guests", "Aug 18-25", "Deposit is fine"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "expect_payment_path": true }
+  },
+  {
+    "id": "46a-pay-full-after-quote",
+    "label": "Payment: full payment after quote",
+    "category": "F",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu package 2 guests", "Aug 18-25", "I'll pay in full"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "expect_payment_path": true }
+  },
+  {
+    "id": "46a-pay-later",
+    "label": "Payment: can I pay later?",
+    "category": "F",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2 people", "Aug 18-25", "can I pay later?"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-pay-link-broken",
+    "label": "Payment: link doesn't work",
+    "category": "F",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2", "Aug 18-25", "Deposit is fine", "the link doesn't work"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-pay-already-paid",
+    "label": "Payment: I already paid",
+    "category": "F",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2", "Aug 18-25", "Deposit is fine", "I already paid"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-addon-deposit-no-addons",
+    "label": "Add-on: deposit without resolving add-ons (Malibu)",
+    "category": "G",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2 people", "Aug 18-25", "Deposit is fine"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "expect_payment_path": true }
+  },
+  {
+    "id": "46a-addon-lessons-before-pay",
+    "label": "Add-on: lessons before paying",
+    "category": "G",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2", "Aug 18-25", "Can we add surf lessons?", "Deposit is fine"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-addon-rental-after-quote",
+    "label": "Add-on: board rental after quote",
+    "category": "G",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2", "Aug 18-25", "Do you rent boards?", "Deposit is fine"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-addon-just-stay-short",
+    "label": "Add-on: just the stay short-stay",
+    "category": "G",
+    "reference_date": "2026-06-08",
+    "turns": ["book a stay", "July 1-5", "2", "Alex", "just the stay", "deposit"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-addon-maybe-lessons-later",
+    "label": "Add-on: maybe lessons later",
+    "category": "G",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2", "Aug 18-25", "maybe lessons later", "Deposit is fine"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-short-stay-happy",
+    "label": "Short-stay happy path",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["book a stay", "July 1-5", "1", "Marco", "just the stay", "deposit"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-vague-hi",
+    "label": "Vague: Hello only",
+    "category": "A",
+    "reference_date": "2026-06-08",
+    "turns": ["Hello"],
+    "stress_expect": { "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-date-count-order",
+    "label": "Date then count without package",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["June 12 to 20", "3 people"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-count-date-order",
+    "label": "Count then date",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["we are 3", "June 12 to 20"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-stay-type-after-week",
+    "label": "Week stay should ask package vs accommodation",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["book stay", "Aug 18-25", "2"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true, "should_ask_stay_type": true }
+  },
+  {
+    "id": "46a-name-after-dates-wrong-order",
+    "label": "Dates then name ask trap",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["Book a stay", "June 12 to 20th", "3 please"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-accommodation-june",
+    "label": "Accommodation explicit June",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["accommodation only", "June 12-16", "2"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-package-question-mid",
+    "label": "Package question mid flow",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["book stay", "July 10-17", "what packages do you have?"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-cash-mid-quote",
+    "label": "Cash question mid booking",
+    "category": "F",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2", "Aug 18-25", "can I pay cash on arrival?"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-transfer-mid",
+    "label": "Transfer question mid booking",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2", "Aug 18-25", "I land in Santander"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-reset-mid",
+    "label": "Reset mid flow",
+    "category": "E",
+    "reference_date": "2026-06-08",
+    "turns": ["Malibu 2", "Aug 18-25", "actually start over", "July 1-5", "2"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true }
+  },
+  {
+    "id": "46a-de-short-stay",
+    "label": "German short stay",
+    "category": "E",
+    "language": "de",
+    "reference_date": "2026-06-08",
+    "turns": ["Hallo", "Ich möchte buchen", "1.-5. Juli", "2 Personen"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-it-package",
+    "label": "Italian package flow",
+    "category": "E",
+    "language": "it",
+    "reference_date": "2026-06-08",
+    "turns": ["ciao", "pacchetto Malibu", "10-17 luglio", "2"],
+    "stress_expect": { "booking_flow": true, "no_handoff_before_quote": true }
+  },
+  {
+    "id": "46a-availability-only",
+    "label": "Availability question only",
+    "category": "A",
+    "reference_date": "2026-06-08",
+    "turns": ["any beds free in August?"],
+    "stress_expect": { "no_handoff": true, "should_ask": true }
+  },
+  {
+    "id": "46a-malibu-deposit-3turn",
+    "label": "Golden 3-turn Malibu (45j)",
+    "category": "D",
+    "reference_date": "2026-06-08",
+    "turns": ["Hi, we are 2 people interested in the Malibu package", "August 18 to August 25", "Deposit is fine"],
+    "stress_expect": { "booking_flow": true, "no_handoff": true, "expect_payment_path": true }
+  }
+]

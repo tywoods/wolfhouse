@@ -158,7 +158,7 @@ const FRONTDESK_CAMI_STATES = new Set([
 /** Factual copy — Cami must not rewrite (packages, quotes, payment). */
 const CAMI_SKIP_TRUTH_STATES = new Set([
   'explain_packages',
-  'package_quote_ready',
+  // package_quote_ready is Cami-eligible: validator preserves quote/deposit facts.
   'ask_payment_choice',
   'payment_choice_ack',
   'accommodation_quote_ready',

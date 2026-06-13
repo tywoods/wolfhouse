@@ -67,7 +67,7 @@ const MOCK_QUOTE_REPLY = JSON.stringify({
     '',
     'I checked it — the stay comes to €1080 total.',
     '',
-    'To hold it, €100 deposit now or pay the full €1080 — which works better?',
+    'To hold it, €200 deposit now or pay the full €1080 — which works better?',
   ].join('\n'),
 });
 
@@ -75,7 +75,7 @@ const MOCK_PAYMENT_LINK_REPLY = JSON.stringify({
   reply: [
     'Amazing 🙌 Malibu hold is ready for June 11 to June 20.',
     '',
-    'Pay the €100 deposit here: https://staff-staging.lunafrontdesk.com/pay/WH-G27-TEST123',
+    'Pay the €200 deposit here: https://staff-staging.lunafrontdesk.com/pay/WH-G27-TEST123',
     '',
     'Ping me once it\'s done and I\'ll keep an eye on it for you 😊',
   ].join('\n'),
@@ -158,7 +158,7 @@ function baseInput(overrides) {
     const input = baseInput({
       message: 'ok Malibu',
       fields: { check_in: '2026-06-11', check_out: '2026-06-20', guest_count: 3, package_interest: 'malibu' },
-      quote: { quote_status: 'ready', quote_total_cents: 108000, deposit_required_cents: 10000, package_code: 'malibu' },
+      quote: { quote_status: 'ready', quote_total_cents: 108000, deposit_required_cents: 20000, package_code: 'malibu' },
       availability: { availability_status: 'ready', has_enough_beds: true },
       allowed_next_action: 'collect_payment_choice',
       composer_state: 'package_quote_ready',
@@ -170,7 +170,7 @@ function baseInput(overrides) {
     );
     check('C1', out.author_used === true, 'author_used');
     check('C2', /€1080/.test(out.authored_reply), 'preserves quote total');
-    check('C3', /€100/.test(out.authored_reply), 'preserves deposit');
+    check('C3', /€200/.test(out.authored_reply), 'preserves deposit');
     check('C4', /\b(?:deposit|full)\b/i.test(out.authored_reply), 'asks deposit vs full');
     check('C5', !/€9999/.test(out.authored_reply), 'no invented values');
   }
@@ -181,7 +181,7 @@ function baseInput(overrides) {
     const input = baseInput({
       message: 'Deposit is fine',
       fields: { check_in: '2026-06-11', check_out: '2026-06-20', guest_count: 3, package_interest: 'malibu' },
-      quote: { quote_status: 'ready', quote_total_cents: 108000, deposit_required_cents: 10000 },
+      quote: { quote_status: 'ready', quote_total_cents: 108000, deposit_required_cents: 20000 },
       payment_choice: { payment_choice_ready: true, payment_preference: 'deposit' },
       hold_plan: { plan_status: 'ready', payment_link_url: payUrl, ready_for_hold_draft: true },
       deterministic: `Pay here: ${payUrl}`,
@@ -223,7 +223,7 @@ function baseInput(overrides) {
     const input = baseInput({
       message: 'malibu',
       fields: { check_in: '2026-06-11', check_out: '2026-06-20', guest_count: 3 },
-      quote: { quote_status: 'ready', quote_total_cents: 108000, deposit_required_cents: 10000 },
+      quote: { quote_status: 'ready', quote_total_cents: 108000, deposit_required_cents: 20000 },
       deterministic: 'Deterministic fallback quote €1080.',
     });
     const rejections = validateCamiAuthoredReply(
@@ -310,7 +310,7 @@ function baseInput(overrides) {
   section('I. Reply pipeline — Cami on package_quote_ready only');
   {
     const mockReply = JSON.stringify({
-      reply: 'Waimea June 19–29 for 3 — €2250 total. Deposit €100 or pay in full?',
+      reply: 'Waimea June 19–29 for 3 — €2250 total. Deposit €200 or pay in full?',
     });
     const pipelineOut = await applyGuestReplyPipeline({
       client_slug: 'wolfhouse-somo',
@@ -332,7 +332,7 @@ function baseInput(overrides) {
             package_interest: 'waimea',
           },
         },
-        quote: { quote_status: 'ready', quote_total_cents: 225000, deposit_required_cents: 10000 },
+        quote: { quote_status: 'ready', quote_total_cents: 225000, deposit_required_cents: 20000 },
       },
       env: { ...AUTHOR_ENV, LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED: 'true' },
       authorCaller: mockCaller(mockReply),

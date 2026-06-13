@@ -17,7 +17,6 @@
       "No live send in this config slice; templates are consumed by Luna planners/routes when gates pass."
     ]
   },
-
   "personality": {
     "personality_key": "cami",
     "display_name": "Cami",
@@ -30,7 +29,6 @@
     "one_clear_next_step": true,
     "voice_summary": "Warm, human, practical Wolfhouse/Cami vibe — concise but friendly, surfhouse family energy."
   },
-
   "tone_rules": [
     "warm, human, practical",
     "Cami/Wolfhouse surfhouse family vibe",
@@ -39,12 +37,10 @@
     "confident only when engine-verified facts are available",
     "hand off uncertain, risky, or policy-sensitive cases to staff"
   ],
-
   "greeting_templates": {
     "en": "Heyyy ☀️ welcome to the Wolfhouse family! I'm Luna — happy to help you plan your surf stay in Somo 🌊 When would you like to check in and check out, how many guests, and which pack interests you — Malibu, Uluwatu, or Waimea?",
     "it": "Ciaooo ☀️ benvenuti nella famiglia Wolfhouse! Sono Luna — felice di aiutarvi a organizzare il soggiorno surf a Somo 🌊 Quali date avete in mente, quanti siete e quale pack vi interessa — Malibu, Uluwatu o Waimea?"
   },
-
   "missing_field_prompts": {
     "dates": {
       "en": "What check-in and check-out dates work for you?",
@@ -83,46 +79,66 @@
       "it": "Avete bisogno di un transfer dall'aeroporto o dalla stazione?"
     }
   },
-
   "package_explanations": {
     "source_url": "https://www.wolf-house.com/surfpacks-wolfhouse",
     "malibu": {
-      "en": "Malibu — 7 nights, shared kitchen, free Wolfhouse T-shirt, free airport shuttle. Great if you want the classic Wolfhouse week.",
-      "it": "Malibu — 7 notti, cucina condivisa, T-shirt Wolfhouse gratis, transfer aeroporto gratis. Perfetto per la settimana classica Wolfhouse."
+      "en": "Malibu — the classic Wolfhouse week: 7 nights, shared kitchen, Wolfhouse T-shirt, and Santander shuttle included. Cute, easy, good-vibes base if you mostly want the house + Somo life ☀️",
+      "it": "Malibu — la settimana classica Wolfhouse: 7 notti, cucina condivisa, T-shirt Wolfhouse e shuttle da Santander incluso. Semplice, carino, good vibes — perfetto se vuoi vivere casa + Somo ☀️",
+      "es": "Malibu — la semana clásica Wolfhouse: 7 noches, cocina compartida, camiseta Wolfhouse y shuttle desde Santander incluido. Fácil, bonito y con good vibes si quieres casa + vida en Somo ☀️",
+      "de": "Malibu — die klassische Wolfhouse-Woche: 7 Nächte, Gemeinschaftsküche, Wolfhouse T-Shirt und Santander-Shuttle inklusive. Easy, süß, gute Vibes — perfekt für Haus + Somo-Life ☀️",
+      "fr": "Malibu — la semaine classique Wolfhouse : 7 nuits, cuisine partagée, T-shirt Wolfhouse et navette depuis Santander incluse. Simple, cool, good vibes — parfait pour profiter de la maison et de Somo ☀️"
     },
     "uluwatu": {
-      "en": "Uluwatu — everything in Malibu plus 6 full days of surfboard and wetsuit rental from our local partners.",
-      "it": "Uluwatu — tutto il Malibu più 6 giorni completi di noleggio tavola e muta con i nostri partner locali."
+      "en": "Uluwatu — Malibu plus 6 full days of surfboard + wetsuit rental. Best if you already surf a bit and want freedom to chase waves on your own 🌊",
+      "it": "Uluwatu — Malibu più 6 giorni completi di noleggio tavola + muta. Perfetto se sai già surfare un po’ e vuoi libertà di prendere onde quando vuoi 🌊",
+      "es": "Uluwatu — Malibu más 6 días completos de alquiler de tabla + neopreno. Ideal si ya surfeas un poco y quieres libertad para buscar olas 🌊",
+      "de": "Uluwatu — Malibu plus 6 volle Tage Surfboard- und Neoprenverleih. Am besten, wenn ihr schon etwas surft und frei Wellen jagen wollt 🌊",
+      "fr": "Uluwatu — Malibu plus 6 jours complets de location planche + combinaison. Parfait si tu surfes déjà un peu et veux la liberté d’aller chercher les vagues 🌊"
     },
     "waimea": {
-      "en": "Waimea — everything in Malibu plus 6 surf school lessons (12 hours weekly, mornings) and board/wetsuit rental all week from our local partners.",
-      "it": "Waimea — tutto il Malibu più 6 lezioni di surf scuola (12 ore settimanali, mattina) e noleggio tavola/muta tutta la settimana con i partner locali."
+      "en": "Waimea — the full surf-school week: Malibu plus 6 morning surf lessons, 12 hours total, and board + wetsuit rental all week. Best if you’re beginner/intermediate or want the most guided surf experience 🏄‍♀️",
+      "it": "Waimea — la settimana surf school completa: Malibu più 6 lezioni al mattino, 12 ore totali, e tavola + muta tutta la settimana. Perfetto per beginner/intermediate o se vuoi l’esperienza più guidata 🏄‍♀️",
+      "es": "Waimea — la semana completa de surf school: Malibu más 6 clases por la mañana, 12 horas en total, y tabla + neopreno toda la semana. Ideal para principiantes/intermedios o si quieres la experiencia más guiada 🏄‍♀️",
+      "de": "Waimea — die volle Surfschul-Woche: Malibu plus 6 Surfkurse am Morgen, 12 Stunden insgesamt, und Board + Neopren die ganze Woche. Perfekt für Beginner/Intermediate oder wenn ihr mehr Begleitung wollt 🏄‍♀️",
+      "fr": "Waimea — la semaine surf school complète : Malibu plus 6 cours de surf le matin, 12h au total, et planche + combinaison toute la semaine. Idéal débutant/intermédiaire ou si tu veux être bien guidé 🏄‍♀️"
     },
     "custom": {
-      "en": "Custom stays — shorter, longer, or tailored weeks are priced by the Wolfhouse pricing engine from your dates, guest count, and room type.",
-      "it": "Soggiorni custom — settimane più corte, più lunghe o su misura: il pricing engine Wolfhouse calcola dal vostro date, numero ospiti e tipo camera."
+      "en": "Custom stay — for shorter stays or something more tailored. We start with the room, then add only what you actually want: lessons, board, wetsuit, yoga, meals, transfers when needed. Chill and flexible 😊",
+      "it": "Soggiorno custom — per stay più corti o qualcosa su misura. Partiamo dalla camera e aggiungiamo solo quello che ti serve davvero: lezioni, tavola, muta, yoga, meals, transfer se servono. Super flessibile 😊",
+      "es": "Estancia custom — para stays más cortos o algo a medida. Empezamos con la habitación y añadimos solo lo que queráis: clases, tabla, neopreno, yoga, comidas, transfers si hacen falta. Chill y flexible 😊",
+      "de": "Custom Stay — für kürzere Aufenthalte oder etwas Maßgeschneidertes. Wir starten mit dem Zimmer und fügen nur hinzu, was ihr wirklich wollt: Kurse, Board, Neopren, Yoga, Essen, Transfers wenn nötig. Entspannt und flexibel 😊",
+      "fr": "Séjour custom — pour les séjours plus courts ou quelque chose sur mesure. On part de la chambre, puis on ajoute seulement ce que tu veux vraiment : cours, planche, combinaison, yoga, repas, transferts si besoin. Chill et flexible 😊"
     }
   },
-
   "seasonal_price_reference": {
     "pricing_engine_source_of_truth": true,
     "currency": "EUR",
     "note": "Display reference only — live quotes must come from the pricing engine / dry-run.",
     "seasons": {
       "april_may_june_october": {
-        "months": [4, 5, 6, 10],
+        "months": [
+          4,
+          5,
+          6,
+          10
+        ],
         "malibu": 249,
         "uluwatu": 349,
         "waimea": 499
       },
       "july_september": {
-        "months": [7, 9],
+        "months": [
+          7,
+          9
+        ],
         "malibu": 299,
         "uluwatu": 399,
         "waimea": 549
       },
       "august": {
-        "months": [8],
+        "months": [
+          8
+        ],
         "malibu": 349,
         "uluwatu": 449,
         "waimea": 599
@@ -131,12 +147,10 @@
     "double_room_supplement_per_night_per_person_eur": 10,
     "shared_room_base": true
   },
-
   "public_urls": {
     "_note": "Stage 37c — guest-facing short payment links redirect to existing Stripe checkout sessions. Production host can be swapped later without code changes.",
     "public_payment_base_url": "https://staff-staging.lunafrontdesk.com"
   },
-
   "hold_and_payment_rules": {
     "booking_hold_hours": 6,
     "stripe_checkout_link_expiry_hours": 6,
@@ -147,11 +161,15 @@
     "payment_truth_source": "stripe_webhook_only",
     "never_say_paid_or_confirmed_before_webhook_truth": true
   },
-
   "quote_reply_templates": {
     "placeholders": [
-      "check_in", "check_out", "guest_count", "package_name",
-      "total_amount", "deposit_amount", "full_amount"
+      "check_in",
+      "check_out",
+      "guest_count",
+      "package_name",
+      "total_amount",
+      "deposit_amount",
+      "full_amount"
     ],
     "en": "Great news — we have availability for {guest_count} guest(s) from {check_in} to {check_out} in {package_name} 🌊 Estimated total: {total_amount}. You can secure your spot with a {deposit_amount} deposit or pay {full_amount} in full. Would you like deposit or full payment?",
     "it": "Ottime notizie — abbiamo disponibilità per {guest_count} ospiti dal {check_in} al {check_out} con {package_name} 🌊 Totale stimato: {total_amount}. Potete bloccare il posto con un deposito di {deposit_amount} o pagare {full_amount} per intero. Preferite deposito o pagamento completo?",
@@ -163,7 +181,6 @@
       "do_not_mention_hold_expiry_proactively"
     ]
   },
-
   "booking_close_templates": {
     "en": "Perfect — I'll send you a secure payment link for your {payment_choice} now. As soon as payment comes through, I'll send your confirmation details 🌊",
     "it": "Perfetto — vi mando ora un link di pagamento sicuro per {payment_choice}. Appena arriva il pagamento, vi invio i dettagli di conferma 🌊",
@@ -173,7 +190,6 @@
       "do_not_say_confirmed_yet"
     ]
   },
-
   "payment_link_templates": {
     "en": "Here is your secure payment link to {payment_choice} and secure your Wolfhouse booking: {payment_link}. Payment is needed to hold your spot — as soon as it comes through, I'll send your confirmation ☀️",
     "it": "Ecco il link sicuro per {payment_choice} e bloccare la prenotazione Wolfhouse: {payment_link}. Il pagamento serve per tenere il posto — appena arriva, vi mando la conferma ☀️",
@@ -185,7 +201,6 @@
       "no_proactive_expiry_mention"
     ]
   },
-
   "expired_payment_link_templates": {
     "still_available": {
       "en": "Sorry about that — the previous link expired. Good news: your dates are still available. Here is a fresh secure payment link: {payment_link}",
@@ -196,11 +211,16 @@
       "it": "Scusate — il link è scaduto e il posto era bloccato solo per 6 ore, quindi quelle date non sono più disponibili. Posso controllare date vicine se volete."
     }
   },
-
   "confirmation_templates": {
     "placeholders": [
-      "guest_name", "booking_code", "amount_paid", "balance_due",
-      "balance_payment_link", "address", "gate_code", "room_number"
+      "guest_name",
+      "booking_code",
+      "amount_paid",
+      "balance_due",
+      "balance_payment_link",
+      "address",
+      "gate_code",
+      "room_number"
     ],
     "gate_code_default": "2684#",
     "en": "Hi {guest_name} ☀️ Payment received — your Wolfhouse booking is confirmed! Booking: {booking_code}. Paid: {amount_paid}. Balance due: {balance_due}. Address: {address}. Gate code: {gate_code}. Room: {room_number}. {balance_payment_section}",
@@ -212,7 +232,6 @@
       "room_number_only_no_bed_identifier"
     ]
   },
-
   "balance_payment_templates": {
     "card_option_in_confirmation": {
       "en": "If you'd like to settle the remaining balance by card before arrival: {balance_payment_link}",
@@ -228,7 +247,6 @@
     },
     "do_not_claim_checkout_link_never_expires": true
   },
-
   "checkin_day_templates": {
     "scheduled_local_time": "10:00",
     "scheduled_timezone": "Europe/Madrid",
@@ -246,7 +264,6 @@
       "include_card_link_if_balance_due_and_no_cash_bank_preference": true
     }
   },
-
   "transfer_templates": {
     "ask_needed": {
       "en": "Do you need a transfer from the airport or city on arrival?",
@@ -261,7 +278,6 @@
       "collect_after_booking_payment_or_when_guest_brings_it_up"
     ]
   },
-
   "transfer_data_model_notes": {
     "fields": [
       "transfer_needed",
@@ -287,7 +303,6 @@
       "Ask Luna transfer queries"
     ]
   },
-
   "addon_templates": {
     "surf_lesson": {
       "en": "Surf lessons can be added — want me to include lessons in your plan?",
@@ -298,7 +313,7 @@
       "it": "Noleggio muta disponibile se vi serve."
     },
     "surfboard": {
-      "en": "Surfboard rental is available through our local partners.",
+      "en": "Surfboard rental is available.",
       "it": "Noleggio tavola disponibile con i nostri partner locali."
     },
     "yoga": {
@@ -314,7 +329,6 @@
       "it": "I photo pack possono essere disponibili — controllo per le vostre date?"
     }
   },
-
   "handoff_templates": {
     "refund": {
       "en": "I'll connect you with our team to review your refund request.",
@@ -349,7 +363,6 @@
       "it": "Certo — chiedo a un membro del team di entrare in conversazione."
     }
   },
-
   "closing_strategy": {
     "steps": [
       "after_quote ask deposit vs full",
@@ -360,7 +373,6 @@
       "transfer_collection_after_booking_payment_or_when_guest_asks"
     ]
   },
-
   "guardrails": [
     "never_say_paid_without_stripe_webhook_truth",
     "never_confirm_booking_before_payment_truth_unless_status_hold_rules_explicitly_allow",
@@ -376,7 +388,6 @@
     "only_explain_six_hour_hold_if_link_expired_and_availability_gone",
     "do_not_claim_balance_stripe_checkout_link_never_expires_unless_implementation_supports_that"
   ],
-
   "config_notes": {
     "staff_portal_admin_editable_later": true,
     "reusable_for_other_surfhouses": true,

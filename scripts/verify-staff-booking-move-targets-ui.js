@@ -111,8 +111,11 @@ check(/\/staff\/bookings\/move-targets/.test(moveFnBlock),
   'UI POSTs /staff/bookings/move-targets');
 check(/booking_bed_id:\s*bookingBedId/.test(moveFnBlock),
   'move-targets request includes selected booking_bed_id');
-check(/bcLoadMoveTargets\(\)/.test(moveFnBlock),
-  'bcLoadMoveTargets invoked from move panel');
+check(/function bcEnsureMoveTargetsLoaded/.test(moveFnBlock),
+  'bcEnsureMoveTargetsLoaded defers target load until interaction');
+check(/bcEnsureMoveTargetsLoaded/.test(moveFnBlock) &&
+      !/bcInitMovePanel[\s\S]{0,1200}bcLoadMoveTargets\(\)/.test(moveFnBlock),
+  'move panel does not eagerly load move-targets on drawer open');
 check(/bcOnMoveSourcePillClick/.test(moveFnBlock) &&
       /bcRefreshMoveTargetField|bcLoadMoveTargets/.test(moveFnBlock),
   'source pill change triggers target reload');

@@ -1,0 +1,137 @@
+﻿
+> luna:guest-torture
+> node scripts/run-luna-guest-torture-tests.js --base-url https://staff-staging.lunafrontdesk.com --endpoint --json
+
+{
+  "mode": "endpoint",
+  "review_only": true,
+  "fixture_file": "C:\\Users\\tywoo\\Desktop\\WH\\scripts\\fixtures\\generated-luna-guest-torture.json",
+  "run_id": "mq6nhxjbwn7v",
+  "total": 565,
+  "passed": 560,
+  "failed": 5,
+  "pass_rate_pct": 99.1,
+  "failures_by_category": {
+    "multilingual": 5
+  },
+  "failures_by_language": {
+    "de": 1,
+    "es": 2,
+    "mixed": 1,
+    "fr": 1
+  },
+  "failure_reasons": {
+    "HTTP 500": 5
+  },
+  "banned_term_hits": 0,
+  "hallucination_risk_hits": 0,
+  "safety_flag_failures": 5,
+  "failures": [
+    {
+      "id": "torture-i18n-de-038",
+      "category": "multilingual",
+      "language": "de",
+      "kind": "single",
+      "message_text": "2 G├ñste, Malibu, 10. Juli bis 17. Juli",
+      "first_failure": "HTTP 500",
+      "all_failures": [
+        "HTTP 500",
+        "message_lane expected new_booking_inquiry got undefined",
+        "no_write_performed expected true got undefined",
+        "success expected true got false (guest inbound review dry-run failed)"
+      ],
+      "actual": {
+        "proposed_luna_reply": "",
+        "handoff_required": false,
+        "banned_terms": [],
+        "hallucination_hits": []
+      }
+    },
+    {
+      "id": "torture-i18n-es-042",
+      "category": "multilingual",
+      "language": "es",
+      "kind": "single",
+      "message_text": "2 personas, Waimea, del 10 al 17 julio",
+      "first_failure": "HTTP 500",
+      "all_failures": [
+        "HTTP 500",
+        "message_lane expected new_booking_inquiry got undefined",
+        "no_write_performed expected true got undefined",
+        "success expected true got false (guest inbound review dry-run failed)"
+      ],
+      "actual": {
+        "proposed_luna_reply": "",
+        "handoff_required": false,
+        "banned_terms": [],
+        "hallucination_hits": []
+      }
+    },
+    {
+      "id": "torture-i18n-mixed-045",
+      "category": "multilingual",
+      "language": "mixed",
+      "kind": "single",
+      "message_text": "somos 2 guests, pacchetto Malibu, 10 luglio to 17 july",
+      "first_failure": "HTTP 500",
+      "all_failures": [
+        "HTTP 500",
+        "message_lane expected new_booking_inquiry got undefined",
+        "no_write_performed expected true got undefined",
+        "success expected true got false (guest inbound review dry-run failed)"
+      ],
+      "actual": {
+        "proposed_luna_reply": "",
+        "handoff_required": false,
+        "banned_terms": [],
+        "hallucination_hits": []
+      }
+    },
+    {
+      "id": "torture-i18n-es-047",
+      "category": "multilingual",
+      "language": "es",
+      "kind": "single",
+      "message_text": "pareja, Uluwatu, 10 de julio al 17 de julio",
+      "first_failure": "HTTP 500",
+      "all_failures": [
+        "HTTP 500",
+        "message_lane expected new_booking_inquiry got undefined",
+        "no_write_performed expected true got undefined",
+        "success expected true got false (guest inbound review dry-run failed)"
+      ],
+      "actual": {
+        "proposed_luna_reply": "",
+        "handoff_required": false,
+        "banned_terms": [],
+        "hallucination_hits": []
+      }
+    },
+    {
+      "id": "torture-i18n-fr-049",
+      "category": "multilingual",
+      "language": "fr",
+      "kind": "single",
+      "message_text": "nous sommes 2, Malibu, 10 juillet au 17 juillet",
+      "first_failure": "HTTP 500",
+      "all_failures": [
+        "HTTP 500",
+        "message_lane expected new_booking_inquiry got undefined",
+        "no_write_performed expected true got undefined",
+        "success expected true got false (guest inbound review dry-run failed)"
+      ],
+      "actual": {
+        "proposed_luna_reply": "",
+        "handoff_required": false,
+        "banned_terms": [],
+        "hallucination_hits": []
+      }
+    }
+  ],
+  "top_failure_reasons": [
+    {
+      "reason": "HTTP 500",
+      "count": 5
+    }
+  ]
+}

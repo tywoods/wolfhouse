@@ -1,0 +1,5316 @@
+{
+  "stage": "40a",
+  "mode": "local",
+  "review_only": true,
+  "seed": 40402,
+  "count": 100,
+  "passed": 81,
+  "partial": 16,
+  "failed": 3,
+  "result": "FAIL",
+  "language_filter": "all",
+  "language_breakdown": {
+    "de": {
+      "pass": 16,
+      "partial": 9,
+      "fail": 1
+    },
+    "it": {
+      "pass": 22,
+      "partial": 2,
+      "fail": 1
+    },
+    "en": {
+      "pass": 28,
+      "partial": 0,
+      "fail": 0
+    },
+    "es": {
+      "pass": 15,
+      "partial": 5,
+      "fail": 1
+    }
+  },
+  "scenario_breakdown": {
+    "short_stay_accommodation": {
+      "pass": 9,
+      "partial": 0,
+      "fail": 0
+    },
+    "package_booking": {
+      "pass": 9,
+      "partial": 0,
+      "fail": 0
+    },
+    "package_surf_addons": {
+      "pass": 5,
+      "partial": 4,
+      "fail": 0
+    },
+    "short_stay_surf_addons": {
+      "pass": 4,
+      "partial": 5,
+      "fail": 0
+    },
+    "lesson_addon": {
+      "pass": 5,
+      "partial": 3,
+      "fail": 0
+    },
+    "yoga_request": {
+      "pass": 8,
+      "partial": 0,
+      "fail": 0
+    },
+    "dinner_meals_request": {
+      "pass": 2,
+      "partial": 4,
+      "fail": 2
+    },
+    "transfer_side_question": {
+      "pass": 8,
+      "partial": 0,
+      "fail": 0
+    },
+    "cash_payment_side_question": {
+      "pass": 7,
+      "partial": 0,
+      "fail": 1
+    },
+    "correction_flow": {
+      "pass": 8,
+      "partial": 0,
+      "fail": 0
+    },
+    "reset_flow": {
+      "pass": 8,
+      "partial": 0,
+      "fail": 0
+    },
+    "out_of_order_all_in_one": {
+      "pass": 8,
+      "partial": 0,
+      "fail": 0
+    }
+  },
+  "top_failure_examples": [
+    {
+      "scenario_id": "hammer-40402-0004",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo, 3 Personen, vom 8. bis 13. Juli, nur Unterkunft, Neopren und Board"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-13",
+        "guest_count": 3,
+        "guest_name": "Anna",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0017",
+      "scenario_type": "lesson_addon",
+      "language": "de",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo, 2 Personen, vom 17. bis 24. Juli, nur Unterkunft, Surfkurse bitte"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 2,
+        "guest_name": "Lena",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Die Surfkurse laufen meistens morgens in zwei Gruppen 🌊 Eine Gruppe fährt gegen 08:30 los, Unterricht 09:00–11:00; die zweite gegen 10:30, Unterricht 11:00–13:00. Die genaue Gruppe bestätigt das Team später. In der Nebensaison kann es ruhiger sein. Brauchst du Neopren, Board und/oder Kurse, oder nur die Unterkunft?",
+      "failures": [
+        "turn 1: expected_service_interest missing surf_lesson"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0027",
+      "scenario_type": "package_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "✨ Hallo wir sind 2 Personen, Waimea Paket, vom 3. bis 10. Juli, 🏄 Neopren und Board"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0028",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola! para 4 del 15 al 20 de julio, solo estadía, traje y tabla"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-15",
+        "check_out": "2026-07-20",
+        "guest_count": 4,
+        "guest_name": "Ana",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Perfect — we have the board on hold for you 🌊 No stress on payment now — it's added to your booking and you can settle it at checkout. To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €975?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0031",
+      "scenario_type": "dinner_meals_request",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola para 3 Waimea del 17 al 24 de julio",
+        "¿y cena?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Pablo",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Las cenas se pueden añadir 😊 El equipo confirma horario y menú — no invento horarios. Normalmente al checkout. ¿Necesitas wetsuit, tabla y/o clases, o solo el alojamiento?",
+      "failures": [
+        "turn 2: expected_meals_request but meals_request missing"
+      ],
+      "failure_categories": [
+        "yoga_meals_intent"
+      ],
+      "suggested_fix_areas": [
+        "reactive services policy + composer ack"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0040",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola! para 2 del 15 al 20 de julio, solo estadía, traje y tabla"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-15",
+        "check_out": "2026-07-20",
+        "guest_count": 2,
+        "guest_name": "Pablo",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Perfect — we have the board on hold for you 🌊 No stress on payment now — it's added to your booking and you can settle it at checkout. To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €525?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0043",
+      "scenario_type": "dinner_meals_request",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola para 4 Waimea del 3 al 10 de julio",
+        "¿y cena?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 4,
+        "guest_name": "Carlos",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Las cenas se pueden añadir 😊 El equipo confirma horario y menú — no invento horarios. Normalmente al checkout. ¿Necesitas wetsuit, tabla y/o clases, o solo el alojamiento?",
+      "failures": [
+        "turn 2: expected_meals_request but meals_request missing"
+      ],
+      "failure_categories": [
+        "yoga_meals_intent"
+      ],
+      "suggested_fix_areas": [
+        "reactive services policy + composer ack"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0045",
+      "scenario_type": "cash_payment_side_question",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "FAIL",
+      "input_turns": [
+        "Hallo, 3 Personen, vom 10. bis 17. Juli, nur Übernachtung",
+        "✨ Barzahlung möglich?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 3,
+        "guest_name": "Felix",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "not_ready",
+      "quote_ready": false,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Entschuldige, das habe ich nicht ganz verstanden — sobald ihr Anzahlung oder vollen Betrag wählt, kümmere ich mich um den nächsten Schritt — das Team bestätigt meist innerhalb weniger Stunden an Werktagen.",
+      "failures": [
+        "final: final expected_quote_ready but quote_status=not_ready",
+        "turn 2: reply_contains \"bar\" missing",
+        "turn 2: expected_quote_ready but quote_status=not_ready"
+      ],
+      "failure_categories": [
+        "internal_error",
+        "robotic_copy",
+        "cash_side_question"
+      ],
+      "suggested_fix_areas": [
+        "orchestrator crash / missing import",
+        "Cami personality composer templates",
+        "payment side-Q copy + quote preservation"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0051",
+      "scenario_type": "package_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo 3 Personen, Waimea Paket, vom 3. bis 10. Juli, Neopren und Board"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 3,
+        "guest_name": "Anna",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0053",
+      "scenario_type": "lesson_addon",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo, wir wären 2 Personen, vom 10. bis 17. Juli, nur Unterkunft, auch Surf-Unterricht"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "guest_name": "Anna",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €630. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [
+        "turn 1: expected_service_interest missing surf_lesson"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    }
+  ],
+  "top_failure_categories": [
+    {
+      "category": "service_addon_intent",
+      "count": 12
+    },
+    {
+      "category": "yoga_meals_intent",
+      "count": 6
+    },
+    {
+      "category": "internal_error",
+      "count": 3
+    },
+    {
+      "category": "cash_side_question",
+      "count": 1
+    },
+    {
+      "category": "robotic_copy",
+      "count": 1
+    }
+  ],
+  "recommended_stage_40b_fixes": [
+    "add-on parsing (muta/tavola/board/lesson)",
+    "reactive services policy + composer ack",
+    "orchestrator crash / missing import",
+    "payment side-Q copy + quote preservation",
+    "Cami personality composer templates"
+  ],
+  "safety_note": "No writes, live Stripe, WhatsApp, confirmations, n8n activation, or production changes.",
+  "results": [
+    {
+      "scenario_id": "hammer-40402-0001",
+      "scenario_type": "short_stay_accommodation",
+      "language": "de",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo, 1 Personen, vom 3. bis 8. Juli, nur Unterkunft"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-08",
+        "guest_count": 1,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €225. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0002",
+      "scenario_type": "package_booking",
+      "language": "it",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao siamo 4 per Uluwatu 17-24 luglio"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 4,
+        "guest_name": "Luca",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €1596. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0003",
+      "scenario_type": "package_surf_addons",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao per 2 Uluwatu 10-17 luglio ✨, 😍 uno vuole muta e tavola"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "guest_name": "Marco",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Per le lezioni possiamo darti una muta 🌊 Se hai la tua, portala pure. Qui di solito 4/3 o 3/2 va bene a seconda della stagione. Vuoi che continui con la prenotazione?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0004",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo, 3 Personen, vom 8. bis 13. Juli, nur Unterkunft, Neopren und Board"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-13",
+        "guest_count": 3,
+        "guest_name": "Anna",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0005",
+      "scenario_type": "lesson_addon",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "😍 per 1, 10-17 luglo, solo il soggiorno, 🏄 vorremmo lezioni"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "Chiara",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surf_lesson"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surf_lesson"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €350. Would you rather pay the €200 deposit or the full €350?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0006",
+      "scenario_type": "yoga_request",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hi we are 1 friends for julyy 3-10, interested in Waimea",
+        "is yoga available?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 1,
+        "guest_name": "Emma",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": {
+          "status": "requested",
+          "guest_count": 1
+        },
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": {
+        "status": "requested",
+        "guest_count": 1
+      },
+      "meals_request": null,
+      "luna_final_reply": "Yoga can be added to your stay 😊 Exact days and times get confirmed by the team — I won't guess a schedule. It can usually be settled at checkout. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0007",
+      "scenario_type": "dinner_meals_request",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hi we are 1 friends for July 10-17, Waimea package",
+        "can we have meals?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "Emma",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": {
+          "meal_type": "unspecified",
+          "status": "requested",
+          "guest_count": 1
+        },
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": {
+        "meal_type": "unspecified",
+        "status": "requested",
+        "guest_count": 1
+      },
+      "luna_final_reply": "Dinners can be added to your stay 😊 The team confirms timing and menu — I won't guess a time. Usually settled at checkout with your balance. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0008",
+      "scenario_type": "transfer_side_question",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "✨ Hi we're 1 for julyy 10-17, Waimea",
+        "airport transfer from Santander?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "James",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": null,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yes 😊 Santander airport transfer is included with package bookings like yours. We can still hold the booking first — just let me know when you have flight details.",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0009",
+      "scenario_type": "cash_payment_side_question",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hey we're 3, julyy 10-17, just the stay",
+        "cash payment ok?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 3,
+        "guest_name": "Emma",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": true,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0010",
+      "scenario_type": "correction_flow",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "🏄 per 1, 10-17 luglio, solo il soggiorno",
+        "scusa siamo 1"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "Luca",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": true,
+      "stale_quote_reason": "guest_count_changed",
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Got it — updating that to 1 guest. The accommodation for July 10 to July 17 comes to €315. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0011",
+      "scenario_type": "reset_flow",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola somos 2 Waimea del 17 al 24 de julio",
+        "empezamos otra vez",
+        "🏄 Hola! somos 1 del 1 al 5 de julio, solo estadía"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-05",
+        "guest_count": 1,
+        "guest_name": "Ana",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €180. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0012",
+      "scenario_type": "out_of_order_all_in_one",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "wir wären 2 Personen, vom 1. bis 6. Juli, nur Unterkunft 🏄"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-06",
+        "guest_count": 2,
+        "guest_name": "Felix",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €450. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0013",
+      "scenario_type": "short_stay_accommodation",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola! para 3 del 3 al 8 de julio, solo estadía"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-08",
+        "guest_count": 3,
+        "guest_name": "Maria",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €675. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0014",
+      "scenario_type": "package_booking",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "🏄 Ciao siamo 2 pacchetto Waimea 10-17 luglio"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "guest_name": "Chiara",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €1098. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0015",
+      "scenario_type": "package_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo wir wären 4 Personen, Malibu, vom 3. bis 10. Juli, Wetsuit und Surfboard"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 4,
+        "guest_name": "Felix",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0016",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hey we are 1 friends, July 3-7, just the stay, wetsuit and board please 🙏"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-07",
+        "guest_count": 1,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "For lessons we can sort you with a wetsuit 🌊 If you have your own, bring it too. Around here 4/3 or 3/2 is usually the safe call depending on the season. Want me to keep going with your booking?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0017",
+      "scenario_type": "lesson_addon",
+      "language": "de",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo, 2 Personen, vom 17. bis 24. Juli, nur Unterkunft, Surfkurse bitte"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 2,
+        "guest_name": "Lena",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Die Surfkurse laufen meistens morgens in zwei Gruppen 🌊 Eine Gruppe fährt gegen 08:30 los, Unterricht 09:00–11:00; die zweite gegen 10:30, Unterricht 11:00–13:00. Die genaue Gruppe bestätigt das Team später. In der Nebensaison kann es ruhiger sein. Brauchst du Neopren, Board und/oder Kurse, oder nur die Unterkunft?",
+      "failures": [
+        "turn 1: expected_service_interest missing surf_lesson"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0018",
+      "scenario_type": "yoga_request",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "🌊 Hola para 1 Uluwatu del 3 al 10 de julio",
+        "podemos añadir yoga?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 1,
+        "guest_name": "Carlos",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": {
+          "status": "requested",
+          "guest_count": 1
+        },
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": {
+        "status": "requested",
+        "guest_count": 1
+      },
+      "meals_request": null,
+      "luna_final_reply": "Lovely — I've added yoga for you 🧘‍♀️ We'll keep it pending for the team to schedule, and you can settle it later. For your booking, I have 2026-07-03 to 2026-07-10 for 1 huésped. Are you going to need anything else, or should I keep going with the booking?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0019",
+      "scenario_type": "dinner_meals_request",
+      "language": "en",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hi we're 4 for July 17-24, Uluwatu",
+        "and maybe dinner?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 4,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": {
+          "meal_type": "dinner",
+          "status": "requested",
+          "guest_count": 4
+        },
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": {
+        "meal_type": "dinner",
+        "status": "requested",
+        "guest_count": 4
+      },
+      "luna_final_reply": "Dinners can be added to your stay 😊 The team confirms timing and menu — I won't guess a time. Usually settled at checkout with your balance. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0020",
+      "scenario_type": "transfer_side_question",
+      "language": "de",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo 3 Personen, Waimea, vom 10. bis 17. Juli",
+        "Gibt es Transfer vom Flughafen Santander?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 3,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": null,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Ja 😊 Santander-Flughafen-Transfer ist bei Paketbuchungen wie deiner inklusive. Ich organisiere noch keinen Pickup. We can still hold the booking first — just let me know when you have flight details.",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0021",
+      "scenario_type": "cash_payment_side_question",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hola! para 1 del 10 al 17 de julio, solo estadía",
+        "¿podemos pagar en efectivo?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "Pablo",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "¡Hola! Soy Luna de Wolfhouse 🌊 — El saldo restante se puede pagar en efectivo, transferencia o Stripe a la llegada o en el check-in. ¿Prefieres el depósito o el importe completo ahora?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0022",
+      "scenario_type": "correction_flow",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo, wir sind 1 Personen, vom 17. bis 24. Juli, nur Unterkunft",
+        "sorry wir sind 2 🌊"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 2,
+        "guest_name": "Lena",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": true,
+      "stale_quote_reason": "guest_count_changed",
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Got it — updating that to 2 guests. The accommodation for July 17 to July 24 comes to €630. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0023",
+      "scenario_type": "reset_flow",
+      "language": "en",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hi 3 of us for July 17-24, Malibu package",
+        "start over please",
+        "Hey we are 2 friends, July 8-11, just the stay"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-11",
+        "guest_count": 2,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": true,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Would you prefer a girls room if one is available, or is a mixed room okay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0024",
+      "scenario_type": "out_of_order_all_in_one",
+      "language": "it",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "per 2, vorremmo 1-5 luglio, solo alloggio"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-05",
+        "guest_count": 2,
+        "guest_name": "Chiara",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €360. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0025",
+      "scenario_type": "short_stay_accommodation",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hey we're 2, julyy 1-5, just the stay 🏄"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-05",
+        "guest_count": 2,
+        "guest_name": "James",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": true,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Got it — stay only then 🌊 Deposit €100 or full €360 — which works for you?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0026",
+      "scenario_type": "package_booking",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola para 3 Malibu del 3 al 10 de julio"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 3,
+        "guest_name": "Ana",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €897. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0027",
+      "scenario_type": "package_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "✨ Hallo wir sind 2 Personen, Waimea Paket, vom 3. bis 10. Juli, 🏄 Neopren und Board"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0028",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola! para 4 del 15 al 20 de julio, solo estadía, traje y tabla"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-15",
+        "check_out": "2026-07-20",
+        "guest_count": 4,
+        "guest_name": "Ana",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Perfect — we have the board on hold for you 🌊 No stress on payment now — it's added to your booking and you can settle it at checkout. To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €975?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0029",
+      "scenario_type": "lesson_addon",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hey 4 of us, July 3-10, accommodation only, maybe lessons too"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 4,
+        "guest_name": "Alex",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surf_lesson"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surf_lesson"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "We've got space for those dates 🌊 The stay comes to €1295. Which works — €200 deposit now or full €1295?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0030",
+      "scenario_type": "yoga_request",
+      "language": "de",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo 1 Personen, Uluwatu, vom 3. bis 10. Juli",
+        "gibt es Yoga?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 1,
+        "guest_name": "Lena",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": {
+          "status": "requested",
+          "guest_count": 1
+        },
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": {
+        "status": "requested",
+        "guest_count": 1
+      },
+      "meals_request": null,
+      "luna_final_reply": "Yoga kann zum Aufenthalt hinzugefügt werden 😊 Termine bestätigt das Team — ich rate nichts vor. Meist zahlbar beim Checkout. Brauchst du Neopren, Board und/oder Kurse, oder nur die Unterkunft?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0031",
+      "scenario_type": "dinner_meals_request",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola para 3 Waimea del 17 al 24 de julio",
+        "¿y cena?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Pablo",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Las cenas se pueden añadir 😊 El equipo confirma horario y menú — no invento horarios. Normalmente al checkout. ¿Necesitas wetsuit, tabla y/o clases, o solo el alojamiento?",
+      "failures": [
+        "turn 2: expected_meals_request but meals_request missing"
+      ],
+      "failure_categories": [
+        "yoga_meals_intent"
+      ],
+      "suggested_fix_areas": [
+        "reactive services policy + composer ack"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0032",
+      "scenario_type": "transfer_side_question",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "✨ Ciao siamoo in 1 Waimea 3-10 luglio",
+        "🌊 c'è transfer da Santander?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 1,
+        "guest_name": "Giulia",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": null,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Sì 😊 Il transfer aeroporto Santander è incluso con i pacchetti come il tuo. We can still hold the booking first — just let me know when you have flight details.",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0033",
+      "scenario_type": "cash_payment_side_question",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "😍 per 4, 17-24 luglio, solo alloggio",
+        "🏄 possiamo pagare in contanti?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 4,
+        "guest_name": "Sara",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Ciao! Sono Luna di Wolfhouse 🌊 — Il saldo restante si può pagare in contanti, bonifico o Stripe all'arrivo o al check-in. Per ora preferisci il deposito o l'importo intero?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0034",
+      "scenario_type": "correction_flow",
+      "language": "it",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "siamo in 3, 17-24 luglio, solo alloggio",
+        "in realtà siamo 4"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 4,
+        "guest_name": "Marco",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": true,
+      "stale_quote_reason": "guest_count_changed",
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Got it — updating that to 4 guests. The accommodation for July 17 to July 24 comes to €1260. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0035",
+      "scenario_type": "reset_flow",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao siamo 4 pacchetto Malibu 17-24 luglio 🙏",
+        "🙏 ricominciamo da capo",
+        "siamo in 3, 15-18 luglio, solo alloggio 😍"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-15",
+        "check_out": "2026-07-18",
+        "guest_count": 3,
+        "guest_name": "Marco",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €405. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0036",
+      "scenario_type": "out_of_order_all_in_one",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "wir sind 2 Personen, vom 8. bis 11. Juli, nur Unterkunft"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-11",
+        "guest_count": 2,
+        "guest_name": "Anna",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €270. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0037",
+      "scenario_type": "short_stay_accommodation",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hey 3 of us, July 1-6, just the stay"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-06",
+        "guest_count": 3,
+        "guest_name": "Alex",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": true,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Got it — stay only then 🌊 Deposit €100 or full €675 — which works for you?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0038",
+      "scenario_type": "package_booking",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hi we're 2 for July 3-10, Uluwatu 🌊"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "We've got space for those dates 🌊 The stay comes to €798. Do you need a wetsuit, board, or lessons too, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0039",
+      "scenario_type": "package_surf_addons",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hi we are 3 friends for July 17-24, interested in Uluwatu 🙏, ✨ wetsuit and board please"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Emma",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "For lessons we can sort you with a wetsuit 🌊 If you have your own, bring it too. Around here 4/3 or 3/2 is usually the safe call depending on the season. Want me to keep going with your booking?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0040",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola! para 2 del 15 al 20 de julio, solo estadía, traje y tabla"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-15",
+        "check_out": "2026-07-20",
+        "guest_count": 2,
+        "guest_name": "Pablo",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Perfect — we have the board on hold for you 🌊 No stress on payment now — it's added to your booking and you can settle it at checkout. To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €525?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0041",
+      "scenario_type": "lesson_addon",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hey 4 of us, July 10-17, accommodation only ✨, 🏄 surf lessons please"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 4,
+        "guest_name": "Alex",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surf_lesson"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surf_lesson"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Most mornings we run two surf lesson groups: one leaves Wolfhouse around 08:30 for 09:00–11:00, and the second leaves around 10:30 for 11:00–13:00. The exact group gets confirmed closer to the day. Low season can be quieter. Want me to keep going with your booking?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0042",
+      "scenario_type": "yoga_request",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo wir sind 3 Personen, Uluwatu, vom 10. bis 17. Juli 🏄",
+        "gibt es Yoga?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 3,
+        "guest_name": "Anna",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": {
+          "status": "requested",
+          "guest_count": 3
+        },
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": {
+        "status": "requested",
+        "guest_count": 3
+      },
+      "meals_request": null,
+      "luna_final_reply": "Yoga kann zum Aufenthalt hinzugefügt werden 😊 Termine bestätigt das Team — ich rate nichts vor. Meist zahlbar beim Checkout. Brauchst du Neopren, Board und/oder Kurse, oder nur die Unterkunft?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0043",
+      "scenario_type": "dinner_meals_request",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola para 4 Waimea del 3 al 10 de julio",
+        "¿y cena?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 4,
+        "guest_name": "Carlos",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Las cenas se pueden añadir 😊 El equipo confirma horario y menú — no invento horarios. Normalmente al checkout. ¿Necesitas wetsuit, tabla y/o clases, o solo el alojamiento?",
+      "failures": [
+        "turn 2: expected_meals_request but meals_request missing"
+      ],
+      "failure_categories": [
+        "yoga_meals_intent"
+      ],
+      "suggested_fix_areas": [
+        "reactive services policy + composer ack"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0044",
+      "scenario_type": "transfer_side_question",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola para 1 Waimea del 10 al 17 de julio",
+        "🌊 transfer del aeropuerto?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "Pablo",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true
+        },
+        "addons_skipped": null,
+        "transfer_interest": {
+          "interested": true
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Sí 😊 El transfer del aeropuerto de Santander está incluido con paquetes como el tuyo. We can still hold the booking first — just let me know when you have flight details.",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0045",
+      "scenario_type": "cash_payment_side_question",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "FAIL",
+      "input_turns": [
+        "Hallo, 3 Personen, vom 10. bis 17. Juli, nur Übernachtung",
+        "✨ Barzahlung möglich?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 3,
+        "guest_name": "Felix",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "not_ready",
+      "quote_ready": false,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Entschuldige, das habe ich nicht ganz verstanden — sobald ihr Anzahlung oder vollen Betrag wählt, kümmere ich mich um den nächsten Schritt — das Team bestätigt meist innerhalb weniger Stunden an Werktagen.",
+      "failures": [
+        "final: final expected_quote_ready but quote_status=not_ready",
+        "turn 2: reply_contains \"bar\" missing",
+        "turn 2: expected_quote_ready but quote_status=not_ready"
+      ],
+      "failure_categories": [
+        "internal_error",
+        "robotic_copy",
+        "cash_side_question"
+      ],
+      "suggested_fix_areas": [
+        "orchestrator crash / missing import",
+        "Cami personality composer templates",
+        "payment side-Q copy + quote preservation"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0046",
+      "scenario_type": "correction_flow",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola! para 2 del 10 al 17 de julio, solo estadía",
+        "perdón somos 3"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 3,
+        "guest_name": "Pablo",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": true,
+      "stale_quote_reason": "guest_count_changed",
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Got it — updating that to 3 guests. The accommodation for July 10 to July 17 comes to €945. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0047",
+      "scenario_type": "reset_flow",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao siamo in 3 per Waimea 3-10 luglio 🌊",
+        "ricominciamo da capo 🏄",
+        "per 2, 1-6 luglio, no pack solo stay"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-06",
+        "guest_count": 2,
+        "guest_name": "Marco",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €450. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0048",
+      "scenario_type": "out_of_order_all_in_one",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "siamoo in 2, vorremmo 8-12 luglio, solo alloggio"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-12",
+        "guest_count": 2,
+        "guest_name": "Sara",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €360. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0049",
+      "scenario_type": "short_stay_accommodation",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "✨ per 1, 8-13 luglo, solo alloggio"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-13",
+        "guest_count": 1,
+        "guest_name": "Chiara",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €225. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0050",
+      "scenario_type": "package_booking",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hi 2 of us for julyy 10-17, Malibu package"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "We've got space for those dates 🌊 The stay comes to €598. Do you need a wetsuit, board, or lessons too, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0051",
+      "scenario_type": "package_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo 3 Personen, Waimea Paket, vom 3. bis 10. Juli, Neopren und Board"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 3,
+        "guest_name": "Anna",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0052",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hola! para 1 del 3 al 8 de julio, solo alojamiento, muta y tabla pls"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-08",
+        "guest_count": 1,
+        "guest_name": "Maria",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Per le lezioni possiamo darti una muta 🌊 Se hai la tua, portala pure. Qui di solito 4/3 o 3/2 va bene a seconda della stagione. Vuoi che continui con la prenotazione?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0053",
+      "scenario_type": "lesson_addon",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo, wir wären 2 Personen, vom 10. bis 17. Juli, nur Unterkunft, auch Surf-Unterricht"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "guest_name": "Anna",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €630. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [
+        "turn 1: expected_service_interest missing surf_lesson"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0054",
+      "scenario_type": "yoga_request",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao siamo 2 per Uluwatu 10-17 luglio",
+        "posso aggiungere yoga?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "guest_name": "Sara",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": {
+          "status": "requested",
+          "guest_count": 2
+        },
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": {
+        "status": "requested",
+        "guest_count": 2
+      },
+      "meals_request": null,
+      "luna_final_reply": "Lo yoga si può aggiungere al soggiorno 😊 Giorni e orari li conferma il team — non invento un programma. Di solito si salda al checkout. Ti servono muta, tavola e/o lezioni, o solo il soggiorno?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0055",
+      "scenario_type": "dinner_meals_request",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "ciaoo per 1 per Uluwatu 10-17 luglio 🌊",
+        "✨ e magari una cena?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "Luca",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Le cene si possono aggiungere 😊 Orari e menu li conferma il team — non indovino. Di solito si salda al checkout. Ti servono muta, tavola e/o lezioni, o solo il soggiorno?",
+      "failures": [
+        "turn 2: expected_meals_request but meals_request missing"
+      ],
+      "failure_categories": [
+        "yoga_meals_intent"
+      ],
+      "suggested_fix_areas": [
+        "reactive services policy + composer ack"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0056",
+      "scenario_type": "transfer_side_question",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao siamo 3 pacchetto Malibu 17-24 luglo",
+        "🌊 transfer aeroporto?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Chiara",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true
+        },
+        "addons_skipped": null,
+        "transfer_interest": {
+          "interested": true
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Sì 😊 Il transfer aeroporto Santander è incluso con i pacchetti come il tuo. We can still hold the booking first — just let me know when you have flight details.",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0057",
+      "scenario_type": "cash_payment_side_question",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "🙏 Hey 2 of us, July 3-10, just the stay",
+        "🏄 can we pay cash on arrival?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "James",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": true,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0058",
+      "scenario_type": "correction_flow",
+      "language": "en",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hey we're 2, July 17-24, just the stay",
+        "sorry we are 3"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Alex",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": true,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": true,
+      "stale_quote_reason": "guest_count_changed",
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €945. Would you rather pay the €200 deposit or the full €945?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0059",
+      "scenario_type": "reset_flow",
+      "language": "it",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao siamo in 3 pacchetto Uluwatu 17-24 luglio",
+        "ricominciamo da capo",
+        "siamo in 2, 8-11 luglio, solo il soggiorno"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-11",
+        "guest_count": 2,
+        "guest_name": "Marco",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €270. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0060",
+      "scenario_type": "out_of_order_all_in_one",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "per 1, vorremmo 15-18 luglio, solo alloggio"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-15",
+        "check_out": "2026-07-18",
+        "guest_count": 1,
+        "guest_name": "Luca",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €135. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0061",
+      "scenario_type": "short_stay_accommodation",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "siamo in 2, 1-6 luglo, no pack solo stay"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-06",
+        "guest_count": 2,
+        "guest_name": "Sara",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €450. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0062",
+      "scenario_type": "package_booking",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo wir sind 4 Personen, Uluwatu, vom 10. bis 17. Juli"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 4,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €1596. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0063",
+      "scenario_type": "package_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo 3 Personen, Waimea, vom 17. bis 24. Juli, Neopren und Board ✨"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0064",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hola! somos 2 del 1 al 5 de julio, solo alojamiento, traje y tabla"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-05",
+        "guest_count": 2,
+        "guest_name": "Ana",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Perfect — we have the board on hold for you 🌊 No stress on payment now — it's added to your booking and you can settle it at checkout. To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €420?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0065",
+      "scenario_type": "lesson_addon",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "✨ siamo in 4, 10-17 luglo, solo alloggio, 🙏 vorremmo lezioni"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 4,
+        "guest_name": "Sara",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surf_lesson"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surf_lesson"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €1295. Would you rather pay the €200 deposit or the full €1295?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0066",
+      "scenario_type": "yoga_request",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo wir sind 2 Personen, Malibu Paket, vom 3. bis 10. Juli",
+        "können wir Yoga dazu buchen?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": {
+          "status": "requested",
+          "guest_count": 2
+        },
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": {
+        "status": "requested",
+        "guest_count": 2
+      },
+      "meals_request": null,
+      "luna_final_reply": "Yoga kann zum Aufenthalt hinzugefügt werden 😊 Termine bestätigt das Team — ich rate nichts vor. Meist zahlbar beim Checkout. Brauchst du Neopren, Board und/oder Kurse, oder nur die Unterkunft?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0067",
+      "scenario_type": "dinner_meals_request",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "FAIL",
+      "input_turns": [
+        "Hola para 3 Malibu del 17 al 24 de julio",
+        "¿podemos cenar?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Maria",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "not_ready",
+      "quote_ready": false,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Perdona, no te he entendido bien — cuando elijas depósito o importe completo, preparo el siguiente paso — el equipo suele confirmar en unas horas en días laborables.",
+      "failures": [
+        "final: final expected_quote_ready but quote_status=not_ready",
+        "turn 2: expected_meals_request but meals_request missing"
+      ],
+      "failure_categories": [
+        "internal_error",
+        "yoga_meals_intent"
+      ],
+      "suggested_fix_areas": [
+        "orchestrator crash / missing import",
+        "reactive services policy + composer ack"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0068",
+      "scenario_type": "transfer_side_question",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hi we are 2 friends for July 3-10, Uluwatu",
+        "is transfer included?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true
+        },
+        "addons_skipped": null,
+        "transfer_interest": {
+          "interested": true
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yes 😊 Santander airport transfer is included with package bookings like yours. We can still hold the booking first — just let me know when you have flight details.",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0069",
+      "scenario_type": "cash_payment_side_question",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hola! para 2 del 10 al 17 de julio, solo alojamiento",
+        "pago en efectivo?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "guest_name": "Maria",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "¡Hola! Soy Luna de Wolfhouse 🌊 — El saldo restante se puede pagar en efectivo, transferencia o Stripe a la llegada o en el check-in. ¿Prefieres el depósito o el importe completo ahora?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0070",
+      "scenario_type": "correction_flow",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo, wir sind 2 Personen, vom 10. bis 17. Juli, nur Übernachtung",
+        "sorry wir sind 3"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 3,
+        "guest_name": "Felix",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": true,
+      "stale_quote_reason": "guest_count_changed",
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Got it — updating that to 3 guests. The accommodation for July 10 to July 17 comes to €945. Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0071",
+      "scenario_type": "reset_flow",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao siamo 2 per Waimea 3-10 luglio",
+        "🌊 ricominciamo da capo",
+        "siamo in 1, 1-6 luglio, solo alloggio 🌊"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-06",
+        "guest_count": 1,
+        "guest_name": "Sara",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €225. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0072",
+      "scenario_type": "out_of_order_all_in_one",
+      "language": "es",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "somos 1, del 3 al 6 de julio, solo estadía"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-06",
+        "guest_count": 1,
+        "guest_name": "Ana",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €135. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0073",
+      "scenario_type": "short_stay_accommodation",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola! para 2 del 15 al 20 de julio, solo alojamiento 🙏"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-15",
+        "check_out": "2026-07-20",
+        "guest_count": 2,
+        "guest_name": "Maria",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €450. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0074",
+      "scenario_type": "package_booking",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hi we are 2 friends for July 3-10, interested in Malibu"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "We've got space for those dates 🌊 The stay comes to €598. Do you need a wetsuit, board, or lessons too, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0075",
+      "scenario_type": "package_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo wir wären 4 Personen, Malibu, vom 10. bis 17. Juli, Neopren und Board"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 4,
+        "guest_name": "Felix",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0076",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Hallo, wir wären 1 Personen, vom 8. bis 11. Juli, nur Unterkunft, Neopren und Board"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-11",
+        "guest_count": 1,
+        "guest_name": "Lena",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [
+        "turn 1: expected_service_interest missing wetsuit"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0077",
+      "scenario_type": "lesson_addon",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola! para 3 del 17 al 24 de julio, solo alojamiento, clases de surf también"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Carlos",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "surf_lesson"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "surf_lesson"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €980. To hold the spot — €200 deposit or pay the full €980?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0078",
+      "scenario_type": "yoga_request",
+      "language": "en",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hi 1 of us for July 10-17, Waimea",
+        "can we add yoga?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": {
+          "status": "requested",
+          "guest_count": 1
+        },
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": {
+        "status": "requested",
+        "guest_count": 1
+      },
+      "meals_request": null,
+      "luna_final_reply": "Lovely — I've added yoga for you 🧘‍♀️ We'll keep it pending for the team to schedule, and you can settle it later. For your booking, I have 2026-07-10 to 2026-07-17 for 1 guest. Are you going to need anything else, or should I keep going with the booking?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0079",
+      "scenario_type": "dinner_meals_request",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "Ciao siamo in 4 pacchetto Malibu 10-17 luglio",
+        "e magari una cena?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 4,
+        "guest_name": "Sara",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Le cene si possono aggiungere 😊 Orari e menu li conferma il team — non indovino. Di solito si salda al checkout. Ti servono muta, tavola e/o lezioni, o solo il soggiorno?",
+      "failures": [
+        "turn 2: expected_meals_request but meals_request missing"
+      ],
+      "failure_categories": [
+        "yoga_meals_intent"
+      ],
+      "suggested_fix_areas": [
+        "reactive services policy + composer ack"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0080",
+      "scenario_type": "transfer_side_question",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "😍 Hi we are 2 friends for July 17-24, interested in Malibu",
+        "🏄 airport transfer from Santander?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 2,
+        "guest_name": "Alex",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": null,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yes 😊 Santander airport transfer is included with package bookings like yours. We can still hold the booking first — just let me know when you have flight details.",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0081",
+      "scenario_type": "cash_payment_side_question",
+      "language": "en",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hey we're 1, July 17-24, no package just stay",
+        "cash payment ok?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 1,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0082",
+      "scenario_type": "correction_flow",
+      "language": "en",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hey 1 of us, July 3-10, just the stay",
+        "sorry we are 2"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Emma",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": true,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": true,
+      "stale_quote_reason": "guest_count_changed",
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €630. Would you rather pay the €200 deposit or the full €630?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0083",
+      "scenario_type": "reset_flow",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hi 4 of us for July 3-10, Malibu",
+        "start over please",
+        "Hey 3 of us, July 8-13, no package just stay"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-13",
+        "guest_count": 3,
+        "guest_name": "Emma",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "We've got space for those dates 🌊 The stay comes to €675. Do you need a wetsuit, board, or lessons too, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0084",
+      "scenario_type": "out_of_order_all_in_one",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "we're 2, looking for julyy 1-4, no package just stay"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-01",
+        "check_out": "2026-07-04",
+        "guest_count": 2,
+        "guest_name": "Emma",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "We've got space for those dates 🌊 The stay comes to €270. Do you need a wetsuit, board, or lessons too, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0085",
+      "scenario_type": "short_stay_accommodation",
+      "language": "en",
+      "seed": 40402,
+      "style": [],
+      "result": "PASS",
+      "input_turns": [
+        "Hey we are 2 friends, July 8-13, no package just stay"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-13",
+        "guest_count": 2,
+        "guest_name": "James",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "We've got space for those dates 🌊 The stay comes to €450. Do you need a wetsuit, board, or lessons too, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0086",
+      "scenario_type": "package_booking",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "✨ Hi we are 2 friends for July 3-10, interested in Waimea"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Alex",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "We've got space for those dates 🌊 The stay comes to €1098. Do you need a wetsuit, board, or lessons too, or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0087",
+      "scenario_type": "package_surf_addons",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola somos 3 paquete Waimea del 17 al 24 de julio, muta y tabla pls"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 3,
+        "guest_name": "Maria",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Per le lezioni possiamo darti una muta 🌊 Se hai la tua, portala pure. Qui di solito 4/3 o 3/2 va bene a seconda della stagione. Vuoi che continui con la prenotazione?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0088",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "🏄 Hallo, wir wären 4 Personen, vom 8. bis 12. Juli, nur Übernachtung, ✨ Wetsuit und Surfboard"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-12",
+        "guest_count": 4,
+        "guest_name": "Lena",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0089",
+      "scenario_type": "lesson_addon",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PARTIAL",
+      "input_turns": [
+        "✨ Hallo, wir sind 3 Personen, vom 3. bis 10. Juli, nur Unterkunft, Surfkurse bitte"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 3,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Die Surfkurse laufen meistens morgens in zwei Gruppen 🌊 Eine Gruppe fährt gegen 08:30 los, Unterricht 09:00–11:00; die zweite gegen 10:30, Unterricht 11:00–13:00. Die genaue Gruppe bestätigt das Team später. In der Nebensaison kann es ruhiger sein. Brauchst du Neopren, Board und/oder Kurse, oder nur die Unterkunft?",
+      "failures": [
+        "turn 1: expected_service_interest missing surf_lesson"
+      ],
+      "failure_categories": [
+        "service_addon_intent"
+      ],
+      "suggested_fix_areas": [
+        "add-on parsing (muta/tavola/board/lesson)"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0090",
+      "scenario_type": "yoga_request",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "🏄 Ciao per 1 pacchetto Uluwatu 10-17 luglio",
+        "posso aggiungere yoga?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 1,
+        "guest_name": "Chiara",
+        "deferred_guest_count": null,
+        "package_interest": "uluwatu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": {
+          "status": "requested",
+          "guest_count": 1
+        },
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": {
+        "status": "requested",
+        "guest_count": 1
+      },
+      "meals_request": null,
+      "luna_final_reply": "Lo yoga si può aggiungere al soggiorno 😊 Giorni e orari li conferma il team — non invento un programma. Di solito si salda al checkout. Ti servono muta, tavola e/o lezioni, o solo il soggiorno?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0091",
+      "scenario_type": "dinner_meals_request",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "FAIL",
+      "input_turns": [
+        "🙏 Ciao per 4 pacchetto Waimea 3-10 luglo",
+        "🏄 possiamo cenare lì?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 4,
+        "guest_name": "Sara",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "not_ready",
+      "quote_ready": false,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Scusa, non ho capito bene — una volta scelto deposito o importo intero, preparo il passo successivo — di solito il team conferma entro poche ore nei giorni feriali.",
+      "failures": [
+        "final: final expected_quote_ready but quote_status=not_ready",
+        "turn 2: expected_meals_request but meals_request missing"
+      ],
+      "failure_categories": [
+        "internal_error",
+        "yoga_meals_intent"
+      ],
+      "suggested_fix_areas": [
+        "orchestrator crash / missing import",
+        "reactive services policy + composer ack"
+      ],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0092",
+      "scenario_type": "transfer_side_question",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo 2 Personen, Malibu, vom 10. bis 17. Juli",
+        "🏄 Gibt es Transfer vom Flughafen Santander?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-10",
+        "check_out": "2026-07-17",
+        "guest_count": 2,
+        "guest_name": "Lena",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": null,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Ja 😊 Santander-Flughafen-Transfer ist bei Paketbuchungen wie deiner inklusive. Ich organisiere noch keinen Pickup. We can still hold the booking first — just let me know when you have flight details.",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0093",
+      "scenario_type": "cash_payment_side_question",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hey 4 of us, July 17-24, no package just stay",
+        "can we pay cash on arrival?"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-17",
+        "check_out": "2026-07-24",
+        "guest_count": 4,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "The remaining balance can be paid by cash, bank transfer, or Stripe on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0094",
+      "scenario_type": "correction_flow",
+      "language": "en",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hey we are 1 friends, julyy 3-10, accommodation only",
+        "sorry we are 2"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 2,
+        "guest_name": "Sophie",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": true,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": true,
+      "stale_quote_reason": "guest_count_changed",
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €630. Would you rather pay the €200 deposit or the full €630?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0095",
+      "scenario_type": "reset_flow",
+      "language": "it",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Ciao siamoo 3 per Malibu 10-17 luglio",
+        "no aspetta, ricominciamo",
+        "siamoo in 2, 8-12 luglo, solo il soggiorno"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-12",
+        "guest_count": 2,
+        "guest_name": "Luca",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €360. Want any wetsuit, board, or lessons on top, or accommodation only?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0096",
+      "scenario_type": "out_of_order_all_in_one",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "somos 3, del 8 al 13 de julio, solo alojamiento"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-13",
+        "guest_count": 3,
+        "guest_name": "Ana",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €675. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0097",
+      "scenario_type": "short_stay_accommodation",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo, 4 Personen, vom 8. bis 11. Juli, nur Unterkunft"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-08",
+        "check_out": "2026-07-11",
+        "guest_count": 4,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €540. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0098",
+      "scenario_type": "package_booking",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo",
+        "emoji"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo wir sind 1 Personen, Waimea Paket, vom 3. bis 10. Juli"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 1,
+        "guest_name": "Lena",
+        "deferred_guest_count": null,
+        "package_interest": "waimea",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Good news — we're good for those dates ☀️ The stay comes to €549. Any add-ons — wetsuit, board, lessons — or just the stay?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0099",
+      "scenario_type": "package_surf_addons",
+      "language": "es",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hola somos 4 paquete Malibu del 3 al 10 de julio, muta y tabla pls"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-03",
+        "check_out": "2026-07-10",
+        "guest_count": 4,
+        "guest_name": "Maria",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Per le lezioni possiamo darti una muta 🌊 Se hai la tua, portala pure. Qui di solito 4/3 o 3/2 va bene a seconda della stagione. Vuoi che continui con la prenotazione?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    },
+    {
+      "scenario_id": "hammer-40402-0100",
+      "scenario_type": "short_stay_surf_addons",
+      "language": "de",
+      "seed": 40402,
+      "style": [
+        "typo"
+      ],
+      "result": "PASS",
+      "input_turns": [
+        "Hallo, 2 Personen, vom 15. bis 18. Juli, nur Unterkunft, Wetsuit und Surfboard"
+      ],
+      "final_extracted_fields": {
+        "check_in": "2026-07-15",
+        "check_out": "2026-07-18",
+        "guest_count": 2,
+        "guest_name": "Thomas",
+        "deferred_guest_count": null,
+        "package_interest": "accommodation_only",
+        "room_preference": null,
+        "transfer_info": null,
+        "addons_skipped": null,
+        "transfer_interest": null,
+        "service_interest": [
+          "wetsuit",
+          "surfboard"
+        ],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": null
+      },
+      "quote_status": "ready",
+      "quote_ready": true,
+      "payment_choice_ready": false,
+      "stale_quote": false,
+      "stale_quote_reason": null,
+      "services_detected": [
+        "wetsuit",
+        "surfboard"
+      ],
+      "yoga_request": null,
+      "meals_request": null,
+      "luna_final_reply": "Für den Unterricht können wir dir einen Neopren besorgen 🌊 Wenn du einen eigenen hast, bring ihn mit. Hier sind 4/3 oder 3/2 meist die sichere Wahl — je nach Saison. Soll ich mit deiner Buchung weitermachen?",
+      "failures": [],
+      "failure_categories": [],
+      "suggested_fix_areas": [],
+      "handoff": false,
+      "internal_language": []
+    }
+  ]
+}

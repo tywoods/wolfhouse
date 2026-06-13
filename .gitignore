@@ -2,6 +2,7 @@ node_modules/
 infra/.env
 .env
 .env.local
+hermes-local/.env
 *.log
 docs/api keys.txt
 reports/*.csv

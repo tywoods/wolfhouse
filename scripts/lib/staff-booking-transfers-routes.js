@@ -422,12 +422,32 @@ async function loadBooking(pg, clientSlug, bookingId) {
   return res.rows[0] || null;
 }
 
+/** Build the transfers drawer payload (same shape as GET /transfers). */
+function buildTransfersDrawerPayload(clientSlug, booking, transferRows, opts = {}) {
+  const timezone = clientTimezone(clientSlug);
+  const transfersAvailable = opts.transfers_available !== false;
+  const rows = transferRows || [];
+  const transfers = rows
+    .map((row) => formatTransferForApi(row, booking, clientSlug, timezone))
+    .filter(Boolean);
+  return {
+    success: true,
+    client_slug: clientSlug,
+    booking_id: booking.booking_id,
+    booking_code: booking.booking_code,
+    timezone,
+    transfers_available: transfersAvailable,
+    airports: formatAirportsForApi(clientSlug),
+    transfers,
+    defaults: buildDefaults(booking, timezone),
+  };
+}
+
 async function handleGetBookingTransfers(bookingId, query, res) {
   const clientSlug = trimStr(query.client_slug || query.client);
   if (!clientSlug) {
     return res.status(400).json({ success: false, error: 'client_slug is required' });
   }
-  const timezone = clientTimezone(clientSlug);
 
   try {
     const result = await withPgClient(async (pg) => {
@@ -443,21 +463,9 @@ async function handleGetBookingTransfers(bookingId, query, res) {
         transfersAvailable = false;
       }
 
-      const defaults = buildDefaults(booking, timezone);
-      const transfers = rows.map((row) => formatTransferForApi(row, booking, clientSlug, timezone));
       return {
         notFound: false,
-        payload: {
-          success: true,
-          client_slug: clientSlug,
-          booking_id: bookingId,
-          booking_code: booking.booking_code,
-          timezone,
-          transfers_available: transfersAvailable,
-          airports: formatAirportsForApi(clientSlug),
-          transfers,
-          defaults,
-        },
+        payload: buildTransfersDrawerPayload(clientSlug, booking, rows, { transfers_available: transfersAvailable }),
       };
     });
 
@@ -859,6 +867,8 @@ module.exports = {
   dispatchBookingTransfersRoute,
   dispatchBookingTransferDirectionRoute,
   dispatchBookingTransferLookupRoute,
+  buildTransfersDrawerPayload,
+  isMissingBookingTransfersTable,
   handleGetBookingTransfers,
   handlePostBookingTransfer,
   handleDeleteBookingTransfer,

@@ -1,0 +1,11 @@
+model:
+  default: gpt-4o-mini
+  provider: openai-api
+  api_mode: chat_completions
+
+terminal:
+  cwd: /workspace
+  backend: local
+
+agent:
+  reasoning_effort: none

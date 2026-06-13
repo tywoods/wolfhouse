@@ -312,6 +312,12 @@
     "verify:stage43b-hosted-surf-report-proof": "node scripts/verify-stage43b-hosted-surf-report-proof.js",
     "hammer:luna": "node scripts/run-luna-random-hammer-test.js",
     "hammer:luna:live": "node scripts/run-luna-live-hammer-suite.js --write-report",
+    "deploy:hermes-staging": "node scripts/deploy-staging-hermes.js",
+    "bootstrap:hermes-staging": "node scripts/bootstrap-staging-hermes-runtime.js",
+    "hermes:local": "node scripts/run-local-hermes.js chat",
+    "hermes:local:setup": "node scripts/run-local-hermes.js setup",
+    "hermes:local:ask": "node scripts/run-local-hermes.js ask",
+    "hermes:desktop:setup": "node scripts/setup-hermes-desktop.js",
     "verify:stage29room-a-real-room-bed-seed": "node scripts/verify-stage29room-a-real-room-bed-seed.js",
     "verify:stage45a-wolfhouse-inventory": "node scripts/verify-stage45a-wolfhouse-inventory.js",
     "verify:stage45b-luna-open-phone-testing": "node scripts/verify-stage45b-luna-open-phone-testing.js",
@@ -421,7 +427,10 @@
     "verify:staff-inbox-ui-controls": "node scripts/verify-staff-inbox-ui-controls.js",
     "verify:staff-inbox-ui-polish": "node scripts/verify-staff-inbox-ui-polish.js",
     "verify:staff-inbox-calendar-ui-polish": "node scripts/verify-staff-inbox-calendar-ui-polish.js",
-    "verify:staff-portal-ui-product-cleanup": "node scripts/verify-staff-portal-ui-product-cleanup.js"
+    "verify:staff-portal-ui-product-cleanup": "node scripts/verify-staff-portal-ui-product-cleanup.js",
+    "verify:stage57a-hermes-staff-api-tools": "node scripts/verify-stage57a-hermes-staff-api-tools.js",
+    "verify:stage57b-staff-api-bot-routes": "node scripts/verify-stage57b-staff-api-bot-routes.js",
+    "verify:stage57c-hermes-luna-e2e-rehearsal": "node scripts/verify-stage57c-hermes-luna-e2e-rehearsal.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

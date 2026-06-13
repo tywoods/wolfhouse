@@ -1,0 +1,296 @@
+{
+  "stage": "43b",
+  "commit": "0c74150",
+  "image_tag": "0c74150-stage43b-surf-report-proof",
+  "base_url": "https://staff-staging.lunafrontdesk.com",
+  "started_at": "2026-06-11T10:31:24.866Z",
+  "healthz_before": {
+    "status": "200",
+    "stormglass": {
+      "configured": true
+    }
+  },
+  "healthz_after": {
+    "status": "200",
+    "stormglass": {
+      "configured": true
+    }
+  },
+  "stormglass_configured": true,
+  "revision_before": {
+    "name": "wh-staging-staff-api--stage43b-surf-report",
+    "health": "Healthy",
+    "traffic": 100,
+    "image": "whstagingacr.azurecr.io/wh-staff-api:0c74150-stage43b-surf-report-proof",
+    "created": "2026-06-11T10:29:06+00:00"
+  },
+  "revision_after": {
+    "name": "wh-staging-staff-api--stage43b-surf-report",
+    "health": "Healthy",
+    "traffic": 100,
+    "image": "whstagingacr.azurecr.io/wh-staff-api:0c74150-stage43b-surf-report-proof",
+    "created": "2026-06-11T10:29:06+00:00"
+  },
+  "deploy": {
+    "deployed": false,
+    "note": "skip-deploy flag"
+  },
+  "gates_before": {
+    "status": "checked",
+    "gates": {
+      "WHATSAPP_DRY_RUN": "true",
+      "OPEN_DEMO_WHATSAPP_ENABLED": "true",
+      "OPEN_DEMO_BOOKING_WRITES_ENABLED": "false",
+      "OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED": "false",
+      "OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED": "false",
+      "OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+      "WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+      "LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST": null
+    }
+  },
+  "gates_during": {
+    "status": "checked",
+    "gates": {
+      "WHATSAPP_DRY_RUN": "true",
+      "OPEN_DEMO_WHATSAPP_ENABLED": "true",
+      "OPEN_DEMO_BOOKING_WRITES_ENABLED": "false",
+      "OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED": "false",
+      "OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED": "false",
+      "OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+      "WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+      "LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST": null
+    }
+  },
+  "gates_after": {
+    "status": "checked",
+    "gates": {
+      "WHATSAPP_DRY_RUN": "true",
+      "OPEN_DEMO_WHATSAPP_ENABLED": "true",
+      "OPEN_DEMO_BOOKING_WRITES_ENABLED": "false",
+      "OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED": "false",
+      "OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED": "false",
+      "OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+      "WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+      "LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST": null
+    }
+  },
+  "proofs": [
+    {
+      "id": "A_en_surf",
+      "lang": "en",
+      "phone": "+3462984304703",
+      "pass": true,
+      "failures": [],
+      "turns": [
+        {
+          "turn": 1,
+          "message": "How are the waves today?",
+          "facts": {
+            "client_slug": "wolfhouse-somo",
+            "language": "en",
+            "composer_state": "explain_surf_report",
+            "final_reply_source": "luna_reply_composer",
+            "proposed_luna_reply": "I can't see the live surf report right this second, but Somo usually works with a nice range of conditions. The team can confirm the best window closer to the day 🌊",
+            "check_in": null,
+            "check_out": null,
+            "guest_count": null,
+            "quote_status": null,
+            "stale_quote": false,
+            "used_live_api": false,
+            "used_fallback": true,
+            "forbidden_language": [],
+            "hard_safety_call": false,
+            "raw_metric_dump": false,
+            "secret_leak": false,
+            "sends_whatsapp": false,
+            "no_write_performed": true,
+            "dry_run": true,
+            "http_success": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "B_it_surf",
+      "lang": "it",
+      "phone": "+3462984318164",
+      "pass": true,
+      "failures": [],
+      "turns": [
+        {
+          "turn": 1,
+          "message": "Come sono le onde oggi?",
+          "facts": {
+            "client_slug": "wolfhouse-somo",
+            "language": "en",
+            "composer_state": "explain_surf_report",
+            "final_reply_source": "luna_reply_composer",
+            "proposed_luna_reply": "In questo momento non riesco a vedere il report live, ma a Somo di solito ci si trova bene con tante condizioni diverse. Il team confermerà la finestra migliore più vicino al giorno 🌊",
+            "check_in": null,
+            "check_out": null,
+            "guest_count": null,
+            "quote_status": null,
+            "stale_quote": false,
+            "used_live_api": false,
+            "used_fallback": true,
+            "forbidden_language": [],
+            "hard_safety_call": false,
+            "raw_metric_dump": false,
+            "secret_leak": false,
+            "sends_whatsapp": false,
+            "no_write_performed": true,
+            "dry_run": true,
+            "http_success": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "C_es_surf",
+      "lang": "es",
+      "phone": "+3462984321016",
+      "pass": true,
+      "failures": [],
+      "turns": [
+        {
+          "turn": 1,
+          "message": "Qué tal las olas hoy?",
+          "facts": {
+            "client_slug": "wolfhouse-somo",
+            "language": "en",
+            "composer_state": "explain_surf_report",
+            "final_reply_source": "luna_reply_composer",
+            "proposed_luna_reply": "Ahora mismo no puedo ver el reporte en vivo, pero en Somo suele haber buenas ventanas con muchas condiciones. El equipo confirmará el mejor momento más cerca del día 🌊",
+            "check_in": null,
+            "check_out": null,
+            "guest_count": null,
+            "quote_status": null,
+            "stale_quote": false,
+            "used_live_api": false,
+            "used_fallback": true,
+            "forbidden_language": [],
+            "hard_safety_call": false,
+            "raw_metric_dump": false,
+            "secret_leak": false,
+            "sends_whatsapp": false,
+            "no_write_performed": true,
+            "dry_run": true,
+            "http_success": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "D_de_surf",
+      "lang": "de",
+      "phone": "+3462984332235",
+      "pass": true,
+      "failures": [],
+      "turns": [
+        {
+          "turn": 1,
+          "message": "Wie sind die Wellen heute?",
+          "facts": {
+            "client_slug": "wolfhouse-somo",
+            "language": "en",
+            "composer_state": "explain_surf_report",
+            "final_reply_source": "luna_reply_composer",
+            "proposed_luna_reply": "Gerade kann ich den Live-Surfbericht nicht abrufen, aber in Somo gibt es meistens schöne Fenster bei vielen Bedingungen. Das Team bestätigt das beste Timing näher am Tag 🌊",
+            "check_in": null,
+            "check_out": null,
+            "guest_count": null,
+            "quote_status": null,
+            "stale_quote": false,
+            "used_live_api": false,
+            "used_fallback": true,
+            "forbidden_language": [],
+            "hard_safety_call": false,
+            "raw_metric_dump": false,
+            "secret_leak": false,
+            "sends_whatsapp": false,
+            "no_write_performed": true,
+            "dry_run": true,
+            "http_success": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "E_mid_booking_context",
+      "lang": "en",
+      "phone": "+3462984346340",
+      "pass": true,
+      "failures": [],
+      "turns": [
+        {
+          "turn": 1,
+          "message": "July 1-5 for 1",
+          "facts": {
+            "client_slug": "wolfhouse-somo",
+            "language": "en",
+            "composer_state": "accommodation_quote_ready",
+            "final_reply_source": "luna_reply_composer",
+            "proposed_luna_reply": "Yesss, good news — we have space for those dates ☀️ The stay comes to €180. Do you need a wetsuit, board, or lessons too, or just the stay?",
+            "check_in": "2026-07-01",
+            "check_out": "2026-07-05",
+            "guest_count": 1,
+            "quote_status": "ready",
+            "stale_quote": false,
+            "used_live_api": false,
+            "used_fallback": false,
+            "forbidden_language": [],
+            "hard_safety_call": false,
+            "raw_metric_dump": false,
+            "secret_leak": false,
+            "sends_whatsapp": false,
+            "no_write_performed": true,
+            "dry_run": true,
+            "http_success": true
+          },
+          "failures": []
+        },
+        {
+          "turn": 2,
+          "message": "How are the waves today?",
+          "facts": {
+            "client_slug": "wolfhouse-somo",
+            "language": "en",
+            "composer_state": "explain_surf_report",
+            "final_reply_source": "luna_reply_composer",
+            "proposed_luna_reply": "I can't see the live surf report right this second, but Somo usually works with a nice range of conditions. The team can confirm the best window closer to the day 🌊 Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?",
+            "check_in": "2026-07-01",
+            "check_out": "2026-07-05",
+            "guest_count": 1,
+            "quote_status": "ready",
+            "stale_quote": false,
+            "used_live_api": false,
+            "used_fallback": true,
+            "forbidden_language": [],
+            "hard_safety_call": false,
+            "raw_metric_dump": false,
+            "secret_leak": false,
+            "sends_whatsapp": false,
+            "no_write_performed": true,
+            "dry_run": true,
+            "http_success": true
+          },
+          "failures": []
+        }
+      ]
+    }
+  ],
+  "safety": {
+    "whatsapp_send": false,
+    "stripe_link": false,
+    "n8n_active": false,
+    "secret_leak": false,
+    "production": false
+  },
+  "overall": "PARTIAL",
+  "ended_at": "2026-06-11T10:32:02.664Z",
+  "live_api_note": "STORMGLASS_API_KEY configured but hosted guest path used fallback (upstream unavailable/quota/timeout)"
+}

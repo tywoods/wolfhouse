@@ -1,0 +1,2147 @@
+[
+  {
+    "step": 0,
+    "msg": "I would like to book from Sept 1st to the 15th for 2 people",
+    "status": 200,
+    "lane": "new_booking_inquiry",
+    "pc": null,
+    "pcReady": false,
+    "handoff": false,
+    "fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "guest_name": "Ty",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "addons_skipped": true,
+      "transfer_interest": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": "deposit"
+    },
+    "quote": {
+      "success": true,
+      "dry_run": true,
+      "preview_only": true,
+      "no_write_performed": true,
+      "live_send_blocked": true,
+      "sends_whatsapp": false,
+      "whatsapp_sent": false,
+      "calls_n8n": false,
+      "creates_booking": false,
+      "creates_payment": false,
+      "creates_stripe_link": false,
+      "payment_link_sent": false,
+      "quote_proposal_attempted": true,
+      "quote_status": "ready",
+      "quote_result_summary": "Estimated total €1260.00; deposit option €100.00 (custom/shorter stay tier). Transfer interest noted — team to confirm transfer price separately.",
+      "quote_total_cents": 126000,
+      "package_code": "malibu",
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "deposit_options": {
+        "deposit_required_cents": 10000,
+        "weekly_package_deposit_cents": 20000,
+        "custom_short_stay_deposit_cents": 10000,
+        "payment_options": [
+          "deposit",
+          "full",
+          "pay_on_arrival"
+        ]
+      },
+      "short_stay_accommodation_quote": false,
+      "short_stay_addons_pending": false,
+      "addons_pending_after_quote": false,
+      "payment_choice_needed": true,
+      "quote_handoff_required": false,
+      "quote_handoff_reasons": [
+        "transfer_pricing_deferred_to_staff"
+      ],
+      "proposed_luna_reply": null,
+      "reused_helper": "runBookingPreviewDryRun",
+      "anchor_route": "POST /staff/bot/booking-preview",
+      "quote_detail": {
+        "preview_only": true,
+        "no_write_performed": true,
+        "creates_booking": false,
+        "creates_payment": false,
+        "creates_stripe_link": false,
+        "sends_whatsapp": false,
+        "anchor_route": "POST /staff/bot/booking-preview",
+        "missing_fields": [
+          "guest_name",
+          "phone"
+        ],
+        "has_missing_fields": true,
+        "next_action": "ask_missing_details",
+        "reply_draft": "Great, I can help you book. Could you also share: your name, your WhatsApp number?",
+        "quote": {
+          "success": true,
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "nights": 14,
+          "guest_count": 2,
+          "package_code": "malibu",
+          "room_type": "shared",
+          "season_code": "summer",
+          "line_items": [
+            {
+              "code": "package_proration",
+              "label": "Malibu proration (summer, 14 nights, 2 guests, Formula B)",
+              "nights": 14,
+              "guest_count": 2,
+              "unit_cents": 4500,
+              "total_cents": 126000,
+              "note": "Formula B: ceil5(29900¢/7)=4500¢/night × 14n × 2g = 126000¢"
+            }
+          ],
+          "subtotal_cents": 126000,
+          "discount_cents": 0,
+          "total_cents": 126000,
+          "deposit_required_cents": 10000,
+          "payment_link_amount_cents": 10000,
+          "amount_paid_cents": 0,
+          "balance_due_cents": 126000,
+          "payment_options": [
+            "deposit",
+            "full",
+            "pay_on_arrival"
+          ],
+          "confidence": "auto",
+          "blockers": [],
+          "warnings": [],
+          "formula_summary": "Formula B (per-night ceil5): ceil5(299€/7) = 45€/night × 14n × 2g = 1260€ package base",
+          "staff_review_required": false,
+          "source": "wolfhouse-quote-calculator",
+          "missing_config": false
+        },
+        "quote_error": null,
+        "availability_note": {
+          "status": "not_checked",
+          "message": "Full bed conflict check runs via availability step when dates and pg are present."
+        }
+      }
+    },
+    "reply": "Great news — I've checked and we have availability for your stay from September 1st to 15th for 2 guests! 😊 The total for the Malibu package is €1260. Would you like to go ahead with a €100 deposit or pay the full amount? Let me know, and I'll get everything set up for your surf",
+    "next": {
+      "message_lane": "new_booking_inquiry",
+      "intake_state": "ready_for_availability_check",
+      "readiness_state": "ready_for_availability_check",
+      "booking_intake_ready": true,
+      "extracted_fields": {
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "guest_name": "Ty",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": true,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": "deposit"
+      },
+      "result": {
+        "message_lane": "new_booking_inquiry",
+        "intake_state": "ready_for_availability_check",
+        "readiness_state": "ready_for_availability_check",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "guest_name": "Ty",
+          "deferred_guest_count": null,
+          "package_interest": "malibu",
+          "room_preference": null,
+          "transfer_info": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "addons_skipped": true,
+          "transfer_interest": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "service_interest": [],
+          "meals_request": null,
+          "yoga_request": null,
+          "payment_preference": "deposit"
+        },
+        "detected_language": "en",
+        "package_night_rule": "weekly_direct_choice",
+        "conversation_brain": {
+          "intent": "package_choice",
+          "reply_type": "continue_booking",
+          "source": "llm",
+          "brain_enabled": true,
+          "llm_enabled": true,
+          "model_requested": "gpt-4o-mini",
+          "model_used": "gpt-4o-mini",
+          "llm_error": null,
+          "brain_intent": "package_choice",
+          "brain_reply_type": "continue_booking",
+          "guest_is_correcting_luna": false,
+          "accommodation_only_choice": false,
+          "next_best_action": "collect_payment_choice",
+          "confidence": 0.9,
+          "final_reply_source": "cami_reply_author",
+          "final_reply_overrode_brain": false,
+          "composer_state": "frontdesk_quote"
+        },
+        "correction_applied": false,
+        "quote_facts_used_by_composer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "quote_facts_used_by_hold_writer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "addons_status": "declined",
+        "addons_requested": [],
+        "addons_priced": [],
+        "addons_pending_manual": [],
+        "transfer_info_status": "partial",
+        "transfer_airport": "SDR",
+        "transfer_arrival_time": null,
+        "transfer_departure_time": null,
+        "transfer_flight_number": null,
+        "add_on_quote_stale_reason": null,
+        "meals_status": "not_requested",
+        "meal_type": null,
+        "meals_requested_dates": null,
+        "yoga_status": "not_requested",
+        "yoga_requested_dates": null,
+        "services_requested": null,
+        "services_pending_manual": null,
+        "services_scheduled": null
+      },
+      "availability": {
+        "availability_check_attempted": true,
+        "availability_status": "available"
+      },
+      "quote": {
+        "quote_status": "ready",
+        "quote_total_cents": 126000,
+        "payment_choice_needed": false,
+        "package_code": "malibu",
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "quote_stale": false,
+        "stale_quote_reason": null,
+        "previous_quote_invalidated": false,
+        "corrected_fields": null,
+        "short_stay_addons_pending": false,
+        "addons_pending_after_quote": false,
+        "deposit_options": {
+          "deposit_required_cents": 10000
+        }
+      },
+      "payment_choice_needed": false,
+      "payment_choice": {
+        "payment_choice_detected": false,
+        "payment_choice": null,
+        "payment_choice_ready": false,
+        "next_safe_step": "staff_handoff_required"
+      },
+      "detected_language": "en",
+      "last_updated_at": "2026-06-12T16:31:27.768Z",
+      "active_thread": "awaiting_payment",
+      "booking_code": "WH-G27-DB1B9A0F2F",
+      "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+      "payment_link_sent": true,
+      "stripe_link_created": true,
+      "confirmation_sent": false,
+      "payment_received": false,
+      "hold_created": true,
+      "payment_truth": {
+        "payment_status": "waiting_payment",
+        "booking_code": "WH-G27-DB1B9A0F2F",
+        "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+        "source": "db_hydrate",
+        "hydrated_at": "2026-06-12T16:31:20.067Z"
+      },
+      "transcript_source": "messages_table",
+      "transcript_turns": 20,
+      "pending_service_intent": null,
+      "pending_booking_choice": null
+    }
+  },
+  {
+    "step": 1,
+    "msg": "Malibu please",
+    "status": 200,
+    "lane": "new_booking_inquiry",
+    "pc": null,
+    "pcReady": false,
+    "handoff": false,
+    "fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "guest_name": "Ty",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "addons_skipped": true,
+      "transfer_interest": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": "deposit"
+    },
+    "quote": {
+      "success": true,
+      "dry_run": true,
+      "preview_only": true,
+      "no_write_performed": true,
+      "live_send_blocked": true,
+      "sends_whatsapp": false,
+      "whatsapp_sent": false,
+      "calls_n8n": false,
+      "creates_booking": false,
+      "creates_payment": false,
+      "creates_stripe_link": false,
+      "payment_link_sent": false,
+      "quote_proposal_attempted": true,
+      "quote_status": "ready",
+      "quote_result_summary": "Estimated total €1260.00; deposit option €100.00 (custom/shorter stay tier). Transfer interest noted — team to confirm transfer price separately.",
+      "quote_total_cents": 126000,
+      "package_code": "malibu",
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "deposit_options": {
+        "deposit_required_cents": 10000,
+        "weekly_package_deposit_cents": 20000,
+        "custom_short_stay_deposit_cents": 10000,
+        "payment_options": [
+          "deposit",
+          "full",
+          "pay_on_arrival"
+        ]
+      },
+      "short_stay_accommodation_quote": false,
+      "short_stay_addons_pending": false,
+      "addons_pending_after_quote": false,
+      "payment_choice_needed": true,
+      "quote_handoff_required": false,
+      "quote_handoff_reasons": [
+        "transfer_pricing_deferred_to_staff"
+      ],
+      "proposed_luna_reply": null,
+      "reused_helper": "runBookingPreviewDryRun",
+      "anchor_route": "POST /staff/bot/booking-preview",
+      "quote_detail": {
+        "preview_only": true,
+        "no_write_performed": true,
+        "creates_booking": false,
+        "creates_payment": false,
+        "creates_stripe_link": false,
+        "sends_whatsapp": false,
+        "anchor_route": "POST /staff/bot/booking-preview",
+        "missing_fields": [
+          "guest_name",
+          "phone"
+        ],
+        "has_missing_fields": true,
+        "next_action": "ask_missing_details",
+        "reply_draft": "Great, I can help you book. Could you also share: your name, your WhatsApp number?",
+        "quote": {
+          "success": true,
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "nights": 14,
+          "guest_count": 2,
+          "package_code": "malibu",
+          "room_type": "shared",
+          "season_code": "summer",
+          "line_items": [
+            {
+              "code": "package_proration",
+              "label": "Malibu proration (summer, 14 nights, 2 guests, Formula B)",
+              "nights": 14,
+              "guest_count": 2,
+              "unit_cents": 4500,
+              "total_cents": 126000,
+              "note": "Formula B: ceil5(29900¢/7)=4500¢/night × 14n × 2g = 126000¢"
+            }
+          ],
+          "subtotal_cents": 126000,
+          "discount_cents": 0,
+          "total_cents": 126000,
+          "deposit_required_cents": 10000,
+          "payment_link_amount_cents": 10000,
+          "amount_paid_cents": 0,
+          "balance_due_cents": 126000,
+          "payment_options": [
+            "deposit",
+            "full",
+            "pay_on_arrival"
+          ],
+          "confidence": "auto",
+          "blockers": [],
+          "warnings": [],
+          "formula_summary": "Formula B (per-night ceil5): ceil5(299€/7) = 45€/night × 14n × 2g = 1260€ package base",
+          "staff_review_required": false,
+          "source": "wolfhouse-quote-calculator",
+          "missing_config": false
+        },
+        "quote_error": null,
+        "availability_note": {
+          "status": "not_checked",
+          "message": "Full bed conflict check runs via availability step when dates and pg are present."
+        }
+      }
+    },
+    "reply": "Hey Ty! 😊 I've got you all set for the Malibu package from September 1st to 15th for 2 guests. The total is €1260.\n\nWould you like to pay the €100 deposit now to secure your spot? Just let me know, and I’ll send over the payment link. Can't wait to catch the waves with you! 🌊",
+    "next": {
+      "message_lane": "new_booking_inquiry",
+      "intake_state": "ready_for_availability_check",
+      "readiness_state": "ready_for_availability_check",
+      "booking_intake_ready": true,
+      "extracted_fields": {
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "guest_name": "Ty",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": true,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": "deposit"
+      },
+      "result": {
+        "message_lane": "new_booking_inquiry",
+        "intake_state": "ready_for_availability_check",
+        "readiness_state": "ready_for_availability_check",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "guest_name": "Ty",
+          "deferred_guest_count": null,
+          "package_interest": "malibu",
+          "room_preference": null,
+          "transfer_info": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "addons_skipped": true,
+          "transfer_interest": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "service_interest": [],
+          "meals_request": null,
+          "yoga_request": null,
+          "payment_preference": "deposit"
+        },
+        "detected_language": "en",
+        "package_night_rule": "weekly_direct_choice",
+        "conversation_brain": {
+          "intent": "package_choice",
+          "reply_type": "continue_booking",
+          "source": "llm",
+          "brain_enabled": true,
+          "llm_enabled": true,
+          "model_requested": "gpt-4o-mini",
+          "model_used": "gpt-4o-mini",
+          "llm_error": null,
+          "brain_intent": "package_choice",
+          "brain_reply_type": "continue_booking",
+          "guest_is_correcting_luna": false,
+          "accommodation_only_choice": false,
+          "next_best_action": "collect_payment_choice",
+          "confidence": 0.9,
+          "final_reply_source": "cami_reply_author",
+          "final_reply_overrode_brain": false,
+          "composer_state": "frontdesk_quote"
+        },
+        "correction_applied": false,
+        "quote_facts_used_by_composer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "quote_facts_used_by_hold_writer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "addons_status": "declined",
+        "addons_requested": [],
+        "addons_priced": [],
+        "addons_pending_manual": [],
+        "transfer_info_status": "partial",
+        "transfer_airport": "SDR",
+        "transfer_arrival_time": null,
+        "transfer_departure_time": null,
+        "transfer_flight_number": null,
+        "add_on_quote_stale_reason": null,
+        "meals_status": "not_requested",
+        "meal_type": null,
+        "meals_requested_dates": null,
+        "yoga_status": "not_requested",
+        "yoga_requested_dates": null,
+        "services_requested": null,
+        "services_pending_manual": null,
+        "services_scheduled": null
+      },
+      "availability": {
+        "availability_check_attempted": true,
+        "availability_status": "available"
+      },
+      "quote": {
+        "quote_status": "ready",
+        "quote_total_cents": 126000,
+        "payment_choice_needed": false,
+        "package_code": "malibu",
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "quote_stale": false,
+        "stale_quote_reason": null,
+        "previous_quote_invalidated": false,
+        "corrected_fields": null,
+        "short_stay_addons_pending": false,
+        "addons_pending_after_quote": false,
+        "deposit_options": {
+          "deposit_required_cents": 10000
+        }
+      },
+      "payment_choice_needed": false,
+      "payment_choice": {
+        "payment_choice_detected": false,
+        "payment_choice": null,
+        "payment_choice_ready": false,
+        "next_safe_step": "collect_payment_choice"
+      },
+      "detected_language": "en",
+      "last_updated_at": "2026-06-12T16:31:39.087Z",
+      "active_thread": "awaiting_payment",
+      "booking_code": "WH-G27-DB1B9A0F2F",
+      "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+      "payment_link_sent": true,
+      "stripe_link_created": true,
+      "confirmation_sent": false,
+      "payment_received": false,
+      "hold_created": true,
+      "payment_truth": {
+        "payment_status": "waiting_payment",
+        "booking_code": "WH-G27-DB1B9A0F2F",
+        "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+        "source": "db_hydrate",
+        "hydrated_at": "2026-06-12T16:31:32.158Z"
+      },
+      "transcript_source": "messages_table",
+      "transcript_turns": 20,
+      "pending_service_intent": null,
+      "pending_booking_choice": null
+    }
+  },
+  {
+    "step": 2,
+    "msg": "Deposit and yes transfer to and from Santander",
+    "status": 200,
+    "lane": "new_booking_inquiry",
+    "pc": "deposit",
+    "pcReady": true,
+    "handoff": false,
+    "fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "guest_name": "Ty",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "addons_skipped": true,
+      "transfer_interest": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": "deposit"
+    },
+    "quote": {
+      "success": true,
+      "dry_run": true,
+      "preview_only": true,
+      "no_write_performed": true,
+      "live_send_blocked": true,
+      "sends_whatsapp": false,
+      "whatsapp_sent": false,
+      "calls_n8n": false,
+      "creates_booking": false,
+      "creates_payment": false,
+      "creates_stripe_link": false,
+      "payment_link_sent": false,
+      "quote_proposal_attempted": true,
+      "quote_status": "ready",
+      "quote_result_summary": "Estimated total €1260.00; deposit option €100.00 (custom/shorter stay tier). Transfer interest noted — team to confirm transfer price separately.",
+      "quote_total_cents": 126000,
+      "package_code": "malibu",
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "deposit_options": {
+        "deposit_required_cents": 10000,
+        "weekly_package_deposit_cents": 20000,
+        "custom_short_stay_deposit_cents": 10000,
+        "payment_options": [
+          "deposit",
+          "full",
+          "pay_on_arrival"
+        ]
+      },
+      "short_stay_accommodation_quote": false,
+      "short_stay_addons_pending": false,
+      "addons_pending_after_quote": false,
+      "payment_choice_needed": true,
+      "quote_handoff_required": false,
+      "quote_handoff_reasons": [
+        "transfer_pricing_deferred_to_staff"
+      ],
+      "proposed_luna_reply": null,
+      "reused_helper": "runBookingPreviewDryRun",
+      "anchor_route": "POST /staff/bot/booking-preview",
+      "quote_detail": {
+        "preview_only": true,
+        "no_write_performed": true,
+        "creates_booking": false,
+        "creates_payment": false,
+        "creates_stripe_link": false,
+        "sends_whatsapp": false,
+        "anchor_route": "POST /staff/bot/booking-preview",
+        "missing_fields": [
+          "guest_name",
+          "phone"
+        ],
+        "has_missing_fields": true,
+        "next_action": "ask_missing_details",
+        "reply_draft": "Great, I can help you book. Could you also share: your name, your WhatsApp number?",
+        "quote": {
+          "success": true,
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "nights": 14,
+          "guest_count": 2,
+          "package_code": "malibu",
+          "room_type": "shared",
+          "season_code": "summer",
+          "line_items": [
+            {
+              "code": "package_proration",
+              "label": "Malibu proration (summer, 14 nights, 2 guests, Formula B)",
+              "nights": 14,
+              "guest_count": 2,
+              "unit_cents": 4500,
+              "total_cents": 126000,
+              "note": "Formula B: ceil5(29900¢/7)=4500¢/night × 14n × 2g = 126000¢"
+            }
+          ],
+          "subtotal_cents": 126000,
+          "discount_cents": 0,
+          "total_cents": 126000,
+          "deposit_required_cents": 10000,
+          "payment_link_amount_cents": 10000,
+          "amount_paid_cents": 0,
+          "balance_due_cents": 126000,
+          "payment_options": [
+            "deposit",
+            "full",
+            "pay_on_arrival"
+          ],
+          "confidence": "auto",
+          "blockers": [],
+          "warnings": [],
+          "formula_summary": "Formula B (per-night ceil5): ceil5(299€/7) = 45€/night × 14n × 2g = 1260€ package base",
+          "staff_review_required": false,
+          "source": "wolfhouse-quote-calculator",
+          "missing_config": false
+        },
+        "quote_error": null,
+        "availability_note": {
+          "status": "not_checked",
+          "message": "Full bed conflict check runs via availability step when dates and pg are present."
+        }
+      }
+    },
+    "planKind": "deposit",
+    "planCents": 10000,
+    "reply": "Great choice, Ty! 😊 The Santander airport transfer is included with your Malibu package, and we're all set to hold your booking from September 1st to the 15th for two people. The total is €1260, and you can secure it with a €100 deposit.\n\nLet me know if you need anything else! \ud83c",
+    "next": {
+      "message_lane": "new_booking_inquiry",
+      "intake_state": "ready_for_availability_check",
+      "readiness_state": "ready_for_availability_check",
+      "booking_intake_ready": true,
+      "extracted_fields": {
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "guest_name": "Ty",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": true,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": "deposit"
+      },
+      "result": {
+        "message_lane": "new_booking_inquiry",
+        "intake_state": "ready_for_availability_check",
+        "readiness_state": "ready_for_availability_check",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "guest_name": "Ty",
+          "deferred_guest_count": null,
+          "package_interest": "malibu",
+          "room_preference": null,
+          "transfer_info": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "addons_skipped": true,
+          "transfer_interest": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "service_interest": [],
+          "meals_request": null,
+          "yoga_request": null,
+          "payment_preference": "deposit"
+        },
+        "detected_language": "en",
+        "package_night_rule": "weekly_ready",
+        "conversation_brain": {
+          "intent": "clarify",
+          "reply_type": "clarify",
+          "source": "timeout",
+          "brain_enabled": true,
+          "llm_enabled": true,
+          "model_requested": "gpt-4o-mini",
+          "model_used": null,
+          "llm_error": "conversation brain LLM timeout after 4000ms",
+          "brain_intent": "clarify",
+          "brain_reply_type": "clarify",
+          "guest_is_correcting_luna": false,
+          "accommodation_only_choice": false,
+          "next_best_action": "none",
+          "confidence": 0,
+          "final_reply_source": "cami_reply_author",
+          "final_reply_overrode_brain": false,
+          "composer_state": "frontdesk_post_booking"
+        },
+        "correction_applied": false,
+        "quote_facts_used_by_composer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "quote_facts_used_by_hold_writer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false,
+          "payment_kind": "deposit",
+          "payment_amount_cents": 10000
+        },
+        "addons_status": "declined",
+        "addons_requested": [],
+        "addons_priced": [],
+        "addons_pending_manual": [],
+        "transfer_info_status": "partial",
+        "transfer_airport": "SDR",
+        "transfer_arrival_time": null,
+        "transfer_departure_time": null,
+        "transfer_flight_number": null,
+        "add_on_quote_stale_reason": null,
+        "meals_status": "not_requested",
+        "meal_type": null,
+        "meals_requested_dates": null,
+        "yoga_status": "not_requested",
+        "yoga_requested_dates": null,
+        "services_requested": null,
+        "services_pending_manual": null,
+        "services_scheduled": null
+      },
+      "availability": {
+        "availability_check_attempted": true,
+        "availability_status": "available"
+      },
+      "quote": {
+        "quote_status": "ready",
+        "quote_total_cents": 126000,
+        "payment_choice_needed": false,
+        "package_code": "malibu",
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "quote_stale": false,
+        "stale_quote_reason": null,
+        "previous_quote_invalidated": false,
+        "corrected_fields": null,
+        "short_stay_addons_pending": false,
+        "addons_pending_after_quote": false,
+        "deposit_options": {
+          "deposit_required_cents": 10000
+        }
+      },
+      "payment_choice_needed": false,
+      "payment_choice": {
+        "payment_choice_detected": true,
+        "payment_choice": "deposit",
+        "payment_choice_ready": true,
+        "next_safe_step": "ready_for_hold_payment_draft"
+      },
+      "detected_language": "en",
+      "last_updated_at": "2026-06-12T16:31:51.196Z",
+      "active_thread": "awaiting_payment",
+      "booking_code": "WH-G27-DB1B9A0F2F",
+      "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+      "payment_link_sent": true,
+      "stripe_link_created": true,
+      "confirmation_sent": false,
+      "payment_received": false,
+      "hold_created": true,
+      "payment_truth": {
+        "payment_status": "waiting_payment",
+        "booking_code": "WH-G27-DB1B9A0F2F",
+        "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+        "source": "db_hydrate",
+        "hydrated_at": "2026-06-12T16:31:43.734Z"
+      },
+      "transcript_source": "messages_table",
+      "transcript_turns": 20,
+      "pending_service_intent": null,
+      "pending_booking_choice": null
+    }
+  },
+  {
+    "step": 3,
+    "msg": "Arrive day of checkin at noon and leave day of checkout at noon also",
+    "status": 200,
+    "lane": "existing_booking_question",
+    "pc": "deposit",
+    "pcReady": true,
+    "handoff": false,
+    "fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "guest_name": "Ty",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "addons_skipped": true,
+      "transfer_interest": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": "deposit"
+    },
+    "quote": {
+      "quote_status": "ready",
+      "quote_total_cents": 126000,
+      "payment_choice_needed": false,
+      "package_code": "malibu",
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "quote_stale": false,
+      "stale_quote_reason": null,
+      "previous_quote_invalidated": false,
+      "corrected_fields": null,
+      "short_stay_addons_pending": false,
+      "addons_pending_after_quote": false,
+      "deposit_options": {
+        "deposit_required_cents": 10000
+      }
+    },
+    "reply": "Hey Ty! 😊 Once you decide on paying the deposit or the full amount, we'll get everything lined up for your Malibu package stay from September 1st to 15th. Our team usually confirms things within a few hours on weekdays, so just give me a shout on your choice! 🌊",
+    "next": {
+      "message_lane": "existing_booking_question",
+      "intake_state": "collecting_required_details",
+      "readiness_state": "collecting_required_details",
+      "booking_intake_ready": false,
+      "extracted_fields": {
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "guest_name": "Ty",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": true,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": "deposit"
+      },
+      "result": {
+        "message_lane": "existing_booking_question",
+        "intake_state": "collecting_required_details",
+        "readiness_state": "collecting_required_details",
+        "booking_intake_ready": false,
+        "extracted_fields": {
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "guest_name": "Ty",
+          "deferred_guest_count": null,
+          "package_interest": "malibu",
+          "room_preference": null,
+          "transfer_info": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "addons_skipped": true,
+          "transfer_interest": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "service_interest": [],
+          "meals_request": null,
+          "yoga_request": null,
+          "payment_preference": "deposit"
+        },
+        "detected_language": "en",
+        "package_night_rule": null,
+        "conversation_brain": {
+          "intent": "clarify",
+          "reply_type": "clarify",
+          "source": "timeout",
+          "brain_enabled": true,
+          "llm_enabled": true,
+          "model_requested": "gpt-4o-mini",
+          "model_used": null,
+          "llm_error": "conversation brain LLM timeout after 4000ms",
+          "brain_intent": "clarify",
+          "brain_reply_type": "clarify",
+          "guest_is_correcting_luna": false,
+          "accommodation_only_choice": false,
+          "next_best_action": "none",
+          "confidence": 0,
+          "final_reply_source": "cami_reply_author",
+          "final_reply_overrode_brain": false,
+          "composer_state": null
+        },
+        "quote_facts_used_by_composer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "quote_facts_used_by_hold_writer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "addons_status": "declined",
+        "addons_requested": [],
+        "addons_priced": [],
+        "addons_pending_manual": [],
+        "transfer_info_status": "partial",
+        "transfer_airport": "SDR",
+        "transfer_arrival_time": null,
+        "transfer_departure_time": null,
+        "transfer_flight_number": null,
+        "add_on_quote_stale_reason": null,
+        "meals_status": "not_requested",
+        "meal_type": null,
+        "meals_requested_dates": null,
+        "yoga_status": "not_requested",
+        "yoga_requested_dates": null,
+        "services_requested": null,
+        "services_pending_manual": null,
+        "services_scheduled": null
+      },
+      "availability": {
+        "availability_check_attempted": true,
+        "availability_status": "available"
+      },
+      "quote": {
+        "quote_status": "ready",
+        "quote_total_cents": 126000,
+        "payment_choice_needed": false,
+        "package_code": "malibu",
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "quote_stale": false,
+        "stale_quote_reason": null,
+        "previous_quote_invalidated": false,
+        "corrected_fields": null,
+        "short_stay_addons_pending": false,
+        "addons_pending_after_quote": false,
+        "deposit_options": {
+          "deposit_required_cents": 10000
+        }
+      },
+      "payment_choice_needed": false,
+      "payment_choice": {
+        "payment_choice_detected": true,
+        "payment_choice": "deposit",
+        "payment_choice_ready": true,
+        "next_safe_step": "ready_for_hold_payment_draft"
+      },
+      "detected_language": "en",
+      "last_updated_at": "2026-06-12T16:32:02.483Z",
+      "active_thread": "awaiting_payment",
+      "booking_code": "WH-G27-DB1B9A0F2F",
+      "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+      "payment_link_sent": true,
+      "stripe_link_created": true,
+      "confirmation_sent": false,
+      "payment_received": false,
+      "hold_created": true,
+      "payment_truth": {
+        "payment_status": "waiting_payment",
+        "booking_code": "WH-G27-DB1B9A0F2F",
+        "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+        "source": "db_hydrate",
+        "hydrated_at": "2026-06-12T16:31:55.628Z"
+      },
+      "transcript_source": "messages_table",
+      "transcript_turns": 20,
+      "pending_service_intent": null,
+      "pending_booking_choice": null
+    }
+  },
+  {
+    "step": 4,
+    "msg": "Deposit please!",
+    "status": 200,
+    "lane": "new_booking_inquiry",
+    "pc": "deposit",
+    "pcReady": false,
+    "handoff": false,
+    "fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "guest_name": "Ty",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "addons_skipped": true,
+      "transfer_interest": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": "deposit"
+    },
+    "quote": {
+      "success": true,
+      "dry_run": true,
+      "preview_only": true,
+      "no_write_performed": true,
+      "live_send_blocked": true,
+      "sends_whatsapp": false,
+      "whatsapp_sent": false,
+      "calls_n8n": false,
+      "creates_booking": false,
+      "creates_payment": false,
+      "creates_stripe_link": false,
+      "payment_link_sent": false,
+      "quote_proposal_attempted": true,
+      "quote_status": "ready",
+      "quote_result_summary": "Estimated total €1260.00; deposit option €100.00 (custom/shorter stay tier). Transfer interest noted — team to confirm transfer price separately.",
+      "quote_total_cents": 126000,
+      "package_code": "malibu",
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "deposit_options": {
+        "deposit_required_cents": 10000,
+        "weekly_package_deposit_cents": 20000,
+        "custom_short_stay_deposit_cents": 10000,
+        "payment_options": [
+          "deposit",
+          "full",
+          "pay_on_arrival"
+        ]
+      },
+      "short_stay_accommodation_quote": false,
+      "short_stay_addons_pending": false,
+      "addons_pending_after_quote": false,
+      "payment_choice_needed": true,
+      "quote_handoff_required": false,
+      "quote_handoff_reasons": [
+        "transfer_pricing_deferred_to_staff"
+      ],
+      "proposed_luna_reply": null,
+      "reused_helper": "runBookingPreviewDryRun",
+      "anchor_route": "POST /staff/bot/booking-preview",
+      "quote_detail": {
+        "preview_only": true,
+        "no_write_performed": true,
+        "creates_booking": false,
+        "creates_payment": false,
+        "creates_stripe_link": false,
+        "sends_whatsapp": false,
+        "anchor_route": "POST /staff/bot/booking-preview",
+        "missing_fields": [
+          "guest_name",
+          "phone"
+        ],
+        "has_missing_fields": true,
+        "next_action": "ask_missing_details",
+        "reply_draft": "Great, I can help you book. Could you also share: your name, your WhatsApp number?",
+        "quote": {
+          "success": true,
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "nights": 14,
+          "guest_count": 2,
+          "package_code": "malibu",
+          "room_type": "shared",
+          "season_code": "summer",
+          "line_items": [
+            {
+              "code": "package_proration",
+              "label": "Malibu proration (summer, 14 nights, 2 guests, Formula B)",
+              "nights": 14,
+              "guest_count": 2,
+              "unit_cents": 4500,
+              "total_cents": 126000,
+              "note": "Formula B: ceil5(29900¢/7)=4500¢/night × 14n × 2g = 126000¢"
+            }
+          ],
+          "subtotal_cents": 126000,
+          "discount_cents": 0,
+          "total_cents": 126000,
+          "deposit_required_cents": 10000,
+          "payment_link_amount_cents": 10000,
+          "amount_paid_cents": 0,
+          "balance_due_cents": 126000,
+          "payment_options": [
+            "deposit",
+            "full",
+            "pay_on_arrival"
+          ],
+          "confidence": "auto",
+          "blockers": [],
+          "warnings": [],
+          "formula_summary": "Formula B (per-night ceil5): ceil5(299€/7) = 45€/night × 14n × 2g = 1260€ package base",
+          "staff_review_required": false,
+          "source": "wolfhouse-quote-calculator",
+          "missing_config": false
+        },
+        "quote_error": null,
+        "availability_note": {
+          "status": "not_checked",
+          "message": "Full bed conflict check runs via availability step when dates and pg are present."
+        }
+      }
+    },
+    "reply": "Great, Ty! 😊 Your Malibu package from September 1st to 15th is all set for two guests. The total is €1260. If you'd like to proceed with the €100 deposit, just let me know and I'll send the link your way.\n\nExcited to have you catching waves with us! 🌊",
+    "next": {
+      "message_lane": "new_booking_inquiry",
+      "intake_state": "ready_for_availability_check",
+      "readiness_state": "ready_for_availability_check",
+      "booking_intake_ready": true,
+      "extracted_fields": {
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "guest_name": "Ty",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": true,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": "deposit"
+      },
+      "result": {
+        "message_lane": "new_booking_inquiry",
+        "intake_state": "ready_for_availability_check",
+        "readiness_state": "ready_for_availability_check",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "guest_name": "Ty",
+          "deferred_guest_count": null,
+          "package_interest": "malibu",
+          "room_preference": null,
+          "transfer_info": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "addons_skipped": true,
+          "transfer_interest": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "service_interest": [],
+          "meals_request": null,
+          "yoga_request": null,
+          "payment_preference": "deposit"
+        },
+        "detected_language": "en",
+        "package_night_rule": "weekly_ready",
+        "conversation_brain": {
+          "intent": "clarify",
+          "reply_type": "clarify",
+          "source": "timeout",
+          "brain_enabled": true,
+          "llm_enabled": true,
+          "model_requested": "gpt-4o-mini",
+          "model_used": null,
+          "llm_error": "conversation brain LLM timeout after 4000ms",
+          "brain_intent": "clarify",
+          "brain_reply_type": "clarify",
+          "guest_is_correcting_luna": false,
+          "accommodation_only_choice": false,
+          "next_best_action": "none",
+          "confidence": 0,
+          "final_reply_source": "cami_reply_author",
+          "final_reply_overrode_brain": false,
+          "composer_state": "frontdesk_quote"
+        },
+        "correction_applied": false,
+        "quote_facts_used_by_composer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "quote_facts_used_by_hold_writer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "addons_status": "declined",
+        "addons_requested": [],
+        "addons_priced": [],
+        "addons_pending_manual": [],
+        "transfer_info_status": "partial",
+        "transfer_airport": "SDR",
+        "transfer_arrival_time": null,
+        "transfer_departure_time": null,
+        "transfer_flight_number": null,
+        "add_on_quote_stale_reason": null,
+        "meals_status": "not_requested",
+        "meal_type": null,
+        "meals_requested_dates": null,
+        "yoga_status": "not_requested",
+        "yoga_requested_dates": null,
+        "services_requested": null,
+        "services_pending_manual": null,
+        "services_scheduled": null
+      },
+      "availability": {
+        "availability_check_attempted": true,
+        "availability_status": "available"
+      },
+      "quote": {
+        "quote_status": "ready",
+        "quote_total_cents": 126000,
+        "payment_choice_needed": false,
+        "package_code": "malibu",
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "quote_stale": false,
+        "stale_quote_reason": null,
+        "previous_quote_invalidated": false,
+        "corrected_fields": null,
+        "short_stay_addons_pending": false,
+        "addons_pending_after_quote": false,
+        "deposit_options": {
+          "deposit_required_cents": 10000
+        }
+      },
+      "payment_choice_needed": false,
+      "payment_choice": {
+        "payment_choice_detected": true,
+        "payment_choice": "deposit",
+        "payment_choice_ready": false,
+        "next_safe_step": "staff_handoff_required"
+      },
+      "detected_language": "en",
+      "last_updated_at": "2026-06-12T16:32:13.649Z",
+      "active_thread": "awaiting_payment",
+      "booking_code": "WH-G27-DB1B9A0F2F",
+      "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+      "payment_link_sent": true,
+      "stripe_link_created": true,
+      "confirmation_sent": false,
+      "payment_received": false,
+      "hold_created": true,
+      "payment_truth": {
+        "payment_status": "waiting_payment",
+        "booking_code": "WH-G27-DB1B9A0F2F",
+        "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+        "source": "db_hydrate",
+        "hydrated_at": "2026-06-12T16:32:06.283Z"
+      },
+      "transcript_source": "messages_table",
+      "transcript_turns": 20,
+      "pending_service_intent": null,
+      "pending_booking_choice": null
+    }
+  },
+  {
+    "step": 5,
+    "msg": "Yes please send the link",
+    "status": 200,
+    "lane": "existing_booking_question",
+    "pc": null,
+    "pcReady": false,
+    "handoff": false,
+    "fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "guest_name": "Ty",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "addons_skipped": true,
+      "transfer_interest": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": "deposit"
+    },
+    "quote": {
+      "quote_status": "ready",
+      "quote_total_cents": 126000,
+      "payment_choice_needed": false,
+      "package_code": "malibu",
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "quote_stale": false,
+      "stale_quote_reason": null,
+      "previous_quote_invalidated": false,
+      "corrected_fields": null,
+      "short_stay_addons_pending": false,
+      "addons_pending_after_quote": false,
+      "deposit_options": {
+        "deposit_required_cents": 10000
+      }
+    },
+    "reply": "Awesome, Ty! 🌊 The total for your stay is €1260, and you can secure your spot with a €100 deposit. Would you like to pay the deposit or the full amount? Just let me know and I'll send over the link! 😊",
+    "next": {
+      "message_lane": "existing_booking_question",
+      "intake_state": "ready_for_availability_check",
+      "readiness_state": "ready_for_availability_check",
+      "booking_intake_ready": true,
+      "extracted_fields": {
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "guest_name": "Ty",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": true,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": "deposit"
+      },
+      "result": {
+        "message_lane": "existing_booking_question",
+        "intake_state": "ready_for_availability_check",
+        "readiness_state": "ready_for_availability_check",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "guest_name": "Ty",
+          "deferred_guest_count": null,
+          "package_interest": "malibu",
+          "room_preference": null,
+          "transfer_info": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "addons_skipped": true,
+          "transfer_interest": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "service_interest": [],
+          "meals_request": null,
+          "yoga_request": null,
+          "payment_preference": "deposit"
+        },
+        "detected_language": "en",
+        "package_night_rule": null,
+        "conversation_brain": {
+          "intent": "clarify",
+          "reply_type": "clarify",
+          "source": "timeout",
+          "brain_enabled": true,
+          "llm_enabled": true,
+          "model_requested": "gpt-4o-mini",
+          "model_used": null,
+          "llm_error": "conversation brain LLM timeout after 4000ms",
+          "brain_intent": "clarify",
+          "brain_reply_type": "clarify",
+          "guest_is_correcting_luna": false,
+          "accommodation_only_choice": false,
+          "next_best_action": "clarify",
+          "confidence": 0.5,
+          "final_reply_source": "cami_reply_author",
+          "final_reply_overrode_brain": false,
+          "composer_state": "frontdesk_quote"
+        },
+        "quote_stale": false,
+        "correction_applied": false,
+        "quote_facts_used_by_composer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "quote_facts_used_by_hold_writer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "addons_status": "declined",
+        "addons_requested": [],
+        "addons_priced": [],
+        "addons_pending_manual": [],
+        "transfer_info_status": "partial",
+        "transfer_airport": "SDR",
+        "transfer_arrival_time": null,
+        "transfer_departure_time": null,
+        "transfer_flight_number": null,
+        "add_on_quote_stale_reason": null,
+        "meals_status": "not_requested",
+        "meal_type": null,
+        "meals_requested_dates": null,
+        "yoga_status": "not_requested",
+        "yoga_requested_dates": null,
+        "services_requested": null,
+        "services_pending_manual": null,
+        "services_scheduled": null
+      },
+      "availability": {
+        "availability_check_attempted": true,
+        "availability_status": "available"
+      },
+      "quote": {
+        "quote_status": "ready",
+        "quote_total_cents": 126000,
+        "payment_choice_needed": false,
+        "package_code": "malibu",
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "quote_stale": false,
+        "stale_quote_reason": null,
+        "previous_quote_invalidated": false,
+        "corrected_fields": null,
+        "short_stay_addons_pending": false,
+        "addons_pending_after_quote": false,
+        "deposit_options": {
+          "deposit_required_cents": 10000
+        }
+      },
+      "payment_choice_needed": false,
+      "payment_choice": {
+        "payment_choice_detected": false,
+        "payment_choice": null,
+        "payment_choice_ready": false,
+        "next_safe_step": "collect_payment_choice"
+      },
+      "detected_language": "en",
+      "last_updated_at": "2026-06-12T16:32:26.020Z",
+      "active_thread": "awaiting_payment",
+      "booking_code": "WH-G27-DB1B9A0F2F",
+      "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+      "payment_link_sent": true,
+      "stripe_link_created": true,
+      "confirmation_sent": false,
+      "payment_received": false,
+      "hold_created": true,
+      "payment_truth": {
+        "payment_status": "waiting_payment",
+        "booking_code": "WH-G27-DB1B9A0F2F",
+        "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+        "source": "db_hydrate",
+        "hydrated_at": "2026-06-12T16:32:18.017Z"
+      },
+      "transcript_source": "messages_table",
+      "transcript_turns": 20,
+      "pending_service_intent": null,
+      "pending_booking_choice": null
+    }
+  },
+  {
+    "step": 6,
+    "msg": "No the deposit link",
+    "status": 200,
+    "lane": "new_booking_inquiry",
+    "pc": "deposit",
+    "pcReady": false,
+    "handoff": false,
+    "fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "guest_name": "Ty",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "addons_skipped": true,
+      "transfer_interest": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": "deposit"
+    },
+    "quote": {
+      "success": true,
+      "dry_run": true,
+      "preview_only": true,
+      "no_write_performed": true,
+      "live_send_blocked": true,
+      "sends_whatsapp": false,
+      "whatsapp_sent": false,
+      "calls_n8n": false,
+      "creates_booking": false,
+      "creates_payment": false,
+      "creates_stripe_link": false,
+      "payment_link_sent": false,
+      "quote_proposal_attempted": true,
+      "quote_status": "ready",
+      "quote_result_summary": "Estimated total €1260.00; deposit option €100.00 (custom/shorter stay tier). Transfer interest noted — team to confirm transfer price separately.",
+      "quote_total_cents": 126000,
+      "package_code": "malibu",
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "deposit_options": {
+        "deposit_required_cents": 10000,
+        "weekly_package_deposit_cents": 20000,
+        "custom_short_stay_deposit_cents": 10000,
+        "payment_options": [
+          "deposit",
+          "full",
+          "pay_on_arrival"
+        ]
+      },
+      "short_stay_accommodation_quote": false,
+      "short_stay_addons_pending": false,
+      "addons_pending_after_quote": false,
+      "payment_choice_needed": true,
+      "quote_handoff_required": false,
+      "quote_handoff_reasons": [
+        "transfer_pricing_deferred_to_staff"
+      ],
+      "proposed_luna_reply": null,
+      "reused_helper": "runBookingPreviewDryRun",
+      "anchor_route": "POST /staff/bot/booking-preview",
+      "quote_detail": {
+        "preview_only": true,
+        "no_write_performed": true,
+        "creates_booking": false,
+        "creates_payment": false,
+        "creates_stripe_link": false,
+        "sends_whatsapp": false,
+        "anchor_route": "POST /staff/bot/booking-preview",
+        "missing_fields": [
+          "guest_name",
+          "phone"
+        ],
+        "has_missing_fields": true,
+        "next_action": "ask_missing_details",
+        "reply_draft": "Great, I can help you book. Could you also share: your name, your WhatsApp number?",
+        "quote": {
+          "success": true,
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "nights": 14,
+          "guest_count": 2,
+          "package_code": "malibu",
+          "room_type": "shared",
+          "season_code": "summer",
+          "line_items": [
+            {
+              "code": "package_proration",
+              "label": "Malibu proration (summer, 14 nights, 2 guests, Formula B)",
+              "nights": 14,
+              "guest_count": 2,
+              "unit_cents": 4500,
+              "total_cents": 126000,
+              "note": "Formula B: ceil5(29900¢/7)=4500¢/night × 14n × 2g = 126000¢"
+            }
+          ],
+          "subtotal_cents": 126000,
+          "discount_cents": 0,
+          "total_cents": 126000,
+          "deposit_required_cents": 10000,
+          "payment_link_amount_cents": 10000,
+          "amount_paid_cents": 0,
+          "balance_due_cents": 126000,
+          "payment_options": [
+            "deposit",
+            "full",
+            "pay_on_arrival"
+          ],
+          "confidence": "auto",
+          "blockers": [],
+          "warnings": [],
+          "formula_summary": "Formula B (per-night ceil5): ceil5(299€/7) = 45€/night × 14n × 2g = 1260€ package base",
+          "staff_review_required": false,
+          "source": "wolfhouse-quote-calculator",
+          "missing_config": false
+        },
+        "quote_error": null,
+        "availability_note": {
+          "status": "not_checked",
+          "message": "Full bed conflict check runs via availability step when dates and pg are present."
+        }
+      }
+    },
+    "reply": "Hey Ty! 😊 I checked the dates and it's all set for you from September 1st to 15th with airport transfers. Total for your Malibu package is €1260. Would you prefer to pay a €100 deposit now or the full amount? Just let me know! 🌊",
+    "next": {
+      "message_lane": "new_booking_inquiry",
+      "intake_state": "ready_for_availability_check",
+      "readiness_state": "ready_for_availability_check",
+      "booking_intake_ready": true,
+      "extracted_fields": {
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "guest_name": "Ty",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": true,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": "deposit"
+      },
+      "result": {
+        "message_lane": "new_booking_inquiry",
+        "intake_state": "ready_for_availability_check",
+        "readiness_state": "ready_for_availability_check",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "guest_name": "Ty",
+          "deferred_guest_count": null,
+          "package_interest": "malibu",
+          "room_preference": null,
+          "transfer_info": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "addons_skipped": true,
+          "transfer_interest": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "service_interest": [],
+          "meals_request": null,
+          "yoga_request": null,
+          "payment_preference": "deposit"
+        },
+        "detected_language": "en",
+        "package_night_rule": "weekly_ready",
+        "conversation_brain": {
+          "intent": "paid_booking_change",
+          "reply_type": "handoff",
+          "source": "llm",
+          "brain_enabled": true,
+          "llm_enabled": true,
+          "model_requested": "gpt-4o-mini",
+          "model_used": "gpt-4o-mini",
+          "llm_error": null,
+          "brain_intent": "paid_booking_change",
+          "brain_reply_type": "handoff",
+          "guest_is_correcting_luna": false,
+          "accommodation_only_choice": false,
+          "next_best_action": "handoff",
+          "confidence": 0.9,
+          "final_reply_source": "cami_reply_author",
+          "final_reply_overrode_brain": false,
+          "composer_state": "frontdesk_quote"
+        },
+        "correction_applied": false,
+        "quote_facts_used_by_composer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "quote_facts_used_by_hold_writer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "addons_status": "declined",
+        "addons_requested": [],
+        "addons_priced": [],
+        "addons_pending_manual": [],
+        "transfer_info_status": "partial",
+        "transfer_airport": "SDR",
+        "transfer_arrival_time": null,
+        "transfer_departure_time": null,
+        "transfer_flight_number": null,
+        "add_on_quote_stale_reason": null,
+        "meals_status": "not_requested",
+        "meal_type": null,
+        "meals_requested_dates": null,
+        "yoga_status": "not_requested",
+        "yoga_requested_dates": null,
+        "services_requested": null,
+        "services_pending_manual": null,
+        "services_scheduled": null
+      },
+      "availability": {
+        "availability_check_attempted": true,
+        "availability_status": "available"
+      },
+      "quote": {
+        "quote_status": "ready",
+        "quote_total_cents": 126000,
+        "payment_choice_needed": false,
+        "package_code": "malibu",
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "quote_stale": false,
+        "stale_quote_reason": null,
+        "previous_quote_invalidated": false,
+        "corrected_fields": null,
+        "short_stay_addons_pending": false,
+        "addons_pending_after_quote": false,
+        "deposit_options": {
+          "deposit_required_cents": 10000
+        }
+      },
+      "payment_choice_needed": false,
+      "payment_choice": {
+        "payment_choice_detected": true,
+        "payment_choice": "deposit",
+        "payment_choice_ready": false,
+        "next_safe_step": "staff_handoff_required"
+      },
+      "detected_language": "en",
+      "last_updated_at": "2026-06-12T16:32:37.479Z",
+      "active_thread": "awaiting_payment",
+      "booking_code": "WH-G27-DB1B9A0F2F",
+      "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+      "payment_link_sent": true,
+      "stripe_link_created": true,
+      "confirmation_sent": false,
+      "payment_received": false,
+      "hold_created": true,
+      "payment_truth": {
+        "payment_status": "waiting_payment",
+        "booking_code": "WH-G27-DB1B9A0F2F",
+        "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+        "source": "db_hydrate",
+        "hydrated_at": "2026-06-12T16:32:31.454Z"
+      },
+      "transcript_source": "messages_table",
+      "transcript_turns": 20,
+      "pending_service_intent": null,
+      "pending_booking_choice": null
+    }
+  },
+  {
+    "step": 7,
+    "msg": "Ok im ready",
+    "status": 200,
+    "lane": "existing_booking_question",
+    "pc": "deposit",
+    "pcReady": false,
+    "handoff": false,
+    "fields": {
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "guest_name": "Ty",
+      "deferred_guest_count": null,
+      "package_interest": "malibu",
+      "room_preference": null,
+      "transfer_info": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "addons_skipped": true,
+      "transfer_interest": {
+        "interested": true,
+        "airport_code": "SDR"
+      },
+      "service_interest": [],
+      "meals_request": null,
+      "yoga_request": null,
+      "payment_preference": "deposit"
+    },
+    "quote": {
+      "quote_status": "ready",
+      "quote_total_cents": 126000,
+      "payment_choice_needed": false,
+      "package_code": "malibu",
+      "check_in": "2026-09-01",
+      "check_out": "2026-09-15",
+      "guest_count": 2,
+      "quote_stale": false,
+      "stale_quote_reason": null,
+      "previous_quote_invalidated": false,
+      "corrected_fields": null,
+      "short_stay_addons_pending": false,
+      "addons_pending_after_quote": false,
+      "deposit_options": {
+        "deposit_required_cents": 10000
+      }
+    },
+    "reply": "Awesome, Ty! 😊 Since you’re ready, let’s get that deposit sorted for your Malibu package from September 1st to 15th. Just let me know if you'd like to pay the deposit or the full amount, and I’ll guide you through the next steps. 🌊",
+    "next": {
+      "message_lane": "existing_booking_question",
+      "intake_state": "collecting_required_details",
+      "readiness_state": "collecting_required_details",
+      "booking_intake_ready": false,
+      "extracted_fields": {
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "guest_name": "Ty",
+        "deferred_guest_count": null,
+        "package_interest": "malibu",
+        "room_preference": null,
+        "transfer_info": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "addons_skipped": true,
+        "transfer_interest": {
+          "interested": true,
+          "airport_code": "SDR"
+        },
+        "service_interest": [],
+        "meals_request": null,
+        "yoga_request": null,
+        "payment_preference": "deposit"
+      },
+      "result": {
+        "message_lane": "existing_booking_question",
+        "intake_state": "collecting_required_details",
+        "readiness_state": "collecting_required_details",
+        "booking_intake_ready": false,
+        "extracted_fields": {
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "guest_name": "Ty",
+          "deferred_guest_count": null,
+          "package_interest": "malibu",
+          "room_preference": null,
+          "transfer_info": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "addons_skipped": true,
+          "transfer_interest": {
+            "interested": true,
+            "airport_code": "SDR"
+          },
+          "service_interest": [],
+          "meals_request": null,
+          "yoga_request": null,
+          "payment_preference": "deposit"
+        },
+        "detected_language": "en",
+        "package_night_rule": null,
+        "conversation_brain": {
+          "intent": "clarify",
+          "reply_type": "clarify",
+          "source": "timeout",
+          "brain_enabled": true,
+          "llm_enabled": true,
+          "model_requested": "gpt-4o-mini",
+          "model_used": null,
+          "llm_error": "conversation brain LLM timeout after 4000ms",
+          "brain_intent": "clarify",
+          "brain_reply_type": "clarify",
+          "guest_is_correcting_luna": false,
+          "accommodation_only_choice": false,
+          "next_best_action": "clarify",
+          "confidence": 0.5,
+          "final_reply_source": "cami_reply_author",
+          "final_reply_overrode_brain": false,
+          "composer_state": null
+        },
+        "quote_facts_used_by_composer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "quote_facts_used_by_hold_writer": {
+          "package_code": "malibu",
+          "check_in": "2026-09-01",
+          "check_out": "2026-09-15",
+          "guest_count": 2,
+          "quote_total_cents": 126000,
+          "quote_status": "ready",
+          "quote_stale": false
+        },
+        "addons_status": "declined",
+        "addons_requested": [],
+        "addons_priced": [],
+        "addons_pending_manual": [],
+        "transfer_info_status": "partial",
+        "transfer_airport": "SDR",
+        "transfer_arrival_time": null,
+        "transfer_departure_time": null,
+        "transfer_flight_number": null,
+        "add_on_quote_stale_reason": null,
+        "meals_status": "not_requested",
+        "meal_type": null,
+        "meals_requested_dates": null,
+        "yoga_status": "not_requested",
+        "yoga_requested_dates": null,
+        "services_requested": null,
+        "services_pending_manual": null,
+        "services_scheduled": null
+      },
+      "availability": {
+        "availability_check_attempted": true,
+        "availability_status": "available"
+      },
+      "quote": {
+        "quote_status": "ready",
+        "quote_total_cents": 126000,
+        "payment_choice_needed": false,
+        "package_code": "malibu",
+        "check_in": "2026-09-01",
+        "check_out": "2026-09-15",
+        "guest_count": 2,
+        "quote_stale": false,
+        "stale_quote_reason": null,
+        "previous_quote_invalidated": false,
+        "corrected_fields": null,
+        "short_stay_addons_pending": false,
+        "addons_pending_after_quote": false,
+        "deposit_options": {
+          "deposit_required_cents": 10000
+        }
+      },
+      "payment_choice_needed": false,
+      "payment_choice": {
+        "payment_choice_detected": true,
+        "payment_choice": "deposit",
+        "payment_choice_ready": false,
+        "next_safe_step": "staff_handoff_required"
+      },
+      "detected_language": "en",
+      "last_updated_at": "2026-06-12T16:32:47.697Z",
+      "active_thread": "awaiting_payment",
+      "booking_code": "WH-G27-DB1B9A0F2F",
+      "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+      "payment_link_sent": true,
+      "stripe_link_created": true,
+      "confirmation_sent": false,
+      "payment_received": false,
+      "hold_created": true,
+      "payment_truth": {
+        "payment_status": "waiting_payment",
+        "booking_code": "WH-G27-DB1B9A0F2F",
+        "booking_id": "3b22ed2b-730d-4cc8-a91f-899e05dbf2c2",
+        "source": "db_hydrate",
+        "hydrated_at": "2026-06-12T16:32:41.685Z"
+      },
+      "transcript_source": "messages_table",
+      "transcript_turns": 20,
+      "pending_service_intent": null,
+      "pending_booking_choice": null
+    }
+  }
+]

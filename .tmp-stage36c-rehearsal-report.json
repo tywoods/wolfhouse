@@ -1,0 +1,301 @@
+{
+  "stage": "36c",
+  "started_at": "2026-06-11T08:09:15.502Z",
+  "preflight": {
+    "healthz": "200",
+    "revision": {
+      "name": "wh-staging-staff-api--stage35b-messy-flow",
+      "health": "Healthy",
+      "image": "whstagingacr.azurecr.io/wh-staff-api:1d8a6d3-stage35b-messy-flow-proof"
+    },
+    "gates_before": {
+      "status": "checked",
+      "gates": {
+        "WHATSAPP_DRY_RUN": "true",
+        "OPEN_DEMO_WHATSAPP_ENABLED": "true",
+        "OPEN_DEMO_BOOKING_WRITES_ENABLED": "false",
+        "OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED": "false",
+        "OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED": "false",
+        "OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+        "WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+        "LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST": null
+      }
+    },
+    "baseline_ok": true,
+    "stripe_mode": "sk_test",
+    "n8n": {
+      "status": "checked",
+      "workflow_id": "stage27demoLWrite01",
+      "workflow_active": false,
+      "webhook_entity_rows": 0
+    },
+    "production_untouched": true
+  },
+  "mode_a": {
+    "results": [
+      {
+        "question": "Who asked for yoga?",
+        "success": true,
+        "intent": "services.pending_yoga",
+        "read_only": true,
+        "no_write": true,
+        "sends_whatsapp": true,
+        "answer_preview": "Pending yoga requests (1):\n\n* Stage33e Guest — WH-G27-4C1BA48A9A — Jul 10–Jul 17: Yoga — requested by guest, needs scheduling (requested Jun 11)\n\nThese are Luna guest requests — still need staff scheduling (no date/time set yet).",
+        "staff_copy_clean": true,
+        "pending_services_readable": true
+      },
+      {
+        "question": "Who needs meals scheduled?",
+        "success": true,
+        "intent": "services.pending_meals",
+        "read_only": true,
+        "no_write": true,
+        "sends_whatsapp": true,
+        "answer_preview": "No pending meals requests need staff follow-up right now. ✅",
+        "staff_copy_clean": true,
+        "pending_services_readable": true
+      },
+      {
+        "question": "Show pending manual services",
+        "success": true,
+        "intent": "services.pending_manual",
+        "read_only": true,
+        "no_write": true,
+        "sends_whatsapp": true,
+        "answer_preview": "Pending manual service requests (1):\n\n* Stage33e Guest — WH-G27-4C1BA48A9A — Jul 10–Jul 17: Yoga — requested by guest, needs scheduling (requested Jun 11)\n\nThese are Luna guest requests — still need staff scheduling (no date/time set yet).",
+        "staff_copy_clean": true,
+        "pending_services_readable": true
+      },
+      {
+        "question": "What does WH-G27-FCD6347442 need?",
+        "success": true,
+        "intent": "bookings.lookup",
+        "read_only": true,
+        "no_write": true,
+        "sends_whatsapp": true,
+        "answer_preview": "Stage30d Guest is booked Jul 1–Jul 5 in DEMO-R1-DEMO-R1-B1.\n\nBooking: WH-G27-FCD6347442\nGuests: 1 guest\nStatus: Hold\nPayment: Deposit paid, €80 balance due",
+        "staff_copy_clean": true,
+        "pending_services_readable": true
+      },
+      {
+        "question": "Who still owes money?",
+        "success": true,
+        "intent": "payments.balance_due",
+        "read_only": true,
+        "no_write": true,
+        "sends_whatsapp": true,
+        "answer_preview": "People with balance due:\n\n1. Ty — €840 due — May 3–May 9 — DEMO-R1-DEMO-R1-B1, DEMO-R2-DEMO-R2-B1, DEMO-R2-DEMO-R2-B2 — Link sent\n2. jamie — €175 due — May 12–May 16 — DEMO-R2-DEMO-R2-B1 — Link sent\n3. Ty — €465 due — Jun 5–Jun 9 — DEMO-R1-DEMO-R1-B1, DEMO-R1-DEMO-R1-B2 — No active link\n4. Turnover Checkout — €170 due — Jun 7–Jun 12 — DEMO-R2-DEMO-R2-B1 — Deposit paid / Link sent\n5. Ty — €290 due ",
+        "staff_copy_clean": true,
+        "pending_services_readable": true
+      },
+      {
+        "question": "Who is checking in today?",
+        "success": true,
+        "intent": "bookings.arrivals_today",
+        "read_only": true,
+        "no_write": true,
+        "sends_whatsapp": true,
+        "answer_preview": "No arrivals are currently scheduled for today.",
+        "staff_copy_clean": true,
+        "pending_services_readable": true
+      },
+      {
+        "question": "Who is checking out tomorrow?",
+        "success": true,
+        "intent": "bookings.checkouts_tomorrow",
+        "read_only": true,
+        "no_write": true,
+        "sends_whatsapp": true,
+        "answer_preview": "No checkouts are currently scheduled for tomorrow.",
+        "staff_copy_clean": true,
+        "pending_services_readable": true
+      },
+      {
+        "question": "What services need staff follow-up?",
+        "success": true,
+        "intent": "services.pending_manual",
+        "read_only": true,
+        "no_write": true,
+        "sends_whatsapp": true,
+        "answer_preview": "Pending manual service requests (1):\n\n* Stage33e Guest — WH-G27-4C1BA48A9A — Jul 10–Jul 17: Yoga — requested by guest, needs scheduling (requested Jun 11)\n\nThese are Luna guest requests — still need staff scheduling (no date/time set yet).",
+        "staff_copy_clean": true,
+        "pending_services_readable": true
+      }
+    ],
+    "sample_booking_code": "WH-G27-FCD6347442",
+    "pass": true
+  },
+  "mode_b_script1": {
+    "transcript": [
+      {
+        "inbound": "hi",
+        "http": 200,
+        "wamid": "wamid.stage36c.1781165457528.0992ecfe"
+      },
+      {
+        "inbound": "book a stay",
+        "http": 200,
+        "wamid": "wamid.stage36c.1781165477226.74f9738a"
+      },
+      {
+        "inbound": "July 1-5",
+        "http": 200,
+        "wamid": "wamid.stage36c.1781165495670.445819c0"
+      },
+      {
+        "inbound": "1",
+        "http": 200,
+        "wamid": "wamid.stage36c.1781165512514.39e1ecd4"
+      },
+      {
+        "inbound": "no thanks, I have my own stuff",
+        "http": 200,
+        "wamid": "wamid.stage36c.1781165534620.45439a00"
+      },
+      {
+        "inbound": "deposit",
+        "http": 200,
+        "wamid": "wamid.stage36c.1781165551210.d5e8514f"
+      }
+    ],
+    "inspect": {
+      "turns": [
+        {
+          "inbound": "hi",
+          "outbound": "",
+          "forbidden_guest": false
+        },
+        {
+          "inbound": "book a stay",
+          "outbound": "",
+          "forbidden_guest": false
+        },
+        {
+          "inbound": "July 1-5",
+          "outbound": "",
+          "forbidden_guest": false
+        },
+        {
+          "inbound": "1",
+          "outbound": "",
+          "forbidden_guest": false
+        },
+        {
+          "inbound": "no thanks, I have my own stuff",
+          "outbound": "",
+          "forbidden_guest": false
+        },
+        {
+          "inbound": "deposit",
+          "outbound": "",
+          "forbidden_guest": false
+        }
+      ],
+      "bookings": [],
+      "payment": null,
+      "pendingYoga": [],
+      "stripeLinkSends": 1,
+      "sends": [
+        {
+          "id": "671ef6bc-b8e4-4fb6-b37a-754c37c74caa",
+          "status": "sent",
+          "message_text": "Good news — we have space for July 10 to July 17. Malibu comes to €299. Would you prefer to pay the €200 deposit or the full €299?",
+          "provider_message_id": "wamid.HBgMNDkxNzI2NDIyMzA3FQIAERgSQkVGMUJEMjlGQUQ1RjJEODhDAA==",
+          "send_kind": "staff_reply",
+          "created_at": "2026-06-11 08:11:03.562585+00"
+        },
+        {
+          "id": "135f158f-5234-4848-8686-73f1b2585c22",
+          "status": "sent",
+          "message_text": "Good news — we have space for July 10 to July 17. Malibu comes to €299. Would you prefer to pay the €200 deposit or the full €299?",
+          "provider_message_id": "wamid.HBgMNDkxNzI2NDIyMzA3FQIAERgSNUI5NEQzMzMxRDg5Q0IyMTg5AA==",
+          "send_kind": "staff_reply",
+          "created_at": "2026-06-11 08:11:22.644031+00"
+        },
+        {
+          "id": "ec5755a7-6ecb-4b7b-80c6-8ff316429e74",
+          "status": "sent",
+          "message_text": "Got it — updating those dates for July 1 to July 5. The stay comes to €180. To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €180?",
+          "provider_message_id": "wamid.HBgMNDkxNzI2NDIyMzA3FQIAERgSOTlFRUFCODRFMThGNkRFMDE4AA==",
+          "send_kind": "staff_reply",
+          "created_at": "2026-06-11 08:11:39.491647+00"
+        },
+        {
+          "id": "d31a9bb5-33db-42ff-ab3e-8e0c1b0acdaf",
+          "status": "sent",
+          "message_text": "Perfect — accommodation only then 😊 To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €180?",
+          "provider_message_id": "wamid.HBgMNDkxNzI2NDIyMzA3FQIAERgSMkUxMjRFN0Y4OEE1ODBFOENFAA==",
+          "send_kind": "staff_reply",
+          "created_at": "2026-06-11 08:12:01.196527+00"
+        },
+        {
+          "id": "86f3ed22-8607-445e-83c6-26af41e83503",
+          "status": "sent",
+          "message_text": "Perfect — accommodation only then 😊 To hold the spot, would you prefer to pay the €100 deposit now, or pay the full €180?",
+          "provider_message_id": "wamid.HBgMNDkxNzI2NDIyMzA3FQIAERgSODlDRTZGQjkyOEI2QTI3QTE0AA==",
+          "send_kind": "staff_reply",
+          "created_at": "2026-06-11 08:12:17.939316+00"
+        },
+        {
+          "id": "e202c361-7597-44bc-b52f-de6b763dcab8",
+          "status": "sent",
+          "message_text": "Perfect — I've held your stay. You can pay the €100 deposit here: https://checkout.stripe.com/c/pay/cs_test_a1aJwO8TyIsEkSKeHp85LTDI4Oe5smyZR3BOfT98X6JD61FG7xOxpamlCc#fidnandhYHdWcXxpYCc%2FJ2FgY2RwaXEnKSdicGRmZGhqaWBTZHdsZGtxJz8nZmprcXdqaScpJ2R1bE5gfCc%2FJ3VuWnFgdnFaMDRRZHxMMUI2M3RXYGNzYVV8MmdSV2x1VjBgNmE3QlRqZ291Z3JjR2k0SHZrX2dVaEJLM0poamdTd31uN3ZMc0hScENQdDw1TDJWSHxLZzYya0RRPE1qQXM1NWJwSGxPVXZhJyknY3dqaFZgd3Ngdyc%2FcXdwYCknZ2RmbmJ3anBrYUZqaWp3Jz8nJmNjY2NjYycpJ2lkfGpwcVF8dWAnPyd2bGtiaWBabHFgaCcpJ2BrZGdpYFVpZGZgbWppYWB3dic%2FcXdwYHgl\n\nOnce that's paid, your booking will be confirmed.",
+          "provider_message_id": "wamid.HBgMNDkxNzI2NDIyMzA3FQIAERgSQzI0Mzk5RThFMEZEODQwMkZEAA==",
+          "send_kind": "staff_reply",
+          "created_at": "2026-06-11 08:12:37.442705+00"
+        }
+      ]
+    },
+    "checks": {
+      "natural_replies": true,
+      "quote_180": false,
+      "no_proactive_yoga": true,
+      "deposit_turn": true,
+      "stripe_link_sent": true,
+      "hold_created": false,
+      "no_confirmation": true,
+      "booking_code": null,
+      "payment_draft_id": null,
+      "checkout_url": null
+    }
+  },
+  "mode_b_script2": null,
+  "restore": {
+    "gates_after": {
+      "status": "checked",
+      "gates": {
+        "WHATSAPP_DRY_RUN": "true",
+        "OPEN_DEMO_WHATSAPP_ENABLED": "true",
+        "OPEN_DEMO_BOOKING_WRITES_ENABLED": "false",
+        "OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED": "false",
+        "OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED": "false",
+        "OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+        "WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+        "LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST": null
+      }
+    },
+    "healthz": "200",
+    "n8n": {
+      "status": "checked",
+      "workflow_id": "stage27demoLWrite01",
+      "workflow_active": false,
+      "webhook_entity_rows": 0
+    },
+    "baseline_ok": true
+  },
+  "overall": "PARTIAL",
+  "mode_b_gates": {
+    "status": "checked",
+    "gates": {
+      "WHATSAPP_DRY_RUN": "false",
+      "OPEN_DEMO_WHATSAPP_ENABLED": "true",
+      "OPEN_DEMO_BOOKING_WRITES_ENABLED": "true",
+      "OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED": "true",
+      "OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED": "true",
+      "OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+      "WHATSAPP_PHONE_NUMBER_ID": "1152900101233109",
+      "LUNA_CONFIRMATION_LIVE_SEND_ALLOWLIST": null
+    }
+  },
+  "ended_at": "2026-06-11T08:13:55.590Z"
+}
