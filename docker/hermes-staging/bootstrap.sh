@@ -25,7 +25,7 @@ EOF
   [ -n "${WHATSAPP_CLOUD_VERIFY_TOKEN:-}" ]             && printf 'WHATSAPP_CLOUD_VERIFY_TOKEN=%s\n' "$WHATSAPP_CLOUD_VERIFY_TOKEN"
   # Allowlist + port (webhook shares gateway port 8642)
   printf 'WHATSAPP_CLOUD_ALLOW_ALL_USERS=true\n'
-  printf 'WHATSAPP_CLOUD_WEBHOOK_PORT=8642\n'
+  # Do not bind WhatsApp Cloud to 8642 here; API server owns ACA ingress port.
   printf 'GATEWAY_ALLOW_ALL_USERS=true\n'
   # Wolfhouse Staff API base URL for Luna tool calls
   [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
