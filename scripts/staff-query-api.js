@@ -11355,12 +11355,11 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
                   p.status::text AS payment_status,
                   p.payment_kind,
                   p.amount_due_cents,
-                  p.amount_paid_cents,
                   p.checkout_url,
                   p.stripe_checkout_session_id,
                   b.booking_code,
                   b.payment_status::text AS booking_payment_status,
-                  b.paid_cents,
+                  b.amount_paid_cents,
                   b.balance_due_cents,
                   c.slug AS client_slug
              FROM payments p
@@ -11379,12 +11378,11 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
                 p.status::text AS payment_status,
                 p.payment_kind,
                 p.amount_due_cents,
-                p.amount_paid_cents,
                 p.checkout_url,
                 p.stripe_checkout_session_id,
                 b.booking_code,
                 b.payment_status::text AS booking_payment_status,
-                b.paid_cents,
+                b.amount_paid_cents,
                 b.balance_due_cents,
                 c.slug AS client_slug
            FROM payments p
