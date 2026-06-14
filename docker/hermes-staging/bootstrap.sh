@@ -5,7 +5,7 @@ HERMES_HOME="${HERMES_HOME:-/opt/data}"
 STAGING_SOUL="/etc/hermes-staging/SOUL.md"
 STAGING_PLUGINS="/etc/hermes-staging/plugins"
 LUNA_SOUL_MARKER="$HERMES_HOME/.luna-guest-soul.version"
-LUNA_SOUL_VERSION="19"
+LUNA_SOUL_VERSION="20"
 
 # Write config.yaml
 cat > "$HERMES_HOME/config.yaml" <<'EOF'
