@@ -29,6 +29,16 @@ function trimStr(v) {
   return String(v).trim();
 }
 
+function normalizeBridgePaymentChoice(value) {
+  const raw = trimStr(value).toLowerCase();
+  if (!raw) return '';
+  const compact = raw.replace(/[^a-z0-9_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (['full', 'full amount', 'pay full', 'pay full amount', 'all now', 'pay all', 'everything', 'whole amount'].includes(compact)) return 'full';
+  if (['deposit', 'pay deposit', 'the deposit', 'deposit only'].includes(compact)) return 'deposit';
+  if (['arrival', 'on arrival', 'pay on arrival', 'later', 'pay_on_arrival'].includes(compact)) return 'pay_on_arrival';
+  return raw;
+}
+
 /**
  * Map dry-run plan + input to handleBotBookingCreate request body (Stage 8.5.4).
  *
@@ -44,7 +54,7 @@ function buildBotBookingCreatePayload(dryRunPlan, input) {
   const phone = trimStr(plan.guest_phone) || trimStr(plan.phone)
     || trimStr(src.guest_phone) || trimStr(src.phone) || trimStr(src.from);
 
-  const paymentChoice = trimStr(src.payment_choice).toLowerCase();
+  const paymentChoice = normalizeBridgePaymentChoice(src.payment_choice || plan.payment_choice);
 
   return {
     client_slug:        trimStr(plan.client_slug) || trimStr(src.client_slug) || 'wolfhouse-somo',
@@ -56,6 +66,9 @@ function buildBotBookingCreatePayload(dryRunPlan, input) {
     language:           trimStr(plan.language) || trimStr(src.language) || 'en',
     guest_count:        avail.guest_count != null ? Number(avail.guest_count) : Number(src.guest_count),
     package_code:       trimStr(src.package_code).toLowerCase(),
+    guest_packages:     Array.isArray(src.guest_packages)
+      ? src.guest_packages
+      : (Array.isArray(plan.guest_packages) ? plan.guest_packages : []),
     room_type:          trimStr(avail.room_type) || trimStr(src.room_type) || 'shared',
     add_ons:            Array.isArray(src.add_ons) ? src.add_ons : [],
     payment_choice:     paymentChoice,

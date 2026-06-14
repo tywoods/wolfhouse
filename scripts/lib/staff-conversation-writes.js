@@ -89,7 +89,7 @@ async function resetLunaConversationContext(pg, clientSlug, convId, opts) {
   await pg.query('BEGIN');
   try {
     const sel = await pg.query(
-      `SELECT conv.id::text AS conversation_id, conv.metadata
+      `SELECT conv.id::text AS conversation_id, conv.metadata, conv.phone
          FROM conversations conv
          INNER JOIN clients c ON c.id = conv.client_id
         WHERE c.slug = $1 AND conv.id = $2::uuid`,
@@ -143,6 +143,7 @@ async function resetLunaConversationContext(pg, clientSlug, convId, opts) {
     await pg.query('COMMIT');
     return {
       found: true,
+      guest_phone: sel.rows[0].phone || null,
       context_cleared: hadLunaContext || upd.rows.length > 0,
       messages_deleted: options.clearMessages ? messagesDeleted : 0,
       messages_preserved: options.clearMessages ? 0 : messagesDeleted,

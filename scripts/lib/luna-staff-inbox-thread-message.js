@@ -6,6 +6,8 @@
 
 const OPEN_DEMO_INBOUND_SOURCE = 'open_demo_whatsapp_inbound';
 const OPEN_DEMO_LIVE_REPLY_SOURCE = 'luna_open_demo_live_reply';
+const HERMES_LUNA_INBOUND_SOURCE = 'hermes_luna_whatsapp_inbound';
+const HERMES_LUNA_OUTBOUND_SOURCE = 'hermes_luna_whatsapp_reply';
 
 function trimStr(v) {
   if (v == null) return '';
@@ -276,12 +278,172 @@ async function persistOpenDemoLiveReplyThreadMessage(pg, input, sendResult) {
   });
 }
 
+async function persistHermesLunaInboundThreadMessage(pg, input) {
+  const payload = input || {};
+  const clientSlug = trimStr(payload.client_slug);
+  const conversationId = trimStr(payload.conversation_id);
+  const messageText = trimStr(payload.message_text);
+  const waId = trimStr(payload.whatsapp_message_id || payload.wamid) || null;
+
+  if (!clientSlug || !conversationId || !messageText) {
+    return { ok: false, persisted: false, reason: 'missing_fields' };
+  }
+
+  if (waId) {
+    const existing = await findStaffInboxThreadMessage(pg, clientSlug, conversationId, {
+      whatsapp_message_id: waId,
+    });
+    if (existing) {
+      return {
+        ok: true,
+        persisted: false,
+        duplicate: true,
+        message_id: existing.message_id,
+        whatsapp_message_id: existing.whatsapp_message_id || waId,
+      };
+    }
+  }
+
+  const conv = await loadConversationClientId(pg, clientSlug, conversationId);
+  if (!conv) return { ok: true, persisted: false, reason: 'conversation_not_found' };
+
+  const metadata = {
+    hermes_luna_inbound: true,
+    ...(waId ? { inbound_message_id: waId } : {}),
+  };
+
+  try {
+    const insert = await pg.query(
+      `INSERT INTO messages (
+         client_id, conversation_id, direction, message_text, message_type,
+         source, whatsapp_message_id, route, metadata
+       ) VALUES ($1, $2, 'inbound', $3, 'text', $4, $5, 'whatsapp', $6::jsonb)
+       RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`,
+      [conv.client_id, conversationId, messageText, HERMES_LUNA_INBOUND_SOURCE, waId, JSON.stringify(metadata)],
+    );
+    if (insert.rows[0]) {
+      return {
+        ok: true,
+        persisted: true,
+        duplicate: false,
+        message_id: insert.rows[0].message_id,
+        whatsapp_message_id: insert.rows[0].whatsapp_message_id || waId,
+        source: insert.rows[0].source,
+        direction: insert.rows[0].direction,
+      };
+    }
+  } catch (err) {
+    if (err && err.code === '23505' && waId) {
+      const raced = await findStaffInboxThreadMessage(pg, clientSlug, conversationId, {
+        whatsapp_message_id: waId,
+      });
+      return {
+        ok: true,
+        persisted: false,
+        duplicate: true,
+        message_id: raced && raced.message_id,
+        whatsapp_message_id: waId,
+      };
+    }
+    throw err;
+  }
+
+  return { ok: true, persisted: false, reason: 'insert_no_row' };
+}
+
+async function persistHermesLunaOutboundThreadMessage(pg, input, options) {
+  const payload = input || {};
+  const opts = options || {};
+  const clientSlug = trimStr(payload.client_slug);
+  const conversationId = trimStr(payload.conversation_id);
+  const messageText = trimStr(payload.message_text);
+  const waId = trimStr(payload.whatsapp_message_id) || null;
+  const idemKey = trimStr(opts.idempotency_key || payload.idempotency_key) || null;
+
+  if (!clientSlug || !conversationId || !messageText) {
+    return { ok: false, persisted: false, reason: 'missing_fields' };
+  }
+
+  const existing = await findStaffInboxThreadMessage(pg, clientSlug, conversationId, {
+    whatsapp_message_id: waId,
+    idempotency_key: idemKey,
+  });
+  if (existing) {
+    return {
+      ok: true,
+      persisted: false,
+      duplicate: true,
+      message_id: existing.message_id,
+      whatsapp_message_id: existing.whatsapp_message_id || waId,
+    };
+  }
+
+  const conv = await loadConversationClientId(pg, clientSlug, conversationId);
+  if (!conv) return { ok: true, persisted: false, reason: 'conversation_not_found' };
+
+  const metadata = {
+    hermes_luna_reply: true,
+    send_kind: 'luna_auto_reply',
+    ...(idemKey ? { idempotency_key: idemKey } : {}),
+  };
+
+  try {
+    const insert = await pg.query(
+      `INSERT INTO messages (
+         client_id, conversation_id, direction, message_text, message_type,
+         source, whatsapp_message_id, route, metadata
+       ) VALUES ($1, $2, 'outbound', $3, 'text', $4, $5, 'whatsapp', $6::jsonb)
+       RETURNING id::text AS message_id, whatsapp_message_id, source, direction::text AS direction`,
+      [
+        conv.client_id,
+        conversationId,
+        messageText,
+        HERMES_LUNA_OUTBOUND_SOURCE,
+        waId,
+        JSON.stringify(metadata),
+      ],
+    );
+    if (insert.rows[0]) {
+      return {
+        ok: true,
+        persisted: true,
+        duplicate: false,
+        message_id: insert.rows[0].message_id,
+        whatsapp_message_id: insert.rows[0].whatsapp_message_id || waId,
+        source: insert.rows[0].source,
+        direction: insert.rows[0].direction,
+      };
+    }
+  } catch (err) {
+    if (err && err.code === '23505') {
+      const raced = await findStaffInboxThreadMessage(pg, clientSlug, conversationId, {
+        whatsapp_message_id: waId,
+        idempotency_key: idemKey,
+      });
+      return {
+        ok: true,
+        persisted: false,
+        duplicate: true,
+        message_id: raced && raced.message_id,
+        whatsapp_message_id: waId,
+      };
+    }
+    throw err;
+  }
+
+  return { ok: true, persisted: false, reason: 'insert_no_row' };
+}
+
 module.exports = {
   OPEN_DEMO_INBOUND_SOURCE,
   OPEN_DEMO_LIVE_REPLY_SOURCE,
+  HERMES_LUNA_INBOUND_SOURCE,
+  HERMES_LUNA_OUTBOUND_SOURCE,
   shouldPersistStaffInboxThreadMessage,
   findStaffInboxThreadMessage,
   persistOpenDemoInboundThreadMessage,
   persistOpenDemoLiveReplyThreadMessage,
+  persistHermesLunaInboundThreadMessage,
+  persistHermesLunaOutboundThreadMessage,
   persistStaffInboxSentThreadMessage,
 };

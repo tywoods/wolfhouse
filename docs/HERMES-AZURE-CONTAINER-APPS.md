@@ -78,7 +78,18 @@ Expected: HTTP 200 on `https://<fqdn>/health`.
 Meta webhook URL (after WhatsApp Cloud is configured):
 
 ```
-https://<wh-staging-hermes-fqdn>/whatsapp/cloud/webhook
+https://<wh-staging-hermes-fqdn>/whatsapp/webhook
+```
+
+Verify token: `wolfhouse_verify_token`
+
+**Critical:** In Meta Developer → WhatsApp → Configuration → Webhook fields, subscribe to **`messages`**.
+
+**Also critical:** Meta keeps a **phone-number webhook override** separate from the App Dashboard callback URL. If override still points at Staff API Luna, guests get Luna replies even when the app callback shows Hermes. Check/fix:
+
+```bash
+node scripts/cutover-meta-whatsapp-to-hermes.js status
+node scripts/cutover-meta-whatsapp-to-hermes.js apply
 ```
 
 **Do not** point production Meta webhook here until staging smoke passes.
@@ -118,9 +129,9 @@ Wire after gateway + WhatsApp Cloud staging path is green.
 | Symptom | Check |
 |---------|--------|
 | App not Running | `az containerapp logs show -g wh-staging-rg -n wh-staging-hermes --tail 80` |
-| `/health` not 200 | Wrong args — must be `gateway run`; port 8642 |
+| `/health` not 200 | Wrong args — must be `gateway run`; ingress port **8090** (WhatsApp) |
 | Config lost on restart | Volume mount missing — re-run `deploy` (patches YAML volume) |
-| WhatsApp no inbound | Meta webhook URL + verify token; `hermes whatsapp-cloud` config on `/opt/data` |
+| WhatsApp no inbound | Meta callback URL + verify token; subscribe **`messages`** field; check `/health` `accepted` counter |
 
 ## Cost note
 

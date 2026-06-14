@@ -56,6 +56,7 @@ const { withPgClient }       = require('./lib/pg-connect');
 const {
   parsePaymentShortLinkToken,
   resolvePaymentShortLinkRedirectFromDb,
+  buildPaymentLinkObservability,
 } = require('./lib/luna-payment-short-link');
 const {
   buildServiceChargesDueFromContext,
@@ -149,6 +150,7 @@ const {
   resetLunaConversationContext,
   deleteConversationHard,
 } = require('./lib/staff-conversation-writes');
+const { resetHermesGuestSession } = require('./lib/luna-hermes-guest-session-reset');
 const {
   getAccessibleClients,
   userCanAccessClient,
@@ -188,6 +190,7 @@ const {
   dispatchBookingTransferLookupRoute,
   buildTransfersDrawerPayload,
   isMissingBookingTransfersTable,
+  handlePostBookingTransfer,
   BOOKING_TRANSFERS_RE,
   BOOKING_TRANSFER_DIRECTION_RE,
   BOOKING_TRANSFER_LOOKUP_RE,
@@ -305,6 +308,10 @@ const {
 const {
   persistStaffInboxSentThreadMessage,
 } = require('./lib/luna-staff-inbox-thread-message');
+const {
+  parseHermesWhatsAppThreadMirrorBody,
+  mirrorHermesWhatsAppThreadMessage,
+} = require('./lib/luna-hermes-whatsapp-thread-mirror');
 const {
   isStagingResetEnvironment,
   parseResetLunaPhoneInput,
@@ -488,6 +495,16 @@ function stripeCheckoutRedirectUrlsConfigured() {
 
 function stripeCheckoutRedirectUrlsDistinct() {
   return stripeCheckoutSessionSuccessUrl() !== stripeCheckoutSessionCancelUrl();
+}
+
+function guestPaymentLinkObservability(pm, checkoutUrl, sessionId) {
+  return buildPaymentLinkObservability({
+    booking_code: pm && pm.booking_code,
+    client_slug: pm && pm.client_slug,
+    stripe_checkout_url: checkoutUrl,
+    stripe_checkout_session_id: sessionId,
+    env: process.env,
+  });
 }
 // Stage 8.4.11 — Stripe webhook payment truth.
 // STRIPE_WEBHOOK_SECRET: whsec_... from Stripe dashboard (or Stripe CLI for local testing).
@@ -3955,6 +3972,13 @@ function editPreviewPackageStorageCode(raw) {
   return c;
 }
 
+/** Package code for calculateWolfhouseQuote — no package uses Malibu-ref accommodation pricing. */
+function editPreviewQuotePackageCode(raw) {
+  const c = String(raw || '').trim().toLowerCase();
+  if (!c || c === 'no_package' || c === 'package_none') return 'no_package';
+  return c;
+}
+
 function editPreviewLightEmailOk(email) {
   if (email == null || String(email).trim() === '') return true;
   const e = String(email).trim();
@@ -4312,6 +4336,117 @@ function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageC
   }
 }
 
+function staffPackageDisplayLabel(code) {
+  const c = String(code || '').trim().toLowerCase();
+  if (!c || c === 'no_package' || c === 'package_none') return 'No package';
+  return c.charAt(0).toUpperCase() + c.slice(1);
+}
+
+function normalizeGuestPackagesFromBooking(booking, metadata) {
+  const guestCount = Math.max(1, Number(booking && booking.guest_count) || 1);
+  const md = metadata || (booking && booking.metadata) || {};
+  const raw = md.guest_packages;
+  const fallbackPkg = booking && booking.package_code ? String(booking.package_code).trim().toLowerCase() : 'no_package';
+  if (Array.isArray(raw) && raw.length > 0) {
+    const out = [];
+    for (let i = 0; i < guestCount; i++) {
+      const byIndex = raw[i];
+      const byNumber = raw.find((gp) => Number(gp && gp.guest_number) === i + 1);
+      const item = byIndex || byNumber || null;
+      const code = item && item.package_code
+        ? String(item.package_code).trim().toLowerCase()
+        : fallbackPkg;
+      out.push({ guest_number: i + 1, package_code: code || 'no_package' });
+    }
+    return out;
+  }
+  return Array.from({ length: guestCount }, (_, i) => ({
+    guest_number: i + 1,
+    package_code: fallbackPkg,
+  }));
+}
+
+function guestQuoteAccommodationCents(quote) {
+  if (!quote || !quote.success) return null;
+  const items = quote.line_items || [];
+  let sum = 0;
+  let any = false;
+  for (const li of items) {
+    if (li.code && EDIT_PREVIEW_ACCOMM_LINE_CODES[li.code] && li.total_cents != null) {
+      sum += Number(li.total_cents);
+      any = true;
+    }
+  }
+  if (any) return sum;
+  return quote.total_cents != null ? Number(quote.total_cents) : null;
+}
+
+function buildGuestAccommodationLines(clientSlug, booking, metadata) {
+  const guestPackages = normalizeGuestPackagesFromBooking(booking, metadata);
+  const nights = movePreviewNights(booking.check_in, booking.check_out);
+  return guestPackages.map((gp) => {
+    const pkgRaw = gp.package_code;
+    const quoteCode = editPreviewQuotePackageCode(pkgRaw);
+    let accommodation_cents = 0;
+    const quote = editPreviewTryQuote(clientSlug, booking.check_in, booking.check_out, 1, quoteCode);
+    const cents = guestQuoteAccommodationCents(quote);
+    if (cents != null) accommodation_cents = cents;
+    return {
+      guest_number: gp.guest_number,
+      package_code: pkgRaw,
+      package_label: staffPackageDisplayLabel(pkgRaw),
+      nights,
+      accommodation_cents,
+    };
+  });
+}
+
+function guestPackagesMajorityStorageCode(guestPackages) {
+  const counts = new Map();
+  for (const gp of guestPackages) {
+    const stored = editPreviewPackageStorageCode(gp.package_code);
+    const key = stored || '__no_package__';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  let bestKey = null;
+  let bestCount = 0;
+  for (const [key, count] of counts.entries()) {
+    if (count > bestCount) {
+      bestCount = count;
+      bestKey = key;
+    }
+  }
+  if (bestKey === '__no_package__') return null;
+  return bestKey;
+}
+
+function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { error: 'guest_packages array is required' };
+  }
+  if (raw.length !== guestCount) {
+    return {
+      error: `guest_packages length (${raw.length}) must match guest_count (${guestCount})`,
+    };
+  }
+  const normalized = [];
+  for (let i = 0; i < guestCount; i++) {
+    const item = raw[i];
+    const guestNumber = Number(item && item.guest_number) || (i + 1);
+    const packageCodeRaw = String(
+      (item && item.package_code) || fallbackPackageCode || '',
+    ).trim().toLowerCase();
+    if (!packageCodeRaw) {
+      return { error: `package_code is required for guest ${guestNumber}` };
+    }
+    if (!editPreviewIsValidPackage(packageCodeRaw, fallbackPackageCode)) {
+      return { error: `Invalid package_code for guest ${guestNumber}` };
+    }
+    normalized.push({ guest_number: i + 1, package_code: packageCodeRaw });
+  }
+  return { guest_packages: normalized };
+}
+
 function editWriteStayRequiresPackageCode(nights) {
   return nights != null && nights >= EDIT_WRITE_PACKAGE_MIN_NIGHTS;
 }
@@ -4384,6 +4519,34 @@ function editWriteResolveProposedAccommodation(bookingRow, svcRows, proposedFiel
       package_required_for_long_stay: true,
       calculation_warnings: ['package_required_for_long_stay'],
     };
+  }
+
+  if (!packageCode) {
+    const q = editPreviewTryQuote(
+      bookingRow._client_slug || DEFAULT_CLIENT,
+      checkIn,
+      checkOut,
+      guestCount,
+      'no_package',
+    );
+    if (q && q.success) {
+      const proposedAcc = editPreviewAccFromQuote(q);
+      if (proposedAcc != null) {
+        return {
+          proposedAcc,
+          proposedQuoteLines: q.line_items,
+          requires_reprice: false,
+          package_required_for_long_stay: false,
+          calculation_warnings: ['No package priced from Malibu reference rate.'],
+        };
+      }
+      calculation_warnings.push('No-package quote returned no accommodation line items.');
+    } else {
+      const blockers = (q && Array.isArray(q.blockers)) ? q.blockers.map(String) : [];
+      if (q && q.error) calculation_warnings.push(String(q.error));
+      else if (blockers.length) calculation_warnings.push(...blockers);
+      else calculation_warnings.push('No-package quote calculation blocked or incomplete.');
+    }
   }
 
   if (packageCode) {
@@ -7766,6 +7929,7 @@ async function handleQuotePreview(req, res, user) {
     creates_payment:     false,
     creates_stripe_link: false,
     quote,
+    guest_packages:      guestPackages,
     elapsed_ms:          elapsed,
   });
 }
@@ -7896,10 +8060,29 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   const availableCount = availableBeds.length;
   const hasEnoughBeds  = availableCount >= guestCount;
 
-  // ── First-fit selection ────────────────────────────────────────────────────
-  const selectedBedCodes = hasEnoughBeds
-    ? availableBeds.slice(0, guestCount).map(b => b.bed_code)
-    : [];
+  // ── Room-fit selection ─────────────────────────────────────────────────────
+  // Prefer keeping a group together in one room when enough beds are free there.
+  // Fall back to global first-fit only when no single room can hold the group.
+  let selectedBedCodes = [];
+  let selectedRoomCode = null;
+  if (hasEnoughBeds) {
+    const byRoom = new Map();
+    for (const bed of availableBeds) {
+      const room = bed.room_code || '__unknown_room__';
+      if (!byRoom.has(room)) byRoom.set(room, []);
+      byRoom.get(room).push(bed);
+    }
+    const roomFit = [...byRoom.entries()]
+      .filter(([, beds]) => beds.length >= guestCount)
+      .sort((a, b) => a[1].length - b[1].length || String(a[0]).localeCompare(String(b[0])))[0];
+    if (roomFit) {
+      selectedRoomCode = roomFit[0] === '__unknown_room__' ? null : roomFit[0];
+      selectedBedCodes = roomFit[1].slice(0, guestCount).map(b => b.bed_code);
+    } else {
+      warnings.push('group_split_across_rooms_required');
+      selectedBedCodes = availableBeds.slice(0, guestCount).map(b => b.bed_code);
+    }
+  }
 
   if (!hasEnoughBeds) {
     blockers.push('not_enough_available_beds');
@@ -7924,6 +8107,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     guest_count:         guestCount,
     room_type:           roomType,
     selected_bed_codes:  selectedBedCodes,
+    selected_room_code:  selectedRoomCode,
     has_enough_beds:     hasEnoughBeds,
     available_count:     availableCount,
     available_beds:      availableBeds.map(b => ({ bed_code: b.bed_code, room_code: b.room_code, room_type: b.room_type })),
@@ -8079,7 +8263,7 @@ async function resolveBotAddonRequestContext(body) {
   const bookingCode   = String(body.booking_code || '').trim();
   const guestPhone    = body.guest_phone != null ? String(body.guest_phone).trim() : null;
   const serviceType   = String(body.service_type || '').trim().toLowerCase();
-  const serviceDate   = body.service_date != null ? String(body.service_date).trim() : '';
+  let serviceDate     = body.service_date != null ? String(body.service_date).trim() : '';
   const paymentChoice = String(body.payment_choice || 'pay_now').trim().toLowerCase();
   const source        = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
   const rawQuantity   = body.quantity;
@@ -8111,22 +8295,7 @@ async function resolveBotAddonRequestContext(body) {
     };
   }
 
-  if (!serviceDate) {
-    return {
-      kind: 'ask_service_date',
-      status: 200,
-      payload: buildBotAddonDryRunFlags({
-        success: true,
-        next_action: 'ask_service_date',
-        reply_draft: 'Which date would you like that for? (YYYY-MM-DD)',
-        booking_code: bookingCode,
-        service_type: serviceType,
-        source,
-      }),
-    };
-  }
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate) || isNaN(new Date(serviceDate + 'T00:00:00Z').getTime())) {
+  if (serviceDate && (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate) || isNaN(new Date(serviceDate + 'T00:00:00Z').getTime()))) {
     return {
       kind: 'ask_service_date',
       status: 200,
@@ -8160,7 +8329,9 @@ async function resolveBotAddonRequestContext(body) {
   }
 
   const quantity = Math.max(1, parseInt(rawQuantity, 10) || 1);
-  const svcDate = new Date(serviceDate + 'T00:00:00Z');
+  const scheduleMode = serviceDate ? 'specific_date' : 'schedule_later';
+  if (!serviceDate) serviceDate = null;
+  const svcDate = serviceDate ? new Date(serviceDate + 'T00:00:00Z') : null;
 
   let booking;
   try {
@@ -8203,7 +8374,7 @@ async function resolveBotAddonRequestContext(body) {
   const warnings = [...(pricing.warnings || [])];
   const ci = booking.check_in ? new Date(booking.check_in) : null;
   const co = booking.check_out ? new Date(booking.check_out) : null;
-  if (ci && co && (svcDate < ci || svcDate >= co)) {
+  if (svcDate && ci && co && (svcDate < ci || svcDate >= co)) {
     warnings.push('service_date is outside the booking stay window — staff may need to confirm.');
   }
 
@@ -8229,6 +8400,7 @@ async function resolveBotAddonRequestContext(body) {
     guestPhone,
     serviceType,
     serviceDate,
+    scheduleMode,
     paymentChoice,
     source,
     quantity,
@@ -8248,7 +8420,9 @@ function buildBotAddonServiceMetadata(ctx, idempotencyKey) {
     source: ctx.source,
     pricing_addon_code: ctx.pricing.pricing_addon_code,
     payment_choice: ctx.paymentChoice,
-    needs_scheduling: ctx.serviceType === 'yoga' || ctx.serviceType === 'surf_lesson',
+    schedule_mode: ctx.scheduleMode || (ctx.serviceDate ? 'specific_date' : 'schedule_later'),
+    unscheduled: !ctx.serviceDate,
+    needs_scheduling: !ctx.serviceDate || ctx.serviceType === 'yoga' || ctx.serviceType === 'surf_lesson',
   };
   if (ctx.guestPhone) meta.guest_phone = ctx.guestPhone;
   if (idempotencyKey) meta.idempotency_key = idempotencyKey;
@@ -8288,18 +8462,23 @@ async function findBotAddonIdempotentMatch(clientSlug, bookingId, idempotencyKey
 }
 
 function buildBotAddonCreateReplyDraft(ctx, { checkoutUrl, dbAmountDueCents, servicePaymentStatus }) {
+  const when = ctx.serviceDate || 'unscheduled';
   if (ctx.isMeal) {
-    return `Got it — I've noted ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`;
+    return ctx.serviceDate
+      ? `Got it — I've noted ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`
+      : `Got it — I've added ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} as unscheduled. Meals are handled on site, and we can choose the date later.`;
   }
   if (servicePaymentStatus === 'paid') {
     const eur = (dbAmountDueCents / 100).toFixed(2);
-    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${ctx.serviceDate} is already paid (€${eur}).`;
+    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is already paid (€${eur}).`;
   }
   if (checkoutUrl) {
     const eur = (dbAmountDueCents / 100).toFixed(2);
-    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${ctx.serviceDate} is €${eur}. Here's your payment link: ${checkoutUrl}`;
+    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is €${eur}. Here's your payment link: ${checkoutUrl}`;
   }
-  return `I've noted your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`;
+  return ctx.serviceDate
+    ? `I've noted your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`
+    : `I've added your ${ctx.serviceType.replace('_', ' ')} request as unscheduled. We can choose the date later.`;
 }
 
 async function handleBotAddonRequestPreview(req, res, user, authMode) {
@@ -8321,14 +8500,19 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
 
   let replyDraft;
   if (ctx.nextAction === 'ready_for_record_only' && ctx.isMeal) {
-    replyDraft = `Got it — I'll note ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`;
+    replyDraft = ctx.serviceDate
+      ? `Got it — I'll note ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`
+      : `Got it — I'll add ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} as unscheduled. Meals are handled on site, and we can choose the date later.`;
   } else if (ctx.nextAction === 'handoff_to_staff') {
     replyDraft = "I'll have the team confirm that add-on and get back to you.";
   } else if (ctx.canPay) {
     const eur = (ctx.pricing.amount_due_cents / 100).toFixed(2);
-    replyDraft = `For ${ctx.serviceType.replace('_', ' ')} on ${ctx.serviceDate}, the total would be €${eur}. I can send a payment link when you're ready.`;
+    const when = ctx.serviceDate || 'unscheduled';
+    replyDraft = `For ${ctx.serviceType.replace('_', ' ')} (${when}), the total would be €${eur}. I can send a payment link when you're ready.`;
   } else {
-    replyDraft = `I'll note your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`;
+    replyDraft = ctx.serviceDate
+      ? `I'll note your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`
+      : `I'll add your ${ctx.serviceType.replace('_', ' ')} request as unscheduled. We can choose the date later.`;
   }
 
   const serviceRecordPreview = {
@@ -8657,7 +8841,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
             service_record_ids: [svcId],
             booking_code: ctx.booking.booking_code,
             service_type: ctx.serviceType,
-            service_date: ctx.serviceDate,
+            service_date: ctx.serviceDate || null,
             quantity: ctx.quantity,
             service_record_allocation_cents: { [svcId]: amountDueCents },
           };
@@ -9386,7 +9570,6 @@ const BOT_BOOKING_REQUIRED_FIELDS = [
   'package_code',
   'room_type',
   'guest_name',
-  'phone',
   'payment_choice',
 ];
 
@@ -9398,9 +9581,32 @@ const BOT_FIELD_LABELS = {
   package_code:   'which package (Malibu, Uluwatu, or Waimea)',
   room_type:      'your room preference (shared or private)',
   guest_name:     'your name',
-  phone:          'your WhatsApp number',
+  phone:          'the WhatsApp sender number',
   payment_choice: 'whether you prefer to pay a deposit or the full amount',
 };
+
+function normalizeBotGuestPackagesForQuote(raw, guestCount, fallbackPackageCode) {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const normalized = normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode || 'malibu');
+  if (normalized.error) return { error: normalized.error };
+  return normalized.guest_packages;
+}
+
+function botGuestPackagesMajorityCode(guestPackages, fallback) {
+  if (!Array.isArray(guestPackages) || guestPackages.length === 0) return fallback || null;
+  const counts = new Map();
+  guestPackages.forEach((gp) => {
+    const code = String((gp && gp.package_code) || '').trim().toLowerCase();
+    if (!code) return;
+    counts.set(code, (counts.get(code) || 0) + 1);
+  });
+  let best = fallback || null;
+  let bestCount = -1;
+  counts.forEach((count, code) => {
+    if (count > bestCount) { best = code; bestCount = count; }
+  });
+  return best;
+}
 
 async function handleBotBookingPreview(req, res, user, authMode) {
   const started = Date.now();
@@ -9423,8 +9629,18 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   const guestCount    = body.guest_count != null ? Number(body.guest_count) : null;
   const packageCode   = body.package_code != null
     ? String(body.package_code).trim().toLowerCase() : null;
+  const guestPackagesNormalized = normalizeBotGuestPackagesForQuote(body.guest_packages, guestCount || 0, packageCode);
+  if (guestPackagesNormalized && guestPackagesNormalized.error) {
+    return send400(res, guestPackagesNormalized.error);
+  }
+  const guestPackages = Array.isArray(guestPackagesNormalized) ? guestPackagesNormalized : [];
+  const effectivePackageCode = botGuestPackagesMajorityCode(guestPackages, packageCode);
   const roomType      = String(body.room_type     || 'shared').trim();
-  const paymentChoice = String(body.payment_choice || '').trim();
+  const paymentChoiceRaw = String(body.payment_choice || '').trim();
+  const paymentChoiceStaffNorm = normalizeManualBookingStaffPaymentChoice(paymentChoiceRaw);
+  const paymentChoice = paymentChoiceStaffNorm
+    ? manualBookingQuotePaymentChoice(paymentChoiceStaffNorm)
+    : paymentChoiceRaw;
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
   const language      = String(body.language || 'en').trim().slice(0, 10);
   const source        = String(body.source   || 'luna_whatsapp').trim().slice(0, 50);
@@ -9438,7 +9654,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     check_in:       checkIn     || null,
     check_out:      checkOut    || null,
     guest_count:    (guestCount != null && guestCount > 0) ? guestCount : null,
-    package_code:   packageCode || null,
+    package_code:   effectivePackageCode || null,
     room_type:      roomType    || null,
     guest_name:     guestName   || null,
     phone:          phone       || null,
@@ -9450,53 +9666,73 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   // ── Quote preview ─────────────────────────────────────────────────────────
   // Attempt if core quote fields are present: dates, guest count, package.
   // room_type defaults to 'shared' and payment_choice to 'deposit' if absent.
-  const canQuote = !!(checkIn && checkOut && guestCount && guestCount > 0 && packageCode);
+  const canQuote = !!(checkIn && checkOut && guestCount && guestCount > 0 && effectivePackageCode);
   let quote = null;
   let quoteError = null;
+  let packageNightViolation = null;
   if (canQuote) {
-    try {
-      quote = calculateWolfhouseQuote({
-        client_slug:    clientSlug,
-        check_in:       checkIn,
-        check_out:      checkOut,
-        guest_count:    guestCount,
-        package_code:   packageCode,
-        room_type:      roomType || 'shared',
-        payment_choice: paymentChoice || 'deposit',
-        add_ons:        addOns,
-      });
-    } catch (err) {
-      quoteError = err.message;
+    const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, effectivePackageCode);
+    if (!packageNightCheck.ok) {
+      packageNightViolation = packageNightCheck;
+      quote = {
+        success: false,
+        staff_review_required: false,
+        blockers: [packageNightCheck.error],
+        calculation_warnings: ['weekly_package_min_nights'],
+        package_code: packageNightCheck.package_code,
+        nights: packageNightCheck.nights,
+        currency: 'EUR',
+      };
+    } else {
+      try {
+        quote = calculateWolfhouseQuote({
+          client_slug:    clientSlug,
+          check_in:       checkIn,
+          check_out:      checkOut,
+          guest_count:    guestCount,
+          package_code:   effectivePackageCode,
+          guest_packages: guestPackages,
+          room_type:      roomType || 'shared',
+          payment_choice: paymentChoice || 'deposit',
+          add_ons:        addOns,
+        });
+      } catch (err) {
+        quoteError = err.message;
+      }
     }
   }
 
   // ── next_action ───────────────────────────────────────────────────────────
   let nextAction;
-  if (missingFields.length > 0) {
-    nextAction = 'ask_missing_fields';
+  if (packageNightViolation) {
+    nextAction = 'package_not_available_for_dates';
   } else if (quoteError) {
     nextAction = 'staff_review_required';
   } else if (quote && !quote.success) {
     nextAction = quote.staff_review_required ? 'staff_review_required' : 'ask_missing_fields';
   } else if (quote && quote.success) {
-    nextAction = 'ready_for_create_dry_run';
+    nextAction = missingFields.length > 0 ? 'show_quote' : 'ready_for_create_dry_run';
+  } else if (missingFields.length > 0) {
+    nextAction = 'ask_missing_fields';
   } else {
     nextAction = 'show_quote';
   }
 
   // ── reply_draft ───────────────────────────────────────────────────────────
   let replyDraft;
-  if (nextAction === 'ask_missing_fields') {
+  if (quote && quote.success) {
+    const totalEur   = (quote.total_cents / 100).toFixed(2);
+    const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
+    replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
+  } else if (nextAction === 'ask_missing_fields') {
     const readable = missingFields.map((f) => BOT_FIELD_LABELS[f] || f);
     const shown    = readable.slice(0, 3);
     const extra    = readable.length > 3 ? ` and ${readable.length - 3} more` : '';
     replyDraft = `Great, I can help you book. Could you also share: ${shown.join(', ')}${extra}?`;
+  } else if (nextAction === 'package_not_available_for_dates') {
+    replyDraft = 'Our Malibu, Uluwatu, and Waimea surf packs are for 7-night stays. For these dates, I can help with accommodation and add-ons like surf lessons or board/wetsuit rental instead.';
   } else if (nextAction === 'staff_review_required') {
     replyDraft = "I'm going to have the team check this and get back to you shortly.";
-  } else if ((nextAction === 'ready_for_create_dry_run' || nextAction === 'show_quote') && quote) {
-    const totalEur   = (quote.total_cents / 100).toFixed(2);
-    const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
-    replyDraft = `For those dates, the estimated total is \u20ac${totalEur}. You can pay a \u20ac${depositEur} deposit now or the full amount.`;
   } else {
     replyDraft = 'Let me check those dates and get back to you.';
   }
@@ -9519,7 +9755,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     check_in:            checkIn  || null,
     check_out:           checkOut || null,
     guest_count:         guestCount,
-    package_code:        packageCode,
+    package_code:        effectivePackageCode,
+    guest_packages:      guestPackages,
     missing_fields:      missingFields,
     next_action:         nextAction,
     quote_success:       quote ? quote.success : null,
@@ -9542,7 +9779,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     next_action:         nextAction,
     reply_draft:         replyDraft,
     quote,
-    quote_error:         quoteError || null,
+    quote_error:         quoteError || (packageNightViolation ? packageNightViolation.error : null),
+    package_night_rule:  packageNightViolation || null,
     availability: {
       status:  'not_checked',
       message: 'Availability requires specific bed codes. Call /staff/manual-bookings/preview with selected_bed_codes for a full conflict check.',
@@ -10021,6 +10259,71 @@ async function handleBotCheckinDayPreview(req, res, user, authMode) {
       auth_mode:                    resolvedAuthMode,
       elapsed_ms:                   elapsed,
     });
+  }
+}
+
+// Route: POST /staff/bot/whatsapp-thread-mirror  (Hermes Luna → Staff Portal inbox)
+async function handleBotHermesWhatsAppThreadMirror(req, res, user, authMode) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const parsed = parseHermesWhatsAppThreadMirrorBody(body);
+  if (!parsed.ok) {
+    return sendJSON(res, parsed.status || 400, { success: false, error: parsed.error });
+  }
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+
+  try {
+    const out = await withPgClient((pg) => mirrorHermesWhatsAppThreadMessage(pg, parsed.input));
+    const elapsed = Date.now() - started;
+    const thread = out.thread || {};
+
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot_whatsapp_thread_mirror',
+      category: 'hermes_whatsapp_thread_mirror',
+      direction: parsed.input.direction,
+      guest_phone: parsed.input.guest_phone,
+      conversation_id: out.conversation_id || null,
+      thread_persisted: thread.persisted === true,
+      thread_duplicate: thread.duplicate === true,
+      success: out.ok === true,
+      staff_user_id: user ? user.staff_user_id : null,
+      auth_mode: resolvedAuthMode,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      preview_only: true,
+      no_booking_write: true,
+      sends_whatsapp: false,
+      conversation_id: out.conversation_id || null,
+      direction: out.direction || parsed.input.direction,
+      thread_message: {
+        message_id: thread.message_id || null,
+        persisted: thread.persisted === true,
+        duplicate: thread.duplicate === true,
+        whatsapp_message_id: thread.whatsapp_message_id || null,
+      },
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot_whatsapp_thread_mirror',
+      category: 'hermes_whatsapp_thread_mirror',
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'mirror failed', detail: err.message });
   }
 }
 
@@ -11258,6 +11561,9 @@ function makeInMemoryBotReq(bodyObj) {
       if (event === 'end') cb();
       return this;
     },
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(payload, 'utf8');
+    },
   };
 }
 
@@ -11272,15 +11578,43 @@ async function handleBotTransferSave(req, res, user, authMode) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  const bookingId = String(body.booking_id || body.bookingId || '').trim();
-  if (!bookingId) {
-    return sendJSON(res, 400, { success: false, error: 'booking_id is required' });
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  let bookingId = String(body.booking_id || body.bookingId || '').trim();
+  const bookingCode = String(body.booking_code || body.bookingCode || '').trim().toUpperCase();
+
+  if (!bookingId && bookingCode) {
+    try {
+      const lookup = await withPgClient(async (pg) => {
+        const r = await pg.query(
+          `SELECT b.id::text AS booking_id
+             FROM bookings b
+             JOIN clients c ON c.id = b.client_id
+            WHERE UPPER(b.booking_code) = UPPER($1)
+              AND c.slug = $2
+            LIMIT 1`,
+          [bookingCode, clientSlug]
+        );
+        return r.rows && r.rows[0];
+      });
+      if (lookup && lookup.booking_id) bookingId = lookup.booking_id;
+    } catch (err) {
+      return sendJSON(res, 500, { success: false, error: 'booking_code lookup failed', detail: err.message });
+    }
   }
+
+  if (!bookingId) {
+    return sendJSON(res, 400, { success: false, error: 'booking_id or booking_code is required' });
+  }
+
+  const allowedTransferSources = new Set(['staff', 'luna', 'owner', 'import', 'flight_lookup']);
+  const requestedTransferSource = String(body.source || '').trim();
+  const transferSource = allowedTransferSources.has(requestedTransferSource) ? requestedTransferSource : 'luna';
 
   const transferPayload = {
     ...body,
-    client_slug: String(body.client_slug || DEFAULT_CLIENT).trim(),
-    source: body.source || 'luna_bot_transfer_save',
+    booking_id: bookingId,
+    client_slug: clientSlug,
+    source: transferSource,
   };
 
   if (body.confirm_transfer_write !== true) {
@@ -11311,8 +11645,10 @@ async function handleBotTransferSave(req, res, user, authMode) {
     },
     json(obj) {
       res.setHeader('Content-Type', 'application/json');
+      const writePerformed = obj && obj.success === true && !!obj.transfer;
       res.end(JSON.stringify({
         ...obj,
+        write_performed: obj.write_performed != null ? obj.write_performed : writePerformed,
         source: 'luna_bot_transfer_save',
         auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
         no_payment_write: true,
@@ -11323,11 +11659,22 @@ async function handleBotTransferSave(req, res, user, authMode) {
     },
   };
 
-  return handlePostBookingTransfer(
-    bookingId,
-    makeInMemoryBotReq(transferPayload),
-    jsonRes
-  );
+  try {
+    return await handlePostBookingTransfer(
+      bookingId,
+      makeInMemoryBotReq(transferPayload),
+      jsonRes
+    );
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'transfer save failed',
+      detail: err.message,
+      no_payment_write: true,
+      no_whatsapp: true,
+      no_n8n: true,
+    });
+  }
 }
 
 // Stage 57b — Hermes Luna read-only payment truth endpoint.
@@ -11342,8 +11689,9 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
   const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
   const paymentId = String(body.payment_id || body.paymentId || '').trim();
   const bookingId = String(body.booking_id || body.bookingId || '').trim();
-  if (!paymentId && !bookingId) {
-    return sendJSON(res, 400, { success: false, error: 'payment_id or booking_id is required' });
+  const bookingCode = String(body.booking_code || body.bookingCode || '').trim().toUpperCase();
+  if (!paymentId && !bookingId && !bookingCode) {
+    return sendJSON(res, 400, { success: false, error: 'payment_id, booking_id, or booking_code is required' });
   }
 
   try {
@@ -11372,6 +11720,31 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
         );
         return r.rows;
       }
+      if (bookingId) {
+        const r = await pg.query(
+          `SELECT p.id::text AS payment_id,
+                  p.booking_id::text AS booking_id,
+                  p.status::text AS payment_status,
+                  p.payment_kind,
+                  p.amount_due_cents,
+                  p.checkout_url,
+                  p.stripe_checkout_session_id,
+                  b.booking_code,
+                  b.payment_status::text AS booking_payment_status,
+                  b.amount_paid_cents,
+                  b.balance_due_cents,
+                  c.slug AS client_slug
+             FROM payments p
+             JOIN bookings b ON b.id = p.booking_id
+             JOIN clients c ON c.id = p.client_id
+            WHERE p.booking_id = $1::uuid
+              AND c.slug = $2
+            ORDER BY p.created_at DESC
+            LIMIT 10`,
+          [bookingId, clientSlug]
+        );
+        return r.rows;
+      }
       const r = await pg.query(
         `SELECT p.id::text AS payment_id,
                 p.booking_id::text AS booking_id,
@@ -11388,11 +11761,11 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
            FROM payments p
            JOIN bookings b ON b.id = p.booking_id
            JOIN clients c ON c.id = p.client_id
-          WHERE p.booking_id = $1::uuid
+          WHERE UPPER(b.booking_code) = UPPER($1)
             AND c.slug = $2
           ORDER BY p.created_at DESC
           LIMIT 10`,
-        [bookingId, clientSlug]
+        [bookingCode, clientSlug]
       );
       return r.rows;
     });
@@ -11509,6 +11882,16 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
     const statusCode = bridgeResult.write_performed
       ? (bridgeResult.create_outcome && bridgeResult.create_outcome.status_code) || 201
       : 200;
+
+    const createResponse = bridgeResult.create_outcome && bridgeResult.create_outcome.create_response;
+    if (createResponse && typeof createResponse === 'object') {
+      if (createResponse.booking_id) bridgeResult.booking_id = createResponse.booking_id;
+      if (createResponse.booking_code) bridgeResult.booking_code = createResponse.booking_code;
+      if (createResponse.payment_id) bridgeResult.payment_id = createResponse.payment_id;
+      if (createResponse.payment_status) bridgeResult.payment_status = createResponse.payment_status;
+      if (createResponse.created != null) bridgeResult.created = createResponse.created;
+      if (createResponse.duplicate != null) bridgeResult.duplicate = createResponse.duplicate;
+    }
 
     return sendJSON(res, statusCode, Object.assign({
       success:    bridgeResult.success === true,
@@ -12259,6 +12642,7 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
   if (pm.payment_status !== 'draft') {
     // Idempotency: already has a session — return existing URL rather than creating a new one
     if (pm.payment_status === 'checkout_created' && pm.checkout_url) {
+      const linkObs = guestPaymentLinkObservability(pm, pm.checkout_url, pm.stripe_checkout_session_id);
       return sendJSON(res, 200, {
         success:               true,
         idempotent:            true,
@@ -12269,6 +12653,9 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
         currency:              pm.currency,
         stripe_checkout_session_id: pm.stripe_checkout_session_id,
         checkout_url:          pm.checkout_url,
+        payment_short_url:     linkObs.payment_short_url,
+        guest_payment_url:     linkObs.guest_payment_url,
+        uses_short_payment_link: linkObs.uses_short_payment_link,
         status:                pm.payment_status,
         no_payment_truth_recorded: true,
         message:               'Stripe session already created (idempotent response).',
@@ -12383,6 +12770,7 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
   });
 
   // ── 8. Success ─────────────────────────────────────────────────────────────
+  const linkObs = guestPaymentLinkObservability(pm, session.url, session.id);
   return sendJSON(res, 200, {
     success:                   true,
     payment_id:                paymentId,
@@ -12392,6 +12780,9 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     currency:                  pm.currency,
     stripe_checkout_session_id: session.id,
     checkout_url:              session.url,
+    payment_short_url:         linkObs.payment_short_url,
+    guest_payment_url:         linkObs.guest_payment_url,
+    uses_short_payment_link:   linkObs.uses_short_payment_link,
     status:                    'checkout_created',
     no_payment_truth_recorded: true,
     no_whatsapp:               true,
@@ -12894,6 +13285,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
   }
   if (pm.payment_status !== 'draft') {
     if (pm.payment_status === 'checkout_created' && pm.checkout_url) {
+      const linkObs = guestPaymentLinkObservability(pm, pm.checkout_url, pm.stripe_checkout_session_id);
       return sendJSON(res, 200, {
         success:                    true,
         idempotent:                 true,
@@ -12905,6 +13297,9 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
         currency:                   pm.currency,
         stripe_checkout_session_id: pm.stripe_checkout_session_id,
         checkout_url:               pm.checkout_url,
+        payment_short_url:          linkObs.payment_short_url,
+        guest_payment_url:          linkObs.guest_payment_url,
+        uses_short_payment_link:    linkObs.uses_short_payment_link,
         payment_status:             pm.payment_status,
         next_action:                'draft_payment_link_reply',
         sends_whatsapp:             false,
@@ -13016,6 +13411,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
   });
 
   // ── 8. Success ─────────────────────────────────────────────────────────────
+  const linkObs = guestPaymentLinkObservability(pm, session.url, session.id);
   return sendJSON(res, 200, {
     success:                    true,
     source:                     'luna_whatsapp',
@@ -13027,6 +13423,9 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     currency:                   pm.currency,
     stripe_checkout_session_id: session.id,
     checkout_url:               session.url,
+    payment_short_url:          linkObs.payment_short_url,
+    guest_payment_url:          linkObs.guest_payment_url,
+    uses_short_payment_link:    linkObs.uses_short_payment_link,
     payment_status:             'checkout_created',
     next_action:                'draft_payment_link_reply',
     sends_whatsapp:             false,
@@ -13087,7 +13486,16 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const email         = String(body.email      || '').trim().slice(0, 200) || null;
   const language      = String(body.language   || 'en').trim().slice(0, 10);
   const guestCount    = parseInt(body.guest_count, 10) || 0;
-  const packageCode   = String(body.package_code || '').trim().slice(0, 50) || null;
+  const packageCode   = String(body.package_code || '').trim().toLowerCase().slice(0, 50) || null;
+  const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
+  const normalizedGuestPackages = rawGuestPackages.length
+    ? normalizeGuestPackagesInput(rawGuestPackages, guestCount || rawGuestPackages.length, packageCode || 'malibu')
+    : { guest_packages: [] };
+  if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
+  const guestPackages = normalizedGuestPackages.guest_packages || [];
+  const effectivePackageCode = guestPackages.length
+    ? guestPackagesMajorityStorageCode(guestPackages)
+    : packageCode;
   const roomType      = String(body.room_type  || 'shared').trim().slice(0, 20);
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
   const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();
@@ -13126,8 +13534,8 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     return send400(res, 'check_in and check_out must be YYYY-MM-DD');
   if (checkOut <= checkIn)  return send400(res, 'check_out must be after check_in');
   if (guestCount < 1)       return send400(res, 'guest_count must be at least 1');
-  if (!packageCode || packageCode === 'manual_override')
-    return send400(res, 'package_code is required (manual_override not supported)');
+  if (!effectivePackageCode || effectivePackageCode === 'manual_override')
+    return send400(res, 'package_code or guest_packages is required (manual_override not supported)');
   if (!paymentChoice)       return send400(res, 'payment_choice is required (deposit or full)');
   if (!confirmFlag)         return send400(res, 'confirm: true is required in request body');
   if (selectedBedCodes.length === 0)
@@ -13141,7 +13549,8 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     check_in:       checkIn,
     check_out:      checkOut,
     guest_count:    guestCount,
-    package_code:   packageCode,
+    package_code:   effectivePackageCode,
+    guest_packages: guestPackages,
     room_type:      roomType,
     payment_choice: paymentChoice,
     add_ons:        addOns,
@@ -13229,6 +13638,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
               quote_snapshot:    quote,
               payment_choice:    paymentChoice,
               add_ons_at_create: addOns,
+              guest_packages: guestPackages,
               bot_source:        source,
             }),
             result.booking_id,
@@ -13453,12 +13863,25 @@ const MANUAL_BOOKING_STAFF_PAYMENT_CHOICES = new Set([
 
 const MANUAL_BOOKING_LEGACY_PAYMENT_MAP = Object.freeze({
   deposit: 'stripe_deposit',
+  'pay deposit': 'stripe_deposit',
+  'the deposit': 'stripe_deposit',
+  'deposit only': 'stripe_deposit',
   full: 'stripe_full',
+  'full amount': 'stripe_full',
+  'pay full': 'stripe_full',
+  'pay full amount': 'stripe_full',
+  'all now': 'stripe_full',
+  'pay all': 'stripe_full',
+  everything: 'stripe_full',
+  'whole amount': 'stripe_full',
   pay_on_arrival: 'no_payment_yet',
+  'pay on arrival': 'no_payment_yet',
+  'on arrival': 'no_payment_yet',
+  arrival: 'no_payment_yet',
 });
 
 function normalizeManualBookingStaffPaymentChoice(raw) {
-  const c = String(raw || '').trim().toLowerCase();
+  const c = String(raw || '').trim().toLowerCase().replace(/[^a-z0-9_]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (MANUAL_BOOKING_STAFF_PAYMENT_CHOICES.has(c)) return c;
   if (MANUAL_BOOKING_LEGACY_PAYMENT_MAP[c]) return MANUAL_BOOKING_LEGACY_PAYMENT_MAP[c];
   return null;
@@ -13810,7 +14233,16 @@ async function handleManualBookingCreate(req, res, user) {
   const reason      = String(body.reason || 'Manual booking via Staff Portal Bed Calendar').trim().slice(0, 500);
   const source      = String(body.source || body.booking_source || 'staff_manual').trim().slice(0, 50) || 'staff_manual';
   // Stage 8.4.8: quote-driven fields — amounts derived from calculateWolfhouseQuote(), NOT from body
-  const packageCode   = String(body.package_code || body.package_or_stay_type || '').trim().slice(0, 50) || null;
+  const packageCode   = String(body.package_code || body.package_or_stay_type || '').trim().toLowerCase().slice(0, 50) || null;
+  const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
+  const normalizedGuestPackages = rawGuestPackages.length
+    ? normalizeGuestPackagesInput(rawGuestPackages, guestCount || rawGuestPackages.length, packageCode || 'malibu')
+    : { guest_packages: [] };
+  if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
+  const guestPackages = normalizedGuestPackages.guest_packages || [];
+  const effectivePackageCode = guestPackages.length
+    ? guestPackagesMajorityStorageCode(guestPackages)
+    : packageCode;
   const roomType      = String(body.room_type || 'shared').trim().slice(0, 20) || 'shared';
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
   const manualPricePerNightCents = body.manual_price_per_night_cents != null
@@ -13880,7 +14312,7 @@ async function handleManualBookingCreate(req, res, user) {
     return sendJSON(res, 403, { success: false, error: `Role '${actorRole}' may not create manual bookings.` });
 
   // ── 5a. Weekly package minimum stay (Stage 28i.1) ───────────────────────────
-  const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, packageCode);
+  const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, effectivePackageCode);
   if (!packageNightCheck.ok) {
     appendAuditLog({
       ts: new Date().toISOString(),
@@ -13901,8 +14333,8 @@ async function handleManualBookingCreate(req, res, user) {
   }
 
   // ── 5b. Server-side quote calculation (Stage 8.4.8) ──────────────────────────
-  if (!packageCode) {
-    return send400(res, 'package_code is required for quote-driven booking');
+  if (!effectivePackageCode) {
+    return send400(res, 'package_code or guest_packages is required for quote-driven booking');
   }
   const quote = calculateWolfhouseQuote({
     client_slug:    clientSlug,
@@ -14051,6 +14483,7 @@ async function handleManualBookingCreate(req, res, user) {
               payment_choice:   staffPayChoice,
               paid_amount_type: paidAmountType,
               add_ons_at_create: addOns,
+              guest_packages: guestPackages,
             }),
             result.booking_id,
           ]
@@ -14334,6 +14767,18 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .pill-purple{background:#E8DEEF;color:#6B5080;border-color:#D4C4E0} /* transfer scheduled — soft purple */
 .pill-clear-conv{background:#E8DFD0;color:#6B5E4A;border-color:#D4C4AE;cursor:pointer;font-family:inherit}
 .pill-clear-conv:hover{background:#DDD2C0}
+.pill-guest-context-reset{background:#F5E2E2;color:#9C5252;border-color:#E8C8C8;cursor:pointer;font-family:inherit}
+.pill-guest-context-reset:hover{background:#EDD4D4}
+/* ── Package pebbles (per-guest package display) ─────────────────────────── */
+.pkg-pebble{display:inline-block;border-radius:12px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin:2px;white-space:nowrap}
+.pkg-pebble-malibu{background:#FFD6B4;color:#7A3800}
+.pkg-pebble-uluwatu{background:#F5D5DC;color:#7A5560}
+.pkg-pebble-waimea{background:#F3E8B8;color:#6B5A40}
+.pkg-pebble-default{background:#E4E4E4;color:#444}
+.kv .v.pkg-pebbles-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.bc-svc-summary-headline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px}
+.bc-svc-nights-label{font-size:12px;color:var(--text-muted,#6B6560)}
+.bc-field-package-guest-row{margin-bottom:8px}
 /* ── Inbox two-column layout (WhatsApp Web style) ─────────────────────────── */
 .inbox-two-col{display:flex;flex:1 1 0;width:100%;min-width:0;min-height:0;border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;align-self:stretch}
 .inbox-left{flex:0 0 300px;width:300px;min-height:0;height:100%;border-right:1px solid var(--border-soft);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
@@ -14384,7 +14829,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 /* ── Detail pane (right column of inbox two-column layout) ─────────────────── */
 #conv-detail{flex:1 1 0%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--surface)}
 #detail-content{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px 20px;box-sizing:border-box}
-#detail-content.is-loading-detail .detail-layout{opacity:.72;pointer-events:none;transition:opacity .15s}
+#detail-content.is-loading-detail .detail-main{opacity:.72;pointer-events:none;transition:opacity .15s}
 .conv-detail-load-status{font-size:11px;color:var(--text-3);font-weight:600;white-space:nowrap}
 .conv-detail-load-status.error{color:#9C5742}
 .detail-layout-skeleton .thread-skeleton{min-height:180px;background:transparent;border:none;border-radius:0}
@@ -14419,6 +14864,8 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .msg-bubble{padding:10px 14px;border-radius:16px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word;box-shadow:var(--shadow-soft)}
 .msg.inbound .msg-bubble{background:#DCE7EE;color:#3D5360;border-bottom-left-radius:5px}
 .msg.outbound .msg-bubble{background:#DCEAD2;color:#4C6048;border-bottom-right-radius:5px}
+.msg-bubble .msg-link{color:inherit;text-decoration:underline;font-weight:600}
+.msg-bubble .msg-link:hover{text-decoration:none}
 .msg-meta{font-size:10px;color:var(--text-3);margin-top:5px;padding:0 4px}
 .msg.outbound .msg-meta{text-align:right}
 .thread-empty{color:var(--text-3);text-align:center;padding:28px;font-size:13px;font-style:italic}
@@ -17294,7 +17741,7 @@ function loadConvDetail(convId, targetEl){
     html += '<div class="thread-section">';
     html += '<div class="thread">';
     html += '<div class="detail-conv-toolbar">';
-    html += '<button type="button" class="pill pill-fresh-start" id="btn-fresh-start">Fresh Start</button>';
+    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset">Guest Context Reset</button>';
     html += '</div>';
     html +=   '<div class="thread-messages" id="thread-container">';
     if (msgs.length === 0){
@@ -17304,7 +17751,7 @@ function loadConvDetail(convId, targetEl){
         var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
         var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' ? 'Staff' : (m.source || 'Luna'));
         html += '<div class="msg ' + dir + '">';
-        html +=   '<div class="msg-bubble">' + escHtml(m.message_text || '') + '</div>';
+        html +=   '<div class="msg-bubble">' + formatThreadMessageHtml(m.message_text || '') + '</div>';
         html +=   '<div class="msg-meta">' + escHtml(sender) + ' &bull; ' + escHtml(fmtTs(m.created_at));
         html +=   '</div>';
         html += '</div>';
@@ -17507,10 +17954,10 @@ function wireNeedsHumanToggle(convId, targetEl){
 }
 
 function wireFreshStart(convId, targetEl){
-  var btn = targetEl.querySelector('#btn-fresh-start');
+  var btn = targetEl.querySelector('#btn-guest-context-reset');
   if (!btn) return;
   btn.addEventListener('click', function(){
-    if (!window.confirm('Full Fresh Start: clear Luna\u2019s context AND message history for this guest? Bookings and payments are kept. This cannot be undone.')) return;
+    if (!window.confirm('Guest context reset: clear Luna\u2019s Hermes chat memory, Staff Portal message history, and cached context for this guest? Bookings and payments are kept. This cannot be undone.')) return;
     btn.disabled = true;
     fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-luna-context', {
       method: 'POST',
@@ -19601,6 +20048,43 @@ function kvBC(k, v){
          '<span class="v">' + escHtml(String(v == null ? '\u2014' : v)) + '</span></div>';
 }
 
+function kvBCHtml(k, htmlValue){
+  return '<div class="kv"><span class="k">' + escHtml(k) + '</span>' +
+         '<span class="v pkg-pebbles-wrap">' + htmlValue + '</span></div>';
+}
+
+function formatThreadMessageHtml(text){
+  var raw = String(text == null ? '' : text);
+  if (!raw) return '';
+  /* RegExp constructor — regex literals break inside the embedded /staff/ui script bundle */
+  var re = new RegExp(
+    '\\\\[([^\\\\]]+)\\\\]\\\\((https?:\\\\/\\\\/[^\\\\s)]+)\\\\)' +
+    '|(https?:\\\\/\\\\/[^\\\\s<]+[^\\\\s<.,;:!?)])' +
+    '|((?:[\\\\w-]+\\\\.)*lunafrontdesk\\\\.com\\\\/pay\\\\/[^\\\\s<.,;:!?)]+)',
+    'gi'
+  );
+  var parts = [];
+  var last = 0;
+  var m;
+  function pushMsgLink(href, label){
+    parts.push('<a class="msg-link" href="' + escHtml(href) + '" target="_blank" rel="noopener noreferrer">' +
+      escHtml(label) + '</a>');
+  }
+  while ((m = re.exec(raw)) !== null) {
+    if (m.index > last) parts.push(escHtml(raw.slice(last, m.index)));
+    if (m[1] && m[2]) {
+      pushMsgLink(m[2], m[1]);
+    } else if (m[3]) {
+      pushMsgLink(m[3], m[3]);
+    } else if (m[4]) {
+      pushMsgLink('https://' + m[4], m[4]);
+    }
+    last = re.lastIndex;
+  }
+  if (last < raw.length) parts.push(escHtml(raw.slice(last)));
+  return parts.join('');
+}
+
 function bcRenderLunaGuestNotesHtml(data){
   var notes = (data && data.luna_guest_notes) || [];
   var html = '<div class="bc-luna-notes-wrap" id="bc-luna-notes-wrap" style="margin-top:12px">';
@@ -19851,6 +20335,7 @@ function bcRefreshBookingFinancialSummary(opts){
             data.service_records || [],
             data.payments || {},
             data.transfers || [],
+            data.guest_accommodation_lines || [],
           );
           bcInitCashPaymentShell(data);
           bcInitPaymentLinkShell(data);
@@ -20682,7 +21167,7 @@ function bcRunningInvoiceSvcLineText(sr){
   return label + ' \u2014 ' + eur(totalCents);
 }
 
-function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows){
+function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLines){
   var html = '';
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
@@ -20701,11 +21186,24 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows){
   svcRows = svcRows || [];
   pmt = pmt || {};
   transferRows = transferRows || [];
+  guestAccLines = guestAccLines || [];
   var md = bk.metadata || {};
   var quoteSnap = md.quote_snapshot || null;
   var nights = bcStayNightsFromCheckInOut(bk.check_in, bk.check_out);
   var pkgLabel = bcRunningInvoicePackageLabel(bk.package_code);
-  var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+  var accCents = null;
+  if (guestAccLines.length) {
+    var guestSum = 0;
+    var guestAny = false;
+    guestAccLines.forEach(function(line){
+      if (line.accommodation_cents != null) {
+        guestSum += Number(line.accommodation_cents);
+        guestAny = true;
+      }
+    });
+    if (guestAny) accCents = guestSum;
+  }
+  if (accCents == null) accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
   var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
   var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var transferLines = bcTransferInvoiceLineItems(transferRows);
@@ -20721,21 +21219,38 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows){
   /* Accommodation */
   html += '<div class="ctx-inv-group" id="bc-inv-accommodation">';
   html += '<div class="ctx-inv-group-title">Accommodation</div>';
-  var accLine = null;
-  if (accCents != null && pkgLabel && nights > 0 && accCents > 0 && accCents % nights === 0){
-    accLine = pkgLabel + ' \u2014 ' + nights + ' night' + (nights === 1 ? '' : 's') +
-      ' \u00d7 ' + eur(accCents / nights) + ' = ' + eur(accCents);
-  } else if (accCents != null){
-    var accParts = [];
-    if (pkgLabel) accParts.push(pkgLabel);
-    if (nights > 0) accParts.push(nights + ' night' + (nights === 1 ? '' : 's'));
-    accLine = (accParts.length ? accParts.join(' \u2014 ') + ' \u2014 ' : '') + 'Accommodation total: ' + eur(accCents);
-  } else if (pkgLabel || nights > 0){
-    accLine = (pkgLabel || 'Accommodation') +
-      (nights > 0 ? ' \u2014 ' + nights + ' night' + (nights === 1 ? '' : 's') : '') +
-      ' \u2014 Not available';
+  if (guestAccLines.length) {
+    guestAccLines.forEach(function(line){
+      var pkgName = line.package_label || bcFieldEditPackageDisplayLabel(line.package_code || 'no_package');
+      var lineNights = line.nights != null ? line.nights : nights;
+      var cents = line.accommodation_cents;
+      var accLine;
+      if (cents != null && lineNights > 0) {
+        accLine = 'Guest ' + line.guest_number + ' \u2014 ' + pkgName +
+          ' \u2014 ' + lineNights + ' night' + (lineNights === 1 ? '' : 's') +
+          ' \u2014 ' + eur(cents);
+      } else {
+        accLine = 'Guest ' + line.guest_number + ' \u2014 ' + pkgName + ' \u2014 Not available';
+      }
+      html += '<div class="ctx-inv-line">' + escHtml(accLine) + '</div>';
+    });
+  } else {
+    var accLine = null;
+    if (accCents != null && pkgLabel && nights > 0 && accCents > 0 && accCents % nights === 0){
+      accLine = pkgLabel + ' \u2014 ' + nights + ' night' + (nights === 1 ? '' : 's') +
+        ' \u00d7 ' + eur(accCents / nights) + ' = ' + eur(accCents);
+    } else if (accCents != null){
+      var accParts = [];
+      if (pkgLabel) accParts.push(pkgLabel);
+      if (nights > 0) accParts.push(nights + ' night' + (nights === 1 ? '' : 's'));
+      accLine = (accParts.length ? accParts.join(' \u2014 ') + ' \u2014 ' : '') + 'Accommodation total: ' + eur(accCents);
+    } else if (pkgLabel || nights > 0){
+      accLine = (pkgLabel || 'Accommodation') +
+        (nights > 0 ? ' \u2014 ' + nights + ' night' + (nights === 1 ? '' : 's') : '') +
+        ' \u2014 Not available';
+    }
+    html += '<div class="ctx-inv-line">' + escHtml(accLine || 'Not available') + '</div>';
   }
-  html += '<div class="ctx-inv-line">' + escHtml(accLine || 'Not available') + '</div>';
   html += '</div>';
 
   /* Services — booking_service_records only */
@@ -21052,6 +21567,7 @@ function bcRefreshPaymentsTab(bk){
         res.data.service_records,
         res.data.payments,
         res.data.transfers || [],
+        res.data.guest_accommodation_lines || [],
       );
       bcInitCashPaymentShell(res.data);
       bcInitPaymentLinkShell(res.data);
@@ -21361,38 +21877,36 @@ function bcFieldEditRunContactSave(){
     });
 }
 
-function bcFieldEditPackageChanged(packageCode){
+function bcFieldEditPackageChanged(guestPackages){
   var s = bcFieldEditState.snapshot || {};
-  return bcFieldEditNormalizePackageCode(s.package_code) !== bcFieldEditNormalizePackageCode(packageCode);
+  var before = s.guest_packages || bcGuestPackages({
+    guest_count: s.guest_count,
+    package_code: s.package_code,
+    metadata: { guest_packages: s.guest_packages },
+  });
+  return !bcGuestPackagesEqual(before, guestPackages);
 }
 
 function bcFieldEditUpdatePackageSaveState(){
   var btn = el('bc-field-save-package');
   if (!btn) return;
-  var pkgEl = el('bc-field-package-select');
-  var packageCode = pkgEl ? String(pkgEl.value).trim().toLowerCase() : '';
-  var valid = !!packageCode;
-  var changed = bcFieldEditPackageChanged(packageCode);
+  var guestPackages = bcFieldEditReadPackageGuestSelects();
+  var valid = guestPackages.length > 0;
+  var changed = bcFieldEditPackageChanged(guestPackages);
   btn.disabled = !valid || !changed;
 }
 
 function bcFieldEditBuildPackageWritePayload(){
-  var pkgEl = el('bc-field-package-select');
-  var packageCode = pkgEl ? String(pkgEl.value).trim().toLowerCase() : '';
-  if (!packageCode) return { error: 'Package is required.' };
-  return {
-    client_slug: bcFieldEditState.clientSlug || getBcClient(),
-    booking_id: bcFieldEditState.bookingId,
-    booking_code: bcFieldEditState.bookingCode,
-    edit_type: 'package',
-    package_code: packageCode,
-    idempotency_key: bcNewPackageEditIdempotencyKey(),
-    reason: 'Staff portal package edit',
-  };
+  var guestPackages = bcFieldEditReadPackageGuestSelects();
+  if (!guestPackages.length) return { error: 'Package selection is required.' };
+  return { guest_packages: guestPackages };
 }
 
 function bcFieldEditFormatPackageLine(obj){
   if (!obj) return '\u2014';
+  if (obj.guest_packages && obj.guest_packages.length) {
+    return bcRenderPackagePebblesHtml(obj.guest_packages).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
   var code = bcFieldEditPackageDisplayLabel(obj.package_code || 'no_package');
   var total = obj.total_amount_cents != null ? bcFieldEditFormatEuro(obj.total_amount_cents) : '\u2014';
   var balance = obj.balance_due_cents != null ? bcFieldEditFormatEuro(obj.balance_due_cents) : '\u2014';
@@ -21431,11 +21945,22 @@ function bcFieldEditRunPackageSave(){
   }
   var btn = el('bc-field-save-package');
   if (btn) btn.disabled = true;
-  bcFieldEditRenderPackageSaveResult({ success: true, message: 'Saving package\u2026' }, false);
-  fetch('/staff/bookings/edit', {
+  bcFieldEditRenderPackageSaveResult({ success: true, message: 'Saving packages\u2026' }, false);
+  var code = bcFieldEditState.bookingCode;
+  if (!code) {
+    bcFieldEditRenderPackageSaveResult({ success: false, error: 'booking_code missing' }, true);
+    bcFieldEditUpdatePackageSaveState();
+    return;
+  }
+  fetch('/staff/bookings/' + encodeURIComponent(code) + '/guest-packages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(built),
+    body: JSON.stringify({
+      client_slug: bcFieldEditState.clientSlug || getBcClient(),
+      guest_packages: built.guest_packages,
+      idempotency_key: bcNewPackageEditIdempotencyKey(),
+      reason: 'Staff portal per-guest package edit',
+    }),
   })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
     .then(function(res){
@@ -21448,8 +21973,13 @@ function bcFieldEditRunPackageSave(){
         bcFieldEditUpdatePackageSaveState();
         return;
       }
-      bcFieldEditRenderPackageSaveResult(res.data, false);
-      var code = bcFieldEditState.bookingCode;
+      bcFieldEditRenderPackageSaveResult({
+        success: true,
+        message: res.data.message || 'Guest packages updated.',
+        before: res.data.before,
+        after: res.data.after,
+        idempotent: res.data.idempotent,
+      }, false);
       bcFieldEditCloseAll();
       if (code) loadBlockDetail(code);
     })
@@ -21712,6 +22242,119 @@ function bcFieldEditPackageOptions(currentCode){
   return base;
 }
 
+function bcGuestPackages(bk){
+  bk = bk || {};
+  var guestCount = Math.max(1, parseInt(bk.guest_count, 10) || 1);
+  var md = bk.metadata || {};
+  var raw = md.guest_packages;
+  var fallbackPkg = bk.package_code ? String(bk.package_code).trim().toLowerCase() : 'no_package';
+  if (Array.isArray(raw) && raw.length > 0) {
+    var out = [];
+    for (var i = 0; i < guestCount; i++) {
+      var byIndex = raw[i];
+      var byNumber = null;
+      for (var j = 0; j < raw.length; j++) {
+        if (Number(raw[j] && raw[j].guest_number) === i + 1) {
+          byNumber = raw[j];
+          break;
+        }
+      }
+      var item = byIndex || byNumber;
+      var code = item && item.package_code
+        ? String(item.package_code).trim().toLowerCase()
+        : fallbackPkg;
+      out.push({ guest_number: i + 1, package_code: code || 'no_package' });
+    }
+    return out;
+  }
+  var list = [];
+  for (var g = 1; g <= guestCount; g++) {
+    list.push({ guest_number: g, package_code: fallbackPkg });
+  }
+  return list;
+}
+
+function bcPackagePebbleClass(code){
+  var c = code ? String(code).trim().toLowerCase() : '';
+  if (c === 'malibu') return 'pkg-pebble-malibu';
+  if (c === 'uluwatu') return 'pkg-pebble-uluwatu';
+  if (c === 'waimea') return 'pkg-pebble-waimea';
+  return 'pkg-pebble-default';
+}
+
+function bcRenderPackagePebblesHtml(guestPackages){
+  if (!guestPackages || !guestPackages.length) {
+    return '<span class="pkg-pebble pkg-pebble-default">No package</span>';
+  }
+  var groups = {};
+  var order = [];
+  guestPackages.forEach(function(gp){
+    var code = gp.package_code ? String(gp.package_code).trim().toLowerCase() : 'no_package';
+    if (!groups[code]) {
+      groups[code] = 0;
+      order.push(code);
+    }
+    groups[code]++;
+  });
+  var html = '';
+  order.forEach(function(code){
+    var count = groups[code];
+    var label = bcFieldEditPackageDisplayLabel(code);
+    if (count > 1) label += ' \u00d7' + count;
+    html += '<span class="pkg-pebble ' + bcPackagePebbleClass(code) + '">' + escHtml(label) + '</span>';
+  });
+  return html;
+}
+
+function bcGuestPackagesEqual(a, b){
+  if (!a || !b || a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (bcFieldEditNormalizePackageCode(a[i].package_code) !== bcFieldEditNormalizePackageCode(b[i].package_code)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function bcRenderFieldEditPackageGuestSelectsHtml(bk){
+  var guestPackages = bcGuestPackages(bk);
+  var pkgOpts = bcFieldEditPackageOptions(bk.package_code);
+  var html = '';
+  guestPackages.forEach(function(gp){
+    var gn = gp.guest_number;
+    html += '<div class="bc-field-package-guest-row">';
+    html += '<label class="ctx-field-label" for="bc-field-package-select-' + gn + '">Guest ' + gn + '</label>';
+    html += '<select id="bc-field-package-select-' + gn + '" class="bk-input bk-input-sm bc-field-package-guest-select" data-guest-number="' + gn + '">';
+    var curPkg = bcFieldEditNormalizePackageCode(gp.package_code);
+    pkgOpts.forEach(function(code){
+      var optVal = code;
+      var sel = (curPkg === bcFieldEditNormalizePackageCode(code)) ? ' selected' : '';
+      html += '<option value="' + escHtml(optVal) + '"' + sel + '>' + escHtml(bcFieldEditPackageDisplayLabel(code)) + '</option>';
+    });
+    html += '</select></div>';
+  });
+  return html;
+}
+
+function bcFieldEditReadPackageGuestSelects(){
+  var selects = document.querySelectorAll('#bc-field-package-edit .bc-field-package-guest-select');
+  if (!selects.length) {
+    var pkgEl = el('bc-field-package-select');
+    if (!pkgEl) return [];
+    var legacyCode = String(pkgEl.value).trim().toLowerCase();
+    if (!legacyCode) return [];
+    return [{ guest_number: 1, package_code: legacyCode }];
+  }
+  var out = [];
+  selects.forEach(function(sel){
+    var gn = parseInt(sel.getAttribute('data-guest-number'), 10) || (out.length + 1);
+    var packageCode = String(sel.value).trim().toLowerCase();
+    if (!packageCode) return;
+    out.push({ guest_number: gn, package_code: packageCode });
+  });
+  return out;
+}
+
 function bcFieldEditPackageDisplayLabel(code){
   var c = code ? String(code).trim().toLowerCase() : '';
   if (!c || c === 'no_package' || c === 'package_none') return 'No package';
@@ -21861,19 +22504,11 @@ function bcRenderFieldEditSectionsHtml(data, mode){
 
   if (mode === 'all' || mode === 'after-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
-  var packageKv = kvBC('Package', bcFieldEditPackageDisplayLabel(bk.package_code || 'no_package'));
+  var packageKv = kvBCHtml('Package', bcRenderPackagePebblesHtml(bcGuestPackages(bk)));
   if (roomPref) packageKv += kvBC('Room pref', roomPref);
   html += bcRenderFieldEditReadRow('package', 'Edit package', packageKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
-  html += '<label class="ctx-field-label" for="bc-field-package-select">Package</label>';
-  html += '<select id="bc-field-package-select" class="bk-input bk-input-sm">';
-  var curPkg = bcFieldEditNormalizePackageCode(bk.package_code);
-  pkgOpts.forEach(function(code){
-    var optVal = code;
-    var sel = (curPkg === bcFieldEditNormalizePackageCode(code)) ? ' selected' : '';
-    html += '<option value="' + escHtml(optVal) + '"' + sel + '>' + escHtml(bcFieldEditPackageDisplayLabel(code)) + '</option>';
-  });
-  html += '</select>';
+  html += bcRenderFieldEditPackageGuestSelectsHtml(bk);
   html += bcRenderFieldEditActionsHtml('package');
   html += '</div></div>';
   }
@@ -21988,8 +22623,8 @@ function bcFieldEditBuildPreviewPayload(group){
     payload.check_in = cin.value;
     payload.check_out = cout.value;
   } else if (group === 'package'){
-    var pkgEl = el('bc-field-package-select');
-    payload.package_code = pkgEl ? pkgEl.value : '';
+    var guestPackages = bcFieldEditReadPackageGuestSelects();
+    if (guestPackages.length) payload.package_code = guestPackages[0].package_code;
   } else if (group === 'guests'){
     var guestEl = el('bc-field-guests-select');
     payload.guest_count = guestEl ? parseInt(guestEl.value, 10) : bcFieldEditState.guestCount;
@@ -22035,14 +22670,21 @@ function bcFieldEditRestoreForms(){
   var emailEl = el('bc-field-contact-email');
   var cinEl = el('bc-field-dates-check-in');
   var coutEl = el('bc-field-dates-check-out');
-  var pkgEl = el('bc-field-package-select');
   var guestEl = el('bc-field-guests-select');
   if (nameEl) nameEl.value = s.guest_name || '';
   if (phoneEl) phoneEl.value = s.phone || '';
   if (emailEl) emailEl.value = s.email || '';
   if (cinEl) cinEl.value = s.check_in || '';
   if (coutEl) coutEl.value = s.check_out || '';
-  if (pkgEl && s.package_code) pkgEl.value = String(s.package_code).toLowerCase();
+  if (s.guest_packages && s.guest_packages.length) {
+    s.guest_packages.forEach(function(gp){
+      var sel = el('bc-field-package-select-' + gp.guest_number);
+      if (sel && gp.package_code) sel.value = String(gp.package_code).toLowerCase();
+    });
+  } else {
+    var pkgEl = el('bc-field-package-select-1');
+    if (pkgEl && s.package_code) pkgEl.value = String(s.package_code).toLowerCase();
+  }
   if (guestEl) guestEl.value = String(s.guest_count || bcFieldEditState.guestCount);
   bcFieldEditUpdateDatesPreview();
   bcFieldEditUpdateGuestPreview();
@@ -22812,6 +23454,7 @@ function bcInitFieldEditShell(data){
     check_in: bk.check_in || '',
     check_out: bk.check_out || '',
     package_code: bk.package_code ? String(bk.package_code).toLowerCase() : 'no_package',
+    guest_packages: bcGuestPackages(bk),
     guest_count: bcFieldEditState.guestCount,
   };
   bcFieldEditState.activeGroup = null;
@@ -22890,11 +23533,13 @@ function bcInitFieldEditShell(data){
     cout.onchange = function(){ bcFieldEditUpdateDatesSaveState(); };
     cout.oninput = function(){ bcFieldEditUpdateDatesSaveState(); };
   }
-  var pkgSel = el('bc-field-package-select');
-  if (pkgSel){
+  var pkgSel = document.querySelectorAll('#bc-field-package-edit .bc-field-package-guest-select');
+  if (pkgSel.length){
     var pkgHandler = function(){ bcFieldEditUpdatePackageSaveState(); };
-    pkgSel.onchange = pkgHandler;
-    pkgSel.oninput = pkgHandler;
+    pkgSel.forEach(function(sel){
+      sel.onchange = pkgHandler;
+      sel.oninput = pkgHandler;
+    });
   }
 }
 
@@ -23592,14 +24237,16 @@ function bcRenderSchedulePickerHtml(unsched, targetDate){
   return html;
 }
 
-function bcRenderServicesSummarySection(data){
+function bcRenderServicesSummarySection(data, bk){
   if (!data || !data.success) return '';
   var html = '';
   var pkg = data.package_summary || {};
+  var nights = pkg.nights != null ? pkg.nights : 0;
   html += '<div class="bc-drawer-overview-card bc-svc-summary-card" id="bc-svc-summary-card">';
-  html += '<div class="bc-svc-summary-headline">' +
-    escHtml(pkg.headline || ((pkg.package_name || 'No Package') + ' \u00b7 ' + (pkg.nights != null ? pkg.nights : 0) + ' nights')) +
-    '</div>';
+  html += '<div class="bc-svc-summary-headline">';
+  html += '<span class="bc-svc-summary-pebbles">' + bcRenderPackagePebblesHtml(bcGuestPackages(bk || {})) + '</span>';
+  html += '<span class="bc-svc-nights-label">' + escHtml(String(nights) + ' nights') + '</span>';
+  html += '</div>';
   html += '<div class="bc-svc-paid-title">Paid / Requested services</div>';
   var paidList = data.paid_requested_services || [];
   if (!paidList.length) {
@@ -23698,15 +24345,15 @@ function bcRenderServicesScheduleSections(data){
   return html;
 }
 
-function bcRenderServicesScheduleBody(data){
-  return bcRenderServicesSummarySection(data) + bcRenderServicesScheduleSections(data);
+function bcRenderServicesScheduleBody(data, bk){
+  return bcRenderServicesSummarySection(data, bk) + bcRenderServicesScheduleSections(data);
 }
 
 function bcApplyServicesScheduleData(bk, data){
   var summaryEl = el('bc-services-summary-section');
   var bodyEl = el('bc-services-schedule-body');
   if (data && data.success) {
-    if (summaryEl) summaryEl.innerHTML = bcRenderServicesSummarySection(data);
+    if (summaryEl) summaryEl.innerHTML = bcRenderServicesSummarySection(data, bk);
     if (bodyEl) {
       bodyEl.classList.remove('ctx-loading');
       bodyEl.innerHTML = bcRenderServicesScheduleSections(data);
@@ -23982,7 +24629,7 @@ function renderBookingContextDrawer(data){
   /* ── Payments tab ─────────────────────────────────────────────────────── */
   html += '<div class="bc-drawer-tab-panel' + (activeTab === 'payments' ? ' is-active' : '') +
     '" id="bc-drawer-tab-payments" data-tab="payments" role="tabpanel">';
-  html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt, data.transfers || []);
+  html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
   html += '</div>';
 
   html += '</div></div>';
@@ -25845,6 +26492,12 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
       return send404(res);
     }
+
+    let hermesSessionReset = { attempted: false, ok: false, reason: 'no_guest_phone' };
+    if (result.guest_phone) {
+      hermesSessionReset = await resetHermesGuestSession(result.guest_phone);
+    }
+
     appendAuditLog({
       ...auditBase,
       success: true,
@@ -25852,6 +26505,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       messages_deleted: result.messages_deleted,
       messages_preserved: result.messages_preserved,
       metadata_keys_cleared: result.metadata_keys_cleared,
+      hermes_session_reset: hermesSessionReset,
       elapsed_ms: elapsed,
     });
     return sendJSON(res, 200, {
@@ -25861,6 +26515,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       messages_deleted: result.messages_deleted,
       messages_preserved: result.messages_preserved,
       metadata_keys_cleared: result.metadata_keys_cleared,
+      hermes_session_reset: hermesSessionReset,
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -27870,6 +28525,8 @@ async function handleBedReassignConfirm(req, res) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BOOKING_CONTEXT_RE = /^\/staff\/bookings\/([A-Za-z0-9_\-]+)\/context$/;
+const BOOKING_GUEST_PACKAGES_RE = /^\/staff\/bookings\/([A-Za-z0-9_\-]+)\/guest-packages$/;
+const BOT_BOOKING_GUEST_PACKAGES_RE = /^\/staff\/bot\/bookings\/([A-Za-z0-9_\-]+)\/guest-packages$/;
 const BOOKING_LUNA_NOTES_RE = new RegExp(
   `^/staff/bookings/(${UUID_RE})/luna-notes$`, 'i',
 );
@@ -27898,6 +28555,144 @@ async function loadBookingServiceRecords(pg, clientSlug, bookingCode) {
     }
     throw err;
   }
+}
+
+async function handleBookingGuestPackagesWrite(bookingCode, req, res, user) {
+  const started = Date.now();
+
+  let body = {};
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const reason = String(body.reason || '').trim().slice(0, 500) || null;
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!bookingCode || bookingCode.length > 64 || SQL_INJECT_RE.test(bookingCode)) {
+    return send400(res, 'invalid booking code');
+  }
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+
+  const actorId = user ? user.staff_user_id : 'dev-guest-packages-local';
+  const actorRole = user ? user.role : 'operator';
+  const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:booking_guest_packages',
+    category: 'booking_guest_packages_write',
+    client_slug: clientSlug,
+    booking_code: bookingCode,
+    idempotency_key: idempotencyKey,
+    staff_user_id: actorId,
+    staff_role: actorRole,
+    reason,
+  };
+
+  let bookingRow;
+  try {
+    const bookingRes = await withPgClient((pg) =>
+      pg.query(EDIT_PREVIEW_BOOKING_BY_CODE_SQL, [clientSlug, bookingCode]),
+    );
+    bookingRow = bookingRes.rows[0] || null;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'booking lookup failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', updated: false });
+  }
+
+  const guestCount = Math.max(1, Number(bookingRow.guest_count) || 1);
+  const metadata = bookingRow.metadata || {};
+  const normalized = normalizeGuestPackagesInput(
+    body.guest_packages,
+    guestCount,
+    bookingRow.package_code,
+  );
+  if (normalized.error) {
+    return send400(res, normalized.error);
+  }
+
+  const beforeGuestPackages = normalizeGuestPackagesFromBooking(bookingRow, metadata);
+  const afterGuestPackages = normalized.guest_packages;
+  const beforePackageCode = bookingRow.package_code || null;
+  const afterPackageCode = guestPackagesMajorityStorageCode(afterGuestPackages);
+
+  const packagesEqual = beforeGuestPackages.every((gp, i) => {
+    const after = afterGuestPackages[i];
+    return editPreviewPackageStorageCode(gp.package_code) === editPreviewPackageStorageCode(after.package_code);
+  }) && beforeGuestPackages.length === afterGuestPackages.length;
+
+  if (packagesEqual) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, updated: false, idempotent: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      ok: true,
+      updated: false,
+      idempotent: true,
+      guest_packages: afterGuestPackages,
+      before: { guest_packages: beforeGuestPackages, package_code: beforePackageCode },
+      after: { guest_packages: afterGuestPackages, package_code: afterPackageCode },
+      message: 'Guest packages already match the requested values.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  try {
+    await withPgClient(async (pg) => {
+      await pg.query(
+        `UPDATE bookings b
+            SET metadata = jsonb_set(
+                  COALESCE(b.metadata, '{}'::jsonb),
+                  '{guest_packages}',
+                  $3::jsonb,
+                  true
+                ),
+                package_code = $4,
+                updated_at = NOW()
+          FROM clients c
+         WHERE b.client_id = c.id
+           AND c.slug = $1
+           AND b.booking_code = $2`,
+        [clientSlug, bookingCode, JSON.stringify(afterGuestPackages), afterPackageCode],
+      );
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'guest_packages update failed', detail: err.message });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ...auditBase,
+    success: true,
+    updated: true,
+    actor: actorLabel,
+    before_guest_packages: beforeGuestPackages,
+    after_guest_packages: afterGuestPackages,
+    elapsed_ms: elapsed,
+  });
+
+  return sendJSON(res, 200, {
+    success: true,
+    ok: true,
+    updated: true,
+    guest_packages: afterGuestPackages,
+    package_code: afterPackageCode,
+    before: { guest_packages: beforeGuestPackages, package_code: beforePackageCode },
+    after: { guest_packages: afterGuestPackages, package_code: afterPackageCode },
+    message: 'Guest packages updated.',
+    elapsed_ms: elapsed,
+  });
 }
 
 async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
@@ -28099,10 +28894,13 @@ async function handleBookingContext(bookingCode, query, res, user) {
     transfersDrawer = null;
   }
 
+  const guestAccommodationLines = buildGuestAccommodationLines(clientSlug, bk, bkMetadata);
+
   return sendJSON(res, 200, {
     success:      true,
     client_slug:  clientSlug,
     booking_code: bookingCode,
+    guest_accommodation_lines: guestAccommodationLines,
     booking: {
       booking_id:          bk.booking_id,
       booking_code:        bk.booking_code,
@@ -28398,6 +29196,28 @@ async function router(req, res) {
     return handleBookingEditWrite(req, res, auth.user);
   }
 
+  const botGuestPackagesMatch = BOT_BOOKING_GUEST_PACKAGES_RE.exec(pathname);
+  if (botGuestPackagesMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/:code/guest-packages' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBookingGuestPackagesWrite(botGuestPackagesMatch[1], req, res, auth.user);
+  }
+
+  const guestPackagesMatch = BOOKING_GUEST_PACKAGES_RE.exec(pathname);
+  if (guestPackagesMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/:code/guest-packages' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingGuestPackagesWrite(guestPackagesMatch[1], req, res, auth.user);
+  }
+
   // ── Phase 10.5f — Booking cancel (Staff Portal internal write) ─────────────
   if (pathname === '/staff/bookings/cancel') {
     if (method !== 'POST') {
@@ -28672,6 +29492,17 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotCheckinDayPreview(req, res, auth.user, auth.auth_mode);
+  }
+
+  // POST /staff/bot/whatsapp-thread-mirror
+  if (pathname === '/staff/bot/whatsapp-thread-mirror') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/whatsapp-thread-mirror' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotHermesWhatsAppThreadMirror(req, res, auth.user, auth.auth_mode);
   }
 
   // POST /staff/bot/guest-reply-send

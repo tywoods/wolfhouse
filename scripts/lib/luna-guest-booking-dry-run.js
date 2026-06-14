@@ -114,6 +114,16 @@ function resolveDryRunPhone(src) {
   return '';
 }
 
+function normalizeDryRunPaymentChoice(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  const compact = raw.replace(/[^a-z0-9_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (['full', 'full amount', 'pay full', 'pay full amount', 'all now', 'pay all', 'everything', 'whole amount'].includes(compact)) return 'full';
+  if (['deposit', 'pay deposit', 'the deposit', 'deposit only'].includes(compact)) return 'deposit';
+  if (['arrival', 'on arrival', 'pay on arrival', 'later', 'pay_on_arrival'].includes(compact)) return 'pay_on_arrival';
+  return raw;
+}
+
 function normalizeInput(input) {
   const src = input || {};
   const guestCount = src.guest_count != null
@@ -129,8 +139,9 @@ function normalizeInput(input) {
     check_out:      String(src.check_out || '').trim(),
     guest_count:    guestCount,
     package_code:   src.package_code != null ? String(src.package_code).trim().toLowerCase() : null,
+    guest_packages: Array.isArray(src.guest_packages) ? src.guest_packages : [],
     room_type:      String(src.room_type || src.room_preference || 'shared').trim(),
-    payment_choice: String(src.payment_choice || '').trim(),
+    payment_choice: normalizeDryRunPaymentChoice(src.payment_choice),
     phone:          resolvedPhone,
     email:          String(src.email || '').trim(),
     add_ons:        Array.isArray(src.add_ons) ? src.add_ons : [],
@@ -217,6 +228,7 @@ function runBookingPreviewDryRun(fields) {
     check_out:      fields.check_out || null,
     guest_count:    (fields.guest_count != null && fields.guest_count > 0) ? fields.guest_count : null,
     package_code:   fields.package_code || null,
+    guest_packages: fields.guest_packages || [],
     room_type:      fields.room_type || null,
     guest_name:     fields.guest_name || null,
     phone:          fields.phone || null,
@@ -224,7 +236,7 @@ function runBookingPreviewDryRun(fields) {
   };
 
   const missingFields = BOT_BOOKING_REQUIRED_FIELDS.filter((f) => !fieldValues[f]);
-  const canQuote = !!(fields.check_in && fields.check_out && fields.guest_count > 0 && fields.package_code);
+  const canQuote = !!(fields.check_in && fields.check_out && fields.guest_count > 0 && (fields.package_code || (Array.isArray(fields.guest_packages) && fields.guest_packages.length > 0)));
 
   let quote = null;
   let quoteError = null;
@@ -236,6 +248,7 @@ function runBookingPreviewDryRun(fields) {
         check_out:      fields.check_out,
         guest_count:    fields.guest_count,
         package_code:   fields.package_code,
+        guest_packages: fields.guest_packages || [],
         room_type:      fields.room_type || 'shared',
         payment_choice: fields.payment_choice || 'deposit',
         add_ons:        fields.add_ons,
@@ -246,14 +259,14 @@ function runBookingPreviewDryRun(fields) {
   }
 
   let nextAction;
-  if (missingFields.length > 0) {
-    nextAction = 'ask_missing_details';
-  } else if (quoteError) {
+  if (quoteError) {
     nextAction = 'handoff_to_staff';
   } else if (quote && !quote.success) {
     nextAction = quote.staff_review_required ? 'handoff_to_staff' : 'ask_missing_details';
   } else if (quote && quote.success) {
     nextAction = 'show_quote';
+  } else if (missingFields.length > 0) {
+    nextAction = 'ask_missing_details';
   } else {
     nextAction = 'ask_missing_details';
   }
@@ -269,7 +282,7 @@ function runBookingPreviewDryRun(fields) {
   } else if (nextAction === 'show_quote' && quote) {
     const totalEur   = (quote.total_cents / 100).toFixed(2);
     const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
-    replyDraft = `For those dates, the estimated total is €${totalEur}. You can pay a €${depositEur} deposit now or the full amount.`;
+    replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
   } else {
     replyDraft = 'Let me check those dates and get back to you.';
   }
@@ -370,9 +383,26 @@ async function runAvailabilityCheckDryRun(fields, pg) {
   const availableBeds  = filteredBeds.filter((b) => !occupiedBedCodes.has(b.bed_code));
   const availableCount   = availableBeds.length;
   const hasEnoughBeds    = availableCount >= guestCount;
-  const selectedBedCodes = hasEnoughBeds
-    ? availableBeds.slice(0, guestCount).map((b) => b.bed_code)
-    : [];
+  let selectedBedCodes = [];
+  let selectedRoomCode = null;
+  if (hasEnoughBeds) {
+    const byRoom = new Map();
+    for (const bed of availableBeds) {
+      const room = bed.room_code || '__unknown_room__';
+      if (!byRoom.has(room)) byRoom.set(room, []);
+      byRoom.get(room).push(bed);
+    }
+    const roomFit = [...byRoom.entries()]
+      .filter(([, beds]) => beds.length >= guestCount)
+      .sort((a, b) => a[1].length - b[1].length || String(a[0]).localeCompare(String(b[0])))[0];
+    if (roomFit) {
+      selectedRoomCode = roomFit[0] === '__unknown_room__' ? null : roomFit[0];
+      selectedBedCodes = roomFit[1].slice(0, guestCount).map((b) => b.bed_code);
+    } else {
+      warnings.push('group_split_across_rooms_required');
+      selectedBedCodes = availableBeds.slice(0, guestCount).map((b) => b.bed_code);
+    }
+  }
 
   if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
 
@@ -386,6 +416,7 @@ async function runAvailabilityCheckDryRun(fields, pg) {
     guest_count:         guestCount,
     room_type:           roomType,
     selected_bed_codes:  selectedBedCodes,
+    selected_room_code:  selectedRoomCode,
     has_enough_beds:     hasEnoughBeds,
     available_count:     availableCount,
     warnings,
@@ -659,6 +690,7 @@ async function runLunaGuestBookingDryRun(input, context) {
     message_text:    fields.message_text,
     phone:           fields.phone || null,
     guest_phone:     fields.guest_phone || null,
+    guest_packages:  fields.guest_packages || [],
     anchor_routes:   DRY_RUN_ANCHOR_ROUTES,
     live_forbidden:  LIVE_FORBIDDEN_ROUTES,
     no_write_performed: true,

@@ -21,7 +21,7 @@ const APP_NAME = 'wh-staging-hermes';
 const BASE_IMAGE = 'docker.io/nousresearch/hermes-agent:latest';
 const STAGING_IMAGE = 'whstagingacr.azurecr.io/wh-hermes-staging:latest';
 const IMAGE = STAGING_IMAGE;
-const TARGET_PORT = 8642;
+const TARGET_PORT = 8090; // WhatsApp Cloud webhook (Meta → Hermes). API /v1 is internal-only unless ingress changes.
 const STORAGE_ACCOUNT = 'whstaginghermes';
 const FILE_SHARE = 'hermes-data';
 const VOLUME_NAME = 'hermes-data';
@@ -33,6 +33,7 @@ const KV_SECRET_BINDINGS = [
   { caName: 'openai-api-key', kvName: 'openai-api-key' },
   { caName: 'meta-whatsapp-token', kvName: 'meta-whatsapp-token' },
   { caName: 'meta-whatsapp-phone-id', kvName: 'meta-whatsapp-phone-id' },
+  { caName: 'whatsapp-app-secret', kvName: 'whatsapp-app-secret' },
   { caName: 'luna-bot-internal-token', kvName: 'luna-bot-internal-token' },
 ];
 
@@ -152,12 +153,17 @@ function ensureKvSecretsAndIdentity() {
 }
 
 function bootstrapHermesRuntime() {
-  console.error('[deploy] bootstrapping /opt/data config for OpenAI (ephemeral volume)...');
+  const fs = require('fs');
+  const path = require('path');
+  console.error('[deploy] bootstrapping /opt/data config + Luna guest SOUL...');
   const configB64 = Buffer.from(
     'model:\n  default: gpt-4o-mini\n  provider: openai-api\n  api_mode: chat_completions\nagent:\n  reasoning_effort: none\n',
   ).toString('base64');
+  const soulPath = path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md');
+  const soulB64 = fs.readFileSync(soulPath, 'utf8').toString('base64');
   const cmds = [
     `sh -c "echo ${configB64} | base64 -d > /opt/data/config.yaml"`,
+    `sh -c "echo ${soulB64} | base64 -d > /opt/data/SOUL.md"`,
     'hermes config set model.default gpt-4o-mini',
     'hermes config set model.provider openai-api',
     'sh -c "grep -q ^OPENAI_API_KEY= /opt/data/.env 2>/dev/null || printenv OPENAI_API_KEY | sed s/^/OPENAI_API_KEY=/ >> /opt/data/.env"',
@@ -177,6 +183,10 @@ function wireSecretEnvVars() {
     'OPENAI_API_KEY=secretref:openai-api-key',
     'WHATSAPP_CLOUD_ACCESS_TOKEN=secretref:meta-whatsapp-token',
     'WHATSAPP_CLOUD_PHONE_NUMBER_ID=secretref:meta-whatsapp-phone-id',
+    'WHATSAPP_CLOUD_APP_SECRET=secretref:whatsapp-app-secret',
+    'WHATSAPP_CLOUD_VERIFY_TOKEN=wolfhouse_verify_token',
+    'WHATSAPP_CLOUD_WEBHOOK_PORT=8090',
+    'WHATSAPP_CLOUD_WEBHOOK_PATH=/whatsapp/webhook',
     'LUNA_BOT_INTERNAL_TOKEN=secretref:luna-bot-internal-token',
     ...Object.entries(HERMES_STAGING_V1).map(([k, v]) => `${k}=${v}`),
   ];
@@ -400,14 +410,26 @@ function verify() {
     healthCode = '000';
   }
   const ok = healthCode === '200' || healthCode === '204';
+  let healthBody = null;
+  try {
+    healthBody = JSON.parse(execSync(`curl.exe -s -m 15 ${base}/health`, { encoding: 'utf8' }));
+  } catch { /* ignore */ }
+  const ingressPort = JSON.parse(az(`containerapp show -g ${RG} -n ${APP_NAME} -o json`))
+    .properties?.configuration?.ingress?.targetPort;
   console.log(JSON.stringify({
     ok,
     fqdn,
     base_url: base,
+    ingress_target_port: ingressPort,
     health_path: '/health',
     health_http_code: healthCode,
-    meta_webhook_url: `${base}/whatsapp/cloud/webhook`,
-    note: ok ? 'Gateway reachable. Run hermes setup + whatsapp-cloud wizard if not done.' : 'Gateway not healthy yet — check logs.',
+    whatsapp_health: healthBody,
+    meta_webhook_url: `${base}/whatsapp/webhook`,
+    meta_verify_token: 'wolfhouse_verify_token',
+    meta_must_subscribe_field: 'messages',
+    note: ok
+      ? 'Hermes WhatsApp ready. In Meta: subscribe webhook field messages (not just account_*).'
+      : 'Gateway not healthy yet — check logs.',
   }, null, 2));
   if (!ok) process.exit(1);
 }

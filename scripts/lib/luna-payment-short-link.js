@@ -13,7 +13,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
-const BOOKING_CODE_RE = /^WH-[A-Z0-9]+-[A-Z0-9-]+$/i;
+const BOOKING_CODE_RE = /^(?:WH-[A-Z0-9]+(?:-[A-Z0-9-]+)?|MB-[A-Z0-9]+-\d{8}-[A-Z0-9]+)$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ACTIVE_LINK_STATUSES = new Set(['checkout_created', 'draft', 'pending']);
@@ -190,9 +190,29 @@ function findLatestActiveCheckoutPayment(paymentRows, now) {
 
 function bookingLooksFullyPaid(bookingRow, paymentRows) {
   const bkStatus = String(bookingRow && bookingRow.payment_status || '').toLowerCase();
-  if (bkStatus === 'paid' || bkStatus === 'deposit_paid') return true;
+  if (bkStatus === 'paid') return true;
+
+  const balanceDue = bookingRow && bookingRow.balance_due_cents != null
+    ? Number(bookingRow.balance_due_cents)
+    : null;
+  if (balanceDue != null && balanceDue > 0) return false;
+
+  const totalCents = bookingRow && bookingRow.total_amount_cents != null
+    ? Number(bookingRow.total_amount_cents)
+    : null;
+  const bkPaid = bookingRow && bookingRow.amount_paid_cents != null
+    ? Number(bookingRow.amount_paid_cents)
+    : null;
+  if (totalCents != null && bkPaid != null && bkPaid >= totalCents) return true;
+
   const hasPaidRow = (paymentRows || []).some((row) => paymentRowIsPaid(row));
   const hasActive = !!findLatestActiveCheckoutPayment(paymentRows);
+
+  if (bkStatus === 'deposit_paid') {
+    if (balanceDue === 0) return true;
+    return hasPaidRow && !hasActive && balanceDue == null;
+  }
+
   return hasPaidRow && !hasActive;
 }
 
@@ -317,11 +337,14 @@ SELECT
   b.id::text                    AS booking_id,
   b.booking_code,
   b.status::text                AS booking_status,
-  b.payment_status::text        AS payment_status
+  b.payment_status::text        AS payment_status,
+  b.total_amount_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents
 FROM bookings b
 INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
-  AND b.booking_code = $2
+  AND UPPER(b.booking_code) = UPPER($2)
 LIMIT 1
 `;
 
@@ -340,7 +363,7 @@ FROM payments p
 INNER JOIN bookings b ON b.id = p.booking_id
 INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
-  AND b.booking_code = $2
+  AND UPPER(b.booking_code) = UPPER($2)
 ORDER BY p.created_at DESC
 `;
 

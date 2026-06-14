@@ -430,7 +430,11 @@
     "verify:staff-portal-ui-product-cleanup": "node scripts/verify-staff-portal-ui-product-cleanup.js",
     "verify:stage57a-hermes-staff-api-tools": "node scripts/verify-stage57a-hermes-staff-api-tools.js",
     "verify:stage57b-staff-api-bot-routes": "node scripts/verify-stage57b-staff-api-bot-routes.js",
-    "verify:stage57c-hermes-luna-e2e-rehearsal": "node scripts/verify-stage57c-hermes-luna-e2e-rehearsal.js"
+    "verify:stage57c-hermes-luna-e2e-rehearsal": "node scripts/verify-stage57c-hermes-luna-e2e-rehearsal.js",
+    "verify:hermes-luna-guest-identity": "node scripts/verify-hermes-luna-guest-identity.js",
+    "verify:hermes-luna-inbox-mirror": "node scripts/verify-hermes-luna-inbox-mirror.js",
+    "verify:hermes-luna-staff-api-plugin": "node scripts/verify-hermes-luna-staff-api-plugin.js",
+    "verify:hermes-luna-live-feedback-rules": "node scripts/verify-hermes-luna-live-feedback-rules.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

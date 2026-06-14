@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Stage 27test-c — Guest-friendly Wolfhouse package explainer (dry-run copy only).
+ * Stage 27test-c — Guest-friendly Wolf-House package explainer (dry-run copy only).
  * Exact package facts; no availability, payment, or confirmation claims.
  */
 
@@ -182,36 +182,36 @@ function buildWhatsAppPackageLines(lang) {
   const L = normalizeLang(lang);
   if (L === 'it') {
     return [
-      '🏡 Malibu — soggiorno base con T-shirt Wolfhouse e transfer aeroporto inclusi, da €249.',
+      '🏡 Malibu — soggiorno base con T-shirt Wolf-House e transfer aeroporto inclusi, da €249.',
       '🏄 Uluwatu — soggiorno + noleggio tavola e muta, da €349.',
       '🌊 Waimea — soggiorno + lezioni + attrezzatura, da €499.',
     ];
   }
   if (L === 'es') {
     return [
-      '🏡 Malibu — estancia simple con camiseta Wolfhouse y traslado al aeropuerto incluidos, desde €249.',
+      '🏡 Malibu — estancia simple con camiseta Wolf-House y traslado al aeropuerto incluidos, desde €249.',
       '🏄 Uluwatu — estancia + alquiler de tabla y neopreno, desde €349.',
       '🌊 Waimea — estancia + clases + material, desde €499.',
     ];
   }
   if (L === 'de') {
     return [
-      '🏡 Malibu — einfacher Aufenthalt mit Wolfhouse T-Shirt und Flughafen-Shuttle inklusive, ab €249.',
+      '🏡 Malibu — einfacher Aufenthalt mit Wolf-House T-Shirt und Flughafen-Shuttle inklusive, ab €249.',
       '🏄 Uluwatu — Aufenthalt + Brett- und Neopren-Verleih, ab €349.',
       '🌊 Waimea — Aufenthalt + Kurse + Equipment, ab €499.',
     ];
   }
   if (L === 'fr') {
     return [
-      '🏡 Malibu — séjour simple avec T-shirt Wolfhouse et navette aéroport inclus, à partir de 249 €.',
+      '🏡 Malibu — séjour simple avec T-shirt Wolf-House et navette aéroport inclus, à partir de 249 €.',
       '🏄 Uluwatu — séjour + location planche et combinaison, à partir de 349 €.',
       '🌊 Waimea — séjour + cours + matériel, à partir de 499 €.',
     ];
   }
   return [
-    '☀️ Malibu — the classic Wolfhouse week: 7 nights, shared kitchen, Wolfhouse T-shirt, and Santander shuttle included. Cute, easy, good-vibes base if you mostly want the house + Somo life, from €249.',
-    '🌊 Uluwatu — Malibu plus 6 full days of surfboard + wetsuit rental. Best if you already surf a bit and want freedom to chase waves on your own, from €349.',
-    '🏄‍♀️ Waimea — the full surf-school week: Malibu plus 6 morning surf lessons, 12 hours total, and board + wetsuit rental all week. Best if you’re beginner/intermediate or want the most guided surf experience, from €499.',
+    '☀️ Malibu — 7 nights + Wolf-House T-shirt + free Santander airport shuttle.',
+    '🌊 Uluwatu — everything in Malibu + surfboard and wetsuit rental for 6 days.',
+    '🏄 Waimea — everything in Uluwatu + 6 surf lessons.',
   ];
 }
 
@@ -340,18 +340,18 @@ function buildOverviewReply(lang, opts) {
 function buildMalibuReply(lang) {
   const L = normalizeLang(lang);
   if (L === 'it') {
-    return `${intro(L)}\n\nMalibu: da €249, 7 notti, cucina condivisa, T-shirt Wolfhouse e transfer aeroporto secondo le regole Wolfhouse.`;
+    return `${intro(L)}\n\nMalibu: da €249, 7 notti, cucina condivisa, T-shirt Wolf-House e transfer aeroporto secondo le regole Wolf-House.`;
   }
   if (L === 'es') {
-    return `${intro(L)}\n\nMalibu: desde €249, 7 noches, cocina compartida, camiseta Wolfhouse y traslado aeropuerto según las reglas Wolfhouse.`;
+    return `${intro(L)}\n\nMalibu: desde €249, 7 noches, cocina compartida, camiseta Wolf-House y traslado aeropuerto según las reglas Wolf-House.`;
   }
   if (L === 'de') {
-    return `${intro(L)}\n\nMalibu: ab €249, 7 Nächte, Gemeinschaftsküche, Wolfhouse T-Shirt und Flughafen-Shuttle gemäß Wolfhouse-Transferregeln.`;
+    return `${intro(L)}\n\nMalibu: ab €249, 7 Nächte, Gemeinschaftsküche, Wolf-House T-Shirt und Flughafen-Shuttle gemäß Wolf-House-Transferregeln.`;
   }
   if (L === 'fr') {
-    return `${intro(L)}\n\nMalibu : à partir de 249 €, 7 nuits, cuisine partagée, T-shirt Wolfhouse et navette aéroport selon les règles Wolfhouse.`;
+    return `${intro(L)}\n\nMalibu : à partir de 249 €, 7 nuits, cuisine partagée, T-shirt Wolf-House et navette aéroport selon les règles Wolf-House.`;
   }
-  return `${intro(L)}\n\nMalibu is the classic Wolfhouse week: from €249, 7 nights, shared kitchen, Wolfhouse T-shirt, and Santander shuttle included. Cute, easy, good-vibes base if you mostly want the house + Somo life.`;
+  return `${intro(L)}\n\nMalibu: 7 nights + Wolf-House T-shirt + free Santander airport shuttle. The classic Wolf-House week. From €249.`;
 }
 
 function buildUluwatuReply(lang) {
@@ -368,7 +368,7 @@ function buildUluwatuReply(lang) {
   if (L === 'fr') {
     return `${intro(L)}\n\nUluwatu : à partir de 349 €, 7 nuits — tout Malibu plus 6 jours complets de location planche et combinaison. ${TRANSFER_CAVEAT.fr}`;
   }
-  return `${intro(L)}\n\nUluwatu is for guests who want gear and freedom: from €349, 7 nights — Malibu plus 6 full days of surfboard + wetsuit rental. Best if you already surf a bit and want freedom to chase waves on your own. ${TRANSFER_CAVEAT.en}`;
+  return `${intro(L)}\n\nUluwatu: 7 nights — everything in Malibu plus surfboard and wetsuit rental for 6 days. Best if you already surf or want gear included. From €349.`;
 }
 
 function buildWaimeaReply(lang) {
@@ -385,7 +385,7 @@ function buildWaimeaReply(lang) {
   if (L === 'fr') {
     return `${intro(L)}\n\nWaimea : à partir de 499 €, 7 nuits — tout Malibu plus 6 cours d’école de surf le matin (environ 12 h par semaine) et location planche + combinaison toute la semaine.`;
   }
-  return `${intro(L)}\n\nWaimea is the full surf-school week: from €499, 7 nights — Malibu plus 6 morning surf lessons, 12 hours total, and board + wetsuit rental all week. Best if you’re beginner/intermediate or want the most guided surf experience.`;
+  return `${intro(L)}\n\nWaimea: 7 nights — everything in Uluwatu plus 6 surf lessons. The full surf school experience. Best for beginners or anyone wanting guided surfing. From €499.`;
 }
 
 function buildChoiceBeginnerReply(lang, opts) {

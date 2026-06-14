@@ -136,6 +136,7 @@ function calculateWolfhouseQuote(input, config) {
     check_out,
     guest_count,
     package_code,
+    guest_packages,
     room_type     = 'shared',
     payment_choice = 'deposit',
     add_ons       = [],
@@ -173,6 +174,28 @@ function calculateWolfhouseQuote(input, config) {
     blockers.push(`guest_count must be a positive integer (got "${guest_count}")`);
   }
 
+  // ── 3b. Optional per-guest packages ───────────────────────────────────────
+  const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
+  const normalizePkgCode = (value) => String(value || '').trim().toLowerCase();
+  const isNoPackageCode = (code) => code === 'package_none' || code === 'no_package';
+  let normalizedGuestPackages = [];
+  if (Array.isArray(guest_packages) && guest_packages.length > 0) {
+    if (Number.isInteger(guests) && guests > 0 && guest_packages.length !== guests) {
+      blockers.push(`guest_packages length (${guest_packages.length}) must match guest_count (${guests})`);
+    }
+    normalizedGuestPackages = guest_packages.map((item, idx) => {
+      const code = normalizePkgCode(item && item.package_code);
+      const guestNumber = item && item.guest_number != null ? Number(item.guest_number) : idx + 1;
+      if (!code) blockers.push(`package_code is required for guest ${idx + 1}`);
+      if (code && !KNOWN_PACKAGES.includes(code) && !isNoPackageCode(code)) {
+        blockers.push(`unknown package_code "${code}" for guest ${idx + 1} — staff review required`);
+        staff_review_required = true;
+      }
+      return { guest_number: Number.isInteger(guestNumber) && guestNumber > 0 ? guestNumber : idx + 1, package_code: code };
+    });
+  }
+  const hasGuestPackages = normalizedGuestPackages.length > 0;
+
   // ── 4. Season lookup ──────────────────────────────────────────────────────
   let season_code = null;
 
@@ -198,7 +221,6 @@ function calculateWolfhouseQuote(input, config) {
   }
 
   // ── 5. Package lookup ─────────────────────────────────────────────────────
-  const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
   const normalizedPackage = String(package_code || '').trim().toLowerCase();
   const isNoPackage = normalizedPackage === 'package_none' || normalizedPackage === 'no_package';
   const isManualOverride = normalizedPackage === 'manual_override';
@@ -208,7 +230,7 @@ function calculateWolfhouseQuote(input, config) {
       ? Math.round(Number(input.manual_price_per_night_euros) * 100)
       : null);
 
-  if (!package_code) {
+  if (!package_code && !hasGuestPackages) {
     staff_review_required = true;
     blockers.push('package_code is required');
   } else if (isManualOverride) {
@@ -242,10 +264,62 @@ function calculateWolfhouseQuote(input, config) {
   const effectivePackageCode = isNoPackage ? 'package_none'
     : (isManualOverride ? 'manual_override' : normalizedPackage);
 
+  const guestPackageLineItems = [];
   if (isManualOverride) {
     per_night_ceil5 = manualPricePerNightCents;
     package_cents = per_night_ceil5 * nights * guests;
     formula_detail = `Manual override: ${per_night_ceil5}¢/night × ${nights}n × ${guests}g = ${package_cents}¢`;
+  } else if (hasGuestPackages) {
+    package_cents = 0;
+    const details = [];
+    for (const gp of normalizedGuestPackages) {
+      const gpCode = isNoPackageCode(gp.package_code) ? 'package_none' : gp.package_code;
+      const pricePackageCode = gpCode === 'package_none' ? 'malibu' : gpCode;
+      const pricePkg = config.packages.find((p) => p.code === pricePackageCode);
+      if (!pricePkg) {
+        blockers.push(`package "${pricePackageCode}" not found in pricing config`);
+        continue;
+      }
+      const seasonPrices = pricePkg.seasonal_prices && pricePkg.seasonal_prices[season_code];
+      if (!seasonPrices || !seasonPrices.weekly_per_person_cents) {
+        blockers.push(`no price configured for package "${pricePackageCode}" in season "${season_code}"`);
+        continue;
+      }
+      const gpWeekly = seasonPrices.weekly_per_person_cents;
+      const gpNightly = ceil5(gpWeekly / 7);
+      const gpCents = nights === 7 ? gpWeekly : gpNightly * nights;
+      package_cents += gpCents;
+      const labelPrefix = gpCode === 'package_none' ? 'Accommodation only' : pricePkg.name;
+      const note = gpCode === 'package_none'
+        ? (nights === 7
+          ? `No package guest ${gp.guest_number}: Malibu ref ${gpWeekly}¢/week = ${gpCents}¢`
+          : `No package guest ${gp.guest_number}: Malibu ref ceil5(${gpWeekly}¢/7)=${gpNightly}¢/night × ${nights}n = ${gpCents}¢`)
+        : (nights === 7
+          ? `${pricePkg.name} guest ${gp.guest_number}: ${gpWeekly}¢/week = ${gpCents}¢`
+          : `${pricePkg.name} guest ${gp.guest_number}: ceil5(${gpWeekly}¢/7)=${gpNightly}¢/night × ${nights}n = ${gpCents}¢`);
+      guestPackageLineItems.push({
+        code: gpCode === 'package_none' ? 'guest_accommodation_only' : (nights === 7 ? 'guest_package' : 'guest_package_proration'),
+        label: `Guest ${gp.guest_number}: ${labelPrefix} (${season_code}, ${nights} night${nights !== 1 ? 's' : ''})`,
+        guest_number: gp.guest_number,
+        package_code: gpCode,
+        nights,
+        guest_count: 1,
+        unit_cents: nights === 7 ? gpWeekly : gpNightly,
+        total_cents: gpCents,
+        note,
+      });
+      details.push(`G${gp.guest_number} ${gpCode}: ${gpCents / 100}€`);
+    }
+    if (blockers.length > 0) {
+      return buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config);
+    }
+    formula_detail = `Per-guest packages: ${details.join(' + ')} = ${package_cents / 100}€ package base`;
+    const counts = normalizedGuestPackages.reduce((acc, gp) => {
+      acc[gp.package_code] = (acc[gp.package_code] || 0) + 1;
+      return acc;
+    }, {});
+    const majorityCode = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    pkg = config.packages.find((p) => p.code === majorityCode) || null;
   } else {
     const pricePackageCode = isNoPackage ? 'malibu' : normalizedPackage;
     const pricePkg = config.packages.find((p) => p.code === pricePackageCode);
@@ -266,8 +340,13 @@ function calculateWolfhouseQuote(input, config) {
     weekly_cents = seasonPrices.weekly_per_person_cents;
     per_night_ceil5 = ceil5(weekly_cents / 7);
     if (isNoPackage) {
-      package_cents = per_night_ceil5 * nights * guests;
-      formula_detail = `No package (Malibu ref): ceil5(${weekly_cents}¢/7)=${per_night_ceil5}¢/night × ${nights}n × ${guests}g = ${package_cents}¢`;
+      if (nights === 7) {
+        package_cents = weekly_cents * guests;
+        formula_detail = `No package (Malibu 7-night ref): ${weekly_cents}¢/person/week × ${guests}g = ${package_cents}¢`;
+      } else {
+        package_cents = per_night_ceil5 * nights * guests;
+        formula_detail = `No package (Malibu ref): ceil5(${weekly_cents}¢/7)=${per_night_ceil5}¢/night × ${nights}n × ${guests}g = ${package_cents}¢`;
+      }
     } else if (nights === 7) {
       package_cents = weekly_cents * guests;
       formula_detail = `7-night flat: ${weekly_cents}¢/person/week × ${guests}g = ${package_cents}¢`;
@@ -280,7 +359,9 @@ function calculateWolfhouseQuote(input, config) {
   // ── 7. Base package / accommodation line item ─────────────────────────────
 
   const line_items = [];
-  if (isNoPackage) {
+  if (hasGuestPackages) {
+    line_items.push(...guestPackageLineItems);
+  } else if (isNoPackage) {
     line_items.push({
       code: 'accommodation_only',
       label: `Accommodation only (${season_code}, ${nights} night${nights !== 1 ? 's' : ''}, ${guests} guest${guests !== 1 ? 's' : ''}, Malibu ref nightly)`,
@@ -444,7 +525,15 @@ function calculateWolfhouseQuote(input, config) {
   const total_cents    = subtotal_cents - discount_cents;
 
   // ── 11. Deposit tier ──────────────────────────────────────────────────────
-  const deposit_required_cents = nights === 7
+  // Weekly surf packs (Malibu/Uluwatu/Waimea) use the package deposit even
+  // when a 7+ night stay is priced across more than one week. Custom,
+  // accommodation-only, and under-7-night stays use the short/custom tier.
+  const usesPackageDeposit = (hasGuestPackages
+    ? normalizedGuestPackages.some((gp) => KNOWN_PACKAGES.includes(gp.package_code))
+    : KNOWN_PACKAGES.includes(normalizedPackage))
+    && nights >= 7
+    && !isManualOverride;
+  const deposit_required_cents = usesPackageDeposit
     ? config.deposits.tiers.standard_package.amount_cents
     : config.deposits.tiers.custom_or_short_stay.amount_cents;
 
@@ -472,13 +561,17 @@ function calculateWolfhouseQuote(input, config) {
   const confidence = (staff_review_required || warnings.length > 0) ? 'review' : 'auto';
 
   // ── 15. Formula summary ───────────────────────────────────────────────────
-  const formula_summary = isManualOverride
-    ? `Manual override: ${(per_night_ceil5 / 100).toFixed(2)}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ accommodation`
-    : (isNoPackage
-      ? `No package: Malibu ref ceil5(${(weekly_cents / 100).toFixed(2)}€/7)=${(per_night_ceil5 / 100).toFixed(2)}€/night × ${nights}n × ${guests}g`
-      : (nights === 7
-        ? `7-night flat: ${weekly_cents / 100}€/person/week × ${guests} guest${guests !== 1 ? 's' : ''} = ${package_cents / 100}€ package base`
-        : `Formula B (per-night ceil5): ceil5(${weekly_cents / 100}€/7) = ${per_night_ceil5 / 100}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ package base`));
+  const formula_summary = hasGuestPackages
+    ? formula_detail
+    : (isManualOverride
+      ? `Manual override: ${(per_night_ceil5 / 100).toFixed(2)}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ accommodation`
+      : (isNoPackage
+        ? (nights === 7
+          ? `No package (Malibu 7-night ref): ${weekly_cents / 100}€/person/week × ${guests} guest${guests !== 1 ? 's' : ''} = ${package_cents / 100}€`
+          : `No package: Malibu ref ceil5(${(weekly_cents / 100).toFixed(2)}€/7)=${(per_night_ceil5 / 100).toFixed(2)}€/night × ${nights}n × ${guests}g`)
+        : (nights === 7
+          ? `7-night flat: ${weekly_cents / 100}€/person/week × ${guests} guest${guests !== 1 ? 's' : ''} = ${package_cents / 100}€ package base`
+          : `Formula B (per-night ceil5): ceil5(${weekly_cents / 100}€/7) = ${per_night_ceil5 / 100}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ package base`)));
 
   return {
     success: true,
@@ -486,7 +579,8 @@ function calculateWolfhouseQuote(input, config) {
     currency: config.currency,
     nights,
     guest_count: guests,
-    package_code: effectivePackageCode,
+    package_code: hasGuestPackages ? null : effectivePackageCode,
+    guest_packages: hasGuestPackages ? normalizedGuestPackages : undefined,
     room_type,
     season_code,
     line_items,
