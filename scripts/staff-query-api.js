@@ -59,6 +59,13 @@ const {
   buildPaymentLinkObservability,
 } = require('./lib/luna-payment-short-link');
 const {
+  makeInMemoryBotReq,
+  handleBotTransferSave:           _handleBotTransferSave,
+  handleBotPaymentStatus:          _handleBotPaymentStatus,
+  handleBotBookingCreateFromPlan:  _handleBotBookingCreateFromPlan,
+  handleBotPaymentCreateStripeLink: _handleBotPaymentCreateStripeLink,
+} = require('./lib/staff-bot-v2-routes');
+const {
   buildServiceChargesDueFromContext,
   formatAddonServicePaymentLedgerLabel,
 } = require('./lib/luna-guest-addon-service-payment-ledger');
@@ -11551,249 +11558,27 @@ async function handleBotGuestSimulatorCreateStripeTestLink(req, res, user, authM
 }
 
 // Phase 13c — in-memory req for delegating pre-built JSON to handleBotBookingCreate.
-function makeInMemoryBotReq(bodyObj) {
-  const payload = JSON.stringify(bodyObj || {});
-  return {
-    method:  'POST',
-    headers: {},
-    on(event, cb) {
-      if (event === 'data') cb(Buffer.from(payload, 'utf8'));
-      if (event === 'end') cb();
-      return this;
-    },
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(payload, 'utf8');
-    },
-  };
-}
+// makeInMemoryBotReq imported from scripts/lib/staff-bot-v2-routes.js
 
 
 // Stage 57b — Hermes Luna bot transfer save bridge.
 // Default safe: preview-only unless confirm_transfer_write:true is supplied.
+// handleBotTransferSave extracted to scripts/lib/staff-bot-v2-routes.js
 async function handleBotTransferSave(req, res, user, authMode) {
-  let body = {};
-  try {
-    body = JSON.parse((await readBody(req)) || '{}');
-  } catch (_) {
-    return send400(res, 'invalid or missing JSON body');
-  }
-
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
-  let bookingId = String(body.booking_id || body.bookingId || '').trim();
-  const bookingCode = String(body.booking_code || body.bookingCode || '').trim().toUpperCase();
-
-  if (!bookingId && bookingCode) {
-    try {
-      const lookup = await withPgClient(async (pg) => {
-        const r = await pg.query(
-          `SELECT b.id::text AS booking_id
-             FROM bookings b
-             JOIN clients c ON c.id = b.client_id
-            WHERE UPPER(b.booking_code) = UPPER($1)
-              AND c.slug = $2
-            LIMIT 1`,
-          [bookingCode, clientSlug]
-        );
-        return r.rows && r.rows[0];
-      });
-      if (lookup && lookup.booking_id) bookingId = lookup.booking_id;
-    } catch (err) {
-      return sendJSON(res, 500, { success: false, error: 'booking_code lookup failed', detail: err.message });
-    }
-  }
-
-  if (!bookingId) {
-    return sendJSON(res, 400, { success: false, error: 'booking_id or booking_code is required' });
-  }
-
-  const allowedTransferSources = new Set(['staff', 'luna', 'owner', 'import', 'flight_lookup']);
-  const requestedTransferSource = String(body.source || '').trim();
-  const transferSource = allowedTransferSources.has(requestedTransferSource) ? requestedTransferSource : 'luna';
-
-  const transferPayload = {
-    ...body,
-    booking_id: bookingId,
-    client_slug: clientSlug,
-    source: transferSource,
-  };
-
-  if (body.confirm_transfer_write !== true) {
-    return sendJSON(res, 200, {
-      success: true,
-      preview_only: true,
-      write_performed: false,
-      no_payment_write: true,
-      no_whatsapp: true,
-      no_n8n: true,
-      auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
-      booking_id: bookingId,
-      transfer: {
-        direction: transferPayload.direction || null,
-        airport_code: transferPayload.airport_code || transferPayload.airport || null,
-        scheduled_at: transferPayload.scheduled_at || transferPayload.transfer_datetime || null,
-        flight_number: transferPayload.flight_number || null,
-        notes: transferPayload.notes || null,
-      },
-      next_action: 'confirm_transfer_write_to_save',
-    });
-  }
-
-  const jsonRes = {
-    status(code) {
-      res.statusCode = code;
-      return jsonRes;
-    },
-    json(obj) {
-      res.setHeader('Content-Type', 'application/json');
-      const writePerformed = obj && obj.success === true && !!obj.transfer;
-      res.end(JSON.stringify({
-        ...obj,
-        write_performed: obj.write_performed != null ? obj.write_performed : writePerformed,
-        source: 'luna_bot_transfer_save',
-        auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
-        no_payment_write: true,
-        no_whatsapp: true,
-        no_n8n: true,
-      }));
-      return jsonRes;
-    },
-  };
-
-  try {
-    return await handlePostBookingTransfer(
-      bookingId,
-      makeInMemoryBotReq(transferPayload),
-      jsonRes
-    );
-  } catch (err) {
-    return sendJSON(res, 500, {
-      success: false,
-      error: 'transfer save failed',
-      detail: err.message,
-      no_payment_write: true,
-      no_whatsapp: true,
-      no_n8n: true,
-    });
-  }
+  return _handleBotTransferSave(req, res, user, authMode, {
+    sendJSON, send400, readBody, withPgClient,
+    handlePostBookingTransfer,
+    DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
+  });
 }
 
 // Stage 57b — Hermes Luna read-only payment truth endpoint.
+// handleBotPaymentStatus extracted to scripts/lib/staff-bot-v2-routes.js
 async function handleBotPaymentStatus(req, res, user, authMode) {
-  let body = {};
-  try {
-    body = JSON.parse((await readBody(req)) || '{}');
-  } catch (_) {
-    return send400(res, 'invalid or missing JSON body');
-  }
-
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
-  const paymentId = String(body.payment_id || body.paymentId || '').trim();
-  const bookingId = String(body.booking_id || body.bookingId || '').trim();
-  const bookingCode = String(body.booking_code || body.bookingCode || '').trim().toUpperCase();
-  if (!paymentId && !bookingId && !bookingCode) {
-    return sendJSON(res, 400, { success: false, error: 'payment_id, booking_id, or booking_code is required' });
-  }
-
-  try {
-    const rows = await withPgClient(async (pg) => {
-      if (paymentId) {
-        const r = await pg.query(
-          `SELECT p.id::text AS payment_id,
-                  p.booking_id::text AS booking_id,
-                  p.status::text AS payment_status,
-                  p.payment_kind,
-                  p.amount_due_cents,
-                  p.checkout_url,
-                  p.stripe_checkout_session_id,
-                  b.booking_code,
-                  b.payment_status::text AS booking_payment_status,
-                  b.amount_paid_cents,
-                  b.balance_due_cents,
-                  c.slug AS client_slug
-             FROM payments p
-             JOIN bookings b ON b.id = p.booking_id
-             JOIN clients c ON c.id = p.client_id
-            WHERE p.id = $1::uuid
-              AND c.slug = $2
-            LIMIT 1`,
-          [paymentId, clientSlug]
-        );
-        return r.rows;
-      }
-      if (bookingId) {
-        const r = await pg.query(
-          `SELECT p.id::text AS payment_id,
-                  p.booking_id::text AS booking_id,
-                  p.status::text AS payment_status,
-                  p.payment_kind,
-                  p.amount_due_cents,
-                  p.checkout_url,
-                  p.stripe_checkout_session_id,
-                  b.booking_code,
-                  b.payment_status::text AS booking_payment_status,
-                  b.amount_paid_cents,
-                  b.balance_due_cents,
-                  c.slug AS client_slug
-             FROM payments p
-             JOIN bookings b ON b.id = p.booking_id
-             JOIN clients c ON c.id = p.client_id
-            WHERE p.booking_id = $1::uuid
-              AND c.slug = $2
-            ORDER BY p.created_at DESC
-            LIMIT 10`,
-          [bookingId, clientSlug]
-        );
-        return r.rows;
-      }
-      const r = await pg.query(
-        `SELECT p.id::text AS payment_id,
-                p.booking_id::text AS booking_id,
-                p.status::text AS payment_status,
-                p.payment_kind,
-                p.amount_due_cents,
-                p.checkout_url,
-                p.stripe_checkout_session_id,
-                b.booking_code,
-                b.payment_status::text AS booking_payment_status,
-                b.amount_paid_cents,
-                b.balance_due_cents,
-                c.slug AS client_slug
-           FROM payments p
-           JOIN bookings b ON b.id = p.booking_id
-           JOIN clients c ON c.id = p.client_id
-          WHERE UPPER(b.booking_code) = UPPER($1)
-            AND c.slug = $2
-          ORDER BY p.created_at DESC
-          LIMIT 10`,
-        [bookingCode, clientSlug]
-      );
-      return r.rows;
-    });
-
-    const truthStates = ['checkout_created', 'paid', 'deposit_paid', 'fully_paid'];
-    return sendJSON(res, 200, {
-      success: true,
-      source: 'luna_bot_payment_status',
-      auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
-      client_slug: clientSlug,
-      payment_id: paymentId || null,
-      booking_id: bookingId || (rows[0] && rows[0].booking_id) || null,
-      payment_records: rows,
-      latest_payment: rows[0] || null,
-      payment_truth_known: rows.length > 0,
-      truth_states: truthStates,
-      no_payment_write: true,
-      no_whatsapp: true,
-      no_n8n: true,
-    });
-  } catch (err) {
-    return sendJSON(res, 500, {
-      success: false,
-      error: 'payment status lookup failed',
-      detail: err.message,
-      no_payment_write: true,
-    });
-  }
+  return _handleBotPaymentStatus(req, res, user, authMode, {
+    sendJSON, readBody, withPgClient,
+    DEFAULT_CLIENT,
+  });
 }
 
 // Route: POST /staff/bot/booking-create-from-plan  (Phase 13c — gated write bridge)
@@ -11801,126 +11586,13 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
 // Chains dry-run → write eligibility → existing handleBotBookingCreate.
 // Default-deny: BOT_BOOKING_ENABLED=false, missing confirm/idempotency, or failed
 // eligibility → write_performed:false. No Stripe. No WhatsApp. No n8n.
+// handleBotBookingCreateFromPlan extracted to scripts/lib/staff-bot-v2-routes.js
 async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
-  const started = Date.now();
-
-  let body = {};
-  try {
-    body = JSON.parse((await readBody(req)) || '{}');
-  } catch (_) {
-    return send400(res, 'invalid or missing JSON body');
-  }
-
-  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
-  const actorId          = user ? user.staff_user_id : 'dev-bot-write-bridge-local';
-
-  try {
-    const bridgeResult = await withPgClient(async (pg) => {
-      const result = await runLunaGuestBookingWriteBridge(body, {
-        pg,
-        env: process.env,
-        invokeCreate: async (createPayload) => {
-          const capture = { statusCode: 200, bodyText: null };
-          const fakeRes = {
-            writeHead(code) { capture.statusCode = code; },
-            end(data) { capture.bodyText = data; },
-            setHeader() {},
-          };
-          await handleBotBookingCreate(
-            makeInMemoryBotReq(createPayload),
-            fakeRes,
-            user,
-            resolvedAuthMode
-          );
-          let parsed = {};
-          try {
-            parsed = capture.bodyText ? JSON.parse(capture.bodyText) : {};
-          } catch (_) {
-            parsed = { success: false, error: 'invalid create response JSON' };
-          }
-          const writePerformed = parsed.success === true
-            && (parsed.created === true || parsed.duplicate === true);
-          return {
-            success:         parsed.success === true,
-            write_performed: writePerformed,
-            status_code:     capture.statusCode,
-            create_response: parsed,
-          };
-        },
-      });
-      const persistence = await persistInboundBookingWriteResult(pg, body, result);
-      if (persistence.persisted === true) {
-        result.booking_write_result_persistence = persistence;
-      }
-      return result;
-    });
-
-    const elapsed = Date.now() - started;
-
-    appendAuditLog({
-      ts:                  new Date().toISOString(),
-      intent:              'api:bot_booking_create_from_plan',
-      category:            'bot_booking_write_bridge',
-      success:             bridgeResult.success === true,
-      write_performed:     !!bridgeResult.write_performed,
-      preview_only:        !bridgeResult.write_performed,
-      no_write_performed:  !bridgeResult.write_performed,
-      creates_booking:     false,
-      creates_payment:     false,
-      creates_stripe_link: false,
-      sends_whatsapp:      false,
-      calls_n8n:           false,
-      client_slug:         body.client_slug || DEFAULT_CLIENT,
-      blocked_reasons:     bridgeResult.blocked_reasons || [],
-      required_approvals:  bridgeResult.required_approvals || [],
-      safe_next_step:      bridgeResult.safe_next_step || null,
-      staff_user_id:       actorId,
-      auth_mode:           resolvedAuthMode,
-      elapsed_ms:          elapsed,
-    });
-
-    const statusCode = bridgeResult.write_performed
-      ? (bridgeResult.create_outcome && bridgeResult.create_outcome.status_code) || 201
-      : 200;
-
-    const createResponse = bridgeResult.create_outcome && bridgeResult.create_outcome.create_response;
-    if (createResponse && typeof createResponse === 'object') {
-      if (createResponse.booking_id) bridgeResult.booking_id = createResponse.booking_id;
-      if (createResponse.booking_code) bridgeResult.booking_code = createResponse.booking_code;
-      if (createResponse.payment_id) bridgeResult.payment_id = createResponse.payment_id;
-      if (createResponse.payment_status) bridgeResult.payment_status = createResponse.payment_status;
-      if (createResponse.created != null) bridgeResult.created = createResponse.created;
-      if (createResponse.duplicate != null) bridgeResult.duplicate = createResponse.duplicate;
-    }
-
-    return sendJSON(res, statusCode, Object.assign({
-      success:    bridgeResult.success === true,
-      auth_mode:  resolvedAuthMode,
-      elapsed_ms: elapsed,
-    }, bridgeResult));
-  } catch (err) {
-    const elapsed = Date.now() - started;
-    appendAuditLog({
-      ts:                 new Date().toISOString(),
-      intent:             'api:bot_booking_create_from_plan',
-      category:           'bot_booking_write_bridge',
-      success:            false,
-      write_performed:    false,
-      no_write_performed: true,
-      error:              err.message,
-      staff_user_id:      actorId,
-      auth_mode:          resolvedAuthMode,
-      elapsed_ms:         elapsed,
-    });
-    return sendJSON(res, 500, {
-      success:         false,
-      write_performed: false,
-      error:           err.message,
-      creates_stripe_link: false,
-      sends_whatsapp:      false,
-      calls_n8n:           false,
-    });
-  }
+  return _handleBotBookingCreateFromPlan(req, res, user, authMode, {
+    sendJSON, send400, readBody, appendAuditLog, makeInMemoryBotReq,
+    DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
+    handleBotBookingCreate,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -13205,235 +12877,17 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
 //   - Amount from payments.amount_due_cents — never from request body.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// handleBotPaymentCreateStripeLink extracted to scripts/lib/staff-bot-v2-routes.js
+// Delegation stub — builds ctx and calls the extracted handler.
 async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authMode) {
-  const started = Date.now();
-
-  // ── 1. Feature flag gates ─────────────────────────────────────────────────
-  if (!BOT_BOOKING_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error:   'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
-      bot_booking_enabled: false,
-    });
-  }
-  if (!STRIPE_LINKS_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error:   'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.',
-      stripe_links_enabled: false,
-    });
-  }
-
-  // ── 2. Config guards ──────────────────────────────────────────────────────
-  if (!STRIPE_SECRET_KEY) {
-    return sendJSON(res, 503, {
-      success: false,
-      error:   'STRIPE_SECRET_KEY not configured.',
-      no_db_write: true,
-    });
-  }
-  if (!stripeCheckoutRedirectUrlsConfigured()) {
-    return sendJSON(res, 503, {
-      success: false,
-      error:   'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
-      no_db_write: true,
-    });
-  }
-
-  // ── 3. Load Stripe SDK lazily ─────────────────────────────────────────────
-  let stripe;
-  try {
-    stripe = require('stripe')(STRIPE_SECRET_KEY);
-  } catch (e) {
-    return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
-  }
-
-  // ── 4. Fetch payment + booking from DB ────────────────────────────────────
-  let pm;
-  try {
-    pm = await withPgClient(async (pg) => {
-      const r = await pg.query(
-        `SELECT p.id              AS payment_id,
-                p.client_id,
-                p.booking_id,
-                p.status          AS payment_status,
-                p.payment_kind,
-                p.currency,
-                p.amount_due_cents,
-                p.stripe_checkout_session_id,
-                p.checkout_url,
-                b.booking_code,
-                b.guest_name,
-                b.check_in,
-                b.check_out,
-                b.status          AS booking_status,
-                cl.slug           AS client_slug
-           FROM payments p
-           JOIN bookings b  ON b.id  = p.booking_id
-           JOIN clients  cl ON cl.id = p.client_id
-          WHERE p.id = $1`, [paymentId]
-      );
-      return r.rows[0] || null;
-    });
-  } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
-  }
-
-  // ── 5. Validate payment record ────────────────────────────────────────────
-  if (!pm) {
-    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
-  }
-  if (pm.payment_status !== 'draft') {
-    if (pm.payment_status === 'checkout_created' && pm.checkout_url) {
-      const linkObs = guestPaymentLinkObservability(pm, pm.checkout_url, pm.stripe_checkout_session_id);
-      return sendJSON(res, 200, {
-        success:                    true,
-        idempotent:                 true,
-        source:                     'luna_whatsapp',
-        payment_id:                 pm.payment_id,
-        booking_id:                 pm.booking_id,
-        booking_code:               pm.booking_code,
-        amount_due_cents:           pm.amount_due_cents,
-        currency:                   pm.currency,
-        stripe_checkout_session_id: pm.stripe_checkout_session_id,
-        checkout_url:               pm.checkout_url,
-        payment_short_url:          linkObs.payment_short_url,
-        guest_payment_url:          linkObs.guest_payment_url,
-        uses_short_payment_link:    linkObs.uses_short_payment_link,
-        payment_status:             pm.payment_status,
-        next_action:                'draft_payment_link_reply',
-        sends_whatsapp:             false,
-        whatsapp_dry_run:           true,
-        no_payment_truth_recorded:  true,
-        message: 'Stripe session already created (idempotent response).',
-      });
-    }
-    return sendJSON(res, 409, {
-      success: false,
-      error:   `Payment status '${pm.payment_status}'; only 'draft' payments can create a Stripe link.`,
-    });
-  }
-  if (!pm.amount_due_cents || pm.amount_due_cents <= 0) {
-    return sendJSON(res, 422, { success: false, error: 'amount_due_cents must be > 0.' });
-  }
-  if ((pm.currency || '').toUpperCase() !== 'EUR') {
-    return sendJSON(res, 422, { success: false, error: `Currency '${pm.currency}' not supported (EUR only).` });
-  }
-
-  // ── 6. Create Stripe Checkout Session ─────────────────────────────────────
-  const productName = `Booking ${pm.booking_code || paymentId} \u2014 ${pm.guest_name || 'Guest'}`;
-  const productDesc = `${pm.payment_kind === 'full_amount' ? 'Full payment' : 'Deposit'} | ` +
-    `${pm.check_in || ''} \u2013 ${pm.check_out || ''} | ${pm.client_slug}`;
-  const actorId = user ? user.staff_user_id : 'luna-bot-internal';
-
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode:     'payment',
-      currency: 'eur',
-      line_items: [{
-        price_data: {
-          currency:     'eur',
-          product_data: { name: productName, description: productDesc },
-          unit_amount:  pm.amount_due_cents,
-        },
-        quantity: 1,
-      }],
-      metadata: {
-        client_slug:  pm.client_slug,
-        booking_id:   pm.booking_id,
-        booking_code: pm.booking_code  || '',
-        payment_id:   paymentId,
-        payment_kind: pm.payment_kind  || '',
-        source:       'bot_stage855',
-      },
-      success_url: stripeCheckoutSessionSuccessUrl(),
-      cancel_url:  stripeCheckoutSessionCancelUrl(),
-    });
-  } catch (stripeErr) {
-    return sendJSON(res, 500, {
-      success:     false,
-      error:       'Stripe session creation failed: ' + stripeErr.message,
-      no_db_write: true,
-    });
-  }
-
-  // ── 7. Update payment row ─────────────────────────────────────────────────
-  const expiresAt = session.expires_at
-    ? new Date(session.expires_at * 1000).toISOString()
-    : null;
-  try {
-    await withPgClient(async (pg) => {
-      await pg.query(
-        `UPDATE payments
-           SET status                      = 'checkout_created'::payment_record_status,
-               stripe_checkout_session_id  = $1,
-               checkout_url                = $2,
-               expires_at                  = $3,
-               metadata                    = metadata || $4::jsonb
-         WHERE id = $5`,
-        [
-          session.id, session.url, expiresAt,
-          JSON.stringify({
-            stripe_session_id:     session.id,
-            stripe_livemode:       session.livemode,
-            stripe_payment_status: session.payment_status,
-            created_by:            actorId,
-            source:                'bot_stage855',
-          }),
-          paymentId,
-        ]
-      );
-    });
-  } catch (dbErr) {
-    appendAuditLog({
-      ts: new Date().toISOString(), intent: 'api:bot_payment_create_stripe_link',
-      category: 'bot_stripe_link_create', success: false,
-      error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
-      payment_id: paymentId, session_id: session.id, elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 500, {
-      success:     false,
-      error:       'Stripe session created but DB update failed: ' + dbErr.message,
-      session_id:  session.id,
-      checkout_url: session.url,
-    });
-  }
-
-  const elapsed = Date.now() - started;
-  appendAuditLog({
-    ts: new Date().toISOString(), intent: 'api:bot_payment_create_stripe_link',
-    category: 'bot_stripe_link_create', success: true,
-    payment_id: paymentId, booking_id: pm.booking_id, booking_code: pm.booking_code,
-    stripe_session_id: session.id, amount_due_cents: pm.amount_due_cents,
-    auth_mode: authMode, elapsed_ms: elapsed,
-    stripe_called: true, whatsapp_called: false, n8n_called: false,
-  });
-
-  // ── 8. Success ─────────────────────────────────────────────────────────────
-  const linkObs = guestPaymentLinkObservability(pm, session.url, session.id);
-  return sendJSON(res, 200, {
-    success:                    true,
-    source:                     'luna_whatsapp',
-    auth_mode:                  authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
-    payment_id:                 paymentId,
-    booking_id:                 pm.booking_id,
-    booking_code:               pm.booking_code,
-    amount_due_cents:           pm.amount_due_cents,
-    currency:                   pm.currency,
-    stripe_checkout_session_id: session.id,
-    checkout_url:               session.url,
-    payment_short_url:          linkObs.payment_short_url,
-    guest_payment_url:          linkObs.guest_payment_url,
-    uses_short_payment_link:    linkObs.uses_short_payment_link,
-    payment_status:             'checkout_created',
-    next_action:                'draft_payment_link_reply',
-    sends_whatsapp:             false,
-    whatsapp_dry_run:           true,
-    no_payment_truth_recorded:  true,
-    no_n8n:                     true,
-    message:                    'Stripe Checkout Session created. Bot can share checkout_url. Payment truth via webhook.',
-    elapsed_ms:                 elapsed,
+  return _handleBotPaymentCreateStripeLink(paymentId, req, res, user, authMode, {
+    sendJSON, withPgClient, appendAuditLog,
+    guestPaymentLinkObservability,
+    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STAFF_AUTH_REQUIRED,
+    stripeCheckoutRedirectUrlsConfigured,
+    stripeCheckoutSessionSuccessUrl,
+    stripeCheckoutSessionCancelUrl,
   });
 }
 
