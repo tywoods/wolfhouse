@@ -54,8 +54,8 @@ function getPublicUrl(url) {
 (async () => {
   const token = getToken();
   const phone = process.env.E2E_GUEST_PHONE || `+1555${String(Date.now()).slice(-7)}`;
-  const checkIn = process.env.E2E_CHECK_IN || '2026-08-01';
-  const checkOut = process.env.E2E_CHECK_OUT || '2026-08-09';
+  const checkIn  = process.env.E2E_CHECK_IN  || '2026-09-01';
+  const checkOut = process.env.E2E_CHECK_OUT || '2026-09-08';
 
   const avail = await post('/staff/bot/availability-check', {
     client_slug: CLIENT,

@@ -1,0 +1,604 @@
+"""Wolfhouse Staff API tools for guest-facing Agent Luna.
+
+These tools are intentionally thin wrappers around Staff API /staff/bot/*
+routes. They do not calculate availability, prices, payment truth, or booking
+state locally — Staff API remains the source of truth.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import urllib.error
+import urllib.parse
+import urllib.request
+import hashlib
+
+DEFAULT_BASE_URL = "https://staff-staging.lunafrontdesk.com"
+TOOLSET = "wolfhouse_staff_api"
+
+GUEST_UNSAFE_TERMS = {
+    "stripe": "payment provider",
+    "api": "system",
+    "webhook": "payment update",
+    "database": "system",
+    "postgres": "system",
+}
+
+
+def _clean(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _normalize_phone(value):
+    raw = _clean(value)
+    if not raw:
+        return ""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return f"+{digits}" if digits else ""
+
+
+def _normalize_payment_choice(value):
+    raw = _clean(value).lower()
+    if not raw:
+        return "deposit"
+    compact = re.sub(r"[^a-z0-9]+", " ", raw).strip()
+    if compact in {"full", "full amount", "pay full", "pay full amount", "all", "all now", "pay all", "everything", "whole amount"}:
+        return "full"
+    if compact in {"deposit", "pay deposit", "the deposit", "deposit only"}:
+        return "deposit"
+    if compact in {"arrival", "on arrival", "pay on arrival", "later"}:
+        return "pay_on_arrival"
+    return raw
+
+
+def _session_guest_phone():
+    """Best-effort WhatsApp sender phone from Hermes gateway context.
+
+    Luna should not have to invent/pass the WhatsApp sender number. The
+    gateway binds per-turn source identifiers in contextvars; for WhatsApp
+    these are the guest's phone-like user/chat ids. Some tool execution paths
+    can lose contextvars, so Wolfhouse gateway patches also export a per-turn
+    process-env fallback.
+    """
+    for key in (
+        "WOLFHOUSE_WHATSAPP_GUEST_PHONE",
+        "WHATSAPP_GUEST_PHONE",
+        "HERMES_SESSION_USER_ID",
+        "HERMES_SESSION_CHAT_ID",
+    ):
+        phone = _normalize_phone(os.getenv(key, ""))
+        if phone:
+            return phone
+    try:
+        from gateway.session_context import get_session_env
+    except Exception:
+        return ""
+    platform = _clean(get_session_env("HERMES_SESSION_PLATFORM", "")).lower()
+    if platform not in {"whatsapp", "whatsapp_cloud"}:
+        return ""
+    for key in ("HERMES_SESSION_USER_ID", "HERMES_SESSION_CHAT_ID"):
+        phone = _normalize_phone(get_session_env(key, ""))
+        if phone:
+            return phone
+    return ""
+
+
+def _base_url():
+    return (os.getenv("WOLFHOUSE_STAFF_API_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+
+
+def _bot_token():
+    return _clean(os.getenv("LUNA_BOT_INTERNAL_TOKEN"))
+
+
+def _safe_text(text):
+    out = _clean(text)
+    for term, replacement in GUEST_UNSAFE_TERMS.items():
+        out = re.sub(rf"\b{re.escape(term)}\b", replacement, out, flags=re.I)
+    return out[:500]
+
+
+def _normalize_bot_path(path):
+    p = _clean(path)
+    if not p:
+        raise ValueError("bot_path_required")
+    if p.startswith("http://") or p.startswith("https://"):
+        return p
+    p = p.lstrip("/")
+    if p.startswith("staff/bot/"):
+        return "/" + p
+    if p.startswith("bot/"):
+        return "/staff/" + p
+    return "/staff/bot/" + p
+
+
+def _post_bot(path, payload):
+    token = _bot_token()
+    if not token:
+        return {
+            "success": False,
+            "staff_api_status": "not_configured",
+            "staff_review_needed": True,
+            "guest_safe_next_action": "Thanks — I’m going to have the team double-check this and get back to you shortly 😊",
+            "error": "LUNA_BOT_INTERNAL_TOKEN is not configured for Agent Luna.",
+        }
+
+    url_path = _normalize_bot_path(path)
+    url = url_path if url_path.startswith(("http://", "https://")) else _base_url() + url_path
+    body = json.dumps(payload or {}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Luna-Bot-Token": token,
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=25) as res:
+            text = res.read().decode("utf-8", errors="replace")
+            try:
+                data = json.loads(text or "{}")
+            except json.JSONDecodeError:
+                data = {"raw": text}
+            if isinstance(data, dict):
+                data.setdefault("success", True)
+                data.setdefault("staff_api_status", "ok")
+                return data
+            return {"success": True, "staff_api_status": "ok", "data": data}
+    except urllib.error.HTTPError as exc:
+        text = exc.read().decode("utf-8", errors="replace")
+        try:
+            data = json.loads(text or "{}")
+        except json.JSONDecodeError:
+            data = {"error": text}
+        return {
+            "success": False,
+            "staff_api_status": "http_error",
+            "status": exc.code,
+            "staff_review_needed": True,
+            "guest_safe_next_action": "Thanks — I’m going to have the team double-check this and get back to you shortly 😊",
+            "error": _safe_text(data.get("error") or data.get("message") or str(exc)),
+        }
+    except Exception as exc:  # network/config safety; never crash the guest agent
+        return {
+            "success": False,
+            "staff_api_status": "unavailable",
+            "staff_review_needed": True,
+            "guest_safe_next_action": "Thanks — I’m going to have the team double-check this and get back to you shortly 😊",
+            "error": _safe_text(str(exc)),
+        }
+
+
+def _json_result(payload):
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _availability_status(data):
+    if not data.get("success"):
+        return "unclear"
+    if data.get("has_enough_beds") is True:
+        return "available"
+    if data.get("has_enough_beds") is False:
+        return "unavailable"
+    return data.get("availability_status") or "unclear"
+
+
+def check_availability(params, **kwargs):
+    del kwargs
+    payload = {
+        "client_slug": params.get("client_slug") or "wolfhouse-somo",
+        "check_in": params.get("check_in"),
+        "check_out": params.get("check_out"),
+        "guest_count": params.get("guest_count"),
+        "room_type": params.get("room_type") or params.get("stay_preference") or "shared",
+    }
+    if params.get("gender_preference"):
+        payload["gender_preference"] = params.get("gender_preference")
+    data = _post_bot("/availability-check", payload)
+    status = _availability_status(data)
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "check_availability",
+        "availability_status": status,
+        "available": status == "available",
+        "unavailable": status == "unavailable",
+        "unclear": status == "unclear",
+        "staff_review_needed": status == "unclear" or bool(data.get("staff_review_needed")),
+        "selected_bed_codes": data.get("selected_bed_codes") or [],
+        "available_count": data.get("available_count"),
+        "warnings": data.get("warnings") or [],
+        "blockers": data.get("blockers") or [],
+        "next_action": data.get("next_action"),
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def quote_booking(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    payload.setdefault("source", "agent_luna_whatsapp")
+    data = _post_bot("/booking-preview", payload)
+    quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
+    total = data.get("quote_total_cents") or quote.get("total_cents") or data.get("total_cents")
+    deposit = data.get("deposit_required_cents") or quote.get("deposit_required_cents")
+    balance = data.get("balance_due_cents") or quote.get("balance_due_cents")
+    remaining_after_deposit = None
+    if total is not None and deposit is not None:
+        try:
+            remaining_after_deposit = max(0, int(total) - int(deposit))
+        except Exception:
+            remaining_after_deposit = None
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "quote_booking",
+        "quote_status": data.get("quote_status") or data.get("next_action") or ("ready" if total else "unclear"),
+        "total_cents": total,
+        "deposit_required_cents": deposit,
+        "balance_due_cents": balance,
+        "remaining_after_deposit_cents": remaining_after_deposit,
+        "guest_safe_balance_label": "remaining after deposit",
+        "currency": data.get("currency") or quote.get("currency") or "EUR",
+        "included_items": data.get("included_items") or quote.get("included_items") or [],
+        "missing_fields": data.get("missing_fields") or [],
+        "reply_draft": data.get("reply_draft"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or data.get("next_action") == "staff_review_required",
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def _extract_booking_write_fields(data):
+    """Flatten booking-create-from-plan bridge payload for tool callers."""
+    if not isinstance(data, dict):
+        return {}
+    cr = data.get("create_outcome")
+    create_response = cr.get("create_response") if isinstance(cr, dict) else {}
+    if not isinstance(create_response, dict):
+        create_response = {}
+    return {
+        "booking_id": data.get("booking_id") or create_response.get("booking_id"),
+        "booking_code": data.get("booking_code") or create_response.get("booking_code"),
+        "payment_id": data.get("payment_id") or create_response.get("payment_id"),
+        "payment_status": data.get("payment_status") or create_response.get("payment_status"),
+    }
+
+
+def _guest_payment_url(data):
+    if not isinstance(data, dict):
+        return None
+    for key in ("guest_payment_url", "payment_short_url", "checkout_url"):
+        val = _clean(data.get(key))
+        if val:
+            return val
+    return None
+
+
+def create_booking_from_plan(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    payload.setdefault("source", "agent_luna_whatsapp")
+
+    # Auto-inject required write fields the model shouldn't need to know about.
+    # confirm: true is the deliberate "guest accepted" signal the bridge requires.
+    payload.setdefault("confirm", True)
+    # Default/normalize payment_choice — guests say "full amount", Staff API expects "full".
+    payload["payment_choice"] = _normalize_payment_choice(payload.get("payment_choice"))
+
+    phone = _normalize_phone(payload.get("guest_phone") or payload.get("phone") or _session_guest_phone())
+    if phone:
+        payload["phone"] = phone
+        payload["guest_phone"] = phone
+
+    guest_name = _clean(
+        payload.get("guest_name")
+        or payload.get("name")
+        or payload.get("booking_name")
+        or payload.get("channel_guest_name")
+        or payload.get("whatsapp_guest_name")
+    )
+    if not guest_name:
+        return _json_result({
+            "success": True,
+            "tool": "create_booking_from_plan",
+            "write_performed": False,
+            "booking_not_created_yet": True,
+            "next_action": "ask_guest_name",
+            "guest_safe_next_action": "ask_guest_name",
+            "missing_fields": ["guest_name"],
+            "reply_draft": "Perfect — what name should I put the booking under?",
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+        })
+    payload["guest_name"] = guest_name
+
+    # Idempotency key: stable per (phone, check_in, check_out, package).
+    # Prevents duplicate bookings if the model calls this twice.
+    if not payload.get("idempotency_key"):
+        key_parts = "|".join([
+            str(payload.get("guest_phone") or payload.get("phone") or ""),
+            str(payload.get("check_in") or ""),
+            str(payload.get("check_out") or ""),
+            str(payload.get("package_code") or ""),
+            json.dumps(payload.get("guest_packages") or [], sort_keys=True),
+        ])
+        payload["idempotency_key"] = "luna-" + hashlib.sha256(key_parts.encode()).hexdigest()[:16]
+
+    data = _post_bot("/booking-create-from-plan", payload)
+    fields = _extract_booking_write_fields(data)
+    payment_id = _clean(fields.get("payment_id"))
+    secure_url = None
+    link_data = {}
+    payment_link_error = None
+
+    if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id:
+        link_payload = {"client_slug": payload.get("client_slug") or "wolfhouse-somo"}
+        link_data = _post_bot(
+            f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
+            link_payload,
+        )
+        if link_data.get("success") and link_data.get("checkout_url"):
+            secure_url = _guest_payment_url(link_data)
+        else:
+            payment_link_error = _safe_text(
+                link_data.get("error") or link_data.get("message") or "payment_link_create_failed",
+            )
+
+    blocked_reasons = data.get("blocked_reasons") or []
+    expected_missing = any(
+        reason in {"guest_name_missing", "payment_choice_missing", "guest_phone_missing"}
+        for reason in blocked_reasons
+    ) or data.get("safe_next_step") in {"ask_missing_details", "ask_deposit_or_full_payment"}
+
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "create_booking_from_plan",
+        "write_performed": bool(data.get("write_performed")),
+        "booking_id": fields.get("booking_id"),
+        "booking_code": fields.get("booking_code"),
+        "payment_id": payment_id or None,
+        "payment_status": fields.get("payment_status") or link_data.get("payment_status"),
+        "secure_payment_url": secure_url,
+        "payment_link_created": bool(secure_url),
+        "payment_link_error": payment_link_error,
+        "next_action": "send_secure_payment_link" if secure_url else data.get("next_action"),
+        "staff_review_needed": (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url)) and not expected_missing,
+        "blocked_reasons": blocked_reasons,
+        "safe_next_step": data.get("safe_next_step"),
+        "reply_draft": data.get("reply_draft"),
+        "do_not_escalate": expected_missing,
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def create_payment_link(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payment_id = _clean(params.get("payment_id") or params.get("paymentId") or params.get("id"))
+    if not payment_id:
+        lookup_payload = {
+            "client_slug": payload.get("client_slug") or "wolfhouse-somo",
+        }
+        if payload.get("booking_id") or payload.get("bookingId"):
+            lookup_payload["booking_id"] = payload.get("booking_id") or payload.get("bookingId")
+        elif payload.get("booking_code"):
+            lookup_payload["booking_code"] = payload.get("booking_code")
+        if lookup_payload.get("booking_id") or lookup_payload.get("booking_code"):
+            status_data = _post_bot("/payments/status", lookup_payload)
+            latest = status_data.get("latest_payment") if isinstance(status_data.get("latest_payment"), dict) else {}
+            payment_id = _clean(latest.get("payment_id") or status_data.get("payment_id"))
+    if not payment_id:
+        return _json_result({"success": False, "tool": "create_payment_link", "error": "payment_id_required", "staff_review_needed": True})
+    data = _post_bot(f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link", dict(params or {}))
+    guest_url = _guest_payment_url(data)
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "create_payment_link",
+        "payment_id": data.get("payment_id") or payment_id,
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "amount_due_cents": data.get("amount_due_cents"),
+        "currency": data.get("currency") or "EUR",
+        "secure_payment_url": guest_url,
+        "payment_short_url": data.get("payment_short_url"),
+        "uses_short_payment_link": bool(data.get("uses_short_payment_link")),
+        "payment_status": data.get("payment_status") or data.get("status"),
+        "no_payment_truth_recorded": data.get("no_payment_truth_recorded", True),
+        "next_action": data.get("next_action") or "send_secure_payment_link",
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def get_payment_status(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    data = _post_bot("/payments/status", payload)
+    latest = data.get("latest_payment") if isinstance(data.get("latest_payment"), dict) else {}
+    status = data.get("payment_status") or latest.get("payment_status") or latest.get("status")
+    paid_confirmed = str(status or "").lower() in {"paid", "deposit_paid", "fully_paid"}
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "get_payment_status",
+        "payment_truth_known": bool(data.get("payment_truth_known")) or paid_confirmed,
+        "payment_confirmed": paid_confirmed,
+        "payment_status": status,
+        "payment_id": data.get("payment_id") or latest.get("payment_id"),
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "amount_paid_cents": data.get("amount_paid_cents") or latest.get("amount_paid_cents"),
+        "balance_due_cents": data.get("balance_due_cents"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def add_service_to_booking(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    payload.setdefault("source", "agent_luna_whatsapp")
+    # Call create route — this writes the service record to the DB.
+    # Staff API handles pricing/payment eligibility internally.
+    payload.setdefault("confirm", True)
+    if str(payload.get("service_type") or "").strip().lower() == "meal":
+        # Meals are recorded for staff/on-site settlement, not paid online.
+        payload.setdefault("payment_choice", "record_only")
+    data = _post_bot("/addon-requests/create", payload)
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "add_service_to_booking",
+        "service_status": data.get("service_status") or data.get("next_action"),
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "service_type": data.get("service_type"),
+        "service_date": data.get("service_date"),
+        "quantity": data.get("quantity"),
+        "amount_due_cents": data.get("amount_due_cents"),
+        "payment_required": data.get("payment_required") if data.get("payment_required") is not None else (data.get("payment_preview") or {}).get("payment_required"),
+        "write_performed": bool(data.get("write_performed")),
+        "service_record_id": data.get("service_record_id"),
+        "reply_draft": data.get("reply_draft"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or data.get("next_action") == "handoff_to_staff",
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+
+def update_guest_packages(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    payload.setdefault("source", "agent_luna_whatsapp")
+    booking_code = _clean(payload.get("booking_code"))
+    guest_packages = payload.get("guest_packages") if isinstance(payload.get("guest_packages"), list) else []
+    if not booking_code:
+        return _json_result({
+            "success": False,
+            "tool": "update_guest_packages",
+            "staff_review_needed": True,
+            "guest_safe_next_action": "I can update that — can you send me the booking code first?",
+        })
+    if not guest_packages:
+        return _json_result({
+            "success": False,
+            "tool": "update_guest_packages",
+            "staff_review_needed": True,
+            "guest_safe_next_action": "I can update that — which package should each guest have?",
+        })
+    key_parts = "|".join([
+        booking_code,
+        json.dumps(guest_packages, sort_keys=True),
+    ])
+    payload.setdefault("idempotency_key", "luna-gp-" + hashlib.sha256(key_parts.encode()).hexdigest()[:16])
+    data = _post_bot(f"/bookings/{urllib.parse.quote(booking_code)}/guest-packages", payload)
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "update_guest_packages",
+        "updated": bool(data.get("updated")),
+        "booking_code": booking_code,
+        "guest_packages": data.get("guest_packages") or data.get("after_guest_packages") or guest_packages,
+        "package_code": data.get("package_code"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+def save_transfer_request(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    payload.setdefault("source", "agent_luna_whatsapp")
+
+    # Transfers are collected during the booking flow before a booking exists.
+    # Staff API can only persist transfer rows once it has booking_id/booking_code,
+    # so pre-booking transfer details must not become a guest-facing handoff/blocker.
+    if not _clean(payload.get("booking_id")) and not _clean(payload.get("booking_code")):
+        return _json_result({
+            "success": True,
+            "tool": "save_transfer_request",
+            "write_performed": False,
+            "transfer_collected_for_later": True,
+            "booking_not_created_yet": True,
+            "next_action": "continue_booking_flow",
+            "safe_next_step": "Ask for the remaining booking detail, create the booking after guest acceptance, then attach the transfer request once booking_id or booking_code is available.",
+            "direction": payload.get("direction"),
+            "airport_or_city": payload.get("airport") or payload.get("arrival_airport_or_city"),
+            "flight_number": payload.get("flight_number"),
+            "arrival_datetime": payload.get("arrival_datetime") or payload.get("transfer_datetime") or payload.get("scheduled_at"),
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+            "guest_safe_next_action": "Great, I’ll note the shuttle details and keep going with the booking 😊",
+        })
+
+    data = _post_bot("/transfers/save", payload)
+    # Auto-confirm: if booking_id/booking_code is present, the model has already decided
+    # to save the transfer. Force confirm_transfer_write=true so the write always happens.
+    # This removes a silent failure mode where the model forgets the flag and gets
+    # write_performed=false with success=true (preview-only response).
+    if not payload.get("confirm_transfer_write"):
+        payload["confirm_transfer_write"] = True
+        data = _post_bot("/transfers/save", payload)
+    transfer = data.get("transfer") if isinstance(data.get("transfer"), dict) else {}
+    write_ok = bool(data.get("write_performed")) or (bool(data.get("success")) and bool(transfer.get("id")))
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "save_transfer_request",
+        "write_performed": write_ok,
+        "booking_id": data.get("booking_id") or transfer.get("booking_id"),
+        "booking_code": data.get("booking_code") or transfer.get("booking_code"),
+        "direction": data.get("direction") or transfer.get("direction") or payload.get("direction"),
+        "airport_or_city": data.get("airport_or_city") or transfer.get("airport") or payload.get("airport") or payload.get("arrival_airport_or_city"),
+        "flight_number": data.get("flight_number") or transfer.get("flight_number") or payload.get("flight_number"),
+        "arrival_datetime": data.get("arrival_datetime") or transfer.get("arrival_datetime") or payload.get("arrival_datetime"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def _schema(name, description, properties, required=None):
+    return {
+        "name": name,
+        "description": description,
+        "parameters": {
+            "type": "object",
+            "properties": properties,
+            "required": required or [],
+        },
+    }
+
+
+def register(ctx):
+    common_booking = {
+        "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
+        "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
+        "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
+        "guest_count": {"type": "integer", "description": "Number of guests."},
+        "room_type": {"type": "string", "description": "shared, private, double, or any."},
+        "package_code": {"type": "string", "description": "Majority/fallback package: malibu, uluwatu, waimea, package_none, or unknown."},
+        "guest_packages": {"type": "array", "description": "Optional per-guest packages, e.g. [{guest_number:1, package_code:'malibu'}]. If one package applies to all guests, include one entry per guest with the same package.", "items": {"type": "object"}},
+    }
+    tools = [
+        ("check_availability", "Check real Wolfhouse bed availability through Staff API. Use before making any availability claim.", check_availability, common_booking, ["check_in", "check_out", "guest_count"]),
+        ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}, "add_ons": {"type": "array", "items": {"type": "object"}}}, ["check_in", "check_out", "guest_count"]),
+        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "idempotency_key": {"type": "string"}}, []),
+        ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment. Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}}, ["payment_id"]),
+        ("get_payment_status", "Check webhook-confirmed payment truth through Staff API. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
+        ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
+        ("add_service_to_booking", "Record a service/add-on request through Staff API so staff can see it in Services. Services include surf lessons, gear rental, meals, yoga.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string"}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
+        ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
+    ]
+    for name, description, handler, properties, required in tools:
+        ctx.register_tool(
+            name=name,
+            toolset=TOOLSET,
+            schema=_schema(name, description, properties, required),
+            handler=handler,
+            description=description,
+        )
