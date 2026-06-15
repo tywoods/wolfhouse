@@ -141,5 +141,27 @@ check("P5 valid payment_id returns a link", ok.get("secure_payment_url") == "htt
 check("P6 valid payment_id not wrong_id_type", ok.get("wrong_id_type") is None and ok.get("success") is True)
 
 
+print("\n== Surf report: on-tone reply + graceful fallback ==")
+
+fake = with_fake({
+    "/surf-report": {"success": True, "reply": "Waves are fun today 🌊 clean and chest-high!", "day": "today", "unavailable": False},
+})
+sr = json.loads(mod.get_surf_report({"day": "today", "message_text": "how are the waves?"}))
+check("SR1 returns the on-tone reply", "Waves are fun today" in (sr.get("reply") or ""))
+check("SR2 not unavailable when data present", sr.get("unavailable") is False)
+check("SR3 never escalates on a surf question", sr.get("staff_review_needed") is False and sr.get("do_not_escalate") is True)
+fake_t = with_fake({"/surf-report": {"success": True, "reply": "x", "unavailable": False}})
+mod.get_surf_report({"day": "TOMORROW"})
+check("SR4 normalizes day to tomorrow in the request",
+      fake_t.calls and fake_t.calls[-1][1].get("day") == "tomorrow", fake_t.calls and fake_t.calls[-1][1])
+
+fake = with_fake({
+    "/surf-report": {"success": True, "reply": "Can't peek at the surf right now, but Somo's always worth a paddle 🏄", "unavailable": True},
+})
+srf = json.loads(mod.get_surf_report({"message_text": "waves?"}))
+check("SR5 fallback still returns a friendly reply", bool(srf.get("reply")) and srf.get("unavailable") is True)
+check("SR6 fallback does not escalate", srf.get("staff_review_needed") is False)
+
+
 print("\n== Summary: {} passed, {} failed ==".format(PASSED, FAILED))
 sys.exit(1 if FAILED else 0)

@@ -142,6 +142,10 @@ const {
   SURF_FORECAST_TOMORROW_KEY,
   ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER,
 } = require('./lib/staff-stormglass-forecast');
+const {
+  fetchGuestSurfReportData,
+  buildGuestSurfReportReply,
+} = require('./lib/luna-guest-surf-report');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -26263,6 +26267,67 @@ async function handleSurfForecast(query, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bot/surf-report  (guest-facing surf report for Luna)
+//   Returns a guest-safe, on-tone surf reply built from the same Stormglass
+//   backend the staff forecast uses. Read-only. Bot-token auth. Never hard-fails:
+//   when Stormglass isn't configured or errors, it returns the friendly fallback
+//   copy (config.fallback) so Luna can still answer warmly.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleBotSurfReport(req, res, user, authMode) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
+  }
+
+  const clientSlug  = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const day         = String(body.day || 'today').trim().toLowerCase() === 'tomorrow' ? 'tomorrow' : 'today';
+  const messageText = String(body.message_text || body.question || '').slice(0, 500);
+  const lang        = body.lang ? String(body.lang).slice(0, 5) : null;
+
+  const buildReply = (surfData) => buildGuestSurfReportReply({
+    client_slug: clientSlug,
+    message_text: messageText,
+    lang,
+    day,
+    surf_data: surfData,
+    preserve_booking_context: false,
+  });
+
+  try {
+    const data   = await fetchGuestSurfReportData({ clientSlug, day });
+    const result = buildReply(data);
+    return sendJSON(res, 200, {
+      success:        true,
+      tool:           'get_surf_report',
+      reply:          result.reply,
+      day:            result.day,
+      unavailable:    !!result.unavailable,
+      configured:     hasStormglassConfig(),
+      no_payment_write: true,
+      no_whatsapp:    true,
+      no_n8n:         true,
+    });
+  } catch (err) {
+    // Degrade gracefully — a surf question must never dead-end the guest.
+    const fb = buildReply({ unavailable: true });
+    return sendJSON(res, 200, {
+      success:     true,
+      tool:        'get_surf_report',
+      reply:       fb.reply,
+      day,
+      unavailable: true,
+      configured:  false,
+      detail:      err.message,
+      no_payment_write: true,
+      no_whatsapp: true,
+      no_n8n:      true,
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7g — Bed calendar handler (read-only)
 //
 // GET /staff/bed-calendar?client=<slug>&start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -29147,6 +29212,16 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotPaymentStatus(req, res, auth.user, auth.auth_mode);
+  }
+
+  if (pathname === '/staff/bot/surf-report') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/surf-report' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSurfReport(req, res, auth.user, auth.auth_mode);
   }
 
   // ── Phase 9.4b — Luna guest bot pause/resume (bot_pause_states SoT) ─────────

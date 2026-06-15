@@ -572,6 +572,29 @@ def get_payment_status(params, **kwargs):
     })
 
 
+def get_surf_report(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    day = str(payload.get("day") or "today").strip().lower()
+    payload["day"] = "tomorrow" if day == "tomorrow" else "today"
+    data = _post_bot("/surf-report", payload)
+    reply = _clean(data.get("reply"))
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "get_surf_report",
+        # reply is guest-safe, on-tone copy — send it (or paraphrase lightly in your own voice).
+        "reply": reply or None,
+        "day": data.get("day") or payload["day"],
+        "unavailable": bool(data.get("unavailable")),
+        "next_action": "send_surf_report_reply",
+        "guest_safe_next_action": reply or None,
+        # Never escalate on a surf question — the reply already degrades gracefully.
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+    })
+
+
 def add_service_to_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -756,6 +779,7 @@ def register(ctx):
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
         ("add_service_to_booking", "Record a service/add-on request through Staff API so staff can see it in Services. Services include surf lessons, gear rental, meals, yoga.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string"}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
+        ("get_surf_report", "Get a guest-friendly Somo surf/wave report through Staff API when a guest asks about the waves, surf, or conditions. Returns an on-tone 'reply' to send. day is 'today' or 'tomorrow'. Degrades gracefully if live data isn't available.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
     ]
     for name, description, handler, properties, required in tools:
         ctx.register_tool(
