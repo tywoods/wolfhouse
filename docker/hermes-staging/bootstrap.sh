@@ -21,7 +21,7 @@ STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"
 STAGING_PLUGINS="/etc/hermes-staging/plugins"
 LUNA_SOUL_MARKER="$HERMES_HOME/.luna-guest-soul.version"
-LUNA_SOUL_VERSION="26"
+LUNA_SOUL_VERSION="27"
 
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
@@ -33,6 +33,11 @@ agent:
   # to medium made gpt-5.5 terse/task-efficient — it stripped the personality and
   # batched the whole intake into one message. Keep none; steer behavior via SOUL.
   reasoning_effort: none
+# A Hermes update raised gpt-5.5 auto-compaction to 85% (from 50%); that summarizes
+# Luna's context — including her SOUL — and made her go terse and forget her rules.
+# Opt out so her full SOUL stays in context every turn.
+compression:
+  codex_gpt55_autoraise: false
 # Primary: ChatGPT (Codex OAuth, gpt-5.5). Fallback: Anthropic Claude Max OAuth.
 # Codex is primary so guest turns don't dead-end on the Anthropic "extra usage" 400.
 fallback_providers:
