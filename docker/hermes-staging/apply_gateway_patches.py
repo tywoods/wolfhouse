@@ -80,7 +80,7 @@ INTERNAL_FILTER_HELPERS = r'''
 # Wolfhouse guest-channel hard filter: never send Hermes internal/self-improvement
 # status messages to WhatsApp guests.
 _WOLFHOUSE_WHATSAPP_SUPPRESS_STATUS_RE = re.compile(
-    r"(self.?improvement|skill\s+['\"]?[-\w]+\s+(?:created|saved|updated)|skill\s+(?:created|saved|updated)|auxiliary\s+|compression\s+|preflight|retrying\s+in|rate\s+limited|auto.lowered)",
+    r"(self.?improvement|skill\s+['\"]?[-\w]+\s+(?:created|saved|updated)|skill\s+(?:created|saved|updated)|auxiliary\s+|compression\s+|compression\.|auto.?compact|hermes\s+config|caps?\s+context|before\s+summariz|preflight|retrying\s+in|rate\s+limited|auto.lowered)",
     re.IGNORECASE,
 )
 
@@ -155,7 +155,7 @@ WHATSAPP_SEND_HELPERS = r'''
 
 import re as _wolfhouse_re
 _WOLFHOUSE_WHATSAPP_SUPPRESS_STATUS_RE = _wolfhouse_re.compile(
-    r"(self.?improvement|skill\s+['\"]?[-\w]+\s+(?:created|saved|updated)|skill\s+(?:created|saved|updated)|auxiliary\s+|compression\s+|preflight|retrying\s+in|rate\s+limited|auto.lowered)",
+    r"(self.?improvement|skill\s+['\"]?[-\w]+\s+(?:created|saved|updated)|skill\s+(?:created|saved|updated)|auxiliary\s+|compression\s+|compression\.|auto.?compact|hermes\s+config|caps?\s+context|before\s+summariz|preflight|retrying\s+in|rate\s+limited|auto.lowered)",
     _wolfhouse_re.IGNORECASE,
 )
 
@@ -364,6 +364,11 @@ _WHATSAPP_SUPPRESS_STATUS_RE = re.compile(
     r"|[Ss]kill\s+updated"
     r"|auxiliary\s+"
     r"|compression\s+"
+    r"|compression\."
+    r"|auto.?compact"
+    r"|hermes\s+config"
+    r"|caps?\s+context"
+    r"|before\s+summariz"
     r"|preflight"
     r"|retrying\s+in"
     r"|rate\s+limited"
