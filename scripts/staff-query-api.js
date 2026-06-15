@@ -146,6 +146,7 @@ const {
   fetchGuestSurfReportData,
   buildGuestSurfReportReply,
 } = require('./lib/luna-guest-surf-report');
+const { loadActiveGuestBookings } = require('./lib/luna-guest-booking-disambiguation');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -26328,6 +26329,117 @@ async function handleBotSurfReport(req, res, user, authMode) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bot/bookings/by-phone  (Luna: list a guest's active/upcoming bookings)
+//   Read-only. Returns active/upcoming bookings for the WhatsApp number so Luna
+//   can ask which one before changing/adding to a booking.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleBotListBookingsByPhone(req, res, user, authMode) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
+  }
+  const phone = String(body.phone || body.guest_phone || '').trim();
+  if (!phone) return sendJSON(res, 400, { success: false, error: 'phone is required' });
+
+  try {
+    const rows = await withPgClient((pg) => loadActiveGuestBookings(pg, { phone }));
+    const bookings = (rows || []).map((r) => ({
+      booking_code:   r.booking_code,
+      check_in:       r.check_in,
+      check_out:      r.check_out,
+      guest_count:    r.guest_count,
+      guest_name:     r.guest_name,
+      status:         r.status,
+      payment_status: r.payment_status,
+    }));
+    return sendJSON(res, 200, {
+      success:  true,
+      tool:     'list_my_bookings',
+      count:    bookings.length,
+      bookings,
+      no_payment_write: true,
+      no_whatsapp: true,
+      no_n8n: true,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'booking lookup failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bot/bookings/update-contact  (Luna: update guest name/email)
+//   Name/email only — never package/dates/payment. Validated; audited; no payment,
+//   WhatsApp, or n8n side effects.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleBotUpdateContact(req, res, user, authMode) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
+  }
+  const clientSlug  = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const bookingCode = String(body.booking_code || body.bookingCode || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!bookingCode || bookingCode.length > 64 || SQL_INJECT_RE.test(bookingCode)) {
+    return sendJSON(res, 400, { success: false, error: 'valid booking_code is required' });
+  }
+
+  const patch = {};
+  if (body.guest_name != null && String(body.guest_name).trim() !== '') {
+    if (!editPreviewLightNameOk(body.guest_name)) return sendJSON(res, 400, { success: false, error: 'guest_name is too long' });
+    patch.guest_name = String(body.guest_name).trim();
+  }
+  if (body.email != null && String(body.email).trim() !== '') {
+    if (!editPreviewLightEmailOk(body.email)) return sendJSON(res, 400, { success: false, error: 'email format is invalid' });
+    patch.email = String(body.email).trim();
+  }
+  if (patch.guest_name === undefined && patch.email === undefined) {
+    return sendJSON(res, 400, { success: false, error: 'provide guest_name and/or email to update' });
+  }
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      const bk = (await pg.query(EDIT_PREVIEW_BOOKING_BY_CODE_SQL, [clientSlug, bookingCode])).rows[0];
+      if (!bk) return { notFound: true };
+      const merged = editWriteMergeContactFields(bk, patch);
+      const upd = await pg.query(EDIT_WRITE_CONTACT_UPDATE_SQL, [
+        clientSlug, bk.booking_id, merged.guest_name, merged.phone, merged.email,
+      ]);
+      return { row: upd.rows[0] };
+    });
+    if (result.notFound) return sendJSON(res, 404, { success: false, error: `Booking not found: ${bookingCode}` });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot_update_contact',
+      category: 'bot_booking_update_contact',
+      client_slug: clientSlug,
+      booking_code: bookingCode,
+      updated_fields: Object.keys(patch),
+      source: 'luna_guest',
+      auth_mode: authMode || null,
+      success: true,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 200, {
+      success:        true,
+      tool:           'update_booking_contact',
+      updated_fields: Object.keys(patch),
+      booking:        editWriteContactBookingSummary(result.row),
+      write_performed: true,
+      no_payment_write: true,
+      no_whatsapp: true,
+      no_n8n: true,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'contact update failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7g — Bed calendar handler (read-only)
 //
 // GET /staff/bed-calendar?client=<slug>&start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -29222,6 +29334,26 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotSurfReport(req, res, auth.user, auth.auth_mode);
+  }
+
+  if (pathname === '/staff/bot/bookings/by-phone') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/by-phone' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotListBookingsByPhone(req, res, auth.user, auth.auth_mode);
+  }
+
+  if (pathname === '/staff/bot/bookings/update-contact') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/update-contact' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotUpdateContact(req, res, auth.user, auth.auth_mode);
   }
 
   // ── Phase 9.4b — Luna guest bot pause/resume (bot_pause_states SoT) ─────────

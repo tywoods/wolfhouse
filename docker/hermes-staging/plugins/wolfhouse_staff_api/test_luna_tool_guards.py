@@ -163,5 +163,32 @@ check("SR5 fallback still returns a friendly reply", bool(srf.get("reply")) and 
 check("SR6 fallback does not escalate", srf.get("staff_review_needed") is False)
 
 
+print("\n== list_my_bookings + update_booking_contact ==")
+
+fake = with_fake({
+    "/bookings/by-phone": {"success": True, "count": 2, "bookings": [
+        {"booking_code": "MB-A", "check_in": "2026-09-15", "check_out": "2026-09-22"},
+        {"booking_code": "MB-B", "check_in": "2026-10-01", "check_out": "2026-10-09"},
+    ]},
+})
+lb = json.loads(mod.list_my_bookings({"phone": "+491726422307"}))
+check("L1 returns both bookings", lb.get("count") == 2 and len(lb.get("bookings") or []) == 2)
+check("L2 passes a normalized phone to the route", bool(fake.calls[-1][1].get("phone")))
+check("L3 listing never escalates", lb.get("do_not_escalate") is True)
+
+fake = with_fake({
+    "/bookings/update-contact": {"success": True, "updated_fields": ["email"], "write_performed": True,
+                                 "booking": {"booking_code": "MB-B", "email": "ana@example.com"}},
+})
+uc = json.loads(mod.update_booking_contact({"booking_code": "MB-B", "email": "ana@example.com"}))
+check("U1 update succeeds", uc.get("success") is True and uc.get("write_performed") is True)
+check("U2 reports updated field", uc.get("updated_fields") == ["email"])
+check("U3 no review needed on success", uc.get("staff_review_needed") is False)
+
+fake = with_fake({"/bookings/update-contact": {"success": False, "error": "email format is invalid"}})
+ucf = json.loads(mod.update_booking_contact({"booking_code": "MB-B", "email": "bad"}))
+check("U4 failed update flags review", ucf.get("staff_review_needed") is True)
+
+
 print("\n== Summary: {} passed, {} failed ==".format(PASSED, FAILED))
 sys.exit(1 if FAILED else 0)

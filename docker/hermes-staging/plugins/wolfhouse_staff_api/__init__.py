@@ -595,6 +595,43 @@ def get_surf_report(params, **kwargs):
     })
 
 
+def list_my_bookings(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone") or _session_guest_phone())
+    if phone:
+        payload["phone"] = phone
+    data = _post_bot("/bookings/by-phone", payload)
+    bookings = data.get("bookings") if isinstance(data.get("bookings"), list) else []
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "list_my_bookings",
+        "count": data.get("count") if data.get("count") is not None else len(bookings),
+        # Each booking: {booking_code, check_in, check_out, guest_count, guest_name, status, payment_status}.
+        # If more than one, list them (code + dates) and ask which before changing anything.
+        "bookings": bookings,
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+    })
+
+
+def update_booking_contact(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    data = _post_bot("/bookings/update-contact", payload)
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "update_booking_contact",
+        "updated_fields": data.get("updated_fields") or [],
+        "booking": data.get("booking"),
+        "write_performed": bool(data.get("write_performed")),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
 def add_service_to_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -780,6 +817,8 @@ def register(ctx):
         ("add_service_to_booking", "Record a service/add-on request through Staff API so staff can see it in Services. Services include surf lessons, gear rental, meals, yoga.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string"}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
         ("get_surf_report", "Get a guest-friendly Somo surf/wave report through Staff API when a guest asks about the waves, surf, or conditions. Returns an on-tone 'reply' to send. day is 'today' or 'tomorrow'. Degrades gracefully if live data isn't available.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
+        ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
+        ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
     ]
     for name, description, handler, properties, required in tools:
         ctx.register_tool(
