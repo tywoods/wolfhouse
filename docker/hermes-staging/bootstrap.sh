@@ -29,7 +29,10 @@ model:
   default: gpt-5.5
   provider: openai-codex
 agent:
-  reasoning_effort: none
+  # medium so gpt-5.5 actually deliberates over the SOUL rules (step order, exact
+  # package contents) instead of fast-pathing and inventing/paraphrasing. "none"
+  # was causing hallucinated package contents and skipped intake steps.
+  reasoning_effort: medium
 # Primary: ChatGPT (Codex OAuth, gpt-5.5). Fallback: Anthropic Claude Max OAuth.
 # Codex is primary so guest turns don't dead-end on the Anthropic "extra usage" 400.
 fallback_providers:
