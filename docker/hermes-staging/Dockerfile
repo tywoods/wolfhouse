@@ -1,9 +1,7 @@
-# Pinned to the last stable release (2026-06-06). The `latest`/`main` tag was
-# republished 2026-06-15 with a gpt-5.5 auto-compaction change that summarized
-# Luna's SOUL out of context (terse, personality-stripped, rule-ignoring). Pinning
-# keeps the engine reproducible so a moving `latest` can't silently swap it under
-# us. Bump this deliberately after testing a newer release.
-FROM docker.io/nousresearch/hermes-agent:v2026.6.5
+# Back on latest (v2026.6.5 was too old for our gateway patches → container
+# wouldn't start). The 2026-06-15 latest ships gpt-5.5 auto-compaction; we disable
+# it via config (compression.codex_gpt55_autoraise: false) instead of downgrading.
+FROM docker.io/nousresearch/hermes-agent:latest
 COPY SOUL.md /etc/hermes-staging/SOUL.md
 COPY orchestrator-SOUL.md /etc/hermes-staging/orchestrator-SOUL.md
 COPY plugins /etc/hermes-staging/plugins
