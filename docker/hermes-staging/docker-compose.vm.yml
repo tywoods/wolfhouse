@@ -1,0 +1,53 @@
+# Wolfhouse staging Hermes on Azure VM — two containers (orchestrator + Luna).
+# Hermes recommends one container per profile; shared auth.json is bind-mounted read-only.
+#
+# Host paths (created by scripts/provision-hermes-vm.sh):
+#   /var/lib/hermes-orchestrator  → orchestrator HERMES_HOME
+#   /var/lib/hermes-luna          → Luna HERMES_HOME
+#   /var/lib/hermes-shared/auth.json → OAuth credential pool (shared, must be writable for pool updates)
+#   /opt/wolfhouse/WH             → Wolfhouse git repo (orchestrator cwd)
+#
+# Usage on VM:
+#   docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml up -d
+
+services:
+  hermes-orchestrator:
+    image: whstagingacr.azurecr.io/wh-hermes-staging:latest
+    container_name: hermes-orchestrator
+    restart: unless-stopped
+    command: gateway run
+    ports:
+      - "8642:8642"
+    volumes:
+      - /var/lib/hermes-orchestrator:/opt/data
+      - /var/lib/hermes-shared:/opt/data/.auth-shared
+      - /opt/wolfhouse/WH:/opt/wolfhouse/WH:ro
+      - /opt/wolfhouse/WH/docker/hermes-staging/99z-wh-vm-post-bootstrap.sh:/etc/cont-init.d/99z-wh-vm-post-bootstrap:ro
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_ROLE: orchestrator
+      HERMES_DASHBOARD: "0"
+      GENERIC_TIMEZONE: Europe/Madrid
+      WOLFHOUSE_STAFF_API_BASE_URL: https://staff-staging.lunafrontdesk.com
+    env_file:
+      - /etc/hermes-orchestrator.env
+
+  hermes-luna:
+    image: whstagingacr.azurecr.io/wh-hermes-staging:latest
+    container_name: hermes-luna
+    restart: unless-stopped
+    command: gateway run
+    ports:
+      - "8090:8090"
+    volumes:
+      - /var/lib/hermes-luna:/opt/data
+      - /var/lib/hermes-shared:/opt/data/.auth-shared
+      - /opt/wolfhouse/WH/docker/hermes-staging/99z-wh-vm-post-bootstrap.sh:/etc/cont-init.d/99z-wh-vm-post-bootstrap:ro
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_ROLE: luna
+      HERMES_DASHBOARD: "0"
+      GENERIC_TIMEZONE: Europe/Madrid
+      WOLFHOUSE_STAFF_API_BASE_URL: https://staff-staging.lunafrontdesk.com
+    env_file:
+      - /etc/hermes-luna.env

@@ -1,0 +1,6 @@
+name: wolfhouse-staff-api
+version: "1.0"
+description: Staff API tools for Agent Luna guest WhatsApp bookings
+requires_env:
+  - WOLFHOUSE_STAFF_API_BASE_URL
+  - LUNA_BOT_INTERNAL_TOKEN

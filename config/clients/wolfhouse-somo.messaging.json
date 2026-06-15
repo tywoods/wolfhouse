@@ -223,8 +223,8 @@
       "room_number"
     ],
     "gate_code_default": "2684#",
-    "en": "Hi {guest_name} ☀️ Payment received — your Wolfhouse booking is confirmed! Booking: {booking_code}. Paid: {amount_paid}. Balance due: {balance_due}. Address: {address}. Gate code: {gate_code}. Room: {room_number}. {balance_payment_section}",
-    "it": "Ciao {guest_name} ☀️ Pagamento ricevuto — prenotazione Wolfhouse confermata! Prenotazione: {booking_code}. Pagato: {amount_paid}. Saldo: {balance_due}. Indirizzo: {address}. Codice cancello: {gate_code}. Camera: {room_number}. {balance_payment_section}",
+    "en": "Hi {guest_name} ☀️ Payment received — you're officially part of the Wolfhouse family! 🌊\n\nBooking: {booking_code}\nPaid: {amount_paid}\nBalance due: {balance_due}\n\nAddress: {address}\nGate code: {gate_code}\nRoom: {room_number}\n\n{balance_payment_section}",
+    "it": "Ciao {guest_name} ☀️ Pagamento ricevuto — ora fai parte della famiglia Wolfhouse! 🌊\n\nPrenotazione: {booking_code}\nPagato: {amount_paid}\nSaldo: {balance_due}\n\nIndirizzo: {address}\nCodice cancello: {gate_code}\nCamera: {room_number}\n\n{balance_payment_section}",
     "rules": [
       "only_after_stripe_webhook_truth",
       "include_amount_paid_and_balance_due",

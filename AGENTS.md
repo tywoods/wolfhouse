@@ -21,7 +21,7 @@ Guest WhatsApp  →  Hermes Agent (staging: wh-staging-hermes on Azure Container
 
 - **Legacy path:** n8n workflows + Luna JS pipeline in this repo (`scripts/lib/luna-guest-*`).
 - **Target path:** Hermes replaces n8n as the guest WhatsApp layer; Staff API stays the source of truth for availability, quotes, payments, bookings.
-- **Staging Hermes URL:** `https://wh-staging-hermes.braveplant-5c685569.northeurope.azurecontainerapps.io` (API only — no web UI at `/`).
+- **Staging Hermes:** Lunabox VM — `lunabox.lunafrontdesk.com` (`docs/HERMES-AZURE-VM.md`). Legacy ACA `wh-staging-hermes` stays up until full cutover.
 
 ## Repo layout
 

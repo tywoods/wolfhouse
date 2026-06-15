@@ -1,5 +1,6 @@
 FROM docker.io/nousresearch/hermes-agent:latest
 COPY SOUL.md /etc/hermes-staging/SOUL.md
+COPY orchestrator-SOUL.md /etc/hermes-staging/orchestrator-SOUL.md
 COPY plugins /etc/hermes-staging/plugins
 COPY wolfhouse_whatsapp_mirror.py /etc/hermes-staging/wolfhouse_whatsapp_mirror.py
 COPY wolfhouse_guest_fresh_start.py /etc/hermes-staging/wolfhouse_guest_fresh_start.py

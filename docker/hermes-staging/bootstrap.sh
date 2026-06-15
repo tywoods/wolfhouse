@@ -136,6 +136,7 @@ link_shared_auth() {
   ln -sf ".auth-shared/auth.json" "$HERMES_HOME/auth.json"
 }
 
+finalize_permissions() {
   chown hermes:hermes "$HERMES_HOME/config.yaml" "$HERMES_HOME/.env" 2>/dev/null || true
   [ -f "$HERMES_HOME/SOUL.md" ] && chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
   [ -d "$HERMES_HOME/plugins" ] && chown -R hermes:hermes "$HERMES_HOME/plugins" 2>/dev/null || true

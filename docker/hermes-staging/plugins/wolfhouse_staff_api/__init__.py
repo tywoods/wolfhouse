@@ -279,6 +279,70 @@ def _guest_payment_url(data):
     return None
 
 
+def _auto_save_pending_transfers(payload, booking_id, booking_code):
+    """Persist transfer details collected earlier in the booking flow.
+
+    Transfers are usually collected (Step 4) BEFORE the booking exists, so the
+    first save_transfer_request returns transfer_collected_for_later with no
+    write. Relying on the model to re-call save_transfer_request after the
+    booking is created is unreliable across turns (the #1 cause of "shuttle
+    noted but never saved to the portal"). So create_booking_from_plan accepts
+    the collected transfer(s) and saves them here deterministically with
+    confirm_transfer_write forced true.
+
+    Accepts either payload['pending_transfers'] (list) or a single
+    payload['pending_transfer'] (dict). Each entry needs at least a direction;
+    airport/scheduled_at/flight_number/notes are optional. Returns a list of
+    per-direction result dicts (best-effort; never raises).
+    """
+    raw = payload.get("pending_transfers")
+    if not raw and payload.get("pending_transfer"):
+        raw = [payload.get("pending_transfer")]
+    if not isinstance(raw, list) or not raw:
+        return []
+    client_slug = payload.get("client_slug") or "wolfhouse-somo"
+    results = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        direction = _clean(entry.get("direction")) or "arrival"
+        tpayload = {
+            "client_slug": client_slug,
+            "source": "agent_luna_whatsapp",
+            "confirm_transfer_write": True,
+            "direction": direction,
+        }
+        if booking_id:
+            tpayload["booking_id"] = booking_id
+        if booking_code:
+            tpayload["booking_code"] = booking_code
+        airport = _clean(entry.get("airport") or entry.get("arrival_airport_or_city") or entry.get("airport_or_city"))
+        if airport:
+            tpayload["airport"] = airport
+        scheduled = _clean(
+            entry.get("scheduled_at")
+            or entry.get("transfer_datetime")
+            or entry.get("arrival_datetime")
+            or entry.get("departure_datetime")
+        )
+        if scheduled:
+            tpayload["scheduled_at"] = scheduled
+        for opt in ("flight_number", "notes", "guest_count", "luggage_or_surfboards"):
+            if entry.get(opt) not in (None, ""):
+                tpayload[opt] = entry.get(opt)
+        try:
+            tdata = _post_bot("/transfers/save", tpayload)
+            transfer = tdata.get("transfer") if isinstance(tdata.get("transfer"), dict) else {}
+            results.append({
+                "direction": direction,
+                "write_performed": bool(tdata.get("write_performed")) or (bool(tdata.get("success")) and bool(transfer.get("id"))),
+                "success": bool(tdata.get("success")),
+            })
+        except Exception as exc:  # never block the booking/payment flow on a transfer save
+            results.append({"direction": direction, "write_performed": False, "success": False, "error": _safe_text(str(exc))})
+    return results
+
+
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -372,6 +436,17 @@ def create_booking_from_plan(params, **kwargs):
         for reason in blocked_reasons
     ) or data.get("safe_next_step") in {"ask_missing_details", "ask_deposit_or_full_payment"}
 
+    # Deterministically attach any transfer details the guest gave earlier in the
+    # flow (collected before the booking existed). This removes the unreliable
+    # "model remembers to re-call save_transfer_request after create" step.
+    transfer_results = []
+    if bool(data.get("success")) and bool(data.get("write_performed")):
+        transfer_results = _auto_save_pending_transfers(
+            payload,
+            fields.get("booking_id"),
+            fields.get("booking_code"),
+        )
+
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "create_booking_from_plan",
@@ -383,6 +458,8 @@ def create_booking_from_plan(params, **kwargs):
         "secure_payment_url": secure_url,
         "payment_link_created": bool(secure_url),
         "payment_link_error": payment_link_error,
+        "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
+        "transfer_save_results": transfer_results,
         "next_action": "send_secure_payment_link" if secure_url else data.get("next_action"),
         "staff_review_needed": (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url)) and not expected_missing,
         "blocked_reasons": blocked_reasons,
@@ -468,6 +545,28 @@ def add_service_to_booking(params, **kwargs):
         # Meals are recorded for staff/on-site settlement, not paid online.
         payload.setdefault("payment_choice", "record_only")
     data = _post_bot("/addon-requests/create", payload)
+
+    # The Staff API addon-create route generates the Stripe link inline and
+    # returns it as checkout_url (and bakes it into reply_draft). Surface it as
+    # secure_payment_url so Luna can send the link immediately — otherwise the
+    # link is silently discarded and the guest is told there was "a small issue
+    # generating the payment link" even though the record + link were created.
+    secure_url = _guest_payment_url(data)
+    payment_id = _clean(data.get("payment_id"))
+    is_meal = str(payload.get("service_type") or "").strip().lower() == "meal"
+    payment_required = data.get("payment_required")
+    if payment_required is None:
+        payment_required = (data.get("payment_preview") or {}).get("payment_required")
+    write_ok = bool(data.get("write_performed")) or bool(data.get("idempotent"))
+    # A paid service that wrote successfully but produced no link is the only
+    # real review case. Record-only services (meals) never need a link.
+    needs_link = bool(payment_required) and not is_meal
+    payment_link_error = None
+    if needs_link and write_ok and not secure_url:
+        payment_link_error = _safe_text(
+            data.get("error") or data.get("message") or "payment_link_create_failed"
+        )
+
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "add_service_to_booking",
@@ -478,11 +577,20 @@ def add_service_to_booking(params, **kwargs):
         "service_date": data.get("service_date"),
         "quantity": data.get("quantity"),
         "amount_due_cents": data.get("amount_due_cents"),
-        "payment_required": data.get("payment_required") if data.get("payment_required") is not None else (data.get("payment_preview") or {}).get("payment_required"),
-        "write_performed": bool(data.get("write_performed")),
+        "payment_required": payment_required,
+        "write_performed": write_ok,
         "service_record_id": data.get("service_record_id"),
+        "payment_id": payment_id or None,
+        "secure_payment_url": secure_url,
+        "payment_link_created": bool(secure_url),
+        "payment_link_error": payment_link_error,
+        "next_action": "send_secure_payment_link" if secure_url else (data.get("service_status") or data.get("next_action")),
         "reply_draft": data.get("reply_draft"),
-        "staff_review_needed": bool(data.get("staff_review_needed")) or data.get("next_action") == "handoff_to_staff",
+        "staff_review_needed": (
+            bool(data.get("staff_review_needed"))
+            or data.get("next_action") == "handoff_to_staff"
+            or (needs_link and write_ok and not secure_url)
+        ),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
     })
 
@@ -603,7 +711,7 @@ def register(ctx):
     tools = [
         ("check_availability", "Check real Wolfhouse bed availability through Staff API. Use before making any availability claim.", check_availability, common_booking, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}, "add_ons": {"type": "array", "items": {"type": "object"}}}, ["check_in", "check_out", "guest_count"]),
-        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "idempotency_key": {"type": "string"}}, []),
+        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. If the guest gave shuttle/transfer details earlier, pass them as pending_transfers so they are saved to the booking automatically.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Transfer details collected earlier in the chat, saved automatically after the booking is created. One entry per direction. Each: {direction: 'arrival'|'departure', airport, scheduled_at (ISO datetime), flight_number, notes}.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment. Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}}, ["payment_id"]),
         ("get_payment_status", "Check webhook-confirmed payment truth through Staff API. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),

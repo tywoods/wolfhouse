@@ -3,6 +3,7 @@ infra/.env
 .env
 .env.local
 hermes-local/.env
+hermes-vm-env/
 *.log
 docs/api keys.txt
 reports/*.csv

@@ -1,0 +1,15 @@
+{
+  "id": "coach-seed-quote-stall",
+  "label": "Package selected but quote stalls",
+  "reference_date": "2026-06-10",
+  "booking_state": {
+    "extracted_fields": {
+      "check_in": "2026-06-11",
+      "check_out": "2026-06-20",
+      "guest_count": 3
+    }
+  },
+  "transcript": [
+    { "guest": "ok Malibu", "luna": "I can look into the best option for your dates." }
+  ]
+}

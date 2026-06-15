@@ -1,0 +1,12 @@
+{
+  "id": "coach-seed-service-missed",
+  "label": "Services during booking not captured",
+  "reference_date": "2026-06-10",
+  "transcript": [
+    { "guest": "July 5 to 10 for 3 guests", "luna": "Perfect — how many guests?" },
+    {
+      "guest": "board and wetsuit for 3 days each",
+      "luna": "What check-in and check-out dates do you have in mind?"
+    }
+  ]
+}

@@ -1,0 +1,1691 @@
+{
+  "version": 1,
+  "description": "Stage 27test-a — Luna guest golden message fixtures for inbound review dry-run",
+  "reference_date": "2026-06-08",
+  "default_client_slug": "wolfhouse-somo",
+  "default_channel": "whatsapp",
+  "cases": [
+    {
+      "id": "en-book-01",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Hi, we are 2 people interested in the Malibu package",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": false,
+        "required_missing_fields": [
+          "dates"
+        ],
+        "proposed_next_action": "ask_missing_details",
+        "handoff_required": false
+      }
+    },
+    {
+      "id": "en-book-02",
+      "category": "booking_partial_missing_dates",
+      "language": "en",
+      "message_text": "Malibu package for 2 please",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": false,
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "en-book-03",
+      "category": "booking_partial_missing_guest_count",
+      "language": "en",
+      "message_text": "Malibu package July 10 to July 17",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-04",
+      "category": "booking_partial_missing_package",
+      "language": "en",
+      "message_text": "2 people July 10 to July 17 accommodation only",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-05",
+      "category": "booking_full_one_message",
+      "language": "en",
+      "message_text": "2 people Malibu package July 10 to July 17",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true
+      }
+    },
+    {
+      "id": "en-book-06",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Looking to book Uluwatu for 3 guests from August 1 to August 8",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true
+      }
+    },
+    {
+      "id": "en-book-07",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "We want Waimea package 4 people check in July 20 check out July 27",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true
+      }
+    },
+    {
+      "id": "en-book-08",
+      "category": "booking_partial_missing_dates",
+      "language": "en",
+      "message_text": "Can we book Malibu for 2?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "en-book-09",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Any room available for 2 in July?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-10",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Reserve Malibu 2 guests July 10 until July 17 please",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true
+      }
+    },
+    {
+      "id": "en-book-11",
+      "category": "booking_partial_missing_guest_count",
+      "language": "en",
+      "message_text": "Malibu July 10 to July 17",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-12",
+      "category": "booking_partial_missing_package",
+      "language": "en",
+      "message_text": "2 people July 10 to July 17 no package custom stay",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-13",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Book accommodation only 2 people July 10 to July 17",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-14",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Hi! Malibu for me and my partner July 10-17",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-15",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "We are a group of 5 interested in Uluwatu mid August",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-16",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Want to come surf Somo in July, 2 people Malibu package",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-17",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Is there availability Malibu 2 ppl 10-17 Jul?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-18",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Booking inquiry: 2 guests Malibu July 10 to July 17 2026",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true
+      }
+    },
+    {
+      "id": "en-book-19",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "Hello, 2 people Malibu package — what dates work?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "en-book-20",
+      "category": "booking_en",
+      "language": "en",
+      "message_text": "We would like Malibu for 2 from July 10 check out July 17",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true
+      }
+    },
+    {
+      "id": "it-book-01",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Ciao, siamo in 2 interessati al pacchetto Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "it-book-02",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Vorremmo venire in 2 dal 10 al 17 luglio pacchetto Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "it-book-03",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "2 persone Malibu 10-17 luglio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "it-book-04",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Voglio prenotare Uluwatu per 3 dal 1 al 8 agosto",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "it-book-05",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Pacchetto Waimea 4 persone luglio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "it-book-06",
+      "category": "booking_partial_missing_dates",
+      "language": "it",
+      "message_text": "Malibu per 2 persone per favore",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "it-book-07",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Solo pernottamento 2 persone 10-17 luglio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "it-book-08",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "C'è posto per 2 a luglio?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "it-book-09",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Prenotazione Malibu 2 ospiti check-in 10 luglio check-out 17 luglio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": ["dates"]
+      }
+    },
+    {
+      "id": "it-book-10",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Buongiorno, 2 persone pacchetto Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "it-book-11",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Vorremmo il pacchetto Malibu due adulti 10-17 luglio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "it-book-12",
+      "category": "booking_it",
+      "language": "it",
+      "message_text": "Interessati a Malibu, siamo in 2",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-01",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Hola, somos 2 personas interesadas en el paquete Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "es-book-02",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Quiero reservar Malibu para 2 del 10 al 17 de julio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-03",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "2 personas paquete Malibu 10 al 17 julio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-04",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Reservar Uluwatu 3 personas del 1 al 8 de agosto",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-05",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Paquete Waimea 4 personas julio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-06",
+      "category": "booking_partial_missing_dates",
+      "language": "es",
+      "message_text": "Malibu para 2 por favor",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "es-book-07",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Solo alojamiento 2 personas 10-17 julio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-08",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "¿Hay disponibilidad para 2 en julio?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-09",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Reserva Malibu 2 huéspedes entrada 10 julio salida 17 julio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": ["dates"]
+      }
+    },
+    {
+      "id": "es-book-10",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Buenos días, 2 personas paquete Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-11",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Queremos Malibu dos adultos 10-17 julio",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "es-book-12",
+      "category": "booking_es",
+      "language": "es",
+      "message_text": "Estancia Somo julio, 2 personas Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-01",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Hallo, wir sind 2 Personen interessiert am Malibu Paket",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "de-book-02",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Wir möchten Malibu für 2 vom 10. bis 17. Juli buchen",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-03",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "2 Personen Malibu Paket 10.-17. Juli",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-04",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Uluwatu Paket 3 Gäste 1.-8. August reservieren",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-05",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Waimea Paket 4 Personen im Juli",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-06",
+      "category": "booking_partial_missing_dates",
+      "language": "de",
+      "message_text": "Malibu für 2 bitte",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "de-book-07",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Nur Unterkunft 2 Personen 10.-17. Juli",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-08",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Gibt es ein Zimmer frei für 2 im Juli?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-09",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Malibu buchen 2 Gäste Check-in 10. Juli Check-out 17. Juli",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": ["dates"]
+      }
+    },
+    {
+      "id": "de-book-10",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Guten Tag, 2 Personen Malibu Paket",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-11",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Wir möchten Malibu zwei Erwachsene 10-17 Juli",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "de-book-12",
+      "category": "booking_de",
+      "language": "de",
+      "message_text": "Surf Camp Somo Juli, 2 Personen Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-01",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Bonjour, nous sommes 2 personnes intéressées par le forfait Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "fr-book-02",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Nous voulons réserver Malibu pour 2 du 10 au 17 juillet",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-03",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "2 personnes forfait Malibu 10-17 juillet",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-04",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Réserver Uluwatu 3 personnes du 1 au 8 août",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-05",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Forfait Waimea 4 personnes en juillet",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-06",
+      "category": "booking_partial_missing_dates",
+      "language": "fr",
+      "message_text": "Malibu pour 2 s'il vous plaît",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": [
+          "dates"
+        ]
+      }
+    },
+    {
+      "id": "fr-book-07",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Logement seulement 2 personnes 10-17 juillet",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-08",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Y a-t-il de la place pour 2 en juillet?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-09",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Réservation Malibu 2 invités arrivée 10 juillet départ 17 juillet",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry",
+        "required_missing_fields": ["dates"]
+      }
+    },
+    {
+      "id": "fr-book-10",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Bonjour, 2 personnes forfait Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-11",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Nous aimerions Malibu deux adultes 10-17 juillet",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "fr-book-12",
+      "category": "booking_fr",
+      "language": "fr",
+      "message_text": "Séjour Somo juillet, 2 personnes Malibu",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "pay-01",
+      "category": "payment_before_quote",
+      "language": "en",
+      "message_text": "I want to pay now",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "pay-02",
+      "category": "payment_before_quote",
+      "language": "en",
+      "message_text": "Send me the payment link please",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "pay-03",
+      "category": "payment_before_quote",
+      "language": "en",
+      "message_text": "Paying now for my booking",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "pay-04",
+      "category": "payment_balance",
+      "language": "en",
+      "message_text": "How much do I still owe?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "pay-05",
+      "category": "payment_balance",
+      "language": "en",
+      "message_text": "What is my remaining balance?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "pay-06",
+      "category": "payment_balance",
+      "language": "en",
+      "message_text": "¿Cuánto debo todavía?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question"
+      }
+    },
+    {
+      "id": "pay-07",
+      "category": "payment_balance",
+      "language": "en",
+      "message_text": "Quanto devo ancora?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question"
+      }
+    },
+    {
+      "id": "pay-08",
+      "category": "payment_balance",
+      "language": "en",
+      "message_text": "Was muss ich noch zahlen?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question"
+      }
+    },
+    {
+      "id": "pay-09",
+      "category": "payment_balance",
+      "language": "en",
+      "message_text": "Quel est le reste à payer?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "payment_question"
+      }
+    },
+    {
+      "id": "pay-10",
+      "category": "payment_choice_after_quote",
+      "language": "en",
+      "message_text": "Deposit is fine",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      },
+      "guest_context": {
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17",
+          "guest_count": 2,
+          "package_interest": "malibu"
+        },
+        "result": {
+          "message_lane": "new_booking_inquiry",
+          "booking_intake_ready": true,
+          "extracted_fields": {
+            "check_in": "2026-07-10",
+            "check_out": "2026-07-17",
+            "guest_count": 2,
+            "package_interest": "malibu"
+          }
+        },
+        "availability": {
+          "availability_check_attempted": true,
+          "availability_status": "available"
+        },
+        "quote": {
+          "quote_status": "ready",
+          "quote_total_cents": 120000,
+          "payment_choice_needed": true
+        }
+      }
+    },
+    {
+      "id": "svc-01",
+      "category": "service_addon",
+      "language": "en",
+      "message_text": "Can I add a surf lesson?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "add_service_request"
+      }
+    },
+    {
+      "id": "svc-02",
+      "category": "service_addon",
+      "language": "en",
+      "message_text": "I need a wetsuit rental",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "add_service_request"
+      }
+    },
+    {
+      "id": "svc-03",
+      "category": "service_addon",
+      "language": "en",
+      "message_text": "Posso aggiungere una lezione di surf?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "add_service_request"
+      }
+    },
+    {
+      "id": "svc-04",
+      "category": "service_addon",
+      "language": "en",
+      "message_text": "¿Puedo añadir clase de surf?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "add_service_request"
+      }
+    },
+    {
+      "id": "svc-05",
+      "category": "service_addon",
+      "language": "en",
+      "message_text": "Kann ich eine Surfstunde dazu buchen?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "add_service_request"
+      }
+    },
+    {
+      "id": "svc-06",
+      "category": "service_addon",
+      "language": "en",
+      "message_text": "Puis-je ajouter un cours de surf?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "add_service_request"
+      }
+    },
+    {
+      "id": "svc-07",
+      "category": "service_addon",
+      "language": "en",
+      "message_text": "Yoga class please",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "add_service_request"
+      }
+    },
+    {
+      "id": "svc-08",
+      "category": "transfer",
+      "language": "en",
+      "message_text": "Airport transfer from Santander please",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "transfer_request"
+      }
+    },
+    {
+      "id": "svc-09",
+      "category": "transfer",
+      "language": "en",
+      "message_text": "Pickup from Santander airport flight UX1234",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "transfer_request"
+      }
+    },
+    {
+      "id": "svc-10",
+      "category": "transfer",
+      "language": "en",
+      "message_text": "Transfer from Bilbao airport no package",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "transfer_request",
+        "handoff_required": false
+      }
+    },
+    {
+      "id": "svc-11",
+      "category": "transfer",
+      "language": "en",
+      "message_text": "Traslado desde aeropuerto Santander",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "transfer_request"
+      }
+    },
+    {
+      "id": "svc-12",
+      "category": "transfer",
+      "language": "en",
+      "message_text": "Transfert aéroport Santander",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "transfer_request"
+      }
+    },
+    {
+      "id": "faq-01",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "What time is check-in?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-02",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "What is the wifi password?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-03",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "Can I leave luggage before check-in?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-04",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "¿A qué hora es el check-in?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-05",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "A che ora è il check-in?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-06",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "Wann ist Check-in?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-07",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "Quelle est l'heure d'arrivée?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-08",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "Where is the house?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-09",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "Gate code please",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "faq-10",
+      "category": "checkin_faq",
+      "language": "en",
+      "message_text": "House rules?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "can-01",
+      "category": "cancel_change",
+      "language": "en",
+      "message_text": "I want to cancel my booking",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "cancel_or_change_request",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "can-02",
+      "category": "cancel_change",
+      "language": "en",
+      "message_text": "Can I get a refund?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "cancel_or_change_request",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "can-03",
+      "category": "cancel_change",
+      "language": "en",
+      "message_text": "Need to change my dates",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "cancel_or_change_request",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "can-04",
+      "category": "cancel_change",
+      "language": "en",
+      "message_text": "Quiero cancelar mi reserva",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "cancel_or_change_request",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "can-05",
+      "category": "cancel_change",
+      "language": "en",
+      "message_text": "Voglio cancellare la prenotazione",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "cancel_or_change_request",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "can-06",
+      "category": "cancel_change",
+      "language": "en",
+      "message_text": "Ich möchte stornieren",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "cancel_or_change_request",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "can-07",
+      "category": "cancel_change",
+      "language": "en",
+      "message_text": "Je veux annuler ma réservation",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "cancel_or_change_request",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "can-08",
+      "category": "cancel_change",
+      "language": "en",
+      "message_text": "Reschedule to next week please",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "cancel_or_change_request",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "edge-01",
+      "category": "angry_unclear",
+      "language": "en",
+      "message_text": "This is ridiculous nobody answers!!!",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "edge-02",
+      "category": "angry_unclear",
+      "language": "en",
+      "message_text": "Worst service ever fix this now",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "edge-03",
+      "category": "off_topic",
+      "language": "en",
+      "message_text": "asdf qwerty random",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "edge-04",
+      "category": "off_topic",
+      "language": "en",
+      "message_text": "😀😀😀",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "edge-05",
+      "category": "off_topic",
+      "language": "en",
+      "message_text": "Can I bring my dog?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "edge-06",
+      "category": "off_topic",
+      "language": "en",
+      "message_text": "Is parking available?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": true
+      }
+    },
+    {
+      "id": "edge-07",
+      "category": "mixed_typo",
+      "language": "en",
+      "message_text": "Hola we want maliboo pakage 2 peple julio 10-17",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "edge-08",
+      "category": "mixed_typo",
+      "language": "en",
+      "message_text": "Bonjour we are 2 personnes Malibu package juillet 10-17",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "edge-09",
+      "category": "mixed_typo",
+      "language": "en",
+      "message_text": "Ciao hello 2 persone malibu july 10 to 17 pls",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "edge-10",
+      "category": "mixed_typo",
+      "language": "en",
+      "message_text": "Hallo hi 2 gasten malibu paket 10-17 juli danke",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      }
+    },
+    {
+      "id": "pc-01",
+      "category": "payment_choice_after_quote",
+      "language": "en",
+      "message_text": "Full payment please",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question"
+      },
+      "guest_context": {
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17",
+          "guest_count": 2,
+          "package_interest": "malibu"
+        },
+        "result": {
+          "message_lane": "new_booking_inquiry",
+          "booking_intake_ready": true,
+          "extracted_fields": {
+            "check_in": "2026-07-10",
+            "check_out": "2026-07-17",
+            "guest_count": 2,
+            "package_interest": "malibu"
+          }
+        },
+        "availability": {
+          "availability_check_attempted": true,
+          "availability_status": "available"
+        },
+        "quote": {
+          "quote_status": "ready",
+          "quote_total_cents": 120000,
+          "payment_choice_needed": true
+        }
+      }
+    },
+    {
+      "id": "pc-02",
+      "category": "payment_choice_after_quote",
+      "language": "en",
+      "message_text": "I will pay the deposit",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      },
+      "guest_context": {
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17",
+          "guest_count": 2,
+          "package_interest": "malibu"
+        },
+        "result": {
+          "message_lane": "new_booking_inquiry",
+          "booking_intake_ready": true,
+          "extracted_fields": {
+            "check_in": "2026-07-10",
+            "check_out": "2026-07-17",
+            "guest_count": 2,
+            "package_interest": "malibu"
+          }
+        },
+        "availability": {
+          "availability_check_attempted": true,
+          "availability_status": "available"
+        },
+        "quote": {
+          "quote_status": "ready",
+          "quote_total_cents": 120000,
+          "payment_choice_needed": true
+        }
+      }
+    },
+    {
+      "id": "pc-03",
+      "category": "payment_choice_after_quote",
+      "language": "en",
+      "message_text": "Pago completo",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      },
+      "guest_context": {
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17",
+          "guest_count": 2,
+          "package_interest": "malibu"
+        },
+        "result": {
+          "message_lane": "new_booking_inquiry",
+          "booking_intake_ready": true,
+          "extracted_fields": {
+            "check_in": "2026-07-10",
+            "check_out": "2026-07-17",
+            "guest_count": 2,
+            "package_interest": "malibu"
+          }
+        },
+        "availability": {
+          "availability_check_attempted": true,
+          "availability_status": "available"
+        },
+        "quote": {
+          "quote_status": "ready",
+          "quote_total_cents": 120000,
+          "payment_choice_needed": true
+        }
+      }
+    },
+    {
+      "id": "pc-04",
+      "category": "payment_choice_after_quote",
+      "language": "en",
+      "message_text": "Acompte s'il vous plaît",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      },
+      "guest_context": {
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17",
+          "guest_count": 2,
+          "package_interest": "malibu"
+        },
+        "result": {
+          "message_lane": "new_booking_inquiry",
+          "booking_intake_ready": true,
+          "extracted_fields": {
+            "check_in": "2026-07-10",
+            "check_out": "2026-07-17",
+            "guest_count": 2,
+            "package_interest": "malibu"
+          }
+        },
+        "availability": {
+          "availability_check_attempted": true,
+          "availability_status": "available"
+        },
+        "quote": {
+          "quote_status": "ready",
+          "quote_total_cents": 120000,
+          "payment_choice_needed": true
+        }
+      }
+    },
+    {
+      "id": "pc-05",
+      "category": "payment_choice_after_quote",
+      "language": "en",
+      "message_text": "Anzahlung ist ok",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      },
+      "guest_context": {
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17",
+          "guest_count": 2,
+          "package_interest": "malibu"
+        },
+        "result": {
+          "message_lane": "new_booking_inquiry",
+          "booking_intake_ready": true,
+          "extracted_fields": {
+            "check_in": "2026-07-10",
+            "check_out": "2026-07-17",
+            "guest_count": 2,
+            "package_interest": "malibu"
+          }
+        },
+        "availability": {
+          "availability_check_attempted": true,
+          "availability_status": "available"
+        },
+        "quote": {
+          "quote_status": "ready",
+          "quote_total_cents": 120000,
+          "payment_choice_needed": true
+        }
+      }
+    },
+    {
+      "id": "pc-06",
+      "category": "payment_choice_after_quote",
+      "language": "en",
+      "message_text": "Deposito va bene",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "new_booking_inquiry"
+      },
+      "guest_context": {
+        "message_lane": "new_booking_inquiry",
+        "booking_intake_ready": true,
+        "extracted_fields": {
+          "check_in": "2026-07-10",
+          "check_out": "2026-07-17",
+          "guest_count": 2,
+          "package_interest": "malibu"
+        },
+        "result": {
+          "message_lane": "new_booking_inquiry",
+          "booking_intake_ready": true,
+          "extracted_fields": {
+            "check_in": "2026-07-10",
+            "check_out": "2026-07-17",
+            "guest_count": 2,
+            "package_interest": "malibu"
+          }
+        },
+        "availability": {
+          "availability_check_attempted": true,
+          "availability_status": "available"
+        },
+        "quote": {
+          "quote_status": "ready",
+          "quote_total_cents": 120000,
+          "payment_choice_needed": true
+        }
+      }
+    },
+    {
+      "id": "ex-01",
+      "category": "existing_booking",
+      "language": "en",
+      "message_text": "WH-G27-05910FC9 when is check-in?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "checkin_house_info_question"
+      }
+    },
+    {
+      "id": "ex-02",
+      "category": "existing_booking",
+      "language": "en",
+      "message_text": "My booking code WH-G27-05910FC9 question",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "existing_booking_question"
+      }
+    },
+    {
+      "id": "ex-03",
+      "category": "existing_booking",
+      "language": "en",
+      "message_text": "WH-G27-05910FC9 can I add yoga?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "existing_booking_question"
+      }
+    },
+    {
+      "id": "ex-04",
+      "category": "existing_booking",
+      "language": "en",
+      "message_text": "Booking WH-G27-05910FC9 transfer pickup",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "existing_booking_question"
+      }
+    },
+    {
+      "id": "pkg-en-01",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What are the packages?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "€349", "€499", "7 nights", "Uluwatu", "Waimea", "lessons"]
+      }
+    },
+    {
+      "id": "pkg-en-02",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What is included in Malibu?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "7 nights", "shared kitchen", "T-shirt", "airport shuttle"]
+      }
+    },
+    {
+      "id": "pkg-en-03",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What is Uluwatu?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€349", "surfboard", "wetsuit", "6 full days"]
+      }
+    },
+    {
+      "id": "pkg-en-04",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What is Waimea?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€499", "6 morning", "12 hours", "surfboard", "wetsuit"]
+      }
+    },
+    {
+      "id": "pkg-en-05",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "I'm a beginner, which package should I choose?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["beginner", "Waimea", "lessons", "Uluwatu"]
+      }
+    },
+    {
+      "id": "pkg-en-06",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "I already know how to surf, do I need lessons?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["Uluwatu", "Malibu", "lessons"]
+      }
+    },
+    {
+      "id": "pkg-en-07",
+      "category": "package_explainer",
+      "language": "en",
+      "message_text": "What should I bring?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["swimwear", "towel", "sunscreen", "Uluwatu", "Waimea"]
+      }
+    },
+    {
+      "id": "pkg-it-01",
+      "category": "package_explainer",
+      "language": "it",
+      "message_text": "Quali sono i pacchetti?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "Malibu", "Uluwatu", "Waimea", "7 notti"]
+      }
+    },
+    {
+      "id": "pkg-es-01",
+      "category": "package_explainer",
+      "language": "es",
+      "message_text": "¿Qué paquetes tenéis?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "Malibu", "Uluwatu", "7 noches"]
+      }
+    },
+    {
+      "id": "pkg-de-01",
+      "category": "package_explainer",
+      "language": "de",
+      "message_text": "Was sind die Pakete?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["€249", "Malibu", "Uluwatu", "7 Nächte"]
+      }
+    },
+    {
+      "id": "pkg-fr-01",
+      "category": "package_explainer",
+      "language": "fr",
+      "message_text": "Quels sont les forfaits?",
+      "expected": {
+        "banned_reply_terms_absent": true,
+        "message_lane": "general_question",
+        "handoff_required": false,
+        "expected_reply_contains": ["249", "Malibu", "Uluwatu", "7 nuits"]
+      }
+    }
+  ]
+}
