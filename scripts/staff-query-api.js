@@ -15133,6 +15133,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <span class="bc-chip" data-chip="jul-aug">Jul - Aug</span>
       <span class="bc-chip" data-chip="aug-sept">Aug - Sep</span>
       <span class="bc-chip" data-chip="sep-oct">Sep - Oct</span>
+      <span class="bc-chip" data-chip="oct-nov">Oct - Nov</span>
     </div>
 
     <div class="bc-legend" id="bc-legend">
@@ -24594,6 +24595,8 @@ document.querySelectorAll('.bc-chip').forEach(function(chip){
       bcSetRange('2026-08-01', '2026-09-30', 'aug-sept');
     } else if (key === 'sep-oct'){
       bcSetRange('2026-09-01', '2026-10-31', 'sep-oct');
+    } else if (key === 'oct-nov'){
+      bcSetRange('2026-10-01', '2026-11-30', 'oct-nov');
     } else if (key === 'demo'){
       bcSetRange('2026-07-16', '2026-07-22', 'demo');
     }
