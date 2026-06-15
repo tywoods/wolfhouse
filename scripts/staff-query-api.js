@@ -329,6 +329,7 @@ const {
   isStagingResetEnvironment,
   parseResetLunaPhoneInput,
   resetLunaPhoneTestRows,
+  clearBookingsForPhone,
 } = require('./lib/luna-test-reset-phone');
 const {
   extractLunaGuestMessageIntake,
@@ -17424,7 +17425,7 @@ function wireFreshStart(convId, targetEl){
   var btn = targetEl.querySelector('#btn-guest-context-reset');
   if (!btn) return;
   btn.addEventListener('click', function(){
-    if (!window.confirm('Full wipe (testing): clear Luna\u2019s Hermes chat memory, ALL Staff Portal message history, the inbound/outbound message logs, and cached context for this guest \u2014 a true clean slate, so Luna treats the next message like a brand-new guest. Bookings and payments are kept. This cannot be undone.')) return;
+    if (!window.confirm('FULL WIPE (testing) \u2014 true blank slate for this number:\n\n\u2022 Luna\u2019s Hermes chat memory\n\u2022 ALL Staff Portal message history + inbound/outbound logs\n\u2022 cached Luna context\n\u2022 ALL bookings for this number (beds are freed)\n\nLuna will treat the next message as a brand-new guest. This is destructive and cannot be undone. Staging only.')) return;
     btn.disabled = true;
     fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-luna-context', {
       method: 'POST',
@@ -25967,6 +25968,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
 
     let hermesSessionReset = { attempted: false, ok: false, reason: 'no_guest_phone' };
     let phoneEventsReset = { attempted: false };
+    let bookingsCleared = { attempted: false };
     if (result.guest_phone) {
       hermesSessionReset = await resetHermesGuestSession(result.guest_phone);
       // Also wipe the inbound webhook log (guest_message_events) + outbound
@@ -25981,6 +25983,14 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
         } catch (e) {
           phoneEventsReset = { attempted: true, ok: false, error: e.message };
         }
+        // Testing wipe also removes the guest's bookings so Luna stops offering
+        // "your usual" from leftover test bookings. Beds free via FK cascade.
+        try {
+          bookingsCleared = await withPgClient((pg) => clearBookingsForPhone(pg, parsedPhone.input));
+          bookingsCleared.attempted = true;
+        } catch (e) {
+          bookingsCleared = { attempted: true, ok: false, error: e.message };
+        }
       }
     }
 
@@ -25993,6 +26003,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       metadata_keys_cleared: result.metadata_keys_cleared,
       hermes_session_reset: hermesSessionReset,
       phone_events_reset: phoneEventsReset,
+      bookings_cleared: bookingsCleared,
       elapsed_ms: elapsed,
     });
     return sendJSON(res, 200, {
@@ -26004,6 +26015,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       metadata_keys_cleared: result.metadata_keys_cleared,
       hermes_session_reset: hermesSessionReset,
       phone_events_reset: phoneEventsReset,
+      bookings_cleared: bookingsCleared,
       elapsed_ms: elapsed,
     });
   } catch (err) {

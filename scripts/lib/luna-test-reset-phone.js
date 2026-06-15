@@ -101,10 +101,36 @@ async function resetLunaPhoneTestRows(pg, input) {
   };
 }
 
+/**
+ * Staging-only: hard-delete every booking for a phone number (testing clean slate).
+ * Booking children cascade (booking_beds, booking_transfers — frees the beds) or
+ * set-null (payments, service_records, addon_orders, handoffs), so a single DELETE
+ * is safe. Scoped to one client_slug + phone.
+ */
+async function clearBookingsForPhone(pg, input) {
+  const clientSlug = input.client_slug;
+  const phoneLike = input.phone_like;
+  const res = await pg.query(
+    `DELETE FROM bookings b
+       USING clients c
+      WHERE b.client_id = c.id
+        AND c.slug = $1
+        AND REPLACE(COALESCE(b.phone, ''), '+', '') LIKE $2
+      RETURNING b.id::text AS booking_id, b.booking_code`,
+    [clientSlug, phoneLike],
+  );
+  return {
+    success: true,
+    bookings_deleted: res.rowCount || 0,
+    booking_codes: res.rows.map((r) => r.booking_code).filter(Boolean),
+  };
+}
+
 module.exports = {
   ALLOWED_RESET_CLIENT,
   normalizeResetPhone,
   isStagingResetEnvironment,
   parseResetLunaPhoneInput,
   resetLunaPhoneTestRows,
+  clearBookingsForPhone,
 };
