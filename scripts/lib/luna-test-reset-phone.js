@@ -102,26 +102,37 @@ async function resetLunaPhoneTestRows(pg, input) {
 }
 
 /**
- * Staging-only: hard-delete every booking for a phone number (testing clean slate).
- * Booking children cascade (booking_beds, booking_transfers — frees the beds) or
- * set-null (payments, service_records, addon_orders, handoffs), so a single DELETE
- * is safe. Scoped to one client_slug + phone.
+ * Staging-only: cancel every booking for a phone number (testing clean slate).
+ * Mirrors the Staff Portal cancel (Phase 10.5f): set status='cancelled' and free
+ * the beds (DELETE booking_beds) so the dates re-open for re-testing. Records are
+ * kept (not deleted). Scoped to one client_slug + phone.
  */
-async function clearBookingsForPhone(pg, input) {
+async function cancelBookingsForPhone(pg, input) {
   const clientSlug = input.client_slug;
   const phoneLike = input.phone_like;
+  // Free the beds first so re-tests on the same dates aren't blocked.
+  await pg.query(
+    `DELETE FROM booking_beds bb
+       USING clients c, bookings b
+      WHERE bb.client_id = c.id AND b.client_id = c.id AND bb.booking_id = b.id
+        AND c.slug = $1
+        AND REPLACE(COALESCE(b.phone, ''), '+', '') LIKE $2`,
+    [clientSlug, phoneLike],
+  );
   const res = await pg.query(
-    `DELETE FROM bookings b
-       USING clients c
+    `UPDATE bookings b
+        SET status = 'cancelled'::booking_status
+       FROM clients c
       WHERE b.client_id = c.id
         AND c.slug = $1
         AND REPLACE(COALESCE(b.phone, ''), '+', '') LIKE $2
-      RETURNING b.id::text AS booking_id, b.booking_code`,
+        AND b.status <> 'cancelled'::booking_status
+      RETURNING b.booking_code`,
     [clientSlug, phoneLike],
   );
   return {
     success: true,
-    bookings_deleted: res.rowCount || 0,
+    bookings_cancelled: res.rowCount || 0,
     booking_codes: res.rows.map((r) => r.booking_code).filter(Boolean),
   };
 }
@@ -132,5 +143,5 @@ module.exports = {
   isStagingResetEnvironment,
   parseResetLunaPhoneInput,
   resetLunaPhoneTestRows,
-  clearBookingsForPhone,
+  cancelBookingsForPhone,
 };

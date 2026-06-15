@@ -329,7 +329,7 @@ const {
   isStagingResetEnvironment,
   parseResetLunaPhoneInput,
   resetLunaPhoneTestRows,
-  clearBookingsForPhone,
+  cancelBookingsForPhone,
 } = require('./lib/luna-test-reset-phone');
 const {
   extractLunaGuestMessageIntake,
@@ -17425,7 +17425,7 @@ function wireFreshStart(convId, targetEl){
   var btn = targetEl.querySelector('#btn-guest-context-reset');
   if (!btn) return;
   btn.addEventListener('click', function(){
-    if (!window.confirm('FULL WIPE (testing) \u2014 true blank slate for this number:\n\n\u2022 Luna\u2019s Hermes chat memory\n\u2022 ALL Staff Portal message history + inbound/outbound logs\n\u2022 cached Luna context\n\u2022 ALL bookings for this number (beds are freed)\n\nLuna will treat the next message as a brand-new guest. This is destructive and cannot be undone. Staging only.')) return;
+    if (!window.confirm('FULL WIPE (testing) \u2014 true blank slate for this number:\n\n\u2022 Luna\u2019s Hermes chat memory\n\u2022 ALL Staff Portal message history + inbound/outbound logs\n\u2022 cached Luna context\n\u2022 CANCELS all bookings for this number (beds are freed; records kept)\n\nLuna will treat the next message as a brand-new guest. Staging only.')) return;
     btn.disabled = true;
     fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-luna-context', {
       method: 'POST',
@@ -25983,10 +25983,10 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
         } catch (e) {
           phoneEventsReset = { attempted: true, ok: false, error: e.message };
         }
-        // Testing wipe also removes the guest's bookings so Luna stops offering
-        // "your usual" from leftover test bookings. Beds free via FK cascade.
+        // Testing wipe also cancels the guest's bookings (frees beds) so Luna
+        // stops offering "your usual" from leftover test bookings.
         try {
-          bookingsCleared = await withPgClient((pg) => clearBookingsForPhone(pg, parsedPhone.input));
+          bookingsCleared = await withPgClient((pg) => cancelBookingsForPhone(pg, parsedPhone.input));
           bookingsCleared.attempted = true;
         } catch (e) {
           bookingsCleared = { attempted: true, ok: false, error: e.message };
