@@ -17425,7 +17425,7 @@ function wireFreshStart(convId, targetEl){
   var btn = targetEl.querySelector('#btn-guest-context-reset');
   if (!btn) return;
   btn.addEventListener('click', function(){
-    if (!window.confirm('FULL WIPE (testing) \u2014 true blank slate for this number:\n\n\u2022 Luna\u2019s Hermes chat memory\n\u2022 ALL Staff Portal message history + inbound/outbound logs\n\u2022 cached Luna context\n\u2022 CANCELS all bookings for this number (beds are freed; records kept)\n\nLuna will treat the next message as a brand-new guest. Staging only.')) return;
+    if (!window.confirm('Full Wipe (testing): CANCELS all bookings for this number and clears Luna chat memory, all message history and logs, and cached context - a true blank slate. Beds are freed; records kept; staging only. Continue?')) return;
     btn.disabled = true;
     fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-luna-context', {
       method: 'POST',
