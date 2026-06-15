@@ -17208,7 +17208,7 @@ function loadConvDetail(convId, targetEl){
     html += '<div class="thread-section">';
     html += '<div class="thread">';
     html += '<div class="detail-conv-toolbar">';
-    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset">Guest Context Reset</button>';
+    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history/logs + cached context. Bookings kept.">Full Wipe (testing)</button>';
     html += '</div>';
     html +=   '<div class="thread-messages" id="thread-container">';
     if (msgs.length === 0){
@@ -17424,7 +17424,7 @@ function wireFreshStart(convId, targetEl){
   var btn = targetEl.querySelector('#btn-guest-context-reset');
   if (!btn) return;
   btn.addEventListener('click', function(){
-    if (!window.confirm('Guest context reset: clear Luna\u2019s Hermes chat memory, Staff Portal message history, and cached context for this guest? Bookings and payments are kept. This cannot be undone.')) return;
+    if (!window.confirm('Full wipe (testing): clear Luna\u2019s Hermes chat memory, ALL Staff Portal message history, the inbound/outbound message logs, and cached context for this guest \u2014 a true clean slate, so Luna treats the next message like a brand-new guest. Bookings and payments are kept. This cannot be undone.')) return;
     btn.disabled = true;
     fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-luna-context', {
       method: 'POST',
@@ -25966,8 +25966,22 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
     }
 
     let hermesSessionReset = { attempted: false, ok: false, reason: 'no_guest_phone' };
+    let phoneEventsReset = { attempted: false };
     if (result.guest_phone) {
       hermesSessionReset = await resetHermesGuestSession(result.guest_phone);
+      // Also wipe the inbound webhook log (guest_message_events) + outbound
+      // (guest_message_sends) for this number — otherwise that persisted history
+      // re-seeds Luna's context and she still greets a "fresh" guest with the
+      // usual order. This is what makes the reset a TRUE clean slate.
+      const parsedPhone = parseResetLunaPhoneInput({ client_slug: clientSlug, phone: result.guest_phone });
+      if (parsedPhone.ok) {
+        try {
+          phoneEventsReset = await withPgClient((pg) => resetLunaPhoneTestRows(pg, parsedPhone.input));
+          phoneEventsReset.attempted = true;
+        } catch (e) {
+          phoneEventsReset = { attempted: true, ok: false, error: e.message };
+        }
+      }
     }
 
     appendAuditLog({
@@ -25978,6 +25992,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       messages_preserved: result.messages_preserved,
       metadata_keys_cleared: result.metadata_keys_cleared,
       hermes_session_reset: hermesSessionReset,
+      phone_events_reset: phoneEventsReset,
       elapsed_ms: elapsed,
     });
     return sendJSON(res, 200, {
@@ -25988,6 +26003,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
       messages_preserved: result.messages_preserved,
       metadata_keys_cleared: result.metadata_keys_cleared,
       hermes_session_reset: hermesSessionReset,
+      phone_events_reset: phoneEventsReset,
       elapsed_ms: elapsed,
     });
   } catch (err) {
