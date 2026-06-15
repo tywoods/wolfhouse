@@ -1,0 +1,9 @@
+lunabox.lunafrontdesk.com {
+	# Guest WhatsApp Cloud webhook → Luna container
+	reverse_proxy /whatsapp/* localhost:8090
+	# Wolfhouse Luna fresh-start / guest-session-reset route is served by the same
+	# webhook app on 8090 — the Staff API calls it to clear Luna's session memory.
+	reverse_proxy /wolfhouse/* localhost:8090
+	# Everything else → orchestrator gateway API (API-key protected)
+	reverse_proxy localhost:8642
+}
