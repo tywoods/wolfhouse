@@ -109,14 +109,19 @@ async function resetLunaPhoneTestRows(pg, input) {
  */
 async function cancelBookingsForPhone(pg, input) {
   const clientSlug = input.client_slug;
-  const phoneLike = input.phone_like;
+  // Match the SAME way Luna's list_my_bookings does — last 9 digits of the phone
+  // (loadActiveGuestBookings). A full-digit match (%491726422307%) missed bookings
+  // stored without the country code in that exact position, so the cancel found 0
+  // while Luna still saw them.
+  const digits = String(input.phone || '').replace(/\D/g, '');
+  const phoneLike = `%${digits.slice(-9)}%`;
   // Free the beds first so re-tests on the same dates aren't blocked.
   await pg.query(
     `DELETE FROM booking_beds bb
        USING clients c, bookings b
       WHERE bb.client_id = c.id AND b.client_id = c.id AND bb.booking_id = b.id
         AND c.slug = $1
-        AND REPLACE(COALESCE(b.phone, ''), '+', '') LIKE $2`,
+        AND b.phone LIKE $2`,
     [clientSlug, phoneLike],
   );
   const res = await pg.query(
@@ -125,7 +130,7 @@ async function cancelBookingsForPhone(pg, input) {
        FROM clients c
       WHERE b.client_id = c.id
         AND c.slug = $1
-        AND REPLACE(COALESCE(b.phone, ''), '+', '') LIKE $2
+        AND b.phone LIKE $2
         AND b.status <> 'cancelled'::booking_status
       RETURNING b.booking_code`,
     [clientSlug, phoneLike],
