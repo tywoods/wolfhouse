@@ -19,6 +19,12 @@ fi
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 
 if [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
+  # Preserve a refreshed OAuth token (real local file from an atomic rename) back
+  # to the shared pool before re-linking, so it isn't lost on restart.
+  if [ -f "$HERMES_HOME/auth.json" ] && [ ! -L "$HERMES_HOME/auth.json" ] \
+     && [ "$HERMES_HOME/auth.json" -nt "$HERMES_HOME/.auth-shared/auth.json" ]; then
+    cp -f "$HERMES_HOME/auth.json" "$HERMES_HOME/.auth-shared/auth.json" 2>/dev/null || true
+  fi
   rm -f "$HERMES_HOME/auth.json"
   ln -sf ".auth-shared/auth.json" "$HERMES_HOME/auth.json"
   chown -h hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true

@@ -133,8 +133,16 @@ link_shared_auth() {
   if [ ! -f "$SHARED_AUTH" ]; then
     return 0
   fi
-  rm -f "$HERMES_HOME/auth.json"
-  ln -sf ".auth-shared/auth.json" "$HERMES_HOME/auth.json"
+  LOCAL_AUTH="$HERMES_HOME/auth.json"
+  # If a previous run refreshed the OAuth token into a REAL local file (an atomic
+  # rename replaces the symlink with a plain file), persist it back to the shared
+  # pool before re-linking — otherwise the refresh is lost on restart and the
+  # provider reports "No credentials stored" once the old token expires.
+  if [ -f "$LOCAL_AUTH" ] && [ ! -L "$LOCAL_AUTH" ] && [ "$LOCAL_AUTH" -nt "$SHARED_AUTH" ]; then
+    cp -f "$LOCAL_AUTH" "$SHARED_AUTH" 2>/dev/null || true
+  fi
+  rm -f "$LOCAL_AUTH"
+  ln -sf ".auth-shared/auth.json" "$LOCAL_AUTH"
 }
 
 finalize_permissions() {
