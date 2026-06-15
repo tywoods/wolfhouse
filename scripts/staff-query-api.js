@@ -17439,6 +17439,7 @@ function wireFreshStart(convId, targetEl){
       .then(function(out){
         var d = out.data || {};
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
+        alert('Full wipe result -- session_reset: ' + JSON.stringify(d.hermes_session_reset) + ' | bookings: ' + JSON.stringify(d.bookings_cleared) + ' | events: ' + JSON.stringify(d.phone_events_reset) + ' | messages_deleted: ' + d.messages_deleted);
         loadConvDetail(convId, targetEl);
       })
       .catch(function(err){
