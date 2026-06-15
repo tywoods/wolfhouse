@@ -26,14 +26,15 @@ LUNA_SOUL_VERSION="20"
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: anthropic/claude-sonnet-4-6
-  provider: anthropic
+  default: gpt-5.5
+  provider: openai-codex
 agent:
   reasoning_effort: none
-# Primary: Anthropic (Claude Max token). Fallback: ChatGPT OAuth when Codex quota allows.
+# Primary: ChatGPT (Codex OAuth, gpt-5.5). Fallback: Anthropic Claude Max OAuth.
+# Codex is primary so guest turns don't dead-end on the Anthropic "extra usage" 400.
 fallback_providers:
-  - provider: openai-codex
-    model: gpt-5.5
+  - provider: anthropic
+    model: anthropic/claude-sonnet-4-6
 # Luna is a guest-facing booking agent, not a general Hermes operator.
 toolsets:
   - wolfhouse_staff_api

@@ -81,14 +81,20 @@ Both containers mount the same file read-only. Re-run only if OAuth expires.
 
 ## Model failover & the Anthropic usage 400
 
-Luna's `config.yaml` is written by **two** cont-init scripts, and order matters:
+Luna's `config.yaml` is written by `bootstrap.sh` (baked into the image at
+`/etc/cont-init.d/99-wh-staging-bootstrap`), which sets primary **gpt-5.5
+openai-codex**, fallback **anthropic/claude-sonnet-4-6** — the locked decision
+above. The VM overlay `99z-wh-vm-post-bootstrap.sh`
+(`/etc/cont-init.d/99z-wh-vm-post-bootstrap`, mounted via the compose volume)
+runs after it and now **only** symlinks `auth.json` to the shared OAuth pool — it
+no longer writes `config.yaml`. So the model config is single-sourced in the
+image and can't silently revert if the overlay is dropped.
 
-| Order | Script | Mounted as | Writes |
-|-------|--------|-----------|--------|
-| 1 | `bootstrap.sh` | `/etc/cont-init.d/99-wh-staging-bootstrap` (baked into image) | primary **anthropic/claude-sonnet-4-6**, fallback **openai-codex gpt-5.5** |
-| 2 | `99z-wh-vm-post-bootstrap.sh` | `/etc/cont-init.d/99z-wh-vm-post-bootstrap` (compose volume) | primary **gpt-5.5 openai-codex**, fallback **anthropic/claude-sonnet-4-6** |
-
-s6 runs `cont-init.d` in lexicographic order, and `99-…` sorts before `99z-…`, so the **VM overlay wins**: on Lunabox Luna is **Codex-primary, Anthropic-fallback** — matching the locked decision above. The baked `bootstrap.sh` config is the older Anthropic-primary design and is now only a fallback-of-last-resort if the overlay volume is ever dropped.
+> Earlier this was split: `bootstrap.sh` baked Anthropic-primary and the `99z`
+> overlay flipped it to Codex-primary at boot, relying on s6 lexicographic order
+> (`99-…` before `99z-…`). That silent-revert hazard is gone now that the image
+> itself is Codex-primary. **A rebuild + redeploy is required for the change to
+> take effect** (`node scripts/deploy-staging-hermes-vm.js build-image`).
 
 **Why a guest turn can dead-end.** A staging run hit a non-retryable Anthropic `400`:
 
