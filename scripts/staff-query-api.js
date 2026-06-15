@@ -3635,6 +3635,10 @@ const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates',
 const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({
   package: true, package_proration: true, room_supplement: true,
   accommodation_only: true, manual_accommodation: true,
+  // Per-guest package lines (multi-guest bookings with guest_packages). Without
+  // these the quote_snapshot accommodation lines aren't recognized, so the
+  // running invoice falls back to "total - services" and added services net out.
+  guest_package: true, guest_package_proration: true, guest_accommodation_only: true,
 });
 const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
 
@@ -20276,6 +20280,9 @@ function bcServiceRecordBillableCents(sr){
 var BC_RUNNING_INVOICE_ACCOMM_CODES = {
   package: true, package_proration: true, room_supplement: true,
   accommodation_only: true, manual_accommodation: true,
+  // Per-guest package lines (multi-guest guest_packages bookings) — must be
+  // recognized as accommodation, else added services net out of the invoice.
+  guest_package: true, guest_package_proration: true, guest_accommodation_only: true,
 };
 
 function bcRunningInvoicePackageLabel(code){
