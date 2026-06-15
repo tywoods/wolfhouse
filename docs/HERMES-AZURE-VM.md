@@ -79,6 +79,33 @@ docker run --rm -it -v "$AUTH:/opt/data/auth.json" "$IMAGE" hermes auth add anth
 
 Both containers mount the same file read-only. Re-run only if OAuth expires.
 
+## Model failover & the Anthropic usage 400
+
+Luna's `config.yaml` is written by **two** cont-init scripts, and order matters:
+
+| Order | Script | Mounted as | Writes |
+|-------|--------|-----------|--------|
+| 1 | `bootstrap.sh` | `/etc/cont-init.d/99-wh-staging-bootstrap` (baked into image) | primary **anthropic/claude-sonnet-4-6**, fallback **openai-codex gpt-5.5** |
+| 2 | `99z-wh-vm-post-bootstrap.sh` | `/etc/cont-init.d/99z-wh-vm-post-bootstrap` (compose volume) | primary **gpt-5.5 openai-codex**, fallback **anthropic/claude-sonnet-4-6** |
+
+s6 runs `cont-init.d` in lexicographic order, and `99-…` sorts before `99z-…`, so the **VM overlay wins**: on Lunabox Luna is **Codex-primary, Anthropic-fallback** — matching the locked decision above. The baked `bootstrap.sh` config is the older Anthropic-primary design and is now only a fallback-of-last-resort if the overlay volume is ever dropped.
+
+**Why a guest turn can dead-end.** A staging run hit a non-retryable Anthropic `400`:
+
+> "Third-party apps now draw from your extra usage, not your plan limits."
+
+That is an Anthropic **Claude-Max-via-OAuth quota** signal (the shared `auth.json` token's extra-usage allowance is exhausted), delivered as a `400`. Two ways it dead-ends:
+
+1. **Codex (primary) also failing/exhausted** → Hermes falls through to Anthropic (fallback) → Anthropic `400` → no third provider → the guest turn ends with no reply.
+2. **Overlay not yet deployed** → Luna runs the baked Anthropic-primary config; on a `400`, failover to the Codex fallback may not trigger (Hermes treats most `4xx` as non-retryable, non-failover client errors), so it dead-ends before reaching Codex.
+
+**Keep guest turns alive:**
+
+- Confirm the overlay is active: `docker compose -f docker-compose.vm.yml config | grep 99z` and, in the container, `cat $HERMES_HOME/config.yaml` should show `default: gpt-5.5`. If it shows `claude-sonnet`, the overlay didn't apply — recreate the container.
+- Keep **both** OAuth credentials fresh in the shared `auth.json` (`hermes auth add openai-codex`, `hermes auth add anthropic --type oauth`). The failover only helps if the fallback provider is authed.
+- Watch Anthropic OAuth usage at <https://claude.ai/settings/usage>. The extra-usage `400` is a billing/quota state, not a code bug — top up or wait for the window to reset.
+- Reconciliation TODO (operator decision): fold the overlay into the image so `bootstrap.sh` itself writes Codex-primary, removing the silent-revert hazard if the overlay volume is dropped. Left as a deploy-config decision because it changes the baked image.
+
 ## Discord (orchestrator)
 
 You already have the bot token. Either:

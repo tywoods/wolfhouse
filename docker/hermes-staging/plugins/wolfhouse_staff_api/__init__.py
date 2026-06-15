@@ -490,6 +490,45 @@ def create_payment_link(params, **kwargs):
         return _json_result({"success": False, "tool": "create_payment_link", "error": "payment_id_required", "staff_review_needed": True})
     data = _post_bot(f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link", dict(params or {}))
     guest_url = _guest_payment_url(data)
+
+    # Graceful guard for a wrong id type. create_payment_link is ONLY for a
+    # deposit/balance payment_id from create_booking_from_plan. If it is handed a
+    # service_record_id (an add-on's id) or any non-payment id, the Staff API has
+    # no draft payment for it and returns a bare 404 → staff_review_needed, which
+    # made Luna tell the guest "small issue generating the link" even though the
+    # add-on's link already existed in add_service_to_booking's result. Detect the
+    # not-found and return a clear, non-escalating wrong_id_type guidance so a
+    # future misfire self-corrects instead of dead-ending on the guest.
+    err_text = str(data.get("error") or data.get("message") or "").lower()
+    not_found = (
+        not bool(data.get("success"))
+        and not guest_url
+        and (
+            data.get("status") in (404, "404")
+            or "not found" in err_text
+            or "no payment" in err_text
+            or "no draft" in err_text
+        )
+    )
+    if not_found:
+        return _json_result({
+            "success": False,
+            "tool": "create_payment_link",
+            "error": "wrong_id_type",
+            "wrong_id_type": True,
+            "payment_id": payment_id,
+            "guidance": (
+                "No draft payment matches this id. Do NOT call create_payment_link for an "
+                "add-on/service — the add-on payment link is returned by add_service_to_booking "
+                "(secure_payment_url in its result); re-send that link instead. create_payment_link "
+                "only accepts a deposit/balance payment_id from create_booking_from_plan."
+            ),
+            "next_action": "use_add_service_payment_link",
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+            "guest_safe_next_action": data.get("guest_safe_next_action"),
+        })
+
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "create_payment_link",

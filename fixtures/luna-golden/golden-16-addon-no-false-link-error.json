@@ -1,0 +1,38 @@
+{
+  "id": "golden-16-addon-no-false-link-error",
+  "label": "Paid booking yoga add-on — handled without a false payment-link error or handoff",
+  "spec_refs": ["7.2"],
+  "contact_name": "Ty",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "can I add a yoga class to my booking?",
+      "inject_guest_context": {
+        "booking_id": "00000000-0000-0000-0000-000000000016",
+        "booking_code": "WH-G27-GOLDEN16",
+        "payment_status": "deposit_paid",
+        "guest_count": 2,
+        "check_in": "2026-09-15",
+        "check_out": "2026-09-22",
+        "extracted_fields": {
+          "guest_count": 2,
+          "check_in": "2026-09-15",
+          "check_out": "2026-09-22",
+          "package_interest": "malibu"
+        }
+      },
+      "expect": {
+        "reply_contains": ["yoga"],
+        "no_fake_confirmation": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "reply_not_contains": ["small issue", "double-check", "double check", "couldn't generate", "team will"],
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_internal_language": true,
+    "no_handoff": true
+  }
+}

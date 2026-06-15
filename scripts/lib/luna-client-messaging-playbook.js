@@ -243,6 +243,36 @@ function formatPlaybookEuro(cents) {
 }
 
 /**
+ * Tidy interpolation artifacts in a confirmation message WITHOUT destroying the
+ * template's WhatsApp spacing.
+ *
+ * The booking confirmation template uses `\n\n` between blocks and `\n` between
+ * fields (Booking/Paid/Balance, then Address/Gate code/Room, then the balance
+ * link) so it reads as short labelled lines on WhatsApp. The previous cleanup
+ * collapsed every run of whitespace with `/\s{2,}/ → ' '`, which also ate the
+ * newlines and turned the whole thing into a single wall of text. This keeps
+ * the line structure intact: it only collapses horizontal whitespace within a
+ * line and drops label lines whose value interpolated empty (e.g. the
+ * "Balance due: " line when no balance is owed).
+ *
+ * @param {string} message
+ * @returns {string}
+ */
+function tidyConfirmationWhitespace(message) {
+  return String(message || '')
+    .split('\n')
+    .map((line) => line
+      .replace(/[ \t]{2,}/g, ' ')   // runs of spaces/tabs → one space (keep newlines)
+      .replace(/\s+\./g, '.')        // " ." → "."
+      .replace(/\.\s*\./g, '.')      // ".." → "."
+      .trimEnd())
+    .filter((line) => !/^[^\n:]{1,32}:\s*$/.test(line)) // drop "Label:" lines with empty value
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')      // never more than one blank line between blocks
+    .trim();
+}
+
+/**
  * Build Cami/Wolfhouse confirmation preview text from messaging playbook templates.
  *
  * @param {string} clientSlug
@@ -306,11 +336,7 @@ function buildConfirmationPreviewFromPlaybook(clientSlug, language, fields) {
     balance_payment_section: balancePaymentSection ? balancePaymentSection.trim() : '',
   });
 
-  message = message
-    .replace(/\.\s*\./g, '.')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\s+\./g, '.')
-    .trim();
+  message = tidyConfirmationWhitespace(message);
 
   return {
     ok:               true,
@@ -372,6 +398,7 @@ module.exports = {
   getHandoffTemplate,
   buildQuoteReplyFromPlaybook,
   buildConfirmationPreviewFromPlaybook,
+  tidyConfirmationWhitespace,
   formatPlaybookEuro,
   buildPlaybookActionGuidance,
   clearLunaMessagingPlaybookCache,

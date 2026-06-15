@@ -259,6 +259,7 @@
     "verify:luna-golden": "node scripts/verify-luna-golden.js",
     "verify:luna-coach": "node scripts/verify-luna-coach.js",
     "verify:luna-unified-planner": "node scripts/verify-luna-unified-planner.js",
+    "verify:luna-confirmation-spacing": "node scripts/verify-luna-confirmation-spacing.js",
     "verify:luna-all": "node scripts/verify-luna-all.js",
     "luna:nightly": "node scripts/run-luna-nightly-suite.js",
     "verify:luna-nightly": "node scripts/run-luna-nightly-suite.js --quick",
