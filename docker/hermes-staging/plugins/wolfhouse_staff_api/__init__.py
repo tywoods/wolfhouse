@@ -318,6 +318,22 @@ def create_booking_from_plan(params, **kwargs):
         })
     payload["guest_name"] = guest_name
 
+    # Auto-fetch selected_bed_codes if Luna didn't pass them — required by Staff API
+    if not payload.get("selected_bed_codes"):
+        try:
+            avail_data = _post_bot("/availability-check", {
+                "client_slug": payload.get("client_slug", "wolfhouse-somo"),
+                "check_in": payload.get("check_in"),
+                "check_out": payload.get("check_out"),
+                "guest_count": payload.get("guest_count", 1),
+                "room_type": payload.get("room_type", "shared"),
+            })
+            bed_codes = avail_data.get("selected_bed_codes") or []
+            if bed_codes:
+                payload["selected_bed_codes"] = bed_codes
+        except Exception:
+            pass
+
     # Idempotency key: stable per (phone, check_in, check_out, package).
     # Prevents duplicate bookings if the model calls this twice.
     if not payload.get("idempotency_key"):

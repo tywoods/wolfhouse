@@ -26,14 +26,14 @@ LUNA_SOUL_VERSION="20"
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.5
-  provider: openai-codex
+  default: anthropic/claude-sonnet-4-6
+  provider: anthropic
 agent:
   reasoning_effort: none
-# Primary: ChatGPT OAuth (gpt-5.5). Fallback: Anthropic OAuth from shared auth.json.
+# Primary: Anthropic (Claude Max token). Fallback: ChatGPT OAuth when Codex quota allows.
 fallback_providers:
-  - provider: anthropic
-    model: anthropic/claude-sonnet-4-6
+  - provider: openai-codex
+    model: gpt-5.5
 # Luna is a guest-facing booking agent, not a general Hermes operator.
 toolsets:
   - wolfhouse_staff_api
@@ -127,7 +127,15 @@ apply_patches() {
   fi
 }
 
-finalize_permissions() {
+link_shared_auth() {
+  SHARED_AUTH="$HERMES_HOME/.auth-shared/auth.json"
+  if [ ! -f "$SHARED_AUTH" ]; then
+    return 0
+  fi
+  rm -f "$HERMES_HOME/auth.json"
+  ln -sf ".auth-shared/auth.json" "$HERMES_HOME/auth.json"
+}
+
   chown hermes:hermes "$HERMES_HOME/config.yaml" "$HERMES_HOME/.env" 2>/dev/null || true
   [ -f "$HERMES_HOME/SOUL.md" ] && chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
   [ -d "$HERMES_HOME/plugins" ] && chown -R hermes:hermes "$HERMES_HOME/plugins" 2>/dev/null || true
@@ -143,6 +151,7 @@ if [ "$HERMES_ROLE" = "orchestrator" ]; then
     cp "$STAGING_ORCH_SOUL" "$HERMES_HOME/SOUL.md"
   fi
   write_orchestrator_env
+  link_shared_auth
 else
   write_luna_config
   if [ -f "$STAGING_LUNA_SOUL" ]; then
@@ -153,8 +162,14 @@ else
     rm -rf "$HERMES_HOME/sessions" 2>/dev/null || true
     printf '%s\n' "$LUNA_SOUL_VERSION" > "$LUNA_SOUL_MARKER"
   fi
+  # Always ensure sessions dir exists and is writable by hermes user
+  mkdir -p "$HERMES_HOME/sessions"
+  chmod 777 "$HERMES_HOME/sessions"
+  touch "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
+  chmod 666 "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
   write_luna_env
   apply_patches
+  link_shared_auth
 fi
 
 finalize_permissions
