@@ -21,7 +21,7 @@ STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"
 STAGING_PLUGINS="/etc/hermes-staging/plugins"
 LUNA_SOUL_MARKER="$HERMES_HOME/.luna-guest-soul.version"
-LUNA_SOUL_VERSION="25"
+LUNA_SOUL_VERSION="26"
 
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
@@ -29,10 +29,10 @@ model:
   default: gpt-5.5
   provider: openai-codex
 agent:
-  # medium so gpt-5.5 actually deliberates over the SOUL rules (step order, exact
-  # package contents) instead of fast-pathing and inventing/paraphrasing. "none"
-  # was causing hallucinated package contents and skipped intake steps.
-  reasoning_effort: medium
+  # none keeps Luna warm, chatty and emoji-rich (her surfer-girl voice). Bumping
+  # to medium made gpt-5.5 terse/task-efficient — it stripped the personality and
+  # batched the whole intake into one message. Keep none; steer behavior via SOUL.
+  reasoning_effort: none
 # Primary: ChatGPT (Codex OAuth, gpt-5.5). Fallback: Anthropic Claude Max OAuth.
 # Codex is primary so guest turns don't dead-end on the Anthropic "extra usage" 400.
 fallback_providers:
