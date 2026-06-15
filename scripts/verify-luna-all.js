@@ -30,6 +30,7 @@ const steps = [
   ['verify:luna-coach', 'verify-luna-coach.js'],
   ['verify:luna-unified-planner', 'verify-luna-unified-planner.js'],
   ['verify:luna-confirmation-spacing', 'verify-luna-confirmation-spacing.js'],
+  ['verify:luna-pending-transfers-save', 'verify-luna-pending-transfers-save.js'],
 ];
 
 if (full) {

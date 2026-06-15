@@ -10,7 +10,7 @@
 'use strict';
 
 const { withPgClient } = require('./pg-connect');
-const { getClientTransferConfig, getClientAirports, getClientAirportOption } = require('./client-transfer-config');
+const { getClientTransferConfig, getClientAirports, getClientAirportOption, normalizeAirportCode } = require('./client-transfer-config');
 const {
   normalizeBookingDateOnly,
   normalizeTransferDirection,
@@ -533,10 +533,15 @@ async function handlePostBookingTransfer(bookingId, req, res) {
         ? trimStr(body.status)
         : inferTransferStatusFromInput(body, existingStatus);
 
+      const airportInput = trimStr(body.airport_code || body.airport);
+      const resolvedAirportCode = normalizeAirportCode(clientSlug, airportInput)
+        || trimStr(body.airport_code).toUpperCase()
+        || null;
+
       const transferInput = {
         direction,
         status: resolvedStatus,
-        airport_code: body.airport_code || buildDefaults(booking, timezone).default_airport_code,
+        airport_code: resolvedAirportCode || buildDefaults(booking, timezone).default_airport_code,
         airport_label: body.airport_label,
         flight_number: body.flight_number,
         lookup_date: body.lookup_date || defaultTransferLookupDate({

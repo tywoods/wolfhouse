@@ -20,6 +20,8 @@
 
 'use strict';
 
+const { normalizeAirportCode } = require('./client-transfer-config');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory fake request — used to delegate to existing handler functions
 // that normally read from an HTTP req stream.
@@ -39,6 +41,195 @@ function makeInMemoryBotReq(bodyObj) {
       yield Buffer.from(payload, 'utf8');
     },
   };
+}
+
+function trimStr(v) {
+  if (v == null) return '';
+  return String(v).trim();
+}
+
+/**
+ * Expand direction:"both" into arrival + departure payloads. Luna/Hermes may send
+ * one combined direction when the guest gave both shuttle times.
+ *
+ * @param {object} body
+ * @returns {object[]}
+ */
+function expandTransferDirectionPayloads(body) {
+  const src = body || {};
+  const dir = trimStr(src.direction).toLowerCase() || 'arrival';
+  if (dir !== 'both') return [{ ...src, direction: dir }];
+  const arrival = { ...src, direction: 'arrival' };
+  const departure = { ...src, direction: 'departure' };
+  if (src.arrival_datetime) {
+    arrival.scheduled_at = src.arrival_datetime;
+  }
+  if (src.departure_datetime) {
+    departure.scheduled_at = src.departure_datetime;
+  }
+  return [arrival, departure];
+}
+
+/**
+ * Collect pending_transfers from a booking-create body (list or single dict).
+ *
+ * @param {object} body
+ * @returns {object[]}
+ */
+function collectPendingTransferEntries(body) {
+  let raw = body && body.pending_transfers;
+  if (!raw && body && body.pending_transfer) raw = [body.pending_transfer];
+  if (!Array.isArray(raw) || !raw.length) return [];
+  const entries = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const expanded = expandTransferDirectionPayloads(entry);
+    for (const item of expanded) {
+      entries.push(item);
+    }
+  }
+  return entries;
+}
+
+function resolveBotTransferAirportCode(clientSlug, entry) {
+  const raw = trimStr(
+    entry.airport_code
+    || entry.airport
+    || entry.airport_or_city
+    || entry.arrival_airport_or_city,
+  );
+  return normalizeAirportCode(clientSlug, raw) || trimStr(entry.airport_code).toUpperCase() || null;
+}
+
+function resolveBotTransferScheduledAt(entry, direction) {
+  const dir = trimStr(direction).toLowerCase();
+  if (dir === 'arrival') {
+    return trimStr(
+      entry.scheduled_at
+      || entry.transfer_datetime
+      || entry.arrival_datetime,
+    ) || null;
+  }
+  if (dir === 'departure') {
+    return trimStr(
+      entry.scheduled_at
+      || entry.transfer_datetime
+      || entry.departure_datetime,
+    ) || null;
+  }
+  return trimStr(entry.scheduled_at || entry.transfer_datetime) || null;
+}
+
+/**
+ * Build one Staff API transfer write payload for handlePostBookingTransfer.
+ */
+function buildBotTransferWritePayload(entry, bookingId, bookingCode, clientSlug, transferSource) {
+  const direction = trimStr(entry.direction).toLowerCase() || 'arrival';
+  const airportCode = resolveBotTransferAirportCode(clientSlug, entry);
+  const scheduledAt = resolveBotTransferScheduledAt(entry, direction);
+  const payload = {
+    client_slug: clientSlug,
+    booking_id: bookingId,
+    booking_code: bookingCode || undefined,
+    source: transferSource,
+    direction,
+    confirm_transfer_write: true,
+  };
+  if (airportCode) payload.airport_code = airportCode;
+  if (scheduledAt) payload.scheduled_at = scheduledAt;
+  if (entry.flight_number) payload.flight_number = entry.flight_number;
+  if (entry.notes) payload.notes = entry.notes;
+  if (entry.guest_count != null) payload.guest_count = entry.guest_count;
+  if (entry.luggage_or_surfboards) payload.notes = trimStr(payload.notes
+    ? `${payload.notes}; ${entry.luggage_or_surfboards}`
+    : entry.luggage_or_surfboards);
+  return payload;
+}
+
+/**
+ * Execute one delegated transfer write (no HTTP response side effects).
+ */
+async function execDelegatedTransferWrite(bookingId, transferPayload, handlePostBookingTransfer) {
+  let statusCode = 500;
+  let result = null;
+  const jsonRes = {
+    status(code) {
+      statusCode = code;
+      return jsonRes;
+    },
+    json(obj) {
+      result = obj;
+      return jsonRes;
+    },
+  };
+  await handlePostBookingTransfer(
+    bookingId,
+    makeInMemoryBotReq(transferPayload),
+    jsonRes,
+  );
+  const transfer = result && result.transfer;
+  const writePerformed = result && (
+    result.write_performed === true
+    || (result.success === true && transfer && transfer.id)
+  );
+  return {
+    statusCode,
+    success: result && result.success === true,
+    write_performed: writePerformed,
+    direction: transferPayload.direction,
+    transfer,
+    error: result && result.error,
+  };
+}
+
+/**
+ * Persist pending transfer rows after booking create (best-effort).
+ */
+async function savePendingTransfersForBooking(body, bookingId, bookingCode, ctx) {
+  const {
+    handlePostBookingTransfer,
+    DEFAULT_CLIENT,
+  } = ctx;
+  const clientSlug = trimStr(body.client_slug || DEFAULT_CLIENT);
+  const entries = collectPendingTransferEntries(body);
+  if (!entries.length || !bookingId) return { results: [], saved: [] };
+
+  const allowedTransferSources = new Set(['staff', 'luna', 'owner', 'import', 'flight_lookup']);
+  const requestedSource = trimStr(body.source);
+  const transferSource = allowedTransferSources.has(requestedSource) ? requestedSource : 'luna';
+
+  const results = [];
+  for (const entry of entries) {
+    const transferPayload = buildBotTransferWritePayload(
+      entry,
+      bookingId,
+      bookingCode,
+      clientSlug,
+      transferSource,
+    );
+    try {
+      const out = await execDelegatedTransferWrite(
+        bookingId,
+        transferPayload,
+        handlePostBookingTransfer,
+      );
+      results.push({
+        direction: transferPayload.direction,
+        write_performed: out.write_performed,
+        success: out.success,
+        error: out.error || null,
+      });
+    } catch (err) {
+      results.push({
+        direction: transferPayload.direction,
+        write_performed: false,
+        success: false,
+        error: err.message || String(err),
+      });
+    }
+  }
+  const saved = results.filter((r) => r.write_performed);
+  return { results, saved };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,14 +290,10 @@ async function handleBotTransferSave(req, res, user, authMode, ctx) {
   const requestedSource        = String(body.source || '').trim();
   const transferSource         = allowedTransferSources.has(requestedSource) ? requestedSource : 'luna';
 
-  const transferPayload = {
-    ...body,
-    booking_id:  bookingId,
-    client_slug: clientSlug,
-    source:      transferSource,
-  };
+  const directionPayloads = expandTransferDirectionPayloads(body);
 
   if (body.confirm_transfer_write !== true) {
+    const previewDir = directionPayloads[0] || body;
     return sendJSON(res, 200, {
       success:         true,
       preview_only:    true,
@@ -117,43 +304,63 @@ async function handleBotTransferSave(req, res, user, authMode, ctx) {
       auth_mode:       authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
       booking_id:      bookingId,
       transfer: {
-        direction:    transferPayload.direction    || null,
-        airport_code: transferPayload.airport_code || transferPayload.airport || null,
-        scheduled_at: transferPayload.scheduled_at || transferPayload.transfer_datetime || null,
-        flight_number: transferPayload.flight_number || null,
-        notes:        transferPayload.notes || null,
+        direction:    previewDir.direction    || null,
+        airport_code: resolveBotTransferAirportCode(clientSlug, previewDir) || previewDir.airport || null,
+        scheduled_at: resolveBotTransferScheduledAt(previewDir, previewDir.direction) || null,
+        flight_number: previewDir.flight_number || null,
+        notes:        previewDir.notes || null,
       },
+      directions: directionPayloads.map((d) => d.direction),
       next_action: 'confirm_transfer_write_to_save',
     });
   }
 
-  const jsonRes = {
-    status(code) {
-      res.statusCode = code;
-      return jsonRes;
-    },
-    json(obj) {
-      res.setHeader('Content-Type', 'application/json');
-      const writePerformed = obj && obj.success === true && !!obj.transfer;
-      res.end(JSON.stringify({
-        ...obj,
-        write_performed:  obj.write_performed != null ? obj.write_performed : writePerformed,
-        source:           'luna_bot_transfer_save',
-        auth_mode:        authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
-        no_payment_write: true,
-        no_whatsapp:      true,
-        no_n8n:           true,
-      }));
-      return jsonRes;
-    },
-  };
-
   try {
-    return await handlePostBookingTransfer(
-      bookingId,
-      makeInMemoryBotReq(transferPayload),
-      jsonRes
-    );
+    const transferResults = [];
+    let lastTransfer = null;
+    let allOk = true;
+    let lastStatus = 200;
+
+    for (const dirPayload of directionPayloads) {
+      const transferPayload = buildBotTransferWritePayload(
+        dirPayload,
+        bookingId,
+        bookingCode,
+        clientSlug,
+        transferSource,
+      );
+      const out = await execDelegatedTransferWrite(
+        bookingId,
+        transferPayload,
+        handlePostBookingTransfer,
+      );
+      transferResults.push({
+        direction: transferPayload.direction,
+        write_performed: out.write_performed,
+        success: out.success,
+        error: out.error || null,
+      });
+      if (out.transfer) lastTransfer = out.transfer;
+      if (!out.success) allOk = false;
+      if (out.statusCode >= 400) lastStatus = out.statusCode;
+    }
+
+    const writePerformed = transferResults.some((r) => r.write_performed);
+    return sendJSON(res, lastStatus >= 400 && !writePerformed ? lastStatus : 200, {
+      success: allOk || writePerformed,
+      write_performed: writePerformed,
+      booking_id: bookingId,
+      booking_code: bookingCode || null,
+      direction: directionPayloads.length === 1 ? directionPayloads[0].direction : 'both',
+      transfer: lastTransfer,
+      transfer_save_results: transferResults,
+      transfers_saved: transferResults.filter((r) => r.write_performed),
+      source: 'luna_bot_transfer_save',
+      auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
+      no_payment_write: true,
+      no_whatsapp: true,
+      no_n8n: true,
+    });
   } catch (err) {
     return sendJSON(res, 500, {
       success:          false,
@@ -353,7 +560,9 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
           ...bridgeResult,
           ...createResponse,
           success:         createResponse.success === true,
-          write_performed: createResponse.write_performed === true,
+          write_performed: createResponse.write_performed === true
+            || createResponse.created === true
+            || (createResponse.success === true && createResponse.booking_id && !createResponse.duplicate),
           booking_id:      createResponse.booking_id      || createResponse.bookingId      || null,
           booking_code:    createResponse.booking_code    || createResponse.bookingCode    || null,
           payment_id:      createResponse.payment_id      || (createResponse.payment && createResponse.payment.payment_id) || null,
@@ -377,6 +586,22 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     );
   } else {
     return sendJSON(res, 503, { success: false, error: 'handleBotBookingCreate not wired in ctx' });
+  }
+
+  if (
+    bridgeResult.success
+    && bridgeResult.booking_id
+    && collectPendingTransferEntries(body).length
+    && ctx.handlePostBookingTransfer
+  ) {
+    const { results, saved } = await savePendingTransfersForBooking(
+      body,
+      bridgeResult.booking_id,
+      bridgeResult.booking_code,
+      ctx,
+    );
+    bridgeResult.transfer_save_results = results;
+    bridgeResult.transfers_saved = saved;
   }
 
   return sendJSON(res, captureRes._status, bridgeResult);
@@ -624,6 +849,11 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
 
 module.exports = {
   makeInMemoryBotReq,
+  expandTransferDirectionPayloads,
+  collectPendingTransferEntries,
+  buildBotTransferWritePayload,
+  savePendingTransfersForBooking,
+  execDelegatedTransferWrite,
   handleBotTransferSave,
   handleBotPaymentStatus,
   handleBotBookingCreateFromPlan,

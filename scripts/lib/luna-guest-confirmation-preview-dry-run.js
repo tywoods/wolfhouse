@@ -143,19 +143,24 @@ function appendDepositBalanceArrivalOptions(message, balanceDueCents, language) 
 
 function stripBalanceCopyForFullPaid(message) {
   return String(message || '')
-    .replace(/\.\s*Balance due:\s*\.?/gi, '.')
-    .replace(/\.\s*Saldo:\s*\.?/gi, '.')
-    .replace(/\bBalance due:\s*\.?\s*/gi, '')
-    .replace(/\bSaldo:\s*\.?\s*/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\.\s*\./g, '.')
+    .split('\n')
+    .map((line) => line
+      .replace(/\.\s*Balance due:\s*\.?/gi, '.')
+      .replace(/\.\s*Saldo:\s*\.?/gi, '.')
+      .replace(/\bBalance due:\s*\.?\s*/gi, '')
+      .replace(/\bSaldo:\s*\.?\s*/gi, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\.\s*\./g, '.')
+      .trimEnd())
+    .filter((line) => line.trim())
+    .join('\n')
     .trim();
 }
 
 function sanitizePreviewMessage(message, paymentStatus, balanceDueCents, language) {
   let text = ensureLunaIdentity(trimStr(message));
   if (HOLD_EXPIRY_RE.test(text)) {
-    text = text.replace(HOLD_EXPIRY_RE, '').replace(/\s{2,}/g, ' ').trim();
+    text = text.replace(HOLD_EXPIRY_RE, '').split('\n').map((line) => line.replace(/[ \t]{2,}/g, ' ').trimEnd()).join('\n').trim();
   }
   if (paymentStatus === 'paid' || balanceDueCents === 0) {
     text = stripBalanceCopyForFullPaid(text);

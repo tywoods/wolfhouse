@@ -54,7 +54,7 @@ section('A. Transfer save bot route');
   check('A6', /Symbol\.asyncIterator/.test(allsrc), 'in-memory bot req supports async-iterable route handlers');
   check('A7', /handlePostBookingTransfer/.test(allsrc), 'transfer save imports delegated post handler');
   check('A8', /allowedTransferSources/.test(allsrc) && /source:\s*transferSource/.test(allsrc), 'transfer save normalizes to accepted booking transfer source');
-  check('A9', /write_performed:\s*obj\.write_performed/.test(allsrc), 'transfer save returns write_performed for successful delegated writes');
+  check('A9', /write_performed:\s*writePerformed/.test(allsrc) || /write_performed:\s*obj\.write_performed/.test(allsrc), 'transfer save returns write_performed for successful delegated writes');
 }
 
 section('B. Payment status bot route');

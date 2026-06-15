@@ -64,7 +64,13 @@ function stripConfirmationInternalCopy(text) {
     s = s.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
   }
 
-  return s.replace(/\s{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return s
+    .split('\n')
+    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trimEnd())
+    .filter((line) => line && !/^[^\n:]{1,32}:\s*$/.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**

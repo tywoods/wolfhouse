@@ -11596,6 +11596,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
     sendJSON, send400, readBody, appendAuditLog, makeInMemoryBotReq,
     DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
     handleBotBookingCreate,
+    handlePostBookingTransfer,
   });
 }
 
@@ -13190,6 +13191,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
 
   return sendJSON(res, 201, {
     success:             true,
+    write_performed:     true,
     created:             true,
     source,
     auth_mode:           resolvedAuthMode,
