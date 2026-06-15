@@ -84,7 +84,13 @@ function status() {
   console.log(JSON.stringify(out, null, 2));
 }
 
+function assertSoulClean() {
+  console.error('[vm] check-soul-clean (prebuild)...');
+  execSync('node scripts/check-soul-clean.js', { cwd: ROOT, stdio: 'inherit' });
+}
+
 function buildImage() {
+  assertSoulClean();
   console.error('[vm] building staging image on ACR...');
   az(`acr build --registry ${HERMES_VM.ACR} --image wh-hermes-staging:latest --file docker/hermes-staging/Dockerfile docker/hermes-staging`);
   console.log(JSON.stringify({ ok: true, image: HERMES_VM.IMAGE }, null, 2));

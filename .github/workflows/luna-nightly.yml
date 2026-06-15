@@ -19,6 +19,9 @@ jobs:
 
       - run: npm ci
 
+      - name: SOUL invisible-unicode guard
+        run: npm run check:soul-clean
+
       - name: Luna nightly suite (full)
         run: npm run luna:nightly
 

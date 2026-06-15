@@ -260,6 +260,7 @@
     "verify:luna-coach": "node scripts/verify-luna-coach.js",
     "verify:luna-unified-planner": "node scripts/verify-luna-unified-planner.js",
     "verify:luna-confirmation-spacing": "node scripts/verify-luna-confirmation-spacing.js",
+    "check:soul-clean": "node scripts/check-soul-clean.js",
     "verify:luna-soul-clean": "node scripts/verify-luna-soul-clean.js",
     "verify:luna-all": "node scripts/verify-luna-all.js",
     "luna:nightly": "node scripts/run-luna-nightly-suite.js",

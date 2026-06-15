@@ -277,7 +277,15 @@ function ensureAcrRegistry() {
   }
 }
 
+function assertSoulClean() {
+  const path = require('path');
+  const root = path.join(__dirname, '..');
+  console.error('[deploy] check-soul-clean (prebuild)...');
+  execSync('node scripts/check-soul-clean.js', { cwd: root, stdio: 'inherit' });
+}
+
 function buildStagingImage() {
+  assertSoulClean();
   console.error('[deploy] building staging image on ACR (OpenAI bootstrap baked in)...');
   az('acr build --registry whstagingacr --image wh-hermes-staging:latest --file docker/hermes-staging/Dockerfile docker/hermes-staging');
 }
