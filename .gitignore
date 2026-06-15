@@ -6,6 +6,8 @@ hermes-local/.env
 hermes-vm-env/
 *.log
 docs/api keys.txt
+api keys.txt
+__pycache__/
 reports/*.csv
 reports/*.json
 logs/*.jsonl
