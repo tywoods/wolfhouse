@@ -190,5 +190,14 @@ ucf = json.loads(mod.update_booking_contact({"booking_code": "MB-B", "email": "b
 check("U4 failed update flags review", ucf.get("staff_review_needed") is True)
 
 
+print("\n== flag_needs_human ==")
+
+fake = with_fake({"/conversation/needs-human": {"success": True, "needs_human": True, "conversation_id": "conv-1"}})
+nh = json.loads(mod.flag_needs_human({"reason": "date_change", "phone": "+491726422307"}))
+check("NH1 flags needs_human", nh.get("success") is True and nh.get("needs_human") is True)
+check("NH2 sends a normalized phone", bool(fake.calls[-1][1].get("phone")))
+check("NH3 is never a guest-facing error", nh.get("staff_review_needed") is False and nh.get("do_not_escalate") is True)
+
+
 print("\n== Summary: {} passed, {} failed ==".format(PASSED, FAILED))
 sys.exit(1 if FAILED else 0)

@@ -632,6 +632,25 @@ def update_booking_contact(params, **kwargs):
     })
 
 
+def flag_needs_human(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone") or _session_guest_phone())
+    if phone:
+        payload["phone"] = phone
+    data = _post_bot("/conversation/needs-human", payload)
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "flag_needs_human",
+        "needs_human": bool(data.get("needs_human")),
+        "conversation_id": data.get("conversation_id"),
+        # This is a notify-staff flag, never a guest-facing error.
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+    })
+
+
 def add_service_to_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -819,6 +838,7 @@ def register(ctx):
         ("get_surf_report", "Get a guest-friendly Somo surf/wave report through Staff API when a guest asks about the waves, surf, or conditions. Returns an on-tone 'reply' to send. day is 'today' or 'tomorrow'. Degrades gracefully if live data isn't available.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call this WHENEVER you hand off or tell the guest the team will handle something, or you can't do what they asked (e.g. date changes, refunds, complaints, anything outside your tools). Uses the WhatsApp sender number automatically.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string"}}, []),
     ]
     for name, description, handler, properties, required in tools:
         ctx.register_tool(

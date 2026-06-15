@@ -147,6 +147,7 @@ const {
   buildGuestSurfReportReply,
 } = require('./lib/luna-guest-surf-report');
 const { loadActiveGuestBookings } = require('./lib/luna-guest-booking-disambiguation');
+const { markConversationNeedsHuman } = require('./lib/luna-guest-handoff-persist');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -26440,6 +26441,72 @@ async function handleBotUpdateContact(req, res, user, authMode) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bot/conversation/needs-human  (Luna flags a handoff for staff)
+//   Sets conversations.needs_human = TRUE so the thread shows up in the portal's
+//   "Needs Human" filter whenever Luna hands off / can't handle a request.
+//   Finds the conversation by conversation_id or by the WhatsApp phone (last 9
+//   digits). Read-only except the needs_human flag; no payment/WhatsApp/n8n.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleBotConversationNeedsHuman(req, res, user, authMode) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
+  }
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const convId     = String(body.conversation_id || '').trim();
+  const phone      = String(body.phone || body.guest_phone || '').trim();
+  const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 200);
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!convId && !phone) {
+    return sendJSON(res, 400, { success: false, error: 'conversation_id or phone is required' });
+  }
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      if (convId) {
+        return markConversationNeedsHuman(pg, { conversation_id: convId, client_slug: clientSlug, reason });
+      }
+      const suffix = phone.replace(/\D/g, '').slice(-9);
+      if (!suffix) return { ok: false, updated_count: 0 };
+      const r = await pg.query(
+        `UPDATE conversations conv
+            SET needs_human = TRUE,
+                updated_at = NOW(),
+                metadata = COALESCE(conv.metadata, '{}'::jsonb)
+                  || jsonb_build_object('luna_handoff_at', to_jsonb(NOW()),
+                                        'luna_handoff_reason', to_jsonb($3::text))
+           FROM clients c
+          WHERE conv.client_id = c.id
+            AND c.slug = $1
+            AND regexp_replace(conv.phone, '\\D', '', 'g') LIKE $2
+          RETURNING conv.id::text AS conversation_id, conv.needs_human`,
+        [clientSlug, `%${suffix}`, reason],
+      );
+      return {
+        ok: r.rowCount > 0,
+        updated_count: r.rowCount,
+        needs_human: r.rows[0] ? r.rows[0].needs_human === true : false,
+        conversation_id: r.rows[0] ? r.rows[0].conversation_id : null,
+      };
+    });
+    const ok = !!(result && (result.ok || result.updated_count > 0));
+    return sendJSON(res, 200, {
+      success:         ok,
+      tool:            'flag_needs_human',
+      needs_human:     !!(result && result.needs_human),
+      conversation_id: (result && result.conversation_id) || null,
+      no_payment_write: true,
+      no_whatsapp:     true,
+      no_n8n:          true,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'needs_human update failed', detail: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7g — Bed calendar handler (read-only)
 //
 // GET /staff/bed-calendar?client=<slug>&start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -29354,6 +29421,16 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotUpdateContact(req, res, auth.user, auth.auth_mode);
+  }
+
+  if (pathname === '/staff/bot/conversation/needs-human') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/conversation/needs-human' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotConversationNeedsHuman(req, res, auth.user, auth.auth_mode);
   }
 
   // ── Phase 9.4b — Luna guest bot pause/resume (bot_pause_states SoT) ─────────
