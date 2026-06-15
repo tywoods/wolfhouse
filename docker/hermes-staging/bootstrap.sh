@@ -164,10 +164,16 @@ else
     rm -rf "$HERMES_HOME/sessions" 2>/dev/null || true
     printf '%s\n' "$LUNA_SOUL_VERSION" > "$LUNA_SOUL_MARKER"
   fi
-  # Always ensure sessions dir exists and is writable by hermes user
+  # Always ensure the sessions dir exists and is writable by the hermes user.
+  # Ownership is the real guarantee (the bind-mounted HERMES_HOME is chowned to
+  # uid 10000 by provision-hermes-vm.sh); the chmods are a belt-and-suspenders
+  # fallback. All guarded with `|| true` so a non-fatal perm hiccup can't abort
+  # this `set -e` script before env/patches run.
   mkdir -p "$HERMES_HOME/sessions"
-  chmod 777 "$HERMES_HOME/sessions"
+  chown -R hermes:hermes "$HERMES_HOME/sessions" 2>/dev/null || true
+  chmod 777 "$HERMES_HOME/sessions" 2>/dev/null || true
   touch "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
+  chown hermes:hermes "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
   chmod 666 "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
   write_luna_env
   apply_patches

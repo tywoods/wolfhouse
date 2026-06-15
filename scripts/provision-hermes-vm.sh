@@ -36,8 +36,11 @@ fi
 echo "[provision] data directories..."
 mkdir -p "$DATA_ORCH" "$DATA_LUNA" "$DATA_SHARED"
 touch "$DATA_SHARED/auth.json"
-# Hermes container user (uid 10000) must create temp files here for auth pool updates.
-chown -R 10000:10000 "$DATA_SHARED"
+# The Hermes container user (uid 10000) owns each bind-mounted HERMES_HOME so it
+# can write sessions.json, config.yaml, and the shared auth pool's temp files.
+# (Previously only DATA_SHARED was chowned; DATA_LUNA/DATA_ORCH stayed root-owned,
+# so the guest agent hit "Permission denied: /opt/data/sessions/sessions.json".)
+chown -R 10000:10000 "$DATA_ORCH" "$DATA_LUNA" "$DATA_SHARED"
 chmod 750 "$DATA_SHARED"
 chmod 600 "$DATA_SHARED/auth.json"
 
