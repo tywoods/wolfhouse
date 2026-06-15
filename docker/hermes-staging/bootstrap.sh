@@ -21,7 +21,7 @@ STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"
 STAGING_PLUGINS="/etc/hermes-staging/plugins"
 LUNA_SOUL_MARKER="$HERMES_HOME/.luna-guest-soul.version"
-LUNA_SOUL_VERSION="23"
+LUNA_SOUL_VERSION="24"
 
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
