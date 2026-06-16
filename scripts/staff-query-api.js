@@ -64,6 +64,7 @@ const {
   handleBotPaymentStatus:          _handleBotPaymentStatus,
   handleBotBookingCreateFromPlan:  _handleBotBookingCreateFromPlan,
   handleBotPaymentCreateStripeLink: _handleBotPaymentCreateStripeLink,
+  handleBotCreateBalancePaymentLink: _handleBotCreateBalancePaymentLink,
 } = require('./lib/staff-bot-v2-routes');
 const {
   buildServiceChargesDueFromContext,
@@ -12900,6 +12901,28 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
+  });
+}
+
+async function handleBotCreateBalancePaymentLink(req, res, user, authMode) {
+  return _handleBotCreateBalancePaymentLink(req, res, user, authMode, {
+    sendJSON, readBody, withPgClient, appendAuditLog,
+    guestPaymentLinkObservability,
+    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STAFF_AUTH_REQUIRED, DEFAULT_CLIENT,
+    stripeCheckoutRedirectUrlsConfigured,
+    stripeCheckoutSessionSuccessUrl,
+    stripeCheckoutSessionCancelUrl,
+    EDIT_PREVIEW_BOOKING_BY_ID_SQL,
+    EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+    BOOKING_PAYMENTS_LEDGER_SQL,
+    loadBookingServiceRecords,
+    listBookingTransfersForBooking,
+    bookingLedgerBalanceFromRows,
+    ledgerActivePaymentLinkRow,
+    bookingStatusIsCancelled,
+    UUID_VALIDATE_RE,
+    SQL_INJECT_RE,
   });
 }
 
@@ -29538,6 +29561,17 @@ async function router(req, res) {
     return handleBotPaymentCreateStripeLink(botStripeMatch[1], req, res, auth.user, auth.auth_mode);
   }
 
+  // POST /staff/bot/payments/create-balance-link — remaining balance on existing booking
+  if (pathname === '/staff/bot/payments/create-balance-link') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/payments/create-balance-link' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotCreateBalancePaymentLink(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
   // POST to carry JSON payload; never touches DB, Stripe, or any external service.
   // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
@@ -29866,6 +29900,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-stripe-test-link <- 27w Luna guest simulator Stripe TEST link`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/create-balance-link <- Luna bot balance link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);
   if (STAFF_ACTIONS_ENABLED) {
     console.log(`    POST http://127.0.0.1:${PORT}/staff/handoff/:id/resolve`);

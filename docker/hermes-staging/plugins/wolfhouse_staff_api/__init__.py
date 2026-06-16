@@ -548,6 +548,62 @@ def create_payment_link(params, **kwargs):
     })
 
 
+def create_balance_payment_link(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    booking_id = _clean(payload.get("booking_id") or payload.get("bookingId"))
+    booking_code = _clean(payload.get("booking_code") or payload.get("bookingCode"))
+    if not booking_id and not booking_code:
+        return _json_result({
+            "success": False,
+            "tool": "create_balance_payment_link",
+            "error": "booking_id_or_code_required",
+            "staff_review_needed": True,
+        })
+    if booking_id:
+        payload["booking_id"] = booking_id
+    if booking_code:
+        payload["booking_code"] = booking_code
+    data = _post_bot("/payments/create-balance-link", payload)
+    guest_url = _guest_payment_url(data)
+    err = _clean(data.get("error")).lower()
+    reason = _clean(data.get("reason")).lower()
+    no_balance = err in {"no_balance_due", "no_payment_due"} or reason == "no_balance_due"
+    if no_balance:
+        return _json_result({
+            "success": False,
+            "tool": "create_balance_payment_link",
+            "error": "no_balance_due",
+            "reason": "no_balance_due",
+            "booking_id": data.get("booking_id"),
+            "booking_code": data.get("booking_code"),
+            "amount_cents": 0,
+            "balance_due_cents": 0,
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+            "guest_safe_next_action": "Tell the guest their booking is already fully paid — nothing left to pay online.",
+        })
+    ok = bool(data.get("success")) and bool(guest_url)
+    return _json_result({
+        "success": ok,
+        "tool": "create_balance_payment_link",
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "payment_id": data.get("payment_id"),
+        "amount_cents": data.get("amount_due_cents") or data.get("balance_due_cents"),
+        "amount_due_cents": data.get("amount_due_cents") or data.get("balance_due_cents"),
+        "balance_due_cents": data.get("balance_due_cents") or data.get("amount_due_cents"),
+        "currency": data.get("currency") or "EUR",
+        "secure_payment_url": guest_url,
+        "payment_short_url": data.get("payment_short_url"),
+        "idempotent": data.get("idempotent"),
+        "next_action": "send_secure_payment_link" if guest_url else data.get("next_action"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not ok,
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
 def get_payment_status(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -831,6 +887,7 @@ def register(ctx):
         ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}, "add_ons": {"type": "array", "items": {"type": "object"}}}, ["check_in", "check_out", "guest_count"]),
         ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. If the guest gave shuttle/transfer details earlier, pass them as pending_transfers so they are saved to the booking automatically.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Transfer details collected earlier in the chat, saved automatically after the booking is created. One entry per direction. Each: {direction: 'arrival'|'departure', airport, scheduled_at (ISO datetime), flight_number, notes}.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment. Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}}, ["payment_id"]),
+        ("create_balance_payment_link", "Create a secure payment link for the REMAINING BALANCE on an existing booking (after a deposit). Use when the guest asks for the balance/remaining/outstanding/full payment link. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("get_payment_status", "Check webhook-confirmed payment truth through Staff API. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
         ("add_service_to_booking", "Record a service/add-on request through Staff API so staff can see it in Services. Services include surf lessons, gear rental, meals, yoga.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string"}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),

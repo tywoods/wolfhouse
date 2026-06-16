@@ -199,5 +199,58 @@ check("NH2 sends a normalized phone", bool(fake.calls[-1][1].get("phone")))
 check("NH3 is never a guest-facing error", nh.get("staff_review_needed") is False and nh.get("do_not_escalate") is True)
 
 
+print("\n== create_balance_payment_link ==")
+
+fake = with_fake({
+    "/create-balance-link": {
+        "success": True,
+        "booking_id": "bk-1",
+        "booking_code": "MB-TEST",
+        "payment_id": "pay-bal-1",
+        "amount_due_cents": 52000,
+        "balance_due_cents": 52000,
+        "guest_payment_url": "https://staff-staging.lunafrontdesk.com/pay/MB-TEST",
+        "idempotent": False,
+        "next_action": "send_secure_payment_link",
+    },
+})
+bal = json.loads(mod.create_balance_payment_link({"booking_code": "MB-TEST"}))
+check("BAL1 mints balance link", bal.get("success") is True and bal.get("secure_payment_url"))
+check("BAL2 amount is remaining balance", bal.get("amount_cents") == 52000, bal.get("amount_cents"))
+check("BAL3 next_action send link", bal.get("next_action") == "send_secure_payment_link")
+check("BAL4 does not escalate on success", bal.get("staff_review_needed") is False)
+check("BAL5 posts to create-balance-link route",
+      fake.calls and "/create-balance-link" in fake.calls[-1][0])
+
+fake = with_fake({
+    "/create-balance-link": {
+        "success": True,
+        "idempotent": True,
+        "booking_code": "MB-TEST",
+        "amount_due_cents": 52000,
+        "guest_payment_url": "https://staff-staging.lunafrontdesk.com/pay/MB-TEST",
+    },
+})
+bal_idem = json.loads(mod.create_balance_payment_link({"booking_id": "bk-1"}))
+check("BAL6 idempotent reuse", bal_idem.get("idempotent") is True and bal_idem.get("success") is True)
+
+fake = with_fake({
+    "/create-balance-link": {
+        "success": False,
+        "error": "no_balance_due",
+        "reason": "no_balance_due",
+        "booking_code": "MB-PAID",
+        "amount_due_cents": 0,
+    },
+})
+bal_paid = json.loads(mod.create_balance_payment_link({"booking_code": "MB-PAID"}))
+check("BAL7 no_balance_due does not escalate", bal_paid.get("staff_review_needed") is False)
+check("BAL8 no_balance_due reason", bal_paid.get("reason") == "no_balance_due")
+
+missing = json.loads(mod.create_balance_payment_link({}))
+check("BAL9 missing booking flags review", missing.get("staff_review_needed") is True)
+check("BAL10 missing booking error", missing.get("error") == "booking_id_or_code_required")
+
+
 print("\n== Summary: {} passed, {} failed ==".format(PASSED, FAILED))
 sys.exit(1 if FAILED else 0)

@@ -847,6 +847,385 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bot/payments/create-balance-link
+//
+// Mint (or reuse) a Stripe link for the REMAINING invoice balance on an
+// existing booking. Mirrors staff POST /staff/bookings/generate-payment-link
+// and scripts/lib/luna-guest-balance-payment-link-create.js — bot auth path.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) {
+  const {
+    sendJSON, readBody, withPgClient, appendAuditLog,
+    guestPaymentLinkObservability,
+    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STAFF_AUTH_REQUIRED, DEFAULT_CLIENT,
+    stripeCheckoutRedirectUrlsConfigured,
+    stripeCheckoutSessionSuccessUrl,
+    stripeCheckoutSessionCancelUrl,
+    EDIT_PREVIEW_BOOKING_BY_ID_SQL,
+    EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+    BOOKING_PAYMENTS_LEDGER_SQL,
+    loadBookingServiceRecords,
+    listBookingTransfersForBooking,
+    bookingLedgerBalanceFromRows,
+    ledgerActivePaymentLinkRow,
+    bookingStatusIsCancelled,
+    UUID_VALIDATE_RE,
+    SQL_INJECT_RE,
+  } = ctx;
+
+  const started = Date.now();
+
+  if (!BOT_BOOKING_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
+      bot_booking_enabled: false,
+    });
+  }
+  if (!STRIPE_LINKS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.',
+      stripe_links_enabled: false,
+    });
+  }
+  if (!STRIPE_SECRET_KEY) {
+    return sendJSON(res, 503, { success: false, error: 'STRIPE_SECRET_KEY not configured.', no_db_write: true });
+  }
+  if (!stripeCheckoutRedirectUrlsConfigured()) {
+    return sendJSON(res, 503, {
+      success: false,
+      error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
+      no_db_write: true,
+    });
+  }
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
+  }
+
+  const clientSlug  = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId   = String(body.booking_id || body.bookingId || '').trim();
+  const bookingCode = String(body.booking_code || body.bookingCode || '').trim();
+
+  if (SQL_INJECT_RE && SQL_INJECT_RE.test(clientSlug)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid client slug' });
+  }
+  if (!bookingId && !bookingCode) {
+    return sendJSON(res, 400, { success: false, error: 'booking_id or booking_code is required' });
+  }
+  if (bookingId && UUID_VALIDATE_RE && !UUID_VALIDATE_RE.test(bookingId)) {
+    return sendJSON(res, 400, { success: false, error: 'booking_id must be a valid UUID' });
+  }
+
+  let bookingRow;
+  let svcRows = [];
+  let paymentRows = [];
+  let transferRows = [];
+  try {
+    const loaded = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode],
+      );
+      const bk = bookingRes.rows[0] || null;
+      if (!bk) return { booking: null, svc: [], payments: [], transfers: [] };
+      const svc = await loadBookingServiceRecords(pg, clientSlug, bk.booking_code);
+      const pm = await pg.query(BOOKING_PAYMENTS_LEDGER_SQL, [clientSlug, bk.booking_code]);
+      const transfers = await listBookingTransfersForBooking(pg, {
+        client_slug: clientSlug,
+        booking_id: bk.booking_id,
+      });
+      return { booking: bk, svc: svc.rows, payments: pm.rows, transfers };
+    });
+    bookingRow = loaded.booking;
+    svcRows = loaded.svc;
+    paymentRows = loaded.payments;
+    transferRows = loaded.transfers || [];
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'booking lookup failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    return sendJSON(res, 404, { success: false, error: 'booking_not_found' });
+  }
+
+  if (bookingStatusIsCancelled(bookingRow.status)) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'booking_not_active',
+      message: 'Cannot create a payment link on a cancelled or expired booking.',
+    });
+  }
+
+  const ledger = bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows, transferRows);
+  const amountDueCents = ledger.balance_due_cents;
+
+  if (ledger.needs_refund) {
+    return sendJSON(res, 409, {
+      success: false,
+      error: 'refund_review_needed',
+      staff_review_needed: true,
+      message: 'Refund / credit review needed before creating a payment link.',
+    });
+  }
+
+  if (amountDueCents == null || amountDueCents <= 0) {
+    return sendJSON(res, 200, {
+      success: false,
+      error: 'no_balance_due',
+      reason: 'no_balance_due',
+      booking_id: bookingRow.booking_id,
+      booking_code: bookingRow.booking_code,
+      amount_due_cents: 0,
+      balance_due_cents: 0,
+      message: 'No outstanding balance due.',
+      staff_review_needed: false,
+    });
+  }
+
+  const paySt = String(bookingRow.payment_status || '').toLowerCase();
+  const eligiblePay = ['deposit_paid', 'balance_due', 'confirmed', 'hold'].includes(paySt)
+    || Number(bookingRow.amount_paid_cents || 0) > 0;
+  if (!eligiblePay) {
+    return sendJSON(res, 409, {
+      success: false,
+      error: 'booking_not_eligible',
+      reason: 'deposit_not_paid',
+      booking_id: bookingRow.booking_id,
+      booking_code: bookingRow.booking_code,
+      staff_review_needed: true,
+    });
+  }
+
+  const idempotencyKey = `luna-bot-balance:${bookingRow.booking_id}:${amountDueCents}`;
+  const actorId = user ? user.staff_user_id : 'luna-bot-internal';
+
+  const finishWithLink = (payload) => {
+    const checkoutUrl = payload.checkout_url;
+    const linkObs = guestPaymentLinkObservability(
+      { booking_code: bookingRow.booking_code, client_slug: clientSlug },
+      checkoutUrl,
+      payload.stripe_checkout_session_id || null,
+    );
+    return sendJSON(res, 200, {
+      success: true,
+      source: 'luna_bot_balance_payment_link',
+      auth_mode: authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open'),
+      idempotent: !!payload.idempotent,
+      created: payload.created !== false,
+      booking_id: bookingRow.booking_id,
+      booking_code: bookingRow.booking_code,
+      client_slug: clientSlug,
+      payment_id: payload.payment_id || null,
+      amount_due_cents: amountDueCents,
+      balance_due_cents: amountDueCents,
+      currency: 'EUR',
+      checkout_url: checkoutUrl,
+      payment_short_url: linkObs.payment_short_url,
+      guest_payment_url: linkObs.guest_payment_url,
+      uses_short_payment_link: linkObs.uses_short_payment_link,
+      secure_payment_url: linkObs.guest_payment_url || checkoutUrl,
+      payment_status: 'checkout_created',
+      next_action: 'send_secure_payment_link',
+      sends_whatsapp: false,
+      no_payment_truth_recorded: true,
+      no_n8n: true,
+      staff_review_needed: false,
+      message: payload.message || 'Balance payment link ready for guest.',
+      elapsed_ms: Date.now() - started,
+    });
+  };
+
+  const existingByKey = paymentRows.find((pr) => {
+    let parsed = pr.metadata;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (_) { parsed = {}; }
+    }
+    return parsed && parsed.idempotency_key === idempotencyKey && pr.checkout_url;
+  });
+  if (existingByKey) {
+    return finishWithLink({
+      idempotent: true,
+      created: false,
+      payment_id: existingByKey.payment_id,
+      checkout_url: existingByKey.checkout_url,
+      message: 'Payment link already created (idempotent).',
+    });
+  }
+
+  const activeLink = ledgerActivePaymentLinkRow(paymentRows, ledger);
+  if (activeLink && activeLink.checkout_url) {
+    return finishWithLink({
+      idempotent: true,
+      created: false,
+      payment_id: activeLink.payment_id,
+      checkout_url: activeLink.checkout_url,
+      message: 'Payment link already exists for this balance.',
+    });
+  }
+
+  let stripe;
+  try {
+    stripe = require('stripe')(STRIPE_SECRET_KEY);
+  } catch (e) {
+    return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
+  }
+
+  const pmMeta = {
+    source: 'luna_bot_balance_payment_link',
+    method: 'payment_link',
+    idempotency_key: idempotencyKey,
+    booking_code: bookingRow.booking_code,
+    amount_due_cents: amountDueCents,
+    payment_origin: 'luna_bot_balance_payment_link',
+    created_by: actorId,
+  };
+
+  let newPaymentId;
+  try {
+    const insResult = await withPgClient(async (pg) => {
+      const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+      const clientId = clientRes.rows[0] && clientRes.rows[0].id;
+      if (!clientId) throw new Error('client not found');
+      const ins = await pg.query(
+        `INSERT INTO payments (
+           client_id, booking_id, status, payment_kind, currency,
+           amount_due_cents, amount_paid_cents, metadata
+         ) VALUES (
+           $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
+           $3, 0, $4::jsonb
+         )
+         RETURNING id::text AS payment_id`,
+        [clientId, bookingRow.booking_id, amountDueCents, JSON.stringify(pmMeta)],
+      );
+      return ins.rows[0].payment_id;
+    });
+    newPaymentId = insResult;
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'payment draft insert failed', detail: err.message });
+  }
+
+  const productName = `Booking ${bookingRow.booking_code || newPaymentId} \u2014 ${bookingRow.guest_name || 'Guest'}`;
+  const productDesc = `Outstanding balance | ${bookingRow.check_in || ''} \u2013 ${bookingRow.check_out || ''} | ${clientSlug}`;
+
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      currency: 'eur',
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          product_data: { name: productName, description: productDesc },
+          unit_amount: amountDueCents,
+        },
+        quantity: 1,
+      }],
+      metadata: {
+        client_slug: clientSlug,
+        booking_id: bookingRow.booking_id,
+        booking_code: bookingRow.booking_code || '',
+        payment_id: newPaymentId,
+        payment_kind: 'full_amount',
+        source: 'luna_bot_balance_payment_link',
+        idempotency_key: idempotencyKey,
+      },
+      success_url: stripeCheckoutSessionSuccessUrl(),
+      cancel_url: stripeCheckoutSessionCancelUrl(),
+    });
+  } catch (stripeErr) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Stripe session creation failed: ' + stripeErr.message,
+      no_db_write: true,
+    });
+  }
+
+  const expiresAt = session.expires_at
+    ? new Date(session.expires_at * 1000).toISOString()
+    : null;
+
+  try {
+    await withPgClient(async (pg) => {
+      await pg.query(
+        `UPDATE payments
+            SET status                     = 'checkout_created'::payment_record_status,
+                stripe_checkout_session_id = $1,
+                checkout_url               = $2,
+                expires_at                 = $3,
+                metadata                   = metadata || $4::jsonb
+          WHERE id = $5::uuid`,
+        [
+          session.id,
+          session.url,
+          expiresAt,
+          JSON.stringify({
+            stripe_session_id: session.id,
+            stripe_livemode: session.livemode,
+            payment_link_url: session.url,
+            created_by: actorId,
+            source: 'luna_bot_balance_payment_link',
+          }),
+          newPaymentId,
+        ],
+      );
+    });
+  } catch (dbErr) {
+    if (appendAuditLog) {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:bot_balance_payment_link',
+        category: 'bot_balance_payment_link_create',
+        success: false,
+        error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
+        payment_id: newPaymentId,
+        session_id: session.id,
+        elapsed_ms: Date.now() - started,
+      });
+    }
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Stripe session created but DB update failed: ' + dbErr.message,
+      checkout_url: session.url,
+      staff_review_needed: true,
+    });
+  }
+
+  if (appendAuditLog) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot_balance_payment_link',
+      category: 'bot_balance_payment_link_create',
+      success: true,
+      payment_id: newPaymentId,
+      booking_id: bookingRow.booking_id,
+      booking_code: bookingRow.booking_code,
+      stripe_session_id: session.id,
+      amount_due_cents: amountDueCents,
+      auth_mode: authMode,
+      elapsed_ms: Date.now() - started,
+      stripe_called: true,
+      whatsapp_called: false,
+      n8n_called: false,
+    });
+  }
+
+  return finishWithLink({
+    idempotent: false,
+    created: true,
+    payment_id: newPaymentId,
+    checkout_url: session.url,
+    stripe_checkout_session_id: session.id,
+    message: 'Balance payment link created.',
+  });
+}
+
 module.exports = {
   makeInMemoryBotReq,
   expandTransferDirectionPayloads,
@@ -858,4 +1237,5 @@ module.exports = {
   handleBotPaymentStatus,
   handleBotBookingCreateFromPlan,
   handleBotPaymentCreateStripeLink,
+  handleBotCreateBalancePaymentLink,
 };
