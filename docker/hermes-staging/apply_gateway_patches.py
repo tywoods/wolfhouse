@@ -263,6 +263,27 @@ LUNA_SOUL_RELOAD_PATCH = '''
         if _wolfhouse_soul_os.getenv("HERMES_ROLE") == "luna" and _wolfhouse_plat in ("whatsapp", "whatsapp_cloud"):
             self._evict_cached_agent(session_key)
 '''
+LUNA_SOUL_RELOAD_PATCH_12 = '''
+            # Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply.
+            import os as _wolfhouse_soul_os
+            _wolfhouse_plat = getattr(source.platform, "value", str(source.platform or ""))
+            if _wolfhouse_soul_os.getenv("HERMES_ROLE") == "luna" and _wolfhouse_plat in ("whatsapp", "whatsapp_cloud"):
+                self._evict_cached_agent(session_key)
+'''
+SOUL_RELOAD_ANCHORS = (
+    (
+        "        agent = None\n"
+        "        _cache_lock = getattr(self, \"_agent_cache_lock\", None)\n"
+        "        _cache = getattr(self, \"_agent_cache\", None)",
+        LUNA_SOUL_RELOAD_PATCH,
+    ),
+    (
+        "            agent = None\n"
+        "            _cache_lock = getattr(self, \"_agent_cache_lock\", None)\n"
+        "            _cache = getattr(self, \"_agent_cache\", None)",
+        LUNA_SOUL_RELOAD_PATCH_12,
+    ),
+)
 
 RUNTIME_PATCH_HOOK_TAG = "# Wolfhouse: install runtime WhatsApp patches when gateway loads."
 RUNTIME_PATCH_HOOK = '''
@@ -475,8 +496,8 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
     return {
         "path": str(whatsapp_path),
         "internal_status_send_filter": WHATSAPP_SEND_FILTER in s,
-        "luna_plain_reply_send": LUNA_PLAIN_REPLY_SEND_TAG in s,
-        "luna_plain_reply_chunk_context": LUNA_PLAIN_REPLY_CHUNK_TAG in s,
+        "luna_plain_reply_send": "if not _wh_allow_quote" in s,
+        "luna_plain_reply_chunk_context": "if _wh_allow_quote" in s and "wolfhouse_quote_reply" in s,
     }
 
 
@@ -564,21 +585,17 @@ def apply_patches(run_path: Path) -> dict:
             raise RuntimeError("gateway.run turn-handler anchor not found for inbox mirror")
         s = TURN_ANCHOR_RE.sub(replacement, s, count=1)
 
-    soul_anchor = (
-        "        agent = None\n"
-        "        _cache_lock = getattr(self, \"_agent_cache_lock\", None)\n"
-        "        _cache = getattr(self, \"_agent_cache\", None)"
-    )
-    soul_replacement = (
-        LUNA_SOUL_RELOAD_PATCH
-        + "\n        agent = None\n"
-        "        _cache_lock = getattr(self, \"_agent_cache_lock\", None)\n"
-        "        _cache = getattr(self, \"_agent_cache\", None)"
-    )
+    soul_note = None
     if LUNA_SOUL_RELOAD_TAG not in s:
-        if soul_anchor not in s:
-            raise RuntimeError("gateway.run agent-cache anchor not found for Luna SOUL reload")
-        s = s.replace(soul_anchor, soul_replacement, 1)
+        applied_soul = False
+        for soul_anchor, soul_patch in SOUL_RELOAD_ANCHORS:
+            if soul_anchor not in s:
+                continue
+            s = s.replace(soul_anchor, soul_patch + "\n" + soul_anchor, 1)
+            applied_soul = True
+            break
+        if not applied_soul:
+            soul_note = "agent-cache anchor not found (SOUL reload skipped)"
 
     logger_anchor = "logger = logging.getLogger(__name__)\n"
     if RUNTIME_PATCH_HOOK_TAG not in s and logger_anchor in s:
@@ -604,6 +621,7 @@ def apply_patches(run_path: Path) -> dict:
         "outbound_mirror": MIRROR_OUTBOUND_TAG in s,
         "fresh_start_runner_hook": RUNNER_GLOBAL_VAR in s and RUNNER_START_PATCH in s,
         "luna_soul_reload": LUNA_SOUL_RELOAD_TAG in s,
+        "luna_soul_reload_note": soul_note,
         "runtime_whatsapp_patch_hook": RUNTIME_PATCH_HOOK_TAG in s,
         "stream_initial_reply_luna": STREAM_INITIAL_REPLY_NEW.split("\n", 1)[0] in s,
     }
@@ -704,7 +722,7 @@ def main() -> int:
     base_path = Path(base_spec.origin)
     whatsapp_path = Path(whatsapp_spec.origin)
     try:
-        result = apply_patches(run_path)
+        result: dict = {}
         result["base_platform"] = apply_base_platform_patch(base_path)
         result["whatsapp_cloud"] = apply_whatsapp_cloud_patch(whatsapp_path)
         stream_spec = importlib.util.find_spec("gateway.stream_consumer")
@@ -716,6 +734,7 @@ def main() -> int:
             result["session_store"] = apply_session_store_patch(Path(session_spec.origin))
         else:
             result["session_store"] = {"session_stale_routing_skip": False, "note": "gateway.session not found"}
+        result.update(apply_patches(run_path))
         # Fix Anthropic OAuth login token endpoint (platform.claude.com fallback)
         if adapter_spec and adapter_spec.origin:
             result["anthropic_oauth"] = apply_anthropic_oauth_patch(Path(adapter_spec.origin))
