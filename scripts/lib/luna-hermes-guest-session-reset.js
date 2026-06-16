@@ -17,7 +17,7 @@ function hermesFreshStartUrl() {
   if (explicit) return explicit.replace(/\/$/, '');
   const base = String(
     process.env.WOLFHOUSE_HERMES_BASE_URL
-    || 'https://wh-staging-hermes.braveplant-5c685569.northeurope.azurecontainerapps.io',
+    || 'https://lunabox.lunafrontdesk.com',
   ).trim().replace(/\/$/, '');
   return `${base}/wolfhouse/guest-fresh-start`;
 }
@@ -27,7 +27,7 @@ function hermesFreshStartUrl() {
  * @param {string} guestPhone - E.164 or digits
  * @returns {Promise<object>}
  */
-async function resetHermesGuestSession(guestPhone) {
+async function resetHermesGuestSession(guestPhone, opts = {}) {
   const phone = normalizeGuestPhone(guestPhone);
   if (!phone) {
     return { attempted: false, ok: false, reason: 'invalid_phone' };
@@ -38,8 +38,9 @@ async function resetHermesGuestSession(guestPhone) {
     return { attempted: false, ok: false, reason: 'missing_bot_token' };
   }
 
+  const hardDelete = opts.hard_delete !== false;
   const url = hermesFreshStartUrl();
-  const body = JSON.stringify({ guest_phone: phone });
+  const body = JSON.stringify({ guest_phone: phone, hard_delete: hardDelete });
   const headers = {
     'Content-Type': 'application/json',
     'X-Luna-Bot-Token': token,
@@ -67,10 +68,13 @@ async function resetHermesGuestSession(guestPhone) {
       attempted: true,
       ok: Boolean(data.ok),
       reset: Boolean(data.reset),
+      hard_delete: data.hard_delete !== false,
       reason: data.reason || null,
       session_key: data.session_key || null,
       old_session_id: data.old_session_id || null,
       new_session_id: data.new_session_id || null,
+      deleted_session_ids: data.deleted_session_ids || [],
+      deleted_count: data.deleted_count != null ? data.deleted_count : null,
       status: res.status,
     };
   } catch (err) {

@@ -592,6 +592,7 @@ const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|con
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
 const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
 const CONV_RESET_LUNA_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-luna-context$`, 'i');
+const CONV_RESET_AGENT_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-agent-session$`, 'i');
 // Phase 23c.1 — POST /staff/inbox/handoffs/:id/review
 const INBOX_HANDOFF_REVIEW_RE = new RegExp(`^/staff/inbox/handoffs/(${UUID_RE})/review$`, 'i');
 
@@ -17278,7 +17279,8 @@ function loadConvDetail(convId, targetEl){
     html += '<div class="thread-section">';
     html += '<div class="thread">';
     html += '<div class="detail-conv-toolbar">';
-    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history/logs + cached context. Bookings kept.">Full Wipe (testing)</button>';
+    html += '<button type="button" class="pill pill-agent-session-reset" id="btn-agent-session-reset" title="Delete Hermes state.db session + messages for this guest. Portal thread and bookings unchanged. Use after SOUL edits.">Reset Luna session</button>';
+    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history/logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
     html += '</div>';
     html +=   '<div class="thread-messages" id="thread-container">';
     if (msgs.length === 0){
@@ -17413,6 +17415,7 @@ function loadConvDetail(convId, targetEl){
     wireNeedsHumanToggle(convId, targetEl);
     wireLunaPauseSwitch(convId, targetEl);
     wireFreshStart(convId, targetEl);
+    wireAgentSessionReset(convId, targetEl);
 
     var calLinks = targetEl.querySelectorAll('.inbox-open-booking-cal');
     calLinks.forEach(function(calLink){
@@ -17490,6 +17493,33 @@ function wireNeedsHumanToggle(convId, targetEl){
   });
 }
 
+function wireAgentSessionReset(convId, targetEl){
+  var btn = targetEl.querySelector('#btn-agent-session-reset');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    if (!window.confirm('Reset Luna session: delete Hermes agent history for this guest (state.db sessions + messages). Portal thread, bookings, and Staff API logs are kept. Next WhatsApp message starts fresh with current SOUL. Continue?')) return;
+    btn.disabled = true;
+    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-agent-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_slug: getClient() }),
+    })
+      .then(function(r){
+        if (r.status === 401) throw new Error('Authentication required');
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        var d = out.data || {};
+        if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
+        alert('Luna session reset — deleted ' + (d.hermes_session_reset && d.hermes_session_reset.deleted_count != null ? d.hermes_session_reset.deleted_count : 0) + ' Hermes session(s). Next guest message uses a brand-new session.');
+      })
+      .catch(function(err){
+        alert(err.message || 'Could not reset Luna session');
+      })
+      .finally(function(){ btn.disabled = false; });
+  });
+}
+
 function wireFreshStart(convId, targetEl){
   var btn = targetEl.querySelector('#btn-guest-context-reset');
   if (!btn) return;
@@ -17508,7 +17538,7 @@ function wireFreshStart(convId, targetEl){
       .then(function(out){
         var d = out.data || {};
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
-        alert('Full wipe result -- session_reset: ' + JSON.stringify(d.hermes_session_reset) + ' | bookings: ' + JSON.stringify(d.bookings_cleared) + ' | events: ' + JSON.stringify(d.phone_events_reset) + ' | messages_deleted: ' + d.messages_deleted);
+        alert('Full wipe result -- hermes_deleted: ' + (d.hermes_session_reset && d.hermes_session_reset.deleted_count != null ? d.hermes_session_reset.deleted_count : JSON.stringify(d.hermes_session_reset)) + ' | bookings: ' + JSON.stringify(d.bookings_cleared) + ' | events: ' + JSON.stringify(d.phone_events_reset) + ' | messages_deleted: ' + d.messages_deleted);
         loadConvDetail(convId, targetEl);
       })
       .catch(function(err){
@@ -25984,6 +26014,79 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   }
 }
 
+async function handleConversationResetAgentSession(convId, req, res, user) {
+  const started = Date.now();
+  const hostHeader = String(req.headers.host || '');
+
+  if (!isStagingResetEnvironment(process.env, hostHeader)) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'staging_only',
+      detail: 'Agent session reset is allowed only on staging/test environments.',
+    });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'action:api:conversation.reset_agent_session',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  try {
+    const phoneRow = await withPgClient((pg) => pg.query(
+      `SELECT c.phone
+         FROM conversations c
+         JOIN clients cl ON cl.id = c.client_id
+        WHERE c.id = $1::uuid AND cl.slug = $2
+        LIMIT 1`,
+      [convId, clientSlug],
+    ));
+    if (!phoneRow.rows.length) {
+      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: Date.now() - started });
+      return send404(res);
+    }
+
+    const guestPhone = phoneRow.rows[0].phone || null;
+    let hermesSessionReset = { attempted: false, ok: false, reason: 'no_guest_phone' };
+    if (guestPhone) {
+      hermesSessionReset = await resetHermesGuestSession(guestPhone, { hard_delete: true });
+    }
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      guest_phone: guestPhone,
+      hermes_session_reset: hermesSessionReset,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      conversation_id: convId,
+      guest_phone: guestPhone,
+      hermes_session_reset: hermesSessionReset,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'reset failed' });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Staff Portal — Fresh Start (Luna context reset; preserves messages + bookings)
 //
@@ -26040,7 +26143,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
     let phoneEventsReset = { attempted: false };
     let bookingsCleared = { attempted: false };
     if (result.guest_phone) {
-      hermesSessionReset = await resetHermesGuestSession(result.guest_phone);
+      hermesSessionReset = await resetHermesGuestSession(result.guest_phone, { hard_delete: true });
       // Also wipe the inbound webhook log (guest_message_events) + outbound
       // (guest_message_sends) for this number — otherwise that persisted history
       // re-seeds Luna's context and she still greets a "fresh" guest with the
@@ -28911,6 +29014,17 @@ async function router(req, res) {
     return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
   }
 
+  const convResetAgentMatch = CONV_RESET_AGENT_RE.exec(pathname);
+  if (convResetAgentMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/reset-agent-session' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleConversationResetAgentSession(convResetAgentMatch[1], req, res, auth.user);
+  }
+
   const convResetLunaMatch = CONV_RESET_LUNA_RE.exec(pathname);
   if (convResetLunaMatch) {
     if (method !== 'POST') {
@@ -29891,6 +30005,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/handoffs/:id/review <- 23c.1 mark reviewed`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/send-reply       <- 23d Inbox reply send`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/needs-human <- needs_human toggle`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-agent-session <- Hermes session wipe (operator+, staging)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-luna-context <- Fresh Start (operator+, staging)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-messages <- clear thread legacy (operator+)`);
   console.log(`    DELETE http://127.0.0.1:${PORT}/staff/conversations/:id?client=... <- hard delete (admin+)`);

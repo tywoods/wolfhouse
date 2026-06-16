@@ -29,6 +29,7 @@ const steps = [
   ['verify:luna-soul-clean', 'verify-luna-soul-clean.js'],
   ['verify:guest-addon-pricing', 'verify-guest-addon-pricing.js'],
   ['verify:short-stay-booking-create', 'verify-short-stay-booking-create.js'],
+  ['verify:guest-agent-session-reset', 'verify-guest-agent-session-reset.js'],
   ['verify:luna-golden', 'verify-luna-golden.js'],
   ['verify:luna-coach', 'verify-luna-coach.js'],
   ['verify:luna-unified-planner', 'verify-luna-unified-planner.js'],
