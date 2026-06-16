@@ -177,7 +177,7 @@ function calculateWolfhouseQuote(input, config) {
   // ── 3b. Optional per-guest packages ───────────────────────────────────────
   const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
   const normalizePkgCode = (value) => String(value || '').trim().toLowerCase();
-  const isNoPackageCode = (code) => code === 'package_none' || code === 'no_package';
+  const isNoPackageCode = (code) => code === 'package_none' || code === 'no_package' || code === 'accommodation_only';
   let normalizedGuestPackages = [];
   if (Array.isArray(guest_packages) && guest_packages.length > 0) {
     if (Number.isInteger(guests) && guests > 0 && guest_packages.length !== guests) {

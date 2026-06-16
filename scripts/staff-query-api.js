@@ -267,7 +267,12 @@ const {
 const {
   previewGuestAddonPricing,
   resolveGuestAddonComboPricing,
+  normalizeQuoteAddOnsForCombo,
 } = require('./lib/guest-addon-pricing');
+const {
+  resolveBotBookingPackageContext,
+  isNoPackageBookingCode,
+} = require('./lib/bot-booking-package-normalize');
 const {
   runLunaGuestBookingWriteBridge,
 } = require('./lib/luna-guest-booking-write-bridge');
@@ -3985,7 +3990,7 @@ function editPreviewKnownPackageCodes() {
 function editPreviewIsValidPackage(code, currentCode) {
   const c = String(code || '').trim().toLowerCase();
   if (!c) return false;
-  if (c === 'no_package' || c === 'package_none') return true;
+  if (c === 'no_package' || c === 'package_none' || c === 'accommodation_only') return true;
   const known = editPreviewKnownPackageCodes();
   if (known.includes(c)) return true;
   if (currentCode && c === String(currentCode).trim().toLowerCase()) return true;
@@ -9649,7 +9654,15 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     return send400(res, guestPackagesNormalized.error);
   }
   const guestPackages = Array.isArray(guestPackagesNormalized) ? guestPackagesNormalized : [];
-  const effectivePackageCode = botGuestPackagesMajorityCode(guestPackages, packageCode);
+  const pkgCtx = resolveBotBookingPackageContext({
+    packageCode,
+    guestPackages,
+    checkIn,
+    checkOut,
+    guestCount: guestCount || 0,
+  });
+  const effectivePackageCode = pkgCtx.quotePackageCode;
+  const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
   const roomType      = String(body.room_type     || 'shared').trim();
   const paymentChoiceRaw = String(body.payment_choice || '').trim();
   const paymentChoiceStaffNorm = normalizeManualBookingStaffPaymentChoice(paymentChoiceRaw);
@@ -9706,10 +9719,10 @@ async function handleBotBookingPreview(req, res, user, authMode) {
           check_out:      checkOut,
           guest_count:    guestCount,
           package_code:   effectivePackageCode,
-          guest_packages: guestPackages,
+          guest_packages: guestPackagesForQuote,
           room_type:      roomType || 'shared',
           payment_choice: paymentChoice || 'deposit',
-          add_ons:        addOns,
+          add_ons:        normalizeQuoteAddOnsForCombo(addOns),
         });
       } catch (err) {
         quoteError = err.message;
@@ -9738,7 +9751,11 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   if (quote && quote.success) {
     const totalEur   = (quote.total_cents / 100).toFixed(2);
     const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
-    replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
+    if (pkgCtx.isShortStay || pkgCtx.isNoPackage) {
+      replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Does that look good? 😊`;
+    } else {
+      replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
+    }
   } else if (nextAction === 'ask_missing_fields') {
     const readable = missingFields.map((f) => BOT_FIELD_LABELS[f] || f);
     const shown    = readable.slice(0, 3);
@@ -12976,18 +12993,25 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const email         = String(body.email      || '').trim().slice(0, 200) || null;
   const language      = String(body.language   || 'en').trim().slice(0, 10);
   const guestCount    = parseInt(body.guest_count, 10) || 0;
-  const packageCode   = String(body.package_code || '').trim().toLowerCase().slice(0, 50) || null;
+  const packageCodeRaw  = String(body.package_code || '').trim().toLowerCase().slice(0, 50) || null;
   const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
   const normalizedGuestPackages = rawGuestPackages.length
-    ? normalizeGuestPackagesInput(rawGuestPackages, guestCount || rawGuestPackages.length, packageCode || 'malibu')
+    ? normalizeGuestPackagesInput(rawGuestPackages, guestCount || rawGuestPackages.length, packageCodeRaw || 'malibu')
     : { guest_packages: [] };
   if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
   const guestPackages = normalizedGuestPackages.guest_packages || [];
-  const effectivePackageCode = guestPackages.length
-    ? guestPackagesMajorityStorageCode(guestPackages)
-    : packageCode;
+  const pkgCtx = resolveBotBookingPackageContext({
+    packageCode: packageCodeRaw,
+    guestPackages,
+    checkIn,
+    checkOut,
+    guestCount,
+  });
+  const effectivePackageCode = pkgCtx.quotePackageCode;
+  const storagePackageCode = pkgCtx.storagePackageCode;
+  const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
   const roomType      = String(body.room_type  || 'shared').trim().slice(0, 20);
-  const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
+  const addOns        = normalizeQuoteAddOnsForCombo(body.add_ons);
   const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();
   const paymentKind   = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
   const confirmFlag   = body.confirm === true;
@@ -13024,8 +13048,13 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     return send400(res, 'check_in and check_out must be YYYY-MM-DD');
   if (checkOut <= checkIn)  return send400(res, 'check_out must be after check_in');
   if (guestCount < 1)       return send400(res, 'guest_count must be at least 1');
-  if (!effectivePackageCode || effectivePackageCode === 'manual_override')
-    return send400(res, 'package_code or guest_packages is required (manual_override not supported)');
+  if (!effectivePackageCode || effectivePackageCode === 'manual_override') {
+    return send400(res, 'package_code or guest_packages is required (use package_none for accommodation-only / short stays)');
+  }
+  const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, effectivePackageCode);
+  if (!packageNightCheck.ok) {
+    return send400(res, packageNightCheck.error);
+  }
   if (!paymentChoice)       return send400(res, 'payment_choice is required (deposit or full)');
   if (!confirmFlag)         return send400(res, 'confirm: true is required in request body');
   if (selectedBedCodes.length === 0)
@@ -13040,7 +13069,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     check_out:      checkOut,
     guest_count:    guestCount,
     package_code:   effectivePackageCode,
-    guest_packages: guestPackages,
+    guest_packages: guestPackagesForQuote,
     room_type:      roomType,
     payment_choice: paymentChoice,
     add_ons:        addOns,
@@ -13089,9 +13118,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
           checkIn,           // $10
           checkOut,          // $11
           guestCount,        // $12
-          selectedBedCodes,  // $13 text[]
-          packageCode,       // $14
-          null,              // $15 room_preference
+            selectedBedCodes,  // $13 text[]
+            storagePackageCode, // $14 — null for accommodation-only
+            null,              // $15 room_preference
           bookingStatus,     // $16
           paymentStatus,     // $17
           depositCents,      // $18
@@ -13128,12 +13157,30 @@ async function handleBotBookingCreate(req, res, user, authMode) {
               quote_snapshot:    quote,
               payment_choice:    paymentChoice,
               add_ons_at_create: addOns,
-              guest_packages: guestPackages,
+              guest_packages: guestPackagesForQuote,
+              package_code: effectivePackageCode,
+              accommodation_only: pkgCtx.isNoPackage,
               bot_source:        source,
             }),
             result.booking_id,
-          ]
+          ],
         );
+
+        const serviceRecordRows = buildManualBookingServiceRecordRows({
+          addOns,
+          quote,
+          clientSlug,
+          bookingId: result.booking_id,
+          bookingCode: result.booking_code,
+          guestName,
+          checkIn,
+          guestCount,
+          source: 'luna_guest',
+        });
+        const svcInsert = await tryInsertManualBookingServiceRecords(pg, serviceRecordRows);
+        result._service_records_created = svcInsert.created;
+        result._service_records_available = svcInsert.available;
+        result._service_records_warning = svcInsert.warning;
 
         // Update draft payment row with quote-driven amounts
         const pmUpdate = await pg.query(
@@ -13241,7 +13288,10 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       payment_link_amount_cents: paymentLinkAmountCents,
       payment_kind:              paymentKind,
       formula_summary:           quote.formula_summary,
+      package_code:              effectivePackageCode,
+      accommodation_only:        pkgCtx.isNoPackage,
     },
+    service_records_created: Number(row._service_records_created || 0),
     next_action:         'create_stripe_link',
     creates_stripe_link: false,
     sends_whatsapp:      false,

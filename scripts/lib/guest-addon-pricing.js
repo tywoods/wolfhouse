@@ -76,6 +76,120 @@ function findUnpaidWetsuitForCombo(existingRecords, rentalDays) {
   }) || null;
 }
 
+const LUNA_ADDON_CODE_ALIASES = Object.freeze({
+  wetsuit: 'wetsuit_rental',
+  surfboard: 'soft_top_rental',
+  soft_board: 'soft_top_rental',
+  soft_top: 'soft_top_rental',
+  hard_board: 'hard_board_rental',
+  surf_lesson: 'surf_lesson_single',
+  yoga: 'yoga_class',
+  meal: 'meals',
+  meals: 'meals',
+});
+
+function rentalDaysFromAddOn(addon) {
+  if (!addon) return 1;
+  if (addon.days != null) return Math.max(1, parseInt(addon.days, 10) || 1);
+  if (addon.quantity != null && (addon.service_type === 'wetsuit' || addon.service_type === 'surfboard')) {
+    return Math.max(1, parseInt(addon.quantity, 10) || 1);
+  }
+  return Math.max(1, parseInt(addon.quantity, 10) || 1);
+}
+
+/**
+ * Map Luna/Hermes add-on payloads to wolfhouse quote calculator codes.
+ */
+function normalizeLunaBookingAddOnsInput(addOns) {
+  const out = [];
+  for (const raw of (addOns || [])) {
+    if (!raw || typeof raw !== 'object') continue;
+    let code = String(raw.code || raw.addon_code || raw.service_type || '').trim().toLowerCase();
+    if (!code) continue;
+    code = LUNA_ADDON_CODE_ALIASES[code] || code;
+
+    if (raw.board_type != null || raw.boardType != null) {
+      const bt = String(raw.board_type || raw.boardType).trim().toLowerCase();
+      if (bt === 'hard') code = 'hard_board_rental';
+      else if (bt === 'soft') code = 'soft_top_rental';
+    }
+
+    if (code === 'wetsuit_rental' || code === 'soft_top_rental' || code === 'hard_board_rental'
+      || code === 'wetsuit_soft_top_combo' || code === 'wetsuit_hard_board_combo') {
+      out.push({ code, days: rentalDaysFromAddOn(raw) });
+      continue;
+    }
+    if (code === 'surf_lesson_single' || code === 'surf_lesson_multi') {
+      out.push({ code: 'surf_lesson_single', quantity: Math.max(1, parseInt(raw.quantity, 10) || 1) });
+      continue;
+    }
+    if (code === 'yoga_class') {
+      out.push({ code, quantity: Math.max(1, parseInt(raw.quantity, 10) || 1) });
+      continue;
+    }
+    if (code === 'meals' || code === 'meal') {
+      out.push({ code: 'meals', quantity: Math.max(1, parseInt(raw.quantity, 10) || 1) });
+      continue;
+    }
+    out.push({ ...raw, code });
+  }
+  return out;
+}
+
+/**
+ * Merge wetsuit + board rentals into combo quote lines (same-day promo).
+ */
+function normalizeQuoteAddOnsForCombo(addOns) {
+  const list = normalizeLunaBookingAddOnsInput(addOns);
+  const out = [];
+  const used = new Set();
+
+  function take(code) {
+    const idx = list.findIndex((a, i) => !used.has(i) && a.code === code);
+    if (idx < 0) return null;
+    used.add(idx);
+    return list[idx];
+  }
+
+  for (let i = 0; i < list.length; i++) {
+    if (used.has(i)) continue;
+    const item = list[i];
+    if (item.code === 'wetsuit_soft_top_combo' || item.code === 'wetsuit_hard_board_combo') {
+      out.push(item);
+      used.add(i);
+    }
+  }
+
+  for (let i = 0; i < list.length; i++) {
+    if (used.has(i)) continue;
+    const wetsuit = list[i].code === 'wetsuit_rental' ? list[i] : null;
+    if (!wetsuit) continue;
+
+    const softIdx = list.findIndex((a, j) => !used.has(j) && j !== i && a.code === 'soft_top_rental'
+      && rentalDaysFromAddOn(a) === rentalDaysFromAddOn(wetsuit));
+    const hardIdx = list.findIndex((a, j) => !used.has(j) && j !== i && a.code === 'hard_board_rental'
+      && rentalDaysFromAddOn(a) === rentalDaysFromAddOn(wetsuit));
+
+    if (softIdx >= 0) {
+      used.add(i);
+      used.add(softIdx);
+      out.push({ code: 'wetsuit_soft_top_combo', days: rentalDaysFromAddOn(wetsuit) });
+      continue;
+    }
+    if (hardIdx >= 0) {
+      used.add(i);
+      used.add(hardIdx);
+      out.push({ code: 'wetsuit_hard_board_combo', days: rentalDaysFromAddOn(wetsuit) });
+      continue;
+    }
+  }
+
+  for (let i = 0; i < list.length; i++) {
+    if (!used.has(i)) out.push(list[i]);
+  }
+  return out;
+}
+
 /**
  * Pure pricing preview for Luna guest add-ons (post-booking).
  * @param {string} serviceType
@@ -306,4 +420,6 @@ module.exports = {
   rentalDaysFromRecord,
   isPaidServiceRecord,
   parseServiceMetadata,
+  normalizeLunaBookingAddOnsInput,
+  normalizeQuoteAddOnsForCombo,
 };

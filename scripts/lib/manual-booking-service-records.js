@@ -43,6 +43,7 @@ function staffUiTypeForAddonCode(code) {
  */
 function buildManualBookingServiceRecordRows({
   addOns, quote, clientSlug, bookingId, bookingCode, guestName, checkIn, guestCount,
+  source = 'staff_manual',
 }) {
   void checkIn;
   void guestCount;
@@ -74,7 +75,7 @@ function buildManualBookingServiceRecordRows({
       amount_due_cents:   amt,
       amount_paid_cents:  0,
       payment_status:     servicePaymentStatus(amt),
-      source:             'staff_manual',
+      source:             source,
       notes:              null,
       metadata:           meta,
     });
