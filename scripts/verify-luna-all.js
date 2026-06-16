@@ -28,6 +28,7 @@ const full = process.argv.includes('--full');
 const steps = [
   ['verify:luna-soul-clean', 'verify-luna-soul-clean.js'],
   ['verify:guest-addon-pricing', 'verify-guest-addon-pricing.js'],
+  ['verify:per-person-gear-room-pref', 'verify-per-person-gear-room-pref.js'],
   ['verify:short-stay-booking-create', 'verify-short-stay-booking-create.js'],
   ['verify:rental-invoice-line-text', 'verify-rental-invoice-line-text.js'],
   ['verify:guest-agent-session-reset', 'verify-guest-agent-session-reset.js'],

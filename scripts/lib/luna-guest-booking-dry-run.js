@@ -20,6 +20,8 @@ const path = require('path');
 
 const { calculateWolfhouseQuote } = require('./wolfhouse-quote-calculator');
 const { normalizeQuoteAddOnsForCombo } = require('./guest-addon-pricing');
+const { buildBotQuoteIncludedItems } = require('./bot-quote-included-items');
+const { computeWolfhouseRoomOptionFlags } = require('./wolfhouse-room-options');
 const {
   resolveBotBookingPackageContext,
   buildBotQuoteReplyDraft,
@@ -238,7 +240,7 @@ function runBookingPreviewDryRun(fields) {
   });
   const effectivePackageCode = pkgCtx.quotePackageCode;
   const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
-  const addOns = normalizeQuoteAddOnsForCombo(fields.add_ons);
+  const addOns = normalizeQuoteAddOnsForCombo(fields.add_ons, fields.guest_count || 0);
 
   const fieldValues = {
     check_in:       fields.check_in || null,
@@ -302,6 +304,13 @@ function runBookingPreviewDryRun(fields) {
     replyDraft = 'Let me check those dates and get back to you.';
   }
 
+  const includedItems = (quote && quote.success)
+    ? buildBotQuoteIncludedItems(quote, {
+      isNoPackage: pkgCtx.isNoPackage,
+      hasAddOns: addOns.length > 0,
+    })
+    : null;
+
   return {
     preview_only:        true,
     no_write_performed:  true,
@@ -315,6 +324,7 @@ function runBookingPreviewDryRun(fields) {
     next_action:         nextAction,
     reply_draft:         replyDraft,
     quote,
+    included_items:      includedItems,
     quote_error:         quoteError || null,
     availability_note: {
       status:  'not_checked',
@@ -421,6 +431,8 @@ async function runAvailabilityCheckDryRun(fields, pg) {
 
   if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
 
+  const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount);
+
   return {
     preview_only:        true,
     no_write_performed:  true,
@@ -430,6 +442,12 @@ async function runAvailabilityCheckDryRun(fields, pg) {
     check_out:           checkOut,
     guest_count:         guestCount,
     room_type:           roomType,
+    girls_room_available:   roomOptionFlags.girls_room_available,
+    private_room_available: roomOptionFlags.private_room_available,
+    room_options: {
+      girls_room_available:   roomOptionFlags.girls_room_available,
+      private_room_available: roomOptionFlags.private_room_available,
+    },
     selected_bed_codes:  selectedBedCodes,
     selected_room_code:  selectedRoomCode,
     has_enough_beds:     hasEnoughBeds,

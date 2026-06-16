@@ -97,6 +97,33 @@ function rentalDaysFromAddOn(addon) {
   return Math.max(1, parseInt(addon.quantity, 10) || 1);
 }
 
+function rentalPeopleFromAddOn(addon, guestCountDefault = 1) {
+  if (!addon) return Math.max(1, Number(guestCountDefault) || 1);
+  if (addon.people != null) return Math.max(1, parseInt(addon.people, 10) || 1);
+  if (addon.quantity != null && addon.days != null) {
+    return Math.max(1, parseInt(addon.quantity, 10) || 1);
+  }
+  return Math.max(1, Number(guestCountDefault) || 1);
+}
+
+const PER_DAY_RENTAL_CODES = new Set([
+  'wetsuit_rental', 'soft_top_rental', 'hard_board_rental',
+  'wetsuit_soft_top_combo', 'wetsuit_hard_board_combo',
+]);
+
+function applyPerPersonRentalDefaults(addOns, guestCount) {
+  const defaultPeople = Math.max(1, Number(guestCount) || 1);
+  return (addOns || []).map((raw) => {
+    if (!raw || typeof raw !== 'object') return raw;
+    let code = String(raw.code || raw.addon_code || raw.service_type || '').trim().toLowerCase();
+    code = LUNA_ADDON_CODE_ALIASES[code] || code;
+    if (!PER_DAY_RENTAL_CODES.has(code)) return raw;
+    const days = raw.days != null ? Math.max(1, parseInt(raw.days, 10) || 1) : rentalDaysFromAddOn(raw);
+    const quantity = rentalPeopleFromAddOn(raw, defaultPeople);
+    return { ...raw, code: raw.code || code, days, quantity };
+  });
+}
+
 /**
  * Map Luna/Hermes add-on payloads to wolfhouse quote calculator codes.
  */
@@ -116,7 +143,12 @@ function normalizeLunaBookingAddOnsInput(addOns) {
 
     if (code === 'wetsuit_rental' || code === 'soft_top_rental' || code === 'hard_board_rental'
       || code === 'wetsuit_soft_top_combo' || code === 'wetsuit_hard_board_combo') {
-      out.push({ code, days: rentalDaysFromAddOn(raw) });
+      const days = raw.days != null ? Math.max(1, parseInt(raw.days, 10) || 1) : rentalDaysFromAddOn(raw);
+      const item = { code, days };
+      if (raw.quantity != null || raw.people != null) {
+        item.quantity = rentalPeopleFromAddOn(raw, 1);
+      }
+      out.push(item);
       continue;
     }
     if (code === 'surf_lesson_single' || code === 'surf_lesson_multi') {
@@ -140,15 +172,19 @@ function normalizeLunaBookingAddOnsInput(addOns) {
  * Merge wetsuit + board rentals into combo quote lines (same-day promo).
  * Overlapping days: wetsuit is free for days covered by a board rental.
  */
-function normalizeQuoteAddOnsForCombo(addOns) {
-  const list = normalizeLunaBookingAddOnsInput(addOns);
+function normalizeQuoteAddOnsForCombo(addOns, guestCount) {
+  const list = normalizeLunaBookingAddOnsInput(applyPerPersonRentalDefaults(addOns, guestCount));
   const out = [];
   const used = new Set();
+  const defaultPeople = Math.max(1, Number(guestCount) || 1);
 
   for (let i = 0; i < list.length; i++) {
     const item = list[i];
     if (item.code === 'wetsuit_soft_top_combo' || item.code === 'wetsuit_hard_board_combo') {
-      out.push(item);
+      out.push({
+        ...item,
+        quantity: rentalPeopleFromAddOn(item, defaultPeople),
+      });
       used.add(i);
     }
   }
@@ -171,17 +207,28 @@ function normalizeQuoteAddOnsForCombo(addOns) {
 
       used.add(i);
       used.add(bIdx);
-      out.push({ code: comboCode, days: overlap });
+      const people = Math.min(
+        rentalPeopleFromAddOn(list[i], defaultPeople),
+        rentalPeopleFromAddOn(list[bIdx], defaultPeople),
+      );
+      out.push({ code: comboCode, days: overlap, quantity: people });
       const extraBoard = bDays - overlap;
       const extraWetsuit = wDays - overlap;
-      if (extraBoard > 0) out.push({ code: boardCode, days: extraBoard });
-      if (extraWetsuit > 0) out.push({ code: 'wetsuit_rental', days: extraWetsuit });
+      if (extraBoard > 0) out.push({ code: boardCode, days: extraBoard, quantity: people });
+      if (extraWetsuit > 0) out.push({ code: 'wetsuit_rental', days: extraWetsuit, quantity: people });
       break;
     }
   }
 
   for (let i = 0; i < list.length; i++) {
-    if (!used.has(i)) out.push(list[i]);
+    if (!used.has(i)) {
+      const item = list[i];
+      if (PER_DAY_RENTAL_CODES.has(item.code) && item.quantity == null) {
+        out.push({ ...item, quantity: rentalPeopleFromAddOn(item, defaultPeople) });
+      } else {
+        out.push(item);
+      }
+    }
   }
   return out;
 }
@@ -417,5 +464,7 @@ module.exports = {
   isPaidServiceRecord,
   parseServiceMetadata,
   normalizeLunaBookingAddOnsInput,
+  applyPerPersonRentalDefaults,
+  rentalPeopleFromAddOn,
   normalizeQuoteAddOnsForCombo,
 };

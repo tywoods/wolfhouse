@@ -439,14 +439,17 @@ function calculateWolfhouseQuote(input, config) {
     }
 
     if (cfgA.pricing_unit === 'per_day') {
-      const days  = Math.max(1, parseInt(addon.days, 10) || 1);
-      const unit  = cfgA.price_cents;
-      const total = unit * days;
+      const days = Math.max(1, parseInt(addon.days, 10) || 1);
+      const people = Math.max(1, parseInt(addon.quantity, 10) || parseInt(addon.people, 10) || 1);
+      const unit = cfgA.price_cents;
+      const total = unit * days * people;
       addons_cents += total;
       line_items.push({
         code: addon.code,
-        label: `${cfgA.name} (${days} day${days !== 1 ? 's' : ''} × ${unit / 100}€)`,
+        label: `${cfgA.name} (${days} day${days !== 1 ? 's' : ''} × ${people} ${people !== 1 ? 'people' : 'person'} × ${unit / 100}€)`,
         days,
+        quantity: people,
+        people_count: people,
         unit_cents: unit,
         total_cents: total,
       });

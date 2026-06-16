@@ -223,8 +223,9 @@ function classifyServiceInterestPricing(serviceInterest, clientSlug) {
   return { priced, pending_manual: pendingManual, config_loaded: !!config };
 }
 
-function mapServiceInterestToQuoteAddOns(serviceInterest, nights) {
+function mapServiceInterestToQuoteAddOns(serviceInterest, nights, guestCount = 1) {
   const stayDays = Math.max(1, Number(nights) || 1);
+  const peopleDefault = Math.max(1, Number(guestCount) || 1);
   const codes = normalizeServiceInterestCodes(serviceInterest);
   const out = [];
   let lessonQty = 0;
@@ -233,7 +234,7 @@ function mapServiceInterestToQuoteAddOns(serviceInterest, nights) {
     const map = INTAKE_TO_QUOTE[intakeCode];
     if (!map) continue;
     if (map.unit === 'per_day') {
-      out.push({ code: map.code, days: stayDays });
+      out.push({ code: map.code, days: stayDays, quantity: peopleDefault });
     } else if (map.unit === 'per_lesson') {
       lessonQty += 1;
     } else if (map.unit === 'per_class' || map.unit === 'per_meal') {
@@ -248,7 +249,7 @@ function mapServiceInterestToQuoteAddOns(serviceInterest, nights) {
   return out;
 }
 
-function normalizeAddOnsForQuote(serviceInterest, nights) {
+function normalizeAddOnsForQuote(serviceInterest, nights, guestCount = 1) {
   if (!Array.isArray(serviceInterest) || !serviceInterest.length) return [];
   const objectItems = serviceInterest.filter((item) => item && typeof item === 'object' && item.code);
   if (objectItems.length) {
@@ -258,7 +259,26 @@ function normalizeAddOnsForQuote(serviceInterest, nights) {
       quantity: item.quantity != null ? Number(item.quantity) : undefined,
     }));
   }
-  return mapServiceInterestToQuoteAddOns(serviceInterest, nights);
+  return mapServiceInterestToQuoteAddOns(serviceInterest, nights, guestCount);
+}
+
+/** "We'll take a board" for N guests → N boards unless guest names a smaller count. */
+function inferGroupGearPeopleCount(messageText, guestCount, explicitCount) {
+  if (explicitCount != null && Number(explicitCount) > 0) {
+    return Math.min(Math.max(1, Number(guestCount) || 1), Math.max(1, Number(explicitCount)));
+  }
+  const t = String(messageText || '');
+  const gc = Math.max(1, Number(guestCount) || 1);
+  const explicitPeople = t.match(/\b(?:for\s+)?(\d+)\s+(?:people|persons?|guests?|of\s+us|ppl)\b/i);
+  if (explicitPeople) {
+    return Math.min(gc, Math.max(1, parseInt(explicitPeople[1], 10) || 1));
+  }
+  const onlySome = t.match(/\b(?:just|only)\s+(?:me|one|1)\b/i);
+  if (onlySome) return 1;
+  if (/\b(?:we(?:'ll|\s+will)?\s+(?:take|want|need|get)|we\s+want|for\s+all\s+of\s+us|everyone)\b/i.test(t)) {
+    return gc;
+  }
+  return gc;
 }
 
 function detectPricedAddonQuoteChange(priorFields, currentFields, clientSlug) {
@@ -424,6 +444,7 @@ module.exports = {
   classifyServiceInterestPricing,
   mapServiceInterestToQuoteAddOns,
   normalizeAddOnsForQuote,
+  inferGroupGearPeopleCount,
   detectPricedAddonQuoteChange,
   resolveAddOnsStatus,
   extractTransferObservability,

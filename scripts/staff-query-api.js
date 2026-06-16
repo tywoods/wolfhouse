@@ -270,6 +270,8 @@ const {
   resolveGuestAddonComboPricing,
   normalizeQuoteAddOnsForCombo,
 } = require('./lib/guest-addon-pricing');
+const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
+const { computeWolfhouseRoomOptionFlags } = require('./lib/wolfhouse-room-options');
 const {
   resolveBotBookingPackageContext,
   isNoPackageBookingCode,
@@ -8123,6 +8125,8 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     blockers.push('not_enough_available_beds');
   }
 
+  const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount);
+
   const nextAction = hasEnoughBeds ? 'ready_for_bot_create' : 'ask_staff_or_alternate_dates';
 
   const elapsed = Date.now() - started;
@@ -8141,6 +8145,13 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     check_out:           checkOut,
     guest_count:         guestCount,
     room_type:           roomType,
+    gender_preference:   genderPref || null,
+    girls_room_available:    roomOptionFlags.girls_room_available,
+    private_room_available:  roomOptionFlags.private_room_available,
+    room_options: {
+      girls_room_available:   roomOptionFlags.girls_room_available,
+      private_room_available: roomOptionFlags.private_room_available,
+    },
     selected_bed_codes:  selectedBedCodes,
     selected_room_code:  selectedRoomCode,
     has_enough_beds:     hasEnoughBeds,
@@ -9725,7 +9736,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
           guest_packages: guestPackagesForQuote,
           room_type:      roomType || 'shared',
           payment_choice: paymentChoice || 'deposit',
-          add_ons:        normalizeQuoteAddOnsForCombo(addOns),
+          add_ons:        normalizeQuoteAddOnsForCombo(addOns, guestCount),
         });
       } catch (err) {
         quoteError = err.message;
@@ -9768,6 +9779,14 @@ async function handleBotBookingPreview(req, res, user, authMode) {
 
   // ── Audit log ─────────────────────────────────────────────────────────────
   const elapsed = Date.now() - started;
+  const normalizedAddOns = normalizeQuoteAddOnsForCombo(addOns, guestCount || 0);
+  const includedItems = (quote && quote.success)
+    ? buildBotQuoteIncludedItems(quote, {
+      isNoPackage: pkgCtx.isNoPackage,
+      hasAddOns: normalizedAddOns.length > 0,
+    })
+    : null;
+
   appendAuditLog({
     ts:                  new Date().toISOString(),
     intent:              'api:bot_booking_preview',
@@ -9808,11 +9827,12 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     next_action:         nextAction,
     reply_draft:         replyDraft,
     quote,
+    included_items:      includedItems,
     quote_error:         quoteError || (packageNightViolation ? packageNightViolation.error : null),
     package_night_rule:  packageNightViolation || null,
     availability: {
       status:  'not_checked',
-      message: 'Availability requires specific bed codes. Call /staff/manual-bookings/preview with selected_bed_codes for a full conflict check.',
+      message: 'Availability requires specific bed codes. Call /staff/bot/availability-check for bed flags and selected_bed_codes.',
     },
     email_recommended: !email,
     auth_mode:         resolvedAuthMode,
@@ -13008,7 +13028,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const storagePackageCode = pkgCtx.storagePackageCode;
   const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
   const roomType      = String(body.room_type  || 'shared').trim().slice(0, 20);
-  const addOns        = normalizeQuoteAddOnsForCombo(body.add_ons);
+  const addOns        = normalizeQuoteAddOnsForCombo(body.add_ons, guestCount);
+  const roomPreference = String(body.room_preference || '').trim().slice(0, 200) || null;
+  const genderPreference = body.gender_preference ? String(body.gender_preference).trim().slice(0, 50) : null;
   const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();
   const paymentKind   = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
   const confirmFlag   = body.confirm === true;
@@ -13117,7 +13139,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
           guestCount,        // $12
             selectedBedCodes,  // $13 text[]
             storagePackageCode, // $14 — null for accommodation-only
-            null,              // $15 room_preference
+            roomPreference,    // $15 room_preference
           bookingStatus,     // $16
           paymentStatus,     // $17
           depositCents,      // $18
@@ -13149,7 +13171,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
                  metadata               = metadata || $5::jsonb
            WHERE id = $6`,
           [
-            totalCents, depositCents, quote.balance_due_cents, roomType,
+            totalCents, depositCents, quote.balance_due_cents, roomPreference || roomType,
             JSON.stringify({
               quote_snapshot:    quote,
               payment_choice:    paymentChoice,
@@ -13158,6 +13180,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
               package_code: effectivePackageCode,
               accommodation_only: pkgCtx.isNoPackage,
               bot_source:        source,
+              ...(genderPreference ? { gender_preference: genderPreference } : {}),
             }),
             result.booking_id,
           ],
@@ -20509,6 +20532,36 @@ function bcResolveRentalInvoiceUnitCents(sr, meta, totalCents, displayQty){
   return null;
 }
 
+function bcPluralUnit(count, singular, plural){
+  var n = Number(count);
+  if (n === 1) return singular;
+  return plural;
+}
+
+function bcResolveRentalPeopleFromMeta(meta, qty, serviceType){
+  if (meta.rental_people != null && Number(meta.rental_people) > 0) {
+    return Math.max(1, Number(meta.rental_people));
+  }
+  if (serviceType !== 'wetsuit' && serviceType !== 'surfboard') return null;
+  var days = meta.rental_days != null ? Number(meta.rental_days) : null;
+  var q = qty != null ? Number(qty) : null;
+  if (days != null && days > 0 && q != null && q > days) {
+    return Math.max(1, Math.round(q / days));
+  }
+  return null;
+}
+
+function bcFormatRentalPeopleDaysLine(label, days, people, totalCents, freeNote){
+  var d = Math.max(1, Number(days) || 1);
+  var p = Math.max(1, Number(people) || 1);
+  var dayWord = bcPluralUnit(d, 'day', 'days');
+  var peopleWord = bcPluralUnit(p, 'person', 'people');
+  var base = label + ' \\u2014 ' + d + ' rental ' + dayWord + ' \\u00d7 ' + p + ' ' + peopleWord;
+  if (freeNote) return base + ' \\u2014 ' + freeNote;
+  if (totalCents == null || isNaN(Number(totalCents))) return base;
+  return base + ' = \\u20ac' + (Number(totalCents) / 100).toFixed(2);
+}
+
 /* Phase 10.6b — payment ledger helpers (paid truth from payment rows only) */
 function bcPaymentLedgerParseMetadata(raw){
   if (raw && typeof raw === 'object') return raw;
@@ -20774,11 +20827,24 @@ function bcRunningInvoiceSvcLineText(sr){
   if (totalCents == null || (totalCents === 0 && sr.amount_due_cents == null)) {
     return label + ' \u2014 Not available';
   }
+  var rentalPeople = bcResolveRentalPeopleFromMeta(meta, sr.quantity, sr.service_type);
+  var rentalDays = meta.rental_days != null ? Number(meta.rental_days) : qty;
+  if (
+    (sr.service_type === 'wetsuit' || sr.service_type === 'surfboard')
+    && rentalDays != null && rentalDays > 0
+    && rentalPeople != null && rentalPeople > 0
+  ) {
+    if (totalCents === 0 && meta.combo_part === 'wetsuit') {
+      return bcFormatRentalPeopleDaysLine(label, rentalDays, rentalPeople, 0, 'free with board 🤙');
+    }
+    return bcFormatRentalPeopleDaysLine(label, rentalDays, rentalPeople, totalCents, null);
+  }
   var unitLabel = bcRunningInvoiceSvcUnitLabel(sr.service_type);
   var unitCents = bcResolveRentalInvoiceUnitCents(sr, meta, totalCents, qty);
   if (qty != null && qty > 0 && totalCents >= 0){
     if (unitLabel && unitCents != null){
-      return label + ' \u2014 ' + qty + ' ' + unitLabel + ' \u00d7 ' + eur(unitCents) + ' = ' + eur(totalCents);
+      var dayWord = bcPluralUnit(qty, 'day', 'days');
+      return label + ' \u2014 ' + qty + ' ' + (unitLabel === 'days' ? dayWord : unitLabel) + ' \u00d7 ' + eur(unitCents) + ' = ' + eur(totalCents);
     }
     return label + ' \u2014 ' + qty + ' \u00d7 ' + eur(totalCents) + ' = ' + eur(totalCents);
   }

@@ -200,6 +200,8 @@ def check_availability(params, **kwargs):
     }
     if params.get("gender_preference"):
         payload["gender_preference"] = params.get("gender_preference")
+    if params.get("room_preference"):
+        payload["room_preference"] = params.get("room_preference")
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
     return _json_result({
@@ -212,6 +214,9 @@ def check_availability(params, **kwargs):
         "staff_review_needed": status == "unclear" or bool(data.get("staff_review_needed")),
         "selected_bed_codes": data.get("selected_bed_codes") or [],
         "available_count": data.get("available_count"),
+        "girls_room_available": data.get("girls_room_available"),
+        "private_room_available": data.get("private_room_available"),
+        "room_options": data.get("room_options") or {},
         "warnings": data.get("warnings") or [],
         "blockers": data.get("blockers") or [],
         "next_action": data.get("next_action"),
@@ -397,7 +402,9 @@ def create_booking_from_plan(params, **kwargs):
                 "check_in": payload.get("check_in"),
                 "check_out": payload.get("check_out"),
                 "guest_count": payload.get("guest_count", 1),
-                "room_type": payload.get("room_type", "shared"),
+                "room_type": payload.get("room_type") or payload.get("room_preference") or "shared",
+                **({"room_preference": payload.get("room_preference")} if payload.get("room_preference") else {}),
+                **({"gender_preference": payload.get("gender_preference")} if payload.get("gender_preference") else {}),
             })
             bed_codes = avail_data.get("selected_bed_codes") or []
             if bed_codes:
@@ -901,6 +908,8 @@ def register(ctx):
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
+        "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Pass through from the guest's answer."},
+        "gender_preference": {"type": "string", "description": "Inferred or guest-stated gender grouping for room assignment (e.g. female_only, mixed, solo_female). Never ask 'are you a girl' — infer silently from the booking name when needed."},
         "package_code": {"type": "string", "description": "malibu, uluwatu, waimea for 7+ nights; package_none for short stays / accommodation-only."},
         "guest_packages": {"type": "array", "description": "Optional per-guest packages, e.g. [{guest_number:1, package_code:'malibu'}]. If one package applies to all guests, include one entry per guest with the same package.", "items": {"type": "object"}},
     }

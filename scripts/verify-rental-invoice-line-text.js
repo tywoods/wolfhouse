@@ -69,15 +69,17 @@ section('A. Write-time — manual booking rows are quantity/days/amount consiste
     bookingId: '00000000-0000-0000-0000-000000000001',
     bookingCode: 'MB-WOLFHO-20260901-TEST',
     guestName: 'Test Guest',
+    guestCount: 1,
   });
   const board = rows.find((r) => r.service_type === 'surfboard');
   const wetsuit = rows.find((r) => r.service_type === 'wetsuit');
-  check('A1', board && board.quantity === 3, 'surfboard quantity = 3');
-  check('A2', board.amount_due_cents === 4500, 'surfboard amount = 3 × €15');
+  check('A1', board && board.quantity === 3, 'surfboard quantity = rental days');
+  check('A2', board.amount_due_cents === 4500, 'surfboard amount = 3 days × 1 person × €15');
   check('A3', board.metadata.rental_days === 3, 'surfboard rental_days = 3');
-  check('A4', board.metadata.unit_cents === rates.soft_top_rental, 'surfboard unit_cents = €15/day');
-  check('A5', wetsuit && wetsuit.quantity === 3 && wetsuit.amount_due_cents === 0, 'combo wetsuit qty=3 amount=0');
-  check('A6', wetsuit.metadata.unit_cents === 0, 'combo wetsuit unit_cents = 0');
+  check('A4', board.metadata.rental_people === 1, 'surfboard rental_people = 1');
+  check('A5', board.metadata.unit_cents === rates.soft_top_rental, 'surfboard unit_cents = €15/day');
+  check('A6', wetsuit && wetsuit.quantity === 3 && wetsuit.amount_due_cents === 0, 'combo wetsuit qty=3 amount=0');
+  check('A7', wetsuit.metadata.unit_cents === 0, 'combo wetsuit unit_cents = 0');
 }
 
 section('B. Split metadata — per-day rows get rental_days = 1');
@@ -99,6 +101,7 @@ section('C. Payments line — unit equals configured day-rate (MB-WOLFHO bug sce
     amount_due_cents: 1500,
     metadata: {
       rental_days: 3,
+      rental_people: 1,
       board_variant: 'soft',
       staff_ui_service_type: 'soft_board',
       source_quote_line_code: 'wetsuit_soft_top_combo',
@@ -121,7 +124,7 @@ section('C. Payments line — unit equals configured day-rate (MB-WOLFHO bug sce
   const text = lineText(splitRow);
   check('C1', displayQty === 1, 'display qty is 1 (not span 3)');
   check('C2', unit === rates.soft_top_rental, 'unit is soft board €15/day (not €5)');
-  check('C3', text === 'Soft board — 1 days × €15.00 = €15.00', `line: ${text}`);
+  check('C3', text === 'Soft board — 3 rental days × 1 person = €15.00', `line: ${text}`);
 
   const aggregated = {
     service_type: 'surfboard',
@@ -129,6 +132,7 @@ section('C. Payments line — unit equals configured day-rate (MB-WOLFHO bug sce
     amount_due_cents: 4500,
     metadata: {
       rental_days: 3,
+      rental_people: 1,
       board_variant: 'soft',
       staff_ui_service_type: 'soft_board',
       source_quote_line_code: 'wetsuit_soft_top_combo',
@@ -136,7 +140,7 @@ section('C. Payments line — unit equals configured day-rate (MB-WOLFHO bug sce
     },
   };
   const aggText = lineText(aggregated);
-  check('C4', aggText === 'Soft board — 3 days × €15.00 = €45.00', `aggregated: ${aggText}`);
+  check('C4', aggText === 'Soft board — 3 rental days × 1 person = €45.00', `aggregated: ${aggText}`);
 }
 
 section('D. Wetsuit + hard board rates');
@@ -145,21 +149,22 @@ section('D. Wetsuit + hard board rates');
     service_type: 'wetsuit',
     quantity: 3,
     amount_due_cents: 1500,
-    metadata: { rental_days: 3, source_quote_line_code: 'wetsuit_rental', unit_cents: rates.wetsuit_rental },
+    metadata: { rental_days: 3, rental_people: 1, source_quote_line_code: 'wetsuit_rental', unit_cents: rates.wetsuit_rental },
   };
   const hardRow = {
     service_type: 'surfboard',
-    quantity: 1,
+    quantity: 3,
     amount_due_cents: 2000,
     metadata: {
       rental_days: 3,
+      rental_people: 1,
       board_variant: 'hard',
       staff_ui_service_type: 'hard_board',
       source_quote_line_code: 'hard_board_rental',
     },
   };
-  check('D1', lineText(wetsuitRow).includes('× €5.00 = €15.00'), 'wetsuit 3 × €5');
-  check('D2', lineText(hardRow).includes('× €20.00 = €20.00'), 'hard board split 1 × €20');
+  check('D1', lineText(wetsuitRow).includes('3 rental days × 1 person = €15.00'), 'wetsuit people×days line');
+  check('D2', lineText(hardRow).includes('3 rental days × 1 person = €20.00'), 'hard board people×days line');
   check('D3', resolveRentalInvoiceUnitCents({
     serviceType: 'wetsuit',
     metadata: { combo_part: 'wetsuit' },
@@ -177,28 +182,28 @@ section('E. Services schedule totals unchanged');
       service_type: 'surfboard',
       quantity: 1,
       amount_due_cents: 1500,
-      metadata: { rental_days: 3, board_variant: 'soft', staff_ui_service_type: 'soft_board' },
+      metadata: { rental_days: 3, rental_people: 1, board_variant: 'soft', staff_ui_service_type: 'soft_board' },
     },
     {
       id: '2',
       service_type: 'surfboard',
       quantity: 1,
       amount_due_cents: 1500,
-      metadata: { rental_days: 3, board_variant: 'soft', staff_ui_service_type: 'soft_board' },
+      metadata: { rental_days: 3, rental_people: 1, board_variant: 'soft', staff_ui_service_type: 'soft_board' },
     },
     {
       id: '3',
       service_type: 'surfboard',
       quantity: 1,
       amount_due_cents: 1500,
-      metadata: { rental_days: 3, board_variant: 'soft', staff_ui_service_type: 'soft_board' },
+      metadata: { rental_days: 3, rental_people: 1, board_variant: 'soft', staff_ui_service_type: 'soft_board' },
     },
   ];
   const svcTotal = rows.reduce((s, r) => s + (formatServiceRecordForSchedule(r).total_price_cents || 0), 0);
   const invoiceTotal = rows.reduce((s, r) => s + billable(r), 0);
   check('E1', svcTotal === 4500, 'services tab total €45');
   check('E2', invoiceTotal === 4500, 'invoice billable total €45');
-  check('E3', rows.every((r) => lineText(r).includes('€15.00')), 'each payment line shows €15/day unit');
+  check('E3', rows.every((r) => lineText(r).includes('rental days × 1 person')), 'each payment line shows people×days');
 }
 
 console.log(`\n── verify-rental-invoice-line-text ${failures ? 'FAILED' : 'PASSED'} (${passes}/${passes + failures}) ──\n`);
