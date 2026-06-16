@@ -99,9 +99,15 @@ function assertRepoSync() {
 function buildImage() {
   assertRepoSync();
   assertSoulClean();
-  console.error('[vm] building staging image on ACR...');
-  az(`acr build --registry ${HERMES_VM.ACR} --image wh-hermes-staging:latest --file docker/hermes-staging/Dockerfile docker/hermes-staging`);
-  console.log(JSON.stringify({ ok: true, image: HERMES_VM.IMAGE }, null, 2));
+  const sha = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+  console.error(`[vm] building staging image on ACR (git ${sha})...`);
+  az(
+    `acr build --registry ${HERMES_VM.ACR} `
+    + `--image wh-hermes-staging:latest `
+    + `--image wh-hermes-staging:${sha} `
+    + `--file docker/hermes-staging/Dockerfile docker/hermes-staging`,
+  );
+  console.log(JSON.stringify({ ok: true, image: HERMES_VM.IMAGE, git_sha: sha, tagged: `wh-hermes-staging:${sha}` }, null, 2));
 }
 
 function ensureNsgRules() {

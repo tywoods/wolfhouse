@@ -559,11 +559,11 @@ def create_payment_link(params, **kwargs):
             "payment_id": payment_id,
             "guidance": (
                 "No draft payment matches this id. Do NOT call create_payment_link for an "
-                "add-on/service — the add-on payment link is returned by add_service_to_booking "
-                "(secure_payment_url in its result); re-send that link instead. create_payment_link "
-                "only accepts a deposit/balance payment_id from create_booking_from_plan."
+                "add-on/service — after add_service_to_booking call create_balance_payment_link "
+                "with the booking_code and send that balance link (covers all unpaid add-ons). "
+                "create_payment_link only accepts a deposit/balance payment_id from create_booking_from_plan."
             ),
-            "next_action": "use_add_service_payment_link",
+            "next_action": "create_balance_payment_link",
             "staff_review_needed": False,
             "do_not_escalate": True,
             "guest_safe_next_action": data.get("guest_safe_next_action"),
@@ -775,6 +775,13 @@ def add_service_to_booking(params, **kwargs):
             data.get("error") or data.get("message") or "payment_link_create_failed"
         )
 
+    balance_link_next = bool(data.get("success")) and write_ok and needs_link
+    addon_guidance = (
+        "Post-booking add-on recorded. Call create_balance_payment_link with this booking_code, "
+        "then send that secure_payment_url to the guest. One balance link covers all unpaid "
+        "add-ons plus any remaining accommodation balance — do NOT send the per-service checkout URL."
+    ) if balance_link_next else None
+
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "add_service_to_booking",
@@ -790,9 +797,16 @@ def add_service_to_booking(params, **kwargs):
         "service_record_id": data.get("service_record_id"),
         "payment_id": payment_id or None,
         "secure_payment_url": secure_url,
+        "per_service_checkout_url": secure_url,
+        "use_balance_payment_link": balance_link_next,
         "payment_link_created": bool(secure_url),
         "payment_link_error": payment_link_error,
-        "next_action": "send_secure_payment_link" if secure_url else (data.get("service_status") or data.get("next_action")),
+        "guidance": addon_guidance,
+        "next_action": (
+            "create_balance_payment_link"
+            if balance_link_next
+            else (data.get("service_status") or data.get("next_action"))
+        ),
         "reply_draft": data.get("reply_draft"),
         "staff_review_needed": (
             bool(data.get("staff_review_needed"))
@@ -923,10 +937,10 @@ def register(ctx):
         ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}, "add_ons": {"type": "array", "items": {"type": "object"}}}, ["check_in", "check_out", "guest_count"]),
         ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "add_ons": {"type": "array", "description": "Bundled add-ons for short-stay bookings, e.g. [{code:wetsuit_rental,days:3},{code:soft_top_rental,days:3}]. Same shape as quote_booking.", "items": {"type": "object"}}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment. Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}}, ["payment_id"]),
-        ("create_balance_payment_link", "Create a secure payment link for the REMAINING BALANCE on an existing booking (after a deposit). Use when the guest asks for the balance/remaining/outstanding/full payment link. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
+        ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest asks for balance/remaining link OR immediately after each successful add_service_to_booking. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("get_payment_status", "Check webhook-confirmed payment truth through Staff API. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
-        ("add_service_to_booking", "Record a service/add-on request through Staff API so staff can see it in Services. Services include surf lessons, gear rental, meals, yoga.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string"}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
+        ("add_service_to_booking", "Record a post-booking service/add-on (lessons, gear, yoga, meals). After success when payment is required, call create_balance_payment_link and send that one balance link — not the per-service checkout URL.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string"}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
         ("get_surf_report", "Get a guest-friendly Somo surf/wave report through Staff API when a guest asks about the waves, surf, or conditions. Returns an on-tone 'reply' to send. day is 'today' or 'tomorrow'. Degrades gracefully if live data isn't available.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),

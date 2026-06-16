@@ -115,6 +115,16 @@ sudo docker exec hermes-luna python3 /etc/hermes-staging/verify_plain_reply_patc
 
 Last line must print **`ALL OK`**. Anything else → patches missing; see recovery below.
 
+After a laptop push that changes `apply_gateway_patches.py` or Hermes staging Docker assets, rebuild from git SHA so Lunabox matches a reproducible commit:
+
+```bash
+# Laptop (after commit is on origin)
+node scripts/deploy-staging-hermes-vm.js build-image
+# Tags wh-hermes-staging:latest AND wh-hermes-staging:<git-sha> on ACR
+```
+
+Then on Lunabox: pull + recreate `hermes-luna` and run verify (below).
+
 ### Verify only (after restart/recreate)
 
 ```bash

@@ -4,10 +4,8 @@ Covers the staging-booking fixes:
   * Fix 1 - create_booking_from_plan auto-saves BOTH transfer directions, each
     linked by booking_id AND booking_code (the portal links transfers by
     booking_id; passing only booking_code left the portal empty).
-  * Fix 2 - add_service_to_booking surfaces the add-on's own payment link
-    (secure_payment_url) instead of discarding it, and create_payment_link
-    returns a clear wrong_id_type guidance (not a bare staff_review_needed 404)
-    when handed a service_record_id.
+  * Fix 2 - add_service_to_booking steers Luna to create_balance_payment_link (one
+    /pay/<booking_code> link for all unpaid add-ons), not per-service checkout URLs
 
 Pure-logic: _post_bot is monkeypatched, so there is no network or DB. Run inside
 the Hermes container (or any box with Python 3):
@@ -89,27 +87,29 @@ one = mod._auto_save_pending_transfers({"pending_transfer": {"direction": "arriv
 check("T7 single pending_transfer dict accepted", len(one) == 1 and one[0]["direction"] == "arrival")
 
 
-print("\n== Fix 2: add_service_to_booking surfaces the add-on payment link ==")
+print("\n== Fix 2: add_service_to_booking → create_balance_payment_link ==")
 
 fake = with_fake({
     "/addon-requests/create": {
         "success": True,
         "write_performed": True,
         "payment_required": True,
+        "booking_code": "MB-WOLFHO-20261001-8801A6",
         "service_type": "yoga",
         "service_record_id": "51c590a2-aaaa",
         "checkout_url": "https://checkout.stripe.com/c/pay/yoga123",
-        "guest_payment_url": "https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6",
-        "reply_draft": "Yoga added - pay here: https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6",
+        "guest_payment_url": "https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6-yoga",
+        "reply_draft": "Yoga added - pay here: https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6-yoga",
     },
 })
-res = json.loads(mod.add_service_to_booking({"booking_code": "WH-G27", "service_type": "yoga"}))
-check("S1 surfaces secure_payment_url from the service result",
-      res.get("secure_payment_url") == "https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6",
-      res.get("secure_payment_url"))
-check("S2 payment_link_created true", res.get("payment_link_created") is True)
-check("S3 not flagged for staff review when a link exists", res.get("staff_review_needed") is False)
-check("S4 next_action is send the link", res.get("next_action") == "send_secure_payment_link")
+res = json.loads(mod.add_service_to_booking({"booking_code": "MB-WOLFHO-20261001-8801A6", "service_type": "yoga"}))
+check("S1 records per-service checkout internally",
+      res.get("per_service_checkout_url") == "https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6-yoga",
+      res.get("per_service_checkout_url"))
+check("S2 use_balance_payment_link true", res.get("use_balance_payment_link") is True)
+check("S3 not flagged for staff review when write ok", res.get("staff_review_needed") is False)
+check("S4 next_action is create_balance_payment_link", res.get("next_action") == "create_balance_payment_link")
+check("S5 guidance mentions balance link", "create_balance_payment_link" in (res.get("guidance") or ""))
 
 # A paid service that wrote but produced NO link is the one real review case.
 fake = with_fake({
@@ -131,8 +131,8 @@ wrong = json.loads(mod.create_payment_link({"payment_id": "51c590a2-aaaa"}))
 check("P1 wrong_id_type flagged", wrong.get("wrong_id_type") is True, wrong.get("error"))
 check("P2 does NOT escalate to staff", wrong.get("staff_review_needed") is False)
 check("P3 marked do_not_escalate", wrong.get("do_not_escalate") is True)
-check("P4 guidance points to add_service_to_booking",
-      "add_service_to_booking" in (wrong.get("guidance") or ""))
+check("P4 guidance points to create_balance_payment_link",
+      "create_balance_payment_link" in (wrong.get("guidance") or ""))
 
 # A genuine deposit/balance payment_id still mints a link normally.
 fake = with_fake({
@@ -252,6 +252,84 @@ check("BAL8 no_balance_due reason", bal_paid.get("reason") == "no_balance_due")
 missing = json.loads(mod.create_balance_payment_link({}))
 check("BAL9 missing booking flags review", missing.get("staff_review_needed") is True)
 check("BAL10 missing booking error", missing.get("error") == "booking_id_or_code_required")
+
+
+print("\n== Post-booking add-ons: two services → one balance link ==")
+
+BOOKING = "MB-WOLFHO-20261001-8801A6"
+BALANCE_URL = "https://staff-staging.lunafrontdesk.com/pay/" + BOOKING
+YOGA_CENTS = 1500
+LESSON_CENTS = 3500
+TOTAL_CENTS = YOGA_CENTS + LESSON_CENTS
+
+addon_responses = {
+    "/addon-requests/create": [
+        {
+            "success": True,
+            "write_performed": True,
+            "payment_required": True,
+            "booking_code": BOOKING,
+            "service_type": "yoga",
+            "amount_due_cents": YOGA_CENTS,
+            "guest_payment_url": BALANCE_URL + "-yoga-only",
+        },
+        {
+            "success": True,
+            "write_performed": True,
+            "payment_required": True,
+            "booking_code": BOOKING,
+            "service_type": "surf_lesson",
+            "amount_due_cents": LESSON_CENTS,
+            "guest_payment_url": BALANCE_URL + "-lesson-only",
+        },
+    ],
+}
+
+
+class SequentialFakeBot:
+    def __init__(self, path_responses):
+        self.path_responses = path_responses
+        self.calls = []
+        self._addon_idx = 0
+
+    def __call__(self, path, payload):
+        self.calls.append((path, dict(payload or {})))
+        if "/addon-requests/create" in path:
+            seq = self.path_responses.get("/addon-requests/create") or []
+            resp = seq[min(self._addon_idx, len(seq) - 1)]
+            self._addon_idx += 1
+            return dict(resp)
+        for key, resp in self.path_responses.items():
+            if key != "/addon-requests/create" and key in path:
+                return dict(resp)
+        return {"success": True}
+
+
+seq_fake = SequentialFakeBot({
+    "/addon-requests/create": addon_responses["/addon-requests/create"],
+    "/create-balance-link": {
+        "success": True,
+        "booking_code": BOOKING,
+        "amount_due_cents": TOTAL_CENTS,
+        "balance_due_cents": TOTAL_CENTS,
+        "guest_payment_url": BALANCE_URL,
+        "next_action": "send_secure_payment_link",
+    },
+})
+mod._post_bot = seq_fake  # type: ignore[attr-defined]
+
+yoga = json.loads(mod.add_service_to_booking({"booking_code": BOOKING, "service_type": "yoga"}))
+lesson = json.loads(mod.add_service_to_booking({"booking_code": BOOKING, "service_type": "surf_lesson"}))
+check("A1 yoga steers to balance link", yoga.get("next_action") == "create_balance_payment_link")
+check("A2 lesson steers to balance link", lesson.get("next_action") == "create_balance_payment_link")
+check("A3 two addon writes", len([c for c in seq_fake.calls if "/addon-requests/create" in c[0]]) == 2)
+
+bal = json.loads(mod.create_balance_payment_link({"booking_code": BOOKING}))
+check("A4 one balance link URL", bal.get("secure_payment_url") == BALANCE_URL, bal.get("secure_payment_url"))
+check("A5 balance sums both services", bal.get("amount_cents") == TOTAL_CENTS, bal.get("amount_cents"))
+check("A6 balance link is booking-level /pay path", "/pay/" + BOOKING in (bal.get("secure_payment_url") or ""))
+check("A7 guest must not get per-service URLs from addon tool",
+      yoga.get("use_balance_payment_link") is True and lesson.get("use_balance_payment_link") is True)
 
 
 print("\n== Summary: {} passed, {} failed ==".format(PASSED, FAILED))
