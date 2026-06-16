@@ -74,6 +74,61 @@ section('C. Quote — bundled add-ons in total');
   check('C4', quote.payment_link_amount_cents === quote.total_cents, 'full payment includes add-ons');
 }
 
+section('C2. Combo — board+wetsuit equals board-only total (July 1–4, 2 guests, 3d)');
+{
+  const base = {
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-07-01',
+    check_out: '2026-07-04',
+    guest_count: 2,
+    package_code: 'package_none',
+    payment_choice: 'deposit',
+    add_ons: [],
+  };
+  const boardOnly = calculateWolfhouseQuote({
+    ...base,
+    add_ons: [{ code: 'soft_top_rental', days: 3 }],
+  });
+  const bundled = calculateWolfhouseQuote({
+    ...base,
+    add_ons: normalizeQuoteAddOnsForCombo([
+      { code: 'soft_top_rental', days: 3 },
+      { code: 'wetsuit_rental', days: 3 },
+    ]),
+  });
+  const unmerged = calculateWolfhouseQuote({
+    ...base,
+    add_ons: [
+      { code: 'soft_top_rental', days: 3 },
+      { code: 'wetsuit_rental', days: 3 },
+    ],
+  });
+  check('C2a', boardOnly.success && bundled.success, 'quotes succeed');
+  check('C2b', bundled.total_cents === boardOnly.total_cents, `bundle total €${bundled.total_cents / 100} == board-only €${boardOnly.total_cents / 100}`);
+  check('C2c', unmerged.total_cents === 33000, 'unmerged overcharges (€330)');
+  check('C2d', bundled.total_cents === 31500, 'merged short-stay total €315');
+}
+
+section('C3. Dry-run — combo + no shuttle for package_none');
+{
+  const { runBookingPreviewDryRun } = require('./lib/luna-guest-booking-dry-run');
+  const preview = runBookingPreviewDryRun({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-07-01',
+    check_out: '2026-07-04',
+    guest_count: 2,
+    package_code: 'package_none',
+    payment_choice: 'deposit',
+    add_ons: [
+      { code: 'soft_top_rental', days: 3 },
+      { code: 'wetsuit_rental', days: 3 },
+    ],
+  });
+  check('C3a', preview.quote && preview.quote.total_cents === 31500, 'dry-run quote €315 with combo');
+  check('C3b', preview.reply_draft && !/shuttle/i.test(preview.reply_draft), 'dry-run reply has no shuttle');
+  check('C3c', /315\.00/.test(preview.reply_draft || ''), 'reply shows €315 total');
+}
+
 section('D. Bot create handler accepts package_none');
 {
   check('D1', /resolveBotBookingPackageContext/.test(staffApiSrc), 'uses package normalize');

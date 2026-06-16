@@ -72,9 +72,38 @@ function resolveBotBookingPackageContext({
   };
 }
 
+/**
+ * Whether quote reply copy should skip the package shuttle question.
+ */
+function shouldSkipShuttleInQuoteReply({ isShortStay, isNoPackage, packageCode, quotePackageCode }) {
+  if (isShortStay || isNoPackage) return true;
+  if (isNoPackageBookingCode(packageCode)) return true;
+  if (isNoPackageBookingCode(quotePackageCode)) return true;
+  return false;
+}
+
+/**
+ * Standard bot quote reply_draft after a successful calculateWolfhouseQuote.
+ */
+function buildBotQuoteReplyDraft(quote, pkgCtx, packageCode) {
+  const totalEur = (quote.total_cents / 100).toFixed(2);
+  const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
+  if (shouldSkipShuttleInQuoteReply({
+    isShortStay: pkgCtx.isShortStay,
+    isNoPackage: pkgCtx.isNoPackage,
+    packageCode,
+    quotePackageCode: pkgCtx.quotePackageCode,
+  })) {
+    return `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Does that look good? 😊`;
+  }
+  return `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
+}
+
 module.exports = {
   NO_PACKAGE_CODES,
   isNoPackageBookingCode,
   normalizePackageCodeAlias,
   resolveBotBookingPackageContext,
+  shouldSkipShuttleInQuoteReply,
+  buildBotQuoteReplyDraft,
 };

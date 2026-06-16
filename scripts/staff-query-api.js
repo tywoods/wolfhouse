@@ -272,6 +272,7 @@ const {
 const {
   resolveBotBookingPackageContext,
   isNoPackageBookingCode,
+  buildBotQuoteReplyDraft,
 } = require('./lib/bot-booking-package-normalize');
 const {
   runLunaGuestBookingWriteBridge,
@@ -9749,13 +9750,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   // ── reply_draft ───────────────────────────────────────────────────────────
   let replyDraft;
   if (quote && quote.success) {
-    const totalEur   = (quote.total_cents / 100).toFixed(2);
-    const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
-    if (pkgCtx.isShortStay || pkgCtx.isNoPackage) {
-      replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Does that look good? 😊`;
-    } else {
-      replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
-    }
+    replyDraft = buildBotQuoteReplyDraft(quote, pkgCtx, packageCode);
   } else if (nextAction === 'ask_missing_fields') {
     const readable = missingFields.map((f) => BOT_FIELD_LABELS[f] || f);
     const shown    = readable.slice(0, 3);

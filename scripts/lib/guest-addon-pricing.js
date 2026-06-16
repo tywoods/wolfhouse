@@ -138,21 +138,14 @@ function normalizeLunaBookingAddOnsInput(addOns) {
 
 /**
  * Merge wetsuit + board rentals into combo quote lines (same-day promo).
+ * Overlapping days: wetsuit is free for days covered by a board rental.
  */
 function normalizeQuoteAddOnsForCombo(addOns) {
   const list = normalizeLunaBookingAddOnsInput(addOns);
   const out = [];
   const used = new Set();
 
-  function take(code) {
-    const idx = list.findIndex((a, i) => !used.has(i) && a.code === code);
-    if (idx < 0) return null;
-    used.add(idx);
-    return list[idx];
-  }
-
   for (let i = 0; i < list.length; i++) {
-    if (used.has(i)) continue;
     const item = list[i];
     if (item.code === 'wetsuit_soft_top_combo' || item.code === 'wetsuit_hard_board_combo') {
       out.push(item);
@@ -160,27 +153,30 @@ function normalizeQuoteAddOnsForCombo(addOns) {
     }
   }
 
+  const boardPairs = [
+    ['soft_top_rental', 'wetsuit_soft_top_combo'],
+    ['hard_board_rental', 'wetsuit_hard_board_combo'],
+  ];
+
   for (let i = 0; i < list.length; i++) {
-    if (used.has(i)) continue;
-    const wetsuit = list[i].code === 'wetsuit_rental' ? list[i] : null;
-    if (!wetsuit) continue;
+    if (used.has(i) || list[i].code !== 'wetsuit_rental') continue;
+    const wDays = rentalDaysFromAddOn(list[i]);
 
-    const softIdx = list.findIndex((a, j) => !used.has(j) && j !== i && a.code === 'soft_top_rental'
-      && rentalDaysFromAddOn(a) === rentalDaysFromAddOn(wetsuit));
-    const hardIdx = list.findIndex((a, j) => !used.has(j) && j !== i && a.code === 'hard_board_rental'
-      && rentalDaysFromAddOn(a) === rentalDaysFromAddOn(wetsuit));
+    for (const [boardCode, comboCode] of boardPairs) {
+      const bIdx = list.findIndex((a, j) => !used.has(j) && a.code === boardCode);
+      if (bIdx < 0) continue;
+      const bDays = rentalDaysFromAddOn(list[bIdx]);
+      const overlap = Math.min(wDays, bDays);
+      if (overlap <= 0) continue;
 
-    if (softIdx >= 0) {
       used.add(i);
-      used.add(softIdx);
-      out.push({ code: 'wetsuit_soft_top_combo', days: rentalDaysFromAddOn(wetsuit) });
-      continue;
-    }
-    if (hardIdx >= 0) {
-      used.add(i);
-      used.add(hardIdx);
-      out.push({ code: 'wetsuit_hard_board_combo', days: rentalDaysFromAddOn(wetsuit) });
-      continue;
+      used.add(bIdx);
+      out.push({ code: comboCode, days: overlap });
+      const extraBoard = bDays - overlap;
+      const extraWetsuit = wDays - overlap;
+      if (extraBoard > 0) out.push({ code: boardCode, days: extraBoard });
+      if (extraWetsuit > 0) out.push({ code: 'wetsuit_rental', days: extraWetsuit });
+      break;
     }
   }
 

@@ -19,6 +19,11 @@ const fs   = require('fs');
 const path = require('path');
 
 const { calculateWolfhouseQuote } = require('./wolfhouse-quote-calculator');
+const { normalizeQuoteAddOnsForCombo } = require('./guest-addon-pricing');
+const {
+  resolveBotBookingPackageContext,
+  buildBotQuoteReplyDraft,
+} = require('./bot-booking-package-normalize');
 const { getPauseState, formatPauseStateRow } = require('./staff-bot-pause-sql');
 const {
   getBedCalendarRoomsQuery,
@@ -223,12 +228,24 @@ async function runGuestAutomationGate(fields, pg) {
 }
 
 function runBookingPreviewDryRun(fields) {
+  const guestPackages = Array.isArray(fields.guest_packages) ? fields.guest_packages : [];
+  const pkgCtx = resolveBotBookingPackageContext({
+    packageCode: fields.package_code,
+    guestPackages,
+    checkIn: fields.check_in,
+    checkOut: fields.check_out,
+    guestCount: fields.guest_count || 0,
+  });
+  const effectivePackageCode = pkgCtx.quotePackageCode;
+  const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
+  const addOns = normalizeQuoteAddOnsForCombo(fields.add_ons);
+
   const fieldValues = {
     check_in:       fields.check_in || null,
     check_out:      fields.check_out || null,
     guest_count:    (fields.guest_count != null && fields.guest_count > 0) ? fields.guest_count : null,
-    package_code:   fields.package_code || null,
-    guest_packages: fields.guest_packages || [],
+    package_code:   effectivePackageCode || null,
+    guest_packages: guestPackagesForQuote,
     room_type:      fields.room_type || null,
     guest_name:     fields.guest_name || null,
     phone:          fields.phone || null,
@@ -236,7 +253,7 @@ function runBookingPreviewDryRun(fields) {
   };
 
   const missingFields = BOT_BOOKING_REQUIRED_FIELDS.filter((f) => !fieldValues[f]);
-  const canQuote = !!(fields.check_in && fields.check_out && fields.guest_count > 0 && (fields.package_code || (Array.isArray(fields.guest_packages) && fields.guest_packages.length > 0)));
+  const canQuote = !!(fields.check_in && fields.check_out && fields.guest_count > 0 && effectivePackageCode);
 
   let quote = null;
   let quoteError = null;
@@ -247,11 +264,11 @@ function runBookingPreviewDryRun(fields) {
         check_in:       fields.check_in,
         check_out:      fields.check_out,
         guest_count:    fields.guest_count,
-        package_code:   fields.package_code,
-        guest_packages: fields.guest_packages || [],
+        package_code:   effectivePackageCode,
+        guest_packages: guestPackagesForQuote,
         room_type:      fields.room_type || 'shared',
         payment_choice: fields.payment_choice || 'deposit',
-        add_ons:        fields.add_ons,
+        add_ons:        addOns,
       });
     } catch (err) {
       quoteError = err.message;
@@ -280,9 +297,7 @@ function runBookingPreviewDryRun(fields) {
   } else if (nextAction === 'handoff_to_staff') {
     replyDraft = "I'm going to have the team check this and get back to you shortly.";
   } else if (nextAction === 'show_quote' && quote) {
-    const totalEur   = (quote.total_cents / 100).toFixed(2);
-    const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
-    replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
+    replyDraft = buildBotQuoteReplyDraft(quote, pkgCtx, fields.package_code);
   } else {
     replyDraft = 'Let me check those dates and get back to you.';
   }
