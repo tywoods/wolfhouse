@@ -40,6 +40,7 @@ SELECT b.id AS booking_id,
        b.primary_room_code,
        b.amount_paid_cents,
        b.total_amount_cents,
+       b.language,
        b.metadata
   FROM bookings b
  INNER JOIN clients c ON c.id = b.client_id
@@ -54,6 +55,7 @@ SELECT b.id AS booking_id,
        b.primary_room_code,
        b.amount_paid_cents,
        b.total_amount_cents,
+       b.language,
        b.metadata
   FROM bookings b
  INNER JOIN clients c ON c.id = b.client_id
@@ -162,10 +164,11 @@ function resolveRoomNumbers(draft, primaryRoomCode, extraRoomCodes) {
   return [...codes].filter(Boolean);
 }
 
-function extractLanguage(metadata, draft) {
+function extractLanguage(metadata, draft, columnLanguage) {
   if (draft && draft.language) return trimStr(draft.language);
   if (metadata.language) return trimStr(metadata.language);
   if (metadata.guest_language) return trimStr(metadata.guest_language);
+  if (columnLanguage) return trimStr(columnLanguage);
   return 'en';
 }
 
@@ -349,7 +352,7 @@ async function getLunaBookingConfirmationPreview(input, context) {
   const confirmationDraft = metadata.confirmation_draft || null;
   const paymentStatus     = String(row.payment_status || '').trim();
   const clientConfig      = loadConfig(clientSlug);
-  const language          = extractLanguage(metadata, confirmationDraft);
+  const language          = extractLanguage(metadata, confirmationDraft, row.language);
 
   const base = {
     ...PREVIEW_SAFETY_FLAGS,

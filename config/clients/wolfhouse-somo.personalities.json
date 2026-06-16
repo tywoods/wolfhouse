@@ -501,6 +501,8 @@
         "it": {
           "intro_short": "Ciaooo! Sono Luna da Wolfhouse 🌊 Felice che siate qui!",
           "greeting": "{{intro_short}}\nVolete prenotare un soggiorno, chiedere info sui pacchetti o solo qualche informazione?",
+          "confirmation_intro": "Yesss, ora fate ufficialmente parte della famiglia Wolfhouse 🌊❤️",
+          "confirmation_close": "Non vediamo l'ora di accogliervi a Somo ☀️",
           "ask_dates": "Super! Quali date avete in mente per check-in e check-out?",
           "ask_dates_mid": "Quali date cercate?",
           "confirm_dates": "Perfetto — {{range}}. Quanti ospiti sarete?",
@@ -513,6 +515,8 @@
         "es": {
           "intro_short": "Holaaa! Soy Luna de Wolfhouse 🌊 Qué alegría que estéis aquí!",
           "greeting": "{{intro_short}}\n¿Queréis reservar una estancia, preguntar por packs o solo info?",
+          "confirmation_intro": "¡Yesss, ya sois oficialmente parte de la familia Wolfhouse! 🌊❤️",
+          "confirmation_close": "¡Estamos deseando daros la bienvenida en Somo! ☀️",
           "ask_dates": "Genial! ¿Qué fechas tenéis en mente para check-in y check-out?",
           "answer_arrival_payment_question": "Claro — el saldo restante se puede pagar en efectivo, transferencia o online a la llegada. Para reservar ahora, ¿prefieres el depósito de {{deposit}} o el importe completo de {{total}}?",
           "answer_arrival_payment_question_no_amounts": "Claro — el saldo a la llegada se puede pagar en efectivo, transferencia o online 😊 Para reservar ahora necesitamos depósito o pago completo.",
@@ -521,6 +525,8 @@
         "de": {
           "intro_short": "Heyyy! Ich bin Luna von Wolfhouse 🌊 Schön, dass ihr da seid!",
           "greeting": "{{intro_short}}\nMöchtet ihr einen Aufenthalt buchen, was zu Paketen fragen oder nur Infos?",
+          "confirmation_intro": "Yesss, jetzt gehört ihr offiziell zur Wolfhouse-Familie 🌊❤️",
+          "confirmation_close": "Wir freuen uns riesig, euch in Somo zu begrüßen ☀️",
           "ask_dates": "Super! Welche Daten habt ihr für Check-in und Check-out im Kopf?",
           "package_quote_available": "Gute Nachrichten — wir haben Platz {{date_avail}}. {{package_label}} kommt auf {{total}}.",
           "package_quote_payment_tail": "Zur Reservierung könnt ihr die {{deposit}} Anzahlung oder die vollen {{total}} zahlen.",

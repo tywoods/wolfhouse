@@ -382,6 +382,13 @@ def create_booking_from_plan(params, **kwargs):
         })
     payload["guest_name"] = guest_name
 
+    # Persist the guest's language on the booking so the post-payment confirmation
+    # (built server-side from templates) goes out in the same language the booking
+    # was made in, not a hardcoded English default. Stored as a short code (e.g. de).
+    language = _clean(payload.get("language") or payload.get("guest_language"))
+    if language:
+        payload["language"] = language.lower()[:10]
+
     # Auto-fetch selected_bed_codes if Luna didn't pass them — required by Staff API
     if not payload.get("selected_bed_codes"):
         try:
@@ -885,7 +892,7 @@ def register(ctx):
     tools = [
         ("check_availability", "Check real Wolfhouse bed availability through Staff API. Use before making any availability claim.", check_availability, common_booking, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}, "add_ons": {"type": "array", "items": {"type": "object"}}}, ["check_in", "check_out", "guest_count"]),
-        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. If the guest gave shuttle/transfer details earlier, pass them as pending_transfers so they are saved to the booking automatically.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Transfer details collected earlier in the chat, saved automatically after the booking is created. One entry per direction. Each: {direction: 'arrival'|'departure', airport, scheduled_at (ISO datetime), flight_number, notes}.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
+        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. If the guest gave shuttle/transfer details earlier, pass them as pending_transfers so they are saved to the booking automatically.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Transfer details collected earlier in the chat, saved automatically after the booking is created. One entry per direction. Each: {direction: 'arrival'|'departure', airport, scheduled_at (ISO datetime), flight_number, notes}.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment. Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}}, ["payment_id"]),
         ("create_balance_payment_link", "Create a secure payment link for the REMAINING BALANCE on an existing booking (after a deposit). Use when the guest asks for the balance/remaining/outstanding/full payment link. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("get_payment_status", "Check webhook-confirmed payment truth through Staff API. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),

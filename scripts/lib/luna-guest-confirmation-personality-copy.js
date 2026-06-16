@@ -22,13 +22,29 @@ function trimStr(v) {
   return String(v).trim();
 }
 
+// Localized labels for the factual confirmation lines. en/it/de/es match the
+// languages available in the Cami personality reply_templates. Unknown languages
+// fall back to English. (Translations are brand-neutral; review if tone matters.)
+const CONFIRMATION_LABELS = {
+  en: { booking: 'Booking', paid: 'Paid', balance: 'Balance', location: 'Location', gate_code: 'Gate code', room: 'Room' },
+  it: { booking: 'Prenotazione', paid: 'Pagato', balance: 'Saldo', location: 'Posizione', gate_code: 'Codice cancello', room: 'Camera' },
+  de: { booking: 'Buchung', paid: 'Bezahlt', balance: 'Restbetrag', location: 'Standort', gate_code: 'Torcode', room: 'Zimmer' },
+  es: { booking: 'Reserva', paid: 'Pagado', balance: 'Saldo pendiente', location: 'Ubicación', gate_code: 'Código de la puerta', room: 'Habitación' },
+};
+
+function pickLabels(language) {
+  const lang = trimStr(language).slice(0, 2).toLowerCase() || 'en';
+  return CONFIRMATION_LABELS[lang] || CONFIRMATION_LABELS.en;
+}
+
 function buildBalancePaymentSection(fields, language) {
   if (!fields || !fields.include_balance_link || !fields.balance_payment_link) return '';
   const lang = trimStr(language).slice(0, 2).toLowerCase() || 'en';
-  if (lang === 'it') {
-    return `Se volete saldare il saldo con carta prima dell'arrivo: ${fields.balance_payment_link}`;
-  }
-  return `If you'd like to settle the remaining balance by card before arrival: ${fields.balance_payment_link}`;
+  const link = fields.balance_payment_link;
+  if (lang === 'it') return `Se volete saldare il saldo con carta prima dell'arrivo: ${link}`;
+  if (lang === 'de') return `Wenn ihr den Restbetrag vor der Anreise per Karte zahlen möchtet: ${link}`;
+  if (lang === 'es') return `Si quieres pagar el saldo restante con tarjeta antes de llegar: ${link}`;
+  return `If you'd like to settle the remaining balance by card before arrival: ${link}`;
 }
 
 function buildCamiConfirmationPreview(clientSlug, language, fields) {
@@ -58,17 +74,18 @@ function buildCamiConfirmationPreview(clientSlug, language, fields) {
     : 'Yesss, you\'re officially part of the Wolfhouse family 🌊❤️';
 
   const chunks = [intro];
+  const L = pickLabels(language);
 
   const summaryLines = [];
-  if (bookingCode) summaryLines.push(`Booking: ${bookingCode}`);
-  if (paid) summaryLines.push(`Paid: ${paid}`);
-  if (balance) summaryLines.push(`Balance: ${balance}`);
+  if (bookingCode) summaryLines.push(`${L.booking}: ${bookingCode}`);
+  if (paid) summaryLines.push(`${L.paid}: ${paid}`);
+  if (balance) summaryLines.push(`${L.balance}: ${balance}`);
   if (summaryLines.length) chunks.push(summaryLines.join('\n'));
 
   const arrivalLines = [];
-  if (mapsLink) arrivalLines.push(`Location: ${mapsLink}`);
-  if (gateCode) arrivalLines.push(`Gate code: ${gateCode}`);
-  if (roomLabel) arrivalLines.push(`Room: ${roomLabel}`);
+  if (mapsLink) arrivalLines.push(`${L.location}: ${mapsLink}`);
+  if (gateCode) arrivalLines.push(`${L.gate_code}: ${gateCode}`);
+  if (roomLabel) arrivalLines.push(`${L.room}: ${roomLabel}`);
   if (arrivalLines.length) chunks.push(arrivalLines.join('\n'));
 
   const lessonSection = buildLessonScheduleGuestSection(clientSlug, language, draft);

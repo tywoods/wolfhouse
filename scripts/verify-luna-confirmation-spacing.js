@@ -98,5 +98,33 @@ if (/Location:/.test(msg)) {
 }
 check('B7 under WhatsApp reply-length contract', msg.length <= MAX_REPLY_CHARS, `len=${msg.length}`);
 
+console.log('\n── C. Confirmation is built in the booking language (not English fallback) ──');
+
+const defields = {
+  guest_name: 'Kathi',
+  booking_code: 'MB-WOLFHO-20260722-1d7fb2',
+  amount_paid_cents: 20000,
+  balance_due_cents: 49800,
+  room_number: 'R1',
+  gate_code: '2684#',
+};
+const dePreview = buildConfirmationPreviewFromPlaybook('wolfhouse-somo', 'de', defields);
+const deMsg = (dePreview && dePreview.message) || '';
+check('C1 German preview built ok', dePreview && dePreview.ok === true, dePreview && dePreview.source);
+check('C2 German intro (not the English family line)',
+  /Wolfhouse-Familie/.test(deMsg) && !/officially part of the Wolfhouse family/.test(deMsg),
+  deMsg.split('\n')[0]);
+check('C3 German factual labels (Buchung/Bezahlt/Zimmer)',
+  /(^|\n)Buchung: /.test(deMsg) && /\nBezahlt: /.test(deMsg) && /\nZimmer: /.test(deMsg),
+  deMsg.replace(/\n/g, '⏎'));
+check('C4 no English labels leaked into German confirmation',
+  !/(^|\n)(Booking|Paid|Room|Gate code): /.test(deMsg), deMsg.replace(/\n/g, '⏎'));
+check('C5 German close (not the English Somo line)',
+  /euch in Somo zu begrüßen/.test(deMsg) && !/Can't wait to welcome you in Somo/.test(deMsg));
+
+const enPreview = buildConfirmationPreviewFromPlaybook('wolfhouse-somo', 'en', defields);
+check('C6 English still renders English (no regression)',
+  /officially part of the Wolfhouse family/.test((enPreview && enPreview.message) || ''));
+
 console.log(`\n── Summary: ${passed} passed, ${failed} failed ──`);
 process.exit(failed > 0 ? 1 : 0);

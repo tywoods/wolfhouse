@@ -73,7 +73,7 @@ Ask for one name for the booking. Only one name.
 Wait for reply only if you asked.
 
 **Step 7 — Create booking**
-Call create_booking_from_plan with: guest_name, guest_phone (the WhatsApp sender number from the conversation), check_in, check_out, guest_count, package_code, guest_packages, payment_choice. For guest_packages, include one item per guest: {guest_number, package_code}.
+Call create_booking_from_plan with: guest_name, guest_phone (the WhatsApp sender number from the conversation), check_in, check_out, guest_count, package_code, guest_packages, payment_choice, language. For guest_packages, include one item per guest: {guest_number, package_code}. For language, pass the short code of the language THIS chat is in (e.g. "de" if the guest writes in German, "es" Spanish, "it" Italian, otherwise "en") — it is saved so the payment confirmation goes out in the guest's language.
 If the guest gave shuttle/transfer details earlier (Step 4), ALSO pass pending_transfers — one entry per direction: {direction:"arrival"|"departure", airport, scheduled_at (ISO datetime like 2026-09-15T13:00:00), flight_number, notes}. The booking tool saves these to the portal automatically; you do not need a separate transfer call when you pass pending_transfers.
 If the guest gave BOTH an arrival time and a departure time, pass BOTH entries (two items in pending_transfers) — arrival AND departure. Never save or confirm only one direction when the guest gave two.
 If create_booking_from_plan returns booking_not_created_yet, missing_fields, do_not_escalate, or reply_draft, ask that one missing question. Do not say the team will review.
