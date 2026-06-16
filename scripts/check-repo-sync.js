@@ -120,7 +120,12 @@ function collect() {
     warnings.push('No git remote "origin" — add private GitHub repo (see docs/GITHUB-REPO-SETUP.md).');
   }
   if (originUrl && !originHead) {
-    warnings.push(`origin/${branch} not found — run: git fetch origin`);
+    const hasOriginRef = gitOk('rev-parse origin/HEAD')
+      || gitOk(`rev-parse origin/${DEFAULT_BRANCH}`);
+    if (!hasOriginRef) {
+      warnings.push(`origin not fetched or empty — run: git fetch origin`);
+    }
+    // Missing origin/<branch> on a new local branch is normal before first push.
   }
   if (originHead && localHead && isAncestor(localHead, originHead) && localHead !== originHead) {
     warnings.push('Laptop is behind origin — run: git pull before you push or deploy.');
