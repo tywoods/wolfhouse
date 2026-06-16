@@ -91,7 +91,13 @@ function assertSoulClean() {
   execSync('node scripts/check-soul-clean.js', { cwd: ROOT, stdio: 'inherit' });
 }
 
+function assertRepoSync() {
+  console.error('[vm] assert-repo-sync (prebuild)...');
+  execSync('node scripts/assert-repo-sync.js', { cwd: ROOT, stdio: 'inherit' });
+}
+
 function buildImage() {
+  assertRepoSync();
   assertSoulClean();
   console.error('[vm] building staging image on ACR...');
   az(`acr build --registry ${HERMES_VM.ACR} --image wh-hermes-staging:latest --file docker/hermes-staging/Dockerfile docker/hermes-staging`);

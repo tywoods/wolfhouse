@@ -7,6 +7,7 @@
  * Usage:
  *   node scripts/check-repo-sync.js           # warnings to stderr, exit 0
  *   node scripts/check-repo-sync.js --strict  # exit 1 on any drift
+ *   node scripts/check-repo-sync.js --strict --ignore-dirty  # pre-push / deploy (sync only)
  *   node scripts/check-repo-sync.js --skip-vm # laptop vs origin only
  *   node scripts/check-repo-sync.js --json
  */
@@ -20,6 +21,7 @@ const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_BRANCH = process.env.WH_DEFAULT_BRANCH || 'master';
 
 const strict = process.argv.includes('--strict');
+const ignoreDirty = process.argv.includes('--ignore-dirty');
 const skipVm = process.argv.includes('--skip-vm');
 const jsonOut = process.argv.includes('--json');
 
@@ -71,8 +73,15 @@ function ssh(cmd) {
 function isAncestor(ancestor, descendant) {
   if (!ancestor || !descendant) return false;
   if (ancestor === descendant) return true;
-  const code = gitOk(`merge-base --is-ancestor ${ancestor} ${descendant}; echo $?`);
-  return code === '0';
+  try {
+    execSync(`git merge-base --is-ancestor ${ancestor} ${descendant}`, {
+      cwd: ROOT,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function short(hash) {
@@ -104,7 +113,7 @@ function collect() {
 
   const warnings = [];
 
-  if (localDirty) {
+  if (localDirty && !ignoreDirty) {
     warnings.push('Laptop working tree has uncommitted changes — commit or stash before push/deploy.');
   }
   if (!originUrl) {
@@ -113,11 +122,8 @@ function collect() {
   if (originUrl && !originHead) {
     warnings.push(`origin/${branch} not found — run: git fetch origin`);
   }
-  if (originHead && localHead && !isAncestor(originHead, localHead) && originHead !== localHead) {
+  if (originHead && localHead && isAncestor(localHead, originHead) && localHead !== originHead) {
     warnings.push('Laptop is behind origin — run: git pull before you push or deploy.');
-  }
-  if (originHead && localHead && localHead !== originHead && isAncestor(originHead, localHead)) {
-    warnings.push('Laptop is ahead of origin — run: git push when ready.');
   }
   if (originHead && localHead && !isAncestor(localHead, originHead) && !isAncestor(originHead, localHead)) {
     warnings.push('Laptop and origin have diverged — pull and merge (or rebase) before push.');
@@ -132,8 +138,6 @@ function collect() {
     if (localHead && vm.head && vm.head !== localHead) {
       if (isAncestor(localHead, vm.head) && !isAncestor(vm.head, localHead)) {
         warnings.push('Lunabox is AHEAD of laptop — git pull on laptop (Captain pushed commits you do not have).');
-      } else if (isAncestor(vm.head, localHead) && !isAncestor(localHead, vm.head)) {
-        warnings.push('Laptop is ahead of Lunabox — run: ssh lunabox "cd /opt/wolfhouse/WH && git pull" after push.');
       } else if (!isAncestor(localHead, vm.head) && !isAncestor(vm.head, localHead)) {
         warnings.push('Laptop and Lunabox have diverged — pull/merge on both sides before deploy.');
       }

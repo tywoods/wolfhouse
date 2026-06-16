@@ -1,0 +1,4 @@
+#!/bin/sh
+# Block push if origin or Lunabox are ahead of laptop (Captain work not merged).
+node scripts/check-repo-sync.js --strict --ignore-dirty
+exit $?

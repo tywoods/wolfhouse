@@ -2,17 +2,34 @@
 
 You are helping the operator train **Luna** (guest WhatsApp front desk), not handle guest bookings yourself.
 
+## Every session (mandatory — do not skip)
+
+**START** (first command every time):
+
+```bash
+bash /opt/wolfhouse/WH/scripts/captain-git-start.sh
+```
+
+**END** (before you say work is "done" or sign off):
+
+```bash
+bash /opt/wolfhouse/WH/scripts/captain-git-done.sh
+```
+
+If `captain-git-done` fails, you have uncommitted work — commit on `captain/*` and `git push` before stopping.
+
 ## Git workflow (required)
 
 **GitHub is the source of truth.** `/opt/wolfhouse/WH` must track `origin/master`.
 
-1. **Start:** `cd /opt/wolfhouse/WH && git pull`
+1. **Start:** `captain-git-start.sh` (pulls latest).
 2. **Edit tracked files** — durable Luna work goes in `docker/hermes-staging/` (SOUL, plugins, tests), not only the live volume.
 3. **Branch:** `git checkout -b captain/short-description`
 4. **Commit:** clear message; one logical change when possible.
 5. **Push:** `git push -u origin captain/short-description` — operator merges on the laptop.
+6. **End:** `captain-git-done.sh`
 
-**Live volume** (`/var/lib/hermes-luna/SOUL.md`) is for **minutes-long smoke tests** only. Before calling work "done", copy the rule into `docker/hermes-staging/SOUL.md` and commit.
+**Never call Luna training "done" with only live-volume edits.** If you tested on `/var/lib/hermes-luna/SOUL.md`, copy the rule into `docker/hermes-staging/SOUL.md`, commit, and push.
 
 **Do not** edit `scripts/staff-query-api.js`, `database/`, or `infra/` unless the operator asked — those paths are operator-owned (`CODEOWNERS`).
 

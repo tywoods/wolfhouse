@@ -284,7 +284,15 @@ function assertSoulClean() {
   execSync('node scripts/check-soul-clean.js', { cwd: root, stdio: 'inherit' });
 }
 
+function assertRepoSync() {
+  const path = require('path');
+  const root = path.join(__dirname, '..');
+  console.error('[deploy] assert-repo-sync (prebuild)...');
+  execSync('node scripts/assert-repo-sync.js', { cwd: root, stdio: 'inherit' });
+}
+
 function buildStagingImage() {
+  assertRepoSync();
   assertSoulClean();
   console.error('[deploy] building staging image on ACR (OpenAI bootstrap baked in)...');
   az('acr build --registry whstagingacr --image wh-hermes-staging:latest --file docker/hermes-staging/Dockerfile docker/hermes-staging');

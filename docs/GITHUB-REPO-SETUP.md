@@ -10,6 +10,7 @@ Single source of truth for Wolfhouse code. **Laptop (Cursor)** and **Lunabox (Ca
 
 ```powershell
 cd C:\Users\tywoo\Desktop\WH
+node scripts/setup-git-hooks.js   # once — blocks push if Captain is ahead
 git remote add origin git@github.com:YOUR_GITHUB_USER/wolfhouse.git
 git push -u origin master
 ```
@@ -77,7 +78,7 @@ openclaw config set agents.defaults.workspace /opt/wolfhouse/WH
 
 | Who | Steps |
 |-----|--------|
-| **Captain** | `git pull` → edit `docker/hermes-staging/**` (and tests) → `git checkout -b captain/short-name` → commit → `git push -u origin captain/short-name` |
+| **Captain** | `bash scripts/captain-git-start.sh` → work on `captain/*` → commit → push → `bash scripts/captain-git-done.sh` |
 | **You (Cursor)** | `node scripts/check-repo-sync.js` → `git pull` → merge Captain branch → `npm run verify:luna-all` → commit → `git push` → deploy Hermes / Staff API |
 | **Lunabox after your push** | `cd /opt/wolfhouse/WH && git pull` (Captain can do this) |
 

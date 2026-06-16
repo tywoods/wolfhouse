@@ -60,7 +60,9 @@ node scripts/run-local-hermes.js chat             # local Hermes (this repo)
 
 ## Working conventions
 
-- **Git:** private GitHub is source of truth — see `docs/GITHUB-REPO-SETUP.md`. Run `node scripts/check-repo-sync.js` before push/deploy.
+- **Git (mandatory):** GitHub is source of truth — `docs/GITHUB-REPO-SETUP.md`.
+  - **Before `git push` or any Hermes/Staff API deploy:** run `node scripts/assert-repo-sync.js` (also runs automatically via `.githooks/pre-push` after `node scripts/setup-git-hooks.js`).
+  - **After merging Captain's work:** `git pull` on laptop, then tell Captain to `git pull` on Lunabox (or they run `captain-git-start.sh`).
 - Node.js tooling; run scripts with `node scripts/...` (PowerShell may block `npm` scripts that shell out to npm.ps1).
 - Minimize parallel layers — one owner file per Luna rule (see behavior spec).
 - Staging Staff API: `https://staff-staging.lunafrontdesk.com`
