@@ -27,6 +27,7 @@ function run(label, script, extraArgs) {
 const full = process.argv.includes('--full');
 const steps = [
   ['verify:luna-soul-clean', 'verify-luna-soul-clean.js'],
+  ['verify:guest-addon-pricing', 'verify-guest-addon-pricing.js'],
   ['verify:luna-golden', 'verify-luna-golden.js'],
   ['verify:luna-coach', 'verify-luna-coach.js'],
   ['verify:luna-unified-planner', 'verify-luna-unified-planner.js'],

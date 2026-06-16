@@ -265,6 +265,10 @@ const {
   DRY_RUN_SAFETY_FLAGS,
 } = require('./lib/luna-guest-booking-dry-run');
 const {
+  previewGuestAddonPricing,
+  resolveGuestAddonComboPricing,
+} = require('./lib/guest-addon-pricing');
+const {
   runLunaGuestBookingWriteBridge,
 } = require('./lib/luna-guest-booking-write-bridge');
 const {
@@ -8153,107 +8157,6 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BOT_ADDON_SERVICE_TYPES = new Set(['yoga', 'meal', 'surf_lesson', 'wetsuit', 'surfboard']);
-const BOT_ADDON_PRICING_PATH = path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
-
-function loadWolfhousePricingConfigForBotAddon() {
-  return JSON.parse(fs.readFileSync(BOT_ADDON_PRICING_PATH, 'utf8'));
-}
-
-function previewGuestAddonPricing(serviceType, quantity, clientSlug) {
-  const warnings = [];
-  if (clientSlug !== 'wolfhouse-somo') {
-    return {
-      amount_due_cents: null,
-      pricing_addon_code: null,
-      unit_cents: null,
-      payment_required: false,
-      warnings: [`pricing config not loaded for client "${clientSlug}" — staff review required`],
-    };
-  }
-
-  if (serviceType === 'meal') {
-    return {
-      amount_due_cents: 0,
-      pricing_addon_code: null,
-      unit_cents: null,
-      payment_required: false,
-      reason: 'meal_on_site_only',
-      warnings: ['Meals are recorded on-site only for MVP — no payment link.'],
-    };
-  }
-
-  let config;
-  try {
-    config = loadWolfhousePricingConfigForBotAddon();
-  } catch (err) {
-    return {
-      amount_due_cents: null,
-      pricing_addon_code: null,
-      unit_cents: null,
-      payment_required: false,
-      warnings: [`pricing config unavailable: ${err.message}`],
-    };
-  }
-
-  const addOns = config.add_ons || {};
-
-  if (serviceType === 'wetsuit') {
-    const cfg = addOns.wetsuit_rental;
-    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
-      return { amount_due_cents: null, pricing_addon_code: 'wetsuit_rental', unit_cents: null, payment_required: false, warnings: ['Wetsuit rental price not safely available — staff review required.'] };
-    }
-    const days = quantity;
-    const total = cfg.price_cents * days;
-    if (cfg.charge_timing === 'REQUIRED_FROM_STAFF') {
-      warnings.push('Wetsuit charge timing not confirmed (with booking or on site?) — staff may need to confirm.');
-    }
-    return { amount_due_cents: total, pricing_addon_code: 'wetsuit_rental', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_day', warnings };
-  }
-
-  if (serviceType === 'surfboard') {
-    const cfg = addOns.soft_top_rental;
-    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
-      return { amount_due_cents: null, pricing_addon_code: 'soft_top_rental', unit_cents: null, payment_required: false, warnings: ['Surfboard rental price not safely available — staff review required.'] };
-    }
-    const days = quantity;
-    warnings.push('Surfboard preview defaults to soft-top rental pricing — confirm board type with guest.');
-    if (cfg.charge_timing === 'REQUIRED_FROM_STAFF') {
-      warnings.push('Surfboard charge timing not confirmed — staff may need to confirm.');
-    }
-    return { amount_due_cents: cfg.price_cents * days, pricing_addon_code: 'soft_top_rental', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_day', warnings };
-  }
-
-  if (serviceType === 'surf_lesson') {
-    if (quantity === 1) {
-      const cfg = addOns.surf_lesson_single;
-      if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
-        return { amount_due_cents: null, pricing_addon_code: 'surf_lesson_single', unit_cents: null, payment_required: false, warnings: ['Surf lesson price not safely available — staff review required.'] };
-      }
-      return { amount_due_cents: cfg.price_cents, pricing_addon_code: 'surf_lesson_single', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_lesson', warnings };
-    }
-    const cfg = addOns.surf_lesson_multi;
-    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents_each) {
-      return { amount_due_cents: null, pricing_addon_code: 'surf_lesson_multi', unit_cents: null, payment_required: false, warnings: ['Multi-lesson price not safely available — staff review required.'] };
-    }
-    return { amount_due_cents: cfg.price_cents_each * quantity, pricing_addon_code: 'surf_lesson_multi', unit_cents: cfg.price_cents_each, payment_required: true, pricing_unit: 'per_lesson', warnings };
-  }
-
-  if (serviceType === 'yoga') {
-    const cfg = addOns.yoga_class;
-    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
-      return { amount_due_cents: null, pricing_addon_code: 'yoga_class', unit_cents: null, payment_required: false, warnings: ['Yoga class price not safely available — staff review required.'] };
-    }
-    return { amount_due_cents: cfg.price_cents * quantity, pricing_addon_code: 'yoga_class', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_class', warnings };
-  }
-
-  return {
-    amount_due_cents: null,
-    pricing_addon_code: null,
-    unit_cents: null,
-    payment_required: false,
-    warnings: [`unsupported service_type "${serviceType}" for pricing preview`],
-  };
-}
 
 async function lookupBotAddonBooking(bookingCode, clientSlug) {
   return withPgClient(async (pg) => {
@@ -8340,9 +8243,11 @@ async function resolveBotAddonRequestContext(body) {
       payload: buildBotAddonDryRunFlags({
         success: true,
         next_action: 'ask_quantity',
-        reply_draft: serviceType === 'wetsuit' || serviceType === 'surfboard'
-          ? 'How many days do you need that for?'
-          : 'How many would you like?',
+        reply_draft: serviceType === 'meal'
+          ? 'How many meals would you like?'
+          : (serviceType === 'wetsuit' || serviceType === 'surfboard'
+            ? 'How many days do you need that for?'
+            : 'How many would you like?'),
         booking_code: bookingCode,
         service_type: serviceType,
         service_date: serviceDate,
@@ -8352,6 +8257,27 @@ async function resolveBotAddonRequestContext(body) {
   }
 
   const quantity = Math.max(1, parseInt(rawQuantity, 10) || 1);
+  let boardType = body.board_type != null ? String(body.board_type).trim().toLowerCase() : '';
+  if (serviceType === 'surfboard') {
+    if (boardType !== 'soft' && boardType !== 'hard') {
+      return {
+        kind: 'ask_board_type',
+        status: 200,
+        payload: buildBotAddonDryRunFlags({
+          success: true,
+          next_action: 'ask_board_type',
+          reply_draft: 'Soft top or hard board?',
+          booking_code: bookingCode,
+          service_type: serviceType,
+          service_date: serviceDate,
+          quantity,
+          source,
+        }),
+      };
+    }
+  } else {
+    boardType = null;
+  }
   const scheduleMode = serviceDate ? 'specific_date' : 'schedule_later';
   if (!serviceDate) serviceDate = null;
   const svcDate = serviceDate ? new Date(serviceDate + 'T00:00:00Z') : null;
@@ -8393,7 +8319,9 @@ async function resolveBotAddonRequestContext(body) {
     };
   }
 
-  const pricing = previewGuestAddonPricing(serviceType, quantity, clientSlug);
+  const pricing = previewGuestAddonPricing(serviceType, quantity, clientSlug, {
+    board_type: boardType || undefined,
+  });
   const warnings = [...(pricing.warnings || [])];
   const ci = booking.check_in ? new Date(booking.check_in) : null;
   const co = booking.check_out ? new Date(booking.check_out) : null;
@@ -8401,14 +8329,11 @@ async function resolveBotAddonRequestContext(body) {
     warnings.push('service_date is outside the booking stay window — staff may need to confirm.');
   }
 
-  const isMeal = serviceType === 'meal';
-  const isRecordOnly = isMeal || paymentChoice === 'record_only' || pricing.reason === 'meal_on_site_only';
+  const isRecordOnly = paymentChoice === 'record_only';
   const canPay = !isRecordOnly && pricing.payment_required && pricing.amount_due_cents != null && pricing.amount_due_cents > 0;
 
   let nextAction;
-  if (isMeal) {
-    nextAction = 'ready_for_record_only';
-  } else if (!canPay && pricing.amount_due_cents == null) {
+  if (!canPay && pricing.amount_due_cents == null) {
     nextAction = 'handoff_to_staff';
   } else if (canPay) {
     nextAction = 'ready_for_addon_create_dry_run';
@@ -8427,11 +8352,11 @@ async function resolveBotAddonRequestContext(body) {
     paymentChoice,
     source,
     quantity,
+    boardType,
     svcDate,
     booking,
     pricing,
     warnings,
-    isMeal,
     isRecordOnly,
     canPay,
     nextAction,
@@ -8452,6 +8377,11 @@ function buildBotAddonServiceMetadata(ctx, idempotencyKey) {
   if (ctx.serviceType === 'wetsuit' || ctx.serviceType === 'surfboard') {
     meta.rental_days = ctx.quantity;
   }
+  if (ctx.serviceType === 'surfboard' && ctx.boardType) {
+    meta.board_variant = ctx.boardType;
+    meta.staff_ui_service_type = ctx.boardType === 'hard' ? 'hard_board' : 'soft_board';
+  }
+  if (ctx.comboReason) meta.combo_reason = ctx.comboReason;
   return meta;
 }
 
@@ -8484,24 +8414,84 @@ async function findBotAddonIdempotentMatch(clientSlug, bookingId, idempotencyKey
   });
 }
 
+async function loadBotAddonExistingServiceRecords(clientSlug, bookingId) {
+  return withPgClient(async (pg) => {
+    const r = await pg.query(
+      `SELECT id, service_type, quantity, amount_due_cents, amount_paid_cents,
+              payment_status, payment_id, status, metadata
+         FROM booking_service_records
+        WHERE client_slug = $1
+          AND booking_id = $2::uuid
+          AND status <> 'cancelled'`,
+      [clientSlug, bookingId],
+    );
+    return r.rows;
+  });
+}
+
+async function zeroOutUnpaidAddonServiceRecord(pg, serviceRecordId) {
+  const svc = await pg.query(
+    `SELECT id, payment_id, amount_due_cents, payment_status
+       FROM booking_service_records
+      WHERE id = $1
+      FOR UPDATE`,
+    [serviceRecordId],
+  );
+  const row = svc.rows[0];
+  if (!row || Number(row.amount_due_cents || 0) <= 0) return null;
+  if (String(row.payment_status || '').toLowerCase() === 'paid') return null;
+
+  await pg.query(
+    `UPDATE booking_service_records
+        SET amount_due_cents = 0,
+            payment_status = 'not_requested',
+            payment_id = NULL,
+            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+            updated_at = NOW()
+      WHERE id = $1`,
+    [
+      serviceRecordId,
+      JSON.stringify({ combo_waived: true, combo_reason: 'board_frees_unpaid_wetsuit' }),
+    ],
+  );
+
+  if (row.payment_id) {
+    await pg.query(
+      `UPDATE payments
+          SET status = 'cancelled'::payment_record_status,
+              amount_due_cents = 0,
+              checkout_url = NULL,
+              metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+        WHERE id = $1
+          AND status <> 'paid'::payment_record_status`,
+      [
+        row.payment_id,
+        JSON.stringify({ cancelled_reason: 'combo_wetsuit_waived', source: 'luna_guest_addon_combo' }),
+      ],
+    );
+  }
+  return serviceRecordId;
+}
+
 function buildBotAddonCreateReplyDraft(ctx, { paymentUrl, dbAmountDueCents, servicePaymentStatus }) {
   const when = ctx.serviceDate || 'unscheduled';
-  if (ctx.isMeal) {
-    return ctx.serviceDate
-      ? `Got it — I've noted ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`
-      : `Got it — I've added ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} as unscheduled. Meals are handled on site, and we can choose the date later.`;
-  }
+  const label = ctx.serviceType.replace('_', ' ');
   if (servicePaymentStatus === 'paid') {
     const eur = (dbAmountDueCents / 100).toFixed(2);
-    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is already paid (€${eur}).`;
+    return `Your ${label} add-on for ${when} is already paid (€${eur}).`;
   }
-  if (paymentUrl) {
+  if (paymentUrl && dbAmountDueCents > 0) {
     const eur = (dbAmountDueCents / 100).toFixed(2);
-    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is €${eur}. Here's your payment link: ${paymentUrl}`;
+    return `Your ${label} add-on for ${when} is €${eur}. Pay now here if you like: ${paymentUrl} — or we can settle it at checkout.`;
+  }
+  if (ctx.comboReason === 'wetsuit_free_with_board') {
+    return ctx.serviceDate
+      ? `Got it — wetsuit rental for ${ctx.quantity} day${ctx.quantity !== 1 ? 's' : ''} on ${ctx.serviceDate} is included free with your board rental.`
+      : `Got it — wetsuit rental for ${ctx.quantity} day${ctx.quantity !== 1 ? 's' : ''} is included free with your board rental. We can pick a date when you're ready.`;
   }
   return ctx.serviceDate
-    ? `I've noted your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`
-    : `I've added your ${ctx.serviceType.replace('_', ' ')} request as unscheduled. We can choose the date later.`;
+    ? `I've noted your ${label} request for ${ctx.serviceDate}.`
+    : `I've added your ${label} request as unscheduled. We can choose the date later.`;
 }
 
 async function handleBotAddonRequestPreview(req, res, user, authMode) {
@@ -8522,16 +8512,12 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
   }
 
   let replyDraft;
-  if (ctx.nextAction === 'ready_for_record_only' && ctx.isMeal) {
-    replyDraft = ctx.serviceDate
-      ? `Got it — I'll note ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`
-      : `Got it — I'll add ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} as unscheduled. Meals are handled on site, and we can choose the date later.`;
-  } else if (ctx.nextAction === 'handoff_to_staff') {
+  if (ctx.nextAction === 'handoff_to_staff') {
     replyDraft = "I'll have the team confirm that add-on and get back to you.";
   } else if (ctx.canPay) {
     const eur = (ctx.pricing.amount_due_cents / 100).toFixed(2);
     const when = ctx.serviceDate || 'unscheduled';
-    replyDraft = `For ${ctx.serviceType.replace('_', ' ')} (${when}), the total would be €${eur}. I can send a payment link when you're ready.`;
+    replyDraft = `For ${ctx.serviceType.replace('_', ' ')} (${when}), the total would be €${eur}. I can send a payment link when you're ready — or you can pay at checkout.`;
   } else {
     replyDraft = ctx.serviceDate
       ? `I'll note your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`
@@ -8547,8 +8533,8 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
     service_date: ctx.serviceDate,
     quantity: ctx.quantity,
     status: 'confirmed',
-    payment_status: ctx.isMeal ? 'not_requested' : (ctx.canPay ? 'pending' : 'not_requested'),
-    amount_due_cents: ctx.isMeal ? 0 : (ctx.pricing.amount_due_cents ?? 0),
+    payment_status: ctx.canPay ? 'pending' : 'not_requested',
+    amount_due_cents: ctx.pricing.amount_due_cents ?? 0,
     source: ctx.source,
     metadata: buildBotAddonServiceMetadata(ctx),
   };
@@ -8563,13 +8549,6 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
       would_create_payment: true,
       would_create_stripe_link: true,
       metadata_source: 'luna_guest_addon',
-    };
-  } else if (ctx.isMeal) {
-    paymentPreview = {
-      payment_required: false,
-      reason: 'meal_on_site_only',
-      would_create_payment: false,
-      would_create_stripe_link: false,
     };
   } else {
     paymentPreview = {
@@ -8666,18 +8645,6 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   if (ctx.kind !== 'ready') {
     const status = ctx.kind === 'db_error' ? 500 : 422;
     return sendJSON(res, status, { success: false, write_performed: false, ...ctx.payload, auth_mode: resolvedAuthMode });
-  }
-
-  if (ctx.isMeal && ctx.paymentChoice !== 'record_only') {
-    return sendJSON(res, 422, {
-      success: false,
-      write_performed: false,
-      payment_required: false,
-      reason: 'meal_on_site_only',
-      error: 'Meals are on-site only — use payment_choice record_only.',
-      reply_draft: 'Meals are handled on site — I can note your request without a payment link.',
-      auth_mode: resolvedAuthMode,
-    });
   }
 
   if (ctx.nextAction === 'handoff_to_staff') {
@@ -8791,16 +8758,40 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
       if (checkoutUrl) {
         applyBotAddonPaymentLinkFields(idempotentResponse, ctx, checkoutUrl, stripeSessionId);
       }
-      if (ctx.isMeal) {
-        idempotentResponse.payment_required = false;
-        idempotentResponse.reason = 'meal_on_site_only';
-      }
 
       return sendJSON(res, 200, idempotentResponse);
     }
   }
 
-  if (ctx.canPay) {
+  let existingServiceRecords = [];
+  try {
+    existingServiceRecords = await loadBotAddonExistingServiceRecords(
+      ctx.clientSlug,
+      ctx.booking.booking_id,
+    );
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Failed to load existing service records: ' + err.message,
+      write_performed: false,
+    });
+  }
+
+  const comboPricing = resolveGuestAddonComboPricing({
+    serviceType: ctx.serviceType,
+    quantity: ctx.quantity,
+    boardType: ctx.boardType,
+    pricing: ctx.pricing,
+    existingRecords: existingServiceRecords,
+  });
+  ctx.comboReason = comboPricing.combo_reason || null;
+
+  let amountDueCents = comboPricing.amount_due_cents ?? 0;
+  let canPay = !ctx.isRecordOnly && comboPricing.payment_required && amountDueCents > 0;
+  const paymentStatus = canPay ? 'pending' : 'not_requested';
+  const serviceMeta = buildBotAddonServiceMetadata(ctx, idempotencyKey);
+
+  if (canPay) {
     if (!STRIPE_LINKS_ENABLED) {
       return sendJSON(res, 403, {
         success: false,
@@ -8821,15 +8812,15 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     }
   }
 
-  const amountDueCents = ctx.isMeal ? 0 : (ctx.pricing.amount_due_cents ?? 0);
-  const paymentStatus = ctx.canPay ? 'pending' : 'not_requested';
-  const serviceMeta = buildBotAddonServiceMetadata(ctx, idempotencyKey);
-
   let writeResult;
   try {
     writeResult = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
+        if (comboPricing.free_wetsuit_record_id) {
+          await zeroOutUnpaidAddonServiceRecord(pg, comboPricing.free_wetsuit_record_id);
+        }
+
         const ins = await pg.query(
           `INSERT INTO booking_service_records (
              client_slug, booking_id, booking_code, guest_name,
@@ -8858,7 +8849,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
         );
         const svcId = ins.rows[0].id;
 
-        if (ctx.canPay) {
+        if (canPay) {
           const pmMeta = {
             source: 'luna_guest_addon_request',
             service_record_ids: [svcId],
@@ -8919,7 +8910,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   let checkoutUrl = null;
   let stripeSessionId = null;
 
-  if (ctx.canPay && paymentId) {
+  if (canPay && paymentId) {
     let stripe;
     try {
       stripe = require('stripe')(STRIPE_SECRET_KEY);
@@ -9066,9 +9057,10 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   if (checkoutUrl) {
     applyBotAddonPaymentLinkFields(response, ctx, checkoutUrl, stripeSessionId);
   }
-  if (ctx.isMeal) {
-    response.payment_required = false;
-    response.reason = 'meal_on_site_only';
+  response.payment_required = canPay;
+  if (comboPricing.combo_applied) {
+    response.combo_applied = true;
+    response.combo_reason = comboPricing.combo_reason;
   }
 
   return sendJSON(res, 201, response);

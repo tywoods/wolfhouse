@@ -257,6 +257,14 @@
       "on_site": true,
       "_note": "Normally booked and paid on site. May be included in special camps — handoff for special-camp requests."
     },
+    "meal": {
+      "code": "meal",
+      "name": "Meal",
+      "pricing_unit": "per_meal",
+      "price_cents": 1500,
+      "_eur": 15,
+      "pricing_status": "confirmed"
+    },
     "meals": {
       "code": "meals",
       "name": "Meal",

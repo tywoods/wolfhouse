@@ -722,9 +722,6 @@ def add_service_to_booking(params, **kwargs):
     # Call create route — this writes the service record to the DB.
     # Staff API handles pricing/payment eligibility internally.
     payload.setdefault("confirm", True)
-    if str(payload.get("service_type") or "").strip().lower() == "meal":
-        # Meals are recorded for staff/on-site settlement, not paid online.
-        payload.setdefault("payment_choice", "record_only")
     data = _post_bot("/addon-requests/create", payload)
 
     # The Staff API addon-create route generates the Stripe link inline and
@@ -734,14 +731,11 @@ def add_service_to_booking(params, **kwargs):
     # generating the payment link" even though the record + link were created.
     secure_url = _guest_payment_url(data)
     payment_id = _clean(data.get("payment_id"))
-    is_meal = str(payload.get("service_type") or "").strip().lower() == "meal"
     payment_required = data.get("payment_required")
     if payment_required is None:
         payment_required = (data.get("payment_preview") or {}).get("payment_required")
     write_ok = bool(data.get("write_performed")) or bool(data.get("idempotent"))
-    # A paid service that wrote successfully but produced no link is the only
-    # real review case. Record-only services (meals) never need a link.
-    needs_link = bool(payment_required) and not is_meal
+    needs_link = bool(payment_required)
     payment_link_error = None
     if needs_link and write_ok and not secure_url:
         payment_link_error = _safe_text(
@@ -897,7 +891,7 @@ def register(ctx):
         ("create_balance_payment_link", "Create a secure payment link for the REMAINING BALANCE on an existing booking (after a deposit). Use when the guest asks for the balance/remaining/outstanding/full payment link. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("get_payment_status", "Check webhook-confirmed payment truth through Staff API. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
-        ("add_service_to_booking", "Record a service/add-on request through Staff API so staff can see it in Services. Services include surf lessons, gear rental, meals, yoga.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string"}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
+        ("add_service_to_booking", "Record a service/add-on request through Staff API so staff can see it in Services. Services include surf lessons, gear rental, meals, yoga.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string"}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
         ("get_surf_report", "Get a guest-friendly Somo surf/wave report through Staff API when a guest asks about the waves, surf, or conditions. Returns an on-tone 'reply' to send. day is 'today' or 'tomorrow'. Degrades gracefully if live data isn't available.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
