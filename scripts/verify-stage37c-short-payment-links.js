@@ -161,6 +161,7 @@ const helperSrc = fs.readFileSync(HELPER, 'utf8');
 check('E3b', /UPPER\(b\.booking_code\) = UPPER\(\$2\)/.test(helperSrc), 'short-link DB lookup is case-insensitive for generated booking codes');
 check('E4', !routerSrc.includes('checkout.sessions.create') || !routerSrc.match(/handleGuestPaymentShortLinkRedirect[\s\S]{0,800}checkout\.sessions\.create/), 'redirect route does not create Stripe sessions');
 check('E5', !routerSrc.match(/async function handleGuestPaymentShortLinkRedirect[\s\S]{0,1800}\bSET\b[\s\S]{0,200}paid/i), 'redirect route does not mark payment paid');
+check('E6', /applyBotAddonPaymentLinkFields/.test(routerSrc) && /guest_payment_url/.test(routerSrc.slice(routerSrc.indexOf('handleBotAddonRequestCreate'), routerSrc.indexOf('handleBotAddonRequestCreate') + 12000)), 'bot addon create returns guest_payment_url short link');
 
 section('F. Composer + guest copy');
 

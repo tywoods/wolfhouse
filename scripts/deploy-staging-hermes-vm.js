@@ -9,6 +9,8 @@
  *   node scripts/deploy-staging-hermes-vm.js write-env-files   # local: hermes-vm-env/*.env for scp
  *   node scripts/deploy-staging-hermes-vm.js bootstrap-remote  # ssh: provision + env + compose up
  *   node scripts/deploy-staging-hermes-vm.js verify
+ *   node scripts/deploy-staging-hermes-vm.js check-repo-sync [--strict]
+ *   node scripts/deploy-staging-hermes-vm.js sync-repo   # legacy: laptop → VM bundle
  *
  * See docs/HERMES-AZURE-VM.md
  */
@@ -238,6 +240,69 @@ function ssh(cmd) {
   });
 }
 
+function scpToVm(local, remote) {
+  const ip = vmPublicIp();
+  if (!ip) {
+    console.error('FAIL — VM has no public IP');
+    process.exit(1);
+  }
+  const home = process.env.USERPROFILE || process.env.HOME;
+  const key = path.join(home, '.ssh', 'id_rsa');
+  const keyArg = fs.existsSync(key) ? `-i ${key}` : '';
+  execSync(`scp -o StrictHostKeyChecking=accept-new ${keyArg} ${local} azureuser@${ip}:${remote}`, {
+    stdio: 'inherit',
+  });
+}
+
+function checkRepoSync() {
+  const args = process.argv.slice(3);
+  const extra = args.length ? args.join(' ') : '';
+  execSync(`node scripts/check-repo-sync.js ${extra}`.trim(), { cwd: ROOT, stdio: 'inherit' });
+}
+
+function sshOut(cmd) {
+  const ip = vmPublicIp();
+  if (!ip) return null;
+  const home = process.env.USERPROFILE || process.env.HOME;
+  const key = path.join(home, '.ssh', 'id_rsa');
+  const keyArg = fs.existsSync(key) ? `-i ${key}` : '';
+  try {
+    return execSync(
+      `ssh -o StrictHostKeyChecking=accept-new ${keyArg} azureuser@${ip} "${cmd.replace(/"/g, '\\"')}"`,
+      { encoding: 'utf8' },
+    ).trim();
+  } catch {
+    return null;
+  }
+}
+
+function syncRepo() {
+  if (!vmExists()) {
+    console.error('FAIL — VM missing');
+    process.exit(1);
+  }
+  console.error('[vm] check-repo-sync before bundle push...');
+  try {
+    execSync('node scripts/check-repo-sync.js --strict', { cwd: ROOT, stdio: 'inherit' });
+  } catch {
+    console.error('FAIL — Lunabox may be ahead or dirty. Pull Captain commits first (see docs/GITHUB-REPO-SETUP.md).');
+    process.exit(1);
+  }
+  const branch = execSync('git branch --show-current', { cwd: ROOT, encoding: 'utf8' }).trim() || 'master';
+  const bundleLocal = path.join(ROOT, '.wh-sync.bundle');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
+  console.error(`[vm] creating bundle from ${branch}...`);
+  execSync(`git bundle create ${bundleLocal} ${branch}`, { cwd: ROOT, stdio: 'inherit' });
+  scpToVm(bundleLocal, '/tmp/wh-sync.bundle');
+  ssh(`sudo mv ${HERMES_VM.REPO_PATH} ${HERMES_VM.REPO_PATH}.bak.${stamp} 2>/dev/null || true`);
+  ssh(`sudo mkdir -p ${path.posix.dirname(HERMES_VM.REPO_PATH)}`);
+  ssh(`sudo git clone /tmp/wh-sync.bundle ${HERMES_VM.REPO_PATH}`);
+  ssh(`sudo chown -R azureuser:azureuser ${HERMES_VM.REPO_PATH}`);
+  const head = sshOut(`git -C ${HERMES_VM.REPO_PATH} rev-parse HEAD`);
+  try { fs.unlinkSync(bundleLocal); } catch { /* ignore */ }
+  console.log(JSON.stringify({ ok: true, branch, head, backup: `${HERMES_VM.REPO_PATH}.bak.${stamp}` }, null, 2));
+}
+
 function bootstrapRemote() {
   if (!vmExists()) {
     console.error('FAIL — VM missing. Run: node scripts/deploy-staging-hermes-vm.js create-vm');
@@ -305,6 +370,8 @@ const handlers = {
   'write-env-files': writeEnvFiles,
   'bootstrap-remote': bootstrapRemote,
   verify,
+  'check-repo-sync': checkRepoSync,
+  'sync-repo': syncRepo,
 };
 const fn = handlers[cmd];
 if (!fn) {

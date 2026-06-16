@@ -60,6 +60,7 @@ node scripts/run-local-hermes.js chat             # local Hermes (this repo)
 
 ## Working conventions
 
+- **Git:** private GitHub is source of truth — see `docs/GITHUB-REPO-SETUP.md`. Run `node scripts/check-repo-sync.js` before push/deploy.
 - Node.js tooling; run scripts with `node scripts/...` (PowerShell may block `npm` scripts that shell out to npm.ps1).
 - Minimize parallel layers — one owner file per Luna rule (see behavior spec).
 - Staging Staff API: `https://staff-staging.lunafrontdesk.com`

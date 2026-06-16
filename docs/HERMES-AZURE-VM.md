@@ -47,6 +47,40 @@ node scripts/deploy-staging-hermes-vm.js bootstrap-remote
 node scripts/deploy-staging-hermes-vm.js verify
 ```
 
+## Wolfhouse repo on Lunabox (OpenClaw + Hermes compose)
+
+Lunabox has a **full git clone** at `/opt/wolfhouse/WH` synced via **private GitHub** (laptop + Captain both push/pull). Setup once: **`docs/GITHUB-REPO-SETUP.md`**.
+
+**Daily sync:**
+
+```bash
+# Laptop — before push or deploy
+node scripts/check-repo-sync.js
+
+# Lunabox — after operator pushes
+ssh lunabox
+cd /opt/wolfhouse/WH && git pull
+```
+
+**Legacy (no GitHub):** one-way laptop → VM bundle — only if GitHub is down; run `check-repo-sync` first so you do not clobber Captain commits:
+
+```bash
+node scripts/deploy-staging-hermes-vm.js sync-repo
+```
+
+**Point OpenClaw (Captain) at the repo** (on Lunabox, after clone):
+
+```bash
+openclaw config set agents.defaults.workspace /opt/wolfhouse/WH
+openclaw onboard --auth-choice anthropic-cli   # Claude Max already logged in
+# Skip WhatsApp channel — hermes-luna owns the Meta number
+openclaw gateway install   # optional: systemd gateway on loopback :18789
+```
+
+Do not attach OpenClaw WhatsApp to the same Meta number as `hermes-luna`.
+
+Disk: Lunabox was tight (~89% used). After `sync-repo`, run `docker system prune` if needed before large pulls.
+
 ## VM layout
 
 | Path | Purpose |
@@ -160,5 +194,6 @@ az containerapp update -g wh-staging-rg -n wh-staging-hermes --min-replicas 0 --
 
 ## Related
 
+- **Git sync (laptop + Lunabox):** `docs/GITHUB-REPO-SETUP.md`
 - ACA legacy: `docs/HERMES-AZURE-CONTAINER-APPS.md`
 - Luna behavior: `docs/LUNA-GUEST-BEHAVIOR-SPEC.md`

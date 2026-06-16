@@ -99,12 +99,14 @@ fake = with_fake({
         "service_type": "yoga",
         "service_record_id": "51c590a2-aaaa",
         "checkout_url": "https://checkout.stripe.com/c/pay/yoga123",
-        "reply_draft": "Yoga added - pay here: https://checkout.stripe.com/c/pay/yoga123",
+        "guest_payment_url": "https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6",
+        "reply_draft": "Yoga added - pay here: https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6",
     },
 })
 res = json.loads(mod.add_service_to_booking({"booking_code": "WH-G27", "service_type": "yoga"}))
 check("S1 surfaces secure_payment_url from the service result",
-      res.get("secure_payment_url") == "https://checkout.stripe.com/c/pay/yoga123", res.get("secure_payment_url"))
+      res.get("secure_payment_url") == "https://staff-staging.lunafrontdesk.com/pay/MB-WOLFHO-20261001-8801A6",
+      res.get("secure_payment_url"))
 check("S2 payment_link_created true", res.get("payment_link_created") is True)
 check("S3 not flagged for staff review when a link exists", res.get("staff_review_needed") is False)
 check("S4 next_action is send the link", res.get("next_action") == "send_secure_payment_link")

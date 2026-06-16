@@ -521,6 +521,27 @@ function guestPaymentLinkObservability(pm, checkoutUrl, sessionId) {
     env: process.env,
   });
 }
+
+function botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId) {
+  if (!checkoutUrl || !ctx || !ctx.booking) return null;
+  return guestPaymentLinkObservability(
+    { booking_code: ctx.booking.booking_code, client_slug: ctx.clientSlug },
+    checkoutUrl,
+    stripeSessionId,
+  );
+}
+
+function applyBotAddonPaymentLinkFields(target, ctx, checkoutUrl, stripeSessionId) {
+  if (!checkoutUrl || !target) return;
+  target.checkout_url = checkoutUrl;
+  target.stripe_checkout_session_id = stripeSessionId || null;
+  const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId);
+  if (!linkObs) return;
+  target.payment_short_url = linkObs.payment_short_url;
+  target.guest_payment_url = linkObs.guest_payment_url;
+  target.uses_short_payment_link = linkObs.uses_short_payment_link;
+  target.stripe_checkout_url_present = linkObs.stripe_checkout_url_present;
+}
 // Stage 8.4.11 — Stripe webhook payment truth.
 // STRIPE_WEBHOOK_SECRET: whsec_... from Stripe dashboard (or Stripe CLI for local testing).
 //   Required unless STRIPE_WEBHOOK_SKIP_VERIFY=true.
@@ -8480,7 +8501,7 @@ async function findBotAddonIdempotentMatch(clientSlug, bookingId, idempotencyKey
   });
 }
 
-function buildBotAddonCreateReplyDraft(ctx, { checkoutUrl, dbAmountDueCents, servicePaymentStatus }) {
+function buildBotAddonCreateReplyDraft(ctx, { paymentUrl, dbAmountDueCents, servicePaymentStatus }) {
   const when = ctx.serviceDate || 'unscheduled';
   if (ctx.isMeal) {
     return ctx.serviceDate
@@ -8491,9 +8512,9 @@ function buildBotAddonCreateReplyDraft(ctx, { checkoutUrl, dbAmountDueCents, ser
     const eur = (dbAmountDueCents / 100).toFixed(2);
     return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is already paid (€${eur}).`;
   }
-  if (checkoutUrl) {
+  if (paymentUrl) {
     const eur = (dbAmountDueCents / 100).toFixed(2);
-    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is €${eur}. Here's your payment link: ${checkoutUrl}`;
+    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is €${eur}. Here's your payment link: ${paymentUrl}`;
   }
   return ctx.serviceDate
     ? `I've noted your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`
@@ -8733,8 +8754,9 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
         stripeSessionId = payment.stripe_checkout_session_id;
       }
 
+      const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId);
       const replyDraft = buildBotAddonCreateReplyDraft(ctx, {
-        checkoutUrl,
+        paymentUrl: (linkObs && linkObs.guest_payment_url) || checkoutUrl,
         dbAmountDueCents,
         servicePaymentStatus: svcPaymentStatus,
       });
@@ -8784,8 +8806,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
         idempotentResponse.payment_kind = payment.payment_kind || 'addon_service';
       }
       if (checkoutUrl) {
-        idempotentResponse.checkout_url = checkoutUrl;
-        idempotentResponse.stripe_checkout_session_id = stripeSessionId;
+        applyBotAddonPaymentLinkFields(idempotentResponse, ctx, checkoutUrl, stripeSessionId);
       }
       if (ctx.isMeal) {
         idempotentResponse.payment_required = false;
@@ -9004,8 +9025,9 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     }
   }
 
+  const linkObs = botAddonPaymentLinkObservability(ctx, checkoutUrl, stripeSessionId);
   let replyDraft = buildBotAddonCreateReplyDraft(ctx, {
-    checkoutUrl,
+    paymentUrl: (linkObs && linkObs.guest_payment_url) || checkoutUrl,
     dbAmountDueCents,
     servicePaymentStatus: paymentStatus,
   });
@@ -9059,8 +9081,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     response.payment_kind = 'addon_service';
   }
   if (checkoutUrl) {
-    response.checkout_url = checkoutUrl;
-    response.stripe_checkout_session_id = stripeSessionId;
+    applyBotAddonPaymentLinkFields(response, ctx, checkoutUrl, stripeSessionId);
   }
   if (ctx.isMeal) {
     response.payment_required = false;
@@ -12861,6 +12882,11 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
     amount_due_cents: amountDueCents,
     stripe_checkout_session_id: session.id,
     checkout_url: session.url,
+    ...guestPaymentLinkObservability(
+      { booking_code: booking.booking_code, client_slug: booking.client_slug },
+      session.url,
+      session.id,
+    ),
     service_record_ids: serviceRecordIds,
     status: 'checkout_created',
     no_payment_truth_recorded: true,

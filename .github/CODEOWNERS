@@ -1,0 +1,13 @@
+# Default: operator reviews all merges to master.
+* @tywoods
+
+# Hermes / Luna — Captain may open PRs; operator merges.
+/docker/hermes-staging/ @tywoods
+/scripts/check-soul-clean.js @tywoods
+/scripts/verify-luna-*.js @tywoods
+
+# Staff API + DB — operator only (Captain should not merge these alone).
+/scripts/staff-query-api.js @tywoods
+/scripts/lib/staff-*.js @tywoods
+/database/ @tywoods
+/infra/ @tywoods
